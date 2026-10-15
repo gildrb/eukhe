@@ -754,6 +754,7 @@ impl SessionUi {
             stash_to_restore,
             true,
             generation,
+            view,
         );
         self.dirty = true;
         Ok(())
@@ -779,6 +780,7 @@ impl SessionUi {
         stash_to_restore: Option<PromptStash>,
         rebind_available: bool,
         generation: u64,
+        view: &AgentView,
     ) {
         // A session command (`/compact`, `/goal`, ...) runs on the session,
         // not as a turn: the worker classifies an image-less prompt the
@@ -792,7 +794,23 @@ impl SessionUi {
                     command.execution == eukhe_types::slash_commands::SlashCommandExecution::Session
                 });
         let expected_turn_end = (!session_command).then(|| {
-            let expected = self.last_prompt_turn_end.max(self.turn_ends_seen) + 1;
+            // A submit behind a live turn, a parked prompt, or another
+            // submit still traveling expects a turn end past theirs. A
+            // quiescent submit owes nothing to an earlier one: its own
+            // turn is the next to end. Parked prompts the daemon batches
+            // into one turn (pi-durable's final boundary places the first
+            // steer and follow-up together) end fewer turns than were
+            // submitted, so carrying the watermark over would let this
+            // submit's late ack (its whole turn streamed first) re-arm a
+            // turn that already ended - a busy state no event clears.
+            let quiescent =
+                !self.turn_active && self.prompt_in_flight == 0 && view.queued.is_empty();
+            let floor = if quiescent {
+                self.turn_ends_seen
+            } else {
+                self.last_prompt_turn_end.max(self.turn_ends_seen)
+            };
+            let expected = floor + 1;
             self.last_prompt_turn_end = expected;
             expected
         });
@@ -1004,6 +1022,7 @@ impl SessionUi {
                             note.stash_to_restore.clone(),
                             false,
                             note.generation,
+                            view,
                         );
                         return Ok(());
                     }
