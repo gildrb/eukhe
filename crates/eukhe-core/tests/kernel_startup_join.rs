@@ -2,8 +2,11 @@
 
 use eukhe_core::kernel::cancellation::AbortSignal;
 use eukhe_core::kernel::provisioner::{IpythonKernelProvisioner, IpythonKernelProvisionerOptions};
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
+
+#[path = "support/executable_script.rs"]
+mod executable_script;
+use executable_script::write_executable_script;
 
 fn failing_kernel() -> (
     tempfile::TempDir,
@@ -13,15 +16,14 @@ fn failing_kernel() -> (
     let dir = tempfile::TempDir::new().unwrap();
     let count = dir.path().join("starts");
     let python = dir.path().join("slow-python");
-    std::fs::write(
+    write_executable_script(
         &python,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf x >> '{}'\nsleep 0.3\nexit 37\n",
             count.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o700)).unwrap();
+        0o700,
+    );
     let provisioner = IpythonKernelProvisioner::new(
         dir.path(),
         IpythonKernelProvisionerOptions {

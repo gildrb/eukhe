@@ -23,7 +23,6 @@
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -33,8 +32,11 @@ use eukhe_core::kernel::shared::{
     host_handler, ExecuteOptions, ExecuteStatus, HostRequestHandlers, KernelShutdownOptions,
 };
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/kernel_runtime.rs"]
 mod kernel_runtime;
+use executable_script::write_executable_script;
 use kernel_runtime::kernel_python;
 
 /// `stop_kernel` stays revivable (TS `stopKernel()` stays revivable): the
@@ -377,16 +379,15 @@ fn counting_kernel(
     count: &std::path::Path,
 ) -> PathBuf {
     let wrapper = dir.join("counting-python");
-    std::fs::write(
+    write_executable_script(
         &wrapper,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf x >> '{}'\nexec '{}' \"$@\"\n",
             count.display(),
             python.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        0o700,
+    );
     wrapper
 }
 

@@ -41,10 +41,12 @@ use std::time::Duration;
 use eukhe_core::kernel::provisioner::{IpythonKernelProvisioner, IpythonKernelProvisionerOptions};
 use eukhe_core::kernel::shared::{ExecuteOptions, ExecuteStatus};
 use eukhe_core::kernel::state_snapshot::snapshot_path_in;
-use std::os::unix::fs::PermissionsExt;
 
+#[path = "support/executable_script.rs"]
+mod executable_script;
 #[path = "support/kernel_runtime.rs"]
 mod kernel_runtime;
+use executable_script::write_executable_script;
 use kernel_runtime::kernel_python;
 
 /// A kernel interpreter wrapper that counts spawns into `count` AND holds
@@ -58,9 +60,9 @@ fn counting_gated_kernel(
     gates: &std::path::Path,
 ) -> PathBuf {
     let wrapper = dir.join("counting-gated-python");
-    std::fs::write(
+    write_executable_script(
         &wrapper,
-        format!(
+        &format!(
             "#!/bin/sh\nn=$(wc -c < '{}')\nprintf x >> '{}'\nwhile [ ! -f '{}'/gate$n ] && [ -d '{}' ]; do sleep 0.05; done\nexec '{}' \"$@\"\n",
             count.display(),
             count.display(),
@@ -68,9 +70,8 @@ fn counting_gated_kernel(
             gates.display(),
             python.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        0o700,
+    );
     wrapper
 }
 
@@ -575,9 +576,9 @@ fn flaky_first_kernel(
     fail_gate: &std::path::Path,
 ) -> PathBuf {
     let wrapper = dir.join("flaky-first-python");
-    std::fs::write(
+    write_executable_script(
         &wrapper,
-        format!(
+        &format!(
             "#!/bin/sh\nprintf x >> '{}'\nif [ -f '{}' ]; then exec '{}' \"$@\"; fi\nwhile [ ! -f '{}' ] && [ -d '{}' ]; do sleep 0.05; done\nexit 1\n",
             count.display(),
             flip.display(),
@@ -585,9 +586,8 @@ fn flaky_first_kernel(
             fail_gate.display(),
             dir.display(),
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        0o700,
+    );
     wrapper
 }
 

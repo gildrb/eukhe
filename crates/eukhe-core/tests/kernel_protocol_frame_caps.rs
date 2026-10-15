@@ -20,13 +20,16 @@
 //! serves the follow-up cell.
 
 use std::collections::HashMap;
-use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use eukhe_core::kernel::manager::{KernelStartOptions, ReplKernelManager};
 use eukhe_core::kernel::shared::{
     ExecuteOptions, ExecuteStatus, HostRequestHandlers, KernelManagerOptions, KernelShutdownOptions,
 };
+
+#[path = "support/executable_script.rs"]
+mod executable_script;
+use executable_script::write_executable_script;
 
 /// Speaks protocol v3: ready, then per request the oversized unterminated
 /// line (the corruption under test), a multi-MiB blank line followed by a
@@ -57,8 +60,7 @@ for line in sys.stdin:
 fn fake_runtime_path() -> std::path::PathBuf {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let path = dir.path().join("fake-kernel");
-    std::fs::write(&path, FAKE_RUNTIME).expect("write fake runtime");
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    write_executable_script(&path, FAKE_RUNTIME, 0o755);
     // Leak the temp dir: the script must exist until the spawned child exits.
     std::mem::forget(dir);
     path
