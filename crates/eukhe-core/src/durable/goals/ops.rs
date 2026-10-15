@@ -64,6 +64,7 @@ pub(crate) fn goal_context(
             display: message.display,
             details: message.details,
             input: false,
+            origin: None,
         },
         head: None,
         edits: None,
@@ -152,6 +153,7 @@ pub(crate) async fn submit_goal_context(
                 content: UserContent::Text(text),
                 when_busy: Some(when_busy),
                 origin: InputOrigin::Goal { context },
+                entry: None,
             },
             cx,
         )

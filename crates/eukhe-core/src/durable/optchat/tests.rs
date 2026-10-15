@@ -330,6 +330,7 @@ impl Session {
                     content: UserContent::Text(text.to_string()),
                     when_busy: None,
                     origin: eukhe_types::input_origin::InputOrigin::User,
+                    entry: None,
                 },
                 cx(),
             )
@@ -904,6 +905,64 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
             (Kind::User, "plain words".to_string()),
         ]
     );
+}
+
+/// An input placed as its own `eukhe.custom` input entry (an injected custom
+/// turn) is logged by its origin, as its `pi.user` entry was, and leads a
+/// call as the user's texts do.
+#[test]
+fn input_entries_are_logged_by_their_origin() {
+    use eukhe_durable::types::{EntryId, EntryRecord};
+    let message = Report::AgentMessage {
+        sender: "child:x".to_owned(),
+    };
+    let input = |text: &str, origin: InputOrigin| {
+        let entry = crate::durable::input_entry(
+            "agent_message",
+            UserContent::Text(format!("card {text}")),
+            true,
+            None,
+            origin,
+        )
+        .unwrap();
+        EntryRecord {
+            model: Some(vec![user(text, 1)]),
+            data: entry.data,
+            edits: None,
+            kind: entry.kind,
+            id: EntryId::from_number(1),
+            conversation_id: ROOT_CONVERSATION_ID,
+            head: None,
+            by_task_id: None,
+        }
+    };
+    let entries = [
+        input(
+            &message.render("body"),
+            InputOrigin::Report { report: message },
+        ),
+        input(
+            "go on",
+            InputOrigin::Autonomous {
+                nudge: AutonomousNudge::Continuation,
+            },
+        ),
+        input("plain words", InputOrigin::User),
+    ];
+    let lines: Vec<_> = entries
+        .iter()
+        .flat_map(|entry| super::lines::entry_lines(entry).unwrap())
+        .collect();
+    assert_eq!(
+        lines,
+        vec![
+            (Kind::Work, "[child:x] body".to_string()),
+            (Kind::User, "plain words".to_string()),
+        ]
+    );
+    assert!(entries
+        .iter()
+        .all(|entry| super::lines::lead_of(entry) == super::lines::Lead::Joins));
 }
 
 /// Regression: the user's own words that look like a harness header are

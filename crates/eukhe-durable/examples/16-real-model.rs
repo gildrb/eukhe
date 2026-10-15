@@ -178,6 +178,7 @@ async fn real_model(print: UnboundedSender<String>) -> Result<(), BoxError> {
                 content: UserContent::Text("Write a long poem".to_owned()),
                 when_busy: None,
                 origin: eukhe_types::input_origin::InputOrigin::User,
+                entry: None,
             },
             context,
         )

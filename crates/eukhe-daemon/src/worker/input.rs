@@ -11,8 +11,8 @@ use eukhe_core::agent_messaging::{
     AgentFamilyRelationship, AgentMessagePromptPayload, AGENT_MESSAGE_SOURCE,
     DEFAULT_AGENT_MESSAGE_MAX_PENDING_PER_SESSION,
 };
-use eukhe_core::durable::input_row_draft;
-use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy, WriteSubmissionDraft};
+use eukhe_core::durable::input_entry;
+use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, SubmissionHandle};
 use eukhe_durable::types::SubmissionStatus;
 use eukhe_types::input_origin::InputOrigin;
@@ -28,8 +28,8 @@ use crate::protocol::{response_failure, response_success, DaemonResponse};
 pub(crate) struct InputRequest {
     pub(crate) text: String,
     pub(crate) images: Vec<ImageContent>,
-    /// A display row admitted (as an `eukhe.custom` write) right before the
-    /// input: agent-message cards, heartbeat and notice rows.
+    /// The display row the input is placed as (an `eukhe.custom` input
+    /// entry): agent-message cards, heartbeat and notice rows.
     pub(crate) custom_row: Option<Value>,
     pub(crate) when_busy: WhenBusy,
     /// Submission dedupe key (the prompt admission id, `rlm:<task>:...`).
@@ -45,6 +45,38 @@ impl InputRequest {
         blocks.push(UserContentBlock::Text(TextContent::new(self.text.clone())));
         blocks.extend(self.images.iter().cloned().map(UserContentBlock::Image));
         UserContent::Blocks(blocks)
+    }
+
+    /// The entry the input is placed as: its display row as an
+    /// `eukhe.custom` input entry, or none for a plain `pi.user` input.
+    ///
+    /// # Errors
+    ///
+    /// The row's content or details are malformed.
+    fn entry(&self) -> anyhow::Result<Option<InputEntry>> {
+        let Some(row) = &self.custom_row else {
+            return Ok(None);
+        };
+        let custom_type = row
+            .get("customType")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let content: UserContent = row
+            .get("content")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_else(|| UserContent::Text(self.text.clone()));
+        let display = row.get("display").and_then(Value::as_bool).unwrap_or(true);
+        let details = row.get("details").cloned().filter(|value| !value.is_null());
+        Ok(Some(input_entry(
+            custom_type,
+            content,
+            display,
+            details,
+            self.origin.clone(),
+        )?))
     }
 }
 
@@ -94,9 +126,9 @@ pub(crate) fn parse_custom_message(value: Option<&Value>) -> Result<Option<Value
     Ok(Some(value.clone()))
 }
 
-/// Admit `request` on `conversation`: the display row (if any) as an
-/// `eukhe.custom` input row that stands for the input (no model text of its
-/// own), then the input submission, which carries the model context.
+/// Admit `request` on `conversation` as one input submission; its display
+/// row (if any) is the entry the input is placed as (an `eukhe.custom`
+/// input entry whose model message is the input).
 ///
 /// # Errors
 ///
@@ -106,7 +138,6 @@ pub(crate) async fn submit_input(
     request: &InputRequest,
     cx: &Context,
 ) -> anyhow::Result<SubmissionHandle> {
-    write_input_row(conversation, request, cx).await?;
     let handle = conversation
         .submit(
             InputSubmissionDraft {
@@ -114,51 +145,12 @@ pub(crate) async fn submit_input(
                 content: request.content(),
                 when_busy: Some(request.when_busy),
                 origin: request.origin.clone(),
+                entry: request.entry()?,
             },
             cx,
         )
         .await?;
     Ok(handle)
-}
-
-/// The display row (if any) of `request` as an `eukhe.custom` input row
-/// that stands for the input submitted right after it (no model text of
-/// its own).
-///
-/// # Errors
-///
-/// The row write fails (closed Harness, bad row).
-pub(crate) async fn write_input_row(
-    conversation: &Conversation,
-    request: &InputRequest,
-    cx: &Context,
-) -> anyhow::Result<()> {
-    if let Some(row) = &request.custom_row {
-        let custom_type = row
-            .get("customType")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let content: UserContent = row
-            .get("content")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_else(|| UserContent::Text(request.text.clone()));
-        let display = row.get("display").and_then(Value::as_bool).unwrap_or(true);
-        let details = row.get("details").cloned().filter(|value| !value.is_null());
-        let entry = input_row_draft(custom_type, content, display, details)?;
-        conversation
-            .submit(
-                WriteSubmissionDraft {
-                    request_id: request.request_id.as_ref().map(|id| format!("{id}:row")),
-                    entry,
-                },
-                cx,
-            )
-            .await?;
-    }
-    Ok(())
 }
 
 /// The failure text of a waited prompt that ended unanswered: the run's
@@ -193,11 +185,11 @@ impl Worker {
     }
 
     /// Hold one admission under a live input-pause lease (TS
-    /// `_sessionInputAdmissionPauses`): the display row (if any) commits,
-    /// the input parks in the durable held list — visible in the queue
-    /// strip — and the release delivers it. A waiting prompt cannot wait
-    /// the lease out: it answers the pause error while the input stays
-    /// held.
+    /// `_sessionInputAdmissionPauses`): the input, with the entry its
+    /// display row (if any) is placed as, parks in the durable held list —
+    /// visible in the queue strip — and the release delivers it. A waiting
+    /// prompt cannot wait the lease out: it answers the pause error while
+    /// the input stays held.
     async fn hold_input(
         &self,
         hosted: &HostedSession,
@@ -206,17 +198,14 @@ impl Worker {
         wait: bool,
         queued_payload: bool,
     ) -> DaemonResponse {
-        let held = WithdrawnInput {
-            id: None,
-            mode: request.when_busy.into(),
-            content: request.content(),
-            origin: request.origin.clone(),
-        };
         let held = (|| async {
-            let main = hosted.main().map_err(|error| error.to_string())?;
-            write_input_row(&main, request, &BACKGROUND_CONTEXT)
-                .await
-                .map_err(|error| format!("{error:#}"))?;
+            let held = WithdrawnInput {
+                id: None,
+                mode: request.when_busy.into(),
+                content: request.content(),
+                entry: request.entry().map_err(|error| format!("{error:#}"))?,
+                origin: request.origin.clone(),
+            };
             super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
                 state.held.push(held);
                 (state, ())

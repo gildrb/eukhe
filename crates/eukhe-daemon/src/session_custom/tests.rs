@@ -281,8 +281,8 @@ async fn restore_actions_restores_and_validates() {
     finish(&worker).await;
 }
 
-/// A restored action's custom row is admitted with it (the card write, then
-/// the input), so a restored heartbeat still renders its component.
+/// A restored action's custom row is admitted with it (the entry its input
+/// is placed as), so a restored heartbeat still renders its component.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn restore_actions_admits_the_custom_row() {
     let (_dir, worker) = busy_worker().await;
@@ -298,12 +298,48 @@ async fn restore_actions_admits_the_custom_row() {
         .dispatch("restore_actions", &snapshot(&json!([action])))
         .await;
     assert!(response.success, "failed: {response:?}");
+    let hosted = worker.session.get().expect("a hosted session");
+    let main = hosted.main().expect("main conversation");
+    let value = hosted
+        .harness()
+        .snapshot(
+            &eukhe_durable::harness::INBOX_DOC,
+            main.id(),
+            &eukhe_chord::context::BACKGROUND_CONTEXT,
+        )
+        .await
+        .expect("inbox")
+        .expect("an inbox");
+    let inbox: eukhe_durable::harness::InboxState =
+        eukhe_chord::json::from_json(&eukhe_chord::json::JsonValue::Object(value))
+            .expect("inbox state");
+    let [eukhe_durable::harness::InboxItem::Steer {
+        content: queued,
+        entry: Some(entry),
+        ..
+    }] = inbox.items.as_slice()
+    else {
+        panic!("one steer placed as its row expected: {inbox:?}");
+    };
     assert_eq!(
-        worker_inbox(&worker).await,
-        vec![
-            ("write".to_owned(), String::new()),
-            ("steer".to_owned(), content.to_owned()),
-        ]
+        crate::worker::durable_host::bridge::content_preview(queued),
+        content
+    );
+    assert_eq!(
+        (
+            entry.kind.as_str(),
+            serde_json::Value::from(entry.data.as_ref().expect("row data"))
+        ),
+        (
+            "eukhe.custom",
+            json!({
+                "customType": "heartbeat_prompt",
+                "content": content,
+                "display": true,
+                "input": true,
+                "origin": { "kind": "user" },
+            })
+        )
     );
     finish(&worker).await;
 }

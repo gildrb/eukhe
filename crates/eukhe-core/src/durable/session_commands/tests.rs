@@ -156,6 +156,7 @@ fn echo(text: &str) -> CustomEntryData {
         display: true,
         details: Some(command_details(&command)),
         input: false,
+        origin: None,
     }
 }
 
@@ -170,6 +171,7 @@ fn result(text: &str, content: &str, display: bool) -> CustomEntryData {
         display,
         details: Some(details),
         input: false,
+        origin: None,
     }
 }
 
@@ -185,6 +187,7 @@ fn failure(text: &str, error: &str) -> CustomEntryData {
         display: true,
         details: Some(details),
         input: false,
+        origin: None,
     }
 }
 
@@ -405,6 +408,7 @@ async fn autonomous_status_on_and_off_append_status_rows() {
         display: true,
         details: Some(serde_json::to_value(status).expect("status json")),
         input: false,
+        origin: None,
     };
     // Status rows reach the model: their text rides in `model`.
     assert_eq!(

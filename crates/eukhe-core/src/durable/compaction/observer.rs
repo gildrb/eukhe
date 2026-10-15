@@ -30,7 +30,7 @@ use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonError};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
-use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
+use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY};
 use eukhe_durable::harness::agent::resolve_settings;
 use eukhe_durable::harness::types::{
     CompactionReason, CompactionResult, SubmissionDraft, WriteSubmissionDraft,
@@ -307,7 +307,7 @@ async fn report_overflow(
 }
 
 /// Whether an overflow compaction sits between the run's prompt (the
-/// newest user entry before `entry_id`) and `entry_id`.
+/// newest placed input before `entry_id`) and `entry_id`.
 async fn run_compacted_for_overflow(
     conversation: &Conversation,
     entry_id: EntryId,
@@ -322,7 +322,7 @@ async fn run_compacted_for_overflow(
             if entry.id >= entry_id {
                 continue;
             }
-            if entry.kind == USER_ENTRY.kind() {
+            if crate::durable::entries::is_input_entry(&entry) {
                 return Ok(false);
             }
             if let Some(compaction) = COMPACTION_ENTRY.narrow(entry)? {

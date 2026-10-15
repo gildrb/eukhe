@@ -243,6 +243,7 @@ async fn submit(root: &Conversation, text: &str) {
                 content: UserContent::Text(text.to_owned()),
                 when_busy: None,
                 origin: eukhe_types::input_origin::InputOrigin::User,
+                entry: None,
             },
             cx(),
         )
@@ -479,6 +480,7 @@ async fn goal_counters_survive_a_reopen_mid_continuation() {
             content: UserContent::Text("work".to_owned()),
             when_busy: None,
             origin: eukhe_types::input_origin::InputOrigin::User,
+            entry: None,
         },
         cx(),
     )
@@ -540,6 +542,7 @@ async fn no_continuation_after_an_abort() {
             content: UserContent::Text("work".to_owned()),
             when_busy: None,
             origin: eukhe_types::input_origin::InputOrigin::User,
+            entry: None,
         },
         cx(),
     )
@@ -583,6 +586,7 @@ async fn withdrawing_goal_contexts_keeps_user_words_shaped_like_one() {
         content: UserContent::Text(text.to_owned()),
         when_busy: Some(WhenBusy::FollowUp),
         origin,
+        entry: None,
     };
     root.submit(queue("work", InputOrigin::User), cx())
         .await

@@ -302,6 +302,7 @@ impl Worker {
                                 QueuedMode::FollowUp => WhenBusy::FollowUp,
                             }),
                             origin: input.origin,
+                            entry: input.entry,
                         },
                         &BACKGROUND_CONTEXT,
                     )

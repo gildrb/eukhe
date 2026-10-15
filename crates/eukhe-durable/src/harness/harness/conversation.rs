@@ -100,10 +100,11 @@ impl Conversation {
             .boxed()
     }
 
-    /// Durably admit user input or a passive entry write. A busy
-    /// conversation, or one with queued items, queues it in `pi.inbox`;
-    /// `WhenBusy::Reject` rejects with `ConversationBusy` instead and writes
-    /// nothing.
+    /// Durably admit user input or a passive entry write. A display-only
+    /// write (only `kind` and `data`) is appended at once unless a reset is
+    /// queued. Otherwise a busy conversation, or one with queued items,
+    /// queues it in `pi.inbox`; `WhenBusy::Reject` rejects with
+    /// `ConversationBusy` instead and writes nothing.
     pub fn submit(
         &self,
         submission: impl Into<SubmissionDraft>,

@@ -78,9 +78,9 @@ pub(crate) fn to_wire<T: Serialize, U: DeserializeOwned>(value: &T) -> Option<U>
 }
 
 /// Attach `messages`: every shown entry mapped, in order. A user entry
-/// covered by the input row before it (an `eukhe.custom` row with
-/// `input: true`, an injected custom turn) shows as that row
-/// only.
+/// covered by the legacy input row before it (a model-less `eukhe.custom`
+/// row with `input: true`, an injected custom turn written before inputs
+/// carried their own entry) shows as that row only.
 #[must_use]
 pub fn transcript_messages(entries: &[EntryRecord]) -> Vec<Value> {
     transcript_messages_of(entries)
@@ -99,6 +99,7 @@ pub(crate) fn transcript_messages_of<'a>(
         let covered = entry.kind.as_str() == USER_ENTRY.kind()
             && previous.is_some_and(|row| {
                 row.kind.as_str() == CUSTOM_ENTRY.kind()
+                    && row.model.is_none()
                     && entry_data::<CustomEntryData>(row).is_some_and(|data| data.input)
             });
         previous = Some(entry);

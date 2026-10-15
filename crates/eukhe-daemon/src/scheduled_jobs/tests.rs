@@ -92,8 +92,9 @@ async fn wait_inbox(worker: &Worker, count: usize) -> Vec<(String, String)> {
 
 const HEARTBEAT_TEXT: &str = "[heartbeat: every 10s run#0]\n\nprint hello world";
 
-/// An idle session's heartbeat fire runs as the turn carrying the
-/// `heartbeat_prompt` row (TS `promptHeartbeat`), and settles as a run.
+/// An idle session's heartbeat fire runs as the turn whose input is placed
+/// as the `heartbeat_prompt` row (TS `promptHeartbeat`), and settles as a
+/// run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
     let (_dir, worker) = created_worker(SESSION, json!(["ack"])).await;
@@ -121,10 +122,7 @@ async fn a_heartbeat_fire_runs_its_row_and_settles_as_a_run() {
         .map(|entry| entry.kind)
         .filter(|kind| kind != "pi.system")
         .collect();
-    assert_eq!(
-        kinds,
-        ["eukhe.custom", "pi.user", "eukhe.custom", "pi.assistant"]
-    );
+    assert_eq!(kinds, ["eukhe.custom", "eukhe.custom", "pi.assistant"]);
 }
 
 /// A fire repeated for the same run (a crash before the store recorded
@@ -161,12 +159,12 @@ async fn a_repeated_fire_of_one_run_never_duplicates() {
         let outcome = worker.scheduled.hooks.run_job(&job).await.expect("fire");
         assert_eq!(outcome, None);
     }
-    let users = worker_entries(&worker)
+    let inputs = worker_entries(&worker)
         .await
         .into_iter()
-        .filter(|entry| entry.kind == "pi.user")
+        .filter(eukhe_core::durable::is_input_entry)
         .count();
-    assert_eq!(users, 1);
+    assert_eq!(inputs, 1);
     let heartbeat_rows = worker_rows(&worker, "eukhe.custom")
         .await
         .into_iter()
@@ -175,9 +173,10 @@ async fn a_repeated_fire_of_one_run_never_duplicates() {
     assert_eq!(heartbeat_rows, 1);
 }
 
-/// A busy session queues a steer heartbeat on its lane (card + prompt); a
-/// later fire replaces the queued one (the TS `heartbeat:<id>` queue key),
-/// whose fire settles as a skip. A plain cron job queues as a follow-up.
+/// A busy session queues a steer heartbeat on its lane (placed as its
+/// card); a later fire replaces the queued one (the TS `heartbeat:<id>`
+/// queue key), whose fire settles as a skip. A plain cron job queues as a
+/// follow-up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_later_heartbeat_fire_replaces_the_queued_one() {
     let (_dir, worker) = busy_worker().await;
@@ -189,11 +188,8 @@ async fn a_later_heartbeat_fire_replaces_the_queued_one() {
     );
     let first_fire = fire(&worker, first.clone());
     assert_eq!(
-        wait_inbox(&worker, 2).await,
-        vec![
-            ("write".to_owned(), String::new()),
-            ("steer".to_owned(), HEARTBEAT_TEXT.to_owned()),
-        ]
+        wait_inbox(&worker, 1).await,
+        vec![("steer".to_owned(), HEARTBEAT_TEXT.to_owned())]
     );
     let mut second = first;
     second.run_count = 1;
@@ -206,20 +202,20 @@ async fn a_later_heartbeat_fire_replaces_the_queued_one() {
         Some("skipped"),
         "the replaced fire never ran"
     );
-    let inbox = wait_inbox(&worker, 2).await;
+    let inbox = wait_inbox(&worker, 1).await;
     assert_eq!(
-        inbox[1],
-        (
+        inbox,
+        vec![(
             "steer".to_owned(),
             "[heartbeat: every 10s run#1]\n\nprint hello world".to_owned()
-        )
+        )]
     );
 
     let cron = job_for(&worker, "cron-1", "run the report", None);
     let cron_fire = fire(&worker, cron);
-    let inbox = wait_inbox(&worker, 3).await;
+    let inbox = wait_inbox(&worker, 2).await;
     assert_eq!(
-        inbox[2],
+        inbox[1],
         ("followUp".to_owned(), "run the report".to_owned())
     );
 
@@ -252,7 +248,7 @@ async fn the_mutation_hook_withdraws_a_dropped_heartbeats_queued_fire() {
         Some(DeliveryMode::Steer),
     );
     let fired = fire(&worker, job.clone());
-    wait_inbox(&worker, 2).await;
+    wait_inbox(&worker, 1).await;
     let hook = worker.scheduled.mutation_hook();
     hook(eukhe_core::cron::rlm_heartbeat::RlmHeartbeatMutation {
         job,

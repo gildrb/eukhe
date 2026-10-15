@@ -530,6 +530,7 @@ async fn drive_prompts(
                         content: user_content(&prompt, images),
                         when_busy: None,
                         origin: InputOrigin::User,
+                        entry: None,
                     },
                     cx,
                 )

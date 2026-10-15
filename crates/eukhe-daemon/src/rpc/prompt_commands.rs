@@ -66,6 +66,7 @@ pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseDa
         content: protocol::command_content(message, images),
         when_busy: Some(behavior.unwrap_or(WhenBusy::Reject)),
         origin: InputOrigin::User,
+        entry: None,
     };
     main.submit(draft, &cx).await.map_err(|error| {
         if is_busy_refusal(&error) {
@@ -152,6 +153,7 @@ pub async fn steer_or_follow_up(
         content: protocol::command_content(message, images),
         when_busy: Some(when_busy),
         origin: InputOrigin::User,
+        entry: None,
     };
     handle
         .session

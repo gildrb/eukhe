@@ -914,13 +914,14 @@ impl EventTranslator {
         self.mirror.entries.push(entry.clone());
     }
 
-    /// Whether the entry just before `user` in the mirror is the input row
-    /// that stands for it (an `eukhe.custom` row with `input: true`): the
-    /// user frames are then the row's, already shown.
+    /// Whether the entry just before `user` in the mirror is the legacy
+    /// input row that stands for it (a model-less `eukhe.custom` row with
+    /// `input: true`): the user frames are then the row's, already shown.
     fn suppressed_input_row(&self, user: &EntryRecord) -> bool {
         user.kind.as_str() == USER_ENTRY.kind()
             && self.mirror.entries.last().is_some_and(|row| {
                 row.kind.as_str() == CUSTOM_ENTRY.kind()
+                    && row.model.is_none()
                     && entry_data::<CustomEntryData>(row).is_some_and(|data| data.input)
             })
     }

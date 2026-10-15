@@ -803,6 +803,7 @@ async fn resubmit(hosted: &HostedSession, inputs: Vec<QueuedInput>) -> Result<()
                     QueuedMode::FollowUp => WhenBusy::FollowUp,
                 }),
                 origin: input.origin,
+                entry: input.entry,
             },
             &BACKGROUND_CONTEXT,
         )

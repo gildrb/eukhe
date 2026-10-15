@@ -164,6 +164,8 @@ impl JobNotices {
             .map(|pending| pending.request_id.clone())
             .collect();
         for request_id in candidates {
+            // A notice queued before inputs carried their row as their entry
+            // may still have its row queued as a separate `:row` write.
             let row_id = format!("{request_id}:row");
             let withdrawn = withdraw_queued(&hosted, |queued| {
                 queued == request_id.as_str() || queued == row_id.as_str()
@@ -274,9 +276,9 @@ mod tests {
         }
     }
 
-    /// A busy session queues the notice (card + steer prompt); the kernel's
-    /// read withdraws exactly one queued notice, and a read for another
-    /// command withdraws nothing.
+    /// A busy session queues the notice (a steer placed as its card); the
+    /// kernel's read withdraws exactly one queued notice, and a read for
+    /// another command withdraws nothing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_queued_notice_is_withdrawn_by_its_read() {
         let (_dir, worker) =
@@ -292,14 +294,7 @@ mod tests {
         let notices = JobNotices::new(worker.session.clone(), Arc::clone(&worker.core));
         notices.deliver(completion()).await.expect("first notice");
         notices.deliver(completion()).await.expect("second notice");
-        let queued = |count: usize| {
-            let mut items = Vec::new();
-            for _ in 0..count {
-                items.push(("write".to_owned(), String::new()));
-                items.push(("steer".to_owned(), NOTICE.to_owned()));
-            }
-            items
-        };
+        let queued = |count: usize| vec![("steer".to_owned(), NOTICE.to_owned()); count];
         assert_eq!(worker_inbox(&worker).await, queued(2));
 
         notices
@@ -322,7 +317,7 @@ mod tests {
         assert!(aborted.success, "{aborted:?}");
     }
 
-    /// An idle session wakes into the turn that carries the
+    /// An idle session wakes into the turn whose input is placed as the
     /// `async_bash_completion` row.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_idle_session_wakes_on_the_notice() {
@@ -344,7 +339,7 @@ mod tests {
             json!({ "pid": 4321, "command": "sleep 1", "exitCode": 0 })
         );
         let users = worker_rows(&worker, "pi.user").await;
-        assert_eq!(users.len(), 1);
+        assert_eq!(users.len(), 0, "the notice row is the input's entry");
         let answers = worker_rows(&worker, "pi.assistant").await;
         assert_eq!(answers.len(), 1);
     }

@@ -8,9 +8,11 @@
 //! engine's `convert_to_llm` rendered the row; the entry timestamp is the
 //! row's time.
 
-use eukhe_chord::json::JsonError;
-use eukhe_durable::entries::Entry;
-use eukhe_durable::types::{EntryDraft, TypedEntryDraft};
+use eukhe_chord::json::{JsonError, JsonValue};
+use eukhe_durable::entries::{Entry, USER_ENTRY};
+use eukhe_durable::harness::types::InputEntry;
+use eukhe_durable::types::{EntryData, EntryDraft, EntryRecord, TypedEntryDraft};
+use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{Message, TextContent, UserContent, UserContentBlock, UserMessage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,25 +55,29 @@ const fn define<D>(kind: &'static str) -> Entry<D> {
 }
 
 /// Data of a [`CUSTOM_ENTRY`]: `{customType, content?, display, details?,
-/// input?}`.
+/// input?, origin?}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomEntryData {
     pub custom_type: String,
-    /// The row's content when no `model` carries it (display-only rows).
+    /// The row's shown content: display-only rows (no `model`) and input
+    /// entries (whose `model` is the input's own user message).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<UserContent>,
     /// Whether the TUI shows the row.
     pub display: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
-    /// The row stands for an input submitted after it with the same
-    /// content (an injected custom turn, whose row replaced
-    /// the user message): the input's user entry carries the model
-    /// context, so the row has no `model`, and transcripts show the row in
-    /// the input's place. Build drafts with [`input_row_draft`].
+    /// The row is an injected custom turn's input. Current rows are the
+    /// input's own entry (its `model` is the input's user message; build
+    /// them with [`input_entry`]); older rows have no `model` and stand for
+    /// the `pi.user` entry right after them, which transcripts show as the
+    /// row only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub input: bool,
+    /// Who produced an input entry's input (absent on other rows).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<InputOrigin>,
 }
 
 /// Data of a [`BASH_ENTRY`]: the old `bashExecution` fields without the
@@ -170,49 +176,71 @@ pub fn custom_entry_draft(
             display,
             details,
             input: false,
+            origin: None,
         },
         head: None,
         edits: None,
     })
 }
 
-/// The [`CUSTOM_ENTRY`] draft of a row that stands for the input submitted
-/// right after it with the same `content` (see [`CustomEntryData::input`]):
-/// no `model` (the input carries the context), `content` in data.
+/// The [`CUSTOM_ENTRY`] an injected custom turn's input is placed as (the
+/// input's `entry`): the input's user message is the entry's `model`, the
+/// row's `content` its shown content (see [`CustomEntryData::input`]).
 ///
 /// # Errors
 ///
 /// `details` is not strict JSON.
-pub fn input_row_draft(
+pub fn input_entry(
     custom_type: impl Into<String>,
     content: UserContent,
     display: bool,
     details: Option<Value>,
-) -> Result<EntryDraft, JsonError> {
-    CUSTOM_ENTRY.draft(&TypedEntryDraft {
-        model: None,
-        data: CustomEntryData {
-            custom_type: custom_type.into(),
-            content: Some(content),
-            display,
-            details,
-            input: true,
-        },
-        head: None,
-        edits: None,
+    origin: InputOrigin,
+) -> Result<InputEntry, JsonError> {
+    let data = CustomEntryData {
+        custom_type: custom_type.into(),
+        content: Some(content),
+        display,
+        details,
+        input: true,
+        origin: Some(origin),
+    };
+    Ok(InputEntry {
+        kind: CUSTOM_ENTRY.kind().to_owned(),
+        data: EntryData::encode(&data)?,
     })
 }
 
-/// The content of a custom entry: its model message's content, else
-/// `data.content`.
+/// Whether `entry` is a placed input: a `pi.user` entry, or a
+/// [`CUSTOM_ENTRY`] input entry carrying the input's user message.
+#[must_use]
+pub fn is_input_entry(entry: &EntryRecord) -> bool {
+    if entry.kind == USER_ENTRY.kind() {
+        return true;
+    }
+    entry.kind == CUSTOM_ENTRY.kind()
+        && entry.model.is_some()
+        && entry
+            .data
+            .as_ref()
+            .and_then(|data| data.get("input"))
+            .and_then(JsonValue::as_bool)
+            == Some(true)
+}
+
+/// The shown content of a custom entry: `data.content`, else its model
+/// message's content.
 #[must_use]
 pub fn custom_entry_content<'a>(
     model: Option<&'a [Message]>,
     data: &'a CustomEntryData,
 ) -> Option<&'a UserContent> {
+    if let Some(content) = &data.content {
+        return Some(content);
+    }
     match model.and_then(<[Message]>::first) {
         Some(Message::User(message)) => Some(&message.content),
-        _ => data.content.as_ref(),
+        Some(Message::System(_) | Message::Assistant(_) | Message::ToolResult(_)) | None => None,
     }
 }
 

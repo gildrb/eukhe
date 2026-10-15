@@ -661,6 +661,7 @@ mod tests {
             mode,
             text: text.to_owned(),
             content: eukhe_types::pi_ai::UserContent::Text(text.to_owned()),
+            entry: None,
             origin,
         }
     }

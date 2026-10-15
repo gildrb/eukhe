@@ -184,7 +184,7 @@ async fn aborts_a_conversation_queued_inputs_withdrawn_writes_kept_foreground_wo
         .submit(
             WriteSubmissionDraft {
                 request_id: None,
-                entry: EntryDraft::new("note"),
+                entry: queued_note(),
             },
             context(),
         )
@@ -218,6 +218,14 @@ async fn aborts_a_conversation_queued_inputs_withdrawn_writes_kept_foreground_wo
         .await
         .unwrap();
     harness.close(context()).await.unwrap();
+}
+
+/// A `note` write that is not display-only (a present `edits`, even empty,
+/// counts), so a busy conversation queues it.
+fn queued_note() -> EntryDraft {
+    let mut draft = EntryDraft::new("note");
+    draft.edits = Some(Vec::new());
+    draft
 }
 
 /// TS `create(name)`: a Hold task in `child`, owned by the conversation.
@@ -304,7 +312,7 @@ async fn withdraws_queued_inputs_below_the_aborted_task_but_keeps_its_own_conver
         .submit(
             WriteSubmissionDraft {
                 request_id: None,
-                entry: EntryDraft::new("note"),
+                entry: queued_note(),
             },
             context(),
         )

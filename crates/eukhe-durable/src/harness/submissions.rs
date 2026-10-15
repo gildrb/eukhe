@@ -7,30 +7,28 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
-use eukhe_types::pi_ai::{Message, UserMessage};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
-use crate::entries::{UserData, USER_ENTRY};
 use crate::errors::ConversationBusy;
 use crate::harness::inbox::{
-    apply_boundary, is_stale, prepare_boundary, remove_inbox_item, BoundaryAt, InboxItem,
-    QueueModes, INBOX_DOC,
+    append_input, apply_boundary, has_queued_reset, is_display_only, is_stale, prepare_boundary,
+    remove_inbox_item, BoundaryAt, InboxItem, PlacedInput, QueueModes, INBOX_DOC,
 };
 use crate::harness::live::run::{start_run, timestamp};
 use crate::harness::live::LIVE_DOC;
 use crate::harness::types::{
-    InputSubmissionDraft, SettledSubmissionRecord, Submission, SubmissionAbort, SubmissionDraft,
-    WhenBusy, WriteSubmissionDraft,
+    InputEntry, InputSubmissionDraft, SettledSubmissionRecord, Submission, SubmissionAbort,
+    SubmissionDraft, WhenBusy, WriteSubmissionDraft,
 };
 use crate::harness::util::{closed_error, Waiters};
 use crate::session::Session;
 use crate::session::{SessionError, SessionResult, Tx, Unsubscribe};
 use crate::tasks::AnyTask;
 use crate::types::{
-    CommitChange, CommitPublication, ConversationId, InputSubmission, SubmissionCreate,
+    CommitChange, CommitPublication, ConversationId, EntryDraft, InputSubmission, SubmissionCreate,
     SubmissionId, SubmissionRecord, SubmissionState, SubmissionStatus, SubmissionType,
-    TypedEntryDraft, WriteSubmission,
+    WriteSubmission,
 };
 
 /// Result of withdrawing a submission by ID (`Harness.abortSubmission()`).
@@ -383,19 +381,24 @@ fn type_name(kind: SubmissionType) -> &'static str {
 
 /// Admit a submission inside a commit (spec §6); `Conversation.submit()` and
 /// conversation-owned compactions share it. A known request ID returns its
-/// existing submission without writing. A busy conversation queues it in
-/// `pi.inbox`, or rejects `whenBusy: "reject"` input with `ConversationBusy`.
-/// An idle conversation with queued items queues it behind them and runs a
-/// final boundary. Otherwise idle input places a user entry and starts a run,
-/// and an idle write appends its entry and settles `done`, or `stale` when its
-/// head reaches before the active range.
+/// existing submission without writing. A display-only write (only `kind` and
+/// `data`) is appended and settled `done` at once, busy or not, as it changes
+/// nothing the model sees; only behind a queued reset it queues, so it lands
+/// after the reset instead of before it in the context the reset ends. A busy
+/// conversation queues anything else in `pi.inbox`, or rejects
+/// `whenBusy: "reject"` input with `ConversationBusy`. An idle conversation
+/// with queued items queues it behind them and runs a final boundary.
+/// Otherwise idle input places a user entry and starts a run, and an idle
+/// write appends its entry and settles `done`, or `stale` when its head
+/// reaches before the active range.
 ///
 /// `generation` is the built-in generation task a started run creates.
 ///
 /// # Errors
 ///
-/// `ConversationBusy` (as [`SessionError::Other`]), a request ID of another
-/// type, and transaction failures.
+/// An input entry whose kind is empty or starts with `pi.` (a TS
+/// `TypeError`), `ConversationBusy` (as [`SessionError::Other`]), a request
+/// ID of another type, and transaction failures.
 pub async fn admit_submission(
     tx: &Tx,
     conversation_id: ConversationId,
@@ -404,26 +407,43 @@ pub async fn admit_submission(
     queue_modes: QueueModes,
     generation: &AnyTask,
 ) -> SessionResult<SubmissionId> {
-    let draft_type = match &draft {
-        SubmissionDraft::Input(_) => SubmissionType::Input,
-        SubmissionDraft::Write(_) => SubmissionType::Write,
-    };
-    let request_id = draft.request_id().map(str::to_owned);
-    if let Some(request_id) = &request_id {
-        let existing = tx
-            .submission_by_request(conversation_id, request_id.clone())
-            .await?;
-        if let Some(existing) = existing {
-            let existing_type = existing.state.submission_type();
-            if existing_type != draft_type {
-                return Err(SessionError::error(format!(
-                    "Request {request_id} already identifies a submission of type {}",
-                    type_name(existing_type)
-                )));
-            }
-            return Ok(existing.id);
+    if let SubmissionDraft::Input(InputSubmissionDraft {
+        entry: Some(InputEntry { kind, .. }),
+        ..
+    }) = &draft
+    {
+        if kind.is_empty() || kind.starts_with("pi.") {
+            return Err(SessionError::Type(
+                format!(
+                    "An input entry's kind must be a non-empty string not starting with \"pi.\", got {kind}"
+                )
+                .into(),
+            ));
         }
     }
+    let request_id = draft.request_id().map(str::to_owned);
+    if let Some(request_id) = &request_id {
+        if let Some(existing) = known_request(tx, conversation_id, &draft, request_id).await? {
+            return Ok(existing);
+        }
+    }
+    let draft = match draft {
+        SubmissionDraft::Write(write) if is_display_only(&write.entry) => {
+            let items = tx
+                .doc(&INBOX_DOC, conversation_id)
+                .await?
+                .child("items")?
+                .value()?;
+            let items = items
+                .as_array()
+                .ok_or_else(|| SessionError::error("pi.inbox items is not an array"))?;
+            if !has_queued_reset(items) {
+                return append_write(tx, conversation_id, request_id, write.entry).await;
+            }
+            SubmissionDraft::Write(write)
+        }
+        draft @ (SubmissionDraft::Write(_) | SubmissionDraft::Input(_)) => draft,
+    };
     let live = tx.doc(&LIVE_DOC, conversation_id).await?;
     let busy = live.get("run")?.is_some();
     if busy {
@@ -458,9 +478,9 @@ pub async fn admit_submission(
         )
         .await;
     }
-    let state = match draft_type {
-        SubmissionType::Input => SubmissionState::Input(InputSubmission::Queued),
-        SubmissionType::Write => SubmissionState::Write(WriteSubmission::Queued),
+    let state = match &draft {
+        SubmissionDraft::Input(_) => SubmissionState::Input(InputSubmission::Queued),
+        SubmissionDraft::Write(_) => SubmissionState::Write(WriteSubmission::Queued),
     };
     let record = tx
         .create_submission(SubmissionCreate {
@@ -484,6 +504,58 @@ pub async fn admit_submission(
         start_run(tx, generation, conversation_id, &live, result.users).await?;
     }
     Ok(id)
+}
+
+/// The submission `request_id` already identifies, if any.
+///
+/// # Errors
+///
+/// The request ID identifies a submission of another type than `draft`, or
+/// the read fails.
+async fn known_request(
+    tx: &Tx,
+    conversation_id: ConversationId,
+    draft: &SubmissionDraft,
+    request_id: &str,
+) -> SessionResult<Option<SubmissionId>> {
+    let Some(existing) = tx
+        .submission_by_request(conversation_id, request_id.to_owned())
+        .await?
+    else {
+        return Ok(None);
+    };
+    let draft_type = match draft {
+        SubmissionDraft::Input(_) => SubmissionType::Input,
+        SubmissionDraft::Write(_) => SubmissionType::Write,
+    };
+    let existing_type = existing.state.submission_type();
+    if existing_type != draft_type {
+        return Err(SessionError::error(format!(
+            "Request {request_id} already identifies a submission of type {}",
+            type_name(existing_type)
+        )));
+    }
+    Ok(Some(existing.id))
+}
+
+/// Append a write's entry and record its submission settled `done`.
+///
+/// # Errors
+///
+/// Transaction failures.
+async fn append_write(
+    tx: &Tx,
+    conversation_id: ConversationId,
+    request_id: Option<String>,
+    entry: EntryDraft,
+) -> SessionResult<SubmissionId> {
+    let entry = tx.append_entry(conversation_id, entry).await?;
+    let write = SubmissionCreate {
+        conversation_id,
+        request_id,
+        state: SubmissionState::Write(WriteSubmission::Done { entry: entry.id }),
+    };
+    Ok(tx.create_submission(write).await?.id)
 }
 
 /// Admission to an idle conversation with an empty inbox.
@@ -514,37 +586,24 @@ async fn admit_idle(
                 };
                 return Ok(tx.create_submission(stale).await?.id);
             }
-            let entry = tx.append_entry(conversation_id, entry).await?;
-            let write = SubmissionCreate {
-                conversation_id,
-                request_id,
-                state: SubmissionState::Write(WriteSubmission::Done { entry: entry.id }),
-            };
-            Ok(tx.create_submission(write).await?.id)
+            append_write(tx, conversation_id, request_id, entry).await
         }
         SubmissionDraft::Input(InputSubmissionDraft {
-            content, origin, ..
+            content,
+            origin,
+            entry,
+            ..
         }) => {
-            let message = Message::User(UserMessage {
+            let input = PlacedInput {
                 content,
-                timestamp: timestamp(now)?,
-            });
-            let entry = tx
-                .append_typed_entry(
-                    &USER_ENTRY,
-                    conversation_id,
-                    TypedEntryDraft {
-                        model: Some(vec![message]),
-                        data: UserData { origin },
-                        head: None,
-                        edits: None,
-                    },
-                )
-                .await?;
+                entry,
+                origin,
+            };
+            let entry = append_input(tx, conversation_id, input, timestamp(now)?).await?;
             let input = SubmissionCreate {
                 conversation_id,
                 request_id,
-                state: SubmissionState::Input(InputSubmission::Placed { entry: entry.id }),
+                state: SubmissionState::Input(InputSubmission::Placed { entry }),
             };
             let id = tx.create_submission(input).await?.id;
             start_run(tx, generation, conversation_id, live, vec![id]).await?;

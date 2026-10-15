@@ -232,20 +232,20 @@ async fn ex19_json_rejects_an_unknown_storage() {
 }
 
 #[tokio::test]
-async fn ex20_inbox_queues_steers_writes_and_rejects_while_busy() {
+async fn ex20_inbox_queues_steers_lands_display_writes_and_rejects_while_busy() {
     let mut out = Vec::new();
     ex20_inbox::run(&mut out, &[], None).await.unwrap();
     assert_eq!(
         text(out),
         r#"rejected: Conversation 1 is busy
 withdraw: aborted
-inbox: ["10 followUp","11 steer","12 write"]
+inbox: ["10 followUp","11 steer"]
 first: done 
 follow-up: done 
 steer: done 
 note: done 
 withdrawn: unanswered aborted
-transcript: ["pi.user","pi.assistant","app.note","pi.user","pi.user","pi.assistant"]
+transcript: ["pi.user","app.note","pi.assistant","pi.user","pi.user","pi.assistant"]
 "#
     );
 }

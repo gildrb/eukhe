@@ -20,7 +20,7 @@ pub use agent::{
 };
 pub use conversation::{
     CompactionResult, ContextOptions, ContextView, ConversationAbortOptions,
-    ConversationCreateOptions, ConversationHandle, ConversationInit, HarnessInspection,
+    ConversationCreateOptions, ConversationHandle, ConversationInit, HarnessInspection, InputEntry,
     InputSubmissionDraft, SchedulingState, SettledSubmissionRecord, Submission, SubmissionAbort,
     SubmissionDraft, TaskBlockedReason, TaskInspection, TaskInspectionState, UserInput, WhenBusy,
     WriteSubmissionDraft,

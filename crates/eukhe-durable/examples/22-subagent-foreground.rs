@@ -206,6 +206,7 @@ fn subagent_extension() -> Arc<Extension> {
                     content: UserContent::Text(task),
                     when_busy: None,
                     origin: eukhe_types::input_origin::InputOrigin::User,
+                    entry: None,
                 };
                 let settled = handle
                     .submit(request, &call_context)
@@ -411,6 +412,7 @@ async fn foreground(print: UnboundedSender<String>, openai: bool) -> Result<(), 
                 ),
                 when_busy: None,
                 origin: eukhe_types::input_origin::InputOrigin::User,
+                entry: None,
             },
             context,
         )

@@ -255,6 +255,7 @@ async fn coding_tools(print: UnboundedSender<String>) -> Result<(), BoxError> {
                 content: UserContent::Text("Greet durable instead.".to_owned()),
                 when_busy: None,
                 origin: eukhe_types::input_origin::InputOrigin::User,
+                entry: None,
             },
             context,
         )

@@ -14,6 +14,7 @@ use eukhe_chord::context::{with_cancel, CancelContext, Context, BACKGROUND_CONTE
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_chord::AttachedReplicatedState;
 use eukhe_core::durable::ProviderWireEvent;
+use eukhe_durable::harness::types::InputEntry;
 use eukhe_durable::harness::{
     watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Conversation, Harness, InboxItem,
     InboxState, INBOX_DOC, LIVE_DOC,
@@ -57,6 +58,9 @@ pub(crate) struct QueuedInput {
     /// The queue-strip preview.
     pub(crate) text: String,
     pub(crate) content: UserContent,
+    /// The entry the input is placed as when not `pi.user` (an injected
+    /// custom turn's `eukhe.custom` row).
+    pub(crate) entry: Option<InputEntry>,
     pub(crate) origin: InputOrigin,
 }
 
@@ -593,23 +597,27 @@ pub async fn inbox_previews(
             InboxItem::Steer {
                 id,
                 content,
+                entry,
                 origin,
             } => Some(QueuedInput {
                 id,
                 mode: QueuedMode::Steer,
                 text: content_preview(&content),
                 content,
+                entry,
                 origin,
             }),
             InboxItem::FollowUp {
                 id,
                 content,
+                entry,
                 origin,
             } => Some(QueuedInput {
                 id,
                 mode: QueuedMode::FollowUp,
                 text: content_preview(&content),
                 content,
+                entry,
                 origin,
             }),
             InboxItem::Write { .. } => None,
@@ -657,6 +665,7 @@ mod tests {
             mode,
             text: text.to_owned(),
             content: UserContent::Text(text.to_owned()),
+            entry: None,
             origin: InputOrigin::User,
         }
     }

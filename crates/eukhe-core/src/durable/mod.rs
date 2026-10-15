@@ -48,8 +48,8 @@ pub use discovery::{
     SessionListing, SessionLocation,
 };
 pub use entries::{
-    bash_entry_draft, bash_entry_text, custom_entry_content, custom_entry_draft, input_row_draft,
-    is_display_only_custom_type, BashEntryData, BranchSummaryData, CustomEntryData,
+    bash_entry_draft, bash_entry_text, custom_entry_content, custom_entry_draft, input_entry,
+    is_display_only_custom_type, is_input_entry, BashEntryData, BranchSummaryData, CustomEntryData,
     CustomStateData, BASH_ENTRY, BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
     CUSTOM_STATE_ENTRY,
 };

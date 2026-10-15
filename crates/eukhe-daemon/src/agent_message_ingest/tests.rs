@@ -51,9 +51,9 @@ async fn finish(worker: &Worker) {
 }
 
 /// The safety status answers the TS five-field shape with the TS
-/// constants; a pause withdraws the queued agent message (prompt and card)
-/// but keeps client-queued prompts, a paused delivery answers the TS gate
-/// error, and resume flips the flag back.
+/// constants; a pause withdraws the queued agent message (its card is the
+/// entry it is placed as) but keeps client-queued prompts, a paused delivery
+/// answers the TS gate error, and resume flips the flag back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn status_pause_resume_and_clear_match_ts_shapes() {
     let (_dir, worker) = busy_worker().await;
@@ -85,7 +85,7 @@ async fn status_pause_resume_and_clear_match_ts_shapes() {
         .await;
     assert!(steered.success, "{steered:?}");
     let inbox = worker_inbox(&worker).await;
-    assert_eq!(inbox.len(), 3, "card, prompt, client steer: {inbox:?}");
+    assert_eq!(inbox.len(), 2, "agent message, client steer: {inbox:?}");
 
     let paused = worker.dispatch("agent_messages_pause", &json!({})).await;
     assert!(paused.success, "{paused:?}");

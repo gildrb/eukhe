@@ -15,7 +15,7 @@ use eukhe_durable::types::{EntryData, EntryRecord};
 use eukhe_types::input_origin::{InputOrigin, Report};
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, UserContent, UserContentBlock};
 
-use crate::durable::entries::{BASH_ENTRY, CUSTOM_ENTRY};
+use crate::durable::entries::{is_input_entry, CustomEntryData, BASH_ENTRY, CUSTOM_ENTRY};
 use crate::memory::{cap_text, split_text, Kind};
 
 /// What an entry's model messages are to the first message of a call.
@@ -31,7 +31,7 @@ pub(crate) enum Lead {
 
 /// How a leading entry of a call enters its first message.
 pub(crate) fn lead_of(entry: &EntryRecord) -> Lead {
-    if entry.kind == USER_ENTRY.kind() || entry.kind == BASH_ENTRY.kind() {
+    if is_input_entry(entry) || entry.kind == BASH_ENTRY.kind() {
         return Lead::Joins;
     }
     if entry.kind == CUSTOM_ENTRY.kind() {
@@ -64,8 +64,8 @@ pub(crate) fn entry_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, Strin
 /// The lines of one entry before long texts are split.
 fn whole_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, String)>> {
     let messages = entry.model.as_deref().unwrap_or_default();
-    if entry.kind == USER_ENTRY.kind() {
-        let origin = UserData::decode(entry.data.as_ref())?.origin;
+    if is_input_entry(entry) {
+        let origin = input_origin(entry)?;
         let mut lines = Vec::new();
         for message in messages {
             if let Some(line) = user_input_line(message, &origin)? {
@@ -105,6 +105,16 @@ fn whole_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, String)>> {
     // summaries, custom state: the harness's own rows and rewrites of
     // history already in the log.
     Ok(Vec::new())
+}
+
+/// Who produced a placed input: a `pi.user` entry's origin, or an input
+/// entry's `data.origin` (the user's when absent, as `pi.user` reads).
+fn input_origin(entry: &EntryRecord) -> SessionResult<InputOrigin> {
+    if entry.kind == USER_ENTRY.kind() {
+        return Ok(UserData::decode(entry.data.as_ref())?.origin);
+    }
+    let data = CustomEntryData::decode(entry.data.as_ref())?;
+    Ok(data.origin.unwrap_or(InputOrigin::User))
 }
 
 /// A user input by its origin: the user's words, or a report normalized

@@ -353,9 +353,9 @@ fn a_handover_commit_opens_the_next_run_before_its_placed_input() {
     assert_eq!(frames[7]["message"], follow);
 }
 
-/// An input row (an `eukhe.custom` row with `input: true`) shows itself in
-/// the input's place: the user entry right after it emits no frames, and
-/// `agent_end` carries the row as the run's prompt row.
+/// A legacy input row (a model-less `eukhe.custom` row with `input: true`)
+/// shows itself in the input's place: the user entry right after it emits
+/// no frames, and `agent_end` carries the row as the run's prompt row.
 #[test]
 fn an_input_row_shows_in_place_of_its_user_entry() {
     let mut translator = translator(CoalesceMode::Immediate);
@@ -389,6 +389,38 @@ fn an_input_row_shows_in_place_of_its_user_entry() {
         [
             json!({ "type": "message_start", "message": user_two }),
             json!({ "type": "message_end", "message": user_two }),
+        ]
+    );
+}
+
+/// An input placed as its own `eukhe.custom` entry (the row's content shown,
+/// the input's user message as its model) shows once, as the row, and
+/// covers no user entry after it.
+#[test]
+fn an_input_entry_shows_as_its_row_and_covers_no_later_user_entry() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    let user = json!({ "role": "user", "content": "hello", "timestamp": 2 });
+    let row = json!({
+        "role": "custom", "customType": "sideQuestion", "content": "card",
+        "display": true, "timestamp": 2,
+    });
+    let follow = json!({ "role": "user", "content": "again", "timestamp": 3 });
+    let frames = translator.translate_batch_wire(&[
+        event(json!({ "type": "message_start", "message": user })),
+        event(json!({ "type": "message_end", "entry": entry(
+            3, "eukhe.custom", Some(user),
+            Some(json!({ "customType": "sideQuestion", "content": "card", "display": true, "input": true, "origin": { "kind": "user" } })),
+        ) })),
+        event(json!({ "type": "message_start", "message": follow })),
+        event(json!({ "type": "message_end", "entry": entry(4, "pi.user", Some(follow.clone()), None) })),
+    ]);
+    assert_eq!(
+        frames,
+        [
+            json!({ "type": "message_start", "message": row }),
+            json!({ "type": "message_end", "message": row }),
+            json!({ "type": "message_start", "message": follow }),
+            json!({ "type": "message_end", "message": follow }),
         ]
     );
 }

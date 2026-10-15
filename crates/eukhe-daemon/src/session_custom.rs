@@ -302,8 +302,8 @@ impl Worker {
 }
 
 /// Write one wire custom row (`custom_message_value` shape) as an
-/// `eukhe.custom` entry on `conversation`: at once when idle, else at the
-/// next boundary.
+/// `eukhe.custom` entry on `conversation`: at once when idle or when the
+/// row is display-only (no model text), else at the next boundary.
 pub(crate) async fn write_custom_row(
     conversation: &Conversation,
     row: &Value,

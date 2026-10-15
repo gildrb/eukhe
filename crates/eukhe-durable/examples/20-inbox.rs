@@ -40,6 +40,7 @@ fn input(content: &str, when_busy: Option<WhenBusy>) -> InputSubmissionDraft {
         content: UserContent::Text(content.to_owned()),
         when_busy,
         origin: eukhe_types::input_origin::InputOrigin::User,
+        entry: None,
     }
 }
 
@@ -119,7 +120,8 @@ pub async fn run(
 
     let first = root.submit(input("First question", None), context).await?;
 
-    // While busy, input queues as a follow-up (the default) or a steer, and writes queue too.
+    // While busy, input queues as a follow-up (the default) or a steer; a display-only write (only `kind` and
+    // `data`) changes nothing the model sees, so it lands and settles at once.
     let follow_up = root.submit(input("A follow-up", None), context).await?;
     let steer = root
         .submit(input("A steer", Some(WhenBusy::Steer)), context)
@@ -170,8 +172,7 @@ pub async fn run(
         .collect();
     writeln!(out, "inbox: {}", serde_json::to_string(&items)?)?;
 
-    // The first answer ends the run at a final boundary: the write is placed first, then the steer and the
-    // follow-up, which start the next run together.
+    // The first answer ends the run at a final boundary: the steer and the follow-up start the next run together.
     release.send_replace(true);
     for (name, submission) in [
         ("first", &first),

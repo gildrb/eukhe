@@ -319,6 +319,7 @@ async fn resubmit(
                         QueuedMode::FollowUp => WhenBusy::FollowUp,
                     }),
                     origin: input.origin,
+                    entry: input.entry,
                 },
                 cx,
             )

@@ -489,6 +489,7 @@ async fn submit_report(
                 content: UserContent::Text(report.text()),
                 when_busy: Some(WhenBusy::FollowUp),
                 origin: report.origin(),
+                entry: None,
             },
             cx,
         )

@@ -139,6 +139,7 @@ pub async fn run(
                 content: UserContent::Text(prompt.to_owned()),
                 when_busy: None,
                 origin: eukhe_types::input_origin::InputOrigin::User,
+                entry: None,
             },
             context,
         )

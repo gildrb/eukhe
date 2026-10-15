@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::documents::{ConversationDoc, DocDefinition};
 use crate::entries::{UserData, USER_ENTRY};
 use crate::harness::types::{
-    InputSubmissionDraft, QueueMode, SubmissionDraft, WhenBusy, WriteSubmissionDraft,
+    InputEntry, InputSubmissionDraft, QueueMode, SubmissionDraft, WhenBusy, WriteSubmissionDraft,
 };
 use crate::session::{SessionResult, Tx};
 use crate::types::{
@@ -21,7 +21,8 @@ use crate::types::{
     SubmissionSettlement, TypedEntryDraft,
 };
 
-/// A queued submission: user input for a run, or a passive entry write.
+/// A queued submission: user input for a run, with the entry it is placed as
+/// when not `pi.user`, or a passive entry write.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "mode")]
 pub enum InboxItem {
@@ -30,6 +31,8 @@ pub enum InboxItem {
     Steer {
         id: SubmissionId,
         content: UserContent,
+        #[serde(default)]
+        entry: Option<InputEntry>,
         #[serde(default = "user_origin")]
         origin: InputOrigin,
     },
@@ -38,6 +41,8 @@ pub enum InboxItem {
     FollowUp {
         id: SubmissionId,
         content: UserContent,
+        #[serde(default)]
+        entry: Option<InputEntry>,
         #[serde(default = "user_origin")]
         origin: InputOrigin,
     },
@@ -62,16 +67,19 @@ impl InboxItem {
                 content,
                 when_busy,
                 origin,
+                entry,
                 ..
             }) => match when_busy {
                 Some(WhenBusy::Steer) => Self::Steer {
                     id,
                     content,
+                    entry,
                     origin,
                 },
                 Some(WhenBusy::FollowUp | WhenBusy::Reject) | None => Self::FollowUp {
                     id,
                     content,
+                    entry,
                     origin,
                 },
             },
@@ -92,22 +100,25 @@ fn user_origin() -> InputOrigin {
     InputOrigin::User
 }
 
-/// TS object-literal order: `{ id, mode, content }` / `{ id, mode, entry }`;
-/// an eukhe `origin` follows the content unless the input is the user's.
+/// TS object-literal order: `{ id, mode, content, entry? }` /
+/// `{ id, mode, entry }`; an eukhe `origin` follows unless the input is the
+/// user's.
 impl Serialize for InboxItem {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             Self::Steer {
                 id,
                 content,
+                entry,
                 origin,
             }
             | Self::FollowUp {
                 id,
                 content,
+                entry,
                 origin,
             } => {
-                let mut item = serializer.serialize_struct("InboxItem", 4)?;
+                let mut item = serializer.serialize_struct("InboxItem", 5)?;
                 item.serialize_field("id", id)?;
                 let mode = if matches!(self, Self::Steer { .. }) {
                     "steer"
@@ -116,6 +127,10 @@ impl Serialize for InboxItem {
                 };
                 item.serialize_field("mode", mode)?;
                 item.serialize_field("content", content)?;
+                match entry {
+                    Some(entry) => item.serialize_field("entry", entry)?,
+                    None => item.skip_field("entry")?,
+                }
                 match origin {
                     InputOrigin::User => item.skip_field("origin")?,
                     InputOrigin::Goal { .. }
@@ -276,10 +291,7 @@ pub async fn apply_boundary(
     let items_draft = boundary.items()?;
     let items_value = items_draft.value()?;
     let items = items_value.as_array().unwrap_or_default();
-    let reset = items.iter().any(|item| {
-        mode_of(item) == Some("write")
-            && item["entry"].get("head").and_then(JsonValue::as_str) == Some("self")
-    });
+    let reset = has_queued_reset(items);
     let is_final = at == BoundaryAt::Final || reset;
     let pick = |mode: &str, queue_mode: QueueMode| -> Vec<usize> {
         let indexes = items
@@ -328,28 +340,16 @@ pub async fn apply_boundary(
     for &index in &users {
         let item = &items[index];
         let id = submission_id_of(item)?;
-        let content: UserContent = from_json(&item["content"])?;
-        let origin = match item.get("origin") {
-            Some(origin) => from_json(origin)?,
-            None => user_origin(),
+        let input = PlacedInput {
+            content: from_json(&item["content"])?,
+            entry: item.get("entry").map(from_json).transpose()?,
+            origin: match item.get("origin") {
+                Some(origin) => from_json(origin)?,
+                None => user_origin(),
+            },
         };
-        let message = Message::User(UserMessage {
-            content,
-            timestamp: now,
-        });
-        let entry = tx
-            .append_typed_entry(
-                &USER_ENTRY,
-                conversation_id,
-                TypedEntryDraft {
-                    model: Some(vec![message]),
-                    data: UserData { origin },
-                    head: None,
-                    edits: None,
-                },
-            )
-            .await?;
-        tx.place_submission(id, entry.id)?;
+        let entry = append_input(tx, conversation_id, input, now).await?;
+        tx.place_submission(id, entry)?;
         placed.push(id);
     }
     let mut removed: Vec<usize> = writes.into_iter().chain(users).collect();
@@ -360,6 +360,72 @@ pub async fn apply_boundary(
     Ok(BoundaryResult {
         users: placed,
         reset,
+    })
+}
+
+/// An input being placed: its content, the entry it is placed as when not
+/// `pi.user`, and who produced it.
+pub(crate) struct PlacedInput {
+    pub content: UserContent,
+    pub entry: Option<InputEntry>,
+    pub origin: InputOrigin,
+}
+
+/// Append the entry an input is placed as: `entry`'s kind and data, or
+/// `pi.user` with the origin as data, with the user message of `content`.
+///
+/// # Errors
+///
+/// Transaction and JSON failures.
+pub(crate) async fn append_input(
+    tx: &Tx,
+    conversation_id: ConversationId,
+    input: PlacedInput,
+    now: u64,
+) -> SessionResult<EntryId> {
+    let message = Message::User(UserMessage {
+        content: input.content,
+        timestamp: now,
+    });
+    if let Some(InputEntry { kind, data }) = input.entry {
+        let draft = EntryDraft {
+            kind,
+            model: Some(vec![message]),
+            data,
+            head: None,
+            edits: None,
+        };
+        return Ok(tx.append_entry(conversation_id, draft).await?.id);
+    }
+    let draft = TypedEntryDraft {
+        model: Some(vec![message]),
+        data: UserData {
+            origin: input.origin,
+        },
+        head: None,
+        edits: None,
+    };
+    Ok(tx
+        .append_typed_entry(&USER_ENTRY, conversation_id, draft)
+        .await?
+        .id)
+}
+
+/// Whether a write is display-only: it has no `model`, `head`, or `edits`
+/// (present counts, even if empty), so it changes nothing the model sees and
+/// needs no boundary.
+#[must_use]
+pub fn is_display_only(entry: &EntryDraft) -> bool {
+    entry.model.is_none() && entry.head.is_none() && entry.edits.is_none()
+}
+
+/// Whether a reset (`head: "self"` write) is queued among the inbox `items`;
+/// entries appended before it leave the active range when it lands.
+#[must_use]
+pub fn has_queued_reset(items: &[JsonValue]) -> bool {
+    items.iter().any(|item| {
+        mode_of(item) == Some("write")
+            && item["entry"].get("head").and_then(JsonValue::as_str) == Some("self")
     })
 }
 

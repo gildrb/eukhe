@@ -187,6 +187,7 @@ async fn late_join(print: UnboundedSender<String>) -> Result<(), BoxError> {
                 content: UserContent::Text("Count to ten, then tell me.".to_owned()),
                 when_busy: None,
                 origin: eukhe_types::input_origin::InputOrigin::User,
+                entry: None,
             },
             context,
         )

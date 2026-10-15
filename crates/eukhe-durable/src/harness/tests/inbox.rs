@@ -209,6 +209,14 @@ fn head(kind: &str, target: EntryId) -> EntryDraft {
     draft
 }
 
+/// A `note` write that is not display-only (a present `edits`, even empty,
+/// counts), so a busy conversation queues it.
+fn queued_note() -> EntryDraft {
+    let mut draft = EntryDraft::new("note");
+    draft.edits = Some(Vec::new());
+    draft
+}
+
 async fn note(conversation: &Conversation) -> EntryRecord {
     let id = conversation.id();
     conversation
@@ -451,7 +459,7 @@ mod queue {
         let input_submission = submit(&root, input("a")).await;
         first.reached().await;
         let f1 = submit(&root, input("f1")).await;
-        let mut note_w = EntryDraft::new("note");
+        let mut note_w = queued_note();
         note_w.data = Some(json(r#""w""#));
         let write_submission = submit(&root, write(note_w)).await;
         let f2 = submit(&root, input_when("f2", WhenBusy::FollowUp)).await;
@@ -911,7 +919,7 @@ mod queue {
         let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
         let input_submission = submit(&root, input("a")).await;
         first.reached().await;
-        let kept = submit(&root, write(EntryDraft::new("note"))).await;
+        let kept = submit(&root, write(queued_note())).await;
         let withdrawn = submit(&root, input("f")).await;
         assert_eq!(
             withdrawn.abort(context()).await.unwrap().as_str(),
@@ -1017,14 +1025,14 @@ mod queue {
         let ops = inbox_ops(&harness);
         let input_submission = submit(&root, input("a")).await;
         first.reached().await;
-        let w1 = submit(&root, write(EntryDraft::new("note"))).await;
+        let w1 = submit(&root, write(queued_note())).await;
         let f1 = submit(&root, input("f1")).await;
-        let w2 = submit(&root, write(EntryDraft::new("note"))).await;
+        let w2 = submit(&root, write(queued_note())).await;
         let f2 = submit(&root, input("f2")).await;
-        let w3 = submit(&root, write(EntryDraft::new("note"))).await;
+        let w3 = submit(&root, write(queued_note())).await;
         let write_item = |index: usize, id: SubmissionId| {
             json(&format!(
-                r#"[["p",["items"],{index},0,[{{"id":{id},"mode":"write","entry":{{"kind":"note"}}}}]]]"#
+                r#"[["p",["items"],{index},0,[{{"id":{id},"mode":"write","entry":{{"kind":"note","edits":[]}}}}]]]"#
             ))
         };
         let follow_up_item = |index: usize, id: SubmissionId, content: &str| {
@@ -1107,7 +1115,7 @@ mod queue {
         let OpenChat { harness, root } = open_chat(memory(), &setup, None).await.unwrap();
         let input_submission = submit(&root, input("a")).await;
         first.reached().await;
-        let write_submission = submit(&root, write(EntryDraft::new("note"))).await;
+        let write_submission = submit(&root, write(queued_note())).await;
         first.release();
         settle(&input_submission).await;
         let entries = all_entries(&root, context()).await.unwrap();
@@ -1801,3 +1809,5 @@ mod ledger {
         harness.close(context()).await.unwrap();
     }
 }
+
+mod writes;

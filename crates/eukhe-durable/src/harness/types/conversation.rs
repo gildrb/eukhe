@@ -9,6 +9,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
+use eukhe_chord::json::JsonValue;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{Message, UserContent};
 use futures::future::BoxFuture;
@@ -36,6 +37,22 @@ pub enum WhenBusy {
     Reject,
 }
 
+/// The entry an input is placed as, instead of `pi.user` (TS `InputEntry`):
+/// an application kind, and data the transcript shows, such as its author.
+/// Its model message is still the input's user message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InputEntry {
+    /// Entry kind; must be non-empty and not start with `pi.`.
+    pub kind: String,
+    /// Entry data; a present `null` is kept.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::json_serde::present"
+    )]
+    pub data: Option<JsonValue>,
+}
+
 /// Host submission of user input that may start a run (TS
 /// `InputSubmissionDraft`).
 #[derive(Debug, Clone, PartialEq)]
@@ -43,13 +60,16 @@ pub struct InputSubmissionDraft {
     pub request_id: Option<String>,
     pub content: UserInput,
     pub when_busy: Option<WhenBusy>,
-    /// Who produced the input; the queued item and the placed `pi.user`
-    /// entry carry it.
+    /// Who produced the input; the queued item carries it, and so does the
+    /// placed `pi.user` entry when `entry` is absent.
     pub origin: InputOrigin,
+    /// Place the input as this entry; default `pi.user` with the origin as
+    /// data.
+    pub entry: Option<InputEntry>,
 }
 
 impl InputSubmissionDraft {
-    /// The user's input `content` without a request ID or busy mode.
+    /// The user's input `content` without a request ID, busy mode, or entry.
     #[must_use]
     pub fn new(content: impl Into<UserInput>) -> Self {
         Self {
@@ -57,6 +77,7 @@ impl InputSubmissionDraft {
             content: content.into(),
             when_busy: None,
             origin: InputOrigin::User,
+            entry: None,
         }
     }
 }
