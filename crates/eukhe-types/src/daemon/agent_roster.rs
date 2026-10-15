@@ -263,9 +263,9 @@ pub fn slim_roster_summary(summary: Value) -> Value {
 }
 
 /// Where an agent's model request stands against its provider's
-/// admission limit (`providerMaxInFlight`): the summary's `admission`
-/// field, absent while the agent has no request waiting or in flight on
-/// a limited provider.
+/// admission (`providerMaxInFlight`; an unlimited provider admits at
+/// once): the summary's `admission` field, absent while the agent has no
+/// model request waiting or in flight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelAdmission {

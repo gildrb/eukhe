@@ -796,6 +796,7 @@ impl Supervisor {
             DaemonCommand::ProviderAdmissionAcquire {
                 worker_token,
                 provider_id,
+                priority,
                 ..
             } => {
                 let response = self
@@ -805,6 +806,7 @@ impl Supervisor {
                             type_name: &type_name,
                             worker_token,
                             provider_id,
+                            priority: *priority,
                             connection_id,
                         },
                         stream,

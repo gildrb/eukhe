@@ -1,7 +1,9 @@
 //! The session gate over a shared in-process authority: limited providers
 //! run at most their limit, a waiting session reports `queued`, an abort
-//! leaves the queue, and a full queue fails the request at once.
+//! leaves the queue, a full queue fails the request at once, and an
+//! unlimited provider admits at once (and goes out without an authority).
 
+use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -17,7 +19,10 @@ use eukhe_types::pi_ai::{
 use tempfile::TempDir;
 
 use super::{gate_stream_fn, AdmissionGate, AdmissionStateSink};
-use crate::admission::{AdmissionHandle, AdmissionRegistry, LocalAdmission};
+use crate::admission::{
+    AdmissionError, AdmissionHandle, AdmissionRegistry, AdmissionRequest, LocalAdmission,
+    ModelPermit, ProviderAdmission,
+};
 use crate::durable::settings::EukheSettings;
 
 /// A settings pair whose global document sets the admission limits.
@@ -184,8 +189,10 @@ async fn sessions_share_the_limit_and_a_waiting_session_reports_queued() {
     );
 }
 
+/// An unlimited provider admits every request at once; the session still
+/// reports its requests as generating.
 #[tokio::test]
-async fn an_unlimited_provider_is_not_gated() {
+async fn an_unlimited_provider_admits_every_request_at_once() {
     let (settings, _dir) = settings(&serde_json::json!({ "providerMaxInFlight": { "test": 1 } }));
     let limits_settings = Arc::clone(&settings);
     let admission = AdmissionHandle::new(Arc::new(LocalAdmission::new(
@@ -196,16 +203,65 @@ async fn an_unlimited_provider_is_not_gated() {
     let (sink, seen) = recording_sink();
     let gate = AdmissionGate::new(admission, settings, Some(sink));
     let stream = gate_stream_fn(gate, "other".to_owned(), provider.stream_fn());
-    let _streams: Vec<AssistantMessageEventStream> = (0..3)
+    let streams: Vec<AssistantMessageEventStream> = (0..3)
         .map(|_| call(&stream, "other", ProviderStreamOptions::default()))
         .collect();
-    // The calls reach the provider synchronously: no slot, no state.
+    settle().await;
+    let peak = provider.peak.load(Ordering::SeqCst);
+    for stream in streams {
+        provider.finish_one();
+        assert_eq!(stream.result().await.stop_reason, StopReason::Stop);
+    }
+    settle().await;
+    assert_eq!(
+        (peak, seen.lock().unwrap().clone()),
+        (3, vec![Some(ModelAdmission::Generating), None])
+    );
+}
+
+/// An authority that cannot be asked (an unreachable supervisor).
+struct Unreachable;
+
+impl ProviderAdmission for Unreachable {
+    fn acquire(
+        &self,
+        request: AdmissionRequest,
+    ) -> impl Future<Output = Result<ModelPermit, AdmissionError>> + Send {
+        std::future::ready(Err(AdmissionError::Unavailable {
+            provider_id: request.provider_id,
+            reason: "down".to_owned(),
+        }))
+    }
+}
+
+/// Without an authority, a request to an unlimited provider goes out (its
+/// slot would only hold the compactor back); a limited one fails.
+#[tokio::test]
+async fn without_an_authority_only_an_unlimited_provider_is_served() {
+    let (settings, _dir) = settings(&serde_json::json!({ "providerMaxInFlight": { "test": 1 } }));
+    let provider = Arc::new(Provider::default());
+    let gate = AdmissionGate::new(AdmissionHandle::new(Arc::new(Unreachable)), settings, None);
+    let unlimited = gate_stream_fn(Arc::clone(&gate), "other".to_owned(), provider.stream_fn());
+    let limited = gate_stream_fn(gate, "test".to_owned(), provider.stream_fn());
+    let served = call(&unlimited, "other", ProviderStreamOptions::default());
+    let refused = call(&limited, "test", ProviderStreamOptions::default())
+        .result()
+        .await;
+    settle().await;
+    provider.finish_one();
     assert_eq!(
         (
-            provider.peak.load(Ordering::SeqCst),
-            seen.lock().unwrap().clone()
+            served.result().await.stop_reason,
+            refused.stop_reason,
+            refused.error_message,
+            provider.calls.load(Ordering::SeqCst)
         ),
-        (3, Vec::new())
+        (
+            StopReason::Stop,
+            StopReason::Error,
+            Some("provider admission for test is unavailable: down".to_owned()),
+            1
+        )
     );
 }
 

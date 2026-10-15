@@ -199,7 +199,7 @@ async fn open_through_daemon(
     }
     eukhe_core::memory::Memory::open(
         eukhe_core::memory::chat_dir(agent_dir),
-        std::sync::Arc::new(eukhe_core::memory::SettingsSummarizer::new(
+        std::sync::Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
             agent_dir.to_path_buf(),
         )),
     )

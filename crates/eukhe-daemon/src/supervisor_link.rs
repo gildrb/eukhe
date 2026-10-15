@@ -104,7 +104,41 @@ impl LinkClient {
 /// connection closes, so dropping this — or the worker process dying —
 /// releases it.
 pub(crate) struct HeldLink {
-    _client: LinkClient,
+    client: LinkClient,
+}
+
+impl HeldLink {
+    /// Wait until the supervisor sends a `frame_type` frame on this
+    /// connection, or closes it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the connection cannot be read or carries a
+    /// line that is not JSON.
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub(crate) async fn until_frame(&mut self, frame_type: &str) -> Result<()> {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let read = self
+                .client
+                .reader
+                .read_line(&mut line)
+                .await
+                .context("read the held supervisor connection")?;
+            if read == 0 {
+                return Ok(());
+            }
+            if line.trim().is_empty() {
+                continue;
+            }
+            let frame: Value = serde_json::from_str(line.trim())
+                .with_context(|| format!("invalid held link frame: {line}"))?;
+            if frame.get("type").and_then(Value::as_str) == Some(frame_type) {
+                return Ok(());
+            }
+        }
+    }
 }
 
 /// Supervisor connection endpoint for a daemon worker. Each request uses its
@@ -183,7 +217,7 @@ impl SupervisorLink {
             }
             outcome => outcome?,
         };
-        Ok((response, HeldLink { _client: client }))
+        Ok((response, HeldLink { client }))
     }
 
     /// Consume the supervisor hello and hand back a live client.

@@ -4,6 +4,17 @@
 //! `providerMaxQueued` requests wait the next one fails at once with a
 //! non-retryable error.
 //!
+//! Requests come in two classes ([`AdmissionPriority`]). A session's
+//! requests are interactive; the chat-memory compactor's are background.
+//! Both count against the same limit, but a background request is
+//! admitted only while no interactive request of its provider holds or
+//! waits for a slot, and an interactive request that comes while
+//! background requests hold slots preempts them all: their slots free at
+//! once and their holders stop their requests, so a user's turn never
+//! waits behind the compactor, even on a server that runs one request at
+//! a time. An unlimited provider admits every request at once, and still
+//! holds its background requests back while interactive ones run.
+//!
 //! The controller and its registry are process-local. Every eukhe session
 //! runs in its own worker process, so the daemon supervisor owns the one
 //! registry of a daemon and workers reach it through
@@ -17,8 +28,10 @@ use std::pin::Pin;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 
+use eukhe_types::daemon::AdmissionPriority;
 use futures::future::BoxFuture;
 use futures::FutureExt as _;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
 /// `providerMaxQueued` default (omp2 `ai_provider_max_queued`).
 pub const DEFAULT_PROVIDER_MAX_QUEUED: u32 = 64;
@@ -61,7 +74,7 @@ impl AdmissionLimits {
         self.max_in_flight.get(provider_id).copied()
     }
 
-    /// How many requests may wait per provider.
+    /// How many interactive requests may wait per provider.
     #[must_use]
     pub fn max_queued(&self) -> u32 {
         self.max_queued
@@ -92,17 +105,29 @@ pub enum AdmissionError {
 }
 
 /// The counters of one provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AdmissionSnapshot {
-    /// Requests holding a permit.
+    /// Interactive requests holding a permit.
     pub active: u32,
-    /// Requests waiting for one.
+    /// Interactive requests waiting for one.
     pub waiting: u32,
+    /// Background requests holding a permit.
+    pub background_active: u32,
+    /// Background requests waiting for one.
+    pub background_waiting: u32,
+}
+
+/// A queue or table length as a counter.
+fn count(len: usize) -> u32 {
+    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 #[derive(Debug)]
 struct WaitSlot {
-    granted: bool,
+    priority: AdmissionPriority,
+    /// The grant's preemption token, once granted. A background grant its
+    /// waiter has not collected yet goes back to the queue on preemption.
+    granted: Option<CancellationToken>,
     waker: Option<Waker>,
 }
 
@@ -110,10 +135,17 @@ struct WaitSlot {
 struct ControllerState {
     limit: Option<NonZeroU32>,
     queue_limit: u32,
-    active: u32,
+    /// Interactive permits held (granted waiters included).
+    interactive: u32,
+    /// Background permits held (granted waiters included), by ticket: a
+    /// preemption frees their slots and cancels their tokens.
+    background: HashMap<u64, CancellationToken>,
     next_ticket: u64,
-    /// Waiting tickets, oldest first.
-    queue: VecDeque<u64>,
+    /// Waiting interactive tickets, oldest first.
+    interactive_queue: VecDeque<u64>,
+    /// Waiting background tickets, oldest first. `providerMaxQueued` does
+    /// not apply to them: the compactor bounds its own calls.
+    background_queue: VecDeque<u64>,
     /// Every ticket not yet collected by its waiter: queued ones and
     /// granted ones whose waiter has not polled since the grant.
     slots: HashMap<u64, WaitSlot>,
@@ -121,41 +153,106 @@ struct ControllerState {
 
 impl ControllerState {
     fn has_room(&self) -> bool {
-        self.limit.is_none_or(|limit| self.active < limit.get())
+        let active = self
+            .interactive
+            .saturating_add(count(self.background.len()));
+        self.limit.is_none_or(|limit| active < limit.get())
     }
 
-    /// Hand free slots to the oldest waiters (FIFO): each grant moves one
-    /// unit of `active` to the waiter. Returns the wakers to fire once the
-    /// lock is released.
+    /// Whether an interactive request holds or waits for a slot: background
+    /// requests wait meanwhile.
+    fn interactive_busy(&self) -> bool {
+        self.interactive > 0 || !self.interactive_queue.is_empty()
+    }
+
+    /// Take a slot for `ticket` (the caller made sure there is room).
+    /// Returns its preemption token, which only a preemption of a
+    /// background slot cancels.
+    fn hold(&mut self, ticket: u64, priority: AdmissionPriority) -> CancellationToken {
+        let token = CancellationToken::new();
+        match priority {
+            AdmissionPriority::Interactive => self.interactive += 1,
+            AdmissionPriority::Background => {
+                self.background.insert(ticket, token.clone());
+            }
+        }
+        token
+    }
+
+    /// Hand free slots to the oldest waiters (FIFO within each class):
+    /// interactive ones first, background ones only while no interactive
+    /// request holds a slot. Returns the wakers to fire once the lock is
+    /// released.
     fn grant_waiters(&mut self) -> Vec<Waker> {
         let mut wake = Vec::new();
         while self.has_room() {
-            let Some(ticket) = self.queue.pop_front() else {
+            let next = match self.interactive_queue.pop_front() {
+                Some(ticket) => Some(ticket),
+                None if self.interactive == 0 => self.background_queue.pop_front(),
+                None => None,
+            };
+            let Some(ticket) = next else {
                 break;
             };
-            let Some(slot) = self.slots.get_mut(&ticket) else {
+            let Some(priority) = self.slots.get(&ticket).map(|slot| slot.priority) else {
                 continue;
             };
-            slot.granted = true;
-            self.active += 1;
-            wake.extend(slot.waker.take());
+            let token = self.hold(ticket, priority);
+            if let Some(slot) = self.slots.get_mut(&ticket) {
+                slot.granted = Some(token);
+                wake.extend(slot.waker.take());
+            }
         }
         wake
     }
 
-    /// One permit returns: the slot goes to the oldest waiter if any.
-    fn release(&mut self) -> Vec<Waker> {
-        self.active = self.active.saturating_sub(1);
+    /// An interactive request came: every background slot frees at once. A
+    /// granted background waiter that has not collected its permit goes
+    /// back to the head of the background queue; the tokens of collected
+    /// permits are returned, to cancel once the lock is released.
+    fn preempt_background(&mut self) -> Vec<CancellationToken> {
+        let mut preempted = Vec::new();
+        let mut uncollected = Vec::new();
+        for (ticket, token) in self.background.drain() {
+            match self.slots.get_mut(&ticket) {
+                Some(slot) => {
+                    slot.granted = None;
+                    uncollected.push(ticket);
+                }
+                None => preempted.push(token),
+            }
+        }
+        // Oldest first, ahead of the requests that never had a slot.
+        uncollected.sort_unstable();
+        for ticket in uncollected.into_iter().rev() {
+            self.background_queue.push_front(ticket);
+        }
+        preempted
+    }
+
+    /// The permit of `ticket` returns: its slot goes to the waiters. A
+    /// preempted background permit's slot was freed by the preemption.
+    fn release(&mut self, ticket: u64, priority: AdmissionPriority) -> Vec<Waker> {
+        match priority {
+            AdmissionPriority::Interactive => {
+                self.interactive = self.interactive.saturating_sub(1);
+            }
+            AdmissionPriority::Background => {
+                if self.background.remove(&ticket).is_none() {
+                    return Vec::new();
+                }
+            }
+        }
         self.grant_waiters()
     }
 }
 
-/// The admission of one provider (omp2 `AdmissionController`): `active`
-/// requests hold permits, `queue` waits for one. A released permit goes
+/// The admission of one provider (omp2 `AdmissionController`): permits
+/// held per class, and one wait queue per class. A released permit goes
 /// straight to the oldest waiter (FIFO-fair, where omp2 wakes every waiter
 /// to race for it), so a stream of new requests can never starve an old
-/// one. Lowering the limit below `active` lets the excess drain; raising
-/// it admits waiters at once.
+/// one of its class. Lowering the limit below the permits held lets the
+/// excess drain; raising it admits waiters at once.
 #[derive(Debug)]
 pub struct AdmissionController {
     provider_id: String,
@@ -166,7 +263,7 @@ pub struct AdmissionController {
 pub enum Admission {
     /// A slot was free.
     Granted(ProviderPermit),
-    /// Every slot is taken: the request waits (await the value).
+    /// The request waits (await the value).
     Queued(QueuedPermit),
 }
 
@@ -178,9 +275,11 @@ impl AdmissionController {
             state: Mutex::new(ControllerState {
                 limit: limits.max_in_flight(&provider_id),
                 queue_limit: limits.max_queued(),
-                active: 0,
+                interactive: 0,
+                background: HashMap::new(),
                 next_ticket: 0,
-                queue: VecDeque::new(),
+                interactive_queue: VecDeque::new(),
+                background_queue: VecDeque::new(),
                 slots: HashMap::new(),
             }),
             provider_id,
@@ -191,41 +290,79 @@ impl AdmissionController {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Take a permit if a slot is free, else join the wait queue.
+    /// Take a permit of class `priority` if a slot is free for it, else
+    /// join the class's wait queue. An interactive request first preempts
+    /// every background permit of the provider.
     ///
     /// # Errors
     ///
-    /// [`AdmissionRejected`] when `queue_limit` requests already wait.
-    pub fn admit(self: &Arc<Self>) -> Result<Admission, AdmissionRejected> {
+    /// [`AdmissionRejected`] when an interactive request finds
+    /// `queue_limit` interactive requests waiting.
+    pub fn admit(
+        self: &Arc<Self>,
+        priority: AdmissionPriority,
+    ) -> Result<Admission, AdmissionRejected> {
         let mut state = self.lock();
-        if state.has_room() && state.queue.is_empty() {
-            state.active += 1;
-            return Ok(Admission::Granted(ProviderPermit {
-                controller: Arc::clone(self),
-            }));
-        }
-        let waiting = u32::try_from(state.queue.len()).unwrap_or(u32::MAX);
-        if waiting >= state.queue_limit {
-            return Err(AdmissionRejected {
-                provider_id: self.provider_id.clone(),
-                queue_limit: state.queue_limit,
-            });
-        }
+        let preempted = match priority {
+            AdmissionPriority::Interactive => state.preempt_background(),
+            AdmissionPriority::Background => Vec::new(),
+        };
+        let free = state.has_room()
+            && match priority {
+                AdmissionPriority::Interactive => state.interactive_queue.is_empty(),
+                AdmissionPriority::Background => {
+                    !state.interactive_busy() && state.background_queue.is_empty()
+                }
+            };
         let ticket = state.next_ticket;
         state.next_ticket += 1;
-        state.queue.push_back(ticket);
-        state.slots.insert(
-            ticket,
-            WaitSlot {
-                granted: false,
-                waker: None,
-            },
-        );
-        Ok(Admission::Queued(QueuedPermit {
-            controller: Arc::clone(self),
-            ticket,
-            collected: false,
-        }))
+        let admission = if free {
+            Ok(Admission::Granted(ProviderPermit {
+                controller: Arc::clone(self),
+                ticket,
+                priority,
+                preempted: state.hold(ticket, priority),
+            }))
+        } else {
+            let queued = match priority {
+                AdmissionPriority::Interactive => {
+                    if count(state.interactive_queue.len()) >= state.queue_limit {
+                        Err(AdmissionRejected {
+                            provider_id: self.provider_id.clone(),
+                            queue_limit: state.queue_limit,
+                        })
+                    } else {
+                        state.interactive_queue.push_back(ticket);
+                        Ok(())
+                    }
+                }
+                AdmissionPriority::Background => {
+                    state.background_queue.push_back(ticket);
+                    Ok(())
+                }
+            };
+            queued.map(|()| {
+                state.slots.insert(
+                    ticket,
+                    WaitSlot {
+                        priority,
+                        granted: None,
+                        waker: None,
+                    },
+                );
+                Admission::Queued(QueuedPermit {
+                    controller: Arc::clone(self),
+                    ticket,
+                    priority,
+                    collected: false,
+                })
+            })
+        };
+        drop(state);
+        for token in preempted {
+            token.cancel();
+        }
+        admission
     }
 
     /// Apply new limits; waiters a raised limit makes room for are granted.
@@ -244,13 +381,15 @@ impl AdmissionController {
     pub fn snapshot(&self) -> AdmissionSnapshot {
         let state = self.lock();
         AdmissionSnapshot {
-            active: state.active,
-            waiting: u32::try_from(state.queue.len()).unwrap_or(u32::MAX),
+            active: state.interactive,
+            waiting: count(state.interactive_queue.len()),
+            background_active: count(state.background.len()),
+            background_waiting: count(state.background_queue.len()),
         }
     }
 
-    fn release(&self) {
-        let wake = self.lock().release();
+    fn release(&self, ticket: u64, priority: AdmissionPriority) {
+        let wake = self.lock().release(ticket, priority);
         wake.into_iter().for_each(Waker::wake);
     }
 }
@@ -259,11 +398,24 @@ impl AdmissionController {
 #[derive(Debug)]
 pub struct ProviderPermit {
     controller: Arc<AdmissionController>,
+    ticket: u64,
+    priority: AdmissionPriority,
+    preempted: CancellationToken,
+}
+
+impl ProviderPermit {
+    /// Cancelled once an interactive request preempts this permit (only a
+    /// background permit is ever preempted): its slot is free already, and
+    /// its request must stop.
+    #[must_use]
+    pub fn preemption(&self) -> CancellationToken {
+        self.preempted.clone()
+    }
 }
 
 impl Drop for ProviderPermit {
     fn drop(&mut self) {
-        self.controller.release();
+        self.controller.release(self.ticket, self.priority);
     }
 }
 
@@ -274,6 +426,7 @@ impl Drop for ProviderPermit {
 pub struct QueuedPermit {
     controller: Arc<AdmissionController>,
     ticket: u64,
+    priority: AdmissionPriority,
     collected: bool,
 }
 
@@ -288,16 +441,19 @@ impl Future for QueuedPermit {
             // is never polled again.
             return Poll::Pending;
         };
-        if slot.granted {
-            state.slots.remove(&this.ticket);
-            drop(state);
-            this.collected = true;
-            return Poll::Ready(ProviderPermit {
-                controller: Arc::clone(&this.controller),
-            });
-        }
-        slot.waker = Some(cx.waker().clone());
-        Poll::Pending
+        let Some(preempted) = slot.granted.take() else {
+            slot.waker = Some(cx.waker().clone());
+            return Poll::Pending;
+        };
+        state.slots.remove(&this.ticket);
+        drop(state);
+        this.collected = true;
+        Poll::Ready(ProviderPermit {
+            controller: Arc::clone(&this.controller),
+            ticket: this.ticket,
+            priority: this.priority,
+            preempted,
+        })
     }
 }
 
@@ -311,12 +467,25 @@ impl Drop for QueuedPermit {
             let granted = state
                 .slots
                 .remove(&self.ticket)
-                .is_some_and(|slot| slot.granted);
+                .is_some_and(|slot| slot.granted.is_some());
             if granted {
-                state.release()
+                state.release(self.ticket, self.priority)
             } else {
-                state.queue.retain(|ticket| *ticket != self.ticket);
-                Vec::new()
+                match self.priority {
+                    AdmissionPriority::Interactive => {
+                        state
+                            .interactive_queue
+                            .retain(|ticket| *ticket != self.ticket);
+                    }
+                    AdmissionPriority::Background => {
+                        state
+                            .background_queue
+                            .retain(|ticket| *ticket != self.ticket);
+                    }
+                }
+                // The last interactive waiter leaving may let background
+                // waiters through.
+                state.grant_waiters()
             }
         };
         wake.into_iter().for_each(Waker::wake);
@@ -324,7 +493,8 @@ impl Drop for QueuedPermit {
 }
 
 /// The controllers of every provider, created on first use, sharing one
-/// set of limits.
+/// set of limits. A provider gets its controller once a request names it,
+/// limited or not, so the configured providers bound the table.
 #[derive(Debug, Default)]
 pub struct AdmissionRegistry {
     controllers: Mutex<HashMap<String, Arc<AdmissionController>>>,
@@ -380,6 +550,34 @@ impl AdmissionRegistry {
         controllers.insert(provider_id.to_owned(), Arc::clone(&controller));
         controller
     }
+
+    /// Take a slot of `request.provider_id` in the request's class,
+    /// waiting in the provider's queue when it has to (the request's notice
+    /// fires then), under the limits applied last.
+    ///
+    /// # Errors
+    ///
+    /// [`AdmissionError::QueueFull`] when `providerMaxQueued` interactive
+    /// requests already wait.
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(provider = %request.provider_id, priority = ?request.priority)
+    )]
+    pub async fn acquire(&self, request: AdmissionRequest) -> Result<ModelPermit, AdmissionError> {
+        let permit = match self
+            .controller(&request.provider_id)
+            .admit(request.priority)?
+        {
+            Admission::Granted(permit) => permit,
+            Admission::Queued(waiting) => {
+                request.on_queued.notify();
+                waiting.await
+            }
+        };
+        let preempted = permit.preemption();
+        Ok(ModelPermit::preemptible(permit, preempted))
+    }
 }
 
 /// Called once when a request has to wait for its provider (the roster
@@ -399,19 +597,36 @@ impl QueuedNotice {
 }
 
 /// One admitted model request: the provider slot stays taken until this
-/// drops. What holds the slot is the admission's business (a process-local
-/// [`ProviderPermit`], or the supervisor connection of a daemon worker).
+/// drops, or until the admission preempts it. What holds the slot is the
+/// admission's business (a process-local [`ProviderPermit`], or the
+/// supervisor connection of a daemon worker).
 pub struct ModelPermit {
     _held: Box<dyn Send>,
+    preempted: CancellationToken,
 }
 
 impl ModelPermit {
-    /// A permit holding `held` until it drops.
+    /// A permit holding `held` until it drops, never preempted.
     #[must_use]
     pub fn holding(held: impl Send + 'static) -> Self {
+        Self::preemptible(held, CancellationToken::new())
+    }
+
+    /// A permit holding `held` until it drops, preempted once `preempted`
+    /// is cancelled.
+    #[must_use]
+    pub fn preemptible(held: impl Send + 'static, preempted: CancellationToken) -> Self {
         Self {
             _held: Box::new(held),
+            preempted,
         }
+    }
+
+    /// Resolves once an interactive request took the slot back (only a
+    /// background permit is ever preempted): the slot is no longer held,
+    /// and the request must stop at once.
+    pub fn preempted(&self) -> WaitForCancellationFuture<'_> {
+        self.preempted.cancelled()
     }
 }
 
@@ -419,20 +634,27 @@ impl ModelPermit {
 pub struct AdmissionRequest {
     /// The provider the request goes to.
     pub provider_id: String,
+    /// The request's class.
+    pub priority: AdmissionPriority,
     /// Fired when the request has to wait.
     pub on_queued: QueuedNotice,
 }
 
-/// The authority a session's model requests ask before they go out to a
-/// limited provider. Implementations admit at most the provider's
-/// `providerMaxInFlight` requests at once across every process they
-/// cover, queue the rest in arrival order, fire the request's
+/// The authority model requests ask before they go out to a provider.
+/// Implementations admit at most the provider's `providerMaxInFlight`
+/// requests at once across every process they cover (an unlimited
+/// provider admits every request at once), queue the rest in arrival
+/// order within each [`AdmissionPriority`], fire the request's
 /// [`QueuedNotice`] when it has to wait, and fail with
-/// [`AdmissionError::QueueFull`] once `providerMaxQueued` requests wait.
-/// The returned [`ModelPermit`] frees the slot when dropped, and a
-/// dropped `acquire` future gives up its place in the queue. The daemon
-/// worker implements it over its supervisor link; [`LocalAdmission`] is
-/// the in-process authority of a run without a daemon.
+/// [`AdmissionError::QueueFull`] once `providerMaxQueued` interactive
+/// requests wait. A background request waits while an interactive request
+/// of its provider holds or waits for a slot, and its [`ModelPermit`] is
+/// preempted (see [`ModelPermit::preempted`]) when one comes. The
+/// returned permit frees the slot when dropped, and a dropped `acquire`
+/// future gives up its place in the queue. The daemon supervisor owns the
+/// registry of a daemon, and its workers implement it over their
+/// supervisor link; [`LocalAdmission`] is the in-process authority of a
+/// run without a daemon.
 pub trait ProviderAdmission: Send + Sync {
     /// Wait for a slot of `request.provider_id`.
     fn acquire(
@@ -500,14 +722,7 @@ impl ProviderAdmission for LocalAdmission {
     #[tracing::instrument(level = "debug", skip_all, fields(provider = %request.provider_id))]
     async fn acquire(&self, request: AdmissionRequest) -> Result<ModelPermit, AdmissionError> {
         self.registry.apply_limits(&(self.limits)());
-        let controller = self.registry.controller(&request.provider_id);
-        match controller.admit()? {
-            Admission::Granted(permit) => Ok(ModelPermit::holding(permit)),
-            Admission::Queued(waiting) => {
-                request.on_queued.notify();
-                Ok(ModelPermit::holding(waiting.await))
-            }
-        }
+        self.registry.acquire(request).await
     }
 }
 

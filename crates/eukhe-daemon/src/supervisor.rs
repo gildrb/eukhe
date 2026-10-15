@@ -240,9 +240,10 @@ pub struct Supervisor {
     /// before boot, or when another live process owned the chat first
     /// (then this supervisor is a client that takes over when it exits).
     chat_memory: std::sync::Mutex<Option<eukhe_core::memory::Memory>>,
-    /// Provider admission for every worker's model requests
-    /// (`providerMaxInFlight`; see `provider_admission.rs`).
-    pub(crate) provider_admission: crate::provider_admission::SupervisorAdmission,
+    /// Provider admission for every worker's model requests and the chat
+    /// memory's compactor (`providerMaxInFlight`; see
+    /// `provider_admission.rs`).
+    pub(crate) provider_admission: Arc<crate::provider_admission::SupervisorAdmission>,
 }
 
 impl Supervisor {
@@ -280,8 +281,9 @@ impl Supervisor {
         let compaction_journal = crate::compaction_supervision::TerminalCompactionJournal::open(
             &descriptor_dir.join("compaction-supervision.jsonl"),
         )?;
-        let provider_admission =
-            crate::provider_admission::SupervisorAdmission::new(options.agent_dir.clone());
+        let provider_admission = Arc::new(crate::provider_admission::SupervisorAdmission::new(
+            options.agent_dir.clone(),
+        ));
         Ok(Supervisor {
             options,
             descriptor_dir,
@@ -355,10 +357,13 @@ impl Supervisor {
         // Claim the chat memory only once this process owns the daemon
         // socket: a second supervisor that lost the bind never gets here.
         // A failure is logged; sessions report their own when they open it.
+        // The compactor's requests take background slots of this daemon's
+        // admission, so the sessions' requests come first.
         match eukhe_core::memory::Memory::open(
             eukhe_core::memory::chat_dir(&self.options.agent_dir),
             Arc::new(eukhe_core::memory::SettingsSummarizer::new(
                 self.options.agent_dir.clone(),
+                eukhe_core::admission::AdmissionHandle::new(Arc::clone(&self.provider_admission)),
             )),
         )
         .await

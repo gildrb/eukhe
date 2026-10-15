@@ -1,8 +1,10 @@
 //! The supervisor's provider admission over real connection loops: workers
 //! (registered tokens) share one limit, a released or abandoned slot goes to
 //! the oldest waiter, a dead worker's slot and queue place are reclaimed
-//! when its sockets close, a full queue fails at once, and a settings
-//! change applies without a restart.
+//! when its sockets close, a full queue fails at once, a settings change
+//! applies without a restart, and the compactor's background slots (the
+//! supervisor's own, or a worker's over its link) give way to workers'
+//! requests.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,10 +12,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eukhe_core::admission::{
-    AdmissionError, AdmissionRejected, AdmissionRequest, AdmissionSnapshot, ProviderAdmission,
-    QueuedNotice,
+    AdmissionError, AdmissionHandle, AdmissionRejected, AdmissionRequest, AdmissionSnapshot,
+    ProviderAdmission, QueuedNotice,
 };
+use eukhe_types::daemon::AdmissionPriority::{self, Background, Interactive};
 use eukhe_types::platform::transport::TransportStream;
+use futures::FutureExt as _;
 use serde_json::{json, Map, Value};
 use tempfile::TempDir;
 
@@ -126,9 +130,14 @@ impl Harness {
         self.supervisor.provider_admission.snapshot("p")
     }
 
-    /// Wait until the provider's counters read `active`/`waiting`.
+    /// Wait until the provider's interactive counters read
+    /// `active`/`waiting`.
     async fn settles_at(&self, active: u32, waiting: u32) {
-        let expected = AdmissionSnapshot { active, waiting };
+        let expected = AdmissionSnapshot {
+            active,
+            waiting,
+            ..AdmissionSnapshot::default()
+        };
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while self.snapshot() != expected {
             assert!(
@@ -145,6 +154,7 @@ fn request(notices: &Arc<AtomicUsize>) -> AdmissionRequest {
     let notices = Arc::clone(notices);
     AdmissionRequest {
         provider_id: "p".to_owned(),
+        priority: Interactive,
         on_queued: QueuedNotice::new(move || {
             notices.fetch_add(1, Ordering::SeqCst);
         }),
@@ -281,4 +291,122 @@ async fn a_raised_limit_applies_without_a_restart() {
         .expect("room under the raised limit");
     let _second = waiting.await.unwrap().expect("admitted by the raise");
     harness.settles_at(3, 0).await;
+}
+
+/// Fail instead of hanging when a step never comes.
+async fn within<F: std::future::Future>(future: F) -> F::Output {
+    tokio::time::timeout(Duration::from_secs(30), future)
+        .await
+        .expect("the step comes")
+}
+
+/// A request of class `priority` to `p`; the receiver hears when it has
+/// to wait.
+fn watched(priority: AdmissionPriority) -> (AdmissionRequest, tokio::sync::oneshot::Receiver<()>) {
+    let (queued, waited) = tokio::sync::oneshot::channel();
+    let request = AdmissionRequest {
+        provider_id: "p".to_owned(),
+        priority,
+        on_queued: QueuedNotice::new(move || {
+            // The test may have stopped listening.
+            let _ = queued.send(());
+        }),
+    };
+    (request, waited)
+}
+
+/// Interactive, then background counters.
+fn classes(
+    active: u32,
+    waiting: u32,
+    background: u32,
+    background_waiting: u32,
+) -> AdmissionSnapshot {
+    AdmissionSnapshot {
+        active,
+        waiting,
+        background_active: background,
+        background_waiting,
+    }
+}
+
+/// The supervisor's own compactor takes background slots of the registry
+/// its workers share. At a limit of one, a worker's request takes the slot
+/// from it at once; the compactor's next request waits, and the slot goes
+/// to a worker's waiting request (the next round of a turn) before it.
+#[tokio::test]
+async fn a_workers_request_preempts_the_supervisors_compactor_at_a_limit_of_one() {
+    let harness = harness(&json!({ "providerMaxInFlight": { "p": 1 } }), &["a", "b"]).await;
+    let compactor = AdmissionHandle::new(Arc::clone(&harness.supervisor.provider_admission));
+    let background = compactor
+        .acquire(watched(Background).0)
+        .await
+        .expect("a free slot");
+    let first = within(harness.worker("a").acquire(watched(Interactive).0))
+        .await
+        .expect("admitted at once");
+    within(background.preempted()).await;
+    let (request, compactor_waits) = watched(Background);
+    let resumed = tokio::spawn(compactor.acquire(request));
+    within(compactor_waits).await.expect("the compactor waits");
+    let b = harness.worker("b");
+    let (request, round_waits) = watched(Interactive);
+    let next_round = tokio::spawn(async move { b.acquire(request).await });
+    within(round_waits).await.expect("the next round waits");
+    let while_first_runs = harness.snapshot();
+    drop(first);
+    let next_round = within(next_round)
+        .await
+        .unwrap()
+        .expect("the waiting round's slot");
+    let while_next_round_runs = harness.snapshot();
+    drop(next_round);
+    let resumed = within(resumed)
+        .await
+        .unwrap()
+        .expect("the compactor's slot");
+    drop(background);
+    assert_eq!(
+        (
+            while_first_runs,
+            while_next_round_runs,
+            harness.snapshot(),
+            resumed.preempted().now_or_never()
+        ),
+        (
+            classes(1, 1, 0, 1),
+            classes(1, 0, 0, 1),
+            classes(0, 0, 1, 0),
+            None
+        )
+    );
+}
+
+/// A worker that owns the chat runs its compactor's requests as background
+/// slots over its link: on an unlimited provider they wait while another
+/// worker's request runs, and the next one preempts them through the link.
+#[tokio::test]
+async fn a_workers_background_slot_is_preempted_over_its_link() {
+    let harness = harness(&json!({}), &["a", "b"]).await;
+    let running = within(harness.worker("b").acquire(watched(Interactive).0))
+        .await
+        .expect("an unlimited provider admits at once");
+    let compactor = harness.worker("a");
+    let (request, waited) = watched(Background);
+    let waiting = tokio::spawn(async move { compactor.acquire(request).await });
+    within(waited).await.expect("the compactor waits");
+    let while_session_runs = harness.snapshot();
+    drop(running);
+    let background = within(waiting)
+        .await
+        .unwrap()
+        .expect("its slot once the session's request ended");
+    let _next = within(harness.worker("b").acquire(watched(Interactive).0))
+        .await
+        .expect("admitted at once");
+    within(background.preempted()).await;
+    assert_eq!(
+        (while_session_runs, harness.snapshot()),
+        (classes(1, 0, 0, 1), classes(1, 0, 0, 0))
+    );
 }

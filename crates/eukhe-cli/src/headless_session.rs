@@ -442,7 +442,7 @@ async fn session_config(
         // other process) does, else it is the owner's client.
         let memory = eukhe_core::memory::Memory::open(
             eukhe_core::memory::chat_dir(&config.agent_dir),
-            Arc::new(eukhe_core::memory::SettingsSummarizer::new(
+            Arc::new(eukhe_core::memory::SettingsSummarizer::in_process(
                 config.agent_dir.clone(),
             )),
         )

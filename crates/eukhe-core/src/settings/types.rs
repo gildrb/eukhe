@@ -304,10 +304,14 @@ pub struct Settings {
     pub rlm_max_depth: Option<u64>,
     /// Per-provider cap on concurrent model requests across every eukhe
     /// process of this agent dir (`{providerId: n}`); an absent provider
-    /// (or `0`) is unlimited. Read from the global settings only.
+    /// (or `0`) is unlimited. The chat-memory compactor's requests count
+    /// too, but come last: they wait while a session's request to the
+    /// provider runs or waits, and the next one preempts them. Read from
+    /// the global settings only.
     pub provider_max_in_flight: Option<std::collections::BTreeMap<String, u32>>,
-    /// How many requests may wait for a limited provider before the next
-    /// one fails at once (default 64). Read from the global settings only.
+    /// How many sessions' requests may wait for a limited provider before
+    /// the next one fails at once (default 64; the compactor's waiting
+    /// requests do not count). Read from the global settings only.
     pub provider_max_queued: Option<u32>,
     /// How many subagents may run at once in one daemon (default 32, `0`
     /// unlimited); a spawn batch that would exceed it fails whole.

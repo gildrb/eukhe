@@ -475,14 +475,7 @@ impl Worker {
         // Provider admission: the supervisor owns the daemon-wide slots
         // (a worker without one keeps the in-process authority), and the
         // session's admission state rides its roster summary.
-        if !self.config.supervisor_socket_path.as_os_str().is_empty() {
-            config.admission = Some(eukhe_core::admission::AdmissionHandle::new(Arc::new(
-                crate::provider_admission::LinkAdmission::new(
-                    self.config.supervisor_socket_path.clone(),
-                    self.config.token.clone(),
-                ),
-            )));
-        }
+        config.admission = self.supervisor_admission();
         let admission_core = Arc::clone(&self.core);
         let admission_pushes = self.roster_pushes.clone();
         config.admission_state = Some(Arc::new(move |admission| {
@@ -546,17 +539,34 @@ impl Worker {
         Ok(config)
     }
 
-    /// The chat memory every root session of this worker shares (opened once).
+    /// The supervisor's provider admission over this worker's link; `None`
+    /// for a worker without a supervisor.
+    fn supervisor_admission(&self) -> Option<eukhe_core::admission::AdmissionHandle> {
+        (!self.config.supervisor_socket_path.as_os_str().is_empty()).then(|| {
+            eukhe_core::admission::AdmissionHandle::new(Arc::new(
+                crate::provider_admission::LinkAdmission::new(
+                    self.config.supervisor_socket_path.clone(),
+                    self.config.token.clone(),
+                ),
+            ))
+        })
+    }
+
+    /// The chat memory every root session of this worker shares (opened
+    /// once). When this worker owns the chat, its compactor takes the
+    /// supervisor's background slots.
     async fn chat_memory(&self) -> anyhow::Result<eukhe_core::memory::Memory> {
-        let agent_dir = self.config.agent_dir.clone();
         self.chat_memory
             .get_or_try_init(|| {
-                eukhe_core::memory::Memory::open(
-                    eukhe_core::memory::chat_dir(&agent_dir),
-                    Arc::new(eukhe_core::memory::SettingsSummarizer::new(
-                        agent_dir.clone(),
-                    )),
-                )
+                let agent_dir = self.config.agent_dir.clone();
+                let chat = eukhe_core::memory::chat_dir(&agent_dir);
+                let summarizer = match self.supervisor_admission() {
+                    Some(admission) => {
+                        eukhe_core::memory::SettingsSummarizer::new(agent_dir, admission)
+                    }
+                    None => eukhe_core::memory::SettingsSummarizer::in_process(agent_dir),
+                };
+                eukhe_core::memory::Memory::open(chat, Arc::new(summarizer))
             })
             .await
             .cloned()

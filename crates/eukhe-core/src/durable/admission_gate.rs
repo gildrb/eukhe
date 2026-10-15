@@ -1,8 +1,12 @@
 //! The session's side of provider admission ([`crate::admission`]): every
-//! model request to a provider with a `providerMaxInFlight` limit first
-//! takes a slot from the session's [`AdmissionHandle`] and keeps it until
-//! its stream ends (done, error, abort, or a dropped consumer). Requests to
-//! unlimited providers go out untouched.
+//! model request first takes an interactive slot of its provider from the
+//! session's [`AdmissionHandle`] and keeps it until its stream ends (done,
+//! error, abort, or a dropped consumer). A limited provider
+//! (`providerMaxInFlight`) runs at most its limit; an unlimited one admits
+//! at once, and its slot only tells the chat-memory compactor's background
+//! requests to stand aside. When the authority cannot be asked (the
+//! daemon supervisor is unreachable), a request to an unlimited provider
+//! goes out without a slot; one to a limited provider fails.
 //!
 //! The gate wraps each provider row INNERMOST (under the provider runtime's
 //! failover and quota-park wrappers): a failover re-dispatch takes a slot
@@ -22,6 +26,7 @@ use eukhe_ai::models::Models;
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::daemon::agent_roster::ModelAdmission;
+use eukhe_types::daemon::AdmissionPriority;
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageEvent, ErrorReason, Model, StopReason, TranscriptContext,
     Usage,
@@ -29,7 +34,7 @@ use eukhe_types::pi_ai::{
 use futures::StreamExt as _;
 
 use super::settings::EukheSettings;
-use crate::admission::{AdmissionHandle, AdmissionRequest, QueuedNotice};
+use crate::admission::{AdmissionError, AdmissionHandle, AdmissionRequest, QueuedNotice};
 
 /// Receives the session's admission state whenever it changes (`None`: no
 /// request waits for or holds a slot). Called synchronously in change
@@ -149,7 +154,7 @@ impl AdmissionGate {
 
     /// Whether requests to `provider_id` are limited (the current global
     /// settings; a changed file applies to the next request).
-    fn limits(&self, provider_id: &str) -> bool {
+    fn limited(&self, provider_id: &str) -> bool {
         self.settings
             .manager()
             .get_admission_limits()
@@ -178,7 +183,8 @@ impl AdmissionGate {
         tokio::spawn(async move {
             let tracked = Tracked::new(&gate.tracker);
             let acquire = gate.admission.acquire(AdmissionRequest {
-                provider_id,
+                provider_id: provider_id.clone(),
+                priority: AdmissionPriority::Interactive,
                 on_queued: tracked.queued_notice(),
             });
             let acquired = match &signal {
@@ -206,6 +212,17 @@ impl AdmissionGate {
                     sink.end(None);
                     return;
                 }
+                // An unlimited provider's slot only holds the compactor
+                // back: without an authority to ask, the request goes out.
+                Some(Err(error @ AdmissionError::Unavailable { .. }))
+                    if !gate.limited(&provider_id) =>
+                {
+                    tracing::warn!(
+                        provider = %provider_id,
+                        "{error}; the request to the unlimited provider goes out without a slot"
+                    );
+                    None
+                }
                 Some(Err(error)) => {
                     let message = failure(&model, StopReason::Error, error.to_string());
                     sink.push(AssistantMessageEvent::Error {
@@ -215,7 +232,7 @@ impl AdmissionGate {
                     sink.end(None);
                     return;
                 }
-                Some(Ok(permit)) => permit,
+                Some(Ok(permit)) => Some(permit),
             };
             tracked.generating();
             let inner = start(&model, &context);
@@ -275,9 +292,6 @@ pub(crate) fn wrap_models_with_admission(models: &Models, gate: &Arc<AdmissionGa
 
 fn gate_stream_fn(gate: Arc<AdmissionGate>, provider_id: String, inner: StreamFn) -> StreamFn {
     Arc::new(move |model, context, options| {
-        if !gate.limits(&provider_id) {
-            return inner(model, context, options);
-        }
         let signal = options.stream.request.signal.clone();
         let inner = Arc::clone(&inner);
         gate.admitted(
@@ -296,9 +310,6 @@ fn gate_stream_simple_fn(
     inner: StreamSimpleFn,
 ) -> StreamSimpleFn {
     Arc::new(move |model, context, options| {
-        if !gate.limits(&provider_id) {
-            return inner(model, context, options);
-        }
         let signal = options.stream.request.signal.clone();
         let inner = Arc::clone(&inner);
         gate.admitted(

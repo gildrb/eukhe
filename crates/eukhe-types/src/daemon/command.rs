@@ -59,6 +59,21 @@ pub enum AgentPeerScope {
     Roster,
 }
 
+/// The class of a model request asking for provider admission
+/// ([`DaemonCommand::ProviderAdmissionAcquire`]). Interactive requests are
+/// served in arrival order; a background request is admitted only while
+/// no interactive request of its provider holds or waits for a slot, and
+/// the next interactive request that comes preempts it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AdmissionPriority {
+    /// A session's model request (root turns and subagents alike).
+    #[default]
+    Interactive,
+    /// The chat-memory compactor's.
+    Background,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DaemonSessionLifecycle {
@@ -250,16 +265,22 @@ pub enum DaemonCommand {
         rest: JsonMap,
     },
     /// Worker -> supervisor provider admission (Rust-native): one model
-    /// request of the worker's session asks for a slot of `provider_id`
-    /// (`providerMaxInFlight`). The supervisor answers once the slot is
+    /// request of the worker's session (or of the chat-memory compactor the
+    /// worker runs) asks for a slot of `provider_id` (`providerMaxInFlight`)
+    /// in its `priority` class. The supervisor answers once the slot is
     /// taken (a `provider_admission_queued` frame first when it has to
     /// wait) or the queue is full, and holds the slot until this
-    /// connection closes. Authenticated by the worker token.
+    /// connection closes. A background slot an interactive request takes
+    /// back gets a `provider_admission_preempted` frame. Authenticated by
+    /// the worker token.
     ProviderAdmissionAcquire {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         worker_token: String,
         provider_id: String,
+        /// Absent: interactive.
+        #[serde(default)]
+        priority: AdmissionPriority,
         #[serde(flatten)]
         rest: JsonMap,
     },

@@ -125,8 +125,9 @@ pub use agent_relay::AgentRelayEvent;
 pub use chat_turn_wait::CHAT_TURN_WAIT_NOTICE;
 pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
-    AgentPeerScope, CycleDirection, DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType,
-    DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput, StreamingBehavior,
+    AdmissionPriority, AgentPeerScope, CycleDirection, DaemonCommand, DaemonCommandEnvelope,
+    DaemonCommandFrameType, DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput,
+    StreamingBehavior,
 };
 pub use memory::{
     MemoryLine, MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryUpdate, MemoryZoom,

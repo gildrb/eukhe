@@ -9,6 +9,15 @@
 //! collection ([`crate::durable::create_models`]), which serves the
 //! registered pi-ai models only. It asks for at most [`MAX_TOKENS`], and a
 //! dropped call cancels it.
+//!
+//! Every request first takes a background slot of its provider from the
+//! same admission authority as the sessions' requests
+//! ([`crate::admission`]), so `providerMaxInFlight` bounds the compactor
+//! and the sessions together. A background request waits while a session
+//! request of its provider runs or waits, and a session request that comes
+//! while it runs preempts it: the call stops its request at once and asks
+//! again, so it resumes once the provider is free. A preemption is a
+//! pause, never a failure of the call.
 
 use std::path::{Path, PathBuf};
 
@@ -17,9 +26,11 @@ use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
 use eukhe_chord::context::AbortController;
 use eukhe_types::ai::{Model, ModelThinkingLevel};
+use eukhe_types::daemon::AdmissionPriority;
 use eukhe_types::pi_ai::{self, Context};
 
 use super::compactor::{Summarizer, SummarizerFuture};
+use crate::admission::{local_admission, AdmissionHandle, AdmissionRequest, QueuedNotice};
 
 /// The `session_id` of every compactor request: providers key prompt-cache
 /// routing on it, and the compactor's `<chat>` prefix is shared across
@@ -43,55 +54,124 @@ impl Drop for AbortOnDrop {
 }
 
 /// The settings-backed compactor model.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SettingsSummarizer {
     agent_dir: PathBuf,
+    admission: AdmissionHandle,
 }
 
 impl SettingsSummarizer {
-    /// Resolve against the settings, auth and models of `agent_dir`.
+    /// Resolve against the settings, auth and models of `agent_dir`, and
+    /// take every request's slot from `admission` (a daemon's supervisor
+    /// registry).
     #[must_use]
-    pub fn new(agent_dir: PathBuf) -> SettingsSummarizer {
-        SettingsSummarizer { agent_dir }
+    pub fn new(agent_dir: PathBuf, admission: AdmissionHandle) -> SettingsSummarizer {
+        SettingsSummarizer {
+            agent_dir,
+            admission,
+        }
+    }
+
+    /// [`Self::new`] with this process's in-process authority, under the
+    /// limits of `agent_dir`'s global settings as they are at each call:
+    /// the compactor of a process without a daemon.
+    #[must_use]
+    pub fn in_process(agent_dir: PathBuf) -> SettingsSummarizer {
+        let settings_dir = agent_dir.clone();
+        let admission = local_admission(move || {
+            crate::settings::SettingsManager::create(&settings_dir, &settings_dir)
+                .get_admission_limits()
+        });
+        SettingsSummarizer::new(agent_dir, admission)
     }
 }
 
 impl Summarizer for SettingsSummarizer {
     fn complete(&self, context: Context) -> SummarizerFuture {
         let agent_dir = self.agent_dir.clone();
+        let admission = self.admission.clone();
         Box::pin(async move {
             // Resolution reads settings and auth from disk and may refresh
             // an OAuth token with a blocking request: off the executor.
-            let target = tokio::task::spawn_blocking(move || resolve(&agent_dir))
-                .await
-                .map_err(|error| anyhow::anyhow!("compactor model resolution failed: {error}"))??;
-            let abort = AbortOnDrop(AbortController::new());
-            let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
-                stream: StreamOptions {
-                    session_id: Some(COMPACTOR_SESSION.to_string()),
-                    // A model budget of 0 names none.
-                    max_tokens: Some(match target.model.max_tokens {
-                        0 => MAX_TOKENS,
-                        budget => budget.min(MAX_TOKENS),
-                    }),
-                    ..StreamOptions::default()
-                },
-                reasoning: reasoning(target.thinking),
-                ..SimpleStreamOptions::default()
+            let resolve_target = || {
+                let agent_dir = agent_dir.clone();
+                async move {
+                    tokio::task::spawn_blocking(move || resolve(&agent_dir))
+                        .await
+                        .map_err(|error| {
+                            anyhow::anyhow!("compactor model resolution failed: {error}")
+                        })?
+                }
+            };
+            let mut target = resolve_target().await?;
+            loop {
+                let (queued, mut waited) = tokio::sync::oneshot::channel();
+                let permit = admission
+                    .acquire(AdmissionRequest {
+                        provider_id: target.model.provider.clone(),
+                        priority: AdmissionPriority::Background,
+                        on_queued: QueuedNotice::new(move || {
+                            // The receiver lives until the acquire
+                            // returned, so the send cannot fail.
+                            let _ = queued.send(());
+                        }),
+                    })
+                    .await?;
+                if waited.try_recv().is_ok() {
+                    // The wait may have outlasted the credentials or the
+                    // settings: resolve again, and when the compactor's
+                    // provider changed meanwhile, ask that one.
+                    let fresh = resolve_target().await?;
+                    let moved = fresh.model.provider != target.model.provider;
+                    target = fresh;
+                    if moved {
+                        continue;
+                    }
+                }
+                let abort = AbortOnDrop(AbortController::new());
+                let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
+                    stream: StreamOptions {
+                        session_id: Some(COMPACTOR_SESSION.to_string()),
+                        // A model budget of 0 names none.
+                        max_tokens: Some(match target.model.max_tokens {
+                            0 => MAX_TOKENS,
+                            budget => budget.min(MAX_TOKENS),
+                        }),
+                        ..StreamOptions::default()
+                    },
+                    reasoning: reasoning(target.thinking),
+                    ..SimpleStreamOptions::default()
+                }
+                .into();
+                options.options.stream.request.signal = Some(abort.0.signal());
+                options
+                    .options
+                    .stream
+                    .request
+                    .api_key
+                    .clone_from(&target.api_key);
+                options.options.stream.request.headers = target.headers.as_ref().map(|headers| {
+                    headers
+                        .iter()
+                        .map(|(name, value)| (name.clone(), Some(value.clone())))
+                        .collect()
+                });
+                tokio::select! {
+                    biased;
+                    reply = target.models.complete_simple(&target.model, context.clone(), options) => {
+                        return Ok(reply);
+                    }
+                    () = permit.preempted() => {}
+                }
+                // Preempted: the slot is gone already; the request stops
+                // now, and the call asks for a slot again.
+                drop(abort);
+                tracing::debug!(
+                    target: "chat_memory",
+                    provider = %target.model.provider,
+                    "a session request preempted a compactor call; it resumes once the provider is free"
+                );
             }
-            .into();
-            options.options.stream.request.signal = Some(abort.0.signal());
-            options.options.stream.request.api_key = target.api_key;
-            options.options.stream.request.headers = target.headers.map(|headers| {
-                headers
-                    .into_iter()
-                    .map(|(name, value)| (name, Some(value)))
-                    .collect()
-            });
-            Ok(target
-                .models
-                .complete_simple(&target.model, context, options)
-                .await)
         })
     }
 }
@@ -211,15 +291,36 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
     use std::future::Future;
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use eukhe_types::pi_ai::{Message, UserContent, UserMessage};
+    use eukhe_types::pi_ai::{
+        AssistantContentBlock, AssistantMessage, Message, UserContent, UserMessage,
+    };
+    use futures::future::BoxFuture;
+    use futures::FutureExt as _;
     use serde_json::{json, Value};
+    use tempfile::TempDir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::mpsc;
 
     use super::*;
+    use crate::admission::{
+        AdmissionError, AdmissionRegistry, AdmissionSnapshot, LocalAdmission, ModelPermit,
+        ProviderAdmission,
+    };
+    use crate::memory::{chat_dir, Kind, Memory, MemoryStatus, NODE};
+
+    /// A reply that starts, then stalls.
+    const STALLED: &str = concat!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\n",
+        r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"m","#,
+        r#""choices":[{"index":0,"delta":{"content":"li"},"finish_reason":null}]}"#,
+        "\n\n",
+    );
 
     /// Fail instead of hanging when a step never comes.
     async fn within<F: Future>(future: F) -> F::Output {
@@ -256,15 +357,101 @@ mod tests {
         }
     }
 
-    /// A compactor call asks for at most [`MAX_TOKENS`], however large the
-    /// model's own budget, and dropping it mid-stream closes its request:
-    /// the provider streams on a task of its own.
-    #[tokio::test]
-    async fn a_compactor_call_is_capped_and_closes_its_request_when_dropped() {
+    /// Answer one request with `content`, then close the connection.
+    async fn reply_with(mut socket: TcpStream, content: &str) {
+        let mut answer = String::from(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n",
+        );
+        for (delta, finish_reason) in [
+            (json!({"role": "assistant", "content": content}), None),
+            (json!({}), Some("stop")),
+        ] {
+            let chunk = json!({
+                "id": "c",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "m",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]
+            });
+            write!(answer, "data: {chunk}\n\n").unwrap();
+        }
+        answer.push_str("data: [DONE]\n\n");
+        socket.write_all(answer.as_bytes()).await.unwrap();
+    }
+
+    /// Whether the client closed `socket` (a reset closes it as well as an
+    /// end of stream).
+    async fn closed(socket: &mut TcpStream) -> bool {
+        let mut rest = [0u8; 1];
+        within(socket.read(&mut rest)).await.unwrap_or(0) == 0
+    }
+
+    fn context(text: &str) -> Context {
+        Context {
+            system_prompt: None,
+            messages: vec![Message::User(UserMessage {
+                content: UserContent::Text(text.to_string()),
+                timestamp: 0,
+            })],
+            tools: None,
+        }
+    }
+
+    fn text(reply: &AssistantMessage) -> String {
+        reply
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+                AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => None,
+            })
+            .collect()
+    }
+
+    /// The tests' admission authority: a registry of its own (never the
+    /// process's shared one) at the agent dir's limits, reporting the class
+    /// of every request that has to wait.
+    struct Watched {
+        inner: LocalAdmission,
+        queued: mpsc::UnboundedSender<AdmissionPriority>,
+    }
+
+    impl ProviderAdmission for Watched {
+        async fn acquire(&self, request: AdmissionRequest) -> Result<ModelPermit, AdmissionError> {
+            let AdmissionRequest {
+                provider_id,
+                priority,
+                on_queued,
+            } = request;
+            let queued = self.queued.clone();
+            self.inner
+                .acquire(AdmissionRequest {
+                    provider_id,
+                    priority,
+                    on_queued: QueuedNotice::new(move || {
+                        on_queued.notify();
+                        queued.send(priority).unwrap();
+                    }),
+                })
+                .await
+        }
+    }
+
+    /// An agent dir whose compactor model `local/m` is served by
+    /// `listener`, with `limits` as its `providerMaxInFlight`.
+    struct Setup {
+        dir: TempDir,
+        listener: TcpListener,
+        registry: Arc<AdmissionRegistry>,
+        admission: AdmissionHandle,
+        queued: mpsc::UnboundedReceiver<AdmissionPriority>,
+    }
+
+    async fn setup(limits: Value) -> Setup {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let dir = tempfile::tempdir().unwrap();
-        let settings = json!({"memory": {"model": "local/m"}});
+        let settings = json!({"memory": {"model": "local/m"}, "providerMaxInFlight": limits});
         std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
         let models = json!({"providers": {"local": {
             "baseUrl": format!("http://127.0.0.1:{port}/v1"),
@@ -273,38 +460,163 @@ mod tests {
             "models": [{"id": "m", "contextWindow": 262_144, "maxTokens": 131_072}]
         }}});
         std::fs::write(dir.path().join("models.json"), models.to_string()).unwrap();
-        let call = tokio::spawn(SettingsSummarizer::new(dir.path().to_path_buf()).complete(
-            Context {
-                system_prompt: None,
-                messages: vec![Message::User(UserMessage {
-                    content: UserContent::Text("hi".to_string()),
-                    timestamp: 0,
-                })],
-                tools: None,
-            },
-        ));
-        let (mut socket, _) = within(listener.accept()).await.unwrap();
+        let registry = Arc::new(AdmissionRegistry::default());
+        let settings_dir = dir.path().to_path_buf();
+        let inner = LocalAdmission::new(Arc::clone(&registry), move || {
+            crate::settings::SettingsManager::create(&settings_dir, &settings_dir)
+                .get_admission_limits()
+        });
+        let (sender, queued) = mpsc::unbounded_channel();
+        Setup {
+            dir,
+            listener,
+            registry,
+            admission: AdmissionHandle::new(Arc::new(Watched {
+                inner,
+                queued: sender,
+            })),
+            queued,
+        }
+    }
+
+    impl Setup {
+        fn summarizer(&self) -> SettingsSummarizer {
+            SettingsSummarizer::new(self.dir.path().to_path_buf(), self.admission.clone())
+        }
+
+        fn snapshot(&self) -> AdmissionSnapshot {
+            self.registry.controller("local").snapshot()
+        }
+
+        /// A session's request to the compactor's provider.
+        fn interactive(&self) -> BoxFuture<'static, Result<ModelPermit, AdmissionError>> {
+            self.admission.acquire(AdmissionRequest {
+                provider_id: "local".to_string(),
+                priority: AdmissionPriority::Interactive,
+                on_queued: QueuedNotice::new(|| {}),
+            })
+        }
+
+        async fn accept(&self) -> TcpStream {
+            within(self.listener.accept()).await.unwrap().0
+        }
+    }
+
+    /// A compactor call asks for at most [`MAX_TOKENS`], however large the
+    /// model's own budget, and dropping it mid-stream closes its request:
+    /// the provider streams on a task of its own.
+    #[tokio::test]
+    async fn a_compactor_call_is_capped_and_closes_its_request_when_dropped() {
+        let setup = setup(json!({})).await;
+        let call = tokio::spawn(setup.summarizer().complete(context("hi")));
+        let mut socket = setup.accept().await;
         let body = within(read_body(&mut socket)).await;
-        // The reply starts, then stalls.
-        socket
-            .write_all(
-                concat!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\n",
-                    r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"m","#,
-                    r#""choices":[{"index":0,"delta":{"content":"li"},"finish_reason":null}]}"#,
-                    "\n\n",
-                )
-                .as_bytes(),
+        socket.write_all(STALLED.as_bytes()).await.unwrap();
+        call.abort();
+        assert_eq!(
+            (
+                body["max_completion_tokens"].clone(),
+                closed(&mut socket).await
+            ),
+            (json!(MAX_TOKENS), true)
+        );
+    }
+
+    /// The compactor's calls take slots of their provider: past
+    /// `providerMaxInFlight` the next call waits, and goes out once the
+    /// slot frees.
+    #[tokio::test]
+    async fn compactor_calls_count_against_the_providers_limit() {
+        let mut setup = setup(json!({"local": 1})).await;
+        let first = tokio::spawn(setup.summarizer().complete(context("first")));
+        let mut held = setup.accept().await;
+        within(read_body(&mut held)).await;
+        let second = tokio::spawn(setup.summarizer().complete(context("second")));
+        let waited = within(setup.queued.recv()).await;
+        let while_held = setup.snapshot();
+        reply_with(held, "one").await;
+        let first = text(&within(first).await.unwrap().unwrap());
+        let mut next = setup.accept().await;
+        let body = within(read_body(&mut next)).await;
+        reply_with(next, "two").await;
+        let second = text(&within(second).await.unwrap().unwrap());
+        assert_eq!(
+            (
+                waited,
+                while_held,
+                body["messages"].to_string().contains("second"),
+                first,
+                second,
+                setup.snapshot()
+            ),
+            (
+                Some(AdmissionPriority::Background),
+                AdmissionSnapshot {
+                    background_active: 1,
+                    background_waiting: 1,
+                    ..AdmissionSnapshot::default()
+                },
+                true,
+                "one".to_string(),
+                "two".to_string(),
+                AdmissionSnapshot::default()
             )
+        );
+    }
+
+    /// A session request that comes while the compactor's call holds the
+    /// provider's only slot is admitted at once, and the call's request
+    /// stops; the call waits while the session's request runs, then goes
+    /// out again and builds its node: a preemption is no failure.
+    #[tokio::test]
+    async fn a_session_request_preempts_a_compactor_call_which_resumes_after_it() {
+        let mut setup = setup(json!({"local": 1})).await;
+        let memory = Memory::open(chat_dir(setup.dir.path()), Arc::new(setup.summarizer()))
             .await
             .unwrap();
-        call.abort();
-        let mut rest = [0u8; 1];
-        // A reset closes it as well as an end of stream.
-        let closed = within(socket.read(&mut rest)).await.unwrap_or(0);
+        memory.append(Kind::Echo, &"y".repeat(NODE)).await.unwrap();
+        let mut preempted = setup.accept().await;
+        within(read_body(&mut preempted)).await;
+        preempted.write_all(STALLED.as_bytes()).await.unwrap();
+        let session = setup
+            .interactive()
+            .now_or_never()
+            .expect("admitted at once")
+            .expect("a slot");
+        let stopped = closed(&mut preempted).await;
+        let waited = within(setup.queued.recv()).await;
+        let while_session_runs = setup.snapshot();
+        drop(session);
+        let mut resumed = setup.accept().await;
+        within(read_body(&mut resumed)).await;
+        reply_with(resumed, "echo: many y").await;
         assert_eq!(
-            (body["max_completion_tokens"].clone(), closed),
-            (json!(MAX_TOKENS), 0)
+            (
+                stopped,
+                waited,
+                while_session_runs,
+                within(memory.settled_render()).await.unwrap().text,
+                memory.status().await.unwrap()
+            ),
+            (
+                true,
+                Some(AdmissionPriority::Background),
+                AdmissionSnapshot {
+                    active: 1,
+                    background_waiting: 1,
+                    ..AdmissionSnapshot::default()
+                },
+                "<chat>\n0+1|echo: many y\n</chat>".to_string(),
+                MemoryStatus {
+                    messages: 1,
+                    nodes: 1,
+                    view_lines: 1,
+                    view_bytes: "echo: many y".len() as u64,
+                    unsummarized: 0,
+                    running: 0,
+                    last_error: None,
+                }
+            )
         );
     }
 }

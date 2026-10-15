@@ -2,7 +2,10 @@
 //! own worker process, so the supervisor owns the one
 //! [`AdmissionRegistry`] of the daemon (`providerMaxInFlight` /
 //! `providerMaxQueued`, omp2 `AdmissionController` semantics) and workers
-//! ask it over their supervisor link ([`LinkAdmission`]).
+//! ask it over their supervisor link ([`LinkAdmission`]). The chat
+//! memory's compactor asks the same registry for background slots: in
+//! this process when the supervisor owns the chat ([`SupervisorAdmission`]
+//! is an admission authority itself), over the link when a worker does.
 //!
 //! A slot is bound to the connection that took it: the worker opens one
 //! connection per model request, the supervisor answers once the slot is
@@ -11,7 +14,9 @@
 //! closes. A finished, failed, or aborted request closes it by dropping
 //! its permit; a dead worker's sockets close with its process, so the
 //! supervisor reclaims its slots (and its place in the queue) without any
-//! liveness bookkeeping.
+//! liveness bookkeeping. A background slot an interactive request preempts
+//! is free at once; its connection gets a `provider_admission_preempted`
+//! frame, and the worker stops the request.
 //!
 //! The limits are the global settings' (`<agent-dir>/settings.json`),
 //! re-read when that file changes (one `stat` per request): a new limit
@@ -26,6 +31,7 @@ use eukhe_core::admission::{
     Admission, AdmissionError, AdmissionLimits, AdmissionRegistry, AdmissionRejected,
     AdmissionRequest, ModelPermit, ProviderAdmission, ProviderPermit,
 };
+use eukhe_types::daemon::AdmissionPriority;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -35,6 +41,10 @@ use crate::supervisor_link::SupervisorLink;
 
 /// The frame a waiting acquire receives before its answer.
 pub(crate) const QUEUED_FRAME: &str = "provider_admission_queued";
+
+/// The frame a background slot's connection receives when an interactive
+/// request preempted it (possibly before the acquire's answer).
+pub(crate) const PREEMPTED_FRAME: &str = "provider_admission_preempted";
 
 /// How long a worker waits for the supervisor connection itself (the slot
 /// wait has no deadline).
@@ -168,20 +178,32 @@ impl SupervisorAdmission {
     }
 }
 
+impl ProviderAdmission for SupervisorAdmission {
+    /// The supervisor's own requests (its chat memory's compactor) take
+    /// their slots in this process.
+    #[tracing::instrument(level = "debug", skip_all, fields(provider = %request.provider_id))]
+    async fn acquire(&self, request: AdmissionRequest) -> Result<ModelPermit, AdmissionError> {
+        self.refresh_limits();
+        self.registry.acquire(request).await
+    }
+}
+
 /// The acquire command's inputs.
 pub(crate) struct AcquireCommand<'a> {
     pub(crate) command_id: &'a str,
     pub(crate) type_name: &'a str,
     pub(crate) worker_token: &'a str,
     pub(crate) provider_id: &'a str,
+    pub(crate) priority: AdmissionPriority,
     pub(crate) connection_id: &'a str,
 }
 
 impl Supervisor {
-    /// `provider_admission_acquire`: take a slot of the provider for the
-    /// requesting connection, waiting in the provider's queue when every
-    /// slot is taken (the queued frame goes out first), or fail at once
-    /// when the queue is full (`data.queueLimit` names the limit).
+    /// `provider_admission_acquire`: take a slot of the provider in the
+    /// request's class for the requesting connection, waiting in the
+    /// provider's queue when it has to (the queued frame goes out first),
+    /// or fail at once when the queue is full (`data.queueLimit` names the
+    /// limit). A preempted background slot gets the preempted frame.
     pub(crate) async fn handle_provider_admission_acquire(
         self: &Arc<Self>,
         acquire: AcquireCommand<'_>,
@@ -192,6 +214,7 @@ impl Supervisor {
             type_name,
             worker_token,
             provider_id,
+            priority,
             connection_id,
         } = acquire;
         let failure = |error: &str| response_failure(Some(command_id), type_name, error, None);
@@ -208,7 +231,7 @@ impl Supervisor {
         }) else {
             return failure("the admission connection closed");
         };
-        let permit = match admission.registry.controller(provider_id).admit() {
+        let permit = match admission.registry.controller(provider_id).admit(priority) {
             Err(rejected) => {
                 return DaemonResponse {
                     data: Some(json!({ "queueLimit": rejected.queue_limit })),
@@ -233,8 +256,32 @@ impl Supervisor {
                 }
             }
         };
+        let preempted = permit.preemption();
         if !admission.keep(connection_id, permit) {
             return failure("the admission connection closed");
+        }
+        match priority {
+            AdmissionPriority::Interactive => {}
+            AdmissionPriority::Background => {
+                // The frame may beat the answer, which the worker allows
+                // for; a closed connection holds no slot to preempt.
+                let frame = json!({
+                    "type": PREEMPTED_FRAME,
+                    "commandId": command_id,
+                    "providerId": provider_id,
+                });
+                let stream = stream.clone();
+                tokio::spawn(async move {
+                    tokio::select! {
+                        () = preempted.cancelled() => {
+                            // A connection closing meanwhile fails the
+                            // send: its worker is gone with the slot.
+                            let _ = stream.send((vec![Outbound::Line(frame)], false)).await;
+                        }
+                        () = closed.cancelled() => {}
+                    }
+                });
+            }
         }
         response_success(
             Some(command_id),
@@ -260,29 +307,53 @@ impl LinkAdmission {
     }
 }
 
+/// Keeps a background slot's connection, watched for a preemption, until
+/// its permit drops: the watch ends then, and the connection closes with
+/// it.
+struct Watching(tokio::task::JoinHandle<()>);
+
+impl Drop for Watching {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 impl ProviderAdmission for LinkAdmission {
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(provider = %request.provider_id, priority = ?request.priority)
+    )]
     async fn acquire(&self, request: AdmissionRequest) -> Result<ModelPermit, AdmissionError> {
         let AdmissionRequest {
             provider_id,
+            priority,
             on_queued,
         } = request;
         let mut on_queued = Some(on_queued);
+        // Set by a preemption, which may come before the answer.
+        let preempted = CancellationToken::new();
+        let preempted_early = preempted.clone();
         let command = json!({
             "type": "provider_admission_acquire",
             "workerToken": self.worker_token,
             "providerId": provider_id,
+            "priority": priority,
         });
         let held = self
             .link
             .hold(command, CONNECT_TIMEOUT, |frame| {
-                if frame.get("type").and_then(Value::as_str) == Some(QUEUED_FRAME) {
+                let kind = frame.get("type").and_then(Value::as_str);
+                if kind == Some(QUEUED_FRAME) {
                     if let Some(notice) = on_queued.take() {
                         notice.notify();
                     }
+                } else if kind == Some(PREEMPTED_FRAME) {
+                    preempted_early.cancel();
                 }
             })
             .await;
-        let (response, connection) = match held {
+        let (response, mut connection) = match held {
             Ok(held) => held,
             Err(error) => {
                 return Err(AdmissionError::Unavailable {
@@ -292,7 +363,21 @@ impl ProviderAdmission for LinkAdmission {
             }
         };
         if response.success {
-            return Ok(ModelPermit::holding(connection));
+            return Ok(match priority {
+                AdmissionPriority::Interactive => ModelPermit::holding(connection),
+                AdmissionPriority::Background => {
+                    // A connection that ends takes the slot with it: a
+                    // preemption as well.
+                    let watched = preempted.clone();
+                    let watch = tokio::spawn(async move {
+                        if let Err(error) = connection.until_frame(PREEMPTED_FRAME).await {
+                            tracing::warn!("the background admission connection failed: {error:#}");
+                        }
+                        watched.cancel();
+                    });
+                    ModelPermit::preemptible(Watching(watch), preempted)
+                }
+            });
         }
         let queue_limit = response
             .data
