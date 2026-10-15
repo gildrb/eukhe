@@ -45,7 +45,10 @@ _DEFAULT_HARNESS_DIR_NAME = "harness"
 _KINDS: tuple[HarnessKind, ...] = ("prompt", "memory", "skill", "subagent", "factory")
 _state_cache: dict[tuple[Path, HarnessScope], "HarnessState"] = {}
 _LOCK_STALE_AFTER = 10.0
-_LOCK_ATTEMPTS = 50
+# How long a writer waits for a lock whose holder is not known to be alive
+# (no owner file yet, or an owner that died); a live holder is waited for
+# until its lock goes stale.
+_LOCK_WAIT = 1.0
 _LOCK_RETRY_INTERVAL = 0.02
 _PROCESS_TOKEN = uuid4().hex
 
@@ -509,10 +512,22 @@ class HarnessState:
         except OSError:
             return False
 
+    def _owner_live(self, owner_path: Path) -> bool:
+        try:
+            recorded = owner_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return False
+        return not self._owner_dead(recorded)
+
     def _acquire_lock_dir(self, lock_path: Path) -> str:
         owner = f"{os.getpid()} {_PROCESS_TOKEN}.{uuid4().hex}"
         owner_path = lock_path / "owner"
-        for _ in range(_LOCK_ATTEMPTS):
+        started = time.monotonic()
+        # The lock directory instance last seen, and since when: a lock that
+        # keeps changing hands is progress, not a stuck holder.
+        seen: tuple[int, int] | None = None
+        seen_since = started
+        while True:
             try:
                 os.mkdir(lock_path)
                 try:
@@ -525,9 +540,14 @@ class HarnessState:
                 return owner
             except FileExistsError:
                 try:
-                    stale = time.time() - lock_path.stat().st_mtime > _LOCK_STALE_AFTER
+                    info = lock_path.stat()
                 except FileNotFoundError:
                     continue
+                stale = time.time() - info.st_mtime > _LOCK_STALE_AFTER
+                instance = (info.st_ino, info.st_mtime_ns)
+                now = time.monotonic()
+                if instance != seen:
+                    seen, seen_since = instance, now
                 if stale:
                     try:
                         recorded = owner_path.read_text(encoding="utf-8")
@@ -539,8 +559,15 @@ class HarnessState:
                         with contextlib.suppress(FileNotFoundError):
                             lock_path.rmdir()
                         continue
+                # Writers queue behind a live holder (another kernel saving)
+                # and behind a lock that keeps changing hands; only one lock
+                # instance held without a live owner for the short wait, or
+                # no turn for the stale bound, fails the write.
+                if now - started >= _LOCK_STALE_AFTER or (
+                    now - seen_since >= _LOCK_WAIT and not self._owner_live(owner_path)
+                ):
+                    raise RuntimeError(f"harness state lock not acquired: {lock_path}")
                 time.sleep(_LOCK_RETRY_INTERVAL)
-        raise RuntimeError(f"harness state lock not acquired: {lock_path}")
 
     @contextlib.contextmanager
     def _locked(self) -> Iterator[None]:

@@ -6,6 +6,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -554,6 +555,32 @@ class HarnessStateTest(unittest.TestCase):
                 self.assertEqual(worker.wait(), 0)
             entries = HarnessState(state_path).list("memory")
             self.assertEqual(len(entries), 80)
+
+    def test_a_writer_waits_for_a_live_holder_past_the_short_wait(self) -> None:
+        # A live holder (another kernel saving) keeps the lock longer than
+        # the short wait meant for holders not known to be alive: the writer
+        # queues behind it instead of failing.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "harness" / "harness_state.json"
+            state = HarnessState(state_path)
+            state.create("memory", "Seed", "Creates the file.", id="seed")
+            lock_dir = Path(f"{os.path.realpath(state_path)}.lock")
+            owner = state._acquire_lock_dir(lock_dir)
+
+            def release() -> None:
+                if HarnessState._owner_matches(lock_dir, owner):
+                    (lock_dir / "owner").unlink()
+                    lock_dir.rmdir()
+
+            # Held past the 1 s wait meant for holders not known to be alive.
+            holder = threading.Timer(1.3, release)
+            holder.start()
+            try:
+                HarnessState(state_path).create("memory", "Second", "Waited.", id="second")
+            finally:
+                holder.join()
+            entries = HarnessState(state_path).list("memory")
+            self.assertEqual(sorted(entry.id for entry in entries), ["second", "seed"])
 
     def test_held_lock_dir_defers_writes_and_pins_the_shared_lock_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
