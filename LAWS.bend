@@ -76,6 +76,12 @@ law merge_covers:
 law push_agrees:
   {O.agree(O.Last{}, 20001n) == True{} : Bool}
 
+# LAW: and at every step t of any number n of pushes: after each push the
+# view and push's list hold the same lines (gist §3.2, for all t)
+law push_agrees_always:
+  for n: Nat
+  {O.agree(O.Last{}, n) == True{} : Bool}
+
 # (e) A batch
 # -----------
 

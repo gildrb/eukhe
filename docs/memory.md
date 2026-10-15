@@ -45,7 +45,9 @@ bridge test skips with a message when `bend` is not installed. In CI,
 The model keeps a node's index `i` in binary, lowest bit first. So the
 parent of a node is one step away: drop the lowest bit. All arithmetic of the
 merge order runs on these bits. The proof kernel has unary numbers, so this
-keeps the bounded proofs (law d) inside its fuel.
+keeps the bounded proofs (law d) inside its fuel. The universal proofs read
+a bit list through its value (`Bits.val`): comparing, adding and shifting
+bit lists does the same to their values (`bend/proof_agree.bend`).
 
 The model uses lists, not arrays, and says why:
 
@@ -56,6 +58,13 @@ The model uses lists, not arrays, and says why:
   is a sparse map that only grows; lookups take about 20 steps.
 - Numbers in binary: a list of about 20 bits. The kernel checks these
   fast, and the proofs use plain induction on them.
+- The proofs: every universal law is proven by induction on these lists
+  (`push_agrees_always` inducts on the view as "the view one level up,
+  then one line"). Bend 2.0.37's `Array` is a `Type`: it has one owner, so
+  a state holding one could not be reused or compared in a law. It is
+  indexed by a `U32` that wraps around, and Base proves nothing about its
+  reads and writes. An array model would need its own proven array theory
+  and a proven bridge to these laws, for no less work per merge.
 
 The model is a specification, not the production code. The Rust code is
 the production code. The bridge test runs the compiled model
@@ -82,6 +91,7 @@ computation for the inputs named.
 | `merge_is_one_pair` | §3.1 | A merge replaces two sibling lines with their built parent, or changes nothing. | Universal |
 | `merge_covers` | §3.1 | A merge keeps the coverage. | Universal |
 | `push_agrees` | §3.2 | With push's list length as the budget, the due order makes exactly the merges of Taelin's push, at every step. | Bounded: t = 0..20,000 (the gist's own check) |
+| `push_agrees_always` | §3.1, §3.2 | The same at every step t of any number of pushes. | Universal |
 | `fit_reaches_budget` | §3.2 | A batch ends at or under its budget, unless no pair can merge (unbuilt parents). | Universal |
 | `fit_merges_built` | §3.2 | A batch merges only into built parents. | Universal |
 | `view_summarized` | §3 | After any history, every merged line of the view is built. Only a message's own line can wait for its summary. | Universal |
@@ -93,17 +103,35 @@ computation for the inputs named.
 | `context_ends_at_node` | §4 | A compaction's view ends at its node, and has only built lines. | Universal |
 | `context_is_prefix` | §4 | A compaction's view is the start of the compaction view. | Universal |
 
-A universal proof of `push_agrees` needs a closed form of push's list and
-of the view for every T, and a comparison of every pair's due. That proof
-is not done. The law holds for t = 0..20,000, the range the gist checked. The
-model also counts the steps where `first` agrees with push: 481 of 20,001,
-as the gist says (`O.agree.count(O.First{}, 20001n)`).
+`push_agrees_always` proves the gist's claim for every t
+(`bend/proof_agree.bend`). Under push alone, Taelin's list is a bijective
+binary counter: with keep bits `d_j` (newest entry first), T messages are
+`T = sum (1 + d_j)·2^j`, and entry j is one line of level `j + d_j`. The
+proof writes push's list (`pa.GE`) and the view (`pa.GV`) as functions of
+these digits, and shows that every step takes both to the next count:
+
+- Push is the digit increment: a 0 absorbs, a 1 carries (`pa.push_ge`).
+- The view's lines start where push's states are (`pa.same_lines`).
+- The fit makes exactly the carry's merge (`pa.step`). If the lowest digit
+  is 1, the view is the view of the higher digits one level up, plus the
+  new line. Between lifted lines the due order is the same (T + 2
+  doubles), so the step is the lifted step (`pa.fit_lift`). If it is 0, the
+  pair (line 0, the new line) is due exactly 1. Every older line ends at
+  most `2^(l+1) - 2` messages before its view ends (`pa.Good`), so it is
+  due less than 1 (`pa.old_one`). No later pair can merge: their levels
+  differ by one. With push's length as the budget, this one merge is all
+  the fit makes; when every digit is 1, push's list grows and the fit
+  merges nothing.
+
+The bounded law stays: its proof is a computation, independent of this
+one. The model also counts the steps where `first` agrees with push: 481
+of 20,001, as the gist says (`O.agree.count(O.First{}, 20001n)`).
 
 The kernel cannot run 20,001 steps in one check (it runs out of fuel), so
 `bend/proof_push.bend` cuts the run into 20 chunks of 1,000 steps and one
 step. A lemma proven by induction joins the chunks. Each chunk starts from
 a written-out state and is checked by computation. On this machine
-`bend PROOF.bend` takes about 32 s and `--verdict` about 2 min 20 s.
+`bend PROOF.bend` takes about 30 s and `--verdict` about 2 min 15 s.
 
 ### What is trusted
 
@@ -114,7 +142,13 @@ a written-out state and is checked by computation. On this machine
   runtime, and clang, which build the bridge binary.
 - The bridge and the laws catch real mistakes. Each of these breaks was
   made on purpose and then removed:
-  - Due from `first` in the model: `last_merges_8_9` fails.
+  - Due from `first` in the model: `last_merges_8_9` fails, and so does
+    the proof of `push_agrees_always`.
+  - Due without the shift (`t` for `T + 1` in `more_due`), or with the two
+    pairs' levels swapped in the cross comparison: the proof of
+    `push_agrees_always` fails.
+  - A budget of push's list length + 1 in `agree.go`: the proof of
+    `push_agrees_always` fails.
   - Merging into an unbuilt parent in the model (`mergeable` without the
     built check): the proof of `fit_merges_built` fails.
   - Due from `first` in the Rust code: the bridge fails.
@@ -180,8 +214,8 @@ the reason).
 | 16 | Newlines turned into spaces. | `view.rs` `flatten` | Bridge (each node text has a newline); `view::tests::flatten_turns_every_newline_into_one_space` (`\r\n`, `\r`) | matched |
 | 17 | No dates: the model calls `date(id)`. | `View::render`; `optchat/tools.rs` | `service::tests::dates_read_as_local_date_and_time` | matched |
 | 18 | Only summaries, never a whole message. A message not summarized yet shows as `(not summarized yet: zoom it)`. | `view.rs` `line_text`; `mod.rs` `PLACEHOLDER` | Law `view_summarized`; bridge; `view::tests::placeholders_count_until_built` | matched |
-| 19 | The merge order: the most due pair whose parent is built, `due = (T - last)/2^l`, oldest of equal pairs; repeat. | `view.rs` `View::fit`, `more_due` | Laws `push_agrees`, `last_merges_8_9`, `fit_merges_built`; bridge | matched |
-| 20 | With push's list length as budget, it makes push's merges at every step. | `View::fit` | Law `push_agrees` (bounded, t ≤ 20,000) | matched |
+| 19 | The merge order: the most due pair whose parent is built, `due = (T - last)/2^l`, oldest of equal pairs; repeat. | `view.rs` `View::fit`, `more_due` | Laws `push_agrees_always`, `push_agrees`, `last_merges_8_9`, `fit_merges_built`; bridge | matched |
+| 20 | With push's list length as budget, it makes push's merges at every step. | `View::fit` | Law `push_agrees_always` (universal: every t); law `push_agrees` (bounded, t ≤ 20,000) | matched |
 | 21 | Measuring from `first` is wrong: at T = 10 it merges `0-7`, push merges `8-9`. | `View::fit` (uses `last`) | Laws `first_merges_0_7`, `first_is_not_last`, `first_leaves_push` | matched |
 | 22 | Each new message appends its line. Nothing else changes. | `chat.rs` `Chat::grow` | Laws `message_appends`, `message_merges_nothing`; bridge | matched |
 | 23 | Past 128,000 bytes, one batch merges the most due pairs down to 64,000 bytes. | `mod.rs` `VIEW_CEILING`, `VIEW_FLOOR`; `chat.rs` `Chat::batch` | Law `fit_reaches_budget`; bridge | matched |
@@ -240,7 +274,7 @@ the reason).
 
 | # | Mistake | Avoided by | Secured by |
 | --- | --- | --- | --- |
-| 59 | 1. Age from a pair's first message. | Rule 19 (`last`) | Laws `first_is_not_last`, `push_agrees` |
+| 59 | 1. Age from a pair's first message. | Rule 19 (`last`) | Laws `first_is_not_last`, `first_leaves_push`, `push_agrees_always` |
 | 60 | 2. Merging at every message. | Rules 22-24 | Laws `message_appends`, `fit_reaches_budget`; bridge |
 | 61 | 3. Rebuilding the view per turn or at a restart. | Rule 25 | `chat::tests::a_restart_keeps_a_shrinking_view_shrinking` |
 | 62 | 4. K lines per level. | Rule 23 (a byte budget) | Law `fit_reaches_budget` |

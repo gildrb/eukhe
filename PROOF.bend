@@ -1,7 +1,8 @@
 # PROOF: one proof per law of LAWS.bend. The proofs and their lemmas live
 # in bend/proof_cover.bend (coverage, messages, merges), bend/proof_fit.bend
-# (batches, summarized lines, compaction views) and bend/proof_push.bend
-# (Taelin's push and the T = 10 example, by computation).
+# (batches, summarized lines, compaction views), bend/proof_push.bend
+# (Taelin's push up to 20,000 and the T = 10 example, by computation) and
+# bend/proof_agree.bend (Taelin's push at every step, by induction).
 #
 #   bend PROOF.bend             checks every proof
 #   bend PROOF.bend --verdict   checks them again with the proven kernel
@@ -11,6 +12,7 @@ import ./LAWS.bend as Laws
 import ./bend/proof_cover.bend as Cover
 import ./bend/proof_fit.bend as Fit
 import ./bend/proof_push.bend as Push
+import ./bend/proof_agree.bend as Agree
 
 # (a) The view
 
@@ -40,6 +42,9 @@ def Laws.merge_covers(info, s, v, w, e, tiles, merged):
 
 def Laws.push_agrees():
   Push.push_agrees()
+
+def Laws.push_agrees_always(n):
+  Agree.push_agrees_always(n)
 
 # (e) A batch
 
