@@ -3,12 +3,14 @@
 //! over loaded data; the owner (`service`) performs every read and write.
 
 #[cfg(test)]
+mod bridge;
+#[cfg(test)]
 mod tests;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
-use super::store::{Loaded, MessageMeta, NodeRecord};
+use super::store::{Loaded, MergeRecord, MessageMeta, NodeRecord};
 use super::view::{flatten, line_text, tiled_end, NodeTexts, Part, View};
 use super::{
     labeled, Kind, COMPACTION_CEILING, COMPACTION_FLOOR, JOBS, NODE, VIEW_CEILING, VIEW_FLOOR,
@@ -55,18 +57,57 @@ pub(crate) enum Zoom {
     NoLine,
 }
 
-/// One batch of the view's sawtooth (§3.2): merging `merged` (in order)
-/// took the view from `before` to `after` bytes.
+/// One batch of the view's sawtooth (§3.2): at message `total - 1`,
+/// merging `merged` (in order, maybe none) took the view from `before` to
+/// `after` bytes; `open` when it is still over its floor, so the next
+/// message merges what it can.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Batch {
     pub merged: Vec<Part>,
     pub before: usize,
     pub after: usize,
+    pub open: bool,
+    pub total: u64,
+}
+
+impl Batch {
+    /// The batch as its `tree/` line.
+    pub(crate) fn record(&self) -> MergeRecord {
+        MergeRecord {
+            open: self.open,
+            t: Some(self.total),
+            ..MergeRecord::of(&self.merged)
+        }
+    }
+}
+
+/// The byte budgets of the two sawtooths and the compactor's job slots
+/// (§3.2, §4). Only the bridge test sets other values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Budgets {
+    pub ceiling: usize,
+    pub floor: usize,
+    pub compaction_ceiling: usize,
+    pub compaction_floor: usize,
+    pub jobs: usize,
+}
+
+impl Default for Budgets {
+    fn default() -> Budgets {
+        Budgets {
+            ceiling: VIEW_CEILING,
+            floor: VIEW_FLOOR,
+            compaction_ceiling: COMPACTION_CEILING,
+            compaction_floor: COMPACTION_FLOOR,
+            jobs: JOBS,
+        }
+    }
 }
 
 /// The chat state.
 #[derive(Debug, Default)]
 pub(crate) struct Chat {
+    budgets: Budgets,
     messages: Vec<MessageMeta>,
     nodes: Nodes,
     view: View,
@@ -84,18 +125,20 @@ pub(crate) struct Chat {
 
 impl Chat {
     /// Build the state from a load: index the nodes, then fold the view
-    /// from the log's merge batches. Returns the merges the log does not
+    /// from the log's merge batches. The view is the live one: the same
+    /// parts in the same order, and still shrinking when the last batch
+    /// left it over its floor. Returns the `tree/` lines the log does not
     /// hold yet, which the owner appends:
     ///
     /// - a chat from before the merge batches were logged imports its
     ///   saved view once, as the merges that build it;
-    /// - a view over its ceiling (the owner died between a message and its
-    ///   batch) merges its batch now.
+    /// - a shrinking view whose last message has no batch line (the owner
+    ///   died between the two writes) runs that batch now.
     pub(crate) fn from_loaded(
         loaded: Loaded,
         saved: Option<Vec<Part>>,
         problems: &mut Vec<String>,
-    ) -> (Chat, Vec<Part>) {
+    ) -> (Chat, Vec<MergeRecord>) {
         let total = loaded.messages.len() as u64;
         let mut chat = Chat {
             messages: loaded.messages,
@@ -130,11 +173,16 @@ impl Chat {
             .iter()
             .flat_map(|record| record.merge.iter().map(|&(l, i)| Part { l, i }))
             .collect();
+        let last = loaded.merges.last();
+        chat.shrinking = last.is_some_and(|record| record.open);
+        let missed = chat.shrinking && last.and_then(|record| record.t) < Some(total);
         let mut unlogged = Vec::new();
+        let mut imported = Vec::new();
         if logged.is_empty() {
             if let Some(parts) = saved {
                 if tiled_end(&parts, total).is_some() {
-                    unlogged = merges_building(&parts);
+                    imported = merges_building(&parts);
+                    unlogged.push(MergeRecord::of(&imported));
                 } else {
                     problems.push(format!(
                         "the saved view does not tile the {total} messages: ignored it"
@@ -142,11 +190,7 @@ impl Chat {
                 }
             }
         }
-        let (view, skipped) = View::fold(
-            total,
-            logged.into_iter().chain(unlogged.clone()),
-            &chat.nodes,
-        );
+        let (view, skipped) = View::fold(total, logged.into_iter().chain(imported), &chat.nodes);
         for part in skipped {
             problems.push(format!(
                 "skipped the merge into {}+{}: its halves are not in the view",
@@ -155,12 +199,14 @@ impl Chat {
             ));
         }
         chat.view = view;
-        if chat.view.size() > VIEW_CEILING {
-            unlogged.extend(chat.view.fit(total, VIEW_FLOOR, &chat.nodes));
-            chat.shrinking = chat.view.size() > VIEW_FLOOR;
+        if missed {
+            let batch = chat.batch(total);
+            unlogged.push(batch.record());
         }
+        // The compaction view starts from the view, merged down once.
         chat.compaction = chat.view.clone();
-        chat.compaction.fit(total, COMPACTION_FLOOR, &chat.nodes);
+        chat.compaction
+            .fit(total, chat.budgets.compaction_floor, &chat.nodes);
         (chat, unlogged)
     }
 
@@ -196,7 +242,7 @@ impl Chat {
     }
 
     /// A new message enters the log and the view. Returns its id and the
-    /// batch it set off, if any.
+    /// batch it ran, if any (to log, even when it merged nothing).
     pub(crate) fn push_message(&mut self, meta: MessageMeta) -> (u64, Option<Batch>) {
         let id = self.total();
         self.messages.push(meta);
@@ -204,45 +250,50 @@ impl Chat {
     }
 
     /// Message `id` (already indexed) appends its line to both views; the
-    /// view merges in batches (§3.2): once it passes [`VIEW_CEILING`], down
-    /// to [`VIEW_FLOOR`], and while that floor is out of reach (unbuilt
-    /// parents), as far as it can at every message after. The compaction
-    /// view merges with it, else on its own past [`COMPACTION_CEILING`].
+    /// view merges in batches (§3.2): once it passes its ceiling, down to
+    /// its floor, and while that floor is out of reach (unbuilt parents),
+    /// as far as it can at every message after. The compaction view merges
+    /// with it, else on its own past its ceiling.
     fn grow(&mut self, id: u64) -> Option<Batch> {
         let total = id + 1;
         self.view.append(id, &self.nodes);
         self.compaction.append(id, &self.nodes);
-        if self.view.size() > VIEW_CEILING {
-            self.shrinking = true;
-        }
-        if !self.shrinking {
+        if !self.shrinking && self.view.size() <= self.budgets.ceiling {
             self.fit_compaction(total);
             return None;
         }
+        Some(self.batch(total))
+    }
+
+    /// One batch at `total` messages: merge the view down to its floor as
+    /// far as built parents allow. When it merged, the compaction view
+    /// starts again from it, merged down to its own floor.
+    fn batch(&mut self, total: u64) -> Batch {
         let before = self.view.size();
-        let merged = self.view.fit(total, VIEW_FLOOR, &self.nodes);
-        if self.view.size() <= VIEW_FLOOR {
-            self.shrinking = false;
-        }
+        let merged = self.view.fit(total, self.budgets.floor, &self.nodes);
+        self.shrinking = self.view.size() > self.budgets.floor;
         if merged.is_empty() {
             self.fit_compaction(total);
-            return None;
+        } else {
+            self.compaction = self.view.clone();
+            self.compaction
+                .fit(total, self.budgets.compaction_floor, &self.nodes);
         }
-        // The chat's view merged: the compaction view starts again from it.
-        self.compaction = self.view.clone();
-        self.compaction.fit(total, COMPACTION_FLOOR, &self.nodes);
-        Some(Batch {
+        Batch {
             merged,
             before,
             after: self.view.size(),
-        })
+            open: self.shrinking,
+            total,
+        }
     }
 
     /// The compaction view's own sawtooth: past its ceiling, down to its
     /// floor.
     fn fit_compaction(&mut self, total: u64) {
-        if self.compaction.size() > COMPACTION_CEILING {
-            self.compaction.fit(total, COMPACTION_FLOOR, &self.nodes);
+        if self.compaction.size() > self.budgets.compaction_ceiling {
+            self.compaction
+                .fit(total, self.budgets.compaction_floor, &self.nodes);
         }
     }
 
@@ -281,7 +332,8 @@ impl Chat {
     /// unbuilt, oldest first; then the ready merges (both halves built),
     /// from the queue, never from a scan of the tree.
     pub(crate) fn candidates(&self) -> Vec<Part> {
-        let room = JOBS.saturating_sub(self.busy.len());
+        let jobs = self.budgets.jobs;
+        let room = jobs.saturating_sub(self.busy.len());
         let mut out = Vec::new();
         if room == 0 {
             return out;
@@ -291,7 +343,7 @@ impl Chat {
         let from = parts.partition_point(|part| part.start() < first);
         let mut unbuilt_before = 0;
         for part in &parts[from..] {
-            if unbuilt_before >= JOBS || out.len() >= room {
+            if unbuilt_before >= jobs || out.len() >= room {
                 break;
             }
             if self.nodes.node_text(*part).is_some() {

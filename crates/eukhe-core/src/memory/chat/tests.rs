@@ -1,6 +1,11 @@
+//! The planner's merge order, sawtooths, compaction view and work queue
+//! are secured by the Bend laws (`LAWS.bend`, `PROOF.bend`) and by the
+//! bridge test ([`super::bridge`]), which runs this code and the Bend model
+//! on the same scenarios. What stays here is what the model leaves out:
+//! node steps, zoom, free nodes, and the load from the logs.
+
 use super::*;
 use crate::memory::store::MergeRecord;
-use crate::memory::PLACEHOLDER;
 
 fn meta(kind: Kind) -> MessageMeta {
     MessageMeta {
@@ -25,298 +30,28 @@ fn part(l: u32, i: u64) -> Part {
     Part { l, i }
 }
 
-fn line() -> String {
-    "x".repeat(500)
-}
-
-/// Build node `part` and every ancestor whose sibling is built, each
-/// `line()` long: the tree as an always-caught-up compactor grows it.
-fn build_up(chat: &mut Chat, mut part: Part) {
-    chat.insert_node(part, &line());
-    while part.l < 62 {
-        let sibling = Part {
-            l: part.l,
-            i: part.i ^ 1,
-        };
-        if chat.nodes.node_text(sibling).is_none() {
-            return;
-        }
-        part = Part {
-            l: part.l + 1,
-            i: part.i / 2,
-        };
-        chat.insert_node(part, &line());
-    }
-}
-
-/// The spec's merge order, written independently of [`View::fit`]: merge
-/// the pair with the largest `(T - last) / 2^l` whose parent is built, the
-/// oldest among equals, until the parts' lines fit `floor` bytes.
-fn reference_batch(chat: &Chat, mut parts: Vec<Part>, total: u64, floor: usize) -> Vec<Part> {
-    let size = |parts: &[Part]| -> usize {
-        parts
-            .iter()
-            .map(|part| line_text(*part, &chat.nodes).len())
-            .sum()
-    };
-    while size(&parts) > floor {
-        let mut best: Option<(usize, u64, u32)> = None;
-        for at in 0..parts.len().saturating_sub(1) {
-            let (left, right) = (parts[at], parts[at + 1]);
-            let parent = part(left.l + 1, left.i / 2);
-            if left.l != right.l || left.i % 2 != 0 || chat.nodes.node_text(parent).is_none() {
-                continue;
-            }
-            let age = total - (right.end() - 1);
-            // age / 2^l > best_age / 2^best_l, cross-multiplied.
-            let better = best.is_none_or(|(_, best_age, best_l)| {
-                u128::from(age) << best_l > u128::from(best_age) << left.l
-            });
-            if better {
-                best = Some((at, age, left.l));
-            }
-        }
-        let Some((at, _, _)) = best else {
-            break;
-        };
-        parts[at] = part(parts[at].l + 1, parts[at].i / 2);
-        parts.remove(at + 1);
-    }
-    parts
-}
-
-/// Up to [`JOBS`] messages compress at once: a message's node starts once
-/// fewer than [`JOBS`] lines before it are unbuilt.
+/// A message compresses its own text; a merge joins its built halves.
 #[test]
-fn messages_compress_in_parallel_up_to_jobs_unbuilt_lines() {
-    let mut chat = chat_with(10);
-    let first: Vec<Part> = (0..JOBS as u64).map(|i| part(0, i)).collect();
-    assert_eq!(chat.candidates(), first);
-    for running in &first[..3] {
-        chat.mark_busy(*running);
-    }
-    assert_eq!(
-        chat.candidates(),
-        (3..JOBS as u64).map(|i| part(0, i)).collect::<Vec<_>>()
-    );
-    chat.insert_node(part(0, 0), "user: a");
-    chat.release(part(0, 1));
-    chat.release(part(0, 2));
-    assert_eq!(
-        chat.candidates(),
-        (1..=JOBS as u64).map(|i| part(0, i)).collect::<Vec<_>>()
-    );
-}
-
-/// A merge starts once both its halves are built, even with unbuilt
-/// lines before its end elsewhere.
-#[test]
-fn merges_start_once_both_halves_are_built() {
-    let mut chat = chat_with(4);
-    chat.insert_node(part(0, 0), "a");
-    chat.insert_node(part(0, 1), "b");
-    chat.insert_node(part(0, 3), "d");
-    assert_eq!(chat.candidates(), vec![part(0, 2), part(1, 0)]);
-    chat.insert_node(part(0, 2), "c");
-    assert_eq!(chat.candidates(), vec![part(1, 0), part(1, 1)]);
-}
-
-/// At most [`JOBS`] nodes run at once.
-#[test]
-fn the_pump_starts_at_most_jobs_nodes() {
-    let pairs = JOBS as u64 + 2;
-    let mut chat = chat_with(2 * pairs);
-    for i in 0..2 * pairs {
-        chat.insert_node(part(0, i), "x");
-    }
-    let all: Vec<Part> = (0..JOBS as u64).map(|i| part(1, i)).collect();
-    assert_eq!(chat.candidates(), all);
-    for running in &all[..3] {
-        chat.mark_busy(*running);
-    }
-    assert_eq!(chat.candidates(), all[3..]);
-    chat.release(all[0]);
-    assert_eq!(
-        chat.candidates(),
-        [all[0]]
-            .into_iter()
-            .chain(all[3..].iter().copied())
-            .collect::<Vec<_>>()
-    );
-}
-
-/// A compaction's view: the lines before a message (the message comes
-/// whole in the task), or up to a merge's last message, in the agent's
-/// `id+n|text` form, stopping at the first unbuilt line.
-#[test]
-fn the_compactor_sees_the_view_up_to_the_node() {
+fn a_node_is_built_from_its_message_or_its_halves() {
     let mut chat = chat_with(4);
     chat.insert_node(part(0, 0), "a");
     chat.insert_node(part(0, 1), "b\nc");
-    chat.insert_node(part(0, 3), "d");
     assert_eq!(
         (
             chat.step(part(0, 2)),
-            chat.context(part(0, 2)),
             chat.step(part(1, 0)),
-            chat.context(part(1, 0)),
-            chat.context(part(0, 4)),
+            chat.step(part(1, 1)),
+            chat.step(part(0, 4)),
         ),
         (
             Some(Step::Compress { message: 2 }),
-            "<chat>\n0+1|a\n1+1|b c\n</chat>".to_string(),
             Some(Step::Merge {
                 left: Arc::from("a"),
                 right: Arc::from("b\nc"),
             }),
-            "<chat>\n0+1|a\n1+1|b c\n</chat>".to_string(),
-            "<chat>\n0+1|a\n1+1|b c\n</chat>".to_string(),
-        )
-    );
-}
-
-/// A batch as (merged pairs, bytes before, bytes after).
-fn batch_shape(batch: Option<Batch>) -> Option<(usize, usize, usize)> {
-    batch.map(|batch| (batch.merged.len(), batch.before, batch.after))
-}
-
-/// §3.2's sawtooth: each message only appends its line until the view
-/// passes 128,000 bytes; then ONE batch merges the most due built pairs,
-/// oldest first among equals, down to at most 64,000 bytes.
-#[test]
-fn the_view_grows_to_the_ceiling_then_one_batch_merges_it_to_the_floor() {
-    let mut chat = Chat::default();
-    let crossing = (VIEW_CEILING / line().len()) as u64 + 1;
-    let mut batches = Vec::new();
-    let mut expected = Vec::new();
-    for id in 0..crossing {
-        let mut appended = chat.view.parts().to_vec();
-        let (_, batch) = chat.push_message(meta(Kind::User));
-        if id == crossing - 1 {
-            appended.push(part(0, id));
-            expected = reference_batch(&chat, appended, crossing, VIEW_FLOOR);
-        }
-        batches.push(batch_shape(batch));
-        build_up(&mut chat, part(0, id));
-    }
-    // The crossing message's line is still a placeholder when it lands.
-    let mut want = vec![None; crossing as usize - 1];
-    want.push(Some((
-        129,
-        128_000 + PLACEHOLDER.len(),
-        63_500 + PLACEHOLDER.len(),
-    )));
-    assert_eq!(
-        (batches, chat.view.parts().to_vec(), chat.shrinking),
-        (want, expected, false)
-    );
-    // The next message only appends again.
-    let (_, batch) = chat.push_message(meta(Kind::User));
-    assert_eq!(
-        (batch_shape(batch), chat.view.size()),
-        (None, 64_000 + PLACEHOLDER.len())
-    );
-}
-
-/// A batch merges only pairs whose parent is built; when that cannot
-/// reach the floor, every later message merges what it can until it does.
-#[test]
-fn a_batch_merges_only_built_parents_and_resumes_at_each_message() {
-    let mut chat = Chat::default();
-    let crossing = (VIEW_CEILING / line().len()) as u64 + 1;
-    let mut last = None;
-    for id in 0..crossing {
-        // When the batch comes, only `(1, 0..40)` are built above level 0.
-        if id == crossing - 1 {
-            for i in 0..40 {
-                chat.insert_node(part(1, i), &line());
-            }
-        }
-        let (_, batch) = chat.push_message(meta(Kind::User));
-        chat.insert_node(part(0, id), &line());
-        last = batch_shape(batch);
-    }
-    let first_batch = (last, chat.shrinking);
-    let stalled = batch_shape(chat.push_message(meta(Kind::User)).1);
-    chat.insert_node(part(0, crossing), &line());
-    for i in 40..60 {
-        chat.insert_node(part(1, i), &line());
-    }
-    let resumed = batch_shape(chat.push_message(meta(Kind::User)).1);
-    let mut parts: Vec<Part> = (0..60).map(|i| part(1, i)).collect();
-    parts.extend((120..=crossing + 1).map(|i| part(0, i)));
-    assert_eq!(
-        (first_batch, stalled, resumed, chat.view.parts().to_vec()),
-        (
-            (
-                Some((40, 128_000 + PLACEHOLDER.len(), 108_000 + PLACEHOLDER.len())),
-                true
-            ),
             None,
-            Some((20, 109_000 + PLACEHOLDER.len(), 99_000 + PLACEHOLDER.len())),
-            parts
+            None,
         )
-    );
-}
-
-/// Every part of `fine` lies inside one part of `coarse`, and both tile
-/// the same messages.
-fn coarsens(coarse: &[Part], fine: &[Part]) -> bool {
-    let mut at = 0;
-    for old in fine {
-        while at < coarse.len() && coarse[at].end() < old.end() {
-            at += 1;
-        }
-        let Some(new) = coarse.get(at) else {
-            return false;
-        };
-        if new.start() > old.start() || old.end() > new.end() {
-            return false;
-        }
-    }
-    coarse.last().map(|part| part.end()) == fine.last().map(|part| part.end())
-}
-
-/// §4's compaction view: merged to 16,000 bytes once, then the chat's new
-/// lines appended (its start unchanged), merged again past 32,000 bytes or
-/// when the chat's view merges; it is always the chat's view, coarser.
-#[test]
-fn the_compaction_view_keeps_its_own_sawtooth() {
-    let mut chat = Chat::default();
-    let mut violations = Vec::new();
-    let (mut own_merges, mut chat_merges) = (0, 0);
-    for id in 0..1_200u64 {
-        let old = chat.compaction.parts().to_vec();
-        let (_, batch) = chat.push_message(meta(Kind::User));
-        let new = chat.compaction.parts().to_vec();
-        let size = chat.compaction.size();
-        if !coarsens(&new, chat.view.parts()) {
-            violations.push(format!("at {id}: not a coarser chat view"));
-        }
-        if batch.is_some() {
-            chat_merges += 1;
-            if size > COMPACTION_FLOOR {
-                violations.push(format!("at {id}: rebased only to {size} bytes"));
-            }
-        } else if new.starts_with(&old) {
-            if new.len() != old.len() + 1 {
-                violations.push(format!("at {id}: appended {} lines", new.len() - old.len()));
-            }
-        } else {
-            own_merges += 1;
-            if size > COMPACTION_FLOOR {
-                violations.push(format!("at {id}: merged only to {size} bytes"));
-            }
-        }
-        build_up(&mut chat, part(0, id));
-        let size = chat.compaction.size();
-        if size > COMPACTION_CEILING {
-            violations.push(format!("at {id}: {size} bytes"));
-        }
-    }
-    assert_eq!(
-        (violations, own_merges > 0, chat_merges > 0),
-        (Vec::<String>::new(), true, true)
     );
 }
 
@@ -372,11 +107,11 @@ fn free_nodes_need_no_model() {
     );
 }
 
-fn loaded(total: u64, nodes: Vec<NodeRecord>, merges: &[&[Part]]) -> Loaded {
+fn loaded(total: u64, nodes: Vec<NodeRecord>, merges: Vec<MergeRecord>) -> Loaded {
     Loaded {
         messages: (0..total).map(|_| meta(Kind::User)).collect(),
         nodes,
-        merges: merges.iter().map(|batch| MergeRecord::of(batch)).collect(),
+        merges,
         scopes: std::collections::HashMap::new(),
         problems: Vec::new(),
     }
@@ -406,7 +141,7 @@ fn an_old_chat_imports_its_saved_view_as_merges() {
                 node(1, 0, "ab"),
                 node(3, 0, "foreign"),
             ],
-            &[],
+            Vec::new(),
         ),
         Some(vec![part(2, 0), part(0, 4)]),
         &mut problems,
@@ -415,7 +150,7 @@ fn an_old_chat_imports_its_saved_view_as_merges() {
         (chat.view().parts().to_vec(), unlogged, problems.len()),
         (
             vec![part(2, 0), part(0, 4)],
-            vec![part(1, 0), part(1, 1), part(2, 0)],
+            vec![MergeRecord::of(&[part(1, 0), part(1, 1), part(2, 0)])],
             1
         )
     );
@@ -427,16 +162,22 @@ fn an_old_chat_imports_its_saved_view_as_merges() {
 #[test]
 fn the_view_folds_from_the_logged_merges() {
     let nodes = || vec![node(0, 0, "a"), node(0, 1, "b"), node(1, 0, "ab")];
-    let merges: &[&[Part]] = &[&[part(1, 0)], &[part(2, 1)]];
+    let merges = || {
+        vec![
+            MergeRecord::of(&[part(1, 0)]),
+            MergeRecord::of(&[part(2, 1)]),
+        ]
+    };
     let mut problems = Vec::new();
-    let views: Vec<(Vec<Part>, Vec<Part>)> = [
+    let views: Vec<(Vec<Part>, Vec<MergeRecord>)> = [
         None,
         Some(vec![part(0, 0), part(0, 1), part(0, 2)]),
         Some(vec![part(0, 0), part(0, 2)]),
     ]
     .into_iter()
     .map(|saved| {
-        let (chat, unlogged) = Chat::from_loaded(loaded(3, nodes(), merges), saved, &mut problems);
+        let (chat, unlogged) =
+            Chat::from_loaded(loaded(3, nodes(), merges()), saved, &mut problems);
         (chat.view().parts().to_vec(), unlogged)
     })
     .collect();
@@ -444,5 +185,83 @@ fn the_view_folds_from_the_logged_merges() {
     assert_eq!(
         (views, problems.len()),
         (vec![folded.clone(), folded.clone(), folded], 3)
+    );
+}
+
+/// A restart keeps the live view (§3.2, §7.3), shrinking included: a
+/// batch that could not reach the floor goes on at the next message after
+/// a restart as it would have without one. Before the batch lines carried
+/// `open`, the reloaded view under its ceiling only appended, and the next
+/// message's batch differed from the live one.
+#[test]
+fn a_restart_keeps_a_shrinking_view_shrinking() {
+    let budgets = Budgets {
+        ceiling: 2000,
+        floor: 1000,
+        compaction_ceiling: 100_000,
+        compaction_floor: 50_000,
+        jobs: 8,
+    };
+    let text = "x".repeat(500);
+    let mut live = Chat {
+        budgets,
+        ..Chat::default()
+    };
+    let mut nodes = Vec::new();
+    let mut records = Vec::new();
+    let build = |chat: &mut Chat, nodes: &mut Vec<NodeRecord>, l: u32, i: u64| {
+        chat.insert_node(part(l, i), &text);
+        nodes.push(node(l, i, &text));
+    };
+    for id in 0..4 {
+        live.push_message(meta(Kind::User));
+        build(&mut live, &mut nodes, 0, id);
+    }
+    build(&mut live, &mut nodes, 1, 0);
+    // Message 4 (a placeholder line) passes the ceiling; its batch merges
+    // 0+2 and stays over the floor.
+    let (_, batch) = live.push_message(meta(Kind::User));
+    records.extend(batch.map(|batch| batch.record()));
+    build(&mut live, &mut nodes, 1, 1);
+    assert_eq!(
+        records,
+        vec![MergeRecord {
+            merge: vec![(1, 0)],
+            open: true,
+            t: Some(5),
+        }]
+    );
+    let mut problems = Vec::new();
+    let (reloaded, unlogged) =
+        Chat::from_loaded(loaded(5, nodes, records.clone()), None, &mut problems);
+    let mut reloaded = Chat {
+        budgets,
+        ..reloaded
+    };
+    let live_next = live.push_message(meta(Kind::User)).1;
+    let reloaded_next = reloaded.push_message(meta(Kind::User)).1;
+    assert_eq!(
+        (
+            unlogged,
+            problems,
+            reloaded_next.clone(),
+            reloaded.view().parts().to_vec()
+        ),
+        (
+            Vec::new(),
+            Vec::<String>::new(),
+            live_next,
+            live.view().parts().to_vec()
+        )
+    );
+    assert!(reloaded_next.is_some_and(|batch| batch.merged == vec![part(1, 1)]));
+    // A batch line from before `open` and `t` were logged still reads.
+    assert_eq!(
+        serde_json::from_str::<MergeRecord>(r#"{"merge":[[1,0]]}"#).unwrap(),
+        MergeRecord::of(&[part(1, 0)])
+    );
+    assert_eq!(
+        serde_json::to_string(&records[0]).unwrap(),
+        r#"{"merge":[[1,0]],"open":true,"t":5}"#
     );
 }

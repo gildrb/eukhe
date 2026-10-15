@@ -10,18 +10,22 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eukhe_types::daemon::{MemoryLine, MemoryUpdate};
-use eukhe_types::pi_ai::{Context, Message, UserContent, UserContentBlock};
+use eukhe_types::pi_ai::{Context, ImageContent, Message, UserContent, UserContentBlock};
 use eukhe_types::platform::transport::connect_transport;
 use tokio::sync::{mpsc, oneshot};
 
 use super::actor::commit;
 use super::client::Client;
 use super::turn::TURN_FILE;
-use super::{ImportItem, KeyedAppend, Memory, MemoryStatus, Outcome, RenderedView, Reply, Request};
+use super::{
+    ImportItem, KeyedAppend, Memory, MemoryStatus, Outcome, RenderedView, Reply, Request, Zoomed,
+};
 use crate::memory::compactor::tests::{reply, Scripted};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{CompactionPrompt, VIEW_FILE};
-use crate::memory::{AppendKey, Kind, Summarizer, SummarizerFuture, NODE, PLACEHOLDER, RETRY};
+use crate::memory::{
+    AppendKey, Kind, ResponseStarted, Summarizer, SummarizerFuture, NODE, PLACEHOLDER, RETRY,
+};
 
 /// A compactor call the test answers with the line.
 type Call = oneshot::Sender<String>;
@@ -32,15 +36,67 @@ struct Gated {
 }
 
 impl Summarizer for Gated {
-    fn complete(&self, _context: Context) -> SummarizerFuture {
+    /// A whole-reply model: its response starts with the test's answer.
+    fn complete(&self, _context: Context, mut started: ResponseStarted) -> SummarizerFuture {
         let (answer, line) = oneshot::channel();
         let asked = self.calls.send(answer);
+        Box::pin(async move {
+            asked.map_err(|_| anyhow::anyhow!("the test stopped answering"))?;
+            let text = line.await?;
+            started.signal();
+            Ok(reply(&text))
+        })
+    }
+}
+
+/// A compactor call the test starts (its response's first event) and
+/// answers with the line.
+type StagedCall = (ResponseStarted, Call);
+
+/// A compactor whose every call hands the test its start and its answer.
+struct Staged {
+    calls: mpsc::UnboundedSender<StagedCall>,
+}
+
+impl Summarizer for Staged {
+    fn complete(&self, _context: Context, started: ResponseStarted) -> SummarizerFuture {
+        let (answer, line) = oneshot::channel();
+        let asked = self.calls.send((started, answer));
         Box::pin(async move {
             asked.map_err(|_| anyhow::anyhow!("the test stopped answering"))?;
             let text = line.await?;
             Ok(reply(&text))
         })
     }
+}
+
+/// Two compactions on one new cache prefix: the second waits for the
+/// first, and goes once the first's response starts, before its line is
+/// done (§3.3).
+#[tokio::test]
+async fn a_waiting_compaction_goes_once_the_writers_response_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (calls, mut asked) = mpsc::unbounded_channel();
+    let memory = Memory::open(dir.path(), Arc::new(Staged { calls }))
+        .await
+        .unwrap();
+    let item = |text: String| ImportItem {
+        kind: Kind::Echo,
+        text,
+        date: "2026-10-12".to_string(),
+    };
+    memory
+        .import(vec![item("x".repeat(NODE)), item("y".repeat(NODE))])
+        .await
+        .unwrap();
+    let (mut started, first) = within(asked.recv()).await.unwrap();
+    let alone = asked.try_recv().is_err();
+    started.signal();
+    let (_, second) = within(asked.recv()).await.unwrap();
+    let first_open = !first.is_closed();
+    first.send("line x".to_string()).unwrap();
+    second.send("line y".to_string()).unwrap();
+    assert_eq!((alone, first_open), (true, true));
 }
 
 /// One chat seen by three handles in this process: the owner, then two
@@ -364,9 +420,9 @@ async fn short_messages_are_their_own_lines() {
     );
     assert_eq!(
         [
-            memory.zoom(1, 1).await.unwrap(),
-            memory.zoom(0, 2).await.unwrap(),
-            memory.zoom(0, 4).await.unwrap(),
+            memory.zoom(1, 1).await.unwrap().text,
+            memory.zoom(0, 2).await.unwrap().text,
+            memory.zoom(0, 4).await.unwrap().text,
         ],
         [
             "1+0|talk: hi\nthere",
@@ -438,7 +494,7 @@ async fn compactions_reuse_the_turns_prompt_and_see_built_lines_only() {
     // Both messages compressed at once: the second did not wait for the
     // first, and saw no line of it.
     let (line_0, line_1) = (
-        memory.zoom(0, 2).await.unwrap(),
+        memory.zoom(0, 2).await.unwrap().text,
         rendered.lines().nth(2).unwrap().to_string(),
     );
     let built: Vec<&str> = line_0
@@ -469,7 +525,7 @@ async fn compactions_reuse_the_turns_prompt_and_see_built_lines_only() {
         )
     );
     assert_eq!(
-        memory.zoom(1, 1).await.unwrap(),
+        memory.zoom(1, 1).await.unwrap().text,
         format!("1+0|echo: {}", long("y\n"))
     );
 }
@@ -633,6 +689,7 @@ async fn a_resent_append_is_written_once() {
         date: "2026-10-05T09:00:00.000+02:00".to_string(),
         dedupe,
         key: None,
+        images: Vec::new(),
     };
     let mut replies = Vec::new();
     for dedupe in [false, true, false] {
@@ -661,11 +718,11 @@ async fn a_keyed_append_is_written_once_across_owner_restarts() {
     let memory = Memory::open(dir.path(), no_model()).await.unwrap();
     let mut outcomes = vec![
         memory
-            .append_keyed(Kind::User, "a", key("s", 0))
+            .append_keyed(Kind::User, "a", Vec::new(), key("s", 0))
             .await
             .unwrap(),
         memory
-            .append_keyed(Kind::Talk, "b", key("s", 1))
+            .append_keyed(Kind::Talk, "b", Vec::new(), key("s", 1))
             .await
             .unwrap(),
         memory
@@ -674,7 +731,7 @@ async fn a_keyed_append_is_written_once_across_owner_restarts() {
             .map(KeyedAppend::Written)
             .unwrap(),
         memory
-            .append_keyed(Kind::User, "a", key("s", 0))
+            .append_keyed(Kind::User, "a", Vec::new(), key("s", 0))
             .await
             .unwrap(),
     ];
@@ -682,19 +739,19 @@ async fn a_keyed_append_is_written_once_across_owner_restarts() {
     let memory = Memory::open(dir.path(), no_model()).await.unwrap();
     outcomes.extend([
         memory
-            .append_keyed(Kind::User, "a", key("s", 0))
+            .append_keyed(Kind::User, "a", Vec::new(), key("s", 0))
             .await
             .unwrap(),
         memory
-            .append_keyed(Kind::Talk, "b", key("s", 1))
+            .append_keyed(Kind::Talk, "b", Vec::new(), key("s", 1))
             .await
             .unwrap(),
         memory
-            .append_keyed(Kind::Echo, "c", key("s", 2))
+            .append_keyed(Kind::Echo, "c", Vec::new(), key("s", 2))
             .await
             .unwrap(),
         memory
-            .append_keyed(Kind::User, "a", key("t", 0))
+            .append_keyed(Kind::User, "a", Vec::new(), key("t", 0))
             .await
             .unwrap(),
     ]);
@@ -713,6 +770,84 @@ async fn a_keyed_append_is_written_once_across_owner_restarts() {
             ],
             5
         )
+    );
+}
+
+/// `zoom(id, 1)` gives message id whole, with its images (§5), across an
+/// owner restart too; a message without images (every message of an old
+/// log) gives none, and lines never carry images.
+#[tokio::test]
+async fn a_message_zoomed_whole_comes_with_its_images() {
+    let dir = tempfile::tempdir().unwrap();
+    let image = |data: &str| ImageContent {
+        data: data.to_string(),
+        mime_type: "image/png".to_string(),
+    };
+    let key = |seq| AppendKey {
+        scope: "s".to_string(),
+        seq,
+    };
+    {
+        let memory = Memory::open(dir.path(), no_model()).await.unwrap();
+        memory.append(Kind::User, "before images").await.unwrap();
+        memory
+            .append_keyed(
+                Kind::User,
+                "look\n[image: image/png]\n[image: image/png]",
+                vec![image("AAAA"), image("BBBB")],
+                key(0),
+            )
+            .await
+            .unwrap();
+    }
+    let memory = Memory::open(dir.path(), no_model()).await.unwrap();
+    assert_eq!(
+        [
+            memory.zoom(0, 1).await.unwrap(),
+            memory.zoom(1, 1).await.unwrap(),
+            memory.zoom(0, 2).await.unwrap(),
+        ],
+        [
+            Zoomed {
+                text: "0+0|user: before images".to_string(),
+                images: Vec::new(),
+            },
+            Zoomed {
+                text: "1+0|user: look\n[image: image/png]\n[image: image/png]".to_string(),
+                images: vec![image("AAAA"), image("BBBB")],
+            },
+            Zoomed {
+                text:
+                    "0+1|user: before images\n1+1|user: look [image: image/png] [image: image/png]"
+                        .to_string(),
+                images: Vec::new(),
+            },
+        ]
+    );
+}
+
+/// Images saved for a message whose line never got written (a crash in
+/// between) never reach the message that takes its id.
+#[tokio::test]
+async fn images_of_an_unlogged_message_never_reach_the_next_one() {
+    let dir = tempfile::tempdir().unwrap();
+    crate::memory::saved::save_images(
+        dir.path(),
+        0,
+        &[ImageContent {
+            data: "AAAA".to_string(),
+            mime_type: "image/png".to_string(),
+        }],
+    )
+    .unwrap();
+    let memory = Memory::open(dir.path(), no_model()).await.unwrap();
+    memory.append(Kind::User, "no image").await.unwrap();
+    assert_eq!(
+        memory.zoom(0, 1).await.unwrap(),
+        Zoomed {
+            text: "0+0|user: no image".to_string(),
+            images: Vec::new(),
+        }
     );
 }
 

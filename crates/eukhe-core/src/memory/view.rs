@@ -204,11 +204,11 @@ impl View {
     }
 
     /// A compaction's view (§4): `<chat>`, one `id+n|text` line per part
-    /// that starts before `end`, `</chat>`; it stops at the first unbuilt
-    /// line, so no call sees a placeholder or half a message.
+    /// that ends by `end`, `</chat>`; it stops at the first unbuilt line,
+    /// so no call sees a placeholder or half a message.
     pub(crate) fn render_built_until(&self, end: u64, tree: &impl NodeTexts) -> String {
         let mut out = String::from("<chat>\n");
-        for part in self.parts.iter().take_while(|part| part.start() < end) {
+        for part in self.parts.iter().take_while(|part| part.end() <= end) {
             let Some(text) = tree.node_text(*part) else {
                 break;
             };
@@ -273,12 +273,14 @@ pub(crate) fn pieces(text: &str) -> Vec<String> {
     vec![text[..cut].to_string(), text[cut..].to_string()]
 }
 
+/// The merge order, the sawtooth and the rendering are secured by the
+/// Bend laws (`LAWS.bend`, `PROOF.bend`) and the bridge test
+/// (`memory::chat::bridge`); these cover what the model leaves out.
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::memory::VIEW_CEILING as VIEW;
 
     #[derive(Default)]
     struct Tree(HashMap<Part, String>);
@@ -293,156 +295,6 @@ mod tests {
         fn build(&mut self, l: u32, i: u64, text: String) {
             self.0.insert(Part { l, i }, text);
         }
-    }
-
-    /// The parts as `(l, i)` pairs.
-    fn coordinates(view: &View) -> Vec<(u32, u64)> {
-        view.parts().iter().map(|part| (part.l, part.i)).collect()
-    }
-
-    #[test]
-    fn small_views_hold_one_line_per_message() {
-        let mut tree = Tree::default();
-        let mut view = View::default();
-        for i in 0..4 {
-            tree.build(0, i, format!("user: m{i}"));
-            view.append(i, &tree);
-            assert_eq!(view.fit(i + 1, VIEW, &tree).len(), 0);
-        }
-        tree.build(1, 0, "merged".to_string());
-        assert_eq!(view.fit(4, VIEW, &tree).len(), 0);
-        assert_eq!(
-            view.render(&tree),
-            "<chat>\n0+1|user: m0\n1+1|user: m1\n2+1|user: m2\n3+1|user: m3\n</chat>"
-        );
-        // A compaction's view ends at its node.
-        assert_eq!(
-            view.render_built_until(2, &tree),
-            "<chat>\n0+1|user: m0\n1+1|user: m1\n</chat>"
-        );
-    }
-
-    #[test]
-    fn render_flattens_newlines_and_names_lines_by_id_and_count() {
-        let mut tree = Tree::default();
-        let mut view = View::default();
-        for i in 0..2 {
-            tree.build(0, i, format!("talk: a\r\nb{i}"));
-            view.append(i, &tree);
-        }
-        view.append(2, &tree);
-        assert_eq!(
-            (view.render(&tree), view.render_built_until(3, &tree)),
-            (
-                format!("<chat>\n0+1|talk: a b0\n1+1|talk: a b1\n2+1|{PLACEHOLDER}\n</chat>"),
-                "<chat>\n0+1|talk: a b0\n1+1|talk: a b1\n</chat>".to_string()
-            )
-        );
-    }
-
-    #[test]
-    fn over_budget_views_merge_the_oldest_pair_first() {
-        let mut tree = Tree::default();
-        let mut view = View::default();
-        let line = "x".repeat(500);
-        let total = (VIEW / 500 + 2) as u64;
-        for i in 0..total {
-            tree.build(0, i, line.clone());
-            view.append(i, &tree);
-        }
-        for i in 0..total / 2 {
-            tree.build(1, i, "y".repeat(500));
-        }
-        assert_eq!(view.fit(total, VIEW, &tree).len(), 2);
-        // 258 lines of 500 bytes need two merges; at equal levels the
-        // oldest pair is the most due.
-        assert_eq!(view.size(), VIEW);
-        assert_eq!(coordinates(&view)[..3], [(1, 0), (1, 1), (0, 4)]);
-    }
-
-    /// Most due is oldest relative to size: a younger level-0 pair goes
-    /// before an older level-1 pair whose parent is built too.
-    #[test]
-    fn the_most_due_pair_weighs_age_against_level() {
-        let mut tree = Tree::default();
-        let mut view = View::default();
-        let line = || "x".repeat(500);
-        let first = (VIEW / 500 + 2) as u64;
-        for i in 0..first {
-            tree.build(0, i, line());
-            view.append(i, &tree);
-        }
-        tree.build(1, 0, line());
-        tree.build(1, 1, line());
-        assert_eq!(view.fit(first, VIEW, &tree).len(), 2);
-        assert_eq!(coordinates(&view)[..3], [(1, 0), (1, 1), (0, 4)]);
-        // One more message: one merge fits the view again. With T = 259,
-        // the level-1 pair 0..4 is due (260 - 0)/2 = 130 and the level-0
-        // pair 4..6 is due (260 - 4)/1 = 256: the younger pair is more due.
-        tree.build(0, first, line());
-        view.append(first, &tree);
-        tree.build(2, 0, line());
-        tree.build(1, 2, line());
-        assert_eq!(view.fit(first + 1, VIEW, &tree).len(), 1);
-        assert_eq!(
-            (view.size(), coordinates(&view)[..4].to_vec()),
-            (VIEW, vec![(1, 0), (1, 1), (1, 2), (0, 6)])
-        );
-    }
-
-    /// The view only appends at its end and coarsens: every part of an
-    /// earlier view lies inside one part of every later view, and the
-    /// parts tile `[0, T)`.
-    #[test]
-    fn merged_parts_are_never_split() {
-        let mut tree = Tree::default();
-        let mut view = View::default();
-        let mut before: Vec<Part> = Vec::new();
-        for i in 0..600u64 {
-            tree.build(0, i, "x".repeat(500));
-            // Every parent is built once both its children are.
-            let mut part = Part { l: 0, i };
-            while part.i % 2 == 1 {
-                part = Part {
-                    l: part.l + 1,
-                    i: part.i / 2,
-                };
-                tree.build(part.l, part.i, "y".repeat(400));
-            }
-            view.append(i, &tree);
-            view.fit(i + 1, VIEW, &tree);
-            let parts = view.parts();
-            assert!(view.size() <= VIEW);
-            assert_eq!((parts[0].start(), parts[parts.len() - 1].end()), (0, i + 1));
-            assert!(parts
-                .windows(2)
-                .all(|pair| pair[0].end() == pair[1].start()));
-            let mut at = 0;
-            for old in &before {
-                while parts[at].end() < old.end() {
-                    at += 1;
-                }
-                let new = parts[at];
-                assert!(
-                    new.l >= old.l && new.start() <= old.start() && old.end() <= new.end(),
-                    "{old:?} was split at message {i}"
-                );
-            }
-            before = parts.to_vec();
-        }
-    }
-
-    #[test]
-    fn unbuilt_parents_block_merging() {
-        let mut tree = Tree::default();
-        let mut view = View::default();
-        let total = (VIEW / 500 + 2) as u64;
-        for i in 0..total {
-            tree.build(0, i, "x".repeat(500));
-            view.append(i, &tree);
-        }
-        assert_eq!(view.fit(total, VIEW, &tree).len(), 0);
-        assert!(view.size() > VIEW);
     }
 
     #[test]
@@ -474,66 +326,6 @@ mod tests {
             ),
             ("user: hi".len(), true, 1)
         );
-    }
-
-    #[test]
-    fn due_weighs_age_against_level() {
-        // Age 6 at level 0 (6/1 = 6) beats age 8 at level 1 (8/2 = 4).
-        assert!(!more_due(8, 1, 6, 0));
-        assert!(more_due(6, 0, 8, 1));
-        // Ties keep the earlier (older) pair: strict comparison.
-        assert!(!more_due(8, 1, 4, 0));
-    }
-
-    /// Taelin's rollback `push` (`rollback_state_list.js`): the kept states,
-    /// newest first, with their `keep` bits.
-    fn push(state: u64, states: &mut Vec<(bool, u64)>) {
-        let mut carry = state;
-        let mut at = 0;
-        loop {
-            match states.get_mut(at) {
-                None => {
-                    states.push((false, carry));
-                    return;
-                }
-                Some((keep @ false, _)) => {
-                    *keep = true;
-                    return;
-                }
-                Some((keep @ true, kept)) => {
-                    *keep = false;
-                    carry = std::mem::replace(kept, carry);
-                    at += 1;
-                }
-            }
-        }
-    }
-
-    /// With push's list length as the budget, the view makes exactly push's
-    /// merges at every step. Measuring due from a pair's first message
-    /// broke this near ties (at T = 10 it merged `0+8` instead of `8+2`).
-    #[test]
-    fn fit_matches_the_rollback_push_at_every_step() {
-        let mut tree = Tree::default();
-        let mut view = View::default();
-        let mut states = Vec::new();
-        for t in 0..4_096u64 {
-            tree.build(0, t, "x".to_string());
-            let mut part = Part { l: 0, i: t };
-            while part.i % 2 == 1 {
-                part = Part {
-                    l: part.l + 1,
-                    i: part.i / 2,
-                };
-                tree.build(part.l, part.i, "x".to_string());
-            }
-            push(t, &mut states);
-            view.append(t, &tree);
-            view.fit(t + 1, states.len(), &tree);
-            let starts: Vec<u64> = states.iter().rev().map(|(_, state)| *state).collect();
-            let parts: Vec<u64> = view.parts().iter().map(|part| part.start()).collect();
-            assert_eq!(parts, starts, "at t = {t}");
-        }
     }
 
     #[test]

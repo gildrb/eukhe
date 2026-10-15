@@ -33,6 +33,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use eukhe_types::daemon::MemoryUpdate;
+use eukhe_types::pi_ai::ImageContent;
 use eukhe_types::platform::transport::connect_transport;
 use tokio::sync::Mutex;
 
@@ -65,6 +66,15 @@ impl RenderedView {
     pub fn pieces(&self) -> Vec<String> {
         pieces(&self.text)
     }
+}
+
+/// What `zoom` gives: lines or a message as text, and the images of a
+/// message zoomed whole (§5: `zoom(id, 1)` gives message id whole, with its
+/// images).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Zoomed {
+    pub text: String,
+    pub images: Vec<ImageContent>,
 }
 
 /// What a keyed append ([`Memory::append_keyed`]) did.
@@ -118,6 +128,9 @@ enum Request {
         dedupe: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<AppendKey>,
+        /// The images the message carried, kept beside the log.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageContent>,
     },
     /// Log a batch at once (all or nothing).
     Import {
@@ -186,6 +199,9 @@ enum Reply {
     },
     Text {
         text: String,
+    },
+    Zoomed {
+        zoomed: Zoomed,
     },
     Status {
         status: MemoryStatus,
@@ -319,6 +335,7 @@ impl Memory {
                 date,
                 dedupe: false,
                 key: None,
+                images: Vec::new(),
             })
             .await?
         {
@@ -328,11 +345,12 @@ impl Memory {
     }
 
     /// Log one message once per `key` (written and fsynced before this
-    /// returns): the owner answers [`KeyedAppend::AlreadyLogged`] when the
-    /// log already holds a message of the key's scope at or past
-    /// `key.seq`, across owner restarts too (the key is stored on the
-    /// line). A logger that numbers its messages per scope in order may so
-    /// re-send what it is unsure about after a crash.
+    /// returns), with the images it carried: the owner answers
+    /// [`KeyedAppend::AlreadyLogged`] when the log already holds a message
+    /// of the key's scope at or past `key.seq`, across owner restarts too
+    /// (the key is stored on the line). A logger that numbers its messages
+    /// per scope in order may so re-send what it is unsure about after a
+    /// crash.
     ///
     /// # Errors
     ///
@@ -341,6 +359,7 @@ impl Memory {
         &self,
         kind: Kind,
         text: &str,
+        images: Vec<ImageContent>,
         key: AppendKey,
     ) -> anyhow::Result<KeyedAppend> {
         let date = crate::platform::local_time(SystemTime::now())?.rfc3339();
@@ -351,6 +370,7 @@ impl Memory {
                 date,
                 dedupe: false,
                 key: Some(key),
+                images,
             })
             .await?
         {
@@ -390,15 +410,15 @@ impl Memory {
     }
 
     /// `zoom(id, n)`: the two lines under `id+n`, or message `id` whole
-    /// when `n = 1`, or `No line id+n.`.
+    /// with its images when `n = 1`, or `No line id+n.`.
     ///
     /// # Errors
     ///
-    /// Returns an error when the message cannot be read back or the owner
-    /// cannot be reached.
-    pub async fn zoom(&self, id: u64, count: u64) -> anyhow::Result<String> {
+    /// Returns an error when the message or its images cannot be read back
+    /// or the owner cannot be reached.
+    pub async fn zoom(&self, id: u64, count: u64) -> anyhow::Result<Zoomed> {
         match self.request(Request::Zoom { id, count }).await? {
-            Reply::Text { text } => Ok(text),
+            Reply::Zoomed { zoomed } => Ok(zoomed),
             other => Err(unexpected(&other)),
         }
     }
@@ -446,8 +466,8 @@ impl Memory {
         }
     }
 
-    /// Commit the chat directory with git in the background (§10 "persist
-    /// after each turn"); failures are reported by the owner.
+    /// Commit the chat directory with git in the background (eukhe's own
+    /// backup, beside the spec); failures are reported by the owner.
     ///
     /// # Errors
     ///

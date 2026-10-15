@@ -129,13 +129,17 @@ impl eukhe_core::memory::Summarizer for ScriptedSummarizer {
     fn complete(
         &self,
         context: eukhe_types::pi_ai::Context,
+        mut started: eukhe_core::memory::ResponseStarted,
     ) -> eukhe_core::memory::SummarizerFuture {
         let models = self.models.clone();
         let model = self.model.clone();
         Box::pin(async move {
-            Ok(models
+            let message = models
                 .complete_simple(&model, context, SimpleStreamOptions::default().into())
-                .await)
+                .await;
+            // A scripted reply arrives whole: its response starts with it.
+            started.signal();
+            Ok(message)
         })
     }
 }

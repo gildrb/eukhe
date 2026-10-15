@@ -488,7 +488,7 @@ async fn memory_snapshot(
     agent_dir: &std::path::Path,
 ) -> anyhow::Result<MemorySnapshot> {
     let text = match zoom {
-        Some(MemoryZoom { id, count }) => memory.zoom(id, count).await?,
+        Some(MemoryZoom { id, count }) => memory.zoom(id, count).await?.text,
         None => unframed_view(&memory.render().await?.text).to_string(),
     };
     Ok(MemorySnapshot {

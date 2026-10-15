@@ -1,13 +1,15 @@
-//! Importing history (`OptChat` spec §10): older agent sessions as plain
-//! text (the user's messages and the agent's final replies, without
-//! repeated pastes and tool noise). The compactor then builds the tree over
-//! them like any other messages.
+//! Importing history: older agent sessions as plain text (the user's
+//! messages and the agent's final replies, without repeated pastes and
+//! tool noise), each logged as a `note` message, "memories imported from
+//! before the chat" (spec §1), that names its author as `user: ` or
+//! `talk: `. The compactor then builds the tree over them like any other
+//! messages.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::service::ImportItem;
-use super::{Kind, Memory};
+use super::{labeled, Kind, Memory};
 
 /// A user message longer than this that repeats an earlier one exactly is
 /// a repeated paste and is skipped; shorter repeats ("continue") stay.
@@ -66,7 +68,11 @@ pub async fn import_sessions(memory: &Memory, paths: &[PathBuf]) -> anyhow::Resu
                 report.skipped += 1;
                 continue;
             }
-            items.push(item);
+            items.push(ImportItem {
+                kind: Kind::Note,
+                text: labeled(item.kind, &item.text),
+                date: item.date,
+            });
         }
     }
     let mut batch: Vec<ImportItem> = Vec::new();
@@ -239,7 +245,7 @@ mod tests {
         let total = memory.status().await.unwrap().messages;
         let mut lines = Vec::new();
         for id in 0..total {
-            lines.push(memory.zoom(id, 1).await.unwrap());
+            lines.push(memory.zoom(id, 1).await.unwrap().text);
         }
         lines
     }
@@ -298,8 +304,9 @@ mod tests {
         assert!(parse_session(&path).unwrap().is_none());
     }
 
-    /// Sessions go in oldest first, as plain text: the user's words and the
-    /// final replies, without repeated pastes or subagent sessions.
+    /// Sessions go in oldest first, as `note` messages naming their author
+    /// (§1): the user's words and the final replies, without repeated
+    /// pastes or subagent sessions.
     #[tokio::test]
     async fn sessions_import_oldest_first_without_repeated_pastes() {
         let chat = tempfile::tempdir().unwrap();
@@ -356,12 +363,12 @@ mod tests {
                 },
                 vec![
                     "0+0|user: already here".to_string(),
-                    "1+0|user: fix the bug".to_string(),
-                    "2+0|talk: fixed in a.rs".to_string(),
-                    format!("3+0|user: {paste}"),
-                    "4+0|talk: ok".to_string(),
-                    "5+0|user: thanks".to_string(),
-                    "6+0|talk: welcome".to_string(),
+                    "1+0|note: user: fix the bug".to_string(),
+                    "2+0|note: talk: fixed in a.rs".to_string(),
+                    format!("3+0|note: user: {paste}"),
+                    "4+0|note: talk: ok".to_string(),
+                    "5+0|note: user: thanks".to_string(),
+                    "6+0|note: talk: welcome".to_string(),
                 ]
             )
         );

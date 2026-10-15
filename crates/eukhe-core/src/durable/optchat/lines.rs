@@ -7,16 +7,28 @@
 //! re-derives (kernel notices, bookkeeping rows, summaries) are not.
 //! Thinking is never logged. A tool result is clipped to its head and
 //! tail; any other text longer than [`crate::memory::CAP`] characters is
-//! logged as several messages in a row, never cut.
+//! logged as several messages in a row, never cut. Images ride with their
+//! message (its first piece), so `zoom(id, 1)` gives them back (§5).
 
 use eukhe_durable::entries::{UserData, ASSISTANT_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryData, EntryRecord};
 use eukhe_types::input_origin::{InputOrigin, Report};
-use eukhe_types::pi_ai::{AssistantContentBlock, Message, UserContent, UserContentBlock};
+use eukhe_types::pi_ai::{
+    AssistantContentBlock, ImageContent, Message, UserContent, UserContentBlock,
+};
 
 use crate::durable::entries::{is_input_entry, CustomEntryData, BASH_ENTRY, CUSTOM_ENTRY};
-use crate::memory::{cap_text, split_text, Kind};
+use crate::memory::{cap_text, labeled, split_text, Kind};
+
+/// One message for the chat log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LogLine {
+    pub kind: Kind,
+    pub text: String,
+    /// The images the message carried, `[image: mime]` in its text.
+    pub images: Vec<ImageContent>,
+}
 
 /// What an entry's model messages are to the first message of a call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,25 +56,50 @@ pub(crate) fn lead_of(entry: &EntryRecord) -> Lead {
 }
 
 /// The chat log lines of one committed entry, in order: a long text is
-/// split over several lines of the same kind.
+/// split over several lines of the same kind, the first carrying the
+/// entry's images.
 ///
 /// # Errors
 ///
 /// A `pi.user` entry whose origin does not decode, or a report whose text
 /// does not start with its header.
-pub(crate) fn entry_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, String)>> {
-    Ok(whole_lines(entry)?
-        .into_iter()
-        .flat_map(|(kind, text)| {
-            split_text(&text)
-                .into_iter()
-                .map(move |piece| (kind, piece))
-        })
-        .collect())
+pub(crate) fn entry_lines(entry: &EntryRecord) -> SessionResult<Vec<LogLine>> {
+    let mut lines = Vec::new();
+    for (kind, text, images) in whole_lines(entry)? {
+        let mut images = Some(images);
+        for piece in split_text(&text) {
+            lines.push(LogLine {
+                kind,
+                text: piece,
+                images: images.take().unwrap_or_default(),
+            });
+        }
+    }
+    Ok(lines)
 }
 
+/// A chat as `zoom("Name")` gives it: each of its entries' log lines as
+/// `kind: text`, one after the other.
+///
+/// # Errors
+///
+/// As [`entry_lines`].
+pub(crate) fn chat_text(entries: &[EntryRecord]) -> SessionResult<String> {
+    let mut lines = Vec::new();
+    for entry in entries {
+        for (kind, text, _) in whole_lines(entry)? {
+            lines.push(labeled(kind, &text));
+        }
+    }
+    Ok(lines.join("\n"))
+}
+
+/// One message of an entry before long texts are split: kind, text, and
+/// images.
+type WholeLine = (Kind, String, Vec<ImageContent>);
+
 /// The lines of one entry before long texts are split.
-fn whole_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, String)>> {
+fn whole_lines(entry: &EntryRecord) -> SessionResult<Vec<WholeLine>> {
     let messages = entry.model.as_deref().unwrap_or_default();
     if is_input_entry(entry) {
         let origin = input_origin(entry)?;
@@ -94,7 +131,11 @@ fn whole_lines(entry: &EntryRecord) -> SessionResult<Vec<(Kind, String)>> {
         }
         let custom_type = custom_type(entry);
         return Ok(match classify_custom(&custom_type) {
-            CustomRow::Report => vec![(Kind::Work, custom_report_line(entry, &custom_type, &text))],
+            CustomRow::Report => vec![(
+                Kind::Work,
+                custom_report_line(entry, &custom_type, &text),
+                Vec::new(),
+            )],
             CustomRow::Nudge | CustomRow::State => Vec::new(),
         });
     }
@@ -117,12 +158,9 @@ fn input_origin(entry: &EntryRecord) -> SessionResult<InputOrigin> {
     Ok(data.origin.unwrap_or(InputOrigin::User))
 }
 
-/// A user input by its origin: the user's words, or a report normalized
-/// to its `[id] ` line; harness nudges are not logged.
-fn user_input_line(
-    message: &Message,
-    origin: &InputOrigin,
-) -> SessionResult<Option<(Kind, String)>> {
+/// A user input by its origin: the user's words with their images, or a
+/// report normalized to its `[id] ` line; harness nudges are not logged.
+fn user_input_line(message: &Message, origin: &InputOrigin) -> SessionResult<Option<WholeLine>> {
     let Message::User(user) = message else {
         return Ok(None);
     };
@@ -131,18 +169,24 @@ fn user_input_line(
         return Ok(None);
     }
     Ok(match origin {
-        InputOrigin::User => Some((Kind::User, text)),
+        InputOrigin::User => {
+            let images = match &user.content {
+                UserContent::Text(_) => Vec::new(),
+                UserContent::Blocks(blocks) => blocks_images(blocks),
+            };
+            Some((Kind::User, text, images))
+        }
         InputOrigin::Goal { .. } | InputOrigin::Autonomous { .. } | InputOrigin::QuotaResume => {
             None
         }
         InputOrigin::Report { report } => {
             let body = report.body(&text).map_err(SessionError::other)?;
-            Some((Kind::Work, report_line(report, body)))
+            Some((Kind::Work, report_line(report, body), Vec::new()))
         }
     })
 }
 
-fn assistant_lines(message: &Message) -> Vec<(Kind, String)> {
+fn assistant_lines(message: &Message) -> Vec<WholeLine> {
     let Message::Assistant(assistant) = message else {
         return Vec::new();
     };
@@ -158,30 +202,35 @@ fn assistant_lines(message: &Message) -> Vec<(Kind, String)> {
             }
             AssistantContentBlock::ToolCall(call) => {
                 if !talk.trim().is_empty() {
-                    entries.push((Kind::Talk, std::mem::take(&mut talk)));
+                    entries.push((Kind::Talk, std::mem::take(&mut talk), Vec::new()));
                 }
                 talk.clear();
                 let arguments = serde_json::Value::Object(call.arguments.clone());
-                entries.push((Kind::Tool, format!("{} {arguments}", call.name)));
+                entries.push((Kind::Tool, format!("{} {arguments}", call.name), Vec::new()));
             }
             AssistantContentBlock::Thinking(_) => {}
         }
     }
     if !talk.trim().is_empty() {
-        entries.push((Kind::Talk, talk));
+        entries.push((Kind::Talk, talk, Vec::new()));
     }
     entries
 }
 
-fn tool_result_line(message: &Message) -> Option<(Kind, String)> {
+/// A tool result, clipped, with the images it returned.
+fn tool_result_line(message: &Message) -> Option<WholeLine> {
     let Message::ToolResult(result) = message else {
         return None;
     };
-    Some((Kind::Echo, cap_text(&blocks_text(&result.content))))
+    Some((
+        Kind::Echo,
+        cap_text(&blocks_text(&result.content)),
+        blocks_images(&result.content),
+    ))
 }
 
 /// The user's own `!command`: what it ran and printed.
-fn bash_line(entry: &EntryRecord) -> Option<(Kind, String)> {
+fn bash_line(entry: &EntryRecord) -> Option<WholeLine> {
     let data = entry.data.as_ref().map(serde_json::Value::from)?;
     if data
         .get("excludeFromContext")
@@ -197,7 +246,11 @@ fn bash_line(entry: &EntryRecord) -> Option<(Kind, String)> {
             .to_string()
     };
     let (command, output) = (field("command"), field("output"));
-    Some((Kind::User, cap_text(&format!("Ran `{command}`\n{output}"))))
+    Some((
+        Kind::User,
+        cap_text(&format!("Ran `{command}`\n{output}")),
+        Vec::new(),
+    ))
 }
 
 fn custom_type(entry: &EntryRecord) -> String {
@@ -248,9 +301,9 @@ fn classify_custom(custom_type: &str) -> CustomRow {
 }
 
 /// A report's log line: ONE leading `[id] `, then the headline and the
-/// body (§9), so the compactor and the view tag it `work`. The delivered
-/// input keeps its own header (`[agent-message from child:x]\n\nbody` and
-/// the like); the log holds `[child:x] body`.
+/// body (§6: "[Name] report"), so the compactor and the view tag it
+/// `work`. The delivered input keeps its own header (`[agent-message from
+/// child:x]\n\nbody` and the like); the log holds `[child:x] body`.
 fn report_line(report: &Report, body: &str) -> String {
     let (id, headline) = match report {
         Report::AgentMessage { sender } => (sender.clone(), String::new()),
@@ -331,4 +384,15 @@ fn blocks_text(blocks: &[UserContentBlock]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The image blocks among `blocks`, in order.
+fn blocks_images(blocks: &[UserContentBlock]) -> Vec<ImageContent> {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            UserContentBlock::Image(image) => Some(image.clone()),
+            UserContentBlock::Text(_) => None,
+        })
+        .collect()
 }

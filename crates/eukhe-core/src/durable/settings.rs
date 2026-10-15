@@ -57,7 +57,7 @@ impl EukheSettings {
 
     /// Settings of a root session with chat memory: a root call is a run,
     /// and a fresh call takes every queued message at once, joined into its
-    /// one request (`OptChat` §7), so the follow-up queue mode is `all`
+    /// one request (`OptChat` §6), so the follow-up queue mode is `all`
     /// whatever `followUpMode` says. The steering mode stays the setting's:
     /// it also decides the steers a running call takes at a tool boundary.
     #[must_use]
@@ -325,7 +325,7 @@ mod tests {
     }
 
     /// A chat-memory root takes every queued follow-up into its next run
-    /// (`OptChat` §7) whatever `followUpMode` says, also after a reload;
+    /// (`OptChat` §6) whatever `followUpMode` says, also after a reload;
     /// the steering mode stays the setting's.
     #[test]
     fn a_chat_memory_root_takes_every_follow_up_at_once() {

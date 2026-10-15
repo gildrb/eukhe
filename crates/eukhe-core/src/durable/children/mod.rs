@@ -42,6 +42,9 @@ pub use host::{
     RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
 pub use registry::{has_unsettled_children, unsettled_child_tasks};
+/// A test of another module (`zoom("Name")`) registers a child row.
+#[cfg(test)]
+pub(crate) use registry::{tx_put_row, ChildRow, ChildStatus};
 pub use wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };

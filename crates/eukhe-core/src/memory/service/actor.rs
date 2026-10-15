@@ -7,19 +7,18 @@ use std::sync::{mpsc, Arc};
 use std::time::SystemTime;
 
 use eukhe_types::daemon::{MemoryLine, MemoryUpdate};
+use eukhe_types::pi_ai::ImageContent;
 use tokio::sync::oneshot;
 
 use super::owner::Command;
 use super::prefix_gate::{prefix_key, PrefixGate};
 use super::turn::{Origin, Turns, TURN_FILE};
-use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer};
+use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer, Zoomed};
 use crate::memory::chat::{free_text, Batch, Chat, Step, Zoom};
-use crate::memory::compactor::{build_line, NodeRequest};
+use crate::memory::compactor::{build_line, NodeRequest, ResponseStarted};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{self, CompactionPrompt};
-use crate::memory::store::{
-    note_scope, LoadMode, MergeRecord, MessageRecord, NodeRecord, ScopeMark, Store,
-};
+use crate::memory::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
 use crate::memory::view::Part;
 use crate::memory::{labeled, AppendKey, Kind, RETRY};
 
@@ -96,7 +95,9 @@ impl Actor {
         let (chat, unlogged) = Chat::from_loaded(loaded, saved_view.clone(), &mut problems);
         if !unlogged.is_empty() {
             let day = crate::platform::local_time(SystemTime::now())?.date();
-            store.append_merge(&MergeRecord::of(&unlogged), &day)?;
+            for record in &unlogged {
+                store.append_merge(record, &day)?;
+            }
         }
         // `view.json` is a cache of the fold.
         if saved_view.as_deref() != Some(chat.view().parts()) {
@@ -143,6 +144,12 @@ impl Actor {
                 } => self.handle(origin, request, reply),
                 Command::Subscribe { sender } => self.subscribers.push(sender),
                 Command::Closed { connection } => self.turns.closed(connection),
+                Command::Started { part } => {
+                    // The prefix is written: its waiters read it now.
+                    for (waiter, request) in self.gate.finished(part, true) {
+                        self.spawn_build(waiter, request);
+                    }
+                }
                 Command::Built { part, result } => self.built(part, result),
                 Command::Retry { part, generation } => {
                     let current = self
@@ -184,10 +191,11 @@ impl Actor {
                 date,
                 dedupe,
                 key: Some(key),
+                images,
             } => match self.scopes.get(&key.scope) {
                 Some(mark) if key.seq <= mark.seq => Ok(Reply::AlreadyAppended { id: mark.id }),
                 Some(_) | None => self
-                    .append(kind, text, date, dedupe, Some(key))
+                    .append(kind, text, &images, date, dedupe, Some(key))
                     .map(|id| Reply::Appended { id }),
             },
             Request::Append {
@@ -196,14 +204,17 @@ impl Actor {
                 date,
                 dedupe,
                 key: None,
+                images,
             } => self
-                .append(kind, text, date, dedupe, None)
+                .append(kind, text, &images, date, dedupe, None)
                 .map(|id| Reply::Appended { id }),
             Request::Import { items } => self.import(items),
             Request::Render => Ok(Reply::Rendered {
                 view: self.rendered(),
             }),
-            Request::Zoom { id, count } => self.zoom(id, count).map(|text| Reply::Text { text }),
+            Request::Zoom { id, count } => {
+                self.zoom(id, count).map(|zoomed| Reply::Zoomed { zoomed })
+            }
             Request::Date { id } => Ok(Reply::Text {
                 text: match self.chat.message(id) {
                     Some(meta) => display_date(&meta.date),
@@ -256,6 +267,7 @@ impl Actor {
         &mut self,
         kind: Kind,
         text: String,
+        images: &[ImageContent],
         date: String,
         dedupe: bool,
         key: Option<AppendKey>,
@@ -274,22 +286,26 @@ impl Actor {
                 }
             }
         }
-        let id = self.write_message(kind, text, date, key)?;
+        let id = self.write_message(kind, text, images, date, key)?;
         self.save_view();
         self.retry_failed();
         self.pump();
         Ok(id)
     }
 
+    /// Log one message: its images first (§5: `zoom(id, 1)` gives them
+    /// back), then its line.
     fn write_message(
         &mut self,
         kind: Kind,
         text: String,
+        images: &[ImageContent],
         date: String,
         key: Option<AppendKey>,
     ) -> anyhow::Result<u64> {
         let day = crate::platform::local_time(SystemTime::now())?.date();
         let i = self.chat.total();
+        saved::save_images(&self.dir, i, images)?;
         let record = MessageRecord {
             i,
             kind,
@@ -304,9 +320,12 @@ impl Actor {
         }
         let (id, batch) = self.chat.push_message(meta);
         if let Some(batch) = batch {
-            self.store
-                .append_merge(&MergeRecord::of(&batch.merged), &day)?;
-            self.publish_batch(&batch);
+            // Logged even when it merged nothing: a restart reads whether
+            // the view is still shrinking from it.
+            self.store.append_merge(&batch.record(), &day)?;
+            if !batch.merged.is_empty() {
+                self.publish_batch(&batch);
+            }
         }
         Ok(id)
     }
@@ -315,7 +334,7 @@ impl Actor {
         let first = self.chat.total();
         let count = items.len() as u64;
         for item in items {
-            self.write_message(item.kind, item.text, item.date, None)?;
+            self.write_message(item.kind, item.text, &[], item.date, None)?;
         }
         self.save_view();
         self.retry_failed();
@@ -350,7 +369,8 @@ impl Actor {
         }
     }
 
-    fn zoom(&self, id: u64, count: u64) -> anyhow::Result<String> {
+    /// `zoom(id, n)`; a message zoomed whole comes with its images (§5).
+    fn zoom(&self, id: u64, count: u64) -> anyhow::Result<Zoomed> {
         Ok(match self.chat.zoom(id, count) {
             Zoom::Message(id) => {
                 let meta = self
@@ -358,10 +378,19 @@ impl Actor {
                     .message(id)
                     .ok_or_else(|| anyhow::anyhow!("message {id} is not indexed"))?;
                 let record = self.store.read_message(meta)?;
-                format!("{id}+0|{}", labeled(record.kind, &record.text))
+                Zoomed {
+                    text: format!("{id}+0|{}", labeled(record.kind, &record.text)),
+                    images: saved::load_images(&self.dir, id)?,
+                }
             }
-            Zoom::Lines(lines) => lines,
-            Zoom::NoLine => format!("No line {id}+{count}."),
+            Zoom::Lines(text) => Zoomed {
+                text,
+                images: Vec::new(),
+            },
+            Zoom::NoLine => Zoomed {
+                text: format!("No line {id}+{count}."),
+                images: Vec::new(),
+            },
         })
     }
 
@@ -442,13 +471,32 @@ impl Actor {
         self.wake_view_waiters();
     }
 
-    /// Ask the model for node `part`'s line off the actor thread.
+    /// Ask the model for node `part`'s line off the actor thread. Its
+    /// response's start frees the calls waiting for its prefix (§3.3),
+    /// before the line is done.
     fn spawn_build(&mut self, part: Part, request: NodeRequest) {
         let summarizer = Arc::clone(&self.summarizer);
         let prompt = Arc::clone(&self.prompt);
         let commands = self.commands.clone();
         let build = self.runtime.spawn(async move {
-            let result = build_line(summarizer.as_ref(), &prompt, &request, now_millis()).await;
+            let (started, response) = ResponseStarted::channel();
+            let line = build_line(
+                summarizer.as_ref(),
+                &prompt,
+                &request,
+                now_millis(),
+                started,
+            );
+            tokio::pin!(line);
+            let result = tokio::select! {
+                biased;
+                result = &mut line => result,
+                Ok(()) = response => {
+                    // Sent before `Built`: the actor sees them in order.
+                    let _ = commands.send(Command::Started { part });
+                    line.await
+                }
+            };
             // A stopped owner no longer needs the line.
             let _ = commands.send(Command::Built { part, result });
         });

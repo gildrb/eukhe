@@ -30,6 +30,7 @@ use eukhe_types::pi_ai::{
 use tokio::sync::Notify;
 
 use super::docs::{decode, write, CallState, LoggedState, LOGGED_DOC};
+use super::lines::LogLine;
 use super::logger::LoggerHandle;
 use super::request::request_messages;
 use super::OptChat;
@@ -52,7 +53,11 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 struct NoModel;
 
 impl Summarizer for NoModel {
-    fn complete(&self, _context: eukhe_types::pi_ai::Context) -> SummarizerFuture {
+    fn complete(
+        &self,
+        _context: eukhe_types::pi_ai::Context,
+        _started: crate::memory::ResponseStarted,
+    ) -> SummarizerFuture {
         Box::pin(async { Err(anyhow::anyhow!("no model in this test")) })
     }
 }
@@ -189,6 +194,8 @@ struct Setup {
     cell: HarnessCell,
     /// Released by the `wait` tool's caller; the tool reports it started.
     started: Arc<Notify>,
+    /// Ends the `hold` tool's call (it reports its start on `started`).
+    release: Arc<Notify>,
     /// What the Harness reported.
     reports: Arc<Mutex<Vec<String>>>,
 }
@@ -217,9 +224,13 @@ impl Setup {
         let registry = create_registry();
         registry.install(chat.extension()).unwrap();
         let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
         registry
             .install(define_extension(Extension {
-                tools: vec![wait_tool(Arc::clone(&started))],
+                tools: vec![
+                    wait_tool(Arc::clone(&started)),
+                    hold_tool(Arc::clone(&started), Arc::clone(&release)),
+                ],
                 ..Extension::named("test.tools")
             }))
             .unwrap();
@@ -232,6 +243,7 @@ impl Setup {
             chat,
             cell,
             started,
+            release,
             reports: Arc::default(),
         }
     }
@@ -338,6 +350,23 @@ impl Session {
             .unwrap();
     }
 
+    /// Send `text` to the running call: it joins at the next tool boundary.
+    async fn steer(&self, text: &str) {
+        self.root
+            .submit(
+                InputSubmissionDraft {
+                    request_id: None,
+                    content: UserContent::Text(text.to_string()),
+                    when_busy: Some(eukhe_durable::harness::types::WhenBusy::Steer),
+                    origin: eukhe_types::input_origin::InputOrigin::User,
+                    entry: None,
+                },
+                cx(),
+            )
+            .await
+            .unwrap();
+    }
+
     /// Stop the logger and close the Harness; nothing was reported.
     async fn close(self, setup: &Setup) {
         if let Some(logger) = self.logger {
@@ -380,6 +409,26 @@ fn wait_tool(started: Arc<Notify>) -> Arc<ToolRegistration> {
     ))
 }
 
+/// A tool that reports it started, then answers `held` once released.
+fn hold_tool(started: Arc<Notify>, release: Arc<Notify>) -> Arc<ToolRegistration> {
+    define_tool(ToolRegistration::new(
+        "hold",
+        "Holds until released.",
+        serde_json::json!({ "type": "object", "properties": {} }),
+        move |_params, _api, _cx| {
+            let (started, release) = (Arc::clone(&started), Arc::clone(&release));
+            async move {
+                started.notify_one();
+                release.notified().await;
+                Ok(ToolExecutionResult {
+                    output: Some(vec![UserContentBlock::Text(TextContent::new("held"))]),
+                    ..ToolExecutionResult::default()
+                })
+            }
+        },
+    ))
+}
+
 /// The view as the call's first message describes it: its pieces, the
 /// first marked at the view's last whole block of lines.
 async fn view_text(memory: &Memory) -> String {
@@ -414,7 +463,7 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
         .await;
     let first_view = view_text(&setup.memory).await;
     session.run(&setup.chat, "hello").await;
-    let zoomed = setup.memory.zoom(0, 1).await.unwrap();
+    let zoomed = setup.memory.zoom(0, 1).await.unwrap().text;
     let after_first = chat_lines(&setup.chat_dir());
     let second_view = view_text(&setup.memory).await;
     session.run(&setup.chat, "again").await;
@@ -499,13 +548,18 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                 ZOOM_TOOL_DESCRIPTION.to_string(),
                 serde_json::json!({
                     "type": "object",
-                    "required": ["id", "n"],
+                    "required": ["id"],
                     "properties": {
                         "i": {
                             "type": "string",
                             "description": "Short present-participle intent for this call."
                         },
-                        "id": { "type": "integer", "minimum": 0 },
+                        "id": {
+                            "anyOf": [
+                                { "type": "integer", "minimum": 0 },
+                                { "type": "string" }
+                            ]
+                        },
                         "n": { "type": "integer", "minimum": 1 }
                     },
                     "additionalProperties": false
@@ -541,7 +595,7 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
         .await;
     session.run(&setup.chat, "when?").await;
     let date = setup.memory.date(0).await.unwrap();
-    let zoomed = setup.memory.zoom(0, 1).await.unwrap();
+    let zoomed = setup.memory.zoom(0, 1).await.unwrap().text;
     let results: Vec<String> = requests
         .all()
         .last()
@@ -844,6 +898,15 @@ fn user_entry(text: &str, origin: InputOrigin) -> eukhe_durable::types::EntryRec
     }
 }
 
+/// A logged line without images.
+fn logged(kind: Kind, text: &str) -> LogLine {
+    LogLine {
+        kind,
+        text: text.to_string(),
+        images: Vec::new(),
+    }
+}
+
 #[test]
 fn reports_delivered_as_input_are_logged_as_their_id_line() {
     let exited = Report::ChildExited {
@@ -893,16 +956,13 @@ fn reports_delivered_as_input_are_logged_as_their_id_line() {
     assert_eq!(
         lines,
         vec![
-            (
+            logged(
                 Kind::Work,
-                "[child:scout] exited (no-reply)\nLast assistant text: hi".to_string()
+                "[child:scout] exited (no-reply)\nLast assistant text: hi"
             ),
-            (
-                Kind::Work,
-                "[child:scout] failed (provider-auth)\nboom".to_string()
-            ),
-            (Kind::Work, "[child:x] body".to_string()),
-            (Kind::User, "plain words".to_string()),
+            logged(Kind::Work, "[child:scout] failed (provider-auth)\nboom"),
+            logged(Kind::Work, "[child:x] body"),
+            logged(Kind::User, "plain words"),
         ]
     );
 }
@@ -956,8 +1016,8 @@ fn input_entries_are_logged_by_their_origin() {
     assert_eq!(
         lines,
         vec![
-            (Kind::Work, "[child:x] body".to_string()),
-            (Kind::User, "plain words".to_string()),
+            logged(Kind::Work, "[child:x] body"),
+            logged(Kind::User, "plain words"),
         ]
     );
     assert!(entries
@@ -982,7 +1042,7 @@ fn user_words_shaped_like_a_harness_header_are_logged_as_typed() {
         lines,
         texts
             .iter()
-            .map(|text| (Kind::User, (*text).to_string()))
+            .map(|text| logged(Kind::User, text))
             .collect::<Vec<_>>()
     );
 }
@@ -1027,10 +1087,7 @@ fn agent_replies_are_logged_as_work_and_owed_rows_are_not() {
             super::lines::entry_lines(&custom(reply)).unwrap(),
             super::lines::entry_lines(&custom(owed)).unwrap(),
         ],
-        [
-            vec![(Kind::Work, "[alpha] I reported 42.".to_string())],
-            vec![]
-        ]
+        [vec![logged(Kind::Work, "[alpha] I reported 42.")], vec![]]
     );
 }
 
@@ -1052,6 +1109,309 @@ fn long_user_texts_are_logged_as_several_messages() {
     };
     assert_eq!(
         super::lines::entry_lines(&entry).unwrap(),
-        vec![(Kind::User, "a".repeat(CAP)), (Kind::User, "b".repeat(7)),]
+        vec![
+            logged(Kind::User, &"a".repeat(CAP)),
+            logged(Kind::User, &"b".repeat(7))
+        ]
     );
+}
+
+/// Thoughts are shown but never logged, and a tool's output is clipped to
+/// its head and tail, [`CAP`] characters in all, as one message (§1).
+#[test]
+fn thoughts_are_never_logged_and_tool_output_is_clipped() {
+    use eukhe_ai::providers::faux::{faux_text, faux_thinking};
+    use eukhe_durable::entries::{ASSISTANT_ENTRY, TOOL_RESULT_ENTRY};
+    use eukhe_durable::types::{EntryId, EntryRecord};
+    let entry = |kind: &str, message: Message| EntryRecord {
+        model: Some(vec![message]),
+        data: None,
+        edits: None,
+        kind: kind.to_string(),
+        id: EntryId::from_number(1),
+        conversation_id: ROOT_CONVERSATION_ID,
+        head: None,
+        by_task_id: None,
+    };
+    let serde_json::Value::Object(arguments) = serde_json::json!({ "id": 0 }) else {
+        panic!("tool arguments are an object");
+    };
+    let said = entry(
+        ASSISTANT_ENTRY.kind(),
+        Message::Assistant(faux_assistant_message(
+            vec![
+                faux_thinking("a secret plan"),
+                faux_text("on it"),
+                faux_tool_call("date", arguments, Some("c1".to_string())),
+                faux_thinking("more thoughts"),
+                faux_text("done"),
+            ],
+            FauxAssistantMessageOptions::default(),
+        )),
+    );
+    let output = format!("{}{}", "a".repeat(CAP), "b".repeat(CAP));
+    let read = entry(
+        TOOL_RESULT_ENTRY.kind(),
+        serde_json::from_value(serde_json::json!({
+            "role": "toolResult",
+            "toolCallId": "c1",
+            "toolName": "date",
+            "content": [{ "type": "text", "text": output }],
+            "isError": false,
+            "timestamp": 1
+        }))
+        .unwrap(),
+    );
+    assert_eq!(
+        [
+            super::lines::entry_lines(&said).unwrap(),
+            super::lines::entry_lines(&read).unwrap(),
+        ],
+        [
+            vec![
+                logged(Kind::Talk, "on it"),
+                logged(Kind::Tool, r#"date {"id":0}"#),
+                logged(Kind::Talk, "done"),
+            ],
+            vec![logged(Kind::Echo, &crate::memory::cap_text(&output))],
+        ]
+    );
+}
+
+/// The images a user message or a tool result carries are logged with
+/// the message, so `zoom(id, 1)` gives them back (§5); the text keeps
+/// `[image: mime]` in their place.
+#[test]
+fn images_ride_with_their_logged_message() {
+    use eukhe_durable::entries::{TOOL_RESULT_ENTRY, USER_ENTRY};
+    use eukhe_durable::types::{EntryId, EntryRecord};
+    let image = ImageContent {
+        data: "AAAA".to_string(),
+        mime_type: "image/png".to_string(),
+    };
+    let entry = |kind: &str, message: Message| EntryRecord {
+        model: Some(vec![message]),
+        data: None,
+        edits: None,
+        kind: kind.to_string(),
+        id: EntryId::from_number(1),
+        conversation_id: ROOT_CONVERSATION_ID,
+        head: None,
+        by_task_id: None,
+    };
+    let said = entry(
+        USER_ENTRY.kind(),
+        Message::User(UserMessage {
+            content: UserContent::Blocks(vec![
+                UserContentBlock::Text(TextContent::new("look")),
+                UserContentBlock::Image(image.clone()),
+            ]),
+            timestamp: 1,
+        }),
+    );
+    let read = entry(
+        TOOL_RESULT_ENTRY.kind(),
+        serde_json::from_value(serde_json::json!({
+            "role": "toolResult",
+            "toolCallId": "c1",
+            "toolName": "read",
+            "content": [
+                { "type": "text", "text": "a.png" },
+                { "type": "image", "data": "AAAA", "mimeType": "image/png" }
+            ],
+            "isError": false,
+            "timestamp": 1
+        }))
+        .unwrap(),
+    );
+    assert_eq!(
+        [
+            super::lines::entry_lines(&said).unwrap(),
+            super::lines::entry_lines(&read).unwrap(),
+        ],
+        [
+            vec![LogLine {
+                kind: Kind::User,
+                text: "look\n[image: image/png]".to_string(),
+                images: vec![image.clone()],
+            }],
+            vec![LogLine {
+                kind: Kind::Echo,
+                text: "a.png\n[image: image/png]".to_string(),
+                images: vec![image],
+            }],
+        ]
+    );
+}
+
+/// The model's `zoom(id, 1)` gets the message whole with its images.
+#[tokio::test]
+async fn the_zoom_tool_gives_a_message_with_its_images() {
+    let setup = Setup::new(MemoryRole::Root).await;
+    setup
+        .memory
+        .append_keyed(
+            Kind::User,
+            "look\n[image: image/png]",
+            vec![ImageContent {
+                data: "AAAA".to_string(),
+                mime_type: "image/png".to_string(),
+            }],
+            AppendKey {
+                scope: "earlier".to_string(),
+                seq: 0,
+            },
+        )
+        .await
+        .unwrap();
+    let requests = Requests::default();
+    setup.faux.set_responses(vec![
+        requests.step(call("zoom", serde_json::json!({ "id": 0, "n": 1 }))),
+        requests.step(answer("done")),
+    ]);
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::On)
+        .await;
+    session.run(&setup.chat, "what did I show you?").await;
+    let results: Vec<String> = requests
+        .all()
+        .last()
+        .unwrap()
+        .iter()
+        .filter(|message| matches!(message, Message::ToolResult(_)))
+        .map(describe)
+        .collect();
+    assert_eq!(
+        results,
+        vec!["toolResult:0+0|user: look\n[image: image/png]|[image image/png]".to_string()]
+    );
+    session.close(&setup).await;
+}
+
+/// `zoom("Name")` gives the whole chat of the subagent the conversation
+/// spawned, by its name with or without the `child:` of its reports; its
+/// steps are in its own session, never in the chat (§6).
+#[tokio::test]
+async fn zoom_by_name_gives_an_agents_whole_chat() {
+    use crate::durable::children::{tx_put_row, ChildRow, ChildStatus};
+    let setup = Setup::new(MemoryRole::Subagent).await;
+    let requests = Requests::default();
+    setup.faux.set_responses(vec![
+        requests.step(call("date", serde_json::json!({ "id": 0 }))),
+        requests.step(answer("found it")),
+    ]);
+    setup.memory.append(Kind::User, "earlier").await.unwrap();
+    let child = setup.open(setup.jsonl().await, Logging::Off).await;
+    child.run(&setup.chat, "find the bug").await;
+    child.close(&setup).await;
+    let date = setup.memory.date(0).await.unwrap();
+    let parent = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::Off)
+        .await;
+    let row = ChildRow {
+        task_id: 7,
+        rlm_child_id: "sub-1".to_string(),
+        session_id: "child-session".to_string(),
+        session_name: "scout".to_string(),
+        label: "find the bug".to_string(),
+        started_at: 0.0,
+        status: ChildStatus::Done,
+        active_session_id: None,
+        session_dir: Some(
+            setup
+                .dir
+                .path()
+                .join("session")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        model: None,
+        answer_preview: None,
+        error: None,
+        replied_since_task: false,
+        deletion: None,
+        settled: true,
+        usage: None,
+    };
+    parent
+        .harness
+        .commit(
+            move |tx| async move { tx_put_row(&tx, ROOT_CONVERSATION_ID, &row).await },
+            cx(),
+        )
+        .await
+        .unwrap();
+    let mut chats = Vec::new();
+    for name in ["child:scout", "scout", "child:nobody"] {
+        chats.push(
+            super::tools::agent_chat(&parent.harness, ROOT_CONVERSATION_ID, name, cx())
+                .await
+                .unwrap(),
+        );
+    }
+    assert_eq!(
+        (chats, chat_lines(&setup.chat_dir())),
+        (
+            vec![
+                format!(
+                    "user: find the bug\ntool: date {{\"id\":0}}\necho: {date}\ntalk: found it"
+                ),
+                format!(
+                    "user: find the bug\ntool: date {{\"id\":0}}\necho: {date}\ntalk: found it"
+                ),
+                "No agent child:nobody.".to_string(),
+            ],
+            vec![(Kind::User, "earlier".to_string())],
+        )
+    );
+    parent.close(&setup).await;
+}
+
+/// A message the user sends while a call runs reaches it between tool
+/// calls, in the same call (its first message stays the pinned view), and
+/// is logged as `user` where it came (§6).
+#[tokio::test]
+async fn a_message_sent_during_a_call_joins_it_between_tool_calls() {
+    let setup = Setup::new(MemoryRole::Root).await;
+    let requests = Requests::default();
+    setup.faux.set_responses(vec![
+        requests.step(call("hold", serde_json::json!({}))),
+        requests.step(answer("done")),
+    ]);
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::On)
+        .await;
+    let started = setup.started.notified();
+    session.submit("hello").await;
+    started.await;
+    session.steer("also this").await;
+    setup.release.notify_one();
+    session.root.wait_for_idle(cx()).await.unwrap();
+    setup.chat.flush().await.unwrap();
+    let all = requests.described();
+    assert_eq!(
+        (
+            all.len(),
+            all[1][1] == all[0][1],
+            all[1][2..].to_vec(),
+            chat_lines(&setup.chat_dir()),
+        ),
+        (
+            2,
+            true,
+            vec![
+                "assistant:call hold".to_string(),
+                "toolResult:held".to_string(),
+                "user:also this".to_string(),
+            ],
+            vec![
+                (Kind::User, "hello".to_string()),
+                (Kind::Tool, "hold {}".to_string()),
+                (Kind::Echo, "held".to_string()),
+                (Kind::User, "also this".to_string()),
+                (Kind::Talk, "done".to_string()),
+            ],
+        )
+    );
+    session.close(&setup).await;
 }

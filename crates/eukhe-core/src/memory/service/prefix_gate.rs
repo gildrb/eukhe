@@ -2,10 +2,9 @@
 //! [`crate::memory::JOBS`] at a time on one prefix, and two calls that both
 //! write the same new cache entry both pay for it. So the first call on a
 //! prefix the compactor has not written yet goes alone, and the others on
-//! it wait until it is done; after that the prefix is warm and calls on it
-//! go at once. (The spec releases the waiters when the writer's response
-//! starts; a [`crate::memory::Summarizer`] answers with whole replies, so
-//! here they go when it ends.)
+//! it wait until its response starts (the owner reports the start as a
+//! finished write); after that the prefix is warm and calls on it go at
+//! once.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
@@ -74,10 +73,10 @@ impl PrefixGate {
         Some(request)
     }
 
-    /// Compaction `part` ended; `wrote` when its call went through (the
-    /// prefix is cached now). Returns the compactions that may go now:
-    /// every waiter once the prefix is warm, else the first waiter, which
-    /// writes it instead.
+    /// Compaction `part` wrote its prefix (its response started; `wrote`)
+    /// or ended without writing it. Returns the compactions that may go
+    /// now: every waiter once the prefix is warm, else the first waiter,
+    /// which writes it instead. A writer already reported is no writer.
     pub(super) fn finished(&mut self, part: Part, wrote: bool) -> Vec<(Part, NodeRequest)> {
         let Some(key) = self.writers.remove(&part) else {
             return Vec::new();

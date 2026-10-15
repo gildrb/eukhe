@@ -5,12 +5,10 @@
 //!
 //! - "Unii" reads "Eukhe" (the spec asks for the agent's own name).
 //! - The paragraph on the user's computers is dropped: eukhe has no device
-//!   tools (the spec says to drop it then).
+//!   tools (no tool takes a `device` field and there are no computer
+//!   tasks), and the spec says to drop it then.
 //! - The agent's replies are the `talk` kind, the name eukhe's logs have
 //!   always used, where the spec writes `unii`.
-//! - `zoom("Name")` is not listed (a subagent's own chat is not in the
-//!   memory), and `zoom(id, 1)` does not promise images (the log holds an
-//!   image as `[image: mime]`).
 
 /// The agent's name in its memory prompts.
 pub const AGENT_NAME: &str = "Eukhe";
@@ -34,6 +32,7 @@ Each message has a kind:
 - tool: Eukhe's tool calls
 - echo: tool results
 - work: an agent's report, starting "[Name]"
+- note: memories from before this chat
 
 The summaries form a binary tree: each message is compressed into a line (a
 short message is its own line), then adjacent lines are merged in pairs, again
@@ -43,17 +42,16 @@ long for one message is split over several in a row.
 
 Tools:
 - zoom(id, n) opens line id+n into the two lines it was made from;
-- zoom(id, 1) gives message id whole
+- zoom(id, 1) gives message id whole, with its images
+- zoom("Name") gives an agent's whole chat
 - date(id) gives the date and time of message id"#;
 
 /// The turns (§5 "# Turns"), without the computers paragraph.
 const TURNS: &str = r#"# Turns
 
-Do the user's tasks with your tools, following the user's instructions at the
-end of this prompt: who they are, how their files are organized and how they
-want work done. Spawn subagents when needed. Each has its own context and stays
-alive after it reports, so send follow-up work on an area to the agent that
-already knows it.
+Do the user's tasks yourself, with your tools, following the user's instructions
+at the end of this prompt: who they are, how their files are organized and how
+they want work done. Use subagents only when the user asks for them.
 
 The view is your memory, and its latest word on a thing is the truth. Whenever
 you need any information, first find its latest mention in the view and zoom
@@ -186,6 +184,23 @@ pub(crate) fn cut_follow_up(line: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The system prompt is the spec's §5 prompt verbatim (kept as written
+    /// in `prompts/gist_prompt.txt`) with exactly the deviations the module
+    /// documents: the agent's name, its replies' kind, and no computers
+    /// paragraph.
+    #[test]
+    fn the_system_prompt_is_the_specs_with_only_the_documented_deviations() {
+        let spec = include_str!("prompts/gist_prompt.txt").trim_end();
+        let computers = spec
+            .find("The user's computers that have unii open now")
+            .unwrap();
+        let end = computers + spec[computers..].find("\n\n").unwrap() + 2;
+        let expected = format!("{}{}", &spec[..computers], &spec[end..])
+            .replace("- unii: Unii's replies", "- talk: Unii's replies")
+            .replace("Unii", super::AGENT_NAME);
+        assert_eq!(super::memory_system_layer(), expected);
+    }
+
     /// The follow-up shows the line cut where the limit falls, never
     /// inside a UTF-8 character.
     #[test]

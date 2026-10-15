@@ -46,17 +46,32 @@ pub(crate) struct NodeRecord {
 }
 
 /// One merge-batch line of `tree/`: the parts one batch of the view's
-/// sawtooth merged, as `[l, i]` pairs in merge order (§3.2).
+/// sawtooth merged, as `[l, i]` pairs in merge order (§3.2). A batch runs
+/// at every message while the view is over its ceiling or still shrinking
+/// toward its floor, and logs a line even when it merges nothing, so a
+/// restart knows whether the next message goes on shrinking.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct MergeRecord {
     pub merge: Vec<(u32, u64)>,
+    /// The view was still over its floor after the batch: the next message
+    /// merges what it can. Absent (false) on lines from before it was
+    /// logged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open: bool,
+    /// The number of messages when the batch ran. Absent on lines from
+    /// before it was logged and on a saved view imported as merges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub t: Option<u64>,
 }
 
 impl MergeRecord {
-    /// The record of the merged `parts`, in order.
+    /// The record of the merged `parts`, in order, outside any batch (a
+    /// saved view imported as merges).
     pub(crate) fn of(parts: &[Part]) -> MergeRecord {
         MergeRecord {
             merge: parts.iter().map(|part| (part.l, part.i)).collect(),
+            open: false,
+            t: None,
         }
     }
 }

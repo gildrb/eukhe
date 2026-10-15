@@ -9,7 +9,7 @@ use eukhe_durable::types::{EntryId, LatestFork};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// The view a call starts from (§6, §7), rendered once and pinned: every
+/// The view a call starts from (§3.3, §6), rendered once and pinned: every
 /// request of the call sends it byte-identical (the cache prefix), across
 /// a crash too.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

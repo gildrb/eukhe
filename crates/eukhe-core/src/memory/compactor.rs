@@ -22,20 +22,47 @@ use super::{view, NODE, TRIES};
 pub type SummarizerFuture =
     Pin<Box<dyn Future<Output = anyhow::Result<AssistantMessage>> + Send + 'static>>;
 
+/// Tells the owner that a compactor call's response has started: from
+/// then on its prefix is in the cache, so the calls waiting to read that
+/// prefix may go (§3.3: a call whose marked prefix another call is writing
+/// waits until that call's response starts). Signals at most once;
+/// dropping it unsignalled (a failed call) leaves the waiters to the end
+/// of the call.
+#[derive(Debug, Default)]
+pub struct ResponseStarted(Option<tokio::sync::oneshot::Sender<()>>);
+
+impl ResponseStarted {
+    /// A signal and the receiver that learns of it.
+    pub(crate) fn channel() -> (ResponseStarted, tokio::sync::oneshot::Receiver<()>) {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        (ResponseStarted(Some(sender)), receiver)
+    }
+
+    /// The response has started (its first event came, or the whole reply).
+    pub fn signal(&mut self) {
+        if let Some(sender) = self.0.take() {
+            // The owner may have stopped waiting; nothing is owed then.
+            let _ = sender.send(());
+        }
+    }
+}
+
 /// The model behind the compactor.
 ///
 /// An implementation completes one conversation on a cheap but competent
 /// model and returns the model's message verbatim: the compactor replays it
-/// in the same conversation when the line is over the size limit.
-/// Transport failures return `Err`; a reply that stopped with an error is
-/// reported through its `stop_reason`. Either fails the node, which the
-/// owner tries again at the next message (or after [`super::RETRY`] while a
-/// turn waits). Dropping the returned future cancels the call: the
-/// implementation stops its request then (the owner drops its calls when
-/// it stops).
+/// in the same conversation when the line is over the size limit. It
+/// signals `started` as soon as the model's response starts (its first
+/// streamed event; an implementation that only sees whole replies signals
+/// when it has one). Transport failures return `Err`; a reply that stopped
+/// with an error is reported through its `stop_reason`. Either fails the
+/// node, which the owner tries again at the next message (or after
+/// [`super::RETRY`] while a turn waits). Dropping the returned future
+/// cancels the call: the implementation stops its request then (the owner
+/// drops its calls when it stops).
 pub trait Summarizer: Send + Sync {
     /// Complete `context` and return the model's message.
-    fn complete(&self, context: Context) -> SummarizerFuture;
+    fn complete(&self, context: Context, started: ResponseStarted) -> SummarizerFuture;
 }
 
 /// The inputs of one model-built node.
@@ -48,7 +75,8 @@ pub(crate) struct NodeRequest {
 }
 
 /// Build one line: ask, check the size, send the cut follow-up, and keep
-/// the shortest try.
+/// the shortest try. `started` fires when the first call's response starts
+/// (the follow-ups read the same prefix from the cache).
 ///
 /// # Errors
 ///
@@ -59,6 +87,7 @@ pub(crate) async fn build_line(
     prompt: &CompactionPrompt,
     request: &NodeRequest,
     timestamp: u64,
+    mut started: ResponseStarted,
 ) -> anyhow::Result<String> {
     let mut blocks: Vec<UserContentBlock> = Vec::new();
     let pieces = view::pieces(&request.context);
@@ -83,7 +112,9 @@ pub(crate) async fn build_line(
     };
     let mut tries: Vec<String> = Vec::new();
     loop {
-        let reply = summarizer.complete(context.clone()).await?;
+        let reply = summarizer
+            .complete(context.clone(), std::mem::take(&mut started))
+            .await?;
         if matches!(reply.stop_reason, StopReason::Error | StopReason::Aborted) {
             anyhow::bail!(
                 "the compactor model stopped with {:?}: {}",

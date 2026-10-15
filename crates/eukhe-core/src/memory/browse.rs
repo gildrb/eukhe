@@ -1,5 +1,5 @@
-//! The browse page (`OptChat` spec §10): the whole memory as one HTML
-//! file. It shows the current view, ROOT (every message), and each level of
+//! The browse page (eukhe's own tool beside the spec): the whole memory as
+//! one HTML file. It shows the current view, ROOT (every message), and each level of
 //! the tree, every entry with its range, time span and size. It reads the
 //! files without taking ownership; the view is the live owner's when one
 //! answers, else the saved one.

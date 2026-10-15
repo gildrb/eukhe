@@ -28,8 +28,9 @@ use eukhe_chord::context::AbortController;
 use eukhe_types::ai::{Model, ModelThinkingLevel};
 use eukhe_types::daemon::AdmissionPriority;
 use eukhe_types::pi_ai::{self, Context};
+use futures::StreamExt;
 
-use super::compactor::{Summarizer, SummarizerFuture};
+use super::compactor::{ResponseStarted, Summarizer, SummarizerFuture};
 use crate::admission::{local_admission, AdmissionHandle, AdmissionRequest, QueuedNotice};
 
 /// The `session_id` of every compactor request: providers key prompt-cache
@@ -87,7 +88,7 @@ impl SettingsSummarizer {
 }
 
 impl Summarizer for SettingsSummarizer {
-    fn complete(&self, context: Context) -> SummarizerFuture {
+    fn complete(&self, context: Context, mut started: ResponseStarted) -> SummarizerFuture {
         let agent_dir = self.agent_dir.clone();
         let admission = self.admission.clone();
         Box::pin(async move {
@@ -156,9 +157,20 @@ impl Summarizer for SettingsSummarizer {
                         .map(|(name, value)| (name.clone(), Some(value.clone())))
                         .collect()
                 });
+                let stream = target
+                    .models
+                    .stream_simple(&target.model, context.clone(), options);
+                let reply = async {
+                    // The response has started at its first event: the
+                    // calls waiting for this prefix may go now (§3.3).
+                    if stream.events().next().await.is_some() {
+                        started.signal();
+                    }
+                    stream.result().await
+                };
                 tokio::select! {
                     biased;
-                    reply = target.models.complete_simple(&target.model, context.clone(), options) => {
+                    reply = reply => {
                         return Ok(reply);
                     }
                     () = permit.preempted() => {}
@@ -508,7 +520,11 @@ mod tests {
     #[tokio::test]
     async fn a_compactor_call_is_capped_and_closes_its_request_when_dropped() {
         let setup = setup(json!({})).await;
-        let call = tokio::spawn(setup.summarizer().complete(context("hi")));
+        let call = tokio::spawn(
+            setup
+                .summarizer()
+                .complete(context("hi"), ResponseStarted::default()),
+        );
         let mut socket = setup.accept().await;
         let body = within(read_body(&mut socket)).await;
         socket.write_all(STALLED.as_bytes()).await.unwrap();
@@ -522,16 +538,40 @@ mod tests {
         );
     }
 
+    /// A compactor call signals its response's start at the first streamed
+    /// event, while the response still runs: the calls waiting for its
+    /// prefix go then, not at its end (§3.3).
+    #[tokio::test]
+    async fn a_compactor_call_signals_its_response_start_before_it_ends() {
+        let setup = setup(json!({})).await;
+        let (started, response) = ResponseStarted::channel();
+        let call = tokio::spawn(setup.summarizer().complete(context("hi"), started));
+        let mut socket = setup.accept().await;
+        within(read_body(&mut socket)).await;
+        socket.write_all(STALLED.as_bytes()).await.unwrap();
+        within(response).await.unwrap();
+        assert!(!call.is_finished());
+        call.abort();
+    }
+
     /// The compactor's calls take slots of their provider: past
     /// `providerMaxInFlight` the next call waits, and goes out once the
     /// slot frees.
     #[tokio::test]
     async fn compactor_calls_count_against_the_providers_limit() {
         let mut setup = setup(json!({"local": 1})).await;
-        let first = tokio::spawn(setup.summarizer().complete(context("first")));
+        let first = tokio::spawn(
+            setup
+                .summarizer()
+                .complete(context("first"), ResponseStarted::default()),
+        );
         let mut held = setup.accept().await;
         within(read_body(&mut held)).await;
-        let second = tokio::spawn(setup.summarizer().complete(context("second")));
+        let second = tokio::spawn(
+            setup
+                .summarizer()
+                .complete(context("second"), ResponseStarted::default()),
+        );
         let waited = within(setup.queued.recv()).await;
         let while_held = setup.snapshot();
         reply_with(held, "one").await;

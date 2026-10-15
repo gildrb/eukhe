@@ -12,6 +12,14 @@ check:
 runtime-test:
 	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.11 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
+# The chat memory's laws (LAWS.bend, proven in PROOF.bend; docs/memory.md):
+# the local mirror of the ci.yml laws job. --verdict needs Lean 4.34.0
+# (scripts/install_bend.sh --lean installs both pinned releases in CI).
+laws:
+	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend 2.0.37: https://bend-lang.com/install.sh)"; exit 1; }
+	bend PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
+	bend PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
+
 
 # Supply-chain gates — local mirrors of the
 # ci.yml workflow jobs. They fail loudly when the tool is missing instead of
@@ -178,4 +186,4 @@ runtime-lock-check:
 	cd eukhe-runtime && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
 	python3 scripts/release/test_runtime_lock.py
 
-.PHONY: check runtime-test deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check
+.PHONY: check runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check

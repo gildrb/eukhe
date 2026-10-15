@@ -48,10 +48,12 @@ impl Scripted {
 }
 
 impl Summarizer for Scripted {
-    fn complete(&self, context: Context) -> SummarizerFuture {
+    /// A whole-reply model: its response starts when it is asked.
+    fn complete(&self, context: Context, mut started: ResponseStarted) -> SummarizerFuture {
         locked(&self.requests).push(context);
         locked(&self.times).push(tokio::time::Instant::now());
         self.asked.notify_waiters();
+        started.signal();
         let reply = locked(&self.replies)
             .pop_front()
             .unwrap_or_else(|| Err(anyhow::anyhow!("no scripted reply left")));
@@ -123,9 +125,15 @@ fn first_request() -> Context {
 #[tokio::test]
 async fn a_line_within_the_limit_is_taken_at_once() {
     let summarizer = Scripted::with(vec![Ok(reply("  user: hi  "))]);
-    let line = build_line(summarizer.as_ref(), &prompt(), &request(), 7)
-        .await
-        .unwrap();
+    let line = build_line(
+        summarizer.as_ref(),
+        &prompt(),
+        &request(),
+        7,
+        ResponseStarted::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         (line, summarizer.requests()),
         ("user: hi".to_string(), vec![first_request()])
@@ -145,9 +153,15 @@ async fn over_long_lines_get_the_cut_and_the_shortest_of_five_wins() {
         Ok(reply(&long(521))),
         Ok(reply(&long(100))),
     ]);
-    let line = build_line(summarizer.as_ref(), &prompt(), &request(), 7)
-        .await
-        .unwrap();
+    let line = build_line(
+        summarizer.as_ref(),
+        &prompt(),
+        &request(),
+        7,
+        ResponseStarted::default(),
+    )
+    .await
+    .unwrap();
     let requests = summarizer.requests();
     let follow_up = |n: usize| {
         user(vec![text_block(
@@ -180,9 +194,15 @@ async fn a_line_at_the_limit_ends_the_retries() {
         Ok(reply(&"x".repeat(NODE + 1))),
         Ok(reply(&"y".repeat(NODE))),
     ]);
-    let line = build_line(summarizer.as_ref(), &prompt(), &request(), 7)
-        .await
-        .unwrap();
+    let line = build_line(
+        summarizer.as_ref(),
+        &prompt(),
+        &request(),
+        7,
+        ResponseStarted::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!((line, summarizer.requests().len()), ("y".repeat(NODE), 2));
 }
 
@@ -196,9 +216,15 @@ async fn empty_and_failed_replies_fail_the_node() {
         Err(anyhow::anyhow!("overloaded")),
     ] {
         let summarizer = Scripted::with(vec![scripted]);
-        assert!(build_line(summarizer.as_ref(), &prompt(), &request(), 7)
-            .await
-            .is_err());
+        assert!(build_line(
+            summarizer.as_ref(),
+            &prompt(),
+            &request(),
+            7,
+            ResponseStarted::default()
+        )
+        .await
+        .is_err());
     }
 }
 
@@ -220,6 +246,7 @@ async fn the_view_is_marked_at_its_last_whole_block() {
             task: "task".to_string(),
         },
         7,
+        ResponseStarted::default(),
     )
     .await
     .unwrap();

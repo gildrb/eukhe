@@ -118,9 +118,10 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         None => crate::refinement::HarnessMemory::Harness,
     };
 
-    // The chat memory layer leads (`OptChat` §7.2: `MASTER`, then
-    // `VIEW_DOC`). It is static and survives a replaced prompt: the model
-    // must know how to read the view either way.
+    // The chat memory layer leads (`OptChat` §5: one system prompt for
+    // turns and compactions, the user's instructions after it). It is
+    // static and survives a replaced prompt: the model must know how to
+    // read the view either way.
     if let Some(role) = options.memory {
         segments.push(PromptSegment::static_segment(
             "memory",
@@ -505,7 +506,7 @@ mod tests {
         assert!(tail.contains("Pre-installed Python packages: requests, httpx,"));
     }
 
-    /// A chat-memory session's prompt (`OptChat` §7.2): the memory layer
+    /// A chat-memory session's prompt (`OptChat` §3.3, §5): the memory layer
     /// first, then the harness layers rendered for chat memory, then the
     /// dynamic tail, and the user's instructions files last; no date, so
     /// every call of the session sends the same bytes.

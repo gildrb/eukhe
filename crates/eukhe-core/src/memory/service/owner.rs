@@ -64,6 +64,11 @@ pub(super) enum Command {
     Closed {
         connection: u64,
     },
+    /// The response of node `part`'s call has started: its prefix is
+    /// cached, so the calls waiting for it may go (§3.3).
+    Started {
+        part: Part,
+    },
     Built {
         part: Part,
         result: anyhow::Result<String>,

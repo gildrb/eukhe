@@ -1,15 +1,16 @@
 //! The chat's saved state beside its logs: `view.json`, the live view as
-//! `[l, i]` pairs (§1, §3.2: a cache of the fold of the logs, saved on
-//! every change), and `prompt.json`, the
-//! turns' system prompt and tools that compactions reuse (§4). Each file is
-//! replaced atomically: written to a temporary file, fsynced, renamed over
-//! the old one, and the directory fsynced.
+//! `[l, i]` pairs (§3.2: a cache of the fold of the logs, saved on every
+//! change), `prompt.json`, the turns' system prompt and tools that
+//! compactions reuse (§4), and `images/<i>.json`, the images message `i`
+//! carried (§5: `zoom(id, 1)` gives a message whole, with its images). Each
+//! file is replaced atomically: written to a temporary file, fsynced,
+//! renamed over the old one, and the directory fsynced.
 
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
-use eukhe_types::pi_ai::Tool;
+use eukhe_types::pi_ai::{ImageContent, Tool};
 
 use super::view::Part;
 
@@ -17,6 +18,8 @@ use super::view::Part;
 pub(crate) const VIEW_FILE: &str = "view.json";
 /// The saved compaction prompt.
 pub(crate) const PROMPT_FILE: &str = "prompt.json";
+/// The directory of the messages' images.
+pub(crate) const IMAGES_DIR: &str = "images";
 
 /// What every compaction sends before its view: the turns' system prompt
 /// and tools, verbatim, so a compaction reads them from the turns' cache
@@ -89,6 +92,46 @@ pub(crate) fn load_prompt(dir: &Path) -> io::Result<Option<CompactionPrompt>> {
 pub(crate) fn save_prompt(dir: &Path, prompt: &CompactionPrompt) -> io::Result<()> {
     let bytes = serde_json::to_vec(prompt).map_err(io::Error::other)?;
     write_atomic(dir, PROMPT_FILE, &bytes)
+}
+
+/// Save the images of message `id`, before its line is written. A crash
+/// in between leaves images no line names: the next message of the same
+/// id replaces them, or removes them when it carries none.
+///
+/// # Errors
+///
+/// Returns an error when the directory or the file cannot be written,
+/// synced, renamed or removed.
+pub(crate) fn save_images(dir: &Path, id: u64, images: &[ImageContent]) -> io::Result<()> {
+    let images_dir = dir.join(IMAGES_DIR);
+    let name = format!("{id}.json");
+    if images.is_empty() {
+        return match fs::remove_file(images_dir.join(&name)) {
+            Ok(()) => File::open(&images_dir)?.sync_all(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        };
+    }
+    if !images_dir.is_dir() {
+        fs::create_dir_all(&images_dir)?;
+        File::open(dir)?.sync_all()?;
+    }
+    let bytes = serde_json::to_vec(images).map_err(io::Error::other)?;
+    write_atomic(&images_dir, &name, &bytes)
+}
+
+/// The images of message `id`: none when it carried none (every message
+/// logged before images were kept).
+///
+/// # Errors
+///
+/// Returns an error when the file exists but cannot be read or parsed.
+pub(crate) fn load_images(dir: &Path, id: u64) -> io::Result<Vec<ImageContent>> {
+    let Some(bytes) = read_optional(&dir.join(IMAGES_DIR).join(format!("{id}.json")))? else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_slice(&bytes)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 fn read_optional(path: &Path) -> io::Result<Option<Vec<u8>>> {

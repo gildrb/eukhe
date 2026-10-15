@@ -1,4 +1,4 @@
-//! The post-commit chat logger of a root session (§7, §9). It follows the
+//! The post-commit chat logger of a root session (§1, §6). It follows the
 //! committed entries of the session's root conversations and appends what
 //! each adds to the chat log, in commit order:
 //!
@@ -380,13 +380,13 @@ impl Logger {
                 }
             }
             let scope = format!("{}/{conversation}", chat.session_id);
-            for (seq, (kind, text)) in (cursor.lines..).zip(&lines) {
+            for (seq, line) in (cursor.lines..).zip(&lines) {
                 let key = AppendKey {
                     scope: scope.clone(),
                     seq,
                 };
                 chat.memory
-                    .append_keyed(*kind, text, key)
+                    .append_keyed(line.kind, &line.text, line.images.clone(), key)
                     .await
                     .map_err(|error| memory_error(&error))?;
             }

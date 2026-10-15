@@ -7,6 +7,8 @@
 //! Layout under `<agent-dir>/chat/`:
 //!
 //! - `main/YYYY-MM-DD.jsonl`: one message per line, `{i, kind, text, size, date}`.
+//! - `images/<i>.json`: the images message `i` carried, written and fsynced
+//!   before its line and never changed; `zoom(i, 1)` gives them back (§5).
 //! - `tree/YYYY-MM-DD.jsonl`: one node per line, `{l, i, text, size}`, and
 //!   one line per merge batch of the view, `{merge: [[l, i], ...]}`.
 //! - `view.json`: the live view as `[l, i]` pairs, a cache: the view is the
@@ -39,14 +41,16 @@ mod view;
 use std::time::Duration;
 
 pub use browse::{read_view, write_browse_page, BrowseSummary, ReadView};
-pub use compactor::{Summarizer, SummarizerFuture};
+pub use compactor::{ResponseStarted, Summarizer, SummarizerFuture};
 pub use import::{import_sessions, ImportReport};
 pub use prompts::{
     memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
     ZOOM_TOOL_DESCRIPTION,
 };
 pub use saved::CompactionPrompt;
-pub use service::{KeyedAppend, Memory, MemoryStatus, MemoryUpdates, RenderedView, TurnLease};
+pub use service::{
+    KeyedAppend, Memory, MemoryStatus, MemoryUpdates, RenderedView, TurnLease, Zoomed,
+};
 pub use summarizer::{configured_memory_model, SettingsSummarizer};
 
 /// Target size of one summary line, in UTF-8 bytes.
@@ -81,7 +85,8 @@ pub const PLACEHOLDER: &str = "(not summarized yet: zoom it)";
 
 /// Which side of the chat a session is: the root logs to the chat and
 /// starts every fresh turn from the view; a subagent starts from the view
-/// at its spawn and logs nothing (§9).
+/// at its spawn and logs nothing to the chat (§6: its own steps stay in its
+/// own log).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryRole {
     Root,
@@ -120,6 +125,8 @@ pub enum Kind {
     Echo,
     /// A subagent's or background task's report, starting `[Name]`.
     Work,
+    /// A memory imported from before the chat (§1).
+    Note,
 }
 
 impl Kind {
@@ -132,6 +139,7 @@ impl Kind {
             Kind::Tool => "tool",
             Kind::Echo => "echo",
             Kind::Work => "work",
+            Kind::Note => "note",
         }
     }
 }
