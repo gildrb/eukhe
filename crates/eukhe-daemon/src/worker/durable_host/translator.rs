@@ -29,7 +29,7 @@ use eukhe_durable::harness::types::{AgentState, CompactionReason, ConversationRe
 use eukhe_durable::harness::usage::UsageState;
 use eukhe_durable::harness::{
     AgentEvent, MessageChange, PathSegment, QueuedItem, SnapshotEvent, ToolOutputUpdate,
-    ToolSlotStatus,
+    ToolSlotStatus, COMPACTION_TASK, GENERATION_TASK, TOOL_TASK,
 };
 use eukhe_durable::types::{EntryId, EntryRecord, SubmissionId, TaskId};
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock};
@@ -45,12 +45,6 @@ use super::wire_messages::{
     assistant_context_tokens, assistant_wire_message, entry_data, entry_wire_message, to_wire,
 };
 
-/// Task kind of a generation (its failures fail the turn).
-const GENERATION_TASK: &str = "pi.generation";
-/// Task kind of a tool call.
-const TOOL_TASK: &str = "pi.tool";
-/// Task kind of a compaction.
-const COMPACTION_TASK: &str = "pi.compaction";
 /// Result text of a tool that ended without a result entry or a known failure.
 const NO_RESULT_TEXT: &str = "Tool execution ended without a result";
 
@@ -406,7 +400,9 @@ impl EventTranslator {
                 message,
             } = event
             {
-                if kind == TOOL_TASK || kind == COMPACTION_TASK {
+                if kind == TOOL_TASK.definition().name()
+                    || kind == COMPACTION_TASK.definition().name()
+                {
                     self.failures.push(Failure {
                         task_id: *task_id,
                         kind: kind.clone(),
@@ -1001,7 +997,7 @@ impl EventTranslator {
             let message = self
                 .failures
                 .iter()
-                .position(|failure| failure.kind == TOOL_TASK)
+                .position(|failure| failure.kind == TOOL_TASK.definition().name())
                 .map_or_else(
                     || NO_RESULT_TEXT.to_owned(),
                     |index| self.failures.remove(index).message,
@@ -1023,17 +1019,19 @@ impl EventTranslator {
     }
 
     fn task_failed(&mut self, task_id: TaskId, kind: &str, message: &str) {
-        if kind == GENERATION_TASK {
+        if kind == GENERATION_TASK.definition().name() {
             self.turn_error = Some(message.to_owned());
             return;
         }
         // Outside a batch a failure follows the end it explains, so only one
         // a later frame can still report is kept: a live compaction's or a
         // running tool's.
-        let reportable = match kind {
-            TOOL_TASK => !self.mirror.tools.is_empty(),
-            COMPACTION_TASK => self.mirror.compactions.iter().any(|(id, _)| *id == task_id),
-            _ => false,
+        let reportable = if kind == TOOL_TASK.definition().name() {
+            !self.mirror.tools.is_empty()
+        } else if kind == COMPACTION_TASK.definition().name() {
+            self.mirror.compactions.iter().any(|(id, _)| *id == task_id)
+        } else {
+            false
         };
         if reportable && !self.failures_prescanned {
             self.failures.push(Failure {
@@ -1107,7 +1105,9 @@ impl EventTranslator {
         let failure = self
             .failures
             .iter()
-            .position(|failure| failure.kind == COMPACTION_TASK && failure.task_id == task_id)
+            .position(|failure| {
+                failure.kind == COMPACTION_TASK.definition().name() && failure.task_id == task_id
+            })
             .map(|index| self.failures.remove(index));
         if let Some(claim) = self
             .manual_claim

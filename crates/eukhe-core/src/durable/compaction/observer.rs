@@ -24,21 +24,24 @@
 //! nothing to cut it appends the skip row.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_chord::json::{from_json, JsonError};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
-use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
+use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::agent::resolve_settings;
-use eukhe_durable::harness::types::CompactionReason;
-use eukhe_durable::harness::types::{SubmissionDraft, WriteSubmissionDraft};
-use eukhe_durable::harness::Conversation;
-use eukhe_durable::harness::ConversationEntryQuery;
+use eukhe_durable::harness::types::{
+    CompactionReason, CompactionResult, SubmissionDraft, WriteSubmissionDraft,
+};
+use eukhe_durable::harness::{
+    CompactionInput, Conversation, ConversationEntryQuery, COMPACTION_TASK,
+};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{
     CommitChange, CommitPublication, ConversationId, EntryId, EntryRecord, LatestFork, TaskOutcome,
-    TaskRecord,
+    TaskRecord, TaskState,
 };
 use eukhe_types::pi_ai::{Message, StopReason};
 use eukhe_types::session::CustomMessage;
@@ -47,7 +50,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::{custom_entry_draft, OpenedSession};
-use super::{CompactionRuntime, HostDeps, COMPACTION_ENTRY_KIND};
+use super::{CompactionRuntime, HostDeps};
 use crate::durable::messages::{CompactionOutcomeKind, CompactionOutcomeReason};
 
 /// The reported failure of a run whose one overflow compaction did not make
@@ -88,6 +91,7 @@ enum Observed {
 }
 
 /// One settled compaction the observer services.
+#[derive(Debug, PartialEq)]
 struct Settled {
     conversation_id: ConversationId,
     /// The task's durable id (its idempotency key).
@@ -99,6 +103,7 @@ struct Settled {
 }
 
 /// How the task settled.
+#[derive(Debug, PartialEq)]
 enum SettledOutcome {
     /// A summary was placed (entry or submission): the follow-ups run.
     Summarized,
@@ -118,7 +123,6 @@ pub(crate) fn start(
 ) -> futures::future::BoxFuture<'static, SessionResult<Option<super::super::ServiceStop>>> {
     async move {
         let (events, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<Observed>();
-        let listener_seen: Arc<Mutex<Vec<String>>> = Arc::default();
         let barrier_events = events.clone();
         let (barrier_harness, barrier_root) = (opened.harness.clone(), opened.root.id());
         let barrier: super::super::deps::ObserverBarrier = Arc::new(move || {
@@ -147,14 +151,19 @@ pub(crate) fn start(
             move |publication: &CommitPublication, _cx: &Context| {
                 for change in &publication.changes {
                     match change {
-                        CommitChange::Task(record) => {
-                            if let Some(settled) = settle_of(record, &listener_seen) {
+                        CommitChange::Task(record) => match settle_of(record) {
+                            Ok(Some(settled)) => {
                                 let _ = listener_events.send(Observed::Settled(settled));
                             }
-                        }
+                            Ok(None) => {}
+                            Err(error) => {
+                                let task_id = record.id;
+                                tracing::error!(target: "eukhe.compaction", "compaction task {task_id} does not decode: {error}");
+                            }
+                        },
                         // One settled assistant turn appended: the review
                         // prompt's trigger counter.
-                        CommitChange::Entry(entry) if entry.kind == "pi.assistant" => {
+                        CommitChange::Entry(entry) if entry.kind == ASSISTANT_ENTRY.kind() => {
                             listener_runtime.autorefine.note_settled_turn();
                             if overflow_ends_run(entry, publication) {
                                 let _ = listener_events.send(Observed::OverflowEnded {
@@ -246,8 +255,8 @@ fn overflow_ends_run(entry: &EntryRecord, publication: &CommitPublication) -> bo
     overflowed
         && !publication.changes.iter().any(|change| {
             matches!(change, CommitChange::Task(record)
-                if record.kind == super::COMPACTION_ENTRY_KIND
-                    && !matches!(record.state, eukhe_durable::types::TaskState::Terminal { .. }))
+                if record.kind == COMPACTION_TASK.definition().name()
+                    && !matches!(record.state, TaskState::Terminal { .. }))
         })
 }
 
@@ -329,43 +338,32 @@ async fn run_compacted_for_overflow(
     }
 }
 
-/// The settle of one task record, when it is a terminal `pi.compaction`
-/// whose id the observer has not serviced yet.
-fn settle_of(record: &TaskRecord, seen: &Mutex<Vec<String>>) -> Option<Settled> {
-    if record.kind != super::COMPACTION_ENTRY_KIND {
-        return None;
+/// The settle of one task record, when it is a terminal `pi.compaction`.
+/// The Session publishes a task's terminal record exactly once (it refuses
+/// to replace a terminal task), so each settle is observed once and no
+/// record of serviced task ids is kept.
+///
+/// # Errors
+///
+/// The record's input or result does not decode as the compaction task's.
+fn settle_of(record: &TaskRecord) -> Result<Option<Settled>, JsonError> {
+    if record.kind != COMPACTION_TASK.definition().name() {
+        return Ok(None);
     }
-    let input: Value = serde_json::from_str(&record.input.to_string()).ok()?;
-    let reason = match input.get("reason").and_then(Value::as_str) {
-        Some("threshold") => Some(CompactionOutcomeReason::Threshold),
-        Some("overflow") => Some(CompactionOutcomeReason::Overflow),
+    let TaskState::Terminal { outcome } = &record.state else {
+        return Ok(None);
+    };
+    let input: CompactionInput = from_json(&record.input)?;
+    let reason = match input.reason {
+        CompactionReason::Threshold => Some(CompactionOutcomeReason::Threshold),
+        CompactionReason::Overflow => Some(CompactionOutcomeReason::Overflow),
         // Manual compactions report on the event only.
-        _ => None,
+        CompactionReason::Manual => None,
     };
-    let eukhe_durable::types::TaskState::Terminal { outcome } = &record.state else {
-        return None;
-    };
-    // Seen only once terminal: the task's pending and running publications
-    // come first and must not consume its idempotency key.
-    let task_id = record.id.to_string();
-    {
-        let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
-        if seen.contains(&task_id) {
-            return None;
-        }
-        seen.push(task_id.clone());
-    }
     let outcome = match outcome {
         TaskOutcome::Completed { result } => {
-            let placed = serde_json::from_str::<Value>(&result.to_string())
-                .ok()
-                .and_then(|result| {
-                    result.as_object().map(|fields| {
-                        fields.contains_key("entryId") || fields.contains_key("submissionId")
-                    })
-                })
-                .unwrap_or(false);
-            if placed {
+            let result: CompactionResult = from_json(result)?;
+            if result.entry_id.is_some() || result.submission_id.is_some() {
                 SettledOutcome::Summarized
             } else {
                 SettledOutcome::Skipped
@@ -379,17 +377,17 @@ fn settle_of(record: &TaskRecord, seen: &Mutex<Vec<String>>) -> Option<Settled> 
         TaskOutcome::Aborted { .. } => SettledOutcome::Aborted,
         // An orphaned compaction (its definition unavailable) never
         // settles through this observer.
-        TaskOutcome::Orphaned { .. } => return None,
+        TaskOutcome::Orphaned { .. } => return Ok(None),
     };
     if reason.is_none() && !matches!(outcome, SettledOutcome::Summarized) {
-        return None;
+        return Ok(None);
     }
-    Some(Settled {
+    Ok(Some(Settled {
         conversation_id: record.conversation_id,
-        task_id,
+        task_id: record.id.to_string(),
         reason,
         outcome,
-    })
+    }))
 }
 
 /// Service one settled compaction: the outcome row, the kernel notice,
@@ -491,7 +489,7 @@ async fn skip_message(deps: &HostDeps, conversation: &Conversation, cx: &Context
         .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await
     {
-        Ok(view) if matches!(view.entries.last(), Some(entry) if entry.kind == COMPACTION_ENTRY_KIND) => {
+        Ok(view) if matches!(view.entries.last(), Some(entry) if entry.kind == COMPACTION_ENTRY.kind()) => {
             "Already compacted".to_owned()
         }
         _ => "Session is too short to compact -- try again once it grows".to_owned(),
@@ -592,4 +590,85 @@ fn pi_user_content(
     content: &eukhe_types::ai::UserContent,
 ) -> anyhow::Result<eukhe_types::pi_ai::UserContent> {
     Ok(serde_json::from_value(serde_json::to_value(content)?)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use eukhe_chord::json::{to_json, JsonValue};
+    use eukhe_durable::types::TaskId;
+    use serde_json::json;
+
+    use super::*;
+
+    /// A terminal `pi.compaction` record of task 7 with `input` that
+    /// completed with `result`.
+    fn completed(input: &serde_json::Value, result: &serde_json::Value) -> TaskRecord {
+        TaskRecord {
+            id: TaskId::from_number(7),
+            conversation_id: ConversationId::from_number(1),
+            kind: COMPACTION_TASK.definition().name().to_owned(),
+            version: 1,
+            input: to_json(input).unwrap(),
+            owner: None,
+            background: true,
+            abort_requested: false,
+            abort_reason: None,
+            abandon_on_restart: false,
+            state: TaskState::Terminal {
+                outcome: TaskOutcome::Completed {
+                    result: to_json(result).unwrap(),
+                },
+            },
+            memos: None,
+            started_at: None,
+            ended_at: None,
+        }
+    }
+
+    /// The settle reads the typed task input and result: a placed summary
+    /// entry is summarized, an empty result skipped.
+    #[test]
+    fn settle_reads_the_typed_input_and_result() {
+        let threshold = json!({ "reason": "threshold" });
+        let summarized = Settled {
+            conversation_id: ConversationId::from_number(1),
+            task_id: "7".to_owned(),
+            reason: Some(CompactionOutcomeReason::Threshold),
+            outcome: SettledOutcome::Summarized,
+        };
+        assert_eq!(
+            settle_of(&completed(&threshold, &json!({ "entryId": 12 }))).unwrap(),
+            Some(summarized)
+        );
+        let skipped = Settled {
+            conversation_id: ConversationId::from_number(1),
+            task_id: "7".to_owned(),
+            reason: Some(CompactionOutcomeReason::Threshold),
+            outcome: SettledOutcome::Skipped,
+        };
+        assert_eq!(
+            settle_of(&completed(&threshold, &json!({}))).unwrap(),
+            Some(skipped)
+        );
+    }
+
+    /// Regression: an input or result that does not decode as the
+    /// compaction task's is an error, never a silent `Skipped` (the old
+    /// field-name probe read a non-object result as "no summary") or a
+    /// manual compaction (an unknown reason).
+    #[test]
+    fn an_undecodable_settle_is_an_error_not_a_skip() {
+        let threshold = json!({ "reason": "threshold" });
+        assert!(settle_of(&completed(&threshold, &json!("placed"))).is_err());
+        assert!(settle_of(&completed(&threshold, &json!({ "entryId": "twelve" }))).is_err());
+        assert!(settle_of(&completed(&json!({ "reason": "sideways" }), &json!({}))).is_err());
+        // A live record of the same task is no settle yet; nothing decodes.
+        let live = TaskRecord {
+            state: TaskState::Running {
+                checkpoint: JsonValue::Null,
+            },
+            ..completed(&json!("not an input"), &json!({}))
+        };
+        assert_eq!(settle_of(&live).unwrap(), None);
+    }
 }

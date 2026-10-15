@@ -17,7 +17,7 @@ use std::sync::Arc;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_chord::context::Context;
-use eukhe_durable::entries::{CompactionSummary, HarnessDigest};
+use eukhe_durable::entries::{CompactionSummary, HarnessDigest, COMPACTION_ENTRY};
 use eukhe_durable::harness::types::{
     BeforeCompactHook, CompactionDecision, CompactionRequest, HookApi,
 };
@@ -46,7 +46,7 @@ use crate::durable::messages::{
     create_compaction_outcome_message, CompactionOutcomeKind, CompactionOutcomeReason,
 };
 
-use super::{CompactionRuntime, COMPACTION_ENTRY_KIND};
+use super::CompactionRuntime;
 
 /// The `before_compact` hook of `eukhe.compaction`.
 pub(super) fn before_compact_hook(runtime: &Arc<CompactionRuntime>) -> BeforeCompactHook {
@@ -86,7 +86,7 @@ async fn decide(
     let head_entry = request
         .entries
         .first()
-        .filter(|entry| entry.kind == COMPACTION_ENTRY_KIND);
+        .filter(|entry| entry.kind == COMPACTION_ENTRY.kind());
     let head_summary = head_entry
         .map(head::previous_summary)
         .transpose()?

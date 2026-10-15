@@ -12,6 +12,7 @@ use super::{
     Value, Worker,
 };
 
+use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::usage::UsageState;
 use eukhe_types::daemon::{QueuedItem, SessionEvent};
 use eukhe_types::pi_ai::Model;
@@ -178,7 +179,7 @@ impl Worker {
                 let count = mirror
                     .entries
                     .iter()
-                    .filter(|entry| entry.kind == "pi.compaction")
+                    .filter(|entry| entry.kind == COMPACTION_ENTRY.kind())
                     .count();
                 u32::try_from(count).unwrap_or(u32::MAX)
             }),
@@ -399,7 +400,7 @@ fn first_message(view: &ShownView) -> Option<String> {
         .mirror()
         .entries
         .iter()
-        .filter(|entry| entry.kind == "pi.user")
+        .filter(|entry| entry.kind == USER_ENTRY.kind())
         .find_map(entry_wire_message)
         .map(|message| crate::types::message_text(&message))
 }

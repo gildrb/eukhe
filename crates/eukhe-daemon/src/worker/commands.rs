@@ -6,6 +6,7 @@ use std::sync::Arc;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::agent_messaging::AgentFamilyRelationship;
 use eukhe_core::durable::messages::SESSION_RENAMED_CUSTOM_TYPE;
+use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
 use eukhe_types::daemon::SessionEvent;
 use serde_json::{json, Value};
@@ -554,7 +555,7 @@ impl Worker {
                 .entries
                 .iter()
                 .rev()
-                .filter(|entry| entry.kind == "pi.assistant")
+                .filter(|entry| entry.kind == ASSISTANT_ENTRY.kind())
                 .find_map(entry_wire_message)
                 .map(|message| crate::types::message_text(&message))
         });

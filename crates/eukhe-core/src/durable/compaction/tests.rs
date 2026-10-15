@@ -13,8 +13,10 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::entries::{CompactionData, CompactionSummary, COMPACTION_ENTRY};
 use eukhe_durable::harness::types::CompactionReason;
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
-use eukhe_durable::harness::{ConversationEntryQuery, SubmissionHandle};
-use eukhe_durable::types::{EntryHead, SubmissionStatus, TypedEntryDraft};
+use eukhe_durable::harness::{ConversationEntryQuery, SubmissionHandle, COMPACTION_TASK};
+use eukhe_durable::types::{
+    CommitChange, CommitPublication, EntryHead, SubmissionStatus, TaskStatus, TypedEntryDraft,
+};
 use eukhe_types::pi_ai::{AssistantMessage, Message, StopReason, UserContent, UserMessage};
 use tempfile::TempDir;
 use tokio::sync::Notify;
@@ -218,6 +220,60 @@ async fn a_second_compaction_summarizes_in_update_mode_over_the_previous_summary
     // first.
     let text = newest_summary_text(&session).await.expect("second summary");
     assert!(text.contains("updated summary"), "newest summary: {text}");
+    session.close(cx()).await.unwrap();
+}
+
+/// The observer keeps no per-task dedup state (it once kept every serviced
+/// task id for the life of the session): it relies on the Session
+/// publishing each task's terminal record exactly once. Two compactions
+/// publish one terminal `pi.compaction` record each.
+#[tokio::test]
+async fn each_compaction_publishes_its_terminal_record_once() {
+    let fixture = Fixture::new();
+    let session = fixture.open().await;
+    let terminal: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let seen = Arc::clone(&terminal);
+    let subscription = session
+        .harness()
+        .subscribe_commits(Arc::new(
+            move |publication: &CommitPublication, _cx: &eukhe_chord::context::Context| {
+                for change in &publication.changes {
+                    if let CommitChange::Task(record) = change {
+                        if record.kind == COMPACTION_TASK.definition().name()
+                            && record.state.status() == TaskStatus::Terminal
+                        {
+                            seen.lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .push(record.id.get());
+                        }
+                    }
+                }
+            },
+        ))
+        .unwrap();
+    let root = session.root().clone();
+    fixture.turn(&session, "one", "answer one").await;
+    fixture.turn(&session, "two", "answer two").await;
+    fixture.reply("first summary");
+    let first = root.compact(None, cx()).await.unwrap();
+    session.harness().wait_for_task(first, cx()).await.unwrap();
+    fixture.turn(&session, "three", "answer three").await;
+    fixture.reply("updated summary");
+    let second = root.compact(None, cx()).await.unwrap();
+    session.harness().wait_for_task(second, cx()).await.unwrap();
+    // A waiter woken by a publication may run before the listeners saw it;
+    // one session line read passes them.
+    session
+        .harness()
+        .conversation(root.id(), cx())
+        .await
+        .unwrap();
+    drop(subscription);
+
+    assert_eq!(
+        *terminal.lock().unwrap_or_else(PoisonError::into_inner),
+        [first.get(), second.get()]
+    );
     session.close(cx()).await.unwrap();
 }
 

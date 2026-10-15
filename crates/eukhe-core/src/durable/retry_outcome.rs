@@ -22,20 +22,21 @@
 //! belong to the compaction observer's rows, and aborts are user actions:
 //! neither gets a retry row.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_chord::json::{from_json, JsonError, JsonValue};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
-use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
+use eukhe_durable::harness::{Conversation, ConversationEntryQuery, LiveState, LIVE_DOC};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{
     CommitChange, CommitPublication, ConversationId, DocumentCommitChange, EntryId, EntryRecord,
-    LatestFork,
+    LatestFork, TaskId,
 };
 use eukhe_types::pi_ai::{AssistantMessage, Message, StopReason, UserContent};
 use futures::FutureExt;
@@ -49,9 +50,6 @@ use crate::durable::messages::{
 
 /// The extension name.
 pub const RETRY_OUTCOME_EXTENSION: &str = "eukhe.retry_outcome";
-
-/// The live document whose generation carries a scheduled retry.
-const LIVE_DOC_KIND: &str = "pi.live";
 
 /// The faux test provider's queue exhaustion (no provider failure: the
 /// disclosure gate excludes it).
@@ -79,6 +77,7 @@ pub struct OutcomesState {
 }
 
 /// One episode end the observer services.
+#[derive(Debug, PartialEq)]
 enum Observed {
     Ended {
         conversation_id: ConversationId,
@@ -106,15 +105,22 @@ fn start(
         // end: only those turn a settled answer into a recovered row (a
         // first-try answer needs no entry scan). In memory: a worker
         // restart mid-episode loses the recovered row, never a failure's.
-        let retrying: Arc<Mutex<HashSet<ConversationId>>> = Arc::default();
+        let episodes: Mutex<Episodes> = Mutex::default();
         let commits = opened.harness.subscribe_commits(Arc::new(
             move |publication: &CommitPublication, _cx: &Context| {
-                for change in &publication.changes {
-                    let CommitChange::Entry(entry) = change else {
-                        continue;
-                    };
-                    if let Some(observed) = episode_end(entry, publication, &retrying) {
-                        let _ = events.send(observed);
+                let observed = episodes
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .observe(publication);
+                match observed {
+                    Ok(ended) => {
+                        for observed in ended {
+                            let _ = events.send(observed);
+                        }
+                    }
+                    Err(error) => {
+                        let seq = publication.seq.get();
+                        tracing::error!(target: "eukhe.retry_outcome", "commit {seq}: pi.live does not decode, retry episodes unobserved: {error}");
                     }
                 }
             },
@@ -156,64 +162,142 @@ fn start(
     .boxed()
 }
 
-/// The episode end `entry` stands for, when it is an assistant entry whose
-/// commit schedules no retry: a provider failure (gated like the old
-/// disclosure), or a settled answer after a scheduled retry.
-fn episode_end(
-    entry: &EntryRecord,
-    publication: &CommitPublication,
-    retrying: &Mutex<HashSet<ConversationId>>,
-) -> Option<Observed> {
-    if entry.kind != ASSISTANT_ENTRY.kind() {
-        return None;
-    }
-    let message = entry
-        .model
-        .as_deref()
-        .and_then(<[Message]>::first)
-        .and_then(Message::as_assistant)?;
-    let mut retrying = retrying.lock().unwrap_or_else(PoisonError::into_inner);
-    if schedules_retry(entry.conversation_id, publication) {
-        retrying.insert(entry.conversation_id);
-        return None;
-    }
-    let was_retrying = retrying.remove(&entry.conversation_id);
-    let reported = match message.stop_reason {
-        // Overflow recovery reports through the compaction rows.
-        StopReason::Error => !is_context_overflow(message, None),
-        StopReason::Aborted => false,
-        StopReason::Stop
-        | StopReason::Length
-        | StopReason::ToolUse
-        | StopReason::Pending
-        | StopReason::Deferred => was_retrying,
-    };
-    reported.then(|| Observed::Ended {
-        conversation_id: entry.conversation_id,
-        entry_id: entry.id,
-        message: Box::new(message.clone()),
-    })
+/// The provider failure episodes the observer follows across commits: per
+/// conversation with a retry scheduled, the run that scheduled it. An
+/// episode ends on the assistant entry of a commit that schedules no
+/// retry, or without one when its run ends (an abort during the backoff,
+/// a run failed outside the provider), so the map holds only running
+/// episodes.
+#[derive(Debug, Default)]
+struct Episodes {
+    retrying: HashMap<ConversationId, TaskId>,
 }
 
-/// Whether the commit sets a scheduled retry on the conversation's live
-/// generation (pi-durable commits the failed attempt with it).
-fn schedules_retry(conversation_id: ConversationId, publication: &CommitPublication) -> bool {
-    publication.changes.iter().any(|change| {
-        matches!(
-            change,
-            CommitChange::Document(DocumentCommitChange::Document {
-                record,
-                conversation_id: Some(owner),
-                value: Some(value),
-                ..
-            }) if record.kind == LIVE_DOC_KIND
-                && *owner == conversation_id
-                && value
-                    .get("generation")
-                    .and_then(|generation| generation.get("retry"))
-                    .is_some_and(|retry| !retry.is_null())
-        )
-    })
+impl Episodes {
+    /// The episode ends `publication` commits, then the episodes whose run
+    /// it ends.
+    ///
+    /// # Errors
+    ///
+    /// A committed `pi.live` revision does not decode as [`LiveState`].
+    fn observe(&mut self, publication: &CommitPublication) -> Result<Vec<Observed>, JsonError> {
+        let mut ended = Vec::new();
+        for change in &publication.changes {
+            let CommitChange::Entry(entry) = change else {
+                continue;
+            };
+            if let Some(observed) = self.episode_end(entry, publication)? {
+                ended.push(observed);
+            }
+        }
+        let mut finished = Vec::new();
+        for (&conversation_id, &run) in &self.retrying {
+            let still_running = match committed_live(conversation_id, publication)? {
+                LiveChange::Untouched => true,
+                LiveChange::Retired => false,
+                LiveChange::Revised(live) => {
+                    live.run.is_some_and(|live_run| live_run.task_id == run)
+                }
+            };
+            if !still_running {
+                finished.push(conversation_id);
+            }
+        }
+        for conversation_id in finished {
+            self.retrying.remove(&conversation_id);
+        }
+        Ok(ended)
+    }
+
+    /// The episode end `entry` stands for, when it is an assistant entry
+    /// whose commit schedules no retry: a provider failure (gated like the
+    /// old disclosure), or a settled answer after a scheduled retry.
+    fn episode_end(
+        &mut self,
+        entry: &EntryRecord,
+        publication: &CommitPublication,
+    ) -> Result<Option<Observed>, JsonError> {
+        if entry.kind != ASSISTANT_ENTRY.kind() {
+            return Ok(None);
+        }
+        let Some(message) = entry
+            .model
+            .as_deref()
+            .and_then(<[Message]>::first)
+            .and_then(Message::as_assistant)
+        else {
+            return Ok(None);
+        };
+        if let LiveChange::Revised(live) = committed_live(entry.conversation_id, publication)? {
+            // pi-durable commits the failed attempt with its scheduled retry.
+            if let (Some(run), Some(_)) = (
+                live.run,
+                live.generation.and_then(|generation| generation.retry),
+            ) {
+                self.retrying.insert(entry.conversation_id, run.task_id);
+                return Ok(None);
+            }
+        }
+        let was_retrying = self.retrying.remove(&entry.conversation_id).is_some();
+        let reported = match message.stop_reason {
+            // Overflow recovery reports through the compaction rows.
+            StopReason::Error => !is_context_overflow(message, None),
+            StopReason::Aborted => false,
+            StopReason::Stop
+            | StopReason::Length
+            | StopReason::ToolUse
+            | StopReason::Pending
+            | StopReason::Deferred => was_retrying,
+        };
+        Ok(reported.then(|| Observed::Ended {
+            conversation_id: entry.conversation_id,
+            entry_id: entry.id,
+            message: Box::new(message.clone()),
+        }))
+    }
+}
+
+/// What one commit did to a conversation's `pi.live` document.
+#[derive(Debug)]
+enum LiveChange {
+    /// The commit leaves it as it was.
+    Untouched,
+    /// The commit retired it.
+    Retired,
+    /// The commit's revision.
+    Revised(Box<LiveState>),
+}
+
+/// What `publication` did to the `pi.live` document of `conversation_id`.
+///
+/// # Errors
+///
+/// The committed revision does not decode as [`LiveState`].
+fn committed_live(
+    conversation_id: ConversationId,
+    publication: &CommitPublication,
+) -> Result<LiveChange, JsonError> {
+    for change in &publication.changes {
+        let CommitChange::Document(DocumentCommitChange::Document {
+            record,
+            conversation_id: Some(owner),
+            value,
+            ..
+        }) = change
+        else {
+            continue;
+        };
+        if record.kind != LIVE_DOC.definition().kind || *owner != conversation_id {
+            continue;
+        }
+        return Ok(match value {
+            Some(value) => {
+                LiveChange::Revised(Box::new(from_json(&JsonValue::Object(Arc::clone(value)))?))
+            }
+            None => LiveChange::Retired,
+        });
+    }
+    Ok(LiveChange::Untouched)
 }
 
 /// Service one episode end; a failure is logged (the row is a disclosure,
@@ -396,7 +480,171 @@ async fn record_row(
 
 #[cfg(test)]
 mod tests {
+    use eukhe_chord::json::to_json;
+    use eukhe_durable::types::{
+        ConversationSemantics, DocumentId, DocumentRecord, DocumentRecordScope, Seq,
+    };
+    use serde_json::json;
+
     use super::*;
+
+    const CONVERSATION: ConversationId = ConversationId::from_number(1);
+
+    fn assistant_entry(id: u64, message: AssistantMessage) -> CommitChange {
+        CommitChange::Entry(EntryRecord {
+            model: Some(vec![Message::Assistant(message)]),
+            data: None,
+            edits: None,
+            kind: ASSISTANT_ENTRY.kind().to_owned(),
+            id: EntryId::from_number(id),
+            conversation_id: CONVERSATION,
+            head: None,
+            by_task_id: None,
+        })
+    }
+
+    /// The conversation's `pi.live` revision `value`, or its retirement.
+    fn live(value: Option<serde_json::Value>) -> CommitChange {
+        let value = value.map(|value| {
+            let JsonValue::Object(object) = to_json(&value).unwrap() else {
+                panic!("pi.live is an object");
+            };
+            object
+        });
+        CommitChange::Document(DocumentCommitChange::Document {
+            record: DocumentRecord {
+                id: DocumentId::from_number(3),
+                kind: LIVE_DOC.definition().kind.to_owned(),
+                key: None,
+                scope: DocumentRecordScope::Conversation {
+                    conversation_id: CONVERSATION,
+                    semantics: ConversationSemantics::Latest(LatestFork::Initial),
+                },
+                created_at: Seq::from_number(1),
+                retired_at: None,
+            },
+            conversation_id: Some(CONVERSATION),
+            version: value.is_some().then_some(1),
+            value,
+            ops: Arc::from(Vec::new()),
+        })
+    }
+
+    /// The live state of run task 5 with a retry scheduled.
+    fn retry_scheduled() -> serde_json::Value {
+        json!({
+            "run": { "taskId": 5, "inputs": [] },
+            "generation": { "attempt": 1, "retry": { "at": 1000, "error": "429" } },
+        })
+    }
+
+    fn publication(seq: u64, changes: Vec<CommitChange>) -> CommitPublication {
+        CommitPublication {
+            seq: Seq::from_number(seq),
+            changes,
+        }
+    }
+
+    /// A failed attempt committed with its retry opens an episode; the
+    /// answer of the same run ends it as recovered.
+    #[test]
+    fn an_answer_after_a_scheduled_retry_ends_the_episode() {
+        let mut episodes = Episodes::default();
+        let failed = publication(
+            1,
+            vec![
+                assistant_entry(4, failure("429", true)),
+                live(Some(retry_scheduled())),
+            ],
+        );
+        assert_eq!(episodes.observe(&failed).unwrap(), []);
+        assert_eq!(
+            episodes.retrying,
+            HashMap::from([(CONVERSATION, TaskId::from_number(5))])
+        );
+        let answer = message("stop", None, false);
+        let answered = publication(
+            2,
+            vec![assistant_entry(6, answer.clone()), live(Some(json!({})))],
+        );
+        assert_eq!(
+            episodes.observe(&answered).unwrap(),
+            [Observed::Ended {
+                conversation_id: CONVERSATION,
+                entry_id: EntryId::from_number(6),
+                message: Box::new(answer),
+            }]
+        );
+        assert_eq!(episodes.retrying, HashMap::new());
+    }
+
+    /// Regression: a `pi.live` revision that does not decode is an error,
+    /// never "no retry scheduled" (which ended the episode at its first
+    /// failed attempt).
+    #[test]
+    fn an_undecodable_live_revision_is_an_error() {
+        let mut episodes = Episodes::default();
+        let commit = publication(
+            1,
+            vec![
+                assistant_entry(4, failure("429", true)),
+                live(Some(json!({
+                    "run": { "taskId": 5, "inputs": [] },
+                    "generation": [{ "retry": { "at": 1000, "error": "429" } }],
+                }))),
+            ],
+        );
+        assert!(episodes.observe(&commit).is_err());
+    }
+
+    /// Regression: an episode whose run ends without an assistant entry
+    /// (an abort during the backoff) is no longer tracked, so the next
+    /// run's first-try answer reports nothing.
+    #[test]
+    fn a_run_ending_during_the_backoff_ends_its_episode() {
+        let mut episodes = Episodes::default();
+        let failed = publication(
+            1,
+            vec![
+                assistant_entry(4, failure("429", true)),
+                live(Some(retry_scheduled())),
+            ],
+        );
+        assert_eq!(episodes.observe(&failed).unwrap(), []);
+        let aborted = publication(2, vec![live(Some(json!({})))]);
+        assert_eq!(episodes.observe(&aborted).unwrap(), []);
+        assert_eq!(episodes.retrying, HashMap::new());
+        let next_run = publication(
+            3,
+            vec![
+                assistant_entry(6, message("stop", None, false)),
+                live(Some(json!({ "run": { "taskId": 9, "inputs": [] } }))),
+            ],
+        );
+        assert_eq!(episodes.observe(&next_run).unwrap(), []);
+    }
+
+    /// A run replaced by another one, or a retired `pi.live`, ends the
+    /// episode too.
+    #[test]
+    fn a_replaced_run_or_retired_live_ends_the_episode() {
+        for ending in [
+            live(Some(json!({ "run": { "taskId": 9, "inputs": [] } }))),
+            live(None),
+        ] {
+            let mut episodes = Episodes::default();
+            let failed = publication(
+                1,
+                vec![
+                    assistant_entry(4, failure("429", true)),
+                    live(Some(retry_scheduled())),
+                ],
+            );
+            assert_eq!(episodes.observe(&failed).unwrap(), []);
+            assert_eq!(episodes.observe(&publication(2, vec![ending])).unwrap(), []);
+            assert_eq!(episodes.retrying, HashMap::new());
+        }
+    }
 
     fn message(stop_reason: &str, error: Option<&str>, provider_failure: bool) -> AssistantMessage {
         let mut value = serde_json::json!({

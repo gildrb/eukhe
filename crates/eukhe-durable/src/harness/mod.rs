@@ -32,8 +32,8 @@ pub use context::order_tool_results;
 pub use harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 pub use inbox::{InboxItem, InboxState, INBOX_DOC};
 pub use live::{
-    CompactionStatus, LiveDeferred, LiveGeneration, LiveRetry, LiveRun, LiveState, NestedToolSlot,
-    NestedToolSummary, SlotProgress, ToolSlot, ToolSlotStatus, LIVE_DOC,
+    CompactionInput, CompactionStatus, LiveDeferred, LiveGeneration, LiveRetry, LiveRun, LiveState,
+    NestedToolSlot, NestedToolSummary, SlotProgress, ToolSlot, ToolSlotStatus, LIVE_DOC,
 };
 pub use output::{bound_output, OutputLimits, OutputSlice};
 pub use scheduler::{DefinitionKept, TaskAbortResult};

@@ -6,6 +6,8 @@
 
 pub(crate) mod run;
 
+pub use run::CompactionInput;
+
 use eukhe_chord::delta::{Draft, DraftItem, Op};
 use eukhe_chord::json::{to_json, JsonObject, JsonValue};
 use eukhe_types::pi_ai::{AssistantMessage, JsonObject as PiJsonObject, Usage};

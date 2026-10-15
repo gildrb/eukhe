@@ -36,9 +36,6 @@ pub(crate) use super::HostDeps;
 /// The extension name.
 pub const COMPACTION_EXTENSION: &str = "eukhe.compaction";
 
-/// The kind of the durable compaction summary entry (`pi.compaction`).
-pub(crate) const COMPACTION_ENTRY_KIND: &str = "pi.compaction";
-
 /// What the `eukhe.compaction` extension shares between its hook and its
 /// observer: the session's [`HostDeps`] and the compact-trigger auto-refine
 /// state.

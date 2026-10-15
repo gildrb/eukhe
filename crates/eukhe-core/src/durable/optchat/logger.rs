@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_durable::harness::Harness;
+use eukhe_durable::harness::{Harness, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult, Unsubscribe};
 use eukhe_durable::types::{
     CommitChange, CommitPublication, ConversationId, ConversationQuery, Cursor,
@@ -185,7 +185,7 @@ fn wakes(change: &CommitChange) -> bool {
     match change {
         CommitChange::Entry(_) | CommitChange::Conversation(_) => true,
         CommitChange::Document(DocumentCommitChange::Document { record, .. }) => {
-            record.kind == "pi.live" || record.kind == CALL_DOC.definition().kind
+            record.kind == LIVE_DOC.definition().kind || record.kind == CALL_DOC.definition().kind
         }
         CommitChange::Document(DocumentCommitChange::Copy { .. })
         | CommitChange::Task(_)
