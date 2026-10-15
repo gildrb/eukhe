@@ -140,6 +140,27 @@ async fn wait_messages(worker: &Worker, done: impl Fn(&[Value]) -> bool) -> Vec<
     }
 }
 
+/// Poll until the worker's script served `count` model requests: the
+/// provider takes the script's next response the moment a request starts.
+async fn wait_requests(worker: &Worker, count: u64) {
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        let served = worker
+            .scripted_models
+            .get()
+            .expect("a scripted worker")
+            .requests();
+        if served >= count {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the script served {served} of {count} model requests"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 fn latest_record(dir: &Path, journal: &str) -> WorkerRecoveryRecord {
     let mut records = WorkerRecoveryJournal::read_latest(&dir.join(journal)).expect("journal");
     assert_eq!(records.len(), 1, "one session in the journal: {records:?}");
@@ -321,15 +342,12 @@ async fn abort_suspends_the_queue_and_resume_sends_it() {
         json!({ "responses": [{ "text": "never", "delayMs": 30_000 }, "resumed"] }),
     )
     .await;
-    let mut events = worker.events.subscribe();
     let response = worker.dispatch("prompt", &json!({ "message": "go" })).await;
     assert!(response.success, "prompt: {response:?}");
-    // The generation requests the model right after it commits the digest:
-    // an earlier abort would leave the held `never` answer for the resume.
-    until(&mut events, |event| {
-        kind(event) == "message_end" && event["message"]["customType"] == "harness_digest"
-    })
-    .await;
+    // The abort must land on the held `never` request: one landing before
+    // the generation asked the model (it asks after committing the digest)
+    // would leave `never` queued for the resume.
+    wait_requests(&worker, 1).await;
     let queued = worker
         .dispatch("follow_up", &json!({ "message": "later" }))
         .await;

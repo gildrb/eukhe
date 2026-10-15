@@ -68,6 +68,9 @@ pub(crate) struct ScriptedModels {
     /// The scripted model the compactor asks, when the script opts into
     /// the chat memory.
     compactor: Option<Model>,
+    /// The scripted provider, whose request counter tests observe.
+    #[cfg(test)]
+    provider: eukhe_ai::providers::faux_script::FauxScriptProvider,
 }
 
 impl ScriptedModels {
@@ -89,7 +92,16 @@ impl ScriptedModels {
                 pattern,
             },
             compactor: (chat_memory == Some(true)).then_some(model),
+            #[cfg(test)]
+            provider,
         })
+    }
+
+    /// Model requests the script has served so far: the provider takes
+    /// the script's next response when a request starts.
+    #[cfg(test)]
+    pub(crate) fn requests(&self) -> u64 {
+        self.provider.call_count()
     }
 
     /// The compactor of a script that opts into the chat memory

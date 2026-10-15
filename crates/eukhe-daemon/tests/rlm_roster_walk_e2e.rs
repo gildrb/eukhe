@@ -431,19 +431,40 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
     };
 
     // Subscribe after the spawn: the snapshot carries the resident family.
-    let subscribed = client.send_command("r1", &json!({ "type": "roster_subscribe" }));
-    assert_eq!(
-        subscribed["success"], true,
-        "subscribe failed: {subscribed}"
-    );
-    let snapshot = subscribed["data"]["roster"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let child_entry = snapshot
-        .iter()
-        .find(|entry| entry["agentId"] == json!(child_agent_id))
-        .unwrap_or_else(|| panic!("resident child row missing: {snapshot:?}"));
+    // The roster follows the child worker's own coalesced summary pushes,
+    // not the live `get_state` the list above read, so its row reaches the
+    // settled kickoff turn on its own schedule: subscribe until the
+    // snapshot's child row has settled too, or the passivated row (which
+    // keeps the roster's newest summary) would be compared against a row
+    // captured mid-turn.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut last_entry = Value::Null;
+    let child_entry = loop {
+        assert!(
+            Instant::now() < deadline,
+            "the roster never showed the settled child: {last_entry}"
+        );
+        let subscribed = client.send_command("r1", &json!({ "type": "roster_subscribe" }));
+        assert_eq!(
+            subscribed["success"], true,
+            "subscribe failed: {subscribed}"
+        );
+        let snapshot = subscribed["data"]["roster"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        last_entry = snapshot
+            .iter()
+            .find(|entry| entry["agentId"] == json!(child_agent_id))
+            .cloned()
+            .unwrap_or_else(|| panic!("resident child row missing: {snapshot:?}"));
+        if last_entry["summary"]["isStreaming"] == false
+            && last_entry["summary"]["messageCount"] == last_child["messageCount"]
+        {
+            break last_entry;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
     assert_eq!(child_entry["summary"]["activeSessionId"], child_active_id);
     assert_eq!(child_entry["summary"]["runtimeKind"], "subagent");
     assert_eq!(child_entry["summary"]["parentSessionPath"], parent_file);
