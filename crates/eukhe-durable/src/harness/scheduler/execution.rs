@@ -3,7 +3,8 @@
 //! handler, handover to a replacement definition (spec §5.4), and the state a
 //! runtime commit writes.
 
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use eukhe_chord::json::JsonValue;
@@ -16,9 +17,10 @@ use crate::types::{AnyTaskRecord, JoinPolicy, TaskId, TaskOutcomeError, TaskStat
 
 use super::invocation::{Invocation, InvocationMode};
 use super::mirror::{checkpoint_of, with_state, Queued};
-use super::ownership::{parent_of, Overlay, Step};
+use super::ownership::{is_live, parent_of, Node, Overlay, Walk};
 use super::reservation::{can_reserve, Reservation};
 use super::runtime::InvocationRuntime;
+use super::state::State;
 use super::{Inner, SchedulerOutcome};
 
 /// The agent resolution of one phase, shared by every caller in it.
@@ -414,6 +416,9 @@ impl Inner {
                 .is_some_and(|registered| Arc::ptr_eq(registered, invocation))
             {
                 state.invocations.remove(&invocation.task_id);
+                if state.live.contains_key(&invocation.task_id) {
+                    state.runnable.insert(invocation.task_id);
+                }
             }
         }
         invocation.stop_watches();
@@ -446,10 +451,13 @@ impl Inner {
             for record in overlay.tasks.values() {
                 self.load_chain(parent_of(record), Some(&overlay)).await?;
             }
-            let holds = self
-                .lock()
-                .owned_live(Some(&overlay))
-                .contains_key(&current.id);
+            let holds = self.lock().has_owned_live(
+                current.id,
+                Walk {
+                    overlay: Some(&overlay),
+                    ..Walk::default()
+                },
+            );
             if holds {
                 return tx.set_task(with_state(
                     current,
@@ -462,9 +470,15 @@ impl Inner {
         tx.set_task(with_state(current, next))
     }
 
-    /// A wait names existing tasks other than the waiter and its owners, which
-    /// could never finish first; `failFast` only tasks the waiter owns. An
-    /// abort handler cannot wait.
+    /// A wait names existing tasks, and `failFast` only tasks the waiter
+    /// owns. It may not close a cycle in the wait-for graph, whose edges run
+    /// from each task to what it waits on and to its live ordinary owned work
+    /// (spec §5.5); waiting on itself or on an owner holding it are the
+    /// shortest such cycles. An abort handler cannot wait.
+    ///
+    /// Invariant: the wait-for graph is acyclic. Only a wait adds an edge
+    /// between existing tasks, as a new task has only incoming edges, so
+    /// checking each wait maintains it.
     async fn validate_wait(
         &self,
         tx: &Tx,
@@ -480,42 +494,143 @@ impl Inner {
             )));
         }
         let overlay = Overlay::of(tx);
-        self.load_chain(parent_of(current), None).await?;
-        let owners: HashSet<TaskId> = self
-            .lock()
-            .above(parent_of(current), None)
-            .filter_map(|step| match step {
-                Step::Task { id, .. } => Some(id),
-                Step::Conversation(_) | Step::Unknown => None,
-            })
-            .collect();
+        let mut targets = Vec::new();
         for id in on {
-            if *id == current.id || owners.contains(id) {
-                return Err(SessionError::error(format!(
-                    "Task {} cannot wait on itself or its owner {id}",
-                    current.id
-                )));
-            }
-            let staged = overlay
-                .tasks
-                .get(id)
-                .cloned()
-                .or_else(|| self.lock().live.get(id).cloned());
+            let staged = {
+                let state = self.lock();
+                overlay
+                    .tasks
+                    .get(id)
+                    .or_else(|| state.live.get(id))
+                    .map(|member| (member.owner, is_live(member)))
+            };
             let member = match staged {
                 Some(member) => Some(member),
-                None => self.storage.task(*id, &self.context).await?,
+                None => self
+                    .storage
+                    .task(*id, &self.context)
+                    .await?
+                    .map(|member| (member.owner, is_live(&member))),
             };
-            let Some(member) = member else {
+            let Some((owner, live)) = member else {
                 return Err(SessionError::error(format!("Task {id} does not exist")));
             };
-            if policy == JoinPolicy::FailFast && member.owner != Some(current.id) {
+            let child = owner == Some(current.id);
+            if policy == JoinPolicy::FailFast && !child {
                 return Err(SessionError::error(format!(
                     "Task {} can wait failFast only on tasks it owns; {id} is not one",
                     current.id
                 )));
             }
+            // A live child already holds the waiter (task-owned tasks are
+            // never background): waiting on it adds no edge. A terminal task
+            // has no edges.
+            if live && !child {
+                targets.push(*id);
+            }
         }
-        Ok(())
+        if targets.is_empty() {
+            return Ok(());
+        }
+        // Owned work is found by walks down, which need the chains of every
+        // live task loaded.
+        self.load_scopes(Queued::Skip).await?;
+        let cycle = self.lock().wait_cycle(current.id, &targets, &overlay);
+        let Some(cycle) = cycle else {
+            return Ok(());
+        };
+        let path = std::iter::once(current.id)
+            .chain(cycle.iter().copied())
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        Err(SessionError::error(format!(
+            "Task {} cannot wait on {}: {path} is a wait cycle",
+            current.id, cycle[0]
+        )))
+    }
+}
+
+impl State {
+    /// The path from a member of `on` back to `task` in the wait-for graph,
+    /// if the wait would close a cycle (spec §5.1). An edge X -> Y means X
+    /// cannot settle before Y: Y is in the `on` of waiting X that is not
+    /// abort-marked, or Y is live ordinary owned work of X, which holds X as
+    /// `completing`. Each task is visited once and each subtree walked once,
+    /// so a check is bounded by the live work it reaches. Owner chains must
+    /// be loaded.
+    fn wait_cycle(&self, task: TaskId, on: &[TaskId], overlay: &Overlay) -> Option<Vec<TaskId>> {
+        // Each reached task, by the task it was reached from; `None` for a
+        // member of `on`.
+        let mut from: HashMap<TaskId, Option<TaskId>> = HashMap::new();
+        let mut walked: HashSet<TaskId> = HashSet::new();
+        let mut pending: Vec<TaskId> = Vec::new();
+        let reach = |from: &mut HashMap<TaskId, Option<TaskId>>,
+                     pending: &mut Vec<TaskId>,
+                     id: TaskId,
+                     via: Option<TaskId>| {
+            if let Entry::Vacant(vacant) = from.entry(id) {
+                vacant.insert(via);
+                pending.push(id);
+            }
+        };
+        for id in on {
+            reach(&mut from, &mut pending, *id, None);
+        }
+        while let Some(id) = pending.pop() {
+            if id == task {
+                // The steps from a member of `on` to here, following `from`
+                // back.
+                let mut steps = vec![id];
+                let mut at = id;
+                while let Some(Some(previous)) = from.get(&at) {
+                    steps.push(*previous);
+                    at = *previous;
+                }
+                steps.reverse();
+                return Some(steps);
+            }
+            let Some(record) = overlay
+                .tasks
+                .get(&id)
+                .or_else(|| self.live.get(&id))
+                .filter(|record| is_live(record))
+            else {
+                continue;
+            };
+            // An abort-marked task waits only for its owned work, as abort
+            // runs bottom-up (`waiting_on`).
+            if let TaskState::Waiting { on, .. } = &record.state {
+                if !record.abort_requested {
+                    for member in on {
+                        reach(&mut from, &mut pending, *member, Some(id));
+                    }
+                }
+            }
+            if !walked.insert(id) {
+                continue;
+            }
+            // Below a walked task the walk does not go again: its own walk
+            // covered what lies below.
+            let mut found = Vec::new();
+            {
+                let enter = |below: TaskId| !walked.contains(&below);
+                let walk = Walk {
+                    overlay: Some(overlay),
+                    enter: Some(&enter),
+                    ..Walk::default()
+                };
+                for reached in self.walk_down(Node::Task(id), walk) {
+                    if reached.live.is_none() || reached.node.background {
+                        continue;
+                    }
+                    found.push(reached.id);
+                    reach(&mut from, &mut pending, reached.id, Some(id));
+                }
+            }
+            walked.extend(found);
+        }
+        None
     }
 }
 

@@ -176,7 +176,8 @@ pub(super) fn start_nested_call(
 }
 
 /// Reattaching to `existing` under the same key requires the same tool and
-/// arguments, made by the same caller.
+/// arguments, made by the same caller. A stored input that is no tool task
+/// input fails with its decoding error.
 async fn check_reattach(
     tx: &Tx,
     existing: TaskId,
@@ -184,7 +185,9 @@ async fn check_reattach(
     call: &ToolCall,
 ) -> SessionResult<()> {
     let input = match tx.task(existing).await? {
-        Some(record) => eukhe_chord::json::from_json::<ToolTaskInput>(&record.input).ok(),
+        Some(record) => Some(eukhe_chord::json::from_json::<ToolTaskInput>(
+            &record.input,
+        )?),
         None => None,
     };
     let same = matches!(
@@ -366,5 +369,77 @@ pub(super) fn json_equal(a: &PiJsonValue, b: &PiJsonValue) -> bool {
                     .all(|(key, value)| b.get(key).is_some_and(|other| json_equal(value, other)))
         }
         (a, b) => a == b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use eukhe_chord::json::{from_json, JsonValue};
+    use eukhe_types::pi_ai::ToolCall;
+
+    use super::{check_reattach, ToolTaskInput};
+    use crate::harness::tests::support::context;
+    use crate::session::{create_session, SessionError, SessionOptions};
+    use crate::storage::MemoryStorage;
+    use crate::tasks::{define_task, TaskDefinition};
+    use crate::types::{ConversationOwnership, TaskOptions, TaskOwnership};
+
+    fn json(text: &str) -> JsonValue {
+        JsonValue::parse(text).expect("valid JSON literal")
+    }
+
+    /// A key naming a task whose stored input is no tool task input fails
+    /// with that decoding error, not as a call made with another tool.
+    #[tokio::test]
+    async fn fails_a_reattach_with_the_decoding_error_of_the_stored_input() {
+        let session = create_session(Arc::new(MemoryStorage::new()), SessionOptions::default());
+        let stored = json(r#"{"kind":"nested"}"#);
+        let task = define_task(
+            TaskDefinition::<JsonValue, JsonValue, JsonValue, ()>::new(
+                "test.stored",
+                1,
+                |_: &JsonValue| Ok(json(r#"{"phase":"run"}"#)),
+                |_task, _runtime, _cx| async { Ok(()) },
+            )
+            .phase("run", |_task, _runtime, _cx| async { Ok(()) }),
+        );
+        let (definition, input) = (task.as_definition_ref(), stored.clone());
+        let existing = session
+            .commit(
+                move |tx| async move {
+                    let conversation = tx
+                        .create_conversation(ConversationOwnership::Ownerless)
+                        .await?
+                        .id;
+                    let options = TaskOptions {
+                        ownership: TaskOwnership::Conversation,
+                        conversation_id: Some(conversation),
+                        background: None,
+                        abandon_on_restart: None,
+                    };
+                    tx.create_task(definition, input, options).await
+                },
+                context(),
+            )
+            .await
+            .expect("create the stored task");
+        let call = ToolCall {
+            id: "c1/k".to_owned(),
+            name: "echo".to_owned(),
+            ..ToolCall::default()
+        };
+        let failure = session
+            .commit(
+                move |tx| async move { check_reattach(&tx, existing, existing, &call).await },
+                context(),
+            )
+            .await
+            .expect_err("the reattach fails");
+        let decoding = from_json::<ToolTaskInput>(&stored).expect_err("no tool task input");
+        assert!(matches!(failure, SessionError::Json(_)), "{failure:?}");
+        assert_eq!(failure.to_string(), decoding.to_string());
+        session.close(context()).await.expect("close the session");
     }
 }

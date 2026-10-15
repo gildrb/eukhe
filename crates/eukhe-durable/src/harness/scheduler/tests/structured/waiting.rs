@@ -1,13 +1,21 @@
 //! `describe("waiting")`.
 
+use eukhe_chord::context::Context;
+use eukhe_chord::json::JsonValue;
+
 use super::{
-    assert_faulted, create, end, marked, open_memory_nodes, outcome_of, owned, parent_of, running,
-    settle, state, status, until, until_status, wait_on, Behavior, End, Ending, Opened, Script,
+    create, end, marked, open_memory_nodes, outcome_of, owned, owned_conversation, parent_of,
+    running, settle, state, status, until, until_status, wait_on, Behavior, End, Ending,
+    NodeRuntime, Opened, Script, BACKGROUND,
 };
 use crate::harness::tests::support::context;
-use crate::harness::tests::task_support::settled;
+use crate::harness::tests::task_support::{deferred, settled, Deferred};
 use crate::harness::TaskAbortResult;
-use crate::types::{JoinPolicy, TaskId, TaskOutcome, TaskOutcomeStatus, TaskState, TaskStatus};
+use crate::session::SessionResult;
+use crate::types::{
+    JoinPolicy, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError, TaskOutcomeStatus, TaskState,
+    TaskStatus,
+};
 
 #[tokio::test]
 async fn resumes_once_every_awaited_task_is_terminal_and_reads_their_outcomes_in_order_all_settled()
@@ -273,6 +281,23 @@ enum On {
     Foreign(TaskId),
 }
 
+/// `{ status: "faulted", error: { message } }`.
+fn fault(message: String) -> TaskOutcome {
+    TaskOutcome::Faulted {
+        error: TaskOutcomeError {
+            message,
+            detail: None,
+        },
+    }
+}
+
+/// `{ status: "completed", result: name }` of a default `test.node` end.
+fn completed(name: &str) -> TaskOutcome {
+    TaskOutcome::Completed {
+        result: JsonValue::from(name),
+    }
+}
+
 #[tokio::test]
 async fn rejects_waits_on_itself_its_owner_a_missing_task_and_fail_fast_on_a_task_it_does_not_own()
 {
@@ -280,26 +305,11 @@ async fn rejects_waits_on_itself_its_owner_a_missing_task_and_fail_fast_on_a_tas
     let Opened { harness, root, .. } = open_memory_nodes(&script).await;
     let other = script.start(&root, "other").await;
     let cases = [
-        (
-            "self",
-            On::Itself,
-            JoinPolicy::AllSettled,
-            "cannot wait on itself or its owner",
-        ),
-        (
-            "missing",
-            On::Missing,
-            JoinPolicy::AllSettled,
-            "does not exist",
-        ),
-        (
-            "foreign",
-            On::Foreign(other),
-            JoinPolicy::FailFast,
-            "only on tasks it owns",
-        ),
+        ("self", On::Itself, JoinPolicy::AllSettled),
+        ("missing", On::Missing, JoinPolicy::AllSettled),
+        ("foreign", On::Foreign(other), JoinPolicy::FailFast),
     ];
-    for (name, on, policy, message) in cases {
+    for (name, on, policy) in cases {
         script.script(
             name,
             Behavior::default().run(move |_, runtime, cx| async move {
@@ -317,7 +327,14 @@ async fn rejects_waits_on_itself_its_owner_a_missing_task_and_fail_fast_on_a_tas
             }),
         );
         let id = script.start(&root, name).await;
-        assert_faulted(&settle(&harness, id).await, message);
+        let message = match on {
+            On::Itself => format!("Task {id} cannot wait on {id}: {id} -> {id} is a wait cycle"),
+            On::Missing => "Task 999999 does not exist".to_owned(),
+            On::Foreign(other) => {
+                format!("Task {id} can wait failFast only on tasks it owns; {other} is not one")
+            }
+        };
+        assert_eq!(settle(&harness, id).await, fault(message));
     }
     // A child waiting on its owner could never resume.
     script.script(
@@ -357,11 +374,183 @@ async fn rejects_waits_on_itself_its_owner_a_missing_task_and_fail_fast_on_a_tas
         TaskOutcomeStatus::Completed
     );
     let child = script.id("child").await;
-    assert_faulted(
-        &settle(&harness, child).await,
-        "cannot wait on itself or its owner",
+    assert_eq!(
+        settle(&harness, child).await,
+        fault(format!(
+            "Task {child} cannot wait on {parent}: {child} -> {parent} -> {child} is a wait cycle"
+        ))
     );
     script.open("other");
+    harness.close(context()).await.unwrap();
+}
+
+/// What a behavior's wait commit returned: `Ok`, or the rejection's message.
+type Committed = Deferred<Result<(), String>>;
+
+/// Commit a wait on `on` with `allSettled`, record what the commit returned
+/// in `committed`, and return it.
+async fn commit_wait(
+    runtime: &NodeRuntime,
+    on: Vec<TaskId>,
+    committed: &Committed,
+    cx: &Context,
+) -> SessionResult<()> {
+    let result = runtime
+        .commit(
+            move |_, _| async move { Ok(Some(wait_on(on, JoinPolicy::AllSettled, 1))) },
+            cx,
+        )
+        .await;
+    committed.resolve(result.as_ref().map(|&()| ()).map_err(ToString::to_string));
+    result
+}
+
+/// A behavior whose run, once the gate `name` opens, waits for the task in
+/// slot `target`, then commits a wait on it through [`commit_wait`].
+fn waits_on(name: &'static str, target: &'static str, committed: &Committed) -> Behavior {
+    let committed = committed.clone();
+    Behavior::default().run(move |script, runtime, cx| {
+        let committed = committed.clone();
+        async move {
+            script.gate(name).wait().await;
+            let on = script.slot(target).wait().await;
+            commit_wait(&runtime, vec![on], &committed, &cx).await
+        }
+    })
+}
+
+#[tokio::test]
+async fn rejects_a_wait_on_a_task_that_waits_on_the_waiter() {
+    let script = Script::new();
+    let Opened { harness, root, .. } = open_memory_nodes(&script).await;
+    let (a_waits, b_waits): (Committed, Committed) = (deferred(), deferred());
+    script.script("a", waits_on("a", "b", &a_waits));
+    script.script("b", waits_on("b", "a", &b_waits));
+    script.open("a");
+    let a = script.start(&root, "a").await;
+    script.slot("a").resolve(a);
+    let b = script.start(&root, "b").await;
+    script.slot("b").resolve(b);
+    assert_eq!(a_waits.wait().await, Ok(()));
+    script.open("b");
+    let message = format!("Task {b} cannot wait on {a}: {b} -> {a} -> {b} is a wait cycle");
+    assert_eq!(b_waits.wait().await, Err(message.clone()));
+    assert_eq!(settle(&harness, b).await, fault(message));
+    // `a` resumes once `b` settled.
+    assert_eq!(settle(&harness, a).await, completed("a"));
+    harness.close(context()).await.unwrap();
+}
+
+#[tokio::test]
+async fn rejects_a_wait_that_closes_a_cycle_through_an_owner_holding_its_outcome() {
+    let script = Script::new();
+    let Opened { harness, root, .. } = open_memory_nodes(&script).await;
+    let (child_waits, owner_ends, x_waits): (Committed, Committed, Committed) =
+        (deferred(), deferred(), deferred());
+    // `owner` spawns a child that waits on `x`, then ends and holds
+    // `completing` while the child lives.
+    let ended = owner_ends.clone();
+    script.script(
+        "owner",
+        Behavior::default()
+            .run(|script, runtime, cx| async move {
+                let owner = runtime.task_id().erase();
+                runtime
+                    .commit(
+                        move |tx, _| async move {
+                            let child = script.spawn(&tx, owner, "child").await?;
+                            script.slot("child").resolve(child);
+                            Ok(Some(running(1)))
+                        },
+                        &cx,
+                    )
+                    .await
+            })
+            .resume(move |_, runtime, cx, _| {
+                let ended = ended.clone();
+                async move {
+                    let result = runtime
+                        .commit(|_, _| async { Ok(Some(end(End::Completed, "owner"))) }, &cx)
+                        .await;
+                    ended.resolve(result.as_ref().map(|&()| ()).map_err(ToString::to_string));
+                    result
+                }
+            }),
+    );
+    script.script("child", waits_on("child", "x", &child_waits));
+    script.script("x", waits_on("x", "holder", &x_waits));
+    script.open("child");
+    let x = script.start(&root, "x").await;
+    script.slot("x").resolve(x);
+    let owner = script.start(&root, "owner").await;
+    script.slot("holder").resolve(owner);
+    assert_eq!(child_waits.wait().await, Ok(()));
+    assert_eq!(owner_ends.wait().await, Ok(()));
+    let child = script.slot("child").wait().await;
+    assert_eq!(
+        state(&harness, owner).await,
+        TaskState::Completing {
+            outcome: completed("owner")
+        }
+    );
+    // `x` waiting on the owner would wait on itself: x -> owner -> child -> x.
+    script.open("x");
+    let message = format!(
+        "Task {x} cannot wait on {owner}: {x} -> {owner} -> {child} -> {x} is a wait cycle"
+    );
+    assert_eq!(x_waits.wait().await, Err(message.clone()));
+    assert_eq!(settle(&harness, x).await, fault(message));
+    // The child resumes once `x` settled, which frees its owner.
+    assert_eq!(settle(&harness, child).await, completed("child"));
+    assert_eq!(settle(&harness, owner).await, completed("owner"));
+    harness.close(context()).await.unwrap();
+}
+
+#[tokio::test]
+async fn lets_a_background_task_wait_on_the_owner_of_its_conversation() {
+    let script = Script::new();
+    let Opened { harness, root, .. } = open_memory_nodes(&script).await;
+    let watcher_waits: Committed = deferred();
+    // `owner` starts a background `watcher` in a conversation it owns, and
+    // ends once its gate opens; the watcher does not hold it.
+    script.script(
+        "owner",
+        Behavior::default()
+            .run(|script, runtime, cx| async move {
+                let owner = runtime.task_id().erase();
+                runtime
+                    .commit(
+                        move |tx, _| async move {
+                            let conversation =
+                                tx.create_conversation(owned_conversation(owner)).await?.id;
+                            let options = TaskOptions {
+                                conversation_id: Some(conversation),
+                                ..BACKGROUND
+                            };
+                            let watcher = create(&tx, script.node(), "watcher", options).await?;
+                            script.slot("watcher").resolve(watcher);
+                            Ok(Some(running(1)))
+                        },
+                        &cx,
+                    )
+                    .await
+            })
+            .resume(|script, runtime, cx, _| async move {
+                script.gate("owner").wait().await;
+                runtime
+                    .commit(|_, _| async { Ok(Some(end(End::Completed, "owner"))) }, &cx)
+                    .await
+            }),
+    );
+    script.script("watcher", waits_on("watcher", "owner", &watcher_waits));
+    script.open("watcher");
+    let owner = script.start(&root, "owner").await;
+    script.slot("owner").resolve(owner);
+    assert_eq!(watcher_waits.wait().await, Ok(()));
+    let watcher = script.slot("watcher").wait().await;
+    script.open("owner");
+    assert_eq!(settle(&harness, owner).await, completed("owner"));
+    assert_eq!(settle(&harness, watcher).await, completed("watcher"));
     harness.close(context()).await.unwrap();
 }
 

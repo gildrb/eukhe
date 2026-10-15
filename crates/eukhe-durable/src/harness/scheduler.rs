@@ -8,9 +8,18 @@
 //!
 //! Tasks and conversations form one ownership tree (spec §5.5): a task's
 //! parent is its owner task, or its conversation; a conversation's parent is
-//! its owner task, if any. Walks up that tree decide cascades, idle scopes,
-//! and whether a task's ordinary owned work is live, which holds its outcome
-//! as `completing` and delays its abort handler.
+//! its owner task, if any. Walks up that tree decide what reaches one task: a
+//! cancelling owner, a scope. An index lists the tree downward around live
+//! work, so what lies below one node is a walk down from it: a task's live
+//! ordinary owned work, which holds its outcome as `completing` and delays its
+//! abort handler, a scope's tasks, a cascade's reach. No pass visits every
+//! live task; candidate sets hold each pass's candidates.
+//!
+//! The ownership indexes are bounded by live work: an owner edge and an ended
+//! task's ownership fields are kept only while something is listed below
+//! them, so only the chains above live tasks are known, whole. Work that
+//! appears later below a dropped node finds it unknown and loads its chain
+//! from storage again.
 //!
 //! Invariant: every task transition is decided and written by one callback
 //! serialized on the Session line. That covers reservation, marks, runtime
@@ -23,6 +32,7 @@
 mod cascade;
 mod contexts;
 mod execution;
+mod index;
 mod invocation;
 mod mirror;
 mod ownership;
@@ -52,6 +62,8 @@ pub(crate) use cascade::ConversationAbortReach;
 pub use cascade::TaskAbortResult;
 pub use execution::DefinitionKept;
 pub(crate) use invocation::InvocationBinding;
+#[cfg(test)]
+pub(crate) use state::IndexSizes;
 
 use state::State;
 
@@ -257,6 +269,22 @@ impl TaskScheduler {
     /// A subscription or the open commit failed.
     pub(crate) async fn open(&self, cx: &Context) -> SessionResult<()> {
         self.inner.open(cx).await
+    }
+
+    /// Sizes of the ownership indexes, for tests that bound the scheduler's
+    /// memory.
+    #[cfg(test)]
+    pub(crate) fn index_sizes(&self) -> IndexSizes {
+        let state = self.inner.lock();
+        IndexSizes {
+            live: state.live.len(),
+            settled: state.settled.len(),
+            edges: state.edges.len(),
+            below: state.below.values().map(indexmap::IndexSet::len).sum(),
+            roots: state.roots.len(),
+            unloaded: state.unloaded.len(),
+            drop_queue: state.drop_queue.len(),
+        }
     }
 
     /// Enable scheduling. Idempotent; the kick does nothing once closing.

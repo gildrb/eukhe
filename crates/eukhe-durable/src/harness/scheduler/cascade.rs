@@ -3,10 +3,11 @@
 //! inputs (spec §5.5), finalization of held outcomes, and scheduler-written
 //! outcomes.
 
+use std::collections::HashSet;
 use std::future::Future;
 
 use eukhe_chord::context::{await_with_context, Context};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 
 use crate::session::{SessionError, SessionResult, TransactionScope, Tx};
 use crate::types::{
@@ -15,7 +16,7 @@ use crate::types::{
 
 use super::invocation::InvocationMode;
 use super::mirror::{needs_request_mark, with_abort_mark, with_state, Queued};
-use super::ownership::{failed_outcome, parent_of, Background, Overlay, Scope, Up};
+use super::ownership::{failed_outcome, Background, Node, Overlay, Scope, TaskNode, Walk};
 use super::reservation::Resolution;
 use super::{Inner, SchedulerOutcome, TaskScheduler};
 
@@ -97,7 +98,7 @@ impl TaskScheduler {
                 }
                 if invocation.is_none() && !matches!(current.state, TaskState::Completing { .. }) {
                     inner.load_scopes(Queued::Skip).await?;
-                    if !inner.lock().owned_live(None).contains_key(&id) {
+                    if !inner.lock().has_owned_live(id, Walk::default()) {
                         let snapshot = inner.registry.snapshot();
                         if let Resolution::Blocked(reason) = inner.resolve(&current, &snapshot) {
                             let reason = reason.as_str().to_owned();
@@ -170,23 +171,27 @@ impl TaskScheduler {
                 let mut reached = Vec::new();
                 {
                     let state = inner.lock();
-                    for record in state.live.values() {
-                        if record.background && background == Background::Boundary {
+                    let walk = Walk {
+                        background,
+                        ..Walk::default()
+                    };
+                    for found in state.walk_down(Node::Conversation(conversation_id), walk) {
+                        let Some(live) = found.live else {
+                            continue;
+                        };
+                        if found.node.background && background == Background::Boundary {
                             continue;
                         }
-                        if state.in_scope(parent_of(record), scope, background) != Some(true) {
-                            continue;
-                        }
-                        reached.push(record.id);
-                        if needs_request_mark(record) {
-                            tx.set_task(with_abort_mark(record, None))?;
+                        reached.push(live.id);
+                        if needs_request_mark(live) {
+                            tx.set_task(with_abort_mark(live, None))?;
                         }
                     }
                 }
                 for id in queued {
                     let in_scope = inner
                         .lock()
-                        .in_scope(Up::Conversation(id), scope, background)
+                        .in_scope(Node::Conversation(id), scope, background)
                         == Some(true);
                     if in_scope {
                         (inner.withdraw_inputs)(tx.clone(), id).await?;
@@ -254,21 +259,29 @@ impl Inner {
                     // a request wins over a `restart` mark of the same pass.
                     let mut marks = Marks::default();
                     {
-                        // Loading edges can reveal a cancelled owner, so marks
-                        // are derived on every pass.
+                        // Every live foreground task below a live owner with
+                        // cancellation intent, which is its nearest one: a
+                        // walk down from each owner with intent does not enter
+                        // another, whose own walk covers what is below it.
+                        // Derived again on every pass, as loading edges can
+                        // reveal a cancelled owner.
                         let state = inner.lock();
-                        for record in state.live.values() {
-                            if record.background {
-                                continue;
-                            }
-                            let Some(owner) = state.cancelling_owner(parent_of(record)) else {
-                                continue;
-                            };
+                        let enter = |below: TaskId| !state.intent.contains(&below);
+                        let walk = Walk {
+                            enter: Some(&enter),
+                            ..Walk::default()
+                        };
+                        for id in &state.intent {
+                            let owner = &state.live[id];
                             // Only an owner abandoned after a restart, and nothing else, passes its
                             // reason on.
                             let restart = owner.abort_reason == Some(TaskAbortReason::Restart)
                                 && !failed_outcome(owner);
-                            marks.mark(record, restart.then_some(TaskAbortReason::Restart));
+                            for found in state.walk_down(Node::Task(*id), walk) {
+                                if let Some(live) = found.live.filter(|_| !found.node.background) {
+                                    marks.mark(live, restart.then_some(TaskAbortReason::Restart));
+                                }
+                            }
                         }
                     }
                     for id in pass_checks {
@@ -292,7 +305,7 @@ impl Inner {
                     }
                     marks.apply(&tx)?;
                     for id in queued {
-                        let below = inner.lock().below_cancelled(Up::Conversation(id));
+                        let below = inner.lock().below_cancelled(Node::Conversation(id));
                         if below {
                             (inner.withdraw_inputs)(tx.clone(), id).await?;
                         }
@@ -332,41 +345,70 @@ impl Inner {
     /// over the commit's candidates until nothing changes. A held scheduler
     /// outcome gets its Harness cleanup here.
     async fn finalize(&self, tx: &Tx) -> SessionResult<()> {
-        loop {
-            let overlay = Overlay::of(tx);
-            let done: Vec<AnyTaskRecord> = {
-                let state = self.lock();
-                let owned = state.owned_live(Some(&overlay));
-                state
-                    .live_records(Some(&overlay))
-                    .filter(|record| {
-                        matches!(record.state, TaskState::Completing { .. })
-                            && !owned.contains_key(&record.id)
-                    })
-                    .cloned()
-                    .collect()
-            };
-            if done.is_empty() {
-                return Ok(());
-            }
-            for record in done {
-                let TaskState::Completing { outcome } = &record.state else {
+        // A worklist: the tasks that started holding, and the holders of work
+        // that ended. Finalizing one can free the nearest live task above it,
+        // which goes on the list. Tasks finalized here have no live work below
+        // them, so walks down skip them. In rounds: the holders the tasks of
+        // one round free are checked once, in the next, so a holder of many
+        // tasks that end together is walked once, not once per task.
+        let mut round: Vec<TaskId> = self.lock().finalize_checks.drain(..).collect();
+        let mut done: HashSet<TaskId> = HashSet::new();
+        let mut overlay = Overlay::of(tx);
+        while !round.is_empty() {
+            let mut next: IndexSet<TaskId> = IndexSet::new();
+            for id in round {
+                if done.contains(&id) {
+                    continue;
+                }
+                let held = {
+                    let state = self.lock();
+                    let record = overlay.tasks.get(&id).or_else(|| state.live.get(&id));
+                    let holding = record.and_then(|record| match &record.state {
+                        TaskState::Completing { outcome } => Some((record, outcome)),
+                        TaskState::Pending { .. }
+                        | TaskState::Running { .. }
+                        | TaskState::Waiting { .. }
+                        | TaskState::Terminal { .. } => None,
+                    });
+                    let enter = |below: TaskId| !done.contains(&below);
+                    let walk = Walk {
+                        overlay: Some(&overlay),
+                        enter: Some(&enter),
+                        ..Walk::default()
+                    };
+                    holding
+                        .filter(|_| !state.has_owned_live(id, walk))
+                        .map(|(record, outcome)| (record.clone(), outcome.clone()))
+                };
+                let Some((record, outcome)) = held else {
                     continue;
                 };
-                let outcome = outcome.clone();
-                tx.set_task(with_state(
+                let terminal = with_state(
                     &record,
                     TaskState::Terminal {
                         outcome: outcome.clone(),
                     },
-                ))?;
+                );
+                tx.set_task(terminal.clone())?;
+                overlay.tasks.insert(id, terminal);
+                done.insert(id);
                 // REMINDER: only the scheduler writes `faulted` and `orphaned` (spec §5.4);
                 // their cleanup waits for this commit.
                 if let Some(outcome) = scheduler_outcome(&outcome) {
                     (self.settle_outcome)(tx.clone(), record.clone(), outcome).await?;
                 }
+                let above = self
+                    .lock()
+                    .nearest_live_above(TaskNode::of(&record), Some(&overlay))
+                    .filter(|above| matches!(above.state, TaskState::Completing { .. }))
+                    .map(|above| above.id);
+                if let Some(above) = above {
+                    next.insert(above);
+                }
             }
+            round = next.into_iter().collect();
         }
+        Ok(())
     }
 
     /// Write an outcome the scheduler decided. While the task's ordinary owned
@@ -381,10 +423,13 @@ impl Inner {
     ) -> SessionResult<()> {
         self.load_scopes(Queued::Skip).await?;
         let overlay = Overlay::of(tx);
-        let holds = self
-            .lock()
-            .owned_live(Some(&overlay))
-            .contains_key(&record.id);
+        let holds = self.lock().has_owned_live(
+            record.id,
+            Walk {
+                overlay: Some(&overlay),
+                ..Walk::default()
+            },
+        );
         if holds {
             tx.set_task(with_state(
                 record,

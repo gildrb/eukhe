@@ -13,7 +13,7 @@ use crate::types::{AnyTaskRecord, ConversationId, TaskId};
 
 pub(super) use super::contexts::{Expiry, KeptContext};
 use super::invocation::Invocation;
-use super::ownership::TaskNode;
+use super::ownership::{Links, Node, TaskNode};
 
 /// Definition whose migration failed for one task, and the failure.
 #[derive(Clone)]
@@ -23,10 +23,19 @@ pub(super) struct FailedMigration {
 }
 
 /// Every field TS keeps on the `TaskScheduler` instance besides its options.
+///
+/// The ownership indexes (`edges`, `settled`, `below`, `roots`, `unloaded`)
+/// are bounded by live work: an owner edge and an ended task's ownership
+/// fields are kept only while something is listed below them in `below`, so
+/// only the chains above live tasks are known, whole. Work that appears later
+/// below a dropped node finds it unknown and loads its chain from storage
+/// again. No pass visits every live task: the candidate sets (`intent`,
+/// `runnable`, `finalize_checks`, `fail_fast_checks`) hold each pass's
+/// candidates.
 #[derive(Default)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "the TS scheduler's independent flags: #enabled, #closing, #dirty, #draining, #reconcileScheduled, #cascadePending"
+    reason = "the TS scheduler's independent flags: #enabled, #closing, #dirty, #draining, #reconcileScheduled, #sweepScheduled, #cascadePending"
 )]
 pub(super) struct State {
     /// Every committed non-terminal task record (pending, running, waiting,
@@ -36,13 +45,34 @@ pub(super) struct State {
     /// Definition whose migration failed per task; retried only once the
     /// registry resolves another definition.
     pub(super) failed_migrations: HashMap<TaskId, FailedMigration>,
-    /// Owner task of each loaded conversation, `None` when ownerless.
+    /// Owner task of each known conversation, `None` when ownerless.
     pub(super) edges: HashMap<ConversationId, Option<TaskId>>,
-    /// Tasks that own a loaded conversation; their nodes stay in `settled`
-    /// once terminal.
-    pub(super) conversation_owners: HashSet<TaskId>,
-    /// Ownership fields of terminal tasks that walks pass through.
+    /// Ownership fields of the known terminal tasks, which walks pass
+    /// through.
     pub(super) settled: HashMap<TaskId, TaskNode>,
+    /// Ended tasks and conversations found unneeded, dropped by the sweep at
+    /// the end of the commit's publication unless needed again by then: a
+    /// chain load installs nodes before the work below them is listed.
+    pub(super) drop_queue: HashSet<Node>,
+    /// The tree downward around live work: each node's child nodes that are
+    /// live tasks or have nodes listed below them. A conversation's parent is
+    /// its owner task; ownerless ones with work are in `roots`.
+    pub(super) below: Links,
+    pub(super) roots: HashSet<ConversationId>,
+    /// Known tasks whose chain may not be loaded; every other known task's
+    /// chain is, and stays, loaded.
+    pub(super) unloaded: IndexSet<TaskId>,
+    /// Live tasks with cancellation intent, the sources of abort cascades
+    /// (spec §5.4).
+    pub(super) intent: IndexSet<TaskId>,
+    /// Live tasks that are not `completing`, the candidates of a reservation
+    /// pass; ones found waiting leave it.
+    pub(super) runnable: IndexSet<TaskId>,
+    /// `completing` tasks the next finalize pass checks: those that started
+    /// holding, and holders of ended work.
+    pub(super) finalize_checks: IndexSet<TaskId>,
+    /// Live waiting tasks by each task in their `on`.
+    pub(super) waiters: HashMap<TaskId, IndexSet<TaskId>>,
     /// `failFast` waiters the next reconcile checks for a failed task in `on`:
     /// at open, when they start waiting, and when one of their tasks fails.
     pub(super) fail_fast_checks: IndexSet<TaskId>,
@@ -51,6 +81,7 @@ pub(super) struct State {
     /// `restart`, so nothing of them or below them runs a phase again.
     pub(super) abandoned: IndexSet<TaskId>,
     pub(super) reconcile_scheduled: bool,
+    pub(super) sweep_scheduled: bool,
     pub(super) cascade_pending: bool,
     pub(super) unsubscribe_registry: Option<Unsubscribe>,
     /// The commit and close listeners; Session close removes them.
@@ -69,4 +100,19 @@ pub(super) struct State {
     pub(super) contexts: HashMap<ConversationId, KeptContext>,
     /// Timer for the earliest expiry of an idle context.
     pub(super) expiry: Option<Expiry>,
+}
+
+/// Sizes of the ownership indexes, for tests that bound the scheduler's
+/// memory (TS `indexSizes`).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct IndexSizes {
+    pub(crate) live: usize,
+    pub(crate) settled: usize,
+    pub(crate) edges: usize,
+    /// Listed child nodes, summed over every parent.
+    pub(crate) below: usize,
+    pub(crate) roots: usize,
+    pub(crate) unloaded: usize,
+    pub(crate) drop_queue: usize,
 }

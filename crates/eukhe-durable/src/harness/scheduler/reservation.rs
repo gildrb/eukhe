@@ -5,7 +5,6 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::json::copy_json;
-use indexmap::IndexMap;
 
 use crate::harness::types::{
     RegistrySnapshot, SchedulingState, TaskBlockedReason, TaskInspection, TaskInspectionState,
@@ -16,7 +15,7 @@ use crate::types::{AnyTaskRecord, TaskAbortReason, TaskId, TaskState, TaskStatus
 
 use super::invocation::{Invocation, InvocationMode};
 use super::mirror::{with_abort_mark, with_state, Queued};
-use super::ownership::parent_of;
+use super::ownership::{parent_of, Node, Walk};
 use super::state::{FailedMigration, State};
 use super::{Inner, SchedulerOutcome, TaskScheduler};
 
@@ -75,13 +74,12 @@ impl TaskScheduler {
     ) -> SessionResult<SchedulerInspection> {
         self.inner.load_scopes(Queued::Skip).await?;
         let state = self.inner.lock();
-        let owned = state.owned_live(None);
         let tasks = state
             .live
             .values()
             .map(|record| TaskInspection {
                 record: record.clone(),
-                state: inspect_task(&state, record, snapshot, &owned),
+                state: inspect_task(&state, record, snapshot),
             })
             .collect();
         let scheduling = if state.closing {
@@ -99,7 +97,6 @@ fn inspect_task(
     state: &State,
     record: &AnyTaskRecord,
     snapshot: &RegistrySnapshot,
-    owned: &IndexMap<TaskId, Vec<TaskId>>,
 ) -> TaskInspectionState {
     if state.invocations.contains_key(&record.id) {
         return TaskInspectionState::Running;
@@ -107,7 +104,7 @@ fn inspect_task(
     if record.state.status() == TaskStatus::Completing {
         return TaskInspectionState::Completing;
     }
-    let on = state.waiting_on(record, owned);
+    let on = state.waiting_on(record);
     if !on.is_empty() {
         return TaskInspectionState::Waiting { on };
     }
@@ -129,13 +126,13 @@ impl State {
     /// Live tasks a task waits for before its next invocation: its live
     /// ordinary owned work when abort-marked, since abort runs bottom-up,
     /// otherwise the live part of the `on` of a wait.
-    pub(super) fn waiting_on(
-        &self,
-        record: &AnyTaskRecord,
-        owned: &IndexMap<TaskId, Vec<TaskId>>,
-    ) -> Vec<TaskId> {
+    pub(super) fn waiting_on(&self, record: &AnyTaskRecord) -> Vec<TaskId> {
         if record.abort_requested {
-            return owned.get(&record.id).cloned().unwrap_or_default();
+            return self
+                .walk_down(Node::Task(record.id), Walk::default())
+                .filter(|reached| reached.live.is_some() && !reached.node.background)
+                .map(|reached| reached.id)
+                .collect();
         }
         match &record.state {
             TaskState::Waiting { on, .. } => on
@@ -300,25 +297,44 @@ impl Inner {
                     }
                 }
                 inner.load_scopes(Queued::Skip).await?;
-                let (owned, records) = {
-                    let state = inner.lock();
-                    let records: Vec<AnyTaskRecord> = state.live.values().cloned().collect();
-                    (state.owned_live(None), records)
-                };
+                let candidates: Vec<TaskId> = inner.lock().runnable.iter().copied().collect();
                 // Taken once per pass, and only when some task is a candidate.
                 let mut snapshot: Option<RegistrySnapshot> = None;
-                for record in records {
-                    {
-                        let state = inner.lock();
-                        if state.invocations.contains_key(&record.id)
-                            || !state.waiting_on(&record, &owned).is_empty()
-                        {
+                for id in candidates {
+                    let record = {
+                        let mut state = inner.lock();
+                        // Live tasks it waits for before its next invocation
+                        // (`waiting_on`), found up to the first: it returns
+                        // once what it waits for ends, its record changes, or
+                        // the work below it ends.
+                        let ready = match state.live.get(&id) {
+                            Some(record)
+                                if record.state.status() != TaskStatus::Completing
+                                    && !state.invocations.contains_key(&id) =>
+                            {
+                                let waits = if record.abort_requested {
+                                    state.has_owned_live(id, Walk::default())
+                                } else {
+                                    match &record.state {
+                                        TaskState::Waiting { on, .. } => {
+                                            on.iter().any(|on| state.live.contains_key(on))
+                                        }
+                                        TaskState::Pending { .. }
+                                        | TaskState::Running { .. }
+                                        | TaskState::Completing { .. }
+                                        | TaskState::Terminal { .. } => false,
+                                    }
+                                };
+                                (!waits).then(|| record.clone())
+                            }
+                            Some(_) | None => None,
+                        };
+                        let Some(record) = ready else {
+                            state.runnable.shift_remove(&id);
                             continue;
-                        }
-                    }
-                    if record.state.status() == TaskStatus::Completing {
-                        continue;
-                    }
+                        };
+                        record
+                    };
                     let mode = if record.abort_requested {
                         InvocationMode::Abort
                     } else {
@@ -362,7 +378,9 @@ impl Inner {
                                 ))?;
                             }
                             // Registered on the line, so marks and later
-                            // reservations see it and close joins it.
+                            // reservations see it and close joins it; `end`
+                            // makes it a candidate again.
+                            inner.lock().runnable.shift_remove(&id);
                             let invocation = inner.create_invocation(&record, mode);
                             staged.lock().unwrap_or_else(PoisonError::into_inner).push(
                                 Reservation {
@@ -396,6 +414,7 @@ impl Inner {
                         {
                             state.invocations.remove(&invocation.task_id);
                         }
+                        state.runnable.insert(invocation.task_id);
                     }
                     invocation.finish();
                 }

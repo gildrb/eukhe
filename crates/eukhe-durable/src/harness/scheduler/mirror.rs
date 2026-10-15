@@ -16,7 +16,7 @@ use crate::types::{
 
 use super::invocation::InvocationMode;
 use super::ownership::{
-    cancellation_intent, failed_outcome, owner_task, parent_of, Edge, Overlay, TaskNode, Up,
+    cancellation_intent, failed_outcome, owner_task, parent_of, Edge, Node, Overlay, TaskNode,
 };
 use super::state::State;
 use super::{Inner, SCAN_PAGE_SIZE};
@@ -135,7 +135,7 @@ impl Inner {
                     for records in scans {
                         for record in records {
                             let mut state = inner.lock();
-                            state.live.insert(record.id, record.clone());
+                            state.track(&record);
                             if record.abandon_on_restart {
                                 state.abandoned.insert(record.id);
                             }
@@ -175,17 +175,7 @@ impl Inner {
     /// The commit listener: mirror every task change, then wake whatever the
     /// changes affect.
     pub(super) fn observe(&self, publication: &CommitPublication) {
-        let observed = {
-            let mut state = self.lock();
-            let mut observed = Observed::default();
-            for change in &publication.changes {
-                if let CommitChange::Task(record) = change {
-                    state.mirror_task(record, &mut observed);
-                }
-            }
-            state.observe_scopes(publication, &mut observed);
-            observed
-        };
+        let observed = self.lock().observe(publication);
         if observed.reconcile {
             self.schedule_reconcile();
         }
@@ -226,15 +216,16 @@ impl Inner {
         }
     }
 
-    /// Load the owner chains of every live task and, with `Queued::Load`, of
-    /// every conversation with queued submissions, on the Session line;
-    /// returns the latter. Reads committed Storage directly, so it may run
-    /// inside a commit callback.
+    /// Load the owner chains of the tasks in `unloaded` and, with
+    /// `Queued::Load`, of every conversation with queued inputs, on the
+    /// Session line; returns the latter. Reads committed Storage directly, so
+    /// it may run inside a commit callback.
     pub(super) async fn load_scopes(&self, queued: Queued) -> SessionResult<Vec<ConversationId>> {
-        let parents: Vec<Up> = self.lock().live.values().map(parent_of).collect();
-        for parent in parents {
-            if !self.lock().chain_known(parent, None) {
-                self.load_chain(parent, None).await?;
+        let unloaded: Vec<TaskId> = self.lock().unloaded.iter().copied().collect();
+        for id in unloaded {
+            // An earlier load in this loop may have passed it.
+            if self.lock().unloaded.contains(&id) {
+                self.load_chain(Node::Task(id), None).await?;
             }
         }
         if queued == Queued::Skip {
@@ -256,40 +247,66 @@ impl Inner {
         .await?;
         let conversations: IndexSet<ConversationId> = submissions
             .iter()
+            .filter(|submission| submission.state.submission_type() == SubmissionType::Input)
             .map(|submission| submission.conversation_id)
             .collect();
         for id in &conversations {
-            self.load_chain(Up::Conversation(*id), None).await?;
+            self.load_chain(Node::Conversation(*id), None).await?;
         }
         Ok(conversations.into_iter().collect())
     }
 
-    /// Load the owner edges and task nodes from `start` up to its ownerless root.
+    /// Load the owner edges and task nodes from `start` up to its ownerless
+    /// root. A known task outside `unloaded` ends the walk, as its chain is
+    /// loaded; the `unloaded` tasks passed have a loaded chain afterwards.
+    /// Loading a node can reveal a cancelled owner, so it makes the next
+    /// reconcile derive cascade marks.
     pub(super) async fn load_chain(
         &self,
-        start: Up,
+        start: Node,
         overlay: Option<&Overlay>,
     ) -> SessionResult<()> {
+        let mut passed = Vec::new();
         let mut at = Some(start);
-        while let Some(up) = at {
-            match up {
-                Up::Task(id) => {
-                    let known = self.lock().node(id, overlay);
-                    let node = if let Some(node) = known {
-                        node
-                    } else {
-                        let Some(record) = self.storage.task(id, &self.context).await? else {
-                            return Ok(());
-                        };
-                        let node = TaskNode::of(&record);
-                        if record.state.status() == TaskStatus::Terminal {
-                            self.lock().settled.insert(record.id, node);
-                        }
-                        node
+        while let Some(node) = at {
+            match node {
+                Node::Task(id) => {
+                    let (known, unloaded) = {
+                        let state = self.lock();
+                        (state.known_node(id), state.unloaded.contains(&id))
                     };
+                    let node = match known {
+                        Some(_) if !unloaded => break,
+                        Some(node) => node,
+                        // Created in this commit: the load from its own record
+                        // covers what is above it.
+                        None if overlay.is_some_and(|overlay| overlay.tasks.contains_key(&id)) => {
+                            break;
+                        }
+                        None => {
+                            let Some(record) = self.storage.task(id, &self.context).await? else {
+                                return Ok(());
+                            };
+                            let node = TaskNode::of(&record);
+                            if record.state.status() == TaskStatus::Terminal {
+                                // Known, so walks pass through it; its own
+                                // chain is not loaded yet.
+                                let mut state = self.lock();
+                                state.settled.insert(id, node);
+                                state.unloaded.insert(id);
+                                state.relist(Node::Task(id));
+                                state.drop_if_unneeded(Node::Task(id));
+                            }
+                            // A loaded node can reveal a cancelling owner: the
+                            // next reconcile derives marks again.
+                            self.schedule_reconcile();
+                            node
+                        }
+                    };
+                    passed.push(id);
                     at = Some(node.parent());
                 }
-                Up::Conversation(id) => {
+                Node::Conversation(id) => {
                     let known = self.lock().edge(id, overlay);
                     let owner = match known {
                         Edge::Loaded(owner) => owner,
@@ -297,46 +314,90 @@ impl Inner {
                             let record = self.storage.conversation(id, &self.context).await?;
                             let owner = record.and_then(|record| owner_task(record.owner.as_ref()));
                             self.lock().set_edge(id, owner);
+                            // A loaded node can reveal a cancelling owner: the
+                            // next reconcile derives marks again.
+                            self.schedule_reconcile();
                             owner
                         }
                     };
-                    at = owner.map(Up::Task);
+                    at = owner.map(Node::Task);
                 }
             }
         }
+        {
+            let mut state = self.lock();
+            for id in passed {
+                state.unloaded.shift_remove(&id);
+            }
+            // Sweep what the load left unneeded in a job of its own on the
+            // Session line, after the operation underway: a rejected commit,
+            // one with nothing to write, and a read publish nothing, so the
+            // sweep at the end of `observe` would not run for it.
+            if state.drop_queue.is_empty() || state.sweep_scheduled || state.closing {
+                return Ok(());
+            }
+            state.sweep_scheduled = true;
+        }
+        let inner = self.arc();
+        // Enqueued now; rejected only once the Session is closing or failed,
+        // when nothing is kept anyway.
+        drop(self.session.read_on_line(async move {
+            let mut state = inner.lock();
+            state.sweep_scheduled = false;
+            state.sweep();
+            Ok(())
+        }));
         Ok(())
     }
 }
 
-/// What one publication changed in the mirror.
+/// What one publication changed in the mirror, and what its task changes
+/// owe.
 #[derive(Default)]
-struct Observed {
+struct Observed<'a> {
     /// A task record changed.
     changed: bool,
     reconcile: bool,
-    /// Live records the publication replaced.
-    updated: Vec<TaskId>,
     /// Tasks that now hold or ended with an outcome other than `completed`.
     failed: Vec<TaskId>,
+    /// Records that became live.
+    updated: Vec<&'a AnyTaskRecord>,
 }
 
 impl State {
+    /// Mirror every task change of a publication, then note what the changes
+    /// owe. Sweeps once all is tracked.
+    fn observe<'a>(&mut self, publication: &'a CommitPublication) -> Observed<'a> {
+        let mut observed = Observed::default();
+        // Edges first, so the tasks a commit creates in a new conversation
+        // hang from it.
+        for change in &publication.changes {
+            if let CommitChange::Conversation(conversation) = change {
+                if !self.edges.contains_key(&conversation.id) {
+                    self.set_edge(conversation.id, owner_task(conversation.owner.as_ref()));
+                }
+            }
+        }
+        for change in &publication.changes {
+            if let CommitChange::Task(record) = change {
+                self.mirror_task(record, &mut observed);
+            }
+        }
+        self.observe_scopes(publication, &mut observed);
+        self.sweep();
+        observed
+    }
+
     /// Mirror one committed task record.
-    fn mirror_task(&mut self, record: &AnyTaskRecord, observed: &mut Observed) {
+    fn mirror_task<'a>(&mut self, record: &'a AnyTaskRecord, observed: &mut Observed<'a>) {
         observed.changed = true;
-        let previous = self.live.get(&record.id);
-        let previous_marked = previous.is_some_and(|previous| previous.abort_requested);
-        let previous_status = previous.map(|previous| previous.state.status());
-        if failed_outcome(record) && !previous.is_some_and(failed_outcome) {
+        let previous = self.track(record);
+        if failed_outcome(record) && !previous.as_ref().is_some_and(failed_outcome) {
             observed.failed.push(record.id);
         }
         if record.state.status() == TaskStatus::Terminal {
-            self.live.shift_remove(&record.id);
             self.failed_migrations.remove(&record.id);
             self.fail_fast_checks.shift_remove(&record.id);
-            if self.conversation_owners.contains(&record.id) {
-                self.settled.insert(record.id, TaskNode::of(record));
-            }
             if let Some(settled) = SettledTask::from_record(record.clone()) {
                 self.task_waiters.resolve(&record.id, &settled);
             }
@@ -344,7 +405,11 @@ impl State {
             observed.reconcile = true;
             return;
         }
-        if record.abort_requested && !previous_marked {
+        if record.abort_requested
+            && !previous
+                .as_ref()
+                .is_some_and(|previous| previous.abort_requested)
+        {
             self.cascade_pending = true;
             // Signal a run invocation of the newly marked task; its next step ends it.
             if let Some(invocation) = self.invocations.get(&record.id) {
@@ -354,11 +419,14 @@ impl State {
             }
         }
         // A request replacing a `restart` mark upgrades the marks of the work below.
-        if previous.is_some_and(|previous| previous.abort_reason.is_some())
+        if previous
+            .as_ref()
+            .is_some_and(|previous| previous.abort_reason.is_some())
             && record.abort_reason.is_none()
         {
             self.cascade_pending = true;
         }
+        let previous_status = previous.as_ref().map(|previous| previous.state.status());
         match &record.state {
             TaskState::Completing { .. } => {
                 if previous_status != Some(TaskStatus::Completing) {
@@ -376,37 +444,34 @@ impl State {
             }
             TaskState::Pending { .. } | TaskState::Running { .. } | TaskState::Terminal { .. } => {}
         }
-        self.live.insert(record.id, record.clone());
-        observed.updated.push(record.id);
+        // Its owners and place never change: what is above it is checked
+        // once, when it becomes live.
+        if previous.is_none() {
+            observed.updated.push(record);
+        }
     }
 
-    /// After the task changes: `failFast` checks, new owner edges, and
-    /// cascades owed to queued inputs and new work below cancelled owners.
-    fn observe_scopes(&mut self, publication: &CommitPublication, observed: &mut Observed) {
+    /// After the task changes: `failFast` checks of the waiters of failed
+    /// tasks, and cascades owed to queued inputs and new work below
+    /// cancelled owners.
+    fn observe_scopes(&mut self, publication: &CommitPublication, observed: &mut Observed<'_>) {
         for id in &observed.failed {
-            let waiters: Vec<TaskId> = self
-                .live
-                .values()
-                .filter(|record| match &record.state {
-                    TaskState::Waiting { policy, on, .. } => {
-                        *policy == JoinPolicy::FailFast && on.contains(id)
-                    }
-                    TaskState::Pending { .. }
-                    | TaskState::Running { .. }
-                    | TaskState::Completing { .. }
-                    | TaskState::Terminal { .. } => false,
-                })
-                .map(|record| record.id)
-                .collect();
+            let Some(waiters) = self.waiters.get(id) else {
+                continue;
+            };
             for waiter in waiters {
-                self.fail_fast_checks.insert(waiter);
-                observed.reconcile = true;
-            }
-        }
-        for change in &publication.changes {
-            if let CommitChange::Conversation(conversation) = change {
-                if !self.edges.contains_key(&conversation.id) {
-                    self.set_edge(conversation.id, owner_task(conversation.owner.as_ref()));
+                let fail_fast = self.live.get(waiter).is_some_and(|record| {
+                    matches!(
+                        record.state,
+                        TaskState::Waiting {
+                            policy: JoinPolicy::FailFast,
+                            ..
+                        }
+                    )
+                });
+                if fail_fast {
+                    self.fail_fast_checks.insert(*waiter);
+                    observed.reconcile = true;
                 }
             }
         }
@@ -420,25 +485,29 @@ impl State {
             {
                 continue;
             }
-            let up = Up::Conversation(submission.conversation_id);
-            if !self.chain_known(up, None) || self.below_cancelled(up) {
+            // Only an owner with cancellation intent withdraws it; a later
+            // intent's mark runs the cascade then.
+            if self.intent.is_empty() {
+                continue;
+            }
+            let conversation = Node::Conversation(submission.conversation_id);
+            if !self.known(conversation) || self.below_cancelled(conversation) {
                 self.cascade_pending = true;
             }
         }
-        for id in &observed.updated {
+        for record in &observed.updated {
             // Work created below a cancelled owner, even after its cascade, is aborted too.
-            let Some(record) = self.live.get(id) else {
-                continue;
-            };
-            let parent = parent_of(record);
-            if !self.chain_known(parent, None) {
+            if self.unloaded.contains(&record.id) {
                 observed.reconcile = true;
-            } else if !record.background && !record.abort_requested && self.below_cancelled(parent)
+            } else if !record.background
+                && !record.abort_requested
+                && self.below_cancelled(parent_of(record))
             {
                 self.cascade_pending = true;
             }
         }
-        // Also retries, with the next commit of any kind, a cascade whose commit failed.
+        // A cascade that a reservation or step found pending runs with the
+        // next commit of any kind.
         if self.cascade_pending {
             observed.reconcile = true;
         }

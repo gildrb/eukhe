@@ -102,6 +102,12 @@ impl Core {
         &self.task_graph
     }
 
+    /// The task scheduler, for tests that inspect its indexes.
+    #[cfg(test)]
+    pub(crate) fn tasks(&self) -> &TaskScheduler {
+        &self.tasks
+    }
+
     /// Resolve a conversation's committed `pi.agent` against `snapshot`, or
     /// the current one, and the current settings.
     fn resolve_agent(

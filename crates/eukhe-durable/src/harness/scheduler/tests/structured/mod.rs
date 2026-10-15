@@ -15,6 +15,7 @@ mod chat;
 mod completing;
 mod conversation_abort;
 mod definitions;
+mod indexes;
 mod ownership;
 mod ownership_recovery;
 mod recovery;
