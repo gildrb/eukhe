@@ -248,6 +248,11 @@ impl Supervisor {
             return Ok(None);
         };
         let path_text = path.to_string_lossy().to_string();
+        // A supervisor restarted over live sessions adopts their workers
+        // beside the accept loop: until the pass settles, a live worker
+        // serving this file may be missing from the registry, and the
+        // launch path would bounce off its session lease.
+        Supervisor::wait_for_adoption_signal(&mut self.boot_adoption.subscribe()).await;
 
         // A settled teardown can hand the file straight to a concurrent
         // opener's successor: each wait re-checks the file's residents

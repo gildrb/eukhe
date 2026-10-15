@@ -135,6 +135,15 @@ pub struct Supervisor {
     /// seam (`create_reuse.rs`).
     pub(crate) opening_files:
         std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The boot adoption pass's settle signal (`true` once settled). A
+    /// create over an existing session file waits for it: the pass runs
+    /// beside the accept loop, and an open that raced it found no resident
+    /// for a live worker the pass was still adopting, launched a second
+    /// worker over the file, and bounced off the live worker's session
+    /// lease. Starts settled (a supervisor that never serves adopts
+    /// nothing); `serve` unsettles it before the accept loop and the pass
+    /// settles it when it ends.
+    pub(crate) boot_adoption: tokio::sync::watch::Sender<bool>,
     pub(crate) registry: SessionRegistry,
     /// Worker outbound frames, with their client routing. The payload is
     /// shared (`Arc`): every connected client's event arm receives every
@@ -291,6 +300,7 @@ impl Supervisor {
             worker_connect_budget: std::sync::Mutex::new(None),
             session_bindings: crate::session_bindings::SessionBindingTable::new(),
             opening_files: std::sync::Mutex::new(std::collections::HashMap::new()),
+            boot_adoption: tokio::sync::watch::Sender::new(true),
             registry: SessionRegistry::new(),
             events,
             session_subscribers: subscribers::SessionSubscribers::new(),
@@ -424,12 +434,13 @@ impl Supervisor {
         // sessions dir cannot starve the control plane. Once the pass
         // settles, the boot reports the due scheduled jobs that stay
         // dormant (no session auto-boots on daemon start).
-        let (adoption_tx, adoption_signal) = tokio::sync::watch::channel(false);
+        self.boot_adoption.send_replace(false);
         {
             let supervisor = Arc::clone(&self);
             tokio::spawn(async move {
+                let settle = SettleBootAdoption(&supervisor.boot_adoption);
                 supervisor.adopt_persisted_workers().await;
-                let _ = adoption_tx.send(true);
+                drop(settle);
                 supervisor.report_dormant_scheduled_jobs().await;
             });
         }
@@ -451,7 +462,7 @@ impl Supervisor {
         // pre-warmup cold-read behavior, never a colder one).
         {
             let supervisor = Arc::clone(&self);
-            let mut adopted = adoption_signal;
+            let mut adopted = self.boot_adoption.subscribe();
             tokio::spawn(async move {
                 Supervisor::wait_for_adoption_signal(&mut adopted).await;
                 supervisor.spawn_passive_catalog_warmup();
@@ -529,6 +540,17 @@ impl Supervisor {
 pub(crate) enum Outbound {
     Line(Value),
     Raw(Vec<u8>),
+}
+
+/// Settles the boot adoption signal when dropped: at the pass's end, or
+/// while a panicking pass unwinds (an unsettled signal would park every
+/// open of an existing session).
+struct SettleBootAdoption<'a>(&'a tokio::sync::watch::Sender<bool>);
+
+impl Drop for SettleBootAdoption<'_> {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
 }
 
 /// Entry point for the supervisor process.
