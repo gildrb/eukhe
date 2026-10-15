@@ -34,7 +34,7 @@ use eukhe_types::pi_ai::{
 use futures::StreamExt as _;
 
 use super::settings::EukheSettings;
-use crate::admission::{AdmissionError, AdmissionHandle, AdmissionRequest, QueuedNotice};
+use crate::admission::{AdmissionHandle, AdmissionRequest, QueuedNotice};
 
 /// Receives the session's admission state whenever it changes (`None`: no
 /// request waits for or holds a slot). Called synchronously in change
@@ -212,17 +212,6 @@ impl AdmissionGate {
                     sink.end(None);
                     return;
                 }
-                // An unlimited provider's slot only holds the compactor
-                // back: without an authority to ask, the request goes out.
-                Some(Err(error @ AdmissionError::Unavailable { .. }))
-                    if !gate.limited(&provider_id) =>
-                {
-                    tracing::warn!(
-                        provider = %provider_id,
-                        "{error}; the request to the unlimited provider goes out without a slot"
-                    );
-                    None
-                }
                 Some(Err(error)) => {
                     let message = failure(&model, StopReason::Error, error.to_string());
                     sink.push(AssistantMessageEvent::Error {
@@ -232,7 +221,7 @@ impl AdmissionGate {
                     sink.end(None);
                     return;
                 }
-                Some(Ok(permit)) => Some(permit),
+                Some(Ok(permit)) => permit,
             };
             tracked.generating();
             let inner = start(&model, &context);
@@ -242,6 +231,51 @@ impl AdmissionGate {
             }
             sink.end(None);
             drop(permit);
+            drop(tracked);
+        });
+        outer
+    }
+
+    /// The stream of a request to an unlimited provider: it goes out at
+    /// once, as an ungated request does, while an interactive slot is
+    /// taken alongside it, only so the chat-memory compactor's background
+    /// requests stand aside. The slot (or its pending acquire) is let go
+    /// when the stream ends; when the authority cannot be asked, the
+    /// request runs without one.
+    fn alongside(
+        self: &Arc<Self>,
+        provider_id: &str,
+        inner: AssistantMessageEventStream,
+    ) -> AssistantMessageEventStream {
+        let outer = AssistantMessageEventStream::new();
+        let sink = outer.clone();
+        let gate = Arc::clone(self);
+        let provider_id = provider_id.to_owned();
+        tokio::spawn(async move {
+            let tracked = Tracked::new(&gate.tracker);
+            tracked.generating();
+            let slot = tokio::spawn(gate.admission.acquire(AdmissionRequest {
+                provider_id: provider_id.clone(),
+                priority: AdmissionPriority::Interactive,
+                on_queued: tracked.queued_notice(),
+            }));
+            let mut events = inner.events();
+            while let Some(event) = events.next().await {
+                sink.push(event);
+            }
+            sink.end(None);
+            slot.abort();
+            match slot.await {
+                Ok(Ok(permit)) => drop(permit),
+                Ok(Err(error)) => tracing::warn!(
+                    provider = %provider_id,
+                    "{error}; the request to the unlimited provider ran without a slot"
+                ),
+                Err(cancelled) => tracing::debug!(
+                    provider = %provider_id,
+                    "the unlimited provider's slot was still pending: {cancelled}"
+                ),
+            }
             drop(tracked);
         });
         outer
@@ -292,6 +326,9 @@ pub(crate) fn wrap_models_with_admission(models: &Models, gate: &Arc<AdmissionGa
 
 fn gate_stream_fn(gate: Arc<AdmissionGate>, provider_id: String, inner: StreamFn) -> StreamFn {
     Arc::new(move |model, context, options| {
+        if !gate.limited(&provider_id) {
+            return gate.alongside(&provider_id, inner(model, context, options));
+        }
         let signal = options.stream.request.signal.clone();
         let inner = Arc::clone(&inner);
         gate.admitted(
@@ -310,6 +347,9 @@ fn gate_stream_simple_fn(
     inner: StreamSimpleFn,
 ) -> StreamSimpleFn {
     Arc::new(move |model, context, options| {
+        if !gate.limited(&provider_id) {
+            return gate.alongside(&provider_id, inner(model, context, options));
+        }
         let signal = options.stream.request.signal.clone();
         let inner = Arc::clone(&inner);
         gate.admitted(
