@@ -106,7 +106,9 @@ pub(crate) struct ChildRow {
     /// Where a delete of this child stands; `None` while not deleted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) deletion: Option<ChildDeletion>,
-    /// The child task is terminal (its report, if any, was submitted).
+    /// The child task owes nothing more: its report, if any, is admitted
+    /// to the parent's inbox (the task lives on until the report reaches
+    /// the transcript, submitting it again if the inbox withdraws it).
     #[serde(default)]
     pub(crate) settled: bool,
     /// Child spend already attributed to the parent (cumulative).
@@ -201,8 +203,8 @@ pub(crate) async fn read_children(
 }
 
 /// Whether any child of `conversation_id` is unsettled: its
-/// `eukhe.rlm.child` task has not ended (the run or its report is still
-/// owed). Goal and autonomous continuations defer while this holds.
+/// `eukhe.rlm.child` task still owes the run or the admission of its
+/// report. Goal and autonomous continuations defer while this holds.
 ///
 /// # Errors
 ///
@@ -216,9 +218,10 @@ pub async fn has_unsettled_children(
     Ok(state.children.values().any(|row| !row.settled))
 }
 
-/// The `eukhe.rlm.child` tasks of `conversation_id` that have not ended,
+/// The `eukhe.rlm.child` tasks of `conversation_id` that are unsettled,
 /// in spawn order: the RLM quiescence barrier waits on each (a task's
-/// terminal commit sets its row's `settled` and submits its owed report).
+/// report phase sets its row's `settled` once the owed report is
+/// admitted; the barrier's parent-idle wait covers the report's turn).
 ///
 /// # Errors
 ///

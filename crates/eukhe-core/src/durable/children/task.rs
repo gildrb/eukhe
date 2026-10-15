@@ -3,22 +3,26 @@
 //! parent restart (the old daemon settle watcher died with the worker).
 //!
 //! Phases: `spawn` (host create under the identity derived from the task
-//! id), `prompt` (after the spawning tool call settled), `watch` (host
-//! long-poll; a durable deadline between polls; child usage attributed per
-//! poll), `report` (a follow-up input to the parent with a request id, so a
-//! rerun cannot report twice), then terminal. Abort cancels the child's run
-//! and delivers the report a delete owes.
+//! id), `prompt` (at once, while the spawning tool call may still run),
+//! `watch` (host long-poll; a durable deadline between polls; child usage
+//! attributed per poll), `report` (a follow-up input to the parent with a
+//! request id, so a rerun cannot report twice, held until it reaches the
+//! parent's transcript and submitted again under the next id when the
+//! inbox withdraws it), then terminal. Abort cancels the child's run and
+//! delivers the report a delete owes.
 
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
+use eukhe_durable::harness::types::{
+    ConversationHandle, InputSubmissionDraft, Submission, WhenBusy,
+};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::tasks::{
     define_task, Migrated, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
 };
-use eukhe_durable::types::{JoinPolicy, TaskId, TaskOutcome, TaskOutcomeError};
+use eukhe_durable::types::{TaskId, TaskOutcome, TaskOutcomeError};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::UserContent;
 use serde::{Deserialize, Serialize};
@@ -44,8 +48,9 @@ pub(crate) const WATCH_WAIT_SLICE_MS: u64 = 60_000;
 pub(crate) const WATCH_POLL_INTERVAL_MS: f64 = 2_000.0;
 /// The error text of a run the user cancelled (no notice is owed).
 const CANCELLED_BY_USER: &str = "Cancelled by user";
-/// Ordinal of the report a child task delivers (its only one).
-const REPORT_ORDINAL: u32 = 1;
+/// Ordinal of a report's first submission; each redelivery of a withdrawn
+/// submission takes the next one.
+const FIRST_REPORT_ORDINAL: u32 = 1;
 
 /// What the child-task phases need from the session.
 pub(crate) struct ChildrenServices {
@@ -70,10 +75,6 @@ pub(crate) struct ChildTaskInput {
     pub(crate) thinking: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) spawned_by_request_id: Option<String>,
-    /// The `pi.tool` task that spawned the child: its prompt waits for that
-    /// call to settle, so the parent's continuation request goes first.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) spawning_tool_task: Option<u64>,
     /// The depth bound in force at the spawn (a runtime override or the
     /// configured bound); `None` on tasks admitted before it was recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,10 +86,7 @@ pub(crate) struct ChildTaskInput {
 #[serde(tag = "phase", rename_all = "camelCase")]
 pub(crate) enum ChildCheckpoint {
     Spawn,
-    #[serde(rename_all = "camelCase")]
-    Prompt {
-        waited: bool,
-    },
+    Prompt,
     #[serde(rename_all = "camelCase")]
     Watch {
         poll: u64,
@@ -97,6 +95,10 @@ pub(crate) enum ChildCheckpoint {
     },
     Report {
         report: ChildReport,
+        /// Submissions of the report the parent's inbox withdrew before
+        /// placing them; the next one takes the next request id.
+        #[serde(default)]
+        withdrawn: u32,
     },
 }
 
@@ -106,9 +108,10 @@ type Runtime = TaskRuntime<ChildTaskInput, ChildCheckpoint, ChildStatus, ()>;
 type Running = RunningTask<ChildTaskInput, ChildCheckpoint, ChildStatus>;
 type Next = NextTaskState<ChildCheckpoint, ChildStatus>;
 
-/// The follow-up request id of the report of child task `task_id`.
-pub(crate) fn report_request_id(task_id: TaskId) -> String {
-    format!("rlm:{task_id}:report:{REPORT_ORDINAL}")
+/// The follow-up request id of submission `ordinal` of the report of child
+/// task `task_id`.
+pub(crate) fn report_request_id(task_id: TaskId, ordinal: u32) -> String {
+    format!("rlm:{task_id}:report:{ordinal}")
 }
 
 /// Define the child task over `services`.
@@ -225,7 +228,7 @@ async fn spawn(
                         })
                         .await?;
                         Ok(Some(NextTaskState::Running {
-                            checkpoint: ChildCheckpoint::Prompt { waited: false },
+                            checkpoint: ChildCheckpoint::Prompt,
                         }))
                     }
                     Err(error) => {
@@ -239,34 +242,22 @@ async fn spawn(
         .await
 }
 
-/// `prompt`: wait for the spawning tool call to settle, then admit the task
-/// prompt (one retry, as the old route did). A prompt that cannot be
-/// admitted cancels the child and reports the failure.
+/// `prompt`: admit the task prompt (one retry, as the old route did). A
+/// prompt that cannot be admitted cancels the child and reports the
+/// failure. The prompt goes out while the spawning tool call may still
+/// run: a cell that spawns and then waits on the child (`rlm.collect`
+/// with a timeout) must see it run.
 async fn prompt(
     services: Arc<ChildrenServices>,
     task: Running,
     runtime: Runtime,
     cx: Context,
 ) -> SessionResult<()> {
-    let ChildCheckpoint::Prompt { waited } = task.checkpoint else {
+    let ChildCheckpoint::Prompt = task.checkpoint else {
         return Err(SessionError::error(
             "RLM child prompt phase without its checkpoint",
         ));
     };
-    if let (false, Some(tool_task)) = (waited, task.input.spawning_tool_task) {
-        return runtime
-            .commit(
-                move |_tx, _current| async move {
-                    Ok(Some(NextTaskState::Waiting {
-                        checkpoint: ChildCheckpoint::Prompt { waited: true },
-                        on: vec![TaskId::from_number(tool_task)],
-                        policy: JoinPolicy::AllSettled,
-                    }))
-                },
-                &cx,
-            )
-            .await;
-    }
     let task_id = task.id.erase();
     let identity = child_identity(&services.parent_session_id, task_id);
     let request = RlmChildPromptRequest {
@@ -325,7 +316,10 @@ async fn prompt(
 
 fn report_next(report: ChildReport) -> Next {
     NextTaskState::Running {
-        checkpoint: ChildCheckpoint::Report { report },
+        checkpoint: ChildCheckpoint::Report {
+            report,
+            withdrawn: 0,
+        },
     }
 }
 
@@ -464,16 +458,13 @@ fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll
     }
 }
 
-/// Submit `report` to the parent as a follow-up. The request id makes a
-/// rerun (a crash between the submission and the terminal commit) return
-/// the first submission instead of queueing a second report.
-async fn submit_report(
+/// The conversation that owns child task `task`.
+async fn owner(
     runtime: &Runtime,
     task: &Running,
-    report: &ChildReport,
     cx: &Context,
-) -> SessionResult<()> {
-    let conversation = runtime
+) -> SessionResult<Arc<dyn ConversationHandle>> {
+    runtime
         .conversation(task.conversation_id, cx)
         .await?
         .ok_or_else(|| {
@@ -481,11 +472,25 @@ async fn submit_report(
                 "RLM child task {} lost its conversation {}",
                 task.id, task.conversation_id
             ))
-        })?;
-    conversation
+        })
+}
+
+/// Submit `report` to the parent as a follow-up under submission
+/// `ordinal`. The request id makes a rerun (a crash between the submission
+/// and the next commit) return the first submission instead of queueing a
+/// second report.
+async fn submit_report(
+    runtime: &Runtime,
+    task: &Running,
+    report: &ChildReport,
+    ordinal: u32,
+    cx: &Context,
+) -> SessionResult<Arc<dyn Submission>> {
+    owner(runtime, task, cx)
+        .await?
         .submit(
             InputSubmissionDraft {
-                request_id: Some(report_request_id(task.id.erase())),
+                request_id: Some(report_request_id(task.id.erase(), ordinal)),
                 content: UserContent::Text(report.text()),
                 when_busy: Some(WhenBusy::FollowUp),
                 origin: report.origin(),
@@ -493,24 +498,73 @@ async fn submit_report(
             },
             cx,
         )
-        .await?;
-    Ok(())
+        .await
 }
 
-/// `report`: deliver the owed report, then end the task.
+/// `report`: deliver the owed report, then end the task. The child is
+/// settled once its report is admitted, but the report stays owed until
+/// it reaches the parent's transcript: a queued input the parent's inbox
+/// withdraws (a conversation abort — the user's, or the session closing
+/// for a daemon shutdown) settles unanswered without an entry, and the
+/// report is submitted again under the next request id once the aborted
+/// run is over (an input queued behind a run that ends by abort waits for
+/// the next run).
 async fn report(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
-    let ChildCheckpoint::Report { report } = &task.checkpoint else {
+    let ChildCheckpoint::Report { report, withdrawn } = &task.checkpoint else {
         return Err(SessionError::error(
             "RLM child report phase without its checkpoint",
         ));
     };
-    submit_report(&runtime, &task, report, &cx).await?;
+    let (report, withdrawn) = (report.clone(), *withdrawn);
+    // The waits yield to an abort mark or a closing Harness; a rerun finds
+    // the same submission by its request id.
+    let signal = runtime.signal();
+    if withdrawn > 0 {
+        let conversation = owner(&runtime, &task, &cx).await?;
+        tokio::select! {
+            idle = conversation.wait_for_idle(&cx) => idle?,
+            reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+        }
+    }
+    let submission = submit_report(
+        &runtime,
+        &task,
+        &report,
+        FIRST_REPORT_ORDINAL + withdrawn,
+        &cx,
+    )
+    .await?;
     let (conversation_id, task_id) = (task.conversation_id, task.id.erase());
     runtime
         .commit(
             move |tx, _current| async move {
-                let row =
-                    tx_update_row(&tx, conversation_id, task_id, |row| row.settled = true).await?;
+                tx_update_row(&tx, conversation_id, task_id, |row| row.settled = true).await?;
+                Ok(None)
+            },
+            &cx,
+        )
+        .await?;
+    let settled = tokio::select! {
+        settled = submission.wait(&cx) => settled?,
+        reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+    };
+    let delivered = settled.state.entry().is_some();
+    runtime
+        .commit(
+            move |tx, _current| async move {
+                if !delivered {
+                    return Ok(Some(NextTaskState::Running {
+                        checkpoint: ChildCheckpoint::Report {
+                            report,
+                            withdrawn: withdrawn + 1,
+                        },
+                    }));
+                }
+                let row = tx_row(&tx, conversation_id, task_id)
+                    .await?
+                    .ok_or_else(|| {
+                        SessionError::error(format!("RLM child task {task_id} has no registry row"))
+                    })?;
                 Ok(Some(NextTaskState::Terminal {
                     outcome: TaskOutcome::Completed { result: row.status },
                 }))
@@ -535,11 +589,18 @@ async fn abort(
     let task_id = task.id.erase();
     let running = !row.status.is_terminal();
     let owed = match &task.checkpoint {
-        ChildCheckpoint::Report { report } => Some(report.clone()),
-        ChildCheckpoint::Spawn | ChildCheckpoint::Prompt { .. } | ChildCheckpoint::Watch { .. } => {
-            (row.delete_requested() && running).then(|| ChildReport::Cancelled {
-                session_name: row.session_name.clone(),
-                reason: Some(DELETED_BY_PARENT.to_owned()),
+        ChildCheckpoint::Report { report, withdrawn } => {
+            Some((report.clone(), FIRST_REPORT_ORDINAL + withdrawn))
+        }
+        ChildCheckpoint::Spawn | ChildCheckpoint::Prompt | ChildCheckpoint::Watch { .. } => {
+            (row.delete_requested() && running).then(|| {
+                (
+                    ChildReport::Cancelled {
+                        session_name: row.session_name.clone(),
+                        reason: Some(DELETED_BY_PARENT.to_owned()),
+                    },
+                    FIRST_REPORT_ORDINAL,
+                )
             })
         }
     };
@@ -555,8 +616,8 @@ async fn abort(
             )))?;
         }
     }
-    if let Some(report) = owed {
-        submit_report(&runtime, &task, &report, &cx).await?;
+    if let Some((report, ordinal)) = owed {
+        submit_report(&runtime, &task, &report, ordinal, &cx).await?;
     }
     let reason = if row.delete_requested() {
         DELETED_BY_PARENT

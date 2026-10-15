@@ -596,9 +596,12 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
         assert_eq!(receipt["receiverRole"], "child", "{receipt}");
         assert!(receipt["id"].as_str().unwrap().starts_with("agentmsg_"));
         // Send sequentially - the next selector only fires after this
-        // prompt's reply card renders. The batched-steering default (one
-        // turn at the tool boundary) would otherwise merge rapid queued
-        // prompts into a single turn and its single reply.
+        // prompt's reply card renders AND the child's reply turn ended.
+        // The card renders mid-turn (the reply cell runs before the
+        // turn's closing answer), and a message delivered to a busy
+        // child steers into its running turn at the tool boundary (the
+        // TS steer lane): the next send would merge into this turn and
+        // its single reply.
         expected_cards += 1;
         let card_deadline = Instant::now() + Duration::from_secs(20);
         loop {
@@ -613,11 +616,13 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
             }
             assert!(
                 Instant::now() < card_deadline,
-                "the parent never rendered the child's reply to the {selector} send: {}",
-                client.messages("gm-parent", &parent_active_session_id)
+                "the parent never rendered the child's reply to the {selector} send: {}\nchild transcript: {}",
+                client.messages("gm-parent", &parent_active_session_id),
+                client.messages("gm-child", &child_active_session_id),
             );
             std::thread::sleep(Duration::from_millis(200));
         }
+        client.wait_idle("w-child-turn", &child_active_session_id);
     }
 
     // The child rendered every delivered prompt once and answered each

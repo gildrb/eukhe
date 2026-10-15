@@ -17,7 +17,7 @@ use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
     ConversationId, DocumentObserverExt, TaskId, TaskOptions, TaskOutcome, TaskOwnership,
-    TaskState, ROOT_CONVERSATION_ID,
+    TaskState, TaskStatus, ROOT_CONVERSATION_ID,
 };
 use futures::FutureExt;
 use serde_json::{json, Map, Value};
@@ -341,7 +341,6 @@ async fn admit_spawns(
         .as_ref()
         .and_then(|recorder| recorder.last_turn_request_id())
         .or_else(|| Some(api.call_id().to_owned()));
-    let spawning_tool_task = Some(api.task_id().get());
     let admitted: Vec<(Option<String>, ChildTaskInput)> = specs
         .into_iter()
         .map(|spec| {
@@ -352,7 +351,6 @@ async fn admit_spawns(
                     model: spec.kwargs.model,
                     thinking: spec.kwargs.thinking,
                     spawned_by_request_id: spawned_by_request_id.clone(),
-                    spawning_tool_task,
                     max_depth: Some(max_depth),
                 },
             )
@@ -856,19 +854,7 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
         }
     }
     let deadline = tokio::time::Instant::now() + timeout;
-    for task_id in &live {
-        let running = state
-            .children
-            .get(&task_id.to_string())
-            .is_some_and(|row| !row.status.is_terminal());
-        if running {
-            let waited =
-                tokio::time::timeout_at(deadline, harness.wait_for_task(*task_id, &cx())).await;
-            if let Ok(settled) = waited {
-                settled.map_err(session_error)?;
-            }
-        }
-    }
+    wait_for_verdicts(&harness, conversation_id, &live, deadline).await?;
     let state = read_children(&harness, conversation_id, &cx())
         .await
         .map_err(session_error)?;
@@ -880,6 +866,77 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
         .map(|row| collect_result(row, now))
         .collect();
     Ok(json!({ "results": results }))
+}
+
+/// Wait until every child of `task_ids` reached its verdict (its row left
+/// `spawning`/`running`) or its task ended, or `deadline` passed. The row,
+/// not the task: a settled child's task stays live while its report waits
+/// behind the parent's busy turn — possibly the very turn that waits here.
+async fn wait_for_verdicts(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    task_ids: &[TaskId],
+    deadline: tokio::time::Instant,
+) -> anyhow::Result<()> {
+    if task_ids.is_empty() || tokio::time::Instant::now() >= deadline {
+        return Ok(());
+    }
+    let changed = Arc::new(Notify::new());
+    let watch = harness
+        .watch_doc(&CHILDREN_DOC, conversation_id, &cx())
+        .await
+        .map_err(session_error)?;
+    if let Some(watch) = &watch {
+        let changed = Arc::clone(&changed);
+        watch
+            .start(Arc::new(move |_value, _ops, _cx| {
+                changed.notify_one();
+                futures::future::ready(Ok(())).boxed()
+            }))
+            .map_err(session_error)?;
+    }
+    let outcome = async {
+        loop {
+            let state = read_children(harness, conversation_id, &cx())
+                .await
+                .map_err(session_error)?;
+            let mut pending = None;
+            for task_id in task_ids {
+                let running = state
+                    .children
+                    .get(&task_id.to_string())
+                    .is_some_and(|row| !row.status.is_terminal());
+                let ended = harness
+                    .get_task(*task_id, &cx())
+                    .await
+                    .map_err(session_error)?
+                    .is_none_or(|record| record.state.status() == TaskStatus::Terminal);
+                if running && !ended {
+                    pending = Some(*task_id);
+                    break;
+                }
+            }
+            let Some(task_id) = pending else {
+                return anyhow::Ok(());
+            };
+            let woke = tokio::time::timeout_at(deadline, async {
+                tokio::select! {
+                    () = changed.notified() => Ok(()),
+                    ended = harness.wait_for_task(task_id, &cx()) => ended.map(drop),
+                }
+            })
+            .await;
+            match woke {
+                Ok(woke) => woke.map_err(session_error)?,
+                Err(_elapsed) => return Ok(()),
+            }
+        }
+    }
+    .await;
+    if let Some(watch) = watch {
+        watch.stop().await;
+    }
+    outcome
 }
 
 // ---------------------------------------------------------------------------

@@ -18,8 +18,8 @@ use eukhe_durable::errors::StorageError;
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::registry::create_registry;
 use eukhe_durable::harness::types::{
-    AgentChange, Clock, Extension, FieldChange, HarnessOptions, InputSubmissionDraft, ModelRef,
-    ToolExecutionResult, ToolRegistration,
+    AgentChange, Clock, ConversationAbortOptions, Extension, FieldChange, HarnessOptions,
+    InputSubmissionDraft, ModelRef, ToolExecutionResult, ToolRegistration,
 };
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 use eukhe_durable::session::SessionError;
@@ -28,7 +28,8 @@ use eukhe_durable::types::{
     AnyTaskRecord, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress,
     DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryId, EntryQuery, EntryRecord,
     Page, Seq, Storage, StorageWrite, StoredDocument, StoredEntry, SubmissionId, SubmissionQuery,
-    SubmissionRecord, TaskId, TaskOutcome, TaskQuery, TaskState, ROOT_CONVERSATION_ID,
+    SubmissionRecord, SubmissionStatus, TaskId, TaskOutcome, TaskQuery, TaskState,
+    ROOT_CONVERSATION_ID,
 };
 use eukhe_types::pi_ai::{
     JsonObject, Message, StopReason, TextContent, Usage, UsageCost, UserContent, UserContentBlock,
@@ -36,6 +37,8 @@ use eukhe_types::pi_ai::{
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde_json::{json, Value};
+
+mod report_delivery;
 
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
@@ -51,6 +54,7 @@ use crate::durable::observe::rlm_usage::{
     CHILD_USAGE_ATTRIBUTED_KIND,
 };
 use crate::durable::settings::EukheSettings;
+use report_delivery::{spawn_collect_hold_tool, HeldSpawn};
 
 const PARENT_SESSION_ID: &str = "parent-session";
 const PROMPT: &str = "Investigate the flaky test";
@@ -453,6 +457,7 @@ struct Opened {
     /// The `rlm.run_batch` payload the `spawn_batch` tool sends next, and
     /// every reply it got (`error: ...` for a refusal).
     batch: Arc<Mutex<(Value, Vec<String>)>>,
+    held: Arc<HeldSpawn>,
 }
 
 /// A tool whose call runs the kernel's `rlm.spawn_batch` host request with
@@ -552,11 +557,15 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         settings: default_settings(),
     });
     let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
+    let held = Arc::new(HeldSpawn::default());
     let registry = create_registry();
     registry.install(children.install(&requests)).unwrap();
     registry.install(spawn_tool(requests.clone())).unwrap();
     registry
         .install(spawn_batch_tool(requests.clone(), Arc::clone(&batch)))
+        .unwrap();
+    registry
+        .install(spawn_collect_hold_tool(requests.clone(), Arc::clone(&held)))
         .unwrap();
     let mut options = HarnessOptions::new(setup.models.clone(), Arc::new(registry));
     let reports = Arc::clone(&setup.reports);
@@ -586,6 +595,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         root,
         requests,
         batch,
+        held,
     }
 }
 
@@ -742,7 +752,7 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
         },
         None,
     );
-    let request_id = report_request_id(TaskId::from_number(task_id));
+    let request_id = report_request_id(TaskId::from_number(task_id), 1);
     eventually(|| async { storage.refused.load(Ordering::SeqCst) > 0 }).await;
     assert!(storage
         .inner
