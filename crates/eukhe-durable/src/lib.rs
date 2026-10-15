@@ -1,4 +1,6 @@
-//! Rust port of `@earendil-works/pi-durable` v1.0.4, a durable agent harness.
+//! Rust port of `@earendil-works/pi-durable` 1.0.4, with parts of 1.1 and 1.2
+//! ported (1.2 compaction, scheduler, inbox, input-entry, and document-cache
+//! changes), a durable agent harness.
 //! Conversations, model turns, tool calls, and application state are
 //! committed to storage before anything is shown. If the process dies
 //! mid-turn, reopening the storage picks the work up where it stopped.

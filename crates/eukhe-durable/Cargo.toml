@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Rust port of @earendil-works/pi-durable v1.0.4: a durable agent harness."
+description = "Rust port of @earendil-works/pi-durable 1.0.4 with parts of 1.1 and 1.2: a durable agent harness."
 
 [dependencies]
 eukhe-chord.workspace = true
