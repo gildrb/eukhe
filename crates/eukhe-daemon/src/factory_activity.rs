@@ -135,12 +135,16 @@ mod tests {
     }
 
     /// The lane validates the request, then answers the definitive
-    /// refusal while the session's kernel never booted.
+    /// refusal while the session's kernel never booted. A child session
+    /// (no create-time prewarm) keeps the kernel down for the whole test:
+    /// a top-level session's background prewarm could boot the kernel
+    /// mid-test, and the booted kernel answers its own factory gate.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn factory_activity_validates_and_never_boots_a_kernel() {
-        let (_dir, worker) = crate::durable_test_support::created_worker(
+        let (_dir, worker) = crate::durable_test_support::created_worker_with(
             "factory-session",
             serde_json::json!(["ack"]),
+            serde_json::json!({ "rlmDepth": 1 }),
         )
         .await;
         let session = serde_json::json!({ "activeSessionId": "factory-session" });
