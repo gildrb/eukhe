@@ -18,6 +18,7 @@ mod registry;
 mod rename;
 mod requests;
 mod task;
+mod watch;
 mod wire;
 
 #[cfg(test)]
@@ -36,12 +37,14 @@ pub use commands::{
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
     NoRlmChildren, RlmChildActivityKind, RlmChildCancelRequest, RlmChildDeleteRequest,
-    RlmChildIdentity, RlmChildListing, RlmChildObservation, RlmChildPromptRequest,
+    RlmChildIdentity, RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPromptRequest,
     RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
     RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
     RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
-pub use registry::{has_unsettled_children, unsettled_child_tasks};
+pub use registry::{
+    has_unsettled_children, unsettled_child_tasks, unsettled_children, UnsettledChildren,
+};
 /// A test of another module (`zoom("Name")`) registers a child row.
 #[cfg(test)]
 pub(crate) use registry::{tx_put_row, ChildRow, ChildStatus};
@@ -67,8 +70,6 @@ pub(crate) struct Children {
     models: Models,
     /// Told every accepted progress note of this session.
     progress_note: Option<ProgressNoteSink>,
-    /// The session settings: `rlm.collect` waits within the blocking budget.
-    settings: Arc<EukheSettings>,
 }
 
 /// Inputs of [`Children::new`].
@@ -99,6 +100,7 @@ impl Children {
             rlm_max_depth: config.rlm_max_depth,
             semantic_edges: config.semantic_edges,
             closing: config.closing,
+            settings: config.settings,
         });
         let task = child_task(&services);
         Arc::new(Self {
@@ -108,7 +110,6 @@ impl Children {
             harness: config.harness,
             models: config.models,
             progress_note: config.progress_note,
-            settings: config.settings,
         })
     }
 

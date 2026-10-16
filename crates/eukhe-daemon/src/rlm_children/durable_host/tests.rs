@@ -9,9 +9,9 @@
 use std::sync::{Arc, Mutex};
 
 use eukhe_core::durable::children::{
-    RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildIdentity, RlmChildPromptRequest,
-    RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget,
-    RlmSubagentHost,
+    RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildIdentity, RlmChildOutcome,
+    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest,
+    RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
 };
 use eukhe_types::daemon::WorkerLiveness;
 use eukhe_types::input_origin::ChildFailure;
@@ -112,7 +112,7 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
             Some(json!({ "isStreaming": false, "sessionActions": { "queuedCount": 0 } })),
         ),
         "get_run_outcome" => {
-            let outcome =
+            let state =
                 lock(shared)
                     .outcome
                     .clone()
@@ -122,7 +122,13 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
             response_success(
                 Some(id),
                 command_type,
-                Some(serde_json::to_value(outcome).unwrap()),
+                Some(
+                    serde_json::to_value(RlmChildOutcome {
+                        state,
+                        progress: Some(7),
+                    })
+                    .unwrap(),
+                ),
             )
         }
         "get_session_stats" => response_success(
@@ -463,20 +469,21 @@ async fn a_child_run_ended_by_a_provider_error_settles_failed() {
     assert_eq!(display.status, "running");
 }
 
-/// A live but slow child (its probes refused as overloaded) is still
-/// running: the watch asks the supervisor's process verdict instead of
-/// failing the poll, so the parent never counts it toward "unreachable".
+/// Regression (H5): a live child whose probes fail (refused as
+/// overloaded) is a failed poll, which the parent's watch counts toward
+/// unreachable. The old host answered `Running`, so a child that never
+/// answered was watched forever.
 #[tokio::test]
-async fn a_live_child_whose_probes_fail_is_still_running() {
+async fn a_live_child_whose_probes_fail_is_a_failed_poll() {
     let dir = tempfile::tempdir().unwrap();
     let shared = Shared::default();
     lock(&shared).overloaded_child = Some(WorkerLiveness::Live);
     let sessions = host(&shared, dir.path()).await;
-    let observed = sessions
+    let failed = sessions
         .wait_settled(resumed_wait())
         .await
-        .expect("a live child's failed probe is an observation, not an error");
-    assert_eq!(observed.state, RlmChildRunState::Running);
+        .expect_err("a live child's failed probe fails the poll");
+    assert!(format!("{failed:#}").contains("overloaded"), "{failed:#}");
     assert_eq!(commands_of(&shared, "get_worker_liveness").len(), 1);
 }
 
@@ -509,6 +516,34 @@ async fn deleting_a_child_no_worker_answers_is_a_no_op() {
             idempotency_key: "rlm:9:delete".to_owned(),
             session_id: "gone".to_owned(),
             rlm_child_id: "sub-gone".to_owned(),
+        })
+        .await
+        .unwrap();
+}
+
+/// H5: the watch stops a stuck child through the `rlm` kill path: a plain
+/// kill of its worker (no ledger delete, so its session stays), once per
+/// key; a child no worker hosts is already stopped.
+#[tokio::test]
+async fn stopping_a_child_kills_its_worker_once_and_keeps_its_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    let sessions = host(&shared, dir.path()).await;
+    sessions.spawn(spawn_request()).await.unwrap();
+    let stop = RlmChildCancelRequest {
+        idempotency_key: "rlm:7:stop".to_owned(),
+        session_id: CHILD_SESSION.to_owned(),
+    };
+    sessions.stop(stop.clone()).await.unwrap();
+    sessions.stop(stop).await.unwrap();
+    let kills = commands_of(&shared, "kill");
+    assert_eq!(kills.len(), 1, "{kills:?}");
+    assert_eq!(kills[0]["activeSessionId"], "child-live");
+    assert_eq!(kills[0].get("rlmLedgerDelete"), None);
+    sessions
+        .stop(RlmChildCancelRequest {
+            idempotency_key: "rlm:9:stop".to_owned(),
+            session_id: "gone".to_owned(),
         })
         .await
         .unwrap();

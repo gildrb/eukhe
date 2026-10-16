@@ -217,6 +217,89 @@ async fn a_withdrawn_report_is_delivered_again_once() {
     opened.harness.close(cx()).await.unwrap();
 }
 
+/// Regression (H5, found by `bend/child.bend`): a stop of the parent with
+/// its background work withdraws the queued report and aborts the task
+/// that owes it, before its report phase sees the withdrawal. The abort
+/// hands the report on, and the one report rule submits it again under
+/// the next request id, after every such stop: the parent's next run
+/// places it once. The old abort found the withdrawn id known and ended
+/// with no report delivered; a stop that withdrew a resubmitted report
+/// lost it too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_report_withdrawn_as_its_task_aborts_is_delivered_once() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let storage = Arc::new(MemoryStorage::new());
+    let opened = open(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    setup.faux.append_responses(vec![call_spawn_collect_hold()]);
+    submit_input(&opened, "go").await;
+    let row = spawned_and_collected(&opened, &host).await;
+    let task = TaskId::from_number(row.task_id);
+    let submission = |ordinal| {
+        let storage = Arc::clone(&storage);
+        async move {
+            storage
+                .submission_by_request(
+                    ROOT_CONVERSATION_ID,
+                    &report_request_id(task, ordinal),
+                    cx(),
+                )
+                .await
+                .unwrap()
+        }
+    };
+    eventually(|| async { submission(1).await.is_some() }).await;
+
+    // The first stop withdraws report 1 and aborts its task; the task the
+    // report goes on to submits it again under id 2, on the idle parent,
+    // whose run then hangs in its model call.
+    let hang: FauxResponseStep =
+        FauxResponseStep::Factory(Arc::new(|_, _, _, _| Box::pin(std::future::pending())));
+    setup.faux.append_responses(vec![hang]);
+    opened
+        .root
+        .abort(ConversationAbortOptions { background: true }, cx())
+        .await
+        .unwrap();
+    assert_eq!(submission(1).await.unwrap().state.entry(), None);
+    eventually(|| async {
+        submission(2)
+            .await
+            .is_some_and(|record| record.state.entry().is_some())
+    })
+    .await;
+    // The second stop aborts that run and the task waiting on report 2:
+    // the report goes on again; id 2 is known and placed, so nothing more
+    // is submitted.
+    opened
+        .root
+        .abort(ConversationAbortOptions { background: true }, cx())
+        .await
+        .unwrap();
+    eventually(|| async {
+        row_of(&opened.harness, row.task_id)
+            .await
+            .is_some_and(|row| row.settled)
+    })
+    .await;
+    opened.harness.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        user_texts(&opened.root, "[child-exited").await,
+        [format!(
+            "[child-exited: no-reply child:{}]\n\nLast assistant text: found it",
+            row.session_name
+        )]
+    );
+    assert!(submission(3).await.is_none());
+    assert!(lock(&setup.reports).is_empty());
+    opened.harness.close(cx()).await.unwrap();
+}
+
 /// A report the close's abort withdraws (the worker's close for a daemon
 /// shutdown or a session switch begins closing, then aborts the parent)
 /// is not submitted again on the closing session, where its run would

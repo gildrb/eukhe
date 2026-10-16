@@ -222,6 +222,11 @@ class _BoundedBuffer:
         with self._lock:
             return len(self._head) + self._tail_size
 
+    def written(self) -> int:
+        """Every byte written so far, dropped ones included: grows while output arrives."""
+        with self._lock:
+            return len(self._head) + self._tail_size + self._dropped
+
     def text(self) -> str:
         with self._lock:
             head = bytes(self._head)
@@ -1083,6 +1088,7 @@ def activity_request(action: str, activity_id: str | None = None, lines: int = 5
                 "durationMs": int((handle._result.duration if handle._result else time.monotonic() - handle._started) * 1000),
                 "status": "finished" if handle._reaped else "running",
                 "exitCode": handle._result.exit_code if handle._result else None,
+                "outputBytes": handle._buffer.written(),
             }
             for key, handle in handles
         ]

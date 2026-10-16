@@ -114,6 +114,15 @@ pub(crate) struct ChildRow {
     /// Child spend already attributed to the parent (cumulative).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) usage: Option<Usage>,
+    /// The child's last progress token the watch read
+    /// ([`super::RlmChildOutcome::progress`]); this session's own token
+    /// adds it, so a parent waiting on a busy child is busy too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) progress: Option<u64>,
+    /// The task that carries this child's report after the child's own
+    /// task was aborted owing it; the quiescence barrier waits on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reporter: Option<u64>,
 }
 
 impl ChildRow {
@@ -236,8 +245,41 @@ pub async fn unsettled_child_tasks(
         .children
         .values()
         .filter(|row| !row.settled)
-        .map(ChildRow::task_id)
+        .map(|row| TaskId::from_number(row.reporter.unwrap_or(row.task_id)))
         .collect())
+}
+
+/// The unsettled children of one conversation, as its own run outcome
+/// counts them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UnsettledChildren {
+    /// How many children are unsettled.
+    pub count: usize,
+    /// The sum (wrapping) of their last progress tokens: it changes when
+    /// any of them progresses or settles.
+    pub progress: u64,
+}
+
+/// The unsettled children of `conversation_id`: how many, and their
+/// progress (rule H5: a session waiting on a child progresses while the
+/// child does).
+///
+/// # Errors
+///
+/// Document read failures.
+pub async fn unsettled_children(
+    reader: &(impl DocumentReader + ?Sized),
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<UnsettledChildren> {
+    let state = read_children(reader, conversation_id, cx).await?;
+    Ok(state.children.values().filter(|row| !row.settled).fold(
+        UnsettledChildren::default(),
+        |sum, row| UnsettledChildren {
+            count: sum.count + 1,
+            progress: sum.progress.wrapping_add(row.progress.unwrap_or(0)),
+        },
+    ))
 }
 
 /// The row of `task_id` inside a commit.

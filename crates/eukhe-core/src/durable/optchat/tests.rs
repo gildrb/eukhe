@@ -1333,6 +1333,8 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         deletion: None,
         settled: true,
         usage: None,
+        progress: None,
+        reporter: None,
     };
     parent
         .harness

@@ -455,6 +455,42 @@ async fn background_bash_settlement_fires_the_callback_once() {
     assert_eq!(settled.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+/// Regression (H5): a subagent idle on a background `bash()` job was
+/// stopped as stalled after `subagentStallMs` while the job (a long build)
+/// still ran: its progress token held only session events. The kernel's
+/// job output progress moves while a background handle writes output
+/// and stays still while it is silent, so only a silent child stalls.
+#[tokio::test]
+async fn background_bash_output_moves_the_job_progress() {
+    let manager = started_manager(test_options(None)).await;
+    execute(&manager, "from rlm import bash").await;
+    execute(&manager, "silent = bash('sleep 600')").await;
+    let quiet = manager.job_output_progress().await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        manager.job_output_progress().await,
+        quiet,
+        "a silent job must not read as progress"
+    );
+
+    execute(
+        &manager,
+        "build = bash('while true; do echo compiling; sleep 0.05; done')",
+    )
+    .await;
+    let first = manager.job_output_progress().await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while manager.job_output_progress().await == first {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "a writing job must move the progress"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    manager.kill();
+}
+
 /// Teardown with live background handles fires the settlement exactly once
 /// (TS #2465's teardown row, over the #2053 concurrent-handles shape): the
 /// handles die with the kernel, so owed continuations waiting on them must

@@ -76,11 +76,17 @@ pub enum ChildFailure {
     WorkerExited,
     /// The task prompt never reached the child.
     Undelivered,
+    /// The child showed no progress for `subagentStallMs`; its run was
+    /// stopped.
+    Stalled,
+    /// The child's polls failed `CHILD_POLL_FAILURES` times in a row while
+    /// its worker process was alive or restarting.
+    Unreachable,
 }
 
 impl std::fmt::Display for ChildFailure {
     /// The header word: `provider-<kind>`, `aborted`, `interrupted`,
-    /// `worker-exited`, or `undelivered`.
+    /// `worker-exited`, `undelivered`, `stalled`, or `unreachable`.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Provider { kind } => write!(formatter, "provider-{kind}"),
@@ -88,6 +94,8 @@ impl std::fmt::Display for ChildFailure {
             Self::Interrupted => formatter.write_str("interrupted"),
             Self::WorkerExited => formatter.write_str("worker-exited"),
             Self::Undelivered => formatter.write_str("undelivered"),
+            Self::Stalled => formatter.write_str("stalled"),
+            Self::Unreachable => formatter.write_str("unreachable"),
         }
     }
 }

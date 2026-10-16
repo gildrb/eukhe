@@ -342,3 +342,107 @@ it. Regression tests (`harness::generation::tests`):
 `an_abort_ends_a_run_stuck_in_a_request_hook`,
 `recovery::keeps_the_rounds_a_run_made_across_reopen`,
 `fails_a_response_still_deferred_after_its_last_poll`.
+
+### H5. Every subagent reports back exactly once
+
+1. Every spawned child ends with exactly one end: a report to its parent
+   (completed, failed, cancelled, stalled, unreachable), or none when the
+   child already replied by an agent message or the parent itself
+   cancelled it (the cancel's result is its answer).
+2. A child that makes no progress for `subagentStallMs` (default 600 000;
+   `0` or unset takes the default) is stopped (its run is aborted) and
+   reported as stalled. Progress is the child's token: its session's event
+   sequence plus the tokens of its own unsettled children plus the output
+   its kernel's jobs wrote (the stdout/stderr bytes of its cells and the
+   output bytes of its running `bash()` handles), so a child that
+   streams, runs tools, waits on a busy child of its own, or waits on a
+   background job that writes output (a long build) is never stalled. A
+   job that writes nothing for `subagentStallMs` ends as a stall: jobs
+   have no time bound of their own.
+3. `CHILD_POLL_FAILURES` (5) failed polls in a row, while the child's
+   worker lives or restarts, report the child as unreachable. Each failed
+   poll doubles the pause before the next (2 s, 4 s, ... 32 s), so they
+   span a minute. A worker that is gone settles the child at once
+   (`worker-exited`). A stalled or unreachable child's run is aborted and
+   then its agent is stopped through the `rlm` kill path (a plain kill:
+   its worker is released, its session stays and a later prompt wakes
+   it).
+4. A report is delivered once: a resend has the same request id, and the
+   parent drops a request id it knows. One rule delivers it: submit, wait
+   until the submission settles, end once it is placed, and submit again
+   under the next id only once it is withdrawn (a parent abort or close,
+   or a withdrawal of that input). So at most one submission of a report
+   is ever live (queued or placed), and a withdrawal that loses the race
+   to a placement leaves the report placed. Resubmissions are at most one
+   per withdrawal. A closing parent admits nothing: the report stays owed
+   and the reopened session delivers it. An abort of the task that owes a
+   report submits nothing: it hands the report (same ids, its withdrawals
+   so far) to a new task in the report phase, which the abort does not
+   reach, so every withdrawal, also one that races the abort, gets the
+   next id (fixed: an abort that raced a withdrawal, or a second
+   withdrawal after an abort, lost the report).
+
+Changed from the first draft: 1 names `unreachable` and the two
+report-less ends; 3 adds the backoff, the stop, and keeps the `Gone`
+verdict; 4 names the one report rule and the hand-off.
+
+Model: `bend/child.bend`. The watch's clock `W` counts down the ms of no
+progress left (`left`) and the failed polls left (`tries`); `look` is the
+verdict on one poll. The task (`St`, `step`) runs against an adversary:
+polls with any reading and any delay, the parent's deliveries and
+withdrawals of any submission id, its aborts, closes and reopens, and
+task aborts and deletes, in any order. The parent's inbox keeps every
+submission of the report with its fate (queued, withdrawn, placed); the
+task reads its submission's fate by id. Proofs: `bend/proof_child.bend`.
+Every law is universal.
+
+| Law | Says |
+| --- | --- |
+| `child_stalls_in_time` | Quiet polls (same token, or failed), at least as many as the ms left, end the watch (H5.2). |
+| `child_unreachable_in_time` | Failed polls in a row, as many as the tries left, end the watch (H5.3). |
+| `child_clock_bounded` | The clock never grows past full, so the two bounds are at most `subagentStallMs` ms and `CHILD_POLL_FAILURES` polls (H5.2, H5.3). |
+| `child_progress_is_not_a_stall` | A poll with a new token continues the watch with a full clock (H5.2). |
+| `child_one_live` | After any events, at most one submission of the report is live (queued or placed) (H5.4). |
+| `child_report_once` | After any events, at most one submission of the report is placed: the transcript holds it at most once (H5.4). |
+| `child_resubmits_per_abort` | The report's submissions are at most 1 + the parent's aborts, closes and withdrawals (H5.4). |
+| `child_delivered_once` | After any events, a report the task owes is placed exactly once when the parent reopens, the task takes three steps and the parent's run places the id the task then waits on (H5.4). |
+
+Rust (paths from `crates/`):
+
+- `eukhe-core/src/durable/children/watch.rs`: `Vigil::judge`, the pure
+  verdict (`look`); `CHILD_POLL_FAILURES`.
+- `eukhe-core/src/durable/children/task.rs`: the `watch` phase keeps the
+  `Vigil` in its checkpoint, aborts then stops a stuck child
+  (`host.cancel`, `host.stop`) and reports it
+  `Failed{stalled|unreachable}`; `watched_next` is its next state; the
+  `report` phase follows `report_step`, the one report rule (`owe`), on
+  its submission's `Fate`; `abort` hands the report `owed_on_abort` picks
+  (`cut.ph`) to a new task (`ChildTaskInput.owed`, the row's `reporter`,
+  which the quiescence barrier waits on).
+- `eukhe-daemon/src/worker/run_outcome.rs`: the progress token in the
+  `get_run_outcome` reply (`RlmChildOutcome`), with the kernel's job
+  output (`ReplKernelManager::job_output_progress`).
+- `eukhe-daemon/src/rlm_children/durable_host.rs` `wait_settled`: a failed
+  probe of a live or restarting worker is a failed poll (it answered
+  `Running` before, forever); `stop` is the plain kill.
+- `eukhe-core/src/settings`: `subagentStallMs`.
+
+Tie: the bridge tests
+`durable::children::watch::bridge::the_rust_watch_equals_the_bend_model`
+(40 scenarios of 300 polls each, `bend/bridge_child.bend`) and
+`durable::children::task::bridge::the_rust_report_rule_equals_the_bend_model`
+(300 scenarios of 80 events: task steps, deliveries and withdrawals of
+any id, aborts, closes, reopens, cancels and deletes, against `step`
+through `bend/bridge_report.bend`; it drives `watched_next`,
+`report_step` and `owed_on_abort` over an inbox kept as the harness
+keeps it). Regression
+tests: `durable::children::tests::watch::a_hung_child_is_stopped_and_reported_stalled`,
+`failing_polls_report_the_child_unreachable`,
+`a_progressing_child_outlives_the_stall_budget` (a guard: progress is
+never a stall), `tests::report_delivery::a_report_withdrawn_as_its_task_aborts_is_delivered_once`
+(three stops in a row, each withdrawing the report), daemon
+`rlm_children::durable_host::tests::a_live_child_whose_probes_fail_is_a_failed_poll`,
+`stopping_a_child_kills_its_worker_once_and_keeps_its_session`, core
+`kernel_lifecycle::background_bash_output_moves_the_job_progress` and
+`kernel::manager::events::tests::stream_output_moves_the_job_progress`
+(a child idle on a long job that writes output is not stalled).

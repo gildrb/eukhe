@@ -14,6 +14,7 @@ import ./bend/proof_fit.bend as Fit
 import ./bend/proof_push.bend as Push
 import ./bend/proof_agree.bend as Agree
 import ./bend/proof_compactor.bend as Compactor
+import ./bend/proof_child.bend as Children
 import ./bend/proof_run.bend as Runs
 import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
@@ -134,6 +135,32 @@ def Laws.settle_reached(es, ps, enough):
 
 def Laws.settle_start(p, info, v):
   Compactor.pc.settle_start(p, info, v)
+
+# (H5) Every subagent reports back exactly once
+
+def Laws.child_stalls_in_time(cfg, w, h, hs, long):
+  Children.pc.stalls_in_time(cfg, w, h, hs, long)
+
+def Laws.child_unreachable_in_time(cfg, w, d, ds, long):
+  Children.pc.unreachable_in_time(cfg, w, d, ds, long)
+
+def Laws.child_clock_bounded(cfg, w, e, o, full):
+  Children.pc.clock_bounded(cfg, w, e, o, full)
+
+def Laws.child_progress_is_not_a_stall(cfg, w, e, x, news):
+  Children.pc.progress_is_not_a_stall(cfg, w, e, x, news)
+
+def Laws.child_one_live(cfg, evs):
+  Children.pc.one_live(cfg, evs)
+
+def Laws.child_report_once(cfg, evs):
+  Children.pc.report_once(cfg, evs)
+
+def Laws.child_resubmits_per_abort(cfg, evs):
+  Children.pc.resubmits_per_abort(cfg, evs)
+
+def Laws.child_delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits):
+  Children.pc.delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits)
 
 # (H4) Every run ends
 

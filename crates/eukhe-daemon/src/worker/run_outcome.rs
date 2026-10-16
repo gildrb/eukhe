@@ -10,10 +10,16 @@
 //! answered is `Idle` while background jobs it started (the kernel's
 //! running background bash handles, its own unsettled children) still
 //! run, since their settlement wakes it into another run; else `Answered`.
+//!
+//! The reply carries the session's progress token (rule H5): its event
+//! sequence plus its unsettled children's tokens plus its kernel jobs'
+//! output progress, so a parent sees this child progress while it
+//! streams, runs tools, waits on a busy child of its own, or waits on a
+//! background job that writes output (a long build or test run).
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::durable::children::{unsettled_child_tasks, RlmChildRunState};
-use eukhe_core::durable::rlm::kernel_background_jobs;
+use eukhe_core::durable::children::{unsettled_children, RlmChildOutcome, RlmChildRunState};
+use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_job_progress};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{
@@ -29,7 +35,7 @@ use crate::protocol::DaemonResponse;
 const PROVIDER_STREAM_FAILURE: &str = "provider_stream_failure";
 
 impl Worker {
-    /// `get_run_outcome`: the main conversation's [`RlmChildRunState`].
+    /// `get_run_outcome`: the main conversation's [`RlmChildOutcome`].
     pub(crate) async fn handle_get_run_outcome(&self) -> DaemonResponse {
         const COMMAND: &str = "get_run_outcome";
         let hosted = match self.hosted(COMMAND) {
@@ -41,11 +47,12 @@ impl Worker {
             Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         let children =
-            match unsettled_child_tasks(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await {
-                Ok(children) => children.len(),
+            match unsettled_children(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await {
+                Ok(children) => children,
                 Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
             };
-        let pending_jobs = children + kernel_background_jobs(hosted.deps(), main.id());
+        let pending_jobs = children.count + kernel_background_jobs(hosted.deps(), main.id());
+        let job_progress = kernel_job_progress(hosted.deps(), main.id()).await;
         let state = {
             let core = self
                 .core
@@ -68,11 +75,18 @@ impl Worker {
                             .cloned()
                     })
             });
-            run_outcome(
-                busy,
-                u32::try_from(pending_jobs).unwrap_or(u32::MAX),
-                last.as_ref(),
-            )
+            RlmChildOutcome {
+                state: run_outcome(
+                    busy,
+                    u32::try_from(pending_jobs).unwrap_or(u32::MAX),
+                    last.as_ref(),
+                ),
+                progress: Some(
+                    core.last_event_sequence
+                        .wrapping_add(children.progress)
+                        .wrapping_add(job_progress),
+                ),
+            }
         };
         match serde_json::to_value(&state) {
             Ok(data) => response_success(None, COMMAND, Some(data)),

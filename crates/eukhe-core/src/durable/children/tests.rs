@@ -39,6 +39,7 @@ use futures::FutureExt;
 use serde_json::{json, Value};
 
 mod report_delivery;
+mod watch;
 
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
@@ -75,6 +76,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 struct FakeState {
     spawns: Vec<RlmChildSpawnRequest>,
     prompts: Vec<RlmChildPromptRequest>,
+    /// Cancels and stops, in order (their keys tell them apart).
     cancels: Vec<RlmChildCancelRequest>,
     deletes: Vec<RlmChildDeleteRequest>,
     outcomes: HashMap<String, RlmChildRunState>,
@@ -88,6 +90,12 @@ struct FakeState {
     /// Polls that fail before the next one is answered (a live child whose
     /// routes are overloaded or slow).
     failing_waits: usize,
+    /// Polls answered so far.
+    polls: usize,
+    /// The progress token each child reports.
+    tokens: HashMap<String, u64>,
+    /// Whether every poll advances the tokens (the children progress).
+    ticking: bool,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -170,23 +178,29 @@ impl RlmSubagentHost for FakeHost {
 
     fn wait_settled(&self, request: RlmChildWaitRequest) -> RlmHostFuture<'_, RlmChildObservation> {
         Box::pin(async move {
-            {
-                let mut fake = lock(&self.state);
-                if fake.failing_waits > 0 {
-                    fake.failing_waits -= 1;
-                    return Err(anyhow::anyhow!("Session worker is overloaded; retry later"));
-                }
-            }
+            lock(&self.state).polls += 1;
             let mut changed = self.changed.subscribe();
             let wait = async {
                 loop {
                     {
-                        let fake = lock(&self.state);
-                        if let Some(state) = fake.outcomes.get(&request.session_id) {
-                            return RlmChildObservation {
-                                state: state.clone(),
+                        let mut fake = lock(&self.state);
+                        if fake.failing_waits > 0 {
+                            fake.failing_waits -= 1;
+                            anyhow::bail!("Session worker is overloaded; retry later");
+                        }
+                        if let Some(state) = fake.outcomes.get(&request.session_id).cloned() {
+                            let ticking = fake.ticking;
+                            let progress = fake.tokens.get_mut(&request.session_id).map(|token| {
+                                if ticking {
+                                    *token += 1;
+                                }
+                                *token
+                            });
+                            return Ok(RlmChildObservation {
+                                state,
                                 usage: fake.usage.get(&request.session_id).copied(),
-                            };
+                                progress,
+                            });
                         }
                     }
                     if changed.changed().await.is_err() {
@@ -195,16 +209,22 @@ impl RlmSubagentHost for FakeHost {
                 }
             };
             let budget = Duration::from_millis(request.timeout_ms);
-            Ok(tokio::time::timeout(budget, wait)
+            tokio::time::timeout(budget, wait)
                 .await
-                .unwrap_or(RlmChildObservation {
+                .unwrap_or(Ok(RlmChildObservation {
                     state: RlmChildRunState::Running,
                     usage: None,
+                    progress: None,
                 }))
         })
     }
 
     fn cancel(&self, request: RlmChildCancelRequest) -> RlmHostFuture<'_, ()> {
+        lock(&self.state).cancels.push(request);
+        Box::pin(async { Ok(()) })
+    }
+
+    fn stop(&self, request: RlmChildCancelRequest) -> RlmHostFuture<'_, ()> {
         lock(&self.state).cancels.push(request);
         Box::pin(async { Ok(()) })
     }
@@ -436,6 +456,8 @@ struct Setup {
     reports: Arc<Mutex<Vec<SessionError>>>,
     /// The Harness clock; `None` is the wall clock.
     now: Option<Clock>,
+    /// The session settings (every default unless a test sets them).
+    settings: Arc<EukheSettings>,
 }
 
 fn setup() -> Setup {
@@ -447,6 +469,7 @@ fn setup() -> Setup {
         models,
         reports: Arc::new(Mutex::new(Vec::new())),
         now: None,
+        settings: default_settings(),
     }
 }
 
@@ -558,7 +581,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         models: setup.models.clone(),
         semantic_edges: None,
         progress_note: None,
-        settings: default_settings(),
+        settings: Arc::clone(&setup.settings),
         closing: closing.clone(),
     });
     let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
@@ -870,6 +893,17 @@ async fn delete_aborts_the_child_task_and_reports_the_cancellation() {
             "a delete tears the child down itself"
         );
     }
+    // The abort hands the cancelled report to a new task, which delivers
+    // it once the root places it.
+    let reporter = row_of(&opened.harness, task_id)
+        .await
+        .and_then(|row| row.reporter)
+        .expect("the abort hands the report to a new task");
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(reporter), cx())
+        .await
+        .unwrap();
     opened.root.wait_for_idle(cx()).await.unwrap();
     assert_eq!(
         user_texts(&opened.root, "[child-exited").await,
@@ -1037,46 +1071,6 @@ async fn collect_waits_for_the_child_to_settle_and_attributes_its_usage() {
     let row = row_of(&opened.harness, row.task_id).await.unwrap();
     assert_eq!(row.usage, Some(usage));
     assert!(lock(&setup.reports).is_empty());
-    opened.harness.close(cx()).await.unwrap();
-}
-
-/// A live but slow child whose polls keep failing (its routes overloaded
-/// or timing out) is never settled by a count of failed polls: it stays
-/// running past the old 150-poll cutoff and reports normally once it
-/// settles. Whether a child is gone is the host's process-level verdict.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn failed_polls_never_settle_a_live_child() {
-    let mut setup = setup();
-    // A Harness clock that leaps on every read, so each re-poll deadline
-    // has already passed and the failed polls run back to back.
-    let ticks = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    setup.now = Some({
-        let ticks = Arc::clone(&ticks);
-        Arc::new(move || (ticks.fetch_add(1, Ordering::SeqCst) * 10_000) as f64)
-    });
-    let host = FakeHost::new();
-    lock(&host.state).failing_waits = 400;
-    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let row = spawn_child(&opened, &setup).await;
-    eventually(|| async { lock(&host.state).failing_waits == 0 }).await;
-    let polled = row_of(&opened.harness, row.task_id).await.unwrap();
-    assert_eq!(polled.status, ChildStatus::Running, "{polled:?}");
-    assert_eq!(polled.error, None);
-
-    setup.faux.append_responses(vec![answer("thanks")]);
-    host.settle(
-        &row.session_id,
-        RlmChildRunState::Answered {
-            answer_preview: Some("done".to_owned()),
-        },
-        None,
-    );
-    eventually(|| async {
-        row_of(&opened.harness, row.task_id)
-            .await
-            .is_some_and(|row| row.status == ChildStatus::Done)
-    })
-    .await;
     opened.harness.close(cx()).await.unwrap();
 }
 
@@ -1795,4 +1789,20 @@ async fn a_spawn_batch_over_the_concurrency_cap_admits_nothing() {
     assert_eq!(host.spawn_keys().len(), 2);
     opened.root.wait_for_idle(cx()).await.unwrap();
     opened.harness.close(cx()).await.unwrap();
+}
+
+/// A worker started by an older binary answers `get_run_outcome` without
+/// a progress token: the outcome still decodes (the watch then has no
+/// token to judge a stall by), so an adopted worker is not polled to death.
+#[test]
+fn a_run_outcome_without_progress_decodes() {
+    let outcome: super::host::RlmChildOutcome =
+        serde_json::from_value(json!({ "state": "running" })).unwrap();
+    assert_eq!(
+        outcome,
+        super::host::RlmChildOutcome {
+            state: super::host::RlmChildRunState::Running,
+            progress: None,
+        }
+    );
 }

@@ -156,6 +156,32 @@ impl SupervisorChildSessionsInner {
         }
     }
 
+    /// Send `make(selector)` for keyed request `request` once; a child no
+    /// worker answers has no run to `verb` (it is a no-op).
+    async fn keyed_child_command(
+        &self,
+        request: durable::RlmChildCancelRequest,
+        verb: &str,
+        make: impl Fn(&str) -> DaemonCommand,
+    ) -> Result<()> {
+        if self.durable_calls().done.contains(&request.idempotency_key) {
+            return Ok(());
+        }
+        match self
+            .durable_command(&request.session_id, KILL_TIMEOUT_MS, make)
+            .await
+        {
+            Err(error) if !format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
+                return Err(
+                    error.context(format!("{verb} RLM child session {}", request.session_id))
+                );
+            }
+            Ok(_) | Err(_) => {}
+        }
+        self.durable_calls().done.insert(request.idempotency_key);
+        Ok(())
+    }
+
     /// The resident session persisted under `session_id`, if any.
     async fn resident_child(&self, session_id: &str) -> Result<Option<Value>> {
         let listed = self
@@ -464,14 +490,18 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {
             let selector = this.durable_selector(&request.session_id);
-            let running = || async {
+            let (this, request) = (&this, &request);
+            let observe = move |state, progress| async move {
+                durable::RlmChildObservation {
+                    state,
+                    usage: this.child_usage(&request.session_id).await,
+                    progress,
+                }
+            };
+            let seen_running = || {
                 this.durable_calls()
                     .seen_running
                     .insert(request.session_id.clone());
-                durable::RlmChildObservation {
-                    state: durable::RlmChildRunState::Running,
-                    usage: this.child_usage(&request.session_id).await,
-                }
             };
             let child_dir = {
                 let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
@@ -489,54 +519,55 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 !calls.spawned.contains_key(&request.session_id)
                     && !calls.seen_running.contains(&request.session_id)
             };
-            let interrupted = || async {
-                durable::RlmChildObservation {
-                    state: durable::RlmChildRunState::Failed {
-                        failure: ChildFailure::Interrupted,
-                        error: INTERRUPTED_ERROR.to_owned(),
-                    },
-                    usage: this.child_usage(&request.session_id).await,
-                }
+            let interrupted = || durable::RlmChildRunState::Failed {
+                failure: ChildFailure::Interrupted,
+                error: INTERRUPTED_ERROR.to_owned(),
             };
             let observed: Result<durable::RlmChildObservation> = async {
-                let unsettled_resume =
+                let mut unsettled_resume =
                     resumed && display_running(&child_dir, &request.rlm_child_id).await?;
                 if unsettled_resume {
                     // The non-waking probe first: the idle wait below wakes
                     // a passivated child, while a child no worker hosts
                     // stopped with its parent and stays passive (TS's
                     // in-process child died with the parent; only its
-                    // roster row survives).
+                    // roster row survives). A busy child was not
+                    // interrupted: the watch sees its run from here on.
                     match this.child_busy(&selector).await {
-                        Ok(true) => return Ok(running().await),
+                        Ok(true) => {
+                            seen_running();
+                            unsettled_resume = false;
+                        }
                         Ok(false) => {}
                         Err(error) if format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
-                            return Ok(interrupted().await);
+                            return Ok(observe(interrupted(), None).await);
                         }
                         Err(error) => return Err(error),
                     }
                 }
                 this.wait_for_child(&selector, Duration::from_millis(request.timeout_ms))
                     .await;
-                if this.child_outcome(&selector).await? == durable::RlmChildRunState::Running {
-                    return Ok(running().await);
+                let outcome = this.child_outcome(&selector).await?;
+                if outcome.state == durable::RlmChildRunState::Running {
+                    seen_running();
+                    return Ok(observe(outcome.state, outcome.progress).await);
                 }
                 // Stability re-check: a prompt admitted to an idle worker
                 // can read idle once before its run starts.
                 tokio::time::sleep(Duration::from_millis(WATCH_SETTLE_GRACE_MS)).await;
-                let state = match this.child_outcome(&selector).await? {
-                    durable::RlmChildRunState::Running => return Ok(running().await),
-                    // The run ended but the child's background jobs still
-                    // run: it is alive, and their settlement wakes it.
-                    state @ durable::RlmChildRunState::Idle { .. } => {
-                        this.durable_calls()
-                            .seen_running
-                            .insert(request.session_id.clone());
+                let outcome = this.child_outcome(&selector).await?;
+                let state = match outcome.state {
+                    // Running, or the run ended but the child's background
+                    // jobs still run: it is alive, and their settlement
+                    // wakes it.
+                    state @ (durable::RlmChildRunState::Running
+                    | durable::RlmChildRunState::Idle { .. }) => {
+                        seen_running();
                         state
                     }
                     state @ durable::RlmChildRunState::Failed { .. } => state,
                     durable::RlmChildRunState::Answered { .. } if unsettled_resume => {
-                        return Ok(interrupted().await);
+                        return Ok(observe(interrupted(), None).await);
                     }
                     state @ durable::RlmChildRunState::Answered { .. } => {
                         // The answered run completes the child's display
@@ -550,20 +581,18 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         state
                     }
                 };
-                Ok(durable::RlmChildObservation {
-                    state,
-                    usage: this.child_usage(&request.session_id).await,
-                })
+                Ok(observe(state, outcome.progress).await)
             }
             .await;
             let probe_error = match observed {
                 Ok(observation) => return Ok(observation),
                 Err(error) => error,
             };
-            // A failed probe is not a dead child: a worker too busy to
-            // answer (overloaded, a slow route) is still running. The
-            // supervisor's process-level verdict decides (omp2
-            // processes.md: liveness comes from the process).
+            // A failed probe of a child whose worker process is gone
+            // settles it; one whose worker lives (too busy to answer, or
+            // restarting) is a failed poll, which the parent's watch
+            // counts (rule H5: CHILD_POLL_FAILURES in a row report it
+            // unreachable).
             let liveness = this
                 .command(
                     &DaemonCommand::GetWorkerLiveness {
@@ -580,14 +609,17 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 })
                 .with_context(|| format!("RLM child probe failed: {probe_error:#}"))?;
             match liveness {
-                WorkerLiveness::Live | WorkerLiveness::Recovering => Ok(running().await),
-                WorkerLiveness::Gone => Ok(durable::RlmChildObservation {
-                    state: durable::RlmChildRunState::Failed {
+                WorkerLiveness::Live | WorkerLiveness::Recovering => {
+                    Err(probe_error.context(format!("RLM child worker is {liveness:?}")))
+                }
+                WorkerLiveness::Gone => Ok(observe(
+                    durable::RlmChildRunState::Failed {
                         failure: ChildFailure::WorkerExited,
                         error: WORKER_EXITED_ERROR.to_owned(),
                     },
-                    usage: this.child_usage(&request.session_id).await,
-                }),
+                    None,
+                )
+                .await),
             }
         })
     }
@@ -595,29 +627,26 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
     fn cancel(&self, request: durable::RlmChildCancelRequest) -> durable::RlmHostFuture<'_, ()> {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {
-            if this.durable_calls().done.contains(&request.idempotency_key) {
-                return Ok(());
-            }
-            let aborted = this
-                .durable_command(&request.session_id, KILL_TIMEOUT_MS, |selector| {
-                    DaemonCommand::Abort {
-                        id: None,
-                        active_session_id: selector.to_owned(),
-                        rest: Map::default(),
-                    }
-                })
-                .await;
-            match aborted {
-                // A child no worker answers has no run to abort.
-                Err(error) if !format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
-                    return Err(
-                        error.context(format!("cancel RLM child session {}", request.session_id))
-                    );
-                }
-                Ok(_) | Err(_) => {}
-            }
-            this.durable_calls().done.insert(request.idempotency_key);
-            Ok(())
+            this.keyed_child_command(request, "cancel", |selector| DaemonCommand::Abort {
+                id: None,
+                active_session_id: selector.to_owned(),
+                rest: Map::default(),
+            })
+            .await
+        })
+    }
+
+    /// The `rlm` kill path (`kill_child` with `ChildCloseReason::Killed`):
+    /// a plain kill, no ledger delete, so the session stays.
+    fn stop(&self, request: durable::RlmChildCancelRequest) -> durable::RlmHostFuture<'_, ()> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            this.keyed_child_command(request, "stop", |selector| DaemonCommand::Kill {
+                id: None,
+                active_session_id: selector.to_owned(),
+                rest: Map::default(),
+            })
+            .await
         })
     }
 

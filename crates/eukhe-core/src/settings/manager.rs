@@ -22,6 +22,9 @@ pub const DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS: u64 = 30;
 pub const DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS: usize = 200;
 /// `subagentMaxConcurrency` default (omp2 `task.maxConcurrency`).
 pub const DEFAULT_SUBAGENT_MAX_CONCURRENCY: u32 = 32;
+/// `subagentStallMs` default: a subagent with no progress for 10 minutes
+/// is stopped and reported stalled (docs/harness.md H5).
+pub const DEFAULT_SUBAGENT_STALL_MS: u64 = 600_000;
 /// `toolBlockingBudgetMs` default (omp2 `DispatchPolicy::blocking_limit`).
 pub const DEFAULT_TOOL_BLOCKING_BUDGET_MS: u64 = 30_000;
 
@@ -761,6 +764,19 @@ impl SettingsManager {
         self.merged
             .subagent_max_concurrency
             .unwrap_or(DEFAULT_SUBAGENT_MAX_CONCURRENCY)
+    }
+
+    /// `subagentStallMs`: how long a subagent may show no progress before
+    /// its parent stops it and reports it stalled (default 10 min; `0` or
+    /// unset takes the default).
+    #[must_use]
+    pub fn get_subagent_stall(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(
+            self.merged
+                .subagent_stall_ms
+                .filter(|ms| *ms > 0)
+                .unwrap_or(DEFAULT_SUBAGENT_STALL_MS),
+        )
     }
 
     /// `toolBlockingBudgetMs`: the runtime's one blocking budget for a

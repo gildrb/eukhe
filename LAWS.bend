@@ -10,6 +10,7 @@ import Base
 import ./bend/optchat.bend as O
 import ./bend/spec.bend as S
 import ./bend/compactor.bend as C
+import ./bend/child.bend as Ch
 import ./bend/run.bend as Rn
 import ./bend/admission.bend as Ad
 
@@ -299,6 +300,98 @@ law settle_start:
   for +info: O.Info
   for +v: List<&2, O.Node>
   {C.measure(C.settle.start(p, info, v)) == Nat.mul(C.unbuilt(info, v), 1n+p) : Nat}
+
+# (H5) Every subagent reports back exactly once
+# ---------------------------------------------
+# bend/child.bend: the parent's task on one child. The watch's clock
+# counts down the ms of no progress left (`left`, full: subagentStallMs)
+# and the failed polls in a row left (`tries`, full: CHILD_POLL_FAILURES).
+
+# LAW: quiet polls (the child unsettled with the token the watch holds,
+# or a failed poll), at least as many as the ms left on the clock, end the
+# watch: each poll takes 1 ms or more
+law child_stalls_in_time:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +h: Ch.Hush
+  for +hs: List<&2, Ch.Hush>
+  for long: {Nat.is_le(Ch.W.left(w), List.length(&2, Ch.Hush, h <> hs)) == True{} : Bool}
+  {Ch.Next.watching(Ch.hush(h <> hs, cfg, Ch.Watch{w})) == False{} : Bool}
+
+# LAW: failed polls in a row, as many as the tries left, end the watch
+law child_unreachable_in_time:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +d: Nat
+  for +ds: List<&2, Nat>
+  for long: {Nat.is_le(Ch.W.tries(w), List.length(&2, Nat, d <> ds)) == True{} : Bool}
+  {Ch.Next.watching(Ch.hush(Ch.misses(d <> ds), cfg, Ch.Watch{w})) == False{} : Bool}
+
+# LAW: whatever a poll reads, the clock stays at most full: the bounds
+# above are at most subagentStallMs and CHILD_POLL_FAILURES polls
+law child_clock_bounded:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +o: Ch.Obs
+  for full: {Ch.within(cfg, Ch.Watch{w}) == True{} : Bool}
+  {Ch.within(cfg, Ch.look(cfg, w, e, o)) == True{} : Bool}
+
+# LAW: a poll that reads a new token (progress) is never a stall: the
+# watch goes on with a full clock
+law child_progress_is_not_a_stall:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +x: Nat
+  for news: {Ch.moved(Ch.W.tok(w), Some{x}) == True{} : Bool}
+  {Ch.look(cfg, w, e, Ch.Busy{Some{x}}) == Ch.Watch{Ch.W.fresh(cfg, Some{x})} : Ch.Next}
+
+# The report laws hold after any events: task steps (polls), the parent's
+# deliveries and withdrawals of any submission id, its aborts, closes and
+# reopens, and task aborts and deletes, in any order. The parent's inbox
+# keeps every submission of the report, each queued, withdrawn or placed.
+
+# LAW: at most one submission of the report is live (queued or placed):
+# the task submits again only once its last submission is withdrawn, so
+# no two ids of the report can both reach the transcript
+law child_one_live:
+  for +cfg: Ch.Cfg
+  for +evs: List<&2, Ch.Ev>
+  {Nat.is_le(Ch.live(Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), 1n) == True{} : Bool}
+
+# LAW: at most one submission of the report is placed: the parent's
+# transcript holds the report at most once
+law child_report_once:
+  for +cfg: Ch.Cfg
+  for +evs: List<&2, Ch.Ev>
+  {Nat.is_le(Ch.St.placed(Ch.run(evs, cfg, Ch.St.init(cfg))), 1n) == True{} : Bool}
+
+# LAW: the report is submitted at most once more than the parent withdrew
+# (an abort, a close, a withdrawal of one input): a resubmission follows a
+# withdrawal
+law child_resubmits_per_abort:
+  for +cfg: Ch.Cfg
+  for +evs: List<&2, Ch.Ev>
+  {Nat.is_le(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), Nat.add(Ch.cuts(evs), 1n)) == True{} : Bool}
+
+# LAW: a report the task owes is placed exactly once when the parent
+# reopens, the task takes three steps (the first may run a pending abort)
+# and the parent's run places the submission the task then waits on (its
+# owed id m): the report is never lost
+law child_delivered_once:
+  for +cfg: Ch.Cfg
+  for +evs: List<&2, Ch.Ev>
+  for +d1: Nat
+  for +o1: Ch.Obs
+  for +d2: Nat
+  for +o2: Ch.Obs
+  for +d3: Nat
+  for +o3: Ch.Obs
+  for owing: {Ch.Ph.owing(Ch.St.ph(Ch.run(evs, cfg, Ch.St.init(cfg)))) == True{} : Bool}
+  for +m: Nat
+  for waits: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}
+  {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}
 
 # (H4) Every run ends
 # -------------------

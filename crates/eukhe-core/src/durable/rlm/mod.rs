@@ -52,8 +52,8 @@ use super::{HostDeps, OpenedSession, ServiceStop};
 
 pub use self::activity::{
     kernel_background_jobs, kernel_background_jobs_settled, kernel_bash_activity,
-    kernel_factory_activity, release_settled_kernel, transfer_kernel, BashActivityAction,
-    BashActivityRequest, KernelActivityError,
+    kernel_factory_activity, kernel_job_progress, release_settled_kernel, transfer_kernel,
+    BashActivityAction, BashActivityRequest, KernelActivityError,
 };
 pub use self::boundary::{BoundaryState, PendingRefine, BOUNDARY_DOC};
 pub use self::refine::{refine_now, RefineRequest};

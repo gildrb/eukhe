@@ -282,13 +282,13 @@ impl SupervisorChildSessionsInner {
     }
 
     /// The child's run outcome (`get_run_outcome`), read from its own
-    /// durable state: its run in flight, its last run's terminal, and the
-    /// background jobs it still owns. `Err` means the child cannot be
-    /// reached right now.
+    /// durable state: its run in flight, its last run's terminal, the
+    /// background jobs it still owns, and its progress token. `Err` means
+    /// the child cannot be reached right now.
     pub(super) async fn child_outcome(
         &self,
         active_session_id: &str,
-    ) -> Result<durable::RlmChildRunState> {
+    ) -> Result<durable::RlmChildOutcome> {
         let command = DaemonCommand::GetRunOutcome {
             id: None,
             active_session_id: active_session_id.to_string(),

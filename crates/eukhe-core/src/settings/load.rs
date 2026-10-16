@@ -21,6 +21,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "providerMaxInFlight",
     "providerMaxQueued",
     "subagentMaxConcurrency",
+    "subagentStallMs",
     "maxToolRounds",
     "idleEvictionMinutes",
     "transport",

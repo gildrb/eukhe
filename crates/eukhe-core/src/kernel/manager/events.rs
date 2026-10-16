@@ -159,6 +159,8 @@ impl Inner {
     /// stdout/stderr events: attributed to the active execution when the id
     /// matches, otherwise buffered as background output.
     fn route_stream(&self, id: Option<&str>, stream: StreamName, text: &str) {
+        self.stream_bytes
+            .fetch_add(text.len() as u64, std::sync::atomic::Ordering::Relaxed);
         let execution = lock(&self.guarded).active_execution.clone();
         let Some(execution) = execution.filter(|e| Some(e.request_id.as_str()) == id) else {
             // Unowned output (null id, or another cell's id): never merge it
@@ -317,6 +319,41 @@ mod tests {
             pending.pending_background_output_dropped,
             super::super::DroppedText::default()
         );
+    }
+
+    /// H5: output a kernel's detached cell prints (stream text owned by no
+    /// active cell, or by the cell) moves the job progress token; a kernel
+    /// that prints nothing leaves it still.
+    #[tokio::test]
+    async fn stream_output_moves_the_job_progress() {
+        let manager = ReplKernelManager::new(KernelManagerOptions::default());
+        let before = manager.job_output_progress().await;
+        assert_eq!(manager.job_output_progress().await, before);
+        manager.inner.handle_event(Event::Stdout {
+            id: Some("detached-cell".to_owned()),
+            text: "compiling 3/40\n".to_owned(),
+        });
+        let after = manager.job_output_progress().await;
+        assert_ne!(after, before);
+        manager.inner.handle_event(Event::Stderr {
+            id: None,
+            text: "warning\n".to_owned(),
+        });
+        assert_ne!(manager.job_output_progress().await, after);
+    }
+
+    /// The bash part of the job progress sums the running handles' output
+    /// bytes only: a finished row the list drops must not read as output.
+    #[test]
+    fn running_output_bytes_counts_running_handles() {
+        let list = json!({"activities": [
+            {"id": "a", "status": "running", "outputBytes": 40},
+            {"id": "b", "status": "finished", "outputBytes": 900},
+            {"id": "c", "status": "running", "outputBytes": 2},
+            {"id": "d", "status": "running"},
+        ]});
+        assert_eq!(super::super::running_output_bytes(&list), 42);
+        assert_eq!(super::super::running_output_bytes(&json!({})), 0);
     }
 
     /// Deliver one bash-activity display event into the manager (the

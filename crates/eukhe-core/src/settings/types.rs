@@ -319,6 +319,10 @@ pub struct Settings {
     /// How many subagents may run at once in one daemon (default 32, `0`
     /// unlimited); a spawn batch that would exceed it fails whole.
     pub subagent_max_concurrency: Option<u32>,
+    /// How long a subagent may show no progress, in ms (default 600 000;
+    /// `0` or unset takes the default). A child with no progress for this
+    /// long is stopped and reported to its parent as stalled.
+    pub subagent_stall_ms: Option<u64>,
     /// The longest a tool call may block its turn, in ms (default
     /// 30 000). A call that runs longer settles `detached` with a job
     /// reference and keeps running; its completion wakes the session

@@ -82,6 +82,16 @@ pub fn kernel_background_jobs(deps: &HostDeps, conversation: ConversationId) -> 
     running_manager(deps, conversation).map_or(0, |manager| manager.background_job_count())
 }
 
+/// The output progress of `conversation`'s kernel jobs
+/// ([`ReplKernelManager::job_output_progress`]): it moves while a job
+/// writes output. 0 without a booted kernel, never booting one.
+pub async fn kernel_job_progress(deps: &HostDeps, conversation: ConversationId) -> u64 {
+    match running_manager(deps, conversation) {
+        Ok(manager) => manager.job_output_progress().await,
+        Err(_) => 0,
+    }
+}
+
 /// Resolves once `conversation`'s kernel runs no background job (at once
 /// without a booted kernel, never booting one).
 pub async fn kernel_background_jobs_settled(deps: &HostDeps, conversation: ConversationId) {

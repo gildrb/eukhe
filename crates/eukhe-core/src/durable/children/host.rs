@@ -100,6 +100,24 @@ pub struct RlmChildObservation {
     /// The child's cumulative billable usage (its own spend plus its
     /// descendants'); `None` when the host has nothing to report yet.
     pub usage: Option<Usage>,
+    /// The child's progress token ([`RlmChildOutcome::progress`]); `None`
+    /// when the observation did not read the child's outcome.
+    pub progress: Option<u64>,
+}
+
+/// A child's `get_run_outcome` reply: its run state and its progress
+/// token. The token changes whenever the child or one of its unsettled
+/// descendants does something (an event of its session: a streamed
+/// delta, a tool update, an entry; or output a job of its kernel wrote);
+/// the parent's watch reports a child whose token stays the same for
+/// `subagentStallMs` as stalled. A worker started by an older binary sends
+/// no token (`None`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RlmChildOutcome {
+    #[serde(flatten)]
+    pub state: RlmChildRunState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<u64>,
 }
 
 /// Run state of a child's task, read from the child's own durable state:
@@ -133,10 +151,10 @@ pub enum RlmChildRunState {
     },
 }
 
-/// Abort a child's in-flight run, once per key.
+/// Abort a child's in-flight run, or stop the child's agent, once per key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RlmChildCancelRequest {
-    /// `rlm:<taskId>:cancel`.
+    /// `rlm:<taskId>:cancel` or `rlm:<taskId>:stop`.
     pub idempotency_key: String,
     pub session_id: String,
 }
@@ -248,7 +266,8 @@ pub struct RlmSpawnCapacity {
 /// the same session. `wait_settled` is a long poll: it returns `Running`
 /// when its budget ends, `Settled` only after a stability re-check (a prompt
 /// admitted to an idle worker can read idle once before its turn starts),
-/// and `Err` when the child cannot be reached right now. Sessions without a
+/// and `Err` when the child cannot be reached right now (the watch counts
+/// these; a child whose worker is gone settles `Failed`). Sessions without a
 /// host use [`NoRlmChildren`].
 pub trait RlmSubagentHost: Send + Sync {
     /// Create one recursive child session (no prompt).
@@ -264,6 +283,10 @@ pub trait RlmSubagentHost: Send + Sync {
     fn wait_settled(&self, request: RlmChildWaitRequest) -> RlmHostFuture<'_, RlmChildObservation>;
     /// Abort a child's in-flight run.
     fn cancel(&self, request: RlmChildCancelRequest) -> RlmHostFuture<'_, ()>;
+    /// Stop a child's agent (the `rlm` kill path): its worker ends and the
+    /// session stays (a later prompt wakes it). A child no worker hosts is
+    /// already stopped.
+    fn stop(&self, request: RlmChildCancelRequest) -> RlmHostFuture<'_, ()>;
     /// Delete a child session.
     fn delete(&self, request: RlmChildDeleteRequest) -> RlmHostFuture<'_, ()>;
     /// Live facts about this parent's children: one listing per child the
@@ -318,6 +341,10 @@ impl RlmSubagentHost for NoRlmChildren {
     }
 
     fn cancel(&self, _request: RlmChildCancelRequest) -> RlmHostFuture<'_, ()> {
+        Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
+    }
+
+    fn stop(&self, _request: RlmChildCancelRequest) -> RlmHostFuture<'_, ()> {
         Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
     }
 

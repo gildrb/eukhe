@@ -5,47 +5,63 @@
 //! Phases: `spawn` (host create under the identity derived from the task
 //! id), `prompt` (at once, while the spawning tool call may still run),
 //! `watch` (host long-poll; a durable deadline between polls; child usage
-//! attributed per poll), `report` (a follow-up input to the parent with a
-//! request id, so a rerun cannot report twice, held until it reaches the
-//! parent's transcript and submitted again under the next id when the
-//! inbox withdraws it), then terminal. Abort cancels the child's run and
-//! delivers the report a delete owes.
+//! attributed per poll; the watch's clock ([`Vigil`]) reports a child with
+//! no progress for `subagentStallMs` as stalled and one whose polls fail
+//! [`CHILD_POLL_FAILURES`] times in a row as unreachable), `report` (a
+//! follow-up input to the parent with a request id, so a rerun cannot
+//! report twice, held until it reaches the parent's transcript and
+//! submitted again under the next id when the inbox withdraws it), then
+//! terminal. Abort cancels the child's run and delivers the report a
+//! delete owes. `bend/child.bend` models the phases (docs/harness.md H5);
+//! the bridge test runs their decisions ([`watched_next`],
+//! [`report_step`], [`owed_on_abort`]) against its `step`.
 
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
-use eukhe_chord::json::{from_json, JsonValue};
+use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::harness::types::{
     ConversationHandle, InputSubmissionDraft, Submission, WhenBusy,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::tasks::{
-    define_task, Migrated, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
+    define_task, AnyTask, Migrated, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
 };
-use eukhe_durable::types::{TaskId, TaskOutcome, TaskOutcomeError};
+use eukhe_durable::types::{
+    SubmissionState, SubmissionStatus, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError,
+    TaskOwnership,
+};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::UserContent;
 use serde::{Deserialize, Serialize};
 
 use super::host::{
-    RlmChildCancelRequest, RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest,
-    RlmChildWaitRequest, RlmSubagentHost,
+    RlmChildCancelRequest, RlmChildObservation, RlmChildPromptRequest, RlmChildRunState,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmSubagentHost,
 };
 use super::notice::{ChildReport, DELETED_BY_PARENT};
 use super::registry::{
     child_identity, read_children, tx_attribute_usage, tx_remove_row, tx_row, tx_update_row,
     ChildRow, ChildStatus,
 };
+use super::watch::{Poll, Verdict, Vigil, CHILD_POLL_FAILURES};
 use crate::durable::deps::SessionClosing;
 use crate::durable::observe::semantic_edges::{
     last_committed_request_id, SemanticEdgeRecorder, SEMANTIC_EDGES_LEDGER_FILENAME,
 };
+use crate::durable::settings::EukheSettings;
+
+#[cfg(test)]
+mod bridge;
 
 /// The task kind.
 pub(crate) const CHILD_TASK_KIND: &str = "eukhe.rlm.child";
 /// One long-poll slice of the settle watch.
 pub(crate) const WATCH_WAIT_SLICE_MS: u64 = 60_000;
-/// Re-poll cadence after a slice ends without a settled child.
+/// Re-poll cadence after a slice ends without a settled child; each failed
+/// poll in a row doubles it, so the failed polls that report a child
+/// unreachable span a minute and more (a restarting worker is back by
+/// then).
 pub(crate) const WATCH_POLL_INTERVAL_MS: f64 = 2_000.0;
 /// The error text of a run the user cancelled (no notice is owed).
 const CANCELLED_BY_USER: &str = "Cancelled by user";
@@ -65,6 +81,8 @@ pub(crate) struct ChildrenServices {
     pub(crate) semantic_edges: Option<Arc<SemanticEdgeRecorder>>,
     /// The parent's closing gate: a closing parent admits no report.
     pub(crate) closing: SessionClosing,
+    /// The session settings: `subagentStallMs`, the blocking budget.
+    pub(crate) settings: Arc<EukheSettings>,
 }
 
 /// Input of one child task (the validated `rlm.spawn` request).
@@ -82,6 +100,34 @@ pub(crate) struct ChildTaskInput {
     /// configured bound); `None` on tasks admitted before it was recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) max_depth: Option<u32>,
+    /// Set on a task that carries the report an aborted child task owed:
+    /// it starts in the report phase. An abort cannot wait for the parent
+    /// to place a report, so it hands the report to this task, which the
+    /// abort does not reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) owed: Option<OwedReport>,
+}
+
+/// A report an aborted child task hands on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OwedReport {
+    /// The child task the report is of: its registry row and the report's
+    /// request ids are that task's.
+    pub(crate) child: u64,
+    pub(crate) report: ChildReport,
+    /// Submissions the parent withdrew so far.
+    pub(crate) withdrawn: u32,
+}
+
+impl OwedReport {
+    /// The checkpoint of the task that carries the report on.
+    fn checkpoint(&self) -> ChildCheckpoint {
+        ChildCheckpoint::Report {
+            report: self.report.clone(),
+            withdrawn: self.withdrawn,
+        }
+    }
 }
 
 /// Checkpoint of one child task.
@@ -95,6 +141,10 @@ pub(crate) enum ChildCheckpoint {
         poll: u64,
         /// Harness clock before which the next poll does not start.
         next_poll_at: f64,
+        /// The watch's clock on the child (absent in checkpoints stored
+        /// before it: a fresh clock).
+        #[serde(default)]
+        vigil: Vigil,
     },
     Report {
         report: ChildReport,
@@ -117,6 +167,91 @@ pub(crate) fn report_request_id(task_id: TaskId, ordinal: u32) -> String {
     format!("rlm:{task_id}:report:{ordinal}")
 }
 
+/// Where the parent's inbox holds a submission of the report; `S` is the
+/// handle the report phase waits on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fate<S> {
+    Queued(S),
+    Withdrawn,
+    Placed,
+}
+
+impl<S> Fate<S> {
+    /// The fate of `submission` in `state`: placed once it has a
+    /// transcript entry, withdrawn once it settled without one.
+    fn of(state: &SubmissionState, submission: S) -> Self {
+        if state.entry().is_some() {
+            Self::Placed
+        } else if state.status() == SubmissionStatus::Queued {
+            Self::Queued(submission)
+        } else {
+            Self::Withdrawn
+        }
+    }
+}
+
+/// The report phase's next move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReportStep<S> {
+    /// Submit the report under this ordinal (a known request id finds its
+    /// submission).
+    Submit(u32),
+    /// Wait for the queued submission to settle.
+    Wait(S),
+    /// The inbox withdrew it: the checkpoint counts this many withdrawn,
+    /// and the next invocation submits it again under the next ordinal.
+    Again(u32),
+    /// It reached the parent's transcript: the task ends.
+    Done,
+}
+
+/// The ordinal of the next submission of a report the parent's inbox
+/// withdrew `withdrawn` submissions of.
+fn report_ordinal(withdrawn: u32) -> u32 {
+    FIRST_REPORT_ORDINAL + withdrawn
+}
+
+/// The one report rule (`owe` in `bend/child.bend`): the move of the
+/// report phase whose report had `withdrawn` submissions withdrawn, when
+/// its current submission has `fate` (`None`: not submitted). It submits
+/// again only once it saw its submission withdrawn, so at most one
+/// submission of the report is ever live (`child_one_live`).
+fn report_step<S>(withdrawn: u32, fate: Option<Fate<S>>) -> ReportStep<S> {
+    match fate {
+        None => ReportStep::Submit(report_ordinal(withdrawn)),
+        Some(Fate::Queued(submission)) => ReportStep::Wait(submission),
+        Some(Fate::Withdrawn) => ReportStep::Again(withdrawn + 1),
+        Some(Fate::Placed) => ReportStep::Done,
+    }
+}
+
+/// The report an abort of the task at `checkpoint` hands on (`cut.ph` in
+/// `bend/child.bend`): the report phase's, under its request ids, or the
+/// cancelled report a delete of the running child `row` owes.
+fn owed_on_abort(
+    checkpoint: &ChildCheckpoint,
+    child: TaskId,
+    row: &ChildRow,
+) -> Option<OwedReport> {
+    match checkpoint {
+        ChildCheckpoint::Report { report, withdrawn } => Some(OwedReport {
+            child: child.get(),
+            report: report.clone(),
+            withdrawn: *withdrawn,
+        }),
+        ChildCheckpoint::Spawn | ChildCheckpoint::Prompt | ChildCheckpoint::Watch { .. } => {
+            (row.delete_requested() && !row.status.is_terminal()).then(|| OwedReport {
+                child: child.get(),
+                report: ChildReport::Cancelled {
+                    session_name: row.session_name.clone(),
+                    reason: Some(DELETED_BY_PARENT.to_owned()),
+                },
+                withdrawn: 0,
+            })
+        }
+    }
+}
+
 /// Define the child task over `services`.
 pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
     let phase = |run: fn(Arc<ChildrenServices>, Running, Runtime, Context) -> PhaseFuture| {
@@ -129,7 +264,12 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
         TaskDefinition::new(
             CHILD_TASK_KIND,
             2,
-            |_: &ChildTaskInput| Ok(ChildCheckpoint::Spawn),
+            |input: &ChildTaskInput| {
+                Ok(input
+                    .owed
+                    .as_ref()
+                    .map_or(ChildCheckpoint::Spawn, OwedReport::checkpoint))
+            },
             phase(|services, task, runtime, cx| Box::pin(abort(services, task, runtime, cx))),
         )
         // Version 1 stored a report as its text only: the watch derives the
@@ -140,6 +280,7 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
                 Some("report") => ChildCheckpoint::Watch {
                     poll: 0,
                     next_poll_at: 0.0,
+                    vigil: Vigil::default(),
                 },
                 Some(_) | None => from_json(checkpoint)?,
             };
@@ -169,15 +310,23 @@ pub(crate) fn child_task(services: &Arc<ChildrenServices>) -> ChildTask {
 
 type PhaseFuture = futures::future::BoxFuture<'static, SessionResult<()>>;
 
+/// The child task whose row and report `task` serves: its own, or, for a
+/// task carrying an aborted child task's report, that task's.
+fn child_task_id(task: &Running) -> TaskId {
+    task.input
+        .owed
+        .as_ref()
+        .map_or_else(|| task.id.erase(), |owed| TaskId::from_number(owed.child))
+}
+
 async fn require_row(runtime: &Runtime, task: &Running, cx: &Context) -> SessionResult<ChildRow> {
+    let task_id = child_task_id(task);
     let state = read_children(runtime, task.conversation_id, cx).await?;
     state
         .children
-        .get(&task.id.to_string())
+        .get(&task_id.to_string())
         .cloned()
-        .ok_or_else(|| {
-            SessionError::error(format!("RLM child task {} has no registry row", task.id))
-        })
+        .ok_or_else(|| SessionError::error(format!("RLM child task {task_id} has no registry row")))
 }
 
 fn failed(message: String) -> Next {
@@ -298,6 +447,7 @@ async fn prompt(
                         checkpoint: ChildCheckpoint::Watch {
                             poll: 0,
                             next_poll_at: now,
+                            vigil: Vigil::default(),
                         },
                     }));
                 };
@@ -326,20 +476,122 @@ fn report_next(report: ChildReport) -> Next {
     }
 }
 
+/// What one poll of the watch decided.
+enum Watched {
+    /// Watch on with this clock.
+    Watch(Vigil),
+    /// The child's run answered.
+    Answered { answer_preview: Option<String> },
+    /// The child's run failed.
+    Failed {
+        failure: ChildFailure,
+        error: String,
+    },
+    /// The watch gives up on the child: its run is stopped and reported
+    /// failed.
+    Stuck {
+        failure: ChildFailure,
+        error: String,
+    },
+}
+
+impl Watched {
+    /// The decision a clock verdict makes; `probe_error` is the failed
+    /// poll's error, if the poll failed.
+    fn of(
+        verdict: Verdict,
+        stall: std::time::Duration,
+        probe_error: Option<&anyhow::Error>,
+    ) -> Self {
+        match verdict {
+            Verdict::Watch(vigil) => Self::Watch(vigil),
+            Verdict::Stalled => Self::Stuck {
+                failure: ChildFailure::Stalled,
+                error: format!(
+                    "RLM child showed no progress for {} s and was stopped",
+                    stall.as_secs_f64()
+                ),
+            },
+            Verdict::Unreachable => Self::Stuck {
+                failure: ChildFailure::Unreachable,
+                error: match probe_error {
+                    Some(error) => format!(
+                        "RLM child could not be reached in {CHILD_POLL_FAILURES} polls in a row and was stopped: {error:#}"
+                    ),
+                    None => format!(
+                        "RLM child could not be reached in {CHILD_POLL_FAILURES} polls in a row and was stopped"
+                    ),
+                },
+            },
+        }
+    }
+}
+
+/// The task's next state after the watch's poll `poll`, which ended at
+/// `now` and decided `watched` (`watched` in `bend/child.bend`): watch on,
+/// report, or end; `row` takes the child's end. A child that answered
+/// through an agent message owes no notice.
+fn watched_next(watched: Watched, poll: u64, now: f64, row: &mut ChildRow) -> Next {
+    match watched {
+        // Each failed poll in a row doubles the pause.
+        Watched::Watch(vigil) => NextTaskState::Running {
+            checkpoint: ChildCheckpoint::Watch {
+                poll: poll + 1,
+                next_poll_at: now + WATCH_POLL_INTERVAL_MS * 2_f64.powf(f64::from(vigil.failures)),
+                vigil,
+            },
+        },
+        Watched::Answered { answer_preview } => {
+            row.status = ChildStatus::Done;
+            row.answer_preview.clone_from(&answer_preview);
+            if row.replied_since_task {
+                row.settled = true;
+                NextTaskState::Terminal {
+                    outcome: TaskOutcome::Completed {
+                        result: ChildStatus::Done,
+                    },
+                }
+            } else {
+                report_next(ChildReport::CompletedWithoutReply {
+                    session_name: row.session_name.clone(),
+                    last_assistant_text_preview: answer_preview,
+                })
+            }
+        }
+        Watched::Failed { failure, error } | Watched::Stuck { failure, error } => {
+            row.status = ChildStatus::Error;
+            row.error = Some(error.clone());
+            report_next(ChildReport::Failed {
+                session_name: row.session_name.clone(),
+                failure: Some(failure),
+                error,
+            })
+        }
+    }
+}
+
 /// `watch`: one long-poll per invocation. Every poll commits progress (the
-/// attributed usage, the next deadline), so a restarted parent resumes the
-/// watch where it stopped and never bills a child twice.
+/// attributed usage, the watch's clock, the next deadline), so a restarted
+/// parent resumes the watch where it stopped and never bills a child
+/// twice. The clock counts the time of this invocation only: a parent's
+/// own downtime is not the child's.
 async fn watch(
     services: Arc<ChildrenServices>,
     task: Running,
     runtime: Runtime,
     cx: Context,
 ) -> SessionResult<()> {
-    let ChildCheckpoint::Watch { poll, next_poll_at } = task.checkpoint else {
+    let ChildCheckpoint::Watch {
+        poll,
+        next_poll_at,
+        vigil,
+    } = task.checkpoint
+    else {
         return Err(SessionError::error(
             "RLM child watch phase without its checkpoint",
         ));
     };
+    let started = runtime.now()?;
     runtime.sleep(next_poll_at, &cx).await?;
     let task_id = task.id.erase();
     let identity = child_identity(&services.parent_session_id, task_id);
@@ -354,7 +606,7 @@ async fn watch(
         }) => observed,
         reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
     };
-    let next_poll_at = runtime.now()? + WATCH_POLL_INTERVAL_MS;
+    let now = runtime.now()?;
     // A settled child's return is claimed on the parent's ledger BEFORE
     // the commit that delivers its notice (TS records the return before
     // the notice triggers the parent's next turn): the child's last
@@ -385,6 +637,56 @@ async fn watch(
             );
         }
     };
+    let stall = services.settings.manager().get_subagent_stall();
+    let judge = |poll| vigil.judge(poll, (now - started).max(0.0), stall.as_secs_f64() * 1000.0);
+    let (usage, progress, watched) = match observed {
+        Ok(RlmChildObservation {
+            state,
+            usage,
+            progress,
+        }) => {
+            let watched = match state {
+                RlmChildRunState::Running | RlmChildRunState::Idle { .. } => {
+                    Watched::of(judge(Poll::Unsettled { progress }), stall, None)
+                }
+                RlmChildRunState::Answered { answer_preview } => {
+                    Watched::Answered { answer_preview }
+                }
+                RlmChildRunState::Failed { failure, error } => Watched::Failed { failure, error },
+            };
+            (usage, progress, watched)
+        }
+        Err(error) => (
+            None,
+            None,
+            Watched::of(judge(Poll::Failed), stall, Some(&error)),
+        ),
+    };
+    if let Watched::Stuck { .. } = &watched {
+        // Abort its run, then stop its agent, so its worker is released.
+        // Each may take its full host timeout: an abort mark ends the wait
+        // (the abort handler cancels the child itself).
+        let request = |verb| RlmChildCancelRequest {
+            idempotency_key: format!("rlm:{task_id}:{verb}"),
+            session_id: identity.session_id.clone(),
+        };
+        let (cancelled, stopped) = tokio::select! {
+            cancelled = services.host.cancel(request("cancel")) => {
+                tokio::select! {
+                    stopped = services.host.stop(request("stop")) => (cancelled, stopped),
+                    reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+                }
+            }
+            reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+        };
+        for (verb, outcome) in [("cancel", cancelled), ("stop", stopped)] {
+            if let Err(error) = outcome {
+                runtime.report(SessionError::error(format!(
+                    "RLM child {task_id} {verb} after the watch gave up on it: {error:#}"
+                )))?;
+            }
+        }
+    }
     let conversation_id = task.conversation_id;
     runtime
         .commit(
@@ -395,70 +697,17 @@ async fn watch(
                     )));
                 };
                 claim_child_return(&row);
-                let next = match observed {
-                    Ok(observation) => {
-                        if let Some(usage) = &observation.usage {
-                            tx_attribute_usage(&tx, conversation_id, &mut row, usage).await?;
-                        }
-                        settle_next(&mut row, observation.state, poll, next_poll_at)
-                    }
-                    // A failed poll never settles the child: whether it is
-                    // gone is the host's process-level verdict (a dead
-                    // worker answers `Failed`), never a count of failed
-                    // requests to a live but slow one.
-                    Err(_) => NextTaskState::Running {
-                        checkpoint: ChildCheckpoint::Watch {
-                            poll: poll + 1,
-                            next_poll_at,
-                        },
-                    },
-                };
+                if let Some(usage) = &usage {
+                    tx_attribute_usage(&tx, conversation_id, &mut row, usage).await?;
+                }
+                row.progress = progress.or(row.progress);
+                let next = watched_next(watched, poll, now, &mut row);
                 super::registry::tx_put_row(&tx, conversation_id, &row).await?;
                 Ok(Some(next))
             },
             &cx,
         )
         .await
-}
-
-/// The step after one successful poll; settles `row` when the run ended.
-/// An idle child that still owns background jobs is not done: their
-/// settlement wakes it into another run, so the watch goes on.
-fn settle_next(row: &mut ChildRow, state: RlmChildRunState, poll: u64, next_poll_at: f64) -> Next {
-    match state {
-        RlmChildRunState::Running | RlmChildRunState::Idle { .. } => NextTaskState::Running {
-            checkpoint: ChildCheckpoint::Watch {
-                poll: poll + 1,
-                next_poll_at,
-            },
-        },
-        RlmChildRunState::Answered { answer_preview } => {
-            row.status = ChildStatus::Done;
-            row.answer_preview.clone_from(&answer_preview);
-            if row.replied_since_task {
-                // The child answered through an agent message: no notice.
-                row.settled = true;
-                return NextTaskState::Terminal {
-                    outcome: TaskOutcome::Completed {
-                        result: ChildStatus::Done,
-                    },
-                };
-            }
-            report_next(ChildReport::CompletedWithoutReply {
-                session_name: row.session_name.clone(),
-                last_assistant_text_preview: answer_preview,
-            })
-        }
-        RlmChildRunState::Failed { failure, error } => {
-            row.status = ChildStatus::Error;
-            row.error = Some(error.clone());
-            report_next(ChildReport::Failed {
-                session_name: row.session_name.clone(),
-                failure: Some(failure),
-                error,
-            })
-        }
-    }
 }
 
 /// The conversation that owns child task `task`.
@@ -495,7 +744,7 @@ async fn submit_report(
 ) -> SessionResult<Arc<dyn Submission>> {
     let conversation = owner(runtime, task, cx).await?;
     let draft = InputSubmissionDraft {
-        request_id: Some(report_request_id(task.id.erase(), ordinal)),
+        request_id: Some(report_request_id(child_task_id(task), ordinal)),
         content: UserContent::Text(report.text()),
         when_busy: Some(WhenBusy::FollowUp),
         origin: report.origin(),
@@ -532,49 +781,52 @@ async fn report(
         ));
     };
     let (report, withdrawn) = (report.clone(), *withdrawn);
+    let (conversation_id, task_id) = (task.conversation_id, child_task_id(&task));
     // The waits yield to an abort mark or a closing Harness; a rerun finds
     // the same submission by its request id.
     let signal = runtime.signal();
-    if withdrawn > 0 {
-        let conversation = owner(&runtime, &task, &cx).await?;
-        tokio::select! {
-            idle = conversation.wait_for_idle(&cx) => idle?,
-            reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
-        }
-    }
-    let submission = submit_report(
-        &services,
-        &runtime,
-        &task,
-        &report,
-        FIRST_REPORT_ORDINAL + withdrawn,
-        &cx,
-    )
-    .await?;
-    let (conversation_id, task_id) = (task.conversation_id, task.id.erase());
-    runtime
-        .commit(
-            move |tx, _current| async move {
-                tx_update_row(&tx, conversation_id, task_id, |row| row.settled = true).await?;
-                Ok(None)
-            },
-            &cx,
-        )
-        .await?;
-    let settled = tokio::select! {
-        settled = submission.wait(&cx) => settled?,
-        reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
-    };
-    let delivered = settled.state.entry().is_some();
-    runtime
-        .commit(
-            move |tx, _current| async move {
-                if !delivered {
-                    return Ok(Some(NextTaskState::Running {
-                        checkpoint: ChildCheckpoint::Report {
-                            report,
-                            withdrawn: withdrawn + 1,
+    let mut fate: Option<Fate<Arc<dyn Submission>>> = None;
+    let again = loop {
+        fate = Some(match report_step(withdrawn, fate) {
+            ReportStep::Submit(ordinal) => {
+                if withdrawn > 0 {
+                    let conversation = owner(&runtime, &task, &cx).await?;
+                    tokio::select! {
+                        idle = conversation.wait_for_idle(&cx) => idle?,
+                        reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+                    }
+                }
+                let submission =
+                    submit_report(&services, &runtime, &task, &report, ordinal, &cx).await?;
+                runtime
+                    .commit(
+                        move |tx, _current| async move {
+                            tx_update_row(&tx, conversation_id, task_id, |row| row.settled = true)
+                                .await?;
+                            Ok(None)
                         },
+                        &cx,
+                    )
+                    .await?;
+                Fate::Queued(submission)
+            }
+            ReportStep::Wait(submission) => {
+                let settled = tokio::select! {
+                    settled = submission.wait(&cx) => settled?,
+                    reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+                };
+                Fate::of(&settled.state, submission)
+            }
+            ReportStep::Again(withdrawn) => break Some(withdrawn),
+            ReportStep::Done => break None,
+        });
+    };
+    runtime
+        .commit(
+            move |tx, _current| async move {
+                if let Some(withdrawn) = again {
+                    return Ok(Some(NextTaskState::Running {
+                        checkpoint: ChildCheckpoint::Report { report, withdrawn },
                     }));
                 }
                 let row = tx_row(&tx, conversation_id, task_id)
@@ -593,9 +845,15 @@ async fn report(
 
 /// Abort: a delete (the row's `deletion`) owes the cancelled notice;
 /// a plain cancel suppresses the no-reply notice (TS
-/// `run.suppressTerminalNotice`). A report the run already owed is still
-/// delivered. A child whose prompt may have been admitted is cancelled at
-/// the host; a delete tears it down itself.
+/// `run.suppressTerminalNotice`). A child whose prompt may have been
+/// admitted is cancelled at the host; a delete tears it down itself.
+///
+/// An owed report (the report phase's, or a delete's) is handed to a new
+/// task that starts in the report phase under the same request ids: the
+/// one report rule (submit, wait for placement, submit again under the
+/// next id after each withdrawal) then delivers it, also when the abort
+/// that reached this task withdrew it. The abort that reached this task
+/// does not reach the new one (`bend/child.bend`, `cut.ph`).
 async fn abort(
     services: Arc<ChildrenServices>,
     task: Running,
@@ -603,24 +861,9 @@ async fn abort(
     cx: Context,
 ) -> SessionResult<()> {
     let row = require_row(&runtime, &task, &cx).await?;
-    let task_id = task.id.erase();
+    let task_id = child_task_id(&task);
     let running = !row.status.is_terminal();
-    let owed = match &task.checkpoint {
-        ChildCheckpoint::Report { report, withdrawn } => {
-            Some((report.clone(), FIRST_REPORT_ORDINAL + withdrawn))
-        }
-        ChildCheckpoint::Spawn | ChildCheckpoint::Prompt | ChildCheckpoint::Watch { .. } => {
-            (row.delete_requested() && running).then(|| {
-                (
-                    ChildReport::Cancelled {
-                        session_name: row.session_name.clone(),
-                        reason: Some(DELETED_BY_PARENT.to_owned()),
-                    },
-                    FIRST_REPORT_ORDINAL,
-                )
-            })
-        }
-    };
+    let owed = owed_on_abort(&task.checkpoint, task_id, &row);
     let prompt_admissible = !matches!(task.checkpoint, ChildCheckpoint::Spawn);
     if running && prompt_admissible && !row.delete_requested() {
         let cancel = RlmChildCancelRequest {
@@ -633,9 +876,21 @@ async fn abort(
             )))?;
         }
     }
-    if let Some((report, ordinal)) = owed {
-        submit_report(&services, &runtime, &task, &report, ordinal, &cx).await?;
-    }
+    let reporter = match owed {
+        Some(owed) => {
+            let definition = runtime
+                .registry()
+                .task(CHILD_TASK_KIND)
+                .map(AnyTask::as_definition_ref)
+                .ok_or_else(|| SessionError::error(format!("{CHILD_TASK_KIND} is not defined")))?;
+            let input = to_json(&ChildTaskInput {
+                owed: Some(owed),
+                ..task.input.clone()
+            })?;
+            Some((definition, input))
+        }
+        None => None,
+    };
     let reason = if row.delete_requested() {
         DELETED_BY_PARENT
     } else {
@@ -645,12 +900,36 @@ async fn abort(
     runtime
         .commit(
             move |tx, _current| async move {
+                let reporter = match reporter {
+                    Some((definition, input)) => Some(
+                        tx.create_task(
+                            definition,
+                            input,
+                            TaskOptions {
+                                ownership: TaskOwnership::Conversation,
+                                conversation_id: Some(conversation_id),
+                                background: Some(true),
+                                abandon_on_restart: None,
+                            },
+                        )
+                        .await?,
+                    ),
+                    None => None,
+                };
                 let row = tx_update_row(&tx, conversation_id, task_id, |row| {
                     if !row.status.is_terminal() {
                         row.status = ChildStatus::Cancelled;
                         row.error = Some(reason.to_owned());
                     }
-                    row.settled = true;
+                    match reporter {
+                        // The new task settles the row once it admits the
+                        // report.
+                        Some(reporter) => {
+                            row.reporter = Some(reporter.get());
+                            row.settled = false;
+                        }
+                        None => row.settled = true,
+                    }
                 })
                 .await?;
                 Ok(Some(NextTaskState::Terminal {

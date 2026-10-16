@@ -352,6 +352,7 @@ async fn admit_spawns(
                     thinking: spec.kwargs.thinking,
                     spawned_by_request_id: spawned_by_request_id.clone(),
                     max_depth: Some(max_depth),
+                    owed: None,
                 },
             )
         })
@@ -433,6 +434,8 @@ async fn admit_spawns(
                         deletion: None,
                         settled: false,
                         usage: None,
+                        progress: None,
+                        reporter: None,
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
                     task_ids.push(task_id);
@@ -809,7 +812,13 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
                 .ok_or_else(|| anyhow!("rlm.collect timeout_ms must be a non-negative integer"))?,
         ),
     };
-    let timeout = requested.min(children.settings.manager().get_tool_blocking_budget());
+    let timeout = requested.min(
+        children
+            .services
+            .settings
+            .manager()
+            .get_tool_blocking_budget(),
+    );
     let harness = children.harness.require().map_err(session_error)?;
     let conversation_id = conversation_of(&call);
     let state = read_children(&harness, conversation_id, &cx())

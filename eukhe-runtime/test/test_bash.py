@@ -51,6 +51,32 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
             activity_request("tail", activity_id, 201)
         self.assertFalse(activity_request("kill", activity_id)["killed"])
 
+    async def test_activity_list_output_bytes_grow_while_the_handle_writes(self):
+        # The parent's stall watch reads outputBytes as job progress (H5):
+        # a writing handle's count grows, a silent one's stays.
+        from rlm.bash import activity_request
+
+        writer = bash("for i in $(seq 1 50); do echo tick; sleep 0.05; done")
+        silent = bash("sleep 20")
+        try:
+
+            def output_bytes(handle):
+                rows = activity_request("list")["activities"]
+                return next(row for row in rows if row["id"] == handle._activity_id)["outputBytes"]
+
+            first = output_bytes(writer)
+            for _ in range(200):
+                if output_bytes(writer) > first:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertGreater(output_bytes(writer), first)
+            self.assertEqual(output_bytes(silent), 0)
+        finally:
+            writer.kill()
+            silent.kill()
+            await writer
+            await silent
+
     async def test_activity_tail_frame_stays_under_the_wire_cap(self):
         # json escaping can expand one byte to six (\uXXXX), so the cap
         # must hold on the serialized frame, not the decoded slice.

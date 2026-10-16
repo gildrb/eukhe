@@ -130,6 +130,7 @@ Settings in `~/.eukhe/settings.json`:
 |Key|Default|Effect|
 |---|---|---|
 |`subagentMaxConcurrency`|`32`|Subagents that run at one time; `0` is no limit|
+|`subagentStallMs`|`600000`|A subagent with no progress for this long is stopped and reported stalled; `0` takes the default|
 |`subagentDefaultModel`|parent model|Model of a subagent spawned without `model`|
 |`rlmMaxDepth`|`2`|Maximum subagent depth (global only)|
 |`providerMaxInFlight`|none|`{"<provider>": n}`: model requests at one time per provider; `0` is no limit (global only)|

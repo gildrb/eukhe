@@ -6,7 +6,7 @@
 //! Ported from `core/kernel/repl-manager.ts`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -67,6 +67,19 @@ pub struct KernelStartOptions {
 /// panicked reader must not cascade into an unusable kernel.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The summed `outputBytes` of the running rows of a `bash_activity`
+/// list (finished rows are left out: the list drops them first when it
+/// is too long, which must not read as output).
+fn running_output_bytes(list: &Value) -> u64 {
+    list.get("activities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|row| row.get("status").and_then(Value::as_str) == Some("running"))
+        .filter_map(|row| row.get("outputBytes").and_then(Value::as_u64))
+        .fold(0, u64::wrapping_add)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -406,6 +419,9 @@ pub(crate) struct Inner {
     stderr_log: Mutex<Option<Arc<Mutex<StderrLog>>>>,
     /// The cells executing (or queued) for a call that may detach.
     cell_jobs: Mutex<Vec<CellJob>>,
+    /// Bytes of stdout/stderr the kernel ever sent, any cell's or none's:
+    /// the stream part of [`ReplKernelManager::job_output_progress`].
+    stream_bytes: AtomicU64,
 }
 
 struct StderrLog {
@@ -544,6 +560,7 @@ impl ReplKernelManager {
             background_jobs_settled: Notify::new(),
             stderr_log: Mutex::new(None),
             cell_jobs: Mutex::new(Vec::new()),
+            stream_bytes: AtomicU64::new(0),
         });
         Self { inner }
     }
@@ -592,6 +609,25 @@ impl ReplKernelManager {
             }
             settled.await;
         }
+    }
+
+    /// A token that moves while the kernel's background jobs write output
+    /// (rule H5, `docs/harness.md`): the stdout/stderr bytes the kernel
+    /// ever sent (a detached cell's prints) plus the output bytes of its
+    /// running bash handles (`outputBytes` of the `bash_activity` list,
+    /// which a background build writes to its handle, not to a stream).
+    /// A job that writes nothing leaves it still. The list part is 0 when
+    /// the list fails or no bash handle runs.
+    pub async fn job_output_progress(&self) -> u64 {
+        let streams = self.inner.stream_bytes.load(Ordering::Relaxed);
+        if self.background_job_count() == 0 {
+            return streams;
+        }
+        let handles = self
+            .bash_activity("list", None, 0)
+            .await
+            .map_or(0, |list| running_output_bytes(&list));
+        streams.wrapping_add(handles)
     }
 
     /// Process id of the spawned kernel child, when present. Used by tests and
