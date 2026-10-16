@@ -1,6 +1,8 @@
 //! Port of `test/openai-responses-cache-affinity-e2e.test.ts`.
 
-use eukhe_ai::compat::{complete, get_model};
+mod common;
+
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{AssistantContentBlock, Context, StopReason};
 use serde_json::json;
@@ -9,7 +11,7 @@ use serde_json::json;
 #[ignore = "needs OPENAI_API_KEY; run with --ignored"]
 async fn handles_direct_openai_responses_requests_with_aligned_cache_affinity_identifiers() {
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY");
-    let model = get_model("openai", "gpt-5.4").expect("model");
+    let model = get_builtin_model("openai", "gpt-5.4").expect("model");
     let session_id = "0195d6e4-4cf9-7f44-a2d8-f8f7f49ee9d3";
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -31,9 +33,9 @@ async fn handles_direct_openai_responses_requests_with_aligned_cache_affinity_id
         let mut options = ProviderStreamOptions::default();
         options.stream.request.api_key = Some(api_key.clone());
         options.stream.session_id = Some(session_id.to_owned());
-        let response = complete(&model, context.clone(), options)
-            .await
-            .expect("complete");
+        let response = common::env_models()
+            .complete(&model, context.clone(), options.into())
+            .await;
 
         let text: String = response
             .content

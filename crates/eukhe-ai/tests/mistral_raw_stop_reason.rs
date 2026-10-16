@@ -3,7 +3,7 @@
 mod mistral_support;
 
 use eukhe_ai::api::mistral_conversations::stream as stream_mistral;
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::retry::is_retryable_assistant_error;
 use eukhe_ai::utils::transcript::normalize_context;
@@ -13,7 +13,7 @@ use serde_json::json;
 
 /// TS `createFetch(finishReason)` + `streamMistral(...).result()`.
 async fn run(finish_reason: &str) -> AssistantMessage {
-    let model = get_model("mistral", "devstral-medium-latest").expect("model");
+    let model = get_builtin_model("mistral", "devstral-medium-latest").expect("model");
     let context = normalize_context(
         serde_json::from_value::<Context>(json!({
             "messages": [{ "role": "user", "content": "hello", "timestamp": 1 }],

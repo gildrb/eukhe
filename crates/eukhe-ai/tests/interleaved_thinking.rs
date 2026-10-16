@@ -2,9 +2,9 @@
 //! provider, so each is `#[ignore]`d with the credentials it needs.
 
 mod anthropic_support;
+mod common;
 
 use anthropic_support::builtin_model;
-use eukhe_ai::compat::complete_simple;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context, JsonValue, Model, StopReason, ThinkingLevel, ToolCall,
@@ -85,9 +85,9 @@ async fn assert_second_tool_call_with_interleaved_thinking(llm: &Model, level: T
     let as_context =
         |value: &JsonValue| -> Context { serde_json::from_value(value.clone()).expect("context") };
 
-    let first_response = complete_simple(llm, as_context(&context), options())
-        .await
-        .expect("stream");
+    let first_response = common::env_models()
+        .complete_simple(llm, as_context(&context), options().into())
+        .await;
 
     assert_eq!(
         first_response.stop_reason,
@@ -121,9 +121,9 @@ async fn assert_second_tool_call_with_interleaved_thinking(llm: &Model, level: T
         "timestamp": 2,
     }));
 
-    let second_response = complete_simple(llm, as_context(&context), options())
-        .await
-        .expect("stream");
+    let second_response = common::env_models()
+        .complete_simple(llm, as_context(&context), options().into())
+        .await;
 
     assert_eq!(
         second_response.stop_reason,

@@ -6,7 +6,8 @@
 mod common;
 
 use common::assert_match_object;
-use eukhe_ai::compat::{find_env_keys, get_models};
+use eukhe_ai::env_api_keys::find_env_keys;
+use eukhe_ai::providers::all::get_builtin_models;
 use eukhe_types::pi_ai::{Model, ProviderEnv};
 use serde_json::json;
 
@@ -95,14 +96,14 @@ fn qwen38_model_cases() -> Vec<(&'static str, &'static str)> {
 }
 
 fn model_ids(provider: &str) -> Vec<String> {
-    get_models(provider)
+    get_builtin_models(provider)
         .into_iter()
         .map(|model| model.id)
         .collect()
 }
 
 fn find(provider: &str, model_id: &str) -> Model {
-    get_models(provider)
+    get_builtin_models(provider)
         .into_iter()
         .find(|candidate| candidate.id == model_id)
         .unwrap_or_else(|| panic!("Missing model: {provider}/{model_id}"))

@@ -6,11 +6,13 @@
 //! resolves with `test/oauth.ts` are read from `PI_TEST_<PROVIDER>_TOKEN`.
 //! TS `{ retry: 3 }` runs the case up to three times.
 
+mod common;
+
 use std::any::Any;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 
-use eukhe_ai::compat::{get_model, get_models, stream};
+use eukhe_ai::providers::all::{get_builtin_model, get_builtin_models};
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_chord::context::AbortController;
 use eukhe_types::pi_ai::{AssistantMessageEvent, Context, JsonValue, Model, StopReason};
@@ -89,7 +91,7 @@ fn require_cloudflare_ai_gateway_credentials() {
 }
 
 fn model(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("built-in model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("built-in model {provider}/{id}"))
 }
 
 /// TS `{ ...baseModel, api: "openai-completions" }` with `compat` dropped.
@@ -141,7 +143,7 @@ async fn test_tokens_on_abort(llm: &Model, options: ProviderStreamOptions) {
     let controller = AbortController::new();
     let mut options = options;
     options.stream.request.signal = Some(controller.signal());
-    let response = stream(llm, context, options).expect("stream");
+    let response = common::env_models().stream(llm, context, options.into());
 
     let mut abort_fired = false;
     // JS `text.length`: UTF-16 code units.
@@ -274,7 +276,7 @@ async fn groq_should_include_token_stats_when_aborted_mid_stream() {
 async fn cerebras_should_include_token_stats_when_aborted_mid_stream() {
     require_env("CEREBRAS_API_KEY");
     let preferred_cerebras_model_ids = ["gpt-oss-120b", "zai-glm-4.7", "llama3.1-8b"];
-    let cerebras_models = get_models("cerebras");
+    let cerebras_models = get_builtin_models("cerebras");
     let llm = cerebras_models
         .iter()
         .find(|model| preferred_cerebras_model_ids.contains(&model.id.as_str()))

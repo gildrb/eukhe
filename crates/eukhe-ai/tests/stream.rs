@@ -5,11 +5,13 @@
 //! `resolveApiKey`) come from `PI_TEST_<PROVIDER>_TOKEN`. TS `{ retry: N }`
 //! runs the case up to N times.
 
+mod common;
+
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine;
-use eukhe_ai::compat::{complete, get_model, stream};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::typebox::{Options, Type};
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::typebox_helpers::string_enum;
@@ -94,7 +96,7 @@ fn vertex_options() -> JsonValue {
 }
 
 fn model(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("model {provider}/{id}"))
 }
 
 /// Options with API-specific keys (TS `StreamOptions & Record<string, unknown>`).
@@ -244,9 +246,9 @@ async fn basic_text_generation(model: Model, options: ProviderStreamOptions) {
         vec![user(&json!("Reply with exactly: 'Hello test successful'"))],
         None,
     );
-    let response = complete(&model, context.clone(), options.clone())
-        .await
-        .expect("complete");
+    let response = common::env_models()
+        .complete(&model, context.clone(), options.clone().into())
+        .await;
     complete_ok(&response);
     assert!(text_of(&response).contains("Hello test successful"));
 
@@ -255,7 +257,9 @@ async fn basic_text_generation(model: Model, options: ProviderStreamOptions) {
         .messages
         .push(user(&json!("Now say 'Goodbye test successful'")));
 
-    let second_response = complete(&model, context, options).await.expect("complete");
+    let second_response = common::env_models()
+        .complete(&model, context, options.into())
+        .await;
     complete_ok(&second_response);
     assert!(text_of(&second_response).contains("Goodbye test successful"));
 }
@@ -268,7 +272,7 @@ async fn handle_tool_call(model: Model, options: ProviderStreamOptions) {
         ))],
         Some(vec![calculator_tool()]),
     );
-    let events = stream(&model, context, options).expect("stream");
+    let events = common::env_models().stream(&model, context, options.into());
     let mut has_tool_start = false;
     let mut has_tool_delta = false;
     let mut has_tool_end = false;
@@ -358,7 +362,7 @@ async fn handle_streaming(model: Model, options: ProviderStreamOptions) {
         vec![user(&json!("Count from 1 to 3"))],
         None,
     );
-    let events = stream(&model, context, options).expect("stream");
+    let events = common::env_models().stream(&model, context, options.into());
     let mut text_started = false;
     let mut text_chunks = String::new();
     let mut text_completed = false;
@@ -391,7 +395,7 @@ async fn handle_thinking(model: Model, options: ProviderStreamOptions) {
         )))],
         None,
     );
-    let events = stream(&model, context, options).expect("stream");
+    let events = common::env_models().stream(&model, context, options.into());
     let mut thinking_started = false;
     let mut thinking_chunks = String::new();
     let mut thinking_completed = false;
@@ -445,7 +449,9 @@ async fn handle_image(model: Model, options: ProviderStreamOptions) {
         ]))],
         None,
     );
-    let response = complete(&model, context, options).await.expect("complete");
+    let response = common::env_models()
+        .complete(&model, context, options.into())
+        .await;
 
     assert!(!response.content.is_empty());
     if let Some(AssistantContentBlock::Text(text)) = response
@@ -473,9 +479,9 @@ async fn multi_turn(model: Model, options: ProviderStreamOptions) {
     let max_turns = 5; // Prevent infinite loops
 
     for _ in 0..max_turns {
-        let response = complete(&model, context.clone(), options.clone())
-            .await
-            .expect("complete");
+        let response = common::env_models()
+            .complete(&model, context.clone(), options.clone().into())
+            .await;
         context.messages.push(Message::Assistant(response.clone()));
 
         let mut results = Vec::new();
@@ -1697,17 +1703,17 @@ fn captured_payload(captured: &Mutex<Option<JsonValue>>) -> JsonValue {
 }
 
 async fn say_hi(llm: &Model, options: ProviderStreamOptions) {
-    let response = complete(
-        llm,
-        Context {
-            system_prompt: None,
-            messages: vec![user(&json!("Say hi."))],
-            tools: None,
-        },
-        options,
-    )
-    .await
-    .expect("complete");
+    let response = common::env_models()
+        .complete(
+            llm,
+            Context {
+                system_prompt: None,
+                messages: vec![user(&json!("Say hi."))],
+                tools: None,
+            },
+            options.into(),
+        )
+        .await;
     assert_ne!(
         response.stop_reason,
         StopReason::Error,
@@ -1729,19 +1735,14 @@ mod bedrock_claude_opus_4_6 {
             let llm = model("amazon-bedrock", "global.anthropic.claude-opus-4-6-v1");
             let (options, captured) =
                 capturing(&json!({ "reasoning": "xhigh", "interleavedThinking": true }));
-            let response = complete(
-                &llm,
-                context(
+            let response = common::env_models().complete(&llm, context(
                     "You are a helpful assistant that uses tools when asked.",
                     vec![user(&json!(
                         "Think first, then calculate 15 + 27 using the math_operation tool."
                     ))],
                     Some(vec![calculator_tool()]),
-                ),
-                options,
-            )
-            .await
-            .expect("complete");
+                ), options.into())
+            .await;
 
             assert_ne!(
                 response.stop_reason,

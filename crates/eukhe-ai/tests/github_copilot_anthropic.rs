@@ -8,8 +8,8 @@ mod anthropic_support;
 
 use anthropic_support::{assert_match_object, collect, minimal_sse, mock_fetch, requests};
 use eukhe_ai::api::anthropic_messages::stream;
-use eukhe_ai::compat::get_model;
 use eukhe_ai::models::get_supported_thinking_levels;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{Context, JsonValue, Model, TranscriptContext};
@@ -25,7 +25,7 @@ fn context() -> TranscriptContext {
 }
 
 fn copilot_model(id: &str) -> Model {
-    get_model("github-copilot", id).unwrap_or_else(|| panic!("github-copilot/{id}"))
+    get_builtin_model("github-copilot", id).unwrap_or_else(|| panic!("github-copilot/{id}"))
 }
 
 fn model_json(model: &Model) -> JsonValue {

@@ -8,8 +8,9 @@ mod common;
 use std::sync::{Mutex, PoisonError};
 
 use common::assert_json_eq;
-use eukhe_ai::compat::{find_env_keys, get_env_api_key, get_model};
+use eukhe_ai::env_api_keys::{find_env_keys, get_env_api_key};
 use eukhe_ai::models::get_supported_thinking_levels;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_types::pi_ai::Model;
 use serde_json::{json, Value};
 
@@ -29,7 +30,7 @@ impl Drop for RestoreEnv {
 }
 
 fn fireworks(id: &str) -> Model {
-    get_model("fireworks", id).expect("fireworks model")
+    get_builtin_model("fireworks", id).expect("fireworks model")
 }
 
 /// `model.compat?.<field>`; `None` for undefined.

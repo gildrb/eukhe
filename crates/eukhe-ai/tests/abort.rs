@@ -15,7 +15,7 @@ use std::future::Future;
 use std::panic::{resume_unwind, AssertUnwindSafe};
 
 use common::user;
-use eukhe_ai::compat::{complete, get_model, stream};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_chord::context::AbortController;
 use eukhe_types::pi_ai::{AssistantMessageEvent, Context, JsonValue, Message, Model, StopReason};
@@ -83,7 +83,7 @@ fn openai_codex_token() -> String {
 }
 
 fn model(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("model {provider}/{id}"))
 }
 
 /// The TS `StreamOptions & Record<string, unknown>` extras object.
@@ -122,7 +122,11 @@ async fn test_abort_signal(llm: &Model, options: &ProviderStreamOptions) {
     let mut abort_fired = false;
     let mut text = String::new();
     let controller = AbortController::new();
-    let response = stream(llm, context.clone(), with_signal(options, &controller)).expect("stream");
+    let response = common::env_models().stream(
+        llm,
+        context.clone(),
+        with_signal(options, &controller).into(),
+    );
     let mut events = response.events();
     while let Some(event) = events.next().await {
         if abort_fired {
@@ -149,9 +153,9 @@ async fn test_abort_signal(llm: &Model, options: &ProviderStreamOptions) {
         .messages
         .push(user("Please continue, but only generate 5 names."));
 
-    let follow_up = complete(llm, context, options.clone())
-        .await
-        .expect("complete");
+    let follow_up = common::env_models()
+        .complete(llm, context, options.clone().into())
+        .await;
     assert_eq!(follow_up.stop_reason, StopReason::Stop);
     assert!(!follow_up.content.is_empty());
 }
@@ -168,9 +172,9 @@ async fn test_immediate_abort(llm: &Model, options: &ProviderStreamOptions) {
         tools: None,
     };
 
-    let response = complete(llm, context, with_signal(options, &controller))
-        .await
-        .expect("complete");
+    let response = common::env_models()
+        .complete(llm, context, with_signal(options, &controller).into())
+        .await;
     assert_eq!(response.stop_reason, StopReason::Aborted);
 }
 
@@ -186,9 +190,13 @@ async fn test_abort_then_new_message(llm: &Model, options: &ProviderStreamOption
         tools: None,
     };
 
-    let aborted_response = complete(llm, context.clone(), with_signal(options, &controller))
-        .await
-        .expect("complete");
+    let aborted_response = common::env_models()
+        .complete(
+            llm,
+            context.clone(),
+            with_signal(options, &controller).into(),
+        )
+        .await;
     assert_eq!(aborted_response.stop_reason, StopReason::Aborted);
     // The aborted message has empty content since we aborted before anything arrived
     assert_eq!(aborted_response.content.len(), 0);
@@ -199,9 +207,9 @@ async fn test_abort_then_new_message(llm: &Model, options: &ProviderStreamOption
     // Second request: send a new message - this should work even with the aborted message in context
     context.messages.push(user("What is 2 + 2?"));
 
-    let follow_up = complete(llm, context, options.clone())
-        .await
-        .expect("complete");
+    let follow_up = common::env_models()
+        .complete(llm, context, options.clone().into())
+        .await;
     assert_eq!(follow_up.stop_reason, StopReason::Stop);
     assert!(!follow_up.content.is_empty());
 }

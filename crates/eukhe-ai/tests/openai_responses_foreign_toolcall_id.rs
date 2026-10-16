@@ -3,7 +3,7 @@
 use eukhe_ai::api::openai_responses_shared::{
     convert_responses_messages, ConvertResponsesMessagesOptions,
 };
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::utils::hash::short_hash;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::Context;
@@ -23,7 +23,7 @@ fn now() -> u64 {
 
 #[test]
 fn hashes_foreign_copilot_tool_item_ids_into_a_bounded_codex_safe_fc_hash_shape() {
-    let model = get_model("openai-codex", "gpt-5.5").expect("model");
+    let model = get_builtin_model("openai-codex", "gpt-5.5").expect("model");
     let assistant = json!({
         "role": "assistant",
         "content": [{

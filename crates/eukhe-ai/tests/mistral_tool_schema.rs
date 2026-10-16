@@ -1,8 +1,9 @@
 //! Port of `test/mistral-tool-schema.test.ts`.
 
+mod common;
 mod mistral_support;
 
-use eukhe_ai::compat::{complete, get_model};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{Context, StopReason};
 use mistral_support::{capture_payload, payload_of};
@@ -13,7 +14,7 @@ use serde_json::json;
 /// payload (strict flag and plain nested parameters) and the request error.
 #[tokio::test]
 async fn strips_typebox_symbol_keys_before_the_sdk_validates_tool_schemas() {
-    let mut model = get_model("mistral", "devstral-medium-latest").expect("model");
+    let mut model = get_builtin_model("mistral", "devstral-medium-latest").expect("model");
     model.base_url = "http://127.0.0.1:9".into();
     let context: Context = serde_json::from_value(json!({
         "messages": [{ "role": "user", "content": "Hi", "timestamp": 1 }],
@@ -40,7 +41,9 @@ async fn strips_typebox_symbol_keys_before_the_sdk_validates_tool_schemas() {
     options.stream.request.api_key = Some("fake-key".into());
     options.stream.request.on_payload = Some(on_payload);
 
-    let response = complete(&model, context, options).await.expect("dispatch");
+    let response = common::env_models()
+        .complete(&model, context, options.into())
+        .await;
 
     let payload = payload_of(&store);
     let tools = payload["tools"].as_array().expect("tools");

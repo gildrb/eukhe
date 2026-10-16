@@ -7,12 +7,14 @@
 //! resolves with `test/oauth.ts` are read from `PI_TEST_<PROVIDER>_TOKEN`.
 //! TS `{ retry: N }` runs the case up to N times.
 
+mod common;
+
 use std::any::Any;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 
 use base64::Engine as _;
-use eukhe_ai::compat::{complete, get_model};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context, JsonValue, Message, Modality, Model, StopReason,
@@ -80,7 +82,7 @@ fn require_bedrock_credentials() {
 }
 
 fn model(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("built-in model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("built-in model {provider}/{id}"))
 }
 
 /// TS `{ ...baseModel, api: "openai-completions" }` with `compat` dropped.
@@ -150,9 +152,9 @@ async fn tool_round(
     .expect("context");
 
     // First request - LLM should call the tool
-    let first_response = complete(model, context.clone(), options.clone())
-        .await
-        .expect("first response");
+    let first_response = common::env_models()
+        .complete(model, context.clone(), options.clone().into())
+        .await;
     assert_eq!(
         first_response.stop_reason,
         StopReason::ToolUse,
@@ -189,9 +191,9 @@ async fn tool_round(
     );
 
     // Second request - LLM should describe the tool result
-    let second_response = complete(model, context, options.clone())
-        .await
-        .expect("second response");
+    let second_response = common::env_models()
+        .complete(model, context, options.clone().into())
+        .await;
     assert_eq!(
         second_response.stop_reason,
         StopReason::Stop,

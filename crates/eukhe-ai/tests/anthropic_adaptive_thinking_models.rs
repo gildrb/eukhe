@@ -1,6 +1,6 @@
 //! Port of `test/anthropic-adaptive-thinking-models.test.ts`.
 
-use eukhe_ai::compat::{get_models, get_providers};
+use eukhe_ai::providers::all::{get_builtin_models, get_builtin_providers};
 use eukhe_types::pi_ai::Model;
 
 const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 17] = [
@@ -24,7 +24,10 @@ const EXPECTED_CURRENT_ADAPTIVE_THINKING_MODELS: [&str; 17] = [
 ];
 
 fn get_all_models() -> Vec<Model> {
-    get_providers().into_iter().flat_map(get_models).collect()
+    get_builtin_providers()
+        .into_iter()
+        .flat_map(get_builtin_models)
+        .collect()
 }
 
 /// `model.compat?.forceAdaptiveThinking === true`.

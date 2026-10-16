@@ -1,6 +1,7 @@
 //! Port of `test/anthropic-thinking-disable.test.ts`.
 
 mod anthropic_support;
+mod common;
 
 use anthropic_support::{builtin_model, capture_simple_payload};
 use eukhe_ai::types::SimpleStreamOptions;
@@ -47,8 +48,7 @@ async fn run_without_reasoning(model: &Model) -> RunResult {
     let mut options = SimpleStreamOptions::default();
     options.stream.temperature = Some(0.0);
     options.stream.max_tokens = Some(160);
-    let stream =
-        eukhe_ai::compat::stream_simple(model, make_e2e_context(), options).expect("stream");
+    let stream = common::env_models().stream_simple(model, make_e2e_context(), options.into());
 
     let mut thinking_event_count = 0;
     let mut thinking_char_count = 0;

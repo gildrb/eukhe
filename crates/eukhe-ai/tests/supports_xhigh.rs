@@ -1,12 +1,12 @@
 //! Port of `test/supports-xhigh.test.ts`.
 
-use eukhe_ai::compat::get_model;
 use eukhe_ai::models::get_supported_thinking_levels;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
 fn model(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("{provider}/{id} is defined"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("{provider}/{id} is defined"))
 }
 
 fn levels(model: &Model) -> Vec<&'static str> {

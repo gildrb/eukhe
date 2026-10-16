@@ -6,8 +6,10 @@
 //! `test/oauth.ts` (stored OAuth credentials or env); here keys come from the
 //! provider's env API key variables (`getEnvApiKey`).
 
-use eukhe_ai::compat::{complete_simple, get_model};
+mod common;
+
 use eukhe_ai::env_api_keys::get_env_api_key;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_types::pi_ai::{AssistantContentBlock, Context, JsonValue, Message, StopReason};
 use serde_json::json;
@@ -56,20 +58,20 @@ fn options(api_key: String) -> SimpleStreamOptions {
 }
 
 async fn live_handoff(target_provider: &str, target_model: &str, echo: &str) {
-    let copilot_model = get_model("github-copilot", "gpt-5.5").expect("copilot model");
-    let target = get_model(target_provider, target_model).expect("target model");
+    let copilot_model = get_builtin_model("github-copilot", "gpt-5.5").expect("copilot model");
+    let target = get_builtin_model(target_provider, target_model).expect("target model");
     let user = json!({ "role": "user", "content": format!("Use the echo tool to echo '{echo}'"), "timestamp": now() });
 
-    let assistant = complete_simple(
-        &copilot_model,
-        context(
-            "You are a helpful assistant. Use the echo tool when asked.",
-            std::slice::from_ref(&user),
-        ),
-        options(key("github-copilot")),
-    )
-    .await
-    .expect("copilot response");
+    let assistant = common::env_models()
+        .complete_simple(
+            &copilot_model,
+            context(
+                "You are a helpful assistant. Use the echo tool when asked.",
+                std::slice::from_ref(&user),
+            ),
+            options(key("github-copilot")).into(),
+        )
+        .await;
     assert_eq!(
         assistant.stop_reason,
         StopReason::ToolUse,
@@ -96,21 +98,21 @@ async fn live_handoff(target_provider: &str, target_model: &str, echo: &str) {
         "isError": false,
         "timestamp": now(),
     });
-    let response = complete_simple(
-        &target,
-        context(
-            "You are a helpful assistant.",
-            &[
-                user,
-                serde_json::to_value(Message::Assistant(assistant)).expect("assistant"),
-                tool_result,
-                json!({ "role": "user", "content": "Say hi", "timestamp": now() }),
-            ],
-        ),
-        options(key(target_provider)),
-    )
-    .await
-    .expect("target response");
+    let response = common::env_models()
+        .complete_simple(
+            &target,
+            context(
+                "You are a helpful assistant.",
+                &[
+                    user,
+                    serde_json::to_value(Message::Assistant(assistant)).expect("assistant"),
+                    tool_result,
+                    json!({ "role": "user", "content": "Say hi", "timestamp": now() }),
+                ],
+            ),
+            options(key(target_provider)).into(),
+        )
+        .await;
     assert_ne!(
         response.stop_reason,
         StopReason::Error,
@@ -164,14 +166,14 @@ fn prefilled_messages() -> Vec<JsonValue> {
 #[tokio::test]
 #[ignore = "needs OPENROUTER_API_KEY; run with --ignored"]
 async fn openrouter_should_handle_prefilled_context_with_long_pipe_separated_ids() {
-    let model = get_model("openrouter", "openai/gpt-5.5").expect("model");
-    let response = complete_simple(
-        &model,
-        context("You are a helpful assistant.", &prefilled_messages()),
-        options(key("openrouter")),
-    )
-    .await
-    .expect("response");
+    let model = get_builtin_model("openrouter", "openai/gpt-5.5").expect("model");
+    let response = common::env_models()
+        .complete_simple(
+            &model,
+            context("You are a helpful assistant.", &prefilled_messages()),
+            options(key("openrouter")).into(),
+        )
+        .await;
     assert_ne!(
         response.stop_reason,
         StopReason::Error,
@@ -187,14 +189,14 @@ async fn openrouter_should_handle_prefilled_context_with_long_pipe_separated_ids
 #[tokio::test]
 #[ignore = "needs openai-codex credentials; run with --ignored"]
 async fn openai_codex_should_handle_prefilled_context_with_long_pipe_separated_ids() {
-    let model = get_model("openai-codex", "gpt-5.5").expect("model");
-    let response = complete_simple(
-        &model,
-        context("You are a helpful assistant.", &prefilled_messages()),
-        options(key("openai-codex")),
-    )
-    .await
-    .expect("response");
+    let model = get_builtin_model("openai-codex", "gpt-5.5").expect("model");
+    let response = common::env_models()
+        .complete_simple(
+            &model,
+            context("You are a helpful assistant.", &prefilled_messages()),
+            options(key("openai-codex")).into(),
+        )
+        .await;
     assert_ne!(
         response.stop_reason,
         StopReason::Error,

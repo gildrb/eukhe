@@ -1,44 +1,58 @@
-//! Port of `test/faux-provider.test.ts` (through the compat registry, as in
-//! TS).
+//! Port of `test/faux-provider.test.ts`.
 
 mod common;
 
 use std::sync::Arc;
 
 use common::{now, user};
-use eukhe_ai::compat::{complete, register_faux_provider, stream, FauxProviderRegistration};
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, faux_text, faux_thinking, faux_tool_call, FauxAssistantMessageOptions,
-    FauxModelDefinition, FauxResponseStep, FauxTokenSize, RegisterFauxProviderOptions,
+    faux_assistant_message, faux_provider, faux_text, faux_thinking, faux_tool_call,
+    FauxAssistantMessageOptions, FauxModelDefinition, FauxProviderHandle, FauxResponseStep,
+    FauxTokenSize, RegisterFauxProviderOptions,
 };
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_chord::context::AbortController;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, CacheRetention, Context,
-    ErrorReason, ImageContent, JsonObject, Message, StopReason, TextContent, ThinkingContent, Tool,
-    ToolCall, ToolResultMessage, UserContent, UserContentBlock, UserMessage,
+    ErrorReason, ImageContent, JsonObject, Message, Model, StopReason, TextContent,
+    ThinkingContent, Tool, ToolCall, ToolResultMessage, UserContent, UserContentBlock, UserMessage,
 };
 use futures::StreamExt;
 
-/// Unregisters on drop (the TS `afterEach`).
-struct Registered(FauxProviderRegistration);
-
-impl Drop for Registered {
-    fn drop(&mut self) {
-        self.0.unregister();
-    }
-}
+/// A faux provider streamed through its provider object, as the TS test does.
+struct Registered(FauxProviderHandle);
 
 impl std::ops::Deref for Registered {
-    type Target = FauxProviderRegistration;
+    type Target = FauxProviderHandle;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
+impl Registered {
+    fn stream(
+        &self,
+        model: &Model,
+        context: Context,
+        options: ProviderStreamOptions,
+    ) -> AssistantMessageEventStream {
+        (self.provider.stream)(model, &normalize_context(context), options)
+    }
+
+    async fn complete(
+        &self,
+        model: &Model,
+        context: Context,
+        options: ProviderStreamOptions,
+    ) -> AssistantMessage {
+        self.stream(model, context, options).result().await
+    }
+}
+
 fn register(options: RegisterFauxProviderOptions) -> Registered {
-    Registered(register_faux_provider(options))
+    Registered(faux_provider(options))
 }
 
 fn message(text: &str) -> FauxResponseStep {
@@ -84,9 +98,9 @@ async fn done(
     context: Context,
     options: ProviderStreamOptions,
 ) -> AssistantMessage {
-    complete(&registration.get_model(), context, options)
+    registration
+        .complete(&registration.get_model(), context, options)
         .await
-        .expect("registered")
 }
 
 #[tokio::test]
@@ -196,15 +210,15 @@ async fn supports_multiple_models_with_per_model_reasoning_and_model_aware_facto
     );
 
     let fast_model = registration.get_model_by_id("faux-fast").expect("fast");
-    let fast = complete(&fast_model, hi(), ProviderStreamOptions::default())
-        .await
-        .expect("fast");
+    let fast = registration
+        .complete(&fast_model, hi(), ProviderStreamOptions::default())
+        .await;
     let thinker_model = registration
         .get_model_by_id("faux-thinker")
         .expect("thinker");
-    let thinker = complete(&thinker_model, hi(), ProviderStreamOptions::default())
-        .await
-        .expect("thinker");
+    let thinker = registration
+        .complete(&thinker_model, hi(), ProviderStreamOptions::default())
+        .await;
 
     assert_eq!(fast.content, vec![text_block("faux-fast:false")]);
     assert_eq!(thinker.content, vec![text_block("faux-thinker:true")]);
@@ -313,14 +327,11 @@ async fn emits_an_error_when_a_response_factory_throws() {
         Err(common::error("boom"))
     })]);
 
-    let events = collect(
-        stream(
-            &registration.get_model(),
-            hi(),
-            ProviderStreamOptions::default(),
-        )
-        .expect("stream"),
-    )
+    let events = collect(registration.stream(
+        &registration.get_model(),
+        hi(),
+        ProviderStreamOptions::default(),
+    ))
     .await;
 
     assert_eq!(events.len(), 1);
@@ -343,14 +354,11 @@ async fn rejects_a_queued_response_without_a_terminal_stop_reason() {
     )
     .into()]);
 
-    let events = collect(
-        stream(
-            &registration.get_model(),
-            hi(),
-            ProviderStreamOptions::default(),
-        )
-        .expect("stream"),
-    )
+    let events = collect(registration.stream(
+        &registration.get_model(),
+        hi(),
+        ProviderStreamOptions::default(),
+    ))
     .await;
 
     assert!(!events.iter().any(|event| event.type_name() == "done"));
@@ -619,14 +627,11 @@ async fn streams_thinking_text_and_partial_tool_call_deltas() {
     )
     .into()]);
 
-    let events = collect(
-        stream(
-            &registration.get_model(),
-            hi(),
-            ProviderStreamOptions::default(),
-        )
-        .expect("stream"),
-    )
+    let events = collect(registration.stream(
+        &registration.get_model(),
+        hi(),
+        ProviderStreamOptions::default(),
+    ))
     .await;
     let names = types(&events);
     let tool_call_deltas: Vec<String> = events
@@ -675,14 +680,11 @@ async fn streams_an_exact_event_order_for_fixed_size_chunks() {
     )
     .into()]);
 
-    let events = collect(
-        stream(
-            &registration.get_model(),
-            hi(),
-            ProviderStreamOptions::default(),
-        )
-        .expect("stream"),
-    )
+    let events = collect(registration.stream(
+        &registration.get_model(),
+        hi(),
+        ProviderStreamOptions::default(),
+    ))
     .await;
 
     let AssistantMessageEvent::Start { partial } = &events[0] else {
@@ -730,14 +732,11 @@ async fn streams_multiple_tool_calls_in_one_message() {
     )
     .into()]);
 
-    let events = collect(
-        stream(
-            &registration.get_model(),
-            hi(),
-            ProviderStreamOptions::default(),
-        )
-        .expect("stream"),
-    )
+    let events = collect(registration.stream(
+        &registration.get_model(),
+        hi(),
+        ProviderStreamOptions::default(),
+    ))
     .await;
 
     assert_eq!(
@@ -771,14 +770,11 @@ async fn terminal_message(stop_reason: StopReason, error_message: &str, reason: 
     }
     .into()]);
 
-    let events = collect(
-        stream(
-            &registration.get_model(),
-            hi(),
-            ProviderStreamOptions::default(),
-        )
-        .expect("stream"),
-    )
+    let events = collect(registration.stream(
+        &registration.get_model(),
+        hi(),
+        ProviderStreamOptions::default(),
+    ))
     .await;
 
     assert_eq!(
@@ -837,7 +833,7 @@ async fn supports_aborting_before_the_first_chunk() {
     let controller = AbortController::new();
     controller.abort(None);
     let events =
-        collect(stream(&registration.get_model(), hi(), with_signal(&controller)).expect("stream"))
+        collect(registration.stream(&registration.get_model(), hi(), with_signal(&controller)))
             .await;
 
     assert_eq!(events.len(), 1);
@@ -856,7 +852,7 @@ async fn abort_at_first_delta(
     let registration = register(paced(100.0));
     registration.set_responses(vec![response.into()]);
     let controller = AbortController::new();
-    let stream = stream(&registration.get_model(), hi(), with_signal(&controller)).expect("stream");
+    let stream = registration.stream(&registration.get_model(), hi(), with_signal(&controller));
     let mut events = stream.events();
     let mut names = Vec::new();
     let mut delta_count = 0;
@@ -929,23 +925,4 @@ async fn supports_aborting_mid_toolcall_stream_when_paced() {
     assert!(events.contains(&"toolcall_delta"));
     assert!(events.contains(&"error"));
     assert!(!events.contains(&"toolcall_end"));
-}
-
-#[tokio::test]
-async fn unregisters_the_provider() {
-    let registration = register_faux_provider(RegisterFauxProviderOptions::default());
-    registration.set_responses(vec![message("hello")]);
-    registration.unregister();
-
-    let error = complete(
-        &registration.get_model(),
-        hi(),
-        ProviderStreamOptions::default(),
-    )
-    .await
-    .expect_err("unregistered");
-    assert_eq!(
-        error.to_string(),
-        format!("No API provider registered for api: {}", registration.api())
-    );
 }

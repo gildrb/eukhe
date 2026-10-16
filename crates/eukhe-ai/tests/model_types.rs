@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use common::{ambient_auth, silent_streams};
 use eukhe_ai::auth::ProviderAuth;
-use eukhe_ai::compat::get_model as get_compat_model;
 use eukhe_ai::models::{
     create_models, create_provider, get_model_type, has_api, is_model_type, models_are_equal,
     CreateModelsOptions, CreateProviderOptions, FetchModelsFn, ModelsRefreshOptions, Provider,
@@ -174,12 +173,8 @@ fn return_model_shapes_that_can_be_reassigned_within_one_api() {
     let mut model = get_builtin_model("openai", "gpt-4o-mini");
     assert!(model.is_some());
     model = get_builtin_model("openai", "gpt-4o");
-    let mut compat = get_compat_model("openai", "gpt-4o-mini");
-    assert!(compat.is_some());
-    compat = get_compat_model("openai", "gpt-4o");
 
     assert_eq!(model.expect("model").id, "gpt-4o");
-    assert_eq!(compat.expect("compat").id, "gpt-4o");
 }
 
 /// Rust deviation: `FetchModelsFn` returns typed `AnyModel`s, so a fetched

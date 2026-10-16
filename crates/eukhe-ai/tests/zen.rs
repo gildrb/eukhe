@@ -4,7 +4,6 @@
 mod common;
 
 use common::user;
-use eukhe_ai::compat::complete;
 use eukhe_ai::models_generated::MODELS;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{Context, StopReason};
@@ -13,19 +12,18 @@ async fn smoke(key: &str, label: &str) {
     for model in MODELS.get(key).expect("provider models").values() {
         let response = tokio::time::timeout(
             std::time::Duration::from_secs(60),
-            complete(
+            common::env_models().complete(
                 model,
                 Context {
                     system_prompt: None,
                     messages: vec![user("Say hello.")],
                     tools: None,
                 },
-                ProviderStreamOptions::default(),
+                ProviderStreamOptions::default().into(),
             ),
         )
         .await
-        .unwrap_or_else(|_| panic!("{label}: {} timed out", model.id))
-        .unwrap_or_else(|error| panic!("{label}: {}: {error:?}", model.id));
+        .unwrap_or_else(|_| panic!("{label}: {} timed out", model.id));
 
         assert!(!response.content.is_empty(), "{label}: {}", model.id);
         assert_eq!(

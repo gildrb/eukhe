@@ -11,9 +11,10 @@
 //! case is `#[ignore]`d and reads it from `PI_TEST_ANTHROPIC_TOKEN`.
 
 mod anthropic_support;
+mod common;
 
 use anthropic_support::resolve_test_api_key;
-use eukhe_ai::compat::{get_model, stream};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::{AssistantMessageEvent, ProviderStreamOptions};
 use eukhe_types::pi_ai::{AssistantContentBlock, Context, StopReason};
 use futures::StreamExt;
@@ -27,7 +28,8 @@ async fn tool_call_name_round_trip(
     prompt: &str,
 ) -> Option<String> {
     let oauth_token = resolve_test_api_key("anthropic").expect("PI_TEST_ANTHROPIC_TOKEN");
-    let model = get_model("anthropic", "claude-sonnet-4-6").expect("anthropic/claude-sonnet-4-6");
+    let model =
+        get_builtin_model("anthropic", "claude-sonnet-4-6").expect("anthropic/claude-sonnet-4-6");
     let (parameter_name, parameter_description) = parameter;
     let context: Context = serde_json::from_value(json!({
         "systemPrompt": system_prompt,
@@ -46,7 +48,7 @@ async fn tool_call_name_round_trip(
 
     let mut options = ProviderStreamOptions::default();
     options.stream.request.api_key = Some(oauth_token);
-    let s = stream(&model, context, options).expect("stream");
+    let s = common::env_models().stream(&model, context, options.into());
     let mut tool_call_name = None;
     let mut events = s.events();
     while let Some(event) = events.next().await {

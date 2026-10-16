@@ -2,9 +2,12 @@
 //! talks to live providers (TS: `describe.skipIf(!OPENAI_API_KEY ||
 //! !ANTHROPIC_API_KEY)`).
 
+mod common;
+
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_ai::compat::{complete, get_env_api_key, get_model};
+use eukhe_ai::env_api_keys::get_env_api_key;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::{OnPayload, ProviderStreamOptions};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Context, JsonValue, Model, StopReason, ToolCall,
@@ -121,7 +124,7 @@ fn log_payload(label: &str, payload: Option<&JsonValue>, log_ids: bool, log_full
 #[tokio::test]
 #[ignore = "needs OPENAI_API_KEY and ANTHROPIC_API_KEY; run with --ignored"]
 async fn skips_reasoning_only_history_after_an_aborted_turn() {
-    let model = get_model("openai", "gpt-5-mini").expect("model");
+    let model = get_builtin_model("openai", "gpt-5-mini").expect("model");
     let api_key = get_env_api_key("openai", None).expect("Missing OPENAI_API_KEY");
 
     let user_message = json!({
@@ -130,16 +133,16 @@ async fn skips_reasoning_only_history_after_an_aborted_turn() {
         "timestamp": now(),
     });
 
-    let assistant_response = complete(
-        &model,
-        context(
-            "You are a helpful assistant. Use the tool.",
-            std::slice::from_ref(&user_message),
-        ),
-        options(&api_key, &json!({ "reasoningEffort": "high" })),
-    )
-    .await
-    .expect("first response");
+    let assistant_response = common::env_models()
+        .complete(
+            &model,
+            context(
+                "You are a helpful assistant. Use the tool.",
+                std::slice::from_ref(&user_message),
+            ),
+            options(&api_key, &json!({ "reasoningEffort": "high" })).into(),
+        )
+        .await;
 
     let thinking_block = assistant_response
         .content
@@ -169,13 +172,13 @@ async fn skips_reasoning_only_history_after_an_aborted_turn() {
         ],
     );
 
-    let response = complete(
-        &model,
-        context,
-        options(&api_key, &json!({ "reasoningEffort": "high" })),
-    )
-    .await
-    .expect("response");
+    let response = common::env_models()
+        .complete(
+            &model,
+            context,
+            options(&api_key, &json!({ "reasoningEffort": "high" })).into(),
+        )
+        .await;
 
     // The key assertion: no 400 error from orphaned reasoning item
     assert_no_error(&response);
@@ -184,8 +187,8 @@ async fn skips_reasoning_only_history_after_an_aborted_turn() {
 #[tokio::test]
 #[ignore = "needs OPENAI_API_KEY and ANTHROPIC_API_KEY; run with --ignored"]
 async fn handles_same_provider_different_model_handoff_with_tool_calls() {
-    let model_a = get_model("openai", "gpt-5-mini").expect("model a");
-    let model_b = get_model("openai", "gpt-5.5").expect("model b");
+    let model_a = get_builtin_model("openai", "gpt-5-mini").expect("model a");
+    let model_b = get_builtin_model("openai", "gpt-5.5").expect("model b");
     let api_key = get_env_api_key("openai", None).expect("Missing OPENAI_API_KEY");
 
     let user_message = json!({
@@ -194,16 +197,16 @@ async fn handles_same_provider_different_model_handoff_with_tool_calls() {
         "timestamp": now(),
     });
 
-    let assistant_response = complete(
-        &model_a,
-        context(
-            "You are a helpful assistant. Always use the tool when asked.",
-            std::slice::from_ref(&user_message),
-        ),
-        options(&api_key, &json!({ "reasoningEffort": "high" })),
-    )
-    .await
-    .expect("first response");
+    let assistant_response = common::env_models()
+        .complete(
+            &model_a,
+            context(
+                "You are a helpful assistant. Always use the tool when asked.",
+                std::slice::from_ref(&user_message),
+            ),
+            options(&api_key, &json!({ "reasoningEffort": "high" })).into(),
+        )
+        .await;
 
     let tool_call_block = find_tool_call(&assistant_response)
         .expect("Missing tool call from OpenAI Responses - model did not use the tool");
@@ -235,9 +238,9 @@ async fn handles_same_provider_different_model_handoff_with_tool_calls() {
     let (on_payload, captured_payload) = capture_payload();
     let mut request_options = options(&api_key, &json!({ "reasoningEffort": "high" }));
     request_options.stream.request.on_payload = Some(on_payload);
-    let response = complete(&model_b, context, request_options)
-        .await
-        .expect("response");
+    let response = common::env_models()
+        .complete(&model_b, context, request_options.into())
+        .await;
 
     // The key assertion: no 400 error from orphaned function_call
     assert_no_error(&response);
@@ -258,8 +261,9 @@ async fn handles_same_provider_different_model_handoff_with_tool_calls() {
 #[tokio::test]
 #[ignore = "needs OPENAI_API_KEY and ANTHROPIC_API_KEY; run with --ignored"]
 async fn handles_cross_provider_handoff_from_anthropic_to_openai_codex() {
-    let anthropic_model = get_model("anthropic", "claude-sonnet-4-5").expect("anthropic model");
-    let codex_model = get_model("openai", "gpt-5.5").expect("codex model");
+    let anthropic_model =
+        get_builtin_model("anthropic", "claude-sonnet-4-5").expect("anthropic model");
+    let codex_model = get_builtin_model("openai", "gpt-5.5").expect("codex model");
     let (Some(anthropic_api_key), Some(openai_api_key)) = (
         get_env_api_key("anthropic", None),
         get_env_api_key("openai", None),
@@ -273,19 +277,20 @@ async fn handles_cross_provider_handoff_from_anthropic_to_openai_codex() {
         "timestamp": now(),
     });
 
-    let assistant_response = complete(
-        &anthropic_model,
-        context(
-            "You are a helpful assistant. Always use the tool when asked.",
-            std::slice::from_ref(&user_message),
-        ),
-        options(
-            &anthropic_api_key,
-            &json!({ "thinkingEnabled": true, "thinkingBudgetTokens": 5000 }),
-        ),
-    )
-    .await
-    .expect("anthropic response");
+    let assistant_response = common::env_models()
+        .complete(
+            &anthropic_model,
+            context(
+                "You are a helpful assistant. Always use the tool when asked.",
+                std::slice::from_ref(&user_message),
+            ),
+            options(
+                &anthropic_api_key,
+                &json!({ "thinkingEnabled": true, "thinkingBudgetTokens": 5000 }),
+            )
+            .into(),
+        )
+        .await;
 
     let tool_call_block = find_tool_call(&assistant_response)
         .expect("Missing tool call from Anthropic - model did not use the tool");
@@ -318,9 +323,9 @@ async fn handles_cross_provider_handoff_from_anthropic_to_openai_codex() {
     let (on_payload, captured_payload) = capture_payload();
     let mut request_options = options(&openai_api_key, &json!({ "reasoningEffort": "high" }));
     request_options.stream.request.on_payload = Some(on_payload);
-    let response = complete(&codex_model, context, request_options)
-        .await
-        .expect("response");
+    let response = common::env_models()
+        .complete(&codex_model, context, request_options.into())
+        .await;
 
     log_payload(
         "Payload sent to Codex:",

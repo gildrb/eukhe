@@ -4,8 +4,8 @@
 //! built by the `openai-codex-responses` module and is deferred to that
 //! module's port.
 
-use eukhe_ai::compat::get_model;
 use eukhe_ai::models::{clamp_thinking_level, get_supported_thinking_levels};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::json;
 
@@ -56,7 +56,7 @@ fn exposes_xhigh_and_max_for_openai_codex() {
         "gpt-6-luna",
         "gpt-6-sol",
     ] {
-        let model = get_model("openai-codex", model_id)
+        let model = get_builtin_model("openai-codex", model_id)
             .unwrap_or_else(|| panic!("openai-codex/{model_id} is defined"));
         let map = model.thinking_level_map.as_ref().expect("thinkingLevelMap");
         assert_eq!(

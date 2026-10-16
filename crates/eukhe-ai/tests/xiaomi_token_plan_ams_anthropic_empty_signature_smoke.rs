@@ -3,9 +3,10 @@
 //! is `#[ignore]`d.
 
 mod anthropic_support;
+mod common;
 
 use anthropic_support::{capturing_on_payload, model, take_payload};
-use eukhe_ai::compat::{complete_simple, get_env_api_key, stream_simple};
+use eukhe_ai::env_api_keys::get_env_api_key;
 use eukhe_ai::types::SimpleStreamOptions;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context, JsonValue, Message, Model, StopReason, ThinkingLevel,
@@ -52,7 +53,7 @@ async fn capture_replay_payload(context: Context, api_key: &str) -> JsonValue {
     let (on_payload, captured) = capturing_on_payload();
     let mut options = options(api_key);
     options.stream.request.on_payload = Some(on_payload);
-    let stream = stream_simple(&smoke_model(), context, options).expect("stream");
+    let stream = common::env_models().stream_simple(&smoke_model(), context, options.into());
     let _ = stream.result().await;
     take_payload(&captured)
 }
@@ -62,9 +63,13 @@ async fn capture_replay_payload(context: Context, api_key: &str) -> JsonValue {
 async fn reproduces_empty_thinking_signatures_and_preserves_them_for_replay() {
     let api_key = get_env_api_key(PROVIDER, None).expect("XIAOMI_TOKEN_PLAN_AMS_API_KEY");
     let first_context = make_initial_context();
-    let first = complete_simple(&smoke_model(), first_context.clone(), options(&api_key))
-        .await
-        .expect("complete");
+    let first = common::env_models()
+        .complete_simple(
+            &smoke_model(),
+            first_context.clone(),
+            options(&api_key).into(),
+        )
+        .await;
 
     assert_eq!(
         first.stop_reason,

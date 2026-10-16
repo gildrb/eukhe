@@ -1,6 +1,7 @@
 //! Port of `test/anthropic-opus-4-8-smoke.test.ts` (real API; `#[ignore]`d).
 
 mod anthropic_support;
+mod common;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -39,7 +40,7 @@ async fn streams_claude_opus_4_8_with_reasoning_enabled() {
         *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(payload.clone());
         Box::pin(async move { Ok(Some(payload)) })
     }));
-    let s = eukhe_ai::compat::stream_simple(&model, make_context(), options).expect("stream");
+    let s = common::env_models().stream_simple(&model, make_context(), options.into());
 
     let mut saw_thinking = false;
     let mut events = s.events();

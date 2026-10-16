@@ -3,7 +3,7 @@
 use eukhe_ai::api::openai_responses_shared::{
     convert_responses_messages, ConvertResponsesMessagesOptions,
 };
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{Context, JsonValue};
 use serde_json::json;
@@ -38,7 +38,7 @@ fn build_empty_tool_result(tool_call_id: &str, timestamp: u64) -> JsonValue {
 
 #[test]
 fn uses_no_tool_output_placeholder_for_empty_tool_results_without_images() {
-    let model = get_model("openai", "gpt-4o-mini").expect("model");
+    let model = get_builtin_model("openai", "gpt-4o-mini").expect("model");
     let now = now();
     let assistant = json!({
         "role": "assistant",

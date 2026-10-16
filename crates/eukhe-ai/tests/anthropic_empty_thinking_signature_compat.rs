@@ -3,8 +3,10 @@
 mod anthropic_support;
 
 use anthropic_support::{capturing_on_payload, model, take_payload};
-use eukhe_ai::compat::{get_model, get_models, stream_simple};
+use eukhe_ai::api::anthropic_messages::stream_simple;
+use eukhe_ai::providers::all::{get_builtin_model, get_builtin_models};
 use eukhe_ai::types::SimpleStreamOptions;
+use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{Context, JsonValue, Model};
 use serde_json::json;
 
@@ -66,8 +68,9 @@ async fn capture_payload(model: &Model, context: &JsonValue) -> JsonValue {
     options.stream.request.api_key = Some("fake-key".into());
     options.stream.request.on_payload = Some(on_payload);
     let context: Context = serde_json::from_value(context.clone()).expect("context");
-    let stream = stream_simple(model, context, options).expect("stream");
-    let _ = stream.result().await;
+    let _ = stream_simple(model, &normalize_context(context), &options)
+        .result()
+        .await;
     take_payload(&captured)
 }
 
@@ -126,7 +129,7 @@ async fn preserves_empty_signature_thinking_when_allow_empty_signature_is_enable
 // Regression for #9676: Vercel AI Gateway emits unsigned thinking for translated models.
 #[test]
 fn allows_empty_thinking_signatures_for_every_vercel_ai_gateway_model() {
-    let models = get_models("vercel-ai-gateway");
+    let models = get_builtin_models("vercel-ai-gateway");
     assert!(!models.is_empty());
     assert!(models
         .iter()
@@ -142,7 +145,7 @@ async fn preserves_unsigned_thinking_for_fireworks() {
         "accounts/fireworks/models/qwen3p8-2p4t-a95b",
         "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
     ] {
-        let model = get_model("fireworks", model_id).expect("fireworks model");
+        let model = get_builtin_model("fireworks", model_id).expect("fireworks model");
         assert_eq!(
             compat_value(&model, "allowEmptySignature"),
             json!(true),
@@ -168,7 +171,7 @@ async fn preserves_unsigned_thinking_for_fireworks() {
 // Regression for #9323: opting into unsigned replay must not change cross-model conversion.
 #[tokio::test]
 async fn still_converts_cross_model_fireworks_thinking_to_text() {
-    let model = get_model("fireworks", "accounts/fireworks/models/deepseek-v4p1-flash")
+    let model = get_builtin_model("fireworks", "accounts/fireworks/models/deepseek-v4p1-flash")
         .expect("fireworks model");
     let payload = capture_payload(
         &model,
@@ -189,7 +192,7 @@ async fn still_converts_cross_model_fireworks_thinking_to_text() {
 #[tokio::test]
 async fn allows_empty_signatures_for_kimi_coding() {
     for model_id in ["k3"] {
-        let model = get_model("kimi-coding", model_id).expect("kimi-coding model");
+        let model = get_builtin_model("kimi-coding", model_id).expect("kimi-coding model");
         assert_eq!(
             compat_value(&model, "allowEmptySignature"),
             json!(true),

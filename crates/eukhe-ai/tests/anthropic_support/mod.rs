@@ -254,7 +254,7 @@ pub fn federation_fetch() -> (FetchFunction, Captured) {
 /// A built-in catalog model with JSON overrides (TS `{ ...getModel(p, id), ...overrides }`).
 #[must_use]
 pub fn builtin_model(provider: &str, id: &str, overrides: &JsonValue) -> Model {
-    let model = eukhe_ai::compat::get_model(provider, id)
+    let model = eukhe_ai::providers::all::get_builtin_model(provider, id)
         .unwrap_or_else(|| panic!("built-in model {provider}/{id}"));
     let mut value = serde_json::to_value(model).expect("model json");
     if let (Some(base), Some(overrides)) = (value.as_object_mut(), overrides.as_object()) {
@@ -313,8 +313,10 @@ pub async fn capture_simple_payload(
         "messages": [{ "role": "user", "content": "Hello", "timestamp": 1 }],
     }))
     .expect("context");
-    let stream = eukhe_ai::compat::stream_simple(&model, context, options).expect("stream");
-    let _ = stream.result().await;
+    let context = eukhe_ai::utils::transcript::normalize_context(context);
+    let _ = eukhe_ai::api::anthropic_messages::stream_simple(&model, &context, &options)
+        .result()
+        .await;
     take_payload(&captured)
 }
 

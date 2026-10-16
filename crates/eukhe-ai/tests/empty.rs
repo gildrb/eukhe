@@ -9,12 +9,13 @@
 //! construction: `complete` returns an `AssistantMessage`.
 
 mod anthropic_support;
+mod common;
 mod openai_responses_support;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anthropic_support::resolve_test_api_key;
-use eukhe_ai::compat::{complete, get_model};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{Context, JsonValue, Model, StopReason};
 use openai_responses_support::azure::{
@@ -75,7 +76,7 @@ impl Target {
     }
 
     fn model(&self) -> Model {
-        get_model(self.provider, self.model)
+        get_builtin_model(self.provider, self.model)
             .unwrap_or_else(|| panic!("built-in model {}/{}", self.provider, self.model))
     }
 
@@ -178,9 +179,9 @@ fn case_context(case: Case, model: &Model) -> Context {
 async fn attempt(case: Case, target: &Target) -> Result<(), String> {
     let model = target.model();
     let context = case_context(case, &model);
-    let response = complete(&model, context, target.options())
-        .await
-        .map_err(|error| error.to_string())?;
+    let response = common::env_models()
+        .complete(&model, context, target.options().into())
+        .await;
     if response.stop_reason == StopReason::Error {
         if response.error_message.is_none() {
             return Err("stopReason is error but errorMessage is undefined".to_owned());

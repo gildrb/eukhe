@@ -14,8 +14,9 @@
 
 use std::sync::Arc;
 
-use eukhe_ai::images::generate_images;
-use eukhe_ai::types::{FetchFunction, ProviderImagesOptions};
+use eukhe_ai::models::CreateModelsOptions;
+use eukhe_ai::providers::all::builtin_models;
+use eukhe_ai::types::{FetchFunction, ImagesOptions};
 use eukhe_types::pi_ai::{ImageModel, ImagesContext, ImagesStopReason};
 use serde_json::json;
 
@@ -52,15 +53,15 @@ async fn surfaces_the_http_body_reason_instead_of_the_opaque_sdk_message_openrou
     let context: ImagesContext =
         serde_json::from_value(json!({ "input": [{ "type": "text", "text": "Generate a dog" }] }))
             .expect("images context");
-    let mut options = ProviderImagesOptions::default();
-    options.images.request.api_key = Some("test".to_owned());
-    options.images.request.fetch = Some(forbidden_fetch(
+    let mut options = ImagesOptions::default();
+    options.request.api_key = Some("test".to_owned());
+    options.request.fetch = Some(forbidden_fetch(
         &json!({ "error": "blocked by gateway WAF" }),
     ));
 
-    let output = generate_images(&model, &context, options)
-        .await
-        .expect("dispatch");
+    let output = builtin_models(CreateModelsOptions::default())
+        .generate_images(&model, &context, options.into())
+        .await;
 
     assert_eq!(output.stop_reason, ImagesStopReason::Error);
     let error_message = output.error_message.as_deref().unwrap_or_default();

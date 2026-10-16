@@ -5,11 +5,13 @@
 //! keys with `test/oauth.ts` (stored OAuth credentials or env); here keys come
 //! from the provider's env API key variables (`getEnvApiKey`).
 
+mod common;
+
 use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
-use eukhe_ai::compat::{complete, get_model};
 use eukhe_ai::env_api_keys::get_env_api_key;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::{OnPayload, ProviderStreamOptions};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context, JsonValue, Message, Modality, Model, StopReason,
@@ -97,9 +99,9 @@ async fn verify_tool_result_images_stay_in_function_call_output(
     }))
     .expect("context");
 
-    let first_response = complete(model, context.clone(), options.clone())
-        .await
-        .expect("first response");
+    let first_response = common::env_models()
+        .complete(model, context.clone(), options.clone().into())
+        .await;
     assert_eq!(
         first_response.stop_reason,
         StopReason::ToolUse,
@@ -142,9 +144,9 @@ async fn verify_tool_result_images_stay_in_function_call_output(
     });
     let mut second_options = options;
     second_options.stream.request.on_payload = Some(on_payload);
-    let second_response = complete(model, context, second_options)
-        .await
-        .expect("second response");
+    let second_response = common::env_models()
+        .complete(model, context, second_options.into())
+        .await;
 
     assert_eq!(
         second_response.stop_reason,
@@ -213,7 +215,7 @@ fn assert_function_call_output_payload(payload: Option<&JsonValue>, tool_text: &
 #[tokio::test]
 #[ignore = "needs OPENAI_API_KEY; run with --ignored"]
 async fn openai_responses_should_send_tool_result_images_in_function_call_output() {
-    let model = get_model("openai", "gpt-5-mini").expect("model");
+    let model = get_builtin_model("openai", "gpt-5-mini").expect("model");
     verify_tool_result_images_stay_in_function_call_output(
         &model,
         options(None, &json!({ "reasoningEffort": "low" })),
@@ -229,7 +231,7 @@ async fn azure_openai_responses_should_send_tool_result_images_in_function_call_
         has_azure_openai_credentials(),
         "missing Azure OpenAI credentials"
     );
-    let model = get_model("azure", "gpt-4o-mini").expect("model");
+    let model = get_builtin_model("azure", "gpt-4o-mini").expect("model");
     let azure_options = resolve_azure_deployment_name(&model.id)
         .map_or_else(|| json!({}), |name| json!({ "azureDeploymentName": name }));
     verify_tool_result_images_stay_in_function_call_output(&model, options(None, &azure_options))
@@ -240,7 +242,7 @@ async fn azure_openai_responses_should_send_tool_result_images_in_function_call_
 #[tokio::test]
 #[ignore = "needs a GitHub Copilot token (COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN); run with --ignored"]
 async fn github_copilot_responses_should_send_tool_result_images_in_function_call_output() {
-    let model = get_model("github-copilot", "gpt-5-mini").expect("model");
+    let model = get_builtin_model("github-copilot", "gpt-5-mini").expect("model");
     let token = get_env_api_key("github-copilot", None).expect("github-copilot token");
     verify_tool_result_images_stay_in_function_call_output(
         &model,
@@ -253,7 +255,7 @@ async fn github_copilot_responses_should_send_tool_result_images_in_function_cal
 #[tokio::test]
 #[ignore = "needs an OpenAI Codex token in env; run with --ignored"]
 async fn openai_codex_responses_should_send_tool_result_images_in_function_call_output() {
-    let model = get_model("openai-codex", "gpt-5.5").expect("model");
+    let model = get_builtin_model("openai-codex", "gpt-5.5").expect("model");
     let token = get_env_api_key("openai-codex", None).expect("openai-codex token");
     verify_tool_result_images_stay_in_function_call_output(
         &model,

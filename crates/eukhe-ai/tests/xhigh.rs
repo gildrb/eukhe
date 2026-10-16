@@ -1,7 +1,9 @@
 //! Port of `test/xhigh.test.ts`: real `OpenAI` endpoint cases (TS
 //! `describe.skipIf(!process.env.OPENAI_API_KEY)`).
 
-use eukhe_ai::compat::{get_model, stream};
+mod common;
+
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context, Message, Model,
@@ -42,7 +44,7 @@ fn xhigh_options() -> ProviderStreamOptions {
 /// Streams `model` with `reasoningEffort: "xhigh"`; returns whether a
 /// thinking event arrived and the final message.
 async fn run(model: &Model) -> (bool, AssistantMessage) {
-    let events = stream(model, make_context(), xhigh_options()).expect("stream");
+    let events = common::env_models().stream(model, make_context(), xhigh_options().into());
     let mut has_thinking = false;
     let mut iter = events.events();
     while let Some(event) = iter.next().await {
@@ -61,7 +63,7 @@ async fn run(model: &Model) -> (bool, AssistantMessage) {
 #[tokio::test]
 #[ignore = "needs OPENAI_API_KEY; run with --ignored"]
 async fn should_work_with_openai_responses() {
-    let model = get_model("openai", "gpt-5.5").expect("model");
+    let model = get_builtin_model("openai", "gpt-5.5").expect("model");
     let (has_thinking, response) = run(&model).await;
 
     assert_eq!(
@@ -86,7 +88,7 @@ async fn should_work_with_openai_responses() {
 #[tokio::test]
 #[ignore = "needs OPENAI_API_KEY; run with --ignored"]
 async fn should_error_with_openai_responses_when_using_xhigh() {
-    let model = get_model("openai", "gpt-5-mini").expect("model");
+    let model = get_builtin_model("openai", "gpt-5-mini").expect("model");
     let (_, response) = run(&model).await;
 
     assert_eq!(response.stop_reason, StopReason::Error);
@@ -102,7 +104,7 @@ async fn should_error_with_openai_completions_when_using_xhigh() {
     let model = Model {
         api: "openai-completions".to_owned(),
         compat: None,
-        ..get_model("openai", "gpt-5-mini").expect("model")
+        ..get_builtin_model("openai", "gpt-5-mini").expect("model")
     };
     let (_, response) = run(&model).await;
 

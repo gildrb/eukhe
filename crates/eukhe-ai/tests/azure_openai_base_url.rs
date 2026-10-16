@@ -12,7 +12,7 @@ mod openai_responses_support;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::api::azure_openai_responses::stream;
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::{
     JsonValue, Model, OnProviderStreamEvent, ProviderHeaders, ProviderStreamOptions, StopReason,
 };
@@ -93,7 +93,7 @@ fn now() -> u64 {
 }
 
 fn azure_model() -> Model {
-    get_model("azure", "gpt-4o-mini").expect("azure/gpt-4o-mini")
+    get_builtin_model("azure", "gpt-4o-mini").expect("azure/gpt-4o-mini")
 }
 
 /// Options with `apiKey: "test-api-key"` and the API-specific `extra` keys.

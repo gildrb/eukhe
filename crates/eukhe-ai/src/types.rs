@@ -347,13 +347,6 @@ pub struct ImagesOptions {
     pub metadata: Option<JsonObject>,
 }
 
-/// TS `ProviderImagesOptions = ImagesOptions & Record<string, unknown>`.
-#[derive(Debug, Clone, Default)]
-pub struct ProviderImagesOptions {
-    pub images: ImagesOptions,
-    pub extra: JsonObject,
-}
-
 /// Deferred-processing window of a [`DeferredRequest`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeferredWindow {

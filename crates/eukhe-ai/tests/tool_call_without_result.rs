@@ -8,12 +8,13 @@
 //! to three attempts.
 
 mod anthropic_support;
+mod common;
 mod openai_responses_support;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anthropic_support::resolve_test_api_key;
-use eukhe_ai::compat::{complete, get_model};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{AssistantContentBlock, Context, JsonValue, Message, Model, StopReason};
 use openai_responses_support::azure::{
@@ -108,7 +109,7 @@ impl Target {
     }
 
     fn model(&self) -> Model {
-        let mut model = get_model(self.provider, self.model)
+        let mut model = get_builtin_model(self.provider, self.model)
             .unwrap_or_else(|| panic!("built-in model {}/{}", self.provider, self.model));
         match self.shape {
             ModelShape::Catalog => {}
@@ -193,9 +194,9 @@ async fn attempt(target: &Target) -> Result<(), String> {
     ));
 
     // Step 3: Get the assistant's response (should contain a tool call)
-    let first_response = complete(&model, context.clone(), target.options())
-        .await
-        .map_err(|error| error.to_string())?;
+    let first_response = common::env_models()
+        .complete(&model, context.clone(), target.options().into())
+        .await;
     println!(
         "First response: {}",
         serde_json::to_string_pretty(&first_response).expect("response json")
@@ -215,9 +216,9 @@ async fn attempt(target: &Target) -> Result<(), String> {
         .push(user_message("Never mind, just tell me what is 2+2?"));
 
     // Step 5: The fix should filter out the orphaned tool call, and the request should succeed
-    let second_response = complete(&model, context, target.options())
-        .await
-        .map_err(|error| error.to_string())?;
+    let second_response = common::env_models()
+        .complete(&model, context, target.options().into())
+        .await;
     println!(
         "Second response: {}",
         serde_json::to_string_pretty(&second_response).expect("response json")

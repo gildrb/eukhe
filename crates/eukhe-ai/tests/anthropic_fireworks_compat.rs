@@ -16,7 +16,7 @@ use anthropic_support::{
     context, minimal_sse, mock_fetch, requests, CapturedRequest, MockResponse,
 };
 use eukhe_ai::api::anthropic_messages::{stream, stream_simple};
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::{OnPayload, ProviderStreamOptions, SimpleStreamOptions};
 use eukhe_types::pi_ai::{CacheRetention, JsonValue, Model, ThinkingLevel};
 use serde_json::{json, Value};
@@ -52,7 +52,7 @@ async fn simple_payload(model: &Model, reasoning: Option<&str>) -> Value {
 /// Regression for #9323: native effort must reach Messages without
 /// budget-based fallback.
 async fn sends_native_messages_effort_levels_for(model_id: &str, levels: &[&str]) {
-    let model = get_model("fireworks", model_id).expect("fireworks model");
+    let model = get_builtin_model("fireworks", model_id).expect("fireworks model");
     for level in levels {
         let payload = simple_payload(&model, (*level != "off").then_some(*level)).await;
         let (thinking, output_config) = if *level == "off" {
@@ -101,7 +101,7 @@ async fn sends_native_messages_effort_levels_for_qwen3p8_2p4t_a95b() {
 
 #[tokio::test]
 async fn keeps_toggle_only_messages_models_without_a_verified_fallback_on_budget_based_thinking() {
-    let model = get_model(
+    let model = get_builtin_model(
         "fireworks",
         "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
     )

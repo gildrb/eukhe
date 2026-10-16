@@ -3,7 +3,7 @@
 mod openai_responses_support;
 
 use eukhe_ai::api::openai_responses::stream as stream_openai_responses;
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{
@@ -13,7 +13,7 @@ use openai_responses_support::{mock_fetch, CapturedRequest, MockResponse};
 use serde_json::json;
 
 fn model(provider: &str, id: &str) -> Model {
-    get_model(provider, id).expect("model")
+    get_builtin_model(provider, id).expect("model")
 }
 
 /// `{ ...base, ...patch }` on the model's JSON shape.

@@ -1,12 +1,12 @@
 //! Port of `test/xiaomi-models.test.ts` (one test per `it.each` row).
 
-use eukhe_ai::compat::get_models;
+use eukhe_ai::providers::all::get_builtin_models;
 
 const DEPRECATED_MODEL_IDS: [&str; 3] = ["mimo-v2-flash", "mimo-v2-omni", "mimo-v2-pro"];
 const REPLACEMENT_MODEL_IDS: [&str; 2] = ["mimo-v2.5", "mimo-v2.5-pro"];
 
 fn model_ids(provider: &str) -> Vec<String> {
-    get_models(provider)
+    get_builtin_models(provider)
         .into_iter()
         .map(|model| model.id)
         .collect()

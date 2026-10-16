@@ -10,7 +10,7 @@ use anthropic_support::{
 };
 use eukhe_ai::api::anthropic_messages::{stream_anthropic, AnthropicOptions};
 use eukhe_ai::api::transform_messages::transform_messages;
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, JsonValue, Message, Model, StopReason,
     TranscriptContext,
@@ -67,7 +67,7 @@ async fn forwards_parsed_provider_stream_events_in_order() {
 }
 
 fn get(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("{provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("{provider}/{id}"))
 }
 
 fn hello_context() -> TranscriptContext {

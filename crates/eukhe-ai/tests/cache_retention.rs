@@ -11,6 +11,8 @@
 //! As in TS, `onPayload` records the payload and throws "payload captured",
 //! so no request leaves the process.
 
+mod common;
+
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::api::{anthropic_messages, openai_completions, openai_responses};
@@ -160,8 +162,8 @@ async fn capture_live(model: &Model, env: PiCacheRetention) -> Option<JsonValue>
     let mut options = ProviderStreamOptions::default();
     options.stream.request.env = Some(pi_cache_retention_env(env));
     options.stream.request.on_payload = Some(on_payload);
-    eukhe_ai::compat::stream(model, raw_context(), options)
-        .expect("stream")
+    common::env_models()
+        .stream(model, raw_context(), options.into())
         .result()
         .await;
     let payload = captured

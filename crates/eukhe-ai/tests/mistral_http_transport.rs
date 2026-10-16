@@ -5,7 +5,7 @@ mod mistral_support;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::api::mistral_conversations::stream as stream_mistral;
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::{OnProviderStreamEvent, OnResponse, ProviderStreamOptions};
 use eukhe_ai::utils::pi_user_agent::get_pi_user_agent;
 use eukhe_ai::utils::transcript::normalize_context;
@@ -20,7 +20,7 @@ use mistral_support::{
 use serde_json::json;
 
 fn mistral_model(id: &str) -> Model {
-    get_model("mistral", id).expect("model")
+    get_builtin_model("mistral", id).expect("model")
 }
 
 fn context(value: JsonValue) -> eukhe_types::pi_ai::TranscriptContext {

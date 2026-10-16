@@ -20,6 +20,13 @@ use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::transcript::normalize_context;
 
 use super::super::{stream_with_options, OpenAICompletionsOptions};
+use crate::models::{CreateModelsOptions, Models};
+use crate::providers::all::builtin_models;
+
+/// Every built-in provider, auth from the request and the environment.
+pub(crate) fn builtin() -> Models {
+    builtin_models(CreateModelsOptions::default())
+}
 
 /// A chat model from TS-shaped JSON.
 pub(crate) fn model(value: JsonValue) -> Model {

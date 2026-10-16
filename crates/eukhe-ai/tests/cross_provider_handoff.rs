@@ -9,13 +9,15 @@
 //! `resolveApiKey` (`test/oauth.ts`) reads `PI_TEST_<PROVIDER>_TOKEN`.
 
 mod anthropic_support;
+mod common;
 mod openai_responses_support;
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anthropic_support::resolve_test_api_key;
-use eukhe_ai::compat::{complete_simple, get_env_api_key, get_model};
+use eukhe_ai::env_api_keys::get_env_api_key;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::{OnPayload, ProviderHeaders, SimpleStreamOptions};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Context, IndexMap, JsonValue, Message, Model,
@@ -344,7 +346,7 @@ fn last_payload(last: &LastPayload) -> Option<JsonValue> {
 }
 
 fn resolve_model(pair: &ProviderModelPair) -> Option<Model> {
-    let mut model = get_model(pair.provider, pair.model)?;
+    let mut model = get_builtin_model(pair.provider, pair.model)?;
     if let Some(api) = pair.api_override {
         model.api = api.into();
     }
@@ -414,21 +416,13 @@ async fn fixture_request(
     messages: &[Message],
 ) -> Option<AssistantMessage> {
     let label = format!("{}-{}", request.pair.label, stage.label_suffix());
-    let response = match complete_simple(
-        request.model,
-        context(system_prompt, messages),
-        simple_options(request.model, request.pair, request.api_key, request.last),
-    )
-    .await
-    {
-        Ok(response) => response,
-        Err(error) => {
-            let msg = error.to_string();
-            println!("  {} request failed: {msg}", stage.log_name());
-            dump_failure_payload(&label, &msg, last_payload(request.last), messages);
-            return None;
-        }
-    };
+    let response = common::env_models()
+        .complete_simple(
+            request.model,
+            context(system_prompt, messages),
+            simple_options(request.model, request.pair, request.api_key, request.last).into(),
+        )
+        .await;
 
     if response.stop_reason == StopReason::Error {
         println!(
@@ -592,65 +586,53 @@ async fn handoff_request(
     all_messages: &[Message],
 ) -> HandoffResult {
     let last: LastPayload = Arc::default();
-    match complete_simple(
-        model,
-        context("You are a helpful assistant.", all_messages),
-        simple_options(model, target_pair, api_key, &last),
-    )
-    .await
-    {
-        Ok(response) if response.stop_reason == StopReason::Error => {
-            println!(
-                "[Target: {}] FAILED: {}",
-                target_pair.label,
-                response.error_message.as_deref().unwrap_or("undefined")
-            );
-            dump_failure_payload(
-                target_pair.label,
-                response
-                    .error_message
-                    .as_deref()
-                    .filter(|message| !message.is_empty())
-                    .unwrap_or("Unknown error"),
-                last_payload(&last),
-                all_messages,
-            );
-            HandoffResult {
-                target: target_pair.label,
-                success: false,
-                error: response.error_message,
-            }
+    let response = common::env_models()
+        .complete_simple(
+            model,
+            context("You are a helpful assistant.", all_messages),
+            simple_options(model, target_pair, api_key, &last).into(),
+        )
+        .await;
+    if response.stop_reason == StopReason::Error {
+        println!(
+            "[Target: {}] FAILED: {}",
+            target_pair.label,
+            response.error_message.as_deref().unwrap_or("undefined")
+        );
+        dump_failure_payload(
+            target_pair.label,
+            response
+                .error_message
+                .as_deref()
+                .filter(|message| !message.is_empty())
+                .unwrap_or("Unknown error"),
+            last_payload(&last),
+            all_messages,
+        );
+        HandoffResult {
+            target: target_pair.label,
+            success: false,
+            error: response.error_message,
         }
-        Ok(response) => {
-            let text = response
-                .content
-                .iter()
-                .filter_map(|block| match block {
-                    AssistantContentBlock::Text(text) => Some(text.text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            println!(
-                "[Target: {}] SUCCESS: {}...",
-                target_pair.label,
-                preview(&text)
-            );
-            HandoffResult {
-                target: target_pair.label,
-                success: true,
-                error: None,
-            }
-        }
-        Err(error) => {
-            let msg = error.to_string();
-            println!("[Target: {}] EXCEPTION: {msg}", target_pair.label);
-            dump_failure_payload(target_pair.label, &msg, last_payload(&last), all_messages);
-            HandoffResult {
-                target: target_pair.label,
-                success: false,
-                error: Some(msg),
-            }
+    } else {
+        let text = response
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        println!(
+            "[Target: {}] SUCCESS: {}...",
+            target_pair.label,
+            preview(&text)
+        );
+        HandoffResult {
+            target: target_pair.label,
+            success: true,
+            error: None,
         }
     }
 }

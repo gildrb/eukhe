@@ -70,7 +70,6 @@ pub mod bedrock_converse_stream;
 pub mod builtin;
 pub mod cache_breakpoints;
 pub(crate) mod classifier_shared;
-pub mod cloudflare;
 pub mod cloudflare_ai_binding;
 pub mod cloudflare_workers_ai_system_one;
 pub mod constrained_sampling;

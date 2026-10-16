@@ -5,7 +5,6 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::api::pi_messages::{stream, stream_simple};
-use eukhe_ai::compat::get_api_provider;
 use eukhe_ai::types::{
     OnProviderStreamEvent, OnResponse, ProviderStreamOptions, SimpleStreamOptions,
 };
@@ -485,11 +484,6 @@ async fn errors_when_the_stream_ends_without_a_terminal_event() {
         .error_message
         .unwrap_or_default()
         .contains("stream ended without a terminal event"));
-}
-
-#[test]
-fn is_registered_as_a_builtin_api_provider() {
-    assert!(get_api_provider("pi-messages").is_some());
 }
 
 #[test]

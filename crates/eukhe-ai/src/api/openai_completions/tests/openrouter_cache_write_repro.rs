@@ -6,7 +6,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
-use crate::compat::complete_simple;
 use crate::providers::all::get_builtin_model;
 use crate::types::{
     Context, JsonValue, Model, OnPayload, ProviderRequestOptions, SimpleStreamOptions, StopReason,
@@ -80,9 +79,9 @@ async fn regression_preserves_cache_write_tokens_on_openai_completions_stream_pa
         ..SimpleStreamOptions::default()
     };
 
-    let first = complete_simple(&model, context.clone(), options.clone())
-        .await
-        .expect("first request");
+    let first = super::support::builtin()
+        .complete_simple(&model, context.clone(), options.clone().into())
+        .await;
     assert_eq!(
         first.stop_reason,
         StopReason::Stop,
@@ -90,9 +89,9 @@ async fn regression_preserves_cache_write_tokens_on_openai_completions_stream_pa
         first.error_message
     );
 
-    let second = complete_simple(&model, context, options)
-        .await
-        .expect("second request");
+    let second = super::support::builtin()
+        .complete_simple(&model, context, options.into())
+        .await;
     assert_eq!(
         second.stop_reason,
         StopReason::Stop,

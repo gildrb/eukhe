@@ -5,7 +5,8 @@ mod common;
 use std::sync::{Mutex, PoisonError};
 
 use common::{assert_json_eq, assert_match_object};
-use eukhe_ai::compat::{find_env_keys, get_env_api_key, get_model};
+use eukhe_ai::env_api_keys::{find_env_keys, get_env_api_key};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
@@ -25,7 +26,7 @@ impl Drop for RestoreEnv {
 }
 
 fn together(id: &str) -> Model {
-    get_model("together", id).expect("together model")
+    get_builtin_model("together", id).expect("together model")
 }
 
 fn compat(model: &Model) -> serde_json::Value {

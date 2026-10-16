@@ -102,7 +102,7 @@ fn does_not_apply_the_public_radius_catalog_to_custom_gateways() {
         gateway: Some("http://localhost:8788".into()),
         ..RadiusProviderOptions::default()
     });
-    assert_eq!((provider.get_models)().expect("models"), Vec::new());
+    assert!((provider.get_models)().expect("models").is_empty());
 }
 
 /// TS mocks `globalThis.fetch` for the default gateway; the Rust config

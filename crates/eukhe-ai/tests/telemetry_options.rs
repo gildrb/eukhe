@@ -11,13 +11,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use common::ambient_auth;
 use eukhe_ai::api::{ProviderImages, ProviderStreams};
 use eukhe_ai::auth::ProviderAuth;
-use eukhe_ai::images::generate_images;
-use eukhe_ai::images_api_registry::{register_images_api_provider, ImagesApiProvider};
 use eukhe_ai::models::{create_models, create_provider, CreateProviderOptions, ProviderApi};
 use eukhe_ai::types::{
-    DeferredCancelOptions, DeferredFetchOptions, ImagesOptions, ProviderImagesOptions,
-    ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions, SpanAttributes,
-    SpanCallback, SpanOptions, SpanStatus, TelemetryContext, TelemetrySpan,
+    DeferredCancelOptions, DeferredFetchOptions, ImagesOptions, ProviderRequestOptions,
+    ProviderStreamOptions, SimpleStreamOptions, SpanAttributes, SpanCallback, SpanOptions,
+    SpanStatus, TelemetryContext, TelemetrySpan,
 };
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::transcript::normalize_context;
@@ -279,31 +277,11 @@ async fn survives_provider_and_models_stream_deferred_dispatch() {
 }
 
 #[tokio::test]
-async fn survives_direct_and_models_image_dispatch() {
+async fn survives_models_image_dispatch() {
     let telemetry: Arc<dyn TelemetryContext> = Arc::new(NoopTelemetry);
     let observed: Observed = Arc::default();
     let image_model = image_model();
     let images_context = images_context();
-    let on_direct = Arc::clone(&observed);
-    register_images_api_provider(ImagesApiProvider {
-        api: image_model.api.clone(),
-        generate_images: Arc::new(move |request_model, _context, options| {
-            observe(&on_direct, options.images.request.telemetry_context);
-            let result = images_result(request_model);
-            Box::pin(async move { Ok(result) })
-        }),
-    });
-    generate_images(
-        &image_model,
-        &images_context,
-        ProviderImagesOptions {
-            images: images_options(&telemetry),
-            ..ProviderImagesOptions::default()
-        },
-    )
-    .await
-    .expect("generate images");
-
     let models = create_models(eukhe_ai::models::CreateModelsOptions::default());
     let on_models = Arc::clone(&observed);
     models.set_provider(
@@ -336,5 +314,5 @@ async fn survives_direct_and_models_image_dispatch() {
         )
         .await;
 
-    assert_all_same(&observed, &telemetry, 2);
+    assert_all_same(&observed, &telemetry, 1);
 }

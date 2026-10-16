@@ -8,14 +8,14 @@ use std::sync::PoisonError;
 use serde_json::json;
 
 use super::support::{payload_recorder, sse_fetch, stop_chunks};
-use crate::compat::{get_model, stream_simple};
+use crate::providers::all::get_builtin_model;
 use crate::types::{
     CacheRetention, Context, JsonValue, Model, ProviderRequestOptions, SimpleStreamOptions,
     StreamOptions, ThinkingLevel,
 };
 
 fn fireworks_model(id: &str) -> Model {
-    get_model("fireworks", id).unwrap_or_else(|| panic!("missing model fireworks/{id}"))
+    get_builtin_model("fireworks", id).unwrap_or_else(|| panic!("missing model fireworks/{id}"))
 }
 
 /// Options with `apiKey: "test-fireworks-key"`, the stop-answering `fetch`,
@@ -43,8 +43,8 @@ async fn simple_payload(
         "messages": [{ "role": "user", "content": "test", "timestamp": 0 }],
     }))
     .expect("valid context JSON");
-    let message = stream_simple(model, context, options)
-        .expect("stream starts")
+    let message = super::support::builtin()
+        .stream_simple(model, context, options.into())
         .result()
         .await;
     let payloads = seen.lock().unwrap_or_else(PoisonError::into_inner);

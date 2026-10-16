@@ -7,7 +7,7 @@ use std::sync::PoisonError;
 use serde_json::json;
 
 use super::support::{payload_recorder, sse_fetch};
-use crate::compat::{get_models, stream_simple};
+use crate::providers::all::get_builtin_models;
 use crate::types::{
     Context, JsonValue, Model, ProviderRequestOptions, SimpleStreamOptions, StreamOptions,
     ThinkingLevel,
@@ -95,7 +95,7 @@ fn qwen38_model_cases() -> Vec<(&'static str, &'static str)> {
 }
 
 fn find_model(provider: &str, model_id: &str) -> Model {
-    get_models(provider)
+    get_builtin_models(provider)
         .into_iter()
         .find(|candidate| candidate.id == model_id)
         .unwrap_or_else(|| panic!("Missing model: {provider}/{model_id}"))
@@ -136,8 +136,8 @@ async fn simple_payload(model: &Model, reasoning: ThinkingLevel) -> JsonValue {
         "messages": [{ "role": "user", "content": "Hi", "timestamp": 1 }],
     }))
     .expect("valid context JSON");
-    let message = stream_simple(model, context, options)
-        .expect("stream starts")
+    let message = super::support::builtin()
+        .stream_simple(model, context, options.into())
         .result()
         .await;
     let payloads = seen.lock().unwrap_or_else(PoisonError::into_inner);

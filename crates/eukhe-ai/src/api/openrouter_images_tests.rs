@@ -4,14 +4,24 @@
 use base64::Engine as _;
 use eukhe_chord::context::AbortController;
 use eukhe_types::pi_ai::{
-    ImageContent, ImageModel, ImagesContext, ImagesStopReason, TextContent, UserContentBlock,
+    AssistantImages, ImageContent, ImageModel, ImagesContext, ImagesStopReason, TextContent,
+    UserContentBlock,
 };
 use serde_json::json;
 
 use crate::api::system_one_shared::test_fetch::{json_response, mock_fetch, recorded, Requests};
-use crate::image_models::get_image_model;
-use crate::images::generate_images;
-use crate::types::{ImagesOptions, ProviderImagesOptions, ProviderRequestOptions};
+use crate::providers::all::get_builtin_image_model;
+use crate::types::{ImagesOptions, ProviderRequestOptions};
+
+/// The `openrouter-images` implementation `Models::generate_images`
+/// dispatches to.
+async fn generate_images(
+    model: &ImageModel,
+    context: &ImagesContext,
+    options: ImagesOptions,
+) -> AssistantImages {
+    super::generate_images(model.clone(), context.clone(), options).await
+}
 
 fn image_model(id: &str, name: &str, output: &[&str]) -> ImageModel {
     serde_json::from_value(json!({
@@ -56,17 +66,14 @@ fn fake_openrouter() -> (crate::types::FetchFunction, Requests) {
     })
 }
 
-fn options(fetch: crate::types::FetchFunction) -> ProviderImagesOptions {
-    ProviderImagesOptions {
-        images: ImagesOptions {
-            request: ProviderRequestOptions {
-                api_key: Some("test".to_owned()),
-                fetch: Some(fetch),
-                ..ProviderRequestOptions::default()
-            },
-            metadata: None,
+fn options(fetch: crate::types::FetchFunction) -> ImagesOptions {
+    ImagesOptions {
+        request: ProviderRequestOptions {
+            api_key: Some("test".to_owned()),
+            fetch: Some(fetch),
+            ..ProviderRequestOptions::default()
         },
-        extra: serde_json::Map::new(),
+        metadata: None,
     }
 }
 
@@ -84,9 +91,7 @@ async fn returns_text_plus_images_in_final_output() {
     );
     let (fetch, requests) = fake_openrouter();
 
-    let output = generate_images(&model, &dog(), options(fetch))
-        .await
-        .expect("images");
+    let output = generate_images(&model, &dog(), options(fetch)).await;
 
     assert_eq!(output.stop_reason, ImagesStopReason::Stop);
     assert_eq!(output.response_id.as_deref(), Some("img-1"));
@@ -129,11 +134,9 @@ async fn passes_through_abort_signal_and_returns_aborted_result() {
     controller.abort(None);
     let (fetch, _) = fake_openrouter();
     let mut aborted = options(fetch);
-    aborted.images.request.signal = Some(controller.signal());
+    aborted.request.signal = Some(controller.signal());
 
-    let output = generate_images(&model, &dog(), aborted)
-        .await
-        .expect("images");
+    let output = generate_images(&model, &dog(), aborted).await;
 
     assert_eq!(output.stop_reason, ImagesStopReason::Aborted);
     assert_eq!(output.error_message.as_deref(), Some("Request aborted"));
@@ -144,9 +147,7 @@ async fn generate_images_resolves_the_final_assistant_images_result() {
     let model = image_model("black-forest-labs/flux.2-pro", "FLUX.2 Pro", &["image"]);
     let (fetch, requests) = fake_openrouter();
 
-    let output = generate_images(&model, &dog(), options(fetch))
-        .await
-        .expect("images");
+    let output = generate_images(&model, &dog(), options(fetch)).await;
 
     assert!(output
         .output
@@ -159,31 +160,27 @@ async fn generate_images_resolves_the_final_assistant_images_result() {
     );
 }
 
-fn live_options() -> ProviderImagesOptions {
-    ProviderImagesOptions {
-        images: ImagesOptions {
-            request: ProviderRequestOptions {
-                api_key: std::env::var("OPENROUTER_API_KEY").ok(),
-                ..ProviderRequestOptions::default()
-            },
-            metadata: None,
+fn live_options() -> ImagesOptions {
+    ImagesOptions {
+        request: ProviderRequestOptions {
+            api_key: std::env::var("OPENROUTER_API_KEY").ok(),
+            ..ProviderRequestOptions::default()
         },
-        extra: serde_json::Map::new(),
+        metadata: None,
     }
 }
 
 #[tokio::test]
 #[ignore = "needs OPENROUTER_API_KEY; run with --ignored"]
 async fn openrouter_images_should_generate_a_basic_image() {
-    let model = get_image_model("openrouter", "google/gemini-2.5-flash-image").expect("model");
+    let model =
+        get_builtin_image_model("openrouter", "google/gemini-2.5-flash-image").expect("model");
     let context = ImagesContext {
         input: vec![UserContentBlock::Text(TextContent::new(
             "Generate a simple red circle on a plain white background. No text.",
         ))],
     };
-    let response = generate_images(&model, &context, live_options())
-        .await
-        .expect("images");
+    let response = generate_images(&model, &context, live_options()).await;
     assert_eq!(
         response.stop_reason,
         ImagesStopReason::Stop,
@@ -201,7 +198,8 @@ async fn openrouter_images_should_generate_a_basic_image() {
 #[tokio::test]
 #[ignore = "needs OPENROUTER_API_KEY; run with --ignored"]
 async fn openrouter_images_should_handle_image_input() {
-    let model = get_image_model("openrouter", "google/gemini-2.5-flash-image").expect("model");
+    let model =
+        get_builtin_image_model("openrouter", "google/gemini-2.5-flash-image").expect("model");
     let image = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/data/red-circle.png"
@@ -218,9 +216,7 @@ async fn openrouter_images_should_handle_image_input() {
             }),
         ],
     };
-    let response = generate_images(&model, &context, live_options())
-        .await
-        .expect("images");
+    let response = generate_images(&model, &context, live_options()).await;
     assert_eq!(
         response.stop_reason,
         ImagesStopReason::Stop,

@@ -7,11 +7,13 @@
 //! up to three attempts per case.
 
 mod anthropic_support;
+mod common;
 
 use std::cmp::Ordering;
 
 use anthropic_support::resolve_test_api_key;
-use eukhe_ai::compat::{complete, get_env_api_key, get_models, get_providers};
+use eukhe_ai::env_api_keys::get_env_api_key;
+use eukhe_ai::providers::all::{get_builtin_models, get_builtin_providers};
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{Context, Model, StopReason};
 use serde_json::json;
@@ -31,14 +33,14 @@ fn get_e2e_api_key(provider: &str) -> Option<String> {
 }
 
 fn get_anthropic_messages_models(provider: &str) -> Vec<Model> {
-    get_models(provider)
+    get_builtin_models(provider)
         .into_iter()
         .filter(|model| model.api == "anthropic-messages")
         .collect()
 }
 
 fn anthropic_messages_cases() -> Vec<E2eCase> {
-    get_providers()
+    get_builtin_providers()
         .into_iter()
         .flat_map(|provider| {
             get_anthropic_messages_models(provider)
@@ -127,9 +129,9 @@ async fn expect_tool_enabled_request_accepted(model: &Model, api_key: &str) -> R
         }],
     }))
     .expect("context");
-    let response = complete(model, context, options)
-        .await
-        .map_err(|error| error.to_string())?;
+    let response = common::env_models()
+        .complete(model, context, options.into())
+        .await;
 
     if let Some(message) = response.error_message.filter(|message| !message.is_empty()) {
         return Err(message);
@@ -161,7 +163,7 @@ async fn run_probe_cases(cases: Vec<(String, Model, Option<String>)>, label: &st
 
 #[test]
 fn covers_every_generated_anthropic_messages_model() {
-    let mut expected_models: Vec<String> = get_providers()
+    let mut expected_models: Vec<String> = get_builtin_providers()
         .into_iter()
         .flat_map(|provider| {
             get_anthropic_messages_models(provider)

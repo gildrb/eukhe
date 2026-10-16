@@ -729,8 +729,8 @@ async fn omits_reasoning_effort_for_opencode_grok_build() {
         json!({ "messages": [{ "role": "user", "content": "Hi", "timestamp": 1 }] }),
     )
     .expect("valid context JSON");
-    let message = crate::compat::stream_simple(&model, context, options)
-        .expect("stream_simple")
+    let message = super::support::builtin()
+        .stream_simple(&model, context, options.into())
         .result()
         .await;
     let params = seen

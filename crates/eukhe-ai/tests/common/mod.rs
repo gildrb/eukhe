@@ -11,7 +11,8 @@ use eukhe_ai::auth::{
     CredentialStore, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth,
     ProviderAuthInteraction,
 };
-use eukhe_ai::models::{GetModelsFn, Provider, RefreshModelsFn};
+use eukhe_ai::models::{CreateModelsOptions, GetModelsFn, Models, Provider, RefreshModelsFn};
+use eukhe_ai::providers::all::builtin_models;
 use eukhe_ai::types::StreamOptions;
 use eukhe_ai::utils::diagnostics::{ErrorObject, Thrown};
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
@@ -20,6 +21,12 @@ use eukhe_types::pi_ai::{
     Modality, Model, ModelCost, StopReason, TextContent, Usage, UserContent, UserMessage,
 };
 use futures::future::BoxFuture;
+
+/// Every built-in provider, auth from the request and the environment.
+#[must_use]
+pub fn env_models() -> Models {
+    builtin_models(CreateModelsOptions::default())
+}
 
 /// `Date.now()`.
 #[must_use]

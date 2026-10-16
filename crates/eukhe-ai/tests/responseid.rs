@@ -4,9 +4,11 @@
 //! OAuth tokens (read from `~/.pi/agent/oauth.json`) come from the env vars
 //! named in the ignore reasons. TS `{ retry: 3 }` is a loop of 3 attempts.
 
+mod common;
+
 use std::future::Future;
 
-use eukhe_ai::compat::{complete, get_model};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{Context, Model, StopReason};
 use serde_json::{json, Value as JsonValue};
@@ -20,7 +22,7 @@ fn require_env(name: &str) -> String {
 }
 
 fn builtin(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("unknown model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("unknown model {provider}/{id}"))
 }
 
 fn options(api_key: Option<String>, extra: &JsonValue) -> ProviderStreamOptions {
@@ -89,9 +91,9 @@ async fn expect_response_id(model: &Model, options: ProviderStreamOptions) -> Re
     }))
     .expect("context");
 
-    let response = complete(model, context, options)
-        .await
-        .map_err(|error| format!("{error:?}"))?;
+    let response = common::env_models()
+        .complete(model, context, options.into())
+        .await;
 
     if response.stop_reason == StopReason::Error {
         return Err(format!(

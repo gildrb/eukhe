@@ -14,9 +14,11 @@
 //! `~/.pi/agent/oauth.json`) come from the env vars named in the ignore
 //! reasons.
 
+mod common;
+
 use std::time::Duration;
 
-use eukhe_ai::compat::{complete, get_model, get_models};
+use eukhe_ai::providers::all::{get_builtin_model, get_builtin_models};
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_types::pi_ai::{AssistantMessage, Context, Model, StopReason, Usage};
@@ -35,7 +37,7 @@ fn require_env(name: &str) -> String {
 }
 
 fn builtin(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("unknown model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("unknown model {provider}/{id}"))
 }
 
 fn now_ms() -> u64 {
@@ -86,7 +88,9 @@ async fn test_context_overflow(model: &Model, api_key: &str) -> OverflowResult {
 
     let mut options = ProviderStreamOptions::default();
     options.stream.request.api_key = Some(api_key.to_owned());
-    let response = complete(model, context, options).await.expect("complete");
+    let response = common::env_models()
+        .complete(model, context, options.into())
+        .await;
 
     let has_usage_data = response.usage.input > 0 || response.usage.cache_read > 0;
 
@@ -192,7 +196,7 @@ async fn anthropic_oauth_claude_sonnet_4_should_detect_overflow_via_is_context_o
 #[ignore = "needs GITHUB_COPILOT_OAUTH_TOKEN; run with --ignored"]
 async fn github_copilot_google_model_should_detect_overflow_via_is_context_overflow() {
     let token = require_env("GITHUB_COPILOT_OAUTH_TOKEN");
-    let model = get_models("github-copilot")
+    let model = get_builtin_models("github-copilot")
         .into_iter()
         .find(|candidate| candidate.id.starts_with("gemini-"))
         .expect("No Google models available through GitHub Copilot");
@@ -342,7 +346,7 @@ async fn groq_llama_3_3_70b_versatile_should_detect_overflow_via_is_context_over
 async fn cerebras_available_model_should_detect_overflow_via_is_context_overflow() {
     let api_key = require_env("CEREBRAS_API_KEY");
     let preferred_cerebras_model_ids = ["gpt-oss-120b", "zai-glm-4.7", "llama3.1-8b"];
-    let cerebras_models = get_models("cerebras");
+    let cerebras_models = get_builtin_models("cerebras");
     let model = cerebras_models
         .iter()
         .find(|candidate| preferred_cerebras_model_ids.contains(&candidate.id.as_str()))

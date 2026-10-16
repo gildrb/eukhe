@@ -37,7 +37,6 @@ pub mod groq;
 pub mod groq_models;
 pub mod huggingface;
 pub mod huggingface_models;
-pub mod images;
 pub mod kimi_coding;
 pub mod kimi_coding_models;
 pub mod meta;

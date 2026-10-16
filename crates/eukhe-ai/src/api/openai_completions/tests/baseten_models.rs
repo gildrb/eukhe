@@ -7,14 +7,14 @@ use std::sync::PoisonError;
 use serde_json::json;
 
 use super::support::{payload_recorder, sse_fetch, stop_chunks};
-use crate::compat::{get_model, stream_simple};
+use crate::providers::all::get_builtin_model;
 use crate::types::{
     Context, JsonValue, Model, ProviderRequestOptions, SimpleStreamOptions, StreamOptions,
     ThinkingLevel,
 };
 
 fn baseten_model(id: &str) -> Model {
-    get_model("baseten", id).unwrap_or_else(|| panic!("missing model baseten/{id}"))
+    get_builtin_model("baseten", id).unwrap_or_else(|| panic!("missing model baseten/{id}"))
 }
 
 /// `streamSimple(model, { messages: [user "test"] }, { apiKey, reasoning,
@@ -39,8 +39,8 @@ async fn simple_payload(model: &Model, reasoning: Option<ThinkingLevel>) -> Json
         "messages": [{ "role": "user", "content": "test", "timestamp": 0 }],
     }))
     .expect("valid context JSON");
-    let message = stream_simple(model, context, options)
-        .expect("stream starts")
+    let message = super::support::builtin()
+        .stream_simple(model, context, options.into())
         .result()
         .await;
     let payloads = seen.lock().unwrap_or_else(PoisonError::into_inner);

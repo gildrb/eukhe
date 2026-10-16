@@ -17,7 +17,6 @@ use eukhe_ai::api::{ProviderImages, ProviderStreams};
 use eukhe_ai::auth::{
     AuthContext, AuthOperationOptions, AuthResolutionOverrides, AuthResult, ModelAuth, ProviderAuth,
 };
-use eukhe_ai::compat::get_models as get_compat_models;
 use eukhe_ai::models::{
     create_models, create_provider, get_model_type, has_api, is_model_type, CreateModelsOptions,
     CreateProviderOptions, Models, ModelsImagesOptions, ModelsRefreshOptions, ModelsRequestOptions,
@@ -289,7 +288,8 @@ async fn lists_models_without_a_type_as_chat_models_at_create_provider_boundarie
         models: vec![
             AnyModel::Chat(chat_model("legacy", "static")),
             AnyModel::Image(image_model("legacy", "static")),
-        ],
+        ]
+        .into(),
         fetch_models: Some(Arc::new(|_context| {
             Box::pin(async { Ok(vec![AnyModel::Chat(chat_model("legacy", "dynamic"))]) })
         })),
@@ -782,11 +782,10 @@ async fn supports_dynamic_providers_listing_image_models_via_refresh() {
 }
 
 #[test]
-fn keeps_existing_built_in_and_compat_model_reads_chat_only() {
+fn keeps_existing_built_in_model_reads_chat_only() {
     let chat = get_builtin_models("openrouter");
     let images = get_builtin_image_models("openrouter");
     let all = get_all_builtin_models("openrouter");
-    let compat = get_compat_models("openrouter");
 
     assert!(chat
         .iter()
@@ -797,7 +796,6 @@ fn keeps_existing_built_in_and_compat_model_reads_chat_only() {
     assert!(all
         .iter()
         .any(|model| is_model_type(model, ModelType::Image)));
-    assert_eq!(compat, chat);
     assert!(chat.iter().all(|model| model.context_window > 0));
     assert_eq!(
         chat.len() + images.len() + get_builtin_classifier_models("openrouter").len(),

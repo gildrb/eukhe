@@ -10,9 +10,11 @@
 //! built from UTF-16 code units through `sanitize_surrogates_utf16`, which is
 //! what the TS `sanitizeSurrogates` turns it into before the request.
 
+mod common;
+
 use std::future::Future;
 
-use eukhe_ai::compat::{complete, get_model};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::sanitize_unicode::sanitize_surrogates_utf16;
 use eukhe_types::pi_ai::{AssistantContentBlock, Context, Model, StopReason};
@@ -27,7 +29,7 @@ fn require_env(name: &str) -> String {
 }
 
 fn builtin(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("unknown model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("unknown model {provider}/{id}"))
 }
 
 fn options(api_key: Option<String>, extra: &JsonValue) -> ProviderStreamOptions {
@@ -236,13 +238,13 @@ impl Scenario {
     }
 
     async fn check(self, target: &Target) -> Result<(), String> {
-        let response = complete(
-            &target.model,
-            self.context(&target.model),
-            target.stream_options(),
-        )
-        .await
-        .map_err(|error| format!("{error:?}"))?;
+        let response = common::env_models()
+            .complete(
+                &target.model,
+                self.context(&target.model),
+                target.stream_options().into(),
+            )
+            .await;
 
         if response.stop_reason == StopReason::Error {
             return Err(format!(

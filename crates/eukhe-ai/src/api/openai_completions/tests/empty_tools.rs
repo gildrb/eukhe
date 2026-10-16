@@ -93,8 +93,8 @@ async fn cloudflare_request(
     options.stream.request.fetch = Some(fetch);
     options.stream.request.env = Some(cloudflare_env());
     let context: Context = serde_json::from_value(context).expect("valid context JSON");
-    let message = crate::compat::stream_simple(model, context, options)
-        .expect("stream_simple")
+    let message = super::support::builtin()
+        .stream_simple(model, context, options.into())
         .result()
         .await;
     recorded(&requests)

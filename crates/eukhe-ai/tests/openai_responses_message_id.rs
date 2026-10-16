@@ -5,14 +5,14 @@ use std::collections::HashSet;
 use eukhe_ai::api::openai_responses_shared::{
     convert_responses_messages, ConvertResponsesMessagesOptions,
 };
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::Context;
 use serde_json::json;
 
 #[test]
 fn generates_unique_fallback_message_ids_for_multiple_text_blocks_in_one_assistant_turn() {
-    let model = get_model("openai-codex", "gpt-5.5").expect("model");
+    let model = get_builtin_model("openai-codex", "gpt-5.5").expect("model");
     let usage = json!({
         "input": 0,
         "output": 0,

@@ -4,7 +4,7 @@ mod anthropic_support;
 
 use anthropic_support::{collect, context, mock_fetch, sse_of, MockResponse};
 use eukhe_ai::api::anthropic_messages::{stream_anthropic, AnthropicOptions};
-use eukhe_ai::compat::get_model;
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_types::pi_ai::{AssistantMessage, JsonValue, Model, TranscriptContext};
 use serde_json::json;
 
@@ -58,7 +58,7 @@ fn assert_close(actual: f64, expected: f64) {
 
 #[tokio::test]
 async fn prices_the_1h_portion_at_2x_input_and_the_rest_at_the_5m_rate() {
-    let model = get_model("anthropic", "claude-opus-4-8").expect("model");
+    let model = get_builtin_model("anthropic", "claude-opus-4-8").expect("model");
     let result = run(
         &model,
         &events_with_cache_creation(Some(json!({
@@ -77,7 +77,8 @@ async fn prices_the_1h_portion_at_2x_input_and_the_rest_at_the_5m_rate() {
 // Regression for #9210: Vercel AI Gateway sends cache usage in message_delta, not message_start.
 #[tokio::test]
 async fn prices_1h_cache_writes_reported_only_in_message_delta() {
-    let model = get_model("vercel-ai-gateway", "anthropic/claude-haiku-4.5").expect("model");
+    let model =
+        get_builtin_model("vercel-ai-gateway", "anthropic/claude-haiku-4.5").expect("model");
     let result = run(
         &model,
         &[
@@ -107,7 +108,7 @@ async fn prices_1h_cache_writes_reported_only_in_message_delta() {
 
 #[tokio::test]
 async fn falls_back_to_the_5m_rate_when_no_breakdown_is_reported() {
-    let model = get_model("anthropic", "claude-opus-4-8").expect("model");
+    let model = get_builtin_model("anthropic", "claude-opus-4-8").expect("model");
     let result = run(&model, &events_with_cache_creation(None)).await;
 
     assert_eq!(result.usage.cache_write, 1_000_000);

@@ -5,14 +5,14 @@
 mod common;
 
 use common::now;
-use eukhe_ai::compat::{complete, get_models};
+use eukhe_ai::providers::all::get_builtin_models;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context, Message, Model, UserContent, UserMessage,
 };
 
 fn models() -> Vec<Model> {
-    get_models("amazon-bedrock")
+    get_builtin_models("amazon-bedrock")
 }
 
 #[test]
@@ -48,11 +48,10 @@ async fn should_make_a_simple_request_with_each_model() {
 
         let response = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            complete(&model, context, ProviderStreamOptions::default()),
+            common::env_models().complete(&model, context, ProviderStreamOptions::default().into()),
         )
         .await
-        .unwrap_or_else(|_| panic!("{} timed out", model.id))
-        .unwrap_or_else(|error| panic!("{}: {error:?}", model.id));
+        .unwrap_or_else(|_| panic!("{} timed out", model.id));
 
         assert!(!response.content.is_empty(), "{}", model.id);
         assert!(

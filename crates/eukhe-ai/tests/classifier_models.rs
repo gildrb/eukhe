@@ -108,7 +108,8 @@ async fn keeps_chat_and_classifier_entries_with_the_same_provider_and_id_separat
         models: vec![
             AnyModel::Chat(chat.clone()),
             AnyModel::Classifier(classifier.clone()),
-        ],
+        ]
+        .into(),
         api: Some(ProviderApi::ByApi(IndexMap::from([(
             "test-chat".to_owned(),
             silent_streams(),

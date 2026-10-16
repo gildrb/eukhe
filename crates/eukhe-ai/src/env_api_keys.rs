@@ -1,5 +1,5 @@
-//! Environment-variable API key discovery for the old global API and status
-//! UIs. Port of `env-api-keys.ts`.
+//! Environment-variable API key discovery for auth status and resolution.
+//! Port of `env-api-keys.ts`.
 
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};

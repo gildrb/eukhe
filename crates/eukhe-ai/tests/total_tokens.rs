@@ -16,12 +16,14 @@
 //! resolves with `test/oauth.ts` are read from `PI_TEST_<PROVIDER>_TOKEN`.
 //! TS `{ retry: 3 }` runs the case up to three times.
 
+mod common;
+
 use std::any::Any;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::LazyLock;
 
-use eukhe_ai::compat::{complete, get_model};
+use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{Context, JsonValue, Message, Model, StopReason, Usage};
 use futures::FutureExt;
@@ -99,7 +101,7 @@ fn require_cloudflare_ai_gateway_credentials() {
 }
 
 fn model(provider: &str, id: &str) -> Model {
-    get_model(provider, id).unwrap_or_else(|| panic!("built-in model {provider}/{id}"))
+    get_builtin_model(provider, id).unwrap_or_else(|| panic!("built-in model {provider}/{id}"))
 }
 
 /// TS `{ ...baseModel, api: "openai-completions" }` with `compat` dropped.
@@ -161,9 +163,9 @@ async fn test_total_tokens_with_cache(
     }))
     .expect("context");
 
-    let response1 = complete(llm, context1.clone(), options.clone())
-        .await
-        .expect("first response");
+    let response1 = common::env_models()
+        .complete(llm, context1.clone(), options.clone().into())
+        .await;
     assert_eq!(
         response1.stop_reason,
         StopReason::Stop,
@@ -188,9 +190,9 @@ async fn test_total_tokens_with_cache(
         tools: None,
     };
 
-    let response2 = complete(llm, context2, options)
-        .await
-        .expect("second response");
+    let response2 = common::env_models()
+        .complete(llm, context2, options.into())
+        .await;
     assert_eq!(
         response2.stop_reason,
         StopReason::Stop,

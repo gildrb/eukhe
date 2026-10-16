@@ -15,7 +15,6 @@ use eukhe_ai::auth::{
     AuthInteraction, AuthPrompt, AuthPromptKind, AuthResolutionOverrides, AuthResult, ModelAuth,
     ProviderAuth, ProviderAuthInteraction,
 };
-use eukhe_ai::compat::{get_model as get_compat_model, get_models as get_compat_models};
 use eukhe_ai::models::{
     create_models, create_provider, get_supported_thinking_levels, CreateModelsOptions,
     CreateProviderOptions, ModelsRefreshOptions, ModelsRequestOptions, Provider, ProviderApi,
@@ -214,8 +213,6 @@ fn returns_empty_results_for_unknown_provider_ids() {
     assert!(get_builtin_image_models("not-a-provider").is_empty());
     assert!(get_builtin_classifier_models("not-a-provider").is_empty());
     assert!(get_all_builtin_models("not-a-provider").is_empty());
-    assert!(get_compat_model("not-a-provider", "x").is_none());
-    assert!(get_compat_models("not-a-provider").is_empty());
 }
 
 #[test]
