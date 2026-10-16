@@ -1121,3 +1121,14 @@ async fn a_waiting_turn_stops_a_merge_that_holds_the_slot() {
         )
     );
 }
+
+/// Regression: a client's settled render with a huge
+/// `memory.settleTimeoutMs` panicked adding its reply deadline to now.
+#[tokio::test]
+async fn a_huge_settle_timeout_does_not_overflow_the_reply_deadline() {
+    let deadline = Request::SettledRender {
+        within_ms: u64::MAX,
+    }
+    .reply_deadline();
+    assert_eq!(super::answered(deadline, async { 7 }).await.unwrap(), 7);
+}

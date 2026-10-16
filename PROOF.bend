@@ -14,6 +14,8 @@ import ./bend/proof_fit.bend as Fit
 import ./bend/proof_push.bend as Push
 import ./bend/proof_agree.bend as Agree
 import ./bend/proof_compactor.bend as Compactor
+import ./bend/proof_wait.bend as Waits
+import ./bend/proof_lease.bend as Leases
 import ./bend/proof_child.bend as Children
 import ./bend/proof_run.bend as Runs
 import ./bend/proof_admission.bend as Admission
@@ -135,6 +137,35 @@ def Laws.settle_reached(es, ps, enough):
 
 def Laws.settle_start(p, info, v):
   Compactor.pc.settle_start(p, info, v)
+
+# (H6) Every other wait has an exit
+
+def Laws.wait_ends_once(dl, xs):
+  Waits.wait_ends_once(dl, xs)
+
+def Laws.wait_end_is_final(dl, pre, post, stop):
+  Waits.wait_end_is_final(dl, pre, post, stop)
+
+def Laws.wait_arrival_wins(dl, pre, post, calm):
+  Waits.wait_arrival_wins(dl, pre, post, calm)
+
+def Laws.wait_cancel_wins(dl, pre, post, calm):
+  Waits.wait_cancel_wins(dl, pre, post, calm)
+
+def Laws.lease_fifo(evs):
+  Leases.lease_fifo(evs)
+
+def Laws.lease_never_idle(evs):
+  Leases.lease_never_idle(evs)
+
+def Laws.lease_keeps_waiters(s, e, k, o, waits, other):
+  Leases.lease_keeps_waiters(s, e, k, o, waits, other)
+
+def Laws.lease_stop_never_holds(evs, k, o, rest, waits):
+  Leases.lease_stop_never_holds(evs, k, o, rest, waits)
+
+def Laws.lease_crash_frees(s, p):
+  Leases.lease_crash_frees(s, p)
 
 # (H5) Every subagent reports back exactly once
 

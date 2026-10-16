@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use eukhe_ai::api::{StreamFn, StreamSimpleFn};
 use eukhe_ai::models::Models;
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
+use eukhe_ai::utils::stream_idle::StreamClock;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::daemon::agent_roster::ModelAdmission;
 use eukhe_types::daemon::AdmissionPriority;
@@ -164,14 +165,16 @@ impl AdmissionGate {
 
     /// The stream of one gated request: a slot first (abortable through
     /// `signal`), then `start`'s stream forwarded while the slot is held.
-    /// Must be called inside a tokio runtime (the provider contract runs
-    /// every request on one).
+    /// The stream's idle `clock` is held while the request waits for its
+    /// slot: a queue is not a stall (H6.3). Must be called inside a tokio
+    /// runtime (the provider contract runs every request on one).
     fn admitted(
         self: &Arc<Self>,
         provider_id: &str,
         model: &Model,
         context: &TranscriptContext,
         signal: Option<AbortSignal>,
+        clock: Option<StreamClock>,
         start: impl FnOnce(&Model, &TranscriptContext) -> AssistantMessageEventStream + Send + 'static,
     ) -> AssistantMessageEventStream {
         let outer = AssistantMessageEventStream::new();
@@ -182,6 +185,7 @@ impl AdmissionGate {
         let context = context.clone();
         tokio::spawn(async move {
             let tracked = Tracked::new(&gate.tracker);
+            let queued = clock.as_ref().map(StreamClock::hold);
             let acquire = gate.admission.acquire(AdmissionRequest {
                 provider_id: provider_id.clone(),
                 priority: AdmissionPriority::Interactive,
@@ -198,6 +202,7 @@ impl AdmissionGate {
                 }
                 None => Some(acquire.await),
             };
+            drop(queued);
             let permit = match acquired {
                 None => {
                     let message = failure(
@@ -330,12 +335,14 @@ fn gate_stream_fn(gate: Arc<AdmissionGate>, provider_id: String, inner: StreamFn
             return gate.alongside(&provider_id, inner(model, context, options));
         }
         let signal = options.stream.request.signal.clone();
+        let clock = options.stream.request.stream_clock.clone();
         let inner = Arc::clone(&inner);
         gate.admitted(
             &provider_id,
             model,
             context,
             signal,
+            clock,
             move |model, context| inner(model, context, options),
         )
     })
@@ -351,12 +358,14 @@ fn gate_stream_simple_fn(
             return gate.alongside(&provider_id, inner(model, context, options));
         }
         let signal = options.stream.request.signal.clone();
+        let clock = options.stream.request.stream_clock.clone();
         let inner = Arc::clone(&inner);
         gate.admitted(
             &provider_id,
             model,
             context,
             signal,
+            clock,
             move |model, context| inner(model, context, options),
         )
     })

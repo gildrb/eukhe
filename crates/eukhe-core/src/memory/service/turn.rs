@@ -13,16 +13,28 @@
 //! apart: a holder locks it once the owner grants the lease and unlocks it
 //! before releasing, and the OS unlocks it when the holder dies. A lease
 //! the new owner grants waits on the file until the old holder's turn
-//! ends. So two turns never overlap, and nothing waits on a process that
-//! is gone.
+//! ends, polling it, so a cancelled wait leaves nothing behind. So two
+//! turns never overlap, and nothing waits on a process that is gone.
+//!
+//! `Turns` is modelled in `bend/lease.bend`; its laws (`lease_*` in
+//! `LAWS.bend`) and the bridge test ([`bridge`]) tie the two (H6).
+
+#[cfg(test)]
+mod bridge;
 
 use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use anyhow::Context as _;
 use tokio::sync::oneshot;
 
-use super::{unexpected, Disconnected, Link, Memory, Outcome, Reply, Request};
+use super::{answered, unexpected, Disconnected, Link, Memory, Outcome, Reply, Request};
+
+/// How often a granted lease tries the turn file of a holder from before
+/// an owner change: a poll, not a blocking lock, so a dropped wait leaves
+/// no thread behind that would still take the file (H6.2).
+const TURN_FILE_POLL: Duration = Duration::from_millis(50);
 
 /// The file a lease holder keeps locked for its whole turn.
 pub(super) const TURN_FILE: &str = "turn";
@@ -141,21 +153,18 @@ impl Memory {
                 .write(true)
                 .open(&path)
                 .with_context(|| format!("cannot open the turn file {}", path.display()))?;
-            let file = match file.try_lock() {
-                Ok(()) => file,
-                // A holder from before an owner change still runs its
-                // turn: wait for it on a blocking thread. A wait that is
-                // cancelled unlocks the file as soon as it gets it (the
-                // file drops with the unread result).
-                Err(std::fs::TryLockError::WouldBlock) => {
-                    tokio::task::spawn_blocking(move || file.lock().map(|()| file))
-                        .await
-                        .context("the turn file wait stopped")?
-                        .with_context(|| format!("cannot lock the turn file {}", path.display()))?
-                }
-                Err(std::fs::TryLockError::Error(error)) => {
-                    return Err(anyhow::Error::new(error)
-                        .context(format!("cannot lock the turn file {}", path.display())))
+            let file = loop {
+                match file.try_lock() {
+                    Ok(()) => break file,
+                    // A holder from before an owner change still runs its
+                    // turn: wait for it to end.
+                    Err(std::fs::TryLockError::WouldBlock) => {
+                        tokio::time::sleep(TURN_FILE_POLL).await;
+                    }
+                    Err(std::fs::TryLockError::Error(error)) => {
+                        return Err(anyhow::Error::new(error)
+                            .context(format!("cannot lock the turn file {}", path.display())))
+                    }
                 }
             };
             return Ok(TurnLease { file, release });
@@ -203,9 +212,10 @@ impl TurnLease {
         let request = Request::Release {
             lease: release.lease,
         };
+        let deadline = request.reply_deadline();
         let reply = match link {
             Link::Owner(owner) => owner.request(request).await?,
-            Link::Client(client) => match client.request(&request).await {
+            Link::Client(client) => match answered(deadline, client.request(&request)).await? {
                 Ok(Outcome::Ok(reply)) => reply,
                 Ok(Outcome::Error(error)) => return Err(anyhow::anyhow!(error)),
                 // The owner ended the connection's leases when it closed.

@@ -20,6 +20,7 @@ pub use eukhe_types::pi_ai::*;
 
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
+use crate::utils::stream_idle::StreamClock;
 
 // ---------------------------------------------------------------------------
 // Telemetry (the `@earendil-works/pi-telemetry` contract pi-ai passes through)
@@ -190,6 +191,11 @@ pub struct ProviderRequestOptions<M = Model> {
     /// [`DEFAULT_STREAM_IDLE_TIMEOUT_MS`](crate::utils::stream_idle::DEFAULT_STREAM_IDLE_TIMEOUT_MS);
     /// `0` disables the deadline.
     pub stream_idle_timeout_ms: Option<f64>,
+    /// The clock of the stream-idle deadline, which `Models` sets when it
+    /// arms one. A provider row that queues the request before it reaches
+    /// the provider (an admission slot) holds it while it waits
+    /// ([`StreamClock::hold`](crate::utils::stream_idle::StreamClock::hold)).
+    pub stream_clock: Option<StreamClock>,
 }
 
 impl<M> Default for ProviderRequestOptions<M> {
@@ -207,6 +213,7 @@ impl<M> Default for ProviderRequestOptions<M> {
             max_retries: None,
             max_retry_delay_ms: None,
             stream_idle_timeout_ms: None,
+            stream_clock: None,
         }
     }
 }
@@ -226,6 +233,7 @@ impl<M> Clone for ProviderRequestOptions<M> {
             max_retries: self.max_retries,
             max_retry_delay_ms: self.max_retry_delay_ms,
             stream_idle_timeout_ms: self.stream_idle_timeout_ms,
+            stream_clock: self.stream_clock.clone(),
         }
     }
 }
@@ -252,6 +260,7 @@ impl<M> fmt::Debug for ProviderRequestOptions<M> {
             .field("max_retries", &self.max_retries)
             .field("max_retry_delay_ms", &self.max_retry_delay_ms)
             .field("stream_idle_timeout_ms", &self.stream_idle_timeout_ms)
+            .field("stream_clock", &self.stream_clock)
             .finish()
     }
 }

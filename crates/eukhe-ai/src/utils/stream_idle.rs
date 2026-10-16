@@ -7,9 +7,14 @@
 //! event for the deadline aborts its request and ends with a
 //! [`StreamFailureKind::StreamStalled`](eukhe_types::pi_ai::StreamFailureKind)
 //! error, which the caller's retry policy re-issues.
+//!
+//! The provider row that runs the request may hold the clock
+//! ([`StreamClock::hold`]) while the request waits for something that is
+//! not the provider, such as an admission slot: a queue is not a stall
+//! (`docs/harness.md` H6.3).
 
 use std::future::Future;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use eukhe_chord::context::{AbortController, AbortSignal};
 use tokio::time::{sleep_until, Duration, Instant};
@@ -23,22 +28,90 @@ use crate::types::{OnProviderStreamEvent, ProviderRequestOptions};
 /// nothing while they think.
 pub const DEFAULT_STREAM_IDLE_TIMEOUT_MS: f64 = 300_000.0;
 
-/// The deadline of one stream: when it last showed life, and the abort of
-/// its request.
+/// When a stream last showed life, as its idle deadline counts it. Clones
+/// share the clock: `Models` puts one in the request's options
+/// (`ProviderRequestOptions::stream_clock`) for the row that runs it.
+#[derive(Clone, Debug)]
+pub struct StreamClock {
+    life: Arc<Mutex<Life>>,
+}
+
+#[derive(Debug)]
+struct Life {
+    last: Instant,
+    /// Holds alive: while any is, the stream counts as alive.
+    holds: u32,
+}
+
+impl StreamClock {
+    fn new() -> Self {
+        Self {
+            life: Arc::new(Mutex::new(Life {
+                last: Instant::now(),
+                holds: 0,
+            })),
+        }
+    }
+
+    fn life(&self) -> MutexGuard<'_, Life> {
+        self.life.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn touch(&self) {
+        self.life().last = Instant::now();
+    }
+
+    /// Stop the clock until the hold drops; it then runs again from that
+    /// moment.
+    #[must_use = "the clock runs again when the hold drops"]
+    pub fn hold(&self) -> ClockHold {
+        self.life().holds += 1;
+        ClockHold {
+            clock: self.clone(),
+        }
+    }
+
+    /// When the stream stalls unless it shows life first; while held, one
+    /// timeout from now.
+    fn deadline(&self, timeout: Duration) -> Instant {
+        let life = self.life();
+        match life.holds {
+            0 => life.last + timeout,
+            _ => Instant::now() + timeout,
+        }
+    }
+}
+
+/// A [`StreamClock::hold`].
+#[derive(Debug)]
+pub struct ClockHold {
+    clock: StreamClock,
+}
+
+impl Drop for ClockHold {
+    fn drop(&mut self) {
+        let mut life = self.clock.life();
+        life.holds -= 1;
+        life.last = Instant::now();
+    }
+}
+
+/// The deadline of one stream: its clock, and the abort of its request.
 #[derive(Debug)]
 pub(crate) struct StreamIdle {
     timeout_ms: f64,
     timeout: Duration,
-    last_event: Arc<Mutex<Instant>>,
+    clock: StreamClock,
     stall: AbortController,
 }
 
 impl StreamIdle {
     /// Arm the deadline `request.stream_idle_timeout_ms` selects, from now;
     /// `None` when it is disabled. The request's signal becomes one that
-    /// also aborts on a stall, and `observer` (the stream's provider-event
-    /// observer, when the options have one) is wrapped so every event the
-    /// codec parses counts as life, including events without content.
+    /// also aborts on a stall, its `stream_clock` this stream's clock, and
+    /// `observer` (the stream's provider-event observer, when the options
+    /// have one) is wrapped so every event the codec parses counts as life,
+    /// including events without content.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn arm<M>(
         request: &mut ProviderRequestOptions<M>,
@@ -56,12 +129,13 @@ impl StreamIdle {
             Some(caller) => AbortSignal::any(&[caller, stall.signal()]),
             None => stall.signal(),
         });
-        let last_event = Arc::new(Mutex::new(Instant::now()));
+        let clock = StreamClock::new();
+        request.stream_clock = Some(clock.clone());
         if let Some(observer) = observer {
             let caller = observer.take();
-            let seen = Arc::clone(&last_event);
+            let seen = clock.clone();
             let watched: OnProviderStreamEvent = Arc::new(move |event, model| {
-                *seen.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+                seen.touch();
                 match &caller {
                     Some(caller) => caller(event, model),
                     None => Box::pin(async { Ok(()) }),
@@ -72,25 +146,18 @@ impl StreamIdle {
         Some(Self {
             timeout_ms,
             timeout: timer_duration(timeout_ms),
-            last_event,
+            clock,
             stall,
         })
     }
 
     /// Record a stream event.
     pub(crate) fn touch(&self) {
-        *self
-            .last_event
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        self.clock.touch();
     }
 
     fn deadline(&self) -> Instant {
-        *self
-            .last_event
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            + self.timeout
+        self.clock.deadline(self.timeout)
     }
 
     /// Run `work` unless the stream stays silent past the deadline first

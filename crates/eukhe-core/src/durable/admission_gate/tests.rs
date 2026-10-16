@@ -6,22 +6,27 @@
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use eukhe_ai::api::StreamFn;
-use eukhe_ai::providers::faux::{faux_assistant_message, FauxAssistantMessageOptions};
-use eukhe_ai::types::ProviderStreamOptions;
+use eukhe_ai::models::{create_models, CreateModelsOptions};
+use eukhe_ai::providers::faux::{
+    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, RegisterFauxProviderOptions,
+};
+use eukhe_ai::types::{ProviderStreamOptions, SimpleStreamOptions};
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_chord::context::AbortController;
 use eukhe_types::daemon::agent_roster::ModelAdmission;
+use eukhe_types::daemon::AdmissionPriority;
 use eukhe_types::pi_ai::{
     AssistantMessageEvent, DoneReason, Model, ModelCost, StopReason, TranscriptContext,
 };
 use tempfile::TempDir;
 
-use super::{gate_stream_fn, AdmissionGate, AdmissionStateSink};
+use super::{gate_stream_fn, wrap_models_with_admission, AdmissionGate, AdmissionStateSink};
 use crate::admission::{
     AdmissionError, AdmissionHandle, AdmissionRegistry, AdmissionRequest, LocalAdmission,
-    ModelPermit, ProviderAdmission,
+    ModelPermit, ProviderAdmission, QueuedNotice,
 };
 use crate::durable::settings::EukheSettings;
 
@@ -334,4 +339,55 @@ async fn a_full_queue_fails_the_request_at_once() {
     assert!(!eukhe_ai::utils::retry::is_retryable_assistant_error(
         &rejected
     ));
+}
+
+/// A request that waits for its slot longer than its stream-idle deadline
+/// is not a stall: the idle clock runs from the grant on (H6.3). The clock
+/// that started at the request failed it as stalled while it queued.
+#[tokio::test(start_paused = true)]
+async fn a_queue_longer_than_the_idle_deadline_is_not_a_stall() {
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("test".to_owned()),
+        ..RegisterFauxProviderOptions::default()
+    });
+    let (settings, _dir) = settings(&serde_json::json!({ "providerMaxInFlight": { "test": 1 } }));
+    let limits_settings = Arc::clone(&settings);
+    let admission = AdmissionHandle::new(Arc::new(LocalAdmission::new(
+        Arc::new(AdmissionRegistry::default()),
+        move || limits_settings.manager().get_admission_limits(),
+    )));
+    let models = create_models(CreateModelsOptions::default());
+    models.set_provider(faux.provider.clone());
+    wrap_models_with_admission(
+        &models,
+        &AdmissionGate::new(admission.clone(), settings, None),
+    );
+    faux.set_responses(vec![faux_assistant_message(
+        "hi",
+        FauxAssistantMessageOptions::default(),
+    )
+    .into()]);
+    // Another request holds the provider's only slot.
+    let held = admission
+        .acquire(AdmissionRequest {
+            provider_id: "test".to_owned(),
+            priority: AdmissionPriority::Interactive,
+            on_queued: QueuedNotice::new(|| {}),
+        })
+        .await
+        .unwrap();
+    let mut options = SimpleStreamOptions::default();
+    options.stream.request.stream_idle_timeout_ms = Some(1_000.0);
+    let queued = models.stream_simple(
+        &faux.get_model(),
+        serde_json::from_value(serde_json::json!({ "messages": [] })).unwrap(),
+        options.into(),
+    );
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    drop(held);
+    let answered = queued.result().await;
+    assert_eq!(
+        (answered.stop_reason, answered.error_message),
+        (StopReason::Stop, None)
+    );
 }

@@ -26,12 +26,16 @@ mod prefix_gate;
 #[cfg(test)]
 mod tests;
 mod turn;
+#[cfg(test)]
+mod waits;
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use eukhe_chord::context::{race, Exits, Raced};
 use eukhe_types::daemon::MemoryUpdate;
 use eukhe_types::pi_ai::ImageContent;
 use eukhe_types::platform::transport::connect_transport;
@@ -542,10 +546,11 @@ impl Memory {
     }
 
     async fn request(&self, mut request: Request) -> anyhow::Result<Reply> {
+        let deadline = request.reply_deadline();
         for _ in 0..4 {
             match self.link().await? {
                 Link::Owner(owner) => return owner.request(request).await,
-                Link::Client(client) => match client.request(&request).await {
+                Link::Client(client) => match answered(deadline, client.request(&request)).await? {
                     Ok(Outcome::Ok(reply)) => return Ok(reply),
                     Ok(Outcome::Error(error)) => return Err(anyhow::anyhow!(error)),
                     Err(Disconnected) => {
@@ -674,9 +679,90 @@ impl MemoryUpdates {
 pub(crate) async fn live_parts(dir: &Path) -> Option<Vec<(u32, u64)>> {
     let stream = connect_transport(&dir.join("lock")).await.ok()?;
     let client = Client::connect(stream);
-    match client.request(&Request::Parts).await {
-        Ok(Outcome::Ok(Reply::Parts { parts })) => Some(parts),
-        Ok(Outcome::Ok(_) | Outcome::Error(_)) | Err(Disconnected) => None,
+    match answered(
+        Request::Parts.reply_deadline(),
+        client.request(&Request::Parts),
+    )
+    .await
+    {
+        Ok(Ok(Outcome::Ok(Reply::Parts { parts }))) => Some(parts),
+        Ok(Ok(Outcome::Ok(_) | Outcome::Error(_)) | Err(Disconnected)) | Err(_) => None,
+    }
+}
+
+/// How long an owner in another process may take to answer a request
+/// that waits for nothing but the owner's own work. Past it the owner
+/// counts as stuck (H6.1). This process's own owner has no deadline: its
+/// actor thread is this process's own work (a stuck disk stalls it either
+/// way), and a paused test clock would fire a tokio deadline while the
+/// thread works; the run's cancel still ends the wait (H4.6).
+const REPLY_DEADLINE: Duration = Duration::from_secs(30);
+
+/// What an import may add to [`REPLY_DEADLINE`] per item: the owner logs
+/// each item with its own write and fsync, and a slow disk's fsync takes
+/// up to this long. A full batch (500 items) waits up to 80 s.
+const IMPORT_ITEM_DEADLINE: Duration = Duration::from_millis(100);
+
+impl Request {
+    /// The longest wait for the reply of an owner in another process:
+    /// [`REPLY_DEADLINE`], on top of the settle deadline for a settled
+    /// view and of [`IMPORT_ITEM_DEADLINE`] per item for an import. A
+    /// lease has none: it waits for the turn ahead of it, and ends when
+    /// that turn's holder releases or crashes, or when its own wait is
+    /// cancelled (dropped).
+    fn reply_deadline(&self) -> Option<Duration> {
+        match self {
+            Request::AcquireTurn { .. } => None,
+            Request::SettledRender { within_ms } => {
+                Some(Duration::from_millis(*within_ms).saturating_add(REPLY_DEADLINE))
+            }
+            Request::Import { items } => Some(
+                IMPORT_ITEM_DEADLINE
+                    .saturating_mul(u32::try_from(items.len()).unwrap_or(u32::MAX))
+                    .saturating_add(REPLY_DEADLINE),
+            ),
+            Request::Append { .. }
+            | Request::Render
+            | Request::Zoom { .. }
+            | Request::Date { .. }
+            | Request::Tree { .. }
+            | Request::Status
+            | Request::Persist
+            | Request::Parts
+            | Request::Release { .. }
+            | Request::SetPrompt { .. }
+            | Request::Subscribe => Some(REPLY_DEADLINE),
+        }
+    }
+}
+
+/// The answer of an owner in another process, raced against `deadline`
+/// (`None`: none). A miss is an error the caller shows; the dropped wait
+/// tells the owner to drop it too, but the request may still run.
+async fn answered<T>(
+    deadline: Option<Duration>,
+    answer: impl Future<Output = T>,
+) -> anyhow::Result<T> {
+    let now = tokio::time::Instant::now();
+    // A huge `memory.settleTimeoutMs` must not overflow the instant (as the
+    // owner's view waiters cap theirs).
+    let exits = Exits {
+        deadline: deadline.map(|deadline| {
+            now.checked_add(deadline)
+                .unwrap_or(now + Duration::from_secs(u64::from(u32::MAX)))
+        }),
+        signal: None,
+    };
+    match race(answer, exits).await {
+        Raced::Done(answer) => Ok(answer),
+        Raced::Expired => Err(anyhow::anyhow!(
+            "the chat memory owner did not answer within {} s: it is stuck (the request may \
+             still run)",
+            deadline.map_or(0, |deadline| deadline.as_secs())
+        )),
+        Raced::Cancelled(reason) => Err(anyhow::anyhow!(
+            "the chat memory request was cancelled: {reason}"
+        )),
     }
 }
 

@@ -1418,3 +1418,58 @@ async fn a_message_sent_during_a_call_joins_it_between_tool_calls() {
     );
     session.close(&setup).await;
 }
+
+/// A request transform that fails ends the turn as failed, with the
+/// transform's error, and nothing goes to the model (H6.1). A failed hook
+/// used to be reported and skipped, and the request went out with the raw
+/// transcript in place of the view.
+#[tokio::test]
+async fn a_failed_transform_fails_the_turn_and_sends_nothing() {
+    let setup = Setup::new(MemoryRole::Root).await;
+    let requests = Requests::default();
+    setup
+        .faux
+        .set_responses(vec![requests.step(answer("unseen"))]);
+    let session = setup
+        .open(Arc::new(MemoryStorage::new()), Logging::Off)
+        .await;
+    // The session's hold on the chat is closed: the transform cannot take
+    // the root-turn lease.
+    setup.chat.turn.lock().await.close().await.unwrap();
+    let settled = session
+        .root
+        .submit(
+            InputSubmissionDraft {
+                request_id: None,
+                content: UserContent::Text("hello".to_string()),
+                when_busy: None,
+                origin: InputOrigin::User,
+                entry: None,
+            },
+            cx(),
+        )
+        .await
+        .unwrap()
+        .wait(cx())
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            requests.described(),
+            settled.state.reason(),
+            settled
+                .state
+                .detail()
+                .and_then(|detail| detail.as_str().map(str::to_owned)),
+            lock(&setup.reports).clone(),
+        ),
+        (
+            Vec::<Vec<String>>::new(),
+            Some("model_error"),
+            Some("A request hook failed: the session closed".to_string()),
+            Vec::<String>::new(),
+        )
+    );
+    setup.cell.clear();
+    session.harness.close(cx()).await.unwrap();
+}

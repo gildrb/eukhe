@@ -43,6 +43,8 @@ use eukhe_ai::utils::event_stream::{
     create_assistant_message_event_stream, AssistantMessageEventStream,
 };
 use eukhe_ai::utils::retry::is_retryable_assistant_error;
+use eukhe_ai::utils::stream_idle::StreamClock;
+use eukhe_chord::context::AbortSignal;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::{from_json, to_json};
@@ -112,6 +114,25 @@ pub enum ProviderWireEvent {
 type OriginalDispatch =
     Arc<dyn Fn(&Model, &TranscriptContext) -> AssistantMessageEventStream + Send + Sync>;
 
+/// What a failover attempt keeps of the caller's request options: the
+/// abort signal, and the stream clock whose idle deadline an admission
+/// queue holds (a queued fallback is not a stalled stream). Everything else
+/// is per-provider and rebuilt for the sibling.
+#[derive(Clone, Default)]
+struct CarriedOptions {
+    signal: Option<AbortSignal>,
+    stream_clock: Option<StreamClock>,
+}
+
+impl CarriedOptions {
+    fn of(request: &ProviderRequestOptions) -> Self {
+        Self {
+            signal: request.signal.clone(),
+            stream_clock: request.stream_clock.clone(),
+        }
+    }
+}
+
 /// The installed provider runtime of one session.
 pub struct ProviderRuntime {
     inner: Arc<Inner>,
@@ -163,24 +184,40 @@ impl ProviderRuntime {
                 let Some(inner) = weak.upgrade() else {
                     return original_stream(model, context, options);
                 };
+                let carried = CarriedOptions::of(&options.stream.request);
                 let dispatch: OriginalDispatch = {
                     let original = original_stream.clone();
                     let options = options;
                     Arc::new(move |model, context| original(model, context, options.clone()))
                 };
-                dispatch_request(inner, model.clone(), context.clone(), dispatch, false)
+                dispatch_request(
+                    inner,
+                    model.clone(),
+                    context.clone(),
+                    dispatch,
+                    carried,
+                    false,
+                )
             });
             let weak = Arc::downgrade(&runtime.inner);
             provider.stream_simple = Arc::new(move |model, context, options| {
                 let Some(inner) = weak.upgrade() else {
                     return original_simple(model, context, options);
                 };
+                let carried = CarriedOptions::of(&options.stream.request);
                 let dispatch: OriginalDispatch = {
                     let original = original_simple.clone();
                     let options = options;
                     Arc::new(move |model, context| original(model, context, options.clone()))
                 };
-                dispatch_request(inner, model.clone(), context.clone(), dispatch, true)
+                dispatch_request(
+                    inner,
+                    model.clone(),
+                    context.clone(),
+                    dispatch,
+                    carried,
+                    true,
+                )
             });
             models.set_provider(provider);
         }
@@ -225,12 +262,13 @@ fn dispatch_request(
     model: Model,
     context: TranscriptContext,
     original: OriginalDispatch,
+    carried: CarriedOptions,
     simple: bool,
 ) -> AssistantMessageEventStream {
     let out = create_assistant_message_event_stream();
     let output = out.clone();
     tokio::spawn(async move {
-        run_request(inner, model, context, original, simple, output).await;
+        run_request(inner, model, context, original, carried, simple, output).await;
     });
     out
 }
@@ -241,6 +279,7 @@ async fn run_request(
     model: Model,
     context: TranscriptContext,
     original: OriginalDispatch,
+    carried: CarriedOptions,
     simple: bool,
     out: AssistantMessageEventStream,
 ) {
@@ -350,7 +389,7 @@ async fn run_request(
         });
         // The re-routed request dispatches through the sibling provider's
         // original stream function (never its wrapper).
-        let sibling = original_dispatch(&inner, &candidate, simple);
+        let sibling = original_dispatch(&inner, &candidate, carried.clone(), simple);
         serving = candidate;
         dispatch = sibling;
     }
@@ -362,8 +401,14 @@ async fn run_request(
 /// the primary's key, and the original bypasses the collection's auth
 /// merge) and otherwise builds fresh options per provider contract (the
 /// provider-neutral defaults; API-specific keys ride `extra` on the full
-/// seam, which the sibling provider would not honor identically anyway).
-fn original_dispatch(inner: &Inner, model: &Model, simple: bool) -> OriginalDispatch {
+/// seam, which the sibling provider would not honor identically anyway),
+/// keeping only the `carried` abort signal and stream clock.
+fn original_dispatch(
+    inner: &Inner,
+    model: &Model,
+    carried: CarriedOptions,
+    simple: bool,
+) -> OriginalDispatch {
     let original = inner
         .originals
         .lock()
@@ -376,9 +421,14 @@ fn original_dispatch(inner: &Inner, model: &Model, simple: bool) -> OriginalDisp
             return create_assistant_message_event_stream();
         };
         let models = models.clone();
+        let carried = carried.clone();
         let (mut request_model, context) = (model.clone(), context.clone());
         lazy_stream(model, async move {
-            let mut request = ProviderRequestOptions::default();
+            let mut request = ProviderRequestOptions {
+                signal: carried.signal,
+                stream_clock: carried.stream_clock,
+                ..ProviderRequestOptions::default()
+            };
             // An unconfigured provider keeps default options: the provider
             // itself surfaces its missing-credential failure.
             if let Some(resolution) = models
@@ -1185,6 +1235,45 @@ mod tests {
                 } if restored == "faux-a/shared-1"
             ),
             "{end:?}"
+        );
+    }
+
+    /// Regression: the sibling attempt dispatched with fresh options, so a
+    /// queue at the fallback ran without the request's stream clock (a
+    /// queued fallback read as a stalled stream) and ignored its abort.
+    #[tokio::test]
+    async fn failover_attempts_keep_the_abort_signal_and_stream_clock() {
+        let fixture = fixture(/*text_only*/ false);
+        let model = fixture.faux_a.get_model();
+        fixture
+            .faux_a
+            .set_responses(vec![error_step("503 Service Unavailable")]);
+        let seen = Arc::new(Mutex::new(None));
+        let record = Arc::clone(&seen);
+        fixture.faux_b.set_responses(vec![FauxResponseStep::factory(
+            move |_context, options, _state, _model| {
+                let request = options.map(|options| &options.stream.request);
+                *record.lock().unwrap_or_else(poisoned) = Some((
+                    request.is_some_and(|request| request.signal.is_some()),
+                    request.is_some_and(|request| request.stream_clock.is_some()),
+                ));
+                Ok(faux_assistant_message(
+                    "backup answer",
+                    FauxAssistantMessageOptions::default(),
+                ))
+            },
+        )]);
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        assert_eq!(message.stop_reason, StopReason::Stop, "{message:?}");
+        assert_eq!(
+            *seen.lock().unwrap_or_else(poisoned),
+            Some((true, true)),
+            "the sibling attempt carries the signal and the stream clock"
         );
     }
 

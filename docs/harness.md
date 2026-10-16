@@ -446,3 +446,81 @@ never a stall), `tests::report_delivery::a_report_withdrawn_as_its_task_aborts_i
 `kernel_lifecycle::background_bash_output_moves_the_job_progress` and
 `kernel::manager::events::tests::stream_output_moves_the_job_progress`
 (a child idle on a long job that writes output is not stalled).
+
+### H6. Every other wait has an exit
+
+Every wait races three things: the event it waits for, a deadline, and the
+cancel signal. The first one wins; the wait ends exactly once.
+
+1. A request to a chat memory owner in another process has a reply
+   deadline (30 s; for a settled view, the settle deadline plus 30 s; for
+   an import, 100 ms per item plus 30 s, since the owner fsyncs each
+   item). A miss is an error that the turn shows. This process's own
+   owner has none: its actor thread is the process's own work, and the run's
+   cancel ends the wait (H4.6). A request transform (`before_request`
+   hook) that fails fails the turn: the request never goes out with
+   another prompt in silence.
+2. The root-turn lease is first come, first served. A waiter that stops
+   waiting never gets it, a crashed holder's lease is freed, and a free
+   lease goes to the next live waiter at once. The wait itself has no
+   deadline (it waits for another window's turn); it ends with that
+   turn, or with the run's cancel (H4.6 drops the hook that waits), and a
+   dropped wait leaves nothing behind.
+3. The stream stall clock starts when the request has its admission slot,
+   not before: a long queue is not a stall.
+
+Changed from the first draft: item 4 (`bash.defaultTimeoutMs`) is
+dropped. No eukhe session installs the durable `bash` tool
+(`eukhe-durable/src/tools/bash.rs` has no product caller); the model runs
+shell commands through the `ipython` kernel's `bash()`, whose cell
+blocks the turn at most `toolBlockingBudgetMs` and then goes on as a
+detached job (`durable/rlm/tool.rs`), and `jobs.wait` is clamped to the
+same budget. Item 1 gained the failed transform, item 2 the lease's own
+laws.
+
+Models: the wait in `bend/wait.bend` (a wait sees, one at a time and in
+any order, its event, ticks, and the cancel; its deadline is a number of
+ticks or none); the lease in `bend/lease.bend` (asks, releases, stops and
+crashes in any order; a key is the order of arrival). Proofs:
+`bend/proof_wait.bend`, `bend/proof_lease.bend`. Every law is universal.
+
+| Law | Says |
+| --- | --- |
+| `wait_ends_once` | A wait ends exactly once when its event, its cancel or its deadline comes, and never otherwise. |
+| `wait_end_is_final` | Once the cancel or the deadline came, the wait has ended: what comes after changes nothing. |
+| `wait_arrival_wins` | An event before the cancel and the deadline ends the wait with the event. |
+| `wait_cancel_wins` | A cancel before the event and the deadline ends the wait as cancelled. |
+| `lease_fifo` | After any events, the holder asked before every waiter, and the waiters wait in the order they asked (H6.2). |
+| `lease_never_idle` | After any events, the lease is held or no live waiter waits: a release or a crash hands it on at once (H6.2). |
+| `lease_keeps_waiters` | In any state, an event that does not end a live waiter (its release, its stop, its origin's crash) leaves it waiting or holding: no waiter is skipped (H6.2). |
+| `lease_stop_never_holds` | A waiter that stopped waiting never holds the lease, whatever comes after (H6.2). |
+| `lease_crash_frees` | In any state, a crash ends every lease of its origin, held or waited for (H6.2). |
+
+Code: `eukhe-chord/src/context.rs` `race` (the one race of event,
+deadline and cancel; `Exits`, `Raced`); `memory/service.rs`
+`Request::reply_deadline`, `answered`, `Memory::request`, `live_parts`;
+`memory/service/turn.rs` `Turns` (the lease), `Memory::acquire_turn`
+(the turn file is polled, `TURN_FILE_POLL`), `TurnLease::release`;
+`eukhe-durable/src/tasks/runtime.rs` `HookRunner::each_required`, which
+`harness/generation.rs` `request` runs the `before_request` hooks with
+(a failure ends the run as `model_error`); `eukhe-ai/src/utils/stream_idle.rs`
+`StreamClock`, `ClockHold` (`ProviderRequestOptions::stream_clock`);
+`durable/admission_gate.rs` `AdmissionGate::admitted` (holds the clock
+while the request waits for its slot).
+
+Tie: the bridge `memory::service::turn::bridge` runs `race` on paused
+tokio time (a oneshot event, ticks of `advance`, an `AbortController`)
+and `Turns` (asks, releases, dropped replies, closed connections)
+against `bend/bridge_wait.bend` on 304 wait and 200 lease scenarios,
+byte for byte. The `wait_*` laws are about `race`, not about each wait:
+the deadline each wait passes to it is tied by tests.
+`memory::service::waits::every_request_to_a_remote_owner_but_the_lease_has_a_reply_deadline`
+checks `Request::reply_deadline` for every request (its match has no
+catch-all, so a new request takes a side). Regression tests:
+`memory::service::waits::a_stuck_owner_fails_the_request_at_its_reply_deadline`,
+`a_dropped_wait_for_the_turn_file_leaves_nothing_behind`;
+`durable::admission_gate::tests::a_queue_longer_than_the_idle_deadline_is_not_a_stall`
+(fails as stalled without the clock hold);
+`durable::optchat::tests::a_failed_transform_fails_the_turn_and_sends_nothing`.
+Not modelled: how long the owner's own work takes (the reply deadline
+bounds the wait, not the work), and the turn file between owners.
