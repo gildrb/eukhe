@@ -10,6 +10,7 @@ import Base
 import ./bend/optchat.bend as O
 import ./bend/spec.bend as S
 import ./bend/compactor.bend as C
+import ./bend/admission.bend as Ad
 
 # (a) The view
 # ------------
@@ -297,3 +298,94 @@ law settle_start:
   for +info: O.Info
   for +v: List<&2, O.Node>
   {C.measure(C.settle.start(p, info, v)) == Nat.mul(C.unbuilt(info, v), 1n+p) : Nat}
+
+# (H3) A user's request never waits behind background work
+# ---------------------------------------------------------
+# docs/harness.md H3, the model in bend/admission.bend: one provider's
+# admission (crates/eukhe-core/src/admission.rs), ticket by ticket. Every
+# op is free: admits of either class, polls, drops of permits and of
+# waiters, new limits, in any order, on any state.
+
+# LAW: an interactive admit leaves no background slot held (H3.1)
+law admission_preempts:
+  for +s: Ad.St
+  {Ad.cnt(Ad.Holding{}, Ad.Bg{}, Ad.St.ts(Ad.step(s, Ad.Admit{Ad.Ia{}}))) == 0n : Nat}
+
+# LAW: an op grants only into free slots: after it the slots held are
+# within the limit, or no more than before less the slots the op freed
+# itself (a lowered limit drains, and nothing is granted until below it)
+law admission_capacity:
+  for +s: Ad.St
+  for +o: Ad.Op
+  {Bool.or(Ad.within(Ad.St.lim(Ad.step(s, o)), Ad.held(Ad.St.ts(Ad.step(s, o)))), Ad.le(Nat.add(Ad.held(Ad.St.ts(Ad.step(s, o))), Ad.freed(s, o)), Ad.held(Ad.St.ts(s)))) == True{} : Bool}
+
+# LAW: after any history no waiter may take a free slot: no free slot
+# while an interactive request waits, or a background one waits with no
+# interactive request holding or waiting (H3.3)
+law admission_no_lost_wakeup:
+  for +l: Ad.Lim
+  for +q: Nat
+  for +os: List<&2, Ad.Op>
+  {Ad.grantable(Ad.run(os, Ad.St.new(l, q))) == False{} : Bool}
+
+# LAW: after any history a background slot is held only while no
+# interactive request holds a slot or waits (H3.1)
+law admission_background_yields:
+  for +l: Ad.Lim
+  for +q: Nat
+  for +os: List<&2, Ad.Op>
+  {Ad.calm(Ad.St.ts(Ad.run(os, Ad.St.new(l, q)))) == True{} : Bool}
+
+# LAW: after any history no request holds a slot while an older one of
+# its class waits: grants within a class go oldest first (H3.2)
+law admission_fifo:
+  for +l: Ad.Lim
+  for +q: Nat
+  for +os: List<&2, Ad.Op>
+  {Ad.fifo.both(Ad.St.ts(Ad.run(os, Ad.St.new(l, q)))) == True{} : Bool}
+
+# LAW: while interactive ticket w waits, no op raises what it waits for
+# (the interactive slots held and the interactive waiters ahead of it),
+# and each interactive slot an op frees lowers it (H3.4)
+law admission_interactive_step:
+  for +s: Ad.St
+  for +o: Ad.Op
+  for +w: Nat
+  for ws: {Ad.waits.ia(Ad.status(s, w)) == True{} : Bool}
+  for wf: {Ad.waits.ia(Ad.status(Ad.step(s, o), w)) == True{} : Bool}
+  {Ad.le(Nat.add(Ad.frees(s, o), Ad.ahead(Ad.step(s, o), w)), Ad.ahead(s, w)) == True{} : Bool}
+
+# LAW: so an interactive waiter w is granted after at most ahead(s, w)
+# interactive releases, whatever background requests do: while it keeps
+# waiting through a run, the run freed fewer interactive slots (H3.4)
+law admission_interactive_bound:
+  for +l: Ad.Lim
+  for +q: Nat
+  for +pre: List<&2, Ad.Op>
+  for +os: List<&2, Ad.Op>
+  for +w: Nat
+  for waits: {Ad.waits.thru(os, Ad.run(pre, Ad.St.new(l, q)), w) == True{} : Bool}
+  {Ad.le(1n+Ad.frees.run(os, Ad.run(pre, Ad.St.new(l, q))), Ad.ahead(Ad.run(pre, Ad.St.new(l, q)), w)) == True{} : Bool}
+
+# LAW: an ended ticket stays ended, whatever op comes
+law admission_ended_stays_ended:
+  for +s: Ad.St
+  for +o: Ad.Op
+  for +k: Nat
+  for e: {Ad.ended(Ad.status(s, k)) == True{} : Bool}
+  {Ad.ended(Ad.status(Ad.step(s, o), k)) == True{} : Bool}
+
+# LAW: ending an ended ticket again changes nothing: no double release
+law admission_end_twice_changes_nothing:
+  for +s: Ad.St
+  for +k: Nat
+  for e: {Ad.ended(Ad.status(s, k)) == True{} : Bool}
+  {Ad.step(s, Ad.finish(Ad.status(s, k), k)) == s : Ad.St}
+
+# LAW: every ticket ends when its holder drops it (a waiter leaves, a
+# permit is released): no leak
+law admission_every_ticket_ends:
+  for +s: Ad.St
+  for +k: Nat
+  for live: {Maybe.is_some(&2, Ad.Tk, Ad.status(s, k)) == True{} : Bool}
+  {Ad.ended(Ad.status(Ad.step(s, Ad.finish(Ad.status(s, k), k)), k)) == True{} : Bool}

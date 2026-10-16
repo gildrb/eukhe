@@ -14,6 +14,8 @@ import ./bend/proof_fit.bend as Fit
 import ./bend/proof_push.bend as Push
 import ./bend/proof_agree.bend as Agree
 import ./bend/proof_compactor.bend as Compactor
+import ./bend/proof_admission.bend as Admission
+import ./bend/proof_admission_wait.bend as AdmissionWait
 
 # (a) The view
 
@@ -131,3 +133,35 @@ def Laws.settle_reached(es, ps, enough):
 
 def Laws.settle_start(p, info, v):
   Compactor.pc.settle_start(p, info, v)
+
+# (H3) A user's request never waits behind background work
+
+def Laws.admission_preempts(s):
+  Admission.preempts(s)
+
+def Laws.admission_capacity(s, o):
+  Admission.capacity(s, o)
+
+def Laws.admission_no_lost_wakeup(l, q, os):
+  Admission.no_lost_wakeup(l, q, os)
+
+def Laws.admission_background_yields(l, q, os):
+  Admission.background_yields(l, q, os)
+
+def Laws.admission_fifo(l, q, os):
+  Admission.fifo_per_class(l, q, os)
+
+def Laws.admission_interactive_step(s, o, w, ws, wf):
+  AdmissionWait.interactive_step(s, o, w, ws, wf)
+
+def Laws.admission_interactive_bound(l, q, pre, os, w, waits):
+  AdmissionWait.interactive_bound(l, q, pre, os, w, waits)
+
+def Laws.admission_ended_stays_ended(s, o, k, e):
+  Admission.ended_stays_ended(s, o, k, e)
+
+def Laws.admission_end_twice_changes_nothing(s, k, e):
+  Admission.end_twice_changes_nothing(s, k, e)
+
+def Laws.admission_every_ticket_ends(s, k, live):
+  Admission.every_ticket_ends(s, k, live)

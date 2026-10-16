@@ -1,0 +1,516 @@
+# admission: the pure model of one provider's admission controller
+# (crates/eukhe-core/src/admission.rs, `ControllerState`), rule H3 of
+# docs/harness.md.
+#
+# - The state is the limit, the queue limit, and one entry per ticket, in
+#   ticket order: its class and its status. Ticket k is entry k.
+# - A status is `Queued` (waits), `Granted` (holds a slot, its waiter has
+#   not collected it), `Held` (a collected permit), `Preempted` (a
+#   collected background permit an interactive request took the slot
+#   from), or `Ended` (released, left, or rejected).
+# - The Rust queues are the queued entries of a class, in ticket order;
+#   its counters are the counts below.
+#
+# LAWS.bend states what must hold; PROOF.bend proves it (with
+# bend/proof_admission.bend). bend/bridge_admission.bend runs this model
+# on the scenarios of the Rust bridge test (admission/bridge.rs).
+
+import Base
+
+# The state
+# ---------
+
+# a request's class: interactive (a session's) or background (the
+# compactor's)
+type Cls is Data:
+  Ia{}
+  Bg{}
+
+type Sts is Data:
+  Queued{}
+  Granted{}
+  Held{}
+  Preempted{}
+  Ended{}
+
+# one ticket: its class and its status
+type Tk is Data:
+  Tk{c: Cls, s: Sts}
+
+# providerMaxInFlight: unlimited, or 1 + p slots
+type Lim is Data:
+  Unl{}
+  Cap{p: Nat}
+
+# the limit, providerMaxQueued, and the tickets, oldest first
+type St is Data:
+  St{lim: Lim, q: Nat, ts: List<&2, Tk>}
+
+# what the holders of tickets do: admit a request of a class, collect a
+# granted permit (a queued waiter polls), release a collected permit,
+# leave (drop a waiter, granted or not), set the limits
+type Op is Data:
+  Admit{c: Cls}
+  Collect{k: Nat}
+  Release{k: Nat}
+  Leave{k: Nat}
+  Limit{lim: Lim, q: Nat}
+
+def St.lim(s: St) -> Lim:
+  match s:
+    case St{l, q, ts}:
+      l
+
+def St.ts(s: St) -> List<&2, Tk>:
+  match s:
+    case St{l, q, ts}:
+      ts
+
+# Counting
+# --------
+
+# what a count counts: slots held (granted or collected, not preempted),
+# or waiters
+type Mode is Data:
+  Holding{}
+  Waiting{}
+
+def Cls.eq(a: Cls, b: Cls) -> Bool:
+  match a b:
+    case Ia{} Ia{}:
+      True{}
+    case Ia{} Bg{}:
+      False{}
+    case Bg{} Ia{}:
+      False{}
+    case Bg{} Bg{}:
+      True{}
+
+def Mode.of(m: Mode, s: Sts) -> Bool:
+  match m s:
+    case Holding{} Queued{}:
+      False{}
+    case Holding{} Granted{}:
+      True{}
+    case Holding{} Held{}:
+      True{}
+    case Holding{} Preempted{}:
+      False{}
+    case Holding{} Ended{}:
+      False{}
+    case Waiting{} Queued{}:
+      True{}
+    case Waiting{} Granted{}:
+      False{}
+    case Waiting{} Held{}:
+      False{}
+    case Waiting{} Preempted{}:
+      False{}
+    case Waiting{} Ended{}:
+      False{}
+
+# ticket t counts in mode m of class c
+def hit(+m: Mode, +c: Cls, t: Tk) -> Bool:
+  match t:
+    case Tk{tc, s}:
+      Bool.and(Mode.of(m, s), Cls.eq(c, tc))
+
+def bit(b: Bool, x: Nat) -> Nat:
+  match b:
+    case False{}:
+      x
+    case True{}:
+      1n+x
+
+def cnt(+m: Mode, +c: Cls, ts: List<&2, Tk>) -> Nat:
+  match ts:
+    case Nil{}:
+      0n
+    case h <> r:
+      bit(hit(m, c, h), cnt(m, c, r))
+
+def isz(n: Nat) -> Bool:
+  match n:
+    case 0n:
+      True{}
+    case 1n+p:
+      False{}
+
+def le(a: Nat, b: Nat) -> Bool:
+  match a b:
+    case 0n _:
+      True{}
+    case 1n+x 0n:
+      False{}
+    case 1n+x 1n+y:
+      le(x, y)
+
+# a slot is free with n held
+def room(l: Lim, n: Nat) -> Bool:
+  match l:
+    case Unl{}:
+      True{}
+    case Cap{p}:
+      le(n, p)
+
+# n slots held are within the limit
+def within(l: Lim, n: Nat) -> Bool:
+  match l:
+    case Unl{}:
+      True{}
+    case Cap{p}:
+      le(n, 1n+p)
+
+# slots held, both classes
+def held(+ts: List<&2, Tk>) -> Nat:
+  Nat.add(cnt(Holding{}, Ia{}, ts), cnt(Holding{}, Bg{}, ts))
+
+# waiters, both classes
+def waits(+ts: List<&2, Tk>) -> Nat:
+  Nat.add(cnt(Waiting{}, Ia{}, ts), cnt(Waiting{}, Bg{}, ts))
+
+# Granting
+# --------
+
+# who may take a free slot (r): an interactive waiter, else a background
+# one while no interactive request holds a slot (wi, hi, wb: interactive
+# waiters, interactive slots, background waiters)
+def pick.go(r: Bool, wi: Nat, hi: Nat, wb: Nat) -> Maybe<&2, Cls>:
+  match r wi hi wb:
+    case False{} _ _ _:
+      None{}
+    case True{} 1n+a _ _:
+      Some{Ia{}}
+    case True{} 0n 1n+b _:
+      None{}
+    case True{} 0n 0n 0n:
+      None{}
+    case True{} 0n 0n 1n+d:
+      Some{Bg{}}
+
+def pick(+l: Lim, +ts: List<&2, Tk>) -> Maybe<&2, Cls>:
+  pick.go(room(l, held(ts)), cnt(Waiting{}, Ia{}, ts), cnt(Holding{}, Ia{}, ts), cnt(Waiting{}, Bg{}, ts))
+
+def mark.at(b: Bool, c: Cls, h: Tk, r: List<&2, Tk>, m: List<&2, Tk>) -> List<&2, Tk>:
+  match b:
+    case True{}:
+      Tk{c, Granted{}} <> r
+    case False{}:
+      h <> m
+
+# grant the oldest waiter of class c
+def mark(+c: Cls, ts: List<&2, Tk>) -> List<&2, Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case +h <> +r:
+      mark.at(hit(Waiting{}, c, h), c, h, r, mark(c, r))
+
+# grant waiters until no slot is free or no waiter may take one (Rust
+# `grant_waiters`); d is the next grant. Each grant takes one waiter, so
+# the waiters bound the grants.
+def grant.go(n: Nat, d: Maybe<&2, Cls>, +l: Lim, +ts: List<&2, Tk>) -> List<&2, Tk>:
+  match n d:
+    case 0n _:
+      ts
+    case 1n+f None{}:
+      ts
+    case 1n+f Some{c}:
+      +t2 = mark(c, ts)
+      grant.go(f, pick(l, t2), l, t2)
+
+def grant(+l: Lim, +ts: List<&2, Tk>) -> List<&2, Tk>:
+  grant.go(waits(ts), pick(l, ts), l, ts)
+
+# Admitting
+# ---------
+
+# an interactive request frees every background slot: a granted waiter
+# waits again, a collected permit is preempted (Rust
+# `preempt_background`)
+def Tk.preempt(t: Tk) -> Tk:
+  match t:
+    case Tk{Ia{}, s}:
+      Tk{Ia{}, s}
+    case Tk{Bg{}, Queued{}}:
+      Tk{Bg{}, Queued{}}
+    case Tk{Bg{}, Granted{}}:
+      Tk{Bg{}, Queued{}}
+    case Tk{Bg{}, Held{}}:
+      Tk{Bg{}, Preempted{}}
+    case Tk{Bg{}, Preempted{}}:
+      Tk{Bg{}, Preempted{}}
+    case Tk{Bg{}, Ended{}}:
+      Tk{Bg{}, Ended{}}
+
+def preempt(ts: List<&2, Tk>) -> List<&2, Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case h <> r:
+      Tk.preempt(h) <> preempt(r)
+
+# a new interactive ticket: a slot if one is free and no interactive
+# request waits, else rejected once q of them wait, else it waits
+def admit.ia.st(free: Bool, full: Bool) -> Sts:
+  match free full:
+    case True{} _:
+      Held{}
+    case False{} True{}:
+      Ended{}
+    case False{} False{}:
+      Queued{}
+
+# after the preemption only interactive slots are held, so the counts of
+# ts decide
+def admit.ia(+l: Lim, +q: Nat, +ts: List<&2, Tk>) -> List<&2, Tk>:
+  List.append(&2, Tk, preempt(ts), [Tk{Ia{}, admit.ia.st(Bool.and(isz(cnt(Waiting{}, Ia{}, ts)), room(l, cnt(Holding{}, Ia{}, ts))), le(q, cnt(Waiting{}, Ia{}, ts)))}])
+
+def admit.bg.st(free: Bool) -> Sts:
+  match free:
+    case True{}:
+      Held{}
+    case False{}:
+      Queued{}
+
+# a new background ticket: a slot if one is free and no request holds
+# one interactively or waits, else it waits (never rejected)
+def admit.bg(+l: Lim, +ts: List<&2, Tk>) -> List<&2, Tk>:
+  List.append(&2, Tk, ts, [Tk{Bg{}, admit.bg.st(Bool.and(isz(cnt(Holding{}, Ia{}, ts)), Bool.and(isz(cnt(Waiting{}, Ia{}, ts)), Bool.and(isz(cnt(Waiting{}, Bg{}, ts)), room(l, held(ts))))))}])
+
+# Tickets
+# -------
+
+def put(ts: List<&2, Tk>, k: Nat, x: Sts) -> List<&2, Tk>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case Tk{c, s} <> r:
+      match k:
+        case 0n:
+          Tk{c, x} <> r
+        case 1n+p:
+          Tk{c, s} <> put(r, p, x)
+
+def get(+ts: List<&2, Tk>, k: Nat) -> Maybe<&2, Tk>:
+  List.get(&2, Tk, ts, k)
+
+# a waiter polls: a granted permit is collected
+def collect.at(m: Maybe<&2, Tk>, +l: Lim, +q: Nat, +ts: List<&2, Tk>, k: Nat) -> St:
+  match m:
+    case None{}:
+      St{l, q, ts}
+    case Some{Tk{c, Queued{}}}:
+      St{l, q, ts}
+    case Some{Tk{c, Granted{}}}:
+      St{l, q, put(ts, k, Held{})}
+    case Some{Tk{c, Held{}}}:
+      St{l, q, ts}
+    case Some{Tk{c, Preempted{}}}:
+      St{l, q, ts}
+    case Some{Tk{c, Ended{}}}:
+      St{l, q, ts}
+
+# a collected permit drops: its slot goes to the waiters; a preempted
+# one's slot was freed by the preemption
+def release.at(m: Maybe<&2, Tk>, +l: Lim, +q: Nat, +ts: List<&2, Tk>, k: Nat) -> St:
+  match m:
+    case None{}:
+      St{l, q, ts}
+    case Some{Tk{c, Queued{}}}:
+      St{l, q, ts}
+    case Some{Tk{c, Granted{}}}:
+      St{l, q, ts}
+    case Some{Tk{c, Held{}}}:
+      St{l, q, grant(l, put(ts, k, Ended{}))}
+    case Some{Tk{c, Preempted{}}}:
+      St{l, q, put(ts, k, Ended{})}
+    case Some{Tk{c, Ended{}}}:
+      St{l, q, ts}
+
+# a waiter drops: it leaves the queue, or its uncollected grant goes to
+# the next waiter
+def leave.at(m: Maybe<&2, Tk>, +l: Lim, +q: Nat, +ts: List<&2, Tk>, k: Nat) -> St:
+  match m:
+    case None{}:
+      St{l, q, ts}
+    case Some{Tk{c, Queued{}}}:
+      St{l, q, grant(l, put(ts, k, Ended{}))}
+    case Some{Tk{c, Granted{}}}:
+      St{l, q, grant(l, put(ts, k, Ended{}))}
+    case Some{Tk{c, Held{}}}:
+      St{l, q, ts}
+    case Some{Tk{c, Preempted{}}}:
+      St{l, q, ts}
+    case Some{Tk{c, Ended{}}}:
+      St{l, q, ts}
+
+# The controller
+# --------------
+
+def step(s: St, o: Op) -> St:
+  match s:
+    case St{+l, +q, +ts}:
+      match o:
+        case Admit{Ia{}}:
+          St{l, q, admit.ia(l, q, ts)}
+        case Admit{Bg{}}:
+          St{l, q, admit.bg(l, ts)}
+        case Collect{+k}:
+          collect.at(get(ts, k), l, q, ts, k)
+        case Release{+k}:
+          release.at(get(ts, k), l, q, ts, k)
+        case Leave{+k}:
+          leave.at(get(ts, k), l, q, ts, k)
+        case Limit{+l2, q2}:
+          St{l2, q2, grant(l2, ts)}
+
+def run(os: List<&2, Op>, s: St) -> St:
+  match os:
+    case Nil{}:
+      s
+    case o <> r:
+      run(r, step(s, o))
+
+def St.new(l: Lim, q: Nat) -> St:
+  St{l, q, Nil{}}
+
+# What the laws speak of
+# ----------------------
+
+# no lost wake-up: some waiter may take a free slot
+def grantable(+s: St) -> Bool:
+  match s:
+    case St{+l, q, +ts}:
+      Maybe.is_some(&2, Cls, pick(l, ts))
+
+# a background slot is held only while no interactive request holds a
+# slot or waits
+def calm.n(hi: Nat, wi: Nat, hb: Nat) -> Bool:
+  Bool.or(isz(hb), Bool.and(isz(hi), isz(wi)))
+
+def calm(+ts: List<&2, Tk>) -> Bool:
+  calm.n(cnt(Holding{}, Ia{}, ts), cnt(Waiting{}, Ia{}, ts), cnt(Holding{}, Bg{}, ts))
+
+# the slots an op frees itself, before any grant: a release or a granted
+# waiter that leaves, one; an interactive admit, every background slot
+def freed.at(m: Maybe<&2, Tk>, rel: Bool) -> Nat:
+  match m rel:
+    case Some{Tk{c, Held{}}} True{}:
+      1n
+    case Some{Tk{c, Granted{}}} False{}:
+      1n
+    case _ _:
+      0n
+
+def freed(+s: St, o: Op) -> Nat:
+  match o:
+    case Admit{Ia{}}:
+      cnt(Holding{}, Bg{}, St.ts(s))
+    case Admit{Bg{}}:
+      0n
+    case Collect{k}:
+      0n
+    case Release{k}:
+      freed.at(get(St.ts(s), k), True{})
+    case Leave{k}:
+      freed.at(get(St.ts(s), k), False{})
+    case Limit{l, q}:
+      0n
+
+# fifo(c, ts, seen): no ticket of class c holds a slot after one of its
+# class that waits (seen: one waited before ts)
+def fifo(+c: Cls, ts: List<&2, Tk>, +seen: Bool) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case +h <> r:
+      Bool.and(Bool.not(Bool.and(seen, hit(Holding{}, c, h))), fifo(c, r, Bool.or(seen, hit(Waiting{}, c, h))))
+
+def fifo.both(+ts: List<&2, Tk>) -> Bool:
+  Bool.and(fifo(Ia{}, ts, False{}), fifo(Bg{}, ts, False{}))
+
+# ticket m waits, interactive
+def waits.ia(m: Maybe<&2, Tk>) -> Bool:
+  match m:
+    case Some{Tk{Ia{}, Queued{}}}:
+      True{}
+    case _:
+      False{}
+
+# what interactive ticket w waits for: the interactive slots held and the
+# interactive waiters ahead of it (interactive tickets before w that hold
+# or wait, and interactive slots from w on)
+def pot(ts: List<&2, Tk>, w: Nat) -> Nat:
+  match ts:
+    case Nil{}:
+      0n
+    case +h <> +r:
+      match w:
+        case 0n:
+          cnt(Holding{}, Ia{}, h <> r)
+        case 1n+p:
+          bit(Bool.or(hit(Holding{}, Ia{}, h), hit(Waiting{}, Ia{}, h)), pot(r, p))
+
+def ahead(+s: St, w: Nat) -> Nat:
+  pot(St.ts(s), w)
+
+# an op frees an interactive slot
+def frees.at(m: Maybe<&2, Tk>, rel: Bool) -> Nat:
+  match m rel:
+    case Some{Tk{Ia{}, Held{}}} True{}:
+      1n
+    case Some{Tk{Ia{}, Granted{}}} False{}:
+      1n
+    case _ _:
+      0n
+
+def frees(+s: St, o: Op) -> Nat:
+  match o:
+    case Admit{c}:
+      0n
+    case Collect{k}:
+      0n
+    case Release{k}:
+      frees.at(get(St.ts(s), k), True{})
+    case Leave{k}:
+      frees.at(get(St.ts(s), k), False{})
+    case Limit{l, q}:
+      0n
+
+# the interactive slots freed along a run
+def frees.run(os: List<&2, Op>, +s: St) -> Nat:
+  match os:
+    case Nil{}:
+      0n
+    case +o <> r:
+      Nat.add(frees(s, o), frees.run(r, step(s, o)))
+
+def status(+s: St, k: Nat) -> Maybe<&2, Tk>:
+  get(St.ts(s), k)
+
+# ticket w waits, interactive, before and after every op of a run
+def waits.thru(os: List<&2, Op>, +s: St, +w: Nat) -> Bool:
+  match os:
+    case Nil{}:
+      waits.ia(status(s, w))
+    case +o <> r:
+      Bool.and(waits.ia(status(s, w)), waits.thru(r, step(s, o), w))
+
+def ended(m: Maybe<&2, Tk>) -> Bool:
+  match m:
+    case Some{Tk{c, Ended{}}}:
+      True{}
+    case _:
+      False{}
+
+# the op by which ticket m's holder ends it: a waiter leaves, a permit
+# is released
+def finish(m: Maybe<&2, Tk>, k: Nat) -> Op:
+  match m:
+    case Some{Tk{c, Queued{}}}:
+      Leave{k}
+    case Some{Tk{c, Granted{}}}:
+      Leave{k}
+    case _:
+      Release{k}

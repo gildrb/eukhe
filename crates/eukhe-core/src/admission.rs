@@ -21,7 +21,7 @@
 //! [`ProviderAdmission`]; a run without a daemon uses
 //! [`local_admission`], the same semantics in this process.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::pin::Pin;
@@ -124,7 +124,6 @@ fn count(len: usize) -> u32 {
 
 #[derive(Debug)]
 struct WaitSlot {
-    priority: AdmissionPriority,
     /// The grant's preemption token, once granted. A background grant its
     /// waiter has not collected yet goes back to the queue on preemption.
     granted: Option<CancellationToken>,
@@ -141,11 +140,12 @@ struct ControllerState {
     /// preemption frees their slots and cancels their tokens.
     background: HashMap<u64, CancellationToken>,
     next_ticket: u64,
-    /// Waiting interactive tickets, oldest first.
-    interactive_queue: VecDeque<u64>,
+    /// Waiting interactive tickets. Tickets count up, so ticket order is
+    /// arrival order: the first is the oldest.
+    interactive_queue: BTreeSet<u64>,
     /// Waiting background tickets, oldest first. `providerMaxQueued` does
     /// not apply to them: the compactor bounds its own calls.
-    background_queue: VecDeque<u64>,
+    background_queue: BTreeSet<u64>,
     /// Every ticket not yet collected by its waiter: queued ones and
     /// granted ones whose waiter has not polled since the grant.
     slots: HashMap<u64, WaitSlot>,
@@ -186,16 +186,16 @@ impl ControllerState {
     fn grant_waiters(&mut self) -> Vec<Waker> {
         let mut wake = Vec::new();
         while self.has_room() {
-            let next = match self.interactive_queue.pop_front() {
-                Some(ticket) => Some(ticket),
-                None if self.interactive == 0 => self.background_queue.pop_front(),
+            let next = match self.interactive_queue.pop_first() {
+                Some(ticket) => Some((ticket, AdmissionPriority::Interactive)),
+                None if self.interactive == 0 => self
+                    .background_queue
+                    .pop_first()
+                    .map(|ticket| (ticket, AdmissionPriority::Background)),
                 None => None,
             };
-            let Some(ticket) = next else {
+            let Some((ticket, priority)) = next else {
                 break;
-            };
-            let Some(priority) = self.slots.get(&ticket).map(|slot| slot.priority) else {
-                continue;
             };
             let token = self.hold(ticket, priority);
             if let Some(slot) = self.slots.get_mut(&ticket) {
@@ -207,25 +207,20 @@ impl ControllerState {
     }
 
     /// An interactive request came: every background slot frees at once. A
-    /// granted background waiter that has not collected its permit goes
-    /// back to the head of the background queue; the tokens of collected
-    /// permits are returned, to cancel once the lock is released.
+    /// granted background waiter that has not collected its permit waits
+    /// again, in its ticket's place (ahead of the requests that never had
+    /// a slot); the tokens of collected permits are returned, to cancel
+    /// once the lock is released.
     fn preempt_background(&mut self) -> Vec<CancellationToken> {
         let mut preempted = Vec::new();
-        let mut uncollected = Vec::new();
         for (ticket, token) in self.background.drain() {
             match self.slots.get_mut(&ticket) {
                 Some(slot) => {
                     slot.granted = None;
-                    uncollected.push(ticket);
+                    self.background_queue.insert(ticket);
                 }
                 None => preempted.push(token),
             }
-        }
-        // Oldest first, ahead of the requests that never had a slot.
-        uncollected.sort_unstable();
-        for ticket in uncollected.into_iter().rev() {
-            self.background_queue.push_front(ticket);
         }
         preempted
     }
@@ -278,8 +273,8 @@ impl AdmissionController {
                 interactive: 0,
                 background: HashMap::new(),
                 next_ticket: 0,
-                interactive_queue: VecDeque::new(),
-                background_queue: VecDeque::new(),
+                interactive_queue: BTreeSet::new(),
+                background_queue: BTreeSet::new(),
                 slots: HashMap::new(),
             }),
             provider_id,
@@ -332,12 +327,12 @@ impl AdmissionController {
                             queue_limit: state.queue_limit,
                         })
                     } else {
-                        state.interactive_queue.push_back(ticket);
+                        state.interactive_queue.insert(ticket);
                         Ok(())
                     }
                 }
                 AdmissionPriority::Background => {
-                    state.background_queue.push_back(ticket);
+                    state.background_queue.insert(ticket);
                     Ok(())
                 }
             };
@@ -345,7 +340,6 @@ impl AdmissionController {
                 state.slots.insert(
                     ticket,
                     WaitSlot {
-                        priority,
                         granted: None,
                         waker: None,
                     },
@@ -473,14 +467,10 @@ impl Drop for QueuedPermit {
             } else {
                 match self.priority {
                     AdmissionPriority::Interactive => {
-                        state
-                            .interactive_queue
-                            .retain(|ticket| *ticket != self.ticket);
+                        state.interactive_queue.remove(&self.ticket);
                     }
                     AdmissionPriority::Background => {
-                        state
-                            .background_queue
-                            .retain(|ticket| *ticket != self.ticket);
+                        state.background_queue.remove(&self.ticket);
                     }
                 }
                 // The last interactive waiter leaving may let background
@@ -740,6 +730,9 @@ pub fn local_admission(
         limits,
     )))
 }
+
+#[cfg(test)]
+mod bridge;
 
 #[cfg(test)]
 mod tests;

@@ -186,3 +186,65 @@ without the stop),
 `an_empty_reply_still_gives_a_line_that_fits` (tokio paused time). Not
 modelled: the order in which the provider serves calls that already run
 (H3).
+
+### H3. A user's request never waits behind background work
+
+1. A session request preempts every compactor request of its provider.
+2. Requests of one class are granted oldest first.
+3. When a slot is free and a request may take it, it takes it at once: no
+   lost wake-up.
+4. An interactive request waits only for interactive requests ahead of it.
+
+Model: `bend/admission.bend`, one provider's admission, ticket by ticket.
+The state is the limit, the queue limit, and one entry per ticket in
+ticket order: its class and its status (`Queued`, `Granted` not yet
+collected, `Held`, `Preempted`, `Ended`). The Rust queues are the queued
+entries of a class in ticket order; the Rust counters are counts of
+entries. The ops are an admit of either class, a waiter's poll, a
+permit's drop, a waiter's drop, and new limits, each as the Rust code
+does it (only a release or a drop calls the grant loop; an admit grants
+only the new ticket). Proofs: `bend/proof_admission.bend`,
+`bend/proof_admission_wait.bend` (H3.4). Every law is universal: the
+step laws hold for any state and op, the history laws for every state
+any ops reach from a new controller.
+
+| Law | Says |
+| --- | --- |
+| `admission_preempts` | After an interactive admit no background slot is held (H3.1). |
+| `admission_background_yields` | After any history, a background slot is held only while no interactive request holds a slot or waits (H3.1). |
+| `admission_fifo` | After any history, no request holds a slot while an older one of its class waits (H3.2). |
+| `admission_no_lost_wakeup` | After any history, no slot is free while an interactive request waits, or while a background one waits and no interactive request holds or waits (H3.3). |
+| `admission_capacity` | An op grants only into free slots: after it the slots held are within the limit, or no more than before less the slots the op freed itself. A lowered limit drains; nothing is granted until the slots held are below it. |
+| `admission_interactive_step` | While interactive ticket w waits, no op raises `ahead(s, w)` (the interactive slots held plus the interactive waiters older than w), and an op that frees an interactive slot (a release, or a granted waiter that leaves) lowers it by one (H3.4). |
+| `admission_interactive_bound` | So while w keeps waiting through any run, the run freed fewer than `ahead(s, w)` interactive slots: w is granted after at most that many interactive releases, whatever background requests do (H3.4). |
+| `admission_ended_stays_ended` | An ended ticket stays ended, whatever op comes. |
+| `admission_end_twice_changes_nothing` | Ending an ended ticket again changes nothing: no double release. |
+| `admission_every_ticket_ends` | Every ticket ends when its holder drops it (a waiter leaves, a permit is released): no leak. |
+
+`admission_interactive_bound` rests on `admission_no_lost_wakeup`: while
+w waits, `ahead(s, w)` is at least one, since with no interactive slot
+held and no older interactive waiter, w's slot would be free.
+
+Code: `eukhe-core/src/admission.rs` `ControllerState` (`has_room`,
+`interactive_busy`, `hold`, `grant_waiters`, `preempt_background`,
+`release`), `AdmissionController::admit`, `set_limits`,
+`QueuedPermit::poll` and its `Drop`, `ProviderPermit`'s `Drop`. The daemon
+supervisor's registry (`eukhe-daemon/src/provider_admission.rs`) runs
+the same controller for every worker. The wait queues are
+`BTreeSet<u64>` by ticket: `admission_fifo` says the waiting order is
+ticket order, so a waiter that leaves is removed in O(log n), and a
+preempted uncollected grant goes back to its place without a sort.
+
+Tie: the admission bridge (`admission::bridge`) runs 400 scenarios from a
+fixed seed (about 43,000 ops: limits 0 to 3, unlimited included, queue
+limits 0 to 3, admits of both classes, polls, drops of permits and of
+waiters, new limits) on the Rust `AdmissionController` and on
+`bend/bridge_admission.bend`. After each op both print the outcome, the
+snapshot, both queues, the background slots held, the uncollected
+grants and the preempted permits; the test compares them byte for byte.
+Breaks made on purpose and removed: the grant loop taking the newest
+interactive waiter (`pop_last`), and a preempted uncollected grant not
+put back in the queue: the bridge fails on both. The bridge found no
+difference between the Rust code and the model. Not modelled: the
+wakers (the bridge polls with a no-op waker; a grant takes the waker it
+fires) and the daemon's connection frames.
