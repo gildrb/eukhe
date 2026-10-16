@@ -4,7 +4,7 @@
 #![allow(dead_code)] // each including test binary uses its own subset
 
 use std::path::Path;
-use std::process::{Child, Stdio};
+use std::process::Child;
 use std::time::{Duration, Instant};
 
 /// The running supervisor; `SIGKILL`ed on drop.
@@ -29,14 +29,7 @@ impl Supervisor {
             .append(true)
             .open(log)
             .expect("supervisor log");
-        let child = super::daemon::daemon_command()
-            .arg("supervisor")
-            .arg("--socket")
-            .arg(socket)
-            .arg("--agent-dir")
-            .arg(agent_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
+        let child = super::daemon::supervisor_command(socket, agent_dir)
             .stderr(log)
             .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")

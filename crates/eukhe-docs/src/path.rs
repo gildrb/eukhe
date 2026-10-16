@@ -33,7 +33,8 @@ pub fn canonical_key(absolute: &Path) -> PathBuf {
 
 /// Drop `.` components and resolve `..` against the preceding component,
 /// without touching the filesystem.
-pub(crate) fn lexical_normalize(path: &Path) -> PathBuf {
+#[must_use]
+pub fn lexical_normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {

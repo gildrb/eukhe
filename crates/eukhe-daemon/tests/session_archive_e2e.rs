@@ -41,25 +41,16 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
-
-struct Daemon {
-    child: Child,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 /// One always-200 SSE answer per request (the mock the woken session turns
 /// against).
@@ -125,29 +116,21 @@ fn serve(mut stream: TcpStream, answer: &str) -> std::io::Result<()> {
     )
 }
 
-#[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .env("EUKHE_MODEL_PROVIDER", "prime-inference")
-        .env("EUKHE_MODEL", "mock-1")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        // A supervisor killed at teardown must not leak its session workers
-        // into later test binaries: the worker's supervisor-lost exit (TS
-        // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
-        // instead of the 5-minute default.
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    Daemon { child }
+    Daemon::spawn(
+        supervisor_command(socket, agent_dir)
+            .env("EUKHE_MODEL_PROVIDER", "prime-inference")
+            .env("EUKHE_MODEL", "mock-1")
+            // A supervisor killed at teardown must not leak its session workers
+            // into later test binaries: the worker's supervisor-lost exit (TS
+            // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
+            // instead of the 5-minute default.
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+    )
 }
 
 struct Client {

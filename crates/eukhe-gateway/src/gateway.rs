@@ -20,13 +20,11 @@ use tokio::sync::{mpsc, watch};
 
 use crate::commands::{Parsed, PhoneCommand};
 use crate::link::{Binding, Link, Opened, Reconnect, RECONNECT_FIRST_DELAY, RECONNECT_MAX_DELAY};
-use crate::sessions::{Route, SavedSession, LISTED_SESSIONS};
+use crate::sessions::{Route, SavedSession, SessionRef, LISTED_SESSIONS};
 use crate::signal::{Inbound, Peer, SignalCli, Typing};
 use crate::style::{self, StyledText};
-use crate::{DaemonLauncher, GatewayConfig};
-
-/// The reply rules every Signal prompt carries ahead of the user's text.
-pub(crate) const REPLY_RULES: &str = "[Signal reply rules: ASD-STE100 Simplified Technical English. Lead with the answer. Max 8 short lines. Max 20 words per sentence. No filler, no prose, no tables. Markdown bold/code only.]";
+use crate::GatewayConfig;
+use eukhe_tui::saved_sessions::{strip_signal_reply_rules, DaemonLauncher, SIGNAL_REPLY_RULES};
 
 /// Signal shows a typing indicator for about 15 s; refresh it sooner.
 const TYPING_REFRESH: Duration = Duration::from_secs(10);
@@ -374,9 +372,8 @@ impl<L: DaemonLauncher> Gateway<L> {
                             listing.len()
                         )
                     })?;
-                self.open(Some(&saved.session.path), Some(&saved.cwd))
-                    .await?;
-                self.route = Route::Pinned(saved.session.clone());
+                self.open(Some(&saved.path), Some(&saved.cwd)).await?;
+                self.route = Route::Pinned(SessionRef::from(&saved));
                 let title = saved.title.as_deref().unwrap_or("(no title)");
                 Ok(format!(
                     "Using session {number}: {title}\nSend /latest to use the newest session."
@@ -474,7 +471,7 @@ impl<L: DaemonLauncher> Gateway<L> {
         let name = text("sessionName")
             .or_else(|| {
                 text("firstMessage")
-                    .map(crate::sessions::strip_reply_rules)
+                    .map(strip_signal_reply_rules)
                     .filter(|first| !first.trim().is_empty())
             })
             .map_or_else(|| "(no name)".to_string(), crate::sessions::short_title);
@@ -535,7 +532,7 @@ impl<L: DaemonLauncher> Gateway<L> {
     /// Send one message to the agent; on success Signal holds the floor.
     #[tracing::instrument(skip_all)]
     async fn prompt(&mut self, inbound: &Inbound) -> anyhow::Result<()> {
-        let message = format!("{REPLY_RULES}\n\n{}", inbound.text);
+        let message = format!("{SIGNAL_REPLY_RULES}\n\n{}", inbound.text);
         let shown = match inbound.images.len() {
             0 => inbound.text.clone(),
             1 => format!("{}\n[1 image]", inbound.text),
@@ -650,7 +647,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                     .into_iter()
                     .next();
                 match newest {
-                    Some(saved) => (Some(saved.session), Some(saved.cwd)),
+                    Some(saved) => (Some(SessionRef::from(&saved)), Some(saved.cwd)),
                     None => (None, None),
                 }
             }

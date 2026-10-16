@@ -35,56 +35,24 @@
 )]
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::{wait_socket_accepts, Daemon};
 
-struct Daemon {
-    child: Child,
-    #[allow(dead_code)]
-    socket: PathBuf,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-// The timeout panic path cannot wait on the child; the test process exits
-// immediately afterwards, reaping it.
-#[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &std::path::Path, agent_dir: &std::path::Path) -> Daemon {
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env(
+    Daemon::spawn_bound(
+        supervisor_command(socket, agent_dir).env(
             eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
             "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Daemon {
-                child,
-                socket: socket.to_path_buf(),
-            };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+        ),
+        socket,
+        Duration::from_secs(10),
+    )
 }
 
 struct Client {
@@ -589,23 +557,6 @@ fn session_file_text(path: &str) -> String {
     std::fs::read_to_string(std::path::Path::new(path).join("main.jsonl")).unwrap_or_default()
 }
 
-/// Wait until the supervisor socket accepts connections (a restarted
-/// supervisor parks on the stale socket file for up to a second before
-/// replacing it, so file existence is not readiness).
-fn wait_socket_accepts(socket: &std::path::Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the restarted supervisor never accepted connections"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
 /// FINDING 3's restart pin: a daemon restart AFTER a failed identity
 /// persist, BEFORE any new roster write — the boot serves the NEW identity
 /// (never replays the old session) because the boot paths reconcile the
@@ -630,7 +581,7 @@ fn a_restart_after_a_failed_identity_persist_serves_the_moved_session() {
     .expect("write script");
 
     // Supervisor A: the original session, the fork, the failed persist.
-    let mut supervisor_a = spawn_supervisor_raw(&socket, &agent_dir);
+    let mut supervisor_a = spawn_daemon(&socket, &agent_dir);
     let mut client_a = Client::connect(&socket);
     // The roster observer: the fork's supervisor-side convergence signal
     // (the worker's roster push carries the identity follow; the pins
@@ -767,14 +718,11 @@ fn a_restart_after_a_failed_identity_persist_serves_the_moved_session() {
     // WORKER left alive, a fresh supervisor over the same agent dir.
     std::fs::remove_dir_all(&descriptor_path).expect("clear the record path");
     std::fs::write(&descriptor_path, &stale_record).expect("restore the stale record");
-    supervisor_a.kill().expect("kill supervisor A");
-    let _ = supervisor_a.wait();
+    supervisor_a.child.kill().expect("kill supervisor A");
+    let _ = supervisor_a.child.wait();
 
-    let mut supervisor_b = spawn_supervisor_raw(&socket, &agent_dir);
-    let _daemon_guard = DaemonKillOnDrop {
-        child: &mut supervisor_b,
-    };
-    wait_socket_accepts(&socket);
+    let _supervisor_b = spawn_daemon(&socket, &agent_dir);
+    wait_socket_accepts(&socket, Duration::from_secs(15));
 
     // The boot adopts the live worker and reconciles from its live state
     // BEFORE the routing opens: the address serves the FORK.
@@ -867,45 +815,4 @@ fn a_restart_after_a_failed_identity_persist_serves_the_moved_session() {
         !session_file_text(&original_file).contains("message for the fork"),
         "the fork's message never reaches the original's file"
     );
-}
-
-/// One raw supervisor child (no drop-time kill: the restart test manages
-/// the process itself). The timeout panic path cannot wait on the child;
-/// the test process exits immediately afterwards, reaping it.
-#[allow(clippy::zombie_processes)]
-fn spawn_supervisor_raw(socket: &std::path::Path, agent_dir: &std::path::Path) -> Child {
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return child;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
-}
-
-/// Kills the supervisor at scope exit (the restart test's supervisor B).
-struct DaemonKillOnDrop<'a> {
-    child: &'a mut Child,
-}
-
-impl Drop for DaemonKillOnDrop<'_> {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
 }

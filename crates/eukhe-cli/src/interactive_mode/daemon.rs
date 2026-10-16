@@ -32,6 +32,25 @@ pub enum DaemonReady {
     Outdated { version: String },
 }
 
+/// Starts the daemon through the CLI's own launcher (spawn, replace an
+/// idle stale daemon, wait until it greets): the launcher of the
+/// `dashboard` and `gateway` commands.
+pub(crate) struct CliLauncher {
+    pub(crate) socket_path: std::path::PathBuf,
+    pub(crate) spawn_cwd: std::path::PathBuf,
+}
+
+impl eukhe_tui::saved_sessions::DaemonLauncher for CliLauncher {
+    #[tracing::instrument(skip_all, fields(socket = %self.socket_path.display()))]
+    async fn ensure(&self) -> anyhow::Result<()> {
+        let ready = ensure_daemon_running(&self.socket_path, &self.spawn_cwd).await?;
+        if let Some(notice) = ready.notice() {
+            tracing::warn!("{notice}");
+        }
+        Ok(())
+    }
+}
+
 impl DaemonReady {
     /// The one-line notice a client shows for this outcome, if any.
     #[must_use]

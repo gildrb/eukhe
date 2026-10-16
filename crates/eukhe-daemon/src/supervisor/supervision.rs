@@ -12,6 +12,36 @@ use super::{
 };
 use crate::lease::is_process_alive;
 use crate::registry::WorkerRelay;
+use std::borrow::Cow;
+
+/// The routing fields of a worker `session_event` frame, read straight off
+/// the payload bytes (no tree); the bytes then ride to the attached
+/// clients untouched.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionEventRouting<'a> {
+    #[serde(borrow, default)]
+    active_session_id: Option<Cow<'a, str>>,
+    #[serde(borrow, default)]
+    event: Option<SessionEventHead<'a>>,
+}
+
+/// The event fields the abort supervision reads.
+#[derive(serde::Deserialize)]
+struct SessionEventHead<'a> {
+    #[serde(rename = "type", borrow, default)]
+    kind: Option<Cow<'a, str>>,
+    #[serde(borrow, default)]
+    reason: Option<&'a serde_json::value::RawValue>,
+}
+
+/// The session address of a worker `side_question_event` frame.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionAddress<'a> {
+    #[serde(borrow, default)]
+    active_session_id: Option<Cow<'a, str>>,
+}
 
 pub(super) const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 /// A crash-path child that lived at least this long proved health: its death
@@ -731,14 +761,15 @@ impl Supervisor {
                         }
                         continue;
                     }
-                    let Ok(payload) = serde_json::from_slice::<Value>(&frame.payload) else {
-                        continue;
-                    };
                     if outbound_type == "session_event" {
-                        let active_session_id = payload
-                            .get("activeSessionId")
-                            .and_then(Value::as_str)
-                            .map(str::to_string);
+                        let Ok(SessionEventRouting {
+                            active_session_id,
+                            event,
+                        }) = serde_json::from_slice(&frame.payload)
+                        else {
+                            continue;
+                        };
+                        let active_session_id = active_session_id.map(Cow::into_owned);
                         // The abort supervision rides the forwarded events:
                         // `compaction_start` arms the supervisor-visible
                         // token, a settled `compaction_end` clears it (and
@@ -752,15 +783,15 @@ impl Supervisor {
                         // token settle and the record clear, pairing with
                         // `declare_compaction_terminal`'s take-then-write
                         // under the same lock.
-                        if let Some(event) = payload
-                            .get("event")
+                        if let Some(event) = event
                             .filter(|_| reader_resident.connection_is_current(connection_epoch))
                         {
-                            match event.get("type").and_then(Value::as_str) {
-                                Some("compaction_start") => match event
-                                    .get("reason")
-                                    .map(<eukhe_types::daemon::CompactionReason as serde::Deserialize>::deserialize)
-                                {
+                            match event.kind.as_deref() {
+                                Some("compaction_start") => match event.reason.map(|reason| {
+                                    serde_json::from_str::<eukhe_types::daemon::CompactionReason>(
+                                        reason.get(),
+                                    )
+                                }) {
                                     Some(Ok(reason)) => {
                                         let carried_abort = reader_resident.compaction.arm(
                                             active_session_id.as_deref().unwrap_or_default(),
@@ -819,29 +850,33 @@ impl Supervisor {
                         }
                         // The send-time delivery pass (TS handleWorkerFrame
                         // parity): the session's attached connections get
-                        // the frame through the subscriber registry, other
-                        // connections never wake. A session event without
-                        // an active session id is dropped - TS's
-                        // `!activeSessionId` guard in the same handler, not
-                        // broadcast to every client.
+                        // the worker's own bytes through the subscriber
+                        // registry, other connections never wake. A session
+                        // event without an active session id is dropped -
+                        // TS's `!activeSessionId` guard in the same handler,
+                        // not broadcast to every client.
                         if let Some(active_session_id) = active_session_id {
-                            reader_supervisor.publish_session_event(
+                            reader_supervisor.publish_session_line(
                                 &active_session_id,
-                                &std::sync::Arc::new(payload),
+                                &super::subscribers::event_line(frame.payload),
                             );
                         }
                     } else if outbound_type == "side_question_event" {
-                        let active_session_id = payload
-                            .get("activeSessionId")
-                            .and_then(Value::as_str)
-                            .map(str::to_string);
-                        if let Some(active_session_id) = active_session_id {
-                            reader_supervisor.publish_session_event(
+                        let Ok(SessionAddress { active_session_id }) =
+                            serde_json::from_slice(&frame.payload)
+                        else {
+                            continue;
+                        };
+                        if let Some(active_session_id) = active_session_id.map(Cow::into_owned) {
+                            reader_supervisor.publish_session_line(
                                 &active_session_id,
-                                &std::sync::Arc::new(payload),
+                                &super::subscribers::event_line(frame.payload),
                             );
                         }
                     } else if outbound_type == "heartbeats_changed" {
+                        let Ok(payload) = serde_json::from_slice::<Value>(&frame.payload) else {
+                            continue;
+                        };
                         // The worker's own catalog changed: its last-good
                         // snapshot can no longer be trusted as fresh (TS
                         // `heartbeatSnapshotStale = true` + a queued re-read

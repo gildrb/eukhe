@@ -27,10 +27,14 @@
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use process::Daemon;
 
 /// Environment keys this box's own eukhe worker sets; they must not
 /// leak into spawned supervisors (the same scrub list as
@@ -57,23 +61,9 @@ fn cli_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_eukhe"))
 }
 
-/// A spawned supervisor, killed on drop so a failed test never leaks a
-/// daemon into the machine.
-struct Daemon {
-    child: Child,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 /// Spawn the real supervisor on a fixture socket the way production does
 /// (`eukhe --mode daemon --daemon-socket`), with agent dir and TMPDIR
 /// pinned inside the fixture root so every socket it ever makes stays there.
-#[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path, tmp_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     std::fs::create_dir_all(tmp_dir).expect("tmp dir");
@@ -97,15 +87,7 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path, tmp_dir: &Path) -> Daemon {
         eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
         "15000",
     );
-    let child = command.spawn().expect("spawn daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Daemon { child };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Daemon::spawn_bound(&mut command, socket, Duration::from_secs(10))
 }
 
 /// Run the CLI with its state root pinned inside `root`: agent dir and TMPDIR

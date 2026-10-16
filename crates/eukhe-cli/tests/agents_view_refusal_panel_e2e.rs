@@ -25,67 +25,22 @@
 //! visible and wrapped, never the one-line status truncation.
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
 use eukhe_tui::interactive::{SessionSelection, UiMode};
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
-use eukhe::eukhe_command;
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use eukhe::{daemon_mode_args, eukhe_command};
+use process::Daemon;
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        let _ = std::fs::remove_file(&self.socket);
-    }
-}
-
-#[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
     let mut command = eukhe_command();
-    command
-        .args(["--mode", "daemon", "--daemon-socket"])
-        .arg(socket)
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    for var in [
-        eukhe_daemon::worker::WORKER_ROLE_ENV,
-        eukhe_daemon::worker::WORKER_TOKEN_ENV,
-        eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-        eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-        eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_INSTANCE_ID_ENV,
-        eukhe_daemon::worker::WORKER_SCRIPT_ENV,
-    ] {
-        command.env_remove(var);
-    }
-    command.env(
-        eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-        "15000",
-    );
-    let child = command.spawn().expect("spawn eukhe --mode daemon");
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Daemon {
-                child,
-                socket: socket.to_path_buf(),
-            };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    daemon_mode_args(&mut command, socket, agent_dir);
+    Daemon::spawn_bound(&mut command, socket, Duration::from_secs(15))
 }
 
 /// A saved-session fixture: a version-3 header, a display name, and one

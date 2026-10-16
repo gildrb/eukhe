@@ -27,25 +27,17 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
-
-struct Daemon {
-    child: Child,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 impl Daemon {
     /// A graceful stop: the `shutdown` command, then the process exit.
@@ -70,41 +62,32 @@ impl Daemon {
     }
 }
 
-// The timeout panic path cannot wait on the child; the test process exits
-// immediately afterwards, reaping it.
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     let log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(socket.with_extension("daemon.log"))
         .expect("daemon log");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        // The kernel's `agent_message` global is the bundled
-        // `agent-message` skill; a binary built outside the checkout
-        // (`CARGO_TARGET_DIR`) finds it through the package dir.
-        .env(
-            "EUKHE_PACKAGE_DIR",
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
-        )
-        .env_remove("PRIME_API_KEY")
-        // Workers orphaned by a supervisor `kill -9` must outlive the
-        // restart window, yet never leak into later test binaries.
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "20000",
-        )
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(log))
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    Daemon { child }
+    Daemon::spawn(
+        supervisor_command(socket, agent_dir)
+            .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+            // The kernel's `agent_message` global is the bundled
+            // `agent-message` skill; a binary built outside the checkout
+            // (`CARGO_TARGET_DIR`) finds it through the package dir.
+            .env(
+                "EUKHE_PACKAGE_DIR",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+            )
+            .env_remove("PRIME_API_KEY")
+            // Workers orphaned by a supervisor `kill -9` must outlive the
+            // restart window, yet never leak into later test binaries.
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "20000",
+            )
+            .stderr(Stdio::from(log)),
+        socket,
+    )
 }
 
 /// Wait until the supervisor accepts connections (a restarted supervisor

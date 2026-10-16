@@ -287,7 +287,6 @@ pub(super) struct FileIdentity {
 
 /// Resolve a path lexically (`.`/`..` folded) against the current dir.
 fn resolve_path(dir: &Path) -> PathBuf {
-    use std::path::Component;
     let joined = if dir.is_absolute() {
         dir.to_path_buf()
     } else {
@@ -295,17 +294,7 @@ fn resolve_path(dir: &Path) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(dir)
     };
-    let mut out = PathBuf::new();
-    for component in joined.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
+    eukhe_docs::lexical_normalize(&joined)
 }
 
 /// Canonicalize a directory: realpath when it exists, plain resolve otherwise.

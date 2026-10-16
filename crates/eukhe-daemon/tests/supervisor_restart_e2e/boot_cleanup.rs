@@ -85,7 +85,6 @@ fn boot_cleanup_reclaims_dead_leases_and_preserves_unverifiable_journals() {
     preserved.push((corrupt_owner, b"not json".to_vec()));
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let log_path = eukhe_daemon::paths::daemon_log_path(&socket, &agent_dir);
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {

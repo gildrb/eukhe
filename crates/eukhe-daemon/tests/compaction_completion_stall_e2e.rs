@@ -51,8 +51,8 @@
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::path::Path;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -61,7 +61,10 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 /// One fattening assistant reply (the seeded session bulk).
 const FATTENING_TURNS: usize = 3;
@@ -141,21 +144,6 @@ const REFINE_EMPTY_PLAN: &str = r#"{"edits": [], "rationale": "no durable eviden
 /// The fixed compaction summary the mock answers the summarizer with
 /// (the marker the compacted context must carry on the next request).
 const CHECKPOINT_SUMMARY: &str = "the checkpoint summary";
-
-struct Supervisor {
-    child: Child,
-    // Spawn bookkeeping only: the daemon binds the socket path; the test
-    // drives the daemon through the client port, never this field.
-    #[allow(dead_code)]
-    socket: PathBuf,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
 
 /// An OpenAI-compatible SSE mock with per-request-type behavior: normal
 /// turns answer the scripted reply (the fattening turns grow the
@@ -465,42 +453,23 @@ fn daemon_stderr_path(trace_path: &Path) -> std::path::PathBuf {
     trace_path.with_file_name("daemon-stderr.log")
 }
 
-// The child is reaped in Supervisor::drop (kill + wait); clippy's
-// zombie_processes cannot see the Drop guard from the spawn site.
-#[allow(clippy::zombie_processes)]
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, trace_path: &Path) -> Supervisor {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path, trace_path: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     let stderr_path = daemon_stderr_path(trace_path);
     let stderr_file = std::fs::File::create(&stderr_path).expect("daemon stderr file");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(stderr_file))
-        .env_remove("PRIME_API_KEY")
-        .env_remove("EUKHE_CODING_AGENT_DIR")
-        .env("EUKHE_COMPACTION_TRACE", trace_path)
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor {
-                child,
-                socket: socket.to_path_buf(),
-            };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Daemon::spawn_bound(
+        supervisor_command(socket, agent_dir)
+            .stderr(Stdio::from(stderr_file))
+            .env_remove("PRIME_API_KEY")
+            .env_remove("EUKHE_CODING_AGENT_DIR")
+            .env("EUKHE_COMPACTION_TRACE", trace_path)
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+        Duration::from_secs(10),
+    )
 }
 
 struct TimedClient {

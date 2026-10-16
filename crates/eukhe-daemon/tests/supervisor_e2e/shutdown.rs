@@ -185,23 +185,13 @@ fn a_sigterm_landing_before_the_accept_loop_still_drains() {
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(&socket)
-        .arg("--agent-dir")
-        .arg(&agent_dir)
-        // Wide enough that the SIGTERM below provably lands inside the
-        // window (the seam's upper bound).
-        .env(eukhe_daemon::socket::BIND_CAPTURE_GAP_ENV, "2000")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let mut daemon = Daemon {
-        child,
-        socket: socket.clone(),
-    };
+    let mut daemon = Daemon::spawn(
+        supervisor_command(&socket, &agent_dir)
+            // Wide enough that the SIGTERM below provably lands inside the
+            // window (the seam's upper bound).
+            .env(eukhe_daemon::socket::BIND_CAPTURE_GAP_ENV, "2000"),
+        &socket,
+    );
     // The listen backlog accepts the connect while the boot is parked.
     let deadline = Instant::now() + Duration::from_secs(10);
     while UnixStream::connect(&socket).is_err() {

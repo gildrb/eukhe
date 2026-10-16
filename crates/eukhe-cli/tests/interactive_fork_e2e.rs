@@ -32,7 +32,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use nix::fcntl::{fcntl, FcntlArg::F_SETFL, OFlag};
@@ -43,7 +43,10 @@ use eukhe_types::daemon::DaemonCommand;
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
-use eukhe::eukhe_command;
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use eukhe::{daemon_mode_args, eukhe_command};
+use process::Daemon;
 
 #[path = "support/durable_store.rs"]
 mod durable_store;
@@ -79,23 +82,20 @@ fn interactive_fork_child_mode() {
     .expect("write the launch outcome");
 }
 
-struct Supervisor {
-    child: Child,
-    socket: PathBuf,
-}
+struct Supervisor(Daemon);
 
 /// Stop the supervisor by protocol and reap every worker it spawned, so a
 /// failing test leaks nothing. Drop runs even on panic.
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        let supervisor_pid = graceful_shutdown(&self.socket);
+        let supervisor_pid = graceful_shutdown(&self.0.socket);
         let worker_pids = supervisor_pid.map(child_pids_of).unwrap_or_default();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.0.child.kill();
+        let _ = self.0.child.wait();
         for pid in worker_pids {
             kill_worker(pid);
         }
-        let _ = std::fs::remove_file(&self.socket);
+        let _ = std::fs::remove_file(&self.0.socket);
     }
 }
 
@@ -192,53 +192,20 @@ fn graceful_shutdown(socket: &Path) -> Option<u32> {
     None
 }
 
-// The Supervisor holds the Child so its Drop owns the protocol shutdown,
-// the kill, and the wait (teardown runs even on panic); the lint wants the
-// reap inline instead.
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path, session_dir: &Path) -> Supervisor {
     let mut command = eukhe_command();
-    command
-        .args(["--mode", "daemon", "--daemon-socket"])
-        .arg(socket)
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+    daemon_mode_args(&mut command, socket, agent_dir)
         .env("EUKHE_SESSION_DIR", session_dir)
         .env("EUKHE_OFFLINE", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    for var in [
-        eukhe_daemon::worker::WORKER_ROLE_ENV,
-        eukhe_daemon::worker::WORKER_TOKEN_ENV,
-        eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-        eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-        eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_INSTANCE_ID_ENV,
-        eukhe_daemon::worker::WORKER_SCRIPT_ENV,
-        eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV,
-    ] {
-        command.env_remove(var);
-    }
-    // The supervisor-lost exit window (a short one for the teardown) and
-    // the worker connect budget (the gate boxes are slower than a laptop).
-    command.env(
-        eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-        "15000",
-    );
-    command.env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000");
-    let child = command.spawn().expect("spawn eukhe --mode daemon");
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor {
-                child,
-                socket: socket.to_path_buf(),
-            };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+        .env_remove(eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV)
+        // The worker connect budget (the gate boxes are slower than a
+        // laptop).
+        .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000");
+    Supervisor(Daemon::spawn_bound(
+        &mut command,
+        socket,
+        Duration::from_secs(15),
+    ))
 }
 
 /// Open the source session as a live daemon worker (a create with

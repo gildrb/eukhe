@@ -21,6 +21,7 @@ use eukhe_tui::interactive::{InteractiveOptions, ModelSelection, SessionSelectio
 // runtime's and the integration tests' paths stable.
 mod daemon;
 
+pub(crate) use daemon::CliLauncher;
 pub use daemon::{ensure_daemon_running, ensure_daemon_running_with, DaemonReady};
 
 // The first-run onboarding concern (the startup-model probe, the

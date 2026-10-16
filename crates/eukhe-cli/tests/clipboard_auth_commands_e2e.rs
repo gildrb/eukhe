@@ -24,31 +24,30 @@
 //! and `/login` + `/logout` run the provider auth flows through a scripted
 //! hook.
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use eukhe_types::daemon::DaemonCommand;
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
-use eukhe::eukhe_command;
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use eukhe::{daemon_mode_args, eukhe_command, scrub_provider_keys};
+use process::Daemon;
 
-struct Supervisor {
-    child: Child,
-    socket: PathBuf,
-}
+struct Supervisor(Daemon);
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        graceful_shutdown(&self.socket);
-        let worker_pids = child_pids_of(self.child.id());
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        graceful_shutdown(&self.0.socket);
+        let worker_pids = child_pids_of(self.0.child.id());
+        let _ = self.0.child.kill();
+        let _ = self.0.child.wait();
         for pid in worker_pids {
             kill_worker(pid);
         }
-        let _ = std::fs::remove_file(&self.socket);
+        let _ = std::fs::remove_file(&self.0.socket);
     }
 }
 
@@ -133,51 +132,18 @@ fn graceful_shutdown(socket: &Path) {
     let _ = reader.read_line(&mut response);
 }
 
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(dir: &Path) -> Supervisor {
     let socket = dir.join("daemon.sock");
     let agent_dir = dir.join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let mut command = eukhe_command();
-    command
-        .args(["--mode", "daemon", "--daemon-socket"])
-        .arg(&socket)
-        .env("EUKHE_CODING_AGENT_DIR", &agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    for var in [
-        eukhe_daemon::worker::WORKER_ROLE_ENV,
-        eukhe_daemon::worker::WORKER_TOKEN_ENV,
-        eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-        eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-        eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_INSTANCE_ID_ENV,
-        eukhe_daemon::worker::WORKER_SCRIPT_ENV,
-    ] {
-        command.env_remove(var);
-    }
-    for provider in eukhe_ai::providers::all::builtin_providers() {
-        let set = eukhe_ai::env_api_keys::find_env_keys(&provider.id, None);
-        for var in set.unwrap_or_default() {
-            command.env_remove(var);
-        }
-    }
-    command.env_remove("PRIME_TEAM_ID");
-    command.env(
-        eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-        "15000",
-    );
-    let child = command.spawn().expect("spawn eukhe --mode daemon");
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor { child, socket };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    daemon_mode_args(&mut command, &socket, &agent_dir);
+    scrub_provider_keys(&mut command).env_remove("PRIME_TEAM_ID");
+    Supervisor(Daemon::spawn_bound(
+        &mut command,
+        &socket,
+        Duration::from_secs(15),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +461,7 @@ async fn tui_copy_emits_the_ts_osc52_sequence() {
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
     let session_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -503,7 +469,7 @@ async fn tui_copy_emits_the_ts_osc52_sequence() {
     )
     .await;
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -586,7 +552,7 @@ async fn tui_copy_toast_coalesces_consecutive_copies_and_auto_dismisses() {
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
     let session_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -594,7 +560,7 @@ async fn tui_copy_toast_coalesces_consecutive_copies_and_auto_dismisses() {
     )
     .await;
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -716,7 +682,7 @@ async fn tui_prime_login_renders_the_inline_team_picker() {
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
     let session_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -726,7 +692,7 @@ async fn tui_prime_login_renders_the_inline_team_picker() {
     let auth = Arc::new(ScriptedProviderAuth::with_prime_row());
     let auth_view = Arc::clone(&auth);
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -841,7 +807,7 @@ async fn tui_prime_login_escape_keeps_the_default_team_status() {
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
     let session_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -850,7 +816,7 @@ async fn tui_prime_login_escape_keeps_the_default_team_status() {
     .await;
     let auth = Arc::new(ScriptedProviderAuth::with_prime_row());
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -916,7 +882,7 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
     let session_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -924,7 +890,7 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
     )
     .await;
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -993,7 +959,7 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
 
     // A fresh session for the import itself.
     let fresh_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -1001,7 +967,7 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
     )
     .await;
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -1051,7 +1017,7 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
         "the missing-cwd message renders:\n{rendered}"
     );
     // The imported branch answers on the fresh session's daemon state.
-    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.socket)
+    let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&supervisor.0.socket)
         .await
         .expect("connect supervisor");
     let last = client
@@ -1070,7 +1036,7 @@ async fn tui_import_replaces_the_session_from_a_fixture() {
     client.close();
     // The usage error for a missing argument.
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -1116,7 +1082,7 @@ async fn tui_login_and_logout_run_the_provider_flows() {
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
     let session_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -1126,7 +1092,7 @@ async fn tui_login_and_logout_run_the_provider_flows() {
     let auth = Arc::new(ScriptedProviderAuth::new());
     let auth_view = Arc::clone(&auth);
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -1194,7 +1160,7 @@ async fn tui_login_and_logout_run_the_provider_flows() {
 
     let auth = Arc::new(ScriptedProviderAuth::new());
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,
@@ -1243,7 +1209,7 @@ async fn tui_logout_with_no_stored_credentials_reports_the_ts_status() {
     let script_path = dir.path().join("script.json");
     std::fs::write(&script_path, script.to_string()).expect("write script");
     let session_id = create_session_via_daemon(
-        &supervisor.socket,
+        &supervisor.0.socket,
         &script_path,
         &script,
         dir.path(),
@@ -1251,7 +1217,7 @@ async fn tui_logout_with_no_stored_credentials_reports_the_ts_status() {
     )
     .await;
     let options = command_options(
-        &supervisor.socket,
+        &supervisor.0.socket,
         dir.path(),
         &session_dir,
         &script_path,

@@ -33,7 +33,10 @@ use serde_json::{json, Value};
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
 use eukhe::eukhe_command;
+use process::Daemon;
 
 /// The parent hands the child its launch through this env var; unset, the
 /// child test passes trivially (a plain `cargo test` runs only parents).
@@ -143,17 +146,14 @@ fn read_request_body(stream: &TcpStream) -> Option<String> {
     String::from_utf8(body).ok()
 }
 
-struct Supervisor {
-    child: Child,
-    socket: PathBuf,
-}
+struct Supervisor(Daemon);
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        let supervisor_pid = graceful_shutdown(&self.socket);
+        let supervisor_pid = graceful_shutdown(&self.0.socket);
         let workers = supervisor_pid.map(child_pids_of).unwrap_or_default();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.0.child.kill();
+        let _ = self.0.child.wait();
         for pid in workers {
             // SAFETY: a plain signal to a worker pid this test spawned.
             unsafe {
@@ -248,19 +248,11 @@ impl World {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         isolate(&mut command, dir.path(), &agent_dir);
-        let child = command.spawn().expect("spawn the supervisor");
-        let deadline = Instant::now() + Duration::from_secs(15);
-        while !socket.exists() {
-            assert!(
-                Instant::now() < deadline,
-                "the supervisor socket never appeared"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        let supervisor = Daemon::spawn_bound(&mut command, &socket, Duration::from_secs(15));
         World {
             agent_dir: agent_dir.clone(),
-            socket: socket.clone(),
-            _supervisor: Supervisor { child, socket },
+            socket,
+            _supervisor: Supervisor(supervisor),
             tokens: TokenServer::start(statuses),
             dir,
         }

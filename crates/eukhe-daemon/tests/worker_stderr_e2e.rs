@@ -11,67 +11,28 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
-struct Daemon {
-    child: Child,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-struct DaemonBuilder {
-    command: Command,
-}
-
-impl DaemonBuilder {
-    fn new(socket: &Path, agent_dir: &Path) -> Self {
-        let mut command = daemon_command();
-        command
-            .arg("supervisor")
-            .arg("--socket")
-            .arg(socket)
-            .arg("--agent-dir")
-            .arg(agent_dir)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+fn spawn_daemon(socket: &Path, agent_dir: &Path, (key, value): (&str, &str)) -> Daemon {
+    Daemon::spawn_bound(
+        supervisor_command(socket, agent_dir)
             .env(
                 eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
                 "15000",
-            );
-        DaemonBuilder { command }
-    }
-
-    fn env(mut self, key: &str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        self.command.env(key, value);
-        self
-    }
-
-    // The timeout panic path cannot wait on the child; the test process
-    // exits immediately afterwards, reaping it.
-    #[allow(clippy::zombie_processes)]
-    fn spawn(mut self, socket: &Path) -> Daemon {
-        let child = self.command.spawn().expect("spawn eukhe-daemon supervisor");
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            if socket.exists() {
-                return Daemon { child };
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        panic!("supervisor socket never appeared");
-    }
+            )
+            .env(key, value),
+        socket,
+        Duration::from_secs(10),
+    )
 }
 
 struct Client {
@@ -203,9 +164,7 @@ fn worker_stderr_lands_in_the_per_worker_log_and_prunes_retention() {
     }
     // EUKHE_DAEMON_DEBUG makes the real worker narrate its boot on stderr
     // (accepted connection, auth ok): the capture's observable content.
-    let _daemon = DaemonBuilder::new(&socket, &agent_dir)
-        .env("EUKHE_DAEMON_DEBUG", "1")
-        .spawn(&socket);
+    let _daemon = spawn_daemon(&socket, &agent_dir, ("EUKHE_DAEMON_DEBUG", "1"));
 
     let script_path = write_script(dir.path(), &["first scripted"]);
     let create_config = json!({
@@ -255,9 +214,11 @@ fn never_ready_worker_failure_carries_the_captured_stderr_tail() {
     // (`WORKER_CONNECT_TIMEOUT_ENV`, crate-private): a short probe budget
     // turns the dead worker into the not-ready failure in seconds instead
     // of the default launch window.
-    let _daemon = DaemonBuilder::new(&socket, &agent_dir)
-        .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "2000")
-        .spawn(&socket);
+    let _daemon = spawn_daemon(
+        &socket,
+        &agent_dir,
+        ("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "2000"),
+    );
     // Worker sockets live beside the supervisor's: once the supervisor is
     // bound, its socket dir moves aside (the listener keeps serving
     // through the moved path) and a plain file takes the dir's place, so

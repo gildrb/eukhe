@@ -35,72 +35,34 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "../support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "../support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
-struct Daemon {
-    child: Child,
-    #[allow(dead_code)]
-    socket: PathBuf,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
+/// Spawn a supervisor and wait until its socket accepts connections (a
+/// restarted supervisor parks on the stale socket file for up to a second
+/// before replacing it, so file existence is not readiness).
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
-    spawn_supervisor_env(socket, agent_dir, &[])
-}
-
-fn spawn_supervisor_env(socket: &Path, agent_dir: &Path, extra_env: &[(&str, String)]) -> Daemon {
-    let mut command = daemon_command();
-    let command = command
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        // A supervisor killed at teardown must not leak its session workers
-        // into later test binaries: the worker's supervisor-lost exit (TS
-        // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
-        // instead of the 5-minute default.
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        );
-    for (key, value) in extra_env {
-        command.env(key, value);
-    }
-    let child = command.spawn().expect("spawn eukhe-daemon supervisor");
-    Daemon {
-        child,
-        socket: socket.to_path_buf(),
-    }
-}
-
-/// Wait until the supervisor socket accepts connections (a restarted
-/// supervisor parks on the stale socket file for up to a second before
-/// replacing it, so file existence is not readiness).
-fn wait_socket_ready(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        assert!(Instant::now() < deadline, "supervisor socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Daemon::spawn_listening(
+        supervisor_command(socket, agent_dir)
+            // A supervisor killed at teardown must not leak its session workers
+            // into later test binaries: the worker's supervisor-lost exit (TS
+            // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
+            // instead of the 5-minute default.
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// Liveness that ignores zombies (a re-parented child nobody reaps keeps its

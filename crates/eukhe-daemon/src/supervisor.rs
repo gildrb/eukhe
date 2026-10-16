@@ -22,11 +22,6 @@ pub(crate) mod subscribers;
 mod worker_lifecycle;
 
 use launch_budget::WORKER_AUTH_FLOOR_MS;
-// The daemon-closing shutdown event is called only by the clients sibling
-// module (through its `use super::*` glob) - the facade's own calls moved out
-// with the clients concern (SS2-R2) and the signals concern (SS6) - so the
-// lib-target import is flagged unused without the allow.
-#[allow(unused_imports)]
 use signals_shutdown::daemon_closing_shutdown_event;
 mod supervision;
 
@@ -36,17 +31,6 @@ mod handshake_tests;
 mod spawn_record_tests;
 #[cfg(test)]
 mod tests;
-
-// STABLE_LIFETIME_MS is read only by this facade's in-file test modules (via the module's
-// pub(super) const); the lib-target import is flagged unused since only tests use it.
-#[allow(unused_imports)]
-use supervision::{MAX_CONSECUTIVE_FAILURES, STABLE_LIFETIME_MS};
-
-// The saved-session row builders are read only by this facade's in-file test
-// modules (via the module's pub(super) fns); the lib-target import is flagged
-// unused since only tests use it.
-#[allow(unused_imports)]
-use sessions::{saved_session_row, saved_session_summary};
 
 pub(crate) use options::ClientRouting;
 pub use options::SupervisorOptions;
@@ -61,10 +45,6 @@ pub(crate) use routing::{
     WORKER_NOT_CONNECTED,
 };
 
-// probe_worker_socket/worker_connect_deadline are called only by the supervision sibling
-// module and this facade's in-file tests (through the module's pub(super) fns); the
-// lib-target import is flagged unused otherwise.
-#[allow(unused_imports)]
 use worker_lifecycle::{probe_worker_socket, worker_connect_deadline};
 
 use std::path::{Path, PathBuf};

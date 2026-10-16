@@ -1,9 +1,7 @@
 //! The saved root sessions the phone picks from: the `list_saved_sessions`
 //! rows, the routing mode, and the `/sessions` lines.
 
-use anyhow::Context;
-use serde::Deserialize;
-use serde_json::Value;
+pub(crate) use eukhe_tui::saved_sessions::SavedSession;
 
 /// How many sessions `/sessions` shows.
 pub(crate) const LISTED_SESSIONS: usize = 9;
@@ -28,69 +26,13 @@ pub(crate) struct SessionRef {
     pub(crate) path: String,
 }
 
-/// One saved root session.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SavedSession {
-    pub(crate) session: SessionRef,
-    pub(crate) cwd: String,
-    /// The session name, else its first message; `None` when both are
-    /// absent or blank.
-    pub(crate) title: Option<String>,
-    /// The last write, RFC 3339 UTC; empty when the daemon could not date it.
-    pub(crate) modified: String,
-}
-
-/// One `list_saved_sessions` row (`serializeSavedSessionInfo`).
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SavedRow {
-    path: String,
-    id: String,
-    cwd: String,
-    rlm_depth: u32,
-    parent_session_path: Option<String>,
-    modified: String,
-    name: Option<String>,
-    first_message: String,
-}
-
-#[derive(Deserialize)]
-struct SavedList {
-    sessions: Vec<SavedRow>,
-}
-
-/// The root rows (depth 0, no parent) of a `list_saved_sessions` answer,
-/// newest first (the daemon's order).
-///
-/// # Errors
-///
-/// The answer does not have the `{ sessions: [row...] }` shape.
-pub(crate) fn root_sessions(data: &Value) -> anyhow::Result<Vec<SavedSession>> {
-    let list = SavedList::deserialize(data).context("read the saved-session list")?;
-    Ok(list
-        .sessions
-        .into_iter()
-        .filter(|row| row.rlm_depth == 0 && row.parent_session_path.is_none())
-        .map(|row| SavedSession {
-            session: SessionRef {
-                id: row.id,
-                path: row.path,
-            },
-            cwd: row.cwd,
-            title: row.name.filter(|name| !name.trim().is_empty()).or_else(|| {
-                Some(strip_reply_rules(&row.first_message).to_string())
-                    .filter(|first| !first.trim().is_empty())
-            }),
-            modified: row.modified,
-        })
-        .collect())
-}
-
-/// A prompt text without the Signal reply rules the gateway puts first
-/// (the session's first message of a phone-started session).
-pub(crate) fn strip_reply_rules(text: &str) -> &str {
-    text.strip_prefix(crate::gateway::REPLY_RULES)
-        .map_or(text, str::trim_start)
+impl From<&SavedSession> for SessionRef {
+    fn from(saved: &SavedSession) -> Self {
+        Self {
+            id: saved.id.clone(),
+            path: saved.path.clone(),
+        }
+    }
 }
 
 /// A title on one line, at most [`TITLE_CHARS`] characters.
@@ -112,7 +54,7 @@ pub(crate) fn session_line(
     bound: Option<&SessionRef>,
     now_ms: u64,
 ) -> String {
-    let marker = if bound.is_some_and(|bound| bound.id == saved.session.id) {
+    let marker = if bound.is_some_and(|bound| bound.id == saved.id) {
         "*"
     } else {
         ""
@@ -135,7 +77,7 @@ pub(crate) fn session_line(
             format!("{}d", minutes / (24 * 60))
         }
     } else {
-        tracing::warn!(modified = %saved.modified, path = %saved.session.path, "undatable session");
+        tracing::warn!(modified = %saved.modified, path = %saved.path, "undatable session");
         "age unknown".to_string()
     };
     format!("{marker}{number}. {title} | {dir} | {age}")

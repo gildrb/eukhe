@@ -10,7 +10,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
 
-use eukhe_dashboard::{DaemonLauncher, DashboardConfig, Port};
+use eukhe_dashboard::{DashboardConfig, Port};
+use eukhe_tui::saved_sessions::DaemonLauncher;
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::Message;

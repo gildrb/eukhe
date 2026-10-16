@@ -31,14 +31,16 @@
 use std::fmt::Write as _;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_types::daemon::DaemonCommand;
 
 #[path = "../support/eukhe.rs"]
 mod eukhe;
-use eukhe::eukhe_command;
+#[path = "../../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use eukhe::{daemon_mode_args, eukhe_command, scrub_provider_keys};
+use process::Daemon;
 
 #[path = "../support/durable_store.rs"]
 mod durable_store;
@@ -52,9 +54,14 @@ const MINIMAL_PNG: &[u8] = &[
     5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
 
-struct Supervisor {
-    child: Child,
-    socket: PathBuf,
+struct Supervisor(Daemon);
+
+impl std::ops::Deref for Supervisor {
+    type Target = Daemon;
+
+    fn deref(&self) -> &Daemon {
+        &self.0
+    }
 }
 
 /// Stop the daemon on `socket` by protocol so it can shut its workers down;
@@ -62,19 +69,19 @@ struct Supervisor {
 /// panics, so a failing test must not leak worker processes.
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        graceful_shutdown(&self.socket);
+        graceful_shutdown(&self.0.socket);
         // Snapshot the live worker children before the kill: workers run in
         // their own process groups (detached, TS parity), so a graceful
         // shutdown that times out orphans them when the supervisor dies.
         // Reap them here — the supervisor-lost exit window is a backstop,
         // not the teardown contract.
-        let worker_pids = child_pids_of(self.child.id());
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let worker_pids = child_pids_of(self.0.child.id());
+        let _ = self.0.child.kill();
+        let _ = self.0.child.wait();
         for pid in worker_pids {
             kill_worker(pid);
         }
-        let _ = std::fs::remove_file(&self.socket);
+        let _ = std::fs::remove_file(&self.0.socket);
     }
 }
 
@@ -401,61 +408,27 @@ fn sweep_orphan_test_daemons() {
     }
 }
 
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(dir: &Path) -> Supervisor {
     sweep_orphan_test_daemons();
     let socket = dir.join("daemon.sock");
     let agent_dir = dir.join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let mut command = eukhe_command();
-    command
-        .args(["--mode", "daemon", "--daemon-socket"])
-        .arg(&socket)
-        .env("EUKHE_CODING_AGENT_DIR", &agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    // The launcher strips inherited worker role env vars before spawning the
-    // supervisor; a CLI running inside a daemon worker must not leak them.
-    for var in [
-        eukhe_daemon::worker::WORKER_ROLE_ENV,
-        eukhe_daemon::worker::WORKER_TOKEN_ENV,
-        eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-        eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-        eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_INSTANCE_ID_ENV,
-        eukhe_daemon::worker::WORKER_SCRIPT_ENV,
-    ] {
-        command.env_remove(var);
-    }
+    daemon_mode_args(&mut command, &socket, &agent_dir);
     // Ambient provider credentials (PRIME_API_KEY on the dev box, or any
     // other provider key variable) must not leak into the daemon's catalog:
     // every spawned supervisor in this verifier serves fixtures whose only
     // configured model comes from a models.json file, so the ambient
     // catalog cannot widen a test's scope. The supervisor strips these from
     // the session workers it spawns too (they inherit its environment).
-    for provider in eukhe_ai::providers::all::builtin_providers() {
-        let set = eukhe_ai::env_api_keys::find_env_keys(&provider.id, None);
-        for var in set.unwrap_or_default() {
-            command.env_remove(var);
-        }
-    }
-    command.env_remove("PRIME_TEAM_ID");
-    // A supervisor killed by a failing test must not leak its session
-    // workers into later test binaries: the worker's supervisor-lost exit
-    // (TS `exitIfSupervisorOrphanedForTooLong`) runs on this short window
-    // instead of the 5-minute default.
-    command.env(
-        eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-        "15000",
-    );
-    // A full workspace run around this suite (the battery) can starve a
-    // freshly-launched session worker's boot far past the 30s default
-    // connect budget; the generous override keeps the suite's session
-    // creates deterministic under that load (the supervisor passes its
-    // environment to the workers it spawns).
-    command.env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000");
+    scrub_provider_keys(&mut command)
+        .env_remove("PRIME_TEAM_ID")
+        // A full workspace run around this suite (the battery) can starve a
+        // freshly-launched session worker's boot far past the 30s default
+        // connect budget; the generous override keeps the suite's session
+        // creates deterministic under that load (the supervisor passes its
+        // environment to the workers it spawns).
+        .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000");
     // Die with this test binary: a supervisor that outlives the process
     // (a kill or abort runs no `Drop`) gets reparented to init and keeps
     // running, so the kernel SIGKILLs it the moment its parent dies. The
@@ -468,15 +441,11 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
             Ok(())
         });
     }
-    let child = command.spawn().expect("spawn eukhe --mode daemon");
-    let deadline = Instant::now() + Duration::from_mins(1);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor { child, socket };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Supervisor(Daemon::spawn_bound(
+        &mut command,
+        &socket,
+        Duration::from_mins(1),
+    ))
 }
 
 /// Create a live session through the daemon protocol (the same `create`

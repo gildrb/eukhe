@@ -36,7 +36,6 @@ use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
-use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -44,7 +43,10 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 // The durable session storage reader the CLI e2e suites share.
 #[path = "../../eukhe-cli/tests/support/durable_store.rs"]
@@ -62,17 +64,6 @@ const SUMMARY_CHUNKS: [&str; 4] = [
     "as it generated.",
 ];
 const FULL_SUMMARY: &str = "The session covered the fleet work: one compaction summary, streamed live to the attached clients as it generated.";
-
-struct Supervisor {
-    child: Child,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
 
 /// An OpenAI-compatible SSE mock: turn requests answer with the fixed
 /// reply; the compaction summarizer request streams the scripted summary
@@ -249,36 +240,19 @@ fn serve(mut stream: TcpStream, requests: &Arc<Mutex<Vec<Value>>>) -> std::io::R
     )
 }
 
-// The supervisor child is reaped by `Supervisor`'s `Drop` (kill + wait),
-// so the detached-process lint does not apply.
-#[allow(clippy::zombie_processes)]
-fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Supervisor {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env_remove("PRIME_API_KEY")
-        .env_remove("EUKHE_CODING_AGENT_DIR")
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor { child };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Daemon::spawn_bound(
+        supervisor_command(socket, agent_dir)
+            .env_remove("PRIME_API_KEY")
+            .env_remove("EUKHE_CODING_AGENT_DIR")
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+        Duration::from_secs(10),
+    )
 }
 
 struct Client {

@@ -16,26 +16,6 @@ enum Caller {
     Service,
 }
 
-/// Starts the daemon through the CLI's own launcher (spawn, replace an
-/// idle stale daemon, wait until it greets).
-struct CliLauncher {
-    socket_path: PathBuf,
-    spawn_cwd: PathBuf,
-}
-
-impl eukhe_gateway::DaemonLauncher for CliLauncher {
-    #[tracing::instrument(skip_all, fields(socket = %self.socket_path.display()))]
-    async fn ensure(&self) -> anyhow::Result<()> {
-        let ready =
-            crate::interactive_mode::ensure_daemon_running(&self.socket_path, &self.spawn_cwd)
-                .await?;
-        if let Some(notice) = ready.notice() {
-            tracing::warn!("{notice}");
-        }
-        Ok(())
-    }
-}
-
 /// Run the `gateway` command; returns the process exit code.
 pub fn run_gateway_command(args: &[String]) -> i32 {
     let app = crate::config::APP_NAME;
@@ -105,7 +85,7 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let launcher = CliLauncher {
+    let launcher = crate::interactive_mode::CliLauncher {
         socket_path: config.socket_path.clone(),
         spawn_cwd: config.new_session_cwd.clone(),
     };

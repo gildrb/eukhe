@@ -8,24 +8,17 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use eukhe_tui::daemon_client::{outdated_daemon_notice, DaemonClient, DaemonClientEvent};
-use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle, PromptInput, StreamingBehavior};
+use eukhe_tui::saved_sessions::{
+    attach, create_resident, list_root_sessions, CreatedSession, DaemonLauncher, SavedSession,
+};
+use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use serde_json::{json, Map, Value};
 use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
 
 use crate::protocol::{ClientFrame, PromptMode, Request, ServerFrame};
-use crate::sessions::{root_sessions, SavedSession};
-use crate::{DaemonLauncher, DashboardConfig};
-
-/// The attach capabilities: the interactive client's set (snapshot state
-/// without duplicated history or image payloads).
-const ATTACH_CAPABILITIES: [&str; 4] = [
-    "attach_snapshot",
-    "event_sequence",
-    "slim_attach",
-    "elide_snapshot_images",
-];
+use crate::DashboardConfig;
 
 pub(crate) struct Bridge {
     config: Arc<DashboardConfig>,
@@ -232,19 +225,12 @@ impl Bridge {
 
     #[tracing::instrument(skip_all)]
     async fn root_sessions(&self) -> anyhow::Result<Vec<SavedSession>> {
-        let data = self
-            .client
-            .request_ok(DaemonCommand::ListSavedSessions {
-                id: None,
-                active_session_id: None,
-                cwd: Some(self.config.new_session_cwd.display().to_string()),
-                session_dir: Some(self.config.session_dir.display().to_string()),
-                scope: Value::Null,
-                rest: Map::default(),
-            })
-            .await
-            .context("list the saved sessions")?;
-        root_sessions(&data)
+        list_root_sessions(
+            &self.client,
+            &self.config.session_dir,
+            &self.config.new_session_cwd,
+        )
+        .await
     }
 
     /// Open `saved` (a new session when `None`) as a resident session,
@@ -270,55 +256,23 @@ impl Bridge {
             // The session keeps its stored folder.
             Some(_) => {}
         }
-        let created = self
-            .client
-            .request_ok(DaemonCommand::Create {
-                id: None,
-                session_path: saved.map(|saved| saved.path.clone()),
-                continue_recent: None,
-                no_session: None,
-                name: None,
-                config: Some(Value::Object(create_config)),
-                runtime_metadata: None,
-                lifecycle: Some(DaemonSessionLifecycle::Resident),
-                env: None,
-                launch_env: None,
-                rest: Map::default(),
-            })
-            .await
-            .context("open the session")?;
-        let field = |key: &str| {
-            created
-                .get(key)
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .with_context(|| format!("the daemon opened a session without {key}"))
-        };
-        let active_session_id = field("activeSessionId")?;
-        let session_id = field("sessionId")?;
-        let path = field("sessionFile")?;
+        let CreatedSession {
+            active_session_id,
+            session_id,
+            session_file: path,
+        } = create_resident(
+            &self.client,
+            saved.map(|saved| saved.path.clone()),
+            Value::Object(create_config),
+        )
+        .await?;
         let previous = self.binding.replace(active_session_id.clone());
         if let Some(previous) = previous.filter(|previous| *previous != active_session_id) {
             if let Err(error) = self.detach(&previous).await {
                 tracing::warn!(error = %format!("{error:#}"), "detach from the previous session failed");
             }
         }
-        let mut attached = self
-            .client
-            .request_ok(DaemonCommand::Attach {
-                id: None,
-                active_session_id: active_session_id.clone(),
-                client_id: None,
-                capabilities: Some(ATTACH_CAPABILITIES.map(str::to_string).to_vec()),
-                resume_cursor: None,
-                recovery_config: None,
-                env: None,
-                launch_env: None,
-                rest: Map::default(),
-            })
-            .await
-            .context("attach to the session")?;
+        let mut attached = attach(&self.client, &active_session_id).await?;
         let snapshot = attached
             .get_mut("snapshot")
             .map(Value::take)

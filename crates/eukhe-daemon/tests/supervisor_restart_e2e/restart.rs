@@ -10,7 +10,6 @@ fn supervisor_kill9_restart_sessions_re_register_and_survive() {
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
 
     let mut daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let supervisor_pid = daemon.child.id();
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -136,7 +135,6 @@ fn supervisor_kill9_restart_sessions_re_register_and_survive() {
     // Restart the supervisor on the same socket path.
     let restart_before = eukhe_daemon::util::now_iso();
     let mut daemon2 = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
 
     // All three workers re-register within a bounded window.
     let log_path = eukhe_daemon::paths::daemon_log_path(&socket, &agent_dir);

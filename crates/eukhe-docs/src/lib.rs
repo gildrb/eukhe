@@ -47,7 +47,7 @@ pub use hashline::{
     HashlineOutcome, WriteOp, WriteRequest, WriteResponse, HASHLINE_DESCRIPTION,
 };
 pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
-pub use path::{canonical_key, resolve};
+pub use path::{canonical_key, lexical_normalize, resolve};
 pub use read::{
     display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, SelectorError,
 };

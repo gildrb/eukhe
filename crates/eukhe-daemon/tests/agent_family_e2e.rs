@@ -42,7 +42,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -63,24 +63,11 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
-struct Daemon {
-    child: Child,
-    #[allow(dead_code)]
-    socket: PathBuf,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-// The timeout panic path cannot wait on the child; the test process exits
-// immediately afterwards, reaping it.
-#[allow(clippy::zombie_processes)]
 /// The parent worker's real authentication token from its worker descriptor
 /// (`daemon-workers/<instance>/<active-session-id>.json`): the family
 /// roster (`list_agent_peers`) is worker-token gated, so the family view
@@ -109,39 +96,20 @@ fn parent_worker_token(agent_dir: &Path, active_session_id: &str) -> String {
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     let log_file = std::fs::File::create(socket.with_extension("daemon.log")).expect("log file");
     let log_err = log_file.try_clone().expect("clone log file");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(log_err))
-        // A supervisor killed at teardown must not leak its session workers
-        // into later test binaries: the worker's supervisor-lost exit (TS
-        // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
-        // instead of the 5-minute default.
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    Daemon {
-        child,
-        socket: socket.to_path_buf(),
-    }
-}
-
-fn wait_socket_ready(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        assert!(Instant::now() < deadline, "supervisor socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Daemon::spawn_listening(
+        supervisor_command(socket, agent_dir)
+            .stderr(Stdio::from(log_err))
+            // A supervisor killed at teardown must not leak its session workers
+            // into later test binaries: the worker's supervisor-lost exit (TS
+            // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
+            // instead of the 5-minute default.
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// JSONL supervisor client (command envelopes, id-matched responses).
@@ -454,7 +422,6 @@ async fn parent_child_agent_message_round_trip_end_to_end() {
 
     // The supervisor passes the kernel python to the workers it launches.
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
 
@@ -791,7 +758,6 @@ async fn family_edges_never_cross_families_end_to_end() {
     let kid_script = write_faux_script(dir.path(), "kid", &json!(kid_responses));
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
 
@@ -1238,7 +1204,6 @@ async fn parent_renames_a_child_end_to_end() {
     let child_script = write_faux_script(dir.path(), "child", &json!([{ "text": "kid spawned" }]));
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
 

@@ -54,17 +54,17 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "support/eukhe.rs"]
-// The binaries arrive as paths (the sibling daemon, a TS pair): only
-// `eukhe_env` is used.
-#[allow(dead_code)]
 mod eukhe;
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
 use eukhe::eukhe_env;
+use process::Daemon;
 
 /// Environment keys this box's own eukhe worker sets; they must not leak
 /// into spawned daemons or their session workers. `EUKHE_PACKAGE_DIR` is
@@ -110,19 +110,6 @@ fn ts_binary() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-struct Daemon {
-    child: Child,
-    socket: PathBuf,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-#[allow(clippy::zombie_processes)]
 fn spawn_daemon(binary: &Path, socket: &Path, agent_dir: &Path) -> Daemon {
     let mut command = Command::new(binary);
     eukhe_env(&mut command)
@@ -145,18 +132,7 @@ fn spawn_daemon(binary: &Path, socket: &Path, agent_dir: &Path) -> Daemon {
         eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
         "15000",
     );
-    let child = command.spawn().expect("spawn daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Daemon {
-                child,
-                socket: socket.to_path_buf(),
-            };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Daemon::spawn_bound(&mut command, socket, Duration::from_secs(10))
 }
 
 /// A raw JSONL protocol client, mirroring the harness in

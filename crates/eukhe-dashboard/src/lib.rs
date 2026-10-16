@@ -13,14 +13,14 @@ mod assets;
 mod bridge;
 mod http;
 mod protocol;
-mod sessions;
 
-use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use anyhow::Context;
 use serde_json::{Map, Value};
+
+use eukhe_tui::saved_sessions::DaemonLauncher;
 
 /// Dashboard configuration, built by the composition root
 /// (`eukhe dashboard`).
@@ -37,16 +37,6 @@ pub struct DashboardConfig {
     /// Fields every session create config carries besides `sessionDir` and
     /// `cwd` (the CLI's verification seams; empty in the product).
     pub create_config: Map<String, Value>,
-}
-
-/// Starts the eukhe daemon on the dashboard's socket when no daemon of
-/// this build listens there. The composition root implements it with the
-/// CLI's launcher (this crate does not link the CLI). `ensure` returns
-/// once a daemon accepts connections on the socket and fails when none
-/// can start. The dashboard calls it for every browser connection, so it
-/// must return quickly when a daemon already runs.
-pub trait DaemonLauncher: Send + Sync + 'static {
-    fn ensure(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
 /// The port the dashboard listens on.

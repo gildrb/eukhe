@@ -164,15 +164,15 @@ pub(super) fn legacy_registry_path(session_file: &Path) -> Option<PathBuf> {
 
 /// Tolerant reader for a per-parent legacy registry (TS
 /// `readLegacyRlmSubagentRegistry`): latest entry per childId, malformed
-/// lines ignored, a missing file an empty registry.
-pub(crate) fn read_legacy_registry(session_file: &Path) -> Vec<LegacyRlmSubagentEntry> {
+/// lines ignored, a missing file an empty registry. Keyed by childId.
+pub(crate) fn read_legacy_registry(session_file: &Path) -> HashMap<String, LegacyRlmSubagentEntry> {
+    let mut latest = HashMap::new();
     let Some(registry) = legacy_registry_path(session_file) else {
-        return Vec::new();
+        return latest;
     };
     let Ok(content) = fs::read_to_string(&registry) else {
-        return Vec::new();
+        return latest;
     };
-    let mut latest: HashMap<String, LegacyRlmSubagentEntry> = HashMap::new();
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -189,5 +189,5 @@ pub(crate) fn read_legacy_registry(session_file: &Path) -> Vec<LegacyRlmSubagent
         }
         latest.insert(entry.child_id.clone(), entry);
     }
-    latest.into_values().collect()
+    latest
 }

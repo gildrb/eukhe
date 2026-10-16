@@ -34,7 +34,7 @@ use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -43,7 +43,10 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 // The durable session storage reader the CLI e2e suites share.
 #[path = "../../eukhe-cli/tests/support/durable_store.rs"]
@@ -71,19 +74,6 @@ fn transcript(session_dir: &Path) -> durable_store::Transcript {
 /// The compaction summarizer request marker (the fixed summarization
 /// system prompt rides the request's first message).
 const SUMMARIZER_MARKER: &str = "context summarization assistant";
-
-struct Supervisor {
-    child: Child,
-    #[allow(dead_code)]
-    socket: PathBuf,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
 
 /// An OpenAI-compatible SSE mock whose summarizer response can be held in
 /// flight (`hold_summarizer`): while set, any request carrying the
@@ -261,42 +251,24 @@ fn serve(
     )
 }
 
-#[allow(clippy::zombie_processes)]
-fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Supervisor {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env_remove("PRIME_API_KEY")
-        .env_remove("EUKHE_CODING_AGENT_DIR")
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        // The session create launches a worker inside this same connect
-        // budget; a parallel-load e2e run can starve a fresh worker's
-        // boot past the 30s default, so the e2e uses the load-aware
-        // override (under the create's own link budget).
-        .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000")
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_mins(1);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor {
-                child,
-                socket: socket.to_path_buf(),
-            };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Daemon::spawn_bound(
+        supervisor_command(socket, agent_dir)
+            .env_remove("PRIME_API_KEY")
+            .env_remove("EUKHE_CODING_AGENT_DIR")
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            )
+            // The session create launches a worker inside this same connect
+            // budget; a parallel-load e2e run can starve a fresh worker's
+            // boot past the 30s default, so the e2e uses the load-aware
+            // override (under the create's own link budget).
+            .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000"),
+        socket,
+        Duration::from_mins(1),
+    )
 }
 
 struct Client {

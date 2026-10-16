@@ -9,59 +9,34 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
-// The supervisor runs a private copy of the binary here: only `daemon_env` is used.
-#[allow(dead_code)]
 mod daemon;
-use daemon::daemon_env;
+#[path = "support/process.rs"]
+mod process;
+use daemon::{daemon_env, supervisor_args};
+use process::Daemon;
 
-struct Supervisor {
-    child: Child,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-#[allow(clippy::zombie_processes)]
-fn spawn_supervisor(binary: &Path, socket: &Path, agent_dir: &Path) -> Supervisor {
+fn spawn_supervisor(binary: &Path, socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     let mut command = Command::new(binary);
-    let child = daemon_env(&mut command)
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env_remove("PRIME_API_KEY")
-        .env_remove("EUKHE_CODING_AGENT_DIR")
-        // A supervisor killed at teardown must not leak its session workers
-        // into later test binaries.
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor { child };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Daemon::spawn_bound(
+        supervisor_args(daemon_env(&mut command), socket, agent_dir)
+            .env_remove("PRIME_API_KEY")
+            .env_remove("EUKHE_CODING_AGENT_DIR")
+            // A supervisor killed at teardown must not leak its session workers
+            // into later test binaries.
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+        Duration::from_secs(10),
+    )
 }
 
 fn read_line(reader: &mut BufReader<std::os::unix::net::UnixStream>) -> Value {

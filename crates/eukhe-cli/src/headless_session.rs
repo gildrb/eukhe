@@ -184,7 +184,7 @@ pub(crate) async fn open_headless_session(
             let lease = if reuse_lease {
                 None
             } else {
-                Some(session_open_guard(options.daemon_socket.as_deref(), &dir)?)
+                Some(session_open_guard(options.daemon_socket.as_deref(), &dir).await?)
             };
             if let SessionLocation::Legacy(file) = &location {
                 if !dir.exists() {
@@ -577,22 +577,44 @@ fn lease_fresh(dir: &Path, agent_dir: &Path) -> Result<SessionLease, String> {
 /// roster (refuse a session a live daemon worker already hosts,
 /// `SessionAlreadyActiveError`), then acquire the runtime lease. Returns the
 /// HELD lease -- the caller owns its lifetime.
-pub(crate) fn session_open_guard(
+pub(crate) async fn session_open_guard(
     socket_path: Option<&str>,
     session_path: &Path,
 ) -> Result<SessionLease, String> {
     let socket = crate::interactive_mode::resolve_socket_path(socket_path);
-    if let Ok(mut client) = crate::daemon_client::DaemonClient::connect(&socket) {
-        let list = client
-            .request(eukhe_types::daemon::DaemonCommand::List {
-                id: None,
-                all: None,
-                cwd: None,
-                session_dir: None,
-                include_client_owned: None,
-                rest: serde_json::Map::default(),
-            })
-            .map_err(|error| format!("Could not check active sessions: {error:#}"))?;
+    let checked = |error: anyhow::Error| format!("Could not check active sessions: {error:#}");
+    let connection = match eukhe_tui::daemon_client::DaemonClient::connect_probe(
+        &socket,
+        crate::daemon_command::HELLO_TIMEOUT_MS,
+    )
+    .await
+    {
+        Ok(connection) => Some(connection),
+        // No daemon: the lease below is the whole guard.
+        Err(error) if eukhe_tui::daemon_client::is_connect_failure(&error) => None,
+        Err(error) => {
+            return Err(checked(crate::daemon_command::connect_error(
+                error, &socket,
+            )))
+        }
+    };
+    if let Some((client, mut events)) = connection {
+        let list = eukhe_types::daemon::DaemonCommand::List {
+            id: None,
+            all: None,
+            cwd: None,
+            session_dir: None,
+            include_client_owned: None,
+            rest: serde_json::Map::default(),
+        };
+        let list = crate::daemon_command::request(
+            &client,
+            &mut events,
+            list,
+            eukhe_tui::daemon_client::DEFAULT_REQUEST_TIMEOUT_MS,
+        )
+        .await
+        .map_err(checked)?;
         if list.success {
             let target = eukhe_daemon::lease::canonical_session_path(session_path);
             for row in list

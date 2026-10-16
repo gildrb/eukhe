@@ -33,10 +33,14 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use process::Daemon;
 
 /// Environment identity that would leak an ambient daemon/worker/session
 /// into the spawned supervisors or change model resolution.
@@ -58,21 +62,18 @@ fn ts_binary() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-struct Supervisor {
-    child: Child,
-    socket: PathBuf,
-}
+struct Supervisor(Daemon);
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        graceful_shutdown(&self.socket);
-        let workers = child_pids_of(self.child.id());
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        graceful_shutdown(&self.0.socket);
+        let workers = child_pids_of(self.0.child.id());
+        let _ = self.0.child.kill();
+        let _ = self.0.child.wait();
         for pid in workers {
             kill_worker(pid);
         }
-        let _ = std::fs::remove_file(&self.socket);
+        let _ = std::fs::remove_file(&self.0.socket);
     }
 }
 
@@ -155,7 +156,6 @@ fn graceful_shutdown(socket: &Path) {
     let _ = reader.read_line(&mut response);
 }
 
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(binary: &Path, dir: &Path) -> Supervisor {
     let socket = dir.join("daemon.sock");
     let agent_dir = dir.join("agent");
@@ -183,15 +183,11 @@ fn spawn_supervisor(binary: &Path, dir: &Path) -> Supervisor {
         eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
         "15000",
     );
-    let child = command.spawn().expect("spawn daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor { child, socket };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Supervisor(Daemon::spawn_bound(
+        &mut command,
+        &socket,
+        Duration::from_secs(20),
+    ))
 }
 
 /// The daemon wire client: one line in, one matching response line out
@@ -331,7 +327,7 @@ fn live_export(binary: &Path, base: &Path, ts_side: bool) -> Value {
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let fixture = base.join("fixture.jsonl");
     let expected_entries = write_fixture(&fixture, &work);
-    let mut wire = Wire::connect(&supervisor.socket);
+    let mut wire = Wire::connect(&supervisor.0.socket);
     // TS resolves its faux provider explicitly; the Rust worker drives
     // the same real engine through the `engine: "faux"` script seam.
     let config = if ts_side {

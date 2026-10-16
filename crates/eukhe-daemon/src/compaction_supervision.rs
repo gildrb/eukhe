@@ -603,18 +603,16 @@ impl crate::supervisor::Supervisor {
             error_severity,
             None,
         );
-        match serde_json::to_value(eukhe_types::daemon::DaemonOutbound::SessionEvent {
+        match serde_json::to_vec(&eukhe_types::daemon::DaemonOutbound::SessionEvent {
             active_session_id: terminal.active_session_id.clone(),
             event,
             meta: None,
             rest: Map::default(),
         }) {
-            Ok(frame) => {
-                self.publish_session_event(
-                    &terminal.active_session_id,
-                    &std::sync::Arc::new(frame),
-                );
-            }
+            Ok(frame) => self.publish_session_line(
+                &terminal.active_session_id,
+                &crate::supervisor::subscribers::event_line(frame),
+            ),
             Err(error) => self.log_line(&format!(
                 "the synthetic compaction end for {} does not serialize: {error}",
                 terminal.active_session_id

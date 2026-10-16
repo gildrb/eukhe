@@ -1,3 +1,5 @@
+use super::sessions::{saved_session_row, saved_session_summary};
+use super::supervision::{MAX_CONSECUTIVE_FAILURES, STABLE_LIFETIME_MS};
 use super::*;
 
 use proptest::prelude::*;
@@ -1003,7 +1005,7 @@ async fn a_prompt_and_wait_route_outlives_the_old_ten_minute_cap() {
     supervisor.registry.insert(Arc::clone(&resident)).await;
     resident.note_connection_live();
     resident.note_session_ready();
-    let (targeted_tx, _targeted_rx) = tokio::sync::mpsc::channel::<Arc<Value>>(16);
+    let (targeted_tx, _targeted_rx) = tokio::sync::mpsc::channel::<subscribers::EventLine>(16);
     let attached = subscribers::ClientSubscriptions::new("c".to_string(), targeted_tx);
     let command: DaemonCommand = serde_json::from_value(serde_json::json!({
         "type": "prompt_and_wait",

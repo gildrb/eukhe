@@ -17,7 +17,8 @@ use tokio_tungstenite::WebSocketStream;
 
 use crate::bridge::Bridge;
 use crate::protocol::ServerFrame;
-use crate::{DaemonLauncher, DashboardConfig};
+use crate::DashboardConfig;
+use eukhe_tui::saved_sessions::DaemonLauncher;
 
 /// The path suffix of the bridge's WebSocket.
 const SOCKET_PATH: &str = "/api/ws";

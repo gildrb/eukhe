@@ -176,7 +176,7 @@ impl Supervisor {
         // Session events ride this per-connection queue (the subscriber
         // registry resolves delivery at publish time, TS `handleWorkerFrame`
         // parity); broadcast-class events keep the ring above.
-        let (targeted_tx, mut targeted_rx) = tokio::sync::mpsc::channel::<Arc<Value>>(
+        let (targeted_tx, mut targeted_rx) = tokio::sync::mpsc::channel::<subscribers::EventLine>(
             crate::backpressure::TARGETED_EVENT_QUEUE_CAPACITY,
         );
         // Connection state shared with the per-command dispatch tasks: the
@@ -289,8 +289,8 @@ impl Supervisor {
                     // arm, so an event published before a response bundle
                     // is queued is written first - the worker's own
                     // event-before-response socket order survives the hop.
-                    if let Some(payload) = targeted {
-                        if let Err(error) = write_line(&mut writer, &payload).await {
+                    if let Some(line) = targeted {
+                        if let Err(error) = write_raw_line(&mut writer, &line).await {
                             // An event-write failure must not strand an
                             // accepted shutdown: if this connection owns
                             // the stop, it still starts the pass.

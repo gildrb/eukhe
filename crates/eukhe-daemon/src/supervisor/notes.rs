@@ -1,15 +1,27 @@
 //! The supervisor's operator-note surface: the session-channel notes, the
 //! rotating log line, and the spawn-ledger assembly.
+use super::subscribers::{event_line, EventLine};
 use super::{paths, util, Arc, Result, Supervisor, Value};
 
 impl Supervisor {
-    /// Publish one session event to the session's attached connections
+    /// Publish one supervisor-built session frame: serialized once, then
+    /// shared by every attached connection.
+    pub(crate) fn publish_session_event(&self, active_session_id: &str, frame: &Value) {
+        match serde_json::to_vec(frame) {
+            Ok(json) => self.publish_session_line(active_session_id, &event_line(json)),
+            Err(error) => self.log_line(&format!(
+                "session frame serialization failed (session {active_session_id}): {error}"
+            )),
+        }
+    }
+
+    /// Publish one session line to the session's attached connections
     /// (the send-time delivery pass — TS `handleWorkerFrame`'s fan-out
     /// evaluates the attached set in the same pass that writes). A full
     /// queue drops the frame and the stall-cycle transition lands in the
     /// daemon log (finding 4a visibility).
-    pub(crate) fn publish_session_event(&self, active_session_id: &str, payload: &Arc<Value>) {
-        let outcome = self.session_subscribers.publish(active_session_id, payload);
+    pub(crate) fn publish_session_line(&self, active_session_id: &str, line: &EventLine) {
+        let outcome = self.session_subscribers.publish(active_session_id, line);
         if !outcome.lagged.is_empty() {
             self.log_line(&format!(
                 "clients {} lagged on the session event queue: frames dropped (session {active_session_id})",

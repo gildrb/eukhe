@@ -33,7 +33,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
@@ -42,56 +41,28 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
-struct Supervisor {
-    child: Child,
-    #[allow(dead_code)]
-    socket: PathBuf,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-#[allow(clippy::zombie_processes)]
-fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Supervisor {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env_remove("PRIME_API_KEY")
-        .env_remove("EUKHE_CODING_AGENT_DIR")
-        // A supervisor killed at teardown must not leak its session workers
-        // into later test binaries: the worker's supervisor-lost exit (TS
-        // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
-        // instead of the 5-minute default.
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor {
-                child,
-                socket: socket.to_path_buf(),
-            };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Daemon::spawn_bound(
+        supervisor_command(socket, agent_dir)
+            .env_remove("PRIME_API_KEY")
+            .env_remove("EUKHE_CODING_AGENT_DIR")
+            // A supervisor killed at teardown must not leak its session workers
+            // into later test binaries: the worker's supervisor-lost exit (TS
+            // `exitIfSupervisorOrphanedForTooLong`) runs on this short window
+            // instead of the 5-minute default.
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+        Duration::from_secs(10),
+    )
 }
 
 /// The client the agents view stands in for: a roster subscriber that keeps
@@ -257,13 +228,12 @@ struct Harness {
     agent_dir: PathBuf,
     session_dir: PathBuf,
     #[allow(dead_code)]
-    supervisor: Supervisor,
+    supervisor: Daemon,
     client: Client,
     session_id: String,
     persisted_id: String,
 }
 
-#[allow(clippy::zombie_processes)]
 fn setup(name: &str) -> Harness {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");

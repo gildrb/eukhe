@@ -42,7 +42,10 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::{daemon_command, supervisor_command};
+use process::{wait_socket_file, Daemon};
 
 /// The filesystem identity the guard compares: dev + ino of the file
 /// currently at the path.
@@ -89,19 +92,6 @@ fn assert_replacement_serves(socket: &Path, identity: (u64, u64)) {
     drop(connect);
 }
 
-/// Kill a leftover process at scope exit (the oracle children exit on
-/// their own; this is the teardown safety net).
-struct ProcessGuard {
-    child: Child,
-}
-
-impl Drop for ProcessGuard {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 /// Wait until the child exits on its own within `budget`, asserting a
 /// clean exit: the exit paths under test all end in `std::process::exit(0)`
 /// (or a graceful supervisor return), so a signal death or a nonzero exit
@@ -121,46 +111,23 @@ fn wait_clean_exit(child: &mut Child, budget: Duration) -> std::process::ExitSta
     }
 }
 
-fn wait_socket_ready(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        assert!(Instant::now() < deadline, "daemon socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> ProcessGuard {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        // Hermetic agent dir: the ambient environment may export a real
-        // agent dir; point every fallback at the test sandbox instead.
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        .env_remove("EUKHE_API_KEY")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    ProcessGuard { child }
+    Daemon::spawn_listening(
+        supervisor_command(socket, agent_dir)
+            // Hermetic agent dir: the ambient environment may export a real
+            // agent dir; point every fallback at the test sandbox instead.
+            .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+            .env_remove("EUKHE_API_KEY"),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// Spawn the real `eukhe-daemon worker` binary on its own socket, monitoring a
 /// supervisor socket that never answers. `lost_window_ms` sets the
 /// supervisor-lost exit window (`None` keeps the default five minutes).
-fn spawn_worker(
-    dir: &Path,
-    socket: &Path,
-    token: &str,
-    lost_window_ms: Option<&str>,
-) -> ProcessGuard {
+fn spawn_worker(dir: &Path, socket: &Path, token: &str, lost_window_ms: Option<&str>) -> Daemon {
     std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
     let mut command = daemon_command();
     command
@@ -190,16 +157,7 @@ fn spawn_worker(
             window,
         );
     }
-    let child = command.spawn().expect("spawn eukhe-daemon worker");
-    ProcessGuard { child }
-}
-
-fn wait_worker_socket(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while !socket.exists() {
-        assert!(Instant::now() < deadline, "worker socket never appeared");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Daemon::spawn(&mut command, socket)
 }
 
 /// A raw private-frame client for the worker socket (the same wire the
@@ -306,7 +264,7 @@ fn orphan_exit_never_unlinks_a_replacement_bound_on_the_worker_path() {
     // The zero window exits the worker at the first availability check
     // (1.5s after boot); the replacement is bound long before it.
     let mut worker = spawn_worker(dir.path(), &socket, "orphan-guard-token", Some("0"));
-    wait_worker_socket(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     let original = socket_identity(&socket);
     let (_replacement, replacement_identity) = bind_replacement_at(&socket, original);
     // The oracle's served-path precondition: the exit must fire with the
@@ -332,7 +290,7 @@ fn routed_shutdown_removes_the_workers_own_socket_file() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("worker.sock");
     let mut worker = spawn_worker(dir.path(), &socket, "shutdown-guard-token", Some("15000"));
-    wait_worker_socket(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     let mut client = WorkerClient::connect(&socket, "shutdown-guard-token");
     let shutdown = client.request("shutdown", &json!({}));
     assert_eq!(shutdown["success"], true, "shutdown failed: {shutdown}");
@@ -352,7 +310,7 @@ fn routed_shutdown_never_unlinks_a_replacement_bound_on_the_worker_path() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("worker.sock");
     let mut worker = spawn_worker(dir.path(), &socket, "shutdown-guard-token", Some("15000"));
-    wait_worker_socket(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     // Authenticate first: the supervisor role both arms the routed
     // `shutdown` arm and disarms the orphan monitor (claims > 0), so the
     // exit below is `finish_close` alone.
@@ -382,7 +340,6 @@ fn a_drained_supervisor_never_unlinks_a_replaced_socket_file() {
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     let mut daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let original = socket_identity(&socket);
     let (_replacement, replacement_identity) = bind_replacement_at(&socket, original);
     assert!(

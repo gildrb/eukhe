@@ -24,7 +24,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -32,7 +31,10 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 /// The three tests scan the whole process table (the kernel is a worker
 /// child, not a test-process child), so this std lock serializes them.
@@ -108,53 +110,24 @@ fn await_kernels_gone(baseline: &[u32], budget: Duration) {
     }
 }
 
-struct Daemon {
-    child: Child,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path, lost_window_ms: &str) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        // Hermetic agent dir: the ambient environment may export a real
-        // agent dir; point every fallback at the test sandbox instead.
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        .env_remove("PRIME_API_KEY")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        // The supervisor-lost exit window its workers inherit (TS
-        // `workerSupervisorLostExitMs`; the env flows to the workers the
-        // supervisor spawns).
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            lost_window_ms,
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    Daemon { child }
-}
-
-fn wait_socket_ready(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        assert!(Instant::now() < deadline, "supervisor socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Daemon::spawn_listening(
+        supervisor_command(socket, agent_dir)
+            // Hermetic agent dir: the ambient environment may export a real
+            // agent dir; point every fallback at the test sandbox instead.
+            .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+            .env_remove("PRIME_API_KEY")
+            // The supervisor-lost exit window its workers inherit (TS
+            // `workerSupervisorLostExitMs`; the env flows to the workers the
+            // supervisor spawns).
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                lost_window_ms,
+            ),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// JSONL supervisor client (command envelopes, id-matched responses).
@@ -329,7 +302,6 @@ fn kill_disposes_the_session_kernel() {
     let baseline = kernel_pids();
 
     let _daemon = spawn_supervisor(&socket, &agent_dir, "15000");
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session_with_kernel(&mut client, dir.path(), &script, "c1");
@@ -366,7 +338,6 @@ fn shutdown_disposes_session_kernels_before_the_worker_exits() {
     let baseline = kernel_pids();
 
     let _daemon = spawn_supervisor(&socket, &agent_dir, "15000");
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let _session_id = create_session_with_kernel(&mut client, dir.path(), &script, "c1");
@@ -398,7 +369,6 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
     // A short supervisor-lost window: the orphaned worker exits quickly
     // once its supervisor is gone (the env flows to the spawned workers).
     let mut daemon = spawn_supervisor(&socket, &agent_dir, "5000");
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let _session_id = create_session_with_kernel(&mut client, dir.path(), &script, "c1");
@@ -433,7 +403,6 @@ fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
     let baseline = kernel_pids();
 
     let mut daemon = spawn_supervisor(&socket, &agent_dir, "2000");
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let sessions_dir = dir.path().join("sessions");

@@ -12,8 +12,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use eukhe_tui::agents_view::{AgentsHeadlessPlan, AgentsStep, AgentsViewOptions, AgentsViewUiMode};
@@ -23,24 +22,24 @@ use eukhe_tui::interactive::{
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
-use eukhe::eukhe_command;
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use eukhe::{daemon_mode_args, eukhe_command};
+use process::Daemon;
 
 #[path = "support/legacy_fixture.rs"]
 mod legacy_fixture;
 
 use legacy_fixture::write_fixture;
 
-struct Supervisor {
-    child: Child,
-    socket: PathBuf,
-}
+struct Supervisor(Daemon);
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        graceful_shutdown(&self.socket);
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        let _ = std::fs::remove_file(&self.socket);
+        graceful_shutdown(&self.0.socket);
+        let _ = self.0.child.kill();
+        let _ = self.0.child.wait();
+        let _ = std::fs::remove_file(&self.0.socket);
     }
 }
 
@@ -71,44 +70,17 @@ fn graceful_shutdown(socket: &Path) {
     let _ = reader.read_line(&mut String::new());
 }
 
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(dir: &Path) -> Supervisor {
     let socket = dir.join("daemon.sock");
     let agent_dir = dir.join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let mut command = eukhe_command();
-    command
-        .args(["--mode", "daemon", "--daemon-socket"])
-        .arg(&socket)
-        .env("EUKHE_CODING_AGENT_DIR", &agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    for var in [
-        eukhe_daemon::worker::WORKER_ROLE_ENV,
-        eukhe_daemon::worker::WORKER_TOKEN_ENV,
-        eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-        eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-        eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_INSTANCE_ID_ENV,
-        eukhe_daemon::worker::WORKER_SCRIPT_ENV,
-    ] {
-        command.env_remove(var);
-    }
-    command.env(
-        eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-        "15000",
-    );
-    let child = command.spawn().expect("spawn eukhe --mode daemon");
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor { child, socket };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    daemon_mode_args(&mut command, &socket, &agent_dir);
+    Supervisor(Daemon::spawn_bound(
+        &mut command,
+        &socket,
+        Duration::from_secs(15),
+    ))
 }
 
 /// The scripted faux provider's script file (the `interactive_daemon_e2e`
@@ -183,7 +155,7 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
 
     // The first chat run: open the fixture, wait for its rows, exit
     // through the agents-back LEFT handoff.
-    let mut first = chat_options(supervisor.socket.clone(), dir.path().to_path_buf());
+    let mut first = chat_options(supervisor.0.socket.clone(), dir.path().to_path_buf());
     first.session = SessionSelection::Resume(fixture.clone());
     let first_outcome = eukhe_tui::interactive::run_interactive(
         first,
@@ -216,7 +188,7 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
 
     // The agents view anchored on the session just left: Enter opens it.
     let view_options = AgentsViewOptions {
-        socket_path: supervisor.socket.clone(),
+        socket_path: supervisor.0.socket.clone(),
         cwd: dir.path().to_path_buf(),
         session_dir: Some(session_dir.clone()),
         theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
@@ -261,7 +233,7 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
 
     // The re-entry: the same session opens again and renders the same
     // transcript rows.
-    let mut reentry = chat_options(supervisor.socket.clone(), dir.path().to_path_buf());
+    let mut reentry = chat_options(supervisor.0.socket.clone(), dir.path().to_path_buf());
     reentry.session = selection;
     let reentry_outcome = eukhe_tui::interactive::run_interactive(
         reentry,
@@ -319,7 +291,7 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
     // The first chat run opens the fixture, runs a REAL scripted turn (the
     // worker's event sequence advances past this run's attach value), then
     // exits through the agents-back LEFT handoff.
-    let mut first = chat_options(supervisor.socket.clone(), dir.path().to_path_buf());
+    let mut first = chat_options(supervisor.0.socket.clone(), dir.path().to_path_buf());
     first.session = SessionSelection::Resume(fixture.clone());
     first.script_path = Some(script_path.clone());
     let first_outcome = eukhe_tui::interactive::run_interactive(
@@ -361,7 +333,7 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
 
     // The agents view anchored on the session just left: Enter opens it.
     let view_options = AgentsViewOptions {
-        socket_path: supervisor.socket.clone(),
+        socket_path: supervisor.0.socket.clone(),
         cwd: dir.path().to_path_buf(),
         session_dir: Some(session_dir.clone()),
         theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
@@ -410,7 +382,7 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
     // re-entry's first draw serves the held packs instead of re-rendering
     // the window (the post-turn class the stale attach-sequence key
     // always missed).
-    let mut reentry = chat_options(supervisor.socket.clone(), dir.path().to_path_buf());
+    let mut reentry = chat_options(supervisor.0.socket.clone(), dir.path().to_path_buf());
     reentry.session = selection;
     reentry.script_path = Some(script_path);
     let reentry_outcome = eukhe_tui::interactive::run_interactive(

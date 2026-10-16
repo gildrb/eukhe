@@ -9,9 +9,9 @@ mod setup;
 mod signal;
 mod style;
 
-use std::future::Future;
 use std::path::PathBuf;
 
+use eukhe_tui::saved_sessions::DaemonLauncher;
 pub use setup::{link_device, linked_accounts, restart_service, service_installed};
 
 /// Gateway configuration, built by the composition root (`eukhe gateway`).
@@ -38,16 +38,6 @@ pub struct SignalConfig {
     /// Senders (numbers or ACIs) that may drive the session. "Note to Self"
     /// messages of `account` are always accepted.
     pub allow: Vec<String>,
-}
-
-/// Starts the eukhe daemon on the gateway's socket when no daemon of this
-/// build listens there. The composition root implements it with the CLI's
-/// launcher (this crate does not link the CLI). `ensure` returns once a
-/// daemon accepts connections on the socket and fails when none can start.
-/// The gateway calls it at startup and before every reconnect, so it must
-/// return quickly when a daemon already runs.
-pub trait DaemonLauncher: Send + Sync {
-    fn ensure(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
 /// Run the gateway until SIGINT or SIGTERM: relay the allowed Signal

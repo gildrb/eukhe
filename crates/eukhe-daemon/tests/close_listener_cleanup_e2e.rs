@@ -48,7 +48,10 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::{daemon_command, supervisor_command};
+use process::{wait_socket_file, Daemon};
 
 /// The bind-capture gap the oracles set: wide enough that the replacement
 /// provably lands inside the window, small enough to keep the oracle fast.
@@ -104,19 +107,6 @@ fn assert_successor_serves(socket: &Path, identity: (u64, u64)) {
     drop(connect);
 }
 
-/// Kill a leftover process at scope exit (the oracle children exit on
-/// their own; this is the teardown safety net).
-struct ProcessGuard {
-    child: Child,
-}
-
-impl Drop for ProcessGuard {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 /// Wait until the child exits on its own within `budget`, asserting a
 /// clean exit: the exit paths under test end in `std::process::exit(0)`
 /// (or a graceful supervisor return), so a signal death or a nonzero
@@ -136,71 +126,55 @@ fn wait_clean_exit(child: &mut Child, budget: Duration) -> std::process::ExitSta
     }
 }
 
-fn wait_socket_file(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while !socket.exists() {
-        assert!(Instant::now() < deadline, "socket file never appeared");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> ProcessGuard {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        // Hermetic agent dir: the ambient environment may export a real
-        // agent dir; point every fallback at the test sandbox instead.
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        .env_remove("EUKHE_API_KEY")
-        .env(
-            eukhe_daemon::socket::BIND_CAPTURE_GAP_ENV,
-            BIND_CAPTURE_GAP_MS,
-        )
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    ProcessGuard { child }
+    Daemon::spawn(
+        supervisor_command(socket, agent_dir)
+            // Hermetic agent dir: the ambient environment may export a real
+            // agent dir; point every fallback at the test sandbox instead.
+            .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+            .env_remove("EUKHE_API_KEY")
+            .env(
+                eukhe_daemon::socket::BIND_CAPTURE_GAP_ENV,
+                BIND_CAPTURE_GAP_MS,
+            ),
+        socket,
+    )
 }
 
 /// Spawn the real `eukhe-daemon worker` binary on its own socket, monitoring
 /// a supervisor socket that never answers, with the bind-capture gap armed
 /// so the oracle can poison the worker's capture.
-fn spawn_worker(dir: &Path, socket: &Path, supervisor_socket: &Path, token: &str) -> ProcessGuard {
+fn spawn_worker(dir: &Path, socket: &Path, supervisor_socket: &Path, token: &str) -> Daemon {
     std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
-    let child = daemon_command()
-        .arg("worker")
-        .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
-        .env(eukhe_daemon::worker::WORKER_TOKEN_ENV, token)
-        .env(
-            eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-            "poisoned-capture",
-        )
-        .env(eukhe_daemon::worker::WORKER_SOCKET_ENV, socket)
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-            supervisor_socket,
-        )
-        .env(
-            eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-            dir.join("recovery.jsonl"),
-        )
-        .env("EUKHE_CODING_AGENT_DIR", dir.join("agent"))
-        .env(
-            eukhe_daemon::socket::BIND_CAPTURE_GAP_ENV,
-            BIND_CAPTURE_GAP_MS,
-        )
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn eukhe-daemon worker");
-    ProcessGuard { child }
+    Daemon::spawn(
+        daemon_command()
+            .arg("worker")
+            .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
+            .env(eukhe_daemon::worker::WORKER_TOKEN_ENV, token)
+            .env(
+                eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
+                "poisoned-capture",
+            )
+            .env(eukhe_daemon::worker::WORKER_SOCKET_ENV, socket)
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
+                supervisor_socket,
+            )
+            .env(
+                eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
+                dir.join("recovery.jsonl"),
+            )
+            .env("EUKHE_CODING_AGENT_DIR", dir.join("agent"))
+            .env(
+                eukhe_daemon::socket::BIND_CAPTURE_GAP_ENV,
+                BIND_CAPTURE_GAP_MS,
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+        socket,
+    )
 }
 
 /// A supervisor stand-in that definitively rejects the worker's one
@@ -380,7 +354,7 @@ fn a_poisoned_workers_shutdown_exit_spares_the_successors_live_socket() {
     // successor bound at the original path, then drive the worker
     // through its aside path (the bound listener keeps serving the
     // renamed inode).
-    wait_socket_file(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     let aside = rename_bound_socket_aside(&socket);
     let (_successor, successor_identity) = bind_poisoning_successor(&socket);
     // The served hello through the aside path proves the capture has
@@ -403,7 +377,7 @@ fn a_poisoned_supervisors_drain_spares_the_successors_live_socket() {
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
     let mut daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_file(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     let aside = rename_bound_socket_aside(&socket);
     let (_successor, successor_identity) = bind_poisoning_successor(&socket);
     // A served hello through the aside path proves the capture has
@@ -448,7 +422,7 @@ fn a_refused_registrations_exit_removes_the_workers_own_dead_socket() {
         &supervisor_socket,
         "refused-registration-token",
     );
-    wait_socket_file(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     // The rejection retires the worker while it is parked in the gap;
     // the exit parks on the close confirmation until the serve task
     // resumes, then unlinks the worker's own dead file.
@@ -477,7 +451,7 @@ fn a_refused_registrations_exit_preserves_its_dead_file_off_linux() {
         &supervisor_socket,
         "refused-registration-token",
     );
-    wait_socket_file(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     wait_clean_exit(&mut worker.child, Duration::from_secs(10));
     assert!(
         socket.exists(),
@@ -504,7 +478,7 @@ fn a_refused_registrations_exit_spares_the_poisoning_successor() {
         &supervisor_socket,
         "refused-poisoned-token",
     );
-    wait_socket_file(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
     let _aside = rename_bound_socket_aside(&socket);
     let (_successor, successor_identity) = bind_poisoning_successor(&socket);
     wait_clean_exit(&mut worker.child, Duration::from_secs(10));

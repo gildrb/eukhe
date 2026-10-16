@@ -11,6 +11,7 @@ eukhe-types = { path = "../eukhe-types" }
 # The build identity the supervisor's hello reports (`runtime.buildId`).
 eukhe-build-info = { path = "../eukhe-build-info" }
 eukhe-core = { path = "../eukhe-core" }
+eukhe-docs = { path = "../eukhe-docs" }
 # The session worker hosts the eukhe agent on the durable Harness
 # (`eukhe-durable`, the pi-durable port) with `eukhe-ai` models and
 # `eukhe-chord` contexts/JSON.

@@ -839,7 +839,7 @@ impl RlmSpawnLedger {
         let mut records = String::new();
         let mut record_count = 0usize;
         while let Some((session_file, depth)) = queue.pop() {
-            for entry in read_legacy_registry(&session_file) {
+            for entry in read_legacy_registry(&session_file).into_values() {
                 if entry.status == "deleted" {
                     continue;
                 }

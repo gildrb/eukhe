@@ -35,77 +35,56 @@
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
+#[path = "support/process.rs"]
+mod process;
 use daemon::daemon_command;
-
-/// Kill a leftover worker at scope exit (the shutdown path is the primary
-/// cleanup; this is the fallback).
-struct WorkerGuard {
-    child: Child,
-}
-
-impl Drop for WorkerGuard {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
+use process::{wait_socket_file, Daemon};
 
 /// Spawn the real `eukhe-daemon worker` binary with no create-config model
 /// (the restore path runs) and a nonexistent supervisor socket (the two
 /// authenticated clients below disarm the orphan monitor).
-fn spawn_worker(dir: &Path, socket: &Path, token: &str) -> WorkerGuard {
+fn spawn_worker(dir: &Path, socket: &Path, token: &str) -> Daemon {
     std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
-    let child = daemon_command()
-        .arg("worker")
-        .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
-        .env(eukhe_daemon::worker::WORKER_TOKEN_ENV, token)
-        .env(
-            eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-            "create-join",
-        )
-        .env(eukhe_daemon::worker::WORKER_SOCKET_ENV, socket)
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-            dir.join("absent-supervisor.sock"),
-        )
-        .env(
-            eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-            dir.join("recovery.jsonl"),
-        )
-        .env(eukhe_daemon::worker::WORKER_CWD_ENV, dir)
-        .env("EUKHE_CODING_AGENT_DIR", dir.join("agent"))
-        .env_remove("EUKHE_MODEL")
-        .env_remove("EUKHE_MODEL_PROVIDER")
-        // A supervisor killed at teardown must not leak this worker into
-        // later test binaries: the orphan exit runs on this short window.
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn session worker");
-    WorkerGuard { child }
-}
-
-fn wait_socket_ready(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if socket.exists() {
-            return;
-        }
-        assert!(Instant::now() < deadline, "worker socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Daemon::spawn(
+        daemon_command()
+            .arg("worker")
+            .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
+            .env(eukhe_daemon::worker::WORKER_TOKEN_ENV, token)
+            .env(
+                eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
+                "create-join",
+            )
+            .env(eukhe_daemon::worker::WORKER_SOCKET_ENV, socket)
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
+                dir.join("absent-supervisor.sock"),
+            )
+            .env(
+                eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
+                dir.join("recovery.jsonl"),
+            )
+            .env(eukhe_daemon::worker::WORKER_CWD_ENV, dir)
+            .env("EUKHE_CODING_AGENT_DIR", dir.join("agent"))
+            .env_remove("EUKHE_MODEL")
+            .env_remove("EUKHE_MODEL_PROVIDER")
+            // A supervisor killed at teardown must not leak this worker into
+            // later test binaries: the orphan exit runs on this short window.
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+        socket,
+    )
 }
 
 /// A raw private-frame client for the worker socket (the same wire the
@@ -282,7 +261,7 @@ fn concurrent_creates_join_the_first_create() {
     let session_path = write_padded_session_file(&dir);
     let token = "create-join-token";
     let mut worker = spawn_worker(&dir, &socket, token);
-    wait_socket_ready(&socket);
+    wait_socket_file(&socket, Duration::from_secs(15));
 
     let payload = json!({
         "sessionPath": session_path.to_string_lossy(),

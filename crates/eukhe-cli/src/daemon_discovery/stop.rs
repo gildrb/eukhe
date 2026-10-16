@@ -15,6 +15,7 @@
 
 use std::path::Path;
 
+use eukhe_tui::daemon_client::{is_connect_failure, DaemonClient};
 use eukhe_types::daemon::DaemonCommand;
 use serde::Serialize;
 
@@ -416,17 +417,34 @@ fn verified_force_kill(
 /// alone is not proof, so success is reported only once the socket stops
 /// accepting connections (TS `shutdownDaemon`).
 fn shutdown_daemon(socket_path: &Path, force: bool) -> bool {
-    let Ok(mut client) = crate::daemon_client::DaemonClient::connect_probe(socket_path) else {
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
         return false;
     };
-    let shutdown = DaemonCommand::Shutdown {
-        id: None,
-        force: Some(force),
-        rest: serde_json::Map::default(),
-    };
-    // The daemon may still stop; the connectivity check below is the source
-    // of truth.
-    let _ = client.request_with_timeout(shutdown, 1_500);
+    let reached = runtime.block_on(async {
+        match DaemonClient::connect_probe(socket_path, crate::daemon_command::HELLO_TIMEOUT_MS)
+            .await
+        {
+            Ok((client, mut events)) => {
+                let shutdown = DaemonCommand::Shutdown {
+                    id: None,
+                    force: Some(force),
+                    rest: serde_json::Map::default(),
+                };
+                // The daemon may stop before it answers; the connectivity
+                // check below is the source of truth.
+                let _ = crate::daemon_command::request(&client, &mut events, shutdown, 1_500).await;
+                true
+            }
+            // A live listener that never greets may still be stopping.
+            Err(error) => !is_connect_failure(&error),
+        }
+    });
+    if !reached {
+        return false;
+    }
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while std::time::Instant::now() < deadline {

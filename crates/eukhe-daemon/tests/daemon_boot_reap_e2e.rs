@@ -18,62 +18,30 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
-
-struct Daemon {
-    child: Child,
-    #[allow(dead_code)]
-    socket: PathBuf,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 /// A supervisor with a LONG supervisor-lost window: the test's orphaned
 /// worker must survive every other exit path so only the boot reap can be
 /// what killed it (the harness default 15s window would let the worker
 /// self-exit against a dead socket before the new daemon boots).
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
-    let mut command = daemon_command();
-    let command = command
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env(
+    Daemon::spawn_listening(
+        supervisor_command(socket, agent_dir).env(
             eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
             "600000",
-        );
-    let child = command.spawn().expect("spawn eukhe-daemon supervisor");
-    Daemon {
-        child,
-        socket: socket.to_path_buf(),
-    }
-}
-
-fn wait_socket_ready(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        assert!(Instant::now() < deadline, "supervisor socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+        ),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// Liveness that ignores zombies (a re-parented child nobody reaps keeps its
@@ -299,7 +267,6 @@ fn boot_reap_clears_the_leftover_and_the_session_reopens() {
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
 
     let mut daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let supervisor_pid = daemon.child.id();
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
@@ -347,7 +314,6 @@ fn boot_reap_clears_the_leftover_and_the_session_reopens() {
     )
     .expect("write the reopen script");
     let daemon2 = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let deadline = Instant::now() + Duration::from_secs(15);
     while process_alive(worker_pid) {
         assert!(
@@ -428,7 +394,6 @@ fn boot_reap_never_touches_a_different_socket_daemon() {
 
     // A healthy daemon on a DIFFERENT socket with one live session.
     let daemon_b = spawn_supervisor(&socket_b, &agent_dir);
-    wait_socket_ready(&socket_b);
     let (mut client_b, hello_b) = Client::connect(&socket_b);
     assert_eq!(hello_b["type"], "daemon_hello");
     let (session_b, worker_b) = create_session(
@@ -442,7 +407,6 @@ fn boot_reap_never_touches_a_different_socket_daemon() {
     // The same-socket lineage gets the leftover: kill daemon A after its
     // session's descriptor vanished.
     let mut daemon_a = spawn_supervisor(&socket_a, &agent_dir);
-    wait_socket_ready(&socket_a);
     let (mut client_a, hello_a) = Client::connect(&socket_a);
     assert_eq!(hello_a["type"], "daemon_hello");
     let (session_a, worker_a) = create_session(
@@ -460,7 +424,6 @@ fn boot_reap_never_touches_a_different_socket_daemon() {
 
     // The new daemon on socket A: it reaps A's leftover only.
     let daemon_a2 = spawn_supervisor(&socket_a, &agent_dir);
-    wait_socket_ready(&socket_a);
     let deadline = Instant::now() + Duration::from_secs(15);
     while process_alive(worker_a) {
         assert!(Instant::now() < deadline, "A's leftover survived the reap");

@@ -98,23 +98,10 @@ impl AgentCronJobStore {
 }
 
 pub(crate) fn resolve_path(path: &str) -> String {
-    let clean = std::path::Path::new(path);
-    let mut components: Vec<std::ffi::OsString> = Vec::new();
-    for component in clean.components() {
-        use std::path::Component;
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                components.pop();
-            }
-            other => components.push(other.as_os_str().to_os_string()),
-        }
-    }
-    let mut resolved = PathBuf::from("/");
-    for component in components {
-        resolved.push(component);
-    }
-    resolved.to_string_lossy().to_string()
+    Path::new("/")
+        .join(eukhe_docs::lexical_normalize(Path::new(path)))
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub(crate) fn compare_optional_iso(left: Option<&str>, right: Option<&str>) -> std::cmp::Ordering {

@@ -27,7 +27,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use crate::daemon_client::{client_event_from_value, DaemonClientEvent, Shared};
+use crate::daemon_client::{client_event_from_json, DaemonClientEvent, Shared};
 
 /// TS `DaemonWorkerClient.connect` budget for the worker socket.
 const CONNECT_TIMEOUT_MS: u64 = 1_000;
@@ -279,13 +279,10 @@ pub(crate) async fn connect_direct(
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
-                let Ok(payload) = serde_json::from_slice::<Value>(&frame.payload) else {
-                    continue;
-                };
                 if header_type == "response" {
-                    if let Ok(response) = serde_json::from_value::<
+                    if let Ok(response) = serde_json::from_slice::<
                         eukhe_types::daemon::DaemonResponse,
-                    >(payload.clone())
+                    >(&frame.payload)
                     {
                         let request_id = frame
                             .header
@@ -295,7 +292,7 @@ pub(crate) async fn connect_direct(
                             .to_string();
                         shared.resolve(&request_id, response);
                     }
-                } else if let Some(event) = client_event_from_value(&payload) {
+                } else if let Some(event) = client_event_from_json(&frame.payload) {
                     let _ = event_tx.send(event);
                 }
             }

@@ -32,8 +32,18 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
 use tokio::sync::mpsc;
+
+/// One session-event client line, serialized once (trailing newline
+/// included) and shared by every subscriber the publish reaches.
+pub(crate) type EventLine = Arc<Vec<u8>>;
+
+/// Frame `json` as one client line: the worker's own bytes ride through
+/// unparsed.
+pub(crate) fn event_line(mut json: Vec<u8>) -> EventLine {
+    json.push(b'\n');
+    Arc::new(json)
+}
 
 /// One connection's subscription state: the session list (the routing
 /// index's per-connection view) and the bounded queue its targeted frames
@@ -45,11 +55,11 @@ use tokio::sync::mpsc;
 pub(crate) struct ClientSubscriptions {
     connection_id: String,
     sessions: Mutex<Vec<String>>,
-    queue: mpsc::Sender<Arc<Value>>,
+    queue: mpsc::Sender<EventLine>,
 }
 
 impl ClientSubscriptions {
-    pub(crate) fn new(connection_id: String, queue: mpsc::Sender<Arc<Value>>) -> Arc<Self> {
+    pub(crate) fn new(connection_id: String, queue: mpsc::Sender<EventLine>) -> Arc<Self> {
         Arc::new(Self {
             connection_id,
             sessions: Mutex::new(Vec::new()),
@@ -150,7 +160,7 @@ impl ClientSubscriptions {
 
 /// One subscriber's queue, with the one-line-per-stall-cycle loss flag.
 struct Subscriber {
-    queue: mpsc::Sender<Arc<Value>>,
+    queue: mpsc::Sender<EventLine>,
     logged_full: bool,
 }
 
@@ -178,7 +188,7 @@ impl SessionSubscribers {
         &self,
         active_session_id: &str,
         connection_id: &str,
-        queue: mpsc::Sender<Arc<Value>>,
+        queue: mpsc::Sender<EventLine>,
     ) {
         let mut sessions = self.sessions.lock().unwrap();
         sessions
@@ -211,7 +221,7 @@ impl SessionSubscribers {
         from: &str,
         to: &str,
         connection_id: &str,
-        queue: mpsc::Sender<Arc<Value>>,
+        queue: mpsc::Sender<EventLine>,
     ) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(subscribers) = sessions.get_mut(from) {
@@ -234,14 +244,14 @@ impl SessionSubscribers {
     /// stall-cycle transition is returned for the daemon log; a closed
     /// queue prunes its entry (the receiver left; its cleanup either ran
     /// or lost the race, and the prune is the backstop).
-    pub(crate) fn publish(&self, active_session_id: &str, payload: &Arc<Value>) -> PublishOutcome {
+    pub(crate) fn publish(&self, active_session_id: &str, line: &EventLine) -> PublishOutcome {
         let mut outcome = PublishOutcome::default();
         let mut sessions = self.sessions.lock().unwrap();
         let Some(subscribers) = sessions.get_mut(active_session_id) else {
             return outcome;
         };
         subscribers.retain(|connection_id, subscriber| {
-            match subscriber.queue.try_send(Arc::clone(payload)) {
+            match subscriber.queue.try_send(Arc::clone(line)) {
                 Ok(()) => {
                     outcome.delivered += 1;
                     subscriber.logged_full = false;
@@ -268,18 +278,20 @@ impl SessionSubscribers {
 mod tests {
     use super::*;
 
-    fn queue(capacity: usize) -> (mpsc::Sender<Arc<Value>>, mpsc::Receiver<Arc<Value>>) {
+    use serde_json::Value;
+
+    fn queue(capacity: usize) -> (mpsc::Sender<EventLine>, mpsc::Receiver<EventLine>) {
         tokio::sync::mpsc::channel(capacity)
     }
 
-    fn frame(tag: &str) -> Arc<Value> {
-        std::sync::Arc::new(serde_json::json!({ "type": tag }))
+    fn frame(tag: &str) -> EventLine {
+        event_line(serde_json::to_vec(&serde_json::json!({ "type": tag })).unwrap())
     }
 
-    fn drained(rx: &mut mpsc::Receiver<Arc<Value>>) -> Vec<Value> {
+    fn drained(rx: &mut mpsc::Receiver<EventLine>) -> Vec<Value> {
         let mut seen = Vec::new();
-        while let Ok(payload) = rx.try_recv() {
-            seen.push((*payload).clone());
+        while let Ok(line) = rx.try_recv() {
+            seen.push(serde_json::from_slice(&line).unwrap());
         }
         seen
     }

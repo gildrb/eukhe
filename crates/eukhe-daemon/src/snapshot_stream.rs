@@ -202,7 +202,7 @@ pub(crate) fn stream_attach(
             "targetChunkBytes": stream.target_chunk_bytes,
         }),
     );
-    let events = snapshot_event_lines(&messages, &stream, active_session_id, purpose, &data);
+    let events = snapshot_event_lines(messages, &stream, active_session_id, purpose, &data);
     Ok((data, events))
 }
 
@@ -217,22 +217,40 @@ fn json_type_name(value: &Value) -> &'static str {
     }
 }
 
+/// Counts the bytes a serializer writes, so a message's wire size is
+/// measured without materializing it.
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Split the transcript into chunk `messages` arrays under the byte budget.
 /// A single message larger than the budget travels alone; messages are
-/// never split.
-fn chunk_messages(messages: &[Value], target_chunk_bytes: usize) -> Vec<Vec<Value>> {
+/// never split. The messages move into their chunk; each is measured once
+/// without allocating.
+fn chunk_messages(messages: Vec<Value>, target_chunk_bytes: usize) -> Vec<Vec<Value>> {
     let mut chunks: Vec<Vec<Value>> = Vec::new();
     let mut current: Vec<Value> = Vec::new();
     let mut bytes = 0usize;
     for message in messages {
-        let serialized = serde_json::to_string(message).unwrap_or_default();
-        let cost = serialized.len() + usize::from(!current.is_empty());
+        let mut size = ByteCount(0);
+        serde_json::to_writer(&mut size, &message)
+            .expect("a JSON value serializes into an infallible writer");
+        let cost = size.0 + usize::from(!current.is_empty());
         if !current.is_empty() && bytes + cost > target_chunk_bytes {
             chunks.push(std::mem::take(&mut current));
             bytes = 0;
         }
         bytes += cost;
-        current.push(message.clone());
+        current.push(message);
     }
     if !current.is_empty() {
         chunks.push(current);
@@ -245,7 +263,7 @@ fn chunk_messages(messages: &[Value], target_chunk_bytes: usize) -> Vec<Vec<Valu
 /// out; `data` is the already-streamed response (for the end record's
 /// event cursor).
 fn snapshot_event_lines(
-    messages: &Value,
+    messages: Value,
     stream: &SnapshotStream,
     active_session_id: &str,
     purpose: SnapshotPurpose,
@@ -260,7 +278,7 @@ fn snapshot_event_lines(
                 "Session worker did not provide a snapshot transcript",
             ))
         }
-        other => {
+        ref other => {
             return SnapshotStreamEvents::Failed(failed_line(
                 active_session_id,
                 &stream.id,
@@ -282,20 +300,23 @@ fn snapshot_event_lines(
         "purpose": purpose,
     })];
     let chunks = chunk_messages(messages, SNAPSHOT_TARGET_CHUNK_BYTES);
-    for (index, chunk) in chunks.iter().enumerate() {
-        lines.push(json!({
+    let chunk_count = chunks.len();
+    for (index, chunk) in chunks.into_iter().enumerate() {
+        let mut line = json!({
             "type": "session_snapshot_chunk",
             "activeSessionId": active_session_id,
             "snapshotId": stream.id,
             "index": index,
-            "messages": chunk,
-        }));
+            "messages": Value::Null,
+        });
+        line["messages"] = Value::Array(chunk);
+        lines.push(line);
     }
     lines.push(json!({
         "type": "session_snapshot_end",
         "activeSessionId": active_session_id,
         "snapshotId": stream.id,
-        "chunkCount": chunks.len(),
+        "chunkCount": chunk_count,
         "lastEventSequence": data
             .get("lastEventSequence")
             .cloned()
@@ -569,7 +590,7 @@ mod tests {
     fn chunking_respects_the_byte_budget_and_never_splits_a_message() {
         let big = json!({ "role": "user", "content": "x".repeat(SNAPSHOT_TARGET_CHUNK_BYTES + 1) });
         let messages = vec![message(0), big.clone(), message(2), big.clone()];
-        let chunks = chunk_messages(&messages, SNAPSHOT_TARGET_CHUNK_BYTES);
+        let chunks = chunk_messages(messages, SNAPSHOT_TARGET_CHUNK_BYTES);
         assert_eq!(
             chunks,
             vec![
@@ -582,7 +603,7 @@ mod tests {
         let messages: Vec<Value> = (0..100)
             .map(|i| json!({ "role": "user", "content": "y".repeat(1024), "timestamp": i }))
             .collect();
-        let chunks = chunk_messages(&messages, SNAPSHOT_TARGET_CHUNK_BYTES);
+        let chunks = chunk_messages(messages.clone(), SNAPSHOT_TARGET_CHUNK_BYTES);
         let reassembled: Vec<Value> = chunks.iter().flat_map(std::clone::Clone::clone).collect();
         assert_eq!(reassembled, messages, "index order reassembly is lossless");
         for chunk in &chunks {

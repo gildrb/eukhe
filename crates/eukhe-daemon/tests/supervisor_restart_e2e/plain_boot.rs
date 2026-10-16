@@ -17,7 +17,6 @@ fn plain_boot_revives_only_journal_busy_workers() {
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
 
     let mut daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, _hello) = Client::connect(&socket);
 
     // Session 0 settles idle: its one turn completes before the kill.
@@ -154,7 +153,6 @@ fn plain_boot_revives_only_journal_busy_workers() {
     // Plain boot on the same socket (no update-roster environment).
     let restart_before = eukhe_daemon::util::now_iso();
     let mut daemon2 = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let log_path = eukhe_daemon::paths::daemon_log_path(&socket, &agent_dir);
 
     // The busy-at-crash session (journal busy=true) relaunches and

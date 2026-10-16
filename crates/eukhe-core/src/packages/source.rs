@@ -538,23 +538,7 @@ pub fn parse_source(source: &str) -> Result<ParsedSource, SourceParseError> {
 /// Lexical absolutization (node `path.resolve`): joins onto the base and
 /// collapses `.`/`..` without touching the filesystem.
 pub fn lexical_resolve(base: &Path, input: &str) -> PathBuf {
-    let path = Path::new(input);
-    let joined = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
-    };
-    let mut out = PathBuf::new();
-    for component in joined.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
+    eukhe_docs::lexical_normalize(&base.join(input))
 }
 
 /// node `path.relative` over pre-resolved absolute paths.

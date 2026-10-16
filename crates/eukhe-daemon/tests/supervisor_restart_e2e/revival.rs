@@ -117,7 +117,6 @@ fn write_revival_fixture(
 /// produced — the shared assert core of the park regressions.
 fn boot_and_observe(agent_dir: &Path, socket: &Path) -> (Daemon, PathBuf, String) {
     let daemon = spawn_supervisor(socket, agent_dir);
-    wait_socket_ready(socket);
     let log_path = eukhe_daemon::paths::daemon_log_path(socket, agent_dir);
     let boot_before = eukhe_daemon::util::now_iso();
     // The adoption pass runs concurrently with the accept loop; give it a
@@ -295,7 +294,6 @@ fn plain_boot_still_revives_fresh_busy_evidence() {
         write_revival_fixture(dir.path(), &agent_dir, &socket, "active", "ready", &busy_at);
 
     let mut daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let log_path = eukhe_daemon::paths::daemon_log_path(&socket, &agent_dir);
     let boot_before = eukhe_daemon::util::now_iso();
 

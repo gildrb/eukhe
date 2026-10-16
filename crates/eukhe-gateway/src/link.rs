@@ -7,25 +7,17 @@ use std::time::Duration;
 
 use anyhow::Context;
 use eukhe_tui::daemon_client::{outdated_daemon_notice, DaemonClient, DaemonClientEvent};
-use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle};
+use eukhe_tui::saved_sessions::{attach, create_resident, list_root_sessions, CreatedSession};
+use eukhe_types::daemon::DaemonCommand;
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, watch};
 
 use crate::sessions::{SavedSession, SessionRef};
-use crate::DaemonLauncher;
+use eukhe_tui::saved_sessions::DaemonLauncher;
 
 /// The first reconnect delay; it doubles up to [`RECONNECT_MAX_DELAY`].
 pub(crate) const RECONNECT_FIRST_DELAY: Duration = Duration::from_millis(250);
 pub(crate) const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(10);
-
-/// The attach capabilities: the interactive client's set (snapshot state
-/// without duplicated history or image payloads).
-const ATTACH_CAPABILITIES: [&str; 4] = [
-    "attach_snapshot",
-    "event_sequence",
-    "slim_attach",
-    "elide_snapshot_images",
-];
 
 /// The session the gateway is attached to.
 #[derive(Debug, Clone, PartialEq)]
@@ -181,21 +173,7 @@ impl<L: DaemonLauncher> Link<L> {
         session_dir: &Path,
         cwd: &Path,
     ) -> anyhow::Result<Vec<SavedSession>> {
-        let data = self
-            .client
-            .request_ok(DaemonCommand::ListSavedSessions {
-                id: None,
-                active_session_id: None,
-                // Required by the cwd-addressed form; without the
-                // `current` scope every cwd's sessions answer.
-                cwd: Some(cwd.display().to_string()),
-                session_dir: Some(session_dir.display().to_string()),
-                scope: Value::Null,
-                rest: Map::default(),
-            })
-            .await
-            .context("list the saved sessions")?;
-        crate::sessions::root_sessions(&data)
+        list_root_sessions(&self.client, session_dir, cwd).await
     }
 
     /// Open a session as a resident one (a saved `session_path`, else a new
@@ -211,51 +189,21 @@ impl<L: DaemonLauncher> Link<L> {
         session_path: Option<&str>,
         create_config: Value,
     ) -> anyhow::Result<Opened> {
-        let created = self
-            .client
-            .request_ok(DaemonCommand::Create {
-                id: None,
-                session_path: session_path.map(str::to_string),
-                continue_recent: None,
-                no_session: None,
-                name: None,
-                config: Some(create_config.clone()),
-                runtime_metadata: None,
-                lifecycle: Some(DaemonSessionLifecycle::Resident),
-                env: None,
-                launch_env: None,
-                rest: Map::default(),
-            })
-            .await
-            .context("open the session")?;
-        let field = |key: &str| {
-            created
-                .get(key)
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .with_context(|| format!("the daemon opened a session without {key}"))
-        };
-        let active_session_id = field("activeSessionId")?;
+        let CreatedSession {
+            active_session_id,
+            session_id,
+            session_file,
+        } = create_resident(
+            &self.client,
+            session_path.map(str::to_string),
+            create_config.clone(),
+        )
+        .await?;
         let session = SessionRef {
-            id: field("sessionId")?,
-            path: field("sessionFile")?,
+            id: session_id,
+            path: session_file,
         };
-        let attached = self
-            .client
-            .request_ok(DaemonCommand::Attach {
-                id: None,
-                active_session_id: active_session_id.clone(),
-                client_id: None,
-                capabilities: Some(ATTACH_CAPABILITIES.map(str::to_string).to_vec()),
-                resume_cursor: None,
-                recovery_config: None,
-                env: None,
-                launch_env: None,
-                rest: Map::default(),
-            })
-            .await
-            .context("attach to the session")?;
+        let attached = attach(&self.client, &active_session_id).await?;
         let streaming = attached
             .pointer("/snapshot/state/isStreaming")
             .and_then(Value::as_bool)

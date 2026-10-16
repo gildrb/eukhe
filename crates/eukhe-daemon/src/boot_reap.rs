@@ -838,20 +838,10 @@ fn protected_worker_pids(agent_dir: &Path, socket_path: &Path) -> HashSet<u32> {
 /// supervisor census normalizes with) requires.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn normalize_socket_spelling(path: &Path) -> String {
-    if let Ok(canonical) = path.canonicalize() {
-        return canonical.to_string_lossy().to_string();
-    }
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized.to_string_lossy().to_string()
+    path.canonicalize()
+        .unwrap_or_else(|_| eukhe_docs::lexical_normalize(path))
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// The numeric /proc entry names (the process census).

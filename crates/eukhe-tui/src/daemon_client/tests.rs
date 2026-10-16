@@ -277,7 +277,7 @@ fn session_event_parses_the_meta_sequence_for_the_handoff_tracker() {
             "cursor": { "generation": "g-1", "sequence": 41 }
         }
     });
-    match client_event_from_value(&with_sequence) {
+    match client_event_from_json(with_sequence.to_string().as_bytes()) {
         Some(DaemonClientEvent::SessionEvent { meta_sequence, .. }) => {
             assert_eq!(meta_sequence, 41);
         }
@@ -292,7 +292,7 @@ fn session_event_parses_the_meta_sequence_for_the_handoff_tracker() {
         "event": { "type": "turn_end" },
         "meta": { "cursor": { "generation": "g-1", "sequence": 12 } }
     });
-    match client_event_from_value(&cursor_only) {
+    match client_event_from_json(cursor_only.to_string().as_bytes()) {
         Some(DaemonClientEvent::SessionEvent { meta_sequence, .. }) => {
             assert_eq!(meta_sequence, 12);
         }
@@ -303,7 +303,7 @@ fn session_event_parses_the_meta_sequence_for_the_handoff_tracker() {
         "activeSessionId": "sess-1",
         "event": { "type": "turn_end" }
     });
-    match client_event_from_value(&no_meta) {
+    match client_event_from_json(no_meta.to_string().as_bytes()) {
         Some(DaemonClientEvent::SessionEvent { meta_sequence, .. }) => {
             assert_eq!(meta_sequence, 0);
         }

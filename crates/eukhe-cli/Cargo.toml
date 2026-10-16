@@ -21,7 +21,7 @@ eukhe-durable = { workspace = true }
 eukhe-ai = { workspace = true }
 eukhe-chord = { workspace = true }
 futures = { workspace = true }
-uuid = { version = "1", features = ["v4", "v7"] }
+uuid = { version = "1", features = ["v7"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }

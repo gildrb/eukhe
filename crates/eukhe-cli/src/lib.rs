@@ -30,7 +30,6 @@ pub(crate) mod client_settings;
 pub(crate) mod command_registry;
 pub(crate) mod config;
 pub(crate) mod config_command;
-pub(crate) mod daemon_client;
 pub(crate) mod daemon_command;
 pub(crate) mod daemon_discovery;
 pub(crate) mod daemon_mode;

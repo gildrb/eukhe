@@ -39,14 +39,16 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_command;
+use process::Daemon;
 
 /// Every live `python -m rlm.repl` pid serving `agent_dir`: the kernels
 /// of this test's daemon (each kernel's environment names its session's
@@ -136,50 +138,21 @@ fn await_same_kernels(agent_dir: &Path, expected: &[u32], budget: Duration) {
     }
 }
 
-struct Daemon {
-    child: Child,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        // Hermetic agent dir: the ambient environment may export a real
-        // agent dir; point every fallback at the test sandbox instead.
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        .env_remove("PRIME_API_KEY")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    Daemon { child }
-}
-
-fn wait_socket_ready(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        assert!(Instant::now() < deadline, "supervisor socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Daemon::spawn_listening(
+        supervisor_command(socket, agent_dir)
+            // Hermetic agent dir: the ambient environment may export a real
+            // agent dir; point every fallback at the test sandbox instead.
+            .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+            .env_remove("PRIME_API_KEY")
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                "15000",
+            ),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// JSONL supervisor client (command envelopes, id-matched responses).
@@ -402,7 +375,6 @@ fn new_session_disposes_the_kernel_and_starts_cold() {
     let script = write_faux_script(dir.path());
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");
@@ -441,7 +413,6 @@ fn switch_session_disposes_the_kernel_and_a_failed_target_keeps_it() {
     let script = write_faux_script(dir.path());
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");
@@ -523,7 +494,6 @@ fn fork_disposes_the_kernel_and_starts_cold() {
     let script = write_faux_script(dir.path());
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");
@@ -599,7 +569,6 @@ fn switch_session_rebinds_the_kernel_cwd_onto_the_target_session() {
     .expect("write faux script");
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let sessions_dir = dir.path().join("sessions");
@@ -674,7 +643,6 @@ fn navigate_tree_keeps_the_kernel_warm() {
     let script = write_faux_script(dir.path());
 
     let _daemon = spawn_supervisor(&socket, &agent_dir);
-    wait_socket_ready(&socket);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session(&mut client, dir.path(), &script, "c1");

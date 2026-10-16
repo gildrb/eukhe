@@ -36,11 +36,12 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use eukhe_tui::daemon_client::{is_connect_failure, DaemonClient};
 use eukhe_types::daemon::DaemonCommand;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::config;
-use crate::daemon_client::DaemonClient;
 
 mod format;
 mod kill;
@@ -338,87 +339,78 @@ pub(crate) struct ProbeResult {
     reachable: bool,
 }
 
-/// Probe one socket: connect (300ms), read the hello (1500ms), and ask for
-/// the session count over `list` (30s when greeted, 1500ms otherwise). Old or
-/// foreign daemons connect without a recognizable greeting; the session
-/// count then also gets the short deadline (TS `probeDaemon`).
+/// Probe one socket: connect, read the hello (1500ms), and ask for the
+/// session count over `list` (30s). A socket that accepts but does not greet
+/// is reachable with nothing known; only a failed connect is unreachable
+/// (TS `probeDaemon`). Foreign protocols are probed like our own.
 pub(crate) fn probe_daemon(socket_path: &Path) -> ProbeResult {
     if is_never_touch(socket_path) {
         // Containment: never even connect to a forbidden path, whatever the
         // caller's root says.
         return ProbeResult::default();
     }
-    let Ok(mut client) = DaemonClient::connect_probe(socket_path) else {
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
         return ProbeResult::default();
     };
-    let mut probe = ProbeResult {
-        reachable: true,
-        ..ProbeResult::default()
-    };
-    let greeted = client.wait_for_hello(HELLO_TIMEOUT_MS).ok().map(|hello| {
-        probe.version = hello
-            .get("appVersion")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
+    runtime.block_on(async {
+        let (client, mut events) =
+            match DaemonClient::connect_probe(socket_path, HELLO_TIMEOUT_MS).await {
+                Ok(connection) => connection,
+                Err(error) => {
+                    return ProbeResult {
+                        reachable: !is_connect_failure(&error),
+                        ..ProbeResult::default()
+                    }
+                }
+            };
+        let hello = client.hello();
+        let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_string);
         let protocol = hello.get("protocol");
-        probe.protocol_name = protocol
-            .and_then(|protocol| protocol.get("name"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-        probe.protocol_version = protocol
-            .and_then(|protocol| protocol.get("version"))
-            .and_then(serde_json::Value::as_u64);
-        probe.schema_id = hello
-            .get("schemaId")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-        if let Some(runtime) = hello.get("runtime") {
-            probe.build_id = runtime
-                .get("buildId")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string);
-            probe.executable_path = ["launcherPath", "entrypointPath", "executablePath"]
+        let runtime_info = hello.get("runtime");
+        let mut probe = ProbeResult {
+            version: text(hello.get("appVersion")),
+            protocol_version: protocol
+                .and_then(|protocol| protocol.get("version"))
+                .and_then(Value::as_u64),
+            protocol_name: text(protocol.and_then(|protocol| protocol.get("name"))),
+            schema_id: text(hello.get("schemaId")),
+            build_id: text(runtime_info.and_then(|runtime| runtime.get("buildId"))),
+            executable_path: ["launcherPath", "entrypointPath", "executablePath"]
                 .iter()
-                .find_map(|key| {
-                    runtime
-                        .get(*key)
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string)
-                });
+                .find_map(|key| text(runtime_info.and_then(|runtime| runtime.get(*key)))),
+            session_count: None,
+            supervisor_pid: hello
+                .get("supervisorPid")
+                .and_then(Value::as_u64)
+                .and_then(|pid| u32::try_from(pid).ok()),
+            supervisor_process_start_id: text(hello.get("supervisorProcessStartId")),
+            reachable: true,
+        };
+        let list = DaemonCommand::List {
+            id: None,
+            all: None,
+            cwd: None,
+            session_dir: None,
+            include_client_owned: None,
+            rest: serde_json::Map::default(),
+        };
+        if let Ok(response) =
+            crate::daemon_command::request(&client, &mut events, list, LIST_TIMEOUT_MS).await
+        {
+            if response.success {
+                probe.session_count = response
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("sessions"))
+                    .and_then(Value::as_array)
+                    .and_then(|sessions| u64::try_from(sessions.len()).ok());
+            }
         }
-        probe.supervisor_pid = hello
-            .get("supervisorPid")
-            .and_then(serde_json::Value::as_u64)
-            .and_then(|pid| u32::try_from(pid).ok());
-        probe.supervisor_process_start_id = hello
-            .get("supervisorProcessStartId")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-    });
-    let timeout_ms = if greeted.is_some() {
-        LIST_TIMEOUT_MS
-    } else {
-        HELLO_TIMEOUT_MS
-    };
-    let list = DaemonCommand::List {
-        id: None,
-        all: None,
-        cwd: None,
-        session_dir: None,
-        include_client_owned: None,
-        rest: serde_json::Map::default(),
-    };
-    if let Ok(response) = client.request_with_timeout(list, timeout_ms) {
-        if response.success {
-            probe.session_count = response
-                .data
-                .as_ref()
-                .and_then(|data| data.get("sessions"))
-                .and_then(serde_json::Value::as_array)
-                .map(|sessions| sessions.len() as u64);
-        }
-    }
-    probe
+        probe
+    })
 }
 
 /// Probe deadlines (TS `probeDaemon`).

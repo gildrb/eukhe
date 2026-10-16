@@ -102,6 +102,29 @@ pub fn is_foreign_daemon(error: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<ForeignDaemon>().is_some())
 }
 
+/// The transport connect failed or timed out: nothing accepted the
+/// connection (as opposed to a handshake failure on a live listener).
+/// Displays the operator-facing connect message; a transport error stays
+/// in the chain beneath it.
+#[derive(Debug)]
+pub(super) struct DaemonConnectFailed(pub(super) String);
+
+impl std::fmt::Display for DaemonConnectFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for DaemonConnectFailed {}
+
+/// Whether a connect failed before anything accepted the connection
+/// (transport connect error or connect timeout), as opposed to a
+/// handshake failure on a live listener.
+#[must_use]
+pub fn is_connect_failure(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DaemonConnectFailed>().is_some()
+}
+
 /// Whether an error is a response/handshake timeout ("Timed out after
 /// Nms waiting for the Eukhe daemon (response|handshake)"): a
 /// transient under-load failure, not a protocol error -- the caller

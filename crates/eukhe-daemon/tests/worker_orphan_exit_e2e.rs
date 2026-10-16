@@ -16,25 +16,17 @@ use serde_json::{json, Value};
 
 #[path = "support/daemon.rs"]
 mod daemon;
-use daemon::daemon_command;
-
-/// Kill a leftover worker at scope exit (the control case ends alive).
-struct WorkerGuard {
-    child: Child,
-}
-
-impl Drop for WorkerGuard {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
+#[path = "support/process.rs"]
+mod process;
+use daemon::{daemon_command, supervisor_command};
+use process::{wait_socket_file, Daemon};
 
 /// Spawn the real `eukhe-daemon worker` binary under a supervisor socket it
 /// must monitor, with the supervisor-lost exit window at zero (exit at the
 /// first availability check that cannot connect).
-fn spawn_worker(dir: &Path, supervisor_socket: &Path) -> WorkerGuard {
+fn spawn_worker(dir: &Path, supervisor_socket: &Path) -> Daemon {
     std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
+    let socket = dir.join("worker.sock");
     let child = daemon_command()
         .arg("worker")
         .env(eukhe_daemon::worker::WORKER_ROLE_ENV, "1")
@@ -46,10 +38,7 @@ fn spawn_worker(dir: &Path, supervisor_socket: &Path) -> WorkerGuard {
             eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
             "orphan-e2e-session",
         )
-        .env(
-            eukhe_daemon::worker::WORKER_SOCKET_ENV,
-            dir.join("worker.sock"),
-        )
+        .env(eukhe_daemon::worker::WORKER_SOCKET_ENV, &socket)
         .env(
             eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
             supervisor_socket,
@@ -68,17 +57,7 @@ fn spawn_worker(dir: &Path, supervisor_socket: &Path) -> WorkerGuard {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn eukhe-daemon worker");
-    WorkerGuard { child }
-}
-
-/// Wait until the worker's socket file appears (the worker booted and
-/// bound it).
-fn wait_worker_socket(socket: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while !socket.exists() {
-        assert!(Instant::now() < deadline, "worker socket never appeared");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    Daemon { child, socket }
 }
 
 /// Wait for the child to exit on its own within `budget`; false when it is
@@ -104,7 +83,7 @@ fn orphaned_worker_exits_when_the_supervisor_socket_never_answers() {
     // checks can never connect.
     let supervisor_socket = dir.path().join("never-bound-supervisor.sock");
     let mut worker = spawn_worker(dir.path(), &supervisor_socket);
-    wait_worker_socket(&dir.path().join("worker.sock"));
+    wait_socket_file(&dir.path().join("worker.sock"), Duration::from_secs(15));
     // The first availability check (1.5s after boot) sees the unreachable
     // socket and the zero window exits the worker.
     assert!(
@@ -125,7 +104,7 @@ fn worker_with_a_reachable_supervisor_survives_the_lost_window() {
     let supervisor_socket = dir.path().join("live-supervisor.sock");
     let listener = UnixListener::bind(&supervisor_socket).expect("bind supervisor socket");
     let mut worker = spawn_worker(dir.path(), &supervisor_socket);
-    wait_worker_socket(&dir.path().join("worker.sock"));
+    wait_socket_file(&dir.path().join("worker.sock"), Duration::from_secs(15));
     // Past the first availability check (1.5s) with margin: the reachable
     // supervisor resets the absence timer every check, so the same zero
     // window that exits the orphan case must leave this worker alive.
@@ -138,45 +117,20 @@ fn worker_with_a_reachable_supervisor_survives_the_lost_window() {
     drop(listener);
 }
 
-/// The supervisor under test, `SIGKILLed` at scope exit at the latest.
-struct Supervisor {
-    child: Child,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 /// A real supervisor whose workers inherit `lost_window_ms` as their
 /// supervisor-lost exit window.
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, lost_window_ms: &str) -> Supervisor {
+fn spawn_supervisor(socket: &Path, agent_dir: &Path, lost_window_ms: &str) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
-    let child = daemon_command()
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-        .env(
-            eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-            lost_window_ms,
-        )
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let supervisor = Supervisor { child };
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while UnixStream::connect(socket).is_err() {
-        assert!(Instant::now() < deadline, "supervisor socket never came up");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    supervisor
+    Daemon::spawn_listening(
+        supervisor_command(socket, agent_dir)
+            .env("EUKHE_CODING_AGENT_DIR", agent_dir)
+            .env(
+                eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
+                lost_window_ms,
+            ),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// JSONL supervisor client (command envelopes, id-matched responses).

@@ -9,44 +9,36 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+#[path = "support/daemon.rs"]
+mod daemon;
+#[path = "support/process.rs"]
+mod process;
+use daemon::supervisor_args;
+use process::Daemon;
+
 const DEADLINE: Duration = Duration::from_secs(60);
 
-struct Supervisor {
-    child: Child,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Supervisor {
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
+    let supervisor = Daemon::spawn(
+        supervisor_args(
+            &mut Command::new(env!("CARGO_BIN_EXE_eukhe-daemon")),
+            socket,
+            agent_dir,
+        )
         .env_remove("PRIME_API_KEY")
         .env_remove("EUKHE_CODING_AGENT_DIR")
         // A supervisor killed at teardown must not leak its workers.
         .env(
             eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
             "15000",
-        )
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let supervisor = Supervisor { child };
+        ),
+        socket,
+    );
     wait_until("the supervisor socket", || socket.exists());
     supervisor
 }

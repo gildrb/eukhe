@@ -84,7 +84,8 @@ pub fn walk_passive_rlm_children(
         .iter()
         .map(|root| session_family_key(&root.session_file))
         .collect();
-    let mut registry_cache: HashMap<PathBuf, Vec<LegacyRlmSubagentEntry>> = HashMap::new();
+    let mut registry_cache: HashMap<PathBuf, HashMap<String, LegacyRlmSubagentEntry>> =
+        HashMap::new();
     let mut walked = Vec::new();
     while let Some(parent) = queue.pop() {
         let Some(edges) = children_by_parent.get(&parent) else {
@@ -182,7 +183,7 @@ fn inactive_lifecycle(info: &SessionInfo) -> &'static str {
 /// always the topology authority. Mirrors TS `passiveRlmSubagentEntryForEdge`.
 pub(crate) fn rlm_child_metadata(
     edge: &RlmLedgerEdge,
-    registry_cache: &mut HashMap<PathBuf, Vec<LegacyRlmSubagentEntry>>,
+    registry_cache: &mut HashMap<PathBuf, HashMap<String, LegacyRlmSubagentEntry>>,
 ) -> RlmChildMetadata {
     if let Some(child_dir) = Path::new(&edge.child).parent() {
         if let Some(display) = read_rlm_subagent_display(child_dir) {
@@ -199,10 +200,7 @@ pub(crate) fn rlm_child_metadata(
     let registry = registry_cache
         .entry(parent)
         .or_insert_with(|| read_legacy_registry(Path::new(&edge.parent)));
-    match registry
-        .iter()
-        .find(|entry| entry.child_id == edge.child_id)
-    {
+    match registry.get(&edge.child_id) {
         Some(entry) => RlmChildMetadata {
             spawn_code: entry.spawn_code.clone(),
             rlm_parent_node_id: entry.rlm_parent_node_id.clone(),

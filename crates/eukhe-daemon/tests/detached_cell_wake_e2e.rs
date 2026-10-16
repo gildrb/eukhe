@@ -12,15 +12,19 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-#[path = "../../eukhe-core/tests/support/kernel_runtime.rs"]
-mod kernel_runtime;
-use kernel_runtime::kernel_python;
+#[path = "support/daemon.rs"]
+mod daemon;
+#[path = "support/process.rs"]
+mod process;
+use daemon::kernel_runtime::kernel_python;
+use daemon::supervisor_args;
+use process::Daemon;
 
 /// The runtime's blocking budget in this test.
 const BUDGET_MS: u64 = 2_000;
@@ -29,26 +33,13 @@ const BUDGET_MS: u64 = 2_000;
 const CELL: &str =
     "import time\nprint('cell started', flush=True)\ntime.sleep(7)\nprint('CELL' + '_DONE')";
 
-struct Daemon {
-    child: Child,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-// `Daemon`'s drop kills and waits the supervisor; clippy cannot see it.
-#[allow(clippy::zombie_processes)]
 fn spawn_daemon(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon {
-    let child = Command::new(env!("CARGO_BIN_EXE_eukhe-daemon"))
-        .arg("supervisor")
-        .arg("--socket")
-        .arg(socket)
-        .arg("--agent-dir")
-        .arg(agent_dir)
+    Daemon::spawn_bound(
+        supervisor_args(
+            &mut Command::new(env!("CARGO_BIN_EXE_eukhe-daemon")),
+            socket,
+            agent_dir,
+        )
         .env_remove("PRIME_API_KEY")
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
         .env("EUKHE_KERNEL_PYTHON", kernel_python)
@@ -56,20 +47,10 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon
         .env(
             eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
             "20000",
-        )
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn eukhe-daemon supervisor");
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Daemon { child };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+        ),
+        socket,
+        Duration::from_secs(15),
+    )
 }
 
 /// The sequential mock provider: the cell's tool call, the reply that

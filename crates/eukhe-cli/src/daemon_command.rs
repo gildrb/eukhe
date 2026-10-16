@@ -10,10 +10,16 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use eukhe_types::daemon::{DaemonCommand, StopOutcome};
+use eukhe_tui::daemon_client::{
+    is_connect_failure, is_daemon_timeout, is_foreign_daemon, DaemonClient, DaemonClientEvent,
+    DEFAULT_REQUEST_TIMEOUT_MS,
+};
+use eukhe_types::daemon::{
+    DaemonCommand, DaemonProtocolInfo, DaemonResponse, StopOutcome, DAEMON_PROTOCOL_VERSION,
+};
 use serde_json::{json, Value};
+use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::daemon_client::DaemonClient;
 use crate::daemon_session_list::{
     format_session_list_table, get_session_summaries, live_session_summary,
     matches_session_id_suffix,
@@ -38,7 +44,7 @@ pub(crate) fn run_daemon_command(command: &str, args: &[String]) -> Result<()> {
     if parsed.help {
         return Ok(());
     }
-    let mut client = DaemonClient::connect(&parsed.socket_path)?;
+    let mut client = Daemon::connect(&parsed.socket_path)?;
     match command {
         "list" => run_list(&mut client, &parsed.positionals, parsed.json),
         "sessions" => run_sessions(&mut client, &parsed.positionals, parsed.json),
@@ -47,6 +53,150 @@ pub(crate) fn run_daemon_command(command: &str, args: &[String]) -> Result<()> {
         "send" => run_send(&mut client, &parsed.positionals, parsed.json),
         "cron" => run_cron(&mut client, &parsed.positionals, parsed.json),
         other => bail!("Unknown daemon command: {other}"),
+    }
+}
+
+/// The CLI's hello budget: TS `waitForHello` waits 3s; 15s lets daemons busy
+/// loading large sessions still greet.
+pub(crate) const HELLO_TIMEOUT_MS: u64 = 15_000;
+
+/// A daemon connection for the synchronous commands: requests block on the
+/// connection's own current-thread runtime.
+struct Daemon {
+    runtime: tokio::runtime::Runtime,
+    client: DaemonClient,
+    events: UnboundedReceiver<DaemonClientEvent>,
+}
+
+impl Daemon {
+    fn connect(socket_path: &Path) -> Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let (client, events) = runtime
+            .block_on(DaemonClient::connect_probe(socket_path, HELLO_TIMEOUT_MS))
+            .map_err(|error| connect_error(error, socket_path))?;
+        Ok(Self {
+            runtime,
+            client,
+            events,
+        })
+    }
+
+    fn request(&mut self, command: DaemonCommand) -> Result<DaemonResponse> {
+        self.runtime.block_on(request(
+            &self.client,
+            &mut self.events,
+            command,
+            DEFAULT_REQUEST_TIMEOUT_MS,
+        ))
+    }
+}
+
+/// A [`DaemonClient::connect_probe`] failure in the CLI's words: Node's
+/// `connect` text for an unreachable socket, and the daemon log path on
+/// every endpoint failure.
+pub(crate) fn connect_error(error: anyhow::Error, socket_path: &Path) -> anyhow::Error {
+    if is_daemon_timeout(&error) {
+        return anyhow!(
+            "{error} Daemon log: {}.",
+            daemon_log_path(socket_path).display()
+        );
+    }
+    if is_connect_failure(&error) {
+        let detail = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<std::io::Error>())
+            .map_or_else(
+                || error.root_cause().to_string(),
+                |io_error| node_connect_error(io_error, socket_path),
+            );
+        return anyhow!(
+            "Failed to connect to the Eukhe daemon: {detail}. {}",
+            endpoint_details(socket_path)
+        );
+    }
+    if is_foreign_daemon(&error) {
+        return error;
+    }
+    closed_error(None, socket_path)
+}
+
+/// One request in the CLI's words: daemons older than this protocol are
+/// refused before sending, and timeouts and closes name the command, the
+/// daemon's closing reason, and the daemon log.
+pub(crate) async fn request(
+    client: &DaemonClient,
+    events: &mut UnboundedReceiver<DaemonClientEvent>,
+    command: DaemonCommand,
+    timeout_ms: u64,
+) -> Result<DaemonResponse> {
+    let command_type = eukhe_daemon::protocol::command_type_name(&command).to_string();
+    let protocol: DaemonProtocolInfo = client
+        .hello()
+        .get("protocol")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .ok_or_else(|| anyhow!("invalid daemon hello"))?;
+    if protocol.version < DAEMON_PROTOCOL_VERSION {
+        bail!("The running Eukhe daemon does not support {command_type}.");
+    }
+    let socket_path = client.socket_path();
+    client
+        .request_with_timeout(command, timeout_ms)
+        .await
+        .map_err(|error| {
+            if is_daemon_timeout(&error) {
+                anyhow!(
+                    "Timed out after {timeout_ms}ms waiting for the Eukhe daemon response to \"{command_type}\". {}",
+                    endpoint_details(socket_path)
+                )
+            } else if *client.reader_dead().borrow() {
+                let mut reason = None;
+                while let Ok(event) = events.try_recv() {
+                    if let DaemonClientEvent::DaemonClosing { reason: closing } = event {
+                        reason = Some(closing);
+                    }
+                }
+                closed_error(reason.as_deref(), socket_path)
+            } else {
+                error
+            }
+        })
+}
+
+fn closed_error(reason: Option<&str>, socket_path: &Path) -> anyhow::Error {
+    let reason = reason
+        .map(|reason| format!(" Reason: {reason}."))
+        .unwrap_or_default();
+    anyhow!(
+        "Connection to the Eukhe daemon closed.{reason} {}",
+        endpoint_details(socket_path)
+    )
+}
+
+fn daemon_log_path(socket_path: &Path) -> PathBuf {
+    eukhe_daemon::paths::daemon_log_path(socket_path, &crate::config::get_agent_dir())
+}
+
+/// `Socket: <path>. Daemon log: <log path>.` (TS `daemonEndpointDetails`).
+fn endpoint_details(socket_path: &Path) -> String {
+    format!(
+        "Socket: {}. Daemon log: {}.",
+        socket_path.display(),
+        daemon_log_path(socket_path).display()
+    )
+}
+
+/// Node's `connect` error text for the same failure (`connect ENOENT
+/// <path>` and friends).
+fn node_connect_error(error: &std::io::Error, socket_path: &Path) -> String {
+    let path = socket_path.display();
+    match error.kind() {
+        std::io::ErrorKind::NotFound => format!("connect ENOENT {path}"),
+        std::io::ErrorKind::ConnectionRefused => format!("connect ECONNREFUSED {path}"),
+        std::io::ErrorKind::PermissionDenied => format!("connect EACCES {path}"),
+        _ => error.to_string(),
     }
 }
 
@@ -124,7 +274,7 @@ fn normalize_socket_path(value: &str) -> PathBuf {
 }
 
 /// `requireSuccess`: surface the daemon's error text.
-fn require_success(response: eukhe_types::daemon::DaemonResponse) -> Result<Option<Value>> {
+fn require_success(response: DaemonResponse) -> Result<Option<Value>> {
     if !response.success {
         return Err(anyhow!(response.error.unwrap_or_default()));
     }
@@ -149,7 +299,7 @@ fn require_active_session_id(args: &[String]) -> Result<String> {
 // list
 // ---------------------------------------------------------------------------
 
-fn run_list(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_list(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let mut all = false;
     for arg in args {
         if arg == "-a" || arg == "--all" {
@@ -200,7 +350,7 @@ fn list_command(all: bool) -> DaemonCommand {
 
 /// The same list RPC as `eukhe list`, rendered as the
 /// one-line-per-agent operator table (TS `runSessions`).
-fn run_sessions(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_sessions(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let mut all = false;
     for arg in args {
         if arg == "-a" || arg == "--all" {
@@ -242,7 +392,7 @@ fn run_sessions(client: &mut DaemonClient, args: &[String], json: bool) -> Resul
 
 /// `resolveLiveSessionSelector`: match a name/id/session-id selector against
 /// the live session list, with unambiguous hex-suffix fallback.
-fn resolve_live_session_selector(client: &mut DaemonClient, selector: &str) -> Result<String> {
+fn resolve_live_session_selector(client: &mut Daemon, selector: &str) -> Result<String> {
     let response = client.request(list_command(false))?;
     let data = require_success(response)?;
     let sessions = data
@@ -283,7 +433,7 @@ fn resolve_live_session_selector(client: &mut DaemonClient, selector: &str) -> R
 // kill (stop)
 // ---------------------------------------------------------------------------
 
-fn run_kill(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_kill(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let active_session_id = require_active_session_id(args)?;
     let response = client.request(DaemonCommand::Kill {
         id: None,
@@ -351,7 +501,7 @@ fn response_value(response: &eukhe_types::daemon::DaemonResponse) -> Value {
 // rename
 // ---------------------------------------------------------------------------
 
-fn run_rename(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_rename(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let active_session_id = require_active_session_id(args)?;
     let name = args[1..].join(" ").trim().to_string();
     if name.is_empty() {
@@ -396,7 +546,7 @@ struct ParsedSendArgs {
     message: String,
 }
 
-fn run_send(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_send(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let parsed = parse_send_args(args)?;
     let response = client.request(DaemonCommand::SendMessage {
         id: None,
@@ -508,7 +658,7 @@ fn parse_send_args(args: &[String]) -> Result<ParsedSendArgs> {
 // cron (schedule)
 // ---------------------------------------------------------------------------
 
-fn run_cron(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_cron(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let subcommand = args.first().map_or("list", String::as_str);
     match subcommand {
         "list" => run_cron_list(client, args, json),
@@ -518,7 +668,7 @@ fn run_cron(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()
     }
 }
 
-fn run_cron_list(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_cron_list(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let include_inactive = args.iter().skip(1).any(|arg| arg == "--all" || arg == "-a");
     let selector = args
         .iter()
@@ -553,7 +703,7 @@ fn run_cron_list(client: &mut DaemonClient, args: &[String], json: bool) -> Resu
     Ok(())
 }
 
-fn run_cron_add(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_cron_add(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let usage = "Usage: eukhe schedule add <agent> <schedule> -- <message>";
     let separator = args
         .iter()
@@ -590,7 +740,7 @@ fn run_cron_add(client: &mut DaemonClient, args: &[String], json: bool) -> Resul
     Ok(())
 }
 
-fn run_cron_cancel(client: &mut DaemonClient, args: &[String], json: bool) -> Result<()> {
+fn run_cron_cancel(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let Some(job_id) = args.get(1) else {
         bail!("Usage: eukhe schedule cancel <job-id>");
     };
@@ -768,5 +918,49 @@ mod tests {
             format_agent_cron_job(&job),
             "0451e5a9-951c-457b-ae76-ea3142ea5d25 active next=9/16/2026, 6:36:59 PM last=- runs=0 schedule=\"every 5 minutes\" prompt=\"do the thing\""
         );
+    }
+
+    #[test]
+    fn connect_error_matches_node_text() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let socket = dir.path().join("missing.sock");
+        let error = Daemon::connect(&socket).err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "Failed to connect to the Eukhe daemon: connect ENOENT {}. {}",
+                socket.display(),
+                endpoint_details(&socket)
+            )
+        );
+    }
+
+    #[test]
+    fn socket_close_reports_daemon_closing_reason() {
+        use std::io::{BufRead, Write};
+        let dir = tempfile::TempDir::new().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .write_all(b"{\"type\":\"daemon_hello\",\"protocol\":{\"name\":\"eukhe.daemon\",\"version\":7}}\n{\"type\":\"daemon_closing\",\"reason\":\"shutdown\"}\n")
+                .unwrap();
+            // Drain the request so the close is a clean EOF, not a reset.
+            let mut request = String::new();
+            std::io::BufReader::new(stream)
+                .read_line(&mut request)
+                .unwrap();
+        });
+        let mut daemon = Daemon::connect(&socket).unwrap();
+        let error = daemon.request(list_command(false)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "Connection to the Eukhe daemon closed. Reason: shutdown. {}",
+                endpoint_details(&socket)
+            )
+        );
+        server.join().unwrap();
     }
 }

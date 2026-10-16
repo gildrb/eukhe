@@ -6,6 +6,7 @@
 //! closing notices) are forwarded to the caller through an event channel, so
 //! the UI loop can render live session state while requests are in flight.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,7 +19,8 @@ use eukhe_types::daemon::{
     DaemonProtocolInfo, DaemonResponse, SessionEvent, DAEMON_PROTOCOL_NAME,
     DAEMON_PROTOCOL_VERSION,
 };
-use serde::Deserialize as _;
+use serde::Deserialize;
+use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
@@ -32,11 +34,11 @@ mod errors;
 #[cfg(test)]
 mod tests;
 
-use errors::{command_type_debug, response_data_or_error, DirectRequestError};
+use errors::{command_type_debug, response_data_or_error, DaemonConnectFailed, DirectRequestError};
 pub use errors::{
-    is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable, is_foreign_daemon,
-    is_kernel_not_running, rejected_provider_unauthenticated, ForeignDaemon, ForeignGreeting,
-    RequestRejected,
+    is_connect_failure, is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable,
+    is_foreign_daemon, is_kernel_not_running, rejected_provider_unauthenticated, ForeignDaemon,
+    ForeignGreeting, RequestRejected,
 };
 
 /// Default response timeout (TS `DEFAULT_DAEMON_REQUEST_TIMEOUT_MS`).
@@ -143,118 +145,138 @@ pub enum DaemonClientEvent {
     },
 }
 
+/// Every field a non-response frame may carry, borrowed raw off the wire
+/// bytes in one scan; only the fields the frame's type needs are decoded,
+/// each straight into its typed shape.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InboundFrame<'a> {
+    #[serde(rename = "type", borrow, default)]
+    kind: Option<Cow<'a, str>>,
+    #[serde(borrow, default)]
+    active_session_id: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    previous_active_session_id: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    event: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    meta: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    reason: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    session: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    id: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    loaded: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    total: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    changed: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    removed: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    resync: Option<&'a RawValue>,
+}
+
+/// The `meta` fields a session event's sequence rides on.
+#[derive(Deserialize)]
+struct FrameMeta {
+    #[serde(default)]
+    sequence: Option<u64>,
+    #[serde(default)]
+    cursor: Option<FrameCursor>,
+}
+
+#[derive(Deserialize)]
+struct FrameCursor {
+    #[serde(default)]
+    sequence: Option<u64>,
+}
+
+/// A raw field decoded as `T`; absent or another shape is `None` (a
+/// field of the wrong type reads as missing, like the frame's other
+/// optional fields).
+fn decode<'a, T: Deserialize<'a>>(raw: Option<&'a RawValue>) -> Option<T> {
+    serde_json::from_str(raw?.get()).ok()
+}
+
+fn decode_string(raw: Option<&RawValue>) -> String {
+    decode(raw).unwrap_or_default()
+}
+
 /// One non-response frame, parsed from a supervisor JSONL line or a direct
 /// worker frame payload (both carry the same `DaemonOutbound` shapes).
-pub(crate) fn client_event_from_value(value: &Value) -> Option<DaemonClientEvent> {
-    let frame_type = value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    match frame_type {
+pub(crate) fn client_event_from_json(json: &[u8]) -> Option<DaemonClientEvent> {
+    client_event_from_frame(&serde_json::from_slice(json).ok()?)
+}
+
+fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent> {
+    match frame.kind.as_deref().unwrap_or_default() {
         "session_event" => {
-            let active_session_id = value
-                .get("activeSessionId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            let event = match value.get("event").map(SessionEvent::deserialize) {
-                Some(Ok(event)) => Box::new(event),
-                Some(Err(error)) => {
-                    return Some(DaemonClientEvent::UndecodableSessionEvent {
-                        active_session_id,
-                        error: error.to_string(),
-                    })
-                }
-                None => {
-                    return Some(DaemonClientEvent::UndecodableSessionEvent {
-                        active_session_id,
-                        error: "the frame carries no event".to_string(),
-                    })
-                }
+            let active_session_id = decode_string(frame.active_session_id);
+            let Some(event) = frame.event else {
+                return Some(DaemonClientEvent::UndecodableSessionEvent {
+                    active_session_id,
+                    error: "the frame carries no event".to_string(),
+                });
             };
-            Some(DaemonClientEvent::SessionEvent {
-                active_session_id,
-                event,
-                meta_sequence: value
-                    .get("meta")
-                    .and_then(|meta| {
-                        meta.get("sequence").or_else(|| {
-                            meta.get("cursor").and_then(|cursor| cursor.get("sequence"))
+            Some(match serde_json::from_str::<SessionEvent>(event.get()) {
+                Ok(event) => DaemonClientEvent::SessionEvent {
+                    active_session_id,
+                    event: Box::new(event),
+                    meta_sequence: decode::<FrameMeta>(frame.meta)
+                        .and_then(|meta| {
+                            meta.sequence
+                                .or_else(|| meta.cursor.and_then(|cursor| cursor.sequence))
                         })
-                    })
-                    .and_then(Value::as_u64)
-                    .unwrap_or_default(),
+                        .unwrap_or_default(),
+                },
+                Err(error) => DaemonClientEvent::UndecodableSessionEvent {
+                    active_session_id,
+                    error: error.to_string(),
+                },
             })
         }
         "session_closed" => Some(DaemonClientEvent::SessionClosed {
-            active_session_id: value
-                .get("activeSessionId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            reason: value
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            active_session_id: decode_string(frame.active_session_id),
+            reason: decode_string(frame.reason),
         }),
         "side_question_event" => Some(DaemonClientEvent::SideQuestionEvent {
-            active_session_id: value
-                .get("activeSessionId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            event: value.get("event").cloned().unwrap_or(Value::Null),
+            active_session_id: decode_string(frame.active_session_id),
+            event: decode(frame.event).unwrap_or(Value::Null),
         }),
         "session_list_item" => Some(DaemonClientEvent::SessionListItem {
-            session: value.get("session").cloned().unwrap_or(Value::Null),
-            request_id: value
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            session: decode(frame.session).unwrap_or(Value::Null),
+            request_id: decode_string(frame.id),
         }),
         "session_list_progress" => Some(DaemonClientEvent::SessionListProgress {
-            loaded: value.get("loaded").and_then(Value::as_u64).unwrap_or(0),
-            total: value.get("total").and_then(Value::as_u64).unwrap_or(0),
+            loaded: decode(frame.loaded).unwrap_or(0),
+            total: decode(frame.total).unwrap_or(0),
         }),
         "daemon_closing" => Some(DaemonClientEvent::DaemonClosing {
-            reason: value
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            reason: decode_string(frame.reason),
         }),
         "roster_update" => Some(DaemonClientEvent::RosterUpdate {
-            changed: value
-                .get("changed")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-            removed: value
-                .get("removed")
-                .and_then(Value::as_array)
-                .map(|ids| {
-                    ids.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect()
+            changed: decode(frame.changed).unwrap_or_default(),
+            removed: decode::<Vec<Value>>(frame.removed)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|id| match id {
+                    Value::String(id) => Some(id),
+                    Value::Null
+                    | Value::Bool(_)
+                    | Value::Number(_)
+                    | Value::Array(_)
+                    | Value::Object(_) => None,
                 })
-                .unwrap_or_default(),
-            resync: value.get("resync") == Some(&Value::Bool(true)),
+                .collect(),
+            resync: decode(frame.resync) == Some(true),
         }),
         "heartbeats_changed" => Some(DaemonClientEvent::HeartbeatsChanged),
         "session_binding" => Some(DaemonClientEvent::SessionBinding {
-            previous_active_session_id: value
-                .get("previousActiveSessionId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            active_session_id: value
-                .get("activeSessionId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            previous_active_session_id: decode_string(frame.previous_active_session_id),
+            active_session_id: decode_string(frame.active_session_id),
         }),
         _ => None,
     }
@@ -347,22 +369,46 @@ impl DaemonClient {
     pub async fn connect(
         socket_path: &Path,
     ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
+        Self::open(socket_path, HELLO_TIMEOUT_MS, false).await
+    }
+
+    /// [`Self::connect`] for discovery probes (TS `probeDaemon`): the
+    /// handshake waits `hello_timeout_ms`, and a hello naming another
+    /// protocol is kept (envelopes echo the daemon's own protocol name
+    /// and version) instead of failing with [`ForeignDaemon`]. An
+    /// unparseable first line still fails with [`ForeignDaemon`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::connect`], minus the foreign-protocol refusal.
+    pub async fn connect_probe(
+        socket_path: &Path,
+        hello_timeout_ms: u64,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
+        Self::open(socket_path, hello_timeout_ms, true).await
+    }
+
+    async fn open(
+        socket_path: &Path,
+        hello_timeout_ms: u64,
+        keep_foreign: bool,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
         let connect = tokio::time::timeout(
             Duration::from_millis(CONNECT_TIMEOUT_MS),
             eukhe_types::platform::transport::connect_transport(socket_path),
         )
         .await
         .map_err(|_| {
-            anyhow!(
+            anyhow::Error::new(DaemonConnectFailed(format!(
                 "Timed out after {CONNECT_TIMEOUT_MS}ms connecting to the Eukhe daemon. Socket: {}.",
                 socket_path.display()
-            )
+            )))
         })?
         .with_context(|| {
-            format!(
+            DaemonConnectFailed(format!(
                 "Failed to connect to the Eukhe daemon. Socket: {}.",
                 socket_path.display()
-            )
+            ))
         })?;
 
         let (reader_half, writer_half) = connect.split();
@@ -406,33 +452,33 @@ impl DaemonClient {
                     Ok(0) | Err(_) => break,
                     Ok(_) => {}
                 }
-                let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
-                    // A first line that is not JSON is no hello at all: a
-                    // foreign server holds the socket.
-                    if !line.trim().is_empty() {
+                let trimmed = line.trim();
+                let Ok(frame) = serde_json::from_str::<InboundFrame>(trimmed) else {
+                    // A first line that is not a JSON frame is no hello at
+                    // all: a foreign server holds the socket.
+                    if !trimmed.is_empty() {
                         if let Some(tx) = hello_tx.take() {
-                            let _ = tx.send(Err(line.trim().chars().take(120).collect()));
+                            let _ = tx.send(Err(trimmed.chars().take(120).collect()));
                         }
                     }
                     continue;
                 };
-                let frame_type = value
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                match frame_type {
+                match frame.kind.as_deref().unwrap_or_default() {
                     "daemon_hello" => {
                         let Some(tx) = hello_tx.take() else { continue };
-                        let _ = tx.send(Ok(value));
+                        let _ = tx.send(
+                            serde_json::from_str(trimmed)
+                                .map_err(|_| trimmed.chars().take(120).collect()),
+                        );
                     }
                     "response" => {
-                        if let Ok(response) = serde_json::from_value::<DaemonResponse>(value) {
+                        if let Ok(response) = serde_json::from_str::<DaemonResponse>(trimmed) {
                             let id = response.id.clone().unwrap_or_default();
                             reader_shared.resolve(&id, response);
                         }
                     }
                     _ => {
-                        if let Some(event) = client_event_from_value(&value) {
+                        if let Some(event) = client_event_from_frame(&frame) {
                             let _ = event_tx.send(event);
                         }
                     }
@@ -448,12 +494,12 @@ impl DaemonClient {
         // Hello handshake: the supervisor sends daemon_hello immediately on
         // connect (TS `waitForHello`). Every failure path aborts the
         // blocked reader task so a failed attempt leaks no socket halves.
-        let hello = tokio::time::timeout(Duration::from_millis(HELLO_TIMEOUT_MS), hello_rx)
+        let hello = tokio::time::timeout(Duration::from_millis(hello_timeout_ms), hello_rx)
             .await
             .map_err(|_| {
                 reader_task.abort();
                 anyhow!(
-                    "Timed out after {HELLO_TIMEOUT_MS}ms waiting for the Eukhe daemon handshake. Socket: {}.",
+                    "Timed out after {hello_timeout_ms}ms waiting for the Eukhe daemon handshake. Socket: {}.",
                     socket_path.display()
                 )
             })?
@@ -476,24 +522,27 @@ impl DaemonClient {
                 name: DAEMON_PROTOCOL_NAME.to_string(),
                 version: DAEMON_PROTOCOL_VERSION,
             });
-        if protocol.name != DAEMON_PROTOCOL_NAME {
+        let protocol = if protocol.name == DAEMON_PROTOCOL_NAME {
+            // Envelope protocol version: the shared minimum (TS `request`).
+            DaemonProtocolInfo {
+                name: protocol.name,
+                version: protocol.version.min(DAEMON_PROTOCOL_VERSION),
+            }
+        } else if keep_foreign {
+            protocol
+        } else {
             reader_task.abort();
             return Err(anyhow::Error::new(ForeignDaemon {
                 socket_path: socket_path.to_path_buf(),
                 greeting: ForeignGreeting::Protocol(protocol.name),
             }));
-        }
-        // Envelope protocol version: the shared minimum (TS `request`).
-        let version = protocol.version.min(DAEMON_PROTOCOL_VERSION);
+        };
 
         Ok((
             DaemonClient {
                 socket_path: socket_path.to_path_buf(),
                 client_id: format!("daemon-tui:{}", std::process::id()),
-                protocol: DaemonProtocolInfo {
-                    name: DAEMON_PROTOCOL_NAME.to_string(),
-                    version,
-                },
+                protocol,
                 hello,
                 next_request_id: Arc::new(AtomicU64::new(0)),
                 shared,

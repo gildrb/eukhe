@@ -30,7 +30,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_daemon::rlm_ledger::{RlmSpawnInput, RlmSpawnLedger};
@@ -39,7 +38,10 @@ use serde_json::{json, Value};
 
 #[path = "support/eukhe.rs"]
 mod eukhe;
-use eukhe::eukhe_command;
+#[path = "../../eukhe-daemon/tests/support/process.rs"]
+mod process;
+use eukhe::{daemon_mode_args, eukhe_command};
+use process::Daemon;
 
 #[path = "support/durable_store.rs"]
 mod durable_store;
@@ -49,17 +51,14 @@ mod legacy_fixture;
 use durable_store::legacy_storage;
 use legacy_fixture::write_fixture;
 
-struct Supervisor {
-    child: Child,
-    socket: PathBuf,
-}
+struct Supervisor(Daemon);
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        graceful_shutdown(&self.socket);
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        let _ = std::fs::remove_file(&self.socket);
+        graceful_shutdown(&self.0.socket);
+        let _ = self.0.child.kill();
+        let _ = self.0.child.wait();
+        let _ = std::fs::remove_file(&self.0.socket);
     }
 }
 
@@ -96,31 +95,12 @@ fn graceful_shutdown(socket: &Path) {
     let _ = reader.read_line(&mut response);
 }
 
-#[allow(clippy::zombie_processes)]
 fn spawn_supervisor(dir: &Path) -> Supervisor {
     let socket = dir.join("daemon.sock");
     let agent_dir = dir.join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let mut command = eukhe_command();
-    command
-        .args(["--mode", "daemon", "--daemon-socket"])
-        .arg(&socket)
-        .env("EUKHE_CODING_AGENT_DIR", &agent_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    for var in [
-        eukhe_daemon::worker::WORKER_ROLE_ENV,
-        eukhe_daemon::worker::WORKER_TOKEN_ENV,
-        eukhe_daemon::worker::WORKER_ACTIVE_SESSION_ID_ENV,
-        eukhe_daemon::worker::WORKER_RECOVERY_JOURNAL_ENV,
-        eukhe_daemon::worker::WORKER_SUPERVISOR_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_SOCKET_ENV,
-        eukhe_daemon::worker::WORKER_INSTANCE_ID_ENV,
-        eukhe_daemon::worker::WORKER_SCRIPT_ENV,
-    ] {
-        command.env_remove(var);
-    }
+    daemon_mode_args(&mut command, &socket, &agent_dir);
     // The daemon's default sessions dir must stay the agent dir under the
     // tempdir: an ambient `EUKHE_SESSION_DIR` (every agent-session
     // shell on the fleet box exports one) would otherwise become the
@@ -130,19 +110,11 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     // spawns pin: ambient overrides must not leak in).
     command.env_remove("EUKHE_SESSION_DIR");
     command.env_remove("EUKHE_CODING_AGENT_SESSION_DIR");
-    command.env(
-        eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
-        "15000",
-    );
-    let child = command.spawn().expect("spawn eukhe --mode daemon");
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline {
-        if socket.exists() {
-            return Supervisor { child, socket };
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    panic!("supervisor socket never appeared");
+    Supervisor(Daemon::spawn_bound(
+        &mut command,
+        &socket,
+        Duration::from_secs(15),
+    ))
 }
 
 /// The client the agents view stands in for: a JSONL protocol client that
@@ -402,7 +374,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
     }
 
     let supervisor = spawn_supervisor(dir.path());
-    let mut client = Client::connect(&supervisor.socket);
+    let mut client = Client::connect(&supervisor.0.socket);
 
     // Before the family's worker ever registers, the roster snapshot is
     // clean of the dead family (nothing anchors it).
@@ -526,7 +498,7 @@ async fn the_first_agents_view_render_is_clean_behind_hundreds_of_dead_subagents
         height: 36,
     };
     let view = eukhe_tui::agents_view::run_agents_view(
-        view_options(&supervisor.socket, &sessions_dir),
+        view_options(&supervisor.0.socket, &sessions_dir),
         AgentsViewUiMode::Headless(plan),
         None,
     )
@@ -601,7 +573,7 @@ async fn a_stopped_session_stays_visible_in_the_view() {
     );
 
     let supervisor = spawn_supervisor(dir.path());
-    let mut client = Client::connect(&supervisor.socket);
+    let mut client = Client::connect(&supervisor.0.socket);
 
     // The session runs (its worker registers), then stops: the stop's
     // roster push must PASSIVATE the row (a `changed` push), never
@@ -667,7 +639,7 @@ async fn a_stopped_session_stays_visible_in_the_view() {
         height: 36,
     };
     let view = eukhe_tui::agents_view::run_agents_view(
-        view_options(&supervisor.socket, &sessions_dir),
+        view_options(&supervisor.0.socket, &sessions_dir),
         AgentsViewUiMode::Headless(plan),
         None,
     )
