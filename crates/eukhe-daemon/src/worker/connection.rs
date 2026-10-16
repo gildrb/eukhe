@@ -848,21 +848,12 @@ impl Worker {
         // payload clone) and write the frame without re-buffering the
         // payload; the wire bytes are identical to the tree-built line.
         let payload = crate::protocol::response_line_bytes(&response);
-        let payload_len = payload.len();
         if let Err(error) = self
             .write_frame_segments(&sink.writer, &header, &payload)
             .await
         {
             eprintln!("eukhe-daemon worker response write failed: {error:#}");
         }
-        // A large frame (an attach snapshot, a full-history tree) carried
-        // big transient Value trees; the frame is out and both the payload
-        // bytes and the response's own trees are freed, so return their
-        // freed heap to the OS instead of letting the arenas hold the
-        // phase's peak for the process lifetime.
-        drop(payload);
-        drop(response);
-        eukhe_types::memory_release::trim_freed_heap_if_large(payload_len);
     }
 }
 

@@ -51,67 +51,29 @@ impl LocalTime {
 ///
 /// # Errors
 ///
-/// Returns an error when the instant precedes the Unix epoch, does not fit
-/// the platform's `time_t`, or the platform cannot convert it.
+/// Returns an error when the instant precedes the Unix epoch or the time
+/// zone database cannot convert it.
 pub fn local_time(instant: SystemTime) -> io::Result<LocalTime> {
     let since_epoch = instant
         .duration_since(UNIX_EPOCH)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let seconds = i64::try_from(since_epoch.as_secs())
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    let fields = broken_down(seconds)?;
-    let local_seconds = days_from_civil(fields.year, fields.month, fields.day) * 86_400
-        + i64::from(fields.hour) * 3600
-        + i64::from(fields.minute) * 60
-        + i64::from(fields.second);
-    Ok(LocalTime {
-        year: fields.year,
-        month: fields.month,
-        day: fields.day,
-        hour: fields.hour,
-        minute: fields.minute,
-        second: fields.second,
-        millisecond: since_epoch.subsec_millis(),
-        offset_seconds: local_seconds - seconds,
-    })
-}
-
-/// Calendar fields of one instant, before the offset is derived.
-struct Fields {
-    year: i64,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-    second: u32,
-}
-
-// `time_t` is `i64` on 64-bit targets (a no-op conversion there) and
-// narrower on some 32-bit ones, where the conversion is checked.
-#[allow(clippy::useless_conversion)]
-fn broken_down(seconds: i64) -> io::Result<Fields> {
-    let time: libc::time_t = seconds
-        .try_into()
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    // SAFETY: `libc::tm` is a plain C struct; all-zero bytes are a valid
-    // value for every field (integers and a nullable zone pointer).
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: `localtime_r` reads `time` and writes only `tm`; both
-    // pointers are valid for the duration of the call.
-    let result = unsafe { libc::localtime_r(&raw const time, &raw mut tm) };
-    if result.is_null() {
-        return Err(io::Error::last_os_error());
-    }
-    let field = |value: libc::c_int| {
+    let zoned = jiff::Timestamp::from_second(seconds)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+        .to_zoned(jiff::tz::TimeZone::system());
+    let field = |value: i8| {
         u32::try_from(value).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     };
-    Ok(Fields {
-        year: i64::from(tm.tm_year) + 1900,
-        month: field(tm.tm_mon)? + 1,
-        day: field(tm.tm_mday)?,
-        hour: field(tm.tm_hour)?,
-        minute: field(tm.tm_min)?,
-        second: field(tm.tm_sec)?,
+    Ok(LocalTime {
+        year: i64::from(zoned.year()),
+        month: field(zoned.month())?,
+        day: field(zoned.day())?,
+        hour: field(zoned.hour())?,
+        minute: field(zoned.minute())?,
+        second: field(zoned.second())?,
+        millisecond: since_epoch.subsec_millis(),
+        offset_seconds: i64::from(zoned.offset().seconds()),
     })
 }
 

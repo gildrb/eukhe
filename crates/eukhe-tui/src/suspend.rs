@@ -63,8 +63,7 @@ where
 
 /// The production signals: a real SIGINT disposition swap and a
 /// process-group-wide SIGTSTP, through the eukhe-types platform wall (the
-/// shared platform contracts; eukhe-tui opts into the workspace
-/// `unsafe_code` forbid).
+/// shared platform contracts).
 pub(crate) struct ProcessSignals;
 
 impl SuspendSignals for ProcessSignals {

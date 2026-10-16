@@ -356,8 +356,9 @@ fn spawn_supervisor_detached(socket_path: &Path, spawn_cwd: &Path, exe: &Path) -
         .env_remove(eukhe_daemon::lease::SESSION_LEASE_OWNER_ID_ENV);
     // A daemon must not share the launching TUI's terminal session: a
     // session-wide terminal cleanup could hang it up after the TUI exits.
-    // setsid also creates its own process group.
-    eukhe_core::platform::process::set_new_session(&mut command);
+    // setsid (run by the child at startup) also creates its own process
+    // group.
+    eukhe_core::platform::process::request_new_session(&mut command);
     command
         .spawn()
         .with_context(|| format!("spawn the Eukhe daemon on {}", socket_path.display()))?;

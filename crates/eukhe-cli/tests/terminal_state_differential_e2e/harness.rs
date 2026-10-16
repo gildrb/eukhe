@@ -18,7 +18,7 @@
 //! pty as the product under test).
 
 use std::io::{BufRead, Read, Write};
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -81,7 +81,7 @@ impl DifferentialHarness {
             None,
         )
         .expect("open pty");
-        let before = Termios::capture(pty.master.as_raw_fd());
+        let before = Termios::capture(&pty.master);
         let child = spawn_child(spec, &socket, &pty.slave);
         // The child needs the socket and the temp dir for its lifetime;
         // the whole tree dies with the child at teardown.
@@ -158,11 +158,11 @@ impl DifferentialHarness {
     /// only once the socket truly refuses.
     pub(crate) fn refuse_later_connections(&mut self) {
         if let Some(listener) = self.listener.take() {
-            // SAFETY: `shutdown` only invalidates the listening socket's
-            // accept queue — the harness owns it and serves nothing on it.
-            unsafe {
-                libc::shutdown(listener.as_raw_fd(), libc::SHUT_RDWR);
-            }
+            // `shutdown` only invalidates the listening socket's accept
+            // queue — the harness owns it and serves nothing on it.
+            // Ignored as before: the refusal poll below is the check.
+            let _ =
+                nix::sys::socket::shutdown(listener.as_raw_fd(), nix::sys::socket::Shutdown::Both);
             drop(listener);
             let socket = self.socket_path.clone();
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -192,7 +192,7 @@ impl DifferentialHarness {
         let mut ledger = ModeLedger::default();
         ledger.scan(&stream);
         ledger.assert_delta_empty(context);
-        let after = Termios::capture(self.master.file.as_raw_fd());
+        let after = Termios::capture(&self.master.file);
         assert!(
             self.before.delta_is_empty(&after),
             "{context}: the pty's termios changed: before {:?} after {:?}",
@@ -324,11 +324,10 @@ pub(crate) struct Termios {
 }
 
 impl Termios {
-    pub(crate) fn capture(fd: std::os::fd::RawFd) -> Termios {
-        let mut raw: libc::termios = unsafe { std::mem::zeroed() };
-        // SAFETY: `tcgetattr` only reads the line discipline into `raw`.
-        let rc = unsafe { libc::tcgetattr(fd, std::ptr::from_mut(&mut raw)) };
-        assert!(rc == 0, "the harness could not read the pty's termios");
+    pub(crate) fn capture(fd: &impl AsFd) -> Termios {
+        let raw = libc::termios::from(
+            nix::sys::termios::tcgetattr(fd).expect("the harness could not read the pty's termios"),
+        );
         Termios {
             iflag: raw.c_iflag,
             oflag: raw.c_oflag,
@@ -598,23 +597,30 @@ impl ChildSpec {
     }
 }
 
+/// The env a [`ChildSession::OwnTerminal`] child is spawned with: its
+/// child mode claims the pty as its controlling terminal
+/// ([`enter_child_session`]). A [`ChildSession::RunnerGroup`] child never
+/// carries it.
+const CHILD_OWN_TERMINAL_ENV: &str = "EUKHE_DIFF_CHILD_OWN_TERMINAL";
+
+/// The child-mode prologue, run before anything touches the tty: a
+/// [`ChildSession::OwnTerminal`] child becomes a session leader with the
+/// pty slave as its controlling terminal (`setsid` + `TIOCSCTTY`); a
+/// [`ChildSession::RunnerGroup`] child stays in the group its parent
+/// gave it.
+pub(crate) fn enter_child_session() {
+    if std::env::var_os(CHILD_OWN_TERMINAL_ENV).is_some() {
+        crate::ctty::claim_controlling_tty();
+    }
+}
+
 /// A child of this very binary, re-executed with the pty slave as its
 /// terminal. [`ChildSession::OwnTerminal`] also makes the pty its
-/// CONTROLLING terminal (`setsid` + `TIOCSCTTY`): crossterm's raw-mode
-/// and event reads go through `/dev/tty`, which must be the pty
-/// regardless of the runner's own session.
+/// CONTROLLING terminal (`setsid` + `TIOCSCTTY`, claimed by the child
+/// mode itself in [`enter_child_session`]): crossterm's raw-mode and
+/// event reads go through `/dev/tty`, which must be the pty regardless of
+/// the runner's own session.
 pub(crate) fn spawn_child(spec: &ChildSpec, socket: &Path, slave: &OwnedFd) -> Child {
-    // Runs between fork and exec in the child: become a session leader
-    // and claim the pty slave as the controlling terminal.
-    pub(crate) fn claim_controlling_tty(fd: i32) -> std::io::Result<()> {
-        nix::unistd::setsid()?;
-        let rc = unsafe { libc::ioctl(fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
-        if rc < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
-    }
-    let slave_fd = slave.as_raw_fd();
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -635,16 +641,14 @@ pub(crate) fn spawn_child(spec: &ChildSpec, socket: &Path, slave: &OwnedFd) -> C
         .env_remove("GHOSTTY_RESOURCES_DIR")
         .env_remove("WEZTERM_PANE")
         .env_remove("TERM_PROGRAM")
+        .env_remove(CHILD_OWN_TERMINAL_ENV)
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
         .stderr(slave_as_stdio(slave));
     match spec.session {
-        // SAFETY: the pre_exec hook is the supported std seam for
-        // session/terminal setup; it runs post-fork pre-exec in the child
-        // only and cannot allocate.
-        ChildSession::OwnTerminal => unsafe {
-            command.pre_exec(move || claim_controlling_tty(slave_fd));
-        },
+        ChildSession::OwnTerminal => {
+            command.env(CHILD_OWN_TERMINAL_ENV, "1");
+        }
         ChildSession::RunnerGroup => {
             command.process_group(0);
         }
@@ -677,13 +681,11 @@ pub(crate) fn quiet_child_epilogue() {
         .write(true)
         .open("/dev/null")
         .expect("/dev/null");
-    // SAFETY: dup2 only swaps this process's fd 1/2 after the surface
-    // work is done; the pty slave behind them stays owned by the
-    // harness's master.
-    unsafe {
-        libc::dup2(null.as_raw_fd(), 1);
-        libc::dup2(null.as_raw_fd(), 2);
-    }
+    // dup2 only swaps this process's fd 1/2 after the surface work is
+    // done; the pty slave behind them stays owned by the harness's master.
+    // Ignored as before: a failed swap only leaves the epilogue noise.
+    let _ = nix::unistd::dup2(null.as_raw_fd(), 1);
+    let _ = nix::unistd::dup2(null.as_raw_fd(), 2);
 }
 
 pub(crate) fn child_options(socket: PathBuf) -> InteractiveOptions {

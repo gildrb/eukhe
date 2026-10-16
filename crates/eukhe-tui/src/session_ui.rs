@@ -255,11 +255,6 @@ pub(crate) struct SessionUi {
     heartbeat_updates: mpsc::UnboundedSender<HeartbeatsUpdate>,
     /// Snapshot chat entries to fold into the view on the next rebuild.
     pending_snapshot: Option<Vec<ChatEntry>>,
-    /// One-shot: return the freed heap of the first frame that renders
-    /// after an attach fold (the fold itself trims the wire/parse churn;
-    /// the first frame's visible-window materialization is its own,
-    /// bigger transient -- see the draw loop's post-frame trim).
-    trim_after_frame: bool,
     /// Snapshot labels (model) for the next rebuild.
     pending_model: Option<String>,
     /// Snapshot model provider for the next rebuild (the attach state's
@@ -612,12 +607,6 @@ pub(crate) enum DockFold {
 }
 
 impl SessionUi {
-    /// Take the one-shot post-first-frame trim request (the draw loop
-    /// consumes it right after the frame it armed paints).
-    pub(crate) fn take_trim_after_frame(&mut self) -> bool {
-        std::mem::take(&mut self.trim_after_frame)
-    }
-
     /// Hand the keyboard focus to the compact dock on its selected group:
     /// the `app.subagents.focus` shortcut and every dock panel's close
     /// restore (the operator's 2026-09-26 ruling: leaving a panel lands

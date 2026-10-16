@@ -49,9 +49,12 @@ impl Drop for Supervisor {
 }
 
 fn kill_worker(pid: u32) {
-    unsafe {
-        libc::kill(pid as i32, libc::SIGKILL);
-    }
+    let pid_t = i32::try_from(pid).expect("a Linux pid fits pid_t");
+    // Ignored as before: an already-gone worker is fine, the wait below checks.
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(pid_t),
+        nix::sys::signal::Signal::SIGKILL,
+    );
     let deadline = Instant::now() + Duration::from_secs(5);
     while process_alive(pid) {
         assert!(

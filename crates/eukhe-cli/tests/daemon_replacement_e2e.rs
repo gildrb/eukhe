@@ -277,13 +277,13 @@ impl Drop for DetachedDaemon {
         while UnixStream::connect(&self.socket).is_ok() {
             if Instant::now() > deadline {
                 if let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()) {
-                    // SAFETY: the pid comes from this fixture supervisor's
-                    // own hello; it owns its session, so the group kill
-                    // takes its workers with it.
-                    unsafe {
-                        libc::kill(-pid, libc::SIGKILL);
-                        libc::kill(pid, libc::SIGKILL);
-                    }
+                    // The pid comes from this fixture supervisor's own
+                    // hello; it owns its session, so the group kill takes
+                    // its workers with it. Ignored as before: best-effort
+                    // teardown.
+                    let pid = nix::unistd::Pid::from_raw(pid);
+                    let _ = nix::sys::signal::killpg(pid, nix::sys::signal::Signal::SIGKILL);
+                    let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
                 }
                 return;
             }

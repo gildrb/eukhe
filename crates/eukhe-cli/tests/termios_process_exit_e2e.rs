@@ -51,6 +51,8 @@
 // The differential's own binary exercises every harness entry; this
 // binary's routes use a subset, so the shared module's wider surface is
 // deliberately allowed to be unused here.
+#[path = "support/ctty.rs"]
+mod ctty;
 #[path = "terminal_state_differential_e2e/harness.rs"]
 #[allow(dead_code)]
 mod harness;
@@ -58,7 +60,7 @@ mod harness;
 #[allow(dead_code)]
 mod ledger;
 
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -109,6 +111,7 @@ fn diff_chat_child_mode() {
     let Some(socket) = std::env::var(CHILD_SOCKET_ENV).ok() else {
         return;
     };
+    harness::enter_child_session();
     // The pre-mount gate (the launch-on-a-stopped-tty route): the child
     // sits in the cooked pre-mount window until the harness arms its
     // Ctrl+S stop and releases the line.
@@ -117,10 +120,14 @@ fn diff_chat_child_mode() {
             .expect("the gate marker");
         std::io::Write::flush(&mut std::io::stdout()).expect("flush the gate marker");
         let mut released = [0u8; 8];
-        // SAFETY: a plain read from the child's own stdin (fd 0, the pty
-        // slave): the cooked line discipline returns the release line.
-        let read = unsafe { libc::read(0, released.as_mut_ptr().cast(), released.len()) };
-        assert!(read > 0, "the gate release never arrived on stdin");
+        // A plain read from the child's own stdin (fd 0, the pty slave),
+        // unbuffered so no later byte is stolen from the surface: the
+        // cooked line discipline returns the release line.
+        let read = nix::unistd::read(0, &mut released);
+        assert!(
+            matches!(read, Ok(count) if count > 0),
+            "the gate release never arrived on stdin"
+        );
     }
     let options = harness::child_options(PathBuf::from(socket));
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -142,6 +149,7 @@ fn diff_view_child_mode() {
     let Some(socket) = std::env::var(CHILD_SOCKET_ENV).ok() else {
         return;
     };
+    harness::enter_child_session();
     let options = harness::view_options(PathBuf::from(socket), None);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -166,17 +174,9 @@ fn diff_view_child_mode() {
 
 /// Resolve the pty slave's device path from the master fd.
 fn pty_slave_path(master: &std::fs::File) -> PathBuf {
-    let mut buffer = [0u8; 64];
-    // SAFETY: `ptsname_r` writes the NUL-terminated slave path into
-    // `buffer` and never exceeds its length.
-    let rc =
-        unsafe { libc::ptsname_r(master.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
-    assert_eq!(rc, 0, "the harness could not resolve the pty slave path");
-    let end = buffer
-        .iter()
-        .position(|&byte| byte == 0)
-        .unwrap_or(buffer.len());
-    PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned())
+    let name = rustix::pty::ptsname(master, Vec::new())
+        .expect("the harness could not resolve the pty slave path");
+    PathBuf::from(String::from_utf8_lossy(name.as_bytes()).into_owned())
 }
 
 /// The fd-set audit: after the TUI process exits, NO process may still
@@ -388,9 +388,7 @@ fn the_agents_view_exit_exits_whole() {
 /// self-skips there with a loud note, exactly like the mode-differential
 /// lane's suspend route).
 fn stop_capable_runner() -> bool {
-    // SAFETY: `tcgetpgrp` only queries the fd's foreground process group.
-    let foreground = unsafe { libc::tcgetpgrp(0) };
-    if foreground < 0 {
+    if nix::unistd::tcgetpgrp(std::io::stdin()).is_err() {
         eprintln!(
             "no controlling-terminal session on the runner (tcgetpgrp(fd 0) \
              failed); skipping the suspend-cycle route — it drives a real \
@@ -472,7 +470,7 @@ impl SuspendCycleHarness {
             None,
         )
         .expect("open pty");
-        let before = Termios::capture(pty.master.as_raw_fd());
+        let before = Termios::capture(&pty.master);
         let child = spawn_group_child(&socket, &pty.slave);
         SuspendCycleHarness {
             child,
@@ -496,12 +494,6 @@ impl Drop for SuspendCycleHarness {
 /// contract of the fleet's suspend e2e): `kill(0, SIGTSTP)` from inside
 /// the child stops its group and not this runner, and the stop holds.
 fn spawn_group_child(socket: &Path, slave: &OwnedFd) -> Child {
-    // Runs between fork and exec in the child: move it into its own
-    // process group inside this runner's session.
-    fn make_process_group() -> std::io::Result<()> {
-        nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0))?;
-        Ok(())
-    }
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -519,10 +511,9 @@ fn spawn_group_child(socket: &Path, slave: &OwnedFd) -> Child {
         .env_remove("TERM_PROGRAM")
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
-        .stderr(slave_as_stdio(slave));
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // process-group setup; it runs post-fork pre-exec in the child only.
-    unsafe { command.pre_exec(make_process_group) };
+        .stderr(slave_as_stdio(slave))
+        // Its own process group inside this runner's session.
+        .process_group(0);
     command.spawn().expect("spawn the suspend-cycle child")
 }
 
@@ -636,7 +627,7 @@ fn a_suspend_cycle_with_a_ctrl_s_in_the_stopped_window_never_stops_the_shell() {
     // The termios snapshot (this harness owns its own capture): the
     // line discipline returns byte-equal to the pre-launch state.
     harness.master.drain_until_quiet(10);
-    let after = Termios::capture(harness.master.file.as_raw_fd());
+    let after = Termios::capture(&harness.master.file);
     assert!(
         harness.before.delta_is_empty(&after),
         "the suspend-cycle exit changed the pty's termios: before {} after {}",

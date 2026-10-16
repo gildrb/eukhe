@@ -33,6 +33,8 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Collapse `if` statements (clippy::collapsible_if).
 - Method references over closures (clippy::redundant_closure_for_method_calls).
 - Exhaustive `match`; no wildcard arms.
+- No `unsafe` in eukhe code, tests included; every crate inherits
+  `unsafe_code = "forbid"` (`[lints] workspace = true`).
 - New traits need doc comments: role and expected implementation behavior.
 - No opaque positional `bool`/`Option` parameters. Use enums, named methods, or
   newtypes. If unavoidable, add an exact `/*param_name*/` comment.

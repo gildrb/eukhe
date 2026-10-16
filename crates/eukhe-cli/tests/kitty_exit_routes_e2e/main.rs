@@ -49,7 +49,6 @@
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -57,6 +56,9 @@ use std::time::{Duration, Instant};
 use nix::fcntl::{fcntl, FcntlArg::F_SETFL, OFlag};
 use nix::pty::{openpty, Winsize};
 use serde_json::{json, Value};
+
+#[path = "../support/ctty.rs"]
+mod ctty;
 
 /// The kitty flags push (`1|2|4`, the TS `ProcessTerminal` set).
 const KITTY_FLAGS_PUSH: &[u8] = b"\x1b[>7u";
@@ -173,6 +175,7 @@ fn kitty_exit_child_mode() {
     ) else {
         return;
     };
+    ctty::claim_controlling_tty();
     child_run(&route, PathBuf::from(socket));
 }
 
@@ -767,18 +770,10 @@ impl PtyReader {
 
 /// A child of this very binary, re-executed in child mode with the pty
 /// slave as its CONTROLLING terminal (the kitty-release e2e's spawn:
-/// setsid + TIOCSCTTY, so crossterm's raw-mode and event reads go
-/// through the pty regardless of the runner's own session).
+/// setsid + TIOCSCTTY, claimed by the child mode itself through
+/// `ctty::claim_controlling_tty`, so crossterm's raw-mode and event reads
+/// go through the pty regardless of the runner's own session).
 fn spawn_child(route: Route, socket: &Path, slave: &OwnedFd, known_terminal: bool) -> Child {
-    fn claim_controlling_tty(fd: i32) -> std::io::Result<()> {
-        nix::unistd::setsid()?;
-        let rc = unsafe { libc::ioctl(fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
-        if rc < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
-    }
-    let slave_fd = slave.as_raw_fd();
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -805,12 +800,6 @@ fn spawn_child(route: Route, socket: &Path, slave: &OwnedFd, known_terminal: boo
             .env_remove("SSH_TTY")
             .env_remove("STY")
             .env_remove("ZELLIJ");
-    }
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // session/terminal setup; it runs post-fork pre-exec in the child
-    // only and cannot allocate.
-    unsafe {
-        command.pre_exec(move || claim_controlling_tty(slave_fd));
     }
     command.spawn().expect("spawn pty child")
 }

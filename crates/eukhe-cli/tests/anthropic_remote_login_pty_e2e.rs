@@ -21,7 +21,6 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -37,6 +36,9 @@ mod eukhe;
 mod process;
 use eukhe::eukhe_command;
 use process::Daemon;
+
+#[path = "support/ctty.rs"]
+mod ctty;
 
 /// The parent hands the child its launch through this env var; unset, the
 /// child test passes trivially (a plain `cargo test` runs only parents).
@@ -61,6 +63,7 @@ fn anthropic_remote_login_child_mode() {
     let Ok(config) = std::env::var(CHILD_ENV) else {
         return;
     };
+    ctty::claim_controlling_tty();
     let config: Value = serde_json::from_str(&config).expect("child config");
     std::env::set_current_dir(config["cwd"].as_str().expect("cwd")).expect("child cwd");
     let args = vec![
@@ -155,10 +158,14 @@ impl Drop for Supervisor {
         let _ = self.0.child.kill();
         let _ = self.0.child.wait();
         for pid in workers {
-            // SAFETY: a plain signal to a worker pid this test spawned.
-            unsafe {
-                libc::kill(pid as i32, libc::SIGKILL);
-            }
+            let Ok(pid) = i32::try_from(pid) else {
+                continue;
+            };
+            // Ignored as before: a worker already gone is fine.
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
         }
     }
 }
@@ -271,7 +278,6 @@ impl World {
         )
         .expect("open pty");
         let slave = pty.slave;
-        let slave_fd = slave.as_raw_fd();
         let mut command = Command::new(std::env::current_exe().expect("test binary"));
         command
             .args([
@@ -293,16 +299,8 @@ impl World {
             .stdout(slave.try_clone().expect("clone pty slave"))
             .stderr(slave.try_clone().expect("clone pty slave"));
         isolate(&mut command, self.dir.path(), &self.agent_dir);
-        // SAFETY: post-fork pre-exec in the child only; no allocation.
-        unsafe {
-            command.pre_exec(move || {
-                nix::unistd::setsid()?;
-                if libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
+        // The child mode claims the pty slave as its controlling terminal
+        // (`ctty::claim_controlling_tty`) before anything touches the tty.
         let child = command.spawn().expect("spawn the interactive client");
         drop(command);
         drop(slave);

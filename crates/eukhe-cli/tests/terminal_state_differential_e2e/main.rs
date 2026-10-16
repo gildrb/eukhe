@@ -59,19 +59,20 @@
 //! gets the terminal while the process is stopped), and the pre-mount
 //! daemon refusal (which must restore NOTHING — nothing was armed).
 
+#[path = "../support/ctty.rs"]
+mod ctty;
 mod harness;
 mod ledger;
 
 use std::io::Read;
-use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use harness::{
-    child_options, find_subsequence, harness_lock, quiet_child_epilogue, spawn_child, view_options,
-    ChildSession, ChildSpec, DifferentialHarness, PtyReader, Termios,
+    child_options, enter_child_session, find_subsequence, harness_lock, quiet_child_epilogue,
+    spawn_child, view_options, ChildSession, ChildSpec, DifferentialHarness, PtyReader, Termios,
 };
 use ledger::ModeLedger;
 
@@ -128,6 +129,7 @@ fn diff_chat_child_mode() {
     let Some(socket) = std::env::var(CHILD_SOCKET_ENV).ok() else {
         return;
     };
+    enter_child_session();
     let options = child_options(PathBuf::from(socket));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -161,6 +163,7 @@ fn diff_view_child_mode() {
     let Some(socket) = std::env::var(CHILD_SOCKET_ENV).ok() else {
         return;
     };
+    enter_child_session();
     let options = view_options(PathBuf::from(socket), None);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -188,6 +191,7 @@ fn diff_selector_child_mode() {
     if std::env::var(CHILD_MODE_ENV).ok().as_deref() != Some("selector") {
         return;
     }
+    enter_child_session();
     let flags = std::env::var(CHILD_SELECTOR_FLAGS_ENV).unwrap_or_default();
     let fail_toggle = flags.split(',').any(|flag| flag == "fail-toggle");
     let remap_exit = flags.split(',').any(|flag| flag == "remap-exit");
@@ -235,6 +239,7 @@ fn diff_replay_child_mode() {
     let Some(fixture) = std::env::var(CHILD_FIXTURE_ENV).ok() else {
         return;
     };
+    enter_child_session();
     let flags = std::env::var(CHILD_REPLAY_FLAGS_ENV).unwrap_or_default();
     let panic_after_frame = flags.split(',').any(|flag| flag == "panic");
     let stream =
@@ -577,7 +582,7 @@ fn the_pre_mount_daemon_refusal_arms_nothing() {
         None,
     )
     .expect("open pty");
-    let before = Termios::capture(pty.master.as_raw_fd());
+    let before = Termios::capture(&pty.master);
     let mut child = spawn_child(&ChildSpec::new("chat"), &socket, &pty.slave);
     let mut reader = PtyReader::new(pty.master);
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -607,7 +612,7 @@ fn the_pre_mount_daemon_refusal_arms_nothing() {
         "the pre-mount failure wrote terminal modes it never owned"
     );
     ledger.assert_delta_empty("the pre-mount daemon refusal");
-    let after = Termios::capture(reader.file.as_raw_fd());
+    let after = Termios::capture(&reader.file);
     assert!(
         before.delta_is_empty(&after),
         "the pre-mount failure changed the pty's termios: {} -> {}",
@@ -622,9 +627,7 @@ fn the_pre_mount_daemon_refusal_arms_nothing() {
 /// (the suspend cycle's stop/continue needs one; the other routes run
 /// under any runner).
 fn sigtstp_session_runner() -> bool {
-    // SAFETY: tcgetpgrp only queries the fd's foreground process group.
-    let foreground = unsafe { libc::tcgetpgrp(0) };
-    foreground >= 0
+    nix::unistd::tcgetpgrp(std::io::stdin()).is_ok()
 }
 
 /// Whether this environment's SIGTSTP actually stops a process: some
@@ -726,7 +729,7 @@ fn the_suspend_cycle_hands_a_whole_terminal_to_the_shell_and_back() {
     let mut ledger = ModeLedger::default();
     ledger.scan(&stopped);
     ledger.assert_delta_empty("the suspend cycle's stop point");
-    let at_stop = Termios::capture(harness.master.file.as_raw_fd());
+    let at_stop = Termios::capture(&harness.master.file);
     assert!(
         harness.before.delta_is_empty(&at_stop),
         "the suspend left the pty's termios changed: {} -> {}",

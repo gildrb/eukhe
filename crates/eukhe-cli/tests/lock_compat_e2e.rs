@@ -104,15 +104,17 @@ fn seed_stale_lock_dir(sandbox: &Path) {
 
 /// Set a path's mtime far past every staleness threshold in play.
 fn age(path: &Path) {
-    use std::os::unix::ffi::OsStrExt;
-    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("path to cstring");
-    let ancient = libc::timespec {
-        tv_sec: 1_000_000_000,
-        tv_nsec: 0,
-    };
-    let times = [ancient, ancient];
-    let result = unsafe { libc::utimensat(-1, c_path.as_ptr(), times.as_ptr(), 0) };
-    assert_eq!(result, 0, "aging {}", path.display());
+    use nix::sys::stat::{utimensat, UtimensatFlags};
+    use nix::sys::time::TimeSpec;
+    let ancient = TimeSpec::new(1_000_000_000, 0);
+    let result = utimensat(
+        None,
+        path,
+        &ancient,
+        &ancient,
+        UtimensatFlags::FollowSymlink,
+    );
+    assert_eq!(result, Ok(()), "aging {}", path.display());
 }
 
 fn assert_server_added(output: &str, name: &str) {

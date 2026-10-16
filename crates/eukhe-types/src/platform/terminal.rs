@@ -9,12 +9,12 @@
 //! write failed silently under load. The live report - a forced exit
 //! left the shell echoing `;`-coded sequences on every keypress until
 //! `stty sane` - is exactly that state. Lives here because eukhe-tui
-//! depends on eukhe-types alone and opts into the workspace `unsafe_code`
-//! forbid (the process-suspend precedent).
+//! depends on eukhe-types alone (the process-suspend precedent).
 
 use std::fs::File;
 use std::io;
-use std::os::unix::io::AsRawFd;
+
+use nix::sys::termios::{tcgetattr, tcsetattr, SetArg, Termios};
 
 /// The classic control characters `stty sane` restores (Linux
 /// defaults): a poisoned tty may carry zeroes here, and canonical
@@ -114,20 +114,16 @@ pub fn restart_output() {
     let Some(tty) = tty() else {
         return;
     };
-    let fd = tty.as_raw_fd();
-    let mut attrs: libc::termios = unsafe { std::mem::zeroed() };
-    // SAFETY: `tcgetattr` only reads the line discipline into `attrs`.
-    if unsafe { libc::tcgetattr(fd, &raw mut attrs) } != 0 {
+    let Ok(attrs) = tcgetattr(&tty) else {
         return;
-    }
-    let restored = attrs;
-    attrs.c_iflag &= !libc::IXON;
-    // SAFETY: the two `tcsetattr` writes run the kernel's one stop-lift
-    // (the IXON transition) and then restore the exact captured state.
-    unsafe {
-        if libc::tcsetattr(fd, libc::TCSANOW, &raw const attrs) == 0 {
-            let _ = libc::tcsetattr(fd, libc::TCSANOW, &raw const restored);
-        }
+    };
+    let restored = attrs.clone();
+    let mut lifted = libc::termios::from(attrs);
+    lifted.c_iflag &= !libc::IXON;
+    // The two writes run the kernel's one stop-lift (the IXON
+    // transition) and then restore the exact captured state.
+    if tcsetattr(&tty, SetArg::TCSANOW, &Termios::from(lifted)).is_ok() {
+        let _ = tcsetattr(&tty, SetArg::TCSANOW, &restored);
     }
 }
 
@@ -140,20 +136,17 @@ pub fn ensure_cooked_tty() -> TtyCooked {
     let Some(tty) = tty() else {
         return TtyCooked::Unavailable;
     };
-    let fd = tty.as_raw_fd();
-    let mut attrs: libc::termios = unsafe { std::mem::zeroed() };
-    // SAFETY: `tcgetattr` only reads the line discipline into `attrs`;
-    // the fd is the freshly opened process tty.
-    if unsafe { libc::tcgetattr(fd, &raw mut attrs) } != 0 {
+    // The fd is the freshly opened process tty.
+    let Ok(current) = tcgetattr(&tty) else {
         return TtyCooked::Unavailable;
-    }
+    };
+    let mut attrs = libc::termios::from(current);
     if cooked(&attrs) {
         return TtyCooked::AlreadyCooked;
     }
     make_sane(&mut attrs);
-    // SAFETY: `tcsetattr` applies the reconstructed `attrs` to the
-    // caller's own tty; the recipe matches the `stty sane` set.
-    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw const attrs) } != 0 {
+    // The recipe matches the `stty sane` set.
+    if tcsetattr(&tty, SetArg::TCSANOW, &Termios::from(attrs)).is_err() {
         let _ = io::Write::write_all(
             &mut io::stderr(),
             b"Eukhe: a raw terminal could not be repaired.\n",

@@ -40,7 +40,6 @@
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -52,6 +51,9 @@ use serde_json::{json, Value};
 use eukhe_tui::interactive::{
     run_interactive, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
+
+#[path = "support/ctty.rs"]
+mod ctty;
 
 /// The probe's capability query (the flags query, the leading half of the
 /// flags+DA1 pair the check writes).
@@ -87,6 +89,7 @@ fn early_typing_child_mode() {
     let Ok(socket) = std::env::var(CHILD_SOCKET_ENV) else {
         return;
     };
+    ctty::claim_controlling_tty();
     let options = child_options(PathBuf::from(socket));
     // A current-thread runtime keeps the child's thread count down (the
     // suspend e2e's observation).
@@ -435,17 +438,8 @@ impl LedgerReader {
 }
 
 fn spawn_child(socket: &Path, slave: &OwnedFd) -> Child {
-    // Runs between fork and exec in the child: become a session leader
-    // and claim the pty slave as the controlling terminal.
-    fn claim_controlling_tty(fd: i32) -> std::io::Result<()> {
-        nix::unistd::setsid()?;
-        let rc = unsafe { libc::ioctl(fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
-        if rc < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
-    }
-    let slave_fd = slave.as_raw_fd();
+    // The child mode claims the pty slave as its controlling terminal
+    // (`ctty::claim_controlling_tty`) before anything touches the tty.
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -455,12 +449,6 @@ fn spawn_child(socket: &Path, slave: &OwnedFd) -> Child {
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
         .stderr(slave_as_stdio(slave));
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // session/terminal setup; it runs post-fork pre-exec in the child
-    // only and cannot allocate.
-    unsafe {
-        command.pre_exec(move || claim_controlling_tty(slave_fd));
-    }
     command.spawn().expect("spawn pty child")
 }
 

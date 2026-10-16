@@ -329,7 +329,7 @@ async fn stop_target_within(
         return ReapOutcome::AlreadyGone;
     };
     if !identity_current(target) || !crate::lease::is_process_alive(target.pid).unwrap_or(false) {
-        eukhe_core::platform::process::close_pidfd(pidfd);
+        drop(pidfd);
         return ReapOutcome::AlreadyGone;
     }
     // The session owns every process tree it started (ADR 0011): the
@@ -353,11 +353,11 @@ async fn stop_target_within(
         }
     };
     if eukhe_core::platform::process::pidfd_signal(
-        pidfd,
+        &pidfd,
         eukhe_core::platform::process::Signal::Term,
     ) {
         if await_gone(target, term_grace).await {
-            eukhe_core::platform::process::close_pidfd(pidfd);
+            drop(pidfd);
             kill_trees();
             return ReapOutcome::Term;
         }
@@ -372,16 +372,16 @@ async fn stop_target_within(
             );
         }
         if eukhe_core::platform::process::pidfd_signal(
-            pidfd,
+            &pidfd,
             eukhe_core::platform::process::Signal::Kill,
         ) && await_gone(target, kill_verify).await
         {
-            eukhe_core::platform::process::close_pidfd(pidfd);
+            drop(pidfd);
             kill_trees();
             return ReapOutcome::Kill;
         }
     }
-    eukhe_core::platform::process::close_pidfd(pidfd);
+    drop(pidfd);
     ReapOutcome::Survived
 }
 

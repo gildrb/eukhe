@@ -36,7 +36,6 @@
 
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -57,6 +56,9 @@ use eukhe_tui::provider_auth::{
 use std::pin::Pin;
 use std::sync::Arc;
 
+#[path = "support/ctty.rs"]
+mod ctty;
+
 /// The child-mode socket: set (with the socket path) only when this very
 /// binary is re-executed as the product-under-test.
 const CHILD_SOCKET_ENV: &str = "EUKHE_LOGIN_PANEL_CHILD_SOCKET";
@@ -70,6 +72,7 @@ fn login_panel_child_mode() {
     let Ok(socket) = std::env::var(CHILD_SOCKET_ENV) else {
         return;
     };
+    ctty::claim_controlling_tty();
     let options = child_options(PathBuf::from(socket));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -86,6 +89,7 @@ fn login_panel_mcp_child_mode() {
     let Ok(socket) = std::env::var(CHILD_SOCKET_ENV) else {
         return;
     };
+    ctty::claim_controlling_tty();
     let options = mcp_child_options(PathBuf::from(socket));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -104,6 +108,7 @@ fn model_sign_in_child_mode() {
     let Ok(socket) = std::env::var(CHILD_SOCKET_ENV) else {
         return;
     };
+    ctty::claim_controlling_tty();
     let options = model_sign_in_child_options(PathBuf::from(socket));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -632,20 +637,11 @@ impl LoginPanelHarness {
 }
 
 /// A child of this very binary with the pty slave as its CONTROLLING
-/// terminal (setsid + TIOCSCTTY): the renderer sizes itself from
+/// terminal (setsid + TIOCSCTTY, claimed by the child mode itself through
+/// `ctty::claim_controlling_tty`): the renderer sizes itself from
 /// `/dev/tty`, which must be the harness pty, never the runner's own
 /// terminal.
 fn spawn_child(socket: &std::path::Path, slave: &OwnedFd, child_test: &str) -> Child {
-    fn claim_controlling_tty(fd: i32) -> std::io::Result<()> {
-        nix::unistd::setsid()?;
-        // SAFETY: TIOCSCTTY on the inherited pty slave fd, post-fork.
-        let rc = unsafe { libc::ioctl(fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
-        if rc < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
-    }
-    let slave_fd = slave.as_raw_fd();
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -655,12 +651,6 @@ fn spawn_child(socket: &std::path::Path, slave: &OwnedFd, child_test: &str) -> C
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
         .stderr(slave_as_stdio(slave));
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // session/terminal setup; it runs post-fork pre-exec in the child
-    // only and cannot allocate.
-    unsafe {
-        command.pre_exec(move || claim_controlling_tty(slave_fd));
-    }
     command.spawn().expect("spawn child")
 }
 

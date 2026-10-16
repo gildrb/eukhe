@@ -28,6 +28,8 @@ tokio-util = "0.7"
 tracing.workspace = true
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4", "v7"] }
+# The binary's global allocator (see the workspace manifest).
+mimalloc.workspace = true
 
 [dev-dependencies]
 filetime = "0.2"

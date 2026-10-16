@@ -30,7 +30,6 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -53,6 +52,9 @@ mod durable_store;
 
 use durable_store::{read_transcript, session_dirs};
 
+#[path = "support/ctty.rs"]
+mod ctty;
+
 /// The parent hands the child its launch through this env var; unset, the
 /// test passes trivially (a plain `cargo test` runs only the parent).
 const CHILD_ENV: &str = "EUKHE_INTERACTIVE_FORK_CHILD";
@@ -66,6 +68,7 @@ fn interactive_fork_child_mode() {
     let Ok(config) = std::env::var(CHILD_ENV) else {
         return;
     };
+    ctty::claim_controlling_tty();
     let config: Value = serde_json::from_str(&config).expect("child config");
     std::env::set_current_dir(config["cwd"].as_str().expect("cwd")).expect("child cwd");
     let args = vec![
@@ -140,9 +143,12 @@ fn process_alive(pid: u32) -> bool {
 }
 
 fn kill_worker(pid: u32) {
-    unsafe {
-        libc::kill(pid as i32, libc::SIGKILL);
-    }
+    let pid_t = i32::try_from(pid).expect("a Linux pid fits pid_t");
+    // Ignored as before: an already-gone worker is fine, the wait below checks.
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(pid_t),
+        nix::sys::signal::Signal::SIGKILL,
+    );
     let deadline = Instant::now() + Duration::from_secs(5);
     while process_alive(pid) {
         assert!(
@@ -422,7 +428,6 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
     )
     .expect("open pty");
     let slave = pty.slave;
-    let slave_fd = slave.as_raw_fd();
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -447,19 +452,10 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
         .stdout(slave.try_clone().expect("clone pty slave"))
         .stderr(slave.try_clone().expect("clone pty slave"));
     // The pty slave is the child's CONTROLLING terminal (setsid +
-    // TIOCSCTTY): the renderer sizes itself from `/dev/tty`, which must be
-    // the harness pty, never the runner's own terminal.
-    // SAFETY: the pre_exec hook runs post-fork pre-exec in the child only
-    // and makes no allocation.
-    unsafe {
-        command.pre_exec(move || {
-            nix::unistd::setsid()?;
-            if libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    // TIOCSCTTY, claimed by the child mode itself through
+    // `ctty::claim_controlling_tty`): the renderer sizes itself from
+    // `/dev/tty`, which must be the harness pty, never the runner's own
+    // terminal.
     let mut child = command.spawn().expect("spawn the interactive client child");
     drop(command);
     drop(slave);

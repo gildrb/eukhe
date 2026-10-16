@@ -4,12 +4,15 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 
+// Same allocator as the eukhe binary: mimalloc returns freed pages to the
+// OS, so large transient phases (session loads, attach snapshots) do not
+// stay resident (it replaces the glibc mallopt/malloc_trim tuning, which
+// had no safe binding).
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Same allocator cap as the eukhe binary: large transient phases
-    // (session loads, attach snapshots) must not leave per-arena high-water
-    // pages resident.
-    eukhe_types::memory_release::cap_thread_arenas();
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_else(|| {
         eprintln!("usage: eukhe-daemon <supervisor|worker> [options]");

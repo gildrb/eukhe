@@ -34,40 +34,40 @@ fn lock_path(file: &Path) -> std::path::PathBuf {
 /// Set a path's mtime far in the past, the way a crashed holder's artifact
 /// looks after a while.
 fn age(path: &Path) {
-    use std::os::unix::ffi::OsStrExt;
-    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("path to cstring");
-    let ancient = libc::timespec {
-        tv_sec: 1_000_000_000,
-        tv_nsec: 0,
-    };
-    let times = [ancient, ancient];
-    let result = unsafe { libc::utimensat(-1, c_path.as_ptr(), times.as_ptr(), 0) };
-    assert_eq!(result, 0, "aging {}", path.display());
+    use nix::sys::stat::{utimensat, UtimensatFlags};
+    use nix::sys::time::TimeSpec;
+    let ancient = TimeSpec::new(1_000_000_000, 0);
+    let result = utimensat(
+        None,
+        path,
+        &ancient,
+        &ancient,
+        UtimensatFlags::FollowSymlink,
+    );
+    assert_eq!(result, Ok(()), "aging {}", path.display());
 }
 
 /// Hold a pre-compat flock on the artifact FILE the way the legacy Rust
-/// builds did.
+/// builds did (std's file locks are `flock(2)` on Linux).
 struct Flock {
     file: std::fs::File,
 }
 
 impl Flock {
     fn hold(path: &Path) -> Self {
-        use std::os::unix::io::AsRawFd;
         let file = std::fs::OpenOptions::new()
             .write(true)
             .open(path)
             .expect("open legacy lock file");
-        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-        assert_eq!(result, 0, "taking the legacy flock");
+        file.try_lock().expect("taking the legacy flock");
         Flock { file }
     }
 }
 
 impl Drop for Flock {
     fn drop(&mut self) {
-        use std::os::unix::io::AsRawFd;
-        unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        // Best-effort release, as before: closing the file drops the lock anyway.
+        let _ = self.file.unlock();
     }
 }
 

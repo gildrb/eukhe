@@ -308,13 +308,6 @@ impl Supervisor {
                 ))];
             }
         };
-        // The scan's per-line parse trees folded and freed inside the
-        // blocking task; return their arena high-water to the OS at the
-        // phase boundary instead of letting every grown catalog's scan
-        // peak stay resident for the daemon's lifetime (the #2872
-        // phase-boundary pattern). The per-file cached scan states are
-        // live cache and stay untouched.
-        eukhe_types::memory_release::trim_freed_heap();
         // The current-cwd scope keeps only the session's own rows in the
         // terminal array (the stream above already skipped the others'
         // frames): the response is the authoritative catalog.

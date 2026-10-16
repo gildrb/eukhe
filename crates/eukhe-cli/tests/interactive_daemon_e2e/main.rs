@@ -31,6 +31,7 @@
 use std::fmt::Write as _;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use eukhe_types::daemon::DaemonCommand;
@@ -97,8 +98,12 @@ fn kill_worker(pid: u32) {
     // test body, where a panic is a proper failure); here a surviving
     // worker is re-killed and reported to stderr instead.
     for round in 0..2 {
-        unsafe {
-            libc::kill(pid as i32, libc::SIGKILL);
+        if let Ok(raw) = i32::try_from(pid) {
+            // Ignored as before: the liveness poll below is the check.
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(raw),
+                nix::sys::signal::Signal::SIGKILL,
+            );
         }
         let deadline = Instant::now() + Duration::from_secs(5);
         while process_alive(pid) {
@@ -137,8 +142,12 @@ impl Drop for DetachedDaemon {
             while process_alive(pid) {
                 if Instant::now() >= deadline {
                     eprintln!("spawned supervisor {pid} missed the shutdown deadline; killing");
-                    unsafe {
-                        libc::kill(pid as i32, libc::SIGKILL);
+                    if let Ok(raw) = i32::try_from(pid) {
+                        // Ignored as before: best-effort teardown.
+                        let _ = nix::sys::signal::kill(
+                            nix::unistd::Pid::from_raw(raw),
+                            nix::sys::signal::Signal::SIGKILL,
+                        );
                     }
                     break;
                 }
@@ -398,9 +407,14 @@ fn sweep_orphan_test_daemons() {
         if parsed_ppid != 1 && process_alive(parsed_ppid) {
             continue; // a live run's daemon: its test binary is still up
         }
-        unsafe {
-            libc::kill(pid as i32, libc::SIGKILL);
-        }
+        let Ok(raw) = i32::try_from(pid) else {
+            continue;
+        };
+        // Ignored as before: an orphan already gone is fine.
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(raw),
+            nix::sys::signal::Signal::SIGKILL,
+        );
         swept += 1;
     }
     if swept > 0 {
@@ -435,17 +449,71 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     // guard's protocol teardown below stays the normal exit path; this is
     // the backstop. The per-test guards drop before the owning harness
     // thread can exit, so the early-fire window is empty.
-    unsafe {
-        command.pre_exec(move || {
-            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-            Ok(())
-        });
-    }
+    let mut command = die_with_test_binary(&command);
     Supervisor(Daemon::spawn_bound(
         &mut command,
         &socket,
         Duration::from_mins(1),
     ))
+}
+
+/// The trampoline env: set (to the JSON `[program, args...]` of the real
+/// command), this binary re-executed in [`pdeathsig_trampoline_child_mode`]
+/// arms its parent-death signal and execs that command in place.
+const PDEATHSIG_EXEC_ENV: &str = "EUKHE_INTERACTIVE_DAEMON_PDEATHSIG_EXEC";
+
+/// Route `command` through [`pdeathsig_trampoline_child_mode`]: this test
+/// binary is spawned instead, with `command`'s env and cwd, arms
+/// `PR_SET_PDEATHSIG(SIGKILL)`, and execs `command`'s program and args —
+/// same pid, same parent (the spawning harness thread, whose exit fires
+/// the signal), and the death signal survives the exec. The stdio is
+/// null, exactly what [`daemon_mode_args`] gives the daemon (libtest's own
+/// banner in the trampoline lands there too, never on a stream the
+/// harness reads).
+fn die_with_test_binary(command: &Command) -> Command {
+    let argv: Vec<&str> = std::iter::once(command.get_program())
+        .chain(command.get_args())
+        .map(|arg| arg.to_str().expect("a UTF-8 daemon argument"))
+        .collect();
+    let mut trampoline = Command::new(std::env::current_exe().expect("test binary"));
+    trampoline
+        .args(["--exact", "pdeathsig_trampoline_child_mode"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    for (key, value) in command.get_envs() {
+        match value {
+            Some(value) => trampoline.env(key, value),
+            None => trampoline.env_remove(key),
+        };
+    }
+    if let Some(dir) = command.get_current_dir() {
+        trampoline.current_dir(dir);
+    }
+    trampoline.env(
+        PDEATHSIG_EXEC_ENV,
+        serde_json::to_string(&argv).expect("encode the daemon argv"),
+    );
+    trampoline
+}
+
+/// The die-with-the-test-binary trampoline (a plain `cargo test` run
+/// without the env passes trivially): arm the parent-death signal, then
+/// exec the real daemon command in this very process.
+#[test]
+fn pdeathsig_trampoline_child_mode() {
+    let Ok(encoded) = std::env::var(PDEATHSIG_EXEC_ENV) else {
+        return;
+    };
+    let command_line: Vec<String> = serde_json::from_str(&encoded).expect("decode the daemon argv");
+    let (program, args) = command_line.split_first().expect("the daemon program");
+    rustix::process::set_parent_process_death_signal(Some(rustix::process::Signal::KILL))
+        .expect("arm the parent-death signal");
+    let error = Command::new(program)
+        .args(args)
+        .env_remove(PDEATHSIG_EXEC_ENV)
+        .exec();
+    panic!("exec the daemon {program}: {error}");
 }
 
 /// Create a live session through the daemon protocol (the same `create`

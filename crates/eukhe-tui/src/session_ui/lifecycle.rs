@@ -83,7 +83,6 @@ impl SessionUi {
             pasted_images: BTreeMap::default(),
             next_image_marker_id: 1,
             pending_snapshot: None,
-            trim_after_frame: false,
             pending_model: None,
             pending_model_provider: None,
             pending_thinking_suffix: None,
@@ -540,16 +539,6 @@ impl SessionUi {
         // images into the paste registry.
         let stash_session_id = self.session_id.clone();
         self.bind_prompt_stash_session(&stash_session_id);
-        // The attach fold held the wire frame, its decoded tree, and the
-        // folded transcript together; the frame and tree drop here, so
-        // return their freed heap to the OS instead of keeping the load's
-        // peak resident for the TUI's lifetime.
-        eukhe_types::memory_release::trim_freed_heap();
-        // The rebuild's first frame materializes the visible window --
-        // its wrap/render churn is the TUI's own transient on top of the
-        // fold's; arm the post-frame trim so that churn returns too
-        // instead of riding the arenas for the process lifetime.
-        self.trim_after_frame = true;
         Ok(())
     }
 

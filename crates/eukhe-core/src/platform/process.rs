@@ -1,11 +1,15 @@
 //! Process control: signals, process groups, detached spawns.
 //!
-//! libc `kill` / `process_group(0)`. Signatures that report outcomes return
-//! `bool` where callers treat "unproven" conservatively (a kill that could
-//! not be proven reports false, matching the TS `killOrphanProcess`
-//! contract).
+//! nix `kill`/`killpg` / `process_group(0)`. Signatures that report
+//! outcomes return `bool` where callers treat "unproven" conservatively (a
+//! kill that could not be proven reports false, matching the TS
+//! `killOrphanProcess` contract).
 
+use std::os::fd::OwnedFd;
 use std::process::Command;
+
+use nix::sys::signal::{kill, killpg};
+use nix::unistd::Pid;
 
 /// Termination signal for [`kill_pid`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +18,15 @@ pub enum Signal {
     Term,
     /// Forcible stop (SIGKILL).
     Kill,
+}
+
+impl Signal {
+    fn nix(self) -> nix::sys::signal::Signal {
+        match self {
+            Signal::Term => nix::sys::signal::Signal::SIGTERM,
+            Signal::Kill => nix::sys::signal::Signal::SIGKILL,
+        }
+    }
 }
 
 /// The leading `git` arguments for read-only probes run in a working tree
@@ -34,22 +47,40 @@ pub fn set_new_process_group(command: &mut Command) {
     command.process_group(0);
 }
 
-/// Start the spawned child in a new session with no controlling terminal
-/// (`setsid`): the child cannot open `/dev/tty`, and job-control signals
-/// from the parent's terminal never reach it. A new process group alone
-/// is not enough: the group can still open the terminal, and a background
-/// read then stops it with SIGTTIN.
-pub fn set_new_session(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    // SAFETY: the hook runs in the forked child before exec and only calls
-    // setsid(2), which is async-signal-safe.
-    unsafe {
-        command.pre_exec(|| {
-            nix::unistd::setsid()
-                .map(drop)
-                .map_err(std::io::Error::from)
-        });
+/// The marker [`request_new_session`] puts in the child's environment;
+/// the eukhe binary's startup ([`enter_requested_session`]) consumes it.
+pub const NEW_SESSION_ENV: &str = "EUKHE_START_NEW_SESSION";
+
+/// Have the spawned eukhe child start in a new session with no
+/// controlling terminal (`setsid`): the child cannot open `/dev/tty`, and
+/// job-control signals from the parent's terminal never reach it. A new
+/// process group alone is not enough: the group can still open the
+/// terminal, and a background read then stops it with SIGTTIN.
+///
+/// std's only post-fork hook (`pre_exec`) is unsafe, so the child runs
+/// `setsid` itself, first thing in `main`: the command must run the eukhe
+/// binary.
+pub fn request_new_session(command: &mut Command) {
+    command.env(NEW_SESSION_ENV, "1");
+}
+
+/// The child half of [`request_new_session`]: when the launcher asked for
+/// it, leave the inherited session (`setsid`, which also makes this
+/// process its own group leader). Call it first thing in `main`, while
+/// the process is still single-threaded: the marker is removed from the
+/// environment so this process's own children never inherit it.
+///
+/// # Errors
+///
+/// The `setsid` failure.
+pub fn enter_requested_session() -> std::io::Result<()> {
+    if std::env::var_os(NEW_SESSION_ENV).is_none() {
+        return Ok(());
     }
+    std::env::remove_var(NEW_SESSION_ENV);
+    nix::unistd::setsid()
+        .map(drop)
+        .map_err(std::io::Error::from)
 }
 
 /// Raise the soft open-file limit to the hard limit and return the
@@ -61,40 +92,28 @@ pub fn set_new_session(command: &mut Command) {
 ///
 /// The OS error of a failed `getrlimit`, `sysctlbyname` or `setrlimit`.
 pub fn raise_open_file_limit() -> std::io::Result<u64> {
-    let mut limit = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
-    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
+    use nix::sys::resource::{getrlimit, setrlimit, Resource};
+    let (soft, hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
     #[cfg(not(target_os = "macos"))]
-    let target = limit.rlim_max;
+    let target = hard;
     #[cfg(target_os = "macos")]
     let target = {
-        let mut per_process: libc::c_int = 0;
-        let mut size = std::mem::size_of::<libc::c_int>();
-        let read = unsafe {
-            libc::sysctlbyname(
-                c"kern.maxfilesperproc".as_ptr(),
-                (&raw mut per_process).cast(),
-                &raw mut size,
-                std::ptr::null_mut(),
-                0,
-            )
+        use sysctl::Sysctl;
+        let value = sysctl::Ctl::new("kern.maxfilesperproc")
+            .and_then(|ctl| ctl.value())
+            .map_err(std::io::Error::other)?;
+        let sysctl::CtlValue::Int(per_process) = value else {
+            return Err(std::io::Error::other(format!(
+                "kern.maxfilesperproc is not an int: {value:?}"
+            )));
         };
-        if read != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        limit.rlim_max.min(per_process.unsigned_abs().into())
+        hard.min(per_process.unsigned_abs().into())
     };
-    if limit.rlim_cur < target {
-        limit.rlim_cur = target;
-        if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const limit) } != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+    if soft < target {
+        setrlimit(Resource::RLIMIT_NOFILE, target, hard)?;
+        return Ok(target);
     }
-    Ok(limit.rlim_cur)
+    Ok(soft)
 }
 
 /// Signal a single pid. Returns true only when the signal was delivered,
@@ -104,11 +123,7 @@ pub fn kill_pid(pid: i32, signal: Signal) -> bool {
     if pid <= 0 {
         return false;
     }
-    let sig = match signal {
-        Signal::Term => libc::SIGTERM,
-        Signal::Kill => libc::SIGKILL,
-    };
-    unsafe { libc::kill(pid, sig) == 0 }
+    kill(Pid::from_raw(pid), signal.nix()).is_ok()
 }
 
 /// Signal the process group `pgid` (a group leader's pid). Returns true
@@ -118,11 +133,7 @@ pub fn signal_process_group(pgid: i32, signal: Signal) -> bool {
     if pgid <= 0 {
         return false;
     }
-    let sig = match signal {
-        Signal::Term => libc::SIGTERM,
-        Signal::Kill => libc::SIGKILL,
-    };
-    unsafe { libc::kill(-pgid, sig) == 0 }
+    killpg(Pid::from_raw(pgid), signal.nix()).is_ok()
 }
 
 /// The process group `pid` belongs to (`getpgid`), or `None` when the pid
@@ -131,7 +142,9 @@ pub fn signal_process_group(pgid: i32, signal: Signal) -> bool {
 #[must_use]
 pub fn process_group_id(pid: u32) -> Option<i32> {
     let raw = i32::try_from(pid).ok().filter(|raw| *raw > 0)?;
-    let group = unsafe { libc::getpgid(raw) };
+    let group = nix::unistd::getpgid(Some(Pid::from_raw(raw)))
+        .ok()?
+        .as_raw();
     (group > 0).then_some(group)
 }
 
@@ -143,44 +156,44 @@ pub fn kill_process_group_or_pid(pid: i32) -> bool {
     if pid <= 0 {
         return false;
     }
-    unsafe {
-        if libc::kill(-pid, libc::SIGKILL) == 0 {
-            return true;
-        }
-    }
-    unsafe { libc::kill(pid, libc::SIGKILL) == 0 }
+    let pid = Pid::from_raw(pid);
+    killpg(pid, Signal::Kill.nix()).is_ok() || kill(pid, Signal::Kill.nix()).is_ok()
 }
 
-/// Cheap `kill(pid, 0)` existence probe; counts zombies as existing.
+/// Cheap `kill(pid, 0)` existence probe; counts zombies as existing. A pid
+/// beyond `pid_t`'s range names no process.
 #[must_use]
 pub fn pid_exists(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+    let Ok(raw) = i32::try_from(pid) else {
+        return false;
+    };
+    kill(Pid::from_raw(raw), None).is_ok()
 }
 
 /// The kernel-held process handle (`pidfd_open`): pins the exact process
 /// behind the pid, so a signal through it ([`pidfd_signal`]) reaches that
 /// process even if the numeric pid is recycled afterwards. The caller
 /// treats an unobtainable handle as never-signal: a missed stop is
-/// recoverable, a wrong one is not.
+/// recoverable, a wrong one is not. The handle closes on drop.
 ///
 /// # Errors
 ///
 /// Returns the open failure verbatim: `ESRCH` names a process that is
-/// already gone, `Unsupported` a platform with no pidfd arm.
+/// already gone, `EINVAL` a pid no process can have, `Unsupported` a
+/// platform with no pidfd arm.
 #[cfg(target_os = "linux")]
-pub fn open_pidfd(pid: u32) -> std::io::Result<i32> {
-    // `SYS_pidfd_open`/`SYS_pidfd_send_signal` share their numbers across
-    // x86_64 and aarch64 (the Linux arches this workspace ships). pidfd is a
-    // Linux syscall family; the macOS libc crate carries no `SYS_pidfd_*`.
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
-    if fd < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(fd as i32)
-    }
+pub fn open_pidfd(pid: u32) -> std::io::Result<OwnedFd> {
+    let pid = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+        .ok_or_else(|| std::io::Error::from(rustix::io::Errno::INVAL))?;
+    Ok(rustix::process::pidfd_open(
+        pid,
+        rustix::process::PidfdFlags::empty(),
+    )?)
 }
 
 /// macOS has no pidfd: the handle is unobtainable.
@@ -189,42 +202,26 @@ pub fn open_pidfd(pid: u32) -> std::io::Result<i32> {
 ///
 /// Always `Unsupported`.
 #[cfg(target_os = "macos")]
-pub fn open_pidfd(_pid: u32) -> std::io::Result<i32> {
+pub fn open_pidfd(_pid: u32) -> std::io::Result<OwnedFd> {
     Err(std::io::ErrorKind::Unsupported.into())
 }
 
 /// Signal through the kernel-held handle (`pidfd_send_signal`): the
-/// signal reaches the pinned process and nothing else. The handle
-/// CLOSES on drop by the caller (`close(fd)` via [`close_pidfd`]).
+/// signal reaches the pinned process and nothing else.
 #[cfg(target_os = "linux")]
 #[must_use]
-pub fn pidfd_signal(fd: i32, signal: Signal) -> bool {
-    let signum = match signal {
-        Signal::Term => libc::SIGTERM,
-        Signal::Kill => libc::SIGKILL,
+pub fn pidfd_signal(fd: &OwnedFd, signal: Signal) -> bool {
+    let signal = match signal {
+        Signal::Term => rustix::process::Signal::TERM,
+        Signal::Kill => rustix::process::Signal::KILL,
     };
-    unsafe {
-        libc::syscall(
-            libc::SYS_pidfd_send_signal,
-            fd,
-            signum,
-            std::ptr::null::<u8>(),
-            0,
-        ) == 0
-    }
+    rustix::process::pidfd_send_signal(fd, signal).is_ok()
 }
 
 #[cfg(target_os = "macos")]
 #[must_use]
-pub fn pidfd_signal(_fd: i32, _signal: Signal) -> bool {
+pub fn pidfd_signal(_fd: &OwnedFd, _signal: Signal) -> bool {
     false
-}
-
-/// Release a kernel-held handle obtained from [`open_pidfd`].
-pub fn close_pidfd(fd: i32) {
-    unsafe {
-        libc::close(fd);
-    }
 }
 
 /// Resolve once the process behind `pid` has exited, parked on the kernel's
@@ -240,7 +237,8 @@ pub fn close_pidfd(fd: i32) {
 /// exhaustion); the caller owns its fallback.
 #[cfg(target_os = "linux")]
 pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+    use std::os::fd::AsFd;
     use tokio::io::{unix::AsyncFd, Interest};
 
     let fd = match open_pidfd(pid) {
@@ -248,25 +246,19 @@ pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
         Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Ok(()),
         Err(error) => return Err(error),
     };
-    // SAFETY: `open_pidfd` returned a fresh descriptor this call owns
-    // (and closes on drop, on every path).
-    let fd = AsyncFd::with_interest(unsafe { OwnedFd::from_raw_fd(fd) }, Interest::READABLE)?;
+    // The handle closes on drop, on every path.
+    let fd = AsyncFd::with_interest(fd, Interest::READABLE)?;
     // Every wake is confirmed by a zero-timeout poll (AsyncFd readiness
     // can be spurious).
     loop {
         let mut ready = fd.readable().await?;
         if let Ok(result) = ready.try_io(|fd| {
-            let mut probe = libc::pollfd {
-                fd: fd.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            // SAFETY: polls one descriptor this call owns, without
-            // blocking.
-            match unsafe { libc::poll(&raw mut probe, 1, 0) } {
-                1 => Ok(()),
-                0 => Err(std::io::ErrorKind::WouldBlock.into()),
-                _ => Err(std::io::Error::last_os_error()),
+            let mut probe = [PollFd::new(fd.get_ref().as_fd(), PollFlags::POLLIN)];
+            let ready = poll(&mut probe, PollTimeout::ZERO)?;
+            if ready == 0 {
+                Err(std::io::ErrorKind::WouldBlock.into())
+            } else {
+                Ok(())
             }
         }) {
             return result;
@@ -282,55 +274,52 @@ pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
 /// fallback.
 #[cfg(target_os = "macos")]
 pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use nix::errno::Errno;
+    use nix::sys::event::{EventFilter, EventFlag, FilterFlag, KEvent, Kqueue};
+    use std::os::fd::{AsFd, AsRawFd, RawFd};
     use tokio::io::{unix::AsyncFd, Interest};
 
-    // SAFETY: `kqueue()` takes no arguments.
-    let kq = unsafe { libc::kqueue() };
-    if kq < 0 {
-        return Err(std::io::Error::last_os_error());
+    /// The kqueue descriptor (closed on drop, on every path), registrable
+    /// with the tokio reactor.
+    struct KqueueFd(Kqueue);
+
+    impl AsRawFd for KqueueFd {
+        fn as_raw_fd(&self) -> RawFd {
+            self.0.as_fd().as_raw_fd()
+        }
     }
-    // SAFETY: a fresh descriptor this call owns (and closes on drop, on
-    // every path).
-    let kq = unsafe { OwnedFd::from_raw_fd(kq) };
-    // The block drops the `kevent` value (its `udata` raw pointer is
+
+    let ident =
+        usize::try_from(pid).map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let kq = Kqueue::new()?;
+    // The block drops the `KEvent` value (its `udata` raw pointer is
     // `!Send`) before the first `.await`.
     {
-        let change = libc::kevent {
-            ident: pid as libc::uintptr_t,
-            filter: libc::EVFILT_PROC,
-            flags: libc::EV_ADD,
-            fflags: libc::NOTE_EXIT,
-            data: 0,
-            udata: std::ptr::null_mut(),
-        };
-        // SAFETY: registers one change and reads no events; `change`
-        // outlives the call. With no event space, an attach failure comes
-        // back as -1/errno (kevent(2)), not an `EV_ERROR` event.
-        if unsafe {
-            libc::kevent(
-                kq.as_raw_fd(),
-                &raw const change,
-                1,
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null(),
-            )
-        } < 0
-        {
+        let change = KEvent::new(
+            ident,
+            EventFilter::EVFILT_PROC,
+            EventFlag::EV_ADD,
+            FilterFlag::NOTE_EXIT,
+            0,
+            0,
+        );
+        // Registers one change and reads no events. With no event space,
+        // an attach failure comes back as -1/errno (kevent(2)), not an
+        // `EV_ERROR` event.
+        if let Err(errno) = kq.kevent(&[change], &mut [], None) {
             // `ESRCH` means the pid names no attachable process (reaped,
             // or already past its exit ref-drain - XNU runs the drain
             // before the exit knote fires): the exit already happened.
             // Every other errno (EMFILE, ENOMEM, ...) is a watch that
             // could not register; the caller falls back.
-            let error = std::io::Error::last_os_error();
-            return match error.raw_os_error() {
-                Some(libc::ESRCH) => Ok(()),
-                _ => Err(error),
+            return if errno == Errno::ESRCH {
+                Ok(())
+            } else {
+                Err(errno.into())
             };
         }
     }
-    let kq = AsyncFd::with_interest(kq, Interest::READABLE)?;
+    let kq = AsyncFd::with_interest(KqueueFd(kq), Interest::READABLE)?;
     // Only the exit knote is registered, so a drained event is the exit.
     loop {
         let mut ready = kq.readable().await?;
@@ -339,29 +328,20 @@ pub async fn wait_for_exit(pid: u32) -> std::io::Result<()> {
                 tv_sec: 0,
                 tv_nsec: 0,
             };
-            let mut event = libc::kevent {
-                ident: 0,
-                filter: 0,
-                flags: 0,
-                fflags: 0,
-                data: 0,
-                udata: std::ptr::null_mut(),
-            };
-            // SAFETY: drains one event with a zero timeout; `event` and
-            // `zero` outlive the call.
-            match unsafe {
-                libc::kevent(
-                    kq.as_raw_fd(),
-                    std::ptr::null(),
-                    0,
-                    &raw mut event,
-                    1,
-                    &raw const zero,
-                )
-            } {
-                1 => Ok(()),
-                0 => Err(std::io::ErrorKind::WouldBlock.into()),
-                _ => Err(std::io::Error::last_os_error()),
+            let mut event = [KEvent::new(
+                0,
+                EventFilter::EVFILT_PROC,
+                EventFlag::empty(),
+                FilterFlag::empty(),
+                0,
+                0,
+            )];
+            // Drains one event with a zero timeout.
+            let drained = kq.get_ref().0.kevent(&[], &mut event, Some(zero))?;
+            if drained == 0 {
+                Err(std::io::ErrorKind::WouldBlock.into())
+            } else {
+                Ok(())
             }
         }) {
             return result;

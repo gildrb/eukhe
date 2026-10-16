@@ -135,9 +135,7 @@ fn sigtstp_session_runner() -> bool {
     // tcgetpgrp on fd 0 answers "does this runner's stdin sit on a
     // session's controlling terminal": a pipe or /dev/null stdin and a
     // tty without a foreground process group both read as errors.
-    // SAFETY: tcgetpgrp only queries the fd's foreground process group.
-    let foreground = unsafe { libc::tcgetpgrp(0) };
-    if foreground < 0 {
+    if nix::unistd::tcgetpgrp(std::io::stdin()).is_err() {
         eprintln!(
             "no controlling-terminal session on the runner (tcgetpgrp(fd 0) \
              failed); skipping the tests that need one to drive the \
@@ -534,12 +532,6 @@ fn spawn_child(
     slave: &OwnedFd,
     editor: Option<&std::path::Path>,
 ) -> Child {
-    // Runs between fork and exec in the child: setpgid moves it into its
-    // own process group, inside the runner's session.
-    fn make_process_group() -> std::io::Result<()> {
-        nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0))?;
-        Ok(())
-    }
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -552,11 +544,9 @@ fn spawn_child(
     command
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
-        .stderr(slave_as_stdio(slave));
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // process-group setup; it runs post-fork pre-exec in the child only
-    // and cannot disturb this process.
-    unsafe { command.pre_exec(make_process_group) };
+        .stderr(slave_as_stdio(slave))
+        // Its own process group, inside the runner's session.
+        .process_group(0);
     command.spawn().expect("spawn child")
 }
 

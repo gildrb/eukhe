@@ -38,24 +38,14 @@ fn probe_mtime() -> (i64, i64) {
     (seconds, 5_000_000)
 }
 
-// The `libc::timespec` field names are the syscall's own vocabulary -
-// the struct-literal shorthand below is the point of the params.
-#[allow(clippy::similar_names)]
-fn set_mtime(path: &Path, tv_sec: i64, tv_nsec: i64) -> io::Result<()> {
-    use std::os::unix::ffi::OsStrExt;
-    // Lock paths come from agent-dir joins, but keep the NUL case an error
-    // instead of truncating the path inside libc.
-    let path_c = std::ffi::CString::new(path.as_os_str().as_bytes())?;
-    let times = [
-        libc::timespec { tv_sec, tv_nsec },
-        libc::timespec { tv_sec, tv_nsec },
-    ];
+fn set_mtime(path: &Path, seconds: i64, nanoseconds: i64) -> io::Result<()> {
+    use nix::sys::stat::{utimensat, UtimensatFlags};
+    use nix::sys::time::TimeSpec;
+    let time = TimeSpec::new(seconds, nanoseconds);
     // Relative lock paths (a relative agent dir) resolve against the
-    // process cwd through AT_FDCWD.
-    let result = unsafe { libc::utimensat(libc::AT_FDCWD, path_c.as_ptr(), times.as_ptr(), 0) };
-    if result != 0 {
-        return Err(io::Error::last_os_error());
-    }
+    // process cwd (no dirfd: AT_FDCWD). A NUL inside the path is an
+    // error, never a truncated path.
+    utimensat(None, path, &time, &time, UtimensatFlags::FollowSymlink)?;
     Ok(())
 }
 
@@ -223,8 +213,10 @@ impl LockDir {
         if pid <= 0 {
             return true;
         }
-        let result = unsafe { libc::kill(pid, 0) };
-        result != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        matches!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        )
     }
 
     /// The mkdir is the acquisition signal: EEXIST is the only collision.
@@ -321,12 +313,10 @@ impl LockDir {
     /// lock FILE. Its absence (or an unopenable path) means nobody guards
     /// it, so the artifact can be reclaimed safely.
     fn legacy_flock_held(path: &Path) -> bool {
-        use std::os::unix::io::AsRawFd;
         let Ok(file) = fs::OpenOptions::new().write(true).open(path) else {
             return false;
         };
-        (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
-            && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock)
+        matches!(file.try_lock(), Err(fs::TryLockError::WouldBlock))
     }
 
     /// Release: remove the lock directory. A missing directory means someone

@@ -170,10 +170,15 @@ fn interactive_launcher_detaches_supervisor_from_client_session() {
         .expect("read daemon hello");
     let hello: Value = serde_json::from_str(&hello).expect("parse daemon hello");
     let pid = hello["supervisorPid"].as_i64().expect("supervisor pid") as i32;
-    assert_eq!(unsafe { libc::getsid(pid) }, pid, "daemon owns its session");
+    let supervisor = nix::unistd::Pid::from_raw(pid);
+    assert_eq!(
+        nix::unistd::getsid(Some(supervisor)),
+        Ok(supervisor),
+        "daemon owns its session"
+    );
     assert_ne!(
-        unsafe { libc::getsid(0) },
-        pid,
+        nix::unistd::getsid(None),
+        Ok(supervisor),
         "daemon must not share the launching client's terminal session"
     );
     assert!(
@@ -230,12 +235,12 @@ impl Drop for DetachedDaemon {
         // The shutdown was accepted but the supervisor never exited. The
         // supervisor owns its own session (the property under test), so the
         // process-group kill takes any session workers with it.
-        // SAFETY: the pid comes from the shutdown handshake above; this
-        // test's own fixture supervisor.
-        unsafe {
-            libc::kill(-pid, libc::SIGKILL);
-            libc::kill(pid, libc::SIGKILL);
-        }
+        // The pid comes from the shutdown handshake above; this test's own
+        // fixture supervisor. Ignored as before: the socket poll below is
+        // the check.
+        let pid = nix::unistd::Pid::from_raw(pid);
+        let _ = nix::sys::signal::killpg(pid, nix::sys::signal::Signal::SIGKILL);
+        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
         socket_stops_accepting(&self.socket, Duration::from_secs(5));
     }
 }

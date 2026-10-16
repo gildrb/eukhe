@@ -152,9 +152,7 @@ fn typing_echoes_while_the_session_open_is_stalled() {
 /// Whether this runner is attached to a controlling-terminal session (the
 /// child re-exec needs a session it can leave and re-enter safely).
 fn session_runner() -> bool {
-    // SAFETY: tcgetpgrp only queries the fd's foreground process group.
-    let foreground = unsafe { libc::tcgetpgrp(0) };
-    if foreground < 0 {
+    if nix::unistd::tcgetpgrp(std::io::stdin()).is_err() {
         eprintln!(
             "no controlling-terminal session on the runner (tcgetpgrp(fd 0) \
              failed); skipping the input-live open e2e — it needs a \
@@ -455,10 +453,6 @@ fn find_prompt_with(commands: &Arc<Mutex<Vec<String>>>, text: &str) -> Option<St
 /// A child process group of this very binary, re-executed in child mode
 /// with the pty slave as its terminal and no tmux.
 fn spawn_child(socket: &std::path::Path, slave: &OwnedFd) -> Child {
-    fn make_process_group() -> std::io::Result<()> {
-        nix::unistd::setpgid(nix::unistd::Pid::from_raw(0), nix::unistd::Pid::from_raw(0))?;
-        Ok(())
-    }
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
@@ -467,11 +461,8 @@ fn spawn_child(socket: &std::path::Path, slave: &OwnedFd) -> Child {
         .env_remove("TMUX")
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
-        .stderr(slave_as_stdio(slave));
-    // SAFETY: the pre_exec hook is the supported std seam for
-    // process-group setup; it runs post-fork pre-exec in the child only
-    // and cannot disturb this process.
-    unsafe { command.pre_exec(make_process_group) };
+        .stderr(slave_as_stdio(slave))
+        .process_group(0);
     command.spawn().expect("spawn child")
 }
 

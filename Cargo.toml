@@ -52,6 +52,10 @@ futures = "0.3"
 toml = "0.9"
 # Dev-only; the default fork/timeout features are unused.
 proptest = { version = "1.11", default-features = false, features = ["std"] }
+# The eukhe and eukhe-daemon binaries' global allocator: returns freed
+# pages to the OS and caps arena sprawl without unsafe in eukhe code
+# (replaces glibc mallopt/malloc_trim). MIT.
+mimalloc = "0.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
