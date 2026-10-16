@@ -78,7 +78,7 @@ use eukhe_ai::utils::abort::operation_signal;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::types::ModelRef;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::deps::ModelRequest;
 use crate::models::{
@@ -304,25 +304,13 @@ pub async fn resolve_session_model(
     }))
 }
 
-/// The resolver's view of a pi-ai model: eukhe's resolver matches on
-/// provider, id, and name only.
+/// The resolver's view of the pi-ai models (eukhe's resolver matches on
+/// provider, id, and name).
 fn legacy_models(models: &[Model]) -> Result<Vec<eukhe_types::ai::Model>, ModelsError> {
     models
         .iter()
         .map(|model| {
-            serde_json::from_value(json!({
-                "id": model.id,
-                "name": model.name,
-                "api": model.api,
-                "provider": model.provider,
-                "baseUrl": model.base_url,
-                "reasoning": model.reasoning,
-                "input": [],
-                "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-                "contextWindow": model.context_window,
-                "maxTokens": model.max_tokens,
-            }))
-            .map_err(|error| {
+            eukhe_models::pi_ai_model::registry_model(model).map_err(|error| {
                 ModelsError::Catalog(format!(
                     "model {}/{} cannot be matched: {error}",
                     model.provider, model.id
@@ -390,13 +378,123 @@ fn enforce_allowlist(settings: &SettingsManager, selector: &str) -> Result<(), M
 #[cfg(test)]
 mod tests {
     use eukhe_ai::auth::{ApiKeyResolveInput, ModelAuth};
+    use eukhe_ai::models::chat_models;
     use eukhe_ai::providers::all::get_builtin_models;
     use eukhe_chord::context::BACKGROUND_CONTEXT;
     use eukhe_types::pi_ai::{Modality, ProviderHeaders};
     use futures::future::BoxFuture;
+    use serde_json::json;
 
     use super::*;
+    use crate::models::ModelRegistry;
     use crate::settings::types::Settings;
+
+    /// The two views of one models.json — the registry (`ModelRegistry`,
+    /// the picker and model lists) and this collection (the sessions) —
+    /// come from one parse and one composition: on the same document they
+    /// list the same models with the same fields, including the cases the
+    /// two parsers used to disagree on (an override's `thinkingLevelMap` on
+    /// a model without one, an override without `compat` on a model with
+    /// one, a custom model's `headers`).
+    #[tokio::test]
+    async fn the_registry_and_the_collection_agree_on_models_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let (compat_provider, compat_model) = builtin_providers()
+            .into_iter()
+            .find_map(|provider| {
+                let models = (provider.get_models)().ok()?;
+                let model = chat_models(&models)
+                    .find(|model| model.compat.is_some())?
+                    .clone();
+                Some((provider.id, model))
+            })
+            .expect("a built-in model with compat");
+        let anthropic = get_builtin_models("anthropic")
+            .into_iter()
+            .find(|model| model.thinking_level_map.is_none())
+            .expect("an anthropic model without a thinking-level map");
+        let models_json = BATTERY_MODELS_JSON.replace(
+            "\"providers\": {",
+            &format!(
+                r#""providers": {{
+                    "anthropic": {{
+                        "modelOverrides": {{ "{anthropic}": {{ "name": "Renamed", "maxTokens": 1234,
+                            "thinkingLevelMap": {{ "xhigh": "xhigh" }} }} }},
+                        "models": [ {{ "id": "anthropic-extra", "headers": {{ "X-Extra": "1" }} }} ]
+                    }},
+                    "{compat_provider}": {{
+                        "baseUrl": "http://127.0.0.1:9/v1",
+                        "modelOverrides": {{ "{compat}": {{ "contextWindow": 4321 }} }}
+                    }},"#,
+                anthropic = anthropic.id,
+                compat = compat_model.id,
+            ),
+        );
+        let models = battery_models(dir.path(), &models_json);
+        let auth = crate::auth::AuthStorage::in_memory_without_env(
+            &crate::auth::AuthStorageData::default(),
+            Arc::new(crate::auth::NoOAuth),
+        );
+        let registry = ModelRegistry::create(auth, dir.path().join("models.json"));
+        assert_eq!(registry.get_error(), None);
+
+        for provider in ["anthropic", compat_provider.as_str(), "battery"] {
+            let mut listed: Vec<eukhe_types::ai::Model> = registry
+                .get_all()
+                .filter(|model| model.provider == provider)
+                .cloned()
+                .collect();
+            for model in &mut listed {
+                // The flag is the registry's own (pi-ai has no slot) and
+                // the collection folds an addressed map into `reasoning`.
+                model.max_tokens_explicit = false;
+                model.reasoning |= model
+                    .thinking_level_map
+                    .as_ref()
+                    .is_some_and(|map| map.values().any(Option::is_some));
+            }
+            let served = legacy_models(&models.get_models(Some(provider))).unwrap();
+            let key = |model: &eukhe_types::ai::Model| model.id.clone();
+            listed.sort_by_key(key);
+            let mut served = served;
+            served.sort_by_key(key);
+            assert_eq!(listed, served, "provider {provider}");
+        }
+
+        let renamed = registry
+            .get_all()
+            .find(|model| model.id == anthropic.id)
+            .unwrap();
+        assert_eq!(
+            (renamed.name.as_str(), renamed.max_tokens),
+            ("Renamed", 1234)
+        );
+        assert!(renamed.max_tokens_explicit);
+        assert!(renamed.thinking_level_map.is_some());
+        let compat = registry
+            .get_all()
+            .find(|model| model.id == compat_model.id && model.provider == compat_provider)
+            .unwrap();
+        assert!(
+            compat.compat.is_some(),
+            "an override without compat keeps it"
+        );
+        assert_eq!(compat.context_window, 4321);
+        let extra = models.get_model("anthropic", "anthropic-extra").unwrap();
+        assert_eq!(extra.api, anthropic.api);
+        assert_eq!(extra.base_url, anthropic.base_url);
+
+        // The configured apiKey authenticates the custom provider in both.
+        assert!(registry
+            .get_available()
+            .iter()
+            .any(|model| model.provider == "battery"));
+        let available = models
+            .get_available(Some("battery"), AuthOperationOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(available.len(), 2);
+    }
 
     /// No ambient credentials: no environment variables, no credential files.
     struct EmptyAuthContext;

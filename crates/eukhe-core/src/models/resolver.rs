@@ -58,17 +58,22 @@ fn is_alias(id: &str) -> bool {
 /// Exact reference match: canonical provider/id, provider/id split, or an
 /// unambiguous bare id.
 #[must_use]
-pub fn find_exact_model_reference_match<'a>(
+pub fn find_exact_model_reference_match<'a, I>(
     model_reference: &str,
-    available_models: &'a [Model],
-) -> Option<&'a Model> {
+    models: I,
+) -> Option<&'a Model>
+where
+    I: IntoIterator<Item = &'a Model>,
+    I::IntoIter: Clone,
+{
+    let available_models = models.into_iter();
     let trimmed = model_reference.trim();
     if trimmed.is_empty() {
         return None;
     }
     let normalized = trimmed.to_lowercase();
     let canonical: Vec<&Model> = available_models
-        .iter()
+        .clone()
         .filter(|model| format!("{}/{}", model.provider, model.id).to_lowercase() == normalized)
         .collect();
     if canonical.len() == 1 {
@@ -82,7 +87,7 @@ pub fn find_exact_model_reference_match<'a>(
         let model_id = trimmed[slash + 1..].trim();
         if !provider.is_empty() && !model_id.is_empty() {
             let provider_matches: Vec<&Model> = available_models
-                .iter()
+                .clone()
                 .filter(|model| {
                     model.provider.to_lowercase() == provider.to_lowercase()
                         && model.id.to_lowercase() == model_id.to_lowercase()
@@ -97,7 +102,6 @@ pub fn find_exact_model_reference_match<'a>(
         }
     }
     let id_matches: Vec<&Model> = available_models
-        .iter()
         .filter(|model| model.id.to_lowercase() == normalized)
         .collect();
     if id_matches.len() == 1 {

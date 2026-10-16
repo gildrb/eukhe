@@ -54,7 +54,6 @@ fn catalog_payload(
     // an open picker's rows never reorder between identical answers.
     let mut entries: Vec<&eukhe_types::ai::Model> = registry
         .get_all()
-        .iter()
         .filter(|model| {
             !eukhe_core::models::is_private_prime_inference_model(model)
                 || available_keys.contains(&format!("{}/{}", model.provider, model.id))

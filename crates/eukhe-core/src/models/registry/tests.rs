@@ -32,12 +32,9 @@ fn model(id: &str, provider: &str) -> Model {
 fn in_memory_loads_built_in_catalog() {
     let registry = ModelRegistry::in_memory(auth_with(&serde_json::json!({})));
     assert!(registry.get_error().is_none());
-    assert!(!registry.get_all().is_empty());
+    assert!(registry.get_all().next().is_some());
     // Bundled private model is present in the unfiltered catalog.
-    assert!(registry
-        .get_all()
-        .iter()
-        .any(|m| m.id == "internal/glm-5.2-fast"));
+    assert!(registry.get_all().any(|m| m.id == "internal/glm-5.2-fast"));
 }
 
 /// TS `755-configured-max-tokens.test.ts`: built-in catalog models stay
@@ -47,11 +44,8 @@ fn in_memory_loads_built_in_catalog() {
 #[test]
 fn built_in_catalog_models_stay_unmarked() {
     let registry = ModelRegistry::in_memory(auth_with(&serde_json::json!({})));
-    assert!(!registry.get_all().is_empty());
-    assert!(registry
-        .get_all()
-        .iter()
-        .all(|model| !model.max_tokens_explicit));
+    assert!(registry.get_all().next().is_some());
+    assert!(registry.get_all().all(|model| !model.max_tokens_explicit));
 }
 
 #[test]
@@ -67,10 +61,9 @@ fn available_filters_by_configured_auth() {
     // environment variables cannot authorize it.
     assert!(!registry.has_configured_auth(&model("m", "zz-no-provider")));
     // Available is a subset of all.
-    let all = registry.get_all();
     let available = registry.get_available();
     assert!(available.iter().all(|available_model| {
-        all.iter().any(|model| {
+        registry.get_all().any(|model| {
             model.id == available_model.id && model.provider == available_model.provider
         })
     }));
@@ -120,14 +113,13 @@ fn models_json_custom_models_and_auth_header() {
     assert!(registry.get_error().is_none());
     let custom = registry
         .get_all()
-        .iter()
         .find(|m| m.provider == "custom" && m.id == "my-model")
         .expect("custom model merged")
         .clone();
     assert_eq!(custom.base_url, "https://custom.example");
     // models.json apiKey makes the provider available.
     assert!(registry.get_available().iter().any(|m| m.id == "my-model"));
-    let auth_result = registry.get_api_key_and_headers(&custom, None);
+    let auth_result = registry.get_api_key_and_headers(&custom);
     assert!(auth_result.ok);
     assert_eq!(auth_result.api_key.as_deref(), Some("custom-key"));
     assert_eq!(
@@ -143,32 +135,38 @@ fn models_json_error_keeps_built_ins() {
     std::fs::write(&models_path, "{ not json").unwrap();
     let registry = ModelRegistry::create(auth_with(&serde_json::json!({})), &models_path);
     assert!(registry.get_error().is_some());
-    assert!(!registry.get_all().is_empty());
+    assert!(registry.get_all().next().is_some());
 }
 
 #[test]
 fn header_precedence_model_over_provider() {
-    let mut registry = ModelRegistry::in_memory(auth_with(&serde_json::json!({
+    let dir = tempfile::tempdir().unwrap();
+    let models_path = dir.path().join("models.json");
+    std::fs::write(
+        &models_path,
+        r#"{ "providers": { "anthropic": {
+            "headers": { "X-Model": "provider", "X-Provider": "p" },
+            "modelOverrides": { "m": { "headers": { "X-Override": "o" } } }
+        } } }"#,
+    )
+    .unwrap();
+    let auth = auth_with(&serde_json::json!({
         "anthropic": { "type": "api_key", "key": "sk-ant" }
-    })));
+    }));
+    let mut registry = ModelRegistry::create(auth, &models_path);
     let mut m = model("m", "anthropic");
     m.headers = Some(BTreeMap::from([(
         "X-Model".to_string(),
         "model".to_string(),
     )]));
-    let result = registry.get_api_key_and_headers(&m, None);
+    let result = registry.get_api_key_and_headers(&m);
     assert_eq!(result.api_key.as_deref(), Some("sk-ant"));
-    assert_eq!(
-        result.headers.as_ref().unwrap().get("X-Model").unwrap(),
-        "model"
-    );
-    // Request headers win over everything.
-    let request = BTreeMap::from([("X-Model".to_string(), "request".to_string())]);
-    let result = registry.get_api_key_and_headers(&m, Some(&request));
-    assert_eq!(
-        result.headers.as_ref().unwrap().get("X-Model").unwrap(),
-        "request"
-    );
+    let headers = result.headers.unwrap();
+    // The model's own headers win over the provider's; the models.json
+    // model headers ride even when the model does not carry them.
+    assert_eq!(headers["X-Model"], "model");
+    assert_eq!(headers["X-Provider"], "p");
+    assert_eq!(headers["X-Override"], "o");
 }
 
 #[test]
@@ -192,7 +190,6 @@ fn a_stored_copilot_credential_rewrites_its_models_base_url() {
     let registry = ModelRegistry::in_memory(auth);
     let grok = registry
         .get_all()
-        .iter()
         .find(|model| model.provider == "github-copilot")
         .expect("the copilot models render");
     assert_eq!(grok.base_url, "https://api.enterprise.githubcopilot.com");
@@ -208,7 +205,6 @@ fn a_stored_copilot_credential_rewrites_its_models_base_url() {
     let registry = ModelRegistry::in_memory(auth);
     let grok = registry
         .get_all()
-        .iter()
         .find(|model| model.provider == "github-copilot")
         .expect("the copilot models render");
     assert_eq!(grok.base_url, "https://copilot-api.company.ghe.com");
@@ -240,7 +236,6 @@ fn registry_with_completions_grok(auth: AuthStorage, dir: &tempfile::TempDir) ->
 fn completions_grok(registry: &ModelRegistry) -> &Model {
     registry
         .get_all()
-        .iter()
         .find(|model| model.provider == "xai" && model.id == "grok-4.20-0309-non-reasoning")
         .expect("the xai model renders")
 }

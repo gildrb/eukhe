@@ -251,7 +251,7 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
     } else {
         // The default model: the same chain that picks the agent's model
         // when no flag or session pins one.
-        let all: Vec<Model> = registry.get_all().to_vec();
+        let all: Vec<Model> = registry.get_all().cloned().collect();
         let available: Vec<Model> = registry.get_available().into_iter().cloned().collect();
         let options = crate::models::InitialModelOptions {
             cli_provider: None,
@@ -278,7 +278,7 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
             );
         }
     }
-    let resolved = registry.get_api_key_and_headers(&model, model.headers.as_ref());
+    let resolved = registry.get_api_key_and_headers(&model);
     if !resolved.ok {
         anyhow::bail!(
             "no credentials for the memory compactor model {selector}: {}",

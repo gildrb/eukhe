@@ -293,7 +293,6 @@ fn branch_model(branch: &[&crate::session_store::SessionEntry]) -> Option<(Strin
 fn context_window_of(registry: &ModelRegistry, provider: &str, model_id: &str) -> Option<u64> {
     registry
         .get_all()
-        .iter()
         .find(|model| model.provider == provider && model.id == model_id)
         .map(|model| model.context_window)
         .filter(|window| *window > 0)

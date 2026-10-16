@@ -383,7 +383,6 @@ impl ProviderAuth {
                     .collect();
             let mut providers: Vec<String> = registry
                 .get_all()
-                .iter()
                 .map(|model| model.provider.clone())
                 .collect();
             providers.sort();

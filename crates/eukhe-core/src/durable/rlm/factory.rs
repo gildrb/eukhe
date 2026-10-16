@@ -272,7 +272,7 @@ impl FactoryHost {
                     );
                 }
             }
-            let resolved = registry.get_api_key_and_headers(&model, model.headers.as_ref());
+            let resolved = registry.get_api_key_and_headers(&model);
             if !resolved.ok {
                 anyhow::bail!(
                     "Model \"{}/{}\" is not authenticated: {}",

@@ -33,7 +33,7 @@ pub(crate) fn session_fallback_with_headers(
     let auth = crate::auth::AuthStorage::create(&context.agent_dir);
     let mut registry =
         crate::models::ModelRegistry::create(auth, context.agent_dir.join("models.json"));
-    let resolved = registry.get_api_key_and_headers(session_model, session_model.headers.as_ref());
+    let resolved = registry.get_api_key_and_headers(session_model);
     ResolvedAuxiliaryModel {
         model: session_model.clone(),
         api_key: session_api_key,
@@ -121,7 +121,7 @@ pub fn resolve_auxiliary_model(
         warn_fallback(&selector, purpose);
         return fallback();
     };
-    let resolved = registry.get_api_key_and_headers(&model, model.headers.as_ref());
+    let resolved = registry.get_api_key_and_headers(&model);
     if !resolved.ok {
         warn_fallback(&selector, purpose);
         return fallback();

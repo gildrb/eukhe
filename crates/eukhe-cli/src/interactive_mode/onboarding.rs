@@ -34,7 +34,7 @@ impl StartupModelProbe {
         let auth = eukhe_core::auth::AuthStorage::create(&self.agent_dir);
         let registry =
             eukhe_core::models::ModelRegistry::create(auth, self.agent_dir.join("models.json"));
-        let all: Vec<eukhe_types::ai::Model> = registry.get_all().to_vec();
+        let all: Vec<eukhe_types::ai::Model> = registry.get_all().cloned().collect();
         let available: Vec<eukhe_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
         let scoped = self
