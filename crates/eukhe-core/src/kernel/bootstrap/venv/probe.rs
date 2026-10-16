@@ -8,10 +8,77 @@ use super::{
     DEFAULT_RLM_EXTRA_PACKAGES,
 };
 
+/// Upper bound on one batched import probe: a heavy stack (pandas, scipy)
+/// imports in well under a second, so this only trips on a wedged
+/// interpreter, which then reads as "every module missing".
+const IMPORT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Marker prefixing the probe's verdict line, so output an imported module
+/// prints on its own cannot be mistaken for the verdict.
+const IMPORT_PROBE_MARKER: &str = "__EUKHE_IMPORT_PROBE_MISSING__";
+
+/// Tries every module named in argv in one interpreter. Exit 0: every
+/// import succeeded. Exit 1: the marker line lists the argv indices whose
+/// import raised (anything, `SystemExit` included). `os._exit` so a thread
+/// or atexit hook an imported module left behind cannot stall the probe.
+const IMPORT_PROBE_SCRIPT: &str = r"import os, sys, importlib
+_missing = []
+for _i, _m in enumerate(sys.argv[2:]):
+    try:
+        importlib.import_module(_m)
+    except BaseException:
+        _missing.append(str(_i))
+if _missing:
+    sys.__stdout__.write('\n' + sys.argv[1] + ','.join(_missing) + '\n')
+sys.__stdout__.flush()
+os._exit(1 if _missing else 0)
+";
+
+/// One interpreter tries every import; returns, per module, whether it is
+/// missing. Runs on `tokio::process` with a timeout, so no executor thread
+/// blocks. A clean exit means every import succeeded (the exit-status
+/// contract the per-module probes had); a probe that fails to run, crashes,
+/// times out, or fails without a verdict reports every module missing.
 // `-P`: the probe's working directory (the user's project) is never put on
 // `sys.path`, so a project-local `rlm/` cannot answer the probe.
-fn python_imports(python: &str, module_name: &str) -> bool {
-    run_quiet(python, &["-P", "-c", &format!("import {module_name}")])
+async fn missing_imports(python: &str, modules: &[&str]) -> Vec<bool> {
+    if modules.is_empty() {
+        return Vec::new();
+    }
+    let mut command = tokio::process::Command::new(python);
+    command
+        .args(["-P", "-c", IMPORT_PROBE_SCRIPT, IMPORT_PROBE_MARKER])
+        .args(modules)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let output = match command.spawn() {
+        Ok(child) => tokio::time::timeout(IMPORT_PROBE_TIMEOUT, child.wait_with_output()).await,
+        Err(_) => return vec![true; modules.len()],
+    };
+    let Ok(Ok(output)) = output else {
+        return vec![true; modules.len()];
+    };
+    if output.status.success() {
+        return vec![false; modules.len()];
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let Some(verdict) = stdout
+        .lines()
+        .rev()
+        .find_map(|line| line.strip_prefix(IMPORT_PROBE_MARKER))
+    else {
+        return vec![true; modules.len()];
+    };
+    let mut missing = vec![false; modules.len()];
+    for index in verdict.split(',').filter(|s| !s.is_empty()) {
+        match index.parse::<usize>().ok().and_then(|i| missing.get_mut(i)) {
+            Some(slot) => *slot = true,
+            None => return vec![true; modules.len()],
+        }
+    }
+    missing
 }
 
 fn run_quiet(command: &str, args: &[&str]) -> bool {
@@ -24,31 +91,68 @@ fn run_quiet(command: &str, args: &[&str]) -> bool {
     matches!(child.status(), Ok(status) if status.success())
 }
 
+async fn run_quiet_async(command: &str, args: &[&str]) -> bool {
+    let mut child = tokio::process::Command::new(command);
+    child
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    matches!(
+        tokio::time::timeout(IMPORT_PROBE_TIMEOUT, child.status()).await,
+        Ok(Ok(status)) if status.success()
+    )
+}
+
 /// The runtime-ready assertion from the TS product: a current
 /// eukhe-runtime with the callable RLM surface, harness CRUD, bash
 /// handles, and protocol version 3.
 const RUNTIME_READY_CHECK: &str = "import inspect; import rlm; from rlm import McpIntegration; import rlm.mcp as mcp; from rlm.harness import HarnessEntry; _harness_methods = ['create_memory', 'update_memory', 'delete_memory', 'create_skill', 'update_skill', 'delete_skill', 'create_subagent', 'update_subagent', 'delete_subagent', 'create_prompt_note', 'update_prompt_note', 'delete_prompt_note', 'record_refinement']; _mcp_discovery_methods = ['list_plugins', 'search_plugins', 'list_connections', 'search_tools', 'describe_tool']; assert callable(mcp.list_tools); assert callable(mcp.call_tool); assert all(callable(getattr(mcp, _m, None)) for _m in _mcp_discovery_methods), \"rlm.mcp is missing MCP discovery methods (list_plugins, search_plugins, list_connections, search_tools, describe_tool); the kernel venv needs a current eukhe-runtime\"; assert callable(rlm.spawn); assert hasattr(rlm, 'rlm'); assert callable(rlm.rlm.spawn); assert inspect.signature(rlm.spawn).parameters['name'].default is inspect.Parameter.empty; assert not hasattr(rlm, 'run'); assert not hasattr(rlm.rlm, 'run'); assert callable(rlm.host_request); assert callable(rlm.find_models); assert callable(rlm.rlm.find_models); assert callable(rlm.create_session); assert callable(rlm.rlm.create_session); assert callable(rlm.progress_note); assert callable(rlm.rlm.progress_note); assert callable(rlm.rename); assert callable(rlm.rlm.rename); assert hasattr(rlm, 'harness'); assert hasattr(rlm, 'get_harness_state'); assert hasattr(rlm.rlm, 'harness'); assert hasattr(rlm.rlm, 'get_harness_state'); assert all(callable(getattr(_harness, _method, None)) for _harness in (rlm.harness, rlm.rlm.harness) for _method in _harness_methods); assert 'reference' in HarnessEntry.__dataclass_fields__; assert 'scope' in HarnessEntry.__dataclass_fields__; assert 'reference' in inspect.signature(rlm.harness.create_skill).parameters; assert 'reference' in inspect.signature(rlm.harness.update_skill).parameters; assert 'global_' in inspect.signature(rlm.harness.create_memory).parameters; assert 'global_' in inspect.signature(rlm.get_harness_state).parameters; assert not hasattr(rlm, 'background'); assert not hasattr(rlm.rlm, 'background'); from rlm.bash import BashHandle, BashResult; assert callable(rlm.bash); assert all(callable(getattr(BashHandle, _m, None)) for _m in ('tail', 'output', 'poll', 'kill')); assert {'exit_code', 'output', 'duration'} <= set(BashResult.__dataclass_fields__); import rlm.repl as _repl; assert callable(_repl.main); assert callable(_repl.emit); assert callable(_repl.host_request); assert callable(_repl.is_active); assert _repl.PROTOCOL_VERSION == 3; assert callable(rlm.emit); assert not hasattr(rlm, 'HOST_COMM_TARGET'); assert not hasattr(mcp, 'install_shutdown_hook')";
 
-pub(crate) fn has_eukhe_runtime(python: &str) -> bool {
+pub(crate) async fn has_eukhe_runtime(python: &str) -> bool {
+    run_quiet_async(python, &["-P", "-c", RUNTIME_READY_CHECK]).await
+}
+
+// `-P`: the probe's working directory (the user's project) is never put on
+// `sys.path`, so a project-local `rlm/` cannot answer the probe. The
+// memoized managed-venv path stays synchronous (its callers are sync).
+fn python_imports(python: &str, module_name: &str) -> bool {
+    run_quiet(python, &["-P", "-c", &format!("import {module_name}")])
+}
+
+fn has_eukhe_runtime_sync(python: &str) -> bool {
     run_quiet(python, &["-P", "-c", RUNTIME_READY_CHECK])
 }
 
-pub(crate) fn missing_rlm_extra_import_labels(python: &str) -> Vec<&'static str> {
+pub(crate) async fn missing_rlm_extra_import_labels(python: &str) -> Vec<&'static str> {
+    let imports: Vec<&str> = DEFAULT_RLM_EXTRA_PACKAGES
+        .iter()
+        .map(|(_, import, _)| *import)
+        .collect();
+    let missing = missing_imports(python, &imports).await;
     DEFAULT_RLM_EXTRA_PACKAGES
         .iter()
-        .filter(|(_, import, _)| !python_imports(python, import))
-        .map(|(_, _, label)| *label)
+        .zip(missing)
+        .filter(|(_, missing)| *missing)
+        .map(|((_, _, label), _)| *label)
         .collect()
 }
 
-pub(crate) fn missing_python_skill_import_labels(
+pub(crate) async fn missing_python_skill_import_labels(
     python: &str,
     python_skills: &[KernelPythonSkill],
 ) -> Vec<String> {
+    let imports: Vec<&str> = python_skills
+        .iter()
+        .map(|skill| skill.import_name.as_str())
+        .collect();
+    let missing = missing_imports(python, &imports).await;
     python_skills
         .iter()
-        .filter(|skill| !python_imports(python, &skill.import_name))
-        .map(|skill| format!("{} ({})", skill.name, skill.import_name))
+        .zip(missing)
+        .filter(|(_, missing)| *missing)
+        .map(|(skill, _)| format!("{} ({})", skill.name, skill.import_name))
         .collect()
 }
 
@@ -200,7 +304,7 @@ pub(super) fn has_eukhe_runtime_memoized(
         entries.insert(key, memo_path);
         return true;
     }
-    if !has_eukhe_runtime(python) || !python_imports(python, "dill") {
+    if !has_eukhe_runtime_sync(python) || !python_imports(python, "dill") {
         return false;
     }
     let mut memo = lock_probe_memo();
@@ -234,4 +338,46 @@ pub fn invalidate_runtime_probe_cache() {
 #[cfg(test)]
 pub(crate) fn clear_in_process_probe_memo_for_tests() {
     *lock_probe_memo() = None;
+}
+
+#[cfg(test)]
+mod batched_probe_tests {
+    use super::*;
+
+    fn skill(name: &str, import_name: &str) -> KernelPythonSkill {
+        KernelPythonSkill {
+            name: name.to_string(),
+            import_name: import_name.to_string(),
+            package_path: PathBuf::new(),
+            pyproject_path: PathBuf::new(),
+        }
+    }
+
+    /// One interpreter probes every import; only the missing ones are
+    /// reported, by name, even when a present module prints to stdout.
+    #[tokio::test]
+    async fn batched_probe_reports_missing_modules_by_name() {
+        let skills = [
+            skill("json-skill", "json"),
+            skill("ghost", "eukhe_definitely_missing_module_xyz"),
+            skill("hello", "this"),
+            skill("ghost-pkg", "os.eukhe_missing_child"),
+        ];
+        let missing = missing_python_skill_import_labels("python3", &skills).await;
+        assert_eq!(
+            missing,
+            [
+                "ghost (eukhe_definitely_missing_module_xyz)",
+                "ghost-pkg (os.eukhe_missing_child)"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn batched_probe_without_interpreter_reports_everything_missing() {
+        let skills = [skill("json-skill", "json")];
+        let missing =
+            missing_python_skill_import_labels("/nonexistent/eukhe/python", &skills).await;
+        assert_eq!(missing, ["json-skill (json)"]);
+    }
 }

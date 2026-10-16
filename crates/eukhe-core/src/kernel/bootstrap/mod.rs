@@ -168,13 +168,13 @@ async fn ensure_kernel_python_uncached(
             let python = expand_home(&override_python);
             let python_str = python.to_string_lossy().to_string();
             let mut missing = Vec::new();
-            if !has_eukhe_runtime(&python_str) {
+            if !has_eukhe_runtime(&python_str).await {
                 missing.push(
                     "a current eukhe-runtime with callable rlm.spawn, rlm.create_session, rlm.host_request, rlm.progress_note, rlm.rename, and explicit harness CRUD methods".to_string(),
                 );
             }
             if missing.is_empty() {
-                let missing_extras = missing_rlm_extra_import_labels(&python_str);
+                let missing_extras = missing_rlm_extra_import_labels(&python_str).await;
                 if !missing_extras.is_empty() {
                     missing.push(format!(
                         "default Python packages ({})",
@@ -184,7 +184,7 @@ async fn ensure_kernel_python_uncached(
             }
             if missing.is_empty() && !options.python_skills.is_empty() {
                 let missing_skills =
-                    missing_python_skill_import_labels(&python_str, &options.python_skills);
+                    missing_python_skill_import_labels(&python_str, &options.python_skills).await;
                 if !missing_skills.is_empty() {
                     options.report(&format!(
                         "Warning: Python skills unavailable in EUKHE_KERNEL_PYTHON and will be disabled: {}",
