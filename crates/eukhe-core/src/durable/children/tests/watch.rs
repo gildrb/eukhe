@@ -1,9 +1,12 @@
 //! The watch's clock (rule H5): a child that shows no progress is stopped
 //! and reported stalled, polls that keep failing report it unreachable,
-//! and a child that keeps progressing outlives the stall budget.
+//! a child that keeps progressing outlives the stall budget, and a
+//! reopened parent polls its child at once.
 
 use super::*;
-use crate::durable::children::watch::CHILD_POLL_FAILURES;
+use crate::durable::children::task::ChildCheckpoint;
+use crate::durable::children::watch::{Vigil, CHILD_POLL_FAILURES};
+use eukhe_types::input_origin::ChildFailure;
 
 /// A Harness clock that leaps 40 s on every read: each pause between
 /// polls (at most 32 s) has passed by the next read, so the polls run back
@@ -174,4 +177,93 @@ async fn a_progressing_child_outlives_the_stall_budget() {
     );
     assert!(cancel_keys(&host).is_empty());
     opened.harness.close(cx()).await.unwrap();
+}
+
+/// Regression (H5): a reopened (restarted) parent polls its child at once,
+/// whatever pause the closed session scheduled. A poll that the daemon's
+/// own shutdown failed left a 4 s pause in the checkpoint, and the
+/// restarted parent waited it out before it saw that the child's run was
+/// interrupted: its roster read the child as `running` meanwhile. The
+/// Harness clock stands still here, so a pause the reopened watch waited
+/// out would never end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reopened_parent_polls_its_child_at_once() {
+    let mut setup = setup();
+    setup.now = Some(Arc::new(|| 1_000.0));
+    let host = FakeHost::new();
+    let storage = Arc::new(GatedStorage {
+        inner: Arc::new(MemoryStorage::new()),
+        refuse_terminal: AtomicBool::new(false),
+        refused: AtomicUsize::new(0),
+    });
+    lock(&host.state).failing_waits = 1;
+    let first = open(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    let row = spawn_child(&first, &setup).await;
+    // The first poll fails: the watch pauses 4 s before the next one.
+    let paused = ChildCheckpoint::Watch {
+        poll: 1,
+        next_poll_at: 5_000.0,
+        vigil: Vigil {
+            progress: None,
+            quiet_ms: 0.0,
+            failures: 1,
+        },
+    };
+    eventually(|| async {
+        let stored = storage
+            .inner
+            .task(TaskId::from_number(row.task_id), cx())
+            .await
+            .unwrap()
+            .expect("the child task is stored");
+        stored
+            .state
+            .checkpoint()
+            .map(|checkpoint| eukhe_chord::json::from_json::<ChildCheckpoint>(checkpoint).unwrap())
+            == Some(paused.clone())
+    })
+    .await;
+    first.harness.close(cx()).await.unwrap();
+
+    // The child's run stopped while its parent was down.
+    let error = "RLM child run was interrupted: the child stopped mid-run while its parent session was down";
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Failed {
+            failure: ChildFailure::Interrupted,
+            error: error.to_owned(),
+        },
+        None,
+    );
+    setup.faux.append_responses(vec![answer("noted")]);
+    let second = open(
+        Arc::clone(&storage) as Arc<dyn Storage>,
+        &setup,
+        Arc::clone(&host),
+    )
+    .await;
+    let interrupted = reported(&second, &row).await;
+    assert_eq!(
+        interrupted,
+        ChildRow {
+            status: ChildStatus::Error,
+            error: Some(error.to_owned()),
+            settled: true,
+            ..row.clone()
+        }
+    );
+    assert_eq!(
+        user_texts(&second.root, "[child-").await,
+        [format!(
+            "[child-failed: interrupted child:{}]\n\n{error}",
+            row.session_name
+        )]
+    );
+    assert_eq!(lock(&host.state).polls, 2);
+    second.harness.close(cx()).await.unwrap();
 }

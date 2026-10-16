@@ -743,6 +743,21 @@ fn restart_relists_child(delay_ms: u64, display_status: &str) {
         .or_else(|| parent["id"].as_str())
         .expect("parent active session id")
         .to_string();
+    // The restarted parent's watch looks at its child once the session
+    // reopens (H5): a child whose run the restart interrupted turns
+    // `error` on the parent's roster then. The probe lists after that
+    // look, which runs beside the probe turn.
+    let relisted = if display_status == "completed" {
+        "done"
+    } else {
+        "error"
+    };
+    wait_until(&mut client, Duration::from_secs(30), |client| {
+        rlm_children_rows(client, "g-relisted", &new_parent_id)
+            .iter()
+            .any(|row| row["id"] == child_id && row["status"] == relisted)
+            .then_some(())
+    });
 
     run_turn(
         &mut client,

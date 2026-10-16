@@ -362,11 +362,16 @@ it. Regression tests (`harness::generation::tests`):
 3. `CHILD_POLL_FAILURES` (5) failed polls in a row, while the child's
    worker lives or restarts, report the child as unreachable. Each failed
    poll doubles the pause before the next (2 s, 4 s, ... 32 s), so they
-   span a minute. A worker that is gone settles the child at once
-   (`worker-exited`). A stalled or unreachable child's run is aborted and
-   then its agent is stopped through the `rlm` kill path (a plain kill:
-   its worker is released, its session stays and a later prompt wakes
-   it).
+   span a minute. The pause is the polling session's own: a reopened
+   parent polls at once, since only a poll tells it that the child's run
+   was interrupted while it was down (fixed: a restarted parent waited
+   out the pause its closed session scheduled, 4 s after a poll the
+   daemon's own shutdown failed, and its roster read the interrupted
+   child as `running` meanwhile). A worker that is gone settles the child
+   at once (`worker-exited`). A stalled or unreachable child's run is
+   aborted and then its agent is stopped through the `rlm` kill path (a
+   plain kill: its worker is released, its session stays and a later
+   prompt wakes it).
 4. A report is delivered once: a resend has the same request id, and the
    parent drops a request id it knows. One rule delivers it: submit, wait
    until the submission settles, end once it is placed, and submit again
@@ -412,7 +417,8 @@ Rust (paths from `crates/`):
 - `eukhe-core/src/durable/children/watch.rs`: `Vigil::judge`, the pure
   verdict (`look`); `CHILD_POLL_FAILURES`.
 - `eukhe-core/src/durable/children/task.rs`: the `watch` phase keeps the
-  `Vigil` in its checkpoint, aborts then stops a stuck child
+  `Vigil` in its checkpoint, skips the pause on its first poll in a
+  session (`ChildrenServices.polled`), aborts then stops a stuck child
   (`host.cancel`, `host.stop`) and reports it
   `Failed{stalled|unreachable}`; `watched_next` is its next state; the
   `report` phase follows `report_step`, the one report rule (`owe`), on

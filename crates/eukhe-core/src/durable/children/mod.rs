@@ -101,6 +101,7 @@ impl Children {
             semantic_edges: config.semantic_edges,
             closing: config.closing,
             settings: config.settings,
+            polled: std::sync::Mutex::default(),
         });
         let task = child_task(&services);
         Arc::new(Self {

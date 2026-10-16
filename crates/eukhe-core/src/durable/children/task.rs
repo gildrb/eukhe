@@ -4,9 +4,10 @@
 //!
 //! Phases: `spawn` (host create under the identity derived from the task
 //! id), `prompt` (at once, while the spawning tool call may still run),
-//! `watch` (host long-poll; a durable deadline between polls; child usage
-//! attributed per poll; the watch's clock ([`Vigil`]) reports a child with
-//! no progress for `subagentStallMs` as stalled and one whose polls fail
+//! `watch` (host long-poll; a pause between polls, which a reopened
+//! parent's first poll skips; child usage attributed per poll; the watch's
+//! clock ([`Vigil`]) reports a child with no progress for
+//! `subagentStallMs` as stalled and one whose polls fail
 //! [`CHILD_POLL_FAILURES`] times in a row as unreachable), `report` (a
 //! follow-up input to the parent with a request id, so a rerun cannot
 //! report twice, held until it reaches the parent's transcript and
@@ -16,7 +17,8 @@
 //! the bridge test runs their decisions ([`watched_next`],
 //! [`report_step`], [`owed_on_abort`]) against its `step`.
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
@@ -83,6 +85,9 @@ pub(crate) struct ChildrenServices {
     pub(crate) closing: SessionClosing,
     /// The session settings: `subagentStallMs`, the blocking budget.
     pub(crate) settings: Arc<EukheSettings>,
+    /// The child tasks whose watch polled since this session opened (by
+    /// task id): the pause before a re-poll is this session's own.
+    pub(crate) polled: Mutex<HashSet<u64>>,
 }
 
 /// Input of one child task (the validated `rlm.spawn` request).
@@ -139,7 +144,8 @@ pub(crate) enum ChildCheckpoint {
     #[serde(rename_all = "camelCase")]
     Watch {
         poll: u64,
-        /// Harness clock before which the next poll does not start.
+        /// Harness clock before which the next poll of this session does
+        /// not start (a reopened parent's first poll runs at once).
         next_poll_at: f64,
         /// The watch's clock on the child (absent in checkpoints stored
         /// before it: a fresh clock).
@@ -574,7 +580,8 @@ fn watched_next(watched: Watched, poll: u64, now: f64, row: &mut ChildRow) -> Ne
 /// attributed usage, the watch's clock, the next deadline), so a restarted
 /// parent resumes the watch where it stopped and never bills a child
 /// twice. The clock counts the time of this invocation only: a parent's
-/// own downtime is not the child's.
+/// own downtime is not the child's. The pause before a re-poll is the
+/// polling session's: a reopened parent's first poll runs at once.
 async fn watch(
     services: Arc<ChildrenServices>,
     task: Running,
@@ -592,8 +599,20 @@ async fn watch(
         ));
     };
     let started = runtime.now()?;
-    runtime.sleep(next_poll_at, &cx).await?;
     let task_id = task.id.erase();
+    // Only a poll tells a reopened (restarted) parent whether the child's
+    // run was interrupted while it was down (H5), so its first poll does
+    // not wait out a pause the closed session scheduled: after a poll the
+    // daemon's own shutdown failed, that was 4 s (up to 32 s), and the
+    // restarted roster read the interrupted child as `running` meanwhile.
+    let first_poll = services
+        .polled
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(task_id.get());
+    if !first_poll {
+        runtime.sleep(next_poll_at, &cx).await?;
+    }
     let identity = child_identity(&services.parent_session_id, task_id);
     // The long poll yields to an abort mark or a closing Harness: the
     // invocation is joined before the abort handler runs.
