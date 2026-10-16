@@ -465,6 +465,68 @@ fn a_foreign_protocol_daemon_is_stopped_and_replaced() {
     assert_eq!(identity(&read_hello(&socket)), current_identity());
 }
 
+/// A supervisor of this very build is current everywhere: `status --json`
+/// reports it `current` with this build's identity, and a second client
+/// start uses it instead of replacing it (the same supervisor pid keeps
+/// the socket). A daemon judged stale here would be shut down and
+/// respawned on every client start.
+#[test]
+fn a_daemon_of_this_build_is_current_and_kept_by_the_next_client_start() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path();
+    // Inside the root's agent dir: the invocation's state root owns it.
+    let socket = root.join("agent").join("d.sock");
+    let _daemon = DetachedDaemon {
+        socket: socket.clone(),
+    };
+
+    assert_eq!(
+        launcher_report(&run_launcher(root, &socket)),
+        vec!["ready: Current".to_string(), "notice: None".to_string()]
+    );
+    let hello = read_hello(&socket);
+    let supervisor_pid = hello["supervisorPid"].as_u64().expect("supervisor pid");
+    assert_eq!(
+        hello["runtime"]["buildId"],
+        json!(eukhe_build_info::DAEMON_BUILD_ID)
+    );
+
+    let (status, code) = run_discovery(root, &socket, &["status", "--json"]);
+    assert_eq!(code, Some(0));
+    let row = &status[0];
+    assert_eq!(
+        json!({
+            "socketPath": row["socketPath"],
+            "pid": row["pid"],
+            "version": row["version"],
+            "protocolVersion": row["protocolVersion"],
+            "schemaId": row["schemaId"],
+            "buildId": row["buildId"],
+            "status": row["status"],
+        }),
+        json!({
+            "socketPath": socket.display().to_string(),
+            "pid": supervisor_pid,
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocolVersion": eukhe_types::daemon::DAEMON_PROTOCOL_VERSION,
+            "schemaId": eukhe_types::daemon::DAEMON_SCHEMA_ID,
+            "buildId": eukhe_build_info::DAEMON_BUILD_ID,
+            "status": "current",
+        }),
+        "status report: {status}"
+    );
+
+    assert_eq!(
+        launcher_report(&run_launcher(root, &socket)),
+        vec!["ready: Current".to_string(), "notice: None".to_string()]
+    );
+    assert_eq!(
+        read_hello(&socket)["supervisorPid"].as_u64(),
+        Some(supervisor_pid),
+        "the next client start must keep the current daemon"
+    );
+}
+
 /// Run a discovery command against the renamed daemon's socket (the way
 /// the user's own default socket is targeted); its JSON report.
 fn run_discovery(root: &Path, socket: &Path, args: &[&str]) -> (Value, Option<i32>) {
