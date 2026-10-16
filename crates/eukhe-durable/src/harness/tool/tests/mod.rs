@@ -1,7 +1,6 @@
 //! Tests of the built-in tool task.
 
 mod callers;
-mod coding;
 mod execution_api;
 mod generation_hooks;
 mod lifetime;

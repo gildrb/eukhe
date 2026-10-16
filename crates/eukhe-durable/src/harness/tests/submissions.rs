@@ -27,7 +27,7 @@ use crate::harness::types::{
 use crate::harness::AbortSubmissionResult;
 use crate::session::tests::support::ControlledStorage;
 use crate::session::SessionError;
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::{jsonl, store_path};
 use crate::types::{
     AnyTaskRecord, ConversationId, ConversationOwnership, ConversationQuery, ConversationRecord,
     Cursor, DocumentAddress, DocumentId, DocumentPoint, DocumentQuery, DocumentRecord, EntryDraft,
@@ -43,25 +43,6 @@ fn json(text: &str) -> JsonValue {
 
 fn controlled() -> Arc<dyn Storage> {
     ControlledStorage::new()
-}
-
-/// A sqlite path in a fresh temp directory; the directory lives as long as
-/// the returned guard (TS `afterEach` removes it).
-fn sqlite_path() -> (tempfile::TempDir, std::path::PathBuf) {
-    let directory = tempfile::Builder::new()
-        .prefix("pi-durable-submissions-")
-        .tempdir()
-        .expect("temp dir");
-    let path = directory.path().join("session.sqlite");
-    (directory, path)
-}
-
-async fn sqlite(path: &std::path::Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .expect("open sqlite storage"),
-    )
 }
 
 fn answer(text: &str) -> AssistantMessage {
@@ -568,14 +549,14 @@ async fn rejects_a_wait_whose_submission_read_spans_the_start_of_close() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn reacquires_a_submission_after_reopen_and_settles_it_durably() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     // The first process never answers; the reopened one does.
     let busy = unanswered();
     setup
         .faux
         .set_responses(vec![busy.step.clone(), answer("after reopen").into()]);
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     let id = opened
         .root
         .submit(input_with_request("hi", "print"), context())
@@ -585,7 +566,7 @@ async fn reacquires_a_submission_after_reopen_and_settles_it_durably() {
     busy.reached().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     let submission = opened
         .harness
         .submission(id, context())
@@ -608,7 +589,7 @@ async fn reacquires_a_submission_after_reopen_and_settles_it_durably() {
     );
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     let reacquired = opened
         .harness
         .submission(id, context())

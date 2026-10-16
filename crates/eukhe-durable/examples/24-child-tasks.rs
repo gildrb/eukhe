@@ -14,7 +14,7 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::harness::types::{Extension, HarnessOptions};
 use eukhe_durable::harness::{Conversation, Harness, RootOptions, TaskGraphNode, TaskGraphState};
-use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use eukhe_durable::types::{
     JoinPolicy, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError, TaskOutcomeStatus,
@@ -284,12 +284,8 @@ fn checkout_task(payment: &Payment, console: Console) -> Checkout {
     )
 }
 
-async fn open(
-    path: &std::path::Path,
-    registry: &Registry,
-    cx: &Context,
-) -> Result<Harness, BoxError> {
-    let storage = open_native_sqlite_storage(path, NativeSqliteStorageOptions::default()).await?;
+async fn open(directory: &str, registry: &Registry, cx: &Context) -> Result<Harness, BoxError> {
+    let storage = open_native_jsonl_storage(directory, cx, JsonlStorageOptions::default()).await?;
     let options = HarnessOptions::new(
         create_models(CreateModelsOptions::default()),
         Arc::new(registry.clone()),
@@ -397,9 +393,10 @@ pub async fn run(
     let directory = tempfile::Builder::new()
         .prefix("pi-durable-example-")
         .tempdir()?;
-    let database_path = directory.path().join("session.sqlite");
+    let storage_path = directory.path().join("session");
+    let storage_path = storage_path.to_str().ok_or("temp path is not UTF-8")?;
 
-    let mut harness = open(&database_path, &registry, cx).await?;
+    let mut harness = open(storage_path, &registry, cx).await?;
     let mut root = harness.root(RootOptions::default(), cx).await?;
 
     console.log("One card is declined:");
@@ -455,7 +452,7 @@ pub async fn run(
     .await?;
     tokio::time::sleep(Duration::from_millis(20)).await;
     harness.close(cx).await?;
-    harness = open(&database_path, &registry, cx).await?;
+    harness = open(storage_path, &registry, cx).await?;
     root = harness.root(RootOptions::default(), cx).await?;
     let settled = harness.wait_for_task(id, cx).await?;
     console.log(format!(

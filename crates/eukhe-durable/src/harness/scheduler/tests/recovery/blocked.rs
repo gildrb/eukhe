@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::json::{from_json, JsonValue};
 
-use super::{create_in, sqlite, sqlite_path, until, versioned, Step};
+use super::{create_in, jsonl, store_path, until, versioned, Step};
 use crate::documents::{DocDefinition, TaskDoc};
 use crate::harness::tests::support::{
     add_task, add_tool, context, create_registry, tool_described,
@@ -118,8 +118,8 @@ async fn keeps_a_task_stored_by_a_newer_version_pending_until_a_fitting_definiti
 #[tokio::test]
 async fn migrates_at_reservation_leaves_the_record_unchanged_when_migration_fails_and_retries_only_for_a_new_definition(
 ) {
-    let (_directory, path) = sqlite_path();
-    let opened = open_tasks(sqlite(&path).await, &[], OpenTasksOptions::default()).await;
+    let (_directory, path) = store_path();
+    let opened = open_tasks(jsonl(&path).await, &[], OpenTasksOptions::default()).await;
     let id = create_in(&opened.harness, &versioned(1, "v1", None)).await;
     opened.harness.close(context()).await.unwrap();
 
@@ -140,7 +140,7 @@ async fn migrates_at_reservation_leaves_the_record_unchanged_when_migration_fail
     )
     .unwrap();
     let opened = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         &[],
         OpenTasksOptions {
             registry: Some(registry.clone()),
@@ -205,12 +205,12 @@ async fn migrates_at_reservation_leaves_the_record_unchanged_when_migration_fail
 
 #[tokio::test]
 async fn blocks_an_older_record_whose_newer_definition_has_no_migration() {
-    let (_directory, path) = sqlite_path();
-    let opened = open_tasks(sqlite(&path).await, &[], OpenTasksOptions::default()).await;
+    let (_directory, path) = store_path();
+    let opened = open_tasks(jsonl(&path).await, &[], OpenTasksOptions::default()).await;
     let id = create_in(&opened.harness, &versioned(1, "v1", None)).await;
     opened.harness.close(context()).await.unwrap();
     let opened = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         &[versioned(2, "v2", None)],
         OpenTasksOptions::default(),
     )
@@ -340,9 +340,9 @@ async fn orphans_a_marked_task_whose_definition_disappeared_while_its_run_was_ac
 
 #[tokio::test]
 async fn orphans_a_reopened_abort_marked_task_without_a_definition_once_scheduling_resumes() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let opened = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         &[versioned(1, "x", None)],
         OpenTasksOptions::default(),
     )
@@ -354,7 +354,7 @@ async fn orphans_a_reopened_abort_marked_task_without_a_definition_once_scheduli
     );
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_tasks(sqlite(&path).await, &[], OpenTasksOptions::default()).await;
+    let opened = open_tasks(jsonl(&path).await, &[], OpenTasksOptions::default()).await;
     let record = opened
         .harness
         .get_task(id, context())

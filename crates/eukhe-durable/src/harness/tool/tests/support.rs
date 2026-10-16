@@ -18,10 +18,10 @@ use futures::future::BoxFuture;
 
 use crate::entries::TOOL_RESULT_ENTRY;
 use crate::harness::define::define_tool;
-use crate::harness::tests::chat_support::{all_entries, open_chat, ChatEnv, ChatSetup, OpenChat};
+use crate::harness::tests::chat_support::{all_entries, open_chat, ChatSetup, OpenChat};
 use crate::harness::tests::support::context;
 use crate::harness::types::{
-    InputSubmissionDraft, ToolExecutionApi, ToolExecutionResult, ToolRegistration,
+    EnvFactory, InputSubmissionDraft, ToolExecutionApi, ToolExecutionResult, ToolRegistration,
 };
 use crate::harness::{Conversation, Harness};
 use crate::session::SessionResult;
@@ -114,7 +114,7 @@ pub(crate) async fn run_with(
     setup: &ChatSetup,
     responses: Vec<FauxResponseStep>,
     prepare: Option<Prepare>,
-    env: Option<ChatEnv>,
+    env: Option<EnvFactory>,
 ) -> Run {
     setup.faux.set_responses(responses);
     let OpenChat { harness, root } = open_chat(Arc::new(MemoryStorage::new()), setup, env)

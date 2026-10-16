@@ -1,4 +1,4 @@
-//! Examples 24–31: child tasks, compaction, and coding-agent setups. Each test
+//! Examples 24, 25, and 31: child tasks, compaction, and reload. Each test
 //! runs the example into a buffer and asserts what the TS example prints
 //! (`test/examples/NN-*.ts`), with arrays and objects printed as JSON.
 
@@ -8,21 +8,6 @@ mod ex24_child_tasks;
 #[expect(dead_code, reason = "`main` only serves `cargo run --example`")]
 #[path = "../../examples/25-compaction.rs"]
 mod ex25_compaction;
-#[expect(dead_code, reason = "`main` only serves `cargo run --example`")]
-#[path = "../../examples/26-coding-agent.rs"]
-mod ex26_coding_agent;
-#[expect(dead_code, reason = "`main` only serves `cargo run --example`")]
-#[path = "../../examples/27-plan-mode.rs"]
-mod ex27_plan_mode;
-#[expect(dead_code, reason = "`main` only serves `cargo run --example`")]
-#[path = "../../examples/28-reviewer.rs"]
-mod ex28_reviewer;
-#[expect(dead_code, reason = "`main` only serves `cargo run --example`")]
-#[path = "../../examples/29-sandbox-per-conversation.rs"]
-mod ex29_sandbox_per_conversation;
-#[expect(dead_code, reason = "`main` only serves `cargo run --example`")]
-#[path = "../../examples/30-tool-override.rs"]
-mod ex30_tool_override;
 #[expect(dead_code, reason = "`main` only serves `cargo run --example`")]
 #[path = "../../examples/31-reload-and-restart.rs"]
 mod ex31_reload_and_restart;
@@ -64,8 +49,8 @@ fn sort_payment_aborts(printed: &str) -> String {
 /// aborts the sibling payments when the expired card fails; whether a
 /// sibling's charge phase had already run (and so refunds) depends on how its
 /// invocation was scheduled against that failure. One JS event loop starts
-/// every charge first; parallel invocations and the SQLite worker thread do
-/// not guarantee it.
+/// every charge first; parallel invocations and async storage I/O do not
+/// guarantee it.
 fn without_declined_refunds(printed: &str) -> String {
     let mut declined = false;
     printed.lines().fold(String::new(), |mut text, line| {
@@ -234,64 +219,6 @@ async fn compaction() {
         ],
     ));
     assert_eq!(printed!(ex25_compaction), expected);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn coding_agent() {
-    let printed = printed!(ex26_coding_agent);
-    let lines: Vec<&str> = printed.lines().collect();
-    assert_eq!(lines.len(), 2, "{printed}");
-    let workspace = lines[0]
-        .strip_prefix("bash ran in: ")
-        .expect("the first line names the directory");
-    assert!(
-        workspace.contains("/pi-durable-agent-"),
-        "bash ran in the workspace: {workspace}"
-    );
-    assert_eq!(lines[1], format!("bash ran in: {workspace}/app"));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn plan_mode() {
-    assert_eq!(
-        printed!(ex27_plan_mode),
-        r#"tools: ["read","write","edit","bash"]
-plan mode tools: ["read","submit_plan"]
-plan: ["Read PORT from the environment","Default to 3000"]
-tools again: ["read","write","edit","bash"]
-system: {"sections":{"plan_mode":"<plan_mode>\nYou are in plan mode. Read the code, then call submit_plan. Change nothing.\n</plan_mode>"},"added":["read","submit_plan"]}
-system: {"sections":{"plan_mode":null},"added":["write","edit","bash"],"removed":["submit_plan"]}
-"#
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn reviewer() {
-    assert_eq!(
-        printed!(ex28_reviewer),
-        r#"reviewer: small ["coding-tools","reviewer"] ["read"] true
-> Review user.ts.
-reviewer: 1. `name` does not handle a missing user.
-> Look again for anything you missed. Say "No further findings." when there is nothing left.
-reviewer: 2. `user` has no type. No further findings.
-"#
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn sandbox_per_conversation() {
-    assert_eq!(
-        printed!(ex29_sandbox_per_conversation),
-        "alice's sandbox: from alice\nbob's sandbox: from bob\n"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn tool_override() {
-    assert_eq!(
-        printed!(ex30_tool_override),
-        "plain conversation: venv:\npython conversation: venv: <project>/.venv\ntimed bash calls: 2\n"
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

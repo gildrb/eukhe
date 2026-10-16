@@ -12,9 +12,8 @@ use super::nested_support::{
     call, codes, direct, json, lock, nested, probe, returning, run_probe, Received,
 };
 use super::support::{done, submit_and_wait};
-use crate::env::{ExecutionEnv, NativeExecutionEnv, NativeExecutionEnvOptions};
 use crate::harness::events::{watch_events, AgentEvent};
-use crate::harness::tests::chat_support::{chat_setup, open_chat, ChatEnv, ChatSetup};
+use crate::harness::tests::chat_support::{chat_setup, open_chat, ChatSetup};
 use crate::harness::tests::support::{add_hooks, add_tool, context, tool_task};
 use crate::harness::tool::NESTED_RESULT_DOC;
 use crate::harness::types::{
@@ -22,7 +21,6 @@ use crate::harness::types::{
     ToolHooks, ToolRegistration,
 };
 use crate::storage::MemoryStorage;
-use crate::tools::{create_bash_tool, BashToolOptions};
 use crate::types::{CommitChange, DocumentCommitChange};
 
 fn setup() -> ChatSetup {
@@ -431,55 +429,4 @@ async fn keeps_structured_output_when_after_tool_replaces_the_output_and_validat
         codes(&received[2].diagnostics),
         [Some("invalid_structured_output")]
     );
-}
-
-#[tokio::test]
-async fn gives_callers_of_bash_its_retained_output_and_exit_code_also_for_a_nonzero_exit() {
-    let directory = tempfile::Builder::new()
-        .prefix("pi-durable-structured-")
-        .tempdir()
-        .expect("temp dir");
-    let setup = setup();
-    add_tool(
-        &setup.registry,
-        create_bash_tool(BashToolOptions::default()),
-        None,
-    )
-    .unwrap();
-    let (registration, received) = probe(vec![
-        ("bash", serde_json::json!({ "command": "printf ok" })),
-        (
-            "bash",
-            serde_json::json!({ "command": "printf bad; exit 4" }),
-        ),
-    ]);
-    add_tool(&setup.registry, registration, None).unwrap();
-    setup
-        .faux
-        .set_responses(vec![call("probe").into(), done().into()]);
-    let env: Arc<dyn ExecutionEnv> = Arc::new(NativeExecutionEnv::new(NativeExecutionEnvOptions {
-        cwd: directory.path().to_string_lossy().into_owned(),
-        ..NativeExecutionEnvOptions::default()
-    }));
-    let chat = open_chat(
-        Arc::new(MemoryStorage::new()),
-        &setup,
-        Some(ChatEnv::One(env)),
-    )
-    .await
-    .unwrap();
-    submit_and_wait(&chat.root, "go").await;
-    chat.harness.close(context()).await.unwrap();
-    let received = received_all(&received);
-    assert!(!received[0].is_error);
-    assert_eq!(
-        received[0].structured_output,
-        Some(json(r#"{"output":"ok","truncated":false,"exitCode":0}"#))
-    );
-    assert!(received[1].is_error);
-    assert_eq!(
-        received[1].structured_output,
-        Some(json(r#"{"output":"bad","truncated":false,"exitCode":4}"#))
-    );
-    assert_eq!(codes(&received[1].diagnostics), [Some("exit_code")]);
 }

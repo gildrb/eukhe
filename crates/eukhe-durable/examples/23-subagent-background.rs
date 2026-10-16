@@ -35,7 +35,7 @@ use eukhe_durable::harness::{
     ConversationEntryQuery, Harness, RootOptions, LIVE_DOC,
 };
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
-use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use eukhe_durable::types::{
     ConversationId, ConversationOwnership, DocumentReaderExt, EntryId, JsonObject, LatestFork,
@@ -719,11 +719,10 @@ async fn open(
     model: &ModelRef,
 ) -> Result<(Harness, Conversation), BoxError> {
     let context = &*BACKGROUND_CONTEXT;
-    let storage = open_native_sqlite_storage(
-        &directory.join("session.sqlite"),
-        NativeSqliteStorageOptions::default(),
-    )
-    .await?;
+    let directory = directory.join("session");
+    let directory = directory.to_str().ok_or("temp path is not UTF-8")?;
+    let storage =
+        open_native_jsonl_storage(directory, context, JsonlStorageOptions::default()).await?;
     let harness = Harness::open(
         Arc::new(storage),
         HarnessOptions::new(models.clone(), Arc::new(registry.clone())),

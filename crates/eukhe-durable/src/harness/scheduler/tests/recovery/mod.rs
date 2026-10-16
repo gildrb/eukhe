@@ -9,7 +9,6 @@ mod crash;
 mod handover;
 mod open;
 
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_chord::json::JsonValue;
@@ -19,29 +18,9 @@ use crate::harness::tests::support::context;
 use crate::harness::tests::task_support::{aborted_with, completed, eventually};
 use crate::harness::{Harness, RootOptions};
 use crate::session::SessionResult;
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::{jsonl, store_path};
 use crate::tasks::{define_task, AnyTask, Migrated, TaskDefinition};
-use crate::types::{Storage, TaskId, TaskOptions, TaskOwnership};
-
-/// TS `sqlitePath()`: a fresh directory (removed when dropped, the TS
-/// `afterEach`) and the database path inside it.
-fn sqlite_path() -> (tempfile::TempDir, PathBuf) {
-    let directory = tempfile::Builder::new()
-        .prefix("pi-durable-tasks-")
-        .tempdir()
-        .expect("create a temp dir");
-    let path = directory.path().join("session.sqlite");
-    (directory, path)
-}
-
-/// TS `openNodeSqliteStorage(path)`.
-async fn sqlite(path: &Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .expect("open the SQLite storage"),
-    )
-}
+use crate::types::{TaskId, TaskOptions, TaskOwnership};
 
 /// TS `createIn(harness, task)`: create `task` with `null` input in the root
 /// conversation.

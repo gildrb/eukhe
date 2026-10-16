@@ -15,7 +15,6 @@ use futures::FutureExt;
 use tokio::sync::watch;
 
 use super::support::{context, create_models, create_registry};
-use crate::env::ExecutionEnv;
 use crate::harness::registry::Registry;
 use crate::harness::types::{
     AgentChange, Clock, EnvFactory, FieldChange, HarnessOptions, LiveSettings, ModelRef,
@@ -95,12 +94,6 @@ pub(crate) fn chat_setup(options: RegisterFauxProviderOptions) -> ChatSetup {
     }
 }
 
-/// One environment for every conversation, or an `env` function.
-pub(crate) enum ChatEnv {
-    One(Arc<dyn ExecutionEnv>),
-    Factory(EnvFactory),
-}
-
 /// A Harness and its root conversation.
 pub(crate) struct OpenChat {
     pub(crate) harness: Harness,
@@ -112,16 +105,11 @@ pub(crate) struct OpenChat {
 pub(crate) async fn open_chat(
     storage: Arc<dyn Storage>,
     setup: &ChatSetup,
-    env: Option<ChatEnv>,
+    env: Option<EnvFactory>,
 ) -> SessionResult<OpenChat> {
     let mut options = HarnessOptions::new(setup.models.clone(), Arc::new(setup.registry.clone()));
     options.settings = Some(Arc::clone(&setup.settings) as _);
-    options.env = env.map(|env| match env {
-        ChatEnv::Factory(factory) => factory,
-        ChatEnv::One(env) => Arc::new(move |_, _: &Context| {
-            futures::future::ready(Ok(Some(Arc::clone(&env)))).boxed()
-        }) as EnvFactory,
-    });
+    options.env = env;
     let clock = Arc::clone(&setup.now);
     options.now = Some(Arc::new(move || {
         let now = Arc::clone(&clock.lock().unwrap_or_else(PoisonError::into_inner));

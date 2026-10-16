@@ -2,7 +2,7 @@
 //!
 //! TS checks the import graph of each portable entry point for Node
 //! built-ins. The Rust equivalent is source-level: the portable modules must
-//! not reach the native adapters (`rusqlite`, `NativeExecutionEnv`, the
+//! not reach the native adapters (`NativeExecutionEnv`, the
 //! `native` submodules), which own every OS-specific dependency.
 
 use std::path::Path;
@@ -31,28 +31,7 @@ fn keeps_the_package_root_limited_to_portable_core_storage() {
         "ids.rs",
         "errors.rs",
     ] {
-        assert_free_of(
-            file,
-            &[
-                "crate::env",
-                "storage::jsonl",
-                "storage::sqlite",
-                "rusqlite",
-                "jsonl::",
-                "sqlite::",
-            ],
-        );
-    }
-}
-
-#[test]
-fn keeps_the_portable_sqlite_subpath_free_of_native_imports() {
-    for file in [
-        "storage/sqlite/database.rs",
-        "storage/sqlite/migrations.rs",
-        "storage/sqlite/storage.rs",
-    ] {
-        assert_free_of(file, &["rusqlite", "native", "crate::env"]);
+        assert_free_of(file, &["crate::env", "storage::jsonl", "jsonl::"]);
     }
 }
 
@@ -74,6 +53,6 @@ fn keeps_the_portable_environment_subpath_free_of_native_imports() {
 fn keeps_the_portable_jsonl_subpath_free_of_native_imports() {
     assert_free_of(
         "storage/jsonl/storage.rs",
-        &["NativeExecutionEnv", "env::native", "rusqlite", "std::fs"],
+        &["NativeExecutionEnv", "env::native", "std::fs"],
     );
 }

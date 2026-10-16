@@ -1,6 +1,6 @@
 //! Record identifiers and commit sequences (`types.ts` `Id`, `Seq`).
 //!
-//! IDs are plain numbers in memory, JSON, JSONL, and SQLite; the Rust newtypes
+//! IDs are plain numbers in memory, JSON, and JSONL; the Rust newtypes
 //! only keep record kinds apart at compile time, like the TS brands. Every ID
 //! kind shares the one Session-global numeric namespace that
 //! [`Storage::mint_id`](crate::types::Storage::mint_id) allocates from.

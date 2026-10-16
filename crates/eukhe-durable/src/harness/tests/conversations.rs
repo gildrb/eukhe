@@ -24,7 +24,7 @@ use crate::harness::types::{
 use crate::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 use crate::session::tests::support::ControlledStorage;
 use crate::session::{create_session, DocumentState, SessionError, SessionResult, Tx};
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::{jsonl, store_path};
 use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, Task, TaskDefinition};
 use crate::types::{
@@ -55,25 +55,6 @@ fn is_uuid_v7(text: &str) -> bool {
             19 => matches!(byte, b'8' | b'9' | b'a' | b'b'),
             _ => matches!(byte, b'0'..=b'9' | b'a'..=b'f'),
         })
-}
-
-/// A sqlite path in a fresh temp directory; the directory lives as long as
-/// the returned guard (TS `afterEach` removes it).
-fn sqlite_path() -> (tempfile::TempDir, std::path::PathBuf) {
-    let directory = tempfile::Builder::new()
-        .prefix("pi-durable-harness-")
-        .tempdir()
-        .expect("temp dir");
-    let path = directory.path().join("session.sqlite");
-    (directory, path)
-}
-
-async fn sqlite(path: &std::path::Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .expect("open sqlite storage"),
-    )
 }
 
 const NOTE_DOC: RewindableConversationDoc<JsonValue> = match RewindableConversationDoc::define(
@@ -342,14 +323,11 @@ async fn creates_the_root_lazily_with_its_agent_change_and_init_in_one_commit() 
 
 #[tokio::test]
 async fn keeps_root_and_conversation_identity_and_state_across_reopen() {
-    let (_directory, path) = sqlite_path();
-    let (harness, _registry) = open_harness(
-        sqlite(&path).await,
-        &["read"],
-        OpenHarnessOptions::default(),
-    )
-    .await
-    .unwrap();
+    let (_directory, path) = store_path();
+    let (harness, _registry) =
+        open_harness(jsonl(&path).await, &["read"], OpenHarnessOptions::default())
+            .await
+            .unwrap();
     let root = harness
         .root(RootOptions::default(), context())
         .await
@@ -384,10 +362,9 @@ async fn keeps_root_and_conversation_identity_and_state_across_reopen() {
     assert!(root.agent(context()).await.is_err());
 
     // The new process installs nothing: the stored choices survive, the tools do not resolve.
-    let (harness, _registry) =
-        open_harness(sqlite(&path).await, &[], OpenHarnessOptions::default())
-            .await
-            .unwrap();
+    let (harness, _registry) = open_harness(jsonl(&path).await, &[], OpenHarnessOptions::default())
+        .await
+        .unwrap();
     let reopened = harness
         .root(
             RootOptions {

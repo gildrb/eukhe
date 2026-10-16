@@ -26,7 +26,7 @@ mod waiting;
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use eukhe_chord::context::Context;
@@ -34,7 +34,6 @@ use eukhe_chord::json::{to_json, JsonValue};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
-use tempfile::TempDir;
 
 use crate::documents::{DocDefinition, TaskDoc};
 use crate::harness::registry::Registry;
@@ -46,7 +45,7 @@ use crate::harness::tests::task_support::{
 use crate::harness::types::TaskInspectionState;
 use crate::harness::{Conversation, Harness, RootOptions};
 use crate::session::{create_session, SessionError, SessionResult, Tx};
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+pub(super) use crate::storage::test_support::{jsonl, store_path};
 use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, AnyTask, NextTaskState, Task, TaskDefinition, TaskRuntime};
 use crate::types::{
@@ -763,25 +762,6 @@ pub(super) fn assert_rejects<T: std::fmt::Debug>(result: SessionResult<T>, text:
 
 // ─── Recovery helpers ───────────────────────────────────────────────────────
 
-/// TS `sqlitePath()`: a fresh directory, removed when the guard drops.
-pub(super) fn sqlite_path() -> (TempDir, PathBuf) {
-    let directory = tempfile::Builder::new()
-        .prefix("pi-durable-structured-")
-        .tempdir()
-        .expect("create a temp directory");
-    let path = directory.path().join("session.sqlite");
-    (directory, path)
-}
-
-/// TS `openNodeSqliteStorage(path)`.
-pub(super) async fn sqlite(path: &Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .expect("open SQLite storage"),
-    )
-}
-
 /// What a crash left: `parent` with its children.
 pub(super) struct Seeded {
     pub(super) parent: TaskId,
@@ -815,10 +795,7 @@ pub(super) async fn seed(
     children: &[&'static str],
     edit: impl FnOnce(&Seeded) -> Vec<Patch>,
 ) -> Seeded {
-    let session = create_session(
-        sqlite(path).await,
-        crate::session::SessionOptions::default(),
-    );
+    let session = create_session(jsonl(path).await, crate::session::SessionOptions::default());
     let (node, children) = (script.node().clone(), children.to_vec());
     let (parent, children) = session
         .commit(

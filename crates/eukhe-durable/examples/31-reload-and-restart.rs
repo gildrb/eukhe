@@ -21,7 +21,7 @@ use eukhe_durable::harness::types::{
     ModelRef, ToolExecutionResult, ToolRegistration,
 };
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
-use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_types::pi_ai::{Message, StopReason, TextContent, UserContentBlock};
 use tokio::sync::{oneshot, watch};
 
@@ -98,11 +98,9 @@ async fn open(
     registry: &Registry,
     cx: &Context,
 ) -> Result<Harness, BoxError> {
-    let storage = open_native_sqlite_storage(
-        directory.join("session.sqlite"),
-        NativeSqliteStorageOptions::default(),
-    )
-    .await?;
+    let directory = directory.join("session");
+    let directory = directory.to_str().ok_or("temp path is not UTF-8")?;
+    let storage = open_native_jsonl_storage(directory, cx, JsonlStorageOptions::default()).await?;
     let options = HarnessOptions::new(models.clone(), Arc::new(registry.clone()));
     Ok(Harness::open(Arc::new(storage), options, cx).await?)
 }

@@ -243,13 +243,14 @@ fn materialize(
     if !is_alive_at(&stored.record, at) {
         return Ok(None);
     }
-    let revisions: Vec<&DocumentRevision> = match at {
-        DocumentPoint::Current => stored.revisions.iter().collect(),
-        DocumentPoint::At(at) => stored
-            .revisions
-            .iter()
-            .filter(|revision| revision.seq <= at)
-            .collect(),
+    // Revisions are appended in commit order, so those at or before `at` are a prefix.
+    let revisions = match at {
+        DocumentPoint::Current => &stored.revisions[..],
+        DocumentPoint::At(at) => {
+            &stored.revisions[..stored
+                .revisions
+                .partition_point(|revision| revision.seq <= at)]
+        }
     };
     let Some(base_index) = revisions
         .iter()

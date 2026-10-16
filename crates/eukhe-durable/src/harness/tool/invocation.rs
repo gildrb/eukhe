@@ -36,11 +36,11 @@ use crate::harness::types::{
 };
 use crate::session::{DocumentWatch, SessionError, SessionResult};
 use crate::tasks::{AnyTask, SettledTask};
-use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 use crate::types::{
     AnyTaskRecord, ConversationId, DocumentObserver, DocumentReader, DocumentReaderExt, EntryId,
     TaskId, TaskOptions, TaskOwnership,
 };
+use crate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 
 /// What a running tool reported through its api: output, the last details,
 /// and diagnostics.

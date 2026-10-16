@@ -1,6 +1,6 @@
 //! "compaction recovery" and "blocked compaction".
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::providers::faux::RegisterFauxProviderOptions;
@@ -22,26 +22,14 @@ use crate::harness::tests::task_support::{aborted, deferred};
 use crate::harness::types::{
     CompactionHooks, CompactionPolicy, CompactionReason, TaskBlockedReason, TaskInspectionState,
 };
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::jsonl;
 use crate::tasks::{define_task, TaskDefinition};
 use crate::types::{
-    Storage, StorageWrite, SubmissionStatus, TaskOptions, TaskOutcome, TaskOwnership, TaskState,
+    StorageWrite, SubmissionStatus, TaskOptions, TaskOutcome, TaskOwnership, TaskState,
 };
 
-async fn sqlite(path: &Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .unwrap(),
-    )
-}
-
-fn sqlite_path(directory: &tempfile::TempDir) -> PathBuf {
-    directory.path().join("session.sqlite")
-}
-
 async fn reopen(path: &Path, setup: Arc<ChatSetup>, faux: Script) -> Chat {
-    let OpenChat { harness, root } = open_chat(sqlite(path).await, &setup, None).await.unwrap();
+    let OpenChat { harness, root } = open_chat(jsonl(path).await, &setup, None).await.unwrap();
     harness.resume().unwrap();
     Chat {
         harness,
@@ -53,7 +41,7 @@ async fn reopen(path: &Path, setup: Arc<ChatSetup>, faux: Script) -> Chat {
 
 async fn first(path: &Path) -> Chat {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
-    let chat = open_scripted(setup, sqlite(path).await, |setup| {
+    let chat = open_scripted(setup, jsonl(path).await, |setup| {
         set_policy(setup, MANUAL);
         set_retry(setup, 2, 1.0);
     })
@@ -65,7 +53,7 @@ async fn first(path: &Path) -> Chat {
 #[tokio::test]
 async fn repeats_nothing_after_reopen_once_the_summary_is_placed() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = first(&path).await;
     chat.faux.summary(summary("SUMMARY"));
     result(&chat, compact(&chat, None).await).await;
@@ -86,7 +74,7 @@ async fn repeats_nothing_after_reopen_once_the_summary_is_placed() {
 #[tokio::test]
 async fn fails_an_overflow_run_with_its_text_when_its_compaction_fails_after_reopen() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = first(&path).await;
     chat.set_policy(CompactionPolicy {
         enabled: true,
@@ -127,10 +115,10 @@ async fn fails_an_overflow_run_with_its_text_when_its_compaction_fails_after_reo
 #[tokio::test]
 async fn fails_the_run_with_model_error_when_its_blocking_compaction_is_orphaned_after_reopen() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = open(OpenOptions {
         context_window: Some(1000),
-        storage: Some(sqlite(&path).await),
+        storage: Some(jsonl(&path).await),
         ..OpenOptions::default()
     })
     .await;
@@ -156,7 +144,7 @@ async fn fails_the_run_with_model_error_when_its_blocking_compaction_is_orphaned
     chat.harness.close(context()).await.unwrap();
     // Store the compaction as a newer version than this process registers,
     // for example after a downgrade.
-    let storage = sqlite(&path).await;
+    let storage = jsonl(&path).await;
     let mut stored = storage.task(child, context()).await.unwrap().unwrap();
     stored.version = 2;
     storage
@@ -174,7 +162,7 @@ async fn fails_the_run_with_model_error_when_its_blocking_compaction_is_orphaned
 #[tokio::test]
 async fn reruns_select_and_its_hook_after_a_crash_in_select() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = first(&path).await;
     let calls = Arc::new(Mutex::new(0_usize));
     let reached = deferred();
@@ -222,7 +210,7 @@ async fn reruns_select_and_its_hook_after_a_crash_in_select() {
 #[tokio::test]
 async fn resends_an_interrupted_summarization_once_and_counts_only_the_answered_attempt() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = first(&path).await;
     let reached = deferred();
     chat.faux
@@ -270,7 +258,7 @@ async fn resends_an_interrupted_summarization_once_and_counts_only_the_answered_
 #[tokio::test]
 async fn resumes_a_retry_backoff_after_reopen() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = first(&path).await;
     let now = Arc::new(Mutex::new(chat.setup.now()));
     let clock = Arc::clone(&now);
@@ -311,7 +299,7 @@ async fn resumes_a_retry_backoff_after_reopen() {
 #[tokio::test]
 async fn keeps_a_generation_waiting_on_its_blocking_compaction_across_reopen() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = first(&path).await;
     let reached = deferred();
     chat.faux
@@ -349,7 +337,7 @@ async fn keeps_a_generation_waiting_on_its_blocking_compaction_across_reopen() {
 #[tokio::test]
 async fn keeps_a_queued_summary_across_reopen_and_places_it_at_the_next_boundary() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let mut chat = first(&path).await;
     let reached = deferred();
     chat.faux
@@ -389,9 +377,9 @@ async fn keeps_a_queued_summary_across_reopen_and_places_it_at_the_next_boundary
 #[tokio::test]
 async fn survives_reopen_blocked_and_is_orphaned_on_abort_with_its_status_removed() {
     let directory = tempfile::tempdir().unwrap();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let setup = Arc::new(chat_setup(RegisterFauxProviderOptions::default()));
-    let OpenChat { harness, root } = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let OpenChat { harness, root } = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     // A compaction stored by a newer version than this process registers, for
     // example after a downgrade.
     let newer = define_task(TaskDefinition::<JsonValue, JsonValue, JsonValue, ()>::new(
@@ -432,7 +420,7 @@ async fn survives_reopen_blocked_and_is_orphaned_on_abort_with_its_status_remove
         .await
         .unwrap();
     harness.close(context()).await.unwrap();
-    let OpenChat { harness, root } = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let OpenChat { harness, root } = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     harness.resume().unwrap();
     let faux = script(&setup);
     let chat = Chat {

@@ -17,7 +17,7 @@ use super::task_support::{
 use crate::harness::types::TaskInspectionState;
 use crate::harness::{RootOptions, TaskAbortResult, TaskGraph, TaskGraphNode, TaskGraphState};
 use crate::session::tests::support::ControlledStorage;
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::jsonl;
 use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use crate::types::{
@@ -389,17 +389,15 @@ fn work_task(gate: Deferred) -> JsonTask {
 async fn builds_from_committed_tasks_shows_surviving_tasks_as_pending_after_reopen_and_marks_aborts(
 ) {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("session.sqlite");
+    let path = directory.path().join("session");
     let gate: Deferred = deferred();
     let work = work_task(gate.clone());
-    let sqlite = || async {
-        Arc::new(
-            open_native_sqlite_storage(&path, NativeSqliteStorageOptions::default())
-                .await
-                .unwrap(),
-        ) as Arc<dyn Storage>
-    };
-    let first = open_tasks(sqlite().await, &[work.erase()], OpenTasksOptions::default()).await;
+    let first = open_tasks(
+        jsonl(&path).await,
+        &[work.erase()],
+        OpenTasksOptions::default(),
+    )
+    .await;
     let first_root = first
         .harness
         .root(RootOptions::default(), context())
@@ -462,7 +460,12 @@ async fn builds_from_committed_tasks_shows_surviving_tasks_as_pending_after_reop
     first.harness.close(context()).await.unwrap();
 
     // Acquired after reopen: built from the committed records and owner edges; open reconciled running to pending.
-    let opened = open_tasks(sqlite().await, &[work.erase()], OpenTasksOptions::default()).await;
+    let opened = open_tasks(
+        jsonl(&path).await,
+        &[work.erase()],
+        OpenTasksOptions::default(),
+    )
+    .await;
     let harness = opened.harness;
     let watch = harness.watch_task_graph(context()).await.unwrap();
     assert_eq!(statuses(&watch.value()), expected("pending"));

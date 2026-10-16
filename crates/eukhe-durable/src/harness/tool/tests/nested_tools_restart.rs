@@ -10,8 +10,8 @@ use futures::FutureExt;
 use serde_json::json;
 
 use super::nested_support::{
-    call_with, end_result, exec, exec_key, hang, listen, lock, nested_tasks, open_sqlite, plain,
-    results, settle, sqlite_path, submit_go, text_result, Slot,
+    call_with, end_result, exec, exec_key, hang, listen, lock, nested_tasks, open_jsonl, plain,
+    results, settle, store_path, submit_go, text_result, Slot,
 };
 use super::support::{done, tool, tool_with};
 use crate::harness::define::define_extension;
@@ -162,7 +162,7 @@ async fn state_of(harness: &Harness, id: TaskId) -> serde_json::Value {
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "one TS case, ported whole")]
 async fn abandons_a_replay_unsafe_callers_unfinished_nested_calls_before_they_run_again() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let started_runs = Arc::new(AtomicUsize::new(0));
     let gated_runs = Arc::new(AtomicUsize::new(0));
@@ -243,13 +243,13 @@ async fn abandons_a_replay_unsafe_callers_unfinished_nested_calls_before_they_ru
     )
     .unwrap();
     queue(&setup, "batch");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     running.wait().await;
     gated.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let (stream, events) = listen(&opened.harness, opened.root.id()).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
@@ -291,7 +291,7 @@ async fn abandons_a_replay_unsafe_callers_unfinished_nested_calls_before_they_ru
 
 #[tokio::test]
 async fn abandons_the_work_an_abandoned_nested_call_owns_which_never_runs_a_phase_again() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let phases: Arc<Mutex<Vec<String>>> = Arc::default();
     let aborts: Aborts = Arc::default();
@@ -302,12 +302,12 @@ async fn abandons_the_work_an_abandoned_nested_call_owns_which_never_runs_a_phas
     add_tool(&setup.registry, spawn_tool(&task, &worker_id), None).unwrap();
     add_tool(&setup.registry, batch_spawn(), None).unwrap();
     queue(&setup, "batch");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
     opened.harness.wait_for_idle(context()).await.unwrap();
@@ -326,7 +326,7 @@ async fn abandons_the_work_an_abandoned_nested_call_owns_which_never_runs_a_phas
 #[tokio::test]
 async fn keeps_an_abandoned_task_whose_definition_is_missing_waiting_until_it_is_installed_then_runs_its_abort(
 ) {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let phases: Arc<Mutex<Vec<String>>> = Arc::default();
     let aborts: Aborts = Arc::default();
@@ -338,13 +338,13 @@ async fn keeps_an_abandoned_task_whose_definition_is_missing_waiting_until_it_is
     add_tool(&setup.registry, spawn_tool(&task, &worker_id), None).unwrap();
     add_tool(&setup.registry, batch_spawn(), None).unwrap();
     queue(&setup, "batch");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
 
     setup.registry.uninstall(&late);
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     let worker = lock(&worker_id).expect("the worker was created");
     let harness = opened.harness.clone();
@@ -380,7 +380,7 @@ async fn keeps_an_abandoned_task_whose_definition_is_missing_waiting_until_it_is
 
 #[tokio::test]
 async fn orphans_an_abandoned_task_whose_definition_is_missing_once_an_abort_is_requested() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let phases: Arc<Mutex<Vec<String>>> = Arc::default();
     let aborts: Aborts = Arc::default();
@@ -392,13 +392,13 @@ async fn orphans_an_abandoned_task_whose_definition_is_missing_once_an_abort_is_
     add_tool(&setup.registry, spawn_tool(&task, &worker_id), None).unwrap();
     add_tool(&setup.registry, batch_spawn(), None).unwrap();
     queue(&setup, "batch");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
 
     setup.registry.uninstall(&gone);
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     let worker = lock(&worker_id).expect("the worker was created");
     let harness = opened.harness.clone();
@@ -435,7 +435,7 @@ async fn orphans_an_abandoned_task_whose_definition_is_missing_once_an_abort_is_
 
 #[tokio::test]
 async fn marks_nothing_when_the_reopened_harness_never_starts_scheduling() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let running = deferred::<()>();
     {
@@ -463,18 +463,18 @@ async fn marks_nothing_when_the_reopened_harness_never_starts_scheduling() {
     )
     .unwrap();
     queue(&setup, "batch");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     submit_go(&opened.root).await;
     running.wait().await;
     opened.harness.close(context()).await.unwrap();
 
     // An inspection-only open: no resume, no submission.
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let inspected = opened.harness.inspect(context()).await.unwrap();
     assert_eq!(inspected.scheduling, SchedulingState::Paused);
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let nested = nested_tasks(&opened.harness).await;
     let nested = &nested[0];
     assert!(
@@ -488,7 +488,7 @@ async fn marks_nothing_when_the_reopened_harness_never_starts_scheduling() {
 #[tokio::test]
 async fn lets_a_replay_safe_callers_unfinished_nested_calls_recover_and_reattaches_to_them_by_key()
 {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let safe_runs = Arc::new(AtomicUsize::new(0));
     let unsafe_runs = Arc::new(AtomicUsize::new(0));
@@ -559,13 +559,13 @@ async fn lets_a_replay_safe_callers_unfinished_nested_calls_recover_and_reattach
         .unwrap();
     }
     queue(&setup, "batch");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     running[0].wait().await;
     running[1].wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
     assert_eq!(
@@ -596,7 +596,7 @@ async fn lets_a_replay_safe_callers_unfinished_nested_calls_recover_and_reattach
 async fn reattaches_a_replay_safe_caller_by_default_and_explicit_keys_and_rejects_a_rerun_that_calls_differently(
 ) {
     for swapped in [false, true] {
-        let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+        let (_directory, path) = store_path();
         let setup = setup();
         let runs: Arc<Mutex<Vec<String>>> = Arc::default();
         {
@@ -656,12 +656,12 @@ async fn reattaches_a_replay_safe_caller_by_default_and_explicit_keys_and_reject
             .unwrap();
         }
         queue(&setup, "batch");
-        let opened = open_sqlite(&path, &setup).await;
+        let opened = open_jsonl(&path, &setup).await;
         let id = submit_go(&opened.root).await;
         blocked.wait().await;
         opened.harness.close(context()).await.unwrap();
 
-        let opened = open_sqlite(&path, &setup).await;
+        let opened = open_jsonl(&path, &setup).await;
         opened.harness.resume().unwrap();
         assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
         let entries = all_entries(&opened.root, context()).await.unwrap();
@@ -685,7 +685,7 @@ async fn reattaches_a_replay_safe_caller_by_default_and_explicit_keys_and_reject
 
 #[tokio::test]
 async fn abandons_the_child_tasks_a_replay_unsafe_tool_created_and_awaited_in_memory() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let phases: Arc<Mutex<Vec<String>>> = Arc::default();
     let aborts: Aborts = Arc::default();
@@ -706,12 +706,12 @@ async fn abandons_the_child_tasks_a_replay_unsafe_tool_created_and_awaited_in_me
     )
     .unwrap();
     queue(&setup, "work");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
     let aborts: Vec<String> = lock(&aborts)
@@ -726,7 +726,7 @@ async fn abandons_the_child_tasks_a_replay_unsafe_tool_created_and_awaited_in_me
 
 #[tokio::test]
 async fn leaves_background_work_under_an_abandoned_nested_call_running_and_settles_without_it() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-restart-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let phases: Arc<Mutex<Vec<String>>> = Arc::default();
     let aborts: Aborts = Arc::default();
@@ -777,12 +777,12 @@ async fn leaves_background_work_under_an_abandoned_nested_call_running_and_settl
     }
     add_tool(&setup.registry, batch_spawn(), None).unwrap();
     queue(&setup, "batch");
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
     let spawn = nested_tasks(&opened.harness).await[0].clone();

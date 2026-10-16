@@ -8,7 +8,7 @@ use eukhe_types::pi_ai::Message;
 use serde_json::json;
 
 use super::super::nested_support::{
-    call_with, echo_tool, open_sqlite, plain, results, sqlite, sqlite_path,
+    call_with, echo_tool, jsonl, open_jsonl, plain, results, store_path,
 };
 use super::super::support::result_text;
 use super::setup;
@@ -26,9 +26,9 @@ async fn store_version1(
     setup: &ChatSetup,
     checkpoint: &str,
 ) -> (tempfile::TempDir, PathBuf, TaskId) {
-    let (directory, path) = sqlite_path("pi-durable-tool-v1-");
+    let (directory, path) = store_path();
     // No submission, so the Harness never starts scheduling and the task stays pending.
-    let chat = open_sqlite(&path, setup).await;
+    let chat = open_jsonl(&path, setup).await;
     let root_id = chat.root.id();
     let tool = TOOL_TASK.as_definition_ref();
     let id = chat
@@ -72,7 +72,7 @@ async fn store_version1(
 }
 
 async fn rewrite_as_version1(path: &Path, id: TaskId, checkpoint: &str) {
-    let storage = sqlite(path).await;
+    let storage = jsonl(path).await;
     let mut record = storage.task(id, context()).await.unwrap().unwrap();
     let mut input = plain(&record.input);
     input.as_object_mut().unwrap().remove("kind");
@@ -96,7 +96,7 @@ async fn migrates_a_pending_version_1_task_and_runs_it_as_a_model_issued_call() 
     let (echo, runs) = echo_tool(|_| {});
     add_tool(&setup.registry, echo, None).unwrap();
     let (_directory, path, id) = store_version1(&setup, r#"{"phase":"call"}"#).await;
-    let chat = open_sqlite(&path, &setup).await;
+    let chat = open_jsonl(&path, &setup).await;
     assert_eq!(
         chat.harness
             .get_task(id, context())
@@ -136,7 +136,7 @@ async fn migrates_a_version_1_task_interrupted_after_intent_and_settles_it_inter
     add_tool(&setup.registry, echo, None).unwrap();
     let intent = r#"{"phase":"execute","arguments":{"text":"old"},"replay":"unsafe"}"#;
     let (_directory, path, id) = store_version1(&setup, intent).await;
-    let chat = open_sqlite(&path, &setup).await;
+    let chat = open_jsonl(&path, &setup).await;
     chat.harness.resume().unwrap();
     let settled = chat.harness.wait_for_task(id, context()).await.unwrap();
     assert_eq!(settled.version, 2);

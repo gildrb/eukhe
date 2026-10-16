@@ -4,11 +4,9 @@
 //! (`main` at `42a3497d0`):
 //! `trace.json` records a representative commit history (mints, commit
 //! batches, sequences) and a read plan with each result as TS `JSON.stringify`
-//! text; `jsonl/` and `durable.sqlite` hold that history as written by the TS
-//! `JsonlStorage` and `SqliteStorage` (node:sqlite, compacted to 512-byte
-//! pages), each after a close and a reopen; `sqlite-dump.json` lists the TS
-//! file's schema and rows. Rust must read the TS files identically and write
-//! byte-identical JSONL files and identical SQLite rows.
+//! text; `jsonl/` holds that history as written by the TS `JsonlStorage`
+//! after a close and a reopen. Rust must read the TS files identically and
+//! write byte-identical JSONL files.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +15,6 @@ use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::errors::StorageError;
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
-use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Cursor, Storage, StorageWrite};
 use serde::de::DeserializeOwned;
@@ -172,14 +169,6 @@ async fn open_jsonl(directory: &Path) -> Arc<dyn Storage> {
     )
 }
 
-async fn open_sqlite(path: &Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .unwrap(),
-    )
-}
-
 #[tokio::test]
 async fn memory_storage_reads_the_ts_history_identically() {
     let storage = MemoryStorage::new();
@@ -195,17 +184,6 @@ async fn reads_ts_written_jsonl_identically() {
     let storage = open_jsonl(&directory).await;
     replay_reads(&*storage).await;
     // The minted-but-uncommitted ID 17 is not persisted.
-    assert_eq!(storage.mint_id().await.unwrap(), 17);
-    storage.close(cx()).await.unwrap();
-}
-
-#[tokio::test]
-async fn reads_ts_written_sqlite_identically() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("durable.sqlite");
-    std::fs::copy(fixtures().join("durable.sqlite"), &path).unwrap();
-    let storage = open_sqlite(&path).await;
-    replay_reads(&*storage).await;
     assert_eq!(storage.mint_id().await.unwrap(), 17);
     storage.close(cx()).await.unwrap();
 }
@@ -250,65 +228,4 @@ async fn writes_jsonl_files_byte_identical_to_ts() {
             "{name}"
         );
     }
-}
-
-/// Schema and every row, ordered like the TS dump (`ORDER BY 1, 2`).
-fn dump_sqlite(path: &Path) -> JsonValue {
-    let db =
-        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap();
-    let rows = |sql: &str| -> Vec<JsonValue> {
-        let mut statement = db.prepare(sql).unwrap();
-        let names: Vec<String> = statement
-            .column_names()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        let mut query = statement.query([]).unwrap();
-        let mut rows = Vec::new();
-        while let Some(row) = query.next().unwrap() {
-            let mut object = serde_json::Map::new();
-            for (index, name) in names.iter().enumerate() {
-                let value = match row.get_ref(index).unwrap() {
-                    rusqlite::types::ValueRef::Null => serde_json::Value::Null,
-                    rusqlite::types::ValueRef::Integer(value) => value.into(),
-                    rusqlite::types::ValueRef::Real(value) => value.into(),
-                    rusqlite::types::ValueRef::Text(text) => {
-                        String::from_utf8(text.to_vec()).unwrap().into()
-                    }
-                    rusqlite::types::ValueRef::Blob(_) => panic!("unexpected blob in {name}"),
-                };
-                object.insert(name.clone(), value);
-            }
-            rows.push(JsonValue::from(serde_json::Value::Object(object)));
-        }
-        rows
-    };
-    let mut tables = serde_json::Map::new();
-    for table in rows("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name") {
-        let name = table["name"].as_str().unwrap().to_owned();
-        let table_rows = rows(&format!("SELECT * FROM \"{name}\" ORDER BY 1, 2"));
-        tables.insert(name, serde_json::Value::from(JsonValue::from(table_rows)));
-    }
-    let schema = rows("SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY name");
-    let mut dump = serde_json::Map::new();
-    dump.insert(
-        "schema".to_owned(),
-        serde_json::Value::from(JsonValue::from(schema)),
-    );
-    dump.insert("tables".to_owned(), serde_json::Value::Object(tables));
-    JsonValue::from(serde_json::Value::Object(dump))
-}
-
-#[tokio::test]
-async fn writes_sqlite_rows_identical_to_ts() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("durable.sqlite");
-    let storage = open_sqlite(&path).await;
-    replay_history(&*storage).await;
-    storage.close(cx()).await.unwrap();
-    let expected =
-        JsonValue::parse(&std::fs::read_to_string(fixtures().join("sqlite-dump.json")).unwrap())
-            .unwrap();
-    assert_eq!(dump_sqlite(&path).to_string(), expected.to_string());
 }

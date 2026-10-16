@@ -21,7 +21,7 @@ use crate::harness::tests::chat_support::{open_chat, ChatSetup, OpenChat};
 use crate::harness::tests::support::context;
 use crate::harness::tests::task_support::{deferred, Deferred};
 use crate::harness::tool::tests::nested_support::{
-    hang, is_nested, nested_tasks, open_sqlite, settle, sqlite_path, submit_go, text_result,
+    hang, is_nested, nested_tasks, open_jsonl, settle, store_path, submit_go, text_result,
     tool_tasks,
 };
 use crate::harness::tool::tests::support::tool_with;
@@ -110,7 +110,7 @@ async fn tamper(
 /// Run [`SCRIPT`] until `block` runs, then close the Harness.
 async fn interrupted(setup: &Setup, started: &Deferred, path: &Path) -> SubmissionId {
     queue_script(&setup.chat, SCRIPT);
-    let opened = open_sqlite(path, &setup.chat).await;
+    let opened = open_jsonl(path, &setup.chat).await;
     let id = submit_go(&opened.root).await;
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
@@ -123,7 +123,7 @@ async fn resumed(
     path: &Path,
     id: SubmissionId,
 ) -> (OpenChat, eukhe_types::pi_ai::ToolResultMessage) {
-    let opened = open_sqlite(path, &setup.chat).await;
+    let opened = open_jsonl(path, &setup.chat).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
     let result = codemode_result(&opened).await;
@@ -191,7 +191,7 @@ async fn a_script_killed_mid_call_replays_to_the_same_result_without_rerunning_f
 #[tokio::test]
 async fn a_script_interrupted_by_close_resumes_after_reopen() {
     let (setup, started) = blocking(setup());
-    let (_directory, path) = sqlite_path("pi-durable-codemode-");
+    let (_directory, path) = store_path();
     let id = interrupted(&setup, &started, &path).await;
     let (opened, result) = resumed(&setup, &path, id).await;
     assert!(!result.is_error, "{}", text(&result));
@@ -225,9 +225,9 @@ async fn tampered(
     started: &Deferred,
     change: impl FnOnce(&mut CodemodeRunState, &mut CodemodeJournal) + Send + 'static,
 ) -> eukhe_types::pi_ai::ToolResultMessage {
-    let (_directory, path) = sqlite_path("pi-durable-codemode-");
+    let (_directory, path) = store_path();
     let id = interrupted(setup, started, &path).await;
-    let opened = open_sqlite(&path, &setup.chat).await;
+    let opened = open_jsonl(&path, &setup.chat).await;
     tamper(&opened.harness, change).await;
     opened.harness.close(context()).await.unwrap();
     let (opened, result) = resumed(setup, &path, id).await;
@@ -320,7 +320,7 @@ async fn a_changed_module_version_or_passed_deadline_refuses_the_replay() {
 #[tokio::test]
 async fn a_changed_sandbox_fingerprint_refuses_the_replay() {
     let (setup, started) = blocking(setup());
-    let (_directory, path) = sqlite_path("pi-durable-codemode-");
+    let (_directory, path) = store_path();
     let id = interrupted(&setup, &started, &path).await;
     let before = sandbox().fingerprint().to_owned();
     let changed = CodemodeSandbox::new(CodemodeSandboxOptions {
@@ -359,14 +359,14 @@ async fn a_global_is_answered_from_the_journal_on_replay() {
         globals: vec![global],
         ..options(sandbox())
     }));
-    let (_directory, path) = sqlite_path("pi-durable-codemode-");
+    let (_directory, path) = store_path();
     queue_script(
         &setup.chat,
         r"const t = await ticket();
 const b = await tools.block({ t });
 return [t, b];",
     );
-    let opened = open_sqlite(&path, &setup.chat).await;
+    let opened = open_jsonl(&path, &setup.chat).await;
     let id = submit_go(&opened.root).await;
     started.wait().await;
     opened.harness.close(context()).await.unwrap();

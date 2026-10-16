@@ -34,7 +34,7 @@ use crate::harness::types::{
 use crate::harness::usage::{record_usage, UsageBucket, UsageState, USAGE_DOC};
 use crate::harness::{Conversation, Harness, SubmissionHandle};
 use crate::session::tests::support::{document_changes, ControlledStorage};
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::jsonl;
 use crate::storage::MemoryStorage;
 use crate::types::{
     CheckpointInfo, CommitChange, ConversationOwnership, DocumentContent, EntryDraft, EntryHead,
@@ -44,14 +44,6 @@ use crate::types::{
 
 fn memory() -> Arc<dyn Storage> {
     Arc::new(MemoryStorage::new())
-}
-
-async fn sqlite(path: &std::path::Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .unwrap(),
-    )
 }
 
 fn json(text: &str) -> JsonValue {
@@ -979,7 +971,7 @@ mod queue {
             .prefix("pi-durable-inbox-")
             .tempdir()
             .unwrap();
-        let path = directory.path().join("session.sqlite");
+        let path = directory.path().join("session");
         let setup = chat_setup(RegisterFauxProviderOptions::default());
         let first = gated(answer("first"));
         setup.faux.set_responses(vec![
@@ -987,13 +979,13 @@ mod queue {
             answer("first again").into(),
             answer("f").into(),
         ]);
-        let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+        let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
         submit(&opened.root, input("a")).await;
         first.reached().await;
         let f = submit(&opened.root, input("f")).await.id();
         opened.harness.close(context()).await.unwrap();
 
-        let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+        let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
         let settled = opened
             .harness
             .submission(f, context())
@@ -1707,7 +1699,7 @@ mod ledger {
             .prefix("pi-durable-usage-")
             .tempdir()
             .unwrap();
-        let path = directory.path().join("session.sqlite");
+        let path = directory.path().join("session");
         let setup = chat_setup(RegisterFauxProviderOptions {
             tokens_per_second: Some(200.0),
             token_size: Some(FauxTokenSize {
@@ -1721,13 +1713,13 @@ mod ledger {
             answer(&"x".repeat(400)).into(),
             answer("again").into(),
         ]);
-        let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+        let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
         settle(&submit(&opened.root, input("a")).await).await;
         submit(&opened.root, input("b")).await;
         generation_streaming(&opened.harness, &opened.root).await;
         // Closing mid-stream keeps the committed partial; the reopened request converts it into an aborted entry.
         opened.harness.close(context()).await.unwrap();
-        let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+        let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
         opened.harness.resume().unwrap();
         opened.harness.wait_for_idle(context()).await.unwrap();
         let assistants = assistant_messages(&all_entries(&opened.root, context()).await.unwrap());

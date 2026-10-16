@@ -80,8 +80,8 @@ pub(crate) async fn aborted(signal: &AbortSignal) -> SessionError {
 /// Flush pending work until `check` holds.
 ///
 /// TS flushes 200 times; its storages answer on the event loop, so that
-/// bound is deterministic. The native SQLite storage answers from its own
-/// thread, which flushes do not wait for, so the bound here is a generous
+/// bound is deterministic. The native JSONL storage answers through async
+/// file I/O, which flushes do not wait for, so the bound here is a generous
 /// deadline instead of a flush count: a condition that holds is reached
 /// as soon as the work it depends on is done, however loaded the machine.
 ///

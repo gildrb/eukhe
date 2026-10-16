@@ -1,6 +1,6 @@
 //! Port of `test/harness-generation-recovery.test.ts`.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -21,14 +21,10 @@ use crate::harness::tests::support::{add_section, context, create_models};
 use crate::harness::tests::task_support::{aborted, deferred, Deferred};
 use crate::harness::types::{ConversationStreamOptions, InputSubmissionDraft, PartialRetryPolicy};
 use crate::harness::Harness;
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::jsonl;
 use crate::types::{SubmissionStatus, TaskId};
 
 const WAIT_MS: u64 = 5000;
-
-fn sqlite_path(directory: &tempfile::TempDir) -> PathBuf {
-    directory.path().join("session.sqlite")
-}
 
 fn temp() -> tempfile::TempDir {
     tempfile::Builder::new()
@@ -37,11 +33,8 @@ fn temp() -> tempfile::TempDir {
         .unwrap()
 }
 
-async fn open(path: &PathBuf, setup: &ChatSetup) -> OpenChat {
-    let storage = open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-        .await
-        .unwrap();
-    open_chat(Arc::new(storage), setup, None).await.unwrap()
+async fn open(path: &Path, setup: &ChatSetup) -> OpenChat {
+    open_chat(jsonl(path).await, setup, None).await.unwrap()
 }
 
 fn input(text: &str) -> InputSubmissionDraft {
@@ -162,7 +155,7 @@ async fn wait_deferred(chat: &OpenChat) {
 #[tokio::test(flavor = "multi_thread")]
 async fn reruns_preparation_interrupted_before_its_commit() {
     let directory = temp();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let reached: Deferred = deferred();
     let block = Arc::new(AtomicBool::new(true));
@@ -230,7 +223,7 @@ async fn reruns_preparation_interrupted_before_its_commit() {
 #[tokio::test(flavor = "multi_thread")]
 async fn resends_a_request_interrupted_before_any_partial_without_repeating_preparation() {
     let directory = temp();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     add_section(
         &setup.registry,
@@ -328,7 +321,7 @@ async fn resends_a_request_interrupted_before_any_partial_without_repeating_prep
 
 /// Stream a slow answer until an observer saw a partial, then close: the
 /// crash. Returns the submission and the last observed partial text.
-async fn crash_with_partial(path: &PathBuf) -> (crate::types::SubmissionId, String) {
+async fn crash_with_partial(path: &Path) -> (crate::types::SubmissionId, String) {
     let slow = chat_setup(RegisterFauxProviderOptions {
         tokens_per_second: Some(20.0),
         token_size: Some(FauxTokenSize {
@@ -392,7 +385,7 @@ async fn crash_with_partial(path: &PathBuf) -> (crate::types::SubmissionId, Stri
 #[tokio::test(flavor = "multi_thread")]
 async fn converts_a_committed_partial_into_an_aborted_entry_and_resends_the_same_messages() {
     let directory = temp();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let (id, watched) = crash_with_partial(&path).await;
 
     let setup = chat_setup(RegisterFauxProviderOptions::default());
@@ -448,7 +441,7 @@ async fn converts_a_committed_partial_into_an_aborted_entry_and_resends_the_same
 #[tokio::test(flavor = "multi_thread")]
 async fn resumes_a_retry_backoff_after_reopen() {
     let directory = temp();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let now = manual_clock(&setup, 1_000.0);
     setup.faux.set_responses(vec![
@@ -533,7 +526,7 @@ async fn resumes_a_retry_backoff_after_reopen() {
 #[tokio::test(flavor = "multi_thread")]
 async fn resumes_polling_a_deferred_response_after_reopen() {
     let directory = temp();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let setup = deferred_setup();
     let now = manual_clock(&setup, 1_000.0);
     setup.faux.set_responses(vec![faux_assistant_message(
@@ -593,7 +586,7 @@ async fn resumes_polling_a_deferred_response_after_reopen() {
 #[tokio::test(flavor = "multi_thread")]
 async fn fails_no_model_when_the_pinned_model_is_gone_after_reopen_in_request_and_in_poll() {
     let directory = temp();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let setup = deferred_setup();
     let busy = unanswered();
     setup.faux.set_responses(vec![
@@ -663,7 +656,7 @@ async fn fails_no_model_when_the_pinned_model_is_gone_after_reopen_in_request_an
 #[tokio::test(flavor = "multi_thread")]
 async fn runs_a_print_style_turn_and_reads_the_durable_answer_after_reopen() {
     let directory = temp();
-    let path = sqlite_path(&directory);
+    let path = directory.path().to_owned();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     add_section(
         &setup.registry,

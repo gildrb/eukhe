@@ -599,7 +599,7 @@ async fn lets_a_running_tool_abort_its_owned_child_and_continue() {
 async fn aborts_the_children_of_a_tool_call_that_throws_or_is_interrupted_while_the_run_continues()
 {
     let world = World::new();
-    let (_directory, path) = sqlite_path("pi-durable-tool-children-");
+    let (_directory, path) = store_path();
     let children: Arc<Mutex<Vec<TaskId>>> = Arc::default();
     let tool_running: Deferred = deferred();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
@@ -658,7 +658,7 @@ async fn aborts_the_children_of_a_tool_call_that_throws_or_is_interrupted_while_
         text_message("after throw").into(),
         spawn_call("hang", "c2").into(),
     ]);
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     let first = opened
         .root
         .submit(InputSubmissionDraft::new("one"), context())
@@ -686,7 +686,7 @@ async fn aborts_the_children_of_a_tool_call_that_throws_or_is_interrupted_while_
     setup
         .faux
         .set_responses(vec![text_message("after interrupt").into()]);
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     opened.harness.resume().unwrap();
     let second_child = children.lock().unwrap_or_else(PoisonError::into_inner)[1];
     assert_eq!(
@@ -745,7 +745,7 @@ async fn aborts_the_children_of_a_tool_call_that_throws_or_is_interrupted_while_
 #[tokio::test]
 #[expect(clippy::too_many_lines, reason = "one TS case, ported whole")]
 async fn reruns_a_replay_safe_subagent_tool_after_a_restart_with_the_same_child_and_submission() {
-    let (_directory, path) = sqlite_path("pi-durable-safe-subagent-");
+    let (_directory, path) = store_path();
     let children: Arc<Mutex<Vec<ConversationId>>> = Arc::default();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let recorded = Arc::clone(&children);
@@ -810,7 +810,7 @@ async fn reruns_a_replay_safe_subagent_tool_after_a_restart_with_the_same_child_
         call_message("subagent", serde_json::json!({}), "c1").into(),
         step,
     ]);
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     let input = opened
         .root
         .submit(InputSubmissionDraft::new("go"), context())
@@ -824,7 +824,7 @@ async fn reruns_a_replay_safe_subagent_tool_after_a_restart_with_the_same_child_
         text_message("child answer").into(),
         text_message("done").into(),
     ]);
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     let settled = opened
         .harness
         .submission(input, context())
@@ -869,7 +869,7 @@ async fn reruns_a_replay_safe_subagent_tool_after_a_restart_with_the_same_child_
 
 #[tokio::test]
 async fn lets_a_background_supervisor_resubmit_after_a_restart_without_submitting_twice() {
-    let (_directory, path) = sqlite_path("pi-durable-supervisor-");
+    let (_directory, path) = store_path();
     let supervisor_definition = supervisor_task();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     add_task(&setup.registry, supervisor_definition.erase(), None).unwrap();
@@ -877,7 +877,7 @@ async fn lets_a_background_supervisor_resubmit_after_a_restart_without_submittin
     setup
         .faux
         .set_responses(vec![step, text_message("answer").into()]);
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     let root_id = opened.root.id();
     let definition = supervisor_definition.erase();
     let (supervisor, child) = opened
@@ -911,7 +911,7 @@ async fn lets_a_background_supervisor_resubmit_after_a_restart_without_submittin
     reached.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_chat(sqlite(&path).await, &setup, None).await.unwrap();
+    let opened = open_chat(jsonl(&path).await, &setup, None).await.unwrap();
     opened.harness.resume().unwrap();
     let done = opened
         .harness

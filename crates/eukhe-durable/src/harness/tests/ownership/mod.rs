@@ -10,7 +10,6 @@ mod cascades;
 mod owned_conversations;
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::providers::faux::{
@@ -46,7 +45,7 @@ use crate::harness::types::{
 use crate::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions, TaskAbortResult};
 use crate::session::tests::support::ControlledStorage;
 use crate::session::{create_session, SessionEnd, SessionError, SessionResult, Tx};
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::{jsonl, store_path};
 use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use crate::types::{
@@ -68,26 +67,6 @@ fn json(text: &str) -> JsonValue {
 
 fn memory() -> Arc<dyn Storage> {
     Arc::new(MemoryStorage::new())
-}
-
-/// A fresh directory (removed when dropped, the TS `afterEach`) and the
-/// database path inside it.
-fn sqlite_path(prefix: &str) -> (tempfile::TempDir, PathBuf) {
-    let directory = tempfile::Builder::new()
-        .prefix(prefix)
-        .tempdir()
-        .expect("create a temp dir");
-    let path = directory.path().join("session.sqlite");
-    (directory, path)
-}
-
-/// TS `openNodeSqliteStorage(path)`.
-async fn sqlite(path: &Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .expect("open the SQLite storage"),
-    )
 }
 
 /// Outcome a held task commits once its gate opens.
@@ -199,7 +178,7 @@ fn aborted_state<S>() -> NextTaskState<S, ()> {
 /// signalled (close seals the scheduler). TS reserves the abort invocation
 /// on the Session line with a synchronous `node:sqlite`, so in the tests
 /// that abort and then close it never starts before close; the native
-/// SQLite storage answers from its own thread, so the reservation may win
+/// JSONL storage answers through async file I/O, so the reservation may win
 /// that race, and close would then join a handler blocked on a gate the
 /// test opens only after reopening. Ending on the signal writes nothing (a
 /// closing scheduler ends the invocation without a write), so the durable

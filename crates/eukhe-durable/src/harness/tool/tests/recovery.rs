@@ -7,7 +7,7 @@
 //! the same result commit.
 
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -26,7 +26,7 @@ use crate::env::{ExecutionEnv, NativeExecutionEnv, NativeExecutionEnvOptions};
 use crate::harness::define::define_tool;
 use crate::harness::live::{LiveState, ToolSlot, LIVE_DOC};
 use crate::harness::tests::chat_support::{
-    all_entries, chat_setup, open_chat, wait_for, ChatEnv, ChatSetup, OpenChat,
+    all_entries, chat_setup, open_chat, wait_for, ChatSetup, OpenChat,
 };
 use crate::harness::tests::support::{
     add_hooks, add_tool, context, empty_object_schema, generation_task, tool_task, Installed,
@@ -40,34 +40,12 @@ use crate::harness::types::{
 };
 use crate::harness::{Harness, TaskAbortResult};
 use crate::session::SessionResult;
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
-use crate::tools::{create_bash_tool, BashToolOptions};
-use crate::types::{
-    EntryRecord, Storage, SubmissionStatus, TaskId, TaskOutcome, TaskQuery, TaskState,
-};
-
-/// TS `sqlitePath()`: a fresh directory (removed when dropped, the TS
-/// `afterEach`) and the database path inside it.
-fn sqlite_path() -> (tempfile::TempDir, PathBuf) {
-    let directory = tempfile::Builder::new()
-        .prefix("pi-durable-tools-")
-        .tempdir()
-        .expect("create a temp dir");
-    let path = directory.path().join("session.sqlite");
-    (directory, path)
-}
-
-async fn sqlite(path: &Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .expect("open the SQLite storage"),
-    )
-}
+use crate::storage::test_support::{jsonl, store_path};
+use crate::types::{EntryRecord, SubmissionStatus, TaskId, TaskOutcome, TaskQuery, TaskState};
 
 /// TS `open(path, setup, env?)`: open the chat and resume scheduling.
-async fn open(path: &Path, setup: &ChatSetup, env: Option<ChatEnv>) -> OpenChat {
-    let opened = open_chat(sqlite(path).await, setup, env).await.unwrap();
+async fn open(path: &Path, setup: &ChatSetup, env: Option<EnvFactory>) -> OpenChat {
+    let opened = open_chat(jsonl(path).await, setup, env).await.unwrap();
     opened.harness.resume().unwrap();
     opened
 }
@@ -232,7 +210,7 @@ fn blocking_tool(name: &str) -> Blocking {
 
 #[tokio::test]
 async fn answers_an_unsafe_tool_interrupted_after_intent_with_its_durable_partial_output() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let blocking = blocking_tool("work");
     add_tool(&setup.registry, define_tool(blocking.registration), None).unwrap();
@@ -291,7 +269,7 @@ async fn reruns_a_tool_only_when_both_the_stored_and_the_current_replay_policy_a
         (ToolReplay::Unsafe, ToolReplay::Safe, false),
     ];
     for (stored, current, reruns) in cases {
-        let (_directory, path) = sqlite_path();
+        let (_directory, path) = store_path();
         let setup = chat_setup(RegisterFauxProviderOptions::default());
         let blocking = blocking_tool("work");
         let registration: Installed = add_tool(
@@ -342,7 +320,7 @@ enum Change {
 async fn reruns_a_safe_tool_with_the_environment_of_the_conversations_cwd_at_rerun_and_not_once_it_is_deselected(
 ) {
     for change in [Change::Cwd, Change::Deselect] {
-        let (_directory, path) = sqlite_path();
+        let (_directory, path) = store_path();
         let setup = chat_setup(RegisterFauxProviderOptions::default());
         let cwds: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
         let started: Deferred = deferred();
@@ -366,18 +344,16 @@ async fn reruns_a_safe_tool_with_the_environment_of_the_conversations_cwd_at_rer
         setup
             .faux
             .set_responses(vec![call("work", "c1").into(), done().into()]);
-        let env = || {
-            ChatEnv::Factory(
-                Arc::new(|target: EnvTarget, _: &eukhe_chord::context::Context| {
-                    let cwd = target.cwd.unwrap_or_else(|| "/".to_owned());
-                    let env: Arc<dyn ExecutionEnv> =
-                        Arc::new(NativeExecutionEnv::new(NativeExecutionEnvOptions {
-                            cwd,
-                            ..NativeExecutionEnvOptions::default()
-                        }));
-                    futures::future::ready(Ok(Some(env))).boxed()
-                }) as EnvFactory,
-            )
+        let env = || -> EnvFactory {
+            Arc::new(|target: EnvTarget, _: &eukhe_chord::context::Context| {
+                let cwd = target.cwd.unwrap_or_else(|| "/".to_owned());
+                let env: Arc<dyn ExecutionEnv> =
+                    Arc::new(NativeExecutionEnv::new(NativeExecutionEnvOptions {
+                        cwd,
+                        ..NativeExecutionEnvOptions::default()
+                    }));
+                futures::future::ready(Ok(Some(env))).boxed()
+            })
         };
         let opened = open(&path, &setup, Some(env())).await;
         opened
@@ -429,7 +405,7 @@ async fn reruns_a_safe_tool_with_the_environment_of_the_conversations_cwd_at_rer
 
 #[tokio::test]
 async fn reruns_before_tool_when_interrupted_before_intent_and_executes_once() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let runs = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&runs);
@@ -498,7 +474,7 @@ async fn reruns_before_tool_when_interrupted_before_intent_and_executes_once() {
 
 #[tokio::test]
 async fn reruns_the_generation_tools_phase_interrupted_before_its_commit() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let work = tool("work", |_, _| async {
         Ok(ToolExecutionResult {
@@ -563,7 +539,7 @@ async fn reruns_the_generation_tools_phase_interrupted_before_its_commit() {
 
 #[tokio::test]
 async fn answers_an_aborted_tool_with_its_partial_output_and_continues_the_run() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let blocking = blocking_tool("work");
     add_tool(&setup.registry, define_tool(blocking.registration), None).unwrap();
@@ -606,7 +582,7 @@ async fn answers_an_aborted_tool_with_its_partial_output_and_continues_the_run()
 
 #[tokio::test]
 async fn lets_context_derivation_answer_a_faulted_tool_and_continues_the_run() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     // A result that is not strict JSON makes the result commit throw, so the scheduler faults the task.
     let bad = tool("bad", |_, _| async {
@@ -688,62 +664,6 @@ async fn lets_context_derivation_answer_a_faulted_tool_and_continues_the_run() {
     opened.harness.close(context()).await.unwrap();
 }
 
-#[tokio::test]
-async fn answers_a_real_bash_command_interrupted_by_close_and_reopen_then_finishes_the_run() {
-    let (directory, path) = sqlite_path();
-    let env = || {
-        ChatEnv::One(Arc::new(NativeExecutionEnv::new(
-            NativeExecutionEnvOptions {
-                cwd: directory.path().to_string_lossy().into_owned(),
-                ..NativeExecutionEnvOptions::default()
-            },
-        )))
-    };
-    let setup = chat_setup(RegisterFauxProviderOptions::default());
-    add_tool(
-        &setup.registry,
-        create_bash_tool(BashToolOptions::default()),
-        None,
-    )
-    .unwrap();
-    let serde_json::Value::Object(arguments) =
-        serde_json::json!({ "command": "echo started; sleep 30" })
-    else {
-        unreachable!("an object literal");
-    };
-    setup.faux.set_responses(vec![
-        faux_assistant_message(
-            vec![faux_tool_call("bash", arguments, Some("b".to_owned()))],
-            FauxAssistantMessageOptions {
-                stop_reason: Some(StopReason::ToolUse),
-                ..FauxAssistantMessageOptions::default()
-            },
-        )
-        .into(),
-        done().into(),
-    ]);
-    let opened = open(&path, &setup, Some(env())).await;
-    let id = opened.root.submit(go(), context()).await.unwrap().id();
-    wait_for(
-        || {
-            let slot = first_slot(&opened);
-            async move { slot.await.and_then(|slot| slot.output).as_deref() == Some("started\n") }
-        },
-        5000,
-    )
-    .await;
-    opened.harness.close(context()).await.unwrap();
-
-    let opened = open(&path, &setup, Some(env())).await;
-    assert_eq!(settle(&opened, id).await, SubmissionStatus::Done);
-    let entries = all_entries(&opened.root, context()).await.unwrap();
-    assert_eq!(
-        text(results(&entries).first()),
-        "started\n|<harness>\n[error] Tool bash was interrupted and may have partially run\n</harness>"
-    );
-    opened.harness.close(context()).await.unwrap();
-}
-
 fn info(message: &str) -> ToolDiagnostic {
     ToolDiagnostic {
         omitted: None,
@@ -757,7 +677,7 @@ fn info(message: &str) -> ToolDiagnostic {
 
 #[tokio::test]
 async fn clears_the_interrupted_attempts_progress_before_a_safe_rerun() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let started: [Deferred; 2] = [deferred(), deferred()];
     let runs = Arc::new(AtomicUsize::new(0));

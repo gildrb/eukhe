@@ -26,24 +26,25 @@ percent-encoding = "2"
 uuid = { version = "1", features = ["v4"] }
 # env/native_watch: content hashes of recently modified files in polling mode. MIT OR Apache-2.0.
 sha2 = "0.10"
-# tools/edit_diff, tools/path_utils: JS `String.prototype.normalize` (NFKC, NFD). MIT OR Apache-2.0.
-unicode-normalization = "0.1.25"
-# storage/sqlite/native: SQLite connection for the native durable storage
-# adapter (Node's `node:sqlite` analog), with a bundled SQLite build. MIT.
-rusqlite = { version = "0.40", features = ["bundled"] }
 # harness/scheduler: the live task mirror and other scheduler maps keep JS
 # `Map`/`Set` insertion order. Apache-2.0 OR MIT.
 indexmap = "2"
 # codemode/sandbox: the QuickJS VM code mode scripts run in, as upstream's
 # pi-codemode: deterministic (it runs only when the host delivers a result,
 # with no I/O or timers), so a script replays after a restart. Bundles and
-# builds QuickJS-ng with `cc`, like rusqlite's bundled SQLite. MIT.
+# builds QuickJS-ng with `cc`. MIT.
 rquickjs = "0.14"
 # codemode/output: decode `image()` data to save it (TS `atob`). Already in the
 # graph through eukhe-ai. MIT OR Apache-2.0.
 base64 = "0.22"
 
+[features]
+# `eukhe_durable::testing`: the storage and environment conformance suites,
+# for the crate's own integration tests.
+testing = []
+
 [dev-dependencies]
+eukhe-durable = { path = ".", features = ["testing"] }
 tempfile = "3"
 # Paused tokio time for the task sleep tests (TS real timers against an
 # injected Harness clock). MIT.

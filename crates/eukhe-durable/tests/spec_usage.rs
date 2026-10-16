@@ -27,10 +27,6 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::{Harness, RootOptions, GENERATION_TASK, LIVE_DOC, TOOL_TASK};
 use eukhe_durable::session::{Session, SessionError, SessionResult, Tx};
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
-use eukhe_durable::tools::{
-    create_bash_tool, create_edit_tool, create_read_tool, BashToolOptions, ReadToolOptions,
-    CODING_TOOLS,
-};
 use eukhe_durable::types::{
     ConversationId, ConversationOwnership, ConversationQuery, DocumentReaderExt, EntryDraft,
     EntryId, InputSubmission, LatestFork, Storage, SubmissionState, TaskId, TaskOptions,
@@ -116,6 +112,11 @@ trait App: Send + Sync + 'static {
     fn anchor(&self) -> Task<(), Hold, (), ()>;
     fn reporter(&self) -> Task<(), Report, (), ()>;
     fn subagent_tool(&self) -> Arc<ToolRegistration>;
+    /// The coding tools (`read`, `edit`, `bash`), and the extension holding them.
+    fn read_tool(&self) -> Arc<ToolRegistration>;
+    fn edit_tool(&self) -> Arc<ToolRegistration>;
+    fn bash_tool(&self, command_prefix: Option<&str>) -> Arc<ToolRegistration>;
+    fn coding_tools(&self) -> Arc<Extension>;
 }
 
 /// TS `section(key, () => text)`.
@@ -243,9 +244,9 @@ impl HarnessSettingsSource for UserSettings {
 #[expect(clippy::too_many_lines, reason = "one TS function, ported whole")]
 fn examples(app: &Arc<dyn App>) -> Examples {
     let app = Arc::clone(app);
-    let read_tool = create_read_tool(ReadToolOptions::default());
-    let edit_tool = create_edit_tool();
-    let bash_tool = create_bash_tool(BashToolOptions::default());
+    let read_tool = app.read_tool();
+    let edit_tool = app.edit_tool();
+    let bash_tool = app.bash_tool(None);
 
     // ─── Section 7.1: extensions and host setup ──────────────────────────────────
 
@@ -374,10 +375,7 @@ fn examples(app: &Arc<dyn App>) -> Examples {
     // and Timing, if selected, wraps it.
     let venv = define_extension(Extension {
         name: "venv".to_owned(),
-        tools: vec![create_bash_tool(BashToolOptions {
-            command_prefix: Some("source .venv/bin/activate".to_owned()),
-            ..BashToolOptions::default()
-        })],
+        tools: vec![app.bash_tool(Some("source .venv/bin/activate"))],
         ..Extension::default()
     });
 
@@ -758,7 +756,7 @@ fn examples(app: &Arc<dyn App>) -> Examples {
                     let context = app.context();
                     let registry = create_registry();
                     for extension in [
-                        Arc::clone(&CODING_TOOLS),
+                        app.coding_tools(),
                         Arc::clone(&coding),
                         Arc::clone(&context_files),
                         Arc::clone(&skills),
@@ -780,7 +778,7 @@ fn examples(app: &Arc<dyn App>) -> Examples {
                         // Reviewer is installed but not selected by default: only conversations that select it get its role and hooks.
                         settings: Some(Arc::new(LiveSettings::new(HarnessSettings {
                             extensions: Some(vec![
-                                Arc::clone(&CODING_TOOLS),
+                                app.coding_tools(),
                                 coding,
                                 context_files,
                                 Arc::clone(&skills),

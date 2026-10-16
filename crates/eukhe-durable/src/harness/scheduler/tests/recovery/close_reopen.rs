@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 
-use super::{create_in, sqlite, sqlite_path, until, Log, Step};
+use super::{create_in, jsonl, store_path, until, Log, Step};
 use crate::harness::tests::support::context;
 use crate::harness::tests::task_support::{
     aborted, aborted_with, completed, deferred, flush, open_tasks, Deferred, OpenTasksOptions,
@@ -135,12 +135,12 @@ fn aborted_without_reason<S>() -> NextTaskState<S, Receipt> {
 #[tokio::test]
 async fn resumes_an_intent_effect_outcome_task_interrupted_after_its_intent_across_close_and_reopen(
 ) {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let service = TransferService::default();
     let transfer = transfer_task(&service, &Arc::new(AtomicBool::new(true)));
 
     let first = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         std::slice::from_ref(&transfer),
         OpenTasksOptions::default(),
     )
@@ -156,7 +156,7 @@ async fn resumes_an_intent_effect_outcome_task_interrupted_after_its_intent_acro
     first.harness.close(context()).await.unwrap();
 
     let second = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         std::slice::from_ref(&transfer),
         OpenTasksOptions::default(),
     )
@@ -196,7 +196,7 @@ async fn resumes_an_intent_effect_outcome_task_interrupted_after_its_intent_acro
     second.harness.close(context()).await.unwrap();
 
     let third = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         std::slice::from_ref(&transfer),
         OpenTasksOptions::default(),
     )
@@ -234,7 +234,7 @@ async fn create_transfer(root: &Conversation, transfer: &AnyTask) -> TaskId {
 // #10549
 #[tokio::test]
 async fn keeps_a_tasks_started_at_across_close_and_reopen_and_stamps_ended_at_when_it_settles() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let service = TransferService::default();
     let transfer = transfer_task(&service, &Arc::new(AtomicBool::new(true)));
     let clock = Arc::new(AtomicU64::new(2_000_f64.to_bits()));
@@ -248,7 +248,7 @@ async fn keeps_a_tasks_started_at_across_close_and_reopen_and_stamps_ended_at_wh
     };
 
     let first = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         std::slice::from_ref(&transfer),
         options(),
     )
@@ -266,7 +266,7 @@ async fn keeps_a_tasks_started_at_across_close_and_reopen_and_stamps_ended_at_wh
 
     set_clock(9_000.0);
     let second = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         std::slice::from_ref(&transfer),
         options(),
     )
@@ -347,7 +347,7 @@ fn abortable_task(
 
 #[tokio::test]
 async fn resumes_abort_work_after_close_at_every_direct_task_abort_stage() {
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let log = Log::default();
     let abort_gate = Arc::new(AtomicBool::new(true));
     let abort_reached = deferred::<()>();
@@ -356,7 +356,7 @@ async fn resumes_abort_work_after_close_at_every_direct_task_abort_stage() {
     let tasks = std::slice::from_ref(&abortable);
 
     // Stage 1: the mark is committed while the run invocation is still active.
-    let opened = open_tasks(sqlite(&path).await, tasks, OpenTasksOptions::default()).await;
+    let opened = open_tasks(jsonl(&path).await, tasks, OpenTasksOptions::default()).await;
     let id = create_in(&opened.harness, &abortable).await;
     opened.harness.resume().unwrap();
     until(|| log.len() == 1).await;
@@ -377,7 +377,7 @@ async fn resumes_abort_work_after_close_at_every_direct_task_abort_stage() {
     assert_eq!(log.all(), ["run"]);
 
     // Stage 2: reopen dispatches the abort invocation, never the run; close while it is active.
-    let opened = open_tasks(sqlite(&path).await, tasks, OpenTasksOptions::default()).await;
+    let opened = open_tasks(jsonl(&path).await, tasks, OpenTasksOptions::default()).await;
     let record = opened
         .harness
         .get_task(id, context())
@@ -393,7 +393,7 @@ async fn resumes_abort_work_after_close_at_every_direct_task_abort_stage() {
 
     // Stage 3: a fresh abort invocation settles the task.
     abort_gate.store(false, Ordering::SeqCst);
-    let opened = open_tasks(sqlite(&path).await, tasks, OpenTasksOptions::default()).await;
+    let opened = open_tasks(jsonl(&path).await, tasks, OpenTasksOptions::default()).await;
     opened.harness.resume().unwrap();
     assert_eq!(
         opened
@@ -411,7 +411,7 @@ async fn resumes_abort_work_after_close_at_every_direct_task_abort_stage() {
     assert_eq!(log.all(), ["run", "abort", "abort"]);
 
     // Stage 4: the terminal receipt survives reopen and nothing runs again.
-    let opened = open_tasks(sqlite(&path).await, tasks, OpenTasksOptions::default()).await;
+    let opened = open_tasks(jsonl(&path).await, tasks, OpenTasksOptions::default()).await;
     opened.harness.resume().unwrap();
     flush().await;
     assert_eq!(

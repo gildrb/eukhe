@@ -31,6 +31,7 @@ use crate::harness::types::{
 };
 use crate::harness::{Conversation, Harness};
 use crate::session::SessionResult;
+pub(crate) use crate::storage::test_support::{jsonl, store_path};
 use crate::storage::MemoryStorage;
 use crate::types::{AnyTaskRecord, ConversationId, EntryRecord, SubmissionStatus, TaskQuery};
 
@@ -392,30 +393,9 @@ pub(crate) async fn hang(cx: &Context) -> crate::session::SessionError {
     crate::harness::tests::task_support::aborted(&cx.abort_signal().expect("a call signal")).await
 }
 
-/// TS `sqlitePath()`: a fresh directory (removed when dropped, the TS
-/// `afterEach`) and the database path inside it.
-pub(crate) fn sqlite_path(prefix: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-    let directory = tempfile::Builder::new()
-        .prefix(prefix)
-        .tempdir()
-        .expect("create a temp dir");
-    let path = directory.path().join("session.sqlite");
-    (directory, path)
-}
-
-/// TS `openNodeSqliteStorage(path)`.
-pub(crate) async fn sqlite(path: &std::path::Path) -> Arc<dyn crate::types::Storage> {
-    use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .expect("open the SQLite storage"),
-    )
-}
-
-/// TS `open(path, setup)`: the SQLite chat, without starting scheduling.
-pub(crate) async fn open_sqlite(path: &std::path::Path, setup: &ChatSetup) -> OpenChat {
-    open_chat(sqlite(path).await, setup, None).await.unwrap()
+/// TS `open(path, setup)`: the JSONL chat, without starting scheduling.
+pub(crate) async fn open_jsonl(path: &std::path::Path, setup: &ChatSetup) -> OpenChat {
+    open_chat(jsonl(path).await, setup, None).await.unwrap()
 }
 
 /// Submit `go` and return the submission's ID.

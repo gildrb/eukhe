@@ -1,8 +1,8 @@
-//! `describe("recovery through ownership edges")` over native SQLite storage.
+//! `describe("recovery through ownership edges")` over durable JSONL storage.
 
 use super::{
-    create, in_conversation, inspected, open_nodes, outcome_of, owned_conversation, parent_of,
-    running, sqlite, sqlite_path, status, until, Behavior, Script, BACKGROUND,
+    create, in_conversation, inspected, jsonl, open_nodes, outcome_of, owned_conversation,
+    parent_of, running, status, store_path, until, Behavior, Script, BACKGROUND,
 };
 use crate::harness::tests::support::context;
 use crate::harness::tests::task_support::{open_tasks, settled, OpenTasksOptions};
@@ -14,9 +14,9 @@ use crate::types::{ConversationOwnership, JoinPolicy, TaskOutcomeStatus, TaskSta
 async fn shows_an_abort_marked_owner_waiting_for_work_in_its_owned_conversation_before_resume_after_reopen(
 ) {
     let script = Script::new();
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     let session = create_session(
-        sqlite(&path).await,
+        jsonl(&path).await,
         crate::session::SessionOptions::default(),
     );
     let node = script.node().clone();
@@ -49,7 +49,7 @@ async fn shows_an_abort_marked_owner_waiting_for_work_in_its_owned_conversation_
     session.close(context()).await.unwrap();
 
     let opened = open_tasks(
-        sqlite(&path).await,
+        jsonl(&path).await,
         &[script.node().clone()],
         OpenTasksOptions::default(),
     )
@@ -74,7 +74,7 @@ async fn shows_an_abort_marked_owner_waiting_for_work_in_its_owned_conversation_
 #[tokio::test]
 async fn keeps_the_root_busy_after_reopen_for_work_below_a_child_tasks_owned_conversation() {
     let script = Script::new();
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     script.script(
         "child",
         Behavior::default().run(|script, runtime, cx| async move {
@@ -100,13 +100,13 @@ async fn keeps_the_root_busy_after_reopen_for_work_below_a_child_tasks_owned_con
         }),
     );
     parent_of(&script, "parent", &["child"], JoinPolicy::AllSettled);
-    let opened = open_nodes(&script, sqlite(&path).await).await;
+    let opened = open_nodes(&script, jsonl(&path).await).await;
     let parent = script.start(&opened.root, "parent").await;
     let logged = &script;
     until(|| async move { logged.logged("run:inner") }).await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_nodes(&script, sqlite(&path).await).await;
+    let opened = open_nodes(&script, jsonl(&path).await).await;
     let idle = tokio::spawn(opened.root.wait_for_idle(context()));
     assert!(!settled(&idle).await);
     script.open("inner");
@@ -123,7 +123,7 @@ async fn keeps_the_root_busy_after_reopen_for_work_below_a_child_tasks_owned_con
 async fn keeps_a_finished_background_ancestor_a_boundary_after_reopen_which_background_true_crosses(
 ) {
     let script = Script::new();
-    let (_directory, path) = sqlite_path();
+    let (_directory, path) = store_path();
     script.script(
         "child",
         Behavior::default().run(|script, runtime, cx| async move {
@@ -142,7 +142,7 @@ async fn keeps_a_finished_background_ancestor_a_boundary_after_reopen_which_back
         }),
     );
     parent_of(&script, "background", &["child"], JoinPolicy::AllSettled);
-    let opened = open_nodes(&script, sqlite(&path).await).await;
+    let opened = open_nodes(&script, jsonl(&path).await).await;
     let background = script
         .start_with(&opened.root, "background", BACKGROUND)
         .await;
@@ -153,7 +153,7 @@ async fn keeps_a_finished_background_ancestor_a_boundary_after_reopen_which_back
         .unwrap();
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_nodes(&script, sqlite(&path).await).await;
+    let opened = open_nodes(&script, jsonl(&path).await).await;
     let conversation = script.conversation_id("child").await;
     let child = opened
         .harness

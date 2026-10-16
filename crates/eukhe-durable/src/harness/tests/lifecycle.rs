@@ -45,7 +45,7 @@ use crate::harness::types::{
 use crate::harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 use crate::session::tests::support::{json, ControlledStorage};
 use crate::session::{ObservedValue, SessionError, SessionResult, WatchEnd, WatchListener};
-use crate::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use crate::storage::test_support::jsonl;
 use crate::storage::MemoryStorage;
 use crate::tasks::{define_task, Task, TaskDefinition};
 use crate::types::{
@@ -562,14 +562,7 @@ async fn joins_a_tool_execute_and_a_hook_that_ignore_their_signal_before_closing
 async fn lets_a_new_harness_open_the_same_storage_once_close_resolved_no_old_invocation_code_runs()
 {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("session.sqlite");
-    let sqlite = || async {
-        Arc::new(
-            open_native_sqlite_storage(&path, NativeSqliteStorageOptions::default())
-                .await
-                .unwrap(),
-        ) as Arc<dyn Storage>
-    };
+    let path = directory.path().join("session");
     let log: Arc<Mutex<Vec<String>>> = Arc::default();
     let gate: Deferred = deferred();
     let generation = Arc::new(AtomicU64::new(1));
@@ -592,7 +585,12 @@ async fn lets_a_new_harness_open_the_same_storage_once_close_resolved_no_old_inv
             }),
         )
     };
-    let first = open_tasks(sqlite().await, &[task.erase()], OpenTasksOptions::default()).await;
+    let first = open_tasks(
+        jsonl(&path).await,
+        &[task.erase()],
+        OpenTasksOptions::default(),
+    )
+    .await;
     let first_root = first
         .harness
         .root(RootOptions::default(), context())
@@ -619,7 +617,12 @@ async fn lets_a_new_harness_open_the_same_storage_once_close_resolved_no_old_inv
     closing.await.unwrap().unwrap();
     assert_eq!(*lock(&log), ["start 1", "end 1", "closed"]);
     generation.store(2, Ordering::SeqCst);
-    let second = open_tasks(sqlite().await, &[task.erase()], OpenTasksOptions::default()).await;
+    let second = open_tasks(
+        jsonl(&path).await,
+        &[task.erase()],
+        OpenTasksOptions::default(),
+    )
+    .await;
     second.harness.resume().unwrap();
     second.harness.wait_for_task(id, context()).await.unwrap();
     assert_eq!(

@@ -12,19 +12,15 @@ pub mod env;
 pub mod errors;
 pub mod harness;
 pub mod ids;
-pub mod images;
 pub mod search;
 pub mod session;
 pub mod storage;
 pub mod tasks;
+#[cfg(feature = "testing")]
 pub mod testing;
-pub mod tools;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the tools and harness, ported separately")
-)]
-mod truncate;
 pub mod types;
 
-/// The default bound of a tool result: its line and byte limits.
-pub use truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
+/// The default line bound of a tool result.
+pub const DEFAULT_MAX_LINES: u64 = 2000;
+/// The default byte bound of a tool result (50KB).
+pub const DEFAULT_MAX_BYTES: u64 = 50 * 1024;

@@ -9,7 +9,7 @@ use serde_json::json;
 
 use super::super::nested_support::{
     call_with, echo_tool, end_result, exec, exec_key, hang, input_of, is_nested, listen, lock,
-    nested_text, open_sqlite, plain, results, run_once, settle, sqlite_path, submit_go, taken,
+    nested_text, open_jsonl, plain, results, run_once, settle, store_path, submit_go, taken,
     text_result, tool_tasks, Slot,
 };
 use super::super::support::{done, result_text, submit_and_wait, tool, tool_with};
@@ -224,7 +224,7 @@ async fn aborts_a_running_nested_call_when_its_caller_throws() {
 
 #[tokio::test]
 async fn reattaches_a_replay_safe_caller_to_the_nested_calls_it_made_before_a_restart() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let (echo, echo_runs) = echo_tool(|_| {});
     add_tool(&setup.registry, echo, None).unwrap();
@@ -264,12 +264,12 @@ async fn reattaches_a_replay_safe_caller_to_the_nested_calls_it_made_before_a_re
         call_with("batch", json!({}), "c1").into(),
         done().into(),
     ]);
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     blocked.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
     assert_eq!(runs.load(Ordering::SeqCst), 2);
@@ -385,7 +385,7 @@ async fn admits_one_nested_call_for_a_key_used_by_concurrent_calls() {
 
 #[tokio::test]
 async fn aborts_left_running_nested_calls_of_a_caller_interrupted_while_it_cleaned_them_up() {
-    let (_directory, path) = sqlite_path("pi-durable-nested-");
+    let (_directory, path) = store_path();
     let setup = setup();
     let running = deferred::<()>();
     let cleaning = deferred::<()>();
@@ -439,14 +439,14 @@ async fn aborts_left_running_nested_calls_of_a_caller_interrupted_while_it_clean
         call_with("batch", json!({}), "c1").into(),
         done().into(),
     ]);
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     let id = submit_go(&opened.root).await;
     cleaning.wait().await;
     let closed = tokio::spawn(opened.harness.close(context()));
     release.resolve(());
     closed.await.unwrap().unwrap();
 
-    let opened = open_sqlite(&path, &setup).await;
+    let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     assert_eq!(settle(&opened.harness, id).await, SubmissionStatus::Done);
     opened.harness.wait_for_idle(context()).await.unwrap();

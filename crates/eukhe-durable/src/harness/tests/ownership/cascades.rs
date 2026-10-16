@@ -371,8 +371,8 @@ async fn keeps_a_nested_background_owners_subtree_when_its_cancelled_background_
 #[tokio::test]
 async fn decides_idle_after_reopen_from_owner_edges_it_has_to_load_first() {
     let world = World::new();
-    let (_directory, path) = sqlite_path("pi-durable-ownership-");
-    let opened = open_harness(&world, sqlite(&path).await).await;
+    let (_directory, path) = store_path();
+    let opened = open_harness(&world, jsonl(&path).await).await;
     let foreground = owned_child(&world, &opened.root, "fg", TreeOptions::default()).await;
     let foreground_child = opened
         .harness
@@ -398,7 +398,7 @@ async fn decides_idle_after_reopen_from_owner_edges_it_has_to_load_first() {
     until_status(&opened.harness, deeper.owner, TaskStatus::Completing).await;
     opened.harness.close(context()).await.unwrap();
 
-    let opened = open_harness(&world, sqlite(&path).await).await;
+    let opened = open_harness(&world, jsonl(&path).await).await;
     // Two levels below completed foreground owners, the inner tasks keep the root busy.
     assert!(!settled(&tokio::spawn(opened.root.wait_for_idle(context()))).await);
     assert!(!settled(&tokio::spawn(opened.harness.wait_for_idle(context()))).await);
@@ -426,10 +426,10 @@ async fn decides_idle_after_reopen_from_owner_edges_it_has_to_load_first() {
 /// TS `derives marks a crash left unapplied below ${label} at open`.
 async fn derives_marks_a_crash_left_unapplied_below(abort_requested: bool, state: TaskState) {
     let world = World::new();
-    let (_directory, path) = sqlite_path("pi-durable-ownership-");
+    let (_directory, path) = store_path();
     // Without a Harness, nothing derives marks: a cancelled owner with a live task below it.
     let session = create_session(
-        sqlite(&path).await,
+        jsonl(&path).await,
         crate::session::SessionOptions::default(),
     );
     let hold = world.hold.clone();
@@ -478,7 +478,7 @@ async fn derives_marks_a_crash_left_unapplied_below(abort_requested: bool, state
         .unwrap();
     session.close(context()).await.unwrap();
 
-    let Opened { harness, .. } = open_harness(&world, sqlite(&path).await).await;
+    let Opened { harness, .. } = open_harness(&world, jsonl(&path).await).await;
     assert_eq!(
         outcome_of(&harness, inner).await,
         TaskOutcomeStatus::Aborted
@@ -562,8 +562,8 @@ async fn withdraws_an_input_queued_below_a_held_failed_owner_after_its_cascade()
 #[tokio::test]
 async fn marks_work_admitted_after_reopen_below_a_cancelled_owner_whose_edge_was_not_loaded() {
     let world = World::new();
-    let (_directory, path) = sqlite_path("pi-durable-ownership-");
-    let opened = open_harness(&world, sqlite(&path).await).await;
+    let (_directory, path) = store_path();
+    let opened = open_harness(&world, jsonl(&path).await).await;
     let tree = owned_child(
         &world,
         &opened.root,
@@ -589,7 +589,7 @@ async fn marks_work_admitted_after_reopen_below_a_cancelled_owner_whose_edge_was
     opened.harness.close(context()).await.unwrap();
 
     // The child is empty at open, so nothing loads its edge until new work arrives.
-    let opened = open_harness(&world, sqlite(&path).await).await;
+    let opened = open_harness(&world, jsonl(&path).await).await;
     let child = opened
         .harness
         .conversation(tree.child, context())
@@ -780,8 +780,8 @@ async fn aborts_a_waiting_child_whose_awaited_task_completes_in_the_commit_that_
 async fn applies_marks_found_through_an_edge_loaded_after_reopen_once_a_failed_cascade_commit_is_reopened(
 ) {
     let world = World::new();
-    let (_directory, path) = sqlite_path("pi-durable-ownership-");
-    let opened = open_harness(&world, sqlite(&path).await).await;
+    let (_directory, path) = store_path();
+    let opened = open_harness(&world, jsonl(&path).await).await;
     let tree = owned_child(
         &world,
         &opened.root,
@@ -807,7 +807,7 @@ async fn applies_marks_found_through_an_edge_loaded_after_reopen_once_a_failed_c
 
     let reject_mark: Arc<Mutex<Option<TaskId>>> = Arc::default();
     let storage = Arc::new(RejectMark {
-        inner: sqlite(&path).await,
+        inner: jsonl(&path).await,
         mark: Arc::clone(&reject_mark),
     });
     let opened = open_harness(&world, storage).await;
@@ -840,7 +840,7 @@ async fn applies_marks_found_through_an_edge_loaded_after_reopen_once_a_failed_c
     ));
     opened.harness.close(context()).await.unwrap();
     // Reopening derives the mark again.
-    let opened = open_harness(&world, sqlite(&path).await).await;
+    let opened = open_harness(&world, jsonl(&path).await).await;
     assert_eq!(
         outcome_of(&opened.harness, late).await,
         TaskOutcomeStatus::Aborted

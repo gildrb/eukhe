@@ -2,7 +2,6 @@
 //! Run from the workspace:
 //!   cargo run -p eukhe-durable --example 13-recovery
 use std::io::Write;
-use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::{create_models, CreateModelsOptions};
@@ -13,7 +12,7 @@ use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::harness::types::{Extension, HarnessOptions};
 use eukhe_durable::harness::{Harness, RootOptions};
 use eukhe_durable::session::SessionResult;
-use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
+use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::tasks::{define_task, NextTaskState, Task, TaskDefinition};
 use eukhe_durable::types::{TaskOptions, TaskOutcome, TaskOwnership};
 use serde::{Deserialize, Serialize};
@@ -136,9 +135,13 @@ fn ticker_task(
     )
 }
 
-async fn open(database_path: &Path, registry: &Registry) -> SessionResult<Harness> {
-    let storage =
-        open_native_sqlite_storage(database_path, NativeSqliteStorageOptions::default()).await?;
+async fn open(directory: &str, registry: &Registry) -> SessionResult<Harness> {
+    let storage = open_native_jsonl_storage(
+        directory,
+        &BACKGROUND_CONTEXT,
+        JsonlStorageOptions::default(),
+    )
+    .await?;
     Harness::open(
         Arc::new(storage),
         HarnessOptions::new(
@@ -172,11 +175,12 @@ pub async fn run(
 
     // Everything a task needs to continue is in storage, so a new Harness
     // over the same storage picks up where the last one stopped. This
-    // example keeps its storage in a SQLite file so it survives closing.
+    // example keeps its storage in JSONL files so it survives closing.
     let directory = tempfile::Builder::new()
         .prefix("pi-durable-example-")
         .tempdir()?;
-    let database_path = directory.path().join("session.sqlite");
+    let storage_path = directory.path().join("session");
+    let storage_path = storage_path.to_str().ok_or("temp path is not UTF-8")?;
 
     let printed = Printed::default();
     let tick_two = TickTwo::default();
@@ -190,7 +194,7 @@ pub async fn run(
     // First run: start counting to 5, and close the Harness right after tick
     // 2 is printed, before its next checkpoint is saved. That is the same
     // situation as a crash between the effect and saving its outcome.
-    let first_run = open(&database_path, &registry).await?;
+    let first_run = open(storage_path, &registry).await?;
     let definition = ticker.as_definition_ref();
     let input = to_json(&TickerInput { to: 5 })?;
     let ticker_id = first_run
@@ -222,7 +226,7 @@ pub async fn run(
 
     // Read the saved record through a Harness that never resumes, so nothing
     // runs.
-    let reader = open(&database_path, &registry).await?;
+    let reader = open(storage_path, &registry).await?;
     let saved = reader
         .get_task(ticker_id, context)
         .await?
@@ -241,7 +245,7 @@ pub async fn run(
     // Second run: nothing to restart by hand. Waiting for the unfinished task
     // enables scheduling and continues it. Tick 2 runs again because its
     // outcome was never saved, but its memo says it was already printed.
-    let second_run = open(&database_path, &registry).await?;
+    let second_run = open(storage_path, &registry).await?;
     let counted = second_run.wait_for_task(ticker_id, context).await?;
     flush(out, &printed)?;
     writeln!(out, "after reopen: {}", to_json(&counted.outcome)?)?;

@@ -1,7 +1,7 @@
-//! The storage conformance suite against the SQLite and JSONL backends
-//! (TS: `registerStorageConformance` in sqlite-storage and jsonl-storage
-//! tests), on a fresh store and through [`ReopeningStorage`], which closes
-//! and reopens the backend from its files after every commit.
+//! The storage conformance suite against the JSONL backend (TS:
+//! `registerStorageConformance` in the jsonl-storage tests), on a fresh store
+//! and through [`ReopeningStorage`], which closes and reopens the backend
+//! from its files after every commit.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::errors::StorageError;
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
-use eukhe_durable::storage::sqlite::{open_native_sqlite_storage, NativeSqliteStorageOptions};
 use eukhe_durable::testing::{run_storage_conformance, StorageConformanceOptions, StorageTest};
 use eukhe_durable::types::{
     AnyTaskRecord, ConversationId, ConversationQuery, ConversationRecord, Cursor, DocumentAddress,
@@ -32,20 +31,8 @@ async fn jsonl(directory: &Path, fsync: bool) -> Arc<dyn Storage> {
     )
 }
 
-async fn sqlite(path: &Path) -> Arc<dyn Storage> {
-    Arc::new(
-        open_native_sqlite_storage(path, NativeSqliteStorageOptions::default())
-            .await
-            .unwrap(),
-    )
-}
-
 async fn jsonl_owned(directory: PathBuf, fsync: bool) -> Arc<dyn Storage> {
     jsonl(&directory, fsync).await
-}
-
-async fn sqlite_owned(path: PathBuf) -> Arc<dyn Storage> {
-    sqlite(&path).await
 }
 
 type Opener = Arc<dyn Fn() -> BoxFuture<'static, Arc<dyn Storage>> + Send + Sync>;
@@ -285,46 +272,6 @@ async fn jsonl_storage_conformance_with_fsync_after_reopen() {
                     let path = temp.path().to_owned();
                     let storage = ReopeningStorage::open(Arc::new(move || {
                         Box::pin(jsonl_owned(path.clone(), true))
-                    }))
-                    .await;
-                    test(Arc::clone(&storage)).await;
-                    storage.close(&BACKGROUND_CONTEXT).await.unwrap();
-                })
-            }),
-        },
-    )
-    .await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn sqlite_storage_conformance() {
-    run_storage_conformance(
-        "SqliteStorage",
-        StorageConformanceOptions {
-            with_storage: Arc::new(|test: StorageTest| {
-                Box::pin(async move {
-                    let temp = tempfile::tempdir().unwrap();
-                    let storage = sqlite(&temp.path().join("durable.sqlite")).await;
-                    test(Arc::clone(&storage)).await;
-                    storage.close(&BACKGROUND_CONTEXT).await.unwrap();
-                })
-            }),
-        },
-    )
-    .await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn sqlite_storage_conformance_after_reopen() {
-    run_storage_conformance(
-        "SqliteStorage (reopened)",
-        StorageConformanceOptions {
-            with_storage: Arc::new(|test: StorageTest| {
-                Box::pin(async move {
-                    let temp = tempfile::tempdir().unwrap();
-                    let path = temp.path().join("durable.sqlite");
-                    let storage = ReopeningStorage::open(Arc::new(move || {
-                        Box::pin(sqlite_owned(path.clone()))
                     }))
                     .await;
                     test(Arc::clone(&storage)).await;

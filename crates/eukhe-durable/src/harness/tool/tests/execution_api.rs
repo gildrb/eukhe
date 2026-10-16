@@ -9,7 +9,7 @@ use futures::FutureExt;
 use super::support::{calls, done, empty_content, result_text, results, run_with, tool};
 use crate::env::{ExecutionEnv, NativeExecutionEnv, NativeExecutionEnvOptions};
 use crate::harness::agent::configure;
-use crate::harness::tests::chat_support::{chat_setup, open_chat, ChatEnv, OpenChat};
+use crate::harness::tests::chat_support::{chat_setup, open_chat, OpenChat};
 use crate::harness::tests::support::{add_task, add_tool, context};
 use crate::harness::tests::task_support::completed;
 use crate::harness::types::{
@@ -147,13 +147,9 @@ async fn builds_the_environment_per_call_from_the_conversations_cwd_and_runs_com
             }));
         futures::future::ready(Ok(Some(env))).boxed()
     });
-    let OpenChat { harness, root } = open_chat(
-        Arc::new(MemoryStorage::new()),
-        &setup,
-        Some(ChatEnv::Factory(env)),
-    )
-    .await
-    .unwrap();
+    let OpenChat { harness, root } = open_chat(Arc::new(MemoryStorage::new()), &setup, Some(env))
+        .await
+        .unwrap();
     root.configure(
         AgentChange {
             cwd: FieldChange::Set("/tmp".to_owned()),
@@ -206,7 +202,7 @@ async fn answers_a_throwing_environment_with_a_tool_error_result_and_reports_it_
             done().into(),
         ],
         None,
-        Some(ChatEnv::Factory(env)),
+        Some(env),
     )
     .await;
     let result = &results(&ran.entries)[0];
