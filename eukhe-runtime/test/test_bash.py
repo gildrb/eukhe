@@ -274,8 +274,17 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                     if "ready" in handle.output():
                         break
                     await asyncio.sleep(0.05)
-                handle.kill(signal.SIGTERM)
-                records = await _poll_journal(journal, count=2, timeout=10)
+                handle.kill(signal.SIGTERM, grace=0.5)
+                # Wait for the inactive record itself: under load the group KILL
+                # and reap can land well after the TERM grace.
+                deadline = asyncio.get_running_loop().time() + 20
+                records: list[dict] = []
+                while asyncio.get_running_loop().time() < deadline:
+                    with open(journal) as f:
+                        records = [json.loads(line) for line in f if line.strip()]
+                    if records and not records[-1]["active"]:
+                        break
+                    await asyncio.sleep(0.05)
             self.assertFalse(records[-1]["active"])
             await _poll_group_dead(handle.pid)
 
