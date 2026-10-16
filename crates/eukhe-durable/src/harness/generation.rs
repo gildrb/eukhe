@@ -7,6 +7,9 @@
 //! `appendAssistant` live in [`crate::harness::live::run`] so admission and
 //! conversations do not depend on this module.
 
+#[cfg(test)]
+mod bridge;
+mod decide;
 mod round;
 mod stream;
 #[cfg(test)]
@@ -25,6 +28,10 @@ use eukhe_types::pi_ai::{
 };
 use serde::{Deserialize, Serialize};
 
+use self::decide::{
+    after_compaction, after_reply, before_request, Compacted, Compaction, Counts, Failure, Limits,
+    Prepared, Reply, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
+};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
 use self::stream::stream_response;
 use crate::entries::SYSTEM_ENTRY;
@@ -38,7 +45,7 @@ use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::tool::{append_tool_result, harness_error, ToolResultMeta};
 use crate::harness::types::{
     CompactionPolicy, CompactionReason, CompactionResult, ContextOptions, ContextView,
-    ConversationStreamOptions, GenerationHooks, ModelRef, PromptInput, RequestMessages,
+    ConversationStreamOptions, GenerationHooks, ModelRef, PromptInput, RequestMessages, Settings,
 };
 use crate::session::{SessionError, SessionResult};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
@@ -46,9 +53,13 @@ use crate::types::{
     EntryId, EntryQuery, JoinPolicy, SubmissionSettlement, TaskId, TaskOutcome, TaskOutcomeError,
 };
 
-/// Input of `pi.generation` (TS `Record<string, never>`): always `{}`.
+/// Input of `pi.generation` (TS `Record<string, never>`): `{}` for a run's
+/// first generation; the next ones carry the run's finished rounds.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenerationInput {}
+pub struct GenerationInput {
+    #[serde(default, skip_serializing_if = "Rounds::is_first")]
+    pub(crate) rounds: Rounds,
+}
 
 /// Checkpoint of `pi.generation`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,6 +110,9 @@ pub enum GenerationCheckpoint {
         cutoff: EntryId,
         handle: DeferredHandle,
         poll_at: f64,
+        /// This poll's fetch, counted from 1 (H4.4).
+        #[serde(default)]
+        polls: u32,
     },
     /// Waiting on the round's tool tasks, which the generation owns (spec
     /// §8.5).
@@ -142,6 +156,8 @@ pub(crate) struct Request {
     /// Set when the message came from polling, so a still deferred result
     /// polls strictly later.
     poll_at: Option<f64>,
+    /// The deferred fetch that gave the message: 0 for the request.
+    polls: u32,
 }
 
 const DEFAULT_POLL_AFTER_MS: f64 = 5000.0;
@@ -234,35 +250,22 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         return fail_no_model(&runtime, reference.as_ref(), &cx).await;
     };
     let thinking_level = agent.thinking_level;
-    if let (Some(compacted), Some(overflow)) = (compacted, &overflow) {
-        let outcomes = runtime
-            .outcomes::<CompactionResult>(&[compacted], &cx)
-            .await?;
-        let compacted_entry = matches!(
-            outcomes.first(),
-            Some(TaskOutcome::Completed { result }) if result.entry_id.is_some()
-        );
-        if !compacted_entry {
-            return fail_model_error(&runtime, overflow.clone(), &cx).await;
-        }
-    }
-    // A threshold compaction that found nothing to compact or was declined
-    // leaves a request that may still fit. One that failed left a context it
-    // judged too large: sending it would at best leave no room for the answer.
-    if let (Some(compacted), true) = (compacted, blocked) {
-        let outcomes = runtime
-            .outcomes::<CompactionResult>(&[compacted], &cx)
-            .await?;
-        let failure = match outcomes.first() {
-            None | Some(TaskOutcome::Completed { .. }) => None,
-            Some(TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error }) => {
-                Some(format!("Compaction failed: {}", error.message))
-            }
-            Some(TaskOutcome::Orphaned { reason }) => Some(format!("Compaction failed: {reason}")),
-            Some(TaskOutcome::Aborted { .. }) => Some("Compaction was aborted".to_owned()),
-        };
-        if let Some(failure) = failure {
-            return fail_model_error(&runtime, failure, &cx).await;
+    // The compaction this preparation waited for, if it resumes after one.
+    let waited = match (compacted, &overflow) {
+        (Some(child), Some(_)) => Some((child, Compaction::Overflow)),
+        (Some(child), None) if blocked => Some((child, Compaction::Threshold)),
+        _ => None,
+    };
+    if let Some((child, compaction)) = waited {
+        let outcomes = runtime.outcomes::<CompactionResult>(&[child], &cx).await?;
+        let (ended, failure) = compaction_end(outcomes.first());
+        if after_compaction(compaction, ended).is_err() {
+            let text = match (overflow, failure) {
+                (Some(overflow), _) => overflow,
+                (None, Some(failure)) => failure,
+                (None, None) => "Compaction found nothing to compact".to_owned(),
+            };
+            return fail_model_error(&runtime, text, &cx).await;
         }
     }
     let view = runtime
@@ -291,19 +294,22 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let desired = render_sections(&agent.sections, &input, &shown, &report, &cx).await?;
     let tools: Vec<_> = agent.tools.iter().map(|tool| tool.tool()).collect();
     let entries = plan_system_entries(&view, &desired, &tools, timestamp(runtime.now()?)?);
-    let threshold = if compacted.is_none() {
+    let at = Counts {
+        attempt,
+        polls: 0,
+        compacted: compacted.is_some(),
+    };
+    let prepared = before_request(at, || {
         threshold_compaction(
             &view,
             &entries,
             resolved.context_window,
             &settings.compaction,
         )
-    } else {
-        None
-    };
+    });
     let compaction = runtime.registry().builtins().compaction.clone();
     let task_id = runtime.task_id().erase();
-    if threshold == Some(Threshold::Blocking) {
+    if prepared == Prepared::Compact {
         // Compact first and prepare again; the transcript is unchanged until
         // the compaction appends.
         return runtime
@@ -360,7 +366,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                 };
                 // Checked in this commit, so a compaction admitted during
                 // preparation counts.
-                if threshold == Some(Threshold::Background)
+                if prepared == (Prepared::Request { background: true })
                     && tx
                         .doc(&LIVE_DOC, conversation_id)
                         .await?
@@ -430,9 +436,11 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         .await?;
     let messages = Mutex::new(view.messages.clone());
     let api = runtime.hook_api();
-    runtime
+    // A failed hook ends the run: the request it would have shaped never
+    // goes out in another form.
+    let hooked = runtime
         .hooks()
-        .each(
+        .each_required(
             |hooks: &GenerationHooks| hooks.before_request.clone(),
             |hook| {
                 let current = RequestMessages {
@@ -452,7 +460,14 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                 }
             },
         )
-        .await?;
+        .await;
+    match hooked {
+        Ok(()) => {}
+        Err(error) if cx.aborted() => return Err(error),
+        Err(error) => {
+            return fail_model_error(&runtime, format!("A request hook failed: {error}"), &cx).await
+        }
+    }
     let messages = messages
         .into_inner()
         .unwrap_or_else(PoisonError::into_inner);
@@ -468,6 +483,7 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         cutoff,
         messages: Some(view.messages),
         poll_at: None,
+        polls: 0,
     };
     classify(&runtime, request, message, &cx).await
 }
@@ -510,6 +526,7 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         cutoff,
         handle,
         poll_at,
+        polls,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("poll"));
@@ -540,6 +557,7 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         cutoff,
         messages: None,
         poll_at: Some(poll_at),
+        polls,
     };
     classify(&runtime, request, message, &cx).await
 }
@@ -555,7 +573,7 @@ async fn tools(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
     };
     let mut pending = pending.into_iter();
     let Some(next) = pending.next() else {
-        return finish_tool_round(&runtime, assistant, tools, &cx).await;
+        return finish_tool_round(&runtime, assistant, tools, task.input.rounds, &cx).await;
     };
     // Sequential round: start the next call and wait for it.
     start_next_call(&runtime, assistant, tools, next, pending.collect(), &cx).await
@@ -627,11 +645,26 @@ async fn abort(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
         .await
 }
 
-/// Which threshold compaction preparation starts before its request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Threshold {
-    Blocking,
-    Background,
+/// How the compaction a preparation waited for ended, with the failure
+/// text of one that did not complete.
+fn compaction_end(outcome: Option<&TaskOutcome<CompactionResult>>) -> (Compacted, Option<String>) {
+    match outcome {
+        Some(TaskOutcome::Completed { result }) if result.entry_id.is_some() => {
+            (Compacted::Entry, None)
+        }
+        None | Some(TaskOutcome::Completed { .. }) => (Compacted::Nothing, None),
+        Some(TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error }) => (
+            Compacted::Failed,
+            Some(format!("Compaction failed: {}", error.message)),
+        ),
+        Some(TaskOutcome::Orphaned { reason }) => (
+            Compacted::Failed,
+            Some(format!("Compaction failed: {reason}")),
+        ),
+        Some(TaskOutcome::Aborted { .. }) => {
+            (Compacted::Failed, Some("Compaction was aborted".to_owned()))
+        }
+    }
 }
 
 /// Which threshold compaction preparation starts before its request (spec
@@ -747,8 +780,18 @@ async fn fail_no_model(
         .await
 }
 
-/// Classify a terminal provider message in one commit that also clears the
-/// partial.
+/// The limits of the run's decisions, read when they are decided.
+fn limits(settings: &Settings) -> Limits {
+    Limits {
+        max_rounds: settings.max_tool_rounds,
+        max_polls: MAX_POLLS,
+        max_retries: settings.retry.max_retries,
+        loop_rounds: LOOP_ROUNDS,
+    }
+}
+
+/// Classify a terminal provider message and commit the step it leads to
+/// ([`after_reply`], docs/harness.md H4), clearing the partial.
 #[expect(
     clippy::too_many_lines,
     reason = "one TS function, kept whole to read against it"
@@ -756,7 +799,7 @@ async fn fail_no_model(
 async fn classify(
     runtime: &Runtime,
     request: Request,
-    message: AssistantMessage,
+    mut message: AssistantMessage,
     cx: &Context,
 ) -> SessionResult<()> {
     // An abort mark or close: the abort invocation or the reopened run
@@ -769,13 +812,79 @@ async fn classify(
     let task_id = runtime.task_id().erase();
     let attempt = request.attempt;
     let compacted = request.compacted;
-    if message.stop_reason == StopReason::Deferred {
-        if let Some(handle) = message.deferred.clone() {
+    let deferred = if message.stop_reason == StopReason::Deferred {
+        message.deferred.take()
+    } else {
+        None
+    };
+    if deferred.is_none() {
+        let api = runtime.hook_api();
+        runtime
+            .hooks()
+            .each(
+                |hooks: &GenerationHooks| hooks.after_response.clone(),
+                |hook| hook(&message, &api, cx),
+            )
+            .await?;
+    }
+    let calls: Vec<ToolCall> = message
+        .content
+        .iter()
+        .filter_map(|content| match content {
+            AssistantContentBlock::ToolCall(call) => Some(call.clone()),
+            AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => None,
+        })
+        .collect();
+    // The retry and compaction policies govern the next attempt, so they are
+    // read now rather than pinned at preparation.
+    let settings = runtime.settings();
+    let reply = if let Some(handle) = deferred {
+        Reply::Deferred(handle)
+    } else if message.stop_reason == StopReason::ToolUse && !calls.is_empty() {
+        Reply::Calls
+    } else if matches!(
+        message.stop_reason,
+        StopReason::Stop | StopReason::Length | StopReason::ToolUse
+    ) {
+        Reply::Text
+    } else if message.stop_reason == StopReason::Error && is_context_overflow(&message, None) {
+        // An overflow is never retried: only a compaction can make the next
+        // request fit.
+        let cut = compacted.is_none()
+            && settings.compaction.enabled
+            && select_cut(
+                &runtime
+                    .context(
+                        conversation_id,
+                        cx,
+                        ContextOptions {
+                            at: Some(request.cutoff),
+                        },
+                    )
+                    .await?,
+                settings.compaction.keep_recent_tokens,
+            )
+            .is_some();
+        Reply::Overflow { cut }
+    } else {
+        Reply::Error {
+            retryable: message.stop_reason == StopReason::Error
+                && is_retryable_assistant_error(&message)
+                && settings.retry.enabled,
+        }
+    };
+    let at = Counts {
+        attempt,
+        polls: request.polls,
+        compacted: compacted.is_some(),
+    };
+    match after_reply(at, reply, &limits(&settings)) {
+        Step::Poll(handle, polls) => {
             let after = runtime.now()? + handle.poll_after_ms.unwrap_or(DEFAULT_POLL_AFTER_MS);
             let poll_at = after.max(request.poll_at.map_or(f64::NEG_INFINITY, |at| at + 1.0));
             let model = request.model;
             let cutoff = request.cutoff;
-            return runtime
+            runtime
                 .commit(
                     move |tx, _current| async move {
                         let live = tx.doc(&LIVE_DOC, conversation_id).await?;
@@ -792,61 +901,28 @@ async fn classify(
                                 cutoff,
                                 handle,
                                 poll_at,
+                                polls,
                             },
                         }))
                     },
                     cx,
                 )
-                .await;
+                .await
         }
-    }
-    let api = runtime.hook_api();
-    runtime
-        .hooks()
-        .each(
-            |hooks: &GenerationHooks| hooks.after_response.clone(),
-            |hook| hook(&message, &api, cx),
-        )
-        .await?;
-    let calls: Vec<ToolCall> = message
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            AssistantContentBlock::ToolCall(call) => Some(call.clone()),
-            AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => None,
-        })
-        .collect();
-    if message.stop_reason == StopReason::ToolUse && !calls.is_empty() {
-        return start_tool_round(runtime, request, message, calls, cx).await;
-    }
-    if matches!(
-        message.stop_reason,
-        StopReason::Stop | StopReason::Length | StopReason::ToolUse
-    ) {
-        return answer(runtime, message, cx).await;
-    }
-    // The retry and compaction policies govern the next attempt, so they are
-    // read now rather than pinned at preparation.
-    let settings = runtime.settings();
-    let overflow = message.stop_reason == StopReason::Error && is_context_overflow(&message, None);
-    if overflow && compacted.is_none() && settings.compaction.enabled {
-        let policy = settings.compaction;
-        let view = runtime
-            .context(
-                conversation_id,
-                cx,
-                ContextOptions {
-                    at: Some(request.cutoff),
-                },
-            )
-            .await?;
-        if select_cut(&view, policy.keep_recent_tokens).is_some() {
+        Step::Fail(Failure::Polls) => {
+            let text =
+                format!("The model's deferred response was not ready after {MAX_POLLS} polls");
+            fail_model_error(runtime, text, cx).await
+        }
+        Step::Tools => start_tool_round(runtime, request, message, calls, cx).await,
+        Step::Answer => answer(runtime, message, cx).await,
+        Step::Compact => {
             let text = message
                 .error_message
                 .clone()
                 .unwrap_or_else(|| "Context overflow".to_owned());
             let compaction = runtime.registry().builtins().compaction.clone();
-            return runtime
+            runtime
                 .commit(
                     move |tx, _current| async move {
                         let live = tx.doc(&LIVE_DOC, conversation_id).await?;
@@ -876,71 +952,68 @@ async fn classify(
                     },
                     cx,
                 )
-                .await;
+                .await
+        }
+        step @ (Step::Retry | Step::Fail(Failure::Model)) => {
+            let retry = matches!(step, Step::Retry);
+            let policy = settings.retry;
+            // The wait is drawn once and committed with the retry checkpoint,
+            // so a replay resumes at the same instant: full jitter under the
+            // policy's step, never before the server's Retry-After.
+            let until = if retry {
+                let delay = RetryDelay {
+                    base_delay_ms: policy.base_delay_ms,
+                    max_agent_delay_ms: policy.max_agent_delay_ms,
+                };
+                runtime.now()?
+                    + retry_wait_ms(delay, u32::try_from(attempt).unwrap_or(u32::MAX), &message)
+            } else {
+                0.0
+            };
+            runtime
+                .commit(
+                    move |tx, _current| async move {
+                        let live = tx.doc(&LIVE_DOC, conversation_id).await?;
+                        let error = message.error_message.clone();
+                        let stop_reason = message.stop_reason;
+                        append_assistant(&tx, conversation_id, message).await?;
+                        if retry {
+                            let generation = LiveGeneration {
+                                retry: Some(LiveRetry {
+                                    at: until,
+                                    error: error.unwrap_or_default(),
+                                }),
+                                ..live_generation(attempt)
+                            };
+                            live.set("generation", to_json(&generation)?)?;
+                            return Ok(Some(Next::Running {
+                                checkpoint: GenerationCheckpoint::Retry {
+                                    attempt,
+                                    compacted,
+                                    until,
+                                },
+                            }));
+                        }
+                        let text = error.unwrap_or_else(|| {
+                            format!(
+                                "Model response ended with stop reason {}",
+                                stop_reason.as_str()
+                            )
+                        });
+                        end_run(
+                            &tx,
+                            &live,
+                            task_id,
+                            &SubmissionSettlement::Unanswered {
+                                reason: "model_error".to_owned(),
+                                detail: Some(to_json(&text)?),
+                            },
+                        )?;
+                        failed(text, "model_error").map(Some)
+                    },
+                    cx,
+                )
+                .await
         }
     }
-    let policy = settings.retry;
-    // An overflow is never retried: only a compaction can make the next
-    // request fit.
-    let retry = message.stop_reason == StopReason::Error
-        && !overflow
-        && is_retryable_assistant_error(&message)
-        && policy.enabled
-        && attempt <= u64::from(policy.max_retries);
-    // The wait is drawn once and committed with the retry checkpoint, so a
-    // replay resumes at the same instant: full jitter under the policy's
-    // step, never before the server's Retry-After.
-    let until = if retry {
-        let delay = RetryDelay {
-            base_delay_ms: policy.base_delay_ms,
-            max_agent_delay_ms: policy.max_agent_delay_ms,
-        };
-        runtime.now()? + retry_wait_ms(delay, u32::try_from(attempt).unwrap_or(u32::MAX), &message)
-    } else {
-        0.0
-    };
-    runtime
-        .commit(
-            move |tx, _current| async move {
-                let live = tx.doc(&LIVE_DOC, conversation_id).await?;
-                let error = message.error_message.clone();
-                let stop_reason = message.stop_reason;
-                append_assistant(&tx, conversation_id, message).await?;
-                if retry {
-                    let generation = LiveGeneration {
-                        retry: Some(LiveRetry {
-                            at: until,
-                            error: error.unwrap_or_default(),
-                        }),
-                        ..live_generation(attempt)
-                    };
-                    live.set("generation", to_json(&generation)?)?;
-                    return Ok(Some(Next::Running {
-                        checkpoint: GenerationCheckpoint::Retry {
-                            attempt,
-                            compacted,
-                            until,
-                        },
-                    }));
-                }
-                let text = error.unwrap_or_else(|| {
-                    format!(
-                        "Model response ended with stop reason {}",
-                        stop_reason.as_str()
-                    )
-                });
-                end_run(
-                    &tx,
-                    &live,
-                    task_id,
-                    &SubmissionSettlement::Unanswered {
-                        reason: "model_error".to_owned(),
-                        detail: Some(to_json(&text)?),
-                    },
-                )?;
-                failed(text, "model_error").map(Some)
-            },
-            cx,
-        )
-        .await
 }

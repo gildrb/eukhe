@@ -141,6 +141,8 @@ fn load(cwd: &Path, agent_dir: &Path, paths: &[PathBuf; 2], follow_ups_at_once: 
 ///   compaction policy.
 /// - `steeringMode` / `followUpMode` -> the queue modes (eukhe defaults:
 ///   `all` / `one-at-a-time`).
+/// - `maxToolRounds` -> the tool rounds one run may make (the Harness
+///   default, 250, when unset or `0`).
 ///
 /// eukhe has no tool-execution setting: the Harness default applies (each
 /// tool's own execution mode still serializes `ipython`).
@@ -194,6 +196,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         follow_up_mode: Some(queue_mode(manager.get_follow_up_mode())),
         context_retention_ms: None,
         document_retention_ms: None,
+        max_tool_rounds: settings.max_tool_rounds,
     }
 }
 

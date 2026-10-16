@@ -14,6 +14,7 @@ import ./bend/proof_fit.bend as Fit
 import ./bend/proof_push.bend as Push
 import ./bend/proof_agree.bend as Agree
 import ./bend/proof_compactor.bend as Compactor
+import ./bend/proof_run.bend as Runs
 import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
 
@@ -133,6 +134,29 @@ def Laws.settle_reached(es, ps, enough):
 
 def Laws.settle_start(p, info, v):
   Compactor.pc.settle_start(p, info, v)
+
+# (H4) Every run ends
+
+def Laws.run_ends(cfg, evs, long, more):
+  Runs.run_ends(cfg, evs, long, more)
+
+def Laws.run_end_stays(cfg, s, ended, e):
+  Runs.end_stays(cfg, s, e, ended)
+
+def Laws.run_abort_ends_now(cfg, s, live):
+  Runs.abort_now(cfg, s, live)
+
+def Laws.run_rounds_capped(cfg, evs):
+  Runs.rounds_capped(cfg, evs)
+
+def Laws.run_loop_needs_repeats(cfg, evs):
+  Runs.loop_needs_repeats(cfg, evs)
+
+def Laws.run_rounds_fail_at_cap(cfg, evs):
+  Runs.rounds_fail_at_cap(cfg, evs)
+
+def Laws.run_polls_need_defers(cfg, evs):
+  Runs.polls_need_defers(cfg, evs)
 
 # (H3) A user's request never waits behind background work
 

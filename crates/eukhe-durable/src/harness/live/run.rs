@@ -57,12 +57,13 @@ pub async fn start_run(
     live: &Draft,
     inputs: Vec<SubmissionId>,
 ) -> SessionResult<()> {
-    let task_id = create_generation(tx, generation, conversation_id).await?;
+    let task_id = create_generation(tx, generation, conversation_id, JsonValue::object()).await?;
     live.set("run", to_json(&LiveRun { task_id, inputs })?)?;
     Ok(())
 }
 
-/// A generation owned by its conversation.
+/// A generation owned by its conversation, with `input` (`pi.generation`'s
+/// `GenerationInput`).
 ///
 /// # Errors
 ///
@@ -71,10 +72,11 @@ pub async fn create_generation(
     tx: &Tx,
     generation: &AnyTask,
     conversation_id: ConversationId,
+    input: JsonValue,
 ) -> SessionResult<TaskId> {
     tx.create_task(
         generation.as_definition_ref(),
-        JsonValue::object(),
+        input,
         TaskOptions {
             ownership: TaskOwnership::Conversation,
             conversation_id: Some(conversation_id),

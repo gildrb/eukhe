@@ -2,6 +2,7 @@
 //! (`harness/agent.ts`).
 
 use std::collections::HashSet;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use eukhe_chord::delta::{Draft, DraftItem};
@@ -36,6 +37,12 @@ pub const DEFAULT_COMPACTION_POLICY: CompactionPolicy = CompactionPolicy {
 pub const DEFAULT_PROGRESS_POLICY: ProgressPolicy = ProgressPolicy {
     partial_interval_ms: 100.0,
     output_interval_ms: 100.0,
+};
+
+/// Default `settings.max_tool_rounds`: tool rounds one run may make.
+pub const DEFAULT_MAX_TOOL_ROUNDS: NonZeroU32 = match NonZeroU32::new(250) {
+    Some(rounds) => rounds,
+    None => panic!("250 is not zero"),
 };
 
 /// The reserved section key of the agent's `instructions`.
@@ -125,6 +132,10 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
         document_retention_ms: document_retention(
             settings.and_then(|settings| settings.document_retention_ms),
         ),
+        max_tool_rounds: settings
+            .and_then(|settings| settings.max_tool_rounds)
+            .and_then(NonZeroU32::new)
+            .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS),
     }
 }
 

@@ -24,6 +24,9 @@
 //!   `regenerate_rust_crash_fixture`.
 //! - `rust-crash-resumed.json` / `rust-crash-resumed/`: the final state and
 //!   the JSONL files after TS resumed a copy of `rust-crash/`.
+//! - In both `-resumed` fixtures, the second generation's input carries
+//!   eukhe's `rounds` (docs/harness.md H4), edited in after TS wrote them;
+//!   TS's input is `{}`.
 //!
 //! The final state is `{ toolRuns, context, storage }`: how often `probe` ran
 //! during the resume (TS does not rerun an `unsafe` call: 0), the root's

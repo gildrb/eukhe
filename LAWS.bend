@@ -10,6 +10,7 @@ import Base
 import ./bend/optchat.bend as O
 import ./bend/spec.bend as S
 import ./bend/compactor.bend as C
+import ./bend/run.bend as Rn
 import ./bend/admission.bend as Ad
 
 # (a) The view
@@ -298,6 +299,67 @@ law settle_start:
   for +info: O.Info
   for +v: List<&2, O.Node>
   {C.measure(C.settle.start(p, info, v)) == Nat.mul(C.unbuilt(info, v), 1n+p) : Nat}
+
+# (H4) Every run ends
+# -------------------
+# docs/harness.md H4, the model in bend/run.bend: one run (one user turn)
+# through prepare, call (a request or a deferred poll), compact (an
+# overflow's or a blocking threshold one) and tools. Every input is free:
+# any model reply, any round hash and end, any compaction result, an
+# abort, in any order.
+
+# LAW: every run has ended (answered, aborted or failed) after bound(cfg)
+# inputs, whatever they are and whatever follows them; bound(cfg) =
+# max(cap, 1)·(2 + (retries + 2)·(polls + 2)), from maxToolRounds,
+# MAX_POLLS, retry.maxRetries and one compaction a generation
+law run_ends:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  for long: {List.length(&2, Rn.Ev, evs) == Rn.bound(cfg) : Nat}
+  for +more: List<&2, Rn.Ev>
+  {Rn.done(Rn.run(cfg, List.append(&2, Rn.Ev, evs, more))) == True{} : Bool}
+
+# LAW: an ended run stays as it ended
+law run_end_stays:
+  for +cfg: Rn.Cfg
+  for +s: Rn.St
+  for ended: {Rn.done(s) == True{} : Bool}
+  for +e: Rn.Ev
+  {Rn.step(cfg, s, e) == s : Rn.St}
+
+# LAW: an abort ends a live run as aborted, at the next step
+law run_abort_ends_now:
+  for +cfg: Rn.Cfg
+  for +s: Rn.St
+  for live: {Rn.done(s) == False{} : Bool}
+  {Rn.St.ph(Rn.step(cfg, s, Rn.Abort{})) == Rn.Aborted{} : Rn.Ph}
+
+# LAW: a run that has made max(cap, 1) tool rounds has failed
+law run_rounds_capped:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  Or({Rn.failed(Rn.run(cfg, evs)) == True{} : Bool}, {Nat.is_lt(List.length(&2, Nat, Rn.hist(cfg, evs)), Nat.max(Rn.Cfg.cap(cfg), 1n)) == True{} : Bool})
+
+# LAW: the loop guard fails a run only when its last `loop` rounds made the
+# same calls with the same results: a run whose results change is no loop
+law run_loop_needs_repeats:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  Or({Rn.looped(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.rep(Rn.Cfg.loop(cfg), Rn.hist(cfg, evs)) == True{} : Bool})
+
+# LAW: the round cap fails a run only at its max(cap, 1)th round, never
+# earlier
+law run_rounds_fail_at_cap:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  Or({Rn.capped(Rn.run(cfg, evs)) == False{} : Bool}, {List.length(&2, Nat, Rn.hist(cfg, evs)) == Nat.max(Rn.Cfg.cap(cfg), 1n) : Nat})
+
+# LAW: the poll cap fails a run only when its request's reply and each of
+# its `polls` polls were deferred, polls + 1 deferred replies in a row
+law run_polls_need_defers:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  Or({Rn.polled(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.defers(cfg, evs) == 1n+Rn.Cfg.polls(cfg) : Nat})
 
 # (H3) A user's request never waits behind background work
 # ---------------------------------------------------------

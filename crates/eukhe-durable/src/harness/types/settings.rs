@@ -2,6 +2,7 @@
 //! `Settings`, the policies, `ConversationStreamOptions`, `HarnessOptions`).
 
 use std::fmt;
+use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::Models;
@@ -232,6 +233,9 @@ pub struct HarnessSettings {
     /// stays in memory after its last read or write; the next access loads
     /// it from Storage. Default ten minutes; `0` drops it right after use.
     pub document_retention_ms: Option<f64>,
+    /// Tool rounds one run may make; at the cap the run fails (H4).
+    /// Default 250; `0` takes the default.
+    pub max_tool_rounds: Option<u32>,
 }
 
 /// Resolved settings: every field over its built-in default, object fields
@@ -249,6 +253,7 @@ pub struct Settings {
     pub follow_up_mode: QueueMode,
     pub context_retention_ms: f64,
     pub document_retention_ms: f64,
+    pub max_tool_rounds: NonZeroU32,
 }
 
 /// Live source of [`HarnessSettings`] (TS `HarnessOptions.settings`, an

@@ -325,6 +325,9 @@ pub struct Settings {
     /// (ADR 0010). Waits a cell makes on the host (`rlm.collect`,
     /// `jobs.wait`) are clamped to it.
     pub tool_blocking_budget_ms: Option<u64>,
+    /// Tool rounds one turn may make before it ends as failed (default
+    /// 250; `0` or unset takes the default).
+    pub max_tool_rounds: Option<u32>,
     /// `number | "off" | "none"`; raw JSON because the TS getter validates at
     /// access time.
     pub idle_eviction_minutes: Option<serde_json::Value>,

@@ -248,3 +248,97 @@ put back in the queue: the bridge fails on both. The bridge found no
 difference between the Rust code and the model. Not modelled: the
 wakers (the bridge polls with a no-op waker; a grant takes the waker it
 fires) and the daemon's connection frames.
+
+### H4. Every run ends
+
+A run is one user turn: model calls, tool rounds, retries, until it ends.
+
+1. A run ends in one of: answered, aborted, failed. No other end exists.
+2. A run makes at most `maxToolRounds` tool rounds (default 250; `0` takes
+   the default). At the cap it ends as failed (`run_limit`), with a
+   message that names the cap. A goal or autonomous continuation starts
+   a new count: its own caps bound continuations.
+3. A run that makes the same tool calls (name and arguments) with the
+   same results `LOOP_ROUNDS` (6) rounds in a row ends as failed
+   (`run_limit`, a loop). A call whose result changes (a job that makes
+   progress) is not a loop.
+4. A provider that answers "deferred" is polled at most `MAX_POLLS`
+   (17,280: a day at the default 5 s) times; then the run fails
+   (`model_error`).
+5. Retries are bounded by `retry.maxRetries` (already true).
+6. An abort ends the run within one phase: the phase driver races every
+   phase handler, so every `before_request` hook and every wait in it,
+   against the invocation's cancel signal. A handler that honours the
+   signal returns at once; one that does not is dropped after
+   `ABORT_GRACE` (3 s).
+
+Changed from the first draft: the round count and the loop guard travel
+in each generation's input (durable, so a restart keeps them), not in a
+separate live-run field; a continuation resets them (item 2).
+
+A deliberate difference from TS pi-durable: TS's `pi.generation` input
+is always `{}`; eukhe's carries `{"rounds": {"count", "same", "hash"}}`
+from the second generation of a run on. The cross-implementation
+fixtures (`eukhe-durable/tests/fixtures/harness_cross/*-resumed*`) were
+edited to that one field after TS wrote them; nothing else in them
+changed.
+
+Model: `bend/run.bend`. Its live phases are prepare, call (a request or
+a poll), compact (an overflow's or a blocking threshold compaction) and
+tools; its limits count down (rounds, compactions, retries, polls left).
+Each step is one Rust decision: prepare `before_request`, a compaction's
+end `after_compaction` (an overflow's needs its entry; a threshold one
+fails the run only when it failed, not when it found nothing), a reply
+`after_reply`, a round's end `Rounds::finish` then `RoundEnd::reset` (a
+control stops the run uncounted; a queued reset ends it only after the
+round counted, so the cap and the loop guard come first). Proofs:
+`bend/proof_run.bend`. The measure `M` orders a run lexicographically
+(rounds left, then compactions, retries and polls left in the
+generation, then the phase) and writes that order as one mixed-radix
+number: every input to a live run lowers it by at least one, and at the
+start it is `bound(cfg)`. Every law is universal (any limits, any
+inputs).
+
+| Law | Says |
+| --- | --- |
+| `run_ends` | After `bound(cfg) = max(cap, 1)·(2 + (retries + 2)·(polls + 2))` inputs, whatever follows, the run has ended (H4.1, H4.4, H4.5). |
+| `run_end_stays` | An ended run never changes (H4.1). |
+| `run_abort_ends_now` | An abort ends a live run as aborted at the next step (H4.6). |
+| `run_rounds_capped` | A run that has made `max(cap, 1)` rounds has failed (H4.2). |
+| `run_rounds_fail_at_cap` | The round cap fails a run only once it has made exactly `max(cap, 1)` rounds (H4.2). |
+| `run_loop_needs_repeats` | A loop fails a run only when its last `loop` rounds had the same calls and results (H4.3). |
+| `run_polls_need_defers` | The poll cap fails a run only after `polls + 1` deferred replies in a row: the request's and each of its `polls` polls' (H4.4). |
+
+Each of these breaks fails a proof: no poll cap, no round cap, a cap
+that fails a run early, a poll count that a non-deferred reply does not
+reset, a loop count that ignores the hash, an ignored abort in the tools
+phase, a retry that does not spend a retry.
+
+Code: `eukhe-durable/src/harness/generation/decide.rs` (`before_request`,
+`after_compaction`, `after_reply`, `Rounds::finish`, `RoundEnd::reset`,
+`MAX_POLLS`, `LOOP_ROUNDS`); `generation.rs` `prepare` (both decisions,
+`compaction_end`, `threshold_compaction`), `classify` (the reply, then
+the step), `GenerationInput.rounds`, `GenerationCheckpoint::Poll.polls`,
+`request` (a failed hook fails the run), `abort` (every checkpoint ends
+aborted); `generation/round.rs` `finish_tool_round`, `round_hash`
+(SHA-256 of the calls and results, 53 bits); `scheduler/execution.rs`
+`Inner::run` (the race, `ABORT_GRACE`); `harness/agent.rs`
+`DEFAULT_MAX_TOOL_ROUNDS`; `eukhe-core/src/settings` `maxToolRounds`.
+
+Tie: the bridge test `harness::generation::bridge::the_rust_decisions_equal_the_bend_model`
+calls, at each phase, the production decision that phase calls
+(`before_request`, `after_compaction`, `after_reply`, `Rounds::finish`,
+`RoundEnd::reset`), keeps the counters the checkpoints carry, and runs
+`bend/bridge_run.bend` on 401 generated scenarios (the production limits
+and random small ones; every reply, threshold, compaction result, round
+hash and end, and abort), comparing the phase and the counts left after
+each input, byte for byte. Not in the bridge: the abort itself (the
+`abort` handler has one outcome; H4.6's race is `Inner::run`), and the
+run's other failures (no model, a failed request hook), which only end
+it. Regression tests (`harness::generation::tests`):
+`run_bounds::a_run_that_keeps_calling_tools_fails_at_the_round_cap`,
+`the_same_calls_with_the_same_results_end_the_run_as_a_loop`,
+`the_same_calls_whose_results_change_are_no_loop`,
+`an_abort_ends_a_run_stuck_in_a_request_hook`,
+`recovery::keeps_the_rounds_a_run_made_across_reopen`,
+`fails_a_response_still_deferred_after_its_last_poll`.

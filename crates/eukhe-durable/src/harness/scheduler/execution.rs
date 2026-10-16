@@ -6,6 +6,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use eukhe_chord::json::JsonValue;
 use futures::future::{BoxFuture, Shared};
@@ -25,6 +26,13 @@ use super::{Inner, SchedulerOutcome};
 
 /// The agent resolution of one phase, shared by every caller in it.
 pub(super) type AgentResolution = Shared<BoxFuture<'static, SessionResult<Arc<Agent>>>>;
+
+/// How long a phase handler may run on after its invocation's signal (an
+/// abort mark, close, or the invocation's end) before the driver drops it
+/// (docs/harness.md H4.6). A handler that honours its signal returns within
+/// it and cleans up; one stuck in a wait that ignores the signal (a hook, a
+/// lock, a peer that never answers) is dropped, so every abort ends.
+const ABORT_GRACE: Duration = Duration::from_secs(3);
 
 /// What a runtime reads for the phase handler it serves: the phase's snapshot
 /// and task, and its lazily resolved agent.
@@ -188,11 +196,25 @@ impl Inner {
             let Some(running) = RunningTask::from_record(current) else {
                 return;
             };
-            let handled = phase
-                .task()
-                .definition()
-                .run_phase(running, Arc::clone(&runtime), invocation.context.clone())
-                .await;
+            let handled = phase.task().definition().run_phase(
+                running,
+                Arc::clone(&runtime),
+                invocation.context.clone(),
+            );
+            tokio::pin!(handled);
+            // The one place a phase meets its signal (H4.6): every hook and
+            // every wait inside it ends with the invocation.
+            let signal = invocation.signal();
+            let handled = tokio::select! {
+                biased;
+                handled = &mut handled => handled,
+                reason = signal.cancelled() => {
+                    match tokio::time::timeout(ABORT_GRACE, &mut handled).await {
+                        Ok(handled) => handled,
+                        Err(_elapsed) => Err(SessionError::Aborted(reason)),
+                    }
+                }
+            };
             previous = Some(PhaseResult {
                 checkpoint,
                 failure: handled.err(),

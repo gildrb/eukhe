@@ -820,12 +820,49 @@ impl<H: Send + Sync + 'static> HookRunner<H> {
     ///
     /// Failures resolving the agent, and a failure of `invoke` after the
     /// invocation was signalled.
+    pub fn each<'a, T, Sel, Inv, Fut>(
+        &'a self,
+        select: Sel,
+        invoke: Inv,
+    ) -> impl Future<Output = SessionResult<()>> + Send + 'a
+    where
+        T: Send + 'a,
+        Sel: Fn(&H) -> Option<T> + Send + 'a,
+        Inv: FnMut(T) -> Fut + Send + 'a,
+        Fut: Future<Output = SessionResult<()>> + Send + 'a,
+    {
+        self.dispatch(HookFailure::Report, select, invoke)
+    }
+
+    /// [`HookRunner::each`] for hooks whose result the caller depends on (a
+    /// transform of the request): the first error from `invoke` stops the
+    /// dispatch and propagates, so the caller never goes on with a result
+    /// the failed handler did not make.
+    ///
+    /// # Errors
+    ///
+    /// Failures resolving the agent, and the first failure of `invoke`.
+    pub fn each_required<'a, T, Sel, Inv, Fut>(
+        &'a self,
+        select: Sel,
+        invoke: Inv,
+    ) -> impl Future<Output = SessionResult<()>> + Send + 'a
+    where
+        T: Send + 'a,
+        Sel: Fn(&H) -> Option<T> + Send + 'a,
+        Inv: FnMut(T) -> Fut + Send + 'a,
+        Fut: Future<Output = SessionResult<()>> + Send + 'a,
+    {
+        self.dispatch(HookFailure::Propagate, select, invoke)
+    }
+
     #[expect(
         clippy::manual_async_fn,
         reason = "the `Send` bound of the returned future is part of the contract"
     )]
-    pub fn each<'a, T, Sel, Inv, Fut>(
+    fn dispatch<'a, T, Sel, Inv, Fut>(
         &'a self,
+        failure: HookFailure,
         select: Sel,
         mut invoke: Inv,
     ) -> impl Future<Output = SessionResult<()>> + Send + 'a
@@ -841,13 +878,25 @@ impl<H: Send + Sync + 'static> HookRunner<H> {
                     continue;
                 };
                 if let Err(error) = invoke(handler).await {
-                    if self.backend.signal().aborted() {
-                        return Err(error);
+                    match failure {
+                        HookFailure::Propagate => return Err(error),
+                        HookFailure::Report if self.backend.signal().aborted() => {
+                            return Err(error);
+                        }
+                        HookFailure::Report => self.backend.report_failure(error),
                     }
-                    self.backend.report_failure(error);
                 }
             }
             Ok(())
         }
     }
+}
+
+/// What [`HookRunner`] does with a handler's error.
+#[derive(Clone, Copy)]
+enum HookFailure {
+    /// Report it and run the next handler.
+    Report,
+    /// Stop and return it.
+    Propagate,
 }

@@ -624,7 +624,13 @@
 				"conversationId": 1,
 				"kind": "pi.generation",
 				"version": 1,
-				"input": {},
+				"input": {
+					"rounds": {
+						"count": 1,
+						"same": 1,
+						"hash": 7435172998516768
+					}
+				},
 				"background": false,
 				"abortRequested": false,
 				"state": {

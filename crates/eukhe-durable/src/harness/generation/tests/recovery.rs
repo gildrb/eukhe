@@ -3,26 +3,34 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, FauxAssistantMessageOptions, FauxDeferredOptions, FauxResponseStep,
-    FauxTokenSize, RegisterFauxProviderOptions,
+    faux_assistant_message, faux_tool_call, FauxAssistantMessageOptions, FauxDeferredOptions,
+    FauxResponseStep, FauxTokenSize, RegisterFauxProviderOptions,
 };
 use eukhe_ai::types::DeferredRequest;
-use eukhe_chord::json::{JsonObject, JsonValue};
+use eukhe_chord::json::{to_json, JsonObject, JsonValue};
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopReason};
 use futures::FutureExt;
 
+use crate::harness::define::define_tool;
+use crate::harness::generation::decide::MAX_POLLS;
 use crate::harness::live::LIVE_DOC;
 use crate::harness::tests::chat_support::{
     all_entries, chat_setup, open_chat, text_of, unanswered, wait_for, ChatSetup, OpenChat,
 };
-use crate::harness::tests::support::{add_section, context, create_models};
+use crate::harness::tests::support::{
+    add_section, add_tool, context, create_models, empty_object_schema,
+};
 use crate::harness::tests::task_support::{aborted, deferred, Deferred};
-use crate::harness::types::{ConversationStreamOptions, InputSubmissionDraft, PartialRetryPolicy};
+use crate::harness::types::{
+    ConversationStreamOptions, InputSubmissionDraft, PartialRetryPolicy, ToolExecutionResult,
+    ToolRegistration,
+};
 use crate::harness::Harness;
 use crate::storage::test_support::jsonl;
-use crate::types::{SubmissionStatus, TaskId};
+use crate::types::{SubmissionStatus, TaskId, TaskRecord, TaskState};
 
 const WAIT_MS: u64 = 5000;
 
@@ -741,4 +749,175 @@ fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
             threshold: false,
         }
     );
+}
+
+/// docs/harness.md H4.4: a provider that answers "deferred" forever is
+/// polled at most `MAX_POLLS` times. The reopened run has made every poll
+/// but its last one, which is still deferred: the run fails.
+#[tokio::test(flavor = "multi_thread")]
+async fn fails_a_response_still_deferred_after_its_last_poll() {
+    let directory = temp();
+    let path = directory.path().to_owned();
+    let setup = chat_setup(RegisterFauxProviderOptions {
+        deferred: Some(FauxDeferredOptions {
+            pending_fetches: Some(1e9),
+            poll_after_ms: Some(60_000.0),
+        }),
+        ..RegisterFauxProviderOptions::default()
+    });
+    let now = manual_clock(&setup, 1_000.0);
+    setup.faux.set_responses(vec![faux_assistant_message(
+        "never",
+        FauxAssistantMessageOptions::default(),
+    )
+    .into()]);
+    let mut opened = open(&path, &setup).await;
+    opened.harness.resume().unwrap();
+    deferred_stream(&setup);
+    let id = opened
+        .root
+        .submit(input("hi"), context())
+        .await
+        .unwrap()
+        .id();
+    wait_deferred(&opened).await;
+    let task_id = run_task_id(&opened).await;
+    opened.harness.close(context()).await.unwrap();
+
+    opened = open(&path, &setup).await;
+    opened
+        .root
+        .commit(
+            move |tx| async move {
+                let record = tx.task(task_id).await?.expect("the generation");
+                let last = |checkpoint: &JsonValue| {
+                    let mut checkpoint = serde_json::Value::from(checkpoint);
+                    checkpoint["polls"] = MAX_POLLS.into();
+                    to_json(&checkpoint)
+                };
+                let state = match &record.state {
+                    TaskState::Running { checkpoint } => TaskState::Running {
+                        checkpoint: last(checkpoint)?,
+                    },
+                    TaskState::Pending { checkpoint } => TaskState::Pending {
+                        checkpoint: last(checkpoint)?,
+                    },
+                    other => panic!("the generation is not polling: {other:?}"),
+                };
+                tx.set_task(TaskRecord { state, ..record })
+            },
+            context(),
+        )
+        .await
+        .unwrap();
+    now.store(61_000.0_f64.to_bits(), Ordering::SeqCst);
+    opened.harness.resume().unwrap();
+    let handle = opened
+        .harness
+        .submission(id, context())
+        .await
+        .unwrap()
+        .unwrap();
+    let settled = tokio::time::timeout(Duration::from_secs(10), handle.wait(context()))
+        .await
+        .expect("the poll cap ends the run")
+        .unwrap();
+    let detail = JsonValue::from(format!(
+        "The model's deferred response was not ready after {MAX_POLLS} polls"
+    ));
+    assert_eq!(
+        (
+            settled.state.status(),
+            settled.state.reason(),
+            settled.state.detail()
+        ),
+        (
+            SubmissionStatus::Unanswered,
+            Some("model_error"),
+            Some(&detail)
+        )
+    );
+    assert_eq!(setup.faux.state().deferred_fetch_count, 1);
+    opened.harness.close(context()).await.unwrap();
+}
+
+/// docs/harness.md H4.2: the rounds a run made survive a restart (each
+/// generation's input carries them), so the reopened run makes only the
+/// rounds its cap leaves.
+#[tokio::test(flavor = "multi_thread")]
+async fn keeps_the_rounds_a_run_made_across_reopen() {
+    let directory = temp();
+    let path = directory.path().to_owned();
+    let setup = chat_setup(RegisterFauxProviderOptions::default());
+    add_tool(
+        &setup.registry,
+        define_tool(ToolRegistration::new(
+            "noop",
+            "noop",
+            empty_object_schema(),
+            |_, _, _| async { Ok(ToolExecutionResult::default()) },
+        )),
+        None,
+    )
+    .unwrap();
+    let call = |id: &str| -> FauxResponseStep {
+        faux_assistant_message(
+            vec![faux_tool_call(
+                "noop",
+                serde_json::Map::new(),
+                Some(id.to_owned()),
+            )],
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::ToolUse),
+                ..FauxAssistantMessageOptions::default()
+            },
+        )
+        .into()
+    };
+    let busy = unanswered();
+    setup.faux.set_responses(vec![
+        call("c1"),
+        call("c2"),
+        busy.step.clone(),
+        call("c3"),
+        faux_assistant_message("never", FauxAssistantMessageOptions::default()).into(),
+    ]);
+    setup
+        .settings
+        .update(|settings| settings.max_tool_rounds = Some(3));
+    let mut opened = open(&path, &setup).await;
+    opened.harness.resume().unwrap();
+    let id = opened
+        .root
+        .submit(input("hi"), context())
+        .await
+        .unwrap()
+        .id();
+    busy.reached().await;
+    opened.harness.close(context()).await.unwrap();
+
+    opened = open(&path, &setup).await;
+    opened.harness.resume().unwrap();
+    let handle = opened
+        .harness
+        .submission(id, context())
+        .await
+        .unwrap()
+        .unwrap();
+    let settled = handle.wait(context()).await.unwrap();
+    let detail = JsonValue::from("The run stopped at its tool round cap: 3 rounds (maxToolRounds)");
+    assert_eq!(
+        (
+            settled.state.status(),
+            settled.state.reason(),
+            settled.state.detail()
+        ),
+        (
+            SubmissionStatus::Unanswered,
+            Some("run_limit"),
+            Some(&detail)
+        )
+    );
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
+    opened.harness.close(context()).await.unwrap();
 }

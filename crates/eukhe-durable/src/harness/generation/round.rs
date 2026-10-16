@@ -8,13 +8,17 @@ use std::sync::{Arc, Mutex, PoisonError};
 use eukhe_ai::utils::transcript::get_current_tools;
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::DraftItem;
-use eukhe_chord::json::{from_json, to_json};
+use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, ToolCall, UserContent, UserMessage,
 };
+use sha2::{Digest, Sha256};
 
-use super::{GenerationCheckpoint, GenerationResult, Next, Request, Runtime};
-use crate::entries::{UserData, ASSISTANT_ENTRY, RESET_ENTRY, USER_ENTRY};
+use super::decide::{Limit, RoundEnd, Rounds};
+use super::{
+    failed, limits, GenerationCheckpoint, GenerationInput, GenerationResult, Next, Request, Runtime,
+};
+use crate::entries::{UserData, ASSISTANT_ENTRY, RESET_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use crate::harness::agent::add_tools;
 use crate::harness::inbox::{apply_boundary, prepare_boundary, BoundaryAt, QueueModes};
 use crate::harness::live::run::{
@@ -27,7 +31,7 @@ use crate::harness::tool::{
 use crate::harness::types::{
     ContextOptions, GenerationHooks, ToolControl, ToolExecutionMode, YieldContinuation,
 };
-use crate::session::{SessionResult, Tx};
+use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::AnyTask;
 use crate::types::{
     DocumentReaderExt, EntryHead, EntryId, JoinPolicy, SubmissionSettlement, TaskId, TaskOptions,
@@ -241,7 +245,15 @@ pub(super) async fn answer(
                             },
                         )
                         .await?;
-                        let next = create_generation(&tx, &generation, conversation_id).await?;
+                        // A continuation is a new turn for the round cap and
+                        // the loop guard (H4); its hook bounds continuations.
+                        let next = create_generation(
+                            &tx,
+                            &generation,
+                            conversation_id,
+                            JsonValue::object(),
+                        )
+                        .await?;
                         hand_over(&live, task_id, next)?;
                         live.delete("generation")?;
                         return Ok(Some(result));
@@ -383,8 +395,9 @@ fn slot(
 }
 
 /// The round's tools are terminal: apply their controls and either end the
-/// run at the final boundary (`terminate`, `handoff`, or a queued reset) or
-/// hand it to the next generation at the `postTools` boundary (spec §8.5).
+/// run at the final boundary (`terminate`, `handoff`, a queued reset, the
+/// round cap, or a loop) or hand it to the next generation at the
+/// `postTools` boundary (spec §8.5, docs/harness.md H4).
 #[expect(
     clippy::too_many_lines,
     reason = "one TS function, kept whole to read against it"
@@ -393,6 +406,7 @@ pub(super) async fn finish_tool_round(
     runtime: &Runtime,
     assistant: EntryId,
     tools: Vec<TaskId>,
+    rounds: Rounds,
     cx: &Context,
 ) -> SessionResult<()> {
     let conversation_id = runtime.conversation_id();
@@ -460,6 +474,14 @@ pub(super) async fn finish_tool_round(
         .iter()
         .rev()
         .find_map(|(_, control)| control.as_ref().and_then(|control| control.handoff.clone()));
+    // A round that no control ends counts toward the cap and the loop guard.
+    let limits = limits(&runtime.settings());
+    let end = if terminate || handoff.is_some() {
+        RoundEnd::Stop
+    } else {
+        let hash = round_hash(runtime, assistant, &slots, cx).await?;
+        rounds.finish(hash, &limits)
+    };
     let task_id = runtime.task_id().erase();
     let generation = runtime.registry().builtins().generation.clone();
     let commit_runtime = runtime.clone();
@@ -474,55 +496,34 @@ pub(super) async fn finish_tool_round(
                 }
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                 let now = timestamp(runtime.now()?)?;
-                if terminate || handoff.is_some() {
-                    if let Some(handoff) = handoff {
-                        let message = UserMessage {
-                            content: UserContent::Text(handoff),
-                            timestamp: now,
-                        };
-                        let entry = tx
-                            .append_typed_entry(
-                                &RESET_ENTRY,
-                                conversation_id,
-                                TypedEntryDraft {
-                                    model: Some(vec![Message::User(message)]),
-                                    head: Some(EntryHead::SelfEntry),
-                                    ..TypedEntryDraft::default()
-                                },
-                            )
-                            .await?;
-                        boundary.head = Some(entry.id);
-                    }
-                    let outcome =
-                        apply_boundary(&tx, &mut boundary, BoundaryAt::Final, now).await?;
-                    end_run(
-                        &tx,
-                        &live,
-                        task_id,
-                        &SubmissionSettlement::Done { answer: assistant },
-                    )?;
-                    if !outcome.users.is_empty() {
-                        start_run(&tx, &generation, conversation_id, &live, outcome.users).await?;
-                    }
-                } else {
-                    let outcome =
-                        apply_boundary(&tx, &mut boundary, BoundaryAt::PostTools, now).await?;
-                    if outcome.reset {
-                        // The queued reset cut the run's context before an answer.
-                        end_run(
-                            &tx,
-                            &live,
-                            task_id,
-                            &SubmissionSettlement::Unanswered {
-                                reason: "reset".to_owned(),
-                                detail: None,
+                if let Some(handoff) = handoff {
+                    let message = UserMessage {
+                        content: UserContent::Text(handoff),
+                        timestamp: now,
+                    };
+                    let entry = tx
+                        .append_typed_entry(
+                            &RESET_ENTRY,
+                            conversation_id,
+                            TypedEntryDraft {
+                                model: Some(vec![Message::User(message)]),
+                                head: Some(EntryHead::SelfEntry),
+                                ..TypedEntryDraft::default()
                             },
-                        )?;
-                        if !outcome.users.is_empty() {
-                            start_run(&tx, &generation, conversation_id, &live, outcome.users)
-                                .await?;
-                        }
-                    } else {
+                        )
+                        .await?;
+                    boundary.head = Some(entry.id);
+                }
+                // Only a round that hands the run on stops at `postTools`.
+                let at = if matches!(end, RoundEnd::Next(_)) {
+                    BoundaryAt::PostTools
+                } else {
+                    BoundaryAt::Final
+                };
+                let outcome = apply_boundary(&tx, &mut boundary, at, now).await?;
+                let end = if outcome.reset { end.reset() } else { end };
+                let (settlement, failure) = match end {
+                    RoundEnd::Next(rounds) => {
                         live.delete("tools")?;
                         live.delete("nestedTools")?;
                         if run_task_id(&live)? == Some(task_id) {
@@ -534,13 +535,99 @@ pub(super) async fn finish_tool_round(
                                 .collect::<Result<Vec<_>, _>>()?;
                             inputs.push(users)?;
                         }
-                        let next = create_generation(&tx, &generation, conversation_id).await?;
+                        let input = to_json(&GenerationInput { rounds })?;
+                        let next =
+                            create_generation(&tx, &generation, conversation_id, input).await?;
                         hand_over(&live, task_id, next)?;
+                        return Ok(Some(completed(assistant)));
                     }
+                    RoundEnd::Stop => (SubmissionSettlement::Done { answer: assistant }, None),
+                    // The queued reset cut the run's context before an answer.
+                    RoundEnd::Reset => (
+                        SubmissionSettlement::Unanswered {
+                            reason: "reset".to_owned(),
+                            detail: None,
+                        },
+                        None,
+                    ),
+                    RoundEnd::Fail(limit) => {
+                        let text = match limit {
+                            Limit::Rounds => format!(
+                                "The run stopped at its tool round cap: {} rounds (maxToolRounds)",
+                                limits.max_rounds
+                            ),
+                            Limit::Loop => format!(
+                                "The run stopped in a loop: {} tool rounds in a row made the same calls with the same results",
+                                limits.loop_rounds
+                            ),
+                        };
+                        let settlement = SubmissionSettlement::Unanswered {
+                            reason: "run_limit".to_owned(),
+                            detail: Some(to_json(&text)?),
+                        };
+                        (settlement, Some(text))
+                    }
+                };
+                end_run(&tx, &live, task_id, &settlement)?;
+                if !outcome.users.is_empty() {
+                    start_run(&tx, &generation, conversation_id, &live, outcome.users).await?;
                 }
-                Ok(Some(completed(assistant)))
+                match failure {
+                    Some(text) => failed(text, "run_limit").map(Some),
+                    None => Ok(Some(completed(assistant))),
+                }
             },
             cx,
         )
         .await
+}
+
+/// Low 53 bits: a JSON number holds them exactly.
+const HASH_BITS: u64 = (1 << 53) - 1;
+
+/// A hash of a round's calls (name and arguments, in call order) and
+/// results (content and error flag, in call order): the same for two rounds
+/// that are byte for byte the same, whatever their call ids and times.
+async fn round_hash(
+    runtime: &Runtime,
+    assistant: EntryId,
+    slots: &[ToolSlot],
+    cx: &Context,
+) -> SessionResult<u64> {
+    let mut hasher = Sha256::new();
+    let entry = runtime.typed_entry(&ASSISTANT_ENTRY, assistant, cx).await?;
+    if let Some(Message::Assistant(message)) = entry
+        .as_ref()
+        .and_then(|entry| entry.model.as_ref())
+        .and_then(|model| model.first())
+    {
+        for content in &message.content {
+            match content {
+                AssistantContentBlock::ToolCall(call) => {
+                    serde_json::to_writer(&mut hasher, &(&call.name, &call.arguments))
+                        .map_err(SessionError::other)?;
+                }
+                AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => {}
+            }
+        }
+    }
+    for slot in slots {
+        let Some(id) = slot.entry else {
+            serde_json::to_writer(&mut hasher, &slot.status).map_err(SessionError::other)?;
+            continue;
+        };
+        let entry = runtime.typed_entry(&TOOL_RESULT_ENTRY, id, cx).await?;
+        if let Some(Message::ToolResult(result)) = entry
+            .as_ref()
+            .and_then(|entry| entry.model.as_ref())
+            .and_then(|model| model.first())
+        {
+            serde_json::to_writer(&mut hasher, &(&result.content, result.is_error))
+                .map_err(SessionError::other)?;
+        }
+    }
+    let digest = hasher.finalize();
+    let mut low = [0; 8];
+    low.copy_from_slice(&digest[..8]);
+    Ok(u64::from_le_bytes(low) & HASH_BITS)
 }

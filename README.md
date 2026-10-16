@@ -136,6 +136,7 @@ Settings in `~/.eukhe/settings.json`:
 |`providerMaxQueued`|`64`|Requests that wait per provider; the next one fails (global only)|
 |`retry.provider.streamIdleTimeoutMs`|`300000`|A model stream with no event for this long fails as stalled and retries; `0` is no limit|
 |`memory.settleTimeoutMs`|`20000`|How long a turn waits for the memory's summaries; then a line not summarized yet shows its message cut to 512 bytes; `0` takes the default|
+|`maxToolRounds`|`250`|Tool rounds one turn may make; at the cap the turn ends as failed; `0` takes the default|
 
 The daemon applies the provider limits to all sessions together. The roster
 shows a waiting request as `queued` and a running one as `generating`.
