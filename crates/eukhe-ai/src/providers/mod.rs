@@ -97,9 +97,27 @@ pub mod zai_coding_cn;
 pub mod zai_coding_cn_models;
 pub mod zai_models;
 
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+
 use eukhe_types::pi_ai::AnyModel;
 
 use crate::model_catalog::{ChatModelCatalog, ClassifierModelCatalog, ImageModelCatalog};
+
+/// Shared built-in baselines by provider id.
+type Baselines = HashMap<&'static str, Arc<[AnyModel]>>;
+
+/// The baseline models of built-in provider `id`, converted from its
+/// generated catalogs once per process: every `Models` collection (one per
+/// session open) shares it instead of deep-cloning the catalog.
+pub(crate) fn builtin_baseline(
+    id: &'static str,
+    build: impl FnOnce() -> Vec<AnyModel>,
+) -> Arc<[AnyModel]> {
+    static BASELINES: LazyLock<Mutex<Baselines>> = LazyLock::new(Mutex::default);
+    let mut baselines = BASELINES.lock().unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(baselines.entry(id).or_insert_with(|| build().into()))
+}
 
 /// A generated chat catalog as provider models (TS
 /// `Object.values(X_MODELS)`).

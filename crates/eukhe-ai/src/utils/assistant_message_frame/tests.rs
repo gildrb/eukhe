@@ -89,14 +89,16 @@ fn uses_authoritative_text_end_content_and_signature() {
     let mut encoder = AssistantMessageFrameEncoder::new();
     let mut frames = vec![frame(
         &mut encoder,
-        &AssistantMessageEvent::Start { partial: seed() },
+        &AssistantMessageEvent::Start {
+            partial: seed().into(),
+        },
     )];
     let started = with_content(vec![text("Hello ")]);
     frames.push(frame(
         &mut encoder,
         &AssistantMessageEvent::TextStart {
             content_index: 0,
-            partial: started,
+            partial: started.into(),
         },
     ));
     let advanced = with_content(vec![AssistantContentBlock::Text(TextContent {
@@ -108,7 +110,7 @@ fn uses_authoritative_text_end_content_and_signature() {
         &AssistantMessageEvent::TextDelta {
             content_index: 0,
             delta: "incorrect".into(),
-            partial: advanced.clone(),
+            partial: advanced.clone().into(),
         },
     ));
     frames.push(frame(
@@ -116,7 +118,7 @@ fn uses_authoritative_text_end_content_and_signature() {
         &AssistantMessageEvent::TextEnd {
             content_index: 0,
             content: "Hello world".into(),
-            partial: advanced,
+            partial: advanced.into(),
         },
     ));
     assert_eq!(
@@ -143,7 +145,12 @@ fn preserves_provider_thinking_level_from_the_stream_start() {
         ..seed()
     };
     let mut encoder = AssistantMessageFrameEncoder::new();
-    let start = frame(&mut encoder, &AssistantMessageEvent::Start { partial });
+    let start = frame(
+        &mut encoder,
+        &AssistantMessageEvent::Start {
+            partial: partial.into(),
+        },
+    );
     let AssistantMessageFrame::Start { partial } = &start else {
         panic!("start frame")
     };
@@ -166,13 +173,15 @@ fn preserves_initial_and_final_thinking_metadata_including_redaction() {
     let mut encoder = AssistantMessageFrameEncoder::new();
     let mut frames = vec![frame(
         &mut encoder,
-        &AssistantMessageEvent::Start { partial: seed() },
+        &AssistantMessageEvent::Start {
+            partial: seed().into(),
+        },
     )];
     frames.push(frame(
         &mut encoder,
         &AssistantMessageEvent::ThinkingStart {
             content_index: 0,
-            partial: with_content(vec![thinking("encrypted-start")]),
+            partial: with_content(vec![thinking("encrypted-start")]).into(),
         },
     ));
     frames.push(frame(
@@ -180,7 +189,7 @@ fn preserves_initial_and_final_thinking_metadata_including_redaction() {
         &AssistantMessageEvent::ThinkingEnd {
             content_index: 0,
             content: "[redacted]".into(),
-            partial: with_content(vec![thinking("encrypted-final")]),
+            partial: with_content(vec![thinking("encrypted-final")]).into(),
         },
     ));
     assert_eq!(
@@ -249,18 +258,18 @@ fn reconciles_queued_text_events_against_one_advanced_live_partial_without_dupli
     let live = with_content(vec![text("Hello world")]);
     let mut events = vec![
         AssistantMessageEvent::Start {
-            partial: live.clone(),
+            partial: live.clone().into(),
         },
         AssistantMessageEvent::TextStart {
             content_index: 0,
-            partial: live.clone(),
+            partial: live.clone().into(),
         },
     ];
     for delta in ["Hel", "lo", " ", "world"] {
         events.push(AssistantMessageEvent::TextDelta {
             content_index: 0,
             delta: delta.into(),
-            partial: live.clone(),
+            partial: live.clone().into(),
         });
     }
     let mut encoder = AssistantMessageFrameEncoder::new();
@@ -290,20 +299,20 @@ fn trims_only_the_covered_prefix_when_a_start_snapshot_lands_inside_a_delta() {
     let mut frames = vec![frame(
         &mut encoder,
         &AssistantMessageEvent::Start {
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         },
     )];
     frames.push(frame(
         &mut encoder,
         &AssistantMessageEvent::TextStart {
             content_index: 0,
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         },
     ));
     let delta = |delta: &str| AssistantMessageEvent::TextDelta {
         content_index: 0,
         delta: delta.into(),
-        partial: partial.clone(),
+        partial: partial.clone().into(),
     };
     assert_eq!(encoder.encode(&delta("He")).unwrap(), None);
     let remainder = encoder
@@ -330,21 +339,21 @@ fn checkpoints_queued_tool_json_without_replaying_covered_deltas() {
     ))]);
     let events = [
         AssistantMessageEvent::Start {
-            partial: live.clone(),
+            partial: live.clone().into(),
         },
         AssistantMessageEvent::ToolCallStart {
             content_index: 0,
-            partial: live.clone(),
+            partial: live.clone().into(),
         },
         AssistantMessageEvent::ToolCallDelta {
             content_index: 0,
             delta: r#"{"path":"READ"#.into(),
-            partial: live.clone(),
+            partial: live.clone().into(),
         },
         AssistantMessageEvent::ToolCallDelta {
             content_index: 0,
             delta: r#"ME.md"}"#.into(),
-            partial: live,
+            partial: live.into(),
         },
     ];
     let mut encoder = AssistantMessageFrameEncoder::new();
@@ -388,13 +397,15 @@ fn resumes_legacy_grammar_tool_json_from_initial_arguments() {
     let mut encoder = AssistantMessageFrameEncoder::new();
     let mut frames = vec![frame(
         &mut encoder,
-        &AssistantMessageEvent::Start { partial: seed() },
+        &AssistantMessageEvent::Start {
+            partial: seed().into(),
+        },
     )];
     frames.push(frame(
         &mut encoder,
         &AssistantMessageEvent::ToolCallStart {
             content_index: 0,
-            partial: partial_with("a"),
+            partial: partial_with("a").into(),
         },
     ));
     frames.push(frame(
@@ -402,7 +413,7 @@ fn resumes_legacy_grammar_tool_json_from_initial_arguments() {
         &AssistantMessageEvent::ToolCallDelta {
             content_index: 0,
             delta: r#"{"input":"ab"#.into(),
-            partial: partial_with("ab"),
+            partial: partial_with("ab").into(),
         },
     ));
     frames.push(frame(
@@ -410,7 +421,7 @@ fn resumes_legacy_grammar_tool_json_from_initial_arguments() {
         &AssistantMessageEvent::ToolCallDelta {
             content_index: 0,
             delta: r#"c"}"#.into(),
-            partial: partial_with("abc"),
+            partial: partial_with("abc").into(),
         },
     ));
     assert_eq!(
@@ -441,7 +452,9 @@ fn streams_tool_json_compactly_from_an_empty_argument_start() {
     let mut encoder = AssistantMessageFrameEncoder::new();
     let mut frames = vec![frame(
         &mut encoder,
-        &AssistantMessageEvent::Start { partial: seed() },
+        &AssistantMessageEvent::Start {
+            partial: seed().into(),
+        },
     )];
     frames.push(frame(
         &mut encoder,
@@ -451,7 +464,8 @@ fn streams_tool_json_compactly_from_an_empty_argument_start() {
                 "call",
                 "bash",
                 json!({}),
-            ))]),
+            ))])
+            .into(),
         },
     ));
     frames.push(frame(
@@ -463,7 +477,8 @@ fn streams_tool_json_compactly_from_an_empty_argument_start() {
                 "call",
                 "bash",
                 json!({ "command": "ls -la /tmp" }),
-            ))]),
+            ))])
+            .into(),
         },
     ));
     assert_eq!(
@@ -512,7 +527,7 @@ fn accepts_a_pre_generation_error_but_rejects_success_or_updates_before_start() 
         .encode(&AssistantMessageEvent::TextDelta {
             content_index: 0,
             delta: "x".into(),
-            partial: seed(),
+            partial: seed().into(),
         })
         .unwrap_err();
     assert!(delta_error
@@ -593,14 +608,14 @@ fn stores_authoritative_final_arguments_in_toolcall_end_frames() {
     frame(
         &mut encoder,
         &AssistantMessageEvent::Start {
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         },
     );
     frame(
         &mut encoder,
         &AssistantMessageEvent::ToolCallStart {
             content_index: 0,
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         },
     );
     let end = frame(
@@ -608,7 +623,7 @@ fn stores_authoritative_final_arguments_in_toolcall_end_frames() {
         &AssistantMessageEvent::ToolCallEnd {
             content_index: 0,
             tool_call: call,
-            partial,
+            partial: partial.into(),
         },
     );
     assert_eq!(
@@ -644,14 +659,14 @@ fn whitelists_public_block_fields_from_provider_shaped_partials() {
     let start = frame(
         &mut encoder,
         &AssistantMessageEvent::Start {
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         },
     );
     let text_start = frame(
         &mut encoder,
         &AssistantMessageEvent::TextStart {
             content_index: 0,
-            partial,
+            partial: partial.into(),
         },
     );
     assert_eq!(
@@ -743,7 +758,7 @@ fn snapshots_mutable_event_data_and_keeps_reduction_pure() {
     let start = frame(
         &mut encoder,
         &AssistantMessageEvent::Start {
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         },
     );
     partial.diagnostics.as_mut().unwrap()[0]
@@ -763,7 +778,7 @@ fn snapshots_mutable_event_data_and_keeps_reduction_pure() {
         &mut encoder,
         &AssistantMessageEvent::ToolCallStart {
             content_index: 0,
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         },
     );
     if let AssistantContentBlock::ToolCall(source) = &mut partial.content[0] {
@@ -805,7 +820,9 @@ fn snapshots_mutable_event_data_and_keeps_reduction_pure() {
 fn omits_terminal_events_because_settlement_is_separate() {
     let mut completed = AssistantMessageFrameEncoder::new();
     completed
-        .encode(&AssistantMessageEvent::Start { partial: seed() })
+        .encode(&AssistantMessageEvent::Start {
+            partial: seed().into(),
+        })
         .unwrap();
     let message = AssistantMessage {
         stop_reason: StopReason::Stop,
@@ -899,14 +916,17 @@ fn rejects_frames_before_start_wrong_block_kinds_duplicate_ends_and_index_gaps()
 fn rejects_conversion_events_whose_content_index_points_to_the_wrong_block_kind() {
     let mut encoder = AssistantMessageFrameEncoder::new();
     encoder
-        .encode(&AssistantMessageEvent::Start { partial: seed() })
+        .encode(&AssistantMessageEvent::Start {
+            partial: seed().into(),
+        })
         .unwrap();
     let error = encoder
         .encode(&AssistantMessageEvent::TextStart {
             content_index: 0,
             partial: with_content(vec![AssistantContentBlock::Thinking(
                 ThinkingContent::default(),
-            )]),
+            )])
+            .into(),
         })
         .unwrap_err();
     assert!(error

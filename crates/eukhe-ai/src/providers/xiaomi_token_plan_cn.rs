@@ -1,7 +1,7 @@
 //! The `xiaomi-token-plan-cn` provider. Port of `providers/xiaomi-token-plan-cn.ts`.
 
-use super::chat_models;
 use super::xiaomi_token_plan_cn_models::XIAOMI_TOKEN_PLAN_CN_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -20,7 +20,9 @@ pub fn xiaomi_token_plan_cn_provider() -> Provider {
             )),
             oauth: None,
         },
-        models: chat_models(&XIAOMI_TOKEN_PLAN_CN_MODELS),
+        models: builtin_baseline("xiaomi-token-plan-cn", || {
+            chat_models(&XIAOMI_TOKEN_PLAN_CN_MODELS)
+        }),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

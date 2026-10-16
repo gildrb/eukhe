@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::chat_models;
 use super::meta_models::META_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_responses_api;
 use crate::auth::oauth::load_meta_oauth;
 use crate::auth::{env_api_key_auth, lazy_oauth, LazyOAuthInput, ProviderAuth};
@@ -25,7 +25,7 @@ pub fn meta_provider() -> Provider {
                 load: Arc::new(load_meta_oauth),
             })),
         },
-        models: chat_models(&META_MODELS),
+        models: builtin_baseline("meta", || chat_models(&META_MODELS)),
         api: Some(ProviderApi::Single(openai_responses_api())),
         ..CreateProviderOptions::default()
     })

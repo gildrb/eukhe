@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 
 use super::amazon_bedrock_models::AMAZON_BEDROCK_MODELS;
-use super::chat_models;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::bedrock_converse_stream_api;
 use crate::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthEvent, AuthInfoLink, AuthPrompt,
@@ -189,7 +189,7 @@ pub fn amazon_bedrock_provider() -> Provider {
             api_key: Some(Arc::new(BedrockAuth)),
             oauth: None,
         },
-        models: chat_models(&AMAZON_BEDROCK_MODELS),
+        models: builtin_baseline("amazon-bedrock", || chat_models(&AMAZON_BEDROCK_MODELS)),
         api: Some(ProviderApi::Single(bedrock_converse_stream_api())),
         ..CreateProviderOptions::default()
     })

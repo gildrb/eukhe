@@ -1,7 +1,7 @@
 //! The `qwen-token-plan-cn` provider. Port of `providers/qwen-token-plan-cn.ts`.
 
-use super::chat_models;
 use super::qwen_token_plan_cn_models::QWEN_TOKEN_PLAN_CN_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -22,7 +22,9 @@ pub fn qwen_token_plan_cn_provider() -> Provider {
             )),
             oauth: None,
         },
-        models: chat_models(&QWEN_TOKEN_PLAN_CN_MODELS),
+        models: builtin_baseline("qwen-token-plan-cn", || {
+            chat_models(&QWEN_TOKEN_PLAN_CN_MODELS)
+        }),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

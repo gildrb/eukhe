@@ -382,9 +382,7 @@ async fn run(
     )
     .await?;
 
-    stream.push(AssistantMessageEvent::Start {
-        partial: output.clone(),
-    });
+    stream.push_partial(output, |partial| AssistantMessageEvent::Start { partial });
     let mut current: Option<OpenBlock> = None;
     while let Some(chunk) = google_stream.next().await {
         let chunk = chunk?;
@@ -428,22 +426,25 @@ fn close_block(
         return;
     };
     let index = output.content.len() - 1;
-    let event = match (open, &output.content[index]) {
-        (OpenBlock::Text, AssistantContentBlock::Text(text)) => AssistantMessageEvent::TextEnd {
-            content_index: index,
-            content: text.text.clone(),
-            partial: output.clone(),
-        },
-        (OpenBlock::Thinking, AssistantContentBlock::Thinking(thinking)) => {
-            AssistantMessageEvent::ThinkingEnd {
+    match (open, &output.content[index]) {
+        (OpenBlock::Text, AssistantContentBlock::Text(text)) => {
+            let content = text.text.clone();
+            stream.push_partial(output, |partial| AssistantMessageEvent::TextEnd {
                 content_index: index,
-                content: thinking.thinking.clone(),
-                partial: output.clone(),
-            }
+                content,
+                partial,
+            });
         }
-        _ => return,
-    };
-    stream.push(event);
+        (OpenBlock::Thinking, AssistantContentBlock::Thinking(thinking)) => {
+            let content = thinking.thinking.clone();
+            stream.push_partial(output, |partial| AssistantMessageEvent::ThinkingEnd {
+                content_index: index,
+                content,
+                partial,
+            });
+        }
+        _ => {}
+    }
 }
 
 /// JS truthiness of a JSON value.
@@ -561,17 +562,17 @@ fn handle_part(
                 output
                     .content
                     .push(AssistantContentBlock::Thinking(ThinkingContent::default()));
-                stream.push(AssistantMessageEvent::ThinkingStart {
+                stream.push_partial(output, |partial| AssistantMessageEvent::ThinkingStart {
                     content_index: output.content.len() - 1,
-                    partial: output.clone(),
+                    partial,
                 });
             } else {
                 output
                     .content
                     .push(AssistantContentBlock::Text(TextContent::new("")));
-                stream.push(AssistantMessageEvent::TextStart {
+                stream.push_partial(output, |partial| AssistantMessageEvent::TextStart {
                     content_index: output.content.len() - 1,
-                    partial: output.clone(),
+                    partial,
                 });
             }
             *current = Some(wanted);
@@ -582,20 +583,20 @@ fn handle_part(
                 thinking.thinking.push_str(&text);
                 thinking.thinking_signature =
                     retain_thought_signature(thinking.thinking_signature.take(), signature);
-                stream.push(AssistantMessageEvent::ThinkingDelta {
+                stream.push_partial(output, |partial| AssistantMessageEvent::ThinkingDelta {
                     content_index: index,
                     delta: text,
-                    partial: output.clone(),
+                    partial,
                 });
             }
             AssistantContentBlock::Text(block) => {
                 block.text.push_str(&text);
                 block.text_signature =
                     retain_thought_signature(block.text_signature.take(), signature);
-                stream.push(AssistantMessageEvent::TextDelta {
+                stream.push_partial(output, |partial| AssistantMessageEvent::TextDelta {
                     content_index: index,
                     delta: text,
-                    partial: output.clone(),
+                    partial,
                 });
             }
             AssistantContentBlock::ToolCall(_) => {}
@@ -657,18 +658,18 @@ fn push_tool_call(
         .content
         .push(AssistantContentBlock::ToolCall(tool_call.clone()));
     let index = output.content.len() - 1;
-    stream.push(AssistantMessageEvent::ToolCallStart {
+    stream.push_partial(output, |partial| AssistantMessageEvent::ToolCallStart {
         content_index: index,
-        partial: output.clone(),
+        partial,
     });
-    stream.push(AssistantMessageEvent::ToolCallDelta {
+    stream.push_partial(output, |partial| AssistantMessageEvent::ToolCallDelta {
         content_index: index,
         delta,
-        partial: output.clone(),
+        partial,
     });
-    stream.push(AssistantMessageEvent::ToolCallEnd {
+    stream.push_partial(output, |partial| AssistantMessageEvent::ToolCallEnd {
         content_index: index,
         tool_call,
-        partial: output.clone(),
+        partial,
     });
 }

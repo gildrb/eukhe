@@ -24,7 +24,7 @@ pub use create_provider::{
     create_provider, CreateProviderError, CreateProviderOptions, FetchModelsFn, ProviderApi,
 };
 pub use provider::{
-    FilterAllModelsFn, FilterModelsFn, GetAllModelsFn, GetModelsFn, ModelsPersistence,
+    chat_models, FilterAllModelsFn, FilterModelsFn, GetModelsFn, ModelsPersistence,
     ModelsPublication, Provider, PublishFn, RefreshModelsContext, RefreshModelsFn,
 };
 pub use refresh::{ModelsRefreshOptions, ModelsRefreshResult};

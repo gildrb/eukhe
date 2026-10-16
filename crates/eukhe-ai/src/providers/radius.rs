@@ -27,25 +27,26 @@ pub struct RadiusProviderOptions {
 }
 
 struct RadiusCatalog {
-    baseline: Vec<Model>,
+    baseline: Arc<[AnyModel]>,
     /// Gateway catalog for this account. Radius org owners can disable
     /// models, so once known it replaces the shipped baseline instead of
     /// overlaying it. The baseline only covers the time before any catalog
     /// exists.
-    dynamic: Mutex<Option<Vec<Model>>>,
+    dynamic: Mutex<Option<Arc<[AnyModel]>>>,
 }
 
 impl RadiusCatalog {
-    fn models(&self) -> Vec<Model> {
+    fn models(&self) -> Arc<[AnyModel]> {
         self.dynamic
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
-            .unwrap_or_else(|| self.baseline.clone())
+            .unwrap_or_else(|| Arc::clone(&self.baseline))
     }
 
     fn set_dynamic(&self, models: Vec<Model>) {
-        *self.dynamic.lock().unwrap_or_else(PoisonError::into_inner) = Some(models);
+        *self.dynamic.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(models.into_iter().map(AnyModel::Chat).collect());
     }
 }
 
@@ -141,17 +142,20 @@ pub fn radius_provider(options: RadiusProviderOptions) -> Provider {
     let name = options.name.unwrap_or_else(|| "Radius".to_owned());
     let gateway =
         normalize_radius_gateway_url(options.gateway.as_deref().unwrap_or(DEFAULT_RADIUS_GATEWAY));
-    let baseline: Vec<Model> = if gateway == normalize_radius_gateway_url(DEFAULT_RADIUS_GATEWAY) {
-        RADIUS_MODELS
-            .values()
-            .map(|model| Model {
-                provider: id.clone(),
-                ..model.clone()
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let baseline: Arc<[AnyModel]> =
+        if gateway == normalize_radius_gateway_url(DEFAULT_RADIUS_GATEWAY) {
+            RADIUS_MODELS
+                .values()
+                .map(|model| {
+                    AnyModel::Chat(Model {
+                        provider: id.clone(),
+                        ..model.clone()
+                    })
+                })
+                .collect()
+        } else {
+            Arc::new([])
+        };
     let catalog = Arc::new(RadiusCatalog {
         baseline,
         dynamic: Mutex::new(None),
@@ -180,7 +184,6 @@ pub fn radius_provider(options: RadiusProviderOptions) -> Provider {
             })),
         },
         get_models: Arc::new(move || Ok(models_catalog.models())),
-        get_all_models: None,
         refresh_models: Some(Arc::new(move |context| {
             Box::pin(refresh_radius_models(
                 refresh_id.clone(),

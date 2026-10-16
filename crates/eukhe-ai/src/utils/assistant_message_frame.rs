@@ -289,7 +289,6 @@ impl AssistantMessageFrameEncoder {
     ///
     /// The stream breaks the event protocol (events after a terminal event,
     /// a second start, updates before start, blocks of the wrong kind, ...).
-    #[allow(clippy::too_many_lines)] // One arm per event type, as in TS.
     pub fn encode(
         &mut self,
         event: &AssistantMessageEvent,
@@ -309,7 +308,7 @@ impl AssistantMessageFrameEncoder {
                 }
                 self.started = true;
                 return Ok(Some(AssistantMessageFrame::Start {
-                    partial: clone_start_message(partial),
+                    partial: partial.read(clone_start_message),
                 }));
             }
             AssistantMessageEvent::Done { .. } => {
@@ -368,6 +367,17 @@ impl AssistantMessageFrameEncoder {
                 ..
             } => (*content_index, partial),
         };
+        partial.read(|partial| self.encode_update(event, content_index, partial))
+    }
+
+    /// [`Self::encode`] for a block event, with its partial read.
+    #[allow(clippy::too_many_lines)] // One arm per event type, as in TS.
+    fn encode_update(
+        &mut self,
+        event: &AssistantMessageEvent,
+        content_index: usize,
+        partial: &AssistantMessage,
+    ) -> Result<Option<AssistantMessageFrame>, AssistantMessageFrameError> {
         if !self.started {
             return Err(error(format!(
                 "Assistant message {} event appears before start",

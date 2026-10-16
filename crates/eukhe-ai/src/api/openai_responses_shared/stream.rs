@@ -19,7 +19,8 @@ use crate::api::constrained_sampling::{
 use crate::models::calculate_cost;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, JsonValue, Model,
-    OnProviderStreamEvent, StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
+    OnProviderStreamEvent, Partial, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
+    UsageCost,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -168,8 +169,9 @@ struct Processor<'a> {
 }
 
 impl Processor<'_> {
-    fn partial(&self) -> AssistantMessage {
-        self.output.clone()
+    /// Push the non-terminal event built around the live partial.
+    fn emit(&self, event: impl FnOnce(Partial) -> AssistantMessageEvent) {
+        self.stream.push_partial(self.output, event);
     }
 
     fn apply_message_phase_stop_reason(&mut self, item: &JsonValue) {
@@ -189,10 +191,10 @@ impl Processor<'_> {
 
     fn push_tool_call_delta(&self, slot: Slot, delta: Option<String>) {
         if let Some(delta) = delta {
-            self.stream.push(AssistantMessageEvent::ToolCallDelta {
+            self.emit(|partial| AssistantMessageEvent::ToolCallDelta {
                 content_index: slot.content_index,
                 delta,
-                partial: self.partial(),
+                partial,
             });
         }
     }
@@ -245,9 +247,9 @@ impl Processor<'_> {
                     SlotKind::Thinking,
                     AssistantContentBlock::Thinking(ThinkingContent::default()),
                 );
-                self.stream.push(AssistantMessageEvent::ThinkingStart {
+                self.emit(|partial| AssistantMessageEvent::ThinkingStart {
                     content_index: slot.content_index,
-                    partial: self.partial(),
+                    partial,
                 });
                 Some(slot)
             }
@@ -258,9 +260,9 @@ impl Processor<'_> {
                     SlotKind::Text,
                     AssistantContentBlock::Text(TextContent::new("")),
                 );
-                self.stream.push(AssistantMessageEvent::TextStart {
+                self.emit(|partial| AssistantMessageEvent::TextStart {
                     content_index: slot.content_index,
-                    partial: self.partial(),
+                    partial,
                 });
                 Some(slot)
             }
@@ -295,9 +297,9 @@ impl Processor<'_> {
                         custom_input: None,
                     },
                 );
-                self.stream.push(AssistantMessageEvent::ToolCallStart {
+                self.emit(|partial| AssistantMessageEvent::ToolCallStart {
                     content_index: slot.content_index,
-                    partial: self.partial(),
+                    partial,
                 });
                 Some(slot)
             }
@@ -345,9 +347,9 @@ impl Processor<'_> {
                         }),
                     },
                 );
-                self.stream.push(AssistantMessageEvent::ToolCallStart {
+                self.emit(|partial| AssistantMessageEvent::ToolCallStart {
                     content_index: slot.content_index,
-                    partial: self.partial(),
+                    partial,
                 });
                 Some(slot)
             }
@@ -413,6 +415,12 @@ impl Processor<'_> {
         self.scratch
             .get(&index)
             .and_then(|scratch| scratch.partial_json.as_ref())
+    }
+
+    fn partial_json_mut(&mut self, index: usize) -> Option<&mut String> {
+        self.scratch
+            .get_mut(&index)
+            .and_then(|scratch| scratch.partial_json.as_mut())
     }
 
     /// TS `backfillReasoningSignatures`.
@@ -562,10 +570,10 @@ impl Processor<'_> {
         if let Some(block) = self.thinking_mut(slot.content_index) {
             block.thinking.push_str(&delta);
         }
-        self.stream.push(AssistantMessageEvent::ThinkingDelta {
+        self.emit(|partial| AssistantMessageEvent::ThinkingDelta {
             content_index: slot.content_index,
             delta,
-            partial: self.partial(),
+            partial,
         });
     }
 
@@ -576,10 +584,10 @@ impl Processor<'_> {
         if let Some(block) = self.text_mut(slot.content_index) {
             block.text.push_str(&delta);
         }
-        self.stream.push(AssistantMessageEvent::TextDelta {
+        self.emit(|partial| AssistantMessageEvent::TextDelta {
             content_index: slot.content_index,
             delta,
-            partial: self.partial(),
+            partial,
         });
     }
 
@@ -610,15 +618,12 @@ impl Processor<'_> {
                 let Some(slot) = self.get_slot(&key, SlotKind::ToolCall) else {
                     return Ok(());
                 };
-                let Some(partial_json) = self.partial_json(slot.content_index) else {
+                let Some(partial_json) = self.partial_json_mut(slot.content_index) else {
                     return Ok(());
                 };
                 let delta = template(event.get("delta"));
-                let partial_json = format!("{partial_json}{delta}");
-                let arguments = parse_streaming_json_object(Some(&partial_json));
-                if let Some(scratch) = self.scratch.get_mut(&slot.content_index) {
-                    scratch.partial_json = Some(partial_json);
-                }
+                partial_json.push_str(&delta);
+                let arguments = parse_streaming_json_object(Some(partial_json));
                 if let Some(block) = self.tool_call_mut(slot.content_index) {
                     block.arguments = arguments;
                 }
@@ -628,22 +633,26 @@ impl Processor<'_> {
                 let Some(slot) = self.get_slot(&key, SlotKind::ToolCall) else {
                     return Ok(());
                 };
-                let Some(previous_partial_json) = self.partial_json(slot.content_index).cloned()
-                else {
+                let Some(partial_json) = self.partial_json_mut(slot.content_index) else {
                     return Ok(());
                 };
                 let arguments_text = template(event.get("arguments"));
                 let arguments = parse_streaming_json_object(Some(&arguments_text));
-                if let Some(scratch) = self.scratch.get_mut(&slot.content_index) {
-                    scratch.partial_json = Some(arguments_text.clone());
-                }
+                let previous_partial_json = std::mem::replace(partial_json, arguments_text);
+                let rewritten = !partial_json.starts_with(previous_partial_json.as_str());
+                let delta = partial_json
+                    .strip_prefix(previous_partial_json.as_str())
+                    .filter(|delta| !delta.is_empty())
+                    .map(str::to_owned);
                 if let Some(block) = self.tool_call_mut(slot.content_index) {
                     block.arguments = arguments;
                 }
-                if let Some(delta) = arguments_text.strip_prefix(previous_partial_json.as_str()) {
-                    if !delta.is_empty() {
-                        self.push_tool_call_delta(slot, Some(delta.to_owned()));
-                    }
+                match delta {
+                    Some(delta) => self.push_tool_call_delta(slot, Some(delta)),
+                    // Rewritten arguments have no delta event: the live
+                    // partial still takes them.
+                    None if rewritten => self.stream.publish_partial(self.output),
+                    None => {}
                 }
             }
             Some("response.custom_tool_call_input.delta") => {
@@ -753,10 +762,10 @@ impl Processor<'_> {
                 };
                 self.reasoning_blocks_by_id
                     .insert(template(item.get("id")), slot.content_index);
-                self.stream.push(AssistantMessageEvent::ThinkingEnd {
+                self.emit(|partial| AssistantMessageEvent::ThinkingEnd {
                     content_index: slot.content_index,
                     content: thinking,
-                    partial: self.partial(),
+                    partial,
                 });
                 self.output_slots.remove(key);
             }
@@ -787,10 +796,10 @@ impl Processor<'_> {
                 };
                 block.text.clone_from(&text);
                 block.text_signature = Some(signature);
-                self.stream.push(AssistantMessageEvent::TextEnd {
+                self.emit(|partial| AssistantMessageEvent::TextEnd {
                     content_index: slot.content_index,
                     content: text,
-                    partial: self.partial(),
+                    partial,
                 });
                 self.output_slots.remove(key);
             }
@@ -818,10 +827,10 @@ impl Processor<'_> {
                     block.namespace = Some(namespace.to_owned());
                 }
                 let tool_call = block.clone();
-                self.stream.push(AssistantMessageEvent::ToolCallEnd {
+                self.emit(|partial| AssistantMessageEvent::ToolCallEnd {
                     content_index: slot.content_index,
                     tool_call,
-                    partial: self.partial(),
+                    partial,
                 });
                 self.output_slots.remove(key);
             }
@@ -847,10 +856,10 @@ impl Processor<'_> {
                     block.namespace = Some(namespace.to_owned());
                 }
                 let tool_call = block.clone();
-                self.stream.push(AssistantMessageEvent::ToolCallEnd {
+                self.emit(|partial| AssistantMessageEvent::ToolCallEnd {
                     content_index: slot.content_index,
                     tool_call,
-                    partial: self.partial(),
+                    partial,
                 });
                 self.output_slots.remove(key);
             }

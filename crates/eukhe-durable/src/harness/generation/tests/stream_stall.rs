@@ -161,7 +161,7 @@ fn anthropic_models_at(base_url: &str) -> Models {
             api_key: Some(Arc::new(TestKey)),
             oauth: None,
         },
-        models: vec![AnyModel::Chat(model)],
+        models: vec![AnyModel::Chat(model)].into(),
         api: Some(ProviderApi::Single(anthropic_messages_api())),
         ..CreateProviderOptions::default()
     })

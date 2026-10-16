@@ -404,41 +404,64 @@ async fn starts_custom_responses_tool_calls_with_their_initial_input() {
         }),
     ];
 
-    process_responses_stream(
-        futures::stream::iter(events.into_iter().map(Ok)),
-        &mut output,
-        &stream,
-        &make_model(),
-        &OpenAIResponsesStreamOptions {
-            grammar_tool_input_properties: Some(grammar_properties()),
-            ..OpenAIResponsesStreamOptions::default()
-        },
-    )
-    .await
-    .expect("process");
-    stream.end(None);
-
     // TS `captureToolCallEvents`: argument snapshots at `toolcall_start` and
-    // the `toolcall_delta` deltas.
-    let mut starts: Vec<JsonValue> = Vec::new();
-    let mut deltas: Vec<String> = Vec::new();
-    let pushed: Vec<AssistantMessageEvent> = stream.events().collect().await;
-    for event in pushed {
-        match event {
-            AssistantMessageEvent::ToolCallStart {
-                content_index,
-                partial,
-            } => {
-                if let Some(AssistantContentBlock::ToolCall(block)) =
-                    partial.content.get(content_index)
-                {
-                    starts.push(JsonValue::Object(block.arguments.clone()));
+    // the `toolcall_delta` deltas. The partial is live, so the provider's
+    // later input waits until the consumer has read the start.
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let mut started_tx = Some(started_tx);
+    let mut events = events.into_iter();
+    let first = events.next();
+    let paced = futures::stream::iter(first.map(Ok)).chain(
+        futures::stream::once(async move {
+            started_rx.await.expect("consumer saw toolcall_start");
+            futures::stream::iter(events.map(Ok))
+        })
+        .flatten(),
+    );
+    let produce = async {
+        let processed = process_responses_stream(
+            paced,
+            &mut output,
+            &stream,
+            &make_model(),
+            &OpenAIResponsesStreamOptions {
+                grammar_tool_input_properties: Some(grammar_properties()),
+                ..OpenAIResponsesStreamOptions::default()
+            },
+        )
+        .await;
+        stream.end(None);
+        processed
+    };
+    let capture = async {
+        let mut starts: Vec<JsonValue> = Vec::new();
+        let mut deltas: Vec<String> = Vec::new();
+        let mut events = stream.events();
+        while let Some(event) = events.next().await {
+            match event {
+                AssistantMessageEvent::ToolCallStart {
+                    content_index,
+                    partial,
+                } => {
+                    partial.read(|partial| {
+                        if let Some(AssistantContentBlock::ToolCall(block)) =
+                            partial.content.get(content_index)
+                        {
+                            starts.push(JsonValue::Object(block.arguments.clone()));
+                        }
+                    });
+                    if let Some(started) = started_tx.take() {
+                        started.send(()).expect("producer waits for toolcall_start");
+                    }
                 }
+                AssistantMessageEvent::ToolCallDelta { delta, .. } => deltas.push(delta),
+                _ => {}
             }
-            AssistantMessageEvent::ToolCallDelta { delta, .. } => deltas.push(delta),
-            _ => {}
         }
-    }
+        (starts, deltas)
+    };
+    let (processed, (starts, deltas)) = tokio::join!(produce, capture);
+    processed.expect("process");
 
     assert_eq!(output.stop_reason, StopReason::ToolUse);
     assert_eq!(starts, vec![json!({ "payload": "a" })]);

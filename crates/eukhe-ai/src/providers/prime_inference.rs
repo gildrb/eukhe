@@ -558,21 +558,33 @@ impl ApiKeyAuth for PrimeInferenceAuth {
 
 struct PrimeCatalog {
     offline: Vec<Model>,
-    live: Mutex<Option<Vec<Model>>>,
+    /// The listing: the live models once fetched, else `offline`.
+    current: Mutex<Arc<[AnyModel]>>,
 }
 
 impl PrimeCatalog {
-    fn models(&self) -> Vec<Model> {
-        self.live
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-            .unwrap_or_else(|| self.offline.clone())
+    fn new(offline: Vec<Model>) -> Self {
+        Self {
+            current: Mutex::new(chat_entries(&offline)),
+            offline,
+        }
+    }
+
+    fn models(&self) -> Arc<[AnyModel]> {
+        Arc::clone(&self.current.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     fn set_live(&self, models: Option<Vec<Model>>) {
-        *self.live.lock().unwrap_or_else(PoisonError::into_inner) = models;
+        let current = match models {
+            Some(models) => models.into_iter().map(AnyModel::Chat).collect(),
+            None => chat_entries(&self.offline),
+        };
+        *self.current.lock().unwrap_or_else(PoisonError::into_inner) = current;
     }
+}
+
+fn chat_entries(models: &[Model]) -> Arc<[AnyModel]> {
+    models.iter().cloned().map(AnyModel::Chat).collect()
 }
 
 /// HTTP outcome of the catalog fetch.
@@ -722,10 +734,9 @@ async fn refresh_prime_models(
 /// server); [`prime_inference_provider`] uses the production endpoint.
 #[must_use]
 pub fn prime_inference_provider_with_base_url(base_url: &str) -> Provider {
-    let catalog = Arc::new(PrimeCatalog {
-        offline: PRIME_INFERENCE_MODELS.values().cloned().collect(),
-        live: Mutex::new(None),
-    });
+    let catalog = Arc::new(PrimeCatalog::new(
+        PRIME_INFERENCE_MODELS.values().cloned().collect(),
+    ));
     let streams = openai_completions_api();
     let models_catalog = Arc::clone(&catalog);
     let base_url = base_url.to_owned();
@@ -739,7 +750,6 @@ pub fn prime_inference_provider_with_base_url(base_url: &str) -> Provider {
             oauth: None,
         },
         get_models: Arc::new(move || Ok(models_catalog.models())),
-        get_all_models: None,
         refresh_models: Some(Arc::new(move |context| {
             Box::pin(refresh_prime_models(
                 base_url.clone(),

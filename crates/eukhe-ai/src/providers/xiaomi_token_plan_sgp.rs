@@ -1,7 +1,7 @@
 //! The `xiaomi-token-plan-sgp` provider. Port of `providers/xiaomi-token-plan-sgp.ts`.
 
-use super::chat_models;
 use super::xiaomi_token_plan_sgp_models::XIAOMI_TOKEN_PLAN_SGP_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -20,7 +20,9 @@ pub fn xiaomi_token_plan_sgp_provider() -> Provider {
             )),
             oauth: None,
         },
-        models: chat_models(&XIAOMI_TOKEN_PLAN_SGP_MODELS),
+        models: builtin_baseline("xiaomi-token-plan-sgp", || {
+            chat_models(&XIAOMI_TOKEN_PLAN_SGP_MODELS)
+        }),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

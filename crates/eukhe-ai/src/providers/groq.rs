@@ -1,7 +1,7 @@
 //! The `groq` provider. Port of `providers/groq.ts`.
 
-use super::chat_models;
 use super::groq_models::GROQ_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -17,7 +17,7 @@ pub fn groq_provider() -> Provider {
             api_key: Some(env_api_key_auth("Groq API key", &["GROQ_API_KEY"])),
             oauth: None,
         },
-        models: chat_models(&GROQ_MODELS),
+        models: builtin_baseline("groq", || chat_models(&GROQ_MODELS)),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

@@ -1,7 +1,7 @@
 //! The `huggingface` provider. Port of `providers/huggingface.ts`.
 
-use super::chat_models;
 use super::huggingface_models::HUGGINGFACE_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -17,7 +17,7 @@ pub fn huggingface_provider() -> Provider {
             api_key: Some(env_api_key_auth("Hugging Face token", &["HF_TOKEN"])),
             oauth: None,
         },
-        models: chat_models(&HUGGINGFACE_MODELS),
+        models: builtin_baseline("huggingface", || chat_models(&HUGGINGFACE_MODELS)),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

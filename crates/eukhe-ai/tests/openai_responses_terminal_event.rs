@@ -256,27 +256,42 @@ async fn process(
     .await
 }
 
-/// The `partial.stopReason` of every pushed event carrying a `partial`
-/// (TS wraps `stream.push`).
-async fn observed_stop_reasons(stream: &AssistantMessageEventStream) -> Vec<StopReason> {
-    stream.end(None);
-    let events: Vec<AssistantMessageEvent> = stream.events().collect().await;
-    events
-        .iter()
-        .filter_map(|event| match event {
-            AssistantMessageEvent::Start { partial }
-            | AssistantMessageEvent::TextStart { partial, .. }
-            | AssistantMessageEvent::TextDelta { partial, .. }
-            | AssistantMessageEvent::TextEnd { partial, .. }
-            | AssistantMessageEvent::ThinkingStart { partial, .. }
-            | AssistantMessageEvent::ThinkingDelta { partial, .. }
-            | AssistantMessageEvent::ThinkingEnd { partial, .. }
-            | AssistantMessageEvent::ToolCallStart { partial, .. }
-            | AssistantMessageEvent::ToolCallDelta { partial, .. }
-            | AssistantMessageEvent::ToolCallEnd { partial, .. } => Some(partial.stop_reason),
-            AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => None,
-        })
-        .collect()
+/// Process `events` and record `partial.stopReason` at every event carrying a
+/// `partial` (TS wraps `stream.push`). The partial is live, so a consumer
+/// reads it as each event arrives: the processor yields before every
+/// provider event, and `futures::join!` (unlike `tokio::join!`, which
+/// rotates) polls the producer before the consumer every round, so the
+/// consumer drains each event's pushes before the next event is processed.
+async fn process_observing_stop_reasons(
+    events: Vec<JsonValue>,
+    output: &mut AssistantMessage,
+    model: &Model,
+) -> Vec<StopReason> {
+    let stream = AssistantMessageEventStream::new();
+    let paced = futures::stream::iter(events).then(|event| async {
+        tokio::task::yield_now().await;
+        Ok(event)
+    });
+    let produce = async {
+        let processed = process_responses_stream(
+            paced,
+            output,
+            &stream,
+            model,
+            &OpenAIResponsesStreamOptions::default(),
+        )
+        .await;
+        stream.end(None);
+        processed
+    };
+    let observe = stream.events().filter_map(|event| async move {
+        event
+            .partial()
+            .map(|partial| partial.read(|partial| partial.stop_reason))
+    });
+    let (processed, observed) = futures::join!(produce, observe.collect::<Vec<_>>());
+    processed.expect("processes");
+    observed
 }
 
 fn hi_context() -> eukhe_ai::types::TranscriptContext {
@@ -399,7 +414,9 @@ async fn emits_an_error_final_result_when_the_wrapper_stream_ends_before_a_termi
 
     let (events, result) = collect(stream).await;
     let initial_stop_reason = events.iter().find_map(|event| match event {
-        AssistantMessageEvent::Start { partial } => Some(partial.stop_reason),
+        AssistantMessageEvent::Start { partial } => {
+            Some(partial.read(|partial| partial.stop_reason))
+        }
         _ => None,
     });
 
@@ -418,18 +435,15 @@ async fn emits_an_error_final_result_when_the_wrapper_stream_ends_before_a_termi
 async fn tracks_message_phases(phases: [&str; 2], expected: [StopReason; 2]) {
     let model = create_model();
     let mut output = create_output(&model);
-    let stream = AssistantMessageEventStream::new();
 
-    process(
+    let observed = process_observing_stop_reasons(
         create_phased_message_events(phases, TerminalStatus::Completed),
         &mut output,
-        &stream,
         &model,
     )
-    .await
-    .expect("processes");
+    .await;
 
-    assert_eq!(observed_stop_reasons(&stream).await, expected);
+    assert_eq!(observed, expected);
     assert_eq!(output.stop_reason, StopReason::Stop);
 }
 
@@ -464,21 +478,15 @@ async fn tracks_message_phases_commentary_final_answer() {
 async fn replaces_a_provisional_final_answer_stop_with_an_incomplete_terminal_reason() {
     let model = create_model();
     let mut output = create_output(&model);
-    let stream = AssistantMessageEventStream::new();
 
-    process(
+    let observed = process_observing_stop_reasons(
         create_phased_message_events(["final_answer", "final_answer"], TerminalStatus::Incomplete),
         &mut output,
-        &stream,
         &model,
     )
-    .await
-    .expect("processes");
+    .await;
 
-    assert_eq!(
-        observed_stop_reasons(&stream).await,
-        [StopReason::Stop, StopReason::Stop]
-    );
+    assert_eq!(observed, [StopReason::Stop, StopReason::Stop]);
     assert_eq!(output.stop_reason, StopReason::Length);
 }
 

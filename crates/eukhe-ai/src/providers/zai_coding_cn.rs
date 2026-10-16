@@ -1,7 +1,7 @@
 //! The `zai-coding-cn` provider. Port of `providers/zai-coding-cn.ts`.
 
-use super::chat_models;
 use super::zai_coding_cn_models::ZAI_CODING_CN_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -20,7 +20,7 @@ pub fn zai_coding_cn_provider() -> Provider {
             )),
             oauth: None,
         },
-        models: chat_models(&ZAI_CODING_CN_MODELS),
+        models: builtin_baseline("zai-coding-cn", || chat_models(&ZAI_CODING_CN_MODELS)),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

@@ -186,7 +186,7 @@ fn events_serialize_with_camel_case_fields() {
     let event = AssistantMessageEvent::TextDelta {
         content_index: 2,
         delta: "d".into(),
-        partial,
+        partial: partial.into(),
     };
     let value = serde_json::to_value(&event).unwrap();
     assert_eq!(value["type"], "text_delta");

@@ -511,17 +511,17 @@ mod tests {
         let mut timing = start(wiring, "bench/bench-model");
         timing.request_sent();
         timing.event(&AssistantMessageEvent::Start {
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.event(&AssistantMessageEvent::TextDelta {
             content_index: 0,
             delta: "hm".to_string(),
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.event(&AssistantMessageEvent::TextEnd {
             content_index: 0,
             content: "hm".to_string(),
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.done(&final_message());
 
@@ -624,12 +624,12 @@ mod tests {
         let wiring = wiring_at(dir.path());
         let mut timing = start(wiring, "bench/bench-model");
         timing.event(&AssistantMessageEvent::Start {
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.event(&AssistantMessageEvent::ThinkingDelta {
             content_index: 0,
             delta: "hm".to_string(),
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.done(&final_message());
 
@@ -669,20 +669,20 @@ mod tests {
         let mut timing = start(wiring, "bench/bench-model");
         timing.request_sent();
         timing.event(&AssistantMessageEvent::Start {
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.event(&AssistantMessageEvent::TextStart {
             content_index: 0,
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.event(&AssistantMessageEvent::TextDelta {
             content_index: 0,
             delta: "a".to_string(),
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.event(&AssistantMessageEvent::ToolCallStart {
             content_index: 1,
-            partial: empty_partial(),
+            partial: empty_partial().into(),
         });
         timing.done(&final_message());
 

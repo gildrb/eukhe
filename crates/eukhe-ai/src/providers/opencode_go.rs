@@ -2,9 +2,9 @@
 
 use eukhe_types::pi_ai::IndexMap;
 
-use super::chat_models;
 use super::opencode_go_models::OPENCODE_GO_MODELS;
 use super::opencode_headers::with_opencode_session_header;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::{anthropic_messages_api, openai_completions_api, openai_responses_api};
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -19,7 +19,7 @@ pub fn opencode_go_provider() -> Provider {
             api_key: Some(env_api_key_auth("OpenCode API key", &["OPENCODE_API_KEY"])),
             oauth: None,
         },
-        models: chat_models(&OPENCODE_GO_MODELS),
+        models: builtin_baseline("opencode-go", || chat_models(&OPENCODE_GO_MODELS)),
         api: Some(ProviderApi::ByApi(IndexMap::from([
             (
                 "anthropic-messages".to_owned(),

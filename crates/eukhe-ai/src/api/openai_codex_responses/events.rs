@@ -253,11 +253,10 @@ impl StartEmitter {
     }
 
     /// Push `start` unless it was already pushed.
-    pub(crate) fn emit(&self, partial: &AssistantMessage) {
+    pub(crate) fn emit(&self, output: &AssistantMessage) {
         if !self.emitted.swap(true, Ordering::SeqCst) {
-            self.stream.push(AssistantMessageEvent::Start {
-                partial: partial.clone(),
-            });
+            self.stream
+                .push_partial(output, |partial| AssistantMessageEvent::Start { partial });
         }
     }
 }

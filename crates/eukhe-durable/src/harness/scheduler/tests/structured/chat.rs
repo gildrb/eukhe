@@ -242,7 +242,8 @@ pub(super) fn invalid_final_stream() -> StreamSimpleFn {
                     stop_reason: Some(StopReason::Pending),
                     ..FauxAssistantMessageOptions::default()
                 },
-            ),
+            )
+            .into(),
         });
         let mut last = text_message("final");
         last.usage.input = u64::MAX;

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eukhe_types::pi_ai::{IndexMap, ModelType};
 
 use super::openai_models::{OPENAI_CLASSIFIER_MODELS, OPENAI_MODELS};
-use super::{chat_models, classifier_models};
+use super::{builtin_baseline, chat_models, classifier_models};
 use crate::api::builtin::{openai_decisions_api, openai_responses_api};
 use crate::auth::oauth::load_openai_chatgpt_oauth;
 use crate::auth::{env_api_key_auth, lazy_oauth, Credential, LazyOAuthInput, ProviderAuth};
@@ -15,8 +15,6 @@ use crate::utils::model_operations::is_model_type;
 /// TS `openaiProvider()`.
 #[must_use]
 pub fn openai_provider() -> Provider {
-    let mut models = chat_models(&OPENAI_MODELS);
-    models.extend(classifier_models(&OPENAI_CLASSIFIER_MODELS));
     build_provider(CreateProviderOptions {
         id: "openai".to_owned(),
         name: Some("OpenAI".to_owned()),
@@ -30,7 +28,11 @@ pub fn openai_provider() -> Provider {
                 load: Arc::new(load_openai_chatgpt_oauth),
             })),
         },
-        models,
+        models: builtin_baseline("openai", || {
+            let mut models = chat_models(&OPENAI_MODELS);
+            models.extend(classifier_models(&OPENAI_CLASSIFIER_MODELS));
+            models
+        }),
         // Sign in with ChatGPT tokens only reach the Responses API; the Decisions API rejects them.
         filter_all_models: Some(Arc::new(|models, credential| match credential {
             Some(Credential::OAuth(_)) => models

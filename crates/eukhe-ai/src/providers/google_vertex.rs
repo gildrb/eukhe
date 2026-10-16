@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 
-use super::chat_models;
 use super::google_vertex_models::GOOGLE_VERTEX_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::google_vertex_api;
 use crate::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthEvent, AuthInfoLink, AuthPrompt,
@@ -218,7 +218,7 @@ pub fn google_vertex_provider() -> Provider {
             api_key: Some(Arc::new(VertexAuth)),
             oauth: None,
         },
-        models: chat_models(&GOOGLE_VERTEX_MODELS),
+        models: builtin_baseline("google-vertex", || chat_models(&GOOGLE_VERTEX_MODELS)),
         api: Some(ProviderApi::Single(google_vertex_api())),
         ..CreateProviderOptions::default()
     })

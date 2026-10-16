@@ -2,8 +2,8 @@
 
 use eukhe_types::pi_ai::IndexMap;
 
-use super::classifier_models;
 use super::typesafe_models::TYPESAFE_CLASSIFIER_MODELS;
+use super::{builtin_baseline, classifier_models};
 use crate::api::builtin::typesafe_system_one_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider};
@@ -18,7 +18,9 @@ pub fn typesafe_provider() -> Provider {
             api_key: Some(env_api_key_auth("TypeSafe API key", &["TYPESAFE_API_KEY"])),
             oauth: None,
         },
-        models: classifier_models(&TYPESAFE_CLASSIFIER_MODELS),
+        models: builtin_baseline("typesafe", || {
+            classifier_models(&TYPESAFE_CLASSIFIER_MODELS)
+        }),
         classifiers: Some(IndexMap::from([(
             "typesafe-system-one".to_owned(),
             typesafe_system_one_api(),

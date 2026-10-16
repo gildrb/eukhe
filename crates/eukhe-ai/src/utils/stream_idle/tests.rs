@@ -125,7 +125,7 @@ fn models_at(base_url: &str) -> (Models, Model) {
             api_key: Some(Arc::new(TestKey)),
             oauth: None,
         },
-        models: vec![AnyModel::Chat(model.clone())],
+        models: vec![AnyModel::Chat(model.clone())].into(),
         api: Some(ProviderApi::Single(anthropic_messages_api())),
         ..CreateProviderOptions::default()
     })

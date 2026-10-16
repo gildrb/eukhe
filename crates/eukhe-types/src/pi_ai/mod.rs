@@ -18,6 +18,7 @@ pub mod js_number;
 mod message;
 mod model;
 pub mod nullable;
+mod partial;
 mod routing;
 mod settings;
 mod string_enum;
@@ -60,6 +61,7 @@ pub use model::{
     ModelCostRates, ModelCostTier, ModelImageInputLimits, ModelImageResizeOptions,
     ModelInputLimits, ModelType,
 };
+pub use partial::Partial;
 pub use routing::{
     DataCollection, OpenRouterMaxPrice, OpenRouterPercentiles, OpenRouterRouting, OpenRouterSort,
     OpenRouterSortOptions, OpenRouterThreshold, PriceValue, VercelGatewayRouting,

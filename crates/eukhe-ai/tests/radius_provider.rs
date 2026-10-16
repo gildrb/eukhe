@@ -5,7 +5,7 @@ mod common;
 use std::sync::Arc;
 
 use eukhe_ai::auth::{ApiKeyCredential, Credential, InMemoryCredentialStore};
-use eukhe_ai::models::{create_models, CreateModelsOptions, ModelsRefreshOptions};
+use eukhe_ai::models::{chat_models, create_models, CreateModelsOptions, ModelsRefreshOptions};
 use eukhe_ai::models_store::{
     InMemoryModelsStore, ModelsStore, ModelsStoreEntry, ModelsStoreOperationOptions,
 };
@@ -90,7 +90,7 @@ fn ships_a_static_public_catalog_for_the_default_gateway() {
     let provider = radius_provider(RadiusProviderOptions::default());
     let models = (provider.get_models)().expect("models");
     assert!(!models.is_empty());
-    assert!(models.iter().any(|model| model.id == "balanced"
+    assert!(chat_models(&models).any(|model| model.id == "balanced"
         && model.provider == "radius"
         && model.api.as_str() == "pi-messages"));
 }

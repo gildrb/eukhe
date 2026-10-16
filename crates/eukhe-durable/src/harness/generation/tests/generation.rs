@@ -265,7 +265,7 @@ fn delayed_stream(partial: AssistantMessage, last: AssistantMessage) -> StreamSi
     Arc::new(move |_, _, _| {
         let stream = AssistantMessageEventStream::new();
         stream.push(AssistantMessageEvent::Start {
-            partial: partial.clone(),
+            partial: partial.clone().into(),
         });
         let (target, last) = (stream.clone(), last.clone());
         tokio::spawn(async move {

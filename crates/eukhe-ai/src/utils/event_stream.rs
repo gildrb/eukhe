@@ -9,14 +9,14 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::task::{Context as TaskContext, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use futures::Stream;
 use tokio::sync::watch;
 
-use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent};
+use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent, Partial};
 
 type Predicate<T> = Box<dyn Fn(&T) -> bool + Send + Sync>;
 type Extractor<T, R> = Box<dyn Fn(&T) -> R + Send + Sync>;
@@ -49,6 +49,9 @@ struct State<T> {
     queue: VecDeque<T>,
     waiting: VecDeque<Arc<Waiter<T>>>,
     done: bool,
+    /// Set by [`EventStream::into_result`]: events no consumer is waiting
+    /// for are dropped instead of queued.
+    discard: bool,
 }
 
 struct Inner<T, R> {
@@ -113,6 +116,7 @@ impl<T: Send + 'static, R: Clone + Send + Sync + 'static> EventStream<T, R> {
                     queue: VecDeque::new(),
                     waiting: VecDeque::new(),
                     done: false,
+                    discard: false,
                 }),
                 result: watch::Sender::new(None),
                 is_complete: Box::new(is_complete),
@@ -133,7 +137,9 @@ impl<T: Send + 'static, R: Clone + Send + Sync + 'static> EventStream<T, R> {
                 self.inner.resolve((self.inner.extract_result)(&event));
             }
             let Some(waiter) = state.waiting.pop_front() else {
-                state.queue.push_back(event);
+                if !state.discard {
+                    state.queue.push_back(event);
+                }
                 return;
             };
             waiter
@@ -180,6 +186,19 @@ impl<T: Send + 'static, R: Clone + Send + Sync + 'static> EventStream<T, R> {
                 std::future::pending::<()>().await;
             }
         }
+    }
+
+    /// [`EventStream::result`] for a caller that reads no events: queued
+    /// events are dropped and later ones are no longer queued (a consumer
+    /// already waiting on another handle still receives them), so a
+    /// result-only request holds the result, not every event.
+    pub async fn into_result(self) -> R {
+        {
+            let mut state = self.inner.lock();
+            state.discard = true;
+            state.queue = VecDeque::new();
+        }
+        self.result().await
     }
 }
 
@@ -266,6 +285,8 @@ impl<T, R> Drop for EventStreamIter<T, R> {
 #[derive(Clone, Debug)]
 pub struct AssistantMessageEventStream {
     inner: EventStream<AssistantMessageEvent, AssistantMessage>,
+    /// The live partial of [`Self::push_partial`], created at its first call.
+    partial: Arc<OnceLock<Partial>>,
     started_at: u64,
     started_at_monotonic: Instant,
 }
@@ -312,6 +333,7 @@ impl AssistantMessageEventStream {
                     }
                 },
             ),
+            partial: Arc::new(OnceLock::new()),
             started_at,
             started_at_monotonic,
         }
@@ -335,6 +357,39 @@ impl AssistantMessageEventStream {
             | AssistantMessageEvent::ToolCallEnd { .. } => {}
         }
         self.inner.push(event);
+    }
+
+    /// Publish `output` as the stream's live partial, then push the event
+    /// `event` builds around it. The producer's way to emit a non-terminal
+    /// event: the partial is shared, so a delta copies only the delta.
+    pub fn push_partial(
+        &self,
+        output: &AssistantMessage,
+        event: impl FnOnce(Partial) -> AssistantMessageEvent,
+    ) {
+        let mut fresh = false;
+        let partial = self
+            .partial
+            .get_or_init(|| {
+                fresh = true;
+                Partial::new(output.clone())
+            })
+            .clone();
+        let event = event(partial.clone());
+        // A partial made from `output` already equals it.
+        if !fresh {
+            partial.publish(output, &event);
+        }
+        self.push(event);
+    }
+
+    /// Publish `output` as the live partial without an event: a change the
+    /// event protocol has no event for (TS mutates its live partial in
+    /// place). Before the first event there is no partial to update.
+    pub fn publish_partial(&self, output: &AssistantMessage) {
+        if let Some(partial) = self.partial.get() {
+            partial.replace(output);
+        }
     }
 
     /// See [`EventStream::end`]. Times the given result.
@@ -368,6 +423,11 @@ impl AssistantMessageEventStream {
     pub async fn result(&self) -> AssistantMessage {
         self.inner.result().await
     }
+
+    /// See [`EventStream::into_result`].
+    pub async fn into_result(self) -> AssistantMessage {
+        self.inner.into_result().await
+    }
 }
 
 /// Factory for [`AssistantMessageEventStream`] (for use in extensions).
@@ -397,6 +457,18 @@ mod tests {
         stream.push(4);
         assert_eq!(stream.result().await, 3);
         assert_eq!(stream.events().collect::<Vec<_>>().await, [1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn into_result_drops_events_no_consumer_reads() {
+        let stream = numbers(|event| *event == 3);
+        stream.push(1);
+        let mut result = Box::pin(stream.clone().into_result());
+        assert_eq!((&mut result).now_or_never(), None);
+        stream.push(2);
+        stream.push(3);
+        assert_eq!(result.await, 3);
+        assert_eq!(stream.events().collect::<Vec<_>>().await, Vec::<i32>::new());
     }
 
     #[tokio::test]

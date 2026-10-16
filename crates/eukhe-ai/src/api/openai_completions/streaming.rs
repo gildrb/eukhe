@@ -12,7 +12,7 @@ use crate::api::constrained_sampling::{
 use crate::models::calculate_cost;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, JsonObject, JsonValue, Model,
-    StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
+    Partial, StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
 };
 use crate::utils::diagnostics::{thrown, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -159,12 +159,9 @@ impl<'a> StreamState<'a> {
         }
     }
 
-    fn partial(&self) -> AssistantMessage {
-        self.output.clone()
-    }
-
-    fn push(&self, event: AssistantMessageEvent) {
-        self.stream.push(event);
+    /// Push the non-terminal event built around the live partial.
+    fn emit(&self, event: impl FnOnce(Partial) -> AssistantMessageEvent) {
+        self.stream.push_partial(&self.output, event);
     }
 
     /// TS `applyStreamedReasoningDetails` on every thinking block.
@@ -181,9 +178,7 @@ impl<'a> StreamState<'a> {
     }
     /// The `start` event.
     pub(crate) fn push_start(&self) {
-        self.push(AssistantMessageEvent::Start {
-            partial: self.partial(),
-        });
+        self.emit(|partial| AssistantMessageEvent::Start { partial });
     }
 
     fn tool_call(&mut self, index: usize) -> &mut ToolCall {
@@ -250,9 +245,9 @@ impl<'a> StreamState<'a> {
             .push(AssistantContentBlock::Text(TextContent::new("")));
         let index = self.output.content.len() - 1;
         self.text_block = Some(index);
-        self.push(AssistantMessageEvent::TextStart {
+        self.emit(|partial| AssistantMessageEvent::TextStart {
             content_index: index,
-            partial: self.partial(),
+            partial,
         });
         index
     }
@@ -270,9 +265,9 @@ impl<'a> StreamState<'a> {
             }));
         let index = self.output.content.len() - 1;
         self.thinking_block = Some(index);
-        self.push(AssistantMessageEvent::ThinkingStart {
+        self.emit(|partial| AssistantMessageEvent::ThinkingStart {
             content_index: index,
-            partial: self.partial(),
+            partial,
         });
         index
     }
@@ -346,9 +341,9 @@ impl<'a> StreamState<'a> {
             if let Some(id) = id {
                 self.tool_blocks_by_id.insert(id.to_owned(), index);
             }
-            self.push(AssistantMessageEvent::ToolCallStart {
+            self.emit(|partial| AssistantMessageEvent::ToolCallStart {
                 content_index: index,
-                partial: self.partial(),
+                partial,
             });
             index
         };
@@ -469,10 +464,10 @@ impl<'a> StreamState<'a> {
             if let AssistantContentBlock::Text(text) = &mut self.output.content[index] {
                 text.text.push_str(content);
             }
-            self.push(AssistantMessageEvent::TextDelta {
+            self.emit(|partial| AssistantMessageEvent::TextDelta {
                 content_index: index,
                 delta: content.to_owned(),
-                partial: self.partial(),
+                partial,
             });
         }
 
@@ -498,10 +493,10 @@ impl<'a> StreamState<'a> {
             if let AssistantContentBlock::Thinking(thinking) = &mut self.output.content[index] {
                 thinking.thinking.push_str(reasoning_delta);
             }
-            self.push(AssistantMessageEvent::ThinkingDelta {
+            self.emit(|partial| AssistantMessageEvent::ThinkingDelta {
                 content_index: index,
                 delta: reasoning_delta.to_owned(),
-                partial: self.partial(),
+                partial,
             });
         }
 
@@ -582,10 +577,10 @@ impl<'a> StreamState<'a> {
                 .append_custom_tool_call_input(index, &next_input, GrammarInputClose::KeepOpen)?
                 .unwrap_or_default();
         }
-        self.push(AssistantMessageEvent::ToolCallDelta {
+        self.emit(|partial| AssistantMessageEvent::ToolCallDelta {
             content_index: index,
             delta,
-            partial: self.partial(),
+            partial,
         });
         Ok(())
     }
@@ -600,10 +595,10 @@ impl<'a> StreamState<'a> {
             match &self.output.content[index] {
                 AssistantContentBlock::Text(text) => {
                     let content = text.text.clone();
-                    self.push(AssistantMessageEvent::TextEnd {
+                    self.emit(|partial| AssistantMessageEvent::TextEnd {
                         content_index: index,
                         content,
-                        partial: self.partial(),
+                        partial,
                     });
                 }
                 AssistantContentBlock::Thinking(_) => {
@@ -613,10 +608,10 @@ impl<'a> StreamState<'a> {
                         continue;
                     };
                     let content = thinking.thinking.clone();
-                    self.push(AssistantMessageEvent::ThinkingEnd {
+                    self.emit(|partial| AssistantMessageEvent::ThinkingEnd {
                         content_index: index,
                         content,
-                        partial: self.partial(),
+                        partial,
                     });
                 }
                 AssistantContentBlock::ToolCall(_) => {
@@ -631,10 +626,10 @@ impl<'a> StreamState<'a> {
                             &input,
                             GrammarInputClose::Close,
                         )? {
-                            self.push(AssistantMessageEvent::ToolCallDelta {
+                            self.emit(|partial| AssistantMessageEvent::ToolCallDelta {
                                 content_index: index,
                                 delta,
-                                partial: self.partial(),
+                                partial,
                             });
                         }
                     } else {
@@ -649,10 +644,10 @@ impl<'a> StreamState<'a> {
                     // replay only carries parsed arguments.
                     self.scratch.remove(&index);
                     let tool_call = self.tool_call(index).clone();
-                    self.push(AssistantMessageEvent::ToolCallEnd {
+                    self.emit(|partial| AssistantMessageEvent::ToolCallEnd {
                         content_index: index,
                         tool_call,
-                        partial: self.partial(),
+                        partial,
                     });
                 }
             }

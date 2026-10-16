@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::chat_models;
 use super::openai_codex_models::OPENAI_CODEX_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_codex_responses_api;
 use crate::auth::oauth::load_openai_codex_oauth;
 use crate::auth::{lazy_oauth, LazyOAuthInput, ProviderAuth};
@@ -25,7 +25,7 @@ pub fn openai_codex_provider() -> Provider {
                 load: Arc::new(load_openai_codex_oauth),
             })),
         },
-        models: chat_models(&OPENAI_CODEX_MODELS),
+        models: builtin_baseline("openai-codex", || chat_models(&OPENAI_CODEX_MODELS)),
         api: Some(ProviderApi::Single(openai_codex_responses_api())),
         ..CreateProviderOptions::default()
     })

@@ -14,12 +14,18 @@ use crate::auth::{Credential, ProviderAuth};
 use crate::models_store::ModelsStoreEntry;
 use crate::utils::diagnostics::Thrown;
 
-/// Current known chat models: TS `Provider.getModels`. Should not fail;
-/// `Models` treats a failing implementation as having no models.
-pub type GetModelsFn = Arc<dyn Fn() -> Result<Vec<Model>, Thrown> + Send + Sync>;
+/// Current known models of every type, shared: TS `Provider.getModels` and
+/// `Provider.getAllModels`. Model ids are unique within each type. Should
+/// not fail; `Models` treats a failing implementation as having no models.
+pub type GetModelsFn = Arc<dyn Fn() -> Result<Arc<[AnyModel]>, Thrown> + Send + Sync>;
 
-/// Current known models of every type: TS `Provider.getAllModels`.
-pub type GetAllModelsFn = Arc<dyn Fn() -> Result<Vec<AnyModel>, Thrown> + Send + Sync>;
+/// The chat models of a model list.
+pub fn chat_models(models: &[AnyModel]) -> impl Iterator<Item = &Model> {
+    models.iter().filter_map(|model| match model {
+        AnyModel::Chat(model) => Some(model),
+        AnyModel::Image(_) | AnyModel::Classifier(_) => None,
+    })
+}
 
 /// Dynamic providers only: restore `context.stored` and optionally fetch a
 /// newer list: TS `Provider.refreshModels`.
@@ -48,12 +54,9 @@ pub struct Provider {
     /// credentials and keyless local servers provide api-key auth whose
     /// `resolve()` reports whether the provider is configured.
     pub auth: ProviderAuth,
-    /// Current known chat models, sync. Static providers return their
-    /// catalog; dynamic providers the list as of the last refresh.
+    /// Current known models of every type, sync. Static providers return
+    /// their catalog; dynamic providers the list as of the last refresh.
     pub get_models: GetModelsFn,
-    /// Current known models of every type. Absent: `Models` uses
-    /// `get_models`. Model ids are unique within each type.
-    pub get_all_models: Option<GetAllModelsFn>,
     /// Dynamic providers only. Implementations retain their previous list on
     /// failure, publish persistence and synchronous state changes through
     /// [`RefreshModelsContext::publish`], and honor the shared signal.

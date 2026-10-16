@@ -7,7 +7,7 @@ use eukhe_types::pi_ai::IndexMap;
 use super::openrouter_models::{
     OPENROUTER_CLASSIFIER_MODELS, OPENROUTER_IMAGE_MODELS, OPENROUTER_MODELS,
 };
-use super::{chat_models, classifier_models, image_models};
+use super::{builtin_baseline, chat_models, classifier_models, image_models};
 use crate::api::builtin::{
     anthropic_messages_api, openai_completions_api, openrouter_images_api, typesafe_system_one_api,
 };
@@ -18,9 +18,6 @@ use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi
 /// TS `openrouterProvider()`.
 #[must_use]
 pub fn openrouter_provider() -> Provider {
-    let mut models = chat_models(&OPENROUTER_MODELS);
-    models.extend(image_models(&OPENROUTER_IMAGE_MODELS));
-    models.extend(classifier_models(&OPENROUTER_CLASSIFIER_MODELS));
     build_provider(CreateProviderOptions {
         id: "openrouter".to_owned(),
         name: Some("OpenRouter".to_owned()),
@@ -37,7 +34,12 @@ pub fn openrouter_provider() -> Provider {
                 load: Arc::new(load_openrouter_oauth),
             })),
         },
-        models,
+        models: builtin_baseline("openrouter", || {
+            let mut models = chat_models(&OPENROUTER_MODELS);
+            models.extend(image_models(&OPENROUTER_IMAGE_MODELS));
+            models.extend(classifier_models(&OPENROUTER_CLASSIFIER_MODELS));
+            models
+        }),
         api: Some(ProviderApi::ByApi(IndexMap::from([
             ("anthropic-messages".to_owned(), anthropic_messages_api()),
             ("openai-completions".to_owned(), openai_completions_api()),

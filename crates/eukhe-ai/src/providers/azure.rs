@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eukhe_types::pi_ai::{IndexMap, JsonValue, Model};
 
 use super::azure_models::AZURE_MODELS;
-use super::chat_models;
+use super::{builtin_baseline, chat_models};
 use crate::api::azure_openai_config::{
     resolve_azure_base_url, resolve_deployment_name, AzureEndpointOptions,
 };
@@ -118,7 +118,7 @@ pub fn azure_provider() -> Provider {
             )),
             oauth: None,
         },
-        models: chat_models(&AZURE_MODELS),
+        models: builtin_baseline("azure", || chat_models(&AZURE_MODELS)),
         api: Some(ProviderApi::ByApi(IndexMap::from([
             (
                 "azure-openai-responses".to_owned(),

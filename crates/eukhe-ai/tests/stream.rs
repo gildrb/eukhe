@@ -287,6 +287,7 @@ async fn handle_tool_call(model: Model, options: ProviderStreamOptions) {
             } => {
                 has_tool_start = true;
                 index = content_index;
+                let partial = partial.snapshot();
                 let AssistantContentBlock::ToolCall(tool_call) = &partial.content[content_index]
                 else {
                     panic!("expected toolCall at {content_index}");
@@ -301,6 +302,7 @@ async fn handle_tool_call(model: Model, options: ProviderStreamOptions) {
             } => {
                 has_tool_delta = true;
                 assert_eq!(content_index, index);
+                let partial = partial.snapshot();
                 let AssistantContentBlock::ToolCall(tool_call) = &partial.content[content_index]
                 else {
                     panic!("expected toolCall at {content_index}");
@@ -317,6 +319,7 @@ async fn handle_tool_call(model: Model, options: ProviderStreamOptions) {
             } => {
                 has_tool_end = true;
                 assert_eq!(content_index, index);
+                let partial = partial.snapshot();
                 let AssistantContentBlock::ToolCall(tool_call) = &partial.content[content_index]
                 else {
                     panic!("expected toolCall at {content_index}");

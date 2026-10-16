@@ -17,8 +17,8 @@ use eukhe_ai::types::StreamOptions;
 use eukhe_ai::utils::diagnostics::{ErrorObject, Thrown};
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context, DoneReason, Message,
-    Modality, Model, ModelCost, StopReason, TextContent, Usage, UserContent, UserMessage,
+    AnyModel, AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context, DoneReason,
+    Message, Modality, Model, ModelCost, StopReason, TextContent, Usage, UserContent, UserMessage,
 };
 use futures::future::BoxFuture;
 
@@ -137,7 +137,7 @@ pub fn ok_stream(model: &Model) -> AssistantMessageEventStream {
     let stream = AssistantMessageEventStream::new();
     let message = done_message(model, "ok");
     stream.push(AssistantMessageEvent::Start {
-        partial: message.clone(),
+        partial: message.clone().into(),
     });
     stream.push(AssistantMessageEvent::Done {
         reason: DoneReason::Stop,
@@ -379,9 +379,12 @@ pub struct TestProvider {
 /// TS `testProvider()`: a handwritten provider answering "ok".
 #[must_use]
 pub fn test_provider(input: TestProvider) -> Provider {
-    let models = input
+    let models: Arc<[AnyModel]> = input
         .models
-        .unwrap_or_else(|| vec![test_model(&input.id, "model-a")]);
+        .unwrap_or_else(|| vec![test_model(&input.id, "model-a")])
+        .into_iter()
+        .map(AnyModel::Chat)
+        .collect();
     let stream_calls = input.calls.clone();
     let simple_calls = input.calls;
     Provider {
@@ -395,8 +398,7 @@ pub fn test_provider(input: TestProvider) -> Provider {
         }),
         get_models: input
             .get_models
-            .unwrap_or_else(|| Arc::new(move || Ok(models.clone()))),
-        get_all_models: None,
+            .unwrap_or_else(|| Arc::new(move || Ok(Arc::clone(&models)))),
         refresh_models: input.refresh_models,
         filter_models: None,
         filter_all_models: None,

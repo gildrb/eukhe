@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::chat_models;
 use super::kimi_coding_models::KIMI_CODING_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::anthropic_messages_api;
 use crate::auth::oauth::load_kimi_coding_oauth;
 use crate::auth::{env_api_key_auth, lazy_oauth, LazyOAuthInput, ProviderAuth};
@@ -25,7 +25,7 @@ pub fn kimi_coding_provider() -> Provider {
                 load: Arc::new(load_kimi_coding_oauth),
             })),
         },
-        models: chat_models(&KIMI_CODING_MODELS),
+        models: builtin_baseline("kimi-coding", || chat_models(&KIMI_CODING_MODELS)),
         api: Some(ProviderApi::Single(anthropic_messages_api())),
         ..CreateProviderOptions::default()
     })

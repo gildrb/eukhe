@@ -66,19 +66,7 @@ fn has_partial_json(tool_call: &ToolCall) -> bool {
 
 #[tokio::test]
 async fn removes_partial_json_from_persisted_tool_call_blocks_at_output_item_done() {
-    let model: Model = serde_json::from_value(json!({
-        "id": "gpt-5-mini",
-        "name": "GPT-5 Mini",
-        "api": "openai-responses",
-        "provider": "openai",
-        "baseUrl": "https://api.openai.com/v1",
-        "reasoning": true,
-        "input": ["text"],
-        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-        "contextWindow": 400_000,
-        "maxTokens": 128_000,
-    }))
-    .expect("model");
+    let model = test_model();
     let mut output = create_output(&model);
     let stream = AssistantMessageEventStream::new();
     let arguments_json = r#"{"path":"README.md","content":"updated"}"#;
@@ -118,4 +106,57 @@ async fn removes_partial_json_from_persisted_tool_call_blocks_at_output_item_don
         .expect("Expected toolcall_end event");
     assert_eq!(tool_call_end, persisted_tool_call);
     assert!(!has_partial_json(tool_call_end));
+}
+
+fn test_model() -> Model {
+    serde_json::from_value(json!({
+        "id": "gpt-5-mini",
+        "name": "GPT-5 Mini",
+        "api": "openai-responses",
+        "provider": "openai",
+        "baseUrl": "https://api.openai.com/v1",
+        "reasoning": true,
+        "input": ["text"],
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+        "contextWindow": 400_000,
+        "maxTokens": 128_000,
+    }))
+    .expect("model")
+}
+
+/// Regression: final arguments that are not an append of the streamed
+/// ones have no delta event, and the live partial kept the streamed ones.
+#[tokio::test]
+async fn rewritten_final_arguments_reach_the_live_partial() {
+    let model = test_model();
+    let mut output = create_output(&model);
+    let stream = AssistantMessageEventStream::new();
+    let events = create_function_call_events(r#"{"path":"OTHER.md"}"#);
+    // Up to `function_call_arguments.done`: `output_item.done` would copy
+    // the whole message anyway.
+    let processed = process_responses_stream(
+        futures::stream::iter(events.into_iter().take(4).map(Ok)),
+        &mut output,
+        &stream,
+        &model,
+        &OpenAIResponsesStreamOptions::default(),
+    )
+    .await;
+    stream.end(None);
+    let emitted_events: Vec<AssistantMessageEvent> = stream.events().collect().await;
+    let partial = emitted_events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            AssistantMessageEvent::ToolCallDelta { partial, .. } => Some(partial.snapshot()),
+            _ => None,
+        })
+        .expect("Expected toolcall_delta event");
+    let AssistantContentBlock::ToolCall(tool_call) = &partial.content[0] else {
+        panic!("Expected toolCall block: {processed:?}");
+    };
+    assert_eq!(
+        JsonValue::Object(tool_call.arguments.clone()),
+        json!({ "path": "OTHER.md" })
+    );
 }

@@ -634,9 +634,7 @@ async fn stream_with_deltas(
         return Ok(());
     }
 
-    stream.push(AssistantMessageEvent::Start {
-        partial: partial.clone(),
-    });
+    stream.push_partial(&partial, |partial| AssistantMessageEvent::Start { partial });
 
     for (index, block) in message.content.iter().enumerate() {
         if aborted(signal) {
@@ -646,9 +644,9 @@ async fn stream_with_deltas(
         match block {
             AssistantContentBlock::Thinking(thinking) => {
                 partial.content.push(faux_thinking(""));
-                stream.push(AssistantMessageEvent::ThinkingStart {
+                stream.push_partial(&partial, |partial| AssistantMessageEvent::ThinkingStart {
                     content_index: index,
-                    partial: partial.clone(),
+                    partial,
                 });
                 for chunk in split_string_by_token_size(
                     &thinking.thinking,
@@ -665,23 +663,23 @@ async fn stream_with_deltas(
                     {
                         current.thinking.push_str(&chunk);
                     }
-                    stream.push(AssistantMessageEvent::ThinkingDelta {
+                    stream.push_partial(&partial, |partial| AssistantMessageEvent::ThinkingDelta {
                         content_index: index,
                         delta: chunk,
-                        partial: partial.clone(),
+                        partial,
                     });
                 }
-                stream.push(AssistantMessageEvent::ThinkingEnd {
+                stream.push_partial(&partial, |partial| AssistantMessageEvent::ThinkingEnd {
                     content_index: index,
                     content: thinking.thinking.clone(),
-                    partial: partial.clone(),
+                    partial,
                 });
             }
             AssistantContentBlock::Text(text) => {
                 partial.content.push(faux_text(""));
-                stream.push(AssistantMessageEvent::TextStart {
+                stream.push_partial(&partial, |partial| AssistantMessageEvent::TextStart {
                     content_index: index,
-                    partial: partial.clone(),
+                    partial,
                 });
                 for chunk in split_string_by_token_size(
                     &text.text,
@@ -698,16 +696,16 @@ async fn stream_with_deltas(
                     {
                         current.text.push_str(&chunk);
                     }
-                    stream.push(AssistantMessageEvent::TextDelta {
+                    stream.push_partial(&partial, |partial| AssistantMessageEvent::TextDelta {
                         content_index: index,
                         delta: chunk,
-                        partial: partial.clone(),
+                        partial,
                     });
                 }
-                stream.push(AssistantMessageEvent::TextEnd {
+                stream.push_partial(&partial, |partial| AssistantMessageEvent::TextEnd {
                     content_index: index,
                     content: text.text.clone(),
-                    partial: partial.clone(),
+                    partial,
                 });
             }
             AssistantContentBlock::ToolCall(call) => {
@@ -720,9 +718,9 @@ async fn stream_with_deltas(
                         thought_signature: None,
                         namespace: None,
                     }));
-                stream.push(AssistantMessageEvent::ToolCallStart {
+                stream.push_partial(&partial, |partial| AssistantMessageEvent::ToolCallStart {
                     content_index: index,
-                    partial: partial.clone(),
+                    partial,
                 });
                 for chunk in split_string_by_token_size(
                     &json_stringify(&call.arguments),
@@ -734,10 +732,10 @@ async fn stream_with_deltas(
                         end_aborted(stream, &partial);
                         return Ok(());
                     }
-                    stream.push(AssistantMessageEvent::ToolCallDelta {
+                    stream.push_partial(&partial, |partial| AssistantMessageEvent::ToolCallDelta {
                         content_index: index,
                         delta: chunk,
-                        partial: partial.clone(),
+                        partial,
                     });
                 }
                 if let Some(AssistantContentBlock::ToolCall(current)) =
@@ -745,10 +743,10 @@ async fn stream_with_deltas(
                 {
                     current.arguments.clone_from(&call.arguments);
                 }
-                stream.push(AssistantMessageEvent::ToolCallEnd {
+                stream.push_partial(&partial, |partial| AssistantMessageEvent::ToolCallEnd {
                     content_index: index,
                     tool_call: call.clone(),
-                    partial: partial.clone(),
+                    partial,
                 });
             }
         }
@@ -842,8 +840,7 @@ fn wants_deferred(options: Option<&SimpleStreamOptions>) -> bool {
     )
 }
 
-/// The scripted core shared by [`faux_provider`] and the compat
-/// registration: TS `createFauxCore()`.
+/// The scripted core behind [`faux_provider`]: TS `createFauxCore()`.
 #[derive(Clone)]
 pub struct FauxCore {
     inner: Arc<FauxCoreInner>,

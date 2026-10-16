@@ -277,9 +277,7 @@ async fn run(
         )
         .await?;
     }
-    stream.push(AssistantMessageEvent::Start {
-        partial: output.clone(),
-    });
+    stream.push_partial(output, |partial| AssistantMessageEvent::Start { partial });
 
     let stream_options = OpenAIResponsesStreamOptions {
         on_provider_stream_event: options.stream.on_provider_stream_event.clone(),

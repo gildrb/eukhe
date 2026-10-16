@@ -290,9 +290,7 @@ async fn run_stream(
     let wire_payload = JsonValue::Object(payload::to_mistral_wire_payload(&payload)?);
     let mut events =
         transport::request_mistral_stream(model, &wire_payload, api_key, options).await?;
-    stream.push(AssistantMessageEvent::Start {
-        partial: output.clone(),
-    });
+    stream.push_partial(output, |partial| AssistantMessageEvent::Start { partial });
     consume::consume_chat_stream(
         model,
         output,

@@ -1,6 +1,6 @@
 //! The [`Models`] collection: provider registry, model listing, and auth.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use eukhe_chord::context::{AbortController, AbortSignal};
@@ -8,7 +8,7 @@ use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{AnyModel, Model, ModelType};
 use futures::future::try_join_all;
 
-use super::provider::Provider;
+use super::provider::{chat_models, Provider};
 use super::{merge_headers, model_headers_as_provider_headers, CatalogModel};
 use crate::auth::{
     default_provider_auth_context, refresh_stored_oauth_credential, resolve_provider_auth,
@@ -160,39 +160,31 @@ impl Models {
     /// models.
     #[must_use]
     pub fn get_models(&self, provider: Option<&str>) -> Vec<Model> {
-        if let Some(provider) = provider {
-            let Some(entry) = self.get_provider(provider) else {
-                return Vec::new();
-            };
-            return (entry.get_models)().unwrap_or_default();
-        }
-        self.get_providers()
+        self.provider_models(provider)
             .iter()
-            .flat_map(|entry| (entry.get_models)().unwrap_or_default())
+            .flat_map(|models| chat_models(models).cloned())
             .collect()
     }
 
-    fn provider_all_models(provider: &Provider) -> Result<Vec<AnyModel>, Thrown> {
-        match &provider.get_all_models {
-            Some(get_all_models) => get_all_models(),
-            None => (provider.get_models)()
-                .map(|models| models.into_iter().map(AnyModel::Chat).collect()),
-        }
+    /// The model lists of one provider or all providers (best-effort).
+    fn provider_models(&self, provider: Option<&str>) -> Vec<Arc<[AnyModel]>> {
+        let providers = match provider {
+            Some(provider) => self.get_provider(provider).into_iter().collect(),
+            None => self.get_providers(),
+        };
+        providers
+            .iter()
+            .filter_map(|entry| (entry.get_models)().ok())
+            .collect()
     }
 
     /// Sync read of last-known models of every type from one provider or all
     /// providers. Best-effort like [`Models::get_models`].
     #[must_use]
     pub fn get_all_models(&self, provider: Option<&str>) -> Vec<AnyModel> {
-        if let Some(provider) = provider {
-            let Some(entry) = self.get_provider(provider) else {
-                return Vec::new();
-            };
-            return Self::provider_all_models(&entry).unwrap_or_default();
-        }
-        self.get_providers()
+        self.provider_models(provider)
             .iter()
-            .flat_map(|entry| Self::provider_all_models(entry).unwrap_or_default())
+            .flat_map(|models| models.iter().cloned())
             .collect()
     }
 
@@ -203,18 +195,20 @@ impl Models {
         model_type: ModelType,
         provider: Option<&str>,
     ) -> Vec<AnyModel> {
-        self.get_all_models(provider)
-            .into_iter()
+        self.provider_models(provider)
+            .iter()
+            .flat_map(|models| models.iter())
             .filter(|model| is_model_type(model, model_type))
+            .cloned()
             .collect()
     }
 
     /// Sync runtime chat model lookup against last-known lists.
     #[must_use]
     pub fn get_model(&self, provider: &str, id: &str) -> Option<Model> {
-        self.get_models(Some(provider))
-            .into_iter()
-            .find(|model| model.id == id)
+        let models = (self.get_provider(provider)?.get_models)().ok()?;
+        let mut chat = chat_models(&models);
+        chat.find(|model| model.id == id).cloned()
     }
 
     /// Sync runtime lookup of a model of one type against last-known lists.
@@ -225,9 +219,11 @@ impl Models {
         provider: &str,
         id: &str,
     ) -> Option<AnyModel> {
-        self.get_models_of_type(model_type, Some(provider))
-            .into_iter()
-            .find(|model| model.id() == id)
+        let models = (self.get_provider(provider)?.get_models)().ok()?;
+        models
+            .iter()
+            .find(|model| is_model_type(model, model_type) && model.id() == id)
+            .cloned()
     }
 
     pub(super) fn supersede_provider_refresh(&self, provider_id: &str) -> u64 {
@@ -451,6 +447,7 @@ impl Models {
                 } in providers
                 {
                     let models = (provider.get_models)()?;
+                    let models = chat_models(&models).cloned().collect();
                     available.extend(match &provider.filter_models {
                         Some(filter) => filter(models, credential.as_ref()),
                         None => models,
@@ -509,24 +506,29 @@ impl Models {
                     credential,
                 } in providers
                 {
-                    let models = Self::provider_all_models(&provider)?;
+                    let models = (provider.get_models)()?;
                     if let Some(filter_all) = &provider.filter_all_models {
-                        available.extend(filter_all(models, credential.as_ref()));
+                        available.extend(filter_all(models.to_vec(), credential.as_ref()));
                         continue;
                     }
                     let Some(filter) = &provider.filter_models else {
-                        available.extend(models);
+                        available.extend(models.iter().cloned());
                         continue;
                     };
-                    let available_chat_ids: Vec<String> =
-                        filter((provider.get_models)()?, credential.as_ref())
+                    let available_chat_ids: HashSet<String> =
+                        filter(chat_models(&models).cloned().collect(), credential.as_ref())
                             .into_iter()
                             .map(|model| model.id)
                             .collect();
-                    available.extend(models.into_iter().filter(|model| {
-                        !is_model_type(model, ModelType::Chat)
-                            || available_chat_ids.iter().any(|id| id == model.id())
-                    }));
+                    available.extend(
+                        models
+                            .iter()
+                            .filter(|model| {
+                                !is_model_type(model, ModelType::Chat)
+                                    || available_chat_ids.contains(model.id())
+                            })
+                            .cloned(),
+                    );
                 }
                 Ok(available)
             },

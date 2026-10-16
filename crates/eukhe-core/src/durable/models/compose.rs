@@ -12,7 +12,7 @@ use eukhe_ai::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthResult, LoginOptions, ModelAuth,
     OAuthAuth, OAuthCredential, ProviderAuth, ProviderAuthInteraction,
 };
-use eukhe_ai::models::{GetAllModelsFn, GetModelsFn, Provider};
+use eukhe_ai::models::{chat_models, GetModelsFn, Provider};
 use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{AnyModel, Model, ProviderHeaders};
@@ -59,30 +59,38 @@ pub(super) fn compose_providers(
 /// carry the flag set: the supported levels, the clamp, and the request
 /// reasoning controls then follow the map.
 fn with_map_addressed_reasoning(mut provider: Provider) -> Provider {
-    fn normalize(mut model: Model) -> Model {
-        model.reasoning = model.reasoning
-            || model
+    fn needs_flag(model: &Model) -> bool {
+        !model.reasoning
+            && model
                 .thinking_level_map
                 .as_ref()
-                .is_some_and(|map| map.values().any(Option::is_some));
-        model
+                .is_some_and(|map| map.values().any(Option::is_some))
     }
     let get_models = Arc::clone(&provider.get_models);
-    provider.get_models =
-        Arc::new(move || get_models().map(|models| models.into_iter().map(normalize).collect()));
-    if let Some(get_all_models) = provider.get_all_models.take() {
-        provider.get_all_models = Some(Arc::new(move || {
-            get_all_models().map(|models| {
-                models
-                    .into_iter()
-                    .map(|model| match model {
-                        AnyModel::Chat(model) => AnyModel::Chat(normalize(model)),
-                        AnyModel::Image(_) | AnyModel::Classifier(_) => model,
-                    })
-                    .collect()
-            })
-        }));
-    }
+    provider.get_models = Arc::new(move || {
+        get_models().map(|models| {
+            // Share the list untouched unless some chat model needs the flag.
+            if !models.iter().any(|model| match model {
+                AnyModel::Chat(model) => needs_flag(model),
+                AnyModel::Image(_) | AnyModel::Classifier(_) => false,
+            }) {
+                return models;
+            }
+            models
+                .iter()
+                .map(|model| match model {
+                    AnyModel::Chat(chat) if needs_flag(chat) => {
+                        let mut chat = chat.clone();
+                        chat.reasoning = true;
+                        AnyModel::Chat(chat)
+                    }
+                    AnyModel::Chat(_) | AnyModel::Image(_) | AnyModel::Classifier(_) => {
+                        model.clone()
+                    }
+                })
+                .collect()
+        })
+    });
     provider
 }
 
@@ -359,26 +367,31 @@ fn upsert(models: &mut Vec<Model>, model: Model) {
     }
 }
 
-/// The chat models of a composed provider: the built-in models rewritten,
-/// then the custom models upserted by id. Recomputed per call so a dynamic
-/// base (Prime Inference) stays live.
-fn composed_chat_models(
+/// The models of a composed provider: the built-in chat models rewritten,
+/// then the custom models upserted by id, then the built-in non-chat models.
+/// Recomputed per call so a dynamic base (Prime Inference) stays live.
+fn composed_models(
     base: Option<Arc<Provider>>,
     rewrite: Arc<BuiltinRewrite>,
     custom: Arc<Vec<Model>>,
 ) -> GetModelsFn {
     Arc::new(move || {
-        let mut models = match &base {
-            Some(base) => (base.get_models)()?
-                .into_iter()
-                .map(|model| rewrite.apply(&model).map_err(thrown))
-                .collect::<Result<Vec<_>, _>>()?,
-            None => Vec::new(),
+        let base_models = match &base {
+            Some(base) => Some((base.get_models)()?),
+            None => None,
         };
+        let base_models = base_models.as_deref().unwrap_or_default();
+        let mut chat = chat_models(base_models)
+            .map(|model| rewrite.apply(model).map_err(thrown))
+            .collect::<Result<Vec<_>, _>>()?;
         for model in custom.iter() {
-            upsert(&mut models, model.clone());
+            upsert(&mut chat, model.clone());
         }
-        Ok(models)
+        let others = base_models
+            .iter()
+            .filter(|model| !matches!(model, AnyModel::Chat(_)))
+            .cloned();
+        Ok(chat.into_iter().map(AnyModel::Chat).chain(others).collect())
     })
 }
 
@@ -396,37 +409,21 @@ fn compose_provider(
     });
     let base_models = match &base {
         Some(base) => (base.get_models)().map_err(|error| error.to_string())?,
-        None => Vec::new(),
+        None => Arc::from([]),
     };
     let mut custom = Vec::new();
     for definition in config.models.as_deref().unwrap_or_default() {
-        if let Some(model) = custom_model(id, definition, config, base_models.first())? {
+        if let Some(model) = custom_model(id, definition, config, chat_models(&base_models).next())?
+        {
             upsert(&mut custom, model);
         }
     }
     // Fail at load, not per request, on overrides that break a model.
-    for model in &base_models {
+    for model in chat_models(&base_models) {
         rewrite.apply(model)?;
     }
 
-    let chat_models = composed_chat_models(base.clone(), rewrite, Arc::new(custom));
-    let get_all_models = base
-        .as_ref()
-        .and_then(|base| base.get_all_models.clone())
-        .map(|base_all| {
-            let chat_models = Arc::clone(&chat_models);
-            let all: GetAllModelsFn = Arc::new(move || {
-                let mut models: Vec<AnyModel> =
-                    chat_models()?.into_iter().map(AnyModel::Chat).collect();
-                models.extend(
-                    base_all()?
-                        .into_iter()
-                        .filter(|model| !matches!(model, AnyModel::Chat(_))),
-                );
-                Ok(models)
-            });
-            all
-        });
+    let get_models = composed_models(base.clone(), rewrite, Arc::new(custom));
 
     let headers = config.headers.clone().filter(|headers| !headers.is_empty());
     let auth_header = config.auth_header.unwrap_or(false);
@@ -470,8 +467,7 @@ fn compose_provider(
             api_key: Some(api_key),
             oauth,
         },
-        get_models: chat_models,
-        get_all_models,
+        get_models,
         refresh_models: base.as_ref().and_then(|base| base.refresh_models.clone()),
         filter_models: base.as_ref().and_then(|base| base.filter_models.clone()),
         filter_all_models: base
@@ -509,7 +505,7 @@ fn compose_provider(
 /// Whether the built-in provider implements `model`'s api (TS
 /// `supportsBaseApi`).
 fn base_serves(base: &Provider, model: &Model) -> bool {
-    (base.get_models)().is_ok_and(|models| models.iter().any(|entry| entry.api == model.api))
+    (base.get_models)().is_ok_and(|models| chat_models(&models).any(|entry| entry.api == model.api))
 }
 
 /// Merges the provider's configured headers (and the `authHeader` bearer)

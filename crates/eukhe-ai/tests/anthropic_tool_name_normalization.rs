@@ -58,11 +58,11 @@ async fn tool_call_name_round_trip(
             ..
         } = &event
         {
-            if let Some(AssistantContentBlock::ToolCall(tool_call)) =
-                partial.content.get(*content_index)
-            {
-                tool_call_name = Some(tool_call.name.clone());
-            }
+            tool_call_name = partial.read(|partial| match partial.content.get(*content_index) {
+                Some(AssistantContentBlock::ToolCall(tool_call)) => Some(tool_call.name.clone()),
+                Some(AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_))
+                | None => tool_call_name,
+            });
         }
     }
 

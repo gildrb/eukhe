@@ -1,7 +1,7 @@
 //! The `nvidia` provider. Port of `providers/nvidia.ts`.
 
-use super::chat_models;
 use super::nvidia_models::NVIDIA_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -17,7 +17,7 @@ pub fn nvidia_provider() -> Provider {
             api_key: Some(env_api_key_auth("NVIDIA API key", &["NVIDIA_API_KEY"])),
             oauth: None,
         },
-        models: chat_models(&NVIDIA_MODELS),
+        models: builtin_baseline("nvidia", || chat_models(&NVIDIA_MODELS)),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

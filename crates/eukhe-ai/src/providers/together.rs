@@ -1,7 +1,7 @@
 //! The `together` provider. Port of `providers/together.ts`.
 
-use super::chat_models;
 use super::together_models::TOGETHER_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -17,7 +17,7 @@ pub fn together_provider() -> Provider {
             api_key: Some(env_api_key_auth("Together API key", &["TOGETHER_API_KEY"])),
             oauth: None,
         },
-        models: chat_models(&TOGETHER_MODELS),
+        models: builtin_baseline("together", || chat_models(&TOGETHER_MODELS)),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

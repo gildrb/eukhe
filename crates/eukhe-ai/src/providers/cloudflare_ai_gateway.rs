@@ -3,10 +3,10 @@
 
 use eukhe_types::pi_ai::IndexMap;
 
-use super::chat_models;
 use super::cloudflare_ai_gateway_models::CLOUDFLARE_AI_GATEWAY_MODELS;
 use super::cloudflare_auth::cloudflare_ai_gateway_auth;
 use super::cloudflare_stream::cloudflare_streams;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::{anthropic_messages_api, openai_completions_api, openai_responses_api};
 use crate::auth::ProviderAuth;
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -26,7 +26,9 @@ pub fn cloudflare_ai_gateway_provider() -> Provider {
             api_key: Some(cloudflare_ai_gateway_auth()),
             oauth: None,
         },
-        models: chat_models(&CLOUDFLARE_AI_GATEWAY_MODELS),
+        models: builtin_baseline("cloudflare-ai-gateway", || {
+            chat_models(&CLOUDFLARE_AI_GATEWAY_MODELS)
+        }),
         api: Some(ProviderApi::ByApi(IndexMap::from([
             (
                 "anthropic-messages".to_owned(),

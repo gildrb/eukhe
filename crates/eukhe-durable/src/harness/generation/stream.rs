@@ -5,9 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
-use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, Context as PiContext, Message, Model,
-};
+use eukhe_types::pi_ai::{AssistantMessage, Context as PiContext, Message, Model, Partial};
 use futures::StreamExt;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -18,25 +16,9 @@ use crate::harness::json::assign_json;
 use crate::harness::live::LIVE_DOC;
 use crate::session::{SessionError, SessionResult};
 
-/// The partial of a non-terminal event; `None` for `done` and `error`.
-fn event_partial(event: AssistantMessageEvent) -> Option<AssistantMessage> {
-    match event {
-        AssistantMessageEvent::Start { partial }
-        | AssistantMessageEvent::TextStart { partial, .. }
-        | AssistantMessageEvent::TextDelta { partial, .. }
-        | AssistantMessageEvent::TextEnd { partial, .. }
-        | AssistantMessageEvent::ThinkingStart { partial, .. }
-        | AssistantMessageEvent::ThinkingDelta { partial, .. }
-        | AssistantMessageEvent::ThinkingEnd { partial, .. }
-        | AssistantMessageEvent::ToolCallStart { partial, .. }
-        | AssistantMessageEvent::ToolCallDelta { partial, .. }
-        | AssistantMessageEvent::ToolCallEnd { partial, .. } => Some(partial),
-        AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => None,
-    }
-}
-
 struct ThrottleState {
-    pending: Option<AssistantMessage>,
+    /// The stream's live partial when it changed since the last commit.
+    pending: Option<Partial>,
     timer: Option<JoinHandle<()>>,
     /// Settles with the commit in flight; absent when none is.
     in_flight: Option<oneshot::Receiver<SessionResult<()>>>,
@@ -205,14 +187,14 @@ pub(super) async fn stream_response(
         // A partial without content, such as pi-ai's opening `start` event,
         // shows nothing; a deferred response never gets past it, so it never
         // leaves a partial.
-        let Some(partial) = event_partial(event) else {
+        let Some(partial) = event.partial() else {
             continue;
         };
-        if partial.content.is_empty() {
+        if partial.read(|partial| partial.content.is_empty()) {
             continue;
         }
         let mut state = throttle.lock();
-        state.pending = Some(partial);
+        state.pending = Some(partial.clone());
         throttle.arm(&mut state);
     }
     let message = events.result().await;

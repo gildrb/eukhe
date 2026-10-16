@@ -413,8 +413,7 @@ pub(crate) async fn consume(
                 scratch.index.push(index);
                 scratch.partial_json.push(String::new());
                 let content_index = output.content.len() - 1;
-                let partial = output.clone();
-                stream.push(match &output.content[content_index] {
+                stream.push_partial(output, |partial| match &output.content[content_index] {
                     AssistantContentBlock::Text(_) => AssistantMessageEvent::TextStart {
                         content_index,
                         partial,
@@ -442,10 +441,12 @@ pub(crate) async fn consume(
                         if let AssistantContentBlock::Text(block) = &mut output.content[position] {
                             let text = js_concat(delta.and_then(|delta| delta.get("text")));
                             block.text.push_str(&text);
-                            stream.push(AssistantMessageEvent::TextDelta {
-                                content_index: position,
-                                delta: text,
-                                partial: output.clone(),
+                            stream.push_partial(output, |partial| {
+                                AssistantMessageEvent::TextDelta {
+                                    content_index: position,
+                                    delta: text,
+                                    partial,
+                                }
                             });
                         }
                     }
@@ -455,10 +456,12 @@ pub(crate) async fn consume(
                         {
                             let text = js_concat(delta.and_then(|delta| delta.get("thinking")));
                             block.thinking.push_str(&text);
-                            stream.push(AssistantMessageEvent::ThinkingDelta {
-                                content_index: position,
-                                delta: text,
-                                partial: output.clone(),
+                            stream.push_partial(output, |partial| {
+                                AssistantMessageEvent::ThinkingDelta {
+                                    content_index: position,
+                                    delta: text,
+                                    partial,
+                                }
                             });
                         }
                     }
@@ -470,10 +473,12 @@ pub(crate) async fn consume(
                             let partial_json = &mut scratch.partial_json[position];
                             partial_json.push_str(&text);
                             block.arguments = parse_streaming_json_object(Some(partial_json));
-                            stream.push(AssistantMessageEvent::ToolCallDelta {
-                                content_index: position,
-                                delta: text,
-                                partial: output.clone(),
+                            stream.push_partial(output, |partial| {
+                                AssistantMessageEvent::ToolCallDelta {
+                                    content_index: position,
+                                    delta: text,
+                                    partial,
+                                }
                             });
                         }
                     }
@@ -500,8 +505,7 @@ pub(crate) async fn consume(
                     let partial_json = std::mem::take(&mut scratch.partial_json[position]);
                     block.arguments = parse_streaming_json_object(Some(&partial_json));
                 }
-                let partial = output.clone();
-                stream.push(match &output.content[position] {
+                stream.push_partial(output, |partial| match &output.content[position] {
                     AssistantContentBlock::Text(block) => AssistantMessageEvent::TextEnd {
                         content_index: position,
                         content: block.text.clone(),

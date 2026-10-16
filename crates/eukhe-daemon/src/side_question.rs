@@ -526,7 +526,7 @@ async fn run_side_question(
             else {
                 continue;
             };
-            let text = assistant_text(partial);
+            let text = partial.read(assistant_text);
             if text != answer {
                 answer = text;
                 on_update(&answer);

@@ -1,7 +1,7 @@
 //! The `google` provider. Port of `providers/google.ts`.
 
-use super::chat_models;
 use super::google_models::GOOGLE_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::google_generative_ai_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -17,7 +17,7 @@ pub fn google_provider() -> Provider {
             api_key: Some(env_api_key_auth("Gemini API key", &["GEMINI_API_KEY"])),
             oauth: None,
         },
-        models: chat_models(&GOOGLE_MODELS),
+        models: builtin_baseline("google", || chat_models(&GOOGLE_MODELS)),
         api: Some(ProviderApi::Single(google_generative_ai_api())),
         ..CreateProviderOptions::default()
     })

@@ -690,7 +690,7 @@ async fn streams_an_exact_event_order_for_fixed_size_chunks() {
     let AssistantMessageEvent::Start { partial } = &events[0] else {
         panic!("start");
     };
-    assert_eq!(partial.stop_reason, StopReason::Pending);
+    assert_eq!(partial.snapshot().stop_reason, StopReason::Pending);
     assert_eq!(
         types(&events),
         [

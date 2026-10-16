@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use eukhe_types::pi_ai::{IndexMap, JsonValue, Model};
 
-use super::chat_models;
 use super::github_copilot_models::GITHUB_COPILOT_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::{anthropic_messages_api, openai_completions_api, openai_responses_api};
 use crate::auth::oauth::load_github_copilot_oauth;
 use crate::auth::{env_api_key_auth, lazy_oauth, Credential, LazyOAuthInput, ProviderAuth};
@@ -53,7 +53,7 @@ pub fn github_copilot_provider() -> Provider {
                 load: Arc::new(load_github_copilot_oauth),
             })),
         },
-        models: chat_models(&GITHUB_COPILOT_MODELS),
+        models: builtin_baseline("github-copilot", || chat_models(&GITHUB_COPILOT_MODELS)),
         filter_models: Some(Arc::new(filter_models)),
         api: Some(ProviderApi::ByApi(IndexMap::from([
             ("anthropic-messages".to_owned(), anthropic_messages_api()),

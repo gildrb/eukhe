@@ -139,9 +139,9 @@ impl StreamBlocks {
                 redacted_chunks: None,
             },
         );
-        stream.push(AssistantMessageEvent::ToolCallStart {
+        stream.push_partial(output, |partial| AssistantMessageEvent::ToolCallStart {
             content_index,
-            partial: output.clone(),
+            partial,
         });
     }
 
@@ -170,19 +170,19 @@ impl StreamBlocks {
                     },
                 );
                 index = Some(content_index);
-                stream.push(AssistantMessageEvent::TextStart {
+                stream.push_partial(output, |partial| AssistantMessageEvent::TextStart {
                     content_index,
-                    partial: output.clone(),
+                    partial,
                 });
             }
             if let Some(content_index) = index {
                 if let AssistantContentBlock::Text(block) = &mut output.content[content_index] {
                     let text = js_to_string(text);
                     block.text.push_str(&text);
-                    stream.push(AssistantMessageEvent::TextDelta {
+                    stream.push_partial(output, |partial| AssistantMessageEvent::TextDelta {
                         content_index,
                         delta: text,
-                        partial: output.clone(),
+                        partial,
                     });
                 }
             }
@@ -205,10 +205,10 @@ impl StreamBlocks {
                 if let AssistantContentBlock::ToolCall(block) = &mut output.content[content_index] {
                     block.arguments = arguments;
                 }
-                stream.push(AssistantMessageEvent::ToolCallDelta {
+                stream.push_partial(output, |partial| AssistantMessageEvent::ToolCallDelta {
                     content_index,
                     delta: input,
-                    partial: output.clone(),
+                    partial,
                 });
                 return;
             }
@@ -235,9 +235,9 @@ impl StreamBlocks {
                     ..BlockScratch::default()
                 },
             );
-            stream.push(AssistantMessageEvent::ThinkingStart {
+            stream.push_partial(output, |partial| AssistantMessageEvent::ThinkingStart {
                 content_index,
-                partial: output.clone(),
+                partial,
             });
             content_index
         };
@@ -252,10 +252,10 @@ impl StreamBlocks {
             if let AssistantContentBlock::Thinking(block) = &mut output.content[thinking_index] {
                 block.thinking.push_str(&text);
             }
-            stream.push(AssistantMessageEvent::ThinkingDelta {
+            stream.push_partial(output, |partial| AssistantMessageEvent::ThinkingDelta {
                 content_index: thinking_index,
                 delta: text,
-                partial: output.clone(),
+                partial,
             });
         }
         // `thinkingSignature` holds either an Anthropic signature or an
@@ -285,10 +285,10 @@ impl StreamBlocks {
                 }
             }
             if placeholder_added {
-                stream.push(AssistantMessageEvent::ThinkingDelta {
+                stream.push_partial(output, |partial| AssistantMessageEvent::ThinkingDelta {
                     content_index: thinking_index,
                     delta: REDACTED_THINKING_PLACEHOLDER.to_owned(),
-                    partial: output.clone(),
+                    partial,
                 });
             }
             self.scratch[thinking_index]
@@ -332,10 +332,10 @@ impl StreamBlocks {
         match &output.content[content_index] {
             AssistantContentBlock::Text(block) => {
                 let content = block.text.clone();
-                stream.push(AssistantMessageEvent::TextEnd {
+                stream.push_partial(output, |partial| AssistantMessageEvent::TextEnd {
                     content_index,
                     content,
-                    partial: output.clone(),
+                    partial,
                 });
             }
             AssistantContentBlock::Thinking(_) => {
@@ -344,10 +344,10 @@ impl StreamBlocks {
                     return;
                 };
                 let content = block.thinking.clone();
-                stream.push(AssistantMessageEvent::ThinkingEnd {
+                stream.push_partial(output, |partial| AssistantMessageEvent::ThinkingEnd {
                     content_index,
                     content,
-                    partial: output.clone(),
+                    partial,
                 });
             }
             AssistantContentBlock::ToolCall(_) => {
@@ -361,10 +361,10 @@ impl StreamBlocks {
                 };
                 block.arguments = arguments;
                 let tool_call = block.clone();
-                stream.push(AssistantMessageEvent::ToolCallEnd {
+                stream.push_partial(output, |partial| AssistantMessageEvent::ToolCallEnd {
                     content_index,
                     tool_call,
-                    partial: output.clone(),
+                    partial,
                 });
             }
         }

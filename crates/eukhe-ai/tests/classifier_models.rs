@@ -192,7 +192,7 @@ async fn rejects_images_for_classifier_models_without_image_input_before_calling
     let provider = create_provider(CreateProviderOptions {
         id: "test".into(),
         auth: ambient(),
-        models: vec![AnyModel::Classifier(classifier.clone())],
+        models: vec![AnyModel::Classifier(classifier.clone())].into(),
         classifiers: Some(IndexMap::from([(
             "test-classifier".to_owned(),
             ProviderClassifier { classify },

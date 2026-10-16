@@ -611,9 +611,7 @@ async fn run(
         .await
         .map_err(StreamFailure::plain)?;
     }
-    stream.push(AssistantMessageEvent::Start {
-        partial: output.clone(),
-    });
+    stream.push_partial(output, |partial| AssistantMessageEvent::Start { partial });
     let current_tools = get_current_tools(context.messages());
     events::consume(
         model,

@@ -18,9 +18,9 @@ use eukhe_ai::auth::{
     AuthContext, AuthOperationOptions, AuthResolutionOverrides, AuthResult, ModelAuth, ProviderAuth,
 };
 use eukhe_ai::models::{
-    create_models, create_provider, get_model_type, has_api, is_model_type, CreateModelsOptions,
-    CreateProviderOptions, Models, ModelsImagesOptions, ModelsRefreshOptions, ModelsRequestOptions,
-    Provider, ProviderApi,
+    chat_models, create_models, create_provider, get_model_type, has_api, is_model_type,
+    CreateModelsOptions, CreateProviderOptions, Models, ModelsImagesOptions, ModelsRefreshOptions,
+    ModelsRequestOptions, Provider, ProviderApi,
 };
 use eukhe_ai::models_store::{InMemoryModelsStore, ModelsStore, ModelsStoreOperationOptions};
 use eukhe_ai::providers::all::{
@@ -196,7 +196,7 @@ fn test_provider(input: TestProvider) -> Provider {
             api_key: Some(auth.arc()),
             oauth: None,
         },
-        models: all_models,
+        models: all_models.into(),
         api: Some(ProviderApi::ByApi(IndexMap::from([(
             "test-chat".to_owned(),
             silent_streams(),
@@ -223,6 +223,11 @@ fn ids(models: &[AnyModel]) -> Vec<String> {
 
 fn chat_ids(models: &[Model]) -> Vec<String> {
     models.iter().map(|model| model.id.clone()).collect()
+}
+
+/// The chat model ids of a provider listing.
+fn listed_chat_ids(models: &[AnyModel]) -> Vec<String> {
+    chat_models(models).map(|model| model.id.clone()).collect()
 }
 
 fn image_of(models: &Models, provider: &str, id: &str) -> ImageModel {
@@ -302,7 +307,7 @@ async fn lists_models_without_a_type_as_chat_models_at_create_provider_boundarie
     let provider = models.get_provider("legacy").expect("provider");
 
     assert_eq!(
-        chat_ids(&(provider.get_models)().expect("models")),
+        listed_chat_ids(&(provider.get_models)().expect("models")),
         ["static"]
     );
     models
@@ -312,10 +317,9 @@ async fn lists_models_without_a_type_as_chat_models_at_create_provider_boundarie
         })
         .await;
     let listed = (provider.get_models)().expect("models");
-    assert_eq!(chat_ids(&listed), ["static", "dynamic"]);
+    assert_eq!(listed_chat_ids(&listed), ["static", "dynamic"]);
     assert_eq!(
-        listed
-            .iter()
+        chat_models(&listed)
             .map(|model| model.model_type)
             .collect::<Vec<_>>(),
         [None, None]
@@ -534,7 +538,7 @@ async fn merges_provider_resolved_env_and_applies_header_transforms() {
                 api_key: Some(auth.arc()),
                 oauth: None,
             },
-            models: vec![AnyModel::Image(image_model("p1", "model-a"))],
+            models: vec![AnyModel::Image(image_model("p1", "model-a"))].into(),
             images: Some(IndexMap::from([(
                 "test-images".to_owned(),
                 recording_images(Some(calls.clone())),
@@ -634,7 +638,7 @@ async fn returns_error_results_instead_of_rejecting() {
         create_provider(CreateProviderOptions {
             id: "chat-only".into(),
             auth: ambient(),
-            models: vec![AnyModel::Image(image_model("chat-only", "i"))],
+            models: vec![AnyModel::Image(image_model("chat-only", "i"))].into(),
             api: Some(ProviderApi::Single(silent_streams())),
             ..CreateProviderOptions::default()
         })
@@ -698,7 +702,7 @@ fn requires_at_least_one_concrete_operation_implementation() {
         create_provider(CreateProviderOptions {
             id: "empty".into(),
             auth: ambient(),
-            models: Vec::new(),
+            models: Arc::new([]),
             ..implementations
         })
     };
@@ -741,7 +745,7 @@ async fn supports_dynamic_providers_listing_image_models_via_refresh() {
         create_provider(CreateProviderOptions {
             id: "dyn".into(),
             auth: ambient(),
-            models: Vec::new(),
+            models: Arc::new([]),
             fetch_models: Some(Arc::new(move |_context| {
                 counter.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async {
@@ -815,11 +819,6 @@ async fn builtin_models_exposes_openrouter_image_models_under_the_openrouter_pro
     assert!(!images.is_empty());
     assert!((provider.get_models)()
         .expect("models")
-        .into_iter()
-        .all(|model| is_model_type(&AnyModel::Chat(model), ModelType::Chat)));
-    let get_all_models = provider.get_all_models.as_ref().expect("getAllModels");
-    assert!(get_all_models()
-        .expect("all models")
         .iter()
         .any(|model| is_model_type(model, ModelType::Image)));
     assert!(images

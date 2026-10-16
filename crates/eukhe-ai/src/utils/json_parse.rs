@@ -4,6 +4,8 @@
 mod js_json;
 mod partial;
 
+use std::borrow::Cow;
+
 use eukhe_types::pi_ai::{JsonObject, JsonValue};
 
 /// JS `JSON.parse(text)` without repair.
@@ -26,67 +28,72 @@ fn push_escaped_control(byte: u8, repaired: &mut Vec<u8>) {
     }
 }
 
+/// The output buffer of a repair: on the first change, `bytes[..at]` (the
+/// unchanged prefix) is copied once; later splices append the untouched run
+/// since the previous one. `copied` ends past the replaced byte at `at`.
+fn splice<'a>(
+    repaired: &'a mut Option<Vec<u8>>,
+    bytes: &[u8],
+    copied: &mut usize,
+    at: usize,
+) -> &'a mut Vec<u8> {
+    let out = repaired.get_or_insert_with(|| Vec::with_capacity(bytes.len() + 8));
+    out.extend_from_slice(&bytes[*copied..at]);
+    *copied = at + 1;
+    out
+}
+
 /// Repair malformed JSON string literals by escaping raw control characters
 /// inside strings and doubling backslashes before invalid escape characters.
+/// Borrows `json` when nothing needs repair.
 #[must_use]
-pub fn repair_json(json: &str) -> String {
+pub fn repair_json(json: &str) -> Cow<'_, str> {
     let bytes = json.as_bytes();
-    let mut repaired: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut repaired = None;
+    let mut copied = 0;
     let mut in_string = false;
     let mut index = 0;
     while index < bytes.len() {
         let byte = bytes[index];
-        if !in_string {
-            repaired.push(byte);
-            if byte == b'"' {
-                in_string = true;
-            }
-            index += 1;
-            continue;
-        }
-        if byte == b'"' {
-            repaired.push(byte);
-            in_string = false;
+        if !in_string || byte == b'"' {
+            in_string ^= byte == b'"';
             index += 1;
             continue;
         }
         if byte == b'\\' {
             let Some(&next) = bytes.get(index + 1) else {
-                repaired.extend_from_slice(b"\\\\");
+                splice(&mut repaired, bytes, &mut copied, index).extend_from_slice(b"\\\\");
                 index += 1;
                 continue;
             };
-            if next == b'u' {
-                let digits = bytes.get(index + 2..index + 6);
-                if let Some(digits) =
-                    digits.filter(|digits| digits.iter().all(u8::is_ascii_hexdigit))
-                {
-                    repaired.extend_from_slice(b"\\u");
-                    repaired.extend_from_slice(digits);
-                    index += 6;
-                    continue;
-                }
-            }
-            if VALID_JSON_ESCAPES.contains(&next) {
-                repaired.push(b'\\');
-                repaired.push(next);
+            let unicode_escape = next == b'u'
+                && bytes
+                    .get(index + 2..index + 6)
+                    .is_some_and(|digits| digits.iter().all(u8::is_ascii_hexdigit));
+            if unicode_escape {
+                index += 6;
+            } else if VALID_JSON_ESCAPES.contains(&next) {
                 index += 2;
-                continue;
+            } else {
+                splice(&mut repaired, bytes, &mut copied, index).extend_from_slice(b"\\\\");
+                index += 1;
             }
-            repaired.extend_from_slice(b"\\\\");
-            index += 1;
             continue;
         }
         if byte <= 0x1F {
-            push_escaped_control(byte, &mut repaired);
-        } else {
-            repaired.push(byte);
+            push_escaped_control(byte, splice(&mut repaired, bytes, &mut copied, index));
         }
         index += 1;
     }
+    let Some(mut repaired) = repaired else {
+        return Cow::Borrowed(json);
+    };
+    repaired.extend_from_slice(&bytes[copied..]);
     // Only ASCII bytes were inserted, between whole UTF-8 sequences.
-    String::from_utf8(repaired)
-        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+    Cow::Owned(
+        String::from_utf8(repaired)
+            .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned()),
+    )
 }
 
 /// JS `JSON.parse(text)` (no reviver).
@@ -105,14 +112,25 @@ pub fn json_parse(text: &str) -> Result<JsonValue, JsonSyntaxError> {
 /// The `SyntaxError` of the original text when repair changes nothing,
 /// otherwise the error of the repaired text.
 pub fn parse_json_with_repair(json: &str) -> Result<JsonValue, JsonSyntaxError> {
-    js_json::parse(json).or_else(|error| {
-        let repaired = repair_json(json);
-        if repaired == json {
-            Err(error)
-        } else {
-            js_json::parse(&repaired)
-        }
+    js_json::parse(json).or_else(|error| match repair_json(json) {
+        Cow::Borrowed(_) => Err(error),
+        Cow::Owned(repaired) => js_json::parse(&repaired),
     })
+}
+
+/// Whether `JSON.parse` could accept `json` (or its repair, which keeps the
+/// first and last non-whitespace bytes of a container or string): an
+/// object, array, or string must end with its closing delimiter. Streaming
+/// tool arguments almost never do until complete, so the strict parses
+/// are skipped for every intermediate delta.
+fn may_be_complete(json: &str) -> bool {
+    let trimmed = json.trim_matches([' ', '\t', '\n', '\r']).as_bytes();
+    match trimmed.first() {
+        Some(b'{') => trimmed.last() == Some(&b'}'),
+        Some(b'[') => trimmed.last() == Some(&b']'),
+        Some(b'"') => trimmed.len() > 1 && trimmed.last() == Some(&b'"'),
+        Some(_) | None => true,
+    }
 }
 
 /// Parse potentially incomplete JSON during streaming. Always returns a
@@ -122,11 +140,15 @@ pub fn parse_streaming_json(partial_json: Option<&str>) -> JsonValue {
     let Some(partial_json) = partial_json.filter(|json| !js_trim(json).is_empty()) else {
         return JsonValue::Object(JsonObject::new());
     };
-    if let Ok(value) = parse_json_with_repair(partial_json) {
-        return value;
+    if may_be_complete(partial_json) {
+        if let Ok(value) = parse_json_with_repair(partial_json) {
+            return value;
+        }
     }
-    let recovered =
-        partial::parse(partial_json).or_else(|_| partial::parse(&repair_json(partial_json)));
+    let recovered = partial::parse(partial_json).or_else(|error| match repair_json(partial_json) {
+        Cow::Borrowed(_) => Err(error),
+        Cow::Owned(repaired) => partial::parse(&repaired),
+    });
     match recovered {
         Ok(JsonValue::Null) | Err(_) => JsonValue::Object(JsonObject::new()),
         Ok(value) => value,

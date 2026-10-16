@@ -165,29 +165,6 @@ fn lists_and_finds_models_per_provider() {
     assert!(has_api(&found, "test-api"));
 }
 
-#[tokio::test]
-async fn keeps_chat_reads_independent_from_the_all_model_catalog() {
-    let mut provider = test_provider(TestProvider {
-        id: "chat-only".into(),
-        ..TestProvider::default()
-    });
-    provider.get_all_models = Some(Arc::new(|| Err(common::error("all models unavailable"))));
-    let models = create_models(CreateModelsOptions::default());
-    models.set_provider(provider);
-
-    assert_eq!(ids(&models.get_models(Some("chat-only"))), ["model-a"]);
-    assert_eq!(
-        models.get_model("chat-only", "model-a").map(|m| m.id),
-        Some("model-a".to_owned())
-    );
-    let available = models
-        .get_available(Some("chat-only"), AuthOperationOptions::default())
-        .await
-        .expect("available");
-    assert_eq!(ids(&available), ["model-a"]);
-    assert!(models.get_all_models(Some("chat-only")).is_empty());
-}
-
 #[test]
 fn swallows_provider_source_failures_for_both_all_provider_and_single_provider_listing() {
     let models = create_models(CreateModelsOptions::default());
@@ -229,7 +206,10 @@ async fn refresh_updates_every_configured_dynamic_provider_and_reports_failures(
             Ok(read_list
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .clone())
+                .iter()
+                .cloned()
+                .map(AnyModel::Chat)
+                .collect())
         })),
         refresh_models: Some(Arc::new(move |refresh| {
             let list = Arc::clone(&write_list);

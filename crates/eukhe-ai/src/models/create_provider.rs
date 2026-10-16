@@ -43,8 +43,8 @@ pub struct CreateProviderOptions {
     /// Every provider has auth semantics, even ambient/keyless ones.
     pub auth: ProviderAuth,
     /// Static baseline models of every type (empty for purely dynamic
-    /// providers).
-    pub models: Vec<AnyModel>,
+    /// providers), shared by every provider built from it.
+    pub models: Arc<[AnyModel]>,
     /// Fetch a dynamic model overlay of every type. `create_provider`
     /// restores and publishes it transactionally.
     pub fetch_models: Option<FetchModelsFn>,
@@ -100,30 +100,36 @@ pub fn create_provider(input: CreateProviderOptions) -> Result<Provider, CreateP
     Ok(build_provider(input))
 }
 
-/// Shared catalog state: static baseline plus the dynamic overlay.
+/// Shared catalog state: the static baseline with the dynamic overlay
+/// merged in once per refresh, so every read shares one list.
 struct Catalog {
-    baseline: Vec<AnyModel>,
-    dynamic: Mutex<Vec<AnyModel>>,
+    baseline: Arc<[AnyModel]>,
+    current: Mutex<Arc<[AnyModel]>>,
 }
 
 impl Catalog {
-    fn current(&self) -> Vec<AnyModel> {
-        let mut merged = self.baseline.clone();
-        let dynamic = self.dynamic.lock().unwrap_or_else(PoisonError::into_inner);
-        for model in dynamic.iter() {
-            let index = merged.iter().position(|entry| {
-                entry.model_type() == model.model_type() && entry.id() == model.id()
-            });
-            match index {
-                Some(index) => merged[index] = model.clone(),
-                None => merged.push(model.clone()),
-            }
-        }
-        merged
+    fn current(&self) -> Arc<[AnyModel]> {
+        Arc::clone(&self.current.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
-    fn set_dynamic(&self, models: Vec<AnyModel>) {
-        *self.dynamic.lock().unwrap_or_else(PoisonError::into_inner) = models;
+    /// The baseline overlaid by `dynamic` (same type and id replaces).
+    fn set_dynamic(&self, dynamic: Vec<AnyModel>) {
+        let merged: Arc<[AnyModel]> = if dynamic.is_empty() {
+            Arc::clone(&self.baseline)
+        } else {
+            let mut merged = self.baseline.to_vec();
+            for model in dynamic {
+                let index = merged.iter().position(|entry| {
+                    entry.model_type() == model.model_type() && entry.id() == model.id()
+                });
+                match index {
+                    Some(index) => merged[index] = model,
+                    None => merged.push(model),
+                }
+            }
+            merged.into()
+        };
+        *self.current.lock().unwrap_or_else(PoisonError::into_inner) = merged;
     }
 }
 
@@ -228,12 +234,11 @@ pub(crate) fn build_provider(input: CreateProviderOptions) -> Provider {
     };
 
     let catalog = Arc::new(Catalog {
+        current: Mutex::new(Arc::clone(&models)),
         baseline: models,
-        dynamic: Mutex::new(Vec::new()),
     });
 
-    let chat_catalog = Arc::clone(&catalog);
-    let all_catalog = Arc::clone(&catalog);
+    let models_catalog = Arc::clone(&catalog);
     let stream_api = api.clone();
     let stream_id = id.clone();
     let simple_api = api.clone();
@@ -245,17 +250,7 @@ pub(crate) fn build_provider(input: CreateProviderOptions) -> Provider {
         base_url,
         headers,
         auth,
-        get_models: Arc::new(move || {
-            Ok(chat_catalog
-                .current()
-                .into_iter()
-                .filter_map(|model| match model {
-                    AnyModel::Chat(model) => Some(model),
-                    AnyModel::Image(_) | AnyModel::Classifier(_) => None,
-                })
-                .collect())
-        }),
-        get_all_models: Some(Arc::new(move || Ok(all_catalog.current()))),
+        get_models: Arc::new(move || Ok(models_catalog.current())),
         refresh_models: fetch_models
             .map(|fetch| refresh_with_fetch(id.clone(), Arc::clone(&catalog), fetch)),
         filter_models,

@@ -1,7 +1,7 @@
 //! The `minimax-cn` provider. Port of `providers/minimax-cn.ts`.
 
-use super::chat_models;
 use super::minimax_cn_models::MINIMAX_CN_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::anthropic_messages_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -20,7 +20,7 @@ pub fn minimax_cn_provider() -> Provider {
             )),
             oauth: None,
         },
-        models: chat_models(&MINIMAX_CN_MODELS),
+        models: builtin_baseline("minimax-cn", || chat_models(&MINIMAX_CN_MODELS)),
         api: Some(ProviderApi::Single(anthropic_messages_api())),
         ..CreateProviderOptions::default()
     })

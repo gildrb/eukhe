@@ -1,7 +1,7 @@
 //! The `mistral` provider. Port of `providers/mistral.ts`.
 
-use super::chat_models;
 use super::mistral_models::MISTRAL_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::mistral_conversations_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -17,7 +17,7 @@ pub fn mistral_provider() -> Provider {
             api_key: Some(env_api_key_auth("Mistral API key", &["MISTRAL_API_KEY"])),
             oauth: None,
         },
-        models: chat_models(&MISTRAL_MODELS),
+        models: builtin_baseline("mistral", || chat_models(&MISTRAL_MODELS)),
         api: Some(ProviderApi::Single(mistral_conversations_api())),
         ..CreateProviderOptions::default()
     })

@@ -210,7 +210,7 @@ async fn survives_provider_and_models_stream_deferred_dispatch() {
             api_key: Some(ambient_auth()),
             oauth: None,
         },
-        models: vec![AnyModel::Chat(model.clone())],
+        models: vec![AnyModel::Chat(model.clone())].into(),
         api: Some(ProviderApi::Single(ProviderStreams {
             stream: Arc::new(move |request_model, _context, options| {
                 observe(&on_stream, options.stream.request.telemetry_context);
@@ -291,7 +291,7 @@ async fn survives_models_image_dispatch() {
                 api_key: Some(ambient_auth()),
                 oauth: None,
             },
-            models: vec![AnyModel::Image(image_model.clone())],
+            models: vec![AnyModel::Image(image_model.clone())].into(),
             images: Some(IndexMap::from([(
                 image_model.api.clone(),
                 ProviderImages {

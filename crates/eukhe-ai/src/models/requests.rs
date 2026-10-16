@@ -361,7 +361,7 @@ impl Models {
         context: Context,
         options: ModelsApiStreamOptions,
     ) -> AssistantMessage {
-        self.stream(model, context, options).result().await
+        self.stream(model, context, options).into_result().await
     }
 
     /// Streams a chat request with provider-neutral options, under the
@@ -398,7 +398,9 @@ impl Models {
         context: Context,
         options: ModelsSimpleStreamOptions,
     ) -> AssistantMessage {
-        self.stream_simple(model, context, options).result().await
+        self.stream_simple(model, context, options)
+            .into_result()
+            .await
     }
 
     /// Streams the continuation of a deferred response, under the
@@ -437,7 +439,9 @@ impl Models {
         handle: &DeferredHandle,
         options: ModelsDeferredFetchOptions,
     ) -> AssistantMessage {
-        self.stream_deferred(model, handle, options).result().await
+        self.stream_deferred(model, handle, options)
+            .into_result()
+            .await
     }
 
     /// Best-effort cancellation of a deferred response.

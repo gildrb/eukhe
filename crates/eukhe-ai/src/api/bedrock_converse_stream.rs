@@ -551,8 +551,8 @@ impl StreamRun<'_> {
                             "Unexpected assistant message start but got user message start instead",
                         ));
                     }
-                    self.target.push(AssistantMessageEvent::Start {
-                        partial: self.output.clone(),
+                    self.target.push_partial(&self.output, |partial| {
+                        AssistantMessageEvent::Start { partial }
                     });
                 }
                 "contentBlockStart" => {

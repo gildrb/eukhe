@@ -69,21 +69,20 @@ fn any_ids(models: &[AnyModel]) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn work_through_a_handwritten_provider_without_get_all_models() {
+async fn work_through_a_handwritten_provider() {
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("handwritten".to_owned()),
         ..RegisterFauxProviderOptions::default()
     });
     let faux_models = faux.models().to_vec();
-    let listed = faux_models.clone();
+    let listed: Arc<[AnyModel]> = faux_models.iter().cloned().map(AnyModel::Chat).collect();
     let handwritten = Provider {
         id: "handwritten".to_owned(),
         name: "Handwritten".to_owned(),
         base_url: None,
         headers: None,
         auth: faux.provider.auth.clone(),
-        get_models: Arc::new(move || Ok(listed.clone())),
-        get_all_models: None,
+        get_models: Arc::new(move || Ok(Arc::clone(&listed))),
         refresh_models: None,
         filter_models: None,
         filter_all_models: None,
@@ -222,7 +221,7 @@ async fn are_dropped_instead_of_failing_the_refresh() {
                 api_key: Some(ambient_auth()),
                 oauth: None,
             },
-            models: Vec::new(),
+            models: Arc::new([]),
             fetch_models: Some(fetch_models),
             api: Some(ProviderApi::Single(silent_streams())),
             ..CreateProviderOptions::default()

@@ -18,7 +18,7 @@ use std::sync::{Arc, LazyLock};
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
-    CacheRetention, DiagnosticCode, DoneReason, ErrorReason, JsonObject, JsonValue, Model,
+    CacheRetention, DiagnosticCode, DoneReason, ErrorReason, JsonObject, JsonValue, Model, Partial,
     ProviderEnv, ProviderResponse, StopReason, TextContent, ThinkingContent, ToolCall,
     TranscriptContext, Usage,
 };
@@ -280,6 +280,8 @@ fn create_empty_message(model: &Model, stop_reason: StopReason) -> AssistantMess
 /// TS `createEventConverter`: folds wire events into the partial message.
 struct EventConverter {
     partial: AssistantMessage,
+    /// The live partial of the converted events.
+    live: Partial,
     tool_json: HashMap<usize, String>,
 }
 
@@ -292,8 +294,10 @@ fn missing_block(property: &str) -> Thrown {
 
 impl EventConverter {
     fn new(model: &Model) -> Self {
+        let partial = create_empty_message(model, StopReason::Pending);
         Self {
-            partial: create_empty_message(model, StopReason::Pending),
+            live: Partial::new(partial.clone()),
+            partial,
             tool_json: HashMap::new(),
         }
     }
@@ -346,8 +350,7 @@ impl EventConverter {
 
     #[allow(clippy::too_many_lines)] // One arm per wire event, mirroring the TS switch.
     fn convert(&mut self, event: PiMessagesEvent) -> Result<AssistantMessageEvent, Thrown> {
-        let partial = |this: &Self| this.partial.clone();
-        Ok(match event {
+        let event = match event {
             PiMessagesEvent::Done {
                 reason,
                 usage,
@@ -364,7 +367,7 @@ impl EventConverter {
                 append_rewrite_diagnostic(&mut self.partial, rewrite);
                 AssistantMessageEvent::Done {
                     reason,
-                    message: partial(self),
+                    message: self.partial.clone(),
                 }
             }
             PiMessagesEvent::Error {
@@ -385,11 +388,11 @@ impl EventConverter {
                 append_rewrite_diagnostic(&mut self.partial, rewrite);
                 AssistantMessageEvent::Error {
                     reason,
-                    error: partial(self),
+                    error: self.partial.clone(),
                 }
             }
             PiMessagesEvent::Start => AssistantMessageEvent::Start {
-                partial: partial(self),
+                partial: self.live.clone(),
             },
             PiMessagesEvent::TextStart { content_index } => {
                 self.set_block(
@@ -398,7 +401,7 @@ impl EventConverter {
                 )?;
                 AssistantMessageEvent::TextStart {
                     content_index,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::TextDelta {
@@ -409,7 +412,7 @@ impl EventConverter {
                 AssistantMessageEvent::TextDelta {
                     content_index,
                     delta,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::TextEnd {
@@ -423,7 +426,7 @@ impl EventConverter {
                 AssistantMessageEvent::TextEnd {
                     content_index,
                     content,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::ThinkingStart { content_index } => {
@@ -433,7 +436,7 @@ impl EventConverter {
                 )?;
                 AssistantMessageEvent::ThinkingStart {
                     content_index,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::ThinkingDelta {
@@ -446,7 +449,7 @@ impl EventConverter {
                 AssistantMessageEvent::ThinkingDelta {
                     content_index,
                     delta,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::ThinkingEnd {
@@ -462,7 +465,7 @@ impl EventConverter {
                 AssistantMessageEvent::ThinkingEnd {
                     content_index,
                     content,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::ToolCallStart {
@@ -483,7 +486,7 @@ impl EventConverter {
                 self.tool_json.insert(content_index, String::new());
                 AssistantMessageEvent::ToolCallStart {
                     content_index,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::ToolCallDelta {
@@ -502,7 +505,7 @@ impl EventConverter {
                 AssistantMessageEvent::ToolCallDelta {
                     content_index,
                     delta,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
             PiMessagesEvent::ToolCallEnd {
@@ -523,10 +526,14 @@ impl EventConverter {
                 AssistantMessageEvent::ToolCallEnd {
                     content_index,
                     tool_call,
-                    partial: partial(self),
+                    partial: self.live.clone(),
                 }
             }
-        })
+        };
+        if let Some(live) = event.partial() {
+            live.publish(&self.partial, &event);
+        }
+        Ok(event)
     }
 }
 

@@ -818,7 +818,7 @@ fn recording_streams(label: &'static str, calls: Arc<Mutex<Vec<String>>>) -> Pro
         let stream = AssistantMessageEventStream::new();
         let message = faux_assistant_message("ok", FauxAssistantMessageOptions::default());
         stream.push(AssistantMessageEvent::Start {
-            partial: message.clone(),
+            partial: message.clone().into(),
         });
         stream.push(AssistantMessageEvent::Done {
             reason: DoneReason::Stop,
@@ -910,7 +910,8 @@ async fn dispatches_on_model_api_for_mixed_api_providers() {
         models: vec![
             AnyModel::Chat(mixed_model("api-a", "model-a")),
             AnyModel::Chat(mixed_model("api-b", "model-b")),
-        ],
+        ]
+        .into(),
         api: Some(ProviderApi::ByApi(IndexMap::from([
             (
                 "api-a".to_owned(),
@@ -981,7 +982,7 @@ async fn merges_provider_resolved_env_into_stream_options() {
             ])),
             source: None,
         }),
-        models: vec![AnyModel::Chat(env_model.clone())],
+        models: vec![AnyModel::Chat(env_model.clone())].into(),
         api: Some(ProviderApi::Single(ProviderStreams {
             stream: Arc::new(move |model, context, options| {
                 *stream_capture
@@ -1089,7 +1090,7 @@ fn deferred_recording_provider(
             ])),
             source: None,
         }),
-        models: vec![AnyModel::Chat(deferred_model.clone())],
+        models: vec![AnyModel::Chat(deferred_model.clone())].into(),
         api: Some(ProviderApi::Single(streams)),
         ..CreateProviderOptions::default()
     })
@@ -1218,7 +1219,7 @@ async fn produces_a_stream_error_for_a_model_whose_api_has_no_implementation() {
     let provider = create_provider(CreateProviderOptions {
         id: "mixed".into(),
         auth: keyless_auth(),
-        models: vec![AnyModel::Chat(mixed_model("api-a", "model-a"))],
+        models: vec![AnyModel::Chat(mixed_model("api-a", "model-a"))].into(),
         api: Some(ProviderApi::ByApi(IndexMap::from([(
             "api-a".to_owned(),
             recording_streams("a", Arc::default()),
@@ -1279,8 +1280,8 @@ async fn lets_a_newer_dynamic_refresh_bypass_and_supersede_older_network_work() 
     let listed = move || -> Vec<String> {
         get_models()
             .expect("models")
-            .into_iter()
-            .map(|model| model.id)
+            .iter()
+            .map(|model| model.id().to_owned())
             .collect()
     };
 

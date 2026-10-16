@@ -35,7 +35,7 @@ fn completed_stream() -> AssistantMessageEventStream {
     let stream = AssistantMessageEventStream::new();
     let message = faux_assistant_message("ok", FauxAssistantMessageOptions::default());
     stream.push(AssistantMessageEvent::Start {
-        partial: message.clone(),
+        partial: message.clone().into(),
     });
     stream.push(AssistantMessageEvent::Done {
         reason: DoneReason::Stop,

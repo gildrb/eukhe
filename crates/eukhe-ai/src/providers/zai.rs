@@ -1,7 +1,7 @@
 //! The `zai` provider. Port of `providers/zai.ts`.
 
-use super::chat_models;
 use super::zai_models::ZAI_MODELS;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::openai_completions_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -17,7 +17,7 @@ pub fn zai_provider() -> Provider {
             api_key: Some(env_api_key_auth("Z.AI API key", &["ZAI_API_KEY"])),
             oauth: None,
         },
-        models: chat_models(&ZAI_MODELS),
+        models: builtin_baseline("zai", || chat_models(&ZAI_MODELS)),
         api: Some(ProviderApi::Single(openai_completions_api())),
         ..CreateProviderOptions::default()
     })

@@ -4,7 +4,7 @@
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, IndexMap, JsonObject,
-    JsonValue, Model, StopReason, TextContent, ThinkingContent, ToolCall,
+    JsonValue, Model, Partial, StopReason, TextContent, ThinkingContent, ToolCall,
 };
 
 use super::transport::MistralEventReader;
@@ -117,8 +117,9 @@ fn text_or_empty(value: Option<&JsonValue>) -> String {
 }
 
 impl ChatStreamState<'_> {
-    fn push(&self, event: AssistantMessageEvent) {
-        self.stream.push(event);
+    /// Push the non-terminal event built around the live partial.
+    fn emit(&self, event: impl FnOnce(Partial) -> AssistantMessageEvent) {
+        self.stream.push_partial(self.output, event);
     }
 
     fn block_index(&self) -> usize {
@@ -131,24 +132,25 @@ impl ChatStreamState<'_> {
             return;
         };
         let content_index = self.block_index();
-        let event = match (current, &self.output.content[content_index]) {
+        match (current, &self.output.content[content_index]) {
             (CurrentBlock::Text, AssistantContentBlock::Text(block)) => {
-                AssistantMessageEvent::TextEnd {
+                let content = block.text.clone();
+                self.emit(|partial| AssistantMessageEvent::TextEnd {
                     content_index,
-                    content: block.text.clone(),
-                    partial: self.output.clone(),
-                }
+                    content,
+                    partial,
+                });
             }
             (CurrentBlock::Thinking, AssistantContentBlock::Thinking(block)) => {
-                AssistantMessageEvent::ThinkingEnd {
+                let content = block.thinking.clone();
+                self.emit(|partial| AssistantMessageEvent::ThinkingEnd {
                     content_index,
-                    content: block.thinking.clone(),
-                    partial: self.output.clone(),
-                }
+                    content,
+                    partial,
+                });
             }
-            _ => return,
-        };
-        self.push(event);
+            _ => {}
+        }
     }
 
     fn append_text(&mut self, delta: String) {
@@ -158,19 +160,19 @@ impl ChatStreamState<'_> {
             self.output
                 .content
                 .push(AssistantContentBlock::Text(TextContent::new("")));
-            self.push(AssistantMessageEvent::TextStart {
+            self.emit(|partial| AssistantMessageEvent::TextStart {
                 content_index: self.block_index(),
-                partial: self.output.clone(),
+                partial,
             });
         }
         let content_index = self.block_index();
         if let Some(AssistantContentBlock::Text(block)) = self.output.content.last_mut() {
             block.text.push_str(&delta);
         }
-        self.push(AssistantMessageEvent::TextDelta {
+        self.emit(|partial| AssistantMessageEvent::TextDelta {
             content_index,
             delta,
-            partial: self.output.clone(),
+            partial,
         });
     }
 
@@ -181,19 +183,19 @@ impl ChatStreamState<'_> {
             self.output
                 .content
                 .push(AssistantContentBlock::Thinking(ThinkingContent::default()));
-            self.push(AssistantMessageEvent::ThinkingStart {
+            self.emit(|partial| AssistantMessageEvent::ThinkingStart {
                 content_index: self.block_index(),
-                partial: self.output.clone(),
+                partial,
             });
         }
         let content_index = self.block_index();
         if let Some(AssistantContentBlock::Thinking(block)) = self.output.content.last_mut() {
             block.thinking.push_str(&delta);
         }
-        self.push(AssistantMessageEvent::ThinkingDelta {
+        self.emit(|partial| AssistantMessageEvent::ThinkingDelta {
             content_index,
             delta,
-            partial: self.output.clone(),
+            partial,
         });
     }
 
@@ -323,9 +325,9 @@ impl ChatStreamState<'_> {
                     partial_args: String::new(),
                 },
             );
-            self.push(AssistantMessageEvent::ToolCallStart {
+            self.emit(|partial| AssistantMessageEvent::ToolCallStart {
                 content_index,
-                partial: self.output.clone(),
+                partial,
             });
         }
 
@@ -344,10 +346,10 @@ impl ChatStreamState<'_> {
         if let AssistantContentBlock::ToolCall(call) = &mut self.output.content[content_index] {
             call.arguments = arguments;
         }
-        self.push(AssistantMessageEvent::ToolCallDelta {
+        self.emit(|partial| AssistantMessageEvent::ToolCallDelta {
             content_index,
             delta: args_delta,
-            partial: self.output.clone(),
+            partial,
         });
         Ok(())
     }
@@ -437,10 +439,10 @@ impl ChatStreamState<'_> {
             };
             call.arguments = parse_streaming_json_object(Some(&partial_args));
             let tool_call = call.clone();
-            self.push(AssistantMessageEvent::ToolCallEnd {
+            self.emit(|partial| AssistantMessageEvent::ToolCallEnd {
                 content_index,
                 tool_call,
-                partial: self.output.clone(),
+                partial,
             });
         }
     }

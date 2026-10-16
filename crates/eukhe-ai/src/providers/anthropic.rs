@@ -6,7 +6,7 @@ use eukhe_types::pi_ai::ProviderHeaders;
 use futures::future::BoxFuture;
 
 use super::anthropic_models::ANTHROPIC_MODELS;
-use super::chat_models;
+use super::{builtin_baseline, chat_models};
 use crate::api::builtin::anthropic_messages_api;
 use crate::auth::oauth::load_anthropic_oauth;
 use crate::auth::{
@@ -156,7 +156,7 @@ pub fn anthropic_provider() -> Provider {
                 load: Arc::new(load_anthropic_oauth),
             })),
         },
-        models: chat_models(&ANTHROPIC_MODELS),
+        models: builtin_baseline("anthropic", || chat_models(&ANTHROPIC_MODELS)),
         api: Some(ProviderApi::Single(anthropic_messages_api())),
         ..CreateProviderOptions::default()
     })

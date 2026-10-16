@@ -183,22 +183,6 @@ fn options_with_key(api_key: &str) -> ProviderStreamOptions {
     options
 }
 
-fn partial_of(event: &AssistantMessageEvent) -> Option<&eukhe_types::pi_ai::AssistantMessage> {
-    match event {
-        AssistantMessageEvent::Start { partial }
-        | AssistantMessageEvent::TextStart { partial, .. }
-        | AssistantMessageEvent::TextDelta { partial, .. }
-        | AssistantMessageEvent::TextEnd { partial, .. }
-        | AssistantMessageEvent::ThinkingStart { partial, .. }
-        | AssistantMessageEvent::ThinkingDelta { partial, .. }
-        | AssistantMessageEvent::ThinkingEnd { partial, .. }
-        | AssistantMessageEvent::ToolCallStart { partial, .. }
-        | AssistantMessageEvent::ToolCallDelta { partial, .. }
-        | AssistantMessageEvent::ToolCallEnd { partial, .. } => Some(partial),
-        AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => None,
-    }
-}
-
 #[tokio::test]
 async fn streams_text_and_tool_calls_and_resolves_the_terminal_message() {
     let (base_url, requests) = start_server(ResponderOptions {
@@ -241,8 +225,8 @@ async fn streams_text_and_tool_calls_and_resolves_the_terminal_message() {
     let mut partial_stop_reasons = Vec::new();
     let mut iter = event_stream.events();
     while let Some(event) = iter.next().await {
-        if let Some(partial) = partial_of(&event) {
-            partial_stop_reasons.push(partial.stop_reason);
+        if let Some(partial) = event.partial() {
+            partial_stop_reasons.push(partial.read(|partial| partial.stop_reason));
         }
         events.push(event);
     }
