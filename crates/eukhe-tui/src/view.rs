@@ -16,6 +16,7 @@ mod frame;
 mod layout;
 mod panels;
 mod rows;
+mod streaming;
 mod viewport;
 
 pub use frame::ChatFrame;
@@ -149,14 +150,13 @@ pub struct AgentView {
     /// mutated or left, the transcript was rebuilt): the next frame
     /// clears the screen and replays the history.
     replay_requested: bool,
-    /// Per-assistant-entry markdown block caches (TS `Markdown.blockCache`,
-    /// one per component instance): a streaming message re-renders every
-    /// frame, so its settled blocks replay from the cache instead of
-    /// re-running inline styling and wrapping (only the growing final block
-    /// renders fresh). `RefCell` because rendering borrows the chat
-    /// immutably. Dropped when the message settles.
-    md_caches:
-        std::cell::RefCell<std::collections::HashMap<usize, crate::markdown::MarkdownBlockCache>>,
+    /// Per-streaming-assistant-entry render state (`streaming`): the
+    /// markdown block cache (TS `Markdown.blockCache`, one per component
+    /// instance) replays settled blocks while the final one grows, and
+    /// the last render replays whole while the message is unchanged.
+    /// `RefCell` because rendering borrows the chat immutably. Dropped
+    /// when the message settles.
+    md_caches: std::cell::RefCell<std::collections::HashMap<usize, streaming::StreamingRender>>,
     /// The ephemeral action toasts (auto-dismiss rows in the live area;
     /// a sanctioned divergence from TS -- see `toast`).
     pub toasts: crate::toast::Toasts,

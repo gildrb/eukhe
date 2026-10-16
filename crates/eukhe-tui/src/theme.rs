@@ -9,6 +9,7 @@ use crate::style::{Color, Modifier, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThemeColor {
@@ -64,6 +65,59 @@ pub enum ThemeColor {
 }
 
 impl ThemeColor {
+    /// Every slot, in declaration order: `ALL[color as usize] == color`.
+    const ALL: [ThemeColor; 49] = [
+        ThemeColor::Accent,
+        ThemeColor::Border,
+        ThemeColor::BorderAccent,
+        ThemeColor::BorderMuted,
+        ThemeColor::Success,
+        ThemeColor::Error,
+        ThemeColor::Warning,
+        ThemeColor::Muted,
+        ThemeColor::Dim,
+        ThemeColor::Text,
+        ThemeColor::ThinkingText,
+        ThemeColor::UserMessageText,
+        ThemeColor::CustomMessageText,
+        ThemeColor::CustomMessageLabel,
+        ThemeColor::RefinementHeader,
+        ThemeColor::RefinementSummary,
+        ThemeColor::ToolTitle,
+        ThemeColor::ToolOutput,
+        ThemeColor::MdBody,
+        ThemeColor::MdHeading,
+        ThemeColor::MdLink,
+        ThemeColor::MdLinkUrl,
+        ThemeColor::MdCode,
+        ThemeColor::MdCodeBlock,
+        ThemeColor::MdCodeBlockBorder,
+        ThemeColor::MdQuote,
+        ThemeColor::MdQuoteBorder,
+        ThemeColor::MdHr,
+        ThemeColor::MdListBullet,
+        ThemeColor::ToolDiffAdded,
+        ThemeColor::ToolDiffRemoved,
+        ThemeColor::ToolDiffText,
+        ThemeColor::ToolDiffContext,
+        ThemeColor::SyntaxComment,
+        ThemeColor::SyntaxKeyword,
+        ThemeColor::SyntaxFunction,
+        ThemeColor::SyntaxVariable,
+        ThemeColor::SyntaxString,
+        ThemeColor::SyntaxNumber,
+        ThemeColor::SyntaxType,
+        ThemeColor::SyntaxOperator,
+        ThemeColor::SyntaxPunctuation,
+        ThemeColor::ThinkingOff,
+        ThemeColor::ThinkingMinimal,
+        ThemeColor::ThinkingLow,
+        ThemeColor::ThinkingMedium,
+        ThemeColor::ThinkingHigh,
+        ThemeColor::ThinkingXhigh,
+        ThemeColor::BashMode,
+    ];
+
     fn name(self) -> &'static str {
         match self {
             ThemeColor::Accent => "accent",
@@ -133,6 +187,19 @@ pub enum ThemeBg {
 }
 
 impl ThemeBg {
+    /// Every slot, in declaration order: `ALL[bg as usize] == bg`.
+    const ALL: [ThemeBg; 9] = [
+        ThemeBg::SelectedBg,
+        ThemeBg::UserMessageBg,
+        ThemeBg::CustomMessageBg,
+        ThemeBg::ToolPendingBg,
+        ThemeBg::ToolSuccessBg,
+        ThemeBg::ToolErrorBg,
+        ThemeBg::ToolDiffAddedBg,
+        ThemeBg::ToolDiffRemovedBg,
+        ThemeBg::ToolPanelBg,
+    ];
+
     fn name(self) -> &'static str {
         match self {
             ThemeBg::SelectedBg => "selectedBg",
@@ -147,6 +214,21 @@ impl ThemeBg {
         }
     }
 }
+
+// The slot tables index by discriminant: each `ALL` lists its enum in
+// declaration order.
+const _: () = {
+    let mut index = 0;
+    while index < ThemeColor::ALL.len() {
+        assert!(ThemeColor::ALL[index] as usize == index);
+        index += 1;
+    }
+    let mut index = 0;
+    while index < ThemeBg::ALL.len() {
+        assert!(ThemeBg::ALL[index] as usize == index);
+        index += 1;
+    }
+};
 
 /// A theme file (TS `ThemeJsonSchema`): `$schema` and the HTML `export`
 /// section ride along unread.
@@ -460,18 +542,35 @@ pub(crate) fn quantized_luminance(color: Color) -> Option<f64> {
     }
 }
 
-/// The active theme: resolved styles per color slot.
-#[derive(Debug, Clone, PartialEq)]
+/// Source of [`Theme::generation`]: every resolved theme gets a fresh one.
+static NEXT_THEME_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// The active theme: resolved styles per color slot, indexed by the slot
+/// enum's discriminant.
+#[derive(Debug, Clone)]
 pub struct Theme {
     pub name: String,
-    fg: BTreeMap<&'static str, Style>,
-    bg: BTreeMap<&'static str, Style>,
-    bg_colors: BTreeMap<&'static str, Color>,
+    fg: [Style; ThemeColor::ALL.len()],
+    bg: [Option<Color>; ThemeBg::ALL.len()],
     /// The theme record's parseable `background` key, raw RGB: blends that
     /// use it (TS `onboardingHighlightBackground`) mix against the true
     /// colour and quantize their result per [`Theme::mode`], not this.
     background: Option<(u8, u8, u8)>,
     pub mode: ColorMode,
+    /// Identity of this resolution: clones share it, so equal generations
+    /// mean equal themes without comparing the tables.
+    generation: u64,
+}
+
+impl PartialEq for Theme {
+    fn eq(&self, other: &Self) -> bool {
+        self.generation == other.generation
+            || (self.name == other.name
+                && self.fg == other.fg
+                && self.bg == other.bg
+                && self.background == other.background
+                && self.mode == other.mode)
+    }
 }
 
 impl Theme {
@@ -501,16 +600,18 @@ impl Theme {
         if let (None, Some(text)) = (json.colors.get("mdBody"), json.colors.get("text")) {
             slots.insert("mdBody", text);
         }
-        let mut fg = BTreeMap::new();
-        let mut bg = BTreeMap::new();
-        let mut bg_colors = BTreeMap::new();
+        let mut fg = [Style::default(); ThemeColor::ALL.len()];
+        let mut bg = [None; ThemeBg::ALL.len()];
         for (slot, value) in slots {
             // Background slots end with "Bg" (camel case); the rest are
             // foreground. Keys naming no slot (`background`) render nothing.
             let (fg_key, bg_key) = if slot.ends_with("Bg") {
-                (None, bg_name_lookup(slot))
+                (None, ThemeBg::ALL.into_iter().find(|bg| bg.name() == slot))
             } else {
-                (fg_name_lookup(slot), None)
+                (
+                    ThemeColor::ALL.into_iter().find(|fg| fg.name() == slot),
+                    None,
+                )
             };
             if fg_key.is_none() && bg_key.is_none() {
                 continue;
@@ -520,18 +621,16 @@ impl Theme {
                 .with_context(|| format!("color \"{slot}\""))?;
             let color = to_terminal_color(color, mode);
             if let Some(key) = bg_key {
-                bg_colors.insert(key, color);
-                bg.insert(key, Style::default().bg(color));
+                bg[key as usize] = Some(color);
             }
             if let Some(key) = fg_key {
-                fg.insert(key, Style::default().fg(color));
+                fg[key as usize] = Style::default().fg(color);
             }
         }
         Ok(Theme {
             name: json.name.clone(),
             fg,
             bg,
-            bg_colors,
             // `background` is not a fg/bg slot, so the loop above skips it;
             // the wash reads it as its canvas (TS `parseHexColor`).
             background: json
@@ -539,6 +638,7 @@ impl Theme {
                 .get("background")
                 .and_then(|value| parse_theme_background(value, &json.vars)),
             mode,
+            generation: NEXT_THEME_GENERATION.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -562,17 +662,24 @@ impl Theme {
 
     #[must_use]
     pub fn fg_style(&self, color: ThemeColor) -> Style {
-        self.fg.get(color.name()).copied().unwrap_or_default()
+        self.fg[color as usize]
     }
 
     #[must_use]
     pub fn bg_style(&self, color: ThemeBg) -> Style {
-        self.bg.get(color.name()).copied().unwrap_or_default()
+        self.bg_color(color)
+            .map_or_else(Style::default, |bg| Style::default().bg(bg))
     }
 
     #[must_use]
     pub fn bg_color(&self, color: ThemeBg) -> Option<Color> {
-        self.bg_colors.get(color.name()).copied()
+        self.bg[color as usize]
+    }
+
+    /// Identity of this resolution (shared by clones): a frame compares
+    /// it to skip re-checking an unchanged theme.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// The theme record's parseable `background` (strict 6-hex shape after
@@ -825,76 +932,6 @@ fn span_with(span: crate::Span, modifier: Modifier) -> crate::Span {
     let mut s = span;
     s.style = s.style.add_modifier(modifier);
     s
-}
-
-fn fg_name_lookup(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "accent" => "accent",
-        "border" => "border",
-        "borderAccent" => "borderAccent",
-        "borderMuted" => "borderMuted",
-        "success" => "success",
-        "error" => "error",
-        "warning" => "warning",
-        "muted" => "muted",
-        "dim" => "dim",
-        "text" => "text",
-        "thinkingText" => "thinkingText",
-        "userMessageText" => "userMessageText",
-        "customMessageText" => "customMessageText",
-        "customMessageLabel" => "customMessageLabel",
-        "refinementHeader" => "refinementHeader",
-        "refinementSummary" => "refinementSummary",
-        "toolTitle" => "toolTitle",
-        "toolOutput" => "toolOutput",
-        "mdBody" => "mdBody",
-        "mdHeading" => "mdHeading",
-        "mdLink" => "mdLink",
-        "mdLinkUrl" => "mdLinkUrl",
-        "mdCode" => "mdCode",
-        "mdCodeBlock" => "mdCodeBlock",
-        "mdCodeBlockBorder" => "mdCodeBlockBorder",
-        "mdQuote" => "mdQuote",
-        "mdQuoteBorder" => "mdQuoteBorder",
-        "mdHr" => "mdHr",
-        "mdListBullet" => "mdListBullet",
-        "toolDiffAdded" => "toolDiffAdded",
-        "toolDiffRemoved" => "toolDiffRemoved",
-        "toolDiffText" => "toolDiffText",
-        "toolDiffContext" => "toolDiffContext",
-        "syntaxComment" => "syntaxComment",
-        "syntaxKeyword" => "syntaxKeyword",
-        "syntaxFunction" => "syntaxFunction",
-        "syntaxVariable" => "syntaxVariable",
-        "syntaxString" => "syntaxString",
-        "syntaxNumber" => "syntaxNumber",
-        "syntaxType" => "syntaxType",
-        "syntaxOperator" => "syntaxOperator",
-        "syntaxPunctuation" => "syntaxPunctuation",
-        "thinkingOff" => "thinkingOff",
-        "thinkingMinimal" => "thinkingMinimal",
-        "thinkingLow" => "thinkingLow",
-        "thinkingMedium" => "thinkingMedium",
-        "thinkingHigh" => "thinkingHigh",
-        "thinkingXhigh" => "thinkingXhigh",
-        "bashMode" => "bashMode",
-        _ => return None,
-    })
-}
-
-fn bg_name_lookup(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "selectedBg" => "selectedBg",
-        "userMessageBg" => "userMessageBg",
-        "customMessageBg" => "customMessageBg",
-        "toolPendingBg" => "toolPendingBg",
-        "toolSuccessBg" => "toolSuccessBg",
-        "toolErrorBg" => "toolErrorBg",
-        "toolDiffAddedBg" => "toolDiffAddedBg",
-        "toolDiffRemovedBg" => "toolDiffRemovedBg",
-        "toolPanelBg" => "toolPanelBg",
-        _ => return None,
-    })
 }
 
 /// Read and validate a theme file (TS `parseThemeJsonContent`): JSON with

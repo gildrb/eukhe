@@ -181,28 +181,18 @@ impl AgentView {
                 rows
             }
             ChatEntry::Assistant(message) => {
-                // The per-entry block cache (TS's per-component
-                // `blockCache`): settled blocks of the streaming message
-                // replay instead of re-rendering on every frame -- the
-                // cache exists for the streaming case. A settled
+                // A streaming message renders through its per-entry state
+                // (`streaming`): the block cache (TS's per-component
+                // `blockCache`) replays settled blocks, the last render
+                // replays whole while the message is unchanged. A settled
                 // message's blocks are final, so its rendered rows live
-                // once in the entry layout and the block-cache copy is
-                // dropped (a resumed large session's duplicate copy was
-                // the TUI's biggest single retained allocation in the
-                // tui-memory census); any later re-render rebuilds the
-                // same rows from the message's own text.
+                // once in the entry layout and the cached copy is dropped
+                // (a resumed large session's duplicate copy was the TUI's
+                // biggest single retained allocation in the tui-memory
+                // census); any later re-render rebuilds the same rows from
+                // the message's own text.
                 if message.streaming {
-                    let mut caches = self.md_caches.borrow_mut();
-                    let cache = caches.entry(index).or_default();
-                    render_assistant(
-                        message,
-                        detail,
-                        &self.theme,
-                        &self.code_block_indent,
-                        width,
-                        preceded_by_tool_activity,
-                        cache,
-                    )
+                    self.with_streaming_rows(index, message, width, <[Line]>::to_vec)
                 } else {
                     self.md_caches.borrow_mut().remove(&index);
                     let mut settled = crate::markdown::MarkdownBlockCache::default();

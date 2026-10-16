@@ -1,3 +1,4 @@
+use crate::fuzzy::FuzzyQuery;
 use eukhe_types::ai::Model;
 /// Match quality for the scored search (TS `ModelSearchMatchQuality`;
 /// lower sorts first).
@@ -16,7 +17,7 @@ pub(super) struct SearchMatch {
 }
 
 /// TS `normalizeModelSearchText`: lowercase, drop separator runs.
-fn normalize_search_text(value: &str) -> String {
+fn normalize_search_text(value: &str) -> Vec<char> {
     value
         .to_lowercase()
         .chars()
@@ -24,93 +25,97 @@ fn normalize_search_text(value: &str) -> String {
         .collect()
 }
 
-/// The search fields of one item (TS `getModelSearchFields`).
-fn search_fields(model: &Model) -> (String, Vec<String>, Vec<String>) {
-    let short_id = model.id.rsplit('/').next().unwrap_or(&model.id).to_string();
-    let full_ids = vec![model.id.clone(), format!("{}/{}", model.provider, model.id)];
-    let mut all = vec![short_id.clone()];
-    all.extend(full_ids.iter().cloned());
-    all.push(model.name.clone());
-    all.push(model.provider.clone());
-    (short_id, full_ids, all)
+/// One model's normalized search fields (TS `getModelSearchFields`),
+/// built once per catalog load so a keystroke only scores.
+#[derive(Debug)]
+pub(super) struct SearchFields {
+    /// The short id, the id, `provider/id`, the name, and the provider.
+    fields: [Vec<char>; 5],
+    /// Every field's `' '`/`'/'`/`'_'`/`'-'` pieces, non-empty.
+    tokens: Vec<Vec<char>>,
 }
 
-/// TS `getBestFuzzyScore`: every token must fuzzy-match some field; the
-/// score is the sum of each token's best field.
-fn best_fuzzy_score(query_tokens: &[String], fields: &[String]) -> Option<f64> {
-    let mut total = 0.0;
-    for token in query_tokens {
-        // Every token must match some field; the score is each token's best.
-        let mut best: Option<f64> = None;
-        for field in fields {
-            if let Some(score) = crate::fuzzy::fuzzy_match(token, field) {
-                best = Some(match best {
-                    Some(current) if current <= score => current,
-                    _ => score,
-                });
-            }
+impl SearchFields {
+    pub(super) fn new(model: &Model) -> Self {
+        let short_id = model.id.rsplit('/').next().unwrap_or(&model.id);
+        let full_id = format!("{}/{}", model.provider, model.id);
+        let raw = [
+            short_id,
+            model.id.as_str(),
+            full_id.as_str(),
+            model.name.as_str(),
+            model.provider.as_str(),
+        ];
+        SearchFields {
+            fields: raw.map(normalize_search_text),
+            tokens: raw
+                .iter()
+                .flat_map(|field| field.split([' ', '/', '_', '-']).map(normalize_search_text))
+                .filter(|token| !token.is_empty())
+                .collect(),
         }
-        let best = best?;
-        total += best;
     }
-    Some(total)
+}
+
+/// A normalized search query, built once per keystroke.
+pub(super) struct SearchQuery {
+    normalized: Vec<char>,
+    tokens: Vec<FuzzyQuery>,
+}
+
+impl SearchQuery {
+    /// `None` when nothing searchable remains after normalization.
+    pub(super) fn new(query: &str) -> Option<Self> {
+        let normalized = normalize_search_text(query);
+        let tokens: Vec<FuzzyQuery> = query
+            .split_whitespace()
+            .map(normalize_search_text)
+            .filter(|token| !token.is_empty())
+            .map(FuzzyQuery::new)
+            .collect();
+        (!normalized.is_empty() && !tokens.is_empty()).then_some(SearchQuery { normalized, tokens })
+    }
 }
 
 /// TS `scoreModelSearch`.
-pub(super) fn score_model_search(model: &Model, query: &str) -> Option<SearchMatch> {
-    let query_tokens: Vec<String> = query.split_whitespace().map(str::to_string).collect();
-    let normalized_query = normalize_search_text(query);
-    let normalized_tokens: Vec<String> = query_tokens
-        .iter()
-        .map(|token| normalize_search_text(token))
-        .filter(|token| !token.is_empty())
-        .collect();
-    if normalized_query.is_empty() || normalized_tokens.is_empty() {
-        return None;
-    }
-
-    let (short_id, full_ids, all) = search_fields(model);
-    if normalize_search_text(&short_id) == normalized_query {
+pub(super) fn score_model_search(
+    fields: &SearchFields,
+    query: &SearchQuery,
+) -> Option<SearchMatch> {
+    let [short_id, id, full_id, ..] = &fields.fields;
+    if *short_id == query.normalized {
         return Some(SearchMatch {
             quality: MatchQuality::ExactShortId,
             score: 0.0,
         });
     }
-    if full_ids
-        .iter()
-        .any(|field| normalize_search_text(field) == normalized_query)
-    {
+    if *id == query.normalized || *full_id == query.normalized {
         return Some(SearchMatch {
             quality: MatchQuality::ExactFullId,
             score: 0.0,
         });
     }
-
-    let normalized_fields: Vec<String> = all
-        .iter()
-        .map(|field| normalize_search_text(field))
-        .collect();
-    let field_tokens: Vec<String> = all
-        .iter()
-        .flat_map(|field| field.split([' ', '/', '_', '-']).map(normalize_search_text))
-        .filter(|token| !token.is_empty())
-        .collect();
-    let fuzzy_score = best_fuzzy_score(&normalized_tokens, &normalized_fields);
-    let is_prefix_or_token = normalized_tokens.iter().all(|token| {
-        normalized_fields
+    // TS `getBestFuzzyScore`: every token must fuzzy-match some field;
+    // the score is the sum of each token's best field.
+    let mut score = 0.0;
+    for token in &query.tokens {
+        score += fields
+            .fields
             .iter()
-            .any(|field| field.starts_with(token))
-            || field_tokens.iter().any(|field| field.starts_with(token))
-    });
-    match fuzzy_score {
-        Some(score) if is_prefix_or_token => Some(SearchMatch {
-            quality: MatchQuality::PrefixOrToken,
-            score,
-        }),
-        Some(score) => Some(SearchMatch {
-            quality: MatchQuality::Fuzzy,
-            score,
-        }),
-        None => None,
+            .filter_map(|field| token.score(field))
+            .reduce(f64::min)?;
     }
+    let is_prefix_or_token = query.tokens.iter().all(|token| {
+        let token = token.chars();
+        fields.fields.iter().any(|field| field.starts_with(token))
+            || fields.tokens.iter().any(|field| field.starts_with(token))
+    });
+    Some(SearchMatch {
+        quality: if is_prefix_or_token {
+            MatchQuality::PrefixOrToken
+        } else {
+            MatchQuality::Fuzzy
+        },
+        score,
+    })
 }

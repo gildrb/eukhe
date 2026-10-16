@@ -84,7 +84,7 @@ mod search;
 mod sort;
 
 use scope::ModelScope;
-use search::{score_model_search, SearchMatch};
+use search::{score_model_search, SearchFields, SearchMatch, SearchQuery};
 use sort::{natural_cmp, version_desc, version_key};
 
 #[cfg(test)]
@@ -148,6 +148,9 @@ pub struct ModelPicker {
     /// release-date metadata, so the id's version stands in for release
     /// recency).
     version_keys: Vec<Vec<String>>,
+    /// The normalized search fields of each `all_models` entry, indexed
+    /// alike: a keystroke only scores them.
+    search_fields: Vec<SearchFields>,
 }
 
 impl ModelPicker {
@@ -188,6 +191,7 @@ impl ModelPicker {
             scoped_positions: Vec::new(),
             scope: ModelScope::All,
             version_keys: Vec::new(),
+            search_fields: Vec::new(),
         };
         picker.load_models(options.models);
         picker.resolve_scope_positions();
@@ -441,6 +445,7 @@ impl ModelPicker {
             .iter()
             .map(|model| version_key(&model.id))
             .collect();
+        self.search_fields = self.all_models.iter().map(SearchFields::new).collect();
         self.resolve_effort_defaults();
         let current_index = self
             .all_models
@@ -515,71 +520,69 @@ impl ModelPicker {
         if query.trim().is_empty() {
             self.filtered = self.active_indices();
         } else {
-            let mut matches: Vec<(usize, SearchMatch)> = self
-                .active_indices()
-                .into_iter()
-                .filter_map(|index| {
-                    score_model_search(&self.all_models[index], query).map(|match_| (index, match_))
+            let search = SearchQuery::new(query);
+            // Each match carries its `provider/id` key and recent rank, so
+            // the sort's late tiers compare without re-formatting keys.
+            let mut matches: Vec<(usize, SearchMatch, usize, String)> = search
+                .map(|search| {
+                    self.active_indices()
+                        .into_iter()
+                        .filter_map(|index| {
+                            let match_ = score_model_search(&self.search_fields[index], &search)?;
+                            let key = self.key_at(index);
+                            let rank = self.recent_rank.get(&key).copied().unwrap_or(usize::MAX);
+                            Some((index, match_, rank, key))
+                        })
+                        .collect()
                 })
-                .collect();
+                .unwrap_or_default();
             let configured = |model: &Model| self.configured_providers.contains(&model.provider);
             let pinned =
                 |model: &Model| model.provider == PRIME_INFERENCE_PROVIDER_ID && configured(model);
-            matches.sort_by(|(a_index, a_match), (b_index, b_match)| {
-                use std::cmp::Ordering;
-                let a = &self.all_models[*a_index];
-                let b = &self.all_models[*b_index];
-                match (configured(b), configured(a)) {
-                    (true, false) => return Ordering::Greater,
-                    (false, true) => return Ordering::Less,
-                    _ => {}
-                }
-                match (pinned(b), pinned(a)) {
-                    (true, false) => return Ordering::Greater,
-                    (false, true) => return Ordering::Less,
-                    _ => {}
-                }
-                if a_match.quality != b_match.quality {
-                    return a_match.quality.cmp(&b_match.quality);
-                }
-                if a_match.score.partial_cmp(&b_match.score) != Some(Ordering::Equal) {
-                    return a_match
-                        .score
-                        .partial_cmp(&b_match.score)
-                        .unwrap_or(Ordering::Equal);
-                }
-                // The version tier: newer releases first. The catalog
-                // carries no release-date metadata, so the version runs
-                // parsed from the ids stand in for release recency.
-                let order =
-                    version_desc(&self.version_keys[*a_index], &self.version_keys[*b_index]);
-                if order != Ordering::Equal {
-                    return order;
-                }
-                match (self.is_current(b), self.is_current(a)) {
-                    (true, false) => return Ordering::Greater,
-                    (false, true) => return Ordering::Less,
-                    _ => {}
-                }
-                let (a_rank, b_rank) = (
-                    self.recent_rank
-                        .get(&Self::model_key_provider(&a.provider, &a.id))
-                        .copied()
-                        .unwrap_or(usize::MAX),
-                    self.recent_rank
-                        .get(&Self::model_key_provider(&b.provider, &b.id))
-                        .copied()
-                        .unwrap_or(usize::MAX),
-                );
-                if a_rank != b_rank {
-                    return a_rank.cmp(&b_rank);
-                }
-                natural_cmp(
-                    &Self::model_key_provider(&a.provider, &a.id),
-                    &Self::model_key_provider(&b.provider, &b.id),
-                )
-            });
-            self.filtered = matches.into_iter().map(|(index, _)| index).collect();
+            matches.sort_by(
+                |(a_index, a_match, a_rank, a_key), (b_index, b_match, b_rank, b_key)| {
+                    use std::cmp::Ordering;
+                    let a = &self.all_models[*a_index];
+                    let b = &self.all_models[*b_index];
+                    match (configured(b), configured(a)) {
+                        (true, false) => return Ordering::Greater,
+                        (false, true) => return Ordering::Less,
+                        _ => {}
+                    }
+                    match (pinned(b), pinned(a)) {
+                        (true, false) => return Ordering::Greater,
+                        (false, true) => return Ordering::Less,
+                        _ => {}
+                    }
+                    if a_match.quality != b_match.quality {
+                        return a_match.quality.cmp(&b_match.quality);
+                    }
+                    if a_match.score.partial_cmp(&b_match.score) != Some(Ordering::Equal) {
+                        return a_match
+                            .score
+                            .partial_cmp(&b_match.score)
+                            .unwrap_or(Ordering::Equal);
+                    }
+                    // The version tier: newer releases first. The catalog
+                    // carries no release-date metadata, so the version runs
+                    // parsed from the ids stand in for release recency.
+                    let order =
+                        version_desc(&self.version_keys[*a_index], &self.version_keys[*b_index]);
+                    if order != Ordering::Equal {
+                        return order;
+                    }
+                    match (self.is_current(b), self.is_current(a)) {
+                        (true, false) => return Ordering::Greater,
+                        (false, true) => return Ordering::Less,
+                        _ => {}
+                    }
+                    if a_rank != b_rank {
+                        return a_rank.cmp(b_rank);
+                    }
+                    natural_cmp(a_key, b_key)
+                },
+            );
+            self.filtered = matches.into_iter().map(|(index, ..)| index).collect();
         }
         self.selected = if query_changed {
             0

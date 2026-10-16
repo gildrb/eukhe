@@ -9,7 +9,6 @@ use crate::Line;
 
 /// What the scrollback was rendered at. A frame at another shape
 /// replays the history.
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct HistoryShape {
     width: usize,
     detail: crate::chat::Detail,
@@ -51,23 +50,40 @@ impl AgentView {
         if let (Some(working), Some(since)) = (&mut self.working, self.working_since) {
             working.elapsed_secs = since.elapsed().as_secs();
         }
-        let shape = HistoryShape {
-            width,
-            detail: self.detail,
-            theme: self.theme.clone(),
-            code_block_indent: self.code_block_indent.clone(),
-            show_images: self.show_images,
+        let layout_holds = |shape: &HistoryShape| {
+            shape.width == width
+                && shape.detail == self.detail
+                && shape.show_images == self.show_images
+                && shape.code_block_indent == self.code_block_indent
         };
+        // The theme compares by generation first: an unchanged theme costs
+        // one integer compare, a re-resolved one its tables.
         let start = match &self.history_shape {
             None => FrameStart::First,
-            Some(previous) if self.replay_requested || *previous != shape => FrameStart::Replay,
+            Some(shape)
+                if self.replay_requested || !layout_holds(shape) || shape.theme != self.theme =>
+            {
+                FrameStart::Replay
+            }
             Some(_) => FrameStart::Continue,
         };
         if start != FrameStart::Continue {
             self.committed = 0;
         }
         self.replay_requested = false;
-        self.history_shape = Some(shape);
+        // The shape is rebuilt only when something in it changed.
+        let current = self.history_shape.as_ref().is_some_and(|shape| {
+            layout_holds(shape) && shape.theme.generation() == self.theme.generation()
+        });
+        if !current {
+            self.history_shape = Some(HistoryShape {
+                width,
+                detail: self.detail,
+                theme: self.theme.clone(),
+                code_block_indent: self.code_block_indent.clone(),
+                show_images: self.show_images,
+            });
+        }
         start
     }
 
@@ -106,13 +122,25 @@ impl AgentView {
             return (screen.render(&self.theme, width, height, kb), None);
         }
         let (dock, editor_focused) = self.compose_dock(width);
-        let mut rows: Vec<Line> = Vec::new();
-        for index in self.committed..self.chat.len() {
-            rows.extend(self.render_entry_at(index, width));
-        }
-        rows.extend(self.render_transcript_tail(width));
-        rows.extend(self.toast_rows(width));
         let budget = height.saturating_sub(dock.len());
+        // Bottom-up: the toasts, the transcript tail, then the unsettled
+        // entries newest first until the budget fills -- entries wholly
+        // above the live area never render, and a streaming message
+        // copies only the rows that show.
+        let mut chunks = vec![self.toast_rows(width), self.render_transcript_tail(width)];
+        let mut filled: usize = chunks.iter().map(Vec::len).sum();
+        for index in (self.committed..self.chat.len()).rev() {
+            if filled >= budget {
+                break;
+            }
+            let entry = self.render_entry_tail(index, width, budget - filled);
+            filled += entry.len();
+            chunks.push(entry);
+        }
+        let mut rows: Vec<Line> = Vec::with_capacity(filled + dock.len());
+        for chunk in chunks.into_iter().rev() {
+            rows.extend(chunk);
+        }
         if rows.len() > budget {
             rows.drain(..rows.len() - budget);
         }

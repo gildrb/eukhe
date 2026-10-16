@@ -155,10 +155,3 @@ impl Span {
 
 /// A rendered line: styled spans laid out left to right.
 pub type Line = Vec<Span>;
-
-/// Render trait shared by all components.
-pub trait Component {
-    /// Render to lines for the given viewport width. Lines must not exceed
-    /// `width` visible columns.
-    fn render(&self, width: u16) -> Vec<Line>;
-}

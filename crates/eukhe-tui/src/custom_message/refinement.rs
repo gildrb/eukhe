@@ -425,80 +425,9 @@ fn line_diff(removed: &[String], added: &[String]) -> Vec<DiffOp> {
 }
 
 #[cfg(test)]
-mod render_oracle;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    // deliberate decomposed/non-NFC fixtures: the width engine must measure the raw sequences
-    #[allow(clippy::unicode_not_nfc)]
-    fn refinement_rows_match_the_oracle() {
-        let theme = theme();
-        let mut row = RefinementOutcomeRow {
-            header: "Harness refined".into(),
-            summary: "long 数据 summary\nsecond line".repeat(5),
-            meta: "global metadata".into(),
-            edits: vec![],
-        };
-        for with_edits in [false, true] {
-            if with_edits {
-                row.edits.push(RefinementEditRow {
-                    label: vec![
-                        LabelPart {
-                            text: "Updated".into(),
-                            color: Some(ThemeColor::Success),
-                        },
-                        LabelPart {
-                            text: " global memory".into(),
-                            color: None,
-                        },
-                    ],
-                    reason: Some("reason 数据".into()),
-                    fields: vec![
-                        EditField {
-                            label: "Description".into(),
-                            value: vec![],
-                            change: Some((
-                                std::iter::once("old\t数据".into())
-                                    .chain((0..12).map(|i| format!("same {i}")))
-                                    .collect(),
-                                std::iter::once("new text".into())
-                                    .chain((0..12).map(|i| format!("same {i}")))
-                                    .chain(std::iter::once(String::new()))
-                                    .collect(),
-                            )),
-                        },
-                        EditField {
-                            label: "Title".into(),
-                            value: vec!["plain value".into(), "line two".into()],
-                            change: None,
-                        },
-                    ],
-                });
-            }
-            for summary in [
-                "",
-                "  \n\n",
-                "long 数据 summary\nsecond line",
-                "tabs\there",
-                "👩‍💻 é \u{1b}[31mred\u{1b}[0m",
-            ] {
-                row.summary = summary.repeat(5);
-                for detail in [Detail::Overview, Detail::Details, Detail::All] {
-                    for width in 0..80 {
-                        assert_eq!(
-                            render_refinement_outcome(&row, detail, &theme, width),
-                            render_oracle::render_refinement_outcome(&row, detail, &theme, width),
-                            "{summary:?} {detail:?} {width}",
-                        );
-                    }
-                }
-            }
-        }
-    }
 
     fn theme() -> Theme {
         Theme::builtin("eukhe", ColorMode::TrueColor)

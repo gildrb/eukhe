@@ -5,17 +5,40 @@
 /// One fuzzy match: `Some(score)` when the query matches (lower is better).
 #[must_use]
 pub fn fuzzy_match(query: &str, text: &str) -> Option<f64> {
-    let query_lower: Vec<char> = query.to_lowercase().chars().collect();
     let text_lower: Vec<char> = text.to_lowercase().chars().collect();
-    let primary = match_query(&query_lower, &text_lower);
-    if primary.is_some() {
-        return primary;
+    FuzzyQuery::new(query.to_lowercase().chars().collect()).score(&text_lower)
+}
+
+/// A lowercased query prepared once for matching many lowercased texts.
+#[derive(Debug)]
+pub(crate) struct FuzzyQuery {
+    lower: Vec<char>,
+    /// The letter/digit-swapped retry (see [`swapped_groups`]).
+    swapped: Option<Vec<char>>,
+}
+
+impl FuzzyQuery {
+    pub(crate) fn new(lower: Vec<char>) -> Self {
+        let swapped = swapped_groups(&lower);
+        FuzzyQuery { lower, swapped }
     }
-    // Letter/digit transpositions get a second chance (TS swaps the digit and
-    // letter groups and retries with a small penalty).
-    let swapped_query = swapped_groups(&query_lower)?;
-    let swapped = match_query(&swapped_query, &text_lower)?;
-    Some(swapped + 5.0)
+
+    /// [`fuzzy_match`] against an already-lowercased text.
+    pub(crate) fn score(&self, text_lower: &[char]) -> Option<f64> {
+        let primary = match_query(&self.lower, text_lower);
+        if primary.is_some() {
+            return primary;
+        }
+        // Letter/digit transpositions get a second chance (TS swaps the
+        // digit and letter groups and retries with a small penalty).
+        let swapped = match_query(self.swapped.as_deref()?, text_lower)?;
+        Some(swapped + 5.0)
+    }
+
+    /// The lowercased query.
+    pub(crate) fn chars(&self) -> &[char] {
+        &self.lower
+    }
 }
 
 /// The swapped query for `letters+digits` or `digits+letters` inputs.
@@ -83,21 +106,20 @@ fn match_query(query_lower: &[char], text_lower: &[char]) -> Option<f64> {
 /// Filter items by fuzzy match quality against their text, best-first.
 /// Space-separated query tokens must all match; ties keep input order.
 pub fn fuzzy_filter<T: Clone>(items: &[T], query: &str, get_text: impl Fn(&T) -> String) -> Vec<T> {
-    let tokens: Vec<String> = query
+    let tokens: Vec<FuzzyQuery> = query
         .split_whitespace()
-        .filter(|token| !token.is_empty())
-        .map(str::to_string)
+        .map(|token| FuzzyQuery::new(token.to_lowercase().chars().collect()))
         .collect();
     if tokens.is_empty() {
         return items.to_vec();
     }
     let mut scored: Vec<(T, f64)> = Vec::new();
     for item in items {
-        let text = get_text(item);
+        let text: Vec<char> = get_text(item).to_lowercase().chars().collect();
         let mut total = 0.0f64;
         let mut all_match = true;
         for token in &tokens {
-            if let Some(score) = fuzzy_match(token, &text) {
+            if let Some(score) = token.score(&text) {
                 total += score;
             } else {
                 all_match = false;

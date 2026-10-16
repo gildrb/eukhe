@@ -62,6 +62,22 @@ impl AgentView {
         )
     }
 
+    /// The last `rows` rows of the entry at `index` (the live area's
+    /// clip): a streaming message copies only those from its last render,
+    /// any other entry renders whole and drops the rows above.
+    pub(super) fn render_entry_tail(&self, index: usize, width: usize, rows: usize) -> Vec<Line> {
+        if let ChatEntry::Assistant(message) = &self.chat[index] {
+            if message.streaming {
+                return self.with_streaming_rows(index, message, width, |all| {
+                    all[all.len().saturating_sub(rows)..].to_vec()
+                });
+            }
+        }
+        let mut all = self.render_entry_at(index, width);
+        all.drain(..all.len().saturating_sub(rows));
+        all
+    }
+
     /// The whole transcript as rows: splash, every entry, the tail (the
     /// test and replay-dump form; the surface composes through
     /// `compose`).
