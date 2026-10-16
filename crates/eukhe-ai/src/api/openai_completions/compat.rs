@@ -1,7 +1,7 @@
 //! Compatibility resolution: URL/provider auto-detection overridden by the
 //! explicit `model.compat` (TS `detectCompat` / `getCompat`).
 
-use crate::types::IndexMap;
+use crate::types::{IndexMap, KnownProvider};
 
 use crate::types::{
     CacheControlFormat, ChatTemplateKwargValue, MaxTokensField, Model, ModelCompat,
@@ -52,6 +52,24 @@ pub(crate) fn model_compat(model: &Model) -> Option<&OpenAICompletionsCompat> {
         | ModelCompat::MistralConversations(_)
         | ModelCompat::Other(_) => None,
     }
+}
+
+/// eukhe addition: whether a reasoning model is a Qwen-family model (`qwen3*`,
+/// `qwq`, ...) on a custom provider with no explicit `thinkingFormat`, i.e. a
+/// self-hosted server (llama.cpp, vLLM, `SGLang`) rendering the Qwen chat
+/// template. That template thinks unless `chat_template_kwargs.enable_thinking`
+/// is `false`, so `off` must be sent explicitly. Built-in providers keep their
+/// catalog formats; set `compat.thinkingFormat` to opt a custom model out.
+pub(crate) fn is_custom_qwen_template_model(model: &Model) -> bool {
+    if !model.reasoning
+        || KnownProvider::parse(&model.provider).is_some()
+        || model_compat(model).is_some_and(|compat| compat.thinking_format.is_some())
+    {
+        return false;
+    }
+    let id = model.id.to_lowercase();
+    let name = id.rsplit('/').next().unwrap_or(&id);
+    name.starts_with("qwen") || name.starts_with("qwq")
 }
 
 /// Auto-detect compatibility settings from provider name and baseUrl. Used

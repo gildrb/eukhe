@@ -3,7 +3,7 @@
 use crate::types::IndexMap;
 use serde_json::json;
 
-use super::compat::{model_compat, ResolvedCompat};
+use super::compat::{is_custom_qwen_template_model, model_compat, ResolvedCompat};
 use super::convert::{convert_messages, convert_tools, ConvertCompletionsMessagesOptions};
 use super::OpenAICompletionsOptions;
 use crate::api::cache_breakpoints::CacheMarkBudget;
@@ -415,7 +415,20 @@ fn apply_thinking_format(
                 }
             }
         }
-        ThinkingFormat::OpenAI => apply_openai_reasoning_effort(model, effort, compat, params),
+        ThinkingFormat::OpenAI => {
+            // eukhe addition: a self-hosted Qwen template thinks by default,
+            // so state the level explicitly unless `off` is mapped.
+            if level_map(model, ModelThinkingLevel::Off).is_none()
+                && is_custom_qwen_template_model(model)
+            {
+                insert(
+                    params,
+                    "chat_template_kwargs",
+                    json!({ "enable_thinking": effort.is_some() }),
+                );
+            }
+            apply_openai_reasoning_effort(model, effort, compat, params);
+        }
     }
 }
 

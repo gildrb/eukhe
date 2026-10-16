@@ -723,6 +723,35 @@ async fn uses_qwen_chat_template_thinking_kwargs() {
 }
 
 #[tokio::test]
+async fn disables_qwen_template_thinking_for_custom_qwen_models_when_off() {
+    let model = local_model(&json!({ "id": "qwen3.8-27b", "name": "Qwen3.8 27B" }));
+
+    let off = capture_simple_params(&model, None).await;
+    assert_eq!(
+        off["chat_template_kwargs"],
+        json!({ "enable_thinking": false })
+    );
+    assert!(off.get("reasoning_effort").is_none());
+
+    let high = capture_simple_params(&model, Some(ThinkingLevel::High)).await;
+    assert_eq!(
+        high["chat_template_kwargs"],
+        json!({ "enable_thinking": true })
+    );
+    assert_eq!(high["reasoning_effort"], json!("high"));
+
+    // An explicit `off` mapping is the user's control and wins.
+    let mapped = local_model(&json!({
+        "id": "qwen3.8-27b",
+        "name": "Qwen3.8 27B",
+        "thinkingLevelMap": { "off": "none" },
+    }));
+    let mapped_off = capture_simple_params(&mapped, None).await;
+    assert!(mapped_off.get("chat_template_kwargs").is_none());
+    assert_eq!(mapped_off["reasoning_effort"], json!("none"));
+}
+
+#[tokio::test]
 async fn uses_configurable_chat_template_effort_kwargs_with_static_kwargs() {
     let model = local_model(&json!({
         "id": "unsloth/gpt-oss-120b-GGUF",
