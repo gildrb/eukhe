@@ -3,8 +3,15 @@
 //! them from the turns' cache entry, then its own `<chat>` view and its
 //! task. The view goes in blocks of [`super::BLOCK`] lines with one cache
 //! mark on the last whole block and one on the request's end (§3.3). An
-//! over-long line gets the cut follow-up in the SAME conversation, and the
-//! shortest of at most [`TRIES`] lines wins.
+//! over-long line gets the cut follow-up in the SAME conversation.
+//!
+//! A call always ends with a line of 1 to [`NODE`] bytes, whatever the
+//! model replies (docs/harness.md H1; the decision is `line` in
+//! `bend/compactor.bend`): at most [`TRIES`] model calls; the first line
+//! that fits wins; an empty or thinking-only reply, or a follow-up not
+//! shorter than the best line, ends the tries; then the best line, else
+//! the input, cut to [`NODE`] bytes. Only a provider error (or a model
+//! call past [`CALL_DEADLINE`]) fails the call.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -16,7 +23,7 @@ use eukhe_types::pi_ai::{
 
 use super::prompts::cut_follow_up;
 use super::saved::CompactionPrompt;
-use super::{view, NODE, TRIES};
+use super::{cut, view, CALL_DEADLINE, FAILURES, NODE, TRIES};
 
 /// The future one summarizer call returns.
 pub type SummarizerFuture =
@@ -57,9 +64,10 @@ impl ResponseStarted {
 /// when it has one). Transport failures return `Err`; a reply that stopped
 /// with an error is reported through its `stop_reason`. Either fails the
 /// node, which the owner tries again at the next message (or after
-/// [`super::RETRY`] while a turn waits). Dropping the returned future
-/// cancels the call: the implementation stops its request then (the owner
-/// drops its calls when it stops).
+/// [`super::RETRY`] while a turn waits), and builds from its input after
+/// [`super::FAILURES`] failures. Dropping the returned future cancels the
+/// call: the implementation stops its request then (the owner drops its
+/// calls when it stops, and a call past [`CALL_DEADLINE`] is dropped).
 pub trait Summarizer: Send + Sync {
     /// Complete `context` and return the model's message.
     fn complete(&self, context: Context, started: ResponseStarted) -> SummarizerFuture;
@@ -72,16 +80,22 @@ pub(crate) struct NodeRequest {
     pub context: String,
     /// The task: the instruction, the ruler, and the input whole.
     pub task: String,
+    /// The input: the message, labeled, or the two lines joined by a
+    /// newline. Cut to [`NODE`] bytes, it is the line when no reply is.
+    pub input: String,
 }
 
-/// Build one line: ask, check the size, send the cut follow-up, and keep
-/// the shortest try. `started` fires when the first call's response starts
-/// (the follow-ups read the same prefix from the cache).
+/// Build one line (H1): ask, take the first line within [`NODE`] bytes,
+/// else send the cut follow-up while the lines get shorter, at most
+/// [`TRIES`] calls; with no line that fits, the shortest one (or, with
+/// none, the input) cut to [`NODE`] bytes. `started` fires when the first
+/// call's response starts (the follow-ups read the same prefix from the
+/// cache).
 ///
 /// # Errors
 ///
-/// Returns an error when the summarizer fails, a reply stops with an error,
-/// or a reply is empty after trimming.
+/// Returns an error when the summarizer fails or takes longer than
+/// [`CALL_DEADLINE`], or a reply stops with an error.
 pub(crate) async fn build_line(
     summarizer: &dyn Summarizer,
     prompt: &CompactionPrompt,
@@ -110,11 +124,18 @@ pub(crate) async fn build_line(
         })],
         tools: (!prompt.tools.is_empty()).then(|| prompt.tools.clone()),
     };
-    let mut tries: Vec<String> = Vec::new();
-    loop {
-        let reply = summarizer
-            .complete(context.clone(), std::mem::take(&mut started))
-            .await?;
+    // The shortest line so far: each follow-up must be shorter.
+    let mut best: Option<String> = None;
+    for tried in 1..=TRIES {
+        let call = summarizer.complete(context.clone(), std::mem::take(&mut started));
+        let reply = tokio::time::timeout(CALL_DEADLINE, call)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "the compactor model did not answer within {} s",
+                    CALL_DEADLINE.as_secs()
+                )
+            })??;
         if matches!(reply.stop_reason, StopReason::Error | StopReason::Aborted) {
             anyhow::bail!(
                 "the compactor model stopped with {:?}: {}",
@@ -122,16 +143,23 @@ pub(crate) async fn build_line(
                 reply.error_message.as_deref().unwrap_or("no error message")
             );
         }
-        let line = reply_text(&reply).trim().to_string();
+        let text = reply_text(&reply);
+        let line = text.trim();
         if line.is_empty() {
-            anyhow::bail!("the compactor model returned an empty line");
-        }
-        let fits = line.len() <= NODE;
-        let follow_up = cut_follow_up(&line);
-        tries.push(line);
-        if fits || tries.len() >= TRIES {
+            // A try that left nothing to cut: asking again asks the same.
             break;
         }
+        if line.len() <= NODE {
+            return Ok(line.to_string());
+        }
+        if best.as_ref().is_some_and(|best| line.len() >= best.len()) {
+            break;
+        }
+        let follow_up = (tried < TRIES).then(|| cut_follow_up(line));
+        best = Some(line.to_string());
+        let Some(follow_up) = follow_up else {
+            break;
+        };
         // The request's end moves to the follow-up: one end mark only.
         unmark_request_end(&mut context.messages);
         context.messages.push(Message::Assistant(reply));
@@ -143,14 +171,46 @@ pub(crate) async fn build_line(
             timestamp,
         }));
     }
-    // The shortest try wins; the first among equals.
-    let mut best = tries.swap_remove(0);
-    for line in tries {
-        if line.len() < best.len() {
-            best = line;
+    Ok(cut(best.as_deref().unwrap_or(&request.input)).to_string())
+}
+
+/// A node not built yet, as the failure cap counts it (H1.5; `Pend` in
+/// `bend/compactor.bend`): built, or owing its line with the failed calls
+/// it has left before the cap builds it from its input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pend {
+    Made,
+    Owed(u32),
+}
+
+/// How a call of a node ended without its line (`Outcome` in
+/// `bend/compactor.bend`; its `Built`, a saved line, and `Stopped`, a call
+/// a waiting turn stopped, never reach the cap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CallEnd {
+    /// The model call failed: a provider error, or past [`CALL_DEADLINE`].
+    Failed,
+    /// The disk failed: the node's input could not be read, or a line not
+    /// saved.
+    Disk,
+}
+
+impl Pend {
+    /// A node none of whose calls failed yet.
+    pub(crate) const UNTRIED: Pend = Pend::Owed(FAILURES - 1);
+
+    /// The node after a call ended so: the failure with none left builds it
+    /// from its input (the cap), any other failure counts down, and the disk
+    /// changes nothing.
+    pub(crate) fn after(self, end: CallEnd) -> Pend {
+        match (self, end) {
+            (Pend::Made, CallEnd::Failed | CallEnd::Disk) | (Pend::Owed(0), CallEnd::Failed) => {
+                Pend::Made
+            }
+            (Pend::Owed(left @ 1..), CallEnd::Failed) => Pend::Owed(left - 1),
+            (Pend::Owed(left), CallEnd::Disk) => Pend::Owed(left),
         }
     }
-    Ok(best)
 }
 
 /// Drop the cache mark of the last block of the last user message (the
@@ -191,5 +251,7 @@ fn reply_text(reply: &AssistantMessage) -> String {
         .collect()
 }
 
+#[cfg(test)]
+mod bridge;
 #[cfg(test)]
 pub(crate) mod tests;

@@ -218,6 +218,7 @@ impl Setup {
             memory.clone(),
             role,
             "session".to_string(),
+            Arc::new(crate::durable::EukheSettings::new(dir.path(), dir.path())),
             cell.clone(),
             turn_wait,
         );

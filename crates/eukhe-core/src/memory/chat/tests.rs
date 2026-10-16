@@ -76,34 +76,24 @@ fn zoom_opens_lines_and_messages() {
     assert_eq!(chat.zoom(u64::MAX - 1, 2), Zoom::NoLine);
 }
 
-/// A source that fits in [`NODE`] bytes is its own node: a short
-/// message verbatim at level 0, two short children joined by a newline
-/// above.
+/// A node's input is its message, labeled, or its two children joined by
+/// a newline.
 #[test]
-fn free_nodes_need_no_model() {
-    let compress = Step::Compress { message: 0 };
-    let merge = |left: &str, right: &str| Step::Merge {
-        left: Arc::from(left),
-        right: Arc::from(right),
+fn a_nodes_input_is_its_message_or_its_children() {
+    let merge = Step::Merge {
+        left: Arc::from("a"),
+        right: Arc::from("b\nc"),
     };
-    let half = "y".repeat(NODE / 2);
     assert_eq!(
         [
-            free_text(Some((Kind::User, "hi")), &compress),
-            free_text(Some((Kind::Echo, &"x".repeat(NODE - 6))), &compress),
-            free_text(Some((Kind::Echo, &"x".repeat(NODE - 5))), &compress),
-            free_text(None, &merge("a", "b")),
-            free_text(None, &merge(&half, &half[1..])),
-            free_text(None, &merge(&half, &half)),
+            Step::Compress { message: 3 }
+                .input(|id| Ok((Kind::User, format!("hi {id}"))))
+                .unwrap(),
+            merge
+                .input(|_| unreachable!("a merge reads no message"))
+                .unwrap(),
         ],
-        [
-            Some("user: hi".to_string()),
-            Some(format!("echo: {}", "x".repeat(NODE - 6))),
-            None,
-            Some("a\nb".to_string()),
-            Some(format!("{half}\n{}", &half[1..])),
-            None,
-        ]
+        ["user: hi 3".to_string(), "a\nb\nc".to_string()]
     );
 }
 

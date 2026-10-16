@@ -1,10 +1,10 @@
 //! The owner's state, on its own thread: every read and write of the chat
 //! files happens here, in order.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use eukhe_types::daemon::{MemoryLine, MemoryUpdate};
 use eukhe_types::pi_ai::ImageContent;
@@ -14,18 +14,14 @@ use super::owner::Command;
 use super::prefix_gate::{prefix_key, PrefixGate};
 use super::turn::{Origin, Turns, TURN_FILE};
 use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer, Zoomed};
-use crate::memory::chat::{free_text, Batch, Chat, Step, Zoom};
-use crate::memory::compactor::{build_line, NodeRequest, ResponseStarted};
+use crate::memory::chat::{Batch, Chat, Demand, Nodes, Step, Zoom};
+use crate::memory::compactor::{build_line, CallEnd, NodeRequest, Pend, ResponseStarted};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{self, CompactionPrompt};
 use crate::memory::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
-use crate::memory::view::Part;
-use crate::memory::{labeled, AppendKey, Kind, RETRY};
+use crate::memory::view::{NodeTexts, Part};
+use crate::memory::{cut, labeled, AppendKey, Kind, FAILURES, NODE, RETRY};
 
-/// Consecutive failures of the node a turn waits on before the wait fails
-/// with the compactor's error (the node is tried again at the next message
-/// or turn).
-const SETTLE_FAILURES: u32 = 3;
 /// How many recent messages a re-sent append checks for its own copy.
 const DEDUPE_WINDOW: usize = 64;
 
@@ -38,8 +34,11 @@ pub(super) struct Actor {
     commands: mpsc::Sender<Command>,
     /// The turns' system prompt and tools, which compactions reuse.
     prompt: Arc<CompactionPrompt>,
-    /// Turns waiting for the view to settle (§6).
-    view_waiters: Vec<oneshot::Sender<Outcome>>,
+    /// Turns waiting for the view to settle (§6), by deadline (H2.3), then
+    /// arrival.
+    view_waiters: BTreeMap<(Instant, u64), oneshot::Sender<Outcome>>,
+    /// The arrival number of the next waiter.
+    next_waiter: u64,
     /// The root-turn lease.
     turns: Turns,
     /// The newest keyed message of each append scope (keyed appends).
@@ -48,8 +47,12 @@ pub(super) struct Actor {
     /// Nodes that failed and wait for their retry (a subset of the chat's
     /// busy set).
     waiting: HashSet<Part>,
-    /// The running compactor calls: the owner aborts them when it stops.
-    builds: HashMap<Part, tokio::task::AbortHandle>,
+    /// The running compactor calls, by node: the call's number (a result
+    /// of a call cancelled since is ignored) and its task, which the owner
+    /// aborts when it stops or a waiting turn holds the node back.
+    builds: HashMap<Part, (u64, tokio::task::AbortHandle)>,
+    /// The number of the next compactor call.
+    next_build: u64,
     /// Where updates go (display only: never logged, never sent to a
     /// model).
     subscribers: Vec<tokio::sync::mpsc::UnboundedSender<MemoryUpdate>>,
@@ -69,9 +72,35 @@ pub(super) struct Actor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Failure {
-    count: u32,
+    /// The failed calls the node has left before the cap (H1.5).
+    pend: Pend,
     error: String,
     generation: u64,
+}
+
+/// Why a call of a node ended without its line.
+enum Lost {
+    /// The model call failed: the node's input, kept from the call, for
+    /// the cap.
+    Call { input: String },
+    /// The disk failed: the node's input could not be read, or its line
+    /// not saved.
+    Disk,
+}
+
+/// The built nodes, with the input cut to [`NODE`] bytes standing in for
+/// each view line not built yet: the view a turn takes at its deadline.
+struct WithInputs<'a> {
+    nodes: &'a Nodes,
+    inputs: HashMap<Part, String>,
+}
+
+impl NodeTexts for WithInputs<'_> {
+    fn node_text(&self, part: Part) -> Option<&str> {
+        self.nodes
+            .node_text(part)
+            .or_else(|| self.inputs.get(&part).map(String::as_str))
+    }
 }
 
 enum Prepared {
@@ -114,12 +143,14 @@ impl Actor {
             runtime,
             commands,
             prompt: Arc::new(prompt),
-            view_waiters: Vec::new(),
+            view_waiters: BTreeMap::new(),
+            next_waiter: 0,
             turns: Turns::default(),
             scopes,
             failures: HashMap::new(),
             waiting: HashSet::new(),
             builds: HashMap::new(),
+            next_build: 0,
             subscribers: Vec::new(),
             built_lines: Vec::new(),
             save_error: None,
@@ -134,8 +165,27 @@ impl Actor {
         Ok(actor)
     }
 
+    /// Handle commands in order; between them, answer the turns whose
+    /// deadline passed. The deadlines run on this thread's clock.
     pub(super) fn run(mut self, receiver: &mpsc::Receiver<Command>) {
-        while let Ok(command) = receiver.recv() {
+        loop {
+            let next = match self.view_waiters.keys().next() {
+                None => receiver
+                    .recv()
+                    .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+                Some((deadline, _)) => {
+                    receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                }
+            };
+            let command = match next {
+                Ok(command) => command,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    self.expire_waiters();
+                    self.publish_built();
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            };
             match command {
                 Command::Request {
                     origin,
@@ -144,13 +194,24 @@ impl Actor {
                 } => self.handle(origin, request, reply),
                 Command::Subscribe { sender } => self.subscribers.push(sender),
                 Command::Closed { connection } => self.turns.closed(connection),
-                Command::Started { part } => {
-                    // The prefix is written: its waiters read it now.
-                    for (waiter, request) in self.gate.finished(part, true) {
-                        self.spawn_build(waiter, request);
+                Command::Started { part, build } => {
+                    if self.current(part, build) {
+                        // The prefix is written: its waiters read it now.
+                        for (waiter, request) in self.gate.finished(part, true) {
+                            self.spawn_build(waiter, request);
+                        }
                     }
                 }
-                Command::Built { part, result } => self.built(part, result),
+                Command::Built {
+                    part,
+                    build,
+                    result,
+                    input,
+                } => {
+                    if self.current(part, build) {
+                        self.built(part, result, input);
+                    }
+                }
                 Command::Retry { part, generation } => {
                     let current = self
                         .failures
@@ -158,8 +219,7 @@ impl Actor {
                         .is_some_and(|failure| failure.generation == generation);
                     // The delayed retry serves a waiting turn: with none
                     // waiting, the node waits for the next message.
-                    self.view_waiters.retain(|waiter| !waiter.is_closed());
-                    if current && !self.view_waiters.is_empty() && self.waiting.remove(&part) {
+                    if current && self.turn_waits() && self.waiting.remove(&part) {
                         self.chat.release(part);
                         self.pump();
                     }
@@ -173,8 +233,8 @@ impl Actor {
 
     fn handle(&mut self, origin: Origin, request: Request, reply: oneshot::Sender<Outcome>) {
         let outcome = match request {
-            Request::SettledRender => {
-                self.add_view_waiter(reply);
+            Request::SettledRender { within_ms } => {
+                self.add_view_waiter(reply, Duration::from_millis(within_ms));
                 return;
             }
             Request::AcquireTurn { lease } => {
@@ -440,20 +500,24 @@ impl Actor {
         });
     }
 
-    /// Start every node the pump allows. Free nodes (a short message, two
-    /// short children) are built at once; the others go to the model.
+    /// Start every node the pump allows: while a turn waits, only the
+    /// view's unbuilt lines (H2.1). Free nodes (a short message, two short
+    /// children) are built at once; the others go to the model. Waking the
+    /// waiting turns ends their demand: the merges they held back start.
     fn pump(&mut self) {
         loop {
-            let mut built_free = false;
-            for part in self.chat.candidates() {
+            let demand = if self.turn_waits() {
+                Demand::Turn
+            } else {
+                Demand::Background
+            };
+            let mut built = false;
+            for part in self.chat.candidates(demand) {
                 match self.prepare(part) {
-                    Ok(Prepared::Free(text)) => {
-                        if let Err(error) = self.save_node(part, &text) {
-                            self.failed(part, &error);
-                        } else {
-                            built_free = true;
-                        }
-                    }
+                    Ok(Prepared::Free(text)) => match self.save_node(part, &text) {
+                        Ok(()) => built = true,
+                        Err(error) => self.failed(part, &error, Lost::Disk),
+                    },
                     Ok(Prepared::Model(request)) => {
                         self.chat.mark_busy(part);
                         let key = prefix_key(self.prompt_generation, &request);
@@ -461,14 +525,13 @@ impl Actor {
                             self.spawn_build(part, request);
                         }
                     }
-                    Err(error) => self.failed(part, &error),
+                    Err(error) => self.failed(part, &error, Lost::Disk),
                 }
             }
-            if !built_free {
+            if !built && !self.wake_view_waiters() {
                 break;
             }
         }
-        self.wake_view_waiters();
     }
 
     /// Ask the model for node `part`'s line off the actor thread. Its
@@ -478,68 +541,88 @@ impl Actor {
         let summarizer = Arc::clone(&self.summarizer);
         let prompt = Arc::clone(&self.prompt);
         let commands = self.commands.clone();
-        let build = self.runtime.spawn(async move {
-            let (started, response) = ResponseStarted::channel();
-            let line = build_line(
-                summarizer.as_ref(),
-                &prompt,
-                &request,
-                now_millis(),
-                started,
-            );
-            tokio::pin!(line);
-            let result = tokio::select! {
-                biased;
-                result = &mut line => result,
-                Ok(()) = response => {
-                    // Sent before `Built`: the actor sees them in order.
-                    let _ = commands.send(Command::Started { part });
-                    line.await
+        let build = self.next_build;
+        self.next_build += 1;
+        let task = self.runtime.spawn(async move {
+            let result = {
+                let (started, response) = ResponseStarted::channel();
+                let line = build_line(
+                    summarizer.as_ref(),
+                    &prompt,
+                    &request,
+                    now_millis(),
+                    started,
+                );
+                tokio::pin!(line);
+                tokio::select! {
+                    biased;
+                    result = &mut line => result,
+                    Ok(()) = response => {
+                        // Sent before `Built`: the actor sees them in order.
+                        let _ = commands.send(Command::Started { part, build });
+                        line.await
+                    }
                 }
             };
             // A stopped owner no longer needs the line.
-            let _ = commands.send(Command::Built { part, result });
+            let _ = commands.send(Command::Built {
+                part,
+                build,
+                result,
+                input: request.input,
+            });
         });
-        self.builds.insert(part, build.abort_handle());
+        self.builds.insert(part, (build, task.abort_handle()));
+    }
+
+    /// Whether `build` is node `part`'s running call (not one cancelled
+    /// since).
+    fn current(&self, part: Part, build: u64) -> bool {
+        self.builds
+            .get(&part)
+            .is_some_and(|(running, _)| *running == build)
     }
 
     fn prepare(&self, part: Part) -> anyhow::Result<Prepared> {
-        let step = self.chat.step(part).ok_or_else(|| {
-            anyhow::anyhow!("node {}+{} has no sources", part.start(), part.count())
-        })?;
-        let (free, task) = match &step {
-            Step::Compress { message } => {
-                let meta = self
-                    .chat
-                    .message(*message)
-                    .ok_or_else(|| anyhow::anyhow!("message {message} is not indexed"))?;
-                let record = self.store.read_message(meta)?;
-                (
-                    free_text(Some((record.kind, &record.text)), &step),
-                    compress_task(*message, &labeled(record.kind, &record.text)),
-                )
-            }
+        let (step, input) = self.source(part)?;
+        if input.len() <= NODE {
+            return Ok(Prepared::Free(input));
+        }
+        let task = match &step {
+            Step::Compress { message } => compress_task(*message, &input),
             Step::Merge { left, right } => {
                 let half = part.count() / 2;
                 let name = |start: u64| format!("{start}+{half}");
-                (
-                    free_text(None, &step),
-                    merge_task(
-                        &name(part.start()),
-                        &name(part.start() + half),
-                        (part.start(), part.end() - 1),
-                        (left, right),
-                    ),
+                merge_task(
+                    &name(part.start()),
+                    &name(part.start() + half),
+                    (part.start(), part.end() - 1),
+                    (left, right),
                 )
             }
         };
-        Ok(match free {
-            Some(text) => Prepared::Free(text),
-            None => Prepared::Model(NodeRequest {
-                context: self.chat.context(part),
-                task,
-            }),
-        })
+        Ok(Prepared::Model(NodeRequest {
+            context: self.chat.context(part),
+            task,
+            input,
+        }))
+    }
+
+    /// How node `part` is built, and its input (§2): a message is read
+    /// from the log.
+    fn source(&self, part: Part) -> anyhow::Result<(Step, String)> {
+        let step = self.chat.step(part).ok_or_else(|| {
+            anyhow::anyhow!("node {}+{} has no sources", part.start(), part.count())
+        })?;
+        let input = step.input(|id| {
+            let meta = self
+                .chat
+                .message(id)
+                .ok_or_else(|| anyhow::anyhow!("message {id} is not indexed"))?;
+            let record = self.store.read_message(meta)?;
+            Ok((record.kind, record.text))
+        })?;
+        Ok((step, input))
     }
 
     fn save_node(&mut self, part: Part, text: &str) -> anyhow::Result<()> {
@@ -563,59 +646,91 @@ impl Actor {
         Ok(())
     }
 
-    fn built(&mut self, part: Part, result: anyhow::Result<String>) {
+    fn built(&mut self, part: Part, result: anyhow::Result<String>, input: String) {
         self.builds.remove(&part);
         for (waiter, request) in self.gate.finished(part, result.is_ok()) {
             self.spawn_build(waiter, request);
         }
-        match result.and_then(|text| self.save_node(part, &text)) {
-            Ok(()) => self.pump(),
-            Err(error) => self.failed(part, &error),
+        match result {
+            Ok(text) => {
+                if let Err(error) = self.save_node(part, &text) {
+                    self.failed(part, &error, Lost::Disk);
+                }
+            }
+            Err(error) => self.failed(part, &error, Lost::Call { input }),
         }
+        self.pump();
     }
 
-    /// A node failed: report its first failure, keep it busy, and try it
-    /// again at the next message or turn. While a turn waits for the view,
-    /// it is also tried again after [`RETRY`] (no backoff: the wait fails
-    /// after [`SETTLE_FAILURES`]); an idle chat makes no call for it.
-    fn failed(&mut self, part: Part, error: &anyhow::Error) {
-        let entry = self.failures.entry(part).or_insert(Failure {
-            count: 0,
+    /// A call of node `part` ended without its line; [`Pend::after`] counts
+    /// it (H1.5). A failed model call counts down, and the one with no
+    /// failures left saves the node's input, kept from the call, cut to
+    /// [`NODE`] bytes: only that save can fail, and then the disk did. A
+    /// failed read of the input or save of a line is the disk's and counts
+    /// nothing. Unbuilt, the node stays busy: tried again at the next
+    /// message or turn, and after [`RETRY`] while a turn waits; an idle
+    /// chat makes no call for it.
+    fn failed(&mut self, part: Part, error: &anyhow::Error, lost: Lost) {
+        let failure = self.failures.entry(part).or_insert(Failure {
+            pend: Pend::UNTRIED,
             error: String::new(),
             generation: 0,
         });
-        entry.count += 1;
-        entry.generation += 1;
-        entry.error = format!("{error:#}");
-        if entry.count == 1 {
+        failure.generation += 1;
+        let (pend, generation) = (failure.pend, failure.generation);
+        let mut shown = format!("{error:#}");
+        let pend = match lost {
+            Lost::Disk => pend.after(CallEnd::Disk),
+            Lost::Call { mut input } => match pend.after(CallEnd::Failed) {
+                Pend::Made => {
+                    input.truncate(cut(&input).len());
+                    match self.save_node(part, &input) {
+                        Ok(()) => {
+                            tracing::warn!(
+                                target: "chat_memory",
+                                "built {}+{} from its input after {FAILURES} failed summaries: {error:#}",
+                                part.start(),
+                                part.count()
+                            );
+                            return;
+                        }
+                        Err(cannot) => {
+                            shown = format!("{cannot:#}");
+                            pend.after(CallEnd::Disk)
+                        }
+                    }
+                }
+                owed @ Pend::Owed(_) => owed,
+            },
+        };
+        if let Some(failure) = self.failures.get_mut(&part) {
+            failure.pend = pend;
+            failure.error = shown;
+        }
+        if generation == 1 {
             tracing::warn!(
                 target: "chat_memory",
-                "cannot summarize {}+{}: {}; retrying at the next message",
+                "cannot summarize {}+{}: {error:#}; retrying at the next message",
                 part.start(),
-                part.count(),
-                entry.error
+                part.count()
             );
         }
-        let generation = entry.generation;
         self.chat.mark_busy(part);
         self.waiting.insert(part);
-        self.fail_waiters_if_stuck();
-        self.view_waiters.retain(|waiter| !waiter.is_closed());
-        if self.view_waiters.is_empty() {
-            return;
+        if self.turn_waits() {
+            let commands = self.commands.clone();
+            self.runtime.spawn(async move {
+                tokio::time::sleep(RETRY).await;
+                let _ = commands.send(Command::Retry { part, generation });
+            });
         }
-        let commands = self.commands.clone();
-        self.runtime.spawn(async move {
-            tokio::time::sleep(RETRY).await;
-            let _ = commands.send(Command::Retry { part, generation });
-        });
     }
 
     /// A turn waits for the view: rendered at once when every line is a
     /// summary, else by [`Actor::wake_view_waiters`] in the step that builds
-    /// the last one (§6). Like a new message, the wait tries every failed
-    /// node again now.
-    fn add_view_waiter(&mut self, reply: oneshot::Sender<Outcome>) {
+    /// the last one (§6), or as it is once `within` passes (H2.3). Like a
+    /// new message, the wait tries every failed node again now.
+    fn add_view_waiter(&mut self, reply: oneshot::Sender<Outcome>, within: Duration) {
         if self.chat.settled() {
             // The requester may have stopped waiting.
             let _ = reply.send(Outcome::Ok(Reply::Rendered {
@@ -623,27 +738,76 @@ impl Actor {
             }));
             return;
         }
-        self.view_waiters.retain(|waiter| !waiter.is_closed());
-        self.view_waiters.push(reply);
-        if !self.waiting.is_empty() {
-            self.retry_failed();
-            self.pump();
+        // A deadline past any clock waits as long as the clock can count.
+        let now = Instant::now();
+        let deadline = now
+            .checked_add(within)
+            .unwrap_or(now + Duration::from_secs(u64::from(u32::MAX)));
+        self.view_waiters
+            .insert((deadline, self.next_waiter), reply);
+        self.next_waiter += 1;
+        self.hold_for_turn();
+        self.retry_failed();
+        self.pump();
+    }
+
+    /// A turn starts to wait (H2.1): every call of a node that is not a
+    /// view line still unbuilt stops now, so the lines the turn needs take
+    /// its slot (on a provider that serves one request at a time, a merge
+    /// would hold it for a whole call). A stopped call is no failure: its
+    /// node goes back to the queue and starts once no turn waits.
+    fn hold_for_turn(&mut self) {
+        let held: HashSet<Part> = self.chat.hold_for_turn().into_iter().collect();
+        if held.is_empty() {
+            return;
         }
+        for part in &held {
+            if let Some((_, task)) = self.builds.remove(part) {
+                task.abort();
+            }
+        }
+        self.waiting.retain(|part| !held.contains(part));
+        for (part, request) in self.gate.cancel(|part| held.contains(&part)) {
+            self.spawn_build(part, request);
+        }
+    }
+
+    /// Whether a turn waits for the view; a turn that stopped waiting is
+    /// dropped.
+    fn turn_waits(&mut self) -> bool {
+        self.view_waiters.retain(|_, reply| !reply.is_closed());
+        !self.view_waiters.is_empty()
     }
 
     /// Answer the waiting turns when every view line is a summary: the
     /// check and the render are one step, so the view they get is the one
-    /// that was checked (an append can only come after).
-    fn wake_view_waiters(&mut self) {
-        self.view_waiters.retain(|waiter| !waiter.is_closed());
-        if self.view_waiters.is_empty() || !self.chat.settled() {
-            return;
+    /// that was checked (an append can only come after). Returns whether
+    /// it answered any.
+    fn wake_view_waiters(&mut self) -> bool {
+        if !self.turn_waits() || !self.chat.settled() {
+            return false;
         }
         let view = self.rendered();
-        for waiter in self.view_waiters.drain(..) {
+        for reply in std::mem::take(&mut self.view_waiters).into_values() {
             // A waiter that went away just now loses only its own view.
-            let _ = waiter.send(Outcome::Ok(Reply::Rendered { view: view.clone() }));
+            let _ = reply.send(Outcome::Ok(Reply::Rendered { view: view.clone() }));
         }
+        true
+    }
+
+    /// Answer the turns whose deadline passed with the view as it is
+    /// (H2.3); the merges they held back may start then.
+    fn expire_waiters(&mut self) {
+        let later = self.view_waiters.split_off(&(Instant::now(), u64::MAX));
+        let expired = std::mem::replace(&mut self.view_waiters, later);
+        if expired.is_empty() {
+            return;
+        }
+        let view = self.deadline_view();
+        for reply in expired.into_values() {
+            let _ = reply.send(view.clone());
+        }
+        self.pump();
     }
 
     fn rendered(&self) -> RenderedView {
@@ -653,26 +817,30 @@ impl Actor {
         }
     }
 
-    fn fail_waiters_if_stuck(&mut self) {
-        let blocking = Part {
-            l: 0,
-            i: self.chat.first(),
-        };
-        let Some(failure) = self.failures.get(&blocking) else {
-            return;
-        };
-        if failure.count < SETTLE_FAILURES {
-            return;
+    /// The view as it is, each line not built yet shown as its input cut
+    /// to [`NODE`] bytes: what a turn takes when its deadline passes
+    /// (H2.3). Only a failed read of the log is an error.
+    fn deadline_view(&self) -> Outcome {
+        let nodes = self.chat.nodes();
+        let mut inputs = HashMap::new();
+        for &part in self.chat.view().parts() {
+            if nodes.node_text(part).is_some() {
+                continue;
+            }
+            match self.source(part) {
+                Ok((_, mut input)) => {
+                    input.truncate(cut(&input).len());
+                    inputs.insert(part, input);
+                }
+                Err(error) => return Outcome::Error(format!("{error:#}")),
+            }
         }
-        let error = format!(
-            "the memory compactor cannot summarize message {} ({} tries): {}; it tries again at the next message",
-            blocking.i,
-            failure.count,
-            failure.error
-        );
-        for waiter in self.view_waiters.drain(..) {
-            let _ = waiter.send(Outcome::Error(error.clone()));
-        }
+        Outcome::Ok(Reply::Rendered {
+            view: RenderedView {
+                messages: self.chat.total(),
+                text: self.chat.view().render(&WithInputs { nodes, inputs }),
+            },
+        })
     }
 
     /// Commit the chat with git off the actor thread; a request that comes
@@ -713,8 +881,8 @@ impl Drop for Actor {
     fn drop(&mut self) {
         // A stopped owner's compactor calls stop with it: their lines would
         // have nowhere to go, and dropping a call cancels its request.
-        for build in self.builds.values() {
-            build.abort();
+        for (_, task) in self.builds.values() {
+            task.abort();
         }
     }
 }

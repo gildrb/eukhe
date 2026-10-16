@@ -12,9 +12,7 @@ use std::sync::Arc;
 
 use super::store::{Loaded, MergeRecord, MessageMeta, NodeRecord};
 use super::view::{flatten, line_text, tiled_end, NodeTexts, Part, View};
-use super::{
-    labeled, Kind, COMPACTION_CEILING, COMPACTION_FLOOR, JOBS, NODE, VIEW_CEILING, VIEW_FLOOR,
-};
+use super::{labeled, Kind, COMPACTION_CEILING, COMPACTION_FLOOR, JOBS, VIEW_CEILING, VIEW_FLOOR};
 
 /// The built nodes by part.
 #[derive(Debug, Default)]
@@ -44,6 +42,31 @@ pub(crate) enum Step {
     Compress { message: u64 },
     /// Merge two built children.
     Merge { left: Arc<str>, right: Arc<str> },
+}
+
+impl Step {
+    /// The node's input (§2): the message, labeled (`message` reads it),
+    /// or the two children joined by a newline. An input within
+    /// [`super::NODE`] bytes is the node's line, with no model call.
+    pub(crate) fn input(
+        &self,
+        message: impl FnOnce(u64) -> anyhow::Result<(Kind, String)>,
+    ) -> anyhow::Result<String> {
+        match self {
+            Step::Compress { message: id } => message(*id).map(|(kind, text)| labeled(kind, &text)),
+            Step::Merge { left, right } => Ok(format!("{left}\n{right}")),
+        }
+    }
+}
+
+/// Who the compactor's next calls serve (H2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Demand {
+    /// No turn waits: the gist's order (§4).
+    Background,
+    /// A turn waits for the view: only the view's unbuilt lines start; the
+    /// ready merges wait until the view settles.
+    Turn,
 }
 
 /// What `zoom(id, n)` resolves to before any disk read.
@@ -329,9 +352,10 @@ impl Chat {
 
     /// The nodes to start now, within the free job slots (§4 "The order"):
     /// a message's node once fewer than [`JOBS`] view lines before it are
-    /// unbuilt, oldest first; then the ready merges (both halves built),
-    /// from the queue, never from a scan of the tree.
-    pub(crate) fn candidates(&self) -> Vec<Part> {
+    /// unbuilt, oldest first; then, unless a turn waits ([`Demand::Turn`]),
+    /// the ready merges (both halves built), from the queue, never from a
+    /// scan of the tree.
+    pub(crate) fn candidates(&self, demand: Demand) -> Vec<Part> {
         let jobs = self.budgets.jobs;
         let room = jobs.saturating_sub(self.busy.len());
         let mut out = Vec::new();
@@ -354,6 +378,10 @@ impl Chat {
             }
             unbuilt_before += 1;
         }
+        match demand {
+            Demand::Turn => return out,
+            Demand::Background => {}
+        }
         for part in &self.ready {
             if out.len() >= room {
                 break;
@@ -373,6 +401,23 @@ impl Chat {
     /// The node may start again.
     pub(crate) fn release(&mut self, part: Part) {
         self.busy.remove(&part);
+    }
+
+    /// A turn starts to wait (H2.1): every busy node that is not a view
+    /// line still unbuilt goes back to the queue, and every one that is
+    /// stays (`St.wait` in `bend/optchat.bend`; `wait_keeps_needed`).
+    /// Returns those that went back, so the owner stops their calls.
+    pub(crate) fn hold_for_turn(&mut self) -> Vec<Part> {
+        let (view, nodes) = (&self.view, &self.nodes);
+        let mut held = Vec::new();
+        self.busy.retain(|part| {
+            let needed = view.contains(*part) && nodes.node_text(*part).is_none();
+            if !needed {
+                held.push(*part);
+            }
+            needed
+        });
+        held
     }
 
     /// How the node is built.
@@ -451,15 +496,4 @@ fn merges_building(parts: &[Part]) -> Vec<Part> {
         }
     }
     merges
-}
-
-/// The node text of a free node: a short message is its own line, and two
-/// short children are their own merge. `None` when the model must write it.
-pub(crate) fn free_text(kind_and_text: Option<(Kind, &str)>, step: &Step) -> Option<String> {
-    let text = match (step, kind_and_text) {
-        (Step::Compress { .. }, Some((kind, text))) => labeled(kind, text),
-        (Step::Merge { left, right }, _) => format!("{left}\n{right}"),
-        (Step::Compress { .. }, None) => return None,
-    };
-    (text.len() <= NODE).then_some(text)
 }

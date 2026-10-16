@@ -89,6 +89,13 @@ impl View {
         &self.parts
     }
 
+    /// Whether `part` is a line of the view (the lines are in order).
+    pub(crate) fn contains(&self, part: Part) -> bool {
+        self.parts
+            .binary_search_by_key(&part.start(), |known| known.start())
+            .is_ok_and(|at| self.parts[at] == part)
+    }
+
     /// Bytes of line text, placeholders included.
     pub(crate) fn size(&self) -> usize {
         self.size
@@ -104,16 +111,8 @@ impl View {
     /// A level-0 part in the view was built: its line now counts its
     /// summary instead of the placeholder.
     pub(crate) fn part_built(&mut self, part: Part, tree: &impl NodeTexts) {
-        if part.l != 0 {
-            return;
-        }
-        if let Ok(at) = self
-            .parts
-            .binary_search_by_key(&part.start(), |known| known.start())
-        {
-            if self.parts[at] == part {
-                self.size = self.size - PLACEHOLDER.len() + line_text(part, tree).len();
-            }
+        if part.l == 0 && self.contains(part) {
+            self.size = self.size - PLACEHOLDER.len() + line_text(part, tree).len();
         }
     }
 

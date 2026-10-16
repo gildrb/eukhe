@@ -189,9 +189,10 @@ async fn pin(
     run_key: Option<String>,
     cx: &Context,
 ) -> SessionResult<CallState> {
+    let within = chat.settings.manager().get_memory_settle_timeout();
     let rendered = chat
         .memory
-        .settled_render()
+        .settled_render(within)
         .await
         .map_err(|error| memory_error(&error))?;
     let call = CallState {

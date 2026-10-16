@@ -171,14 +171,10 @@ pub(crate) fn merge_task(
 /// The cut follow-up for an over-long line (§4, verbatim): its size and
 /// its first [`super::NODE`] bytes (never inside a UTF-8 character).
 pub(crate) fn cut_follow_up(line: &str) -> String {
-    let mut end = super::NODE.min(line.len());
-    while !line.is_char_boundary(end) {
-        end -= 1;
-    }
     format!(
         "Too long: your line is {} bytes, over the 512-byte limit. Write\nthe whole line again for the same <input>, cutting just enough of the\nleast valuable items to fit before this cut:\n{}| \u{2190} LIMIT",
         line.len(),
-        &line[..end]
+        super::cut(line)
     )
 }
 

@@ -34,7 +34,7 @@ use futures::FutureExt;
 
 pub use docs::{CallState, LoggedState, CALL_DOC, LOGGED_DOC};
 
-use super::{HarnessCell, HostDeps, TurnWaitSink};
+use super::{EukheSettings, HarnessCell, HostDeps, TurnWaitSink};
 use crate::memory::{Memory, MemoryRole};
 use logger::{LoggerLink, LoggerRequest};
 use turn::RootTurn;
@@ -51,6 +51,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Option<Arc<Extension>> {
         memory,
         deps.role.memory_role(),
         deps.session_id.clone(),
+        Arc::clone(&deps.settings),
         deps.harness.clone(),
         deps.turn_wait.clone(),
     );
@@ -74,6 +75,8 @@ pub(crate) struct OptChat {
     role: MemoryRole,
     /// Scopes the logger's append keys (one scope per conversation).
     session_id: String,
+    /// `memory.settleTimeoutMs`: how long a call waits for the view.
+    settings: Arc<EukheSettings>,
     harness: HarnessCell,
     turn_wait: Option<TurnWaitSink>,
     turn: RootTurn,
@@ -86,6 +89,7 @@ impl OptChat {
         memory: Memory,
         role: MemoryRole,
         session_id: String,
+        settings: Arc<EukheSettings>,
         harness: HarnessCell,
         turn_wait: Option<TurnWaitSink>,
     ) -> Arc<Self> {
@@ -93,6 +97,7 @@ impl OptChat {
             memory,
             role,
             session_id,
+            settings,
             harness,
             turn_wait,
             turn: RootTurn::default(),

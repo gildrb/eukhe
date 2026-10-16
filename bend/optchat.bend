@@ -905,6 +905,26 @@ def cands(+cfg: Cfg, +s: St) -> List<&2, Node>:
   +room = Nat.sub(Cfg.jobs(cfg), List.length(&2, Node, St.busy(s)))
   cands.with(s, room, cand.view(St.view(s), St.info(s), St.busy(s), Cfg.jobs(cfg), 0n, room))
 
+# the nodes to start while a turn waits for the view: the view's unbuilt
+# lines only, oldest first; the ready merges wait (docs/harness.md H2.1)
+def cands.need(+cfg: Cfg, +s: St) -> List<&2, Node>:
+  cand.view(St.view(s), St.info(s), St.busy(s), Cfg.jobs(cfg), 0n, Nat.sub(Cfg.jobs(cfg), List.length(&2, Node, St.busy(s))))
+
+# the busy nodes that are view lines still unbuilt
+def busy.need(+info: Info, +v: List<&2, Node>, bs: List<&2, Node>) -> List<&2, Node>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case +b <> rest:
+      Nodes.keep(Bool.and(Nodes.has(v, b), Bool.not(Info.built(info, b))), b, busy.need(info, v, rest))
+
+# a turn starts to wait: every call of a node it does not need stops, and
+# the node goes back to the queue (docs/harness.md H2.1)
+def St.wait(s: St) -> St:
+  match s:
+    case St{t, +info, +view, shrink, cview, ready, busy}:
+      St{t, info, view, shrink, cview, ready, busy.need(info, view, busy)}
+
 # A compaction's view
 # -------------------
 # The compaction view up to the node: the lines before the message, or

@@ -71,12 +71,24 @@ pub const BLOCK: usize = 4;
 /// Compactor calls running at once; also how many unbuilt lines may sit
 /// before a message whose node starts.
 pub const JOBS: usize = 8;
-/// Attempts per node to get a line under [`NODE`].
+/// Model calls per node: the first line within [`NODE`] bytes wins, a
+/// follow-up not shorter than the best line ends the tries (H1).
 pub const TRIES: usize = 5;
+/// Failed compactor calls of one node before the node is built from its
+/// input, cut to [`NODE`] bytes (H1.5): no node stays unbuilt.
+pub const FAILURES: u32 = 3;
+/// Longest one model call of the compactor may take, its waits for a
+/// provider slot and its preemptions by session requests included; a call
+/// past it fails (H1.5).
+pub const CALL_DEADLINE: Duration = Duration::from_secs(600);
 /// Wait before a failed node is tried again while a turn waits for the
 /// view. A new message or a turn's wait tries every failed node again at
 /// once; an idle chat makes no call for a failed node (§4).
 pub const RETRY: Duration = Duration::from_secs(10);
+/// How long a turn waits for the view to settle by default
+/// (`memory.settleTimeoutMs`): then it takes the view as it is, each line
+/// not built yet shown as its input cut to [`NODE`] bytes (H2.3).
+pub const SETTLE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Largest logged tool result, in characters; head and tail are kept. Any
 /// other text longer than this is logged as several messages in a row.
 pub const CAP: usize = 30_000;
@@ -155,6 +167,16 @@ impl std::fmt::Display for Kind {
 #[must_use]
 pub fn labeled(kind: Kind, text: &str) -> String {
     format!("{kind}: {text}")
+}
+
+/// The longest start of `text` within [`NODE`] bytes, never inside a
+/// UTF-8 character.
+pub(crate) fn cut(text: &str) -> &str {
+    let mut end = NODE.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// Cap a text at [`CAP`] characters in all (§1), keeping its head and tail

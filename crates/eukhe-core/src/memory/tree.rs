@@ -104,7 +104,7 @@ mod tests {
 
     use crate::memory::compactor::tests::Scripted;
     use crate::memory::service::ImportItem;
-    use crate::memory::{Kind, Memory};
+    use crate::memory::{Kind, Memory, SETTLE_TIMEOUT};
 
     fn kinds(pairs: &[(&str, u64)]) -> Vec<MemoryKindCount> {
         pairs
@@ -139,7 +139,7 @@ mod tests {
             .await
             .unwrap();
         // Short messages are their own lines: settled once built.
-        memory.settled_render().await.unwrap();
+        memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
 
         let node = |id: u64, text: &str, kind: &str, date: &str| MemoryTreeNode {
             id,
@@ -238,7 +238,7 @@ mod tests {
             )
             .await
             .unwrap();
-        memory.settled_render().await.unwrap();
+        memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
         assert_eq!(
             memory
                 .tree(Some(MemoryZoom { id: 0, count: 8 }))

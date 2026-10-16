@@ -64,14 +64,19 @@ pub(super) enum Command {
     Closed {
         connection: u64,
     },
-    /// The response of node `part`'s call has started: its prefix is
-    /// cached, so the calls waiting for it may go (§3.3).
+    /// The response of node `part`'s call number `build` has started: its
+    /// prefix is cached, so the calls waiting for it may go (§3.3).
     Started {
         part: Part,
+        build: u64,
     },
+    /// Node `part`'s call number `build` ended; `input` is the node's input,
+    /// which the failure cap cuts (H1.5).
     Built {
         part: Part,
+        build: u64,
         result: anyhow::Result<String>,
+        input: String,
     },
     Retry {
         part: Part,

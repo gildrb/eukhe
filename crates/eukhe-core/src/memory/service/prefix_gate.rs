@@ -99,6 +99,26 @@ impl PrefixGate {
         self.writing.insert(key, writing);
         vec![next]
     }
+
+    /// The compactions of the nodes `gone` names stopped (a waiting turn
+    /// holds them back): their waits end, and a prefix one of them was
+    /// writing goes to its first remaining waiter. Returns the compactions
+    /// that may go now.
+    pub(super) fn cancel(&mut self, gone: impl Fn(Part) -> bool) -> Vec<(Part, NodeRequest)> {
+        for writing in self.writing.values_mut() {
+            writing.waiting.retain(|(part, _)| !gone(*part));
+        }
+        let writers: Vec<Part> = self
+            .writers
+            .keys()
+            .copied()
+            .filter(|part| gone(*part))
+            .collect();
+        writers
+            .into_iter()
+            .flat_map(|part| self.finished(part, false))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -109,6 +129,7 @@ mod tests {
         NodeRequest {
             context: "<chat>\n0+1|a\n1+1|b\n2+1|c\n3+1|d\n</chat>".to_string(),
             task: task.to_string(),
+            input: String::new(),
         }
     }
 
@@ -150,10 +171,12 @@ mod tests {
         let other_tail = NodeRequest {
             context: "<chat>\n0+1|a\n1+1|b\n2+1|c\n3+1|d\n4+1|e\n</chat>".to_string(),
             task: "b".to_string(),
+            input: String::new(),
         };
         let other_block = NodeRequest {
             context: "<chat>\n0+2|ab\n2+1|c\n3+1|d\n4+1|e\n</chat>".to_string(),
             task: "a".to_string(),
+            input: String::new(),
         };
         let key = prefix_key(1, &base);
         assert_eq!(

@@ -251,7 +251,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::memory::compactor::tests::Scripted;
-    use crate::memory::{Kind, Memory};
+    use crate::memory::{Kind, Memory, SETTLE_TIMEOUT};
 
     /// A reader gets the live owner's view when one answers, else the saved
     /// one; the page holds the view, ROOT and each tree level.
@@ -264,7 +264,7 @@ mod tests {
             .unwrap();
         memory.append(Kind::User, "hello <you>").await.unwrap();
         memory.append(Kind::Eukhe, "hi").await.unwrap();
-        let rendered = memory.settled_render().await.unwrap();
+        let rendered = memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
         let live = read_view(dir.path()).await.unwrap();
         assert_eq!(
             live,

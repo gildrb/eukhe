@@ -14,10 +14,11 @@
 #   3 l bits                            node's call fails
 #   4 l bits                            print the compaction's view of node
 #   5                                   print the view
+#   6                                   a turn starts to wait
 #
-# After each event 0-3 it prints `v=<view> c=<compaction view> s=<0|1>
-# b=<batch> q=<queue>`, parts as `l.bits` joined by commas. A node's text
-# is a newline then size-1 `x`s.
+# After each event 0-3 and 6 it prints `v=<view> c=<compaction view> s=<0|1>
+# b=<batch> q=<queue> n=<queue while a turn waits>`, parts as `l.bits`
+# joined by commas. A node's text is a newline then size-1 `x`s.
 
 import Base
 import ./optchat.bend as O
@@ -161,7 +162,7 @@ def render(+info: O.Info, ns: List<&2, O.Node>) -> String:
   String.concat(["<chat>\n", lines(info, ns), "</chat>"])
 
 def show.state(+cfg: O.Cfg, +s: O.St, batch: List<&2, O.Node>) -> String:
-  String.concat(["v=", show.nodes(O.St.view(s)), " c=", show.nodes(O.St.cview(s)), " s=", show.bool(O.St.shrink(s)), " b=", show.nodes(batch), " q=", show.nodes(O.cands(cfg, s)), "\n"])
+  String.concat(["v=", show.nodes(O.St.view(s)), " c=", show.nodes(O.St.cview(s)), " s=", show.bool(O.St.shrink(s)), " b=", show.nodes(batch), " q=", show.nodes(O.cands(cfg, s)), " n=", show.nodes(O.cands.need(cfg, s)), "\n"])
 
 # Running
 # -------
@@ -207,6 +208,8 @@ def apply(k: Nat, +ws: List<&2, String>, +cfg: O.Cfg, +s: O.St) -> Out:
       Out{cfg, s, String.concat(["x=", render(O.St.info(s), O.ctx(s, tok.node(ws))), "\n"])}
     case 5n:
       Out{cfg, s, String.concat(["r=", render(O.St.info(s), O.St.view(s)), "\n"])}
+    case 6n:
+      out.event(cfg, (O.St.wait(s), Nil{}))
     case 9n:
       Out{cfg.of(ws), s, ""}
     case _:

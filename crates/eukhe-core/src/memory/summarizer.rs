@@ -17,7 +17,10 @@
 //! request of its provider runs or waits, and a session request that comes
 //! while it runs preempts it: the call stops its request at once and asks
 //! again, so it resumes once the provider is free. A preemption is a
-//! pause, never a failure of the call.
+//! pause inside one model call, never a failure or an end of the call:
+//! the compactor's [`super::CALL_DEADLINE`] bounds each model call, its
+//! waits for a slot and its preemptions included, so a call preempted
+//! without end fails at the deadline (docs/harness.md H1.5, H2).
 
 use std::path::{Path, PathBuf};
 
@@ -324,7 +327,7 @@ mod tests {
         AdmissionError, AdmissionRegistry, AdmissionSnapshot, LocalAdmission, ModelPermit,
         ProviderAdmission,
     };
-    use crate::memory::{chat_dir, Kind, Memory, MemoryStatus, NODE};
+    use crate::memory::{chat_dir, Kind, Memory, MemoryStatus, NODE, SETTLE_TIMEOUT};
 
     /// A reply that starts, then stalls.
     const STALLED: &str = concat!(
@@ -635,7 +638,10 @@ mod tests {
                 stopped,
                 waited,
                 while_session_runs,
-                within(memory.settled_render()).await.unwrap().text,
+                within(memory.settled_render(SETTLE_TIMEOUT))
+                    .await
+                    .unwrap()
+                    .text,
                 memory.status().await.unwrap()
             ),
             (

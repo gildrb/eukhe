@@ -137,8 +137,12 @@ enum Request {
         items: Vec<ImportItem>,
     },
     /// Wait until every line of the view is a summary, then render it in
-    /// the same owner step.
-    SettledRender,
+    /// the same owner step; after `within_ms`, render it as it is, each
+    /// line not built yet as its input cut to [`super::NODE`] bytes (H2.3).
+    SettledRender {
+        #[serde(default = "default_settle_ms")]
+        within_ms: u64,
+    },
     /// The view as it is now, placeholders included.
     Render,
     Zoom {
@@ -382,15 +386,19 @@ impl Memory {
 
     /// The view once every line of it is a summary (§6), rendered in the
     /// same owner step that sees it so, so no append slips a placeholder in
-    /// between. Dropping the future cancels the wait, across processes too.
+    /// between. Once `within` passes, the view as it is: each line not
+    /// built yet shows its input cut to [`super::NODE`] bytes, never a
+    /// placeholder (H2.3). Dropping the future cancels the wait, across
+    /// processes too.
     ///
     /// # Errors
     ///
-    /// Returns the compactor's error when the node the view waits on keeps
-    /// failing, or when the owner cannot be reached.
+    /// Returns an error when the owner cannot be reached or cannot read
+    /// the log.
     #[tracing::instrument(name = "chat_memory.settled_render", skip_all)]
-    pub async fn settled_render(&self) -> anyhow::Result<RenderedView> {
-        match self.request(Request::SettledRender).await? {
+    pub async fn settled_render(&self, within: Duration) -> anyhow::Result<RenderedView> {
+        let within_ms = u64::try_from(within.as_millis()).unwrap_or(u64::MAX);
+        match self.request(Request::SettledRender { within_ms }).await? {
             Reply::Rendered { view } => Ok(view),
             other => Err(unexpected(&other)),
         }
@@ -556,7 +564,7 @@ impl Memory {
                             Request::Subscribe => anyhow::bail!(
                                 "the chat owner went away during a subscription request"
                             ),
-                            Request::SettledRender
+                            Request::SettledRender { .. }
                             | Request::Render
                             | Request::Zoom { .. }
                             | Request::Date { .. }
@@ -674,4 +682,9 @@ pub(crate) async fn live_parts(dir: &Path) -> Option<Vec<(u32, u64)>> {
 
 fn unexpected(reply: &Reply) -> anyhow::Error {
     anyhow::anyhow!("unexpected chat memory reply: {reply:?}")
+}
+
+/// The settle deadline of a request from a client that names none.
+fn default_settle_ms() -> u64 {
+    u64::try_from(super::SETTLE_TIMEOUT.as_millis()).unwrap_or(u64::MAX)
 }

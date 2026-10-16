@@ -616,6 +616,24 @@ impl SettingsManager {
             .unwrap_or(super::types::ThinkingLevelSetting::Medium)
     }
 
+    /// `memory.settleTimeoutMs`: how long a turn waits for the view's
+    /// lines to be summarized; then it goes on with the view as it is,
+    /// each line not summarized yet as its input cut to 512 bytes. Unset
+    /// or `0` is [`crate::memory::SETTLE_TIMEOUT`], as `subagentStallMs`
+    /// and `maxToolRounds` read `0`.
+    #[must_use]
+    pub fn get_memory_settle_timeout(&self) -> std::time::Duration {
+        self.merged
+            .memory
+            .as_ref()
+            .and_then(|memory| memory.settle_timeout_ms)
+            .filter(|ms| *ms > 0)
+            .map_or(
+                crate::memory::SETTLE_TIMEOUT,
+                std::time::Duration::from_millis,
+            )
+    }
+
     /// TS `getImageModel`: the "provider/model-id" (or bare id) reference
     /// that serves turns attaching images on session models without image
     /// input. Same shape as `providerBackupModel`: malformed values behave
@@ -1192,5 +1210,25 @@ mod tests {
         assert_eq!(manager.get_image_model(), None);
         let manager = SettingsManager::in_memory(&Settings::default());
         assert_eq!(manager.get_image_model(), None);
+    }
+
+    /// `memory.settleTimeoutMs`: unset and `0` take the default (as
+    /// `subagentStallMs` and `maxToolRounds` read `0`); `0` once meant
+    /// no wait at all, so every turn showed unbuilt lines cut short.
+    #[test]
+    fn memory_settle_timeout_zero_takes_the_default() {
+        let settle = |ms| {
+            SettingsManager::in_memory(&Settings {
+                memory: Some(crate::settings::types::MemorySettings {
+                    settle_timeout_ms: ms,
+                    ..Default::default()
+                }),
+                ..Settings::default()
+            })
+            .get_memory_settle_timeout()
+        };
+        assert_eq!(settle(None), crate::memory::SETTLE_TIMEOUT);
+        assert_eq!(settle(Some(0)), crate::memory::SETTLE_TIMEOUT);
+        assert_eq!(settle(Some(1_500)), std::time::Duration::from_millis(1_500));
     }
 }

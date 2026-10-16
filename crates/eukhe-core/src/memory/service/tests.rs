@@ -20,11 +20,12 @@ use super::turn::TURN_FILE;
 use super::{
     ImportItem, KeyedAppend, Memory, MemoryStatus, Outcome, RenderedView, Reply, Request, Zoomed,
 };
-use crate::memory::compactor::tests::{reply, Scripted};
+use crate::memory::compactor::tests::{reply, thinking_only, Scripted, Silent};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{CompactionPrompt, VIEW_FILE};
 use crate::memory::{
-    AppendKey, Kind, ResponseStarted, Summarizer, SummarizerFuture, NODE, PLACEHOLDER, RETRY,
+    cut, AppendKey, Kind, ResponseStarted, Summarizer, SummarizerFuture, FAILURES, NODE,
+    PLACEHOLDER, RETRY, SETTLE_TIMEOUT,
 };
 
 /// A compactor call the test answers with the line.
@@ -200,7 +201,7 @@ async fn a_settled_view_never_shows_a_placeholder_while_another_client_appends()
             .expect("the compactor summarizes the newest message");
         let mut view = Box::pin({
             let reader = chat.first.clone();
-            async move { reader.settled_render().await }
+            async move { reader.settled_render(SETTLE_TIMEOUT).await }
         });
         assert!(
             futures::poll!(view.as_mut()).is_pending(),
@@ -412,7 +413,7 @@ async fn short_messages_are_their_own_lines() {
     assert_eq!(memory.append(Kind::User, "hello").await.unwrap(), 0);
     assert_eq!(memory.append(Kind::Eukhe, "hi\nthere").await.unwrap(), 1);
     assert_eq!(
-        memory.settled_render().await.unwrap(),
+        memory.settled_render(SETTLE_TIMEOUT).await.unwrap(),
         RenderedView {
             messages: 2,
             text: "<chat>\n0+1|user: hello\n1+1|eukhe: hi there\n</chat>".to_string(),
@@ -490,7 +491,7 @@ async fn compactions_reuse_the_turns_prompt_and_see_built_lines_only() {
     requests[..2].sort();
     let shape =
         |texts: Vec<(String, bool)>| (Some(prompt.system.clone()), vec!["zoom".to_string()], texts);
-    let rendered = memory.settled_render().await.unwrap().text;
+    let rendered = memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text;
     // Both messages compressed at once: the second did not wait for the
     // first, and saw no line of it.
     let (line_0, line_1) = (
@@ -574,7 +575,7 @@ async fn deleting_the_saved_view_reproduces_the_identical_view() {
         for i in 0..5 {
             memory.append(Kind::User, &format!("m{i}")).await.unwrap();
         }
-        memory.settled_render().await.unwrap();
+        memory.settled_render(SETTLE_TIMEOUT).await.unwrap();
     }
     // A chat from before the merges were logged: its view merged the
     // first four messages (every node is built: short lines are free).
@@ -654,7 +655,7 @@ async fn a_second_handle_is_a_client_and_takes_over() {
         0
     );
     assert_eq!(
-        owner.settled_render().await.unwrap().text,
+        owner.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
         "<chat>\n0+1|user: from the client\n</chat>"
     );
     drop(owner);
@@ -664,7 +665,7 @@ async fn a_second_handle_is_a_client_and_takes_over() {
     );
     assert!(client.owns().await);
     assert_eq!(
-        client.settled_render().await.unwrap().text,
+        client.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
         "<chat>\n0+1|user: from the client\n1+1|user: after the owner\n</chat>"
     );
 }
@@ -893,7 +894,7 @@ async fn a_failed_node_is_tried_again_only_for_a_waiting_turn() {
         )
     );
     assert_eq!(
-        memory.settled_render().await.unwrap().text,
+        memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
         "<chat>\n0+1|echo: recovered\n</chat>"
     );
     let times = summarizer.times();
@@ -924,28 +925,199 @@ async fn a_stopped_owner_drops_its_running_compactor_calls() {
     within(call.closed()).await;
 }
 
-/// A turn waiting for the view fails with the compactor's error once the
-/// node it waits on keeps failing; the compactor goes on, and a new wait
-/// tries the node again at once.
+/// A node whose calls keep failing is built from its input, cut to
+/// [`NODE`] bytes, at its third failure: the waiting turn gets a line
+/// that fits, not an error, and the node is not tried again.
 #[tokio::test(start_paused = true)]
-async fn a_settled_render_fails_after_repeated_compactor_failures() {
+async fn a_node_that_keeps_failing_is_built_from_its_input() {
     let dir = tempfile::tempdir().unwrap();
     let summarizer = Scripted::with(vec![
         Err(anyhow::anyhow!("overloaded")),
         Err(anyhow::anyhow!("overloaded")),
         Err(anyhow::anyhow!("overloaded")),
-        Ok(reply("echo: recovered")),
     ]);
     let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
-    memory.append(Kind::Echo, &"y".repeat(NODE)).await.unwrap();
-    let error = memory.settled_render().await.unwrap_err();
-    assert!(format!("{error:#}").contains("overloaded"), "{error:#}");
+    let message = format!("echo: {}", "y".repeat(NODE));
+    memory.append(Kind::Echo, &message[6..]).await.unwrap();
+    let view = format!("<chat>\n0+1|{}\n</chat>", cut(&message));
     assert_eq!(
-        memory.render().await.unwrap().text,
-        format!("<chat>\n0+1|{PLACEHOLDER}\n</chat>")
+        (
+            memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+            memory.render().await.unwrap().text,
+            summarizer.requests().len(),
+            memory.status().await.unwrap().last_error,
+        ),
+        (view.clone(), view, 3, None)
     );
+}
+
+/// A model whose every call fails; its [`FAILURES`]-th call first moves
+/// the message log away, so no message can be read from then on.
+struct LosesTheLog {
+    calls: std::sync::atomic::AtomicU32,
+    log: std::path::PathBuf,
+}
+
+impl Summarizer for LosesTheLog {
+    fn complete(&self, _context: Context, _started: ResponseStarted) -> SummarizerFuture {
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        if call == FAILURES {
+            std::fs::rename(&self.log, self.log.with_extension("gone")).unwrap();
+        }
+        Box::pin(async { Err(anyhow::anyhow!("overloaded")) })
+    }
+}
+
+/// Regression (H1.5): the failure cap builds a node from the input its
+/// failed call had, with no read, so a log that cannot be read by then
+/// does not keep the node unbuilt. The old cap read the message again:
+/// the node stayed unbuilt and the waiting turn got an error.
+#[tokio::test(start_paused = true)]
+async fn the_failure_cap_reads_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let summarizer = Arc::new(LosesTheLog {
+        calls: std::sync::atomic::AtomicU32::new(0),
+        log: dir.path().join("main"),
+    });
+    let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
+    let message = format!("echo: {}", "y".repeat(NODE));
+    memory.append(Kind::Echo, &message[6..]).await.unwrap();
     assert_eq!(
-        memory.settled_render().await.unwrap().text,
-        "<chat>\n0+1|echo: recovered\n</chat>"
+        (
+            memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+            summarizer.calls.load(std::sync::atomic::Ordering::SeqCst),
+        ),
+        (format!("<chat>\n0+1|{}\n</chat>", cut(&message)), FAILURES)
+    );
+}
+
+/// A turn whose message the model never summarizes gets the view at its
+/// deadline, the line shown as the message cut to [`NODE`] bytes: never
+/// an error, never a placeholder (H2.3). The deadline runs on the owner
+/// thread's clock, so this test runs in real time.
+#[tokio::test]
+async fn a_turn_gets_the_view_by_its_deadline_when_the_model_never_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let memory = Memory::open(dir.path(), Arc::new(Silent)).await.unwrap();
+    let message = format!("echo: {}", "y".repeat(NODE));
+    memory.append(Kind::Echo, &message[6..]).await.unwrap();
+    let deadline = Duration::from_millis(200);
+    let asked = std::time::Instant::now();
+    let view = within(memory.settled_render(deadline)).await.unwrap().text;
+    assert_eq!(
+        (
+            view,
+            asked.elapsed() >= deadline,
+            memory.render().await.unwrap().text
+        ),
+        (
+            format!("<chat>\n0+1|{}\n</chat>", cut(&message)),
+            true,
+            format!("<chat>\n0+1|{PLACEHOLDER}\n</chat>")
+        )
+    );
+}
+
+/// A model that answers with thinking only (an empty line) still gives a
+/// line that fits: the message cut to [`NODE`] bytes, after one call.
+#[tokio::test(start_paused = true)]
+async fn an_empty_reply_still_gives_a_line_that_fits() {
+    let dir = tempfile::tempdir().unwrap();
+    let summarizer = Scripted::with(vec![Ok(thinking_only())]);
+    let memory = Memory::open(dir.path(), summarizer.clone()).await.unwrap();
+    let message = format!("echo: {}", "y".repeat(NODE));
+    memory.append(Kind::Echo, &message[6..]).await.unwrap();
+    assert_eq!(
+        (
+            memory.settled_render(SETTLE_TIMEOUT).await.unwrap().text,
+            summarizer.requests().len()
+        ),
+        (format!("<chat>\n0+1|{}\n</chat>", cut(&message)), 1)
+    );
+}
+
+/// A provider that serves one request at a time, as a local model does: a
+/// merge takes the slot and never answers; a message's summary answers
+/// [`leaf`]. Each call reports whether it is a merge.
+struct OneSlot {
+    slot: Arc<tokio::sync::Semaphore>,
+    calls: mpsc::UnboundedSender<bool>,
+}
+
+/// A summary line: two of them are too long to be their own merge.
+fn leaf() -> String {
+    "l".repeat(NODE / 2 + 1)
+}
+
+/// Whether a user text is a merge task.
+fn is_merge(text: &str) -> bool {
+    text.starts_with("Compaction: merge")
+}
+
+impl Summarizer for OneSlot {
+    fn complete(&self, context: Context, mut started: ResponseStarted) -> SummarizerFuture {
+        let merge = context.messages.iter().any(|message| match message {
+            Message::User(user) => match &user.content {
+                UserContent::Blocks(blocks) => blocks.iter().any(|block| match block {
+                    UserContentBlock::Text(text) => is_merge(&text.text),
+                    UserContentBlock::Image(_) => false,
+                }),
+                UserContent::Text(text) => is_merge(text),
+            },
+            Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => false,
+        });
+        let _ = self.calls.send(merge);
+        let slot = Arc::clone(&self.slot);
+        Box::pin(async move {
+            let _slot = slot.acquire_owned().await?;
+            started.signal();
+            if merge {
+                std::future::pending::<()>().await;
+            }
+            Ok(reply(&leaf()))
+        })
+    }
+}
+
+/// The incident (H2.1): on a one-slot provider a merge call holds the
+/// slot, and the line a turn needs waits behind it. A waiting turn stops
+/// the merge, so the needed line goes at once; the stopped merge is no
+/// failure and starts again once the view is settled.
+#[tokio::test]
+async fn a_waiting_turn_stops_a_merge_that_holds_the_slot() {
+    let dir = tempfile::tempdir().unwrap();
+    let (calls, mut asked) = mpsc::unbounded_channel();
+    let memory = Memory::open(
+        dir.path(),
+        Arc::new(OneSlot {
+            slot: Arc::new(tokio::sync::Semaphore::new(1)),
+            calls,
+        }),
+    )
+    .await
+    .unwrap();
+    memory.append(Kind::User, &long(0)).await.unwrap();
+    memory.append(Kind::User, &long(1)).await.unwrap();
+    let mut kinds = Vec::new();
+    for _ in 0..3 {
+        kinds.push(within(asked.recv()).await.unwrap());
+    }
+    // The merge of the two lines runs and holds the slot; the third
+    // message's summary queues behind it.
+    memory.append(Kind::User, &long(2)).await.unwrap();
+    let view = within(memory.settled_render(Duration::from_secs(3600)))
+        .await
+        .unwrap()
+        .text;
+    for _ in 0..2 {
+        kinds.push(within(asked.recv()).await.unwrap());
+    }
+    assert_eq!(
+        (view, kinds, memory.status().await.unwrap().last_error),
+        (
+            format!("<chat>\n0+1|{0}\n1+1|{0}\n2+1|{0}\n</chat>", leaf()),
+            vec![false, false, true, false, true],
+            None
+        )
     );
 }

@@ -87,7 +87,7 @@ pub struct BranchSummarySettings {
 }
 
 /// The chat memory's compactor (`memory`): the cheap model that builds the
-/// summary tree, and its reasoning effort.
+/// summary tree, its reasoning effort, and how long a turn waits for it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemorySettings {
@@ -96,6 +96,9 @@ pub struct MemorySettings {
     pub model: Option<String>,
     /// Reasoning effort of compactor calls; unset means medium.
     pub thinking: Option<ThinkingLevelSetting>,
+    /// How long a turn waits for the view's lines to be summarized before
+    /// it goes on with the view as it is; unset or `0` means 20 s.
+    pub settle_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

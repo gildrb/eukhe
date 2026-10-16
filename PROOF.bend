@@ -13,6 +13,7 @@ import ./bend/proof_cover.bend as Cover
 import ./bend/proof_fit.bend as Fit
 import ./bend/proof_push.bend as Push
 import ./bend/proof_agree.bend as Agree
+import ./bend/proof_compactor.bend as Compactor
 
 # (a) The view
 
@@ -81,3 +82,52 @@ def Laws.context_ends_at_node(s, n):
 
 def Laws.context_is_prefix(s, n):
   Fit.context_is_prefix(s, n)
+
+# (H1) A compactor call always ends with a line that fits
+
+def Laws.line_calls_at_most_tries(tries, node, input, rs):
+  Compactor.pc.line_calls_at_most_tries(tries, node, input, rs)
+
+def Laws.line_fits(tries, k, c, rest, rs):
+  Compactor.pc.line_fits(tries, k, c, rest, rs)
+
+def Laws.line_takes_first_fit(tries, node, input, rs):
+  Compactor.pc.line_takes_first_fit(tries, node, input, rs)
+
+def Laws.line_stops_when_not_shorter(t, node, input, a, b, rest, over, longer):
+  Compactor.pc.line_stops_when_not_shorter(t, node, input, a, b, rest, over, longer)
+
+def Laws.line_empty_is_a_try(t, node, input, rest):
+  Compactor.pc.line_empty_is_a_try(t, node, input, rest)
+
+def Laws.line_error_fails(t, node, input, rest):
+  Compactor.pc.line_error_fails(t, node, input, rest)
+
+def Laws.fail_cap_builds(n, os, many):
+  Compactor.pc.fail_cap_builds(os, n, many)
+
+# (H2) A turn never waits forever for the memory
+
+def Laws.need_first(cfg, s):
+  Compactor.pc.need_first(cfg, s)
+
+def Laws.need_first_running(cfg, s):
+  Compactor.pc.need_first_running(cfg, s)
+
+def Laws.wait_keeps_needed(s):
+  Compactor.pc.wait_keeps_needed(s)
+
+def Laws.need_progress(cfg, evs, room, idle):
+  Compactor.pc.need_progress(cfg, evs, room, idle)
+
+def Laws.settle_falls(ps, k, o, due, lands):
+  Compactor.pc.settle_falls(ps, k, o, due, lands)
+
+def Laws.settle_bounded(es, ps):
+  Compactor.pc.settle_bounded(es, ps)
+
+def Laws.settle_reached(es, ps, enough):
+  Compactor.pc.settle_reached(es, ps, enough)
+
+def Laws.settle_start(p, info, v):
+  Compactor.pc.settle_start(p, info, v)

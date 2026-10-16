@@ -7,15 +7,16 @@
 //! of the view and of a compaction's view. The Rust side drives a [`Chat`]
 //! with them and prints, after each event, the view, the compaction view,
 //! whether a batch is still shrinking, the batch it ran and the work
-//! queue; the Bend side builds `bend/bridge.bend` into a native binary and
-//! prints the same from the model, through [`compare`] (which skips without
-//! `bend`, unless `EUKHE_REQUIRE_BEND` is set).
+//! queue, without and with a waiting turn; the Bend side builds
+//! `bend/bridge.bend` into a native binary and prints the same from the
+//! model, through [`compare`] (which skips without `bend`, unless
+//! `EUKHE_REQUIRE_BEND` is set).
 
 use std::fmt::Write as _;
 
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 
-use super::{Budgets, Chat};
+use super::{Budgets, Chat, Demand};
 use crate::memory::store::MessageMeta;
 use crate::memory::view::Part;
 use crate::memory::{Kind, PLACEHOLDER};
@@ -92,12 +93,13 @@ impl Run {
     fn state(&mut self, batch: &[Part]) {
         let _ = writeln!(
             self.transcript,
-            "v={} c={} s={} b={} q={}",
+            "v={} c={} s={} b={} q={} n={}",
             parts(self.chat.view.parts()),
             parts(self.chat.compaction.parts()),
             u8::from(self.chat.shrinking),
             parts(batch),
-            parts(&self.chat.candidates())
+            parts(&self.chat.candidates(Demand::Background)),
+            parts(&self.chat.candidates(Demand::Turn))
         );
     }
 
@@ -127,6 +129,14 @@ impl Run {
         self.state(&[]);
     }
 
+    /// A turn starts to wait: the calls it does not need stop.
+    fn wait(&mut self) -> Vec<Part> {
+        self.events.push_str("6\n");
+        let held = self.chat.hold_for_turn();
+        self.state(&[]);
+        held
+    }
+
     fn context(&mut self, part: Part) {
         let _ = writeln!(self.events, "4 {}", node_arg(part));
         let _ = writeln!(self.transcript, "x={}", self.chat.context(part));
@@ -148,7 +158,7 @@ fn caught_up(seed: u64, messages: u64, budgets: Budgets) -> Run {
         if batched {
             run.render();
         }
-        while let Some(part) = run.chat.candidates().first().copied() {
+        while let Some(part) = run.chat.candidates(Demand::Background).first().copied() {
             if rng.chance(10) {
                 run.context(part);
             }
@@ -180,7 +190,7 @@ fn lagging(seed: u64, messages: u64, budgets: Budgets) -> Run {
             }
             continue;
         }
-        let candidates = run.chat.candidates();
+        let candidates = run.chat.candidates(Demand::Background);
         if roll < 55 {
             if let Some(part) = rng.pick(&candidates) {
                 run.start(part);
@@ -200,9 +210,14 @@ fn lagging(seed: u64, messages: u64, budgets: Budgets) -> Run {
                 run.build(part, size);
                 busy.retain(|other| *other != part);
             }
-        } else if let Some(part) = rng.pick(&busy) {
-            run.fail(part);
-            busy.retain(|other| *other != part);
+        } else if roll < 93 {
+            if let Some(part) = rng.pick(&busy) {
+                run.fail(part);
+                busy.retain(|other| *other != part);
+            }
+        } else {
+            let held = run.wait();
+            busy.retain(|part| !held.contains(part));
         }
     }
     run.render();

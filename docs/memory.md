@@ -23,6 +23,7 @@ bend PROOF.bend             # ALL PROOFS CHECK
 bend PROOF.bend --verdict   # the same, with the BendTT kernel (needs Lean 4.34.0)
 make laws                   # both
 cargo test -p eukhe-core --lib memory::chat::bridge
+cargo test -p eukhe-core --lib memory::compactor::bridge
 ```
 
 CI does all of this (`.github/workflows/ci.yml`, job `laws`, and the test
@@ -160,10 +161,12 @@ a written-out state and is checked by computation. On this machine
 `memory/chat/bridge.rs` makes scenarios with a fixed random seed. Each
 event goes to the Rust `Chat` and into a scenario file. The Bend binary
 reads the file. After each event, both print the view, the compaction view,
-the shrinking flag, the batch, and the work queue. At each batch and at the
-end, both print the whole rendered view (`<chat> … </chat>`), and for some
-nodes the rendered compaction view. The test compares the two outputs byte
-for byte.
+the shrinking flag, the batch, the work queue, and the work queue while a
+turn waits (`n=`, the law `need_first`, docs/harness.md H2). At each batch
+and at the end, both print the whole rendered view (`<chat> … </chat>`),
+and for some nodes the rendered compaction view. The test compares the two
+outputs byte for byte. The compactor's line has a bridge of its own
+(`memory/compactor/bridge.rs`, docs/harness.md H1).
 
 The scenarios:
 
@@ -202,7 +205,7 @@ the reason).
 | # | Rule | Code | Secured by | Status |
 | --- | --- | --- | --- | --- |
 | 11 | `node(0, i)` is message i in at most 512 bytes; `node(l, i)` merges `node(l-1, 2i)` and `node(l-1, 2i+1)`. It covers the 2^l messages from i·2^l and is named `id+n`. | `memory/view.rs` `Part`; `mod.rs` `NODE`; `service/actor.rs` `prepare` | Laws `view_covers`, `merge_is_one_pair`; `chat::tests::zoom_opens_lines_and_messages` | matched |
-| 12 | A source that fits in 512 bytes is its own node, with no model call. A short message stays word for word. Two short lines are joined by a newline. | `memory/chat.rs` `free_text`; `actor.rs` `Prepared::Free` | `chat::tests::free_nodes_need_no_model`, `service::tests::short_messages_are_their_own_lines` | matched |
+| 12 | A source that fits in 512 bytes is its own node, with no model call. A short message stays word for word. Two short lines are joined by a newline. | `memory/chat.rs` `Step::input`; `actor.rs` `Actor::prepare` | `chat::tests::a_nodes_input_is_its_message_or_its_children`, `service::tests::short_messages_are_their_own_lines` | matched |
 | 13 | Each node is built once, logged, never built again. | `actor.rs` `built`; `chat.rs` `insert_node` (leaves the queues) | Bridge (the queue column); `service::tests::deleting_the_saved_view_reproduces_the_identical_view` | matched |
 
 ### §3 The view
@@ -236,11 +239,11 @@ the reason).
 | 33 | Its view: the chat's view merged further to 16-32 KB with the same sawtooth; merged down to 16 KB once, then the new lines appended; merged again past 32 KB or when the chat's view merges. | `mod.rs` `COMPACTION_CEILING`, `COMPACTION_FLOOR`; `chat.rs` `grow`, `batch`, `fit_compaction` | Laws `cview_covers`, `cview_summarized`; bridge | matched |
 | 34 | The compaction view ends at the node: the lines before the message, or for a merge the lines up to its last message. Only built lines. | `chat.rs` `Chat::context`; `view.rs` `render_built_until` | Laws `context_ends_at_node`, `context_is_prefix`; bridge | fixed (F2) |
 | 35 | The task texts, verbatim, with the 512-dash ruler. | `prompts.rs` `compress_task`, `merge_task`, `ruler` | `prompts::tests::tasks_carry_the_ruler_and_the_whole_input` | matched |
-| 36 | Over 512 bytes: the `Too long:` follow-up in the same conversation, with the line cut at 512 bytes. | `prompts.rs` `cut_follow_up`; `compactor.rs` `build_line` | `prompts::tests::the_cut_falls_at_the_limit_without_splitting_characters`, `compactor::tests::over_long_lines_get_the_cut_and_the_shortest_of_five_wins` | matched |
-| 37 | At most 5 tries; keep the shortest line. | `mod.rs` `TRIES`; `build_line` | `compactor::tests::over_long_lines_get_the_cut_and_the_shortest_of_five_wins`, `a_line_at_the_limit_ends_the_retries` | matched |
-| 38 | A failed call is tried again at the next message. | `actor.rs` `retry_failed` | `service::tests::a_failed_node_is_tried_again_only_for_a_waiting_turn` | matched (D5) |
+| 36 | Over 512 bytes: the `Too long:` follow-up in the same conversation, with the line cut at 512 bytes. | `prompts.rs` `cut_follow_up`; `compactor.rs` `build_line` | `prompts::tests::the_cut_falls_at_the_limit_without_splitting_characters`, `compactor::tests::over_long_lines_get_the_cut_and_the_shortest_cut_wins` | matched |
+| 37 | At most 5 tries; keep the shortest line. | `mod.rs` `TRIES`, `cut`; `build_line` | Laws `line_calls_at_most_tries`, `line_fits`, `line_takes_first_fit`, `line_stops_when_not_shorter`, `line_empty_is_a_try`; the compactor bridge; `compactor::tests::a_follow_up_not_shorter_ends_the_tries`, `a_line_at_the_limit_ends_the_retries` | deliberate (D9) |
+| 38 | A failed call is tried again at the next message. | `actor.rs` `retry_failed`, `failed` | `service::tests::a_failed_node_is_tried_again_only_for_a_waiting_turn`, `a_node_that_keeps_failing_is_built_from_its_input`; law `fail_cap_builds` | matched (D5) |
 | 39 | Up to 8 calls at once. | `mod.rs` `JOBS`; `chat.rs` `Chat::candidates` | Bridge (the queue column, with 1 to 8 jobs) | matched |
-| 40 | A message's node starts once fewer than 8 lines before it are unbuilt. A merge starts once both halves are built. | `Chat::candidates`, `note_ready_parent` | Bridge (the queue column) | matched |
+| 40 | A message's node starts once fewer than 8 lines before it are unbuilt. A merge starts once both halves are built. | `Chat::candidates`, `note_ready_parent` | Bridge (the queue columns); law `need_first` | matched (D5) |
 | 41 | A compaction's view stops at the first unbuilt line. | `view.rs` `render_built_until` | Law `context_ends_at_node`; bridge | matched |
 | 42 | Keep ready nodes in queues. Never scan the tree for work. | `chat.rs` `ready` (a queue, filled when a node is built) | Bridge (the queue order); code review: `candidates` reads the view's lines and the queue only | matched |
 | 43 | The model: a cheap one. | `summarizer.rs` `configured_memory_model` | `summarizer::tests` | deliberate (D6) |
@@ -257,7 +260,7 @@ the reason).
 | # | Rule | Code | Secured by | Status |
 | --- | --- | --- | --- | --- |
 | 46 | If a call is running, hand m to it between tool calls and log it as `user`. | Harness steering; `lines.rs` `user_input_line` | `optchat::tests::a_message_sent_during_a_call_joins_it_between_tool_calls` | matched |
-| 47 | Else wait until every message before m is summarized, then call in a fresh session. | `request.rs` `transform`, `pin`; `actor.rs` view waiters (`settled_render`) | `service::tests::a_settled_view_never_shows_a_placeholder_while_another_client_appends` | matched |
+| 47 | Else wait until every message before m is summarized, then call in a fresh session. | `request.rs` `transform`, `pin`; `actor.rs` view waiters (`settled_render`), `deadline_view` | `service::tests::a_settled_view_never_shows_a_placeholder_while_another_client_appends`, `a_turn_gets_the_view_by_its_deadline_when_the_model_never_answers`; laws `settle_reached`, `need_first` | deliberate (D10) |
 | 48 | Log each reply, tool call and result as it happens. | `optchat/logger.rs` | `optchat::tests::a_crash_between_append_and_cursor_logs_no_line_twice` | matched |
 | 49 | Render the view before logging the new message. The message goes whole after it. | `logger.rs` `log_conversation`; `request.rs` | `optchat::tests::a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them` | matched |
 | 50 | Nothing carries over between turns. | `request.rs` `request_messages` | Same test | matched |
@@ -335,10 +338,16 @@ the reason).
   memory prompt and the user's instructions. They do not change, so the
   cache prefix holds. The working directory is part of a session's set-up
   and does not change in a chat's sessions.
-- **D5. Retry while a turn waits.** While a turn waits for the view (rule
-  47), a failed node is also tried every 10 seconds (`RETRY`). Without this,
-  a turn waits for a message that does not come. After 3 failures the wait
-  ends with the compactor's error.
+- **D5. A waiting turn comes first.** While a turn waits for the view
+  (rule 47), only the view's unbuilt lines start: the ready merges wait
+  until the view settles, and a call running for any other node stops
+  when the turn starts to wait (no failure; laws `need_first`,
+  `need_first_running`). A failed node is also tried
+  every 10 seconds (`RETRY`); without this, a turn waits for a message
+  that does not come. The third failed call of a node builds it from its
+  input cut to 512 bytes (`FAILURES`, law `fail_cap_builds`), so the view
+  settles after a bounded number of compactor outcomes (laws `settle_*`,
+  docs/harness.md H2). The wait never ends with an error.
 - **D6. The model.** The gist names UniiChat's model (Claude Haiku). eukhe
   uses the model in the user's settings (`memory.model`, else the auxiliary
   model).
@@ -351,3 +360,19 @@ the reason).
   passes 128 KB, the batch line can be lost in a crash. Then the batch runs
   at the next message instead. A restart never runs a batch on its own,
   because the live chat also waits for the next message.
+- **D9. A line is cut, not trusted to shrink.** The gist keeps the
+  shortest of 5 tries, whatever its length. eukhe stops at a follow-up
+  that is not shorter than the best line (a measured local model wrote
+  the same 1,300-byte line every time), takes an empty or thinking-only
+  reply as the last try (asking again asks the same; a measured model
+  thought 12,000 tokens and wrote nothing), and cuts the best line, else
+  the input, to 512 bytes at a character boundary. So every line is 1 to
+  512 bytes (docs/harness.md H1). A model call past 10 minutes fails
+  (`CALL_DEADLINE`).
+- **D10. A turn waits for its view at most `memory.settleTimeoutMs`.**
+  The gist waits until every message before m is summarized. After
+  `memory.settleTimeoutMs` (default 20 s) a turn takes the view as it is:
+  each line not summarized yet shows its input (the message, labeled) cut
+  to 512 bytes, never the placeholder and never an error. The line is
+  summarized later as usual; the next turn sees its summary
+  (docs/harness.md H2.3).

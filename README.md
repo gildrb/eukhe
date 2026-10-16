@@ -86,8 +86,11 @@ The chat lives in `~/.eukhe/chat/`. It is one append-only log. Each message
 has a kind: `user`, `talk`, `tool`, `echo`, or `work` (a subagent or
 background report). The compactor writes one-line summaries into a binary
 tree over the log. A summary has a 512-byte target; a longer one is tried
-again, up to 5 times. A failed summary is tried again at the next message,
-and every 10 s while a turn waits for it; an idle chat makes no model call.
+again while it gets shorter, up to 5 times, and the shortest is cut to 512
+bytes. A failed summary is tried again at the next message, and every 10 s
+while a turn waits for it; its third failure keeps its message cut to 512
+bytes as the line. An idle chat makes no model call. A turn waits for the
+view's summaries at most `memory.settleTimeoutMs`.
 
 The view is the context each root turn starts from. When the view passes
 128 KB, one batch merges it down to 64 KB. The view is saved to `view.json`
@@ -132,6 +135,7 @@ Settings in `~/.eukhe/settings.json`:
 |`providerMaxInFlight`|none|`{"<provider>": n}`: model requests at one time per provider; `0` is no limit (global only)|
 |`providerMaxQueued`|`64`|Requests that wait per provider; the next one fails (global only)|
 |`retry.provider.streamIdleTimeoutMs`|`300000`|A model stream with no event for this long fails as stalled and retries; `0` is no limit|
+|`memory.settleTimeoutMs`|`20000`|How long a turn waits for the memory's summaries; then a line not summarized yet shows its message cut to 512 bytes; `0` takes the default|
 
 The daemon applies the provider limits to all sessions together. The roster
 shows a waiting request as `queued` and a running one as `generating`.
