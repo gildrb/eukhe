@@ -8,50 +8,17 @@
 //! with them and prints, after each event, the view, the compaction view,
 //! whether a batch is still shrinking, the batch it ran and the work
 //! queue; the Bend side builds `bend/bridge.bend` into a native binary and
-//! prints the same from the model.
-//!
-//! The test needs `bend` (2.0.37; `$BEND` or on `PATH`) and clang. Without
-//! `bend` it is skipped with a message, unless `EUKHE_REQUIRE_BEND` is set,
-//! as CI sets it: then a missing `bend` fails it.
+//! prints the same from the model, through [`compare`] (which skips without
+//! `bend`, unless `EUKHE_REQUIRE_BEND` is set).
 
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 
 use super::{Budgets, Chat};
 use crate::memory::store::MessageMeta;
 use crate::memory::view::Part;
 use crate::memory::{Kind, PLACEHOLDER};
-
-/// A small xorshift generator: the scenarios are the same on every run.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-
-    /// A number in `low..=high`.
-    fn range(&mut self, low: u64, high: u64) -> u64 {
-        low + self.next() % (high - low + 1)
-    }
-
-    /// True with probability `percent`/100.
-    fn chance(&mut self, percent: u64) -> bool {
-        self.next() % 100 < percent
-    }
-
-    fn pick<T: Copy>(&mut self, items: &[T]) -> Option<T> {
-        if items.is_empty() {
-            return None;
-        }
-        let at = self.next() % items.len() as u64;
-        items.get(usize::try_from(at).ok()?).copied()
-    }
-}
 
 /// A node's text in the scenarios: a newline (the view shows it as a
 /// space), then `size - 1` x's.
@@ -292,84 +259,14 @@ fn scenarios() -> Vec<(String, Run)> {
     out
 }
 
-/// `bend`: `$BEND`, else the first `bend` on `PATH`.
-fn bend() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("BEND") {
-        return Some(PathBuf::from(path));
-    }
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|dir| dir.join("bend"))
-        .find(|path| path.is_file())
-}
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// The first line where the two transcripts differ, with its number.
-fn first_difference(rust: &str, bend: &str) -> String {
-    let (mut rust_lines, mut bend_lines) = (rust.lines(), bend.lines());
-    let mut at = 1;
-    loop {
-        match (rust_lines.next(), bend_lines.next()) {
-            (Some(left), Some(right)) if left == right => at += 1,
-            (None, None) => return "none".to_string(),
-            (left, right) => {
-                return format!("line {at}:\n  rust: {left:?}\n  bend: {right:?}");
-            }
-        }
-    }
-}
-
 #[test]
 fn the_rust_planner_equals_the_bend_model() {
-    let Some(bend) = bend() else {
-        assert!(
-            std::env::var_os("EUKHE_REQUIRE_BEND").is_none(),
-            "EUKHE_REQUIRE_BEND is set but no `bend` is on PATH (or in $BEND)"
-        );
-        eprintln!(
-            "SKIPPED the_rust_planner_equals_the_bend_model: `bend` is not installed \
-             (https://bend-lang.com/install.sh, version 2.0.37), so the Rust planner was \
-             not compared with bend/optchat.bend"
-        );
-        return;
-    };
-    let dir = tempfile::tempdir().unwrap();
-    let binary = dir.path().join("bridge");
-    let built = Command::new(&bend)
-        .arg(repo_root().join("bend/bridge.bend"))
-        .arg("-o")
-        .arg(&binary)
-        .output()
-        .unwrap();
-    assert!(
-        built.status.success(),
-        "bend could not build bend/bridge.bend:\n{}{}",
-        String::from_utf8_lossy(&built.stdout),
-        String::from_utf8_lossy(&built.stderr)
+    compare(
+        "bend/bridge.bend",
+        scenarios().into_iter().map(|(name, run)| Scenario {
+            name,
+            events: run.events,
+            transcript: run.transcript,
+        }),
     );
-    for (at, (name, run)) in scenarios().into_iter().enumerate() {
-        let events = dir.path().join(format!("scenario-{at}"));
-        std::fs::write(&events, &run.events).unwrap();
-        let ran = Command::new(&binary).arg(&events).output().unwrap();
-        assert!(
-            ran.status.success(),
-            "the bridge failed on scenario {name}:\n{}",
-            String::from_utf8_lossy(&ran.stderr)
-        );
-        let model = String::from_utf8(ran.stdout).unwrap();
-        if model != run.transcript {
-            let kept = std::env::temp_dir().join(format!("eukhe-bridge-{at}"));
-            std::fs::create_dir_all(&kept).unwrap();
-            std::fs::write(kept.join("events"), &run.events).unwrap();
-            std::fs::write(kept.join("rust"), &run.transcript).unwrap();
-            std::fs::write(kept.join("bend"), &model).unwrap();
-            panic!(
-                "the Rust planner and the Bend model differ on scenario {name} (kept in {}): {}",
-                kept.display(),
-                first_difference(&run.transcript, &model)
-            );
-        }
-    }
 }

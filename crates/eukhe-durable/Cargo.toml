@@ -37,11 +37,15 @@ rquickjs = "0.14"
 # codemode/output: decode `image()` data to save it (TS `atob`). Already in the
 # graph through eukhe-ai. MIT OR Apache-2.0.
 base64 = "0.22"
+# testing/bridge: the bridge tests' scratch directory (the `testing`
+# feature only). MIT OR Apache-2.0.
+tempfile = { version = "3", optional = true }
 
 [features]
 # `eukhe_durable::testing`: the storage and environment conformance suites,
-# for the crate's own integration tests.
-testing = []
+# for the crate's own integration tests, and the Bend bridge harness, for
+# this crate's and eukhe-core's bridge tests.
+testing = ["dep:tempfile"]
 
 [dev-dependencies]
 eukhe-durable = { path = ".", features = ["testing"] }
