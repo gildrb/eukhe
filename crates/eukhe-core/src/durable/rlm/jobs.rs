@@ -3,85 +3,62 @@
 //!
 //! A cell whose call outlives the runtime's blocking budget
 //! ([`HostDeps::blocking_budget`](super::super::HostDeps::blocking_budget))
-//! keeps running as a job: its call settles `detached` with the output so
-//! far, and the cell's end settles the job here and through
+//! keeps running as a job of the session ([`crate::durable::jobs`]): its
+//! call settles `detached` with the output so far, and the cell's end
+//! settles the job here and through
 //! [`HostDeps::job_settled`](super::super::HostDeps::job_settled) (the
 //! daemon's job-settled wake). A cancel is the kernel's abort: the cell is
 //! interrupted, then its kernel is killed after the grace (ADR 0011).
-//! Every wait here is clamped to the budget.
+//! Every wait here is the one blocking wait on a job
+//! ([`jobs::wait_until`]), within the budget.
 
 use std::collections::VecDeque;
 use std::future::Future;
-use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::time::Duration;
 
-use eukhe_types::job::{CellStatus, JobId};
+use eukhe_types::job::CellStatus;
 use futures::FutureExt;
 use serde_json::{json, Value};
-use tokio::sync::watch;
 
 use super::super::{HostCall, HostCallHandler};
 use super::RlmRuntime;
-use crate::kernel::cancellation::AbortSignal;
+use crate::durable::jobs::{self, Job, JobEnd, JobEvent, JobState};
 
 /// Settled jobs a board keeps for `jobs.wait`/`jobs.list`.
 const SETTLED_HISTORY: usize = 16;
 
-/// Where one detached cell is.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum CellJobState {
-    Running,
-    /// `output` is the cell's whole projection, bounded once.
-    Settled {
-        status: CellStatus,
-        output: String,
-    },
-}
-
-/// One detached cell on its kernel's board.
+/// One detached cell on its kernel's board: its job, and how the cell
+/// ended once it did.
 #[derive(Clone)]
 pub(crate) struct CellJobEntry {
-    pub(crate) id: JobId,
-    started: Instant,
-    cancel: AbortSignal,
-    state: watch::Receiver<CellJobState>,
+    pub(crate) job: Job,
+    /// The cell's status and whole projection (bounded once), set before
+    /// its job ends.
+    settled: Arc<OnceLock<(CellStatus, String)>>,
 }
 
 impl CellJobEntry {
-    pub(crate) fn state(&self) -> CellJobState {
-        self.state.borrow().clone()
-    }
-
-    pub(crate) fn elapsed(&self) -> Duration {
-        self.started.elapsed()
-    }
-
-    /// Wait until the job settles or `deadline` passes; its state then.
-    pub(crate) async fn wait_until(&self, deadline: tokio::time::Instant) -> CellJobState {
-        let mut state = self.state.clone();
-        let settled = state.wait_for(|state| matches!(state, CellJobState::Settled { .. }));
-        // A dropped sender leaves the last state, which the read reports.
-        let _deadline_or_settled = tokio::time::timeout_at(deadline, settled).await;
-        self.state()
-    }
-
-    /// Request the cell's stop: the kernel interrupts it, and kills the
-    /// kernel when the interrupt is not honored within the grace.
-    pub(crate) fn cancel(&self) {
-        self.cancel.abort();
-    }
-
     fn to_json(&self) -> Value {
         let mut entry = json!({
-            "id": self.id.as_str(),
+            "id": self.job.id().as_str(),
             "kind": "cell",
-            "elapsed_ms": u64::try_from(self.elapsed().as_millis()).unwrap_or(u64::MAX),
+            "elapsed_ms": u64::try_from(self.job.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
-        match self.state() {
-            CellJobState::Running => entry["state"] = json!("running"),
-            CellJobState::Settled { status, output } => {
+        match (self.job.state(), self.settled.get()) {
+            (JobState::Live { .. }, _) => entry["state"] = json!("running"),
+            (JobState::Ended { .. }, Some((status, output))) => {
                 entry["state"] = json!(status.label());
                 entry["output"] = json!(output);
+            }
+            // A cell job ends only through its settle, which keeps the
+            // status first; the end alone still names how it ended.
+            (JobState::Ended { end, .. }, None) => {
+                entry["state"] = json!(match end {
+                    JobEnd::Exited(0) => CellStatus::Ok.label(),
+                    JobEnd::Exited(_) => CellStatus::Error.label(),
+                    JobEnd::Killed => CellStatus::Killed.label(),
+                });
             }
         }
         entry
@@ -90,13 +67,19 @@ impl CellJobEntry {
 
 /// The settle side of one detached cell, held by its continuation.
 pub(crate) struct CellJobSettle {
-    state: watch::Sender<CellJobState>,
+    entry: CellJobEntry,
 }
 
 impl CellJobSettle {
+    /// Keep how the cell ended, then end its job: a cell that ran to its
+    /// end or raised exits (0 or 1); an aborted or killed one is killed.
     pub(crate) fn settle(self, status: CellStatus, output: String) {
-        self.state
-            .send_replace(CellJobState::Settled { status, output });
+        let _ = self.entry.settled.set((status, output));
+        self.entry.job.record(match status {
+            CellStatus::Ok => JobEvent::Exited(0),
+            CellStatus::Error => JobEvent::Exited(1),
+            CellStatus::Aborted | CellStatus::Killed => JobEvent::Killed,
+        });
     }
 }
 
@@ -112,41 +95,36 @@ impl CellJobs {
         self.entries.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Enter a cell whose call just detached; `cancel` is its execution's
-    /// abort signal.
-    pub(crate) fn start(&self, id: JobId, cancel: AbortSignal) -> CellJobSettle {
-        let (state, receiver) = watch::channel(CellJobState::Running);
+    /// Enter the job of a cell whose call just detached.
+    pub(crate) fn start(&self, job: Job) -> CellJobSettle {
+        let entry = CellJobEntry {
+            job,
+            settled: Arc::default(),
+        };
         let mut entries = self.entries();
         while entries.len() > SETTLED_HISTORY {
-            let Some(oldest_settled) = entries
-                .iter()
-                .position(|entry| entry.state() != CellJobState::Running)
+            let Some(oldest_settled) = entries.iter().position(|entry| !entry.job.is_running())
             else {
                 break;
             };
             entries.remove(oldest_settled);
         }
-        entries.push_back(CellJobEntry {
-            id,
-            started: Instant::now(),
-            cancel,
-            state: receiver,
-        });
-        CellJobSettle { state }
+        entries.push_back(entry.clone());
+        CellJobSettle { entry }
     }
 
     /// The detached cell still holding the kernel.
     pub(crate) fn running(&self) -> Option<CellJobEntry> {
         self.entries()
             .iter()
-            .find(|entry| entry.state() == CellJobState::Running)
+            .find(|entry| entry.job.is_running())
             .cloned()
     }
 
     fn get(&self, id: &str) -> Option<CellJobEntry> {
         self.entries()
             .iter()
-            .find(|entry| entry.id.as_str() == id)
+            .find(|entry| entry.job.id().as_str() == id)
             .cloned()
     }
 
@@ -228,7 +206,8 @@ async fn wait(runtime: Arc<RlmRuntime>, data: Value) -> anyhow::Result<Value> {
             .ok_or_else(|| anyhow::anyhow!("jobs.wait timeout_ms must be a non-negative integer"))?
             .min(budget),
     };
-    job.wait_until(tokio::time::Instant::now() + timeout).await;
+    let _settled_or_detached =
+        jobs::wait_until(tokio::time::Instant::now() + timeout, job.job.ended()).await;
     Ok(job.to_json())
 }
 
@@ -237,8 +216,11 @@ async fn wait(runtime: Arc<RlmRuntime>, data: Value) -> anyhow::Result<Value> {
 #[tracing::instrument(skip_all)]
 async fn cancel(runtime: Arc<RlmRuntime>, data: Value) -> anyhow::Result<Value> {
     let job = find_job(&runtime, &data)?;
-    job.cancel();
-    job.wait_until(tokio::time::Instant::now() + runtime.deps.blocking_budget())
-        .await;
+    job.job.kill();
+    let _settled_or_detached = jobs::wait_until(
+        tokio::time::Instant::now() + runtime.deps.blocking_budget(),
+        job.job.ended(),
+    )
+    .await;
     Ok(job.to_json())
 }

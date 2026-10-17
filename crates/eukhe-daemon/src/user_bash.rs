@@ -10,20 +10,30 @@
 //! its artifact, `eukhe_core::durable::bounded_output`), and the user-bash
 //! wrapper (the already-running guard, the
 //! identity echoed on start/end, transient rows staying unrecorded).
+//!
+//! Every run is a job of the session (`eukhe_core::durable::jobs`,
+//! docs/harness.md S2): its process leads its own process group, and its
+//! kill (`abort_bash`, a rewind) kills the group. `execute_bash_and_wait`
+//! blocks at most the session's blocking budget: past it the call answers
+//! detached with the output so far, the run goes on in the background, and
+//! its end records its row as a settled run does.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::jobs::{self, Job, JobEvent, JobKind, JobSpec, JobTable, Wait};
 use eukhe_core::durable::rlm::{kernel_bash_activity, BashActivityAction, BashActivityRequest};
 use eukhe_core::durable::{bash_entry_draft, BashEntryData};
 use eukhe_durable::harness::types::WriteSubmissionDraft;
+use eukhe_durable::harness::Truncation;
 use eukhe_types::daemon::{BashRun, SessionEvent};
+use eukhe_types::job::JobId;
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 use eukhe_core::durable::bounded_output::BoundedOutput;
 use eukhe_types::output::OmittedOutput;
@@ -43,9 +53,9 @@ pub(crate) struct UserBash {
     awaited: AtomicUsize,
     /// An abort was requested: the settled result reports cancelled.
     abort_requested: AtomicBool,
-    /// The in-flight process (user bash or an awaited run): `abort_bash`
-    /// kills it.
-    child: Mutex<Option<tokio::process::Child>>,
+    /// The jobs of the runs in flight (user bash and awaited runs):
+    /// `abort_bash` kills them.
+    runs: std::sync::Mutex<Vec<Job>>,
 }
 
 impl UserBash {
@@ -54,7 +64,7 @@ impl UserBash {
             running: AtomicBool::new(false),
             awaited: AtomicUsize::new(0),
             abort_requested: AtomicBool::new(false),
-            child: Mutex::new(None),
+            runs: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -93,13 +103,33 @@ impl UserBash {
         AwaitedRun { user_bash: self }
     }
 
-    /// Kill the in-flight process (TS `abortBash` aborts every
-    /// controller); the settled runs report cancelled.
-    pub(crate) async fn abort(&self) {
+    /// Start the job of one run of `command` on the session's `jobs`: its
+    /// kill cancels the returned token, on which the run kills its process
+    /// group.
+    fn start_run(&self, jobs: &JobTable, command: &str) -> (Job, CancellationToken) {
+        let cancel = CancellationToken::new();
+        let job = jobs.start(JobSpec {
+            id: JobId::new(format!("bash-{}", uuid::Uuid::new_v4().simple()))
+                .expect("a simple uuid is a header-safe job id"),
+            kind: JobKind::UserBash,
+            label: command.to_owned(),
+            truncation: Truncation::default(),
+            written: 0,
+            kill: {
+                let cancel = cancel.clone();
+                Box::new(move |_| cancel.cancel())
+            },
+        });
+        lock(&self.runs).push(job.clone());
+        (job, cancel)
+    }
+
+    /// Kill every run in flight (TS `abortBash` aborts every controller);
+    /// the settled runs report cancelled.
+    pub(crate) fn abort(&self) {
         self.abort_requested.store(true, Ordering::SeqCst);
-        let mut child = self.child.lock().await;
-        if let Some(child) = child.as_mut() {
-            let _ = child.start_kill();
+        for job in lock(&self.runs).iter() {
+            job.kill();
         }
     }
 }
@@ -181,9 +211,10 @@ impl Worker {
     /// never records the run twice; the Harness inbox places it at the next
     /// boundary while a run is busy.
     pub(crate) fn handle_execute_bash(&self, payload: &Value) -> DaemonResponse {
-        if let Err(response) = self.require_created("execute_bash") {
-            return response;
-        }
+        let hosted = match self.hosted("execute_bash") {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
         let Some(command) = payload.get("command").and_then(Value::as_str) else {
             return response_failure(
                 None,
@@ -227,6 +258,12 @@ impl Worker {
         let events = Arc::clone(&self.events);
         let session = self.session.clone();
         let user_bash = Arc::clone(&self.user_bash);
+        let (job, cancel) = user_bash.start_run(&hosted.deps().jobs, command);
+        let stream = OutputStream::shared(
+            hosted.storage_dir(),
+            Some((Arc::clone(&core), Arc::clone(&events))),
+            job.clone(),
+        );
         let command = command.to_string();
         let agent_dir = self.config.agent_dir.clone();
         tokio::spawn(async move {
@@ -240,10 +277,9 @@ impl Worker {
                 prefix: prefix.as_deref(),
                 shell_path: shell_path.as_deref(),
                 user_bash: &user_bash,
-                storage_dir: session
-                    .get()
-                    .and_then(|hosted| hosted.storage_dir().map(Path::to_path_buf)),
-                on_chunk: Some((Arc::clone(&core), Arc::clone(&events))),
+                job,
+                cancel,
+                stream,
             })
             .await;
             // Persist the durable row (transient runs live only in their
@@ -255,6 +291,7 @@ impl Worker {
                     cancelled: end.cancelled,
                     omitted: end.omitted,
                     artifact: end.artifact.clone(),
+                    detached: None,
                 };
                 if let Some(hosted) = session.get() {
                     let row = BashRow {
@@ -287,8 +324,10 @@ impl Worker {
     }
 
     /// `execute_bash_and_wait { command }` (TS `executeBash` over the
-    /// awaited path): run to completion, record the row, and answer the
-    /// `BashResult` wire shape.
+    /// awaited path): run, record the row, and answer the `BashResult` wire
+    /// shape. The call blocks at most the session's blocking budget: past
+    /// it the answer is detached (`detached: {job, budgetMs}`, the output
+    /// so far), and the run's end records its row in the background.
     pub(crate) async fn handle_execute_bash_and_wait(&self, payload: &Value) -> DaemonResponse {
         let hosted = match self.hosted("execute_bash_and_wait") {
             Ok(hosted) => hosted,
@@ -318,69 +357,105 @@ impl Worker {
                 settings.shell_path.clone(),
             )
         };
-        let user_bash = Arc::clone(&self.user_bash);
-        let command = command.to_string();
         let request_id = bash_request_id(payload.get("runId").and_then(Value::as_str));
-        // The awaited run counts toward the session's `isBashRunning` (TS's
-        // `executeBash` registers an abort controller, so the flag is true
-        // for its whole duration); it owns no exclusive slot, so a streamed
-        // user bash is not blocked by it. The bracket releases the count on
-        // drop, so a dropped run future cannot leave the flag stuck on.
-        let awaited = user_bash.begin_awaited();
-        let end = run_bash(RunBash {
-            command: &command,
-            cwd: &cwd,
-            prefix: prefix.as_deref(),
-            shell_path: shell_path.as_deref(),
-            user_bash: &user_bash,
-            storage_dir: self
-                .session
-                .get()
-                .and_then(|hosted| hosted.storage_dir().map(Path::to_path_buf)),
-            // The awaited path emits nothing (TS passes no `onChunk`).
-            on_chunk: None,
-        })
-        .await;
-        drop(awaited);
-        // The awaited path emits no session events, so the live roster
-        // feed has no trigger of its own — TS's `execute_bash_and_wait`
-        // flushes in the command's `finally`; the port enqueues the same
-        // flush here (the summary composes fresh, so the settled run reads
-        // idle on the roster).
-        self.roster_pushes.push();
-        if let Some(error) = &end.error_message {
-            return response_failure(None, "execute_bash_and_wait", error, None);
-        }
-        let result = BashResult {
-            output: end.output,
-            exit_code: end.exit_code,
-            cancelled: end.cancelled,
-            omitted: end.omitted,
-            artifact: end.artifact,
+        let (job, cancel) = self.user_bash.start_run(&hosted.deps().jobs, command);
+        // The awaited path emits nothing (TS passes no `onChunk`).
+        let stream = OutputStream::shared(hosted.storage_dir(), None, job.clone());
+        let job_id = job.id().clone();
+        let mut run = {
+            let user_bash = Arc::clone(&self.user_bash);
+            let command = command.to_owned();
+            let stream = Arc::clone(&stream);
+            tokio::spawn(async move {
+                // The awaited run counts toward the session's
+                // `isBashRunning` (TS's `executeBash` registers an abort
+                // controller, so the flag is true for its whole duration);
+                // it owns no exclusive slot, so a streamed user bash is not
+                // blocked by it. The bracket releases the count on drop, so
+                // a dropped run cannot leave the flag stuck on.
+                let _awaited = user_bash.begin_awaited();
+                run_bash(RunBash {
+                    command: &command,
+                    cwd: &cwd,
+                    prefix: prefix.as_deref(),
+                    shell_path: shell_path.as_deref(),
+                    user_bash: &user_bash,
+                    job,
+                    cancel,
+                    stream,
+                })
+                .await
+            })
         };
-        let row = BashRow {
-            command: &command,
-            result: &result,
-            exclude_from_context: false,
-            request_id,
+        let budget = hosted.deps().blocking_budget();
+        let joined = match jobs::wait_until(tokio::time::Instant::now() + budget, &mut run).await {
+            Wait::Settled(joined) => joined,
+            Wait::Detached => {
+                let (output, bounded) = lock(&stream).output.projection();
+                let (omitted, artifact) = bounded.map_or((None, None), |diagnostic| {
+                    (diagnostic.omitted, diagnostic.artifact)
+                });
+                let roster_pushes = self.roster_pushes.clone();
+                let command = command.to_owned();
+                tokio::spawn(async move {
+                    let settled = match run.await {
+                        Ok(end) => {
+                            settle_awaited_run(&hosted, &roster_pushes, &command, request_id, end)
+                                .await
+                                .map(drop)
+                        }
+                        Err(error) => Err(format!("the bash run failed: {error}")),
+                    };
+                    if let Err(error) = settled {
+                        eprintln!("eukhe-daemon worker: a detached bash run: {error}");
+                    }
+                });
+                let result = BashResult {
+                    output,
+                    exit_code: None,
+                    cancelled: false,
+                    omitted,
+                    artifact,
+                    detached: Some(DetachedRun {
+                        job: job_id,
+                        budget_ms: u64::try_from(budget.as_millis()).unwrap_or(u64::MAX),
+                    }),
+                };
+                return response_success(
+                    None,
+                    "execute_bash_and_wait",
+                    Some(serde_json::to_value(&result).unwrap_or(Value::Null)),
+                );
+            }
         };
-        if let Err(error) = record_bash_result(&hosted, row).await {
-            return response_failure(None, "execute_bash_and_wait", &format!("{error:#}"), None);
+        let end = match joined {
+            Ok(end) => end,
+            Err(error) => {
+                return response_failure(
+                    None,
+                    "execute_bash_and_wait",
+                    &format!("the bash run failed: {error}"),
+                    None,
+                )
+            }
+        };
+        match settle_awaited_run(&hosted, &self.roster_pushes, command, request_id, end).await {
+            Ok(result) => response_success(
+                None,
+                "execute_bash_and_wait",
+                Some(serde_json::to_value(&result).unwrap_or(Value::Null)),
+            ),
+            Err(error) => response_failure(None, "execute_bash_and_wait", &error, None),
         }
-        response_success(
-            None,
-            "execute_bash_and_wait",
-            Some(serde_json::to_value(&result).unwrap_or(Value::Null)),
-        )
     }
 
     /// `abort_bash` (TS `abortBash`): kill the in-flight command; the
     /// settled run reports cancelled. Always a success.
-    pub(crate) async fn handle_abort_bash(&self) -> DaemonResponse {
+    pub(crate) fn handle_abort_bash(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("abort_bash") {
             return response;
         }
-        self.user_bash.abort().await;
+        self.user_bash.abort();
         response_success(None, "abort_bash", None)
     }
 }
@@ -427,6 +502,18 @@ struct BashResult {
     omitted: Option<OmittedOutput>,
     #[serde(skip_serializing_if = "Option::is_none")]
     artifact: Option<String>,
+    /// Set when the awaited call outlived the blocking budget: the run
+    /// goes on as this job.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detached: Option<DetachedRun>,
+}
+
+/// An awaited run that outlived the blocking budget.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DetachedRun {
+    job: JobId,
+    budget_ms: u64,
 }
 
 /// The settled user-bash run (TS `UserBashEndDetails` plus the output it
@@ -448,46 +535,75 @@ struct RunBash<'a> {
     prefix: Option<&'a str>,
     shell_path: Option<&'a str>,
     user_bash: &'a UserBash,
-    /// The session's storage directory, where an output past the bound
-    /// keeps its artifact.
-    storage_dir: Option<PathBuf>,
-    /// The streaming emit target for each sanitized chunk (the
-    /// executor's `onChunk`; `None` on the awaited path, which emits
-    /// nothing).
-    on_chunk: Option<(
-        Arc<std::sync::Mutex<crate::worker::SessionCore>>,
-        Arc<crate::worker::EventPump>,
-    )>,
+    /// The run's job ([`UserBash::start_run`]), which the run ends.
+    job: Job,
+    /// Cancelled by the job's kill.
+    cancel: CancellationToken,
+    stream: Arc<std::sync::Mutex<OutputStream>>,
 }
 
+/// The streaming emit target of a run's chunks (the executor's `onChunk`).
+type ChunkTarget = (
+    Arc<std::sync::Mutex<crate::worker::SessionCore>>,
+    Arc<crate::worker::EventPump>,
+);
+
 /// The streaming accumulator (TS `onData`): the sanitizing decode, the one
-/// bound with its artifact, and the chunk callback.
+/// bound with its artifact, the chunk callback, and the job's output.
 struct OutputStream {
     output: BoundedOutput,
-    on_chunk: Option<(
-        Arc<std::sync::Mutex<crate::worker::SessionCore>>,
-        Arc<crate::worker::EventPump>,
-    )>,
+    /// `None` on the awaited path, which emits nothing.
+    on_chunk: Option<ChunkTarget>,
+    job: Job,
 }
 
 impl OutputStream {
+    /// The accumulator of `job`'s run; an output past the bound keeps its
+    /// artifact in `storage_dir` (the session's storage).
+    fn shared(
+        storage_dir: Option<&Path>,
+        on_chunk: Option<ChunkTarget>,
+        job: Job,
+    ) -> Arc<std::sync::Mutex<Self>> {
+        Arc::new(std::sync::Mutex::new(Self {
+            output: BoundedOutput::in_session(
+                storage_dir,
+                job.id().as_str(),
+                Truncation::default(),
+            ),
+            on_chunk,
+            job,
+        }))
+    }
+
     fn push(&mut self, data: &[u8]) {
         let text = sanitize_output(&String::from_utf8_lossy(data));
         if text.is_empty() {
             return;
         }
         self.output.push(&text);
+        self.job.record(JobEvent::Output(text.len() as u64));
         if let Some((core, events)) = &self.on_chunk {
             emit_worker_event_with(core, events, SessionEvent::BashOutput { chunk: text });
         }
     }
 }
 
+/// Run one command to its end, then end its job: a run that could not
+/// spawn exits 127 (the shell's code for a command it cannot run), a
+/// cancelled run or a signal death is killed, else it exits with its
+/// code.
 async fn run_bash(run: RunBash<'_>) -> BashEnd {
-    let resolved = match run.prefix.filter(|prefix| !prefix.is_empty()) {
-        Some(prefix) => format!("{prefix}\n{}", run.command),
-        None => run.command.to_string(),
-    };
+    let RunBash {
+        command,
+        cwd,
+        prefix,
+        shell_path,
+        user_bash,
+        job,
+        cancel,
+        stream,
+    } = run;
     let spawn_failure = |message: String| BashEnd {
         output: String::new(),
         exit_code: None,
@@ -496,114 +612,124 @@ async fn run_bash(run: RunBash<'_>) -> BashEnd {
         artifact: None,
         error_message: Some(message),
     };
-    if !std::path::Path::new(run.cwd).exists() {
-        // TS local operations reject before spawning.
-        return spawn_failure(format!(
-            "Working directory does not exist: {}\nCannot execute bash commands.",
-            run.cwd
-        ));
-    }
-    let shell = match eukhe_core::platform::shell::get_shell_config(run.shell_path) {
-        Ok(shell) => shell,
-        Err(error) => return spawn_failure(error.to_string()),
-    };
-    let mut command = tokio::process::Command::new(&shell.shell);
-    command
-        .args(&shell.args)
-        .arg(&resolved)
-        .current_dir(run.cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return spawn_failure(error.to_string()),
-    };
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    {
-        let mut slot = run.user_bash.child.lock().await;
+    let end = 'run: {
+        let resolved = match prefix.filter(|prefix| !prefix.is_empty()) {
+            Some(prefix) => format!("{prefix}\n{command}"),
+            None => command.to_string(),
+        };
+        if !Path::new(cwd).exists() {
+            // TS local operations reject before spawning.
+            break 'run spawn_failure(format!(
+                "Working directory does not exist: {cwd}\nCannot execute bash commands."
+            ));
+        }
+        let shell = match eukhe_core::platform::shell::get_shell_config(shell_path) {
+            Ok(shell) => shell,
+            Err(error) => break 'run spawn_failure(error.to_string()),
+        };
+        let mut process = tokio::process::Command::new(&shell.shell);
+        process
+            .args(&shell.args)
+            .arg(&resolved)
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // Its own process group, so a kill reaches every process it starts.
+        eukhe_core::platform::process::set_new_process_group(process.as_std_mut());
+        let mut child = match process.spawn() {
+            Ok(child) => child,
+            Err(error) => break 'run spawn_failure(error.to_string()),
+        };
+        let group = child.id().and_then(|pid| i32::try_from(pid).ok());
         // A late abort that arrived before the process spawned kills it
         // immediately (TS honors `_userBashAbortRequested` before
         // executing); the flag still settles the run cancelled.
-        if run.user_bash.abort_requested.load(Ordering::SeqCst) {
-            let _ = child.start_kill();
+        if user_bash.abort_requested.load(Ordering::SeqCst) {
+            cancel.cancel();
         }
-        *slot = Some(child);
-    }
-    let stream = std::sync::Arc::new(std::sync::Mutex::new(OutputStream {
-        output: BoundedOutput::in_session(
-            run.storage_dir.as_deref(),
-            &format!("bash-{}", uuid::Uuid::new_v4().simple()),
-        ),
-        on_chunk: run.on_chunk,
-    }));
-    // stdout and stderr merge into one stream (TS wires both pipes to the
-    // same `onData`); order between them is arrival order. The shared
-    // accumulator keeps the merged order the interleaved reads produce.
-    let pump = |mut reader: Box<dyn AsyncRead + Unpin + Send>| {
-        let stream = Arc::clone(&stream);
-        async move {
-            let mut buffer = [0u8; 8192];
-            loop {
-                match reader.read(&mut buffer).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(read) => lock(&stream).push(&buffer[..read]),
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        // stdout and stderr merge into one stream (TS wires both pipes to
+        // the same `onData`); order between them is arrival order. The
+        // shared accumulator keeps the merged order the interleaved reads
+        // produce.
+        let pump = |mut reader: Box<dyn AsyncRead + Unpin + Send>| {
+            let stream = Arc::clone(&stream);
+            async move {
+                let mut buffer = [0u8; 8192];
+                loop {
+                    match reader.read(&mut buffer).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => lock(&stream).push(&buffer[..read]),
+                    }
                 }
             }
-        }
-    };
-    let stdout_pump = stdout.map(|pipe| pump(Box::new(pipe)));
-    let stderr_pump = stderr.map(|pipe| pump(Box::new(pipe)));
-    match (stdout_pump, stderr_pump) {
-        (Some(stdout_pump), Some(stderr_pump)) => {
-            futures::future::join(stdout_pump, stderr_pump).await;
-        }
-        (Some(pump), None) | (None, Some(pump)) => pump.await,
-        (None, None) => {}
-    }
-    // Take the child back for the exit status (abort_bash may have killed
-    // it meanwhile; a signal death reports no exit code).
-    let mut child = {
-        let mut slot = run.user_bash.child.lock().await;
-        slot.take()
-    };
-    let exit_code = match child.as_mut() {
-        Some(child) => child
-            .wait()
-            .await
-            .ok()
-            .and_then(|status| status.code())
-            .map(i64::from),
-        None => None,
-    };
-    let cancelled = run.user_bash.abort_requested.load(Ordering::SeqCst);
-    // The reader tasks joined, so this is the last reference; a poisoned
-    // lock (a reader panicked) keeps whatever it collected.
-    let Some(stream) = Arc::into_inner(stream) else {
-        return spawn_failure("the output stream is still shared after the run".to_owned());
-    };
-    let stream = stream
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let (output, bounded) = stream.output.finish();
-    let (omitted, artifact) = match bounded {
-        Some(diagnostic) => {
-            if diagnostic.artifact.is_none() {
-                eprintln!("eukhe-daemon: user bash: {}", diagnostic.message);
+        };
+        let stdout_pump = stdout.map(|pipe| pump(Box::new(pipe)));
+        let stderr_pump = stderr.map(|pipe| pump(Box::new(pipe)));
+        let pumps = async move {
+            match (stdout_pump, stderr_pump) {
+                (Some(stdout_pump), Some(stderr_pump)) => {
+                    futures::future::join(stdout_pump, stderr_pump).await;
+                }
+                (Some(pump), None) | (None, Some(pump)) => pump.await,
+                (None, None) => {}
             }
-            (diagnostic.omitted, diagnostic.artifact)
+        };
+        tokio::pin!(pumps);
+        tokio::select! {
+            () = &mut pumps => {}
+            () = cancel.cancelled() => {
+                if let Some(group) = group {
+                    // A group already gone has nothing left to kill.
+                    let _ = eukhe_core::platform::process::kill_process_group_or_pid(group);
+                }
+                pumps.await;
+            }
         }
-        None => (None, None),
+        // A command that closed its pipes still runs: the cancel kills its
+        // group while the wait runs too. A signal death reports no exit
+        // code.
+        let waited = tokio::select! {
+            biased;
+            waited = child.wait() => waited,
+            () = cancel.cancelled() => {
+                if let Some(group) = group {
+                    // A group already gone has nothing left to kill.
+                    let _ = eukhe_core::platform::process::kill_process_group_or_pid(group);
+                }
+                child.wait().await
+            }
+        };
+        let exit_code = waited.ok().and_then(|status| status.code()).map(i64::from);
+        let cancelled = user_bash.abort_requested.load(Ordering::SeqCst) || cancel.is_cancelled();
+        let (output, bounded) = lock(&stream).output.projection();
+        let (omitted, artifact) = match bounded {
+            Some(diagnostic) => {
+                if diagnostic.artifact.is_none() {
+                    eprintln!("eukhe-daemon: user bash: {}", diagnostic.message);
+                }
+                (diagnostic.omitted, diagnostic.artifact)
+            }
+            None => (None, None),
+        };
+        BashEnd {
+            output,
+            exit_code: if cancelled { None } else { exit_code },
+            cancelled,
+            omitted,
+            artifact,
+            error_message: None,
+        }
     };
-    BashEnd {
-        output,
-        exit_code: if cancelled { None } else { exit_code },
-        cancelled,
-        omitted,
-        artifact,
-        error_message: None,
-    }
+    job.record(match (&end.error_message, end.exit_code) {
+        (Some(_), _) => JobEvent::Exited(127),
+        (None, Some(code)) => JobEvent::Exited(code),
+        (None, None) => JobEvent::Killed,
+    });
+    lock(&user_bash.runs).retain(|run| run.id() != job.id());
+    end
 }
 
 /// One settled run's durable row.
@@ -642,6 +768,43 @@ async fn record_bash_result(hosted: &HostedSession, row: BashRow<'_>) -> anyhow:
         .await?;
     hosted.events_delivered().await;
     Ok(())
+}
+
+/// Settle one awaited run (`execute_bash_and_wait`): flush the roster, then
+/// record its row. The awaited path emits no session events, so the live
+/// roster feed has no trigger of its own — TS's `execute_bash_and_wait`
+/// flushes in the command's `finally`; the port enqueues the same flush
+/// (the summary composes fresh, so the settled run reads idle on the
+/// roster). The result, or the error the call answers.
+async fn settle_awaited_run(
+    hosted: &HostedSession,
+    roster_pushes: &crate::roster_activity::RosterPushQueue,
+    command: &str,
+    request_id: String,
+    end: BashEnd,
+) -> Result<BashResult, String> {
+    roster_pushes.push();
+    if let Some(error) = end.error_message {
+        return Err(error);
+    }
+    let result = BashResult {
+        output: end.output,
+        exit_code: end.exit_code,
+        cancelled: end.cancelled,
+        omitted: end.omitted,
+        artifact: end.artifact,
+        detached: None,
+    };
+    let row = BashRow {
+        command,
+        result: &result,
+        exclude_from_context: false,
+        request_id,
+    };
+    record_bash_result(hosted, row)
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    Ok(result)
 }
 
 /// Sanitize one output chunk (TS `strip-ansi` + `sanitizeBinaryOutput` +
@@ -699,6 +862,7 @@ fn strip_ansi(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::durable_test_support::{created_worker, created_worker_with, worker_rows};
+    use eukhe_core::durable::jobs::JobEnd;
     use serde_json::json;
     use std::time::{Duration, Instant};
 
@@ -880,6 +1044,75 @@ mod tests {
         );
     }
 
+    /// Past the session's blocking budget an awaited run answers detached
+    /// with its job and the output so far; the run goes on as a job (still
+    /// `isBashRunning`), and its end records its row.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_awaited_run_past_the_budget_answers_detached_and_its_end_records_its_row() {
+        let (dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        std::fs::write(
+            dir.path().join("agent").join("settings.json"),
+            r#"{"toolBlockingBudgetMs":300}"#,
+        )
+        .expect("settings");
+        let gate = dir.path().join("gate");
+        let command = format!(
+            "echo started; while [ ! -f {} ]; do sleep 0.01; done; echo done",
+            gate.display()
+        );
+        let response = worker
+            .dispatch(
+                "execute_bash_and_wait",
+                &json!({ "activeSessionId": SESSION, "command": command }),
+            )
+            .await;
+        assert!(response.success, "failed: {response:?}");
+        let data = response.data.expect("data");
+        let job = data["detached"]["job"].clone();
+        assert_eq!(
+            data,
+            json!({
+                "output": "started\n",
+                "cancelled": false,
+                "detached": { "job": job, "budgetMs": 300 },
+            })
+        );
+        let hosted = worker.session.get().expect("hosted session");
+        let running = hosted
+            .deps()
+            .jobs
+            .get(job.as_str().expect("job id"))
+            .expect("the run's job");
+        assert!(running.is_running() && bash_running(&worker).await);
+        assert_eq!(bash_rows(&worker).await.len(), 0);
+
+        std::fs::write(&gate, "").expect("open the gate");
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(10), running.ended())
+                .await
+                .expect("the run ends"),
+            JobEnd::Exited(0)
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let rows = loop {
+            let rows = bash_rows(&worker).await;
+            if !rows.is_empty() {
+                break rows;
+            }
+            assert!(Instant::now() < deadline, "the detached run never recorded");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        assert_eq!(
+            (
+                rows.len(),
+                rows[0]["output"].clone(),
+                rows[0]["exitCode"].clone()
+            ),
+            (1, json!("started\ndone\n"), json!(0))
+        );
+        wait_bash_running(&worker, false).await;
+    }
+
     /// `execute_bash` responds before completion (no data), claims the
     /// slot (a second command answers the TS already-running refusal),
     /// `abort_bash` kills the run, and the excluded row carries the
@@ -929,6 +1162,41 @@ mod tests {
             rows[0].get("exitCode").is_none(),
             "killed runs carry no exit code"
         );
+    }
+
+    /// `abort_bash` kills a command that closed its stdout and stderr: the
+    /// pipes end at once, but the process runs until the kill.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn abort_bash_kills_a_command_that_closed_its_pipes() {
+        let (dir, worker) = created_worker(SESSION, json!(["ack"])).await;
+        let closed = dir.path().join("closed");
+        let command = format!(
+            "touch {}; exec >/dev/null 2>&1; sleep 1e6",
+            closed.display()
+        );
+        let response = worker
+            .dispatch(
+                "execute_bash",
+                &json!({ "activeSessionId": SESSION, "command": command }),
+            )
+            .await;
+        assert!(response.success, "failed: {response:?}");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !closed.exists() {
+            assert!(Instant::now() < deadline, "the command never ran");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        // Let the pumps see the closed pipes.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(bash_running(&worker).await);
+
+        let aborted = worker
+            .dispatch("abort_bash", &json!({ "activeSessionId": SESSION }))
+            .await;
+        assert!(aborted.success, "failed: {aborted:?}");
+        wait_bash_running(&worker, false).await;
+        let rows = bash_rows(&worker).await;
+        assert_eq!((rows.len(), rows[0]["cancelled"].clone()), (1, json!(true)));
     }
 
     /// Transient runs stay unrecorded (they live only in their pane).

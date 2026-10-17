@@ -275,7 +275,8 @@ async fn abandons_a_replay_unsafe_callers_unfinished_nested_calls_before_they_ru
     assert_eq!(codes(started.as_ref()), ["interrupted"]);
     let started = started.expect("the started call ends with a result");
     assert!(started.is_error);
-    assert_eq!(started.details, Some(json_value(r#"{"step":1}"#)));
+    // Its details were live progress only: the restart lost them.
+    assert_eq!(started.details, None);
     assert_eq!(started.structured_output, None);
     assert_eq!(codes(end_result(&events, "c1/2").as_ref()), ["abandoned"]);
     // The caller reports the interruption.

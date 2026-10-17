@@ -659,3 +659,197 @@ the daemon tests `get_state_tree_answers_the_sessions_tree` and
 `subscribe_state_tree_streams_records_to_its_connection_only`;
 `peer::tests::peer_session_attach_gates_event_stream`. Not modelled:
 the map from commits to records (S1, second list). Its tests tie it.
+
+### S2. Jobs and limits
+
+One setting bounds every output: the output of a tool call, of a cell,
+and of a job. A tool call journals only its start and its settle.
+
+Limits:
+
+1. The setting is `Truncation`. `On(OutputLimits)` keeps at most the
+   limits (bytes, lines, head or tail) and counts the rest as dropped. It
+   is the default, with 50 KiB and 2000 lines. These default values are
+   in `eukhe-types` only. `Off` is the explicit opt-out: it keeps every
+   byte.
+2. The bytes kept and the bytes counted as dropped are every byte the
+   output produced. No byte is lost in silence. A cap drops nothing from
+   output that fits.
+3. A tool sets its value in `ToolRegistration.truncation`. The harness
+   resolves the value of a call in one place (`reporting_for`). A tool
+   reads the value through `ToolExecutionApi::truncation`. Under `Off` the
+   final result is not truncated.
+4. `BoundedOutput` (eukhe-core) takes its bound from the same value. Past
+   the bound it writes the full output to an artifact file. Under `Off` it
+   keeps everything and writes no artifact.
+
+A tool call:
+
+1. A call journals two records: its start (the slot becomes `running`,
+   with its `execute` checkpoint) and its settle (the slot becomes `done`,
+   in the same commit as the result entry). No progress update is
+   journaled: no output, no details, no diagnostics, no usage.
+2. While the call runs, each progress update goes to the in-memory
+   progress board of the Harness. The board sends each change to the live
+   observers of the conversation. `watch_events` gives, in its first
+   snapshot, the last progress of each running call. Then it gives each
+   change as one `tool_execution_update`. No update comes after the end of
+   the call.
+3. The settle carries everything the call reported: every result byte,
+   every warning, and all usage. A call records usage while it runs with
+   `ToolExecutionApi::usage`. An abort settles from the board, so it
+   carries the output that the call reported, published or not. The board
+   keeps the call until its settle commits, so a settle that did not
+   commit, and the abort settle after it, read the same progress.
+4. Crash behavior changed. Before S2, each progress update was a commit
+   to `pi.live`, so a call that a crash interrupted settled with the
+   output it had committed. Now the board is lost in a crash. The partial
+   live output, details, diagnostics and usage of the interrupted call are
+   lost; the call settles from what is durable. When the call wrote a
+   `BoundedOutput` artifact, the artifact keeps the full output.
+5. A structural view (`view_state`) holds committed state only. So it
+   shows the slot of a running call without its output. Use
+   `watch_events` for live output.
+
+Jobs (from the jobs slice):
+
+A job is work that runs long: a user bash, or an `ipython` cell whose call
+outlived the blocking budget. Each job has an output, one end, and a kill.
+
+1. A job counts its output under the output cap of the session
+   (`Truncation`; on by default). Under a cap of `c` bytes it keeps at most
+   `c` bytes and counts the rest as dropped. The opt-out (`Truncation::Off`)
+   keeps every byte. The bytes kept and the bytes dropped are every byte
+   the job wrote. A cell or a script becomes a job when its call detaches;
+   the job starts with the bytes the run wrote before (`JobSpec::written`),
+   so it also counts every byte of the run.
+2. A job ends once: it exits with a code, or the kill signal ends it. The
+   end goes to the session's job writer. The job ignores every event after
+   its end.
+3. A kill sends the kill signal through the owner of the job: a user bash
+   kills its process group, also when the command closed its stdout and
+   stderr; a cell is interrupted and its kernel is killed after the
+   grace. The owner reports the end that follows, so a job can end some
+   time after its kill.
+4. A blocking call on a job waits at most until its deadline, within the
+   blocking budget of the session (`toolBlockingBudgetMs`). It answers
+   `Settled` with the end when the job ends first. Else it answers
+   `Detached` at the deadline, and the job goes on in the background. A
+   deadline that has passed detaches at once, even when the end is ready.
+   One function (`jobs::wait_until`) does every blocking wait on a job:
+   the `ipython` call and its wait on a cell that holds the kernel,
+   `jobs.wait`, `jobs.cancel`, and `execute_bash_and_wait`. Past the
+   budget, `execute_bash_and_wait` answers `detached: {job, budgetMs}` with
+   the output so far; the end of the run records its `eukhe.bash` row.
+5. The start and the end of a job are session state; its output is not.
+   The start creates the session document `eukhe.job` (key: the job id);
+   the end retires it. So the state tree (S1) holds one node, under the
+   root, for each running job. A writer task commits the records in order,
+   a batch per commit, and no caller waits for it. A job that starts and
+   ends in one batch commits nothing. When a batch fails, the writer
+   commits its records one at a time; an end whose node is absent retires
+   nothing. A record that fails alone goes to the main conversation as a
+   `job_record_failed` notice. On open, the writer retires the job nodes
+   that the history left (their jobs ended with the old process).
+6. A rewind stops the orphan jobs. When `navigate_tree` or `fork` takes
+   the session back to an earlier entry (none: before every entry), the
+   session kills every running job that started after that entry was
+   committed, and keeps every other job as it is. These are the jobs
+   whose nodes the state tree just after that entry does not hold. The
+   order comes from the entry commits that the job table sees when the
+   commits occur (`JobTable::rewind_to`), not from the job nodes: the
+   writer commits a node later, so an entry can come before the node of a
+   job that started before it. An entry from before the open comes before
+   every job. The session then waits for the ends of the killed jobs, at
+   most the blocking budget. The response names the jobs that ended in
+   that time (`stoppedJobs`) and the jobs that had not ended yet
+   (`stoppingJobs`).
+7. While a job runs, the system prompt has the section `running-jobs`. It
+   gives the number and the ids of the job nodes of the state tree. The
+   section is absent while no job runs.
+
+Model: `bend/job.bend` (`step`, `ends`, `wait`, `journal`, `rewind`).
+Laws: `LAWS.bend` section (S2). Proofs: `bend/proof_job.bend`. Every law
+is universal: every event is free (any output size, exit, kill or tick,
+in any order; any cap or the opt-out; any budget; any tool call stream;
+any job table).
+
+| Law | Says |
+| --- | --- |
+| `job_output_bounded` | With a cap, a job keeps at most the cap of its output (limits 1, jobs 1). |
+| `job_no_silent_loss` | The bytes kept plus the bytes dropped are every byte the job wrote before its end (limits 2). |
+| `job_optout_keeps_all` | With the opt-out, a job drops nothing (limits 1). |
+| `job_cap_drops_only_excess` | A cap drops nothing from output that fits (limits 2). |
+| `job_ends_once` | A job reports exactly one end once it exits or is killed, and none before (jobs 2). |
+| `job_end_is_final` | An ended job stays as it ended: no late output, no second end (jobs 2). |
+| `job_kill_ends_now` | A kill ends a live job at once, as killed, with its output kept (jobs 3). |
+| `call_blocks_at_most_budget` | A blocking call returns once its budget has passed (jobs 4). |
+| `call_settles_with_job` | A call that settles in time reports the job's own end, and the job has no other end (jobs 4). |
+| `stream_journals_two` | A tool call journals at most two records; no progress update is journaled (call 1). |
+| `stream_settles_once` | A tool call settles exactly once when it ends (result or cancel), and not before (call 1). |
+| `stream_settle_carries_all` | The settle carries every result byte, every warning, and all usage (call 3). |
+| `rewind_stops_orphans` | After a rewind, every running job is a job of the target tree (jobs 6). |
+| `rewind_keeps_target_jobs` | A rewind leaves every job of the target tree as it was (jobs 6). |
+
+Gap: in the model, `rewind` stops a job at once (`stop.at` sets `running`
+to false), and the bridge kill records the end at once. So the two rewind
+laws are about the kill decision: which jobs get the kill and which do
+not. The real kill only sends a signal (the user-bash cancel, the shell
+task abort, the cell interrupt), and the job ends later, or not when its
+process ignores the signal. The code does not claim more than the model:
+a rewind names a job in `stoppedJobs` only when its end came within the
+wait, else in `stoppingJobs`.
+
+Code: `eukhe-durable/src/harness/output.rs` (`Truncation`,
+`OutputLimits`, `OutputBuffer`); `harness/tool/invocation.rs`
+(`reporting_for`, `publish_progress`, `final_result`, the
+`ToolExecutionApi` methods `truncation` and `usage`); `harness/tool.rs`
+`settle` (takes the call's progress from the board); `harness/live/progress.rs`
+(the progress board); `harness/events.rs` `watch_events`;
+`eukhe-types/src/output.rs` (the default limits);
+`eukhe-core/src/durable/bounded_output.rs` (`BoundedOutput::in_session`);
+`eukhe-core/src/durable/jobs/mod.rs` (`Job`, `JobState::step`, `JobTable`
+(`start`, `rewind`, `rewind_to`, `observe`), `wait_until`); `jobs/tree.rs` (the `eukhe.job`
+document, the writer, `stop_orphans`, `running_jobs_section`);
+`durable/rlm/jobs.rs` (`CellJobs`: the cell board over `Job`;
+`jobs.list`, `jobs.wait`, `jobs.cancel`); `durable/rlm/tool.rs` (the
+`ipython` call's wait and detach); `durable/prompt.rs` (the
+`running-jobs` section); `eukhe-daemon/src/user_bash.rs` (`UserBash`:
+every run is a job; `execute_bash_and_wait` detaches at the budget);
+`branch_navigation.rs` (`navigate_tree` and `fork` stop the orphans).
+
+Ties: three bridge tests compare transcripts with a Bend file byte for
+byte.
+
+- `harness::output::bridge::the_rust_output_bounder_equals_the_bend_model`
+  runs `OutputBuffer` and `bend/bridge_stream.bend` on 300 generated
+  scenarios: a cap (head or tail retention) or the opt-out, chunks of
+  output, and the end of the output, with chunks after the end.
+- `harness::tool::tests::bridge::a_real_tool_calls_journal_equals_the_bend_model`
+  runs 40 real tool calls on a Harness (result bytes, warnings, usage,
+  then a return or a cancel). It records every `pi.live` commit from the
+  start of the call and prints `start`, `settle` (read from the result
+  entry), or `progress` for any other commit in the call's slot. The
+  model has no `progress` record, so a journaled progress update fails
+  the test.
+- `durable::jobs::bridge::the_rust_jobs_equal_the_bend_model` runs `Job`,
+  `wait_until` (on the paused tokio clock; a tick is one millisecond) and
+  `JobTable::rewind` with `bend/bridge_job.bend` on 300 generated
+  scenarios. The scenarios reach every case: truncation, opt-out, kill,
+  quit, an event after the end, a detach at the budget, a settle within
+  it, a rewind that stops a job and one that keeps a job.
+
+Regression tests:
+`harness::generation::tests::live_deltas::a_long_streaming_call_commits_nothing_between_its_start_and_its_settle`
+and the other `live_deltas` tests (what each publication delivers, and no
+commit); `settles_an_aborted_tools_slot_with_its_status_and_entry_only`;
+the eukhe-core `bounded_output` tests (the limits of a call and the
+opt-out); `durable::jobs::tests` (the cap and one end, the opt-out, the
+rewind kill, the wait);
+`durable::open::tests::jobs_are_state_tree_nodes_the_prompt_shows_and_a_rewind_stops_the_orphans`;
+the daemon tests
+`user_bash::tests::an_awaited_run_past_the_budget_answers_detached_and_its_end_records_its_row`
+and `branch_navigation::tests::navigate_tree_stops_the_jobs_started_after_its_target`.
+Not modelled: the map from jobs to documents and from entries to tree
+cursors (jobs 5 and 6), and the board's delivery order; the tests above
+tie them.

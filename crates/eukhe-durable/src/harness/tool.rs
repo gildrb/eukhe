@@ -38,6 +38,7 @@ use super::live::{
     clear_progress, finish_slot, is_nested_slot, remove_nested_slots, tool_slot, SlotProgress,
     LIVE_DOC,
 };
+use super::output::Truncation;
 use super::types::{
     OutputRetain, ToolCallParent, ToolControl, ToolExecutionResult, ToolHookCall, ToolHooks,
     ToolRegistration, ToolReplay,
@@ -364,11 +365,13 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
 }
 
 /// How `tool` retains its running output; a tool no longer offered kept it
-/// the default way.
+/// the default way, and an opted-out tool drops nothing, so its retention
+/// never shows.
 fn retain_of(tool: Option<&ToolRegistration>) -> OutputRetain {
-    tool.and_then(|tool| tool.output_limits)
-        .and_then(|limits| limits.retain)
-        .unwrap_or(OutputRetain::Head)
+    match tool.map(|tool| tool.truncation) {
+        Some(Truncation::On(limits)) => limits.retain,
+        Some(Truncation::Off) | None => OutputRetain::Head,
+    }
 }
 
 /// The called tool: among the tools the model is offered for a model-issued
@@ -554,8 +557,12 @@ async fn before_tool(
 /// writes its result to the caller's `NestedResultDoc`, records its usage,
 /// and ends with a small receipt. Nested calls this call left running are
 /// aborted first, so they report into their slots before the slots below the
-/// call leave `pi.live`. `build` receives the slot's published progress so
-/// interruption and abort can report the durable partial output.
+/// call leave `pi.live`. `build` receives the call's last progress, so an
+/// abort can report its partial output: what it reported to the live
+/// progress board in this process (read, and taken off the board only once
+/// the settle committed), else what an earlier version committed to its
+/// slot. After a crash a call has no progress on the board: its partial
+/// live output is lost, and an interruption reports what is durable.
 async fn settle<B>(
     runtime: &Runtime,
     input: &ToolTaskInput,
@@ -582,14 +589,17 @@ where
     let input = input.clone();
     let call = call.clone();
     let clock = runtime.clone();
+    let board = runtime.backend().live_progress().clone();
+    let published = board.read(task_id);
     runtime
         .commit(
             move |tx, _current| async move {
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;
                 let slot = tool_slot(&live, task_id)?;
-                let progress = match &slot {
-                    Some(slot) => Some(from_json::<SlotProgress>(&slot.value()?)?),
-                    None => None,
+                let progress = match (published, &slot) {
+                    (Some(published), _) => Some(published),
+                    (None, Some(slot)) => Some(from_json::<SlotProgress>(&slot.value()?)?),
+                    (None, None) => None,
                 };
                 let result = build(progress.as_ref());
                 let settled = match &input {
@@ -666,6 +676,7 @@ where
             cx,
         )
         .await
+        .inspect(|()| board.remove(task_id))
 }
 
 /// The terminal outcome of a call that ended as `ending` with `settled`.
@@ -684,9 +695,4 @@ fn outcome_of(ending: ToolEnding, settled: ToolTaskResult) -> TaskOutcome<ToolTa
         },
         ToolEnding::Completed => TaskOutcome::Completed { result: settled },
     }
-}
-
-/// `JSON.stringify` length of a value, in UTF-8 bytes.
-fn json_bytes(value: &JsonValue) -> usize {
-    value.to_string().len()
 }

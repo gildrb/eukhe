@@ -17,6 +17,7 @@ use super::types::{
     CodemodeCallStatus, CodemodeEnding, CodemodeError, CodemodeErrorKind, CodemodeNestedCall,
     CodemodeOutputItem, CodemodeResult, TextOrigin,
 };
+use crate::harness::OutputLimits;
 
 /// Lines of the result besides the script's text: the header, markers,
 /// notes.
@@ -41,13 +42,6 @@ pub(crate) trait OutputFiles: Send + Sync {
     /// Write `data` as `name`.
     fn write(&self, name: &str, data: &[u8])
         -> impl Future<Output = Result<String, String>> + Send;
-}
-
-/// The tool result's size limits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct OutputLimits {
-    pub(crate) max_bytes: u64,
-    pub(crate) max_lines: u64,
 }
 
 /// What [`format_result`] needs besides the result.
@@ -270,7 +264,7 @@ async fn truncate<W: OutputFiles>(
     // rest of the result is a few short lines.
     let budget = max_tokens
         .saturating_mul(CHARS_PER_TOKEN)
-        .min(limits.max_bytes / 4);
+        .min(limits.max_bytes as u64 / 4);
     let max_lines = i64::try_from(limits.max_lines).unwrap_or(i64::MAX);
     let line_budget = (max_lines - LINE_MARGIN).div_euclid(2);
     let lines: Vec<&str> = combined.split('\n').collect();
@@ -507,6 +501,7 @@ mod tests {
 
     use super::*;
     use crate::codemode::types::CodemodeStoreWrites;
+    use crate::harness::types::OutputRetain;
 
     /// Whether the fake's writes succeed.
     #[derive(Clone, Copy)]
@@ -557,6 +552,7 @@ mod tests {
     const LIMITS: OutputLimits = OutputLimits {
         max_bytes: 50 * 1024,
         max_lines: 2000,
+        retain: OutputRetain::Head,
     };
 
     fn options(calls: &[CodemodeNestedCall]) -> FormatOptions<'_> {
@@ -709,6 +705,7 @@ mod tests {
             limits: OutputLimits {
                 max_bytes: 50 * 1024,
                 max_lines: 104,
+                retain: OutputRetain::Head,
             },
             ..options(&[])
         };

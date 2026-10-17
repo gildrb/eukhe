@@ -14,6 +14,7 @@ pub mod factory;
 mod host;
 mod jobs;
 mod kernels;
+pub(crate) use self::kernels::submit_notice;
 pub(crate) mod refine;
 pub mod skills_unavailable_notice;
 pub mod state_restore_notice;

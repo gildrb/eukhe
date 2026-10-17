@@ -102,15 +102,12 @@ async fn sanitizes_running_output_but_keeps_explicit_result_content_as_the_tool_
     let sink = Arc::clone(&slot_output);
     add_tool(
         &setup.registry,
-        tool("noisy", move |_, api, cx| {
+        tool("noisy", move |_, api, _| {
             let sink = Arc::clone(&sink);
             async move {
                 api.output(ToolOutputChunk::Text("a\u{7}b\r\n"), None)?;
-                api.details(json(r#"{"ready":true}"#), &cx).await?;
-                let live = api.snapshot(&LIVE_DOC, api.conversation_id(), &cx).await?;
-                *lock(&sink) = live
-                    .and_then(|live| live.get("tools").map(|tools| tools[0]["output"].clone()))
-                    .and_then(|output| output.as_str().map(str::to_owned));
+                // What the live observers get: the running output, sanitized.
+                *lock(&sink) = Some(api.retained_output()?.text);
                 Ok(ToolExecutionResult::default())
             }
         }),
@@ -492,8 +489,10 @@ async fn rejects_details_still_waiting_when_the_call_is_aborted_during_after_too
     harness.close(context()).await.unwrap();
 }
 
+/// The settle of an abort carries everything the call reported, also what
+/// no publication reached yet (docs/harness.md S2, `stream_settle_carries_all`).
 #[tokio::test]
-async fn answers_an_aborted_tool_with_only_its_durable_output_discarding_buffered_output() {
+async fn answers_an_aborted_tool_with_all_its_reported_output_published_or_not() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let buffered: Deferred = deferred();
     let reached = buffered.clone();
@@ -502,8 +501,8 @@ async fn answers_an_aborted_tool_with_only_its_durable_output_discarding_buffere
         tool("slow", move |_, api, cx| {
             let reached = reached.clone();
             async move {
-                api.output(ToolOutputChunk::Text("durable\n"), None)?;
-                // The first output commits at once; this one waits for the next throttle window.
+                api.output(ToolOutputChunk::Text("published\n"), None)?;
+                // The first output publishes at once; this one waits for the next throttle window.
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 api.output(ToolOutputChunk::Text("buffered\n"), None)?;
                 reached.resolve(());
@@ -526,7 +525,7 @@ async fn answers_an_aborted_tool_with_only_its_durable_output_discarding_buffere
     let entries = all_entries(&root, context()).await.unwrap();
     assert_eq!(
         result_text(&results(&entries)[0]),
-        "durable\n|<harness>\n[error] Tool slow was aborted\n</harness>"
+        "published\nbuffered\n|<harness>\n[error] Tool slow was aborted\n</harness>"
     );
     harness.close(context()).await.unwrap();
 }

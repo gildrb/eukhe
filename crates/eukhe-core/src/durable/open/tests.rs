@@ -12,15 +12,23 @@ use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools}
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::ConversationEntryQuery;
+use eukhe_durable::harness::Truncation;
 use eukhe_durable::storage::jsonl::open_native_jsonl_storage;
-use eukhe_durable::tree::{Applied, NodeId, StateKey, StateNode, StateTree};
+use eukhe_durable::tree::{
+    Applied, NodeId, StateKey, StateKind, StateNode, StateTree, TreeOp, TreeRecord,
+};
 use eukhe_durable::types::{EntryRecord, Seq};
+use eukhe_types::job::JobId;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Message, Modality, StopReason, UserContent, UserContentBlock,
 };
 
 use super::*;
 use crate::durable::deps::PromptConfig;
+use crate::durable::jobs::{
+    stop_orphans, Job, JobEnd, JobEvent, JobKind, JobSpec, JobState, Orphans, JOB_DOC_KIND,
+};
+use crate::durable::rlm::CustomNotice;
 use crate::memory::MemoryRole;
 use crate::prompts::system_prompt::{
     build_system_prompt, system_prompt_breakdown, BuildSystemPromptOptions,
@@ -689,4 +697,211 @@ fn legacy_file_is_imported_only_into_a_missing_directory() {
     );
     std::fs::create_dir(&storage).expect("storage");
     assert_eq!(legacy_session_file(Path::new(&storage), "abc"), None);
+}
+
+/// The job nodes of the state tree (their ids), in start order.
+fn job_nodes(state: &StateTree) -> Vec<String> {
+    state
+        .tree()
+        .iter()
+        .filter(|(_, node)| {
+            node.value.kind == StateKind::Document && node.value.value["kind"] == JOB_DOC_KIND
+        })
+        .filter_map(|(_, node)| node.value.value["key"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Wait until the job nodes of the state tree are `expected`.
+async fn job_nodes_become(session: &EukheSession, expected: &[&str]) {
+    let mut cursor = session.state_tree().cursor();
+    let nodes = async {
+        loop {
+            let nodes = session.state_tree().read(job_nodes).await.expect("a tree");
+            if nodes == expected {
+                return;
+            }
+            cursor.changed().await.expect("the tree records");
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), nodes)
+        .await
+        .unwrap_or_else(|_| panic!("the job nodes never became {expected:?}"));
+}
+
+/// A job of `session` whose kill ends it at once.
+fn sleeper(session: &EukheSession, id: &str) -> Job {
+    session.deps().jobs.start(JobSpec {
+        id: JobId::new(id).expect("id"),
+        kind: JobKind::UserBash,
+        label: "sleep 60".to_owned(),
+        truncation: Truncation::default(),
+        written: 0,
+        kill: Box::new(|job| {
+            job.record(JobEvent::Killed);
+        }),
+    })
+}
+
+/// A job is a node of the state tree while it runs; the system prompt
+/// shows the running jobs of the tree; a rewind to an entry stops the
+/// running jobs started after it and keeps the others; a reopen retires
+/// the nodes of the jobs of the closed session.
+#[tokio::test]
+async fn jobs_are_state_tree_nodes_the_prompt_shows_and_a_rewind_stops_the_orphans() {
+    let fixture = fixture();
+    let captured: Arc<Mutex<Option<String>>> = Arc::default();
+    let capture = Arc::clone(&captured);
+    fixture.faux.set_responses(vec![
+        answer("first answer"),
+        FauxResponseStep::factory(move |context, _, _, _| {
+            let system = get_current_system_message(context.messages()).expect("a system prompt");
+            *capture.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some(get_system_message_text(&system));
+            Ok(faux_assistant_message(
+                "second answer",
+                FauxAssistantMessageOptions::default(),
+            ))
+        }),
+    ]);
+    let mut config = fixture.config(fixture.jsonl());
+    config.model = Some(fixture.model().into());
+    let session = open_session(config.clone(), cx()).await.expect("open");
+    let kept = sleeper(&session, "bash-kept");
+    job_nodes_become(&session, &["bash-kept"]).await;
+    ask(&session, "first").await;
+    let target = entries(&session).await.last().expect("the answer").id;
+    let orphan = sleeper(&session, "bash-orphan");
+    job_nodes_become(&session, &["bash-kept", "bash-orphan"]).await;
+
+    ask(&session, "second").await;
+    let system = captured
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
+        .expect("the request was captured");
+    assert!(
+        system.contains(
+            "\n\n<running-jobs>\n2 background jobs run: bash-kept, bash-orphan.\n</running-jobs>\n\n"
+        ),
+        "{system}"
+    );
+
+    let stopped = stop_orphans(&session, Some(target)).await;
+    assert_eq!(
+        stopped,
+        Orphans {
+            stopped: vec![JobId::new("bash-orphan").expect("id")],
+            stopping: Vec::new(),
+        }
+    );
+    assert_eq!(
+        (kept.state(), orphan.state()),
+        (
+            JobState::START,
+            JobState::Ended {
+                kept: 0,
+                dropped: 0,
+                end: JobEnd::Killed,
+            }
+        )
+    );
+    job_nodes_become(&session, &["bash-kept"]).await;
+    session.close(cx()).await.expect("close");
+
+    config.model = None;
+    let session = open_session(config, cx()).await.expect("reopen");
+    job_nodes_become(&session, &[]).await;
+    session.close(cx()).await.expect("close");
+}
+
+/// The index of the first record of the state tree that puts a node
+/// `put` matches (its key, the node).
+fn put_at(state: &StateTree, put: impl Fn(Option<&StateKey>, &StateNode) -> bool) -> Option<usize> {
+    state
+        .records_since(0)
+        .expect("the start of the tree")
+        .iter()
+        .position(|record| match record {
+            TreeRecord::Do(TreeOp::Put { id, value, .. }) => put(state.key(*id), value),
+            TreeRecord::Do(TreeOp::Del { .. }) | TreeRecord::Rewind(_) => false,
+        })
+}
+
+/// A rewind orders the jobs by the entry commits they started after, not
+/// by their nodes: the writer commits a node later, so an entry can come
+/// before the node of a job that started before it. That job stays; a
+/// job started after the entry stops; a job whose kill sends only a
+/// signal is `stopping` until its end comes.
+#[tokio::test]
+async fn a_rewind_keeps_a_job_that_started_before_its_target_when_the_node_came_after() {
+    let fixture = fixture();
+    std::fs::write(
+        fixture.agent_dir.join("settings.json"),
+        r#"{"toolBlockingBudgetMs":200}"#,
+    )
+    .expect("settings");
+    let session = open_session(fixture.config(SessionStorage::Memory), cx())
+        .await
+        .expect("open");
+    let early = sleeper(&session, "bash-early");
+    let root = session.root().id();
+    let draft = CustomNotice::new("test_note", "target".to_owned(), false, None)
+        .draft()
+        .expect("a draft");
+    let target = session
+        .harness()
+        .commit(
+            move |tx| async move { tx.append_entry(root, draft).await },
+            cx(),
+        )
+        .await
+        .expect("the entry commits")
+        .id;
+    let late = sleeper(&session, "bash-late");
+    let deaf = session.deps().jobs.start(JobSpec {
+        id: JobId::new("bash-deaf").expect("id"),
+        kind: JobKind::UserBash,
+        label: "trap '' TERM; sleep 60".to_owned(),
+        truncation: Truncation::default(),
+        written: 0,
+        kill: Box::new(|_| {}),
+    });
+    job_nodes_become(&session, &["bash-early", "bash-late", "bash-deaf"]).await;
+    // The writer was behind: the target entry came before the early node.
+    let order = session
+        .state_tree()
+        .read(|state| {
+            let entry = StateKey::Entry(target.to_string());
+            (
+                put_at(state, |key, _| key == Some(&entry)),
+                put_at(state, |_, node| {
+                    node.kind == StateKind::Document && node.value["key"] == "bash-early"
+                }),
+            )
+        })
+        .await
+        .expect("a tree");
+    assert!(
+        matches!(order, (Some(entry), Some(node)) if entry < node),
+        "{order:?}"
+    );
+
+    let stopped = stop_orphans(&session, Some(target)).await;
+    assert_eq!(
+        (stopped, early.state(), late.state(), deaf.state()),
+        (
+            Orphans {
+                stopped: vec![JobId::new("bash-late").expect("id")],
+                stopping: vec![JobId::new("bash-deaf").expect("id")],
+            },
+            JobState::START,
+            JobState::Ended {
+                kept: 0,
+                dropped: 0,
+                end: JobEnd::Killed,
+            },
+            JobState::START,
+        )
+    );
+    session.close(cx()).await.expect("close");
 }

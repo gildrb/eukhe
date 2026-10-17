@@ -23,7 +23,7 @@ impl Worker {
         self.side_questions
             .abort_all_and_settle(super::SIDE_QUESTION_SETTLE_TIMEOUT)
             .await;
-        self.user_bash.abort().await;
+        self.user_bash.abort();
         self.close_hosted_session().await;
         let reporter = self
             .herdr

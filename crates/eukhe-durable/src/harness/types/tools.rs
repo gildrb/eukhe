@@ -24,6 +24,7 @@ use super::data::ToolDiagnostic;
 use super::registry::RegistrySnapshot;
 use super::settings::ToolExecutionMode;
 use crate::env::{ExecutionEnv, ShellOutputSkip, ShellOutputWindow};
+use crate::harness::output::Truncation;
 use crate::harness::tool::ArgDialect;
 use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::{AnyTask, SettledTask, Task, TaskValue};
@@ -164,18 +165,6 @@ pub enum OutputRetain {
     Tail,
 }
 
-/// Limits of a tool's retained output.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolOutputLimits {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_bytes: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_lines: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retain: Option<OutputRetain>,
-}
-
 /// One chunk of running tool output (TS `string | Uint8Array`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolOutputChunk<'a> {
@@ -235,6 +224,11 @@ pub trait ToolExecutionApi: DocumentReader + DocumentObserver {
     /// text must also answer `None`, so skipped text cannot bypass its
     /// transform.
     fn output_window(&self) -> Option<ShellOutputWindow>;
+    /// The output limits of this call, resolved from its tool's
+    /// [`ToolRegistration::truncation`]: what the Harness keeps of its
+    /// running output and of its result. A tool that bounds output itself
+    /// (a cell, a shell) bounds it to the same value.
+    fn truncation(&self) -> Truncation;
     /// The output retained so far, as the model will see it when the result
     /// omits `output`, and whether earlier output was dropped; for a tool
     /// that also returns that text in its `structured_output`.
@@ -249,6 +243,14 @@ pub trait ToolExecutionApi: DocumentReader + DocumentObserver {
     ///
     /// The invocation ended.
     fn diagnostic(&self, diagnostic: ToolDiagnostic) -> SessionResult<()>;
+    /// Record spend of this call while it runs. The settled result carries
+    /// the sum of what the call recorded and its own `usage`, also when the
+    /// call is aborted.
+    ///
+    /// # Errors
+    ///
+    /// The invocation ended.
+    fn usage(&self, usage: Usage) -> SessionResult<()>;
     /// Replace running details; the last value becomes the result details
     /// when the result omits `details`.
     fn details(&self, value: JsonValue, cx: &Context) -> BoxFuture<'static, SessionResult<()>>;
@@ -440,7 +442,9 @@ pub struct ToolRegistration {
     /// Who may call the tool: the model, other tools through
     /// `execute_tool()`, or both (`None`, the default).
     pub callers: Option<Vec<ToolCaller>>,
-    pub output_limits: Option<ToolOutputLimits>,
+    /// What the Harness keeps of the call's running output and result:
+    /// the default limits unless the tool sets others or opts out.
+    pub truncation: Truncation,
     pub execute: ToolExecute,
     /// Application data of an extended tool type.
     pub extra: Option<Arc<dyn Any + Send + Sync>>,
@@ -469,7 +473,7 @@ impl ToolRegistration {
             dialect: ArgDialect::default(),
             structured_output_schema: None,
             callers: None,
-            output_limits: None,
+            truncation: Truncation::default(),
             execute: Arc::new(move |args, api, cx| execute(args, api, cx).boxed()),
             extra: None,
         }
@@ -514,7 +518,7 @@ impl fmt::Debug for ToolRegistration {
             .field("dialect", &self.dialect)
             .field("structured_output_schema", &self.structured_output_schema)
             .field("callers", &self.callers)
-            .field("output_limits", &self.output_limits)
+            .field("truncation", &self.truncation)
             .finish_non_exhaustive()
     }
 }

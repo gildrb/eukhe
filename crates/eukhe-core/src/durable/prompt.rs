@@ -2,7 +2,9 @@
 //! of [`system_prompt_breakdown`] is one untagged section, in the same
 //! order, so the provider sees exactly eukhe's system prompt: durable
 //! joins section texts with `"\n\n"` and drops empty ones, as the breakdown
-//! joins its (never empty) segments.
+//! joins its (never empty) segments. One more section follows them:
+//! `running-jobs`, the running jobs of the session state tree, present only
+//! while a job runs ([`super::jobs::running_jobs_section`]).
 //!
 //! Inputs fixed for the session (resources, guidelines, role, memory, log
 //! path, daemon availability) are captured at construction; the model
@@ -227,7 +229,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         cache: Mutex::new(None),
     });
     report_model_prompt_errors(deps);
-    let sections = section_keys(memory)
+    let mut sections: Vec<_> = section_keys(memory)
         .into_iter()
         .map(|key| {
             let builder = Arc::clone(&builder);
@@ -240,6 +242,8 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
             )
         })
         .collect();
+    // Last: it comes and goes with the jobs, after the stable sections.
+    sections.push(super::jobs::running_jobs_section(deps));
     define_extension(Extension {
         name: PROMPT_EXTENSION.to_owned(),
         sections,

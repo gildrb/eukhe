@@ -195,7 +195,8 @@ async fn late_join(print: UnboundedSender<String>) -> Result<(), BoxError> {
     // Join while the tool is halfway through.
     pause(500).await;
 
-    // Structural client: the view holds the committed transcript and documents, including the running tool's output.
+    // Structural client: the view holds the committed transcript and documents. A running tool's output is not
+    // committed (only the call's start and settle are), so the slot shows no output; the event client below gets it.
     let view = root.view_state(context).await?;
     let value = view.value();
     let live = &value["docs"]["pi.live"];
@@ -231,8 +232,8 @@ async fn late_join(print: UnboundedSender<String>) -> Result<(), BoxError> {
             );
         }
     });
-
-    // Event client: the snapshot event carries the same state; later events apply on top of it.
+    // Event client: the snapshot event carries the same state plus each running call's last progress; later events
+    // apply on top of it.
     let stream = watch_events(&harness, root.id(), context).await?;
     let snapshot = stream.snapshot();
     let tools: Vec<String> = snapshot

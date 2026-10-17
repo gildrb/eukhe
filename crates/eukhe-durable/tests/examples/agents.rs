@@ -51,17 +51,21 @@ async fn ex21_late_join_gets_the_state_first_and_then_changes() {
         lines[0],
         r#"view entries: ["pi.user","pi.system","pi.assistant"]"#
     );
+    // The view holds committed state only: the running call's output lives
+    // on the in-memory progress board (docs/harness.md S2).
+    assert_eq!(lines[1], "view tool slot: running undefined", "{out}");
     assert!(
-        lines[1].starts_with(r#"view tool slot: running "1\n"#),
+        lines.contains(&r#"snapshot tools: ["count running"]"#),
         "{out}"
     );
-    assert!(lines[2].starts_with(r#"view output now: "1\n"#), "{out}");
-    assert_eq!(lines[3], r#"snapshot tools: ["count running"]"#);
+    assert!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("view output now: "))
+            .all(|line| *line == "view output now: undefined"),
+        "{out}"
+    );
     let all = r#""1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n""#;
-    assert!(
-        lines.contains(&format!("view output now: {all}").as_str()),
-        "{out}"
-    );
     assert!(
         lines.contains(&format!("event output now: {all}").as_str()),
         "{out}"

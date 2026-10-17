@@ -193,7 +193,7 @@ fn truncation_warning(result: &ToolResultView) -> Option<String> {
                 let max_bytes = truncation
                     .get("maxBytes")
                     .and_then(Value::as_u64)
-                    .unwrap_or(super::DEFAULT_MAX_BYTES as u64)
+                    .unwrap_or(eukhe_types::output::DEFAULT_MAX_BYTES)
                     as usize;
                 warnings.push(format!(
                     "Truncated: {output} lines shown ({} limit)",

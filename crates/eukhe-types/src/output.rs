@@ -1,8 +1,15 @@
-//! The vocabulary of a bounded output: what the one bound left out.
+//! The vocabulary of a bounded output: the default bound, and what the one
+//! bound left out.
 
 use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
+
+/// The default line bound of a tool result and of every bounded output.
+pub const DEFAULT_MAX_LINES: u64 = 2000;
+/// The default byte bound of a tool result and of every bounded output
+/// (50 KiB).
+pub const DEFAULT_MAX_BYTES: u64 = 50 * 1024;
 
 /// Output a bound left out of a result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

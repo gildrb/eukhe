@@ -19,13 +19,13 @@ use super::describe::{
     DEFAULT_CODEMODE_INLINE_BUDGET,
 };
 use super::models::{create_model_tools, CODEMODE_INTERNAL_PREFIX};
-use super::output::OutputLimits;
 use super::sandbox::CodemodeSandbox;
 use super::source::CODEMODE_SOURCE_GRAMMAR;
 use crate::harness::define::{define_extension, define_tool, section};
 use crate::harness::types::{
-    Extension, ToolCaller, ToolExecutionApi, ToolOutputLimits, ToolRegistration, ToolReplay,
+    Extension, OutputRetain, ToolCaller, ToolExecutionApi, ToolRegistration, ToolReplay,
 };
+use crate::harness::{OutputLimits, Truncation};
 use crate::session::{SessionError, SessionResult};
 
 /// Version of everything in this module that turns stored results into
@@ -41,6 +41,7 @@ pub const CODEMODE_TOOL_NAME: &str = "codemode";
 pub(super) const OUTPUT_LIMITS: OutputLimits = OutputLimits {
     max_bytes: 4 * 1024 * 1024,
     max_lines: 100_000,
+    retain: OutputRetain::Head,
 };
 
 /// A host function scripts call as a top-level global: `(args, api, cx)`,
@@ -145,11 +146,7 @@ pub fn create_codemode_tool(options: &Arc<CodemodeToolOptions>) -> Arc<ToolRegis
     tool.constrained_sampling = Some(ToolConstrainedSampling::Config(
         ConstrainedSamplingConfig::Grammar { variants },
     ));
-    tool.output_limits = Some(ToolOutputLimits {
-        max_bytes: Some(OUTPUT_LIMITS.max_bytes),
-        max_lines: Some(OUTPUT_LIMITS.max_lines),
-        retain: None,
-    });
+    tool.truncation = Truncation::On(OUTPUT_LIMITS);
     tool.callers = Some(vec![ToolCaller::Model]);
     tool.replay = Some(ToolReplay::Safe);
     define_tool(tool)

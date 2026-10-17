@@ -1,9 +1,10 @@
-//! Bounded tool output and adaptive progress commits. Port of
+//! Bounded tool output and adaptive progress publications. Port of
 //! `harness/output.ts`.
 
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_types::output::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 use futures::future::BoxFuture;
 use tokio::sync::{oneshot, Notify};
 use tokio::time::{Duration, Instant};
@@ -12,12 +13,66 @@ use crate::env::{ShellOutputSkip, Utf8Decoder};
 use crate::harness::types::{OutputRetain, ToolOutputChunk};
 use crate::session::SessionError;
 
-/// Retention limits of one tool's output.
+/// Retention limits of one tool's output. The default is the default bound
+/// (`DEFAULT_MAX_BYTES`, `DEFAULT_MAX_LINES`), keeping the head.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutputLimits {
     pub max_bytes: usize,
     pub max_lines: usize,
     pub retain: OutputRetain,
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the default bound is 50 KiB and 2000 lines"
+)]
+impl Default for OutputLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: DEFAULT_MAX_BYTES as usize,
+            max_lines: DEFAULT_MAX_LINES as usize,
+            retain: OutputRetain::Head,
+        }
+    }
+}
+
+/// Whether an output is bounded: the one limits value of a tool call, a
+/// cell, or a job (docs/harness.md S2). Truncation is on by default, with
+/// the default limits; `Off` is the explicit opt-out, which keeps every
+/// byte. Every truncation is visible: the bytes kept and the bytes counted
+/// as dropped are every byte the output produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Truncation {
+    /// Keep at most these limits; count the rest as dropped.
+    On(OutputLimits),
+    /// The explicit opt-out: keep all of the output.
+    Off,
+}
+
+impl Default for Truncation {
+    fn default() -> Self {
+        Self::On(OutputLimits::default())
+    }
+}
+
+impl Truncation {
+    /// The byte cap: `None` for the opt-out.
+    #[must_use]
+    pub fn max_bytes(self) -> Option<usize> {
+        match self {
+            Self::On(limits) => Some(limits.max_bytes),
+            Self::Off => None,
+        }
+    }
+
+    /// The limits: `None` for the opt-out.
+    #[must_use]
+    pub fn limits(self) -> Option<OutputLimits> {
+        match self {
+            Self::On(limits) => Some(limits),
+            Self::Off => None,
+        }
+    }
 }
 
 /// Retained output and what the limits dropped.
@@ -190,10 +245,10 @@ struct StoredChunk {
 /// proportional to the chunk: head retention stops storing once the window
 /// is full, and tail retention drops stored text the window no longer needs
 /// when it snapshots. Counts of the whole stream are kept so the dropped
-/// totals stay exact.
+/// totals stay exact. Under [`Truncation::Off`] it keeps everything.
 #[derive(Debug, Clone)]
 pub struct OutputBuffer {
-    limits: OutputLimits,
+    truncation: Truncation,
     /// Decoder of byte chunks. A string chunk or a skip ends an incomplete
     /// character of earlier bytes (it becomes U+FFFD); the next byte chunk
     /// then starts a new character. Only a byte-order mark at the very start
@@ -218,9 +273,9 @@ pub struct SkipRequiresTail;
 
 impl OutputBuffer {
     #[must_use]
-    pub fn new(limits: OutputLimits) -> Self {
+    pub fn new(truncation: Truncation) -> Self {
         Self {
-            limits,
+            truncation,
             decoder: Utf8Decoder::new(),
             started: false,
             chunks: Vec::new(),
@@ -274,7 +329,13 @@ impl OutputBuffer {
         let Some(skipped) = skipped else {
             return Ok(self.accept(pending + &text));
         };
-        if self.limits.retain != OutputRetain::Tail {
+        if !matches!(
+            self.truncation,
+            Truncation::On(OutputLimits {
+                retain: OutputRetain::Tail,
+                ..
+            })
+        ) {
             return Err(SkipRequiresTail);
         }
         self.accept(pending);
@@ -323,10 +384,14 @@ impl OutputBuffer {
         });
         self.stored_bytes += bytes;
         self.stored_newlines += newlines;
-        if self.limits.retain == OutputRetain::Head {
+        let limits = match self.truncation {
+            Truncation::On(limits) => limits,
+            Truncation::Off => return true,
+        };
+        if limits.retain == OutputRetain::Head {
             // Nothing past a full window is ever needed.
-            self.full = self.stored_bytes > self.limits.max_bytes
-                || self.stored_newlines >= self.limits.max_lines;
+            self.full =
+                self.stored_bytes > limits.max_bytes || self.stored_newlines >= limits.max_lines;
             return true;
         }
         // Drop leading chunks while the rest still holds more than a window:
@@ -337,8 +402,8 @@ impl OutputBuffer {
             let first = &self.chunks[drop];
             let bytes_after = self.stored_bytes - first.bytes;
             let newlines_after = self.stored_newlines - first.newlines;
-            if bytes_after <= self.limits.max_bytes.saturating_add(1)
-                && newlines_after <= self.limits.max_lines.saturating_add(1)
+            if bytes_after <= limits.max_bytes.saturating_add(1)
+                && newlines_after <= limits.max_lines.saturating_add(1)
             {
                 break;
             }
@@ -361,7 +426,21 @@ impl OutputBuffer {
                 .map(|chunk| chunk.text.as_str())
                 .collect::<String>()
         };
-        let kept = bound_output(&stored, &self.limits);
+        let Truncation::On(limits) = self.truncation else {
+            if self.chunks.len() > 1 {
+                self.chunks = vec![StoredChunk {
+                    text: stored.clone(),
+                    bytes: self.stored_bytes,
+                    newlines: self.stored_newlines,
+                }];
+            }
+            return BoundedOutput {
+                text: sanitize_output(&stored),
+                dropped_bytes: 0,
+                dropped_lines: 0,
+            };
+        };
+        let kept = bound_output(&stored, &limits);
         let stored_lines = lines(
             self.stored_newlines,
             stored.is_empty() || stored.ends_with('\n'),
@@ -370,10 +449,10 @@ impl OutputBuffer {
         // Tail windows never reach back before this one, but finding a later
         // window's first line needs what precedes it: keep the shortest suffix
         // longer than the window by a byte or a line, as `accept` does.
-        let tail = self.limits.retain == OutputRetain::Tail;
+        let tail = limits.retain == OutputRetain::Tail;
         if tail || self.chunks.len() > 1 {
             let text = if tail {
-                tail_margin(&stored, &self.limits).to_owned()
+                tail_margin(&stored, &limits).to_owned()
             } else {
                 stored
             };
@@ -619,5 +698,7 @@ fn duration_ms(ms: f64) -> Duration {
     Duration::from_secs_f64(ms.max(0.0) / 1000.0)
 }
 
+#[cfg(test)]
+mod bridge;
 #[cfg(test)]
 mod tests;

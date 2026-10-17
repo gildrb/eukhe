@@ -95,8 +95,11 @@ async fn execute(
             })?;
     match performed {
         Ok(done) => {
-            let mut output =
-                BoundedOutput::in_session(deps.storage_dir.as_deref(), &api.task_id().to_string());
+            let mut output = BoundedOutput::in_session(
+                deps.storage_dir.as_deref(),
+                &api.task_id().to_string(),
+                api.truncation(),
+            );
             output.push(done.rendered());
             let (text, bounded) = output.finish();
             let details = serde_json::to_value(&done).map_err(SessionError::other)?;

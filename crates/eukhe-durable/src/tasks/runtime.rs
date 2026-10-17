@@ -20,6 +20,7 @@ use super::definition::TaskValue;
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::entries::Entry;
 use crate::env::ExecutionEnv;
+use crate::harness::live::progress::LiveProgress;
 use crate::harness::types::{
     Agent, ContextOptions, ContextView, ConversationHandle, HookApi, HookHandlers,
     RegistrySnapshot, Settings,
@@ -457,6 +458,9 @@ pub trait TaskRuntimeBackend: DocumentReader + DocumentObserver {
     /// Resolve once the Harness clock reaches `until`; rejects when the
     /// invocation or `cx` is cancelled.
     fn sleep(&self, until: f64, cx: &Context) -> BoxFuture<'static, SessionResult<()>>;
+    /// The Harness's board of running tool calls' progress: delivered to
+    /// live observers, never stored (docs/harness.md S2).
+    fn live_progress(&self) -> LiveProgress;
 }
 
 /// The phantom type parameters of a [`TaskRuntime`].

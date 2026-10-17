@@ -6,7 +6,7 @@
 //! clock fixed at [`NOW`], a faux provider (`api: "faux"`, one chunk per
 //! block) answering "Probe the disk." with the `probe` tool call `call-1`;
 //! `probe` (replay `unsafe`, the default) reports output, a diagnostic, and
-//! details, then the process exits once the details are durable. The resume
+//! details, then the process exits once the details are reported. The resume
 //! answers with a final text, waits for idle, and dumps the state.
 //! The TS side ran the same steps as [`open`], [`crash`], [`resume`], and
 //! [`dump_storage`] here, spelled with the TS API (`openNodeJsonlStorage`,
@@ -89,7 +89,8 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/harness_cross")
 }
 
-/// What `probe` does once its details are durable.
+/// What `probe` does once it has reported its details (durable in TS; in
+/// eukhe they are published to live observers only, docs/harness.md S2).
 #[derive(Clone, Copy)]
 enum AfterDetails {
     /// Die like a crashed process (TS `process.exit(0)`).
@@ -521,8 +522,26 @@ async fn resumes_rust_crash_like_ts() {
     assert_resumes_like_ts("rust-crash").await;
 }
 
-/// A crashed Rust process leaves the `rust-crash` fixture again, which is
-/// the storage the crashed TS process left.
+/// The records of `probe`'s progress (output, then details and the
+/// diagnostic) in the crash fixtures: TS and eukhe before S2 commit each
+/// progress update to `pi.live` (seq 9 and 10). Eukhe now keeps progress in
+/// memory (docs/harness.md S2), so a crashed Rust process leaves the
+/// fixture storage without these two commits.
+fn without_progress(files: Vec<(String, String)>) -> Vec<(String, String)> {
+    files
+        .into_iter()
+        .map(|(name, text)| {
+            let kept: String = text
+                .split_inclusive('\n')
+                .filter(|line| !line.contains("\"seq\":9,") && !line.contains("\"seq\":10,"))
+                .collect();
+            (name, kept)
+        })
+        .collect()
+}
+
+/// A crashed Rust process leaves the `rust-crash` fixture again (the storage
+/// the crashed TS process left), less the progress commits.
 #[tokio::test]
 async fn crash_leaves_the_fixture_storage() {
     if let Some(directory) = std::env::var_os(CRASH_DIR_ENV) {
@@ -534,11 +553,11 @@ async fn crash_leaves_the_fixture_storage() {
     let crashed = without_session_ids(files(&directory));
     assert_same_files(
         &crashed,
-        &without_session_ids(files(&fixtures().join("rust-crash"))),
+        &without_progress(without_session_ids(files(&fixtures().join("rust-crash")))),
     );
     assert_same_files(
         &crashed,
-        &without_session_ids(files(&fixtures().join("ts-crash"))),
+        &without_progress(without_session_ids(files(&fixtures().join("ts-crash")))),
     );
 }
 

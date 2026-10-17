@@ -52,6 +52,7 @@ use eukhe_chord::json::JsonValue;
 use futures::future::BoxFuture;
 
 use crate::env::ExecutionEnv;
+use crate::harness::live::progress::LiveProgress;
 use crate::harness::types::{
     Agent, ConversationHandle, RegistryReader, RegistrySnapshot, Settings,
 };
@@ -171,6 +172,8 @@ pub(crate) struct TaskSchedulerOptions {
     /// Invocation-bound handle of an existing conversation, for task runtimes
     /// and tools.
     pub(crate) conversation: ConversationSource,
+    /// The board of running tool calls' progress, for tool task runtimes.
+    pub(crate) live_progress: LiveProgress,
     /// Context for scheduler commits and invocations; carries no caller
     /// cancellation.
     pub(crate) context: Context,
@@ -204,6 +207,7 @@ struct Inner {
     settle_outcome: SettleOutcome,
     withdraw_inputs: WithdrawInputs,
     conversation: ConversationSource,
+    live_progress: LiveProgress,
     context: Context,
     state: Mutex<State>,
     this: Weak<Inner>,
@@ -257,6 +261,7 @@ impl TaskScheduler {
                 settle_outcome: options.settle_outcome,
                 withdraw_inputs: options.withdraw_inputs,
                 conversation: options.conversation,
+                live_progress: options.live_progress,
                 context: options.context,
                 state: Mutex::new(State::default()),
                 this: this.clone(),

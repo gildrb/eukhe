@@ -118,9 +118,9 @@ async fn gives_callers_the_bounded_output_as_the_model_sees_it_without_the_rende
     add_tool(
         &setup.registry,
         returning("long", result, |tool| {
-            tool.output_limits = Some(crate::harness::types::ToolOutputLimits {
-                max_lines: Some(1),
-                ..Default::default()
+            tool.truncation = crate::harness::Truncation::On(crate::harness::OutputLimits {
+                max_lines: 1,
+                ..crate::harness::OutputLimits::default()
             });
         }),
         None,

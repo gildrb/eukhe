@@ -35,7 +35,7 @@ pub use live::{
     CompactionInput, CompactionStatus, LiveDeferred, LiveGeneration, LiveRetry, LiveRun, LiveState,
     NestedToolSlot, NestedToolSummary, SlotProgress, ToolSlot, ToolSlotStatus, LIVE_DOC,
 };
-pub use output::{bound_output, OutputLimits, OutputSlice};
+pub use output::{bound_output, OutputLimits, OutputSlice, Truncation};
 pub use scheduler::{DefinitionKept, TaskAbortResult};
 pub use submissions::{AbortSubmissionResult, SubmissionHandle};
 pub use tool::{

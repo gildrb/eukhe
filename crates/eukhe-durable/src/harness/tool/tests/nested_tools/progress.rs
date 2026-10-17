@@ -87,21 +87,24 @@ async fn reports_nested_calls_in_pi_live_nested_tools_and_as_tool_events_with_th
         .unwrap();
     running.wait().await;
     let slots = nested_slots(&chat).await;
-    assert_eq!(
-        slots,
-        json!([{
-            "callId": "c1/1",
-            "parentCallId": "c1",
-            "parentTaskId": slots[0]["parentTaskId"],
-            "name": "slow",
-            "taskId": slots[0]["taskId"],
-            "arguments": {},
-            "status": "running",
-            "output": "working\n",
-            "details": { "step": 1 },
-        }])
-    );
+    let slot = json!({
+        "callId": "c1/1",
+        "parentCallId": "c1",
+        "parentTaskId": slots[0]["parentTaskId"],
+        "name": "slow",
+        "taskId": slots[0]["taskId"],
+        "arguments": {},
+        "status": "running",
+    });
+    // Storage holds the running slot; its progress reaches the observers only.
+    assert_eq!(slots, json!([slot.clone()]));
     assert!(slots[0]["taskId"].is_number() && slots[0]["parentTaskId"].is_number());
+    let (late, _) = listen(&chat.harness, chat.root.id()).await;
+    let mut published = slot;
+    published["output"] = json!("working\n");
+    published["details"] = json!({ "step": 1 });
+    assert_eq!(plain(&late.snapshot().nested_tools), json!([published]));
+    late.stop().await;
     release.resolve(());
     submission.wait(context()).await.unwrap();
     chat.harness.wait_for_idle(context()).await.unwrap();

@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use futures::future::FutureExt;
 use tokio::time::{Duration, Instant};
 
-use super::{bound_output, sanitize_output, BoundedOutput, OutputBuffer, OutputLimits, Progress};
+use super::{
+    bound_output, sanitize_output, BoundedOutput, OutputBuffer, OutputLimits, Progress, Truncation,
+};
 use crate::env::ShellOutputSkip;
 use crate::harness::types::{OutputRetain, ToolOutputChunk};
 use crate::session::SessionError;
@@ -242,7 +244,7 @@ fn cuts_tails_exactly_like_buffer_across_deterministic_fuzz_cases() {
 
 #[test]
 fn keeps_exact_totals_across_chunks_and_decodes_utf8_split_across_byte_chunks() {
-    let mut buffer = OutputBuffer::new(tail(2, 1000));
+    let mut buffer = OutputBuffer::new(Truncation::On(tail(2, 1000)));
     let bytes = "😀\n".as_bytes();
     push_text(&mut buffer, "a\nb\n");
     push_bytes(&mut buffer, &bytes[..2]);
@@ -252,7 +254,7 @@ fn keeps_exact_totals_across_chunks_and_decodes_utf8_split_across_byte_chunks() 
 
 #[test]
 fn sanitizes_the_retained_text_but_counts_the_raw_stream() {
-    let mut buffer = OutputBuffer::new(tail(1, 1000));
+    let mut buffer = OutputBuffer::new(Truncation::On(tail(1, 1000)));
     push_text(&mut buffer, "a\u{0007}\n");
     assert_eq!(buffer.snapshot(), bounded("a\n", 0, 0));
     push_text(&mut buffer, "b\u{001b}\n");
@@ -262,7 +264,7 @@ fn sanitizes_the_retained_text_but_counts_the_raw_stream() {
 #[test]
 fn drops_a_byte_order_mark_only_at_the_start_of_the_output() {
     let bom = [0xef, 0xbb, 0xbf];
-    let mut buffer = OutputBuffer::new(tail(10, 1000));
+    let mut buffer = OutputBuffer::new(Truncation::On(tail(10, 1000)));
     push_bytes(&mut buffer, &bom[..1]);
     push_bytes(&mut buffer, &[0xbb, 0xbf, 0x61]);
     push_text(&mut buffer, "b");
@@ -274,7 +276,7 @@ fn drops_a_byte_order_mark_only_at_the_start_of_the_output() {
 
 #[test]
 fn flushes_an_incomplete_character_before_a_string_chunk_and_at_the_end() {
-    let mut buffer = OutputBuffer::new(tail(10, 1000));
+    let mut buffer = OutputBuffer::new(Truncation::On(tail(10, 1000)));
     let euro = "€".as_bytes();
     push_bytes(&mut buffer, &euro[..1]);
     push_text(&mut buffer, "x");
@@ -286,7 +288,7 @@ fn flushes_an_incomplete_character_before_a_string_chunk_and_at_the_end() {
 #[test]
 fn matches_bounding_the_whole_stream_when_several_chunks_arrive_between_snapshots() {
     for limits in [head(3, 40), tail(3, 40), head(50, 25), tail(50, 25)] {
-        let mut buffer = OutputBuffer::new(limits);
+        let mut buffer = OutputBuffer::new(Truncation::On(limits));
         let mut stream = String::new();
         for index in 0..300 {
             let chunk = if index % 7 == 0 {
@@ -314,7 +316,7 @@ fn matches_bounding_the_whole_stream_when_several_chunks_arrive_between_snapshot
 
 #[test]
 fn stops_storing_head_output_once_the_window_is_full() {
-    let mut buffer = OutputBuffer::new(head(2, 1000));
+    let mut buffer = OutputBuffer::new(Truncation::On(head(2, 1000)));
     for index in 0..1000 {
         push_text(&mut buffer, &format!("line {index}\n"));
     }
@@ -324,7 +326,7 @@ fn stops_storing_head_output_once_the_window_is_full() {
 
 #[test]
 fn stores_only_the_tail_window_after_each_snapshot() {
-    let mut buffer = OutputBuffer::new(tail(3, 100));
+    let mut buffer = OutputBuffer::new(Truncation::On(tail(3, 100)));
     let mut stream = String::new();
     for index in 0..2000 {
         let chunk = format!("line {index}\n\n");
@@ -569,8 +571,8 @@ fn random_tail_limits(next: &mut impl FnMut() -> f64) -> OutputLimits {
 fn check_seed(seed: u32) {
     let mut next = random(seed);
     let limits = random_tail_limits(&mut next);
-    let mut full = OutputBuffer::new(limits);
-    let mut skipping = OutputBuffer::new(limits);
+    let mut full = OutputBuffer::new(Truncation::On(limits));
+    let mut skipping = OutputBuffer::new(Truncation::On(limits));
     let mut pending = String::new();
     let mut skips = 0_usize;
     let mut flush = |next: &mut dyn FnMut() -> f64,
@@ -630,8 +632,8 @@ fn keeps_the_same_tail_whenever_progress_snapshots_happen() {
     for seed in 1..=3000 {
         let mut next = random(seed);
         let limits = random_tail_limits(&mut next);
-        let mut plain = OutputBuffer::new(limits);
-        let mut sampled = OutputBuffer::new(limits);
+        let mut plain = OutputBuffer::new(Truncation::On(limits));
+        let mut sampled = OutputBuffer::new(Truncation::On(limits));
         let chunks = pick(&mut next, 30);
         for _ in 0..chunks {
             let chunk = random_chunk(&mut next);
@@ -655,8 +657,8 @@ fn matches_the_full_stream_for_every_legal_skip_pattern() {
 #[test]
 fn counts_skipped_bytes_lines_and_the_final_newline_exactly() {
     let limits = tail(2, 1000);
-    let mut full = OutputBuffer::new(limits);
-    let mut skipping = OutputBuffer::new(limits);
+    let mut full = OutputBuffer::new(Truncation::On(limits));
+    let mut skipping = OutputBuffer::new(Truncation::On(limits));
     // The skipped text ends without a newline, so its last line continues in
     // the delivered text.
     let omitted = "one\ntwo\nthr";
@@ -671,7 +673,7 @@ fn counts_skipped_bytes_lines_and_the_final_newline_exactly() {
 
 #[test]
 fn refuses_skips_for_head_retention() {
-    let mut buffer = OutputBuffer::new(head(2, 10));
+    let mut buffer = OutputBuffer::new(Truncation::On(head(2, 10)));
     let skip = ShellOutputSkip {
         bytes: 3,
         newlines: 1,

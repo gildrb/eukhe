@@ -1,5 +1,5 @@
-//! `eukhe.rlm` on a durable Harness: the `ipython` tool streaming into the
-//! live tool slot, abort, crash recovery with a revived namespace, and host
+//! `eukhe.rlm` on a durable Harness: the `ipython` tool streaming to the
+//! live observers, abort, crash recovery with a revived namespace, and host
 //! requests routed with the call context. These run a real Python kernel
 //! built from this checkout's runtime.
 
@@ -16,7 +16,10 @@ use eukhe_ai::providers::faux::{
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, ModelRef};
-use eukhe_durable::harness::{ConversationEntryQuery, LiveState, ToolSlot, LIVE_DOC};
+use eukhe_durable::harness::{
+    watch_events, AgentEvent, AgentEventStream, ConversationEntryQuery, LiveState,
+    ToolOutputUpdate, ToolSlot, LIVE_DOC,
+};
 use eukhe_durable::types::{
     ConversationId, DocumentReaderExt, EntryRecord, SubmissionId, SubmissionStatus,
 };
@@ -210,17 +213,71 @@ where
     }
 }
 
-async fn wait_for_slot_output(session: &EukheSession, output: &str) {
-    wait_for(
-        "the cell's streamed output in the pi.live tool slot",
-        || async {
-            first_slot(session)
-                .await
-                .and_then(|slot| slot.output)
-                .as_deref()
-                == Some(output)
-        },
-    )
+/// The running cell's output as the live observers get it, each
+/// `tool_execution_update` applied in order; storage holds none of it.
+struct LiveOutput {
+    _stream: AgentEventStream,
+    text: Arc<Mutex<String>>,
+    /// Every published `details` change, in order.
+    details: Arc<Mutex<Vec<JsonValue>>>,
+}
+
+async fn live_output(session: &EukheSession) -> LiveOutput {
+    let stream = watch_events(session.harness(), session.root().id(), cx())
+        .await
+        .expect("agent events");
+    let text = Arc::new(Mutex::new(String::new()));
+    let details = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&text);
+    let details_sink = Arc::clone(&details);
+    stream
+        .start(Arc::new(move |events, _cx| {
+            let mut text = sink.lock().unwrap_or_else(PoisonError::into_inner);
+            for event in events.iter() {
+                let AgentEvent::ToolExecutionUpdate {
+                    output, details, ..
+                } = event
+                else {
+                    continue;
+                };
+                if let Some(details) = details {
+                    details_sink
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(details.clone());
+                }
+                if let Some(output) = output {
+                    match output {
+                        ToolOutputUpdate::Set { set } => set.clone_into(&mut text),
+                        ToolOutputUpdate::Window { trim_start, append } => {
+                            if let Some(units) = trim_start {
+                                let kept: Vec<u16> = text.encode_utf16().skip(*units).collect();
+                                *text = String::from_utf16_lossy(&kept);
+                            }
+                            text.push_str(append.as_deref().unwrap_or_default());
+                        }
+                    }
+                }
+            }
+            futures::future::ready(Ok(())).boxed()
+        }))
+        .expect("start the agent events");
+    LiveOutput {
+        _stream: stream,
+        text,
+        details,
+    }
+}
+
+async fn wait_for_live_output(live: &LiveOutput, output: &str) {
+    wait_for("the cell's streamed output at the live observers", || {
+        let streamed = live
+            .text
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        async move { streamed == output }
+    })
     .await;
 }
 
@@ -237,11 +294,13 @@ async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipytho
         .faux
         .set_responses(vec![ipython("c1", &code), text("done")]);
     let session = fixture.open().await;
+    let live = live_output(&session).await;
     let id = submit(&session, "go").await;
 
-    wait_for_slot_output(&session, "streamed\n").await;
+    wait_for_live_output(&live, "streamed\n").await;
+    // The durable slot says the call runs; its output is never stored.
     let slot = first_slot(&session).await.expect("a running slot");
-    assert_eq!(slot.name, "ipython");
+    assert_eq!((slot.name.as_str(), slot.output), ("ipython", None));
     std::fs::write(&gate, "").expect("open the gate");
 
     assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
@@ -256,6 +315,47 @@ async fn streams_cell_output_into_the_live_tool_slot_and_answers_with_the_ipytho
     assert_eq!(details["status"], "ok");
     assert_eq!(details["kernelRestarted"], false);
     assert!(details["durationMs"].is_number());
+    session.close(cx()).await.expect("close");
+}
+
+/// A call that boots the kernel shows its startup stages, then moves its
+/// details to `running` once the kernel is up, so live clients (which show a
+/// `starting` call's stage note instead of its output) show the cell output.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_call_that_showed_startup_stages_publishes_running_before_its_output() {
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    let gate = fixture.dir.path().join("gate");
+    let code = gated_cell(&gate, "None");
+    fixture
+        .faux
+        .set_responses(vec![ipython("c1", &code), text("done")]);
+    let session = fixture.open().await;
+    let live = live_output(&session).await;
+    let id = submit(&session, "go").await;
+
+    wait_for_live_output(&live, "started\n").await;
+    let published = live
+        .details
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let (last, stages) = published.split_last().expect("published details");
+    assert_eq!(
+        last,
+        &JsonValue::from(json!({ "status": "running" })),
+        "{published:?}"
+    );
+    assert!(!stages.is_empty(), "no startup stage shown: {published:?}");
+    for stage in stages {
+        assert_eq!(
+            stage["status"],
+            JsonValue::from(json!("starting")),
+            "{published:?}"
+        );
+    }
+    std::fs::write(&gate, "").expect("open the gate");
+    assert_eq!(settle(&session, id).await, SubmissionStatus::Done);
     session.close(cx()).await.expect("close");
 }
 
@@ -336,8 +436,9 @@ async fn abort_interrupts_the_running_cell_and_the_kernel_stays_usable() {
         "import time\nprint('started', flush=True)\ntime.sleep(120)",
     )]);
     let session = fixture.open().await;
+    let live = live_output(&session).await;
     let id = submit(&session, "go").await;
-    wait_for_slot_output(&session, "started\n").await;
+    wait_for_live_output(&live, "started\n").await;
 
     let aborted_at = Instant::now();
     session
@@ -414,8 +515,9 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
         ipython("c3", "print(x + 1)"),
         text("done"),
     ]);
+    let live = live_output(&session).await;
     let second = submit(&session, "block").await;
-    wait_for_slot_output(&session, "started\n").await;
+    wait_for_live_output(&live, "started\n").await;
     // The worker dies: nothing more commits, and its kernel child dies too.
     session.harness().close(cx()).await.expect("harness close");
     let killed = std::process::Command::new("kill")
@@ -441,9 +543,11 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     assert_eq!(results.len(), 3, "{results:?}");
     assert_eq!(results[1].tool_call_id, "c2");
     assert!(results[1].is_error);
+    // Its streamed output was never stored: the crash lost it, and the
+    // interrupted answer holds only what is durable.
     assert_eq!(
         result_text(&results[1]),
-        "started\n|<harness>\n[error] Tool ipython was interrupted and may have partially run\n</harness>"
+        "<harness>\n[error] Tool ipython was interrupted and may have partially run\n</harness>"
     );
     assert_eq!(results[2].tool_call_id, "c3");
     assert_eq!(result_text(&results[2]), "42\n");

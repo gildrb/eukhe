@@ -1,5 +1,6 @@
 //! Port of `test/harness-events.test.ts`.
 
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -21,12 +22,12 @@ use crate::harness::define::define_tool;
 use crate::harness::live::LIVE_DOC;
 use crate::harness::types::{
     ConversationCreateOptions, InputSubmissionDraft, OutputRetain, PartialRetryPolicy,
-    ToolExecutionResult, ToolOutputChunk, ToolOutputLimits, ToolRegistration, WhenBusy,
+    ToolExecutionResult, ToolOutputChunk, ToolRegistration, WhenBusy,
 };
 use crate::harness::usage::USAGE_DOC;
 use crate::harness::{
-    watch_events, AgentEvent, AgentEventStream, Conversation, Harness, MessageChange, PathSegment,
-    SnapshotEvent, ToolEventCall, ToolOutputUpdate,
+    watch_events, AgentEvent, AgentEventStream, Conversation, Harness, MessageChange, OutputLimits,
+    PathSegment, SnapshotEvent, ToolEventCall, ToolOutputUpdate, Truncation,
 };
 use crate::session::{SessionError, WatchEnd};
 use crate::storage::MemoryStorage;
@@ -779,10 +780,10 @@ async fn rebuilds_a_sliding_tail_window_from_output_trims_and_appends() {
             }
         },
     );
-    tail.output_limits = Some(ToolOutputLimits {
-        max_lines: Some(3),
-        retain: Some(OutputRetain::Tail),
-        ..ToolOutputLimits::default()
+    tail.truncation = Truncation::On(OutputLimits {
+        max_lines: 3,
+        retain: OutputRetain::Tail,
+        ..OutputLimits::default()
     });
     add_tool(&setup.registry, define_tool(tail), None).unwrap();
     setup.faux.set_responses(vec![
@@ -791,30 +792,13 @@ async fn rebuilds_a_sliding_tail_window_from_output_trims_and_appends() {
     ]);
     let OpenChat { harness, root } = open_chat(storage(), &setup, None).await.unwrap();
     let lives = live_values(&harness);
-    let outputs = || -> Vec<String> {
-        let mut outputs: Vec<String> = Vec::new();
-        for live in lives.lock().unwrap_or_else(PoisonError::into_inner).iter() {
-            let Some(output) = live
-                .get("tools")
-                .and_then(|tools| tools.get_index(0))
-                .and_then(|slot| slot.get("output"))
-                .and_then(JsonValue::as_str)
-            else {
-                continue;
-            };
-            if outputs.last().map(String::as_str) != Some(output) {
-                outputs.push(output.to_owned());
-            }
-        }
-        outputs
-    };
     let (stream, batches) = listen(&harness, &root).await;
     let submission = root.submit(input("go"), context()).await.unwrap();
     wait_for(
         || {
-            let done = outputs()
+            let done = rebuild_outputs(&events(&batches))
                 .last()
-                .is_some_and(|output| output.ends_with("line 5\n"));
+                .is_some_and(|output| output == "line 3\nline 4\nline 5\n");
             async move { done }
         },
         5000,
@@ -824,7 +808,21 @@ async fn rebuilds_a_sliding_tail_window_from_output_trims_and_appends() {
     submission.wait(context()).await.unwrap();
     flush().await;
     let all = events(&batches);
-    assert_eq!(rebuild_outputs(&all), outputs());
+    // Every rebuilt window is the tail the tool kept at some point: its last
+    // three lines, in order.
+    let windows: Vec<String> = (0..6)
+        .map(|last: usize| {
+            (last.saturating_sub(2)..=last).fold(String::new(), |mut text, line| {
+                let _infallible = writeln!(text, "line {line}");
+                text
+            })
+        })
+        .collect();
+    let rebuilt = rebuild_outputs(&all);
+    assert!(
+        rebuilt.iter().all(|output| windows.contains(output)),
+        "{rebuilt:?}"
+    );
     assert!(all.iter().any(|event| matches!(
         event,
         AgentEvent::ToolExecutionUpdate {
@@ -835,6 +833,16 @@ async fn rebuilds_a_sliding_tail_window_from_output_trims_and_appends() {
             ..
         }
     )));
+    // The running output reached the observers only: no commit stored it.
+    assert!(lives
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .all(|live| live
+            .get("tools")
+            .and_then(|tools| tools.get_index(0))
+            .and_then(|slot| slot.get("output"))
+            .is_none()));
     stream.stop().await;
     harness.close(context()).await.unwrap();
 }

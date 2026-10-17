@@ -480,6 +480,10 @@ pub struct HostDeps {
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
+    /// The jobs of the session (docs/harness.md S2).
+    pub jobs: super::jobs::JobTable,
+    /// The session's live state tree, set when the session opens.
+    pub(crate) state_tree: OnceLock<Weak<super::LiveStateTree>>,
     /// The closing gate of the session's background parent submissions.
     pub(crate) closing: SessionClosing,
 }
@@ -533,6 +537,8 @@ impl HostDeps {
             rlm_kernels: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
             closing: SessionClosing::default(),
+            jobs: super::jobs::JobTable::default(),
+            state_tree: OnceLock::new(),
             semantic_edges: services.semantic_edges,
         }
     }

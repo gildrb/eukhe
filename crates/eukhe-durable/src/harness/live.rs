@@ -4,6 +4,7 @@
 //! Run helpers that create generations live in [`run`]; TS keeps them in
 //! `generation.ts`, which imports this module back.
 
+pub(crate) mod progress;
 pub(crate) mod run;
 
 pub use run::CompactionInput;
@@ -64,7 +65,9 @@ pub struct ToolSlot {
 
 /// What a running tool call publishes, shared by model-issued and nested
 /// calls: the fields of either slot an interrupted or aborted result is
-/// built from.
+/// built from. A running call publishes it to the live observers only
+/// ([`progress::LiveProgress`]); a slot that storage holds carries it only
+/// when an earlier version committed it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotProgress {
@@ -78,6 +81,9 @@ pub struct SlotProgress {
     pub details: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<ToolDiagnostic>>,
+    /// Spend the call recorded through `api.usage()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
 }
 
 /// Presentation of one nested call: a call a running tool made through

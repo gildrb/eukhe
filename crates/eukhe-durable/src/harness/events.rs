@@ -1,12 +1,14 @@
 //! Experimental agent events (`harness/events.ts`, spec §9.4): one
 //! conversation's commits translated into events shaped like the coding
-//! agent's session events, one batch per commit.
+//! agent's session events, one batch per commit, and the running tool
+//! calls' progress from the live board (never stored), one batch per
+//! publication.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use eukhe_chord::context::Context;
+use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::delta::{Op, Seg};
 use eukhe_chord::json::{from_json, JsonObject, JsonValue};
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, Usage};
@@ -14,7 +16,10 @@ use futures::future::{BoxFuture, FutureExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::harness::live::{CompactionStatus, LiveGeneration, NestedToolSlot, ToolSlot};
+use crate::harness::live::progress::{Deliver, StopWatch};
+use crate::harness::live::{
+    CompactionStatus, LiveGeneration, NestedToolSlot, SlotProgress, ToolSlot, ToolSlotStatus,
+};
 use crate::harness::tool::NESTED_RESULT_DOC;
 use crate::harness::types::{
     AgentState, CompactionReason, NestedToolExecutionResult, ToolDiagnostic,
@@ -437,21 +442,58 @@ impl<'a> Parts<'a> {
     }
 }
 
-fn snapshot_of(view: &ConversationView) -> SnapshotEvent {
-    let parts = Parts::of(view);
+/// The view's snapshot, with the last published progress of each running
+/// call in its slot.
+fn snapshot_of(current: &Current) -> SnapshotEvent {
+    let parts = Parts::of(&current.view);
+    let mut tools: Vec<ToolSlot> = parts.live("tools").map(decode).unwrap_or_default();
+    let mut nested_tools: Vec<NestedToolSlot> =
+        parts.live("nestedTools").map(decode).unwrap_or_default();
+    let published = |task_id: Option<TaskId>, status: ToolSlotStatus| {
+        task_id
+            .filter(|_| status == ToolSlotStatus::Running)
+            .and_then(|task_id| current.progress.get(&task_id))
+    };
+    for slot in &mut tools {
+        if let Some(progress) = published(slot.task_id, slot.status) {
+            slot.output.clone_from(&progress.output);
+            slot.dropped_bytes = progress.dropped_bytes;
+            slot.dropped_lines = progress.dropped_lines;
+            slot.details.clone_from(&progress.details);
+            slot.diagnostics.clone_from(&progress.diagnostics);
+        }
+    }
+    for slot in &mut nested_tools {
+        if let Some(progress) = published(Some(slot.task_id), slot.status) {
+            slot.output.clone_from(&progress.output);
+            slot.dropped_bytes = progress.dropped_bytes;
+            slot.dropped_lines = progress.dropped_lines;
+            slot.details.clone_from(&progress.details);
+            slot.diagnostics.clone_from(&progress.diagnostics);
+        }
+    }
     SnapshotEvent {
-        entries: view.entries().as_ref().clone(),
+        entries: current.view.entries().as_ref().clone(),
         run: parts.live("run").map(|run| SnapshotRun {
             inputs: decode(&run["inputs"]),
         }),
         generation: parts.live("generation").map(decode),
-        tools: parts.live("tools").map(decode).unwrap_or_default(),
-        nested_tools: parts.live("nestedTools").map(decode).unwrap_or_default(),
+        tools,
+        nested_tools,
         compactions: parts.live("compactions").map(decode).unwrap_or_default(),
         inbox: queued(parts.inbox),
         agent: parts.agent.map(decode).unwrap_or_default(),
         usage: parts.usage.map(decode).unwrap_or_default(),
     }
+}
+
+/// The running slot of call `task_id` in `view`, model-issued or nested.
+fn running_slot(view: &ConversationView, task_id: TaskId) -> Option<&JsonValue> {
+    let parts = Parts::of(view);
+    parts.slots().iter().chain(parts.nested()).find(|slot| {
+        slot.get("taskId").and_then(JsonValue::as_u64) == Some(task_id.get())
+            && is_status(Some(slot), "running")
+    })
 }
 
 fn queued(inbox: Option<&JsonValue>) -> Vec<QueuedItem> {
@@ -466,12 +508,23 @@ fn queued(inbox: Option<&JsonValue>) -> Vec<QueuedItem> {
         .collect()
 }
 
-/// The view observer translating each publication into one batch.
+/// What an events observer shows: the newest view, and the last published
+/// progress of its running calls.
+struct Current {
+    view: ConversationView,
+    progress: HashMap<TaskId, SlotProgress>,
+}
+
+/// The view observer translating each publication into one batch, and
+/// each published progress of a running call into one batch.
 #[derive(Clone)]
 struct EventsObserver {
     conversation_id: ConversationId,
     watch: CommittedWatch<AgentEventBatch>,
-    current: Arc<Mutex<ConversationView>>,
+    current: Arc<Mutex<Current>>,
+    /// Held while a batch is decided and handed to the watch, so a call's
+    /// progress never follows its end.
+    order: Arc<Mutex<()>>,
     /// Generations whose held outcome already ended their turn.
     held: Arc<Mutex<HashSet<TaskId>>>,
     snapshot: SnapshotEvent,
@@ -486,7 +539,14 @@ impl ViewObserver for EventsObserver {
         publication: &CommitPublication,
         cx: &Context,
     ) {
-        *lock(&self.current) = after.clone();
+        let _order = lock(&self.order);
+        {
+            let mut current = lock(&self.current);
+            current.view = after.clone();
+            current
+                .progress
+                .retain(|task_id, _| running_slot(after, *task_id).is_some());
+        }
         let events = {
             let mut held = lock(&self.held);
             translate(
@@ -512,7 +572,14 @@ impl ViewObserver for EventsObserver {
 /// Experimental: attach to one conversation's agent events (spec §9.4). The
 /// snapshot and the registration for later commits are captured atomically
 /// on the Session line; overflow replaces undelivered batches with one
-/// snapshot.
+/// snapshot. A running call's progress comes from the live board: the
+/// snapshot holds what each running call published last, and every later
+/// publication is one `tool_execution_update` batch, never after the
+/// call's end.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one attach: the view snapshot, the board's progress, and the forwarding, under one lock"
+)]
 #[must_use = "the stream is attached only when the future runs"]
 pub fn watch_events(
     harness: &Harness,
@@ -521,6 +588,7 @@ pub fn watch_events(
 ) -> BoxFuture<'static, SessionResult<AgentEventStream>> {
     let scan_cx = cx.clone();
     let views = harness.core().views();
+    let live = harness.core().live_progress().clone();
     let report: Arc<dyn Fn(SessionError) + Send + Sync> = {
         let views = views.clone();
         Arc::new(move |error| views.report(error))
@@ -543,13 +611,22 @@ pub fn watch_events(
                 })
                 .await?;
                 let held = completing.iter().map(|record| record.id).collect();
-                let snapshot = snapshot_of(&initial);
-                let current = Arc::new(Mutex::new(initial));
+                let current = Arc::new(Mutex::new(Current {
+                    view: initial,
+                    progress: HashMap::new(),
+                }));
                 // Batches are the watch's values; an overflow delivers a snapshot of the newest view instead.
                 let replace_current = Arc::clone(&current);
+                let stop: Arc<Mutex<Option<StopWatch>>> = Arc::default();
+                let stop_on_release = Arc::clone(&stop);
                 let watch = CommittedWatch::new(
                     Arc::from(Vec::new()),
-                    release,
+                    Box::new(move || {
+                        release();
+                        if let Some(stop) = lock(&stop_on_release).take() {
+                            stop();
+                        }
+                    }),
                     report,
                     Some(Box::new(move || -> AgentEventBatch {
                         Arc::from(vec![AgentEvent::Snapshot(snapshot_of(&lock(
@@ -557,10 +634,48 @@ pub fn watch_events(
                         )))])
                     })),
                 );
+                let order: Arc<Mutex<()>> = Arc::default();
+                let deliver: Deliver = {
+                    let (current, order, watch) =
+                        (Arc::clone(&current), Arc::clone(&order), watch.clone());
+                    Arc::new(move |task_id, progress, change| {
+                        let _order = lock(&order);
+                        let event = {
+                            let mut current = lock(&current);
+                            let Some(slot) = running_slot(&current.view, task_id) else {
+                                return;
+                            };
+                            let event = AgentEvent::ToolExecutionUpdate {
+                                call: call_of(slot),
+                                output: change.output.clone(),
+                                details: change.details.clone(),
+                                diagnostics: change.diagnostics.clone(),
+                            };
+                            current.progress.insert(task_id, progress.clone());
+                            event
+                        };
+                        watch.advance(
+                            Arc::from(vec![event]),
+                            Arc::from(Vec::new()),
+                            BACKGROUND_CONTEXT.clone(),
+                        );
+                    })
+                };
+                let (published, stop_watch) = live.watch(conversation_id, deliver);
+                *lock(&stop) = Some(stop_watch);
+                let snapshot = {
+                    let mut current = lock(&current);
+                    // A publication since the watch began is newer than what the watch found.
+                    for (task_id, progress) in published {
+                        current.progress.entry(task_id).or_insert(progress);
+                    }
+                    snapshot_of(&current)
+                };
                 Ok(EventsObserver {
                     conversation_id,
                     watch,
                     current,
+                    order,
                     held: Arc::new(Mutex::new(held)),
                     snapshot,
                 })

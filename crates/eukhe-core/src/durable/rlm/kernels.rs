@@ -349,7 +349,9 @@ async fn relocate_snapshot(from: &std::path::Path, to: &std::path::Path) -> std:
     Ok(())
 }
 
-async fn submit_notice(
+/// Write `notice` into the conversation `conversation_id`.
+#[tracing::instrument(skip_all)]
+pub(crate) async fn submit_notice(
     harness: &eukhe_durable::harness::Harness,
     conversation_id: ConversationId,
     notice: &CustomNotice,

@@ -1,5 +1,6 @@
 //! Tests of the built-in tool task.
 
+mod bridge;
 mod callers;
 mod execution_api;
 mod generation_hooks;

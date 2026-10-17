@@ -16,6 +16,7 @@ import ./bend/child.bend as Ch
 import ./bend/run.bend as Rn
 import ./bend/admission.bend as Ad
 import ./bend/tree.bend as Tr
+import ./bend/job.bend as Jb
 
 # (a) The view
 # ------------
@@ -722,3 +723,106 @@ law tree_put_keeps_others:
   for +x: Nat
   for other: {Nat.is_eq(x, k) == False{} : Bool}
   {Tr.get(Tr.apply(t, Tr.Do{Tr.Put{k, p, v}}), x) == Tr.get(t, x) : Maybe<&2, Tr.Ent>}
+
+# (S2) Jobs and limits
+# --------------------
+# docs/harness.md S2, the model in bend/job.bend. Every event is free:
+# any output size, exit, kill or tick, in any order; any output cap or
+# the opt-out; any budget; any tool call stream; any job table.
+
+# LAW: with a cap, a job keeps at most cap bytes of its output
+law job_output_bounded:
+  for +c: Nat
+  for es: List<&2, Jb.JEv>
+  {Nat.is_le(Jb.J.kept(Jb.run(Some{c}, es)), c) == True{} : Bool}
+
+# LAW: no output is lost in silence: the bytes kept plus the bytes
+# counted as dropped are every byte the job wrote before it ended
+law job_no_silent_loss:
+  for +cap: Maybe<&2, Nat>
+  for +es: List<&2, Jb.JEv>
+  {Nat.add(Jb.J.kept(Jb.run(cap, es)), Jb.J.dropped(Jb.run(cap, es))) == Jb.produced(es) : Nat}
+
+# LAW: with the opt-out, a job drops nothing
+law job_optout_keeps_all:
+  for es: List<&2, Jb.JEv>
+  {Jb.J.dropped(Jb.run(None{}, es)) == 0n : Nat}
+
+# LAW: a cap drops nothing from output that fits
+law job_cap_drops_only_excess:
+  for +c: Nat
+  for +es: List<&2, Jb.JEv>
+  for fits: {Nat.is_le(Jb.produced(es), c) == True{} : Bool}
+  {Jb.J.dropped(Jb.run(Some{c}, es)) == 0n : Nat}
+
+# LAW: a job reports exactly one end once it exits or is killed, and none
+# before
+law job_ends_once:
+  for +cap: Maybe<&2, Nat>
+  for +es: List<&2, Jb.JEv>
+  {List.length(&2, Jb.End, Jb.ends(cap, es)) == Jb.once(Jb.has_end(es)) : Nat}
+
+# LAW: an ended job stays as it ended: no late output, no second end
+law job_end_is_final:
+  for +cap: Maybe<&2, Nat>
+  for +pre: List<&2, Jb.JEv>
+  for post: List<&2, Jb.JEv>
+  for ended: {Jb.has_end(pre) == True{} : Bool}
+  {Jb.run(cap, List.append(&2, Jb.JEv, pre, post)) == Jb.run(cap, pre) : Jb.J}
+
+# LAW: a kill ends a live job at once, as killed, with its output kept
+law job_kill_ends_now:
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  {Jb.step(cap, Jb.Live{k, d}, Jb.Kill{}) == Jb.Ended{k, d, Jb.Killed{}} : Jb.J}
+
+# LAW: a blocking call returns once its budget of ticks passed: it never
+# blocks longer
+law call_blocks_at_most_budget:
+  for +b: Nat
+  for +es: List<&2, Jb.JEv>
+  for long: {Nat.is_le(b, Jb.ticks(es)) == True{} : Bool}
+  {Maybe.is_some(&2, Jb.Wait, Jb.wait(es, b)) == True{} : Bool}
+
+# LAW: a call that settles in time reports the job's own end, and the job
+# has no other end
+law call_settles_with_job:
+  for +cap: Maybe<&2, Nat>
+  for +b: Nat
+  for +es: List<&2, Jb.JEv>
+  for +x: Jb.End
+  for settled: {Jb.wait(es, b) == Some{Jb.Settled{x}} : Maybe<&2, Jb.Wait>}
+  {Jb.ends(cap, es) == [x] : List<&2, Jb.End>}
+
+# LAW: a tool call journals at most two records: its start and one final
+# record; no delta is journaled
+law stream_journals_two:
+  for es: List<&2, Jb.CEv>
+  {Nat.is_le(List.length(&2, Jb.CRec, Jb.journal(es)), 2n) == True{} : Bool}
+
+# LAW: a tool call settles exactly once when it ends (result or cancel),
+# and not before
+law stream_settles_once:
+  for +es: List<&2, Jb.CEv>
+  {Jb.settles(Jb.journal(es)) == Jb.once(Jb.c.ends(es)) : Nat}
+
+# LAW: the final record carries everything the stream carried: every
+# result byte, every warning, all usage
+law stream_settle_carries_all:
+  for +es: List<&2, Jb.CEv>
+  for ended: {Jb.c.ends(es) == True{} : Bool}
+  {Jb.carried(Jb.journal(es)) == Some{Jb.Tally{Jb.c.bytes(es), Jb.c.warns(es), Jb.c.usage(es)}} : Maybe<&2, Jb.Tally>}
+
+# LAW: after a rewind, every running job is a job of the target tree: no
+# orphan job runs on
+law rewind_stops_orphans:
+  for +js: List<&2, Jb.Slot>
+  for +keep: List<&2, Nat>
+  {Jb.running_in(Jb.rewind(js, keep), keep) == True{} : Bool}
+
+# LAW: a rewind leaves every job of the target tree as it was
+law rewind_keeps_target_jobs:
+  for +js: List<&2, Jb.Slot>
+  for +keep: List<&2, Nat>
+  {Jb.kept(Jb.rewind(js, keep), js, keep) == True{} : Bool}

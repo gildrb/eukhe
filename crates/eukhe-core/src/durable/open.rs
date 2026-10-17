@@ -70,7 +70,7 @@ pub struct EukheSession {
     registry: Registry,
     deps: Arc<HostDeps>,
     stops: Mutex<Vec<ServiceStop>>,
-    state_tree: LiveStateTree,
+    state_tree: Arc<LiveStateTree>,
 }
 
 impl EukheSession {
@@ -231,6 +231,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             semantic_edges: Arc::clone(&semantic_edges),
         },
     ));
+    super::jobs::install(&deps);
     // Provider admission rides INNERMOST, under the provider runtime: a
     // failover re-dispatch takes a slot of the provider it goes to, and no
     // slot is held while a wrapper waits between attempts.
@@ -279,12 +280,13 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             .map(JsonlStorage::take_history)
             .unwrap_or_default()
     }) {
-        Ok(state_tree) => state_tree,
+        Ok(state_tree) => Arc::new(state_tree),
         Err(error) => {
             close_after_failure(&harness, cx).await;
             return Err(error.into());
         }
     };
+    let _ = deps.state_tree.set(Arc::downgrade(&state_tree));
 
     let opened = async {
         let root = open_root(&harness, &config, &models, &manager, cx).await?;

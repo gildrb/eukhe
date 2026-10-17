@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use eukhe_core::durable::jobs::{Job, JobEnd, JOB_DOC_KIND};
 use serde_json::{json, Value};
 
 use crate::worker::Worker;
@@ -222,6 +223,80 @@ async fn navigate_tree_moves_the_leaf_and_back() {
         )
         .await;
     assert_eq!(missing.error.as_deref(), Some("Entry 424242 not found"));
+}
+
+/// `navigate_tree` back before the user bash started stops it and names
+/// it (`stoppedJobs`); the bash settles killed. A move to a point after a
+/// job started keeps it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn navigate_tree_stops_the_jobs_started_after_its_target() {
+    let (_dir, worker) = created_worker(&["one", "two", "three", "four"]).await;
+    let [_, _, _, user2, _] = two_turns(&worker).await;
+    command(&worker, "execute_bash", json!({ "command": "sleep 30" })).await;
+    let hosted = worker.session.get().expect("hosted session");
+    let jobs = hosted.deps().jobs.jobs();
+    assert_eq!(jobs.len(), 1, "one job");
+    let job = jobs[0].clone();
+    let moved = command(&worker, "navigate_tree", json!({ "targetId": user2 })).await;
+    assert_eq!(
+        moved,
+        json!({ "cancelled": false, "editorText": "second", "stoppedJobs": [job.id()] })
+    );
+    let ten_seconds = std::time::Duration::from_secs(10);
+    assert_eq!(
+        tokio::time::timeout(ten_seconds, job.ended())
+            .await
+            .expect("the bash ends"),
+        JobEnd::Killed
+    );
+
+    // A job started before the target survives the move. The killed run
+    // releases the slot once its row is recorded.
+    let deadline = std::time::Instant::now() + ten_seconds;
+    while command(&worker, "get_connection_state", json!({})).await["isBashRunning"] == json!(true)
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the slot stays claimed"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    command(&worker, "execute_bash", json!({ "command": "sleep 30" })).await;
+    let running = hosted
+        .deps()
+        .jobs
+        .jobs()
+        .into_iter()
+        .find(Job::is_running)
+        .expect("the second bash");
+    // Its node is in the state tree before the turns that follow it.
+    let session = hosted.session().expect("session");
+    let mut cursor = session.state_tree().cursor();
+    let holds_node = |state: &eukhe_durable::tree::StateTree| {
+        state.tree().iter().any(|(_, node)| {
+            node.value.value["kind"] == JOB_DOC_KIND
+                && node.value.value["key"] == running.id().as_str()
+        })
+    };
+    tokio::time::timeout(ten_seconds, async {
+        while !session.state_tree().read(holds_node).await.expect("a tree") {
+            cursor.changed().await.expect("the tree records");
+        }
+    })
+    .await
+    .expect("the job's node");
+    prompt(&worker, "third").await;
+    prompt(&worker, "fourth").await;
+    let tree = command(&worker, "get_session_tree", json!({})).await;
+    let user4 = shape(&tree)
+        .into_iter()
+        .rfind(|node| node.1 == "user")
+        .expect("the fourth prompt")
+        .2;
+    let kept = command(&worker, "navigate_tree", json!({ "targetId": user4 })).await;
+    assert_eq!(kept, json!({ "cancelled": false, "editorText": "fourth" }));
+    assert!(running.is_running());
+    command(&worker, "abort_bash", json!({})).await;
 }
 
 /// `navigate_tree` with `summarize`: the abandoned branch's summary lands

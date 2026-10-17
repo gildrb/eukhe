@@ -1,0 +1,470 @@
+# job: the model of one job, one blocking call on it, one tool call's
+# stream, and the job table at a rewind (docs/harness.md, S2).
+#
+# A job is anything that runs long: a shell, a cell, a subagent, a call
+# that ran too long. It has an output, an exit status and a kill. It sees
+# its events one at a time, in any order the adversary picks.
+#
+# The output limit is a cap in bytes: Some{c} keeps at most c bytes and
+# counts the rest as dropped; None (the explicit opt-out) keeps all.
+# Truncation is on by default: the Rust default is Some.
+#
+# The Rust jobs (crates/eukhe-core/src/durable/jobs/) are checked against
+# this model by the bridge (bend/bridge_job.bend).
+
+import Base
+
+# A job
+# -----
+
+# What a job sees
+type JEv is Data:
+  Out{n: Nat}     # n bytes of output
+  Quit{code: Nat} # the process exits with code
+  Kill{}          # the kill signal
+  Tick{}          # one tick of time
+
+# How a job ends
+type End is Data:
+  Exited{code: Nat}
+  Killed{}
+
+# A job: live with the bytes kept and dropped, or ended
+type J is Data:
+  Live{kept: Nat, dropped: Nat}
+  Ended{kept: Nat, dropped: Nat, end: End}
+
+def J.kept(j: J) -> Nat:
+  match j:
+    case Live{k, d}:
+      k
+    case Ended{k, d, e}:
+      k
+
+def J.dropped(j: J) -> Nat:
+  match j:
+    case Live{k, d}:
+      d
+    case Ended{k, d, e}:
+      d
+
+def J.done(j: J) -> Bool:
+  match j:
+    case Live{k, d}:
+      False{}
+    case Ended{k, d, e}:
+      True{}
+
+# the bytes of n that fit after kept under the cap
+def take(cap: Maybe<&2, Nat>, +kept: Nat, +n: Nat) -> Nat:
+  match cap:
+    case None{}:
+      n
+    case Some{c}:
+      Nat.min(n, Nat.sub(c, kept))
+
+# a running job's output of n more bytes
+def out(+cap: Maybe<&2, Nat>, +k: Nat, d: Nat, +n: Nat) -> J:
+  +t = take(cap, k, n)
+  Live{Nat.add(k, t), Nat.add(d, Nat.sub(n, t))}
+
+# one event
+def step(+cap: Maybe<&2, Nat>, j: J, e: JEv) -> J:
+  match j:
+    case Ended{k, d, x}:
+      Ended{k, d, x}
+    case Live{k, d}:
+      match e:
+        case Out{n}:
+          out(cap, k, d, n)
+        case Quit{c}:
+          Ended{k, d, Exited{c}}
+        case Kill{}:
+          Ended{k, d, Killed{}}
+        case Tick{}:
+          Live{k, d}
+
+# what one event ends: the end, when it ends the job
+def ends.of(j: J, e: JEv) -> List<&2, End>:
+  match j:
+    case Ended{k, d, x}:
+      Nil{}
+    case Live{k, d}:
+      match e:
+        case Out{n}:
+          Nil{}
+        case Quit{c}:
+          [Exited{c}]
+        case Kill{}:
+          [Killed{}]
+        case Tick{}:
+          Nil{}
+
+# the job after events es, from j
+def go(es: List<&2, JEv>, +cap: Maybe<&2, Nat>, j: J) -> J:
+  match es:
+    case Nil{}:
+      j
+    case e <> rest:
+      go(rest, cap, step(cap, j, e))
+
+# every end the job reports, in order
+def ends.go(es: List<&2, JEv>, +cap: Maybe<&2, Nat>, +j: J) -> List<&2, End>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      List.append(&2, End, ends.of(j, e), ends.go(rest, cap, step(cap, j, e)))
+
+# a new job that sees es
+def run(+cap: Maybe<&2, Nat>, es: List<&2, JEv>) -> J:
+  go(es, cap, Live{0n, 0n})
+
+def ends(+cap: Maybe<&2, Nat>, es: List<&2, JEv>) -> List<&2, End>:
+  ends.go(es, cap, Live{0n, 0n})
+
+# the bytes the job wrote before it ended
+def produced(es: List<&2, JEv>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case Out{n}:
+          Nat.add(n, produced(rest))
+        case Quit{c}:
+          0n
+        case Kill{}:
+          0n
+        case Tick{}:
+          produced(rest)
+
+# es holds an exit or a kill
+def has_end(es: List<&2, JEv>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      match e:
+        case Out{n}:
+          has_end(rest)
+        case Quit{c}:
+          True{}
+        case Kill{}:
+          True{}
+        case Tick{}:
+          has_end(rest)
+
+def once(b: Bool) -> Nat:
+  match b:
+    case True{}:
+      1n
+    case False{}:
+      0n
+
+# A blocking call
+# ---------------
+# A tool call that waits on its job waits at most `budget` ticks. Then
+# the call returns, and the job goes on as a background job.
+
+type Wait is Data:
+  Settled{end: End}  # the job ended in time
+  Detached{}         # the budget passed: the job runs on in the background
+
+# the call's answer after events es, with `left` ticks of budget left:
+# None while it still waits
+def wait(es: List<&2, JEv>, left: Nat) -> Maybe<&2, Wait>:
+  match es:
+    case Nil{}:
+      match left:
+        case 0n:
+          Some{Detached{}}
+        case 1n+l:
+          None{}
+    case e <> rest:
+      match e:
+        case Out{n}:
+          match left:
+            case 0n:
+              Some{Detached{}}
+            case 1n+l:
+              wait(rest, 1n+l)
+        case Quit{c}:
+          match left:
+            case 0n:
+              Some{Detached{}}
+            case 1n+l:
+              Some{Settled{Exited{c}}}
+        case Kill{}:
+          match left:
+            case 0n:
+              Some{Detached{}}
+            case 1n+l:
+              Some{Settled{Killed{}}}
+        case Tick{}:
+          match left:
+            case 0n:
+              Some{Detached{}}
+            case 1n+l:
+              wait(rest, l)
+
+def ticks(es: List<&2, JEv>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case Out{n}:
+          ticks(rest)
+        case Quit{c}:
+          ticks(rest)
+        case Kill{}:
+          ticks(rest)
+        case Tick{}:
+          1n+ticks(rest)
+
+# A tool call's stream
+# --------------------
+# One tool call is one stream: its input, then deltas of its result,
+# warnings and usage, until it ends with its result or a cancel. The
+# journal gets two records of it: the start, and one final record with
+# everything the stream carried. The deltas are not journaled.
+
+type CEv is Data:
+  Delta{n: Nat}  # n bytes of result
+  Warn{}         # a warning
+  Use{n: Nat}    # n tokens of usage
+  Final{}        # the call ends with its result
+  Cancel{}       # the call is cancelled
+
+type How is Data:
+  Finished{}
+  Cancelled{}
+
+# A journal record of a call
+type CRec is Data:
+  Start{}
+  Settle{how: How, bytes: Nat, warns: Nat, usage: Nat}
+
+# A call: open with what it carried, or settled
+type C is Data:
+  Open{bytes: Nat, warns: Nat, usage: Nat}
+  Shut{}
+
+def c.step(c: C, e: CEv) -> C:
+  match c:
+    case Shut{}:
+      Shut{}
+    case Open{b, w, u}:
+      match e:
+        case Delta{n}:
+          Open{Nat.add(b, n), w, u}
+        case Warn{}:
+          Open{b, 1n+w, u}
+        case Use{n}:
+          Open{b, w, Nat.add(u, n)}
+        case Final{}:
+          Shut{}
+        case Cancel{}:
+          Shut{}
+
+# the record one event journals
+def c.rec(c: C, e: CEv) -> List<&2, CRec>:
+  match c:
+    case Shut{}:
+      Nil{}
+    case Open{b, w, u}:
+      match e:
+        case Delta{n}:
+          Nil{}
+        case Warn{}:
+          Nil{}
+        case Use{n}:
+          Nil{}
+        case Final{}:
+          [Settle{Finished{}, b, w, u}]
+        case Cancel{}:
+          [Settle{Cancelled{}, b, w, u}]
+
+def c.go(es: List<&2, CEv>, +c: C) -> List<&2, CRec>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      List.append(&2, CRec, c.rec(c, e), c.go(rest, c.step(c, e)))
+
+# every record one call journals
+def journal(es: List<&2, CEv>) -> List<&2, CRec>:
+  Start{} <> c.go(es, Open{0n, 0n, 0n})
+
+# what the stream carried before it ended
+def c.bytes(es: List<&2, CEv>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case Delta{n}:
+          Nat.add(n, c.bytes(rest))
+        case Warn{}:
+          c.bytes(rest)
+        case Use{n}:
+          c.bytes(rest)
+        case Final{}:
+          0n
+        case Cancel{}:
+          0n
+
+def c.warns(es: List<&2, CEv>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case Delta{n}:
+          c.warns(rest)
+        case Warn{}:
+          1n+c.warns(rest)
+        case Use{n}:
+          c.warns(rest)
+        case Final{}:
+          0n
+        case Cancel{}:
+          0n
+
+def c.usage(es: List<&2, CEv>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case Delta{n}:
+          c.usage(rest)
+        case Warn{}:
+          c.usage(rest)
+        case Use{n}:
+          Nat.add(n, c.usage(rest))
+        case Final{}:
+          0n
+        case Cancel{}:
+          0n
+
+# es holds a final or a cancel
+def c.ends(es: List<&2, CEv>) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      match e:
+        case Delta{n}:
+          c.ends(rest)
+        case Warn{}:
+          c.ends(rest)
+        case Use{n}:
+          c.ends(rest)
+        case Final{}:
+          True{}
+        case Cancel{}:
+          True{}
+
+# the settle records among rs
+def settles(rs: List<&2, CRec>) -> Nat:
+  match rs:
+    case Nil{}:
+      0n
+    case r <> rest:
+      match r:
+        case Start{}:
+          settles(rest)
+        case Settle{h, b, w, u}:
+          1n+settles(rest)
+
+# what a settle record carried
+type Tally is Data:
+  Tally{bytes: Nat, warns: Nat, usage: Nat}
+
+# what the first settle record among rs carried
+def carried(rs: List<&2, CRec>) -> Maybe<&2, Tally>:
+  match rs:
+    case Nil{}:
+      None{}
+    case r <> rest:
+      match r:
+        case Start{}:
+          carried(rest)
+        case Settle{h, b, w, u}:
+          Some{Tally{b, w, u}}
+
+# The job table at a rewind
+# -------------------------
+# A job is a node of the session tree (bend/tree.bend). A rewind stops
+# every running job that the target tree does not hold.
+
+type Slot is Data:
+  Slot{id: Nat, running: Bool}
+
+def Slot.id(s: Slot) -> Nat:
+  match s:
+    case Slot{i, r}:
+      i
+
+def Slot.running(s: Slot) -> Bool:
+  match s:
+    case Slot{i, r}:
+      r
+
+def elem(xs: List<&2, Nat>, +x: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(Nat.is_eq(y, x), elem(rest, x))
+
+# a slot after a rewind to a tree that holds the jobs `keep`
+def stop.at(held: Bool, s: Slot) -> Slot:
+  match held:
+    case True{}:
+      s
+    case False{}:
+      match s:
+        case Slot{i, r}:
+          Slot{i, False{}}
+
+# every slot after a rewind to a tree that holds the jobs `keep`
+def rewind(js: List<&2, Slot>, +keep: List<&2, Nat>) -> List<&2, Slot>:
+  match js:
+    case Nil{}:
+      Nil{}
+    case +s <> rest:
+      stop.at(elem(keep, Slot.id(s)), s) <> rewind(rest, keep)
+
+# every running slot of js is one of keep
+def running_in(js: List<&2, Slot>, +keep: List<&2, Nat>) -> Bool:
+  match js:
+    case Nil{}:
+      True{}
+    case +s <> rest:
+      Bool.and(Bool.or(Bool.not(Slot.running(s)), elem(keep, Slot.id(s))), running_in(rest, keep))
+
+def b.eq(a: Bool, b: Bool) -> Bool:
+  match a b:
+    case True{} True{}:
+      True{}
+    case True{} False{}:
+      False{}
+    case False{} True{}:
+      False{}
+    case False{} False{}:
+      True{}
+
+# every slot of js that keep holds is as it was in ks
+def kept(js: List<&2, Slot>, ks: List<&2, Slot>, +keep: List<&2, Nat>) -> Bool:
+  match js ks:
+    case Nil{} Nil{}:
+      True{}
+    case Nil{} k <> kr:
+      False{}
+    case j <> jr Nil{}:
+      False{}
+    case +j <> jr +k <> kr:
+      Bool.and(Bool.or(Bool.not(elem(keep, Slot.id(j))), Bool.and(Nat.is_eq(Slot.id(j), Slot.id(k)), b.eq(Slot.running(j), Slot.running(k)))), kept(jr, kr, keep))

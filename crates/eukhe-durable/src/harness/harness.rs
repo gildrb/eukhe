@@ -21,6 +21,7 @@ pub use self::conversation::{Conversation, ConversationEntryQuery};
 use crate::env::ExecutionEnv;
 use crate::harness::agent::{configure, create_agent, resolve_agent, resolve_settings, AGENT_DOC};
 use crate::harness::inbox::{withdraw_queued_inputs, QueueModes, INBOX_DOC};
+use crate::harness::live::progress::LiveProgress;
 use crate::harness::live::{settle_scheduler_outcome, LIVE_DOC};
 use crate::harness::provider::PROVIDER_DOC;
 use crate::harness::scheduler::{TaskAbortResult, TaskScheduler, TaskSchedulerOptions};
@@ -84,6 +85,7 @@ pub(crate) struct Core {
     submissions: Submissions,
     task_graph: TaskGraphView,
     views: ConversationViews,
+    live_progress: LiveProgress,
 }
 
 impl Core {
@@ -95,6 +97,11 @@ impl Core {
     /// The conversation view mounts.
     pub(crate) fn views(&self) -> &ConversationViews {
         &self.views
+    }
+
+    /// The board of running tool calls' progress.
+    pub(crate) fn live_progress(&self) -> &LiveProgress {
+        &self.live_progress
     }
 
     /// The task graph mount.
@@ -414,6 +421,7 @@ impl Harness {
             let agent_core = weak.clone();
             let env_core = weak.clone();
             let conversation_core = weak.clone();
+            let live_progress = LiveProgress::default();
             let tasks = TaskScheduler::new(TaskSchedulerOptions {
                 session: session.clone(),
                 registry: Arc::clone(&options.registry),
@@ -452,6 +460,7 @@ impl Harness {
                     }
                     .boxed()
                 }),
+                live_progress: live_progress.clone(),
                 context: without_abort_signal(cx),
             });
             let submissions = Submissions::new(
@@ -470,6 +479,7 @@ impl Harness {
                 submissions,
                 task_graph,
                 views,
+                live_progress,
             }
         });
         // A fresh Session is neither closed nor failed, so this succeeds.

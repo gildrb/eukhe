@@ -208,8 +208,11 @@ fn blocking_tool(name: &str) -> Blocking {
     }
 }
 
+/// A crash loses a running call's live progress (docs/harness.md S2): the
+/// interrupted answer carries what is durable, its start, and no partial
+/// output or details.
 #[tokio::test]
-async fn answers_an_unsafe_tool_interrupted_after_intent_with_its_durable_partial_output() {
+async fn answers_an_unsafe_tool_interrupted_after_intent_with_what_is_durable_only() {
     let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let blocking = blocking_tool("work");
@@ -246,13 +249,10 @@ async fn answers_an_unsafe_tool_interrupted_after_intent_with_its_durable_partia
     let all = results(&entries);
     let result = all.first();
     assert!(result.unwrap().is_error);
-    assert_eq!(
-        result.unwrap().details,
-        Some(serde_json::json!({ "run": 1 }))
-    );
+    assert_eq!(result.unwrap().details, None);
     assert_eq!(
         text(result),
-        "run 1\n|<harness>\n[error] Tool work was interrupted and may have partially run\n</harness>"
+        "<harness>\n[error] Tool work was interrupted and may have partially run\n</harness>"
     );
     assert_eq!(
         live(&opened.harness, &opened).await,
@@ -675,8 +675,10 @@ fn info(message: &str) -> ToolDiagnostic {
     }
 }
 
+/// The interrupted attempt's progress died with its process; the rerun's
+/// own reaches the observers, and storage holds neither.
 #[tokio::test]
-async fn clears_the_interrupted_attempts_progress_before_a_safe_rerun() {
+async fn a_safe_rerun_publishes_only_its_own_progress() {
     let (_directory, path) = store_path();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let started: [Deferred; 2] = [deferred(), deferred()];
@@ -712,7 +714,18 @@ async fn clears_the_interrupted_attempts_progress_before_a_safe_rerun() {
     let opened = open(&path, &setup, None).await;
     started[1].wait().await;
     let slot = first_slot(&opened).await.expect("the tool slot");
-    assert_eq!(slot.diagnostics, Some(vec![info("second")]));
-    assert_eq!(slot.details, Some(json(&serde_json::json!({ "run": 2 }))));
+    assert_eq!((slot.diagnostics, slot.details), (None, None));
+    let stream = crate::harness::watch_events(&opened.harness, opened.root.id(), context())
+        .await
+        .unwrap();
+    let published = &stream.snapshot().tools[0];
+    assert_eq!(
+        (published.diagnostics.clone(), published.details.clone()),
+        (
+            Some(vec![info("second")]),
+            Some(json(&serde_json::json!({ "run": 2 })))
+        )
+    );
+    stream.stop().await;
     opened.harness.close(context()).await.unwrap();
 }

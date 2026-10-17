@@ -18,7 +18,7 @@
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use eukhe_ai::typebox::{Options, TSchema, Type};
@@ -28,8 +28,9 @@ use eukhe_durable::harness::define::define_tool;
 use eukhe_durable::harness::types::{
     OmittedAt, OmittedOutput, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity,
     ToolExecutionApi, ToolExecutionApiExt, ToolExecutionMode, ToolExecutionResult, ToolOutputChunk,
-    ToolOutputLimits, ToolRegistration, ToolReplay,
+    ToolRegistration, ToolReplay,
 };
+use eukhe_durable::harness::{OutputLimits, Truncation};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_types::job::{CellStatus, JobId, JobSettled};
 use eukhe_types::output::describe_bound;
@@ -37,10 +38,11 @@ use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, Us
 use futures::FutureExt;
 use serde_json::json;
 
-use super::jobs::{CellJobEntry, CellJobState};
+use super::jobs::CellJobEntry;
 use super::kernels::ConversationKernel;
 use super::RlmRuntime;
 use crate::durable::bounded_output::BoundedOutput;
+use crate::durable::jobs::{self, Job, JobEvent, JobKind, JobSpec, Wait};
 use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
     CellJob, ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment,
@@ -89,12 +91,12 @@ pub(crate) fn ipython_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
         },
     );
     registration.execution_mode = Some(ToolExecutionMode::Sequential);
-    // The settled text is bounded once, here (`bounded_output`). The running
-    // output's live copy keeps its end, so the live view and a
-    // crash-interrupted call's partial result show where errors are.
-    registration.output_limits = Some(ToolOutputLimits {
-        retain: Some(OutputRetain::Tail),
-        ..ToolOutputLimits::default()
+    // The settled text is bounded once, here (`bounded_output`), to the
+    // call's truncation. The running output's live copy keeps its end, so
+    // the live view shows where errors are.
+    registration.truncation = Truncation::On(OutputLimits {
+        retain: OutputRetain::Tail,
+        ..OutputLimits::default()
     });
     registration.replay = Some(ToolReplay::Unsafe);
     define_tool(registration)
@@ -130,12 +132,6 @@ async fn call_aborted(cx: &Context) {
     }
 }
 
-/// How the call's wait on its cell ended.
-enum Waited {
-    Ran(Box<Result<anyhow::Result<ExecuteResult>, tokio::task::JoinError>>),
-    Detach,
-}
-
 #[tracing::instrument(skip_all, fields(call = api.call_id()))]
 async fn execute(
     runtime: &RlmRuntime,
@@ -149,8 +145,9 @@ async fn execute(
         .ok_or_else(|| SessionError::error("ipython tool requires a code string"))?
         .to_owned();
     // The runtime's one blocking budget bounds this call's waits on the
-    // kernel (ADR 0010): on a detached cell still holding it, then on this
-    // cell. Booting the kernel is the provisioner's, bounded by its own
+    // kernel (ADR 0010), each the one blocking wait on a job
+    // ([`jobs::wait_until`]): on a detached cell still holding it, then on
+    // this cell. Booting the kernel is the provisioner's, bounded by its own
     // startup deadlines, so its time extends the deadline.
     let budget = runtime.deps.blocking_budget();
     let mut deadline = tokio::time::Instant::now() + budget;
@@ -169,14 +166,15 @@ async fn execute(
     // A detached cell still holds the kernel: wait for it within the budget,
     // then report it instead of queueing this cell behind it.
     if let Some(running) = kernel.jobs.running() {
-        let state = tokio::select! {
-            state = running.wait_until(deadline) => state,
+        let waited = tokio::select! {
+            waited = jobs::wait_until(deadline, running.job.ended()) => waited,
             () = call_aborted(cx) => {
                 return Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")));
             }
         };
-        if state == CellJobState::Running {
-            return Ok(busy_result(&running));
+        match waited {
+            Wait::Detached => return Ok(busy_result(&running)),
+            Wait::Settled(_) => {}
         }
     }
 
@@ -205,21 +203,33 @@ async fn execute(
     let cell_output = Arc::new(Mutex::new(BoundedOutput::in_session(
         runtime.deps.storage_dir.as_deref(),
         &api.task_id().to_string(),
+        api.truncation(),
     )));
     let output_failure: Arc<Mutex<Option<SessionError>>> = Arc::default();
+    // The session job of this cell, once its call detached.
+    let detached_job: Arc<OnceLock<Job>> = Arc::default();
     let on_stream: StreamCallback = {
         let api = Arc::clone(&api);
         let cell_output = Arc::clone(&cell_output);
         let failure = Arc::clone(&output_failure);
         let job = job.clone();
+        let detached_job = Arc::clone(&detached_job);
         Arc::new(move |chunk: &str, _stream: StreamName| {
-            cell_output
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(chunk);
+            // Read under the lock the cell detaches under: every byte
+            // counts once, in the job's start or here.
+            let detached = {
+                let mut output = cell_output.lock().unwrap_or_else(PoisonError::into_inner);
+                output.push(chunk);
+                job.is_detached().then(|| detached_job.get().cloned())
+            };
             // A detached cell's call has settled; its output goes to the job.
-            if job.is_detached() {
-                return;
+            match detached {
+                Some(Some(detached)) => {
+                    detached.record(JobEvent::Output(chunk.len() as u64));
+                    return;
+                }
+                Some(None) => return,
+                None => {}
             }
             if let Err(error) = api.output(ToolOutputChunk::Text(chunk), None) {
                 failure
@@ -249,30 +259,39 @@ async fn execute(
         };
         tokio::spawn(async move { manager.execute(&code, opts).await })
     };
-    let abort = call_aborted(cx).fuse();
-    futures::pin_mut!(abort);
-    let mut stopping = false;
-    let waited = loop {
-        tokio::select! {
-            joined = &mut execution => break Waited::Ran(Box::new(joined)),
-            // The abort stops the cell (interrupt, then the kill after the
-            // grace); the call settles when the cell does.
-            () = &mut abort, if !stopping => {
-                stopping = true;
-                job_signal.abort();
-            }
-            () = tokio::time::sleep_until(deadline), if !stopping => break Waited::Detach,
+    let waited = tokio::select! {
+        waited = jobs::wait_until(deadline, &mut execution) => waited,
+        // The abort stops the cell (interrupt, then the kill after the
+        // grace); the call settles when the cell does.
+        () = call_aborted(cx) => {
+            job_signal.abort();
+            Wait::Settled((&mut execution).await)
         }
     };
     let executed = match waited {
-        Waited::Ran(joined) => *joined,
-        Waited::Detach => {
-            job.detach();
-            let settle = kernel.jobs.start(job.id().clone(), job_signal);
-            let (partial, bounded) = cell_output
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .projection();
+        Wait::Settled(joined) => joined,
+        Wait::Detached => {
+            // Under the output lock: a chunk counts in the job's start or,
+            // once the cell detached, on the job.
+            let (cell_job, partial, bounded) = {
+                let mut cell_output = cell_output.lock().unwrap_or_else(PoisonError::into_inner);
+                let cell_job = runtime.deps.jobs.start(JobSpec {
+                    id: job.id().clone(),
+                    kind: JobKind::Cell,
+                    label: IPYTHON_TOOL_NAME.to_owned(),
+                    truncation: api.truncation(),
+                    written: cell_output.bytes(),
+                    kill: {
+                        let signal = job_signal.clone();
+                        Box::new(move |_| signal.abort())
+                    },
+                });
+                let _ = detached_job.set(cell_job.clone());
+                job.detach();
+                let (partial, bounded) = cell_output.projection();
+                (cell_job, partial, bounded)
+            };
+            let settle = kernel.jobs.start(cell_job);
             let detached = detached_result(job.id(), budget, partial, bounded);
             let sink = runtime.deps.job_settled.clone();
             let job_id = job.id().clone();
@@ -480,8 +499,8 @@ fn detached_result(
 /// A call that found the kernel still held by a detached cell past the
 /// budget: its code did not run.
 fn busy_result(running: &CellJobEntry) -> ToolExecutionResult {
-    let job = &running.id;
-    let elapsed_ms = running.elapsed().as_millis();
+    let job = running.job.id();
+    let elapsed_ms = running.job.elapsed().as_millis();
     ToolExecutionResult {
         output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
             "Not run: the kernel is still running job {job} (started {elapsed_ms} ms ago). \
@@ -499,7 +518,9 @@ fn busy_result(running: &CellJobEntry) -> ToolExecutionResult {
 
 /// Start (or reuse) the kernel; startup stages reach the call's details as
 /// `{status: "starting", message}` (the old partial update's text and
-/// `status`).
+/// `status`). Once the kernel is up, a call that showed a stage moves its
+/// details to `{status: "running"}`, so live clients show the cell's output
+/// instead of the last stage.
 async fn ensure_kernel(
     kernel: &ConversationKernel,
     api: &Arc<dyn ToolExecutionApi>,
@@ -515,15 +536,25 @@ async fn ensure_kernel(
     let ensure = kernel.provisioner.ensure(Some(on_progress), signal).fuse();
     futures::pin_mut!(ensure);
     let mut progress_open = true;
+    let mut showed_stage = false;
     loop {
         tokio::select! {
-            manager = &mut ensure => return manager,
+            manager = &mut ensure => {
+                if showed_stage && manager.is_ok() {
+                    let details = JsonValue::from(json!({ "status": "running" }));
+                    if let Err(error) = api.details(details, cx).await {
+                        tracing::debug!(%error, "ipython running status not published");
+                    }
+                }
+                return manager;
+            }
             message = progress_rx.recv(), if progress_open => match message {
                 Some(message) => {
                     let details = JsonValue::from(json!({ "status": "starting", "message": message }));
                     if let Err(error) = api.details(details, cx).await {
                         tracing::debug!(%error, "ipython startup progress not published");
                     }
+                    showed_stage = true;
                 }
                 None => progress_open = false,
             },

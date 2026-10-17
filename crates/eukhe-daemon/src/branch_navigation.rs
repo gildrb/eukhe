@@ -15,6 +15,12 @@
 //! place. Branch summaries are `eukhe.branch-summary` entries written into
 //! the moved-to conversation ([`summary`]); labels live in the
 //! `eukhe.daemon.labels` document ([`labels`]).
+//!
+//! A move or fork takes the session back to an earlier point of its
+//! history: it stops every running job that the session state tree at that
+//! point does not hold (docs/harness.md S2), and the response names them:
+//! `stoppedJobs` ended within the wait, `stoppingJobs` got the kill and
+//! had not ended yet.
 
 mod labels;
 mod summary;
@@ -28,6 +34,7 @@ use std::sync::{Mutex, PoisonError};
 
 use eukhe_chord::context::{AbortController, Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::branch_summary::collect_entries_for_branch_summary;
+use eukhe_core::durable::jobs::{stop_orphans, Orphans};
 use eukhe_core::durable::rlm::{release_settled_kernel, transfer_kernel};
 use eukhe_core::durable::{
     fork_main_conversation, fork_session_conversation, ForkPoint, SessionLocation,
@@ -302,6 +309,31 @@ async fn move_main(
     }
 }
 
+/// Stop the jobs a move of the session back to `target` orphans: every
+/// running job that started after `target.point` ([`stop_orphans`]).
+#[tracing::instrument(skip_all)]
+async fn stop_orphan_jobs(hosted: &HostedSession, target: MovePoint) -> Orphans {
+    match hosted.session() {
+        Ok(session) => stop_orphans(&session, target.point).await,
+        Err(error) => {
+            tracing::warn!(%error, "no session: a rewind stops no job");
+            Orphans::default()
+        }
+    }
+}
+
+/// Name the orphan jobs in a response: `stoppedJobs` and `stoppingJobs`,
+/// each only when not empty.
+fn name_orphans(data: &mut Value, orphans: Orphans) {
+    let Orphans { stopped, stopping } = orphans;
+    if !stopped.is_empty() {
+        data["stoppedJobs"] = json!(stopped);
+    }
+    if !stopping.is_empty() {
+        data["stoppingJobs"] = json!(stopping);
+    }
+}
+
 /// Submit `inputs` on `conversation`, in order, in their lanes.
 async fn resubmit(
     conversation: &Conversation,
@@ -480,6 +512,7 @@ impl Worker {
         // A tree move is no replacement: the session's kernel follows the
         // main conversation, warm (TS `navigateTree` keeps it).
         transfer_kernel(hosted.deps(), main.id(), moved.id()).await;
+        let orphans = stop_orphan_jobs(hosted, point).await;
         let summary_entry = match branch_summary {
             Some(branch_summary) => Some(
                 summary::write_summary(&moved, point.summary_from_id(), branch_summary, cx)
@@ -502,6 +535,7 @@ impl Worker {
         if let Some(editor_text) = editor_text {
             data["editorText"] = json!(editor_text);
         }
+        name_orphans(&mut data, orphans);
         if let Some(summary_entry) = summary_entry {
             let tree = SessionTree::load(harness, moved.id(), cx)
                 .await
@@ -540,21 +574,31 @@ impl Worker {
             Ok(resolved) => resolved,
             Err(error) => return response_failure(None, COMMAND, &error, None),
         };
+        let mut orphans = Orphans::default();
         let mut response = match hosted.storage_dir() {
             Some(storage_dir) => {
                 match self
                     .fork_into_session(&hosted, storage_dir, point, cx)
                     .await
                 {
-                    Ok(prepared) => self.replace_session_locked(COMMAND, prepared).await,
+                    Ok(prepared) => {
+                        orphans = stop_orphan_jobs(&hosted, point).await;
+                        self.replace_session_locked(COMMAND, prepared).await
+                    }
                     Err(response) => response,
                 }
             }
             None => match self.fork_in_place(&hosted, point, cx).await {
-                Ok(()) => response_success(None, COMMAND, Some(json!({ "cancelled": false }))),
+                Ok(()) => {
+                    orphans = stop_orphan_jobs(&hosted, point).await;
+                    response_success(None, COMMAND, Some(json!({ "cancelled": false })))
+                }
                 Err(error) => response_failure(None, COMMAND, &error, None),
             },
         };
+        if let (true, Some(data)) = (response.success, response.data.as_mut()) {
+            name_orphans(data, orphans);
+        }
         if let (true, Some(selected_text), Some(data)) =
             (response.success, selected_text, response.data.as_mut())
         {

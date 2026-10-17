@@ -20,8 +20,3 @@ pub mod tasks;
 pub mod testing;
 pub mod tree;
 pub mod types;
-
-/// The default line bound of a tool result.
-pub const DEFAULT_MAX_LINES: u64 = 2000;
-/// The default byte bound of a tool result (50KB).
-pub const DEFAULT_MAX_BYTES: u64 = 50 * 1024;

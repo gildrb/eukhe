@@ -79,8 +79,9 @@ pub(super) fn truncated(
     }
 }
 
-/// An error result from the slot's durable partial output, details, and
-/// diagnostics; `retain` is the tool's retention, which kept that output.
+/// An error result from the call's last progress (its partial output,
+/// details, diagnostics, and spend); `retain` is the tool's retention,
+/// which kept that output.
 pub(super) fn from_slot(
     slot: Option<&SlotProgress>,
     retain: OutputRetain,
@@ -104,6 +105,7 @@ pub(super) fn from_slot(
         output: Some(output),
         is_error: Some(true),
         details: slot.and_then(|slot| slot.details.clone()),
+        usage: slot.and_then(|slot| slot.usage),
         diagnostics: Some(diagnostics),
         ..ToolExecutionResult::default()
     }

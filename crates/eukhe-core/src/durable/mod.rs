@@ -21,6 +21,7 @@ mod export;
 mod fork;
 pub mod goals;
 mod import;
+pub mod jobs;
 mod main_conversation;
 pub mod messages;
 mod models;

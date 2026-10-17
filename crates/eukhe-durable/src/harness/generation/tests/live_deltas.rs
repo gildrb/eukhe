@@ -1,4 +1,7 @@
-//! Port of `test/harness-live-deltas.test.ts`.
+//! Port of `test/harness-live-deltas.test.ts`. A running tool's progress
+//! reaches the live observers and never storage (docs/harness.md S2), so
+//! the tool steps below check the change each publication delivers and
+//! that no commit carried it.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -18,15 +21,17 @@ use tokio::sync::Notify;
 
 use crate::errors::StorageError;
 use crate::harness::define::define_tool;
-use crate::harness::live::LIVE_DOC;
+use crate::harness::events::ToolOutputUpdate;
+use crate::harness::live::progress::ProgressChange;
+use crate::harness::live::{SlotProgress, LIVE_DOC};
 use crate::harness::submissions::SubmissionHandle;
 use crate::harness::tests::chat_support::{chat_setup, open_chat, wait_for, OpenChat};
 use crate::harness::tests::support::{add_tool, context, empty_object_schema};
 use crate::harness::types::{
     InputSubmissionDraft, OutputRetain, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionApi,
-    ToolExecutionMode, ToolExecutionResult, ToolOutputChunk, ToolOutputLimits, ToolRegistration,
+    ToolExecutionMode, ToolExecutionResult, ToolOutputChunk, ToolRegistration,
 };
-use crate::harness::{ConversationEntryQuery, Harness};
+use crate::harness::{ConversationEntryQuery, Harness, OutputLimits, Truncation};
 use crate::session::tests::support::document_changes;
 use crate::session::SessionError;
 use crate::storage::MemoryStorage;
@@ -41,6 +46,7 @@ use crate::types::{
 const WAIT_MS: u64 = 5000;
 
 type Commits = Arc<Mutex<Vec<Vec<serde_json::Value>>>>;
+type Changes = Arc<Mutex<Vec<ProgressChange>>>;
 type Action = Box<dyn FnOnce(Arc<dyn ToolExecutionApi>) -> BoxFuture<'static, bool> + Send>;
 
 fn json(text: &str) -> serde_json::Value {
@@ -119,20 +125,14 @@ async fn live(harness: &Harness, conversation: ConversationId) -> serde_json::Va
     }
 }
 
-fn output_path() -> serde_json::Value {
-    json(r#"["tools",0,"output"]"#)
-}
-
-fn is_output(op: &serde_json::Value) -> bool {
-    op[1] == output_path()
-}
-
 /// One tool call driven step by step, capturing the exact Chord operations
-/// of every `pi.live` commit.
+/// of every `pi.live` commit and every change its progress publications
+/// delivered to the live observers.
 struct Drive {
     harness: Harness,
     conversation: ConversationId,
     commits: Commits,
+    changes: Changes,
     actions: Arc<Mutex<VecDeque<Action>>>,
     wake: Arc<Notify>,
     submission: SubmissionHandle,
@@ -144,12 +144,11 @@ impl Drive {
         self.wake.notify_one();
     }
 
-    /// Run one action inside the tool and return the operations of the commit it caused.
-    async fn step<F>(&self, action: F) -> Vec<serde_json::Value>
+    /// Run one action inside the tool, without waiting for what it does.
+    fn act<F>(&self, action: F)
     where
         F: FnOnce(Arc<dyn ToolExecutionApi>) -> BoxFuture<'static, ()> + Send + 'static,
     {
-        let before = lock(&self.commits).len();
         self.push(Box::new(move |api| {
             async move {
                 action(api).await;
@@ -157,15 +156,42 @@ impl Drive {
             }
             .boxed()
         }));
+    }
+
+    /// Run one action inside the tool and return the change its
+    /// publication delivered; no commit carries it.
+    async fn step<F>(&self, action: F) -> ProgressChange
+    where
+        F: FnOnce(Arc<dyn ToolExecutionApi>) -> BoxFuture<'static, ()> + Send + 'static,
+    {
+        let (commits, changes) = (lock(&self.commits).len(), lock(&self.changes).len());
+        self.act(action);
         wait_for(
             || {
-                let grown = lock(&self.commits).len() > before;
+                let grown = lock(&self.changes).len() > changes;
                 async move { grown }
             },
             WAIT_MS,
         )
         .await;
-        lock(&self.commits).last().cloned().unwrap()
+        assert_eq!(
+            lock(&self.commits).len(),
+            commits,
+            "progress commits nothing"
+        );
+        lock(&self.changes).last().cloned().unwrap()
+    }
+
+    /// What the call published last, as an observer that attaches now
+    /// finds it.
+    fn published(&self) -> Option<SlotProgress> {
+        let (current, stop) = self
+            .harness
+            .core()
+            .live_progress()
+            .watch(self.conversation, Arc::new(|_, _, _| {}));
+        stop();
+        current.into_values().next()
     }
 
     /// Let the tool return and the run finish; returns the commits made meanwhile.
@@ -181,7 +207,7 @@ impl Drive {
     }
 }
 
-async fn drive(output_limits: ToolOutputLimits) -> Drive {
+async fn drive(truncation: Truncation) -> Drive {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let actions: Arc<Mutex<VecDeque<Action>>> = Arc::default();
     let wake = Arc::new(Notify::new());
@@ -211,7 +237,7 @@ async fn drive(output_limits: ToolOutputLimits) -> Drive {
             }
         },
     );
-    tool.output_limits = Some(output_limits);
+    tool.truncation = truncation;
     add_tool(&setup.registry, define_tool(tool), None).unwrap();
     setup.faux.set_responses(vec![
         faux_assistant_message(vec![call("drive", "c1")], tool_use()).into(),
@@ -221,6 +247,13 @@ async fn drive(output_limits: ToolOutputLimits) -> Drive {
         .await
         .unwrap();
     let commits = record_commits(&harness);
+    let changes: Changes = Arc::default();
+    let sink = Arc::clone(&changes);
+    // The watch stays registered for the Harness's lifetime.
+    let (_, _watch) = harness.core().live_progress().watch(
+        root.id(),
+        Arc::new(move |_, _, change| lock(&sink).push(change.clone())),
+    );
     let submission = root.submit(input("go"), context()).await.unwrap();
     let conversation = root.id();
     wait_for(
@@ -232,10 +265,40 @@ async fn drive(output_limits: ToolOutputLimits) -> Drive {
         harness,
         conversation,
         commits,
+        changes,
         actions,
         wake,
         submission,
     }
+}
+
+fn limits(max_lines: usize, retain: OutputRetain) -> Truncation {
+    Truncation::On(OutputLimits {
+        max_lines,
+        retain,
+        ..OutputLimits::default()
+    })
+}
+
+fn output_change(output: ToolOutputUpdate) -> ProgressChange {
+    ProgressChange {
+        output: Some(output),
+        details: None,
+        diagnostics: None,
+    }
+}
+
+fn set(text: &str) -> ProgressChange {
+    output_change(ToolOutputUpdate::Set {
+        set: text.to_owned(),
+    })
+}
+
+fn window(trim_start: Option<usize>, append: &str) -> ProgressChange {
+    output_change(ToolOutputUpdate::Window {
+        trim_start,
+        append: Some(append.to_owned()),
+    })
 }
 
 fn print(
@@ -392,34 +455,32 @@ async fn hands_a_generation_over_to_its_tool_round_and_starts_a_tool_with_one_fi
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn appends_head_output_and_then_only_updates_the_dropped_counts_once_the_window_is_full() {
-    let run = drive(ToolOutputLimits {
-        max_lines: Some(2),
-        ..ToolOutputLimits::default()
-    })
+async fn publishes_head_output_and_then_only_the_dropped_counts_once_the_window_is_full() {
+    let run = drive(limits(2, OutputRetain::Head)).await;
+    let started = run.commits().len();
+    assert_eq!(run.step(print("one\n")).await, set("one\n"));
+    assert_eq!(run.step(print("two\n")).await, window(None, "two\n"));
+    // The window is full: the retained text stays, so no change reaches the
+    // observers; only the counts a late observer finds grow.
+    run.act(print("three\n"));
+    run.act(print("four\n"));
+    let full = SlotProgress {
+        output: Some("one\ntwo\n".to_owned()),
+        dropped_bytes: Some(11),
+        dropped_lines: Some(2),
+        ..SlotProgress::default()
+    };
+    wait_for(
+        || {
+            let published = run.published() == Some(full.clone());
+            async move { published }
+        },
+        WAIT_MS,
+    )
     .await;
     assert_eq!(
-        run.step(print("one\n")).await,
-        [json(r#"["s",["tools",0,"output"],"one\n"]"#)]
-    );
-    assert_eq!(
-        run.step(print("two\n")).await,
-        [json(r#"["a",["tools",0,"output"],"two\n"]"#)]
-    );
-    // The window is full: the retained text stays; only the counts change.
-    assert_eq!(
-        run.step(print("three\n")).await,
-        [
-            json(r#"["s",["tools",0,"droppedBytes"],6]"#),
-            json(r#"["s",["tools",0,"droppedLines"],1]"#),
-        ]
-    );
-    assert_eq!(
-        run.step(print("four\n")).await,
-        [
-            json(r#"["s",["tools",0,"droppedBytes"],11]"#),
-            json(r#"["s",["tools",0,"droppedLines"],2]"#),
-        ]
+        (lock(&run.changes).len(), run.commits().len()),
+        (2, started)
     );
     run.finish().await;
     run.harness.close(context()).await.unwrap();
@@ -427,108 +488,77 @@ async fn appends_head_output_and_then_only_updates_the_dropped_counts_once_the_w
 
 #[tokio::test(flavor = "multi_thread")]
 async fn slides_a_tail_window_as_a_front_trim_plus_an_append() {
-    let run = drive(ToolOutputLimits {
-        max_lines: Some(3),
-        retain: Some(OutputRetain::Tail),
-        ..ToolOutputLimits::default()
-    })
-    .await;
+    let run = drive(limits(3, OutputRetain::Tail)).await;
     assert_eq!(
         run.step(print("line 1\nline 2\nline 3\n")).await,
-        [json(
-            r#"["s",["tools",0,"output"],"line 1\nline 2\nline 3\n"]"#
-        )]
+        set("line 1\nline 2\nline 3\n")
     );
     assert_eq!(
         run.step(print("line 4\n")).await,
-        [
-            json(r#"["t",["tools",0,"output"],7]"#),
-            json(r#"["a",["tools",0,"output"],"line 4\n"]"#),
-            json(r#"["s",["tools",0,"droppedBytes"],7]"#),
-            json(r#"["s",["tools",0,"droppedLines"],1]"#),
-        ]
+        window(Some(7), "line 4\n")
     );
     // The buffer keeps only the window, and later slides stay minimal and exact.
     assert_eq!(
         run.step(print("line 5\nline 6\n")).await,
-        [
-            json(r#"["t",["tools",0,"output"],14]"#),
-            json(r#"["a",["tools",0,"output"],"line 5\nline 6\n"]"#),
-            json(r#"["s",["tools",0,"droppedBytes"],21]"#),
-            json(r#"["s",["tools",0,"droppedLines"],3]"#),
-        ]
+        window(Some(14), "line 5\nline 6\n")
     );
     assert_eq!(
-        live(&run.harness, run.conversation).await["tools"][0]["output"],
-        "line 4\nline 5\nline 6\n"
+        run.published(),
+        Some(SlotProgress {
+            output: Some("line 4\nline 5\nline 6\n".to_owned()),
+            dropped_bytes: Some(21),
+            dropped_lines: Some(3),
+            ..SlotProgress::default()
+        })
     );
     run.finish().await;
     run.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn writes_the_whole_window_when_chords_overlap_search_cannot_find_the_shared_part() {
+async fn sends_the_whole_window_when_the_overlap_search_cannot_find_the_shared_part() {
     // A retained window beyond the 64 KiB overlap scan.
-    let wide = drive(ToolOutputLimits {
-        max_bytes: Some(100 * 1024),
-        max_lines: Some(1_000_000),
-        retain: Some(OutputRetain::Tail),
-    })
+    let wide = drive(Truncation::On(OutputLimits {
+        max_bytes: 100 * 1024,
+        max_lines: 1_000_000,
+        retain: OutputRetain::Tail,
+    }))
     .await;
     let line = |index: usize| format!("{index:010} {}\n", "x".repeat(989));
     let text: String = (0..100).map(line).collect();
     wide.step(print_owned(text)).await;
     let slid = wide.step(print_owned((100..104).map(line).collect())).await;
-    let verbs: Vec<&serde_json::Value> = slid
-        .iter()
-        .filter(|op| is_output(op))
-        .map(|op| &op[0])
-        .collect();
-    assert_eq!(verbs, ["s"]);
+    assert!(
+        matches!(slid.output, Some(ToolOutputUpdate::Set { .. })),
+        "{slid:?}"
+    );
     wide.finish().await;
     wide.harness.close(context()).await.unwrap();
 
-    // Repetitive output still finds an overlap here; Chord's bounded candidate search can give up on other inputs
-    // and then writes one window.
-    let repetitive = drive(ToolOutputLimits {
-        max_lines: Some(50),
-        retain: Some(OutputRetain::Tail),
-        ..ToolOutputLimits::default()
-    })
-    .await;
+    // Repetitive output still finds an overlap here; the bounded candidate search can give up on other inputs and
+    // then sends one window.
+    let repetitive = drive(limits(50, OutputRetain::Tail)).await;
     repetitive.step(print_owned("y\n".repeat(50))).await;
-    let repeated = repetitive.step(print("z\n")).await;
-    let outputs: Vec<serde_json::Value> = repeated.into_iter().filter(is_output).collect();
-    assert_eq!(
-        outputs,
-        [
-            json(r#"["t",["tools",0,"output"],2]"#),
-            json(r#"["a",["tools",0,"output"],"z\n"]"#),
-        ]
-    );
+    assert_eq!(repetitive.step(print("z\n")).await, window(Some(2), "z\n"));
     repetitive.finish().await;
     repetitive.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn diffs_details_leaf_by_leaf_and_appends_diagnostics() {
-    let run = drive(ToolOutputLimits::default()).await;
+async fn publishes_details_and_diagnostics_and_settles_them_with_one_commit() {
+    let run = drive(Truncation::default()).await;
+    let details_change = |value: &str| ProgressChange {
+        output: None,
+        details: Some(JsonValue::parse(value).expect("valid JSON literal")),
+        diagnostics: None,
+    };
     assert_eq!(
         run.step(details(r#"{"step":1,"log":"a"}"#)).await,
-        [json(r#"["s",["tools",0,"details"],{"step":1,"log":"a"}]"#)]
+        details_change(r#"{"step":1,"log":"a"}"#)
     );
-    let second = run.step(details(r#"{"step":2,"log":"ab"}"#)).await;
-    assert_contains_all(
-        &second,
-        &[
-            json(r#"["s",["tools",0,"details","step"],2]"#),
-            json(r#"["a",["tools",0,"details","log"],"b"]"#),
-        ],
-    );
-    assert_eq!(second.len(), 2);
     assert_eq!(
         run.step(details(r#"{"step":2}"#)).await,
-        [json(r#"["d",["tools",0,"details","log"]]"#)]
+        details_change(r#"{"step":2}"#)
     );
     let first = ToolDiagnostic {
         omitted: None,
@@ -539,34 +569,66 @@ async fn diffs_details_leaf_by_leaf_and_appends_diagnostics() {
         message: "first".to_owned(),
     };
     let next = ToolDiagnostic {
-        omitted: None,
-        artifact: None,
-        lines: None,
         severity: ToolDiagnosticSeverity::Warn,
-        code: None,
         message: "second".to_owned(),
+        ..first.clone()
     };
     assert_eq!(
-        run.step(diagnostic(first)).await,
-        [json(
-            r#"["s",["tools",0,"diagnostics"],[{"severity":"info","message":"first"}]]"#
-        )]
+        run.step(diagnostic(first.clone())).await,
+        ProgressChange {
+            output: None,
+            details: None,
+            diagnostics: Some(vec![first.clone()]),
+        }
     );
     assert_eq!(
-        run.step(diagnostic(next)).await,
-        [json(
-            r#"["p",["tools",0,"diagnostics"],1,0,[{"severity":"warn","message":"second"}]]"#
-        )]
+        run.step(diagnostic(next.clone())).await,
+        ProgressChange {
+            output: None,
+            details: None,
+            diagnostics: Some(vec![first, next]),
+        }
     );
-    // Settlement moves everything into the result entry and keeps the slot small.
+    // The slot never held them, so the settle commit only marks it done.
     let settled = run.finish().await;
-    assert_contains_all(
-        &settled[0],
-        &[
-            json(r#"["s",["tools",0,"status"],"done"]"#),
-            json(r#"["d",["tools",0,"details"]]"#),
-            json(r#"["d",["tools",0,"diagnostics"]]"#),
-        ],
+    assert_eq!(
+        settled[0]
+            .iter()
+            .filter(|op| op[1][0] == "tools")
+            .map(|op| (op[0].clone(), op[1].clone()))
+            .collect::<Vec<_>>(),
+        [
+            (json(r#""s""#), json(r#"["tools",0,"status"]"#)),
+            (json(r#""s""#), json(r#"["tools",0,"entry"]"#)),
+        ]
+    );
+    run.harness.close(context()).await.unwrap();
+}
+
+/// The journal of a long streaming call: its start (the `running` slot,
+/// before the steps) and its settle; none of its many publications
+/// reaches storage (docs/harness.md S2).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_streaming_call_commits_nothing_between_its_start_and_its_settle() {
+    let run = drive(Truncation::default()).await;
+    for index in 0..40 {
+        run.step(print_owned(format!("line {index}\n"))).await;
+    }
+    let settled = run.finish().await;
+    // Ops inside the call's slot; the round's own cleanup replaces `tools` whole.
+    let touches_slot = |ops: &Vec<serde_json::Value>| {
+        ops.iter().any(|op| {
+            op[1]
+                .as_array()
+                .is_some_and(|path| path.len() > 2 && path[..2] == [json(r#""tools""#), json("0")])
+        })
+    };
+    assert_eq!(
+        (
+            lock(&run.changes).len(),
+            settled.iter().filter(|ops| touches_slot(ops)).count()
+        ),
+        (40, 1)
     );
     run.harness.close(context()).await.unwrap();
 }
@@ -1020,8 +1082,8 @@ async fn commits_the_tool_calling_answer_its_tool_tasks_the_generations_wait_and
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn writes_an_aborted_tools_slot_with_field_level_ops() {
-    let run = drive(ToolOutputLimits::default()).await;
+async fn settles_an_aborted_tools_slot_with_its_status_and_entry_only() {
+    let run = drive(Truncation::default()).await;
     run.step(print("partial\n")).await;
     run.step(details(r#"{"n":1}"#)).await;
     let task_id = live(&run.harness, run.conversation).await["tools"][0]["taskId"]
@@ -1048,18 +1110,16 @@ async fn writes_an_aborted_tools_slot_with_field_level_ops() {
         .find(|ops| is_abort_commit(ops))
         .cloned()
         .unwrap();
+    // The slot never held the progress: the abort marks it done and names
+    // its entry, which carries the output and the details.
+    assert_eq!(abort_commit.len(), 2, "{abort_commit:?}");
     assert_contains_all(
         &abort_commit,
-        &[
-            json(r#"["s",["tools",0,"status"],"done"]"#),
-            json(r#"["d",["tools",0,"output"]]"#),
-            json(r#"["d",["tools",0,"details"]]"#),
-        ],
+        &[json(r#"["s",["tools",0,"status"],"done"]"#)],
     );
     assert!(abort_commit
         .iter()
         .any(|op| op[0] == "s" && op[1] == json(r#"["tools",0,"entry"]"#) && op[2].is_u64()));
-    assert_eq!(abort_commit.len(), 4);
     run.harness.close(context()).await.unwrap();
 }
 

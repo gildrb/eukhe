@@ -26,9 +26,9 @@ use crate::harness::types::{
     AgentChange, BeforeToolDecision, ConversationCreateOptions, Extension, ExtensionsChange,
     FieldChange, GenerationHooks, HarnessSettings, ModelRef, OutputRetain, PartialProgressPolicy,
     ToolControl, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionResult, ToolHooks,
-    ToolOutputChunk, ToolOutputLimits, ToolRegistration, ToolsChange,
+    ToolOutputChunk, ToolRegistration, ToolsChange,
 };
-use crate::harness::{ArgDialect, Conversation, Harness};
+use crate::harness::{ArgDialect, Conversation, Harness, OutputLimits, Truncation};
 use crate::session::SessionError;
 use crate::tasks::{define_task, TaskDefinition};
 use crate::types::{
@@ -52,12 +52,12 @@ fn text(text: &str) -> UserContentBlock {
     UserContentBlock::Text(TextContent::new(text))
 }
 
-fn limits(max_lines: u64, retain: Option<OutputRetain>) -> ToolOutputLimits {
-    ToolOutputLimits {
-        max_bytes: None,
-        max_lines: Some(max_lines),
+fn limits(max_lines: usize, retain: OutputRetain) -> Truncation {
+    Truncation::On(OutputLimits {
+        max_lines,
         retain,
-    }
+        ..OutputLimits::default()
+    })
 }
 
 fn locked<T: Clone>(value: &Mutex<T>) -> T {
@@ -97,7 +97,7 @@ async fn uses_retained_output_and_the_last_details_when_the_result_omits_them_wi
                     ..ToolExecutionResult::default()
                 })
             },
-            |tool| tool.output_limits = Some(limits(2, None)),
+            |tool| tool.truncation = limits(2, OutputRetain::Head),
         ),
         None,
     )
@@ -168,7 +168,7 @@ async fn offers_the_tail_window_with_the_configured_pace_not_a_head_window_and_a
                     Ok(ToolExecutionResult::default())
                 }
             },
-            |tool| tool.output_limits = Some(limits(1, Some(OutputRetain::Tail))),
+            |tool| tool.truncation = limits(1, OutputRetain::Tail),
         ),
         None,
     )
@@ -185,7 +185,7 @@ async fn offers_the_tail_window_with_the_configured_pace_not_a_head_window_and_a
                     .push(api.output_window());
                 async { Ok(ToolExecutionResult::default()) }
             },
-            |tool| tool.output_limits = Some(limits(1, None)),
+            |tool| tool.truncation = limits(1, OutputRetain::Head),
         ),
         None,
     )
@@ -242,7 +242,7 @@ async fn bounds_explicit_text_content_and_keeps_other_content() {
                     ..ToolExecutionResult::default()
                 })
             },
-            |tool| tool.output_limits = Some(limits(2, Some(OutputRetain::Tail))),
+            |tool| tool.truncation = limits(2, OutputRetain::Tail),
         ),
         None,
     )
@@ -925,6 +925,7 @@ fn a_recovered_slot_reports_the_dropped_output_where_the_tool_dropped_it() {
         dropped_lines: Some(2),
         details: None,
         diagnostics: None,
+        usage: None,
     };
     let result = super::super::result::from_slot(
         Some(&slot),

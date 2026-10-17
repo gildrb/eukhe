@@ -123,7 +123,7 @@ impl Worker {
             "factory_activity" => self.handle_factory_activity(payload).await,
             "execute_bash" => self.handle_execute_bash(payload),
             "execute_bash_and_wait" => self.handle_execute_bash_and_wait(payload).await,
-            "abort_bash" => self.handle_abort_bash().await,
+            "abort_bash" => self.handle_abort_bash(),
             "list_kernel_bash" | "tail_kernel_bash" | "kill_kernel_bash" => {
                 self.handle_kernel_bash_activity(command_type, payload)
                     .await
@@ -614,7 +614,7 @@ impl Worker {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .created = false;
-        self.user_bash.abort().await;
+        self.user_bash.abort();
         self.close_hosted_session().await;
         let active_session_id = self
             .core

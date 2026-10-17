@@ -21,6 +21,7 @@ import ./bend/proof_run.bend as Runs
 import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
 import ./bend/proof_tree.bend as Trees
+import ./bend/proof_job.bend as Jobs
 
 # (a) The view
 
@@ -283,3 +284,47 @@ def Laws.tree_put_sets(t, good, k, p, v, fits):
 
 def Laws.tree_put_keeps_others(t, good, k, p, v, x, other):
   Trees.put_keeps_others(t, good, k, p, v, x, other)
+
+# (S2) Jobs and limits
+
+def Laws.job_output_bounded(c, es):
+  Jobs.pj.job_output_bounded(c, es)
+
+def Laws.job_no_silent_loss(cap, es):
+  Jobs.pj.job_no_silent_loss(cap, es)
+
+def Laws.job_optout_keeps_all(es):
+  Jobs.pj.job_optout_keeps_all(es)
+
+def Laws.job_cap_drops_only_excess(c, es, fits):
+  Jobs.pj.job_cap_drops_only_excess(c, es, fits)
+
+def Laws.job_ends_once(cap, es):
+  Jobs.pj.job_ends_once(cap, es)
+
+def Laws.job_end_is_final(cap, pre, post, ended):
+  Jobs.pj.job_end_is_final(cap, pre, post, ended)
+
+def Laws.job_kill_ends_now(cap, k, d):
+  Jobs.pj.job_kill_ends_now(cap, k, d)
+
+def Laws.call_blocks_at_most_budget(b, es, long):
+  Jobs.pj.call_blocks_at_most_budget(b, es, long)
+
+def Laws.call_settles_with_job(cap, b, es, x, settled):
+  Jobs.pj.call_settles_with_job(cap, b, es, x, settled)
+
+def Laws.stream_journals_two(es):
+  Jobs.pj.stream_journals_two(es)
+
+def Laws.stream_settles_once(es):
+  Jobs.pj.stream_settles_once(es)
+
+def Laws.stream_settle_carries_all(es, ended):
+  Jobs.pj.stream_settle_carries_all(es, ended)
+
+def Laws.rewind_stops_orphans(js, keep):
+  Jobs.pj.rewind_stops_orphans(js, keep)
+
+def Laws.rewind_keeps_target_jobs(js, keep):
+  Jobs.pj.rewind_keeps_target_jobs(js, keep)

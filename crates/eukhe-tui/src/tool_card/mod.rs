@@ -237,10 +237,6 @@ pub(crate) fn format_bash_duration(ms: u128) -> String {
     format!("{:.1}s", ms as f64 / 1000.0)
 }
 
-/// The bash tool's output byte budget (TS `DEFAULT_MAX_BYTES`), used in the
-/// truncation warning when the spill carries no `maxBytes`.
-pub const DEFAULT_MAX_BYTES: usize = 50 * 1024;
-
 /// `formatSize` (TS `truncate.ts`): `512B`, `50.0KB`, `1.2MB`.
 #[must_use]
 pub fn format_size(bytes: usize) -> String {

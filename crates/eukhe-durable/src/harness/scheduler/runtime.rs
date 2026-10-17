@@ -14,6 +14,7 @@ use futures::future::{BoxFuture, FutureExt};
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::env::ExecutionEnv;
 use crate::harness::agent::agent_hooks;
+use crate::harness::live::progress::LiveProgress;
 use crate::harness::types::{
     Agent, ContextView, ConversationHandle, HookHandlers, RegistrySnapshot, Settings,
 };
@@ -420,6 +421,10 @@ impl TaskRuntimeBackend for InvocationRuntime {
             }
         }
         .boxed()
+    }
+
+    fn live_progress(&self) -> LiveProgress {
+        self.inner.live_progress.clone()
     }
 }
 
