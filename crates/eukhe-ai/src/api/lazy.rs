@@ -14,8 +14,9 @@ use super::ProviderStreams;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::now_ms;
-use crate::utils::stream_failure::record_stream_failure;
+use crate::utils::stream_failure::{record_stream_failure, ProviderError};
 use crate::utils::stream_idle::StreamIdle;
+use crate::utils::stream_repeat::StreamRepeat;
 
 fn create_error_message(model: &Model, error_message: String, timestamp: u64) -> AssistantMessage {
     AssistantMessage {
@@ -47,37 +48,67 @@ fn end_with_error(target: &AssistantMessageEventStream, message: AssistantMessag
     target.end(Some(message));
 }
 
+/// Forwards `source` into `target`; returns the failure of a stream the
+/// repetition guard cut (`target` is then left open for it).
+#[tracing::instrument(level = "trace", skip_all)]
 async fn forward_stream(
     target: &AssistantMessageEventStream,
     source: AssistantMessageEventStream,
-    idle: Option<&StreamIdle>,
-) {
+    watch: WatchRefs<'_>,
+) -> Option<ProviderError> {
+    let WatchRefs { idle, mut repeat } = watch;
     let mut events = source.events();
     while let Some(event) = events.next().await {
         if let Some(idle) = idle {
             idle.touch();
         }
+        if let Some(failure) = repeat
+            .as_deref_mut()
+            .and_then(|repeat| repeat.watch(&event))
+        {
+            return Some(failure);
+        }
         target.push(event);
     }
     target.end(Some(source.result().await));
+    None
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn run_setup<F>(
     target: &AssistantMessageEventStream,
     model: &Model,
     setup: F,
     started_at: u64,
-    idle: Option<&StreamIdle>,
-) where
+    watch: WatchRefs<'_>,
+) -> Option<ProviderError>
+where
     F: Future<Output = Result<AssistantMessageEventStream, Thrown>>,
 {
     match setup.await {
-        Ok(inner) => forward_stream(target, inner, idle).await,
-        Err(error) => end_with_error(
-            target,
-            create_error_message(model, error.to_string(), started_at),
-        ),
+        Ok(inner) => forward_stream(target, inner, watch).await,
+        Err(error) => {
+            end_with_error(
+                target,
+                create_error_message(model, error.to_string(), started_at),
+            );
+            None
+        }
     }
+}
+
+/// What watches a stream behind [`watched_lazy_stream`]: the stream-idle
+/// deadline and the repetition guard, each when armed.
+#[derive(Debug, Default)]
+pub(crate) struct StreamWatch {
+    pub(crate) idle: Option<StreamIdle>,
+    pub(crate) repeat: Option<StreamRepeat>,
+}
+
+/// A [`StreamWatch`] borrowed by the task forwarding its stream.
+struct WatchRefs<'a> {
+    idle: Option<&'a StreamIdle>,
+    repeat: Option<&'a mut StreamRepeat>,
 }
 
 /// Returns a stream synchronously while running async setup (auth
@@ -89,15 +120,17 @@ pub fn lazy_stream<F>(model: &Model, setup: F) -> AssistantMessageEventStream
 where
     F: Future<Output = Result<AssistantMessageEventStream, Thrown>> + Send + 'static,
 {
-    watched_lazy_stream(model, None, setup)
+    watched_lazy_stream(model, StreamWatch::default(), setup)
 }
 
-/// [`lazy_stream`] under the stream-idle deadline `idle`: when neither the
-/// setup nor the stream shows life for the deadline, the request is aborted
-/// and the stream ends with a retryable `stream_stalled` error.
+/// [`lazy_stream`] under `watch`: when neither the setup nor the stream
+/// shows life for the stream-idle deadline, the request is aborted and the
+/// stream ends with a retryable `stream_stalled` error; when the repetition
+/// guard cuts the stream, the request is aborted and the stream ends with a
+/// retryable `stream_repeating` error.
 pub(crate) fn watched_lazy_stream<F>(
     model: &Model,
-    idle: Option<StreamIdle>,
+    watch: StreamWatch,
     setup: F,
 ) -> AssistantMessageEventStream
 where
@@ -108,15 +141,25 @@ where
     let target = outer.clone();
     let model = model.clone();
     tokio::spawn(async move {
-        let Some(idle) = idle else {
-            run_setup(&target, &model, setup, started_at, None).await;
-            return;
+        let StreamWatch { idle, mut repeat } = watch;
+        let work = run_setup(
+            &target,
+            &model,
+            setup,
+            started_at,
+            WatchRefs {
+                idle: idle.as_ref(),
+                repeat: repeat.as_mut(),
+            },
+        );
+        let failure = match &idle {
+            Some(idle) => idle
+                .within(work)
+                .await
+                .unwrap_or_else(|| Some(idle.stall())),
+            None => work.await,
         };
-        let finished = idle
-            .within(run_setup(&target, &model, setup, started_at, Some(&idle)))
-            .await;
-        if finished.is_none() {
-            let failure = idle.stall();
+        if let Some(failure) = failure {
             let mut message = create_error_message(&model, failure.to_string(), started_at);
             record_stream_failure(
                 (&model.provider, &model.id, &model.api),

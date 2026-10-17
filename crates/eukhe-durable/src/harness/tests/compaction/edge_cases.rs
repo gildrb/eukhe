@@ -23,8 +23,8 @@ use crate::harness::tests::chat_support::{all_entries, chat_setup, wait_for};
 use crate::harness::tests::support::{add_hooks, add_section, compaction_task, context};
 use crate::harness::tests::task_support::deferred;
 use crate::harness::types::{
-    AgentChange, CompactionDecision, CompactionHooks, CompactionPolicy, CompactionReason,
-    CompactionResult, FieldChange, ModelRef,
+    AgentChange, BackgroundMargin, CompactionDecision, CompactionHooks, CompactionPolicy,
+    CompactionReason, CompactionResult, FieldChange, ModelRef,
 };
 use crate::harness::usage::{UsageState, USAGE_DOC};
 use crate::session::tests::support::ControlledStorage;
@@ -156,7 +156,7 @@ async fn starts_no_background_compaction_after_a_blocking_one_in_the_same_genera
     // Blocking at 1500, background at 200: the kept part stays above the
     // background threshold.
     chat.set_policy(CompactionPolicy {
-        background_tokens: 1300.0,
+        background: BackgroundMargin::Tokens(1300.0),
         keep_recent_tokens: 400.0,
         ..BACKGROUND
     });
@@ -463,7 +463,11 @@ async fn leaves_no_usage_submission_or_summary_when_the_classifying_commit_fails
     // Nothing of the failed commit landed: the task is still live, without usage, entry, or submission.
     storage.reopen();
     assert!(storage
-        .submission_by_request(chat.id(), &format!("compaction:{id}"), context())
+        .submission_by_request(
+            chat.id(),
+            &crate::harness::summary_request_id(id.erase()),
+            context(),
+        )
         .await
         .unwrap()
         .is_none());
@@ -607,7 +611,7 @@ async fn treats_silent_overflow_as_an_ordinary_answer(response: AssistantMessage
         enabled: true,
         reserve_tokens: -100_000.0,
         keep_recent_tokens: 150.0,
-        background_tokens: 0.0,
+        background: BackgroundMargin::Tokens(0.0),
     });
     chat.faux.agent(response);
     let input = submit(&chat, "go").await;
@@ -653,11 +657,13 @@ async fn sends_the_request_when_a_blocking_compaction_finds_nothing_under_a_poli
         "policy",
         move |_, _| {
             // Rendering runs after preparation read the policy; the compaction
-            // reads this one.
+            // reads this one. Its keep window is capped at half the size where
+            // compaction starts, so the reserve moves that size out of reach.
             if !changed.swap(true, Ordering::SeqCst) {
                 super::set_policy(
                     &setup,
                     CompactionPolicy {
+                        reserve_tokens: -1_000_000.0,
                         keep_recent_tokens: 100_000.0,
                         ..BLOCKING
                     },

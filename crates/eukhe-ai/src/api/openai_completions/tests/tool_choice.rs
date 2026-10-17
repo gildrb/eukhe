@@ -244,9 +244,9 @@ pub(super) async fn provider_payload(
     payload.unwrap_or_else(|| panic!("no payload was built: {:?}", message.error_message))
 }
 
-// Rust `ToolChoice` (simple options) has no `"required"`; TS passes it through
-// an `as unknown` cast. The closest Rust path that forwards an arbitrary tool
-// choice is `stream` with `extra.toolChoice`.
+// TS passes `"required"` through an `as unknown` cast; this test keeps the
+// raw `extra.toolChoice` path, and the next one maps the provider-neutral
+// forced choices.
 #[tokio::test]
 async fn forwards_tool_choice_from_simple_options_to_payload() {
     let model = completions_model("openai", "gpt-4o-mini", &json!({}));
@@ -260,6 +260,33 @@ async fn forwards_tool_choice_from_simple_options_to_payload() {
     assert_eq!(params["tool_choice"], json!("required"));
     let tools = params["tools"].as_array().expect("tools array");
     assert!(!tools.is_empty());
+}
+
+#[tokio::test]
+async fn maps_forced_simple_tool_choices_to_the_wire() {
+    let model = completions_model("openai", "gpt-4o-mini", &json!({}));
+    let mut seen = Vec::new();
+    for choice in [ToolChoice::Required, ToolChoice::Tool("ping".to_owned())] {
+        let options = SimpleStreamOptions {
+            tool_choice: Some(choice),
+            ..simple_options()
+        };
+        let params = simple_payload(
+            &model,
+            &ctx("Call ping with ok=true", Some(ping_tools()), None),
+            options,
+        )
+        .await;
+        seen.push(params["tool_choice"].clone());
+    }
+
+    assert_eq!(
+        seen,
+        vec![
+            json!("required"),
+            json!({ "type": "function", "function": { "name": "ping" } }),
+        ]
+    );
 }
 
 #[tokio::test]

@@ -7,12 +7,20 @@ use serde::{Deserialize, Serialize};
 use super::string_enum::string_enum;
 use super::JsonObject;
 
-string_enum! {
-    /// Provider-neutral tool selection for simple requests.
-    pub enum ToolChoice {
-        Auto => "auto",
-        None => "none",
-    }
+/// Provider-neutral tool selection for simple requests. Serialized as the
+/// strings `"auto"`, `"none"` and `"required"`; a named tool is
+/// `{"tool": "<name>"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolChoice {
+    /// The model decides whether to call tools.
+    Auto,
+    /// The model calls no tool.
+    None,
+    /// The model must call some tool.
+    Required,
+    /// The model must call the named tool.
+    Tool(String),
 }
 
 string_enum! {

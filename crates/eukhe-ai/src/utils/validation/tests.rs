@@ -16,6 +16,7 @@ fn tool(parameters: impl Into<ToolSchema>) -> Tool {
         description: "Echo tool".to_owned(),
         parameters: parameters.into(),
         constrained_sampling: None,
+        priority: 0,
     }
 }
 

@@ -454,6 +454,113 @@ pub fn resolve_json_schema_strict_sampling(
     }
 }
 
+/// What a request's provider takes: strict schemas at all (`supported`),
+/// and at most `cap` of them per request (the quirks rulebook's
+/// `strict_cap`; `None`: no cap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrictSupport {
+    pub supported: bool,
+    pub cap: Option<u32>,
+}
+
+/// The strict schema budget (docs/harness.md S6.3; model `bend/infer.bend`
+/// `strict`): of the tools that would get strict schemas, with
+/// `priorities`, which keep them when a request takes at most `cap`. The
+/// highest priorities keep them; among equal priorities the earlier tool
+/// comes first (the model's `rank` inserts each tool before its equals, a
+/// stable order). With no cap every tool keeps its strict schema.
+#[must_use]
+pub fn strict_budget(priorities: &[u32], cap: Option<u32>) -> Vec<bool> {
+    let Some(cap) = cap else {
+        return vec![true; priorities.len()];
+    };
+    let mut ranked: Vec<usize> = (0..priorities.len()).collect();
+    // Stable: equal priorities keep their given order.
+    ranked.sort_by(|&left, &right| priorities[right].cmp(&priorities[left]));
+    let mut keeps = vec![false; priorities.len()];
+    for index in ranked
+        .into_iter()
+        .take(usize::try_from(cap).unwrap_or(usize::MAX))
+    {
+        keeps[index] = true;
+    }
+    keeps
+}
+
+/// The strict schemas of one request under its budget ([`strict_budget`]
+/// by [`Tool::priority`]). [`StrictPlan::new`] sees every tool of the
+/// request (a mid-conversation tool addition counts too); a tool past the
+/// cap goes loose and keeps the client-side validation and repair of its
+/// arguments. No tool is dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrictPlan {
+    supported: bool,
+    /// The names of the tools past the cap.
+    loose: HashSet<String>,
+}
+
+impl StrictPlan {
+    /// The plan for a request with `tools` (a strict tool whose name comes
+    /// again counts once, at its first strict definition).
+    ///
+    /// # Errors
+    ///
+    /// As [`resolve_json_schema_strict_sampling`], and when a tool that
+    /// requires strict sampling is past the cap.
+    pub fn new<'t>(
+        tools: impl IntoIterator<Item = &'t Tool>,
+        support: StrictSupport,
+        is_unsupported_keyword: Option<UnsupportedStrictSchemaKeywordCheck<'_>>,
+    ) -> Result<Self, ConstrainedSamplingError> {
+        let mut seen = HashSet::new();
+        let mut strict: Vec<&Tool> = Vec::new();
+        for tool in tools {
+            if resolve_json_schema_strict_sampling(tool, support.supported, is_unsupported_keyword)?
+                == Some(true)
+                && seen.insert(tool.name.as_str())
+            {
+                strict.push(tool);
+            }
+        }
+        let priorities: Vec<u32> = strict.iter().map(|tool| tool.priority).collect();
+        let mut loose = HashSet::new();
+        for (tool, keep) in strict.iter().zip(strict_budget(&priorities, support.cap)) {
+            if keep {
+                continue;
+            }
+            if json_schema_config(tool) == Some(JsonSchemaStrictness::Require) {
+                return Err(ConstrainedSamplingError::Invalid(format!(
+                    "Tool \"{}\" requires JSON-schema constrained sampling, but the provider \
+                     takes at most {} strict tools per request.",
+                    tool.name,
+                    support.cap.unwrap_or(u32::MAX)
+                )));
+            }
+            loose.insert(tool.name.clone());
+        }
+        Ok(Self {
+            supported: support.supported,
+            loose,
+        })
+    }
+
+    /// [`resolve_json_schema_strict_sampling`] for `tool` of the request:
+    /// `None` (loose) when it is past the cap.
+    ///
+    /// # Errors
+    ///
+    /// As [`resolve_json_schema_strict_sampling`].
+    pub fn resolve(
+        &self,
+        tool: &Tool,
+        is_unsupported_keyword: Option<UnsupportedStrictSchemaKeywordCheck<'_>>,
+    ) -> Result<Option<bool>, ConstrainedSamplingError> {
+        let strict =
+            resolve_json_schema_strict_sampling(tool, self.supported, is_unsupported_keyword)?;
+        Ok(strict.filter(|_| !self.loose.contains(&tool.name)))
+    }
+}
+
 /// Resolve a grammar tool's `OpenAI` grammar (Lark preferred over regex).
 ///
 /// # Errors
@@ -542,6 +649,62 @@ mod tests {
             "constrainedSampling": { "type": "json_schema", "strict": strict.as_str() },
         }))
         .expect("tool")
+    }
+
+    fn ranked_tool(name: &str, priority: u32, strict: JsonSchemaStrictness) -> Tool {
+        Tool {
+            name: name.to_owned(),
+            priority,
+            ..tool(&json!({ "type": "object", "properties": {} }), strict)
+        }
+    }
+
+    #[test]
+    fn the_strict_budget_keeps_the_highest_priorities_and_the_earlier_of_equals() {
+        assert_eq!(strict_budget(&[1, 3, 3, 2], None), vec![true; 4]);
+        assert_eq!(
+            strict_budget(&[1, 3, 3, 2], Some(2)),
+            vec![false, true, true, false]
+        );
+        assert_eq!(strict_budget(&[0, 0, 0], Some(1)), vec![true, false, false]);
+        assert_eq!(strict_budget(&[1, 2, 1], Some(2)), vec![true, true, false]);
+        assert_eq!(strict_budget(&[5, 4], Some(0)), vec![false, false]);
+    }
+
+    #[test]
+    fn a_strict_plan_sends_tools_past_the_cap_loose_and_drops_none() {
+        let tools = [
+            ranked_tool("low", 0, JsonSchemaStrictness::Prefer),
+            ranked_tool("high", 2, JsonSchemaStrictness::Prefer),
+            ranked_tool("mid", 1, JsonSchemaStrictness::Prefer),
+        ];
+        let support = StrictSupport {
+            supported: true,
+            cap: Some(2),
+        };
+        let plan = StrictPlan::new(&tools, support, None).unwrap();
+        let resolved: Vec<Option<bool>> = tools
+            .iter()
+            .map(|tool| plan.resolve(tool, None).unwrap())
+            .collect();
+        assert_eq!(resolved, vec![None, Some(true), Some(true)]);
+
+        let required = [
+            ranked_tool("kept", 1, JsonSchemaStrictness::Prefer),
+            ranked_tool("needs", 0, JsonSchemaStrictness::Require),
+        ];
+        let one = StrictSupport {
+            supported: true,
+            cap: Some(1),
+        };
+        assert_eq!(
+            StrictPlan::new(&required, one, None),
+            Err(ConstrainedSamplingError::Invalid(
+                "Tool \"needs\" requires JSON-schema constrained sampling, but the provider \
+                 takes at most 1 strict tools per request."
+                    .to_owned()
+            ))
+        );
     }
 
     /// `TypeBox` schemas are written as the JSON `TypeBox` serializes.

@@ -1,6 +1,8 @@
 //! The attach surface: the chunked-snapshot attach stream
 //! (begin/chunk/end) against live TS goldens.
 
+use std::fmt::Write as _;
+
 use super::*;
 
 /// Chunked snapshot streaming on the attach path (live TS goldens in
@@ -21,12 +23,21 @@ fn chunked_snapshot_attach_streams_begin_chunk_end() {
             .expect("golden fixture");
 
     // A scripted turn whose answer is large enough to split the transcript
-    // into several chunks under the 512 KiB budget.
+    // into several chunks under the 512 KiB budget. Its lines are numbered:
+    // the chat streams' repetition guard (`bend/infer.bend` §4) cuts a
+    // stream that repeats one line (or one 4 KiB run of a long line) 64
+    // times in a row, so a degenerate `xxx…` answer never completes.
+    let pad = "x".repeat(64);
+    let answer = (0..10_000).fold(String::new(), |mut answer, line| {
+        writeln!(answer, "line {line:05} {pad}").expect("write to a String");
+        answer
+    });
+    assert!(answer.len() > 700_000, "a 700 KB answer");
     let script_path = dir.path().join("script.json");
     std::fs::write(
         &script_path,
         serde_json::json!({
-            "responses": [{ "text": "x".repeat(700_000) }]
+            "responses": [{ "text": answer }]
         })
         .to_string(),
     )

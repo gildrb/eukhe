@@ -2,8 +2,6 @@
 //! additional model request fields, and the model-capability checks behind
 //! them. Section of the port of `api/bedrock-converse-stream.ts`.
 
-use std::sync::LazyLock;
-
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD};
 use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
@@ -12,18 +10,18 @@ use eukhe_types::pi_ai::{
     ModelThinkingLevel, ProviderEnv, StopReason, ThinkingLevel, Tool, UserContent,
     UserContentBlock,
 };
-use regex::Regex;
 use serde_json::json;
 
 use super::client_config::get_configured_bedrock_region;
 use super::{BedrockOptions, BedrockThinkingDisplay, BedrockToolChoice};
 use crate::api::cache_breakpoints::{has_cache_breakpoint, CacheMarkBudget};
 use crate::api::constrained_sampling::{
-    get_json_schema_tool_parameters, resolve_json_schema_strict_sampling, ConstrainedSamplingError,
+    get_json_schema_tool_parameters, ConstrainedSamplingError, StrictPlan, StrictSupport,
     StrictToolParameters,
 };
 use crate::api::simple_options::clamp_reasoning;
 use crate::api::transform_messages::transform_messages;
+use crate::quirks::{match_candidates, Quirks};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
@@ -34,50 +32,16 @@ const EMPTY_TEXT_PLACEHOLDER: &str = "<empty>";
 
 const THINKING_BINDING_CONTROLS_BETA: &str = "thinking-binding-controls-2026-08-01";
 
-/// `/[\s_.:]+/g`.
-static SEPARATORS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\s_.:]+").unwrap_or_else(|_| unreachable!("static regex")));
-
-/// TS `getModelMatchCandidates`: the lowercased id (and name), each also
-/// with separator runs replaced by `-`.
-fn get_model_match_candidates(model_id: &str, model_name: &str) -> Vec<String> {
-    let values: &[&str] = if model_name.is_empty() {
-        &[model_id]
-    } else {
-        &[model_id, model_name]
-    };
-    values
-        .iter()
-        .flat_map(|value| {
-            let lower = value.to_lowercase();
-            let dashed = SEPARATORS.replace_all(&lower, "-").into_owned();
-            [lower, dashed]
-        })
-        .collect()
-}
-
 fn any_candidate(model_id: &str, model_name: &str, needles: &[&str]) -> bool {
-    get_model_match_candidates(model_id, model_name)
+    match_candidates(model_id, model_name)
         .iter()
         .any(|candidate| needles.iter().any(|needle| candidate.contains(needle)))
 }
 
-/// TS `supportsAdaptiveThinking` (Opus 4.6+, Sonnet 4.6+, Fable 5).
-pub(crate) fn supports_adaptive_thinking(model_id: &str, model_name: &str) -> bool {
-    any_candidate(
-        model_id,
-        model_name,
-        &[
-            "opus-4-6",
-            "opus-4-7",
-            "opus-4-8",
-            "opus-5",
-            "sonnet-4-6",
-            "sonnet-5",
-            "haiku-5",
-            "fable-5",
-        ],
-    )
+/// TS `supportsAdaptiveThinking` (Opus 4.6+, Sonnet 4.6+, Fable 5): the
+/// quirks rulebook's `adaptive_thinking` (family `claude-adaptive`).
+pub(crate) fn supports_adaptive_thinking(model: &Model) -> bool {
+    Quirks::of(model).adaptive_thinking().unwrap_or(false)
 }
 
 /// TS `supportsNativeXhighEffort`.
@@ -154,7 +118,7 @@ pub(crate) fn is_anthropic_claude_model(model: &Model) -> bool {
 /// TS `supportsPromptCaching`: Claude 3.5 Haiku, 3.7 Sonnet, 4.x, 5; any
 /// model with `AWS_BEDROCK_FORCE_CACHE=1` when the id/name names no Claude.
 pub(crate) fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
-    let candidates = get_model_match_candidates(&model.id, &model.name);
+    let candidates = match_candidates(&model.id, &model.name);
     let any = |needle: &str| {
         candidates
             .iter()
@@ -525,14 +489,15 @@ pub(crate) fn convert_messages(
 pub(crate) fn convert_tool_config(
     tools: &[Tool],
     tool_choice: Option<&BedrockToolChoice>,
-    supports_strict_mode: bool,
+    strict_support: StrictSupport,
 ) -> Result<Option<JsonValue>, ConstrainedSamplingError> {
     if tools.is_empty() || tool_choice == Some(&BedrockToolChoice::None) {
         return Ok(None);
     }
+    let strict_plan = StrictPlan::new(tools, strict_support, None)?;
     let mut bedrock_tools = Vec::with_capacity(tools.len());
     for tool in tools {
-        let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode, None)?;
+        let strict = strict_plan.resolve(tool, None)?;
         let parameters = get_json_schema_tool_parameters(
             tool,
             if strict == Some(true) {
@@ -613,7 +578,7 @@ pub(crate) fn build_additional_model_request_fields(
                 .unwrap_or(BedrockThinkingDisplay::Summarized),
         )
     };
-    let adaptive = supports_adaptive_thinking(&model.id, &model.name);
+    let adaptive = supports_adaptive_thinking(model);
     let mut result = JsonObject::new();
     if adaptive {
         let use_block_binding = !is_gov_cloud && supports_thinking_block_binding(model);
@@ -683,7 +648,7 @@ pub(crate) fn build_additional_model_request_fields(
 /// `minimal`; gpt-oss takes a flat `reasoning_effort` and only accepts low,
 /// medium and high.
 fn build_openai_reasoning_fields(model: &Model, reasoning: ThinkingLevel) -> Option<JsonValue> {
-    let candidates = get_model_match_candidates(&model.id, &model.name);
+    let candidates = match_candidates(&model.id, &model.name);
     if candidates
         .iter()
         .any(|candidate| candidate.contains("gpt-oss"))

@@ -2,9 +2,12 @@
 
 use super::*;
 
-/// The threshold-compaction world: a small window and reserve, so a few
-/// padded turns cross the blocking threshold.
-const COMPACTION_WINDOW: u64 = 24_000;
+/// The threshold-compaction world: a window with room for a dozen padded
+/// turns over the fixed request overhead (system prompt and tools, about
+/// 17k tokens), so the padded turns cross the early compaction threshold
+/// (a tenth of the window below `window - reserve`) after the pre-crash
+/// history, and the compacted context falls back below it.
+const COMPACTION_WINDOW: u64 = 40_000;
 const COMPACTION_RESERVE: u64 = 4_000;
 
 /// Filler words of a padded turn (about two tokens each).
@@ -80,7 +83,12 @@ fn run_case(phase: Phase, target: Target) {
             message
         }
         Phase::Compaction => {
-            // Padded turns until one's preparation holds the summarizer.
+            // Padded turns until one's preparation starts the compaction
+            // and its summarizer holds. A turn grows the context by less
+            // than the early threshold's margin, so the first crossing
+            // starts a background compaction: the turn runs on beside it
+            // and may answer before the summarizer request arrives.
+            let events_from = client.len();
             let mut turn = 0;
             loop {
                 turn += 1;
@@ -106,6 +114,22 @@ fn run_case(phase: Phase, target: Target) {
                 }
                 let done = client.response(&id, WAIT);
                 assert_eq!(done["success"], true, "padded turn: {done}");
+                // The turn's events reach the wire before its response: a
+                // compaction it started has shown its start.
+                if client
+                    .events_from(events_from)
+                    .iter()
+                    .any(|event| event["type"] == "compaction_start")
+                {
+                    world.mock.wait_for(WAIT, "the held summarizer", |log| {
+                        log.iter()
+                            .any(|entry| {
+                                entry.holding && entry.request.kind == RequestKind::Summarizer
+                            })
+                            .then_some(())
+                    });
+                    break message;
+                }
                 prompts.push(message);
             }
         }
@@ -140,11 +164,19 @@ fn run_case(phase: Phase, target: Target) {
             (client, session_id)
         }
     };
+    let recovered_from = client.len();
     match phase {
         Phase::Stream => world.mock.open_gate(STREAM_GATE),
         Phase::Tool => std::fs::write(world.release_path(), "go").expect("release the tool"),
         Phase::Compaction => world.mock.open_gate(SUMMARIZER_GATE),
         Phase::MemoryNode => world.mock.open_gate(NODE_GATE),
+    }
+    if phase == Phase::Compaction {
+        // A background compaction is outside the idle wait below, and the
+        // checks below need its recovered summarizer call and its entry.
+        client.wait_event_from(recovered_from, WAIT, "the compaction's end", |event| {
+            event["type"] == "compaction_end"
+        });
     }
     wait_idle(&mut client, &session_id);
 

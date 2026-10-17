@@ -93,9 +93,16 @@ pub(crate) async fn run_manual_compaction(
     if already_compacted(&view) {
         return Err(ManualCompactionError::Skipped(ALREADY_COMPACTED));
     }
+    let window = conversation
+        .agent(cx)
+        .await
+        .map_err(|error| ManualCompactionError::session(&error))?
+        .model
+        .and_then(|model| deps.models.get_model(&model.provider, &model.model_id))
+        .map_or(0, |model| model.context_window);
     let keep_recent = resolve_settings(Some(&deps.settings.harness()))
         .compaction
-        .keep_recent_tokens;
+        .keep_window(window);
     if select_cut(&view, keep_recent).is_none() {
         return Err(ManualCompactionError::Skipped(TOO_SHORT_TO_COMPACT));
     }

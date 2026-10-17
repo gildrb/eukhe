@@ -73,6 +73,11 @@ pub struct ConversationStreamOptions {
         serialize_with = "eukhe_types::pi_ai::js_number::option::serialize"
     )]
     pub stream_idle_timeout_ms: Option<f64>,
+    /// Equal output lines in a row that cut the provider stream as
+    /// repeating (retryable); absent or `0`: the pi-ai default (64). Pinned
+    /// with the request like the other options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_repeat_limit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,6 +90,22 @@ pub struct ConversationStreamOptions {
         with = "deferred_serde"
     )]
     pub deferred: Option<DeferredRequest>,
+    /// A tool each generation must call (forced call, `bend/infer.bend`
+    /// §2): every request asks for it, and a reply without the call is
+    /// retried until the retries run out, which fails the run. Pinned with
+    /// the request; compaction requests ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_tool: Option<ForcedTool>,
+}
+
+/// A forced tool call ([`ConversationStreamOptions::force_tool`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForcedTool {
+    /// The tool the model must call.
+    pub tool: String,
+    /// Requests after the first that may still make the call.
+    pub retries: u32,
 }
 
 /// Serde of TS `deferred?: boolean | { window?: "15m" | "1h" | "24h" }`.
@@ -171,10 +192,60 @@ pub struct CompactionPolicy {
     /// Approximate size of the recent context a summary keeps verbatim.
     #[serde(serialize_with = "eukhe_types::pi_ai::js_number::serialize")]
     pub keep_recent_tokens: f64,
-    /// Background compaction starts `backgroundTokens` below the blocking
-    /// threshold; `0` disables it.
-    #[serde(serialize_with = "eukhe_types::pi_ai::js_number::serialize")]
-    pub background_tokens: f64,
+    /// How far below the blocking threshold background compaction starts.
+    pub background: BackgroundMargin,
+}
+
+impl CompactionPolicy {
+    /// The keep window a cut uses with a model of `context_window` tokens:
+    /// `keep_recent_tokens`, at most half of the size at which automatic
+    /// compaction starts (the background threshold when its margin is
+    /// positive, else the blocking one; never below `0`). A larger window
+    /// would keep the whole context once compaction starts, so no
+    /// compaction could cut and the context would grow until it
+    /// overflows. An unknown window (`0`) leaves it unchanged.
+    #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "TS compares token counts as doubles"
+    )]
+    pub fn keep_window(&self, context_window: u64) -> f64 {
+        if context_window == 0 {
+            return self.keep_recent_tokens;
+        }
+        let window = context_window as f64;
+        let blocking = window - self.reserve_tokens;
+        let margin = self.background.tokens(window);
+        let start = if margin > 0.0 {
+            blocking - margin
+        } else {
+            blocking
+        };
+        self.keep_recent_tokens.min(start.max(0.0) / 2.0)
+    }
+}
+
+impl BackgroundMargin {
+    /// The margin in tokens below the blocking threshold of a `window`.
+    #[must_use]
+    pub fn tokens(self, window: f64) -> f64 {
+        match self {
+            Self::Tokens(margin) => margin,
+            Self::WindowPercent(percent) => window * percent / 100.0,
+        }
+    }
+}
+
+/// How far below the blocking threshold (`contextWindow - reserveTokens`)
+/// background compaction starts; a margin of `0` disables it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BackgroundMargin {
+    /// A fixed number of tokens (TS `backgroundTokens`).
+    Tokens(f64),
+    /// A percentage of the model's context window:
+    /// `contextWindow * percent / 100` tokens.
+    WindowPercent(f64),
 }
 
 /// TS `Partial<CompactionPolicy>`.
@@ -183,7 +254,7 @@ pub struct PartialCompactionPolicy {
     pub enabled: Option<bool>,
     pub reserve_tokens: Option<f64>,
     pub keep_recent_tokens: Option<f64>,
-    pub background_tokens: Option<f64>,
+    pub background: Option<BackgroundMargin>,
 }
 
 /// How often running progress is committed. Each progress commit is a
@@ -381,6 +452,7 @@ impl ConversationStreamOptions {
         stream.request.max_retries = self.max_retries;
         stream.request.max_retry_delay_ms = self.max_retry_delay_ms;
         stream.request.stream_idle_timeout_ms = self.stream_idle_timeout_ms;
+        stream.request.stream_repeat_limit = self.stream_repeat_limit;
         stream.request.headers = self.headers.as_ref().map(|headers| {
             headers
                 .iter()

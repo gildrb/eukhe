@@ -43,7 +43,7 @@ use eukhe_types::pi_ai::{
 use crate::api::constrained_sampling::create_grammar_tool_input_properties;
 use crate::api::lazy::lazy_stream;
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
-use crate::api::openai_responses_shared::OpenAIResponsesStreamOptions;
+use crate::api::openai_responses_shared::{responses_tool_choice, OpenAIResponsesStreamOptions};
 use crate::api::simple_options::build_base_options;
 use crate::api::ProviderStreams;
 use crate::models::clamp_thinking_level;
@@ -552,11 +552,8 @@ pub fn stream_simple(
 
     let base = build_base_options(model, context, Some(&options), Some(&api_key));
     let mut extra = JsonObject::new();
-    if let Some(tool_choice) = options.tool_choice {
-        extra.insert(
-            "toolChoice".into(),
-            JsonValue::String(tool_choice.as_str().to_owned()),
-        );
+    if let Some(tool_choice) = &options.tool_choice {
+        extra.insert("toolChoice".into(), responses_tool_choice(tool_choice));
     }
     let clamped_reasoning = options
         .reasoning

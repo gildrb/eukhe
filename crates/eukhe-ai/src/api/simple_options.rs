@@ -2,7 +2,8 @@
 //! shared stream options and thinking-budget arithmetic.
 
 use eukhe_types::pi_ai::{
-    Model, ModelThinkingLevel, SamplingParams, ThinkingBudgets, ThinkingLevel, TranscriptContext,
+    KnownApi, Model, ModelThinkingLevel, SamplingParams, ThinkingBudgets, ThinkingLevel,
+    TranscriptContext,
 };
 
 use crate::models::clamp_thinking_level;
@@ -11,6 +12,34 @@ use crate::utils::estimate::estimate_context_tokens;
 
 const CONTEXT_SAFETY_TOKENS: i128 = 4096;
 const MIN_MAX_TOKENS: u64 = 1;
+
+/// eukhe addition: whether a `streamSimple` request of `model` with
+/// `reasoning` sends a forced [`ToolChoice`](crate::types::ToolChoice)
+/// (`Required`, `Tool`) in the provider's native form. The pi protocol has
+/// none, and an API without a built-in module is unknown. An
+/// Anthropic-family request under manual extended thinking omits it
+/// (the provider rejects it there): the same predicate decides the wire.
+#[must_use]
+pub fn maps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
+    match KnownApi::parse(&model.api) {
+        Some(KnownApi::AnthropicMessages) => {
+            !crate::api::anthropic_messages::manual_thinking(model, reasoning)
+        }
+        Some(KnownApi::BedrockConverseStream) => {
+            !crate::api::bedrock_converse_stream::manual_thinking(model, reasoning)
+        }
+        Some(
+            KnownApi::OpenAICompletions
+            | KnownApi::MistralConversations
+            | KnownApi::OpenAIResponses
+            | KnownApi::AzureOpenAIResponses
+            | KnownApi::OpenAICodexResponses
+            | KnownApi::GoogleGenerativeAI
+            | KnownApi::GoogleVertex,
+        ) => true,
+        Some(KnownApi::PiMessages) | None => false,
+    }
+}
 
 /// Cap `max_tokens` to what fits in the context window after the estimated
 /// prompt and a safety margin (never below 1).

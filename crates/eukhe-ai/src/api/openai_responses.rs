@@ -13,8 +13,8 @@ use super::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_v
 use super::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use super::openai_responses_shared::{
     apply_reasoning_context, convert_responses_messages, convert_responses_tools,
-    process_responses_stream, ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions,
-    GrammarToolInputProperties, OpenAIResponsesStreamOptions,
+    process_responses_stream, responses_tool_choice, ConvertResponsesMessagesOptions,
+    ConvertResponsesToolsOptions, GrammarToolInputProperties, OpenAIResponsesStreamOptions,
 };
 use super::openai_sdk::{
     stream_failure_of, OpenAiClient, OpenAiClientConfig, OpenAiClientKind, OpenAiRequestOptions,
@@ -87,14 +87,6 @@ enum AffinityFormat {
     OpenRouter,
 }
 
-fn detect_session_affinity_format(model: &Model) -> AffinityFormat {
-    if model.provider == "openrouter" || model.base_url.contains("openrouter.ai") {
-        AffinityFormat::OpenRouter
-    } else {
-        AffinityFormat::OpenAI
-    }
-}
-
 /// Resolve cache retention preference. Defaults to "short" and uses
 /// `PI_CACHE_RETENTION` for backward compatibility.
 fn resolve_cache_retention(
@@ -126,6 +118,7 @@ struct ResolvedCompat {
 }
 
 fn get_compat(model: &Model) -> ResolvedCompat {
+    let quirks = crate::quirks::Quirks::of(model);
     let compat = model
         .compat
         .as_ref()
@@ -133,25 +126,25 @@ fn get_compat(model: &Model) -> ResolvedCompat {
     let flag = |read: fn(&crate::types::OpenAIResponsesCompat) -> Option<bool>, default: bool| {
         compat.and_then(read).unwrap_or(default)
     };
+    let session_affinity_format = compat
+        .and_then(|compat| compat.session_affinity_format)
+        .or_else(|| quirks.session_affinity_format())
+        .unwrap_or(crate::types::SessionAffinityFormat::OpenAI);
     ResolvedCompat {
         supports_mid_convo_system_messages: flag(
             |compat| compat.supports_mid_convo_system_messages,
             false,
         ),
-        session_affinity_format: compat
-            .and_then(|compat| compat.session_affinity_format)
-            .map_or_else(
-                || detect_session_affinity_format(model),
-                |format| match format {
-                    crate::types::SessionAffinityFormat::OpenRouter => AffinityFormat::OpenRouter,
-                    crate::types::SessionAffinityFormat::OpenAI => AffinityFormat::OpenAI,
-                    crate::types::SessionAffinityFormat::OpenAINoSession => {
-                        AffinityFormat::OpenAINoSession
-                    }
-                },
-            ),
+        session_affinity_format: match session_affinity_format {
+            crate::types::SessionAffinityFormat::OpenRouter => AffinityFormat::OpenRouter,
+            crate::types::SessionAffinityFormat::OpenAI => AffinityFormat::OpenAI,
+            crate::types::SessionAffinityFormat::OpenAINoSession => AffinityFormat::OpenAINoSession,
+        },
         supports_long_cache_retention: flag(|compat| compat.supports_long_cache_retention, true),
-        supports_strict_mode: flag(|compat| compat.supports_strict_mode, false),
+        supports_strict_mode: flag(
+            |compat| compat.supports_strict_mode,
+            quirks.strict_tools().unwrap_or(false),
+        ),
         supports_openai_grammar_tools: flag(|compat| compat.supports_openai_grammar_tools, false),
         supports_additional_tools: flag(|compat| compat.supports_additional_tools, false),
         supports_tool_search: flag(|compat| compat.supports_tool_search, false),
@@ -343,6 +336,7 @@ fn build_params(
         supports_strict_mode: Some(compat.supports_strict_mode),
         supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
         tool_search_result: None,
+        strict_cap: crate::quirks::Quirks::of(model).strict_cap(),
     };
     let messages = convert_responses_messages(
         model,
@@ -412,6 +406,7 @@ fn build_params(
                     supports_strict_mode: Some(compat.supports_strict_mode),
                     supports_openai_grammar_tools: Some(compat.supports_openai_grammar_tools),
                     tool_search_result: None,
+                    strict_cap: crate::quirks::Quirks::of(model).strict_cap(),
                 },
             )?),
         );
@@ -779,8 +774,8 @@ pub fn stream_simple(
     let api_key = options.stream.request.api_key.clone();
     let base = build_base_options(model, context, Some(&options), api_key.as_deref());
     let mut extra = JsonObject::new();
-    if let Some(tool_choice) = options.tool_choice {
-        extra.insert("toolChoice".to_owned(), json!(tool_choice.as_str()));
+    if let Some(tool_choice) = &options.tool_choice {
+        extra.insert("toolChoice".to_owned(), responses_tool_choice(tool_choice));
     }
     if let Some(reasoning) = options.reasoning {
         let clamped = clamp_thinking_level(model, ModelThinkingLevel::from(reasoning));

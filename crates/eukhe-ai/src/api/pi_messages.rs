@@ -19,7 +19,7 @@ use std::sync::{Arc, LazyLock};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
     CacheRetention, DiagnosticCode, DoneReason, ErrorReason, JsonObject, JsonValue, Model, Partial,
-    ProviderEnv, ProviderResponse, StopReason, TextContent, ThinkingContent, ToolCall,
+    ProviderEnv, ProviderResponse, StopReason, TextContent, ThinkingContent, ToolCall, ToolChoice,
     TranscriptContext, Usage,
 };
 use futures::future::BoxFuture;
@@ -954,8 +954,15 @@ pub fn stream_simple(
     if let Some(reasoning) = options.reasoning {
         extra.insert("reasoning".into(), reasoning.as_str().into());
     }
-    if let Some(tool_choice) = options.tool_choice {
-        extra.insert("toolChoice".into(), tool_choice.as_str().into());
+    // The pi protocol's `toolChoice` is `"auto" | "none"`; it has no forced
+    // choice, so a request that forces one leaves it unset.
+    let tool_choice = match &options.tool_choice {
+        Some(ToolChoice::Auto) => Some("auto"),
+        Some(ToolChoice::None) => Some("none"),
+        Some(ToolChoice::Required | ToolChoice::Tool(_)) | None => None,
+    };
+    if let Some(tool_choice) = tool_choice {
+        extra.insert("toolChoice".into(), tool_choice.into());
     }
     stream(
         model,

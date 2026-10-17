@@ -26,7 +26,7 @@ use regex::Regex;
 use serde_json::json;
 
 use super::constrained_sampling::{
-    get_json_schema_tool_parameters, resolve_json_schema_strict_sampling, StrictToolParameters,
+    get_json_schema_tool_parameters, StrictPlan, StrictToolParameters,
 };
 use crate::models::clamp_thinking_level;
 use crate::utils::diagnostics::{thrown, ErrorObject, Thrown};
@@ -345,15 +345,14 @@ pub enum ToolSchemaField {
 pub fn convert_tools(
     tools: &[Tool],
     field: ToolSchemaField,
-    supports_strict_mode: bool,
+    strict_plan: &StrictPlan,
 ) -> Result<Option<Vec<JsonValue>>, Thrown> {
     if tools.is_empty() {
         return Ok(None);
     }
     let mut declarations = Vec::with_capacity(tools.len());
     for tool in tools {
-        let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode, None)
-            .map_err(thrown)?;
+        let strict = strict_plan.resolve(tool, None).map_err(thrown)?;
         let parameters = get_json_schema_tool_parameters(
             tool,
             if strict == Some(true) {
@@ -377,13 +376,6 @@ pub fn convert_tools(
         declarations.push(JsonValue::Object(declaration));
     }
     Ok(Some(vec![json!({ "functionDeclarations": declarations })]))
-}
-
-/// Gemini 3+ enforces required function parameters in validated
-/// tool-calling modes.
-#[must_use]
-pub fn supports_google_strict_tool_sampling(model_id: &str) -> bool {
-    get_gemini_major_version(model_id).is_some_and(|major| major >= 3)
 }
 
 /// The SDK `FunctionCallingConfigMode` values pi-ai sends.
@@ -426,13 +418,11 @@ pub fn map_tool_choice(choice: &str) -> FunctionCallingConfigMode {
 pub fn resolve_google_function_calling_mode(
     tools: &[Tool],
     tool_choice: Option<&str>,
-    supports_strict_mode: bool,
+    strict_plan: &StrictPlan,
 ) -> Result<Option<FunctionCallingConfigMode>, Thrown> {
     let mut use_strict_mode = false;
     for tool in tools {
-        if resolve_json_schema_strict_sampling(tool, supports_strict_mode, None).map_err(thrown)?
-            == Some(true)
-        {
+        if strict_plan.resolve(tool, None).map_err(thrown)? == Some(true) {
             use_strict_mode = true;
             break;
         }

@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::SystemTime;
 
 use eukhe_durable::harness::types::{
-    ConversationStreamOptions, HarnessSettings, HarnessSettingsSource, PartialCompactionPolicy,
-    PartialRetryPolicy, QueueMode,
+    BackgroundMargin, ConversationStreamOptions, HarnessSettings, HarnessSettingsSource,
+    PartialCompactionPolicy, PartialRetryPolicy, QueueMode,
 };
 use eukhe_types::pi_ai::{ModelThinkingLevel, Transport};
 
@@ -136,7 +136,8 @@ fn load(cwd: &Path, agent_dir: &Path, paths: &[PathBuf; 2], follow_ups_at_once: 
 ///   (`maxAgentDelayMs`).
 /// - `retry.provider.timeoutMs` -> the request timeout;
 ///   `retry.provider.streamIdleTimeoutMs` -> the stream-idle deadline;
-///   `transport` -> the stream transport.
+///   `retry.provider.streamRepeatLimit` -> the repetition guard (unset or
+///   `0`: the pi-ai default, 64); `transport` -> the stream transport.
 /// - `compaction.{enabled, reserveTokens, keepRecentTokens}` -> the
 ///   compaction policy.
 /// - `steeringMode` / `followUpMode` -> the queue modes (eukhe defaults:
@@ -160,6 +161,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
         stream_idle_timeout_ms: provider
             .and_then(|provider| provider.stream_idle_timeout_ms)
             .map(u64_to_f64),
+        stream_repeat_limit: provider.and_then(|provider| provider.stream_repeat_limit),
         ..ConversationStreamOptions::default()
     };
     HarnessSettings {
@@ -183,12 +185,13 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             keep_recent_tokens: compaction
                 .and_then(|compaction| compaction.keep_recent_tokens)
                 .map(u64_to_f64),
-            // The threshold arm fires at turn boundaries only (no background
-            // compaction), and the durable overflow
-            // arm is the safety net. `0` keeps that behavior (the durable
-            // default would start mid-run compactions 32768 tokens below
-            // the blocking threshold).
-            background_tokens: Some(0.0),
+            // Early compaction: a background compaction starts a tenth of
+            // the model's context window below the blocking threshold
+            // (`contextWindow - reserveTokens`), so a turn that grows the
+            // context by up to that much starts one before the context
+            // crosses the blocking threshold (`bend/infer.bend` §5); the
+            // blocking threshold and the overflow arm stay the safety nets.
+            background: Some(BackgroundMargin::WindowPercent(10.0)),
         }),
         progress: None,
         tool_execution: None,
@@ -274,7 +277,7 @@ mod tests {
         std::fs::create_dir_all(&cwd).expect("cwd");
         write(
             &agent.join("settings.json"),
-            r#"{"retry":{"maxRetries":7,"baseDelayMs":500,"provider":{"timeoutMs":9000,"maxRetryDelayMs":1000,"streamIdleTimeoutMs":45000}},"compaction":{"enabled":false,"reserveTokens":1000,"keepRecentTokens":2000},"steeringMode":"one-at-a-time","followUpMode":"all","transport":"sse"}"#,
+            r#"{"retry":{"maxRetries":7,"baseDelayMs":500,"provider":{"timeoutMs":9000,"maxRetryDelayMs":1000,"streamIdleTimeoutMs":45000,"streamRepeatLimit":12}},"compaction":{"enabled":false,"reserveTokens":1000,"keepRecentTokens":2000},"steeringMode":"one-at-a-time","followUpMode":"all","transport":"sse"}"#,
         );
         let settings = EukheSettings::new(&cwd, &agent);
         let resolved = resolve_settings(Some(&settings.current()));
@@ -293,7 +296,7 @@ mod tests {
                 enabled: false,
                 reserve_tokens: 1000.0,
                 keep_recent_tokens: 2000.0,
-                background_tokens: 0.0,
+                background: BackgroundMargin::WindowPercent(10.0),
             }
         );
         assert_eq!(resolved.steering_mode, QueueMode::OneAtATime);
@@ -304,6 +307,7 @@ mod tests {
                 transport: Some(Transport::Sse),
                 timeout_ms: Some(9000.0),
                 stream_idle_timeout_ms: Some(45000.0),
+                stream_repeat_limit: Some(12),
                 ..ConversationStreamOptions::default()
             }
         );

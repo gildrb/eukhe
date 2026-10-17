@@ -41,10 +41,10 @@ pub use hooks::{
 pub(crate) use registry::BuiltinTasks;
 pub use registry::{InstalledSection, InstalledTool, RegistryReader, RegistrySnapshot};
 pub use settings::{
-    Clock, CompactionPolicy, ConversationCreated, ConversationRetryPolicy,
-    ConversationStreamOptions, EnvFactory, HarnessOptions, HarnessSettings, HarnessSettingsSource,
-    LiveSettings, PartialCompactionPolicy, PartialProgressPolicy, PartialRetryPolicy,
-    ProgressPolicy, QueueMode, ReportFn, Settings, ToolExecutionMode,
+    BackgroundMargin, Clock, CompactionPolicy, ConversationCreated, ConversationRetryPolicy,
+    ConversationStreamOptions, EnvFactory, ForcedTool, HarnessOptions, HarnessSettings,
+    HarnessSettingsSource, LiveSettings, PartialCompactionPolicy, PartialProgressPolicy,
+    PartialRetryPolicy, ProgressPolicy, QueueMode, ReportFn, Settings, ToolExecutionMode,
 };
 pub use tools::{
     ExecuteToolOptions, InvocationTaskOptions, NestedToolExecutionResult, OutputRetain,

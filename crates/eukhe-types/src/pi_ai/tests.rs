@@ -208,3 +208,22 @@ fn chat_template_values_and_routing_round_trip() {
     let compat: OpenAICompletionsCompat = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(&compat).unwrap(), value);
 }
+
+#[test]
+fn tool_choice_keeps_strings_and_names_a_forced_tool() {
+    let choices = vec![
+        ToolChoice::Auto,
+        ToolChoice::None,
+        ToolChoice::Required,
+        ToolChoice::Tool("read".into()),
+    ];
+    let value = serde_json::to_value(&choices).unwrap();
+    assert_eq!(
+        value,
+        json!(["auto", "none", "required", { "tool": "read" }])
+    );
+    assert_eq!(
+        serde_json::from_value::<Vec<ToolChoice>>(value).unwrap(),
+        choices
+    );
+}

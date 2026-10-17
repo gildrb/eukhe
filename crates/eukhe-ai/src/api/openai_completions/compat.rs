@@ -1,6 +1,8 @@
-//! Compatibility resolution: URL/provider auto-detection overridden by the
-//! explicit `model.compat` (TS `detectCompat` / `getCompat`).
+//! Compatibility resolution: the quirks rulebook's host settings
+//! overridden by the explicit `model.compat` (TS `detectCompat` /
+//! `getCompat`).
 
+use crate::quirks::Quirks;
 use crate::types::{IndexMap, KnownProvider};
 
 use crate::types::{
@@ -32,6 +34,9 @@ pub(crate) struct ResolvedCompat {
     pub(crate) supports_thinking_token_budget: Option<bool>,
     pub(crate) thinking_token_budget_field: Option<ThinkingTokenBudgetField>,
     pub(crate) supports_strict_mode: bool,
+    /// The quirks rulebook's `strict_cap`: at most this many strict tools
+    /// per request.
+    pub(crate) strict_cap: Option<u32>,
     pub(crate) supports_openai_grammar_tools: bool,
     pub(crate) supports_mid_convo_system_messages: Option<bool>,
     pub(crate) supports_mid_convo_tool_additions: Option<bool>,
@@ -54,11 +59,12 @@ pub(crate) fn model_compat(model: &Model) -> Option<&OpenAICompletionsCompat> {
     }
 }
 
-/// eukhe addition: whether a reasoning model is a Qwen-family model (`qwen3*`,
-/// `qwq`, ...) on a custom provider with no explicit `thinkingFormat`, i.e. a
-/// self-hosted server (llama.cpp, vLLM, `SGLang`) rendering the Qwen chat
-/// template. That template thinks unless `chat_template_kwargs.enable_thinking`
-/// is `false`, so `off` must be sent explicitly. Built-in providers keep their
+/// eukhe addition: whether a reasoning model is a Qwen-family model (the
+/// quirks rulebook's `qwen_chat_template`: `qwen3*`, `qwq`, ...) on a custom
+/// provider with no explicit `thinkingFormat`, i.e. a self-hosted server
+/// (llama.cpp, vLLM, `SGLang`) rendering the Qwen chat template. That
+/// template thinks unless `chat_template_kwargs.enable_thinking` is
+/// `false`, so `off` must be sent explicitly. Built-in providers keep their
 /// catalog formats; set `compat.thinkingFormat` to opt a custom model out.
 pub(crate) fn is_custom_qwen_template_model(model: &Model) -> bool {
     if !model.reasoning
@@ -67,151 +73,60 @@ pub(crate) fn is_custom_qwen_template_model(model: &Model) -> bool {
     {
         return false;
     }
-    let id = model.id.to_lowercase();
-    let name = id.rsplit('/').next().unwrap_or(&id);
-    name.starts_with("qwen") || name.starts_with("qwq")
+    Quirks::of(model).qwen_chat_template().unwrap_or(false)
 }
 
-/// Auto-detect compatibility settings from provider name and baseUrl. Used
-/// as the base when `model.compat` is not set; explicit entries override.
-// One flat detection table, kept in TS order.
-#[allow(clippy::too_many_lines)]
+/// Whether `model`'s id starts with one of `prefixes`.
+fn id_has_prefix(model: &Model, prefixes: Option<&[String]>) -> bool {
+    prefixes.is_some_and(|prefixes| {
+        prefixes
+            .iter()
+            .any(|prefix| model.id.starts_with(prefix.as_str()))
+    })
+}
+
+/// The settings the quirks rulebook gives the model's host (provider id,
+/// else base URL); a setting no rule gives takes the standard
+/// OpenAI-compatible default. Used as the base when `model.compat` is not
+/// set; explicit entries override.
 pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
-    let provider = model.provider.as_str();
-    let base_url = model.base_url.as_str();
-
-    let is_zai = provider == "zai"
-        || provider == "zai-coding-cn"
-        || base_url.contains("api.z.ai")
-        || base_url.contains("open.bigmodel.cn");
-    let is_together = provider == "together"
-        || base_url.contains("api.together.ai")
-        || base_url.contains("api.together.xyz");
-    let is_moonshot = provider == "moonshotai"
-        || provider == "moonshotai-cn"
-        || base_url.contains("api.moonshot.");
-    let is_open_router = provider == "openrouter" || base_url.contains("openrouter.ai");
-    let is_cloudflare_workers_ai =
-        provider == "cloudflare-workers-ai" || base_url.contains("api.cloudflare.com");
-    let is_cloudflare_ai_gateway =
-        provider == "cloudflare-ai-gateway" || base_url.contains("gateway.ai.cloudflare.com");
-    let is_nvidia = provider == "nvidia" || base_url.contains("integrate.api.nvidia.com");
-    let is_ant_ling = provider == "ant-ling" || base_url.contains("api.ant-ling.com");
-    let is_cerebras = provider == "cerebras" || base_url.contains("cerebras.ai");
-    let is_deep_seek = provider == "deepseek" || base_url.to_lowercase().contains("deepseek.com");
-    // eukhe addition: the Prime Inference gateway is a non-standard
-    // OpenAI-compatible endpoint that takes `max_tokens` and Anthropic-format
-    // cache marks for Anthropic models.
-    let is_prime_inference =
-        provider == "prime-inference" || base_url.contains("api.pinference.ai");
-
-    // eukhe addition: local OpenAI-compatible servers (llama.cpp, vLLM,
-    // SGLang) reject unknown fields such as `store` and the `developer`
-    // role with a 400 ("Supported message roles: system, user, assistant,
-    // tool"). Omitting `store` and sending `system` is correct for real
-    // OpenAI too: the chat-completions `store` default is already false and
-    // reasoning models accept `system`.
-    let is_loopback = [
-        "//localhost",
-        "//127.0.0.1",
-        "//[::1]",
-        "//[0:0:0:0:0:0:0:1]",
-    ]
-    .iter()
-    .any(|host| base_url.contains(host));
-
-    let is_non_standard = is_nvidia
-        || is_cerebras
-        || provider == "xai"
-        || base_url.contains("api.x.ai")
-        || is_together
-        || base_url.contains("chutes.ai")
-        || is_deep_seek
-        || is_zai
-        || is_moonshot
-        || provider == "opencode"
-        || base_url.contains("opencode.ai")
-        || is_cloudflare_workers_ai
-        || is_cloudflare_ai_gateway
-        || is_ant_ling
-        || is_prime_inference;
-
-    let use_max_tokens = base_url.contains("chutes.ai")
-        || is_deep_seek
-        || is_moonshot
-        || is_cloudflare_ai_gateway
-        || is_together
-        || is_nvidia
-        || is_ant_ling
-        || is_zai
-        || is_prime_inference;
-
-    let is_grok = provider == "xai" || base_url.contains("api.x.ai");
-    let is_open_router_developer_role_model =
-        is_open_router && (model.id.starts_with("anthropic/") || model.id.starts_with("openai/"));
-    let cache_control_format = ((provider == "openrouter" || is_prime_inference)
-        && model.id.starts_with("anthropic/"))
-    .then_some(CacheControlFormat::Anthropic);
-
-    let thinking_format = if is_deep_seek {
-        ThinkingFormat::Deepseek
-    } else if is_zai {
-        ThinkingFormat::Zai
-    } else if is_together {
-        ThinkingFormat::Together
-    } else if is_ant_ling {
-        ThinkingFormat::AntLing
-    } else if is_open_router {
-        ThinkingFormat::OpenRouter
-    } else {
-        ThinkingFormat::OpenAI
-    };
-
+    let quirks = Quirks::of(model);
+    let session_affinity_format = quirks
+        .session_affinity_format()
+        .unwrap_or(SessionAffinityFormat::OpenAI);
     ResolvedCompat {
-        supports_store: !is_non_standard && !is_loopback,
-        supports_developer_role: is_open_router_developer_role_model
-            || (!is_non_standard && !is_open_router && !is_loopback),
-        supports_reasoning_effort: !is_grok
-            && !is_zai
-            && !is_moonshot
-            && !is_together
-            && !is_cloudflare_ai_gateway
-            && !is_nvidia
-            && !is_ant_ling,
+        supports_store: quirks.store().unwrap_or(true),
+        supports_developer_role: id_has_prefix(model, quirks.developer_role_prefixes())
+            || quirks.developer_role().unwrap_or(true),
+        supports_reasoning_effort: quirks.reasoning_effort().unwrap_or(true),
         supports_usage_in_streaming: true,
         supports_finish_reason: true,
-        max_tokens_field: if use_max_tokens {
-            MaxTokensField::MaxTokens
-        } else {
-            MaxTokensField::MaxCompletionTokens
-        },
+        max_tokens_field: quirks
+            .max_tokens_field()
+            .unwrap_or(MaxTokensField::MaxCompletionTokens),
         requires_tool_result_name: false,
         requires_assistant_after_tool_result: false,
         requires_thinking_as_text: false,
-        requires_reasoning_content_on_assistant_messages: is_deep_seek,
-        thinking_format,
+        requires_reasoning_content_on_assistant_messages: quirks
+            .reasoning_content_on_assistant()
+            .unwrap_or(false),
+        thinking_format: quirks.thinking_format().unwrap_or(ThinkingFormat::OpenAI),
         chat_template_kwargs: IndexMap::new(),
         chat_template_args: IndexMap::new(),
         zai_tool_stream: false,
         supports_thinking_token_budget: Some(false),
         thinking_token_budget_field: None,
         // OpenAI compatibility alone does not imply strict JSON-schema tool support.
-        supports_strict_mode: false,
+        supports_strict_mode: quirks.strict_tools().unwrap_or(false),
+        strict_cap: quirks.strict_cap(),
         supports_openai_grammar_tools: false,
         supports_mid_convo_system_messages: Some(false),
         supports_mid_convo_tool_additions: Some(false),
-        cache_control_format,
-        send_session_affinity_headers: is_open_router,
-        session_affinity_format: if is_open_router {
-            SessionAffinityFormat::OpenRouter
-        } else {
-            SessionAffinityFormat::OpenAI
-        },
-        supports_long_cache_retention: !(is_together
-            || is_cloudflare_workers_ai
-            || is_cloudflare_ai_gateway
-            || is_nvidia
-            || is_ant_ling),
+        cache_control_format: id_has_prefix(model, quirks.anthropic_cache_control_prefixes())
+            .then_some(CacheControlFormat::Anthropic),
+        send_session_affinity_headers: quirks.session_affinity_headers().unwrap_or(false),
+        session_affinity_format,
+        supports_long_cache_retention: quirks.long_cache_retention().unwrap_or(true),
         vllm_priority: None,
     }
 }
@@ -269,6 +184,7 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
         supports_strict_mode: compat
             .supports_strict_mode
             .unwrap_or(detected.supports_strict_mode),
+        strict_cap: detected.strict_cap,
         supports_openai_grammar_tools: compat
             .supports_openai_grammar_tools
             .unwrap_or(detected.supports_openai_grammar_tools),

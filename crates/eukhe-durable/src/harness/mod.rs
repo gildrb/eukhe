@@ -60,12 +60,14 @@ pub use view::{ConversationView, ConversationWatch};
 pub mod compaction;
 
 pub use compaction::{
-    CompactionCheckpoint, CompactionTask, RetryRequest, SummaryRequest, COMPACTION_TASK,
+    summary_request_id, summary_task_id, CompactionCheckpoint, CompactionTask, RetryRequest,
+    SummaryRequest, COMPACTION_TASK,
 };
 
 // HarnessGeneration modules.
 pub mod generation;
 
 pub use generation::{
-    GenerationCheckpoint, GenerationInput, GenerationResult, GenerationTask, GENERATION_TASK,
+    ForcedToolError, GenerationCheckpoint, GenerationInput, GenerationResult, GenerationTask,
+    GENERATION_TASK,
 };

@@ -24,9 +24,9 @@ use crate::harness::tests::support::{
 };
 use crate::harness::tests::task_support::{deferred, Deferred};
 use crate::harness::types::{
-    AgentChange, CompactionHooks, CompactionPolicy, CompactionReason, CompactionResult,
-    ConversationAbortOptions, ConversationCreateOptions, FieldChange, ToolsChange,
-    WriteSubmissionDraft,
+    AgentChange, BackgroundMargin, CompactionHooks, CompactionPolicy, CompactionReason,
+    CompactionResult, ConversationAbortOptions, ConversationCreateOptions, FieldChange,
+    ToolsChange, WriteSubmissionDraft,
 };
 use crate::session::SessionResult;
 use crate::tasks::{define_task, NextTaskState, Task, TaskDefinition};
@@ -92,7 +92,7 @@ async fn ignores_usage_measured_before_a_summary_placed_mid_run(fixed_clock: boo
     // Background at 900, blocking at 1500: the tool call's usage plus its
     // result would cross 1500.
     chat.set_policy(CompactionPolicy {
-        background_tokens: 600.0,
+        background: BackgroundMargin::Tokens(600.0),
         ..BACKGROUND
     });
     // The request starts a background compaction; its tool call's usage

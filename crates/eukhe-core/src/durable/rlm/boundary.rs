@@ -237,7 +237,7 @@ fn compact_run(
             "compact.run instructions must be a string when provided",
         )?;
         let cx = background();
-        let (id, _) = runtime.target(call.call.as_ref(), &cx).await?;
+        let (id, agent) = runtime.target(call.call.as_ref(), &cx).await?;
         if live(&runtime, id, &cx).await?.run.is_none() {
             return Ok(no_active_turn(NO_TURN_COMPACT));
         }
@@ -245,9 +245,14 @@ fn compact_run(
         let view = conversation.context(&cx, eukhe_durable::harness::types::ContextOptions::default()).await?;
         // TS `prepareCompaction`: only schedule a compaction that has
         // history to summarize.
+        let window = agent
+            .model
+            .as_ref()
+            .and_then(|model| runtime.model(model))
+            .map_or(0, |model| model.context_window);
         let keep_recent = resolve_settings(Some(&runtime.deps.settings.harness()))
             .compaction
-            .keep_recent_tokens;
+            .keep_window(window);
         let compacted_tail = view.entries.len() == usize::from(view.head.is_some())
             && view
                 .head

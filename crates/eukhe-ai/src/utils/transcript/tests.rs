@@ -20,6 +20,7 @@ fn tool_described(name: &str, description: &str) -> Tool {
         description: description.to_owned(),
         parameters: json!({ "type": "object", "properties": {} }).into(),
         constrained_sampling: None,
+        priority: 0,
     }
 }
 

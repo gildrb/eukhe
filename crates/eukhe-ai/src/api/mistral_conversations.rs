@@ -414,12 +414,16 @@ pub fn stream_simple(
 
     let base = build_base_options(model, context, Some(&options), Some(&api_key));
     let mut extra = eukhe_types::pi_ai::JsonObject::new();
-    if let Some(tool_choice) = options.tool_choice {
+    if let Some(tool_choice) = &options.tool_choice {
         let tool_choice = match tool_choice {
-            ToolChoice::Auto => "auto",
-            ToolChoice::None => "none",
+            ToolChoice::Auto => JsonValue::from("auto"),
+            ToolChoice::None => JsonValue::from("none"),
+            ToolChoice::Required => JsonValue::from("any"),
+            ToolChoice::Tool(name) => {
+                serde_json::json!({ "type": "function", "function": { "name": name } })
+            }
         };
-        extra.insert("toolChoice".into(), tool_choice.into());
+        extra.insert("toolChoice".into(), tool_choice);
     }
     let clamped_reasoning = options
         .reasoning

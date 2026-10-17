@@ -2,9 +2,11 @@
 
 mod openai_responses_support;
 
-use eukhe_ai::api::openai_responses::stream as stream_openai_responses;
+use eukhe_ai::api::openai_responses::{
+    stream as stream_openai_responses, stream_simple as stream_simple_openai_responses,
+};
 use eukhe_ai::providers::all::get_builtin_model;
-use eukhe_ai::types::ProviderStreamOptions;
+use eukhe_ai::types::{ProviderStreamOptions, SimpleStreamOptions, ToolChoice};
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{
     AssistantMessage, CacheRetention, Context, JsonValue, Model, ProviderHeaders, TranscriptContext,
@@ -158,6 +160,39 @@ async fn forwards_required_tool_choice() {
     let tools = request.body["tools"].as_array().expect("tools");
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0]["name"], json!("ping"));
+}
+
+/// eukhe: the provider-neutral forced choices: `"required"`, and
+/// `{type: "function", name}` for a named tool.
+#[tokio::test]
+async fn maps_forced_simple_tool_choices() {
+    let mut seen = Vec::new();
+    for choice in [ToolChoice::Required, ToolChoice::Tool("ping".to_owned())] {
+        let (fetch, captured) = mock_fetch(vec![done_response()]);
+        let mut options = SimpleStreamOptions {
+            tool_choice: Some(choice),
+            ..SimpleStreamOptions::default()
+        };
+        options.stream.request.api_key = Some("sk-test-key".to_owned());
+        options.stream.request.fetch = Some(fetch);
+        let _ = stream_simple_openai_responses(&gpt_5_4(), &sys_hi_context(), options)
+            .result()
+            .await;
+        let request = captured
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .first()
+            .cloned()
+            .expect("captured request");
+        seen.push(request.body["tool_choice"].clone());
+    }
+    assert_eq!(
+        seen,
+        vec![
+            json!("required"),
+            json!({ "type": "function", "name": "ping" })
+        ]
+    );
 }
 
 #[tokio::test]

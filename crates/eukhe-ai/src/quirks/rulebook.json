@@ -1,0 +1,55 @@
+{
+  "families": [
+    { "id": "claude-adaptive", "on": "names", "match": "opus-4-6|opus-4-7|opus-4-8|opus-5|sonnet-4-6|sonnet-5|haiku-5|fable-5" },
+    { "id": "gemini-3-plus", "on": "id", "match": "^gemini(?:-live)?-0*(?:[3-9]|[1-9][0-9]+)" },
+    { "id": "qwen", "on": "id", "match": "(?:^|/)(?:qwen|qwq)[^/]*$" }
+  ],
+  "hosts": [
+    { "id": "anthropic", "providers": ["anthropic"], "urls": ["api.anthropic.com"] },
+    { "id": "ant-ling", "providers": ["ant-ling"], "urls": ["api.ant-ling.com"] },
+    { "id": "azure-openai-responses", "apis": ["azure-openai-responses"] },
+    { "id": "cerebras", "providers": ["cerebras"], "urls": ["cerebras.ai"] },
+    { "id": "chutes", "urls": ["chutes.ai"] },
+    { "id": "cloudflare-ai-gateway", "providers": ["cloudflare-ai-gateway"], "urls": ["gateway.ai.cloudflare.com"] },
+    { "id": "cloudflare-workers-ai", "providers": ["cloudflare-workers-ai"], "urls": ["api.cloudflare.com"] },
+    { "id": "deepseek", "providers": ["deepseek"], "urls": ["deepseek.com"] },
+    { "id": "loopback", "urls": ["//localhost", "//127.0.0.1", "//[::1]", "//[0:0:0:0:0:0:0:1]"] },
+    { "id": "mistral", "apis": ["mistral-conversations"] },
+    { "id": "moonshot", "providers": ["moonshotai", "moonshotai-cn"], "urls": ["api.moonshot."] },
+    { "id": "nvidia", "providers": ["nvidia"], "urls": ["integrate.api.nvidia.com"] },
+    { "id": "openai-codex-responses", "apis": ["openai-codex-responses"] },
+    { "id": "opencode", "providers": ["opencode"], "urls": ["opencode.ai"] },
+    { "id": "openrouter", "providers": ["openrouter"] },
+    { "id": "openrouter-url", "urls": ["openrouter.ai"] },
+    { "id": "prime-inference", "providers": ["prime-inference"], "urls": ["api.pinference.ai"] },
+    { "id": "together", "providers": ["together"], "urls": ["api.together.ai", "api.together.xyz"] },
+    { "id": "xai", "providers": ["xai"], "urls": ["api.x.ai"] },
+    { "id": "zai", "providers": ["zai", "zai-coding-cn"], "urls": ["api.z.ai", "open.bigmodel.cn"] }
+  ],
+  "rules": [
+    { "layer": "family", "target": "claude-adaptive", "set": { "adaptive_thinking": true } },
+    { "layer": "family", "target": "gemini-3-plus", "set": { "google_validated_tools": true } },
+    { "layer": "family", "target": "qwen", "set": { "qwen_chat_template": true } },
+
+    { "layer": "host", "target": "anthropic", "set": { "strict_cap": 20, "tool_choice_free": false } },
+    { "layer": "host", "target": "ant-ling", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "ant-ling", "long_cache_retention": false } },
+    { "layer": "host", "target": "azure-openai-responses", "set": { "strict_tools": true } },
+    { "layer": "host", "target": "cerebras", "set": { "store": false, "developer_role": false } },
+    { "layer": "host", "target": "chutes", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens" } },
+    { "layer": "host", "target": "cloudflare-ai-gateway", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "long_cache_retention": false } },
+    { "layer": "host", "target": "cloudflare-workers-ai", "set": { "store": false, "developer_role": false, "long_cache_retention": false } },
+    { "layer": "host", "target": "deepseek", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "thinking_format": "deepseek", "reasoning_content_on_assistant": true } },
+    { "layer": "host", "target": "loopback", "set": { "store": false, "developer_role": false } },
+    { "layer": "host", "target": "mistral", "set": { "strict_tools": true } },
+    { "layer": "host", "target": "moonshot", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens" } },
+    { "layer": "host", "target": "nvidia", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "long_cache_retention": false } },
+    { "layer": "host", "target": "openai-codex-responses", "set": { "strict_tools": true } },
+    { "layer": "host", "target": "opencode", "set": { "store": false, "developer_role": false } },
+    { "layer": "host", "target": "openrouter", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "anthropic_cache_control_prefixes": ["anthropic/"] } },
+    { "layer": "host", "target": "openrouter-url", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter" } },
+    { "layer": "host", "target": "prime-inference", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "anthropic_cache_control_prefixes": ["anthropic/"] } },
+    { "layer": "host", "target": "together", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "together", "long_cache_retention": false } },
+    { "layer": "host", "target": "xai", "set": { "store": false, "developer_role": false, "reasoning_effort": false } },
+    { "layer": "host", "target": "zai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "zai" } }
+  ]
+}

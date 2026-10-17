@@ -12,6 +12,7 @@ pub mod models;
 pub mod models_generated;
 pub mod models_store;
 pub mod providers;
+pub mod quirks;
 pub mod session_resources;
 pub mod typebox;
 pub mod types;

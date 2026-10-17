@@ -497,6 +497,7 @@ fn declaration(name: &str, description: Option<&str>) -> Tool {
         description: description.unwrap_or(name).to_owned(),
         parameters: empty_object_schema().into(),
         constrained_sampling: None,
+        priority: 0,
     }
 }
 

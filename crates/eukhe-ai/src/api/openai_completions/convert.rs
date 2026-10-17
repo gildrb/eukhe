@@ -7,7 +7,7 @@ use serde_json::json;
 use super::compat::ResolvedCompat;
 use crate::api::constrained_sampling::{
     get_grammar_tool_input, get_json_schema_tool_parameters, resolve_grammar_constrained_sampling,
-    resolve_json_schema_strict_sampling, StrictToolParameters,
+    ConstrainedSamplingError, StrictPlan, StrictSupport, StrictToolParameters,
 };
 use crate::api::transform_messages::transform_messages;
 use crate::types::{
@@ -19,7 +19,7 @@ use crate::utils::hash::short_hash;
 use crate::utils::js::{js_trim, json_stringify, utf16_len, utf16_prefix};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 use crate::utils::text::{get_system_message_text, render_system_message_update};
-use crate::utils::transcript::{resolve_transcript, resolve_transcript_tools};
+use crate::utils::transcript::{resolve_transcript, resolve_transcript_tools, TranscriptTools};
 
 /// TS `ConvertCompletionsMessagesOptions`.
 #[derive(Debug, Clone, Default)]
@@ -240,6 +240,8 @@ pub(crate) fn convert_messages(
         compat.supports_mid_convo_system_messages == Some(true)
             && compat.supports_mid_convo_tool_additions == Some(true),
     );
+    let strict_plan =
+        request_strict_plan(normalized_context.messages(), &transcript_tools, compat)?;
     let instruction_role = if model.reasoning && compat.supports_developer_role {
         "developer"
     } else {
@@ -271,7 +273,7 @@ pub(crate) fn convert_messages(
                 if !added_tools.is_empty() {
                     params.push(json!({
                         "role": "system",
-                        "tools": convert_tools(added_tools, compat)?,
+                        "tools": convert_tools(added_tools, compat, &strict_plan)?,
                     }));
                 }
                 let text = if i == 0 {
@@ -572,6 +574,38 @@ fn convert_assistant(
     Ok(Some(JsonValue::Object(assistant_msg)))
 }
 
+/// The strict schema plan of one request: its top-level tools and, when
+/// the transcript anchors additions, every tool a later system message
+/// adds.
+///
+/// # Errors
+///
+/// Fails on strict-mode constrained-sampling configs the provider cannot
+/// take.
+pub(crate) fn request_strict_plan(
+    messages: &[Message],
+    transcript_tools: &TranscriptTools,
+    compat: &ResolvedCompat,
+) -> Result<StrictPlan, ConstrainedSamplingError> {
+    let added = messages
+        .iter()
+        .skip(1)
+        .filter(|_| transcript_tools.anchors_additions)
+        .filter_map(|message| match message {
+            Message::System(system) => system.tools_added.as_ref(),
+            Message::User(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
+        })
+        .flatten();
+    StrictPlan::new(
+        transcript_tools.request_tools.iter().chain(added),
+        StrictSupport {
+            supported: compat.supports_strict_mode,
+            cap: compat.strict_cap,
+        },
+        None,
+    )
+}
+
 /// TS `convertTools`.
 ///
 /// # Errors
@@ -580,6 +614,7 @@ fn convert_assistant(
 pub(crate) fn convert_tools(
     tools: &[Tool],
     compat: &ResolvedCompat,
+    strict_plan: &StrictPlan,
 ) -> Result<Vec<JsonValue>, Thrown> {
     tools
         .iter()
@@ -602,8 +637,7 @@ pub(crate) fn convert_tools(
                     },
                 }));
             }
-            let strict =
-                resolve_json_schema_strict_sampling(tool, compat.supports_strict_mode, None)?;
+            let strict = strict_plan.resolve(tool, None)?;
             let mut function = json!({
                 "name": tool.name,
                 "description": tool.description,

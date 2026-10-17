@@ -10,8 +10,9 @@ use eukhe_types::pi_ai::{
 use serde_json::json;
 
 use crate::api::constrained_sampling::{
-    get_json_schema_tool_parameters, resolve_json_schema_strict_sampling, StrictToolParameters,
+    get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
+use crate::quirks::Quirks;
 use crate::utils::diagnostics::{thrown, Thrown};
 
 use super::{is_truthy, type_error, MistralOptions};
@@ -40,9 +41,19 @@ pub(super) fn build_chat_payload(
 
     let current_tools = get_current_tools(context_messages);
     if !current_tools.is_empty() {
+        let quirks = Quirks::of(model);
+        let strict_plan = StrictPlan::new(
+            &current_tools,
+            StrictSupport {
+                supported: quirks.strict_tools().unwrap_or(false),
+                cap: quirks.strict_cap(),
+            },
+            None,
+        )
+        .map_err(thrown)?;
         payload.insert(
             "tools".into(),
-            JsonValue::Array(to_function_tools(&current_tools)?),
+            JsonValue::Array(to_function_tools(&current_tools, &strict_plan)?),
         );
     }
     if let Some(temperature) = options.stream.temperature {
@@ -80,11 +91,11 @@ pub(super) fn build_chat_payload(
 }
 
 /// TS `toFunctionTools`.
-fn to_function_tools(tools: &[Tool]) -> Result<Vec<JsonValue>, Thrown> {
+fn to_function_tools(tools: &[Tool], strict_plan: &StrictPlan) -> Result<Vec<JsonValue>, Thrown> {
     tools
         .iter()
         .map(|tool| {
-            let strict = resolve_json_schema_strict_sampling(tool, true, None).map_err(thrown)?;
+            let strict = strict_plan.resolve(tool, None).map_err(thrown)?;
             // TS `stripSymbolKeys`: TypeBox `Kind` symbols do not exist on
             // Rust JSON values, so the parameters are already plain JSON.
             let parameters_mode = if strict == Some(true) {

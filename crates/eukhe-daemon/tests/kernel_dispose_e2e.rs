@@ -18,13 +18,13 @@
 //!
 //! The kernel Python is ambient product state (the auto-bootstrapped kernel
 //! venv); like the other live-kernel verifiers, these tests skip (with a
-//! note) on machines without a live install. The process-table scans
-//! diff against a baseline snapshot, so ambient kernels (other agent
-//! sessions on the same box) never interfere.
+//! note) on machines without a live install. Each test follows the kernels
+//! its own supervisor's workers started (found while the supervisor
+//! lives, so a kernel orphaned by the leak stays followed), so the kernels
+//! of other runs on the same box never interfere.
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -36,18 +36,7 @@ mod process;
 use daemon::supervisor_command;
 use process::Daemon;
 
-/// The three tests scan the whole process table (the kernel is a worker
-/// child, not a test-process child), so this std lock serializes them.
-static TEST_LOCK: Mutex<()> = Mutex::new(());
-
-fn test_lock() -> MutexGuard<'static, ()> {
-    TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Every live `python -m rlm.repl` pid on the box (ambient kernels from
-/// other sessions are part of the baseline the diffs below remove).
+/// Every live `python -m rlm.repl` pid on the box.
 fn kernel_pids() -> Vec<u32> {
     let mut found = Vec::new();
     let entries = std::fs::read_dir("/proc").unwrap_or_else(|e| panic!("read /proc: {e}"));
@@ -70,41 +59,68 @@ fn kernel_pids() -> Vec<u32> {
     found
 }
 
-/// Poll until at least one kernel pid exists outside `baseline`.
-fn await_new_kernel(baseline: &[u32], budget: Duration) -> Vec<u32> {
+/// Whether `pid` runs under `ancestor` (its parent chain reaches it).
+fn descends_from(mut pid: u32, ancestor: u32) -> bool {
+    while pid > 1 {
+        // `pid (comm) state ppid ...`: the command may hold spaces and
+        // parentheses, the fields after its last `)` do not.
+        let Some(parent) = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|stat| {
+                stat.rsplit_once(')')?
+                    .1
+                    .split_whitespace()
+                    .nth(1)?
+                    .parse::<u32>()
+                    .ok()
+            })
+        else {
+            return false;
+        };
+        if parent == ancestor {
+            return true;
+        }
+        pid = parent;
+    }
+    false
+}
+
+/// Poll until a kernel runs under `supervisor` (its workers start the
+/// kernels); answers every kernel under it.
+fn await_new_kernel(supervisor: u32, budget: Duration) -> Vec<u32> {
     let deadline = Instant::now() + budget;
     loop {
         let fresh: Vec<u32> = kernel_pids()
             .into_iter()
-            .filter(|pid| !baseline.contains(pid))
+            .filter(|pid| descends_from(*pid, supervisor))
             .collect();
         if !fresh.is_empty() {
             return fresh;
         }
         assert!(
             Instant::now() < deadline,
-            "no kernel process appeared within the budget (baseline {baseline:?})"
+            "no kernel process appeared under supervisor {supervisor} within the budget"
         );
         std::thread::sleep(Duration::from_millis(100));
     }
 }
 
-/// Poll until no kernel pid exists outside `baseline` — the session-end
-/// dispose is the teardown being verified, so a kernel that survives the
-/// end path past the budget is the leak this test exists to catch.
-fn await_kernels_gone(baseline: &[u32], budget: Duration) {
+/// Poll until none of `kernels` runs — the session-end dispose is the
+/// teardown being verified, so a kernel that survives the end path past
+/// the budget is the leak this test exists to catch.
+fn await_kernels_gone(kernels: &[u32], budget: Duration) {
     let deadline = Instant::now() + budget;
     loop {
-        let fresh: Vec<u32> = kernel_pids()
+        let alive: Vec<u32> = kernel_pids()
             .into_iter()
-            .filter(|pid| !baseline.contains(pid))
+            .filter(|pid| kernels.contains(pid))
             .collect();
-        if fresh.is_empty() {
+        if alive.is_empty() {
             return;
         }
         assert!(
             Instant::now() < deadline,
-            "kernel processes {fresh:?} outlived the session-end path (missing dispose)"
+            "kernel processes {alive:?} outlived the session-end path (missing dispose)"
         );
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -294,21 +310,19 @@ fn await_receipt(dir: &Path) {
 /// this test catches it as a kernel pid that never clears the diff.
 #[test]
 fn kill_disposes_the_session_kernel() {
-    let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path(), "");
-    let baseline = kernel_pids();
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, "15000");
+    let daemon = spawn_supervisor(&socket, &agent_dir, "15000");
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let session_id = create_session_with_kernel(&mut client, dir.path(), &script, "c1");
 
     // The session's kernel booted and executed the cell.
-    let kernels = await_new_kernel(&baseline, Duration::from_mins(2));
     await_receipt(dir.path());
+    let kernels = await_new_kernel(daemon.child.id(), Duration::from_mins(2));
 
     // User delete: the routed `kill` closes the session (the supervisor
     // stops the worker right after, so the whole path is exercised).
@@ -318,11 +332,10 @@ fn kill_disposes_the_session_kernel() {
     );
     let killed = client.read_response("k1");
     assert_eq!(killed["success"], true, "kill failed: {killed}");
-    let _ = kernels;
 
     // The kernel died with the session: process exit never runs the
     // engine-drop teardown, so only the explicit dispose clears this.
-    await_kernels_gone(&baseline, Duration::from_secs(90));
+    await_kernels_gone(&kernels, Duration::from_secs(90));
 }
 
 /// Daemon `shutdown` routes a `shutdown` to every worker: each worker
@@ -330,19 +343,17 @@ fn kill_disposes_the_session_kernel() {
 /// `std::process::exit`, so the dispose must happen in the handler).
 #[test]
 fn shutdown_disposes_session_kernels_before_the_worker_exits() {
-    let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path(), "");
-    let baseline = kernel_pids();
 
-    let _daemon = spawn_supervisor(&socket, &agent_dir, "15000");
+    let daemon = spawn_supervisor(&socket, &agent_dir, "15000");
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let _session_id = create_session_with_kernel(&mut client, dir.path(), &script, "c1");
-    await_new_kernel(&baseline, Duration::from_mins(2));
     await_receipt(dir.path());
+    let kernels = await_new_kernel(daemon.child.id(), Duration::from_mins(2));
 
     // Daemon stop: the supervisor routes `shutdown` to the workers and
     // then exits itself.
@@ -350,7 +361,7 @@ fn shutdown_disposes_session_kernels_before_the_worker_exits() {
     let shutdown = client.read_response("sd");
     assert_eq!(shutdown["success"], true, "shutdown failed: {shutdown}");
 
-    await_kernels_gone(&baseline, Duration::from_secs(90));
+    await_kernels_gone(&kernels, Duration::from_secs(90));
 }
 
 /// A `SIGKILLed` supervisor leaves orphaned workers: the supervisor-lost
@@ -359,12 +370,10 @@ fn shutdown_disposes_session_kernels_before_the_worker_exits() {
 /// itself would orphan it forever.
 #[test]
 fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
-    let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path(), "");
-    let baseline = kernel_pids();
 
     // A short supervisor-lost window: the orphaned worker exits quickly
     // once its supervisor is gone (the env flows to the spawned workers).
@@ -372,8 +381,8 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let _session_id = create_session_with_kernel(&mut client, dir.path(), &script, "c1");
-    await_new_kernel(&baseline, Duration::from_mins(2));
     await_receipt(dir.path());
+    let kernels = await_new_kernel(daemon.child.id(), Duration::from_mins(2));
 
     // Hard-kill the supervisor: no graceful stop runs, so the worker's
     // supervisor-lost monitor is the only cleanup left.
@@ -383,7 +392,7 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
     // The orphaned worker exits on the lost window and disposes its
     // kernel on the way out. Budget: the first availability check lands
     // 1.5s after boot and the window is 5s, so 90s covers slow boxes.
-    await_kernels_gone(&baseline, Duration::from_secs(90));
+    await_kernels_gone(&kernels, Duration::from_secs(90));
 }
 
 /// The orphan exit is bounded even when the session's turn can never end
@@ -395,12 +404,10 @@ fn orphan_exit_disposes_the_kernel_before_the_worker_exits() {
 /// orphaned for as long as the cell ran.
 #[test]
 fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
-    let _guard = test_lock();
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let socket = dir.path().join("supervisor.sock");
     let script = write_faux_script(dir.path(), "import time\ntime.sleep(3600)");
-    let baseline = kernel_pids();
 
     let mut daemon = spawn_supervisor(&socket, &agent_dir, "2000");
     let (mut client, hello) = Client::connect(&socket);
@@ -433,8 +440,8 @@ fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
     assert_eq!(prompted["success"], true, "prompt failed: {prompted}");
     // The cell is running: the kernel booted and wrote the receipt before
     // the sleep, so the turn is wedged inside the cell.
-    await_new_kernel(&baseline, Duration::from_mins(2));
     await_receipt(dir.path());
+    let kernels = await_new_kernel(daemon.child.id(), Duration::from_mins(2));
 
     daemon.child.kill().expect("SIGKILL supervisor");
     let _ = daemon.child.wait();
@@ -442,5 +449,5 @@ fn orphan_exit_disposes_a_wedged_cell_kernel_within_the_bound() {
     // Budget: the 5s check cadence finds the socket gone and the next
     // check past two 2s windows exits (~10s), far below the hour-long
     // cell; 90s covers slow boxes.
-    await_kernels_gone(&baseline, Duration::from_secs(90));
+    await_kernels_gone(&kernels, Duration::from_secs(90));
 }

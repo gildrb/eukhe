@@ -16,8 +16,8 @@ use eukhe_durable::entries::COMPACTION_ENTRY;
 use eukhe_durable::harness::registry::create_registry;
 use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::harness::types::{
-    AgentChange, CompactionResult, FieldChange, HarnessOptions, HarnessSettings, LiveSettings,
-    ModelRef, PartialCompactionPolicy,
+    AgentChange, BackgroundMargin, CompactionResult, FieldChange, HarnessOptions, HarnessSettings,
+    LiveSettings, ModelRef, PartialCompactionPolicy,
 };
 use eukhe_durable::harness::{
     Conversation, ConversationEntryQuery, Harness, LiveState, RootOptions, LIVE_DOC,
@@ -134,12 +134,12 @@ pub async fn run(
     models.set_provider(faux.provider.clone());
 
     // Generation blocks to compact above 3000 - 1000 = 2000 tokens and starts a background compaction above
-    // 2000 - 800. Settings are read at every use, so updating them changes `backgroundTokens` live.
+    // 2000 - 800. Settings are read at every use, so updating them changes the background margin live.
     let compaction = |background_tokens: f64| PartialCompactionPolicy {
         enabled: None,
         reserve_tokens: Some(1000.0),
         keep_recent_tokens: Some(400.0),
-        background_tokens: Some(background_tokens),
+        background: Some(BackgroundMargin::Tokens(background_tokens)),
     };
     let settings = Arc::new(LiveSettings::new(HarnessSettings {
         compaction: Some(compaction(800.0)),

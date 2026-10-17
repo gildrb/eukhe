@@ -744,6 +744,7 @@ fn validate_tool_arguments_matches_node() {
             description: "Echo tool".to_owned(),
             parameters: parse(case.schema).into(),
             constrained_sampling: None,
+            priority: 0,
         };
         let JsonValue::Object(arguments) = parse(case.args) else {
             panic!("{}: arguments are an object", case.name);

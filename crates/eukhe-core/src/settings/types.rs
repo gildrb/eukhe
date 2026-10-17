@@ -136,6 +136,10 @@ pub struct ProviderRetrySettings {
     /// Longest silence of a model stream before the request fails as
     /// stalled and retries (default 300000; `0` disables).
     pub stream_idle_timeout_ms: Option<u64>,
+    /// Equal non-blank output lines in a row (text or thinking) that cut a
+    /// model stream as repeating, which then retries (default 64; `0`
+    /// takes the default).
+    pub stream_repeat_limit: Option<u32>,
     pub wait_for_usage: Option<ProviderWaitSettings>,
 }
 

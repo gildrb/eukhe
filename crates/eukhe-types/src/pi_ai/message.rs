@@ -109,6 +109,10 @@ string_enum! {
         /// stream-idle deadline (a half-open connection or a hung upstream).
         /// Transient by nature — the same request can be re-issued.
         StreamStalled => "stream_stalled",
+        /// The response stream repeated one output line too many times in a
+        /// row (the repetition guard of `Models`: a model caught in a loop).
+        /// Transient by nature — the same request can be re-issued.
+        StreamRepeating => "stream_repeating",
         Unknown => "unknown",
     }
 }

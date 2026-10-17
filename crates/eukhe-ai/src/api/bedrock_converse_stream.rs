@@ -404,7 +404,11 @@ fn build_command_input(
         .as_ref()
         .and_then(|compat| compat.as_bedrock())
         .and_then(|compat| compat.supports_strict_mode)
-        .unwrap_or(false);
+        .unwrap_or_else(|| {
+            crate::quirks::Quirks::of(model)
+                .strict_tools()
+                .unwrap_or(false)
+        });
     let cache_retention = convert::resolve_cache_retention(options.stream.cache_retention, env);
     let inference_max_tokens = options
         .stream
@@ -433,7 +437,10 @@ fn build_command_input(
     let tool_config = convert::convert_tool_config(
         &get_current_tools(messages),
         options.tool_choice.as_ref(),
-        supports_strict_mode,
+        crate::api::constrained_sampling::StrictSupport {
+            supported: supports_strict_mode,
+            cap: crate::quirks::Quirks::of(model).strict_cap(),
+        },
     )
     .map_err(|error| BedrockFailure::Thrown(error.into()))?;
 
@@ -707,6 +714,16 @@ pub fn stream(
     target
 }
 
+/// Whether a `streamSimple` request of `model` with `reasoning` uses
+/// Claude's manual extended thinking, under which Claude rejects a forced
+/// tool choice; adaptive thinking does not.
+pub(crate) fn manual_thinking(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
+    model.reasoning
+        && reasoning.is_some()
+        && convert::is_anthropic_claude_model(model)
+        && !convert::supports_adaptive_thinking(model)
+}
+
 /// Maps provider-neutral [`SimpleStreamOptions`] to Bedrock options (TS
 /// `streamSimple`). Must be called inside a tokio runtime.
 #[must_use]
@@ -719,12 +736,28 @@ pub fn stream_simple(
 ) -> AssistantMessageEventStream {
     let mut base = build_base_options(model, context, Some(&options), None);
     let mut extra = JsonObject::new();
-    if let Some(tool_choice) = options.tool_choice {
-        let tool_choice = match tool_choice {
-            ToolChoice::Auto => "auto",
-            ToolChoice::None => "none",
-        };
-        extra.insert("toolChoice".to_owned(), tool_choice.into());
+    // Claude rejects a forced tool choice (`any`, `tool`) under manual
+    // extended thinking, so such a request omits it, with a warning;
+    // adaptive thinking accepts it.
+    let manual = manual_thinking(model, options.reasoning);
+    let tool_choice = options
+        .tool_choice
+        .as_ref()
+        .and_then(|choice| match choice {
+            ToolChoice::Auto => Some(JsonValue::from("auto")),
+            ToolChoice::None => Some(JsonValue::from("none")),
+            ToolChoice::Required | ToolChoice::Tool(_) if manual => {
+                tracing::warn!(
+                    model = %model.id,
+                    "manual extended thinking rejects a forced tool choice: the request omits it"
+                );
+                None
+            }
+            ToolChoice::Required => Some(JsonValue::from("any")),
+            ToolChoice::Tool(name) => Some(serde_json::json!({ "type": "tool", "name": name })),
+        });
+    if let Some(tool_choice) = tool_choice {
+        extra.insert("toolChoice".to_owned(), tool_choice);
     }
     let Some(reasoning) = options.reasoning else {
         return stream(
@@ -742,9 +775,7 @@ pub fn stream_simple(
     );
 
     let mut thinking_budgets = options.thinking_budgets.clone();
-    if convert::is_anthropic_claude_model(model)
-        && !convert::supports_adaptive_thinking(&model.id, &model.name)
-    {
+    if convert::is_anthropic_claude_model(model) && !convert::supports_adaptive_thinking(model) {
         // `None` means the caller did not request an output cap; the helper
         // uses the model cap.
         let adjusted = adjust_max_tokens_for_thinking(

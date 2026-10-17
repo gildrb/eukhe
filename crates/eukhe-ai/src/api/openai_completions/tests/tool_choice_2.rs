@@ -562,6 +562,7 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         supports_thinking_token_budget: None,
         thinking_token_budget_field: None,
         supports_strict_mode: true,
+        strict_cap: None,
         supports_openai_grammar_tools: false,
         supports_mid_convo_system_messages: None,
         supports_mid_convo_tool_additions: None,

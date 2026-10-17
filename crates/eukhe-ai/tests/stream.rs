@@ -203,6 +203,7 @@ fn calculator_tool() -> Tool {
         description: "Perform basic arithmetic operations".to_owned(),
         parameters: schema.into(),
         constrained_sampling: None,
+        priority: 0,
     }
 }
 

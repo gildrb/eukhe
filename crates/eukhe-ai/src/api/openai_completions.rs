@@ -41,7 +41,7 @@ use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheControlFormat, CacheRetention, DoneReason,
     ErrorReason, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, ProviderResponse,
     ProviderStreamOptions, SimpleStreamOptions, StopReason, StreamOptions, ThinkingBudgets,
-    ThinkingLevel, TranscriptContext, Usage,
+    ThinkingLevel, ToolChoice, TranscriptContext, Usage,
 };
 use crate::utils::diagnostics::{ErrorObject, SdkValue, Thrown};
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
@@ -612,9 +612,14 @@ pub fn stream_simple(
         context,
         OpenAICompletionsOptions {
             stream: base,
-            tool_choice: options
-                .tool_choice
-                .map(|choice| JsonValue::String(choice.as_str().to_owned())),
+            tool_choice: options.tool_choice.map(|choice| match choice {
+                ToolChoice::Auto => JsonValue::String("auto".to_owned()),
+                ToolChoice::None => JsonValue::String("none".to_owned()),
+                ToolChoice::Required => JsonValue::String("required".to_owned()),
+                ToolChoice::Tool(name) => {
+                    serde_json::json!({ "type": "function", "function": { "name": name } })
+                }
+            }),
             reasoning_effort,
             thinking_budgets: options.thinking_budgets,
         },

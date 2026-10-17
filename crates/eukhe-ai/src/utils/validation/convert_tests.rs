@@ -86,6 +86,7 @@ fn typebox_schemas_convert_like_node() {
             description: "Echo tool".to_owned(),
             parameters: schema.into(),
             constrained_sampling: None,
+            priority: 0,
         };
         let call = ToolCall {
             id: "tool-1".to_owned(),
@@ -123,6 +124,7 @@ fn plain_json_parameters_do_not_convert() {
         description: "Echo tool".to_owned(),
         parameters: schema.json().clone().into(),
         constrained_sampling: None,
+        priority: 0,
     };
     let kinded = Tool {
         parameters: schema.into(),

@@ -86,6 +86,17 @@ pub struct Tool {
     pub parameters: ToolSchema,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constrained_sampling: Option<ToolConstrainedSampling>,
+    /// eukhe addition: the tool's claim on a strict schema when the
+    /// provider takes fewer strict tools than a request has (docs/harness.md
+    /// S6.3): higher first. Default 0: every tool equal.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub priority: u32,
+}
+
+/// Serde `skip_serializing_if`: a default priority stays off the wire.
+#[allow(clippy::trivially_copy_pass_by_ref)] // Serde passes a reference.
+const fn is_zero(priority: &u32) -> bool {
+    *priority == 0
 }
 
 /// A reference to a tool by name (`toolsRemoved`).

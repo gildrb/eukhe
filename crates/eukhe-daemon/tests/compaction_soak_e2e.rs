@@ -118,15 +118,25 @@ fn padded(tag: &str, marks: &[&str]) -> String {
     text
 }
 
-/// Wait for the response to `id` while anything moves: every daemon line
-/// and every provider request or stream change counts as progress, and
-/// [`STALL`] without any is a stalled turn.
+/// Wait for the response to `id` while anything moves ([`settle_until`]).
 fn settle(client: &WireClient, mock: &MockLlm, id: &str, what: &str) -> Value {
+    settle_until(client, mock, what, || client.try_response(id))
+}
+
+/// Wait until `done` answers while anything moves: every daemon line and
+/// every provider request or stream change counts as progress, and
+/// [`STALL`] without any is a stalled turn.
+fn settle_until<T>(
+    client: &WireClient,
+    mock: &MockLlm,
+    what: &str,
+    done: impl Fn() -> Option<T>,
+) -> T {
     let mut seen = (client.len(), mock.changes());
     let mut last_progress = Instant::now();
     loop {
-        if let Some(response) = client.try_response(id) {
-            return response;
+        if let Some(done) = done() {
+            return done;
         }
         let now = (client.len(), mock.changes());
         if now != seen {
@@ -284,6 +294,14 @@ fn compaction_soak_300_turns() {
     let id = client.send(&json!({ "type": "wait_for_idle", "activeSessionId": session_id }));
     let idle = settle(&client, &mock, &id, "the final idle");
     assert_eq!(idle["success"], true, "idle: {idle}");
+    // An early compaction is a background task beside the turn that
+    // started it, outside the idle above: the verdict waits until every
+    // compaction that started has ended.
+    settle_until(&client, &mock, "the last compaction", || {
+        let events = client.events_from(events_from);
+        let count = |kind: &str| events.iter().filter(|event| event["type"] == kind).count();
+        (count("compaction_start") == count("compaction_end")).then_some(())
+    });
 
     // The provider's verdict: one overflow (the injected one), nothing
     // else over the window, no dropped stream.

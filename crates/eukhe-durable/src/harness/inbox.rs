@@ -429,6 +429,17 @@ pub fn has_queued_reset(items: &[JsonValue]) -> bool {
     })
 }
 
+/// Whether a compaction summary (a `pi.compaction` write) is queued among
+/// the inbox `items`: admitted, but neither placed nor settled `stale`.
+#[must_use]
+pub(crate) fn has_queued_summary(items: &[JsonValue]) -> bool {
+    items.iter().any(|item| {
+        mode_of(item) == Some("write")
+            && item["entry"].get("kind").and_then(JsonValue::as_str)
+                == Some(crate::entries::COMPACTION_ENTRY.kind())
+    })
+}
+
 /// Whether a head write targets an entry before the active range, so placing
 /// it would bring back cut history.
 #[must_use]

@@ -28,10 +28,12 @@ use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{AgentState, CompactionReason, ConversationRetryPolicy};
 use eukhe_durable::harness::usage::UsageState;
 use eukhe_durable::harness::{
-    AgentEvent, MessageChange, PathSegment, QueuedItem, SnapshotEvent, ToolEventCall,
-    ToolOutputUpdate, ToolSlotStatus, COMPACTION_TASK, GENERATION_TASK, TOOL_TASK,
+    summary_task_id, AgentEvent, MessageChange, PathSegment, QueuedItem, SnapshotEvent,
+    ToolEventCall, ToolOutputUpdate, ToolSlotStatus, COMPACTION_TASK, GENERATION_TASK, TOOL_TASK,
 };
-use eukhe_durable::types::{EntryId, EntryRecord, SubmissionId, TaskId};
+use eukhe_durable::types::{
+    EntryId, EntryRecord, SubmissionId, SubmissionRecord, SubmissionState, TaskId, WriteSubmission,
+};
 use eukhe_types::ai::{TextContent, UserContent, UserContentBlock};
 use eukhe_types::daemon::{
     CompactionReason as WireCompactionReason, CompactionResult, ErrorSeverity, Failover,
@@ -150,6 +152,8 @@ impl ConversationMirror {
 #[derive(Debug)]
 struct PlacedSummary {
     task_id: Option<TaskId>,
+    /// The summary entry.
+    entry_id: EntryId,
     summary: String,
     /// Context size the last answer before the summary measured.
     tokens_before: u64,
@@ -191,6 +195,16 @@ pub enum ManualSettle {
     NoTask,
 }
 
+/// A background compaction whose `compaction_end` waits for the write
+/// that places its summary.
+#[derive(Debug)]
+struct PlacingEnd {
+    task_id: TaskId,
+    reason: CompactionReason,
+    /// The summary's write submission, queued in the inbox.
+    write: SubmissionId,
+}
+
 /// Translates one conversation's agent events into wire session events.
 #[derive(Debug)]
 pub struct EventTranslator {
@@ -215,8 +229,18 @@ pub struct EventTranslator {
     /// first: their `compaction_end` waits for the `compaction_outcome`
     /// row the eukhe compaction observer appends once the task settled (TS
     /// `_endCompactionUnsuccessfully` broadcasts the disclosure row first,
-    /// then the end event shaped by its outcome).
-    held_ends: Vec<CompactionReason>,
+    /// then the end event shaped by its outcome), unless the summary's
+    /// write submission queued in the same commit (then it moves to
+    /// `placing`). A snapshot ends them all: the outcome row may have gone
+    /// by in the events the snapshot replaces.
+    held_ends: Vec<(TaskId, CompactionReason)>,
+    /// Background compactions that ended while a run was live: their
+    /// summary waits in the inbox for the run's next boundary, and their
+    /// `compaction_end` for that write's settlement. Writes outlive runs
+    /// (an aborted run leaves them queued), so a run end keeps them; a
+    /// write that leaves the inbox with no settlement ends its compaction
+    /// as unsuccessful.
+    placing: Vec<PlacingEnd>,
     /// The open retry episode (TS `auto_retry_start` ... `auto_retry_end`).
     retry_episode: Option<RetryEpisode>,
     /// The session's retry policy: the wire's `maxAttempts`.
@@ -337,6 +361,7 @@ impl EventTranslator {
             run_messages: Vec::new(),
             manual_claim: None,
             held_ends: Vec::new(),
+            placing: Vec::new(),
             retry_episode: None,
             retry_policy: None,
         }
@@ -430,7 +455,7 @@ impl EventTranslator {
     pub fn translate(&mut self, event: &AgentEvent) -> Vec<SessionEvent> {
         let mut out = Vec::new();
         match event {
-            AgentEvent::Snapshot(snapshot) => self.reset(snapshot),
+            AgentEvent::Snapshot(snapshot) => self.reset(snapshot, &mut out),
             AgentEvent::RunStart { .. }
             | AgentEvent::RunEnd { .. }
             | AgentEvent::TurnStart
@@ -476,7 +501,10 @@ impl EventTranslator {
             AgentEvent::ToolExecutionEnd { call, entry, .. } => {
                 self.tool_end(call, entry.as_ref(), &mut out);
             }
-            AgentEvent::InboxUpdate { items } => self.mirror.inbox.clone_from(items),
+            AgentEvent::InboxUpdate { items } => {
+                self.mirror.inbox.clone_from(items);
+                self.end_lost_placements(&mut out);
+            }
             AgentEvent::AutoRetryStart {
                 attempt,
                 at,
@@ -519,7 +547,8 @@ impl EventTranslator {
             AgentEvent::CompactionEnd { task_id, reason } => {
                 self.compaction_end(*task_id, *reason, &mut out);
             }
-            AgentEvent::Submission { .. } | AgentEvent::DeferredPoll { .. } => {}
+            AgentEvent::Submission { record } => self.summary_write(record, &mut out),
+            AgentEvent::DeferredPoll { .. } => {}
         }
         self.collect_run_messages(&mut out);
         out
@@ -770,7 +799,7 @@ impl EventTranslator {
         }
     }
 
-    fn reset(&mut self, snapshot: &SnapshotEvent) {
+    fn reset(&mut self, snapshot: &SnapshotEvent, out: &mut Vec<SessionEvent>) {
         self.mirror = ConversationMirror::from_snapshot(snapshot);
         self.parked = None;
         self.turn_error = None;
@@ -781,6 +810,40 @@ impl EventTranslator {
         self.retry_episode = None;
         if !self.failures_prescanned {
             self.failures.clear();
+        }
+        // An end held for an outcome row may never see it (the row may be
+        // in the events the snapshot replaces): it ends now, with no row.
+        for (_, reason) in std::mem::take(&mut self.held_ends) {
+            out.push(crate::compaction::compaction_end_unsuccessful(
+                wire_reason(reason),
+                false,
+                None,
+                None,
+                None,
+            ));
+        }
+        self.end_lost_placements(out);
+    }
+
+    /// End, as unsuccessful, each placing compaction whose summary write
+    /// left the inbox with no settlement: no later event settles it.
+    fn end_lost_placements(&mut self, out: &mut Vec<SessionEvent>) {
+        let inbox = &self.mirror.inbox;
+        let (kept, lost): (Vec<PlacingEnd>, Vec<PlacingEnd>) = std::mem::take(&mut self.placing)
+            .into_iter()
+            .partition(|placing| inbox.iter().any(|item| item.id == placing.write));
+        self.placing = kept;
+        if !lost.is_empty() {
+            self.flush_into(out);
+        }
+        for placing in lost {
+            out.push(crate::compaction::compaction_end_unsuccessful(
+                wire_reason(placing.reason),
+                false,
+                None,
+                None,
+                None,
+            ));
         }
     }
 
@@ -890,6 +953,7 @@ impl EventTranslator {
             match eukhe_core::durable::compaction::compaction_summary_text(entry) {
                 Ok(summary) => self.summaries.push(PlacedSummary {
                     task_id: entry.by_task_id,
+                    entry_id: entry.id,
                     summary,
                     tokens_before: self
                         .mirror
@@ -1084,8 +1148,8 @@ impl EventTranslator {
         let index = self
             .held_ends
             .iter()
-            .position(|held| wire_reason(*held).as_str() == reason)?;
-        let held = self.held_ends.remove(index);
+            .position(|(_, held)| wire_reason(*held).as_str() == reason)?;
+        let (_, held) = self.held_ends.remove(index);
         Some(crate::compaction::compaction_end_unsuccessful(
             wire_reason(held),
             aborted,
@@ -1137,30 +1201,98 @@ impl EventTranslator {
         if summary.is_none() && reason != CompactionReason::Manual {
             // An automatic compaction that skipped, failed, or was aborted:
             // the observer's outcome row reports it (`settle_held_end`),
-            // its text the end's error message.
-            self.held_ends.push(reason);
+            // its text the end's error message. One whose summary queued
+            // behind a live run ends with that write (`summary_write`).
+            self.held_ends.push((task_id, reason));
             return;
         }
-        // pi-durable re-issues the request after a summarized overflow
-        // compaction.
-        let will_retry = reason == CompactionReason::Overflow && summary.is_some();
-        let error_message = match (&summary, failure) {
-            (None, Some(failure)) => Some(failure.message),
-            (Some(_) | None, _) => None,
+        out.push(summary_end(
+            reason,
+            summary,
+            failure.map(|failure| failure.message),
+        ));
+    }
+
+    /// A compaction summary's write submission ([`summary_task_id`]).
+    /// Queued in the commit its compaction ended in, the end waits for
+    /// it; the write's settlement then sends that end: with the summary
+    /// placed at the boundary, or as a skip when it went stale behind a
+    /// later compaction. A summary placed without a waiting end (its end
+    /// went out in the same commit, or the `compact` command reports it)
+    /// leaves the pending summaries.
+    fn summary_write(&mut self, record: &SubmissionRecord, out: &mut Vec<SessionEvent>) {
+        let (SubmissionState::Write(write), Some(task_id)) = (
+            &record.state,
+            record.request_id.as_deref().and_then(summary_task_id),
+        ) else {
+            return;
         };
-        out.push(SessionEvent::CompactionEnd {
-            reason: wire_reason(reason),
-            result: summary.map(|summary| CompactionResult {
-                summary: summary.summary,
-                first_kept_entry_id: None,
-                tokens_before: summary.tokens_before,
-            }),
-            aborted: false,
-            will_retry,
-            error_message,
-            error_severity: None,
-            custom_instructions: None,
-        });
+        let names = |(id, _): &(TaskId, CompactionReason)| *id == task_id;
+        let places = |placing: &PlacingEnd| placing.task_id == task_id;
+        match write {
+            WriteSubmission::Queued => {
+                if let Some(index) = self.held_ends.iter().position(names) {
+                    let (task_id, reason) = self.held_ends.remove(index);
+                    self.placing.push(PlacingEnd {
+                        task_id,
+                        reason,
+                        write: record.id,
+                    });
+                }
+            }
+            WriteSubmission::Done { entry } => {
+                let summary = self
+                    .summaries
+                    .iter()
+                    .position(|summary| summary.entry_id == *entry)
+                    .map(|index| self.summaries.remove(index));
+                if let Some(index) = self.placing.iter().position(places) {
+                    let PlacingEnd { reason, .. } = self.placing.remove(index);
+                    self.flush_into(out);
+                    out.push(summary_end(reason, summary, None));
+                }
+            }
+            WriteSubmission::Unanswered { .. } => {
+                if let Some(index) = self.placing.iter().position(places) {
+                    let PlacingEnd { reason, .. } = self.placing.remove(index);
+                    self.flush_into(out);
+                    out.push(crate::compaction::compaction_end_unsuccessful(
+                        wire_reason(reason),
+                        false,
+                        Some(crate::compaction::durable::ALREADY_COMPACTED.to_owned()),
+                        Some(ErrorSeverity::Warning),
+                        None,
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// The `compaction_end` of a compaction with its placed `summary`, or of
+/// one without a summary: a manual run the `compact` command does not
+/// report, with the `error_message` of its failure.
+fn summary_end(
+    reason: CompactionReason,
+    summary: Option<PlacedSummary>,
+    error_message: Option<String>,
+) -> SessionEvent {
+    // pi-durable re-issues the request after a summarized overflow
+    // compaction.
+    let will_retry = reason == CompactionReason::Overflow && summary.is_some();
+    let error_message = error_message.filter(|_| summary.is_none());
+    SessionEvent::CompactionEnd {
+        reason: wire_reason(reason),
+        result: summary.map(|summary| CompactionResult {
+            summary: summary.summary,
+            first_kept_entry_id: None,
+            tokens_before: summary.tokens_before,
+        }),
+        aborted: false,
+        will_retry,
+        error_message,
+        error_severity: None,
+        custom_instructions: None,
     }
 }
 

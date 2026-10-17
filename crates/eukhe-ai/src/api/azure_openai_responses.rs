@@ -21,8 +21,8 @@ use super::openai_responses::{
 };
 use super::openai_responses_shared::{
     apply_reasoning_context, convert_responses_messages, convert_responses_tools,
-    process_responses_stream, ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions,
-    GrammarToolInputProperties, OpenAIResponsesStreamOptions,
+    process_responses_stream, responses_tool_choice, ConvertResponsesMessagesOptions,
+    ConvertResponsesToolsOptions, GrammarToolInputProperties, OpenAIResponsesStreamOptions,
 };
 use super::openai_sdk::{OpenAiClient, OpenAiClientConfig, OpenAiClientKind, OpenAiRequestOptions};
 use super::simple_options::{build_base_options, resolve_sampling_params};
@@ -110,8 +110,12 @@ fn build_params(
         compat_flag(model, |compat| compat.supports_additional_tools).unwrap_or(false);
     let supports_tool_search =
         compat_flag(model, |compat| compat.supports_tool_search).unwrap_or(false);
-    let supports_strict_mode =
-        compat_flag(model, |compat| compat.supports_strict_mode).unwrap_or(true);
+    let supports_strict_mode = compat_flag(model, |compat| compat.supports_strict_mode)
+        .unwrap_or_else(|| {
+            crate::quirks::Quirks::of(model)
+                .strict_tools()
+                .unwrap_or(false)
+        });
     let supports_openai_grammar_tools =
         compat_flag(model, |compat| compat.supports_openai_grammar_tools).unwrap_or(false);
     let transcript_tools = resolve_transcript_tools(
@@ -123,6 +127,7 @@ fn build_params(
         supports_strict_mode: Some(supports_strict_mode),
         supports_openai_grammar_tools: Some(supports_openai_grammar_tools),
         tool_search_result: None,
+        strict_cap: crate::quirks::Quirks::of(model).strict_cap(),
     };
     let messages = convert_responses_messages(
         model,
@@ -383,8 +388,8 @@ pub fn stream_simple(
     };
     let base = build_base_options(model, context, Some(&options), Some(&api_key));
     let mut extra = JsonObject::new();
-    if let Some(tool_choice) = options.tool_choice {
-        extra.insert("toolChoice".to_owned(), json!(tool_choice.as_str()));
+    if let Some(tool_choice) = &options.tool_choice {
+        extra.insert("toolChoice".to_owned(), responses_tool_choice(tool_choice));
     }
     if let Some(reasoning) = options.reasoning {
         let clamped = clamp_thinking_level(model, ModelThinkingLevel::from(reasoning));

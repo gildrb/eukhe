@@ -11,10 +11,10 @@ use eukhe_types::pi_ai::{IndexMap, ModelThinkingLevel};
 use futures::FutureExt;
 
 use super::types::{
-    Agent, AgentChange, AgentState, CompactionPolicy, ConversationRetryPolicy, Extension,
-    ExtensionsChange, FieldChange, HarnessSettings, HookHandlers, ProgressPolicy, PromptSection,
-    QueueMode, RegistrySnapshot, Settings, ToolCaller, ToolExecutionMode, ToolRegistration,
-    ToolsChange,
+    Agent, AgentChange, AgentState, BackgroundMargin, CompactionPolicy, ConversationRetryPolicy,
+    Extension, ExtensionsChange, FieldChange, HarnessSettings, HookHandlers, ProgressPolicy,
+    PromptSection, QueueMode, RegistrySnapshot, Settings, ToolCaller, ToolExecutionMode,
+    ToolRegistration, ToolsChange,
 };
 use crate::documents::{DocDefinition, RewindableConversationDoc};
 use crate::session::{document_retention, SessionError, SessionResult, Tx};
@@ -31,7 +31,7 @@ pub const DEFAULT_COMPACTION_POLICY: CompactionPolicy = CompactionPolicy {
     enabled: true,
     reserve_tokens: 16384.0,
     keep_recent_tokens: 20000.0,
-    background_tokens: 32768.0,
+    background: BackgroundMargin::Tokens(32768.0),
 };
 
 pub const DEFAULT_PROGRESS_POLICY: ProgressPolicy = ProgressPolicy {
@@ -104,9 +104,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
             keep_recent_tokens: compaction
                 .and_then(|compaction| compaction.keep_recent_tokens)
                 .unwrap_or(DEFAULT_COMPACTION_POLICY.keep_recent_tokens),
-            background_tokens: compaction
-                .and_then(|compaction| compaction.background_tokens)
-                .unwrap_or(DEFAULT_COMPACTION_POLICY.background_tokens),
+            background: compaction
+                .and_then(|compaction| compaction.background)
+                .unwrap_or(DEFAULT_COMPACTION_POLICY.background),
         },
         // Field by field, so an unset interval keeps its default.
         progress: ProgressPolicy {

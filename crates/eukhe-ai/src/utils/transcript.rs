@@ -196,6 +196,7 @@ pub fn to_tool_declaration(tool: &Tool) -> Tool {
         description: tool.description.clone(),
         parameters: ToolSchema::from(tool.parameters.json().clone()),
         constrained_sampling: tool.constrained_sampling.clone(),
+        priority: tool.priority,
     }
 }
 

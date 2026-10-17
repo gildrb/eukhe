@@ -17,6 +17,7 @@ import ./bend/run.bend as Rn
 import ./bend/admission.bend as Ad
 import ./bend/tree.bend as Tr
 import ./bend/job.bend as Jb
+import ./bend/infer.bend as If
 
 # (a) The view
 # ------------
@@ -826,3 +827,160 @@ law rewind_keeps_target_jobs:
   for +js: List<&2, Jb.Slot>
   for +keep: List<&2, Nat>
   {Jb.kept(Jb.rewind(js, keep), js, keep) == True{} : Bool}
+
+# (S6) The inference layer
+# ------------------------
+# docs/harness.md S6, the model in bend/infer.bend. Every input is free:
+# any rulebook, query and directive; any replies of the model; any
+# provider support; any tools; any stream; any context sizes.
+
+# LAW: a rulebook with a rule of an unknown directive does not compile
+law quirk_unknown_rejected:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +r: If.Rule
+  for +post: List<&2, If.Rule>
+  for bad: {If.elem(known, If.Rule.dir(r)) == False{} : Bool}
+  {If.compiles(known, List.append(&2, If.Rule, pre, r <> post)) == False{} : Bool}
+
+# LAW: a rulebook with two rules of one layer, target and directive and
+# different values does not compile: precedence is never ambiguous
+law quirk_clash_rejected:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +a: If.Rule
+  for +mid: List<&2, If.Rule>
+  for +b: If.Rule
+  for +post: List<&2, If.Rule>
+  for both: {If.clash(a, b) == True{} : Bool}
+  {If.compiles(known, List.append(&2, If.Rule, pre, a <> List.append(&2, If.Rule, mid, b <> post))) == False{} : Bool}
+
+# LAW: with no rule that applies, the answer is Unknown, never a guess
+law quirk_unknown_when_none:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for none: {If.any_at(rs, q, d, 0n) == False{} : Bool}
+  {If.lookup(rs, q, d) == If.Unknown{} : If.Ans}
+
+# LAW: a rule that applies always gives an answer
+law quirk_known_when_some:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for some: {If.any_at(rs, q, d, 0n) == True{} : Bool}
+  {If.is_known(If.lookup(rs, q, d)) == True{} : Bool}
+
+# LAW: in a rulebook that compiles, a rule of the highest layer that
+# applies gives the answer: host over model over family
+law quirk_highest_wins:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +r: If.Rule
+  for +post: List<&2, If.Rule>
+  for +q: If.Query
+  for ok: {If.compiles(known, List.append(&2, If.Rule, pre, r <> post)) == True{} : Bool}
+  for hit: {If.applies(q, r) == True{} : Bool}
+  for top: {If.any_at(List.append(&2, If.Rule, pre, r <> post), q, If.Rule.dir(r), 1n+If.Rule.rank(r)) == False{} : Bool}
+  {If.lookup(List.append(&2, If.Rule, pre, r <> post), q, If.Rule.dir(r)) == If.Known{If.Rule.val(r)} : If.Ans}
+
+# LAW: in a rulebook that compiles, the order of two rules changes no
+# answer
+law quirk_order_free:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +a: If.Rule
+  for +b: If.Rule
+  for +post: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for ok: {If.compiles(known, List.append(&2, If.Rule, pre, a <> b <> post)) == True{} : Bool}
+  {If.lookup(List.append(&2, If.Rule, pre, b <> a <> post), q, d) == If.lookup(List.append(&2, If.Rule, pre, a <> b <> post), q, d) : If.Ans}
+
+# LAW: the order of two rules changes nothing about whether the rulebook
+# compiles
+law quirk_compile_order_free:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +a: If.Rule
+  for +b: If.Rule
+  for +post: List<&2, If.Rule>
+  {If.compiles(known, List.append(&2, If.Rule, pre, b <> a <> post)) == If.compiles(known, List.append(&2, If.Rule, pre, a <> b <> post)) : Bool}
+
+# LAW: a forced call makes at most 1 + r attempts
+law force_bounded:
+  for +r: Nat
+  for +replies: List<&2, Bool>
+  for +sup: Bool
+  for +free: Bool
+  {Nat.is_le(List.length(&2, If.Try, Pair.fst(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free))), 1n+r) == True{} : Bool}
+
+# LAW: the first attempt sets the native flag only when it is supported
+# and free
+law force_first_flag:
+  for +r: Nat
+  for +replies: List<&2, Bool>
+  for +sup: Bool
+  for +free: Bool
+  {List.head(&2, If.Try, Pair.fst(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free))) == Some{If.Try{Bool.and(sup, free)}} : Maybe<&2, If.Try>}
+
+# LAW: every retry escalates to the native flag when it is supported
+law force_retry_flag:
+  for +r: Nat
+  for +replies: List<&2, Bool>
+  for +sup: Bool
+  for +free: Bool
+  {If.flags(List.drop(&2, If.Try, Pair.fst(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free)), 1n), sup) == True{} : Bool}
+
+# LAW: a forced call reports a call exactly when the model called the
+# tool within its attempts; otherwise it reports the failure
+law force_reports:
+  for +r: Nat
+  for +replies: List<&2, Bool>
+  for +sup: Bool
+  for +free: Bool
+  {If.Forced.called(Pair.snd(List<&2, If.Try>, If.Forced, If.force(r, replies, sup, free))) == If.called_within(1n+r, replies) : Bool}
+
+# LAW: at most cap tools get strict schemas
+law strict_within_cap:
+  for +cap: Nat
+  for +ts: List<&2, If.Tool>
+  {Nat.is_le(List.length(&2, If.Tool, Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts))), cap) == True{} : Bool}
+
+# LAW: no tool is lost: every tool is strict or loose, as many times as
+# it was given
+law strict_keeps_every_tool:
+  for +cap: Nat
+  for +ts: List<&2, If.Tool>
+  for +i: Nat
+  {Nat.add(If.count(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i), If.count(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i)) == If.count(ts, i) : Nat}
+
+# LAW: every strict tool has a priority of at least every loose tool
+law strict_by_priority:
+  for +cap: Nat
+  for +ts: List<&2, If.Tool>
+  {If.dominates(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts))) == True{} : Bool}
+
+# LAW: a stream that repeats a chunk k times in a row is cut
+law guard_cuts_repeats:
+  for +xs: List<&2, Nat>
+  for +k: Nat
+  for rep: {If.repeats(xs, k) == True{} : Bool}
+  {If.Cut.cut(If.guard(xs, k)) == True{} : Bool}
+
+# LAW: a stream that never repeats a chunk k times in a row is not cut
+law guard_keeps_others:
+  for +xs: List<&2, Nat>
+  for +k: Nat
+  for calm: {If.repeats(xs, k) == False{} : Bool}
+  {If.guard(xs, k) == If.Whole{} : If.Cut}
+
+# LAW: when each turn grows the context by at most m, compaction (at the
+# threshold limit - m) starts at a turn before any turn over the limit
+law compact_starts_early:
+  for +xs: List<&2, Nat>
+  for +m: Nat
+  for +lim: Nat
+  for small: {Nat.is_le(m, lim) == True{} : Bool}
+  for steps: {If.steps_le(xs, m, 0n) == True{} : Bool}
+  {If.m.lt(If.first_at(xs, Nat.sub(lim, m), 0n), If.first_at(xs, 1n+lim, 0n)) == True{} : Bool}

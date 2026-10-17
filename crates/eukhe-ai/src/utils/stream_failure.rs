@@ -510,6 +510,10 @@ const KIND_MESSAGES: &[(StreamFailureKind, &str)] = &[
         "Provider dropped the response stream",
     ),
     (StreamFailureKind::StreamStalled, "Provider stream stalled"),
+    (
+        StreamFailureKind::StreamRepeating,
+        "Provider stream repeating",
+    ),
     (StreamFailureKind::Unknown, "Provider stream failed"),
 ];
 
@@ -707,6 +711,34 @@ pub fn stream_stalled_failure(idle_timeout_ms: f64) -> StreamFailureError {
         "no stream event for {}ms",
         crate::utils::js::number_to_js_string(idle_timeout_ms)
     );
+    StreamFailureError {
+        message: stream_failure_message(&info, Some(&detail)),
+        info,
+    }
+}
+
+/// The characters of the repeated line a [`stream_repeating_failure`]
+/// message shows; a longer line is cut there and marked with `…`.
+const REPEATED_LINE_SHOWN_CHARS: usize = 80;
+
+/// Failure for a stream the repetition guard cut: the same output line
+/// `limit` times in a row (the repetition guard of `Models`). Retryable by
+/// kind, like a stall.
+#[must_use]
+pub fn stream_repeating_failure(limit: u32, line: &str) -> StreamFailureError {
+    let info = StreamFailureInfo {
+        kind: StreamFailureKind::StreamRepeating,
+        provider_error_type: None,
+        status: None,
+        request_id: None,
+        retry_after_ms: None,
+        raw: None,
+    };
+    let shown = match line.char_indices().nth(REPEATED_LINE_SHOWN_CHARS) {
+        Some((end, _)) => format!("{}…", &line[..end]),
+        None => line.to_owned(),
+    };
+    let detail = format!("the same line {limit} times in a row: {shown:?}");
     StreamFailureError {
         message: stream_failure_message(&info, Some(&detail)),
         info,

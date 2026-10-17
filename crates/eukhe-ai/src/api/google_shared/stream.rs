@@ -20,9 +20,10 @@ use super::options::GoogleRequestOptions;
 use super::{
     convert_messages, convert_tools, get_disabled_google_thinking_config, is_thinking_part,
     map_stop_reason, resolve_google_function_calling_mode, retain_thought_signature,
-    retry_google_request, supports_google_strict_tool_sampling, to_google_sdk_thinking_level,
+    retry_google_request, to_google_sdk_thinking_level, FunctionCallingConfigMode,
     GoogleRetryOptions, ToolSchemaField,
 };
+use crate::api::constrained_sampling::{StrictPlan, StrictSupport};
 use crate::models::calculate_cost;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
@@ -107,14 +108,22 @@ pub(crate) fn build_params(
         config.insert("maxOutputTokens".into(), json!(max_tokens));
     }
 
-    let supports_strict_mode = supports_google_strict_tool_sampling(&model.id);
+    let quirks = crate::quirks::Quirks::of(model);
+    let strict_plan = StrictPlan::new(
+        &current_tools,
+        StrictSupport {
+            supported: quirks.google_validated_tools().unwrap_or(false),
+            cap: quirks.strict_cap(),
+        },
+        None,
+    )?;
     let function_calling_mode = if current_tools.is_empty() {
         None
     } else {
         resolve_google_function_calling_mode(
             &current_tools,
             options.tool_choice.as_deref(),
-            supports_strict_mode,
+            &strict_plan,
         )?
     };
     let system_instruction = initial_system_message
@@ -130,7 +139,7 @@ pub(crate) fn build_params(
         let tools = convert_tools(
             &current_tools,
             ToolSchemaField::ParametersJsonSchema,
-            supports_strict_mode,
+            &strict_plan,
         )?;
         config.insert(
             "tools".into(),
@@ -138,9 +147,16 @@ pub(crate) fn build_params(
         );
     }
     if let Some(mode) = function_calling_mode {
+        let mut calling = JsonObject::new();
+        calling.insert("mode".into(), mode.as_str().into());
+        if let (FunctionCallingConfigMode::Any, Some(names)) =
+            (mode, options.allowed_function_names.as_ref())
+        {
+            calling.insert("allowedFunctionNames".into(), json!(names));
+        }
         config.insert(
             "toolConfig".into(),
-            json!({ "functionCallingConfig": { "mode": mode.as_str() } }),
+            json!({ "functionCallingConfig": calling }),
         );
     }
 

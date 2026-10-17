@@ -127,6 +127,7 @@ fn prime_inference_compat(cache_control_format: Option<CacheControlFormat>) -> R
         supports_thinking_token_budget: Some(false),
         thinking_token_budget_field: None,
         supports_strict_mode: false,
+        strict_cap: None,
         supports_openai_grammar_tools: false,
         supports_mid_convo_system_messages: Some(false),
         supports_mid_convo_tool_additions: Some(false),

@@ -7,6 +7,7 @@ mod cache_control_format;
 mod empty_tools;
 mod fetch_option;
 mod fireworks_models;
+mod host_quirks;
 mod opencode_provider_headers;
 mod openrouter_cache_control_models;
 mod openrouter_cache_write_repro;

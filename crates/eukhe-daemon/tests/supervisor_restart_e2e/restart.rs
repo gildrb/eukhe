@@ -100,8 +100,8 @@ fn supervisor_kill9_restart_sessions_re_register_and_survive() {
     }
 
     // Workers alive, sockets accepting, and the in-flight turns complete
-    // while no supervisor exists (direct worker connections).
-    std::thread::sleep(Duration::from_millis(1600));
+    // while no supervisor exists (direct worker connections, each waiting
+    // for its session's idle).
     for (descriptor, index) in descriptors.iter().zip(0..3) {
         assert!(
             process_alive(descriptor.pid),
@@ -120,6 +120,11 @@ fn supervisor_kill9_restart_sessions_re_register_and_survive() {
             }),
         );
         assert_eq!(auth["success"], true, "direct auth failed: {auth}");
+        let idle = worker.request(
+            "wait_for_idle",
+            &json!({ "activeSessionId": descriptor.worker_id }),
+        );
+        assert_eq!(idle["success"], true, "idle wait failed: {idle}");
         let answer = worker.request(
             "get_last_assistant_text",
             &json!({ "activeSessionId": descriptor.worker_id }),

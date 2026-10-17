@@ -349,11 +349,12 @@ where
 }
 
 /// Whether a failed assistant message looks like a transient provider or
-/// transport error. A stalled stream (the newest `provider_stream_failure`
-/// diagnostic records kind `stream_stalled`) is retryable by its type;
-/// other errors classify by their text. This is classification only:
-/// callers handle context overflow first and apply their own retry budget,
-/// backoff, and reporting.
+/// transport error. A stalled or repeating stream (the newest
+/// `provider_stream_failure` diagnostic records kind `stream_stalled` or
+/// `stream_repeating`) is retryable by its type; other errors classify by
+/// their text. This is classification only: callers handle context
+/// overflow first and apply their own retry budget, backoff, and
+/// reporting.
 #[must_use]
 pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
     if message.stop_reason != StopReason::Error {
@@ -366,7 +367,9 @@ pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
         .rev()
         .find(|diagnostic| diagnostic.kind == "provider_stream_failure")
         .and_then(|diagnostic| diagnostic.details.as_ref()?.get("kind")?.as_str());
-    if newest_failure_kind == Some(StreamFailureKind::StreamStalled.as_str()) {
+    if newest_failure_kind == Some(StreamFailureKind::StreamStalled.as_str())
+        || newest_failure_kind == Some(StreamFailureKind::StreamRepeating.as_str())
+    {
         return true;
     }
     let Some(error_message) = message

@@ -16,7 +16,7 @@ use super::{
 };
 use crate::api::cache_breakpoints::{has_cache_breakpoint, CacheMarkBudget};
 use crate::api::constrained_sampling::{
-    get_json_schema_tool_parameters, resolve_json_schema_strict_sampling, StrictToolParameters,
+    get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
 use crate::api::transform_messages::transform_messages;
 use crate::utils::diagnostics::Thrown;
@@ -201,13 +201,13 @@ struct ConvertSettings<'a> {
     allow_empty_signature: bool,
     managed_provider: Option<&'a str>,
     /// Native tool changes: converts `tool_addition` definitions.
-    native_tools: Option<NativeTools>,
+    native_tools: Option<NativeTools<'a>>,
 }
 
 #[derive(Clone, Copy)]
-struct NativeTools {
+struct NativeTools<'a> {
     supports_eager_tool_input_streaming: bool,
-    supports_strict_tools: bool,
+    strict: &'a StrictPlan,
 }
 
 fn is_blank(text: &str) -> bool {
@@ -255,7 +255,7 @@ fn convert_messages(
                         &added,
                         settings.is_oauth_token,
                         native.supports_eager_tool_input_streaming,
-                        native.supports_strict_tools,
+                        native.strict,
                         None,
                     )? {
                         blocks.push(json!({
@@ -500,7 +500,7 @@ pub(crate) fn convert_tools(
     tools: &[Tool],
     is_oauth_token: bool,
     supports_eager_tool_input_streaming: bool,
-    supports_strict_tools: bool,
+    strict_plan: &StrictPlan,
     cache_control: Option<&JsonValue>,
 ) -> Result<Vec<JsonValue>, Thrown> {
     let last = tools.len().saturating_sub(1);
@@ -508,11 +508,8 @@ pub(crate) fn convert_tools(
         .iter()
         .enumerate()
         .map(|(index, tool)| {
-            let strict = resolve_json_schema_strict_sampling(
-                tool,
-                supports_strict_tools,
-                Some(&is_anthropic_strict_unsupported_keyword),
-            )?;
+            let strict =
+                strict_plan.resolve(tool, Some(&is_anthropic_strict_unsupported_keyword))?;
             let parameters = get_json_schema_tool_parameters(
                 tool,
                 if strict == Some(true) {
@@ -687,6 +684,27 @@ pub(crate) fn build_params(
     let native_tool_changes = compat.supports_mid_convo_system_messages
         && compat.supports_mid_convo_tool_changes
         && !initial_tools.is_empty();
+    let request_tools: Vec<Tool> = if native_tool_changes {
+        initial_tools.clone()
+    } else {
+        get_current_tools(messages)
+    };
+    let added_tools = conversation
+        .iter()
+        .filter(|_| native_tool_changes)
+        .filter_map(|message| match message {
+            Message::System(system) => system.tools_added.as_ref(),
+            Message::User(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
+        })
+        .flatten();
+    let strict = StrictPlan::new(
+        request_tools.iter().chain(added_tools),
+        StrictSupport {
+            supported: compat.supports_strict_tools,
+            cap: compat.strict_cap,
+        },
+        Some(&is_anthropic_strict_unsupported_keyword),
+    )?;
     let converted = convert_messages(
         conversation,
         &ConvertSettings {
@@ -696,7 +714,7 @@ pub(crate) fn build_params(
             managed_provider: mid_convo_effort.then_some(model.provider.as_str()),
             native_tools: native_tool_changes.then_some(NativeTools {
                 supports_eager_tool_input_streaming: compat.supports_eager_tool_input_streaming,
-                supports_strict_tools: compat.supports_strict_tools,
+                strict: &strict,
             }),
         },
     )?;
@@ -718,11 +736,6 @@ pub(crate) fn build_params(
     let tool_cache_control = cache_control
         .as_ref()
         .filter(|_| compat.supports_cache_control_on_tools);
-    let request_tools: Vec<Tool> = if native_tool_changes {
-        initial_tools.clone()
-    } else {
-        get_current_tools(messages)
-    };
     let system_mark = cache_control.is_some() && !initial_system_text.is_empty() && budget.take();
     let tools_mark = tool_cache_control.is_some() && !request_tools.is_empty() && budget.take();
     let identity_mark = cache_control.is_some() && is_oauth_token && budget.take();
@@ -783,7 +796,7 @@ pub(crate) fn build_params(
             &initial_tools,
             is_oauth_token,
             compat.supports_eager_tool_input_streaming,
-            compat.supports_strict_tools,
+            &strict,
             tools_cache,
         )?;
         tools.push(deferred_tool_placeholder());
@@ -795,7 +808,7 @@ pub(crate) fn build_params(
                 &request_tools,
                 is_oauth_token,
                 compat.supports_eager_tool_input_streaming,
-                compat.supports_strict_tools,
+                &strict,
                 tools_cache,
             )?),
         );

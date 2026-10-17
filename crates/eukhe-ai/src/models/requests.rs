@@ -16,7 +16,7 @@ use futures::StreamExt;
 use super::collection::{models_error, Models};
 use super::provider::Provider;
 use super::{merge_headers, CatalogModel};
-use crate::api::lazy::watched_lazy_stream;
+use crate::api::lazy::{watched_lazy_stream, StreamWatch};
 use crate::auth::{
     refresh_stored_oauth_credential, AuthOperationOptions, AuthResolutionOverrides, Credential,
 };
@@ -33,6 +33,7 @@ use crate::utils::model_operations::{
 };
 use crate::utils::models_error::ModelsErrorCode;
 use crate::utils::stream_idle::StreamIdle;
+use crate::utils::stream_repeat::StreamRepeat;
 use crate::utils::transcript::normalize_context;
 
 /// Transforms fully assembled model/auth/request headers before provider
@@ -328,7 +329,8 @@ impl Models {
     /// Streams a chat request with full (API-specific) options. Setup
     /// failures (unknown provider, missing auth) end the stream with an
     /// error event. The stream runs under the stream-idle deadline
-    /// (`stream_idle_timeout_ms`, [`StreamIdle`]).
+    /// (`stream_idle_timeout_ms`, [`StreamIdle`]) and the repetition guard
+    /// (`stream_repeat_limit`, [`StreamRepeat`]).
     #[must_use]
     pub fn stream(
         &self,
@@ -340,11 +342,14 @@ impl Models {
         let this = self.clone();
         let request = model.clone();
         let stream = &mut options.options.stream;
-        let idle = StreamIdle::arm(
-            &mut stream.request,
-            Some(&mut stream.on_provider_stream_event),
-        );
-        watched_lazy_stream(model, idle, async move {
+        let watch = StreamWatch {
+            idle: StreamIdle::arm(
+                &mut stream.request,
+                Some(&mut stream.on_provider_stream_event),
+            ),
+            repeat: Some(StreamRepeat::arm(&mut stream.request)),
+        };
+        watched_lazy_stream(model, watch, async move {
             let provider = this.require_chat_provider(&request)?;
             let issue = provider.stream.clone();
             this.issue_with_reauth(&request, options, move |model, options| {
@@ -365,7 +370,7 @@ impl Models {
     }
 
     /// Streams a chat request with provider-neutral options, under the
-    /// stream-idle deadline like [`Models::stream`].
+    /// stream-idle deadline and the repetition guard like [`Models::stream`].
     #[must_use]
     pub fn stream_simple(
         &self,
@@ -377,11 +382,14 @@ impl Models {
         let this = self.clone();
         let request = model.clone();
         let stream = &mut options.options.stream;
-        let idle = StreamIdle::arm(
-            &mut stream.request,
-            Some(&mut stream.on_provider_stream_event),
-        );
-        watched_lazy_stream(model, idle, async move {
+        let watch = StreamWatch {
+            idle: StreamIdle::arm(
+                &mut stream.request,
+                Some(&mut stream.on_provider_stream_event),
+            ),
+            repeat: Some(StreamRepeat::arm(&mut stream.request)),
+        };
+        watched_lazy_stream(model, watch, async move {
             let provider = this.require_chat_provider(&request)?;
             let issue = provider.stream_simple.clone();
             this.issue_with_reauth(&request, options, move |model, options| {
@@ -415,8 +423,11 @@ impl Models {
         let this = self.clone();
         let request = model.clone();
         let handle = handle.clone();
-        let idle = StreamIdle::arm(&mut options.options.request, None);
-        watched_lazy_stream(model, idle, async move {
+        let watch = StreamWatch {
+            idle: StreamIdle::arm(&mut options.options.request, None),
+            repeat: None,
+        };
+        watched_lazy_stream(model, watch, async move {
             let provider = this.require_chat_provider(&request)?;
             let fetch_deferred = provider.fetch_deferred.clone().ok_or_else(|| {
                 models_error(

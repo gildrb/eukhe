@@ -42,7 +42,11 @@ pub(crate) fn build_request_body(
     let compat = responses_compat(model);
     let supports_strict_mode = compat
         .and_then(|compat| compat.supports_strict_mode)
-        .unwrap_or(true);
+        .unwrap_or_else(|| {
+            crate::quirks::Quirks::of(model)
+                .strict_tools()
+                .unwrap_or(false)
+        });
     let supports_openai_grammar_tools = compat
         .and_then(|compat| compat.supports_openai_grammar_tools)
         .unwrap_or(false);
@@ -60,6 +64,7 @@ pub(crate) fn build_request_body(
         strict: Some(None),
         supports_strict_mode: Some(supports_strict_mode),
         supports_openai_grammar_tools: Some(supports_openai_grammar_tools),
+        strict_cap: crate::quirks::Quirks::of(model).strict_cap(),
         ..ConvertResponsesToolsOptions::default()
     };
     let messages = convert_responses_messages(

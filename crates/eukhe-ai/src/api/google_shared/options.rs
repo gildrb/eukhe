@@ -5,7 +5,7 @@
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
     IndexMap, JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, ThinkingBudgets,
-    TranscriptContext,
+    ToolChoice, TranscriptContext,
 };
 use serde::Deserialize;
 
@@ -39,6 +39,9 @@ pub(crate) struct GoogleRequestOptions {
     pub stream: StreamOptions,
     /// `"auto" | "none" | "any"`.
     pub tool_choice: Option<String>,
+    /// eukhe addition (`allowedFunctionNames`): the functions a `"any"`
+    /// tool choice may call; one name forces that function.
+    pub allowed_function_names: Option<Vec<String>>,
     pub thinking: Option<GoogleThinkingOptions>,
     /// Vertex only.
     pub project: Option<String>,
@@ -61,8 +64,8 @@ fn extra_option<T: serde::de::DeserializeOwned>(
 }
 
 impl GoogleRequestOptions {
-    /// Read the API-specific keys (`toolChoice`, `thinking`, `project`,
-    /// `location`) from `extra`.
+    /// Read the API-specific keys (`toolChoice`, `allowedFunctionNames`,
+    /// `thinking`, `project`, `location`) from `extra`.
     ///
     /// # Errors
     ///
@@ -71,6 +74,7 @@ impl GoogleRequestOptions {
         let ProviderStreamOptions { stream, extra } = options;
         Ok(Self {
             tool_choice: extra_option(&extra, "toolChoice")?,
+            allowed_function_names: extra_option(&extra, "allowedFunctionNames")?,
             thinking: extra_option(&extra, "thinking")?,
             project: extra_option(&extra, "project")?,
             location: extra_option(&extra, "location")?,
@@ -107,9 +111,19 @@ pub(crate) fn simple_request_options(
         thinking_budgets,
         ..
     } = options;
+    // A forced call is Gemini's `ANY` mode; a named tool also narrows the
+    // allowed functions to it.
+    let (tool_choice, allowed_function_names) = match tool_choice {
+        None => (None, None),
+        Some(ToolChoice::Auto) => (Some("auto"), None),
+        Some(ToolChoice::None) => (Some("none"), None),
+        Some(ToolChoice::Required) => (Some("any"), None),
+        Some(ToolChoice::Tool(name)) => (Some("any"), Some(vec![name])),
+    };
     let base = GoogleRequestOptions {
         stream,
-        tool_choice: tool_choice.map(|choice| choice.as_str().to_owned()),
+        tool_choice: tool_choice.map(str::to_owned),
+        allowed_function_names,
         ..GoogleRequestOptions::default()
     };
     let clamped = reasoning.and_then(|reasoning| {

@@ -11,6 +11,17 @@ use serde_json::json;
 
 use super::test_support::{assistant, context, model};
 use super::*;
+use crate::api::constrained_sampling::{StrictPlan, StrictSupport};
+
+/// The strict plan of `tools` on a provider that takes strict schemas,
+/// with no cap.
+fn strict_capable(tools: &[Tool]) -> StrictPlan {
+    let support = StrictSupport {
+        supported: true,
+        cap: None,
+    };
+    StrictPlan::new(tools, support, None).unwrap()
+}
 
 // ---------------------------------------------------------------------------
 // google-shared-convert-tools.test.ts
@@ -22,6 +33,7 @@ fn make_tool(parameters: JsonValue) -> Tool {
         description: "A test tool".to_owned(),
         parameters: parameters.into(),
         constrained_sampling: None,
+        priority: 0,
     }
 }
 
@@ -41,7 +53,8 @@ fn strips_json_schema_meta_keys_from_parameters_when_use_parameters_true() {
         "properties": { "command": { "type": "string" } },
         "required": ["command"]
     }))];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result =
+        convert_tools(&tools, ToolSchemaField::Parameters, &strict_capable(&tools)).unwrap();
     let declaration = first_declaration(result.as_deref());
     assert_eq!(
         declaration["parameters"],
@@ -69,7 +82,8 @@ fn recursively_strips_nested_json_schema_meta_keys() {
             }
         }
     }))];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result =
+        convert_tools(&tools, ToolSchemaField::Parameters, &strict_capable(&tools)).unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parameters"],
         json!({ "type": "object", "properties": { "deep": { "type": "string" } } })
@@ -83,7 +97,8 @@ fn preserves_ref_while_stripping_meta_keys() {
         "type": "object",
         "properties": { "refProp": { "$ref": "#/$defs/someDef", "type": "string" } }
     }))];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result =
+        convert_tools(&tools, ToolSchemaField::Parameters, &strict_capable(&tools)).unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parameters"],
         json!({
@@ -102,7 +117,7 @@ fn does_not_mutate_the_original_tool_parameters_object() {
         "required": ["command"]
     });
     let tools = [make_tool(original.clone())];
-    convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    convert_tools(&tools, ToolSchemaField::Parameters, &strict_capable(&tools)).unwrap();
     assert_eq!(tools[0].parameters.json(), &original);
 }
 
@@ -115,7 +130,12 @@ fn preserves_schema_in_parameters_json_schema_when_use_parameters_false() {
         "required": ["command"]
     });
     let tools = [make_tool(parameters.clone())];
-    let result = convert_tools(&tools, ToolSchemaField::ParametersJsonSchema, true).unwrap();
+    let result = convert_tools(
+        &tools,
+        ToolSchemaField::ParametersJsonSchema,
+        &strict_capable(&tools),
+    )
+    .unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parametersJsonSchema"],
         parameters
@@ -130,7 +150,8 @@ fn handles_tools_without_schema_gracefully() {
         "required": ["path"]
     });
     let tools = [make_tool(parameters.clone())];
-    let result = convert_tools(&tools, ToolSchemaField::Parameters, true).unwrap();
+    let result =
+        convert_tools(&tools, ToolSchemaField::Parameters, &strict_capable(&tools)).unwrap();
     assert_eq!(
         first_declaration(result.as_deref())["parameters"],
         parameters
@@ -143,16 +164,27 @@ fn uses_validated_function_calling_for_strict_tools_on_gemini_3() {
     tool.constrained_sampling =
         serde_json::from_value(json!({ "type": "json_schema", "strict": "require" })).unwrap();
 
-    assert!(supports_google_strict_tool_sampling(
-        "gemini-3.1-pro-preview"
-    ));
-    assert!(!supports_google_strict_tool_sampling("gemini-2.5-pro"));
+    let validated = |id: &str| {
+        crate::quirks::Quirks::of(&gemini3_model("google-generative-ai", "google", id))
+            .google_validated_tools()
+    };
+    assert_eq!(validated("gemini-3.1-pro-preview"), Some(true));
+    assert_eq!(validated("gemini-2.5-pro"), None);
     assert_eq!(
-        resolve_google_function_calling_mode(std::slice::from_ref(&tool), None, true).unwrap(),
+        resolve_google_function_calling_mode(
+            std::slice::from_ref(&tool),
+            None,
+            &strict_capable(std::slice::from_ref(&tool))
+        )
+        .unwrap(),
         Some(FunctionCallingConfigMode::Validated)
     );
     assert_eq!(FunctionCallingConfigMode::Validated.as_str(), "VALIDATED");
-    let error = resolve_google_function_calling_mode(&[tool], None, false).unwrap_err();
+    let unsupported = StrictSupport {
+        supported: false,
+        cap: None,
+    };
+    let error = StrictPlan::new(&[tool], unsupported, None).unwrap_err();
     assert!(error
         .to_string()
         .contains("Tool \"test_tool\" requires JSON-schema constrained sampling"));
@@ -161,12 +193,57 @@ fn uses_validated_function_calling_for_strict_tools_on_gemini_3() {
 #[test]
 fn returns_undefined_for_empty_tool_list() {
     assert_eq!(
-        convert_tools(&[], ToolSchemaField::ParametersJsonSchema, true).unwrap(),
+        convert_tools(
+            &[],
+            ToolSchemaField::ParametersJsonSchema,
+            &strict_capable(&[])
+        )
+        .unwrap(),
         None
     );
     assert_eq!(
-        convert_tools(&[], ToolSchemaField::Parameters, true).unwrap(),
+        convert_tools(&[], ToolSchemaField::Parameters, &strict_capable(&[])).unwrap(),
         None
+    );
+}
+
+/// eukhe: a forced choice is Gemini's `ANY` mode; a named tool also narrows
+/// the allowed functions to it.
+#[test]
+fn forced_tool_choices_use_any_mode_and_name_the_tool() {
+    use crate::types::{SimpleStreamOptions, ToolChoice};
+
+    let model = model(&json!({
+        "id": "gemini-2.5-flash",
+        "api": "google-generative-ai",
+        "provider": "google",
+        "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+        "reasoning": false
+    }));
+    let context = context(&json!({
+        "messages": [{ "role": "user", "content": "Hi", "timestamp": 0 }],
+        "tools": [{ "name": "read", "description": "Read", "parameters": { "type": "object", "properties": {} } }]
+    }));
+    let tool_config = |choice: ToolChoice| {
+        let options = SimpleStreamOptions {
+            tool_choice: Some(choice),
+            ..SimpleStreamOptions::default()
+        };
+        let options = simple_request_options(&model, &context, options, None, |_, _, _| 0).unwrap();
+        super::stream::build_params(&model, &context, &options).unwrap()["config"]["toolConfig"]
+            .clone()
+    };
+    assert_eq!(
+        (
+            tool_config(ToolChoice::Required),
+            tool_config(ToolChoice::Tool("read".to_owned())),
+            tool_config(ToolChoice::Auto),
+        ),
+        (
+            json!({ "functionCallingConfig": { "mode": "ANY" } }),
+            json!({ "functionCallingConfig": { "mode": "ANY", "allowedFunctionNames": ["read"] } }),
+            json!({ "functionCallingConfig": { "mode": "AUTO" } }),
+        )
     );
 }
 

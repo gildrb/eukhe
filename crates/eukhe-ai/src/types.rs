@@ -196,6 +196,13 @@ pub struct ProviderRequestOptions<M = Model> {
     /// the provider (an admission slot) holds it while it waits
     /// ([`StreamClock::hold`](crate::utils::stream_idle::StreamClock::hold)).
     pub stream_clock: Option<StreamClock>,
+    /// The repetition guard of chat streams: `Models` fails a stream whose
+    /// text or thinking repeats one complete, non-blank output line this
+    /// many times in a row as repeating
+    /// (`StreamFailureKind::StreamRepeating`, retryable). Default (absent
+    /// or `0`)
+    /// [`DEFAULT_STREAM_REPEAT_LIMIT`](crate::utils::stream_repeat::DEFAULT_STREAM_REPEAT_LIMIT).
+    pub stream_repeat_limit: Option<u32>,
 }
 
 impl<M> Default for ProviderRequestOptions<M> {
@@ -214,6 +221,7 @@ impl<M> Default for ProviderRequestOptions<M> {
             max_retry_delay_ms: None,
             stream_idle_timeout_ms: None,
             stream_clock: None,
+            stream_repeat_limit: None,
         }
     }
 }
@@ -234,6 +242,7 @@ impl<M> Clone for ProviderRequestOptions<M> {
             max_retry_delay_ms: self.max_retry_delay_ms,
             stream_idle_timeout_ms: self.stream_idle_timeout_ms,
             stream_clock: self.stream_clock.clone(),
+            stream_repeat_limit: self.stream_repeat_limit,
         }
     }
 }
@@ -261,6 +270,7 @@ impl<M> fmt::Debug for ProviderRequestOptions<M> {
             .field("max_retry_delay_ms", &self.max_retry_delay_ms)
             .field("stream_idle_timeout_ms", &self.stream_idle_timeout_ms)
             .field("stream_clock", &self.stream_clock)
+            .field("stream_repeat_limit", &self.stream_repeat_limit)
             .finish()
     }
 }

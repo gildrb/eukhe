@@ -22,6 +22,8 @@ import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
 import ./bend/proof_tree.bend as Trees
 import ./bend/proof_job.bend as Jobs
+import ./bend/proof_infer.bend as Infer
+import ./bend/proof_quirks.bend as Quirks
 
 # (a) The view
 
@@ -328,3 +330,56 @@ def Laws.rewind_stops_orphans(js, keep):
 
 def Laws.rewind_keeps_target_jobs(js, keep):
   Jobs.pj.rewind_keeps_target_jobs(js, keep)
+
+# (S6) The inference layer
+
+def Laws.quirk_unknown_rejected(known, pre, r, post, bad):
+  Quirks.pq.quirk_unknown_rejected(known, pre, r, post, bad)
+
+def Laws.quirk_clash_rejected(known, pre, a, mid, b, post, both):
+  Quirks.pq.quirk_clash_rejected(known, pre, a, mid, b, post, both)
+
+def Laws.quirk_unknown_when_none(rs, q, d, none):
+  Quirks.pq.quirk_unknown_when_none(rs, q, d, none)
+
+def Laws.quirk_known_when_some(rs, q, d, some):
+  Quirks.pq.quirk_known_when_some(rs, q, d, some)
+
+def Laws.quirk_highest_wins(known, pre, r, post, q, ok, hit, top):
+  Quirks.pq.quirk_highest_wins(known, pre, r, post, q, ok, hit, top)
+
+def Laws.quirk_order_free(known, pre, a, b, post, q, d, ok):
+  Quirks.pq.quirk_order_free(known, pre, a, b, post, q, d, ok)
+
+def Laws.quirk_compile_order_free(known, pre, a, b, post):
+  Quirks.pq.quirk_compile_order_free(known, pre, a, b, post)
+
+def Laws.force_bounded(r, replies, sup, free):
+  Infer.pi.force_bounded(r, replies, sup, free)
+
+def Laws.force_first_flag(r, replies, sup, free):
+  Infer.pi.force_first_flag(r, replies, sup, free)
+
+def Laws.force_retry_flag(r, replies, sup, free):
+  Infer.pi.force_retry_flag(r, replies, sup, free)
+
+def Laws.force_reports(r, replies, sup, free):
+  Infer.pi.force_reports(r, replies, sup, free)
+
+def Laws.strict_within_cap(cap, ts):
+  Infer.pi.strict_within_cap(cap, ts)
+
+def Laws.strict_keeps_every_tool(cap, ts, i):
+  Infer.pi.strict_keeps_every_tool(cap, ts, i)
+
+def Laws.strict_by_priority(cap, ts):
+  Infer.pi.strict_by_priority(cap, ts)
+
+def Laws.guard_cuts_repeats(xs, k, rep):
+  Infer.pi.guard_cuts_repeats(xs, k, rep)
+
+def Laws.guard_keeps_others(xs, k, calm):
+  Infer.pi.guard_keeps_others(xs, k, calm)
+
+def Laws.compact_starts_early(xs, m, lim, small, steps):
+  Infer.pi.compact_starts_early(xs, m, lim, small, steps)

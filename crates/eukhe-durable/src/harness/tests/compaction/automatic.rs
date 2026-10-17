@@ -17,8 +17,8 @@ use crate::harness::tests::chat_support::{all_entries, wait_for};
 use crate::harness::tests::support::{add_hooks, add_section, compaction_task, context};
 use crate::harness::tests::task_support::deferred;
 use crate::harness::types::{
-    CompactionDecision, CompactionHooks, CompactionPolicy, CompactionReason, CompactionResult,
-    ConversationAbortOptions,
+    BackgroundMargin, CompactionDecision, CompactionHooks, CompactionPolicy, CompactionReason,
+    CompactionResult, ConversationAbortOptions,
 };
 use crate::types::{AnyTaskRecord, SubmissionStatus, TaskId, TaskOutcome, TaskState};
 
@@ -122,6 +122,45 @@ async fn starts_above_the_background_threshold_without_blocking_the_run_idle_wai
     chat.harness.close(context()).await.unwrap();
 }
 
+/// Early compaction with a margin in percent of the window: 50 % of the
+/// 2000-token window puts the background threshold at 1500 - 1000 = 500,
+/// which the history crosses, so the turn starts a background compaction.
+#[tokio::test]
+async fn starts_above_a_window_percent_background_threshold() {
+    let chat = open(OpenOptions {
+        context_window: Some(2000),
+        ..OpenOptions::default()
+    })
+    .await;
+    history(&chat).await;
+    chat.set_policy(CompactionPolicy {
+        background: BackgroundMargin::WindowPercent(50.0),
+        ..BACKGROUND
+    });
+    let gate = deferred();
+    let reached = deferred();
+    chat.faux
+        .summary(gated(&gate, summary("SUMMARY"), Some(&reached)));
+    turn(&chat, &text("u4", 100), &text("a4", 100)).await;
+    reached.wait().await;
+    let tasks = compaction_tasks(&chat).await;
+    assert_eq!(
+        tasks
+            .iter()
+            .map(|task| (task.background, task.input.clone()))
+            .collect::<Vec<_>>(),
+        vec![(true, threshold_input())]
+    );
+    assert_eq!(
+        live(&chat).await.compactions,
+        Some(vec![status(tasks[0].id, false)])
+    );
+    gate.resolve(());
+    let outcome = result(&chat, task_id(&tasks[0])).await;
+    assert!(matches!(outcome, TaskOutcome::Completed { .. }));
+    chat.harness.close(context()).await.unwrap();
+}
+
 async fn does_not_start(policy: CompactionPolicy) {
     let chat = open(OpenOptions {
         context_window: Some(2000),
@@ -146,21 +185,32 @@ async fn does_not_start_when_disabled() {
 }
 
 #[tokio::test]
-async fn does_not_start_when_background_tokens_is_0() {
+async fn does_not_start_when_the_background_margin_is_0() {
     does_not_start(CompactionPolicy {
-        background_tokens: 0.0,
+        background: BackgroundMargin::Tokens(0.0),
         ..BACKGROUND
     })
     .await;
 }
 
+/// The keep window is capped below the size where compaction starts, so a
+/// context over it lacks a cut only when it has no history before its last
+/// candidate: a first input over the background threshold.
 #[tokio::test]
 async fn does_not_start_when_there_is_no_cut() {
-    does_not_start(CompactionPolicy {
-        keep_recent_tokens: 100_000.0,
-        ..BACKGROUND
+    let chat = open(OpenOptions {
+        context_window: Some(2000),
+        ..OpenOptions::default()
     })
     .await;
+    chat.set_policy(CompactionPolicy {
+        keep_recent_tokens: 100_000.0,
+        ..BACKGROUND
+    });
+    turn(&chat, &text("u1", 800), "a1").await;
+    assert!(compaction_tasks(&chat).await.is_empty());
+    assert!(chat.faux.summary_requests().is_empty());
+    chat.harness.close(context()).await.unwrap();
 }
 
 #[tokio::test]
@@ -520,6 +570,74 @@ async fn wins_over_a_background_compaction_still_in_flight_which_then_settles_st
         .unwrap();
     assert_eq!(record.state.status(), SubmissionStatus::Unanswered);
     assert_eq!(record.state.reason(), Some("stale"));
+    chat.harness.close(context()).await.unwrap();
+}
+
+/// A background compaction that finishes during a run queues its summary
+/// for the next boundary. A retry prepares again before that boundary, with
+/// the context still over the threshold: it must not start a second
+/// compaction of the history the queued summary replaces.
+#[tokio::test]
+async fn starts_no_background_compaction_while_a_summary_is_queued() {
+    let chat = open(OpenOptions {
+        context_window: Some(2000),
+        ..OpenOptions::default()
+    })
+    .await;
+    history(&chat).await;
+    chat.set_policy(BACKGROUND);
+    chat.set_retry(1, 1.0);
+    chat.faux.summary(summary("FIRST"));
+    chat.faux.summary(summary("SECOND"));
+    // The first request holds the run until the summary is queued, then
+    // fails retryably.
+    let gate = deferred();
+    let reached = deferred();
+    chat.faux
+        .agent(gated(&gate, failure("overloaded"), Some(&reached)));
+    // The retry's request reads the compactions its preparation started.
+    let started: Arc<Mutex<Option<Option<usize>>>> = Arc::default();
+    let (harness, id, seen) = (chat.harness.clone(), chat.id(), Arc::clone(&started));
+    chat.faux.agent(step(move |_| {
+        let (harness, seen) = (harness.clone(), Arc::clone(&seen));
+        async move {
+            let live: crate::harness::live::LiveState =
+                super::doc(&harness, &crate::harness::live::LIVE_DOC, id)
+                    .await
+                    .unwrap_or_default();
+            *seen.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some(live.compactions.map(|list| list.len()));
+            answer("a4")
+        }
+    }));
+    let input = submit(&chat, &text("u4", 100)).await;
+    reached.wait().await;
+    let first = compaction_tasks(&chat).await.remove(0);
+    let outcome = result(&chat, task_id(&first)).await;
+    // Queued, not placed: the run is still in its first request.
+    let queued = submission(&chat, submission_id(&outcome))
+        .await
+        .status(context())
+        .await
+        .unwrap();
+    assert_eq!(queued.state.status(), SubmissionStatus::Queued);
+    gate.resolve(());
+    assert_eq!(
+        input.wait(context()).await.unwrap().state.status(),
+        SubmissionStatus::Done
+    );
+    assert_eq!(
+        *started.lock().unwrap_or_else(PoisonError::into_inner),
+        Some(None)
+    );
+    assert_eq!(chat.faux.summary_requests().len(), 1);
+    let messages = chat
+        .root
+        .context(context(), crate::harness::types::ContextOptions::default())
+        .await
+        .unwrap()
+        .messages;
+    assert!(first_user_text(&messages).contains("FIRST"));
     chat.harness.close(context()).await.unwrap();
 }
 

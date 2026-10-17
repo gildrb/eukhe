@@ -1,4 +1,4 @@
-use eukhe_durable::harness::ToolEventCall;
+use eukhe_durable::harness::{summary_request_id, ToolEventCall};
 use serde_json::{json, Value};
 
 use super::*;
@@ -838,6 +838,175 @@ fn an_unsuccessful_automatic_compaction_ends_after_its_outcome_row() {
         "skipped",
     ));
     assert_eq!(types(&frames), ["message_start", "message_end"]);
+}
+
+/// The write submission record that places compaction `task`'s summary.
+fn summary_write(task: u64, status: &str) -> Value {
+    json!({
+        "conversationId": 1, "requestId": summary_request_id(TaskId::from_number(task)),
+        "type": "write", "status": status, "id": 4,
+    })
+}
+
+/// A background compaction that ends while a run is live queues its
+/// summary for the run's next boundary: its `compaction_end` waits for
+/// that write (an outcome row meanwhile does not take it) and carries the
+/// summary it placed.
+#[test]
+fn a_background_compaction_ends_when_its_queued_summary_lands() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    translator.translate_wire(&event(json!({
+        "type": "compaction_start", "taskId": 7, "reason": "threshold", "blocking": false,
+    })));
+    let frames = translator.translate_batch_wire(&[
+        event(json!({ "type": "compaction_end", "taskId": 7, "reason": "threshold" })),
+        event(json!({ "type": "submission", "record": summary_write(7, "queued") })),
+    ]);
+    assert!(frames.is_empty(), "held for the placement: {frames:?}");
+    assert!(!translator.mirror().is_compacting());
+    let row = entry(
+        8,
+        "eukhe.custom",
+        None,
+        Some(
+            json!({ "customType": "compaction_outcome", "content": "Auto-compaction skipped",
+                     "display": true, "details": { "reason": "threshold", "outcome": "skipped" } }),
+        ),
+    );
+    let frames =
+        translator.translate_wire(&event(json!({ "type": "entry_appended", "entry": row })));
+    assert_eq!(types(&frames), ["message_start", "message_end"]);
+
+    // The run's boundary places the summary (the generation's commit).
+    let wrapped = "The conversation history before this point was compacted into the following summary:\n\n<summary>\nSUMMARY\n</summary>";
+    let mut summary = entry(
+        9,
+        "pi.compaction",
+        Some(
+            json!({ "role": "user", "content": [{ "type": "text", "text": wrapped }], "timestamp": 8 }),
+        ),
+        Some(json!({
+            "reason": "threshold",
+            "summary": { "summary": "SUMMARY", "readFiles": [], "modifiedFiles": [] },
+        })),
+    );
+    summary["byTaskId"] = json!(3);
+    let mut placed = summary_write(7, "done");
+    placed["entry"] = json!(9);
+    let frames = translator.translate_batch_wire(&[
+        event(json!({ "type": "message_end", "entry": summary })),
+        event(json!({ "type": "submission", "record": placed })),
+    ]);
+    assert_eq!(
+        frames,
+        [json!({
+            "type": "compaction_end", "reason": "threshold",
+            "result": { "summary": "SUMMARY", "tokensBefore": 0 }, "aborted": false,
+            "willRetry": false,
+        })]
+    );
+}
+
+/// A queued summary that went stale behind a later compaction ends its
+/// compaction as a skip, like the `compact` command's stale summary.
+#[test]
+fn a_background_compaction_whose_summary_went_stale_ends_as_a_skip() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    translator.translate_wire(&event(json!({
+        "type": "compaction_start", "taskId": 7, "reason": "threshold", "blocking": false,
+    })));
+    translator.translate_batch_wire(&[
+        event(json!({ "type": "compaction_end", "taskId": 7, "reason": "threshold" })),
+        event(json!({ "type": "submission", "record": summary_write(7, "queued") })),
+    ]);
+    let mut stale = summary_write(7, "unanswered");
+    stale["reason"] = json!("stale");
+    let frames =
+        translator.translate_wire(&event(json!({ "type": "submission", "record": stale })));
+    assert_eq!(
+        frames,
+        [json!({
+            "type": "compaction_end", "reason": "threshold", "aborted": false,
+            "willRetry": false, "errorMessage": "Already compacted", "errorSeverity": "warning",
+        })]
+    );
+}
+
+/// The unsuccessful `compaction_end` of a threshold compaction that lost
+/// its summary placement or its outcome row.
+fn lost_end() -> Value {
+    json!({
+        "type": "compaction_end", "reason": "threshold", "aborted": false, "willRetry": false,
+    })
+}
+
+/// A queued summary outlives the run (an aborted run leaves its writes
+/// queued); a write that leaves the inbox with no settlement ends its
+/// compaction as unsuccessful, so the end never waits forever.
+#[test]
+fn a_summary_write_that_leaves_the_inbox_unsettled_ends_its_compaction() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    translator.translate_wire(&event(json!({ "type": "run_start", "inputs": [3] })));
+    translator.translate_wire(&event(json!({
+        "type": "compaction_start", "taskId": 7, "reason": "threshold", "blocking": false,
+    })));
+    let queued = translator.translate_batch_wire(&[
+        event(json!({ "type": "compaction_end", "taskId": 7, "reason": "threshold" })),
+        event(json!({ "type": "submission", "record": summary_write(7, "queued") })),
+        event(json!({ "type": "inbox_update", "items": [{ "id": 4, "mode": "write" }] })),
+    ]);
+    let run_end = translator.translate_wire(&event(json!({ "type": "run_end", "inputs": [3] })));
+    let dropped = translator.translate_wire(&event(json!({ "type": "inbox_update", "items": [] })));
+    assert_eq!(
+        (queued, run_end, dropped),
+        (
+            Vec::new(),
+            vec![json!({ "type": "agent_end", "messages": [] })],
+            vec![lost_end()]
+        )
+    );
+}
+
+/// A snapshot replaces events an outcome row or a write settlement may
+/// have been in: it ends the held compactions and the placing ones whose
+/// write the snapshot's inbox no longer holds, and keeps the others.
+#[test]
+fn a_snapshot_ends_the_compactions_whose_end_it_may_have_replaced() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    for task in [7, 8, 9] {
+        translator.translate_wire(&event(json!({
+            "type": "compaction_start", "taskId": task, "reason": "threshold", "blocking": false,
+        })));
+    }
+    let mut placing = |task: u64, write: u64| {
+        let mut record = summary_write(task, "queued");
+        record["id"] = json!(write);
+        translator.translate_batch_wire(&[
+            event(json!({ "type": "compaction_end", "taskId": task, "reason": "threshold" })),
+            event(json!({ "type": "submission", "record": record })),
+        ])
+    };
+    let queued = [placing(7, 4), placing(8, 5)];
+    translator.translate_wire(&event(json!({
+        "type": "compaction_end", "taskId": 9, "reason": "threshold",
+    })));
+    let reset = translator.translate_wire(&AgentEvent::Snapshot(snapshot(
+        Vec::new(),
+        &json!({ "inbox": [{ "id": 5, "mode": "write" }] }),
+    )));
+    let mut placed = summary_write(8, "done");
+    placed["id"] = json!(5);
+    placed["entry"] = json!(9);
+    let landed =
+        translator.translate_wire(&event(json!({ "type": "submission", "record": placed })));
+    assert_eq!(
+        (queued, reset, types(&landed)),
+        (
+            [Vec::new(), Vec::new()],
+            vec![lost_end(), lost_end()],
+            vec!["compaction_end"]
+        )
+    );
 }
 
 #[test]

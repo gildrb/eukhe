@@ -10,6 +10,9 @@
 #[cfg(test)]
 mod bridge;
 mod decide;
+mod force;
+#[cfg(test)]
+mod infer_bridge;
 mod round;
 mod stream;
 #[cfg(test)]
@@ -24,18 +27,20 @@ use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, DeferredHandle, Message, ModelThinkingLevel,
-    StopReason, ThinkingLevel, ToolCall,
+    StopReason, ThinkingLevel, ToolCall, ToolChoice, UserContent, UserMessage,
 };
 use serde::{Deserialize, Serialize};
 
 use self::decide::{
-    after_compaction, after_reply, before_request, Compacted, Compaction, Counts, Failure, Limits,
-    Prepared, Reply, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
+    after_compaction, after_reply, before_request, threshold_for, Compacted, Compaction, Counts,
+    Failure, Limits, Prepared, Reply, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
 };
+use self::force::{soft_prompt, ForceReply, ForceStep, Forcing};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
 use self::stream::stream_response;
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{estimate_context, select_cut};
+use crate::harness::inbox::{has_queued_summary, INBOX_DOC};
 use crate::harness::live::run::{
     append_assistant, convert_partial, create_compaction, timestamp, CompactionInput,
 };
@@ -52,6 +57,8 @@ use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition
 use crate::types::{
     EntryId, EntryQuery, JoinPolicy, SubmissionSettlement, TaskId, TaskOutcome, TaskOutcomeError,
 };
+
+pub use self::force::ForcedToolError;
 
 /// Input of `pi.generation` (TS `Record<string, never>`): `{}` for a run's
 /// first generation; the next ones carry the run's finished rounds.
@@ -80,6 +87,10 @@ pub enum GenerationCheckpoint {
         /// once when `prepare` resumes.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         threshold: bool,
+        /// Requests of the forced tool call before this one that went
+        /// without the call ([`ConversationStreamOptions::force_tool`]).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        forced: u32,
     },
     #[serde(rename_all = "camelCase")]
     Request {
@@ -93,6 +104,8 @@ pub enum GenerationCheckpoint {
         stream_options: ConversationStreamOptions,
         /// Newest entry included in the request.
         cutoff: EntryId,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        forced: u32,
     },
     #[serde(rename_all = "camelCase")]
     Retry {
@@ -100,6 +113,8 @@ pub enum GenerationCheckpoint {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         compacted: Option<TaskId<CompactionResult>>,
         until: f64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        forced: u32,
     },
     #[serde(rename_all = "camelCase")]
     Poll {
@@ -113,6 +128,12 @@ pub enum GenerationCheckpoint {
         /// This poll's fetch, counted from 1 (H4.4).
         #[serde(default)]
         polls: u32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        forced: u32,
+        /// The forced tool call of the request this polls for and its
+        /// escalation, pinned with it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        force: Option<Forcing>,
     },
     /// Waiting on the round's tool tasks, which the generation owns (spec
     /// §8.5).
@@ -126,6 +147,16 @@ pub enum GenerationCheckpoint {
         /// Calls of a sequential round not started yet, in call order.
         pending: Vec<String>,
     },
+}
+
+/// Serde `skip_serializing_if` of the `forced` counters: a generation that
+/// forces no tool keeps its records unchanged.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde `skip_serializing_if` passes the field by reference"
+)]
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// Result of `pi.generation`.
@@ -158,6 +189,10 @@ pub(crate) struct Request {
     poll_at: Option<f64>,
     /// The deferred fetch that gave the message: 0 for the request.
     polls: u32,
+    /// Earlier requests of the forced call that went without it.
+    forced: u32,
+    /// The request's forced tool call, when it forces one.
+    force: Option<Forcing>,
 }
 
 const DEFAULT_POLL_AFTER_MS: f64 = 5000.0;
@@ -176,6 +211,7 @@ pub static GENERATION_TASK: LazyLock<GenerationTask> = LazyLock::new(|| {
                     compacted: None,
                     overflow: None,
                     threshold: false,
+                    forced: 0,
                 })
             },
             abort,
@@ -233,6 +269,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         compacted,
         overflow,
         threshold: blocked,
+        forced,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("prepare"));
@@ -331,6 +368,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         compacted: Some(child),
                         overflow: None,
                         threshold: true,
+                        forced,
                     };
                     Ok(Some(Next::Waiting {
                         checkpoint,
@@ -365,13 +403,22 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                     )));
                 };
                 // Checked in this commit, so a compaction admitted during
-                // preparation counts.
+                // preparation counts. A queued summary is a compaction not yet
+                // placed: another would summarize the history it replaces.
                 if prepared == (Prepared::Request { background: true })
                     && tx
                         .doc(&LIVE_DOC, conversation_id)
                         .await?
                         .get("compactions")?
                         .is_none()
+                    && !has_queued_summary(
+                        tx.doc(&INBOX_DOC, conversation_id)
+                            .await?
+                            .child("items")?
+                            .value()?
+                            .as_array()
+                            .unwrap_or_default(),
+                    )
                 {
                     create_compaction(
                         &tx,
@@ -393,6 +440,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         thinking_level,
                         stream_options,
                         cutoff,
+                        forced,
                     },
                 }))
             },
@@ -409,6 +457,7 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         thinking_level,
         stream_options,
         cutoff,
+        forced,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("request"));
@@ -468,13 +517,28 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
             return fail_model_error(&runtime, format!("A request hook failed: {error}"), &cx).await
         }
     }
-    let messages = messages
+    let mut messages = messages
         .into_inner()
         .unwrap_or_else(PoisonError::into_inner);
     let mut options = stream_options.simple_stream_options();
     options.stream.request.signal = Some(runtime.signal());
     options.stream.session_id = Some(ensure_provider_session_id(&runtime, &cx).await?);
     options.reasoning = reasoning(thinking_level);
+    // A forced call: the soft prompt ends every request; the native flag
+    // follows the escalation. Neither is committed to the transcript.
+    let force = stream_options
+        .force_tool
+        .clone()
+        .map(|option| Forcing::of(option, &model, options.reasoning));
+    if let Some(force) = &force {
+        messages.push(Message::User(UserMessage {
+            content: UserContent::Text(soft_prompt(&force.forced.tool)),
+            timestamp: timestamp(runtime.now()?)?,
+        }));
+        if force.escalation.flag(forced + 1) {
+            options.tool_choice = Some(ToolChoice::Tool(force.forced.tool.clone()));
+        }
+    }
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
         attempt,
@@ -484,6 +548,8 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         messages: Some(view.messages),
         poll_at: None,
         polls: 0,
+        forced,
+        force,
     };
     classify(&runtime, request, message, &cx).await
 }
@@ -493,6 +559,7 @@ async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
         attempt,
         compacted,
         until,
+        forced,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("retry"));
@@ -510,6 +577,7 @@ async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
                         compacted,
                         overflow: None,
                         threshold: false,
+                        forced,
                     },
                 }))
             },
@@ -527,6 +595,8 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         handle,
         poll_at,
         polls,
+        forced,
+        force,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("poll"));
@@ -558,6 +628,8 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         messages: None,
         poll_at: Some(poll_at),
         polls,
+        forced,
+        force,
     };
     classify(&runtime, request, message, &cx).await
 }
@@ -668,13 +740,12 @@ fn compaction_end(outcome: Option<&TaskOutcome<CompactionResult>>) -> (Compacted
 }
 
 /// Which threshold compaction preparation starts before its request (spec
-/// §8.3): `blocking` above `contextWindow - reserveTokens`, `background`
-/// above the background threshold, and only when range selection finds a
-/// cut. The caller starts a background one only while no compaction is
-/// listed.
+/// §8.3): [`threshold_for`] the estimated context with the planned system
+/// entries, and only when range selection finds a cut. The caller starts a
+/// background one only while no compaction is listed.
 #[expect(
     clippy::cast_precision_loss,
-    reason = "TS compares token counts as doubles; blocking may be negative"
+    reason = "TS compares token counts as doubles"
 )]
 fn threshold_compaction(
     view: &ContextView,
@@ -690,16 +761,8 @@ fn threshold_compaction(
         .flat_map(|entry| entry.model.iter().flatten().cloned())
         .collect();
     let tokens = estimate_context(view, &extra) as f64;
-    let blocking = context_window as f64 - policy.reserve_tokens;
-    let background = blocking - policy.background_tokens;
-    let over = if tokens > blocking {
-        Some(Threshold::Blocking)
-    } else if policy.background_tokens > 0.0 && tokens > background {
-        Some(Threshold::Background)
-    } else {
-        None
-    };
-    over.filter(|_| select_cut(view, policy.keep_recent_tokens).is_some())
+    threshold_for(tokens, context_window, policy)
+        .filter(|_| select_cut(view, policy.keep_window(context_window)).is_some())
 }
 
 /// `{ reason }` failure detail.
@@ -862,7 +925,12 @@ async fn classify(
                         },
                     )
                     .await?,
-                settings.compaction.keep_recent_tokens,
+                settings.compaction.keep_window(
+                    runtime
+                        .models()
+                        .get_model(&request.model.provider, &request.model.model_id)
+                        .map_or(0, |model| model.context_window),
+                ),
             )
             .is_some();
         Reply::Overflow { cut }
@@ -878,12 +946,89 @@ async fn classify(
         polls: request.polls,
         compacted: compacted.is_some(),
     };
+    // A forced call judges each answer: one without the call is kept in the
+    // transcript, any other calls it made get `not_run` results, and it is
+    // asked again while retries remain, else it fails the run. Deferred,
+    // failed, and overflowing replies go on as usual.
+    let forced = request.forced;
+    if let Some(force) = request
+        .force
+        .as_ref()
+        .filter(|_| matches!(reply, Reply::Text | Reply::Calls))
+    {
+        let tries = forced + 1;
+        let reply = if calls.iter().any(|call| call.name == force.forced.tool) {
+            ForceReply::Called
+        } else {
+            ForceReply::Missed
+        };
+        match force.escalation.after(tries, reply) {
+            ForceStep::Called => {}
+            step @ (ForceStep::Retry | ForceStep::Failed) => {
+                let tool = &force.forced.tool;
+                let skipped: Vec<_> = calls
+                    .iter()
+                    .map(|call| {
+                        let text = format!(
+                            "Tool {} was not run: this turn had to call {tool}",
+                            call.name
+                        );
+                        (call.clone(), harness_error("not_run", &text))
+                    })
+                    .collect();
+                let meta = ToolResultMeta {
+                    timestamp: runtime.now()?,
+                    duration_ms: None,
+                };
+                let error = (step == ForceStep::Failed).then(|| ForcedToolError::NotCalled {
+                    tool: tool.clone(),
+                    attempts: tries,
+                });
+                return runtime
+                    .commit(
+                        move |tx, _current| async move {
+                            let live = tx.doc(&LIVE_DOC, conversation_id).await?;
+                            append_assistant(&tx, conversation_id, message).await?;
+                            for (call, result) in &skipped {
+                                append_tool_result(&tx, conversation_id, call, result, meta)
+                                    .await?;
+                            }
+                            let Some(error) = error else {
+                                live.delete("generation")?;
+                                return Ok(Some(Next::Running {
+                                    checkpoint: GenerationCheckpoint::Prepare {
+                                        attempt,
+                                        compacted,
+                                        overflow: None,
+                                        threshold: false,
+                                        forced: tries,
+                                    },
+                                }));
+                            };
+                            end_run(
+                                &tx,
+                                &live,
+                                task_id,
+                                &SubmissionSettlement::Unanswered {
+                                    reason: "forced_tool".to_owned(),
+                                    detail: Some(to_json(&error)?),
+                                },
+                            )?;
+                            failed(error.to_string(), "forced_tool").map(Some)
+                        },
+                        cx,
+                    )
+                    .await;
+            }
+        }
+    }
     match after_reply(at, reply, &limits(&settings)) {
         Step::Poll(handle, polls) => {
             let after = runtime.now()? + handle.poll_after_ms.unwrap_or(DEFAULT_POLL_AFTER_MS);
             let poll_at = after.max(request.poll_at.map_or(f64::NEG_INFINITY, |at| at + 1.0));
             let model = request.model;
             let cutoff = request.cutoff;
+            let force = request.force;
             runtime
                 .commit(
                     move |tx, _current| async move {
@@ -902,6 +1047,8 @@ async fn classify(
                                 handle,
                                 poll_at,
                                 polls,
+                                forced,
+                                force,
                             },
                         }))
                     },
@@ -945,6 +1092,7 @@ async fn classify(
                                 compacted: Some(child),
                                 overflow: Some(text),
                                 threshold: false,
+                                forced,
                             },
                             on: vec![child.erase()],
                             policy: JoinPolicy::AllSettled,
@@ -991,6 +1139,7 @@ async fn classify(
                                     attempt,
                                     compacted,
                                     until,
+                                    forced,
                                 },
                             }));
                         }

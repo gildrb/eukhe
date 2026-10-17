@@ -487,6 +487,8 @@ impl ToolRegistration {
             description: self.description.clone(),
             parameters: self.parameters.clone(),
             constrained_sampling: self.constrained_sampling.clone(),
+            // Every harness tool claims a strict schema equally (S6.3).
+            priority: 0,
         }
     }
 

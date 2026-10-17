@@ -388,6 +388,7 @@ async fn estimates_prompt_and_output_tokens_from_serialized_context() {
         description: "Echo back text".into(),
         parameters: parameters.into(),
         constrained_sampling: None,
+        priority: 0,
     };
     let context = Context {
         system_prompt: Some("sys".into()),

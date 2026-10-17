@@ -26,6 +26,7 @@ pub mod sanitize_unicode;
 pub mod sleep;
 pub mod stream_failure;
 pub mod stream_idle;
+pub mod stream_repeat;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod text;

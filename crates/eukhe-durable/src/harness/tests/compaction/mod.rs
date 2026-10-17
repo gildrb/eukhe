@@ -36,8 +36,9 @@ use crate::documents::DocToken;
 use crate::harness::define::define_tool;
 use crate::harness::live::{LiveState, LIVE_DOC};
 use crate::harness::types::{
-    CompactionPolicy, CompactionResult, ConversationStreamOptions, InputSubmissionDraft,
-    PartialCompactionPolicy, PartialRetryPolicy, ToolExecutionResult, ToolRegistration,
+    BackgroundMargin, CompactionPolicy, CompactionResult, ConversationStreamOptions,
+    InputSubmissionDraft, PartialCompactionPolicy, PartialRetryPolicy, ToolExecutionResult,
+    ToolRegistration,
 };
 use crate::harness::usage::{UsageState, USAGE_DOC};
 use crate::harness::{Conversation, Harness};
@@ -251,7 +252,7 @@ pub(super) const MANUAL: CompactionPolicy = CompactionPolicy {
     enabled: false,
     reserve_tokens: 1000.0,
     keep_recent_tokens: 150.0,
-    background_tokens: 0.0,
+    background: BackgroundMargin::Tokens(0.0),
 };
 
 /// Background threshold at 500 and blocking threshold at 1500 tokens of a
@@ -260,7 +261,7 @@ pub(super) const BACKGROUND: CompactionPolicy = CompactionPolicy {
     enabled: true,
     reserve_tokens: 500.0,
     keep_recent_tokens: 150.0,
-    background_tokens: 1000.0,
+    background: BackgroundMargin::Tokens(1000.0),
 };
 
 /// Blocking threshold at 700 tokens of a 1000-token window, no background
@@ -269,7 +270,7 @@ pub(super) const BLOCKING: CompactionPolicy = CompactionPolicy {
     enabled: true,
     reserve_tokens: 300.0,
     keep_recent_tokens: 150.0,
-    background_tokens: 0.0,
+    background: BackgroundMargin::Tokens(0.0),
 };
 
 /// A chat over the scripted model.
@@ -309,7 +310,7 @@ pub(super) fn set_policy(setup: &ChatSetup, policy: CompactionPolicy) {
             enabled: Some(policy.enabled),
             reserve_tokens: Some(policy.reserve_tokens),
             keep_recent_tokens: Some(policy.keep_recent_tokens),
-            background_tokens: Some(policy.background_tokens),
+            background: Some(policy.background),
         });
     });
 }

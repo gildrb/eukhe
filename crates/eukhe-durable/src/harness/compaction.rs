@@ -44,7 +44,7 @@ use crate::harness::types::{
 use crate::harness::usage::{record_usage, UsageBucket};
 use crate::session::{SessionError, SessionResult, Tx};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
-use crate::types::{EntryDraft, EntryHead, EntryId, TaskOutcome, TaskOutcomeError};
+use crate::types::{EntryDraft, EntryHead, EntryId, TaskId, TaskOutcome, TaskOutcomeError};
 
 /// The pinned summarization request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +107,28 @@ pub static COMPACTION_TASK: LazyLock<CompactionTask> = LazyLock::new(|| {
     )
 });
 
+/// Request IDs of summary write submissions start with this.
+const SUMMARY_REQUEST_PREFIX: &str = "compaction:";
+
+/// The request ID of the write submission that places the summary of the
+/// conversation-owned compaction `task_id` (spec §8.7): its settlement
+/// tells a host when (`done`) or whether (`stale`) that summary landed.
+#[must_use]
+pub fn summary_request_id(task_id: TaskId) -> String {
+    format!("{SUMMARY_REQUEST_PREFIX}{task_id}")
+}
+
+/// The compaction whose summary the write submission `request_id` places
+/// ([`summary_request_id`]); `None` for any other request.
+#[must_use]
+pub fn summary_task_id(request_id: &str) -> Option<TaskId> {
+    request_id
+        .strip_prefix(SUMMARY_REQUEST_PREFIX)?
+        .parse()
+        .ok()
+        .map(TaskId::from_number)
+}
+
 async fn select(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let conversation_id = runtime.conversation_id();
     let agent = runtime.agent(&cx).await?;
@@ -124,7 +146,7 @@ async fn select(task: Current, runtime: Runtime, cx: Context) -> SessionResult<(
     let view = runtime
         .context(conversation_id, &cx, ContextOptions::default())
         .await?;
-    let Some(cut) = select_cut(&view, policy.keep_recent_tokens) else {
+    let Some(cut) = select_cut(&view, policy.keep_window(model.context_window)) else {
         return complete(&runtime, &cx).await;
     };
     let first_kept = view.entries[cut].id;
@@ -525,7 +547,7 @@ async fn place_summary(
             tx,
             conversation_id,
             SubmissionDraft::Write(WriteSubmissionDraft {
-                request_id: Some(format!("compaction:{task_id}")),
+                request_id: Some(summary_request_id(task_id)),
                 entry,
             }),
             runtime.now()?,

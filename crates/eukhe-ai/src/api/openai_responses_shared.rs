@@ -12,12 +12,13 @@ use serde_json::json;
 use super::cache_breakpoints::has_cache_breakpoint;
 use super::constrained_sampling::{
     get_grammar_tool_input, get_json_schema_tool_parameters, resolve_grammar_constrained_sampling,
-    resolve_json_schema_strict_sampling, StrictToolParameters,
+    StrictPlan, StrictSupport, StrictToolParameters,
 };
 use super::transform_messages::transform_messages;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, IndexMap, JsonObject, JsonValue, Message, Modality,
-    Model, ModelCompat, SystemMessage, Tool, TranscriptContext, UserContent, UserContentBlock,
+    Model, ModelCompat, SystemMessage, Tool, ToolChoice, TranscriptContext, UserContent,
+    UserContentBlock,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::hash::short_hash;
@@ -140,6 +141,22 @@ pub struct ConvertResponsesToolsOptions {
     /// Default: false.
     pub supports_openai_grammar_tools: Option<bool>,
     pub tool_search_result: Option<bool>,
+    /// At most this many tools of the list get strict schemas (the quirks
+    /// rulebook's `strict_cap`); `None`: no cap.
+    pub strict_cap: Option<u32>,
+}
+
+/// eukhe addition: the Responses `tool_choice` of a provider-neutral
+/// choice: `"auto"`, `"none"`, `"required"`, or `{type: "function", name}`
+/// for a named tool.
+#[must_use]
+pub fn responses_tool_choice(choice: &ToolChoice) -> JsonValue {
+    match choice {
+        ToolChoice::Auto => json!("auto"),
+        ToolChoice::None => json!("none"),
+        ToolChoice::Required => json!("required"),
+        ToolChoice::Tool(name) => json!({ "type": "function", "name": name }),
+    }
 }
 
 /// eukhe addition: whether an `OpenAI` Responses model id has the explicit
@@ -549,6 +566,14 @@ pub fn convert_responses_tools(
     let supports_strict_mode = options.supports_strict_mode.unwrap_or(true);
     let supports_openai_grammar_tools = options.supports_openai_grammar_tools.unwrap_or(false);
     let defer_loading = options.tool_search_result.unwrap_or(false);
+    let strict_plan = StrictPlan::new(
+        tools,
+        StrictSupport {
+            supported: supports_strict_mode,
+            cap: options.strict_cap,
+        },
+        None,
+    )?;
 
     tools
         .iter()
@@ -574,8 +599,7 @@ pub fn convert_responses_tools(
                 return Ok(JsonValue::Object(item));
             }
 
-            let constrained_strict =
-                resolve_json_schema_strict_sampling(tool, supports_strict_mode, None)?;
+            let constrained_strict = strict_plan.resolve(tool, None)?;
             let strict = constrained_strict.map_or(default_strict, Some);
             let mut item = JsonObject::new();
             item.insert("type".to_owned(), json!("function"));

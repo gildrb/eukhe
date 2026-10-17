@@ -13,6 +13,8 @@ use std::num::NonZeroU32;
 
 use serde::{Deserialize, Serialize};
 
+use crate::harness::types::CompactionPolicy;
+
 /// Deferred fetches of one request before the run fails (H4.4): a day of
 /// polls at the default 5 s interval.
 pub(crate) const MAX_POLLS: u32 = 17_280;
@@ -105,6 +107,35 @@ pub(crate) enum Threshold {
     Blocking,
     /// Above the background threshold: it runs beside the request.
     Background,
+}
+
+/// Which threshold compaction a context of `tokens` is over (spec §8.3):
+/// [`Threshold::Blocking`] when `tokens > contextWindow - reserveTokens`,
+/// [`Threshold::Background`] when `tokens > blocking - margin` with a
+/// positive margin ([`BackgroundMargin`]). None when the policy is disabled
+/// or the window is unknown (`0`). Whether a cut exists is the caller's.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "TS compares token counts as doubles; blocking may be negative"
+)]
+pub(crate) fn threshold_for(
+    tokens: f64,
+    context_window: u64,
+    policy: &CompactionPolicy,
+) -> Option<Threshold> {
+    if !policy.enabled || context_window == 0 {
+        return None;
+    }
+    let window = context_window as f64;
+    let blocking = window - policy.reserve_tokens;
+    let margin = policy.background.tokens(window);
+    if tokens > blocking {
+        Some(Threshold::Blocking)
+    } else if margin > 0.0 && tokens > blocking - margin {
+        Some(Threshold::Background)
+    } else {
+        None
+    }
 }
 
 /// What preparation does with its request.

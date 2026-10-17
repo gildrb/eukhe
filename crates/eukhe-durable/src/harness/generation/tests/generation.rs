@@ -34,11 +34,11 @@ use crate::harness::tests::support::{
     add_section, builtins, context, create_registry, generation_task,
 };
 use crate::harness::types::{
-    AgentChange, CompactionPolicy, ConversationCreateOptions, ConversationRetryPolicy,
-    ConversationStreamOptions, Extension, FieldChange, HarnessOptions, HarnessSettings,
-    HarnessSettingsSource, InputSubmissionDraft, ModelRef, PartialCompactionPolicy,
-    PartialProgressPolicy, PartialRetryPolicy, ProgressPolicy, QueueMode, ToolExecutionMode,
-    WhenBusy,
+    AgentChange, BackgroundMargin, CompactionPolicy, ConversationCreateOptions,
+    ConversationRetryPolicy, ConversationStreamOptions, Extension, FieldChange, HarnessOptions,
+    HarnessSettings, HarnessSettingsSource, InputSubmissionDraft, ModelRef,
+    PartialCompactionPolicy, PartialProgressPolicy, PartialRetryPolicy, ProgressPolicy, QueueMode,
+    ToolExecutionMode, WhenBusy,
 };
 use crate::harness::{Conversation, Harness, RootOptions, TaskAbortResult};
 use crate::session::tests::support::ControlledStorage;
@@ -1235,7 +1235,7 @@ fn resolves_settings_over_the_built_in_defaults() {
             enabled: true,
             reserve_tokens: 16384.0,
             keep_recent_tokens: 20000.0,
-            background_tokens: 32768.0,
+            background: BackgroundMargin::Tokens(32768.0),
         }
     );
     assert_eq!(
@@ -1255,7 +1255,7 @@ fn resolves_settings_over_the_built_in_defaults() {
             ..PartialRetryPolicy::default()
         }),
         compaction: Some(PartialCompactionPolicy {
-            background_tokens: Some(0.0),
+            background: Some(BackgroundMargin::WindowPercent(10.0)),
             ..PartialCompactionPolicy::default()
         }),
         ..HarnessSettings::default()
@@ -1270,7 +1270,7 @@ fn resolves_settings_over_the_built_in_defaults() {
     assert_eq!(
         partial.compaction,
         CompactionPolicy {
-            background_tokens: 0.0,
+            background: BackgroundMargin::WindowPercent(10.0),
             ..defaults.compaction
         }
     );

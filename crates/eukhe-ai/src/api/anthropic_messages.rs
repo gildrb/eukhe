@@ -25,8 +25,8 @@ use std::sync::Arc;
 use eukhe_types::pi_ai::{
     AnthropicMessagesCompat, AnthropicSessionAffinityFormat, AssistantMessage,
     AssistantMessageEvent, CacheRetention, DoneReason, ErrorReason, JsonObject, JsonValue, Model,
-    ModelCompat, ModelThinkingLevel, ProviderHeaders, StopReason, ThinkingLevel, ToolChoice,
-    TranscriptContext, Usage,
+    ModelCompat, ModelThinkingLevel, ProviderHeaders, SessionAffinityFormat, StopReason,
+    ThinkingLevel, ToolChoice, TranscriptContext, Usage,
 };
 use serde::Deserialize;
 
@@ -228,27 +228,57 @@ pub(crate) struct ResolvedCompat {
     pub(crate) supports_temperature: bool,
     pub(crate) allow_empty_signature: bool,
     pub(crate) supports_strict_tools: bool,
+    /// The quirks rulebook's `strict_cap`: at most this many strict tools
+    /// per request (Anthropic: 20).
+    pub(crate) strict_cap: Option<u32>,
     pub(crate) supports_mid_convo_system_messages: bool,
     pub(crate) supports_mid_convo_tool_changes: bool,
 }
 
+/// Whether a `streamSimple` request of `model` with `reasoning` uses manual
+/// extended thinking (`thinking: {type: "enabled"}`), under which Anthropic
+/// rejects a forced tool choice; adaptive thinking does not.
+pub(crate) fn manual_thinking(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
+    let compat = model_compat(model);
+    model.reasoning
+        && reasoning.is_some()
+        && compat.and_then(|compat| compat.force_adaptive_thinking) != Some(true)
+        && compat.and_then(|compat| compat.supports_mid_convo_effort) != Some(true)
+}
+
 pub(crate) fn get_anthropic_compat(model: &Model) -> ResolvedCompat {
-    let is_open_router = model.provider == "openrouter" || model.base_url.contains("openrouter.ai");
+    let quirks = crate::quirks::Quirks::of(model);
     let compat = model_compat(model);
     let flag = |get: fn(&AnthropicMessagesCompat) -> Option<bool>, default: bool| {
         compat.and_then(get).unwrap_or(default)
     };
+    let detected_affinity_format =
+        quirks
+            .session_affinity_format()
+            .and_then(|format| match format {
+                SessionAffinityFormat::OpenRouter => {
+                    Some(AnthropicSessionAffinityFormat::OpenRouter)
+                }
+                SessionAffinityFormat::OpenAI | SessionAffinityFormat::OpenAINoSession => None,
+            });
     ResolvedCompat {
         supports_eager_tool_input_streaming: flag(|c| c.supports_eager_tool_input_streaming, true),
         supports_long_cache_retention: flag(|c| c.supports_long_cache_retention, true),
-        send_session_affinity_headers: flag(|c| c.send_session_affinity_headers, is_open_router),
+        send_session_affinity_headers: flag(
+            |c| c.send_session_affinity_headers,
+            quirks.session_affinity_headers().unwrap_or(false),
+        ),
         session_affinity_format: compat
             .and_then(|c| c.session_affinity_format)
-            .or(is_open_router.then_some(AnthropicSessionAffinityFormat::OpenRouter)),
+            .or(detected_affinity_format),
         supports_cache_control_on_tools: flag(|c| c.supports_cache_control_on_tools, true),
         supports_temperature: flag(|c| c.supports_temperature, true),
         allow_empty_signature: flag(|c| c.allow_empty_signature, false),
-        supports_strict_tools: flag(|c| c.supports_strict_tools, false),
+        supports_strict_tools: flag(
+            |c| c.supports_strict_tools,
+            quirks.strict_tools().unwrap_or(false),
+        ),
+        strict_cap: quirks.strict_cap(),
         supports_mid_convo_system_messages: flag(|c| c.supports_mid_convo_system_messages, false),
         supports_mid_convo_tool_changes: flag(|c| c.supports_mid_convo_tool_changes, false),
     }
@@ -667,10 +697,26 @@ pub fn stream_simple(
     }
 
     let base = build_base_options(model, context, Some(options), request.api_key.as_deref());
-    let tool_choice = options.tool_choice.map(|choice| match choice {
-        ToolChoice::Auto => AnthropicToolChoice::Auto,
-        ToolChoice::None => AnthropicToolChoice::None,
-    });
+    // Anthropic rejects a forced tool choice (`any`, `tool`) under manual
+    // extended thinking (`thinking: {type: "enabled"}`), so such a request
+    // omits it, with a warning; adaptive thinking accepts it.
+    let manual = manual_thinking(model, options.reasoning);
+    let tool_choice = options
+        .tool_choice
+        .as_ref()
+        .and_then(|choice| match choice {
+            ToolChoice::Auto => Some(AnthropicToolChoice::Auto),
+            ToolChoice::None => Some(AnthropicToolChoice::None),
+            ToolChoice::Required | ToolChoice::Tool(_) if manual => {
+                tracing::warn!(
+                    model = %model.id,
+                    "manual extended thinking rejects a forced tool choice: the request omits it"
+                );
+                None
+            }
+            ToolChoice::Required => Some(AnthropicToolChoice::Any),
+            ToolChoice::Tool(name) => Some(AnthropicToolChoice::Tool { name: name.clone() }),
+        });
     let Some(reasoning) = options.reasoning else {
         return stream_anthropic(
             model,

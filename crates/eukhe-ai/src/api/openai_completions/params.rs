@@ -4,7 +4,9 @@ use crate::types::IndexMap;
 use serde_json::json;
 
 use super::compat::{is_custom_qwen_template_model, model_compat, ResolvedCompat};
-use super::convert::{convert_messages, convert_tools, ConvertCompletionsMessagesOptions};
+use super::convert::{
+    convert_messages, convert_tools, request_strict_plan, ConvertCompletionsMessagesOptions,
+};
 use super::OpenAICompletionsOptions;
 use crate::api::cache_breakpoints::CacheMarkBudget;
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
@@ -153,7 +155,12 @@ pub(crate) fn build_params(
     let mut tools: Option<Vec<JsonValue>> = None;
     let mut tools_present = false;
     if !transcript_tools.request_tools.is_empty() {
-        tools = Some(convert_tools(&transcript_tools.request_tools, compat)?);
+        let strict_plan = request_strict_plan(context.messages(), &transcript_tools, compat)?;
+        tools = Some(convert_tools(
+            &transcript_tools.request_tools,
+            compat,
+            &strict_plan,
+        )?);
         tools_present = true;
         insert(&mut params, "tools", JsonValue::Null);
         if compat.zai_tool_stream {
