@@ -18,7 +18,7 @@ mod state;
 mod watch;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::sync::Arc;
 
@@ -29,7 +29,9 @@ pub use autonomous::{
     autonomous_state, configure_autonomous, set_autonomous, AutonomousChange, AutonomousDocState,
     AutonomousStop, WorktreeSnapshot,
 };
+pub(crate) use docs::{open_doc, read_doc, write_doc};
 pub use docs::{AUTONOMOUS_DOC, GOAL_DOC};
+pub(crate) use ops::conversation_of;
 pub use ops::{
     clear_goal, complete_goal, continue_goal_after_compaction, goal_state, import_legacy_goal,
     pause_goal, resume_goal, seed_initial_goal, start_goal, withdraw_queued_goal_contexts,
@@ -41,6 +43,7 @@ pub use state::{
 pub use watch::{watch_goal_updates, GoalUpdates};
 
 use self::host::{register_host_requests, GoalsHost};
+use super::directors::DirectorLimits;
 use super::HostDeps;
 use crate::autonomous::{GateCommandRunner, ShellGateRunner};
 use crate::durable::{HarnessCell, HostRequestRegistry};
@@ -48,28 +51,36 @@ use crate::durable::{HarnessCell, HostRequestRegistry};
 /// The extension's name.
 pub const GOALS_EXTENSION: &str = "eukhe.goals";
 
-/// The goal extension of one session: the `pi.generation` hooks, the
-/// `goal.get` / `goal.create` / `goal.complete` host requests registered in
-/// `deps.host_requests`, and the run-end failure observer. Autonomous gates
-/// run in the session cwd.
+/// The goal extension of one session: the `pi.generation` hooks (with the
+/// Director stack's step, its limits from the `directors` settings), the
+/// `goal.get` / `goal.create` / `goal.complete` / `directors.push` host
+/// requests registered in `deps.host_requests`, and the run-end failure
+/// observer. Autonomous gates run in the session cwd.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     observer::install(deps);
+    let settings = Arc::clone(&deps.settings);
     goals_extension(
         deps.harness.clone(),
         Arc::new(ShellGateRunner::new(deps.cwd.clone())),
+        Arc::new(move || DirectorLimits::of(settings.manager().settings())),
         &deps.host_requests,
     )
 }
 
-/// [`extension`] over explicit services (the gate runner is the seam the
-/// tests script).
+/// [`extension`] over explicit services (the gate runner and the limits
+/// are the seams the tests script).
 pub(crate) fn goals_extension(
     harness: HarnessCell,
     gates: Arc<dyn GateCommandRunner>,
+    limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
     host_requests: &HostRequestRegistry,
 ) -> Arc<Extension> {
-    let host = GoalsHost { harness, gates };
+    let host = GoalsHost {
+        harness,
+        gates,
+        limits,
+    };
     register_host_requests(&host, host_requests);
     define_extension(Extension {
         name: GOALS_EXTENSION.to_owned(),

@@ -204,6 +204,19 @@ pub struct AutonomousSettings {
     pub timeout_ms: Option<AutonomousLimitSetting>,
 }
 
+/// The Director stack (docs/harness.md S5).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectorSettings {
+    /// The reminders and forced calls the stack may hold (default 8; `0`
+    /// or unset takes the default). The goal and the autonomous run keep
+    /// 2 more places.
+    pub stack_cap: Option<u32>,
+    /// The continuations one run may make, whatever its Directors say
+    /// (default 200; `0` or unset takes the default).
+    pub max_steps: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownSettings {
@@ -364,6 +377,7 @@ pub struct Settings {
     /// a configuration hint instead of silently dropping the images.
     pub image_model: Option<String>,
     pub autonomous: Option<AutonomousSettings>,
+    pub directors: Option<DirectorSettings>,
     pub shell_path: Option<String>,
     pub quiet_startup: Option<bool>,
     pub shell_command_prefix: Option<String>,

@@ -1016,6 +1016,131 @@ or `settings.json`); `a_setter_never_clobbers_a_global_settings_file_that_failed
 `unreadable_binds_cfg_and_failed_import_are_warnings`; the
 `keybindings::tests` of the `binds.cfg` import and of the presses.
 
+### S5. The Director stack
+
+After each final answer, the agent loop asks a stack of Directors what to
+do. A Director is one layer of the stack. A layer has a kind and a
+budget: the loop steps that it can still ask for. The kinds are the goal,
+the autonomous run, a reminder, and a forced tool call.
+
+1. The top layer decides first. Each layer gives one verdict:
+   - `Defer`: the next layer down decides. The layer stays.
+   - `Again`: the loop continues. This costs the layer 1 unit of its
+     budget. A layer with no budget yields.
+   - `Yield`: the loop stops and gives control back to the user.
+   - `Stack{l}`: the layer puts `l` on top of itself, and the loop
+     continues. This costs 1 unit of budget. A layer with no budget
+     yields. A push needs room in the full stack: the layers above the
+     layer (also the layers that deferred or left), the layer, and the
+     layers below must be fewer than the cap. With no room, the loop
+     fails.
+   - `Leave`: the layer removes itself. The next layer down decides.
+   - `Abort`: the loop stops with a failure.
+2. When no layer decides, the loop gives control back to the user.
+3. The loop of one run has a global budget of steps. Each continuation
+   costs 1 step. When no step is left, a continuation yields.
+4. The verdict of each kind comes from the session state:
+   - Goal: an active goal mints a continuation (`Again`), with the
+     no-progress backoff, or refuses it at the no-progress cap (`Yield`).
+     A paused, budget-limited, complete, or failed goal yields. A cleared
+     goal leaves.
+   - Autonomous: it defers while a goal drives continuations, so the goal
+     keeps its priority. A disabled run leaves. Else its gates and limits
+     continue the run (`Again`) or stop it (`Yield`).
+   - Reminder: its text goes first in the continuation of the step. Then
+     it leaves. When the step does not continue (no layer below
+     continues, or no step is left), the reminder defers: it stays on the
+     stack until a continuation comes. A reminder never makes its own
+     continuation, so it waits for the goal or the autonomous run.
+   - Forced tool call: each request forces its tool (`stream.forceTool`,
+     S6) until a response calls the tool. Then the layer leaves at the next
+     final answer. Each response to a forced request without the call is
+     a miss. The miss after the `tries` retries fails the generation with
+     `ForcedToolError::NotCalled` (S6.3), with the real number of
+     requests. That miss removes the layer and appends a display row with
+     the error (`eukhe.director`, not in the model context) in one commit,
+     so the next request is not forced. When a run ends before a request
+     forced the tool, the layer continues the run (`Again`) while it has
+     budget. The continuation only names the forced call; the soft prompt
+     of the forced request asks for the call. With no budget, the layer
+     aborts with `ForcedToolError::NotCalled` and the same display row.
+5. A step evaluates the layers from the top until one decides. The
+   autonomous gates run before the commit of the step. The step commits
+   the stack, the goal and autonomous changes, the goal context row, and
+   its decision in one commit. A rerun of the same generation repeats the
+   decision.
+6. A run that has a new first input starts a new loop: the global budget
+   (`directors.maxSteps`, default 200) comes back, the goal layer gets that
+   budget, and the autonomous layer gets its remaining continuations
+   (`autonomous.maxContinuations` minus the used ones). The goal and the
+   autonomous run come on the stack (the goal above the autonomous run)
+   when they drive continuations and have no layer. They go below the
+   pushed layers (reminders and forced calls), so the pushed layers decide
+   first. `directors.stackCap` (default 8) caps the pushed layers only. The
+   stack keeps 2 more places, one for the goal and one for the autonomous
+   run, so these always have room: a stack holds at most
+   `directors.stackCap + 2` layers, and each decision gets that cap. A
+   push past the cap is refused with an error. With no layer, a final
+   answer writes nothing.
+7. Reminders and forced calls come on the stack from these entry points:
+   the `/remind <text>` and `/force <tool> [--tries <n>]` session slash
+   commands (the TUI sends them through the daemon), and the kernel host
+   request `directors.push` (`goal.remind(text)` and
+   `goal.force_tool(tool, tries=1)` in the Python REPL). A forced call
+   gets 1 unit of budget and `tries` 1 when not given.
+8. The stack is the conversation document `eukhe.directors`. It is
+   rewindable: a fork or a branch move starts from the stack as of its
+   fork entry, so a rewind removes the Directors added after that entry
+   and brings back the ones removed. A resume reads the stored stack.
+   The document is a node of the state tree (S1), under its conversation.
+
+Model: `bend/director.bend`. Laws: `LAWS.bend` section (S5). Proofs:
+`bend/proof_director.bend`. Every verdict is free: each layer of each
+step says what the adversary picks.
+
+| Law | Says |
+| --- | --- |
+| `dir_stack_bounded` | A decision never grows the stack past its cap (S5.1). |
+| `dir_loop_stack_bounded` | So the loop never does, whatever its steps (S5.1). |
+| `dir_loop_ends` | The loop ends (gives control back or fails) after at most n + 1 steps, with n its global budget, whatever every layer says (S5.3). |
+| `dir_end_is_final` | An ended loop stays as it ended (S5.3). |
+| `dir_encode_sound` | The stack in the tree is a sound tree (S5.8). |
+| `dir_resume_restores` | A resume reads back the stack that the tree holds, exactly (S5.8). |
+| `dir_rewind_restores` | A rewind of a sound tree to the tree of a stack restores that stack, exactly (S5.8). |
+
+Code: `eukhe-core/src/durable/directors/stack.rs` `decide`, `Loop::tick`,
+`Layer`, `LayerKind`, `Verdict`; `directors/mod.rs` `DIRECTORS_DOC`,
+`DirectorState`, `DirectorLimits` (`bound`), `push_director`,
+`DIRECTOR_NOTICE_CUSTOM_TYPE`; `durable/goals/hooks.rs` (the `on_yield`
+step: `begin`, `judge`, `commit_step`; the forced tool of
+`before_request`; the call or the miss of `after_response`,
+`mark_forced_response`); `durable/goals/host.rs` (`directors.push`);
+`durable/session_commands.rs` (`/remind`, `/force`);
+`skills/goal/src/goal/__init__.py` (`remind`, `force_tool`);
+`eukhe-durable/src/harness/generation.rs` (the `before_request` hooks may
+set the forced tool of a request, `RequestMessages::force_tool`);
+`eukhe-core/src/settings` `directors`.
+
+Tie: the bridge test
+`durable::directors::bridge::the_rust_director_stack_equals_the_bend_model`
+runs `decide`, `Loop::tick`, and the persisted `eukhe.directors` value
+against `bend/bridge_director.bend` on 300 generated scenarios (stacks,
+verdict lists per step, caps, global budgets; the model's `decide`,
+`tick`, `run`, `encode`, and `decode`), and compares the transcripts byte
+for byte. The scenarios reach every rule of the model (a push with room,
+a push that fits only the layers below, a full stack, no budget, a
+leave, all layers defer, no step left, a tick after the end). Regression
+tests: `durable::directors::tests` (the goal layer until the goal
+completes, the global budget, a reminder, a reminder that waits on the
+stack for a continuation, a forced tool call, a forced call that is never
+made and a next run that is not forced, the goal on a full stack, the
+stack after a reopen and in a fork); `durable::session_commands::tests`
+(`/remind` and `/force` on the stack, a `/force` that fails once);
+`durable::goals::tests`. Not modelled: the map from the session state to
+the verdicts (S5.4), `begin` (S5.6), the reminder that defers when no
+continuation follows, and the kind data of a layer (the model keeps a
+number for the kind). Their tests tie them.
+
 ### S6. The inference layer
 
 The inference layer is between the harness and the wire APIs. It decides

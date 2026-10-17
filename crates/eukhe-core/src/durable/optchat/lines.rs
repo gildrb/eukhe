@@ -176,9 +176,10 @@ fn user_input_line(message: &Message, origin: &InputOrigin) -> SessionResult<Opt
             };
             Some((Kind::User, text, images))
         }
-        InputOrigin::Goal { .. } | InputOrigin::Autonomous { .. } | InputOrigin::QuotaResume => {
-            None
-        }
+        InputOrigin::Goal { .. }
+        | InputOrigin::Autonomous { .. }
+        | InputOrigin::Director
+        | InputOrigin::QuotaResume => None,
         InputOrigin::Report { report } => {
             let body = report.body(&text).map_err(SessionError::other)?;
             Some((Kind::Work, report_line(report, body), Vec::new()))
@@ -295,7 +296,8 @@ fn classify_custom(custom_type: &str) -> CustomRow {
         | "session_slash_command"
         | "session_slash_command_result"
         | "anthropic_subscription_warning_shown"
-        | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE => CustomRow::State,
+        | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE
+        | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE => CustomRow::State,
         _ => CustomRow::Report,
     }
 }

@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 
 use super::*;
 use crate::autonomous::AgentAutonomousConfig;
+use crate::durable::directors::{director_state, DirectorState, DIRECTOR_NOTICE_CUSTOM_TYPE};
 use crate::durable::entries::{CustomEntryData, CustomStateData, CUSTOM_ENTRY, CUSTOM_STATE_ENTRY};
 use crate::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use crate::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
@@ -229,6 +230,8 @@ fn classify_recognizes_only_session_commands() {
         SessionCommandName::Refine,
         SessionCommandName::Goal,
         SessionCommandName::Autonomous,
+        SessionCommandName::Remind,
+        SessionCommandName::Force,
     ] {
         assert_eq!(SessionCommandName::from_name(name.as_str()), Some(name));
     }
@@ -631,4 +634,133 @@ fn refine_options_parsing() {
         parse_refine_command_options("rollback ").unwrap_err(),
         "Usage: /refine rollback <refinement-id>"
     );
+}
+
+#[test]
+fn force_options_parsing() {
+    assert_eq!(parse_force_command("lookup"), Ok(("lookup".to_owned(), 1)));
+    assert_eq!(
+        parse_force_command(" lookup --tries 3 "),
+        Ok(("lookup".to_owned(), 3))
+    );
+    let usage = Err("Usage: /force <tool> [--tries <n>]".to_owned());
+    for args in [
+        "",
+        "--tries 2",
+        "lookup --tries",
+        "lookup --tries -1",
+        "lookup extra",
+    ] {
+        assert_eq!(parse_force_command(args), usage, "{args:?}");
+    }
+}
+
+#[tokio::test]
+async fn remind_and_force_put_their_layers_on_the_director_stack() {
+    let fixture = open(&[]).await;
+    for text in ["/remind Run the tests first.", "/force lookup --tries 2"] {
+        assert_eq!(fixture.run(text).await.error, None, "{text}");
+    }
+    let usage = "Usage: /remind <text>";
+    assert_eq!(fixture.run("/remind").await.error.as_deref(), Some(usage));
+    assert_eq!(
+        fixture.command_rows().await,
+        vec![
+            echo("/remind Run the tests first."),
+            result(
+                "/remind Run the tests first.",
+                "Reminder added: it leads the next continuation.",
+                true
+            ),
+            echo("/force lookup --tries 2"),
+            result(
+                "/force lookup --tries 2",
+                "The next requests force a call to `lookup`.",
+                true
+            ),
+            echo("/remind"),
+            failure("/remind", usage),
+        ]
+    );
+    let main = fixture.session.main();
+    assert_eq!(
+        director_state(fixture.session.harness(), main.id(), cx())
+            .await
+            .expect("read"),
+        DirectorState {
+            stack: vec![
+                Layer::reminder("Run the tests first.".to_owned()),
+                Layer::force_tool("lookup".to_owned(), 2),
+            ],
+            run: None,
+        }
+    );
+    fixture.close().await;
+}
+
+/// Answer `message`, recording the last user text of each request.
+fn recorded(seen: &Arc<std::sync::Mutex<Vec<String>>>, text: &str) -> FauxResponseStep {
+    let seen = Arc::clone(seen);
+    let message = faux_assistant_message(text, FauxAssistantMessageOptions::default());
+    FauxResponseStep::factory(move |request, _, _, _| {
+        let last = match request.messages().last() {
+            Some(Message::User(message)) => match &message.content {
+                UserContent::Text(text) => text.clone(),
+                UserContent::Blocks(_) => String::new(),
+            },
+            _ => String::new(),
+        };
+        seen.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(last);
+        Ok(message.clone())
+    })
+}
+
+#[tokio::test]
+async fn a_forced_call_never_made_fails_once_and_the_next_ask_is_not_forced() {
+    let fixture = open(&[]).await;
+    let seen = Arc::default();
+    fixture.provider.set_responses(vec![
+        recorded(&seen, "no call"),
+        recorded(&seen, "plain"),
+        // Taken only by a forced second ask.
+        recorded(&seen, "unused"),
+    ]);
+    assert_eq!(fixture.run("/force lookup --tries 0").await.error, None);
+
+    fixture.ask("go").await;
+    fixture.ask("again").await;
+    fixture.idle().await;
+
+    let soft = "Call the `lookup` tool now: your reply must include a call to `lookup`.";
+    assert_eq!(
+        *seen
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        vec![soft.to_owned(), "again".to_owned()]
+    );
+    assert_eq!(fixture.provider.get_pending_response_count(), 1);
+    assert_eq!(
+        fixture.rows(&[DIRECTOR_NOTICE_CUSTOM_TYPE]).await,
+        vec![CustomEntryData {
+            custom_type: DIRECTOR_NOTICE_CUSTOM_TYPE.to_owned(),
+            content: Some(UserContent::Text(
+                "The model did not call the forced tool lookup in 1 requests. The forced call left the Director stack."
+                    .to_owned()
+            )),
+            display: true,
+            details: Some(json!({ "kind": "notCalled", "tool": "lookup", "attempts": 1 })),
+            input: false,
+            origin: None,
+        }]
+    );
+    let main = fixture.session.main();
+    assert_eq!(
+        director_state(fixture.session.harness(), main.id(), cx())
+            .await
+            .expect("read"),
+        DirectorState::default()
+    );
+    fixture.close().await;
 }

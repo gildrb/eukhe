@@ -44,6 +44,7 @@ use super::{
 use crate::autonomous::{
     AgentAutonomousConfig, AgentAutonomousGateConfig, ChildProcessResult, GateCommandRunner,
 };
+use crate::durable::directors::DirectorLimits;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::{GoalContextKind, GoalState, GoalStatus};
@@ -82,16 +83,18 @@ impl GateCommandRunner for ScriptedGates {
 }
 
 /// Models, registry, and host services that survive a close/reopen.
-struct Setup {
-    faux: FauxProviderHandle,
+pub(crate) struct Setup {
+    pub(crate) faux: FauxProviderHandle,
     models: Models,
     registry: Registry,
-    cell: HarnessCell,
+    pub(crate) cell: HarnessCell,
     requests: HostRequestRegistry,
     gates: Arc<ScriptedGates>,
+    /// The Director stack's limits each step reads.
+    pub(crate) limits: Arc<Mutex<DirectorLimits>>,
 }
 
-fn setup() -> Setup {
+pub(crate) fn setup() -> Setup {
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     let models = create_models(CreateModelsOptions::default());
     models.set_provider(faux.provider.clone());
@@ -99,10 +102,13 @@ fn setup() -> Setup {
     let cell = HarnessCell::default();
     let requests = HostRequestRegistry::default();
     let gates = Arc::new(ScriptedGates::default());
+    let limits = Arc::new(Mutex::new(DirectorLimits::default()));
+    let read = Arc::clone(&limits);
     registry
         .install(goals_extension(
             cell.clone(),
             Arc::clone(&gates) as Arc<dyn GateCommandRunner>,
+            Arc::new(move || *read.lock().unwrap_or_else(PoisonError::into_inner)),
             &requests,
         ))
         .expect("the goal extension installs");
@@ -116,6 +122,7 @@ fn setup() -> Setup {
         cell,
         requests,
         gates,
+        limits,
     }
 }
 
@@ -156,7 +163,7 @@ fn finish_extension(requests: HostRequestRegistry) -> Arc<Extension> {
 }
 
 impl Setup {
-    async fn open(&self, storage: Arc<dyn Storage>) -> (Harness, Conversation) {
+    pub(crate) async fn open(&self, storage: Arc<dyn Storage>) -> (Harness, Conversation) {
         let options = HarnessOptions::new(self.models.clone(), Arc::new(self.registry.clone()));
         let harness = Harness::open(storage, options, cx())
             .await
@@ -181,7 +188,11 @@ impl Setup {
         (harness, root)
     }
 
-    async fn host_request(&self, request_type: &str, data: Value) -> anyhow::Result<Value> {
+    pub(crate) async fn host_request(
+        &self,
+        request_type: &str,
+        data: Value,
+    ) -> anyhow::Result<Value> {
         let handler = self
             .requests
             .get(request_type)
@@ -195,7 +206,7 @@ impl Setup {
     }
 }
 
-fn answer(text: &str) -> FauxResponseStep {
+pub(crate) fn answer(text: &str) -> FauxResponseStep {
     faux_assistant_message(text, FauxAssistantMessageOptions::default()).into()
 }
 
@@ -206,7 +217,7 @@ fn answer_at(text: &str, timestamp: u64) -> FauxResponseStep {
     message.into()
 }
 
-fn finish_call() -> FauxResponseStep {
+pub(crate) fn finish_call() -> FauxResponseStep {
     faux_assistant_message(
         faux_tool_call("finish", JsonObject::new(), Some("call-finish".to_owned())),
         FauxAssistantMessageOptions {
@@ -235,7 +246,7 @@ fn blocked() -> (FauxResponseStep, watch::Receiver<bool>) {
     (step, receiver)
 }
 
-async fn submit(root: &Conversation, text: &str) {
+pub(crate) async fn submit(root: &Conversation, text: &str) {
     let handle = root
         .submit(
             InputSubmissionDraft {
@@ -253,7 +264,7 @@ async fn submit(root: &Conversation, text: &str) {
 }
 
 /// Entries oldest first.
-async fn entries(conversation: &Conversation) -> Vec<EntryRecord> {
+pub(crate) async fn entries(conversation: &Conversation) -> Vec<EntryRecord> {
     let page = conversation
         .entries(ConversationEntryQuery::default(), 1000, None, cx())
         .await
@@ -275,7 +286,7 @@ fn user_text(content: &UserContent) -> String {
     }
 }
 
-fn user_origins(entries: &[EntryRecord]) -> Vec<InputOrigin> {
+pub(crate) fn user_origins(entries: &[EntryRecord]) -> Vec<InputOrigin> {
     entries
         .iter()
         .filter_map(|entry| USER_ENTRY.narrow(entry.clone()).expect("pi.user data"))
@@ -283,7 +294,7 @@ fn user_origins(entries: &[EntryRecord]) -> Vec<InputOrigin> {
         .collect()
 }
 
-fn user_texts(entries: &[EntryRecord]) -> Vec<String> {
+pub(crate) fn user_texts(entries: &[EntryRecord]) -> Vec<String> {
     entries
         .iter()
         .filter(|entry| entry.kind == USER_ENTRY.kind())
@@ -317,7 +328,7 @@ fn goal_contexts(entries: &[EntryRecord]) -> Vec<(CustomEntryData, bool)> {
         .collect()
 }
 
-async fn stored_goal(harness: &Harness, root: &Conversation) -> GoalState {
+pub(crate) async fn stored_goal(harness: &Harness, root: &Conversation) -> GoalState {
     read_doc(harness, &GOAL_DOC, root.id(), cx())
         .await
         .expect("the goal reads")
@@ -446,7 +457,7 @@ async fn goal_create_refuses_while_a_goal_is_active_and_complete_needs_a_goal() 
     harness.close(cx()).await.expect("close");
 }
 
-async fn open_jsonl(dir: &std::path::Path) -> Arc<dyn Storage> {
+pub(crate) async fn open_jsonl(dir: &std::path::Path) -> Arc<dyn Storage> {
     let fs = Arc::new(NativeExecutionEnv::new(NativeExecutionEnvOptions {
         cwd: dir.to_string_lossy().into_owned(),
         ..NativeExecutionEnvOptions::default()

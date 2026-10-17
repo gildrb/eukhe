@@ -14,6 +14,7 @@ pub mod compaction;
 pub mod cvar_agent;
 mod deps;
 mod digest;
+pub mod directors;
 mod discovery;
 pub mod documents;
 mod entries;

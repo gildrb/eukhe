@@ -4,11 +4,11 @@ use serde_json::Value;
 use super::*;
 use crate::settings::types::{
     AutoRefineSettings, AutonomousLimitSetting, AutonomousSettings, BranchSummarySettings,
-    CompactionSettings, FactorySettings, GatewaySettings, ImageSettings, MarkdownSettings,
-    MemorySettings, MermaidRenderingMode, ProviderRetrySettings, ProviderWaitSettings,
-    QueueModeSetting, RetryFailoverSettings, RetrySettings, Settings, SignalGatewaySettings,
-    TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting, TransportSetting,
-    WarningSettings,
+    CompactionSettings, DirectorSettings, FactorySettings, GatewaySettings, ImageSettings,
+    MarkdownSettings, MemorySettings, MermaidRenderingMode, ProviderRetrySettings,
+    ProviderWaitSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, Settings,
+    SignalGatewaySettings, TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting,
+    TransportSetting, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -97,6 +97,10 @@ fn populated() -> Settings {
             max_turns: limit(),
             max_tokens: limit(),
             timeout_ms: limit(),
+        }),
+        directors: Some(DirectorSettings {
+            stack_cap: Some(1),
+            max_steps: Some(1),
         }),
         shell_path: Some("s".into()),
         quiet_startup: Some(true),

@@ -35,6 +35,12 @@ await goal.complete()
   call it merely because the budget is nearly exhausted or because you are
   stopping work. When the result includes a `completion_budget_report`, report
   that final usage to the user.
+- `await goal.remind(text)` — put a reminder on the Director stack. Its text
+  leads the next goal or autonomous continuation; while no continuation comes,
+  it waits on the stack.
+- `await goal.force_tool(tool, tries=1)` — force the next requests to call
+  `tool` until a response calls it. After `1 + tries` requests without the
+  call, the run fails and the forced call leaves the stack.
 
 ## Rules
 

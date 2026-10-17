@@ -50,3 +50,31 @@ async def complete() -> dict[str, Any]:
     controlled by the user and the host.
     """
     return await host_request("goal.complete")
+
+
+async def remind(text: str) -> dict[str, Any]:
+    """Put a reminder on the Director stack.
+
+    Its text leads the next continuation (of the goal or the autonomous run).
+    While no continuation comes, the reminder waits on the stack. Returns the
+    Director stack (`stack`, bottom first).
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"text must be str, got {type(text).__name__}")
+    return await host_request("directors.push", {"layer": "reminder", "text": text})
+
+
+async def force_tool(tool: str, tries: int = 1) -> dict[str, Any]:
+    """Force the next requests to call `tool` until a response calls it.
+
+    A forced run asks up to `1 + tries` times. When no response calls the
+    tool, the run fails and the forced call leaves the stack. Returns the
+    Director stack (`stack`, bottom first).
+    """
+    if not isinstance(tool, str):
+        raise TypeError(f"tool must be str, got {type(tool).__name__}")
+    if not isinstance(tries, int):
+        raise TypeError(f"tries must be int, got {type(tries).__name__}")
+    return await host_request(
+        "directors.push", {"layer": "forceTool", "tool": tool, "tries": tries}
+    )

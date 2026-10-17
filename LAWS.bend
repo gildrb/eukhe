@@ -18,6 +18,7 @@ import ./bend/admission.bend as Ad
 import ./bend/tree.bend as Tr
 import ./bend/job.bend as Jb
 import ./bend/cvar.bend as Cv
+import ./bend/director.bend as Dr
 import ./bend/infer.bend as If
 
 # (a) The view
@@ -965,6 +966,65 @@ law bind_first_wins:
   for +rest: List<&2, Cv.KeyBind>
   for +as: List<&2, Cv.Alias>
   {Cv.press(Cv.KeyBind{k, c} <> rest, k, as) == Cv.expand(c, as) : Cv.Exp}
+
+# (S5) The Director stack
+# -----------------------
+# docs/harness.md S5, the model in bend/director.bend. Every verdict is
+# free: each layer of each step says what the adversary picks.
+
+# LAW: a decision never grows the stack past its cap
+law dir_stack_bounded:
+  for +s: List<&2, Dr.Layer>
+  for vs: List<&2, Dr.Verdict>
+  for +cap: Nat
+  for fits: {Nat.is_le(List.length(&2, Dr.Layer, s), cap) == True{} : Bool}
+  {Nat.is_le(List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.decide(s, vs, cap))), cap) == True{} : Bool}
+
+# LAW: so neither does the loop, whatever its steps
+law dir_loop_stack_bounded:
+  for vss: List<&2, List<&2, Dr.Verdict>>
+  for +cap: Nat
+  for +l: Dr.Loop
+  for fits: {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(l)), cap) == True{} : Bool}
+  {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.run(vss, cap, l))), cap) == True{} : Bool}
+
+# LAW: the loop ends (hands back or fails) after at most n + 1 steps,
+# with n its global budget, whatever every layer says: no Director keeps
+# the loop going for ever
+law dir_loop_ends:
+  for +n: Nat
+  for +s: List<&2, Dr.Layer>
+  for +vss: List<&2, List<&2, Dr.Verdict>>
+  for +cap: Nat
+  for long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}
+  {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}
+
+# LAW: an ended loop stays as it ended
+law dir_end_is_final:
+  for +cap: Nat
+  for +l: Dr.Loop
+  for done: {Dr.ended(l) == True{} : Bool}
+  for vs: List<&2, Dr.Verdict>
+  {Dr.tick(cap, l, vs) == l : Dr.Loop}
+
+# LAW: the stack in the tree is a valid tree
+law dir_encode_sound:
+  for +s: List<&2, Dr.Layer>
+  {Tr.sound(Dr.encode(s)) == True{} : Bool}
+
+# LAW: a resume reads back the stack the tree holds, exactly
+law dir_resume_restores:
+  for +s: List<&2, Dr.Layer>
+  {Dr.decode(Dr.encode(s)) == s : List<&2, Dr.Layer>}
+
+# LAW: a rewind of any valid tree to the tree of a stack restores that
+# stack, exactly: a rewind removes the Directors added after the target
+# and brings back the ones removed
+law dir_rewind_restores:
+  for +a: List<&2, Tr.Ent>
+  for +s: List<&2, Dr.Layer>
+  for good: {Tr.sound(a) == True{} : Bool}
+  {Dr.decode(Tr.apply(a, Tr.Rewind{Tr.diff(a, Dr.encode(s))})) == s : List<&2, Dr.Layer>}
 
 # (S6) The inference layer
 # ------------------------

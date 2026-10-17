@@ -194,6 +194,8 @@ In goal mode eukhe helps an agent stay on track until a task is fully finished, 
 - `goal.create(objective: str, token_budget: int | None = None) -> dict`: create goal and return goal state
 - `goal.get() -> dict`: get goal status (only one goal can be active at a time)
 - `goal.complete() -> dict`: mark goal as completed and get final goal status
+- `goal.remind(text: str) -> dict`: put a reminder on the Director stack; its text leads the next goal or autonomous continuation, and it waits on the stack until one comes
+- `goal.force_tool(tool: str, tries: int = 1) -> dict`: force the next requests to call `tool` until a response calls it; after `1 + tries` requests without the call the run fails and the forced call leaves the stack
 
 ## Heartbeat
 

@@ -135,6 +135,7 @@ impl Serialize for InboxItem {
                     InputOrigin::User => item.skip_field("origin")?,
                     InputOrigin::Goal { .. }
                     | InputOrigin::Autonomous { .. }
+                    | InputOrigin::Director
                     | InputOrigin::QuotaResume
                     | InputOrigin::Report { .. } => item.serialize_field("origin", origin)?,
                 }

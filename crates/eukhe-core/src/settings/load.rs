@@ -37,6 +37,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "providerBackupModel",
     "imageModel",
     "autonomous",
+    "directors",
     "shellPath",
     "quietStartup",
     "shellCommandPrefix",

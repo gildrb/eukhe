@@ -18,6 +18,9 @@ pub enum InputOrigin {
     Goal { context: GoalContextKind },
     /// An autonomous-mode continuation.
     Autonomous { nudge: AutonomousNudge },
+    /// A continuation a Director layer added (a forced tool call that the
+    /// model has not made yet).
+    Director,
     /// The marker that resumes a session the provider quota parked.
     QuotaResume,
     /// A report of work outside this conversation.

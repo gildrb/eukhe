@@ -103,7 +103,10 @@ pub(super) async fn transform(
             .await
             .map_err(|error| memory_error(&error))?;
     }
-    Ok(Some(RequestMessages { messages }))
+    Ok(Some(RequestMessages {
+        messages,
+        force_tool: request.force_tool,
+    }))
 }
 
 /// The system prompt and tools a request sends, as compactions reuse them.

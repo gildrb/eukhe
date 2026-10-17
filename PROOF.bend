@@ -23,6 +23,7 @@ import ./bend/proof_admission_wait.bend as AdmissionWait
 import ./bend/proof_tree.bend as Trees
 import ./bend/proof_job.bend as Jobs
 import ./bend/proof_cvar.bend as Cvars
+import ./bend/proof_director.bend as Directors
 import ./bend/proof_infer.bend as Infer
 import ./bend/proof_quirks.bend as Quirks
 
@@ -381,6 +382,29 @@ def Laws.bind_unbound_runs_nothing(bs, k, as, free):
 
 def Laws.bind_first_wins(k, c, rest, as):
   Cvars.pv.bind_first_wins(k, c, rest, as)
+
+# (S5) The Director stack
+
+def Laws.dir_stack_bounded(s, vs, cap, fits):
+  Directors.pd.dir_stack_bounded(s, vs, cap, fits)
+
+def Laws.dir_loop_stack_bounded(vss, cap, l, fits):
+  Directors.pd.dir_loop_stack_bounded(vss, cap, l, fits)
+
+def Laws.dir_loop_ends(n, s, vss, cap, long):
+  Directors.pd.dir_loop_ends(n, s, vss, cap, long)
+
+def Laws.dir_end_is_final(cap, l, done, vs):
+  Directors.pd.dir_end_is_final(cap, l, done, vs)
+
+def Laws.dir_encode_sound(s):
+  Directors.pd.dir_encode_sound(s)
+
+def Laws.dir_resume_restores(s):
+  Directors.pd.dir_resume_restores(s)
+
+def Laws.dir_rewind_restores(a, s, good):
+  Directors.pd.dir_rewind_restores(a, s, good)
 
 # (S6) The inference layer
 

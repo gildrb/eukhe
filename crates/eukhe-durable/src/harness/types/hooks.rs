@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use super::conversation::UserInput;
 use super::data::CompactionReason;
+use super::settings::ForcedTool;
 use super::tools::ToolExecutionResult;
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::entries::CompactionSummary;
@@ -122,10 +123,14 @@ impl DocumentReader for HookApi {
     }
 }
 
-/// The request of `before_request`, and its replacement.
+/// The request of `before_request`, and its replacement: the messages and
+/// the tool the request forces ([`ForcedTool`]; first the settings'
+/// `stream.forceTool`). A hook that replaces the request carries the forced
+/// tool it does not change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestMessages {
     pub messages: Vec<Message>,
+    pub force_tool: Option<ForcedTool>,
 }
 
 /// `on_yield`'s decision: append a user message and continue the run.

@@ -76,7 +76,7 @@ pub(crate) fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
 /// request as it is.
 async fn deliver(
     deps: Arc<HostDeps>,
-    _request: RequestMessages,
+    request: RequestMessages,
     api: HookApi,
     cx: Context,
 ) -> HookResult<RequestMessages> {
@@ -161,6 +161,7 @@ async fn deliver(
     }
     Ok(Some(RequestMessages {
         messages: inject(messages, message),
+        force_tool: request.force_tool,
     }))
 }
 

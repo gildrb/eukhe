@@ -483,7 +483,12 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let view = runtime
         .context(conversation_id, &cx, ContextOptions { at: Some(cutoff) })
         .await?;
-    let messages = Mutex::new(view.messages.clone());
+    // The hooks see and may replace the messages and the forced tool; the
+    // settings' forced tool is the first value.
+    let shaped = Mutex::new(RequestMessages {
+        messages: view.messages.clone(),
+        force_tool: stream_options.force_tool.clone(),
+    });
     let api = runtime.hook_api();
     // A failed hook ends the run: the request it would have shaped never
     // goes out in another form.
@@ -492,18 +497,15 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         .each_required(
             |hooks: &GenerationHooks| hooks.before_request.clone(),
             |hook| {
-                let current = RequestMessages {
-                    messages: messages
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .clone(),
-                };
+                let current = shaped
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
                 let pending = hook(&current, &api, &cx);
-                let messages = &messages;
+                let shaped = &shaped;
                 async move {
                     if let Some(replaced) = pending.await? {
-                        *messages.lock().unwrap_or_else(PoisonError::into_inner) =
-                            replaced.messages;
+                        *shaped.lock().unwrap_or_else(PoisonError::into_inner) = replaced;
                     }
                     Ok(())
                 }
@@ -517,19 +519,17 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
             return fail_model_error(&runtime, format!("A request hook failed: {error}"), &cx).await
         }
     }
-    let mut messages = messages
-        .into_inner()
-        .unwrap_or_else(PoisonError::into_inner);
+    let RequestMessages {
+        mut messages,
+        force_tool,
+    } = shaped.into_inner().unwrap_or_else(PoisonError::into_inner);
     let mut options = stream_options.simple_stream_options();
     options.stream.request.signal = Some(runtime.signal());
     options.stream.session_id = Some(ensure_provider_session_id(&runtime, &cx).await?);
     options.reasoning = reasoning(thinking_level);
     // A forced call: the soft prompt ends every request; the native flag
     // follows the escalation. Neither is committed to the transcript.
-    let force = stream_options
-        .force_tool
-        .clone()
-        .map(|option| Forcing::of(option, &model, options.reasoning));
+    let force = force_tool.map(|option| Forcing::of(option, &model, options.reasoning));
     if let Some(force) = &force {
         messages.push(Message::User(UserMessage {
             content: UserContent::Text(soft_prompt(&force.forced.tool)),

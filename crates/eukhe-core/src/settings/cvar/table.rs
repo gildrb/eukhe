@@ -651,6 +651,26 @@ pub const AUTONOMOUS_TIMEOUT_MS: Decl = Decl {
     init: Init::Null,
 };
 
+/// `0` takes the default.
+pub const DIRECTORS_STACK_CAP: Decl = Decl {
+    id: "directors.stackCap",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(8),
+};
+
+/// `0` takes the default.
+pub const DIRECTORS_MAX_STEPS: Decl = Decl {
+    id: "directors.maxSteps",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(200),
+};
+
 pub const SHELL_PATH: Decl = Decl {
     id: "shellPath",
     ty: CvarType::Text,
@@ -1070,6 +1090,8 @@ pub const DECLS: &[Decl] = &[
     AUTONOMOUS_MAX_TURNS,
     AUTONOMOUS_MAX_TOKENS,
     AUTONOMOUS_TIMEOUT_MS,
+    DIRECTORS_STACK_CAP,
+    DIRECTORS_MAX_STEPS,
     SHELL_PATH,
     QUIET_STARTUP,
     SHELL_COMMAND_PREFIX,

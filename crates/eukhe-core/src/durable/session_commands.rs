@@ -1,5 +1,6 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/goal`, and `/autonomous`, including the `/refine` argument parsing.
+//! `/goal`, `/autonomous`, `/remind`, and `/force`, including the
+//! `/refine` and `/force` argument parsing.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //!
 //! The rows are `eukhe.custom` entries committed on the command's
@@ -16,6 +17,7 @@ use eukhe_types::pi_ai::UserContent;
 use eukhe_types::slash_commands::SlashCommandRegistry;
 use serde_json::{json, Value};
 
+use super::directors::{push_director, DirectorLimits, Layer};
 use super::entries::custom_entry_draft;
 use super::goals::{
     autonomous_state, clear_goal, goal_state, pause_goal, resume_goal, set_autonomous, start_goal,
@@ -94,10 +96,13 @@ pub enum SessionCommandName {
     Refine,
     Goal,
     Autonomous,
+    Remind,
+    Force,
 }
 
 impl SessionCommandName {
-    /// The command's name as typed (`compact`, `refine`, `goal`, `autonomous`).
+    /// The command's name as typed (`compact`, `refine`, `goal`,
+    /// `autonomous`, `remind`, `force`).
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -105,6 +110,8 @@ impl SessionCommandName {
             Self::Refine => "refine",
             Self::Goal => "goal",
             Self::Autonomous => "autonomous",
+            Self::Remind => "remind",
+            Self::Force => "force",
         }
     }
 
@@ -116,6 +123,8 @@ impl SessionCommandName {
             "refine" => Some(Self::Refine),
             "goal" => Some(Self::Goal),
             "autonomous" => Some(Self::Autonomous),
+            "remind" => Some(Self::Remind),
+            "force" => Some(Self::Force),
             _ => None,
         }
     }
@@ -188,6 +197,22 @@ pub async fn execute_session_command(
         SessionCommandName::Autonomous => {
             execute_autonomous(session, conversation, command, &mut outcome, cx).await
         }
+        SessionCommandName::Remind => match command.args.trim() {
+            "" => Err("Usage: /remind <text>".to_owned()),
+            text => {
+                let layer = Layer::reminder(text.to_owned());
+                let report = "Reminder added: it leads the next continuation.".to_owned();
+                push_layer(session, conversation, command, layer, report, cx).await
+            }
+        },
+        SessionCommandName::Force => match parse_force_command(&command.args) {
+            Ok((tool, tries)) => {
+                let report = format!("The next requests force a call to `{tool}`.");
+                let layer = Layer::force_tool(tool, tries);
+                push_layer(session, conversation, command, layer, report, cx).await
+            }
+            Err(usage) => Err(usage),
+        },
     };
     if let Err(message) = result {
         let committed = append_rows(conversation, vec![failure_row(command, &message)], cx).await;
@@ -490,4 +515,48 @@ async fn execute_autonomous(
         .map_err(|error| error.to_string())?;
     outcome.autonomous = Some(status);
     Ok(())
+}
+
+/// Parse `/force <tool> [--tries <n>]`: the tool and its retries per
+/// forced run (default 1).
+///
+/// # Errors
+///
+/// A usage-error string when the tool is missing or `--tries` has no
+/// non-negative integer.
+fn parse_force_command(args: &str) -> Result<(String, u32), String> {
+    const USAGE: &str = "Usage: /force <tool> [--tries <n>]";
+    let mut words = args.split_whitespace();
+    let Some(tool) = words.next().filter(|tool| !tool.starts_with("--")) else {
+        return Err(USAGE.to_owned());
+    };
+    let tries = match (words.next(), words.next(), words.next()) {
+        (None, None, None) => 1,
+        (Some("--tries"), Some(tries), None) => tries.parse().map_err(|_| USAGE.to_owned())?,
+        _ => return Err(USAGE.to_owned()),
+    };
+    Ok((tool.to_owned(), tries))
+}
+
+/// `/remind` and `/force`: put `layer` on the Director stack of the
+/// conversation, and report `text` in a shown result row.
+#[tracing::instrument(skip_all)]
+async fn push_layer(
+    session: &EukheSession,
+    conversation: &Conversation,
+    command: &SessionCommand,
+    layer: Layer,
+    text: String,
+    cx: &Context,
+) -> Result<(), String> {
+    let limits = DirectorLimits::of(session.deps().settings.manager().settings());
+    push_director(session.harness(), conversation.id(), layer, limits, cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    append_rows(
+        conversation,
+        vec![result_row(command, text, Visibility::Shown)],
+        cx,
+    )
+    .await
 }

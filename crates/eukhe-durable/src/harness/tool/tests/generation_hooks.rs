@@ -87,7 +87,14 @@ async fn replaces_request_messages_observes_responses_and_continues_on_yield() {
                     content: UserContent::Text("injected".to_owned()),
                     timestamp: 0,
                 }));
-                async move { Ok(Some(RequestMessages { messages })) }.boxed()
+                let force_tool = request.force_tool.clone();
+                async move {
+                    Ok(Some(RequestMessages {
+                        messages,
+                        force_tool,
+                    }))
+                }
+                .boxed()
             })),
             ..GenerationHooks::default()
         },

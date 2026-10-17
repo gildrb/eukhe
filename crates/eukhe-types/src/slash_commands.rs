@@ -11,7 +11,8 @@
 use std::collections::HashMap;
 
 /// Session-executed commands (their behavior lives in the session engine).
-pub const SESSION_SLASH_COMMAND_NAMES: [&str; 4] = ["compact", "refine", "goal", "autonomous"];
+pub const SESSION_SLASH_COMMAND_NAMES: [&str; 6] =
+    ["compact", "refine", "goal", "autonomous", "remind", "force"];
 
 /// Durable row custom types (TS core/messages.ts): the command echo and its
 /// result, as persisted in sessions and rendered by every surface.
@@ -78,6 +79,8 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "refine", description: "Refine continual harness prompt notes, skills, subagents, and memory", execution: SlashCommandExecution::Session, argument_hint: None, aliases: &[], takes_argument: false },
     BuiltinSlashCommand { name: "goal", description: "Set or view a persistent goal; supports pause, resume, and clear", execution: SlashCommandExecution::Session, argument_hint: Some("[objective]"), aliases: &[], takes_argument: true },
     BuiltinSlashCommand { name: "autonomous", description: "Set or view autonomous mode with an optional budget", execution: SlashCommandExecution::Session, argument_hint: Some("[status|off|on [--max-continuations <n>] [--max-turns <n>] [--max-tokens <n>] [--timeout-ms <n>] [--gate <command>]]"), aliases: &[], takes_argument: true },
+    BuiltinSlashCommand { name: "remind", description: "Put a reminder on the Director stack; its text leads the next continuation", execution: SlashCommandExecution::Session, argument_hint: Some("<text>"), aliases: &[], takes_argument: true },
+    BuiltinSlashCommand { name: "force", description: "Force the next requests to call a tool until the model calls it", execution: SlashCommandExecution::Session, argument_hint: Some("<tool> [--tries <n>]"), aliases: &[], takes_argument: true },
     BuiltinSlashCommand { name: "rlm-max-depth", description: "Set/view the per-chat persistent RLM max depth immediately; never interrupts or queues the running turn", execution: SlashCommandExecution::Client, argument_hint: Some("[<int> [--global]]"), aliases: &[], takes_argument: true },
     BuiltinSlashCommand { name: "set", description: "Set a console variable for this session (--global: in the global config.cfg)", execution: SlashCommandExecution::Client, argument_hint: Some("[--global] <id> <value>"), aliases: &[], takes_argument: true },
     BuiltinSlashCommand { name: "toggle", description: "Flip a boolean console variable for this session", execution: SlashCommandExecution::Client, argument_hint: Some("<id>"), aliases: &[], takes_argument: true },
