@@ -405,6 +405,49 @@ and prints the per-layer breakdown (cached static layers, then the dynamic tail)
         "--cwd <dir>         Assemble for this working directory (default: current)",
         "--json              Print segments and prompt as JSON",
     ]),
+    CommandSpec::new(
+        &["tiny-models"],
+        "tiny-models [list|download <id|all>]",
+        "List or download the local tiny models",
+    )
+    .description(
+        "Lists the pinned local models (text, speech to text, text to speech) with their size \
+and install state; download fetches a model's pinned files from Hugging Face into the agent \
+dir and checks each against its sha256. Nothing downloads on its own: this command is the only \
+way a local model gets installed.",
+    )
+    .examples(&["tiny-models", "tiny-models download lfm2.5-230m"]),
+    CommandSpec::new(
+        &["translate"],
+        "translate <lang> <text...>",
+        "Translate text with the translate role's model",
+    )
+    .description(
+        "Uses the first available model of the translate role (modelRoles.translate, then \
+retry.fallbackChains.translate; unset: the installed local text models, then the default \
+provider model) and prints only the translation. <lang> is a language code (fr) or name.",
+    )
+    .examples(&["translate pt good morning"]),
+    CommandSpec::new(
+        &["say"],
+        "say <text...> [--out <file.wav>] [--voice <id>]",
+        "Speak text with the local speech model",
+    )
+    .description(
+        "Uses the speech role's local model (kokoro). Without --out it plays through the \
+first of pw-play, paplay, or aplay; the voice defaults to tts.localVoice.",
+    )
+    .options(&[
+        "--out <file.wav>  Write the speech to a WAV file instead of playing it",
+        "--voice <id>      The voice (af_heart, bf_emma, ...)",
+    ]),
+    CommandSpec::new(
+        &["transcribe"],
+        "transcribe <file.wav> [--language <code>]",
+        "Transcribe a WAV file with the local dictation model",
+    )
+    .description("Uses the dictation role's local model (whisper) and prints the text.")
+    .options(&["--language <code>  The spoken language (default: detected)"]),
 ];
 
 /// Command names that once existed and now print removal guidance.

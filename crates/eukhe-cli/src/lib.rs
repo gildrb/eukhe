@@ -59,6 +59,8 @@ pub(crate) mod session_export;
 pub(crate) mod sessions_table_format;
 pub(crate) mod styling;
 pub(crate) mod subscription_login;
+pub(crate) mod tiny_command;
+pub(crate) mod tiny_models_command;
 
 /// The runtime boundary: everything a mode-runner crate implements to plug
 /// into the `eukhe` binary, plus the entry point that drives it.
@@ -102,6 +104,12 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     // runtime.
     if args.len() == 1 && args[0] == "--eukhe-bootstrap" {
         return run_runtime_bootstrap();
+    }
+
+    // The shared tiny-model worker the tiny client spawns (hidden: never a
+    // public command): `eukhe tiny-worker <model> --backend onnx ...`.
+    if args.first().map(String::as_str) == Some("tiny-worker") {
+        return Ok(tiny_command::run_tiny_worker(&args[1..]));
     }
 
     // Public command routing: help requests, removed commands, management

@@ -11,14 +11,42 @@ use eukhe_ai::typebox::Type;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_types::pi_ai::{
-    AnyModel, ClassifierContext, ImagesContext, JsonValue as PiJsonValue, ModelType, TextContent,
-    Usage, UserContentBlock,
+    AnyModel, ClassifierContext, ClassifierModel, ImagesContext, JsonValue as PiJsonValue,
+    ModelType, TextContent, Usage, UserContentBlock,
 };
+use futures::future::BoxFuture;
 use serde::Serialize;
 
 use crate::harness::define::define_tool;
 use crate::harness::types::{ToolCaller, ToolExecutionApi, ToolExecutionResult, ToolRegistration};
 use crate::session::{SessionError, SessionResult};
+
+/// Resolves the classifier of a `models.classify()` call whose model is
+/// `null` or `undefined`, from the session's model collection and the
+/// calling conversation's chat model (`provider/id`; empty: none). `Err`
+/// is the message the script gets.
+pub type ClassifierResolver = Arc<
+    dyn Fn(Models, String) -> BoxFuture<'static, Result<ClassifierModel, String>> + Send + Sync,
+>;
+
+/// How `models.classify()` gets its model when the script names none.
+#[derive(Clone)]
+pub enum ClassifierDefault {
+    /// No default: the script names a classifier model (the TS behavior).
+    Unset,
+    /// The embedding resolves one (eukhe: the `judge` role,
+    /// docs/inference.md S9).
+    Resolver(ClassifierResolver),
+}
+
+impl std::fmt::Debug for ClassifierDefault {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClassifierDefault::Unset => formatter.write_str("Unset"),
+            ClassifierDefault::Resolver(_) => formatter.write_str("Resolver(..)"),
+        }
+    }
+}
 
 /// Reserved names of code mode's internal tools; they are never listed to
 /// scripts or the model.
@@ -61,6 +89,11 @@ pub(crate) const MODELS_DESCRIPTION: &str = concat!(
     "- `models.generateImages(model, { input: [{ type: \"text\", text: <prompt> }, ...optional { type: \"image\", data, mimeType }] })` resolves to `{ output: [image blocks], stopReason, errorMessage?, usage? }`; show each image with `image(block)`.\n",
     "At most 4 classify/generateImages calls run at once; more wait.",
 );
+
+/// The line [`MODELS_DESCRIPTION`] gains with a
+/// [`ClassifierDefault::Resolver`].
+pub(crate) const CLASSIFIER_DEFAULT_DESCRIPTION: &str =
+    "`models.classify(null, context)` uses the session's default classifier.";
 
 fn record(value: Option<&PiJsonValue>) -> Option<&serde_json::Map<String, PiJsonValue>> {
     value.and_then(PiJsonValue::as_object)
@@ -457,14 +490,32 @@ async fn classify(
     args: PiJsonValue,
     api: Arc<dyn ToolExecutionApi>,
     cx: Context,
+    default: ClassifierDefault,
 ) -> SessionResult<ToolExecutionResult> {
     const NAME: &str = "models.classify";
     let models = api.models();
-    let resolved = resolve_model(NAME, ModelType::Classifier, args.get("model"), &models)
-        .map_err(SessionError::error)?;
-    let model = match resolved {
-        AnyModel::Classifier(model) => model,
-        other @ (AnyModel::Chat(_) | AnyModel::Image(_)) => return Err(wrong_type(NAME, &other)),
+    let model = match (args.get("model"), default) {
+        (None | Some(PiJsonValue::Null), ClassifierDefault::Resolver(resolve)) => {
+            let agent = api.agent(&cx).await?;
+            let session_model = agent
+                .model
+                .as_ref()
+                .map(|model| format!("{}/{}", model.provider, model.model_id))
+                .unwrap_or_default();
+            resolve(models.clone(), session_model)
+                .await
+                .map_err(SessionError::error)?
+        }
+        (model, ClassifierDefault::Unset | ClassifierDefault::Resolver(_)) => {
+            match resolve_model(NAME, ModelType::Classifier, model, &models)
+                .map_err(SessionError::error)?
+            {
+                AnyModel::Classifier(model) => model,
+                other @ (AnyModel::Chat(_) | AnyModel::Image(_)) => {
+                    return Err(wrong_type(NAME, &other));
+                }
+            }
+        }
     };
     let context = args.get("context");
     check_classifier_context(context).map_err(SessionError::error)?;
@@ -527,16 +578,17 @@ where
     define_tool(tool)
 }
 
-/// The internal tools behind `models.classify()` and
-/// `models.generateImages()`: callers [`ToolCaller::Tools`] only, an
-/// unknown structured output, parameters `{ model: unknown, context:
-/// unknown }`.
-pub fn create_model_tools() -> Vec<Arc<ToolRegistration>> {
+/// The internal tools behind `models.classify()` (its model, when the
+/// script names none, from `classifier`) and `models.generateImages()`:
+/// callers [`ToolCaller::Tools`] only, an unknown structured output,
+/// parameters `{ model: unknown, context: unknown }`.
+pub fn create_model_tools(classifier: &ClassifierDefault) -> Vec<Arc<ToolRegistration>> {
+    let classifier = classifier.clone();
     vec![
         model_tool(
             CLASSIFY_TOOL,
             "models.classify() of code mode scripts.",
-            classify,
+            move |args, api, cx| classify(args, api, cx, classifier.clone()),
         ),
         model_tool(
             GENERATE_IMAGES_TOOL,

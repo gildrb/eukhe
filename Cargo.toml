@@ -9,6 +9,8 @@ members = [
     "crates/eukhe-models",
     "crates/eukhe-docs",
     "crates/eukhe-shell",
+    "crates/eukhe-tiny",
+    "crates/eukhe-tiny-onnx",
     "crates/eukhe-core",
     "crates/eukhe-daemon",
     "crates/eukhe-tui",

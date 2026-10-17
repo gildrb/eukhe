@@ -1085,6 +1085,95 @@ pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     init: Init::List(&["read"]),
 };
 
+/// `modelRoles.<role>`: the primary model of an S9 role (`local/<id>` or
+/// `provider/model`); `""`: unset (`eukhe_tiny::chain`).
+const fn model_role(id: &'static str) -> Decl {
+    Decl {
+        id,
+        ty: CvarType::Text,
+        scope: CvarScope::Local,
+        persist: true,
+        replicate: false,
+        init: Init::Text(""),
+    }
+}
+
+pub const MODEL_ROLE_TINY: Decl = model_role("modelRoles.tiny");
+pub const MODEL_ROLE_JUDGE: Decl = model_role("modelRoles.judge");
+pub const MODEL_ROLE_TRANSLATE: Decl = model_role("modelRoles.translate");
+pub const MODEL_ROLE_SPEECH: Decl = model_role("modelRoles.speech");
+pub const MODEL_ROLE_DICTATION: Decl = model_role("modelRoles.dictation");
+
+/// `retry.fallbackChains.<role>`: a list of selectors; `null`: unset (the
+/// role's built-in priority); `[]`: the primary only.
+const fn fallback_chain(id: &'static str) -> Decl {
+    Decl {
+        id,
+        ty: CvarType::Json,
+        scope: CvarScope::Local,
+        persist: true,
+        replicate: false,
+        init: Init::Null,
+    }
+}
+
+pub const FALLBACK_CHAIN_TINY: Decl = fallback_chain("retry.fallbackChains.tiny");
+pub const FALLBACK_CHAIN_JUDGE: Decl = fallback_chain("retry.fallbackChains.judge");
+pub const FALLBACK_CHAIN_TRANSLATE: Decl = fallback_chain("retry.fallbackChains.translate");
+pub const FALLBACK_CHAIN_SPEECH: Decl = fallback_chain("retry.fallbackChains.speech");
+pub const FALLBACK_CHAIN_DICTATION: Decl = fallback_chain("retry.fallbackChains.dictation");
+
+/// The tiny-model worker's execution device; part of its launch tag.
+pub const PROVIDERS_TINY_MODEL_DEVICE: Decl = Decl {
+    id: "providers.tinyModelDevice",
+    ty: CvarType::Text,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Text("cpu"),
+};
+
+/// The tiny-model weight precision override; `""`: the catalog's files.
+pub const PROVIDERS_TINY_MODEL_DTYPE: Decl = Decl {
+    id: "providers.tinyModelDtype",
+    ty: CvarType::Text,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Text(""),
+};
+
+/// The ONNX Runtime library the worker loads (code): Global, never saved
+/// by an agent; `""`: `ORT_DYLIB_PATH`, else the loader's search path.
+pub const PROVIDERS_TINY_RUNTIME_LIBRARY: Decl = Decl {
+    id: "providers.tinyRuntimeLibrary",
+    ty: CvarType::Text,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Text(""),
+};
+
+/// Generated session titles (opt-out).
+pub const TITLES_GENERATE: Decl = Decl {
+    id: "titles.generate",
+    ty: CvarType::Bool,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Bool(true),
+};
+
+/// The local text-to-speech voice.
+pub const TTS_LOCAL_VOICE: Decl = Decl {
+    id: "tts.localVoice",
+    ty: CvarType::Text,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Text("af_heart"),
+};
+
 pub const DECLS: &[Decl] = &[
     ONBOARDING_SHOWN,
     ONBOARDING_COMPLETED,
@@ -1194,4 +1283,19 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_CWD,
     KERNEL_TRANSPORT,
     SHELL_AUTO_EFFECTS,
+    MODEL_ROLE_TINY,
+    MODEL_ROLE_JUDGE,
+    MODEL_ROLE_TRANSLATE,
+    MODEL_ROLE_SPEECH,
+    MODEL_ROLE_DICTATION,
+    FALLBACK_CHAIN_TINY,
+    FALLBACK_CHAIN_JUDGE,
+    FALLBACK_CHAIN_TRANSLATE,
+    FALLBACK_CHAIN_SPEECH,
+    FALLBACK_CHAIN_DICTATION,
+    PROVIDERS_TINY_MODEL_DEVICE,
+    PROVIDERS_TINY_MODEL_DTYPE,
+    PROVIDERS_TINY_RUNTIME_LIBRARY,
+    TITLES_GENERATE,
+    TTS_LOCAL_VOICE,
 ];

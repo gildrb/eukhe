@@ -312,6 +312,8 @@ fn setup(
     // failover switch budget of one (`retry.failover.maxRetries`; its
     // per-provider retry budget is pi-durable's `retry.maxRetries` on the
     // durable path) so the test asserts the chain, not the delays.
+    // No session title: its background request would add to the request
+    // counts of the chain the test asserts.
     std::fs::write(
         agent_dir.join("settings.json"),
         json!({
@@ -320,7 +322,8 @@ fn setup(
                 "maxRetries": 1,
                 "baseDelayMs": 50,
                 "failover": { "enabled": true, "maxRetries": 1, "baseDelayMs": 50 }
-            }
+            },
+            "titles": { "generate": false }
         })
         .to_string(),
     )

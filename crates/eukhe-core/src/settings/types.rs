@@ -167,6 +167,70 @@ pub struct RetrySettings {
     pub base_delay_ms: Option<u64>,
     pub failover: Option<RetryFailoverSettings>,
     pub provider: Option<ProviderRetrySettings>,
+    pub fallback_chains: Option<FallbackChainsSettings>,
+}
+
+/// `retry.fallbackChains.<role>`: the ordered model selectors a role falls
+/// back to after its primary (`modelRoles.<role>`). Unset: the role's
+/// built-in priority; `[]`: the primary only (S9, `eukhe_tiny::chain`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FallbackChainsSettings {
+    pub tiny: Option<Vec<String>>,
+    pub judge: Option<Vec<String>>,
+    pub translate: Option<Vec<String>>,
+    pub speech: Option<Vec<String>>,
+    pub dictation: Option<Vec<String>>,
+}
+
+/// `modelRoles.<role>`: the primary model selector of each role
+/// (`local/<catalog id>` or `provider/model`; S9).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRolesSettings {
+    /// Session titles.
+    pub tiny: Option<String>,
+    /// Typed judgments (classification).
+    pub judge: Option<String>,
+    pub translate: Option<String>,
+    /// Text to speech (local only).
+    pub speech: Option<String>,
+    /// Speech to text (local only).
+    pub dictation: Option<String>,
+}
+
+/// `providers`: how the local tiny-model worker runs (S9).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProvidersSettings {
+    /// `tinyModelDevice`: the execution device (default `cpu`).
+    #[serde(rename = "tinyModelDevice")]
+    pub device: Option<String>,
+    /// `tinyModelDtype`: the weight precision override; empty: the
+    /// catalog's file set.
+    #[serde(rename = "tinyModelDtype")]
+    pub dtype: Option<String>,
+    /// `tinyRuntimeLibrary`: the ONNX Runtime shared library the worker
+    /// loads; empty: `ORT_DYLIB_PATH`, else the loader's search path.
+    /// Loads code, so Global and withheld from untrusted projects.
+    #[serde(rename = "tinyRuntimeLibrary")]
+    pub runtime_library: Option<String>,
+}
+
+/// `titles`: generated session titles.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TitleSettings {
+    /// Generate a title from a top-level session's first message (default
+    /// true).
+    pub generate: Option<bool>,
+}
+
+/// `tts`: text to speech.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsSettings {
+    /// The local voice id (default `af_heart`).
+    pub local_voice: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -454,6 +518,14 @@ pub struct Settings {
     pub kernel_transport: Option<serde_json::Value>,
     /// `shell`: the shell tool's execution gate.
     pub shell: Option<ShellSettings>,
+    /// `modelRoles`: the primary model of each S9 role.
+    pub model_roles: Option<ModelRolesSettings>,
+    /// `providers`: the local tiny-model worker's settings.
+    pub providers: Option<ProvidersSettings>,
+    /// `titles`: generated session titles.
+    pub titles: Option<TitleSettings>,
+    /// `tts`: text to speech.
+    pub tts: Option<TtsSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

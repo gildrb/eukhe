@@ -172,6 +172,12 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "chat" => handled_with_exit(crate::chat_command::run_chat_command(&rest)),
         "gateway" => handled_with_exit(crate::gateway_command::run_gateway_command(&rest)),
         "dashboard" => handled_with_exit(crate::dashboard_command::run_dashboard_command(&rest)),
+        "tiny-models" => {
+            handled_with_exit(crate::tiny_models_command::run_tiny_models_command(&rest))
+        }
+        "translate" => handled_with_exit(crate::tiny_command::run_translate_command(&rest)),
+        "say" => handled_with_exit(crate::tiny_command::run_say_command(&rest)),
+        "transcribe" => handled_with_exit(crate::tiny_command::run_transcribe_command(&rest)),
         "config" => {
             if !rest.is_empty() {
                 return fail(format!("Usage: {APP_NAME} config"), None);

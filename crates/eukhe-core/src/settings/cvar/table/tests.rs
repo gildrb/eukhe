@@ -4,11 +4,12 @@ use serde_json::Value;
 use super::*;
 use crate::settings::types::{
     AutoRefineSettings, AutonomousLimitSetting, AutonomousSettings, BranchSummarySettings,
-    CompactionSettings, DirectorSettings, FactorySettings, GatewaySettings, ImageSettings,
-    MarkdownSettings, MemorySettings, MermaidRenderingMode, ProviderRetrySettings,
-    ProviderWaitSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, Settings,
-    ShellSettings, SignalGatewaySettings, StreamPaceSettings, TerminalSettings,
-    ThinkingBudgetsSettings, ThinkingLevelSetting, TransportSetting, WarningSettings,
+    CompactionSettings, DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings,
+    ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings,
+    ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
+    RetryFailoverSettings, RetrySettings, Settings, ShellSettings, SignalGatewaySettings,
+    StreamPaceSettings, TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting,
+    TitleSettings, TransportSetting, TtsSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -90,6 +91,13 @@ fn populated() -> Settings {
                     max_parks: Some(1),
                 }),
             }),
+            fallback_chains: Some(FallbackChainsSettings {
+                tiny: Some(vec![]),
+                judge: Some(vec![]),
+                translate: Some(vec![]),
+                speech: Some(vec![]),
+                dictation: Some(vec![]),
+            }),
         }),
         provider_backup_model: Some("m".into()),
         image_model: Some("m".into()),
@@ -163,6 +171,24 @@ fn populated() -> Settings {
         kernel_transport: Some(Value::from(1)),
         shell: Some(ShellSettings {
             auto_effects: Some(vec![]),
+        }),
+        model_roles: Some(ModelRolesSettings {
+            tiny: Some("m".into()),
+            judge: Some("m".into()),
+            translate: Some("m".into()),
+            speech: Some("m".into()),
+            dictation: Some("m".into()),
+        }),
+        providers: Some(ProvidersSettings {
+            device: Some("cpu".into()),
+            dtype: Some("q4".into()),
+            runtime_library: Some("l".into()),
+        }),
+        titles: Some(TitleSettings {
+            generate: Some(true),
+        }),
+        tts: Some(TtsSettings {
+            local_voice: Some("af_heart".into()),
         }),
         extra: serde_json::Map::new(),
     }

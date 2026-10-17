@@ -434,11 +434,14 @@ fn setup_with_rejection(
     )
     .expect("write models.json");
     // A fast retry policy so the test asserts the loop, not the delays.
+    // No session title: its background request to the same provider
+    // would add to the request counts the tests assert.
     std::fs::write(
         agent_dir.join("settings.json"),
         json!({
             "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 50 },
-            "memory": { "model": "chat-memory/summarizer" }
+            "memory": { "model": "chat-memory/summarizer" },
+            "titles": { "generate": false }
         })
         .to_string(),
     )

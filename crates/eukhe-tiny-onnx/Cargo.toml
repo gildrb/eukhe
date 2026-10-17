@@ -1,0 +1,36 @@
+[package]
+name = "eukhe-tiny-onnx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The ONNX engine of the tiny-model worker: text generation, Whisper speech to text, Kokoro text to speech."
+
+[dependencies]
+eukhe-tiny = { path = "../eukhe-tiny" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+# ONNX Runtime through a safe API. `load-dynamic`: no build-time download
+# and no link-time dependency; the worker loads the system
+# libonnxruntime (nixpkgs `onnxruntime`) at run time. `api-24`: the
+# oldest runtime it accepts is 1.24 (nixpkgs ships 1.24.x).
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
+ndarray = { version = "0.17", default-features = false, features = ["std"] }
+# The text models' tokenizer.json (own byte-level BPE in tokenizer.rs):
+# the pre-tokenizer regexes need look-ahead (`\s+(?!\S)`), and added
+# tokens match leftmost-longest. Both crates are already in the graph.
+fancy-regex = "0.14"
+aho-corasick = "1"
+# The Whisper log-mel spectrogram.
+rustfft = "6"
+# WAV in (transcribe) and out (say).
+hound = "3.5"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = { workspace = true }
+
+[lints]
+workspace = true

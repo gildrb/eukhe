@@ -541,3 +541,4 @@ bounds the wait, not the work), and the turn file between owners.
 - [S6. The inference layer](inference.md#s6-the-inference-layer)
 - [S7. The tool surface](tools.md#s7-the-tool-surface)
 - [S8. The interface](interface.md#s8-the-interface)
+- [S9. Local tiny models](inference.md#s9-local-tiny-models)

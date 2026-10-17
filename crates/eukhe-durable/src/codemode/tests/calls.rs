@@ -9,7 +9,9 @@ use eukhe_chord::json::{from_json, JsonValue};
 use serde_json::json;
 
 use super::{options, run_script, sandbox, setup, setup_with, text, Setup};
-use crate::codemode::{CodemodeCallStatus, CodemodeModels, CodemodeToolDetails};
+use crate::codemode::{
+    ClassifierDefault, ClassifierResolver, CodemodeCallStatus, CodemodeModels, CodemodeToolDetails,
+};
 use crate::harness::tests::chat_support::{all_entries, open_chat};
 use crate::harness::tests::support::context;
 use crate::harness::tool::tests::nested_support::{call_with, lock};
@@ -212,6 +214,41 @@ return [chat.map((model) => model.id), one.provider, typeof models.classify];"#,
     let setup = super::setup();
     let message = run_script(&setup, "return typeof models;").await;
     assert_eq!(text(&message).lines().last(), Some("undefined"));
+}
+
+#[tokio::test]
+async fn a_classification_without_a_model_asks_the_default_classifier() {
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&asked);
+    let resolver: ClassifierResolver = Arc::new(move |_models, session_model| {
+        lock(&seen).push(session_model);
+        Box::pin(async { Err("no model of the judge role is available".to_owned()) })
+    });
+    let setup = setup_with(crate::codemode::CodemodeToolOptions {
+        models: CodemodeModels::Included,
+        classifier: ClassifierDefault::Resolver(resolver),
+        ..options(sandbox())
+    });
+    let message = run_script(
+        &setup,
+        r#"const context = { state: {}, questions: { q: { type: "bool", instructions: "Is it?", criteria: { true: "yes", false: "no" } } } };
+const answers = [];
+for (const model of [null, undefined]) {
+  try { await models.classify(model, context); answers.push("resolved"); } catch (error) { answers.push(error.message); }
+}
+return answers;"#,
+    )
+    .await;
+    assert_eq!(
+        (returned(&message), lock(&asked).clone()),
+        (
+            JsonValue::parse(
+                r#"["no model of the judge role is available","no model of the judge role is available"]"#
+            )
+            .unwrap(),
+            vec!["faux/faux-1".to_owned(), "faux/faux-1".to_owned()]
+        )
+    );
 }
 
 #[tokio::test]

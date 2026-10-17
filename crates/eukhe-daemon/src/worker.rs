@@ -26,6 +26,7 @@ mod passivation;
 mod run_outcome;
 mod state_tree;
 mod summary;
+mod title;
 
 mod connection;
 
@@ -195,6 +196,12 @@ pub struct Worker {
     /// Set once the hosted session's durable Harness failed (see
     /// `harness_end`): the worker retires and exits for revival.
     harness_failure: tokio::sync::watch::Sender<Option<crate::journal::WorkerFailure>>,
+    /// This worker as the background tasks that outlive a command reach it
+    /// (the generated title); set by `run_worker`, so a worker built
+    /// without it (in-process tests) generates no title.
+    this: std::sync::OnceLock<std::sync::Weak<Worker>>,
+    /// Set once this worker started a session title (`title`).
+    title_started: std::sync::atomic::AtomicBool,
 }
 
 /// Whether a delivery's sender is one of THIS session's children, by the
@@ -363,6 +370,8 @@ impl Worker {
                     .unwrap_or_default(),
             )),
             harness_failure: tokio::sync::watch::Sender::new(None),
+            this: std::sync::OnceLock::new(),
+            title_started: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -576,6 +585,7 @@ pub async fn run_worker() -> Result<()> {
     let config = WorkerConfig::from_env()?;
     let registration = crate::registration::start(&config);
     let worker = Arc::new(Worker::new(config, registration));
+    let _ = worker.this.set(Arc::downgrade(&worker));
     if let Some(handle) = worker.registration.clone() {
         let worker = Arc::clone(&worker);
         tokio::spawn(async move {

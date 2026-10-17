@@ -18,7 +18,7 @@ use super::describe::{
     codemode_description, codemode_section, CodemodeModels, CodemodeNamespace,
     DEFAULT_CODEMODE_INLINE_BUDGET,
 };
-use super::models::{create_model_tools, CODEMODE_INTERNAL_PREFIX};
+use super::models::{create_model_tools, ClassifierDefault, CODEMODE_INTERNAL_PREFIX};
 use super::sandbox::CodemodeSandbox;
 use super::source::CODEMODE_SOURCE_GRAMMAR;
 use crate::harness::define::{define_extension, define_tool, section};
@@ -92,13 +92,16 @@ pub struct CodemodeToolOptions {
     /// Whether scripts get `models.*`: the model catalog, classifiers, and
     /// image generation.
     pub models: CodemodeModels,
+    /// The model of a `models.classify()` call that names none.
+    pub classifier: ClassifierDefault,
     /// Host functions scripts call as globals.
     pub globals: Vec<CodemodeGlobal>,
 }
 
 impl CodemodeToolOptions {
     /// The defaults with `sandbox`: no namespaces, the default inline
-    /// budget, `models.*` included, no host globals.
+    /// budget, `models.*` included without a default classifier, no host
+    /// globals.
     #[must_use]
     pub fn new(sandbox: CodemodeSandbox) -> Self {
         Self {
@@ -106,6 +109,7 @@ impl CodemodeToolOptions {
             namespaces: Vec::new(),
             inline_budget: DEFAULT_CODEMODE_INLINE_BUDGET,
             models: CodemodeModels::Included,
+            classifier: ClassifierDefault::Unset,
             globals: Vec::new(),
         }
     }
@@ -122,7 +126,7 @@ pub fn create_codemode_tool(options: &Arc<CodemodeToolOptions>) -> Arc<ToolRegis
     let shared = Arc::clone(options);
     let mut tool = ToolRegistration::new(
         CODEMODE_TOOL_NAME,
-        codemode_description(options.models),
+        codemode_description(options.models, &options.classifier),
         parameters,
         move |args: PiJsonValue, api: Arc<dyn ToolExecutionApi>, cx: Context| {
             let options = Arc::clone(&shared);
@@ -160,7 +164,7 @@ pub fn create_codemode_extension(options: CodemodeToolOptions) -> Arc<Extension>
     let options = Arc::new(options);
     let mut tools = vec![create_codemode_tool(&options)];
     match options.models {
-        CodemodeModels::Included => tools.extend(create_model_tools()),
+        CodemodeModels::Included => tools.extend(create_model_tools(&options.classifier)),
         CodemodeModels::Excluded => {}
     }
     let shared = Arc::clone(&options);

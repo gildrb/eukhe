@@ -23,6 +23,7 @@ import ./bend/director.bend as Dr
 import ./bend/infer.bend as If
 import ./bend/tools.bend as Tl
 import ./bend/screen.bend as Sc
+import ./bend/tiny.bend as Tn
 
 # (a) The view
 # ------------
@@ -1459,3 +1460,55 @@ law layout_whole_when_room:
   for +rows: Nat
   for fits: {Nat.is_le(Nat.add(y, Sc.sum(hs)), rows) == True{} : Bool}
   {Sc.heights(Sc.vstack(hs, y, rows)) == hs : List<&2, Nat>}
+
+# (S9) Local tiny models
+# ----------------------
+# docs/inference.md S9, the model in bend/tiny.bend. Every input is free:
+# any chain of models, any set of available models, any needs of any
+# processes with any tags, any worker exits, in any order.
+
+# LAW: a task uses only a model of its chain that is available
+law tiny_pick_in_chain:
+  for +chain: List<&2, Nat>
+  for +up: List<&2, Nat>
+  for +m: Nat
+  for used: {Tn.pick(chain, up) == Tn.Use{m} : Tn.Pick}
+  {Bool.and(Tn.elem(chain, m), Tn.elem(up, m)) == True{} : Bool}
+
+# LAW: it uses the first available model of the chain
+law tiny_pick_first:
+  for +pre: List<&2, Nat>
+  for +m: Nat
+  for +post: List<&2, Nat>
+  for +up: List<&2, Nat>
+  for before: {Tn.none_up(pre, up) == True{} : Bool}
+  for here: {Tn.elem(up, m) == True{} : Bool}
+  {Tn.pick(List.append(&2, Nat, pre, m <> post), up) == Tn.Use{m} : Tn.Pick}
+
+# LAW: with no model of the chain available the task fails as
+# Unavailable: it never runs on a model outside the chain
+law tiny_pick_unavailable:
+  for +chain: List<&2, Nat>
+  for +up: List<&2, Nat>
+  for none: {Tn.none_up(chain, up) == True{} : Bool}
+  {Tn.pick(chain, up) == Tn.Unavailable{} : Tn.Pick}
+
+# LAW: every need of a process gets exactly one outcome: it joins, starts
+# or replaces the worker
+law tiny_every_need_served:
+  for +es: List<&2, Tn.Ev>
+  for +w: Tn.W
+  {List.length(&2, Tn.Got, Tn.gots(es, w)) == Tn.needs(es) : Nat}
+
+# LAW: after any events, the worker runs with the tag of the last need
+# since the last exit: a stale worker never serves a process
+law tiny_worker_current:
+  for +es: List<&2, Tn.Ev>
+  {Tn.W.tag(Tn.run(es, Tn.NoWorker{})) == Tn.last_tag(es, None{}) : Maybe<&2, Nat>}
+
+# LAW: a need with the running worker's tag joins it: no restart churn
+law tiny_same_tag_joins:
+  for +o: Nat
+  for +t: Nat
+  for +p: Nat
+  {Tn.got(Tn.Worker{o, t}, Tn.Need{p, t}) == [Tn.Joined{}] : List<&2, Tn.Got>}

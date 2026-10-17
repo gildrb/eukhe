@@ -417,9 +417,11 @@ fn open_session() -> OpenSession {
         .to_string(),
     )
     .expect("write models.json");
+    // No session title: its background request would add to the provider
+    // request count the test asserts.
     std::fs::write(
         agent_dir.join("settings.json"),
-        json!({ "onboardingCompleted": true }).to_string(),
+        json!({ "onboardingCompleted": true, "titles": { "generate": false } }).to_string(),
     )
     .expect("write settings.json");
     let socket = dir.path().join("cmd-dispatch.sock");

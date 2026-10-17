@@ -78,7 +78,10 @@ background bookkeeping.
   provider the user configured and that provider's own auth (explicit login,
   cloud credential metadata), plus MCP servers the user configured, plus the
   Signal service, only while the user runs `eukhe gateway` (through the
-  signal-cli the user installed). No telemetry, no catalog fetches, no uploads.
+  signal-cli the user installed), plus the pinned model files that
+  `eukhe tiny-models download` fetches from Hugging Face when the user runs
+  it (each file checked against its pinned sha256 before install). No
+  telemetry, no catalog fetches, no uploads, no automatic model downloads.
 - Startup work never delays the first paint; slow bookkeeping runs on a
   background worker. Changes to the launch path keep the first frame unblocked.
 
@@ -105,12 +108,14 @@ background bookkeeping.
 |`eukhe-models`|Bundled model catalog and transport pinning|`eukhe-types`, `eukhe-ai`|
 |`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|none|
 |`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`|
-|`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`|
+|`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, the shared worker per model and its election, the worker client, role-based model selection|`eukhe-build-info`|
+|`eukhe-tiny-onnx`|The tiny-model worker's ONNX engine (ONNX Runtime loaded at run time): text generation, Whisper speech to text, Kokoro text to speech|`eukhe-tiny`|
+|`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
 |`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`|
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-build-info`|
 |`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-tui`|
 |`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge, embedded build-free web app (chat, memory tree), daemon-wire client|`eukhe-types`, `eukhe-tui`|
-|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`|
+|`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 
 - Dependencies point from higher crates to lower crates only. No cycles.
 - `eukhe-tui` and `eukhe-dashboard` render from wire types and events; they do not link the session engine.

@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::declarations::{render_tool_sample, CodemodeToolDeclaration};
 use super::identifier::to_codemode_identifier;
-use super::models::MODELS_DESCRIPTION;
+use super::models::{ClassifierDefault, CLASSIFIER_DEFAULT_DESCRIPTION, MODELS_DESCRIPTION};
 use crate::harness::types::ToolRegistration;
 
 /// Default token budget of the tool declarations in the `codemode`
@@ -58,12 +58,20 @@ pub struct CodemodeNamespace {
 /// The code mode tool's description: the script environment and its
 /// globals, the same for every conversation.
 #[must_use]
-pub fn codemode_description(models: CodemodeModels) -> String {
+pub fn codemode_description(models: CodemodeModels, classifier: &ClassifierDefault) -> String {
     let globals = GLOBALS.join("\n");
+    let models_section = match (models, classifier) {
+        (CodemodeModels::Included, ClassifierDefault::Unset) => Some(MODELS_DESCRIPTION.to_owned()),
+        (CodemodeModels::Included, ClassifierDefault::Resolver(_)) => Some(format!(
+            "{MODELS_DESCRIPTION}\n{CLASSIFIER_DEFAULT_DESCRIPTION}"
+        )),
+        (CodemodeModels::Excluded, ClassifierDefault::Unset | ClassifierDefault::Resolver(_)) => {
+            None
+        }
+    };
     let mut sections = vec![DESCRIPTION_INTRO, globals.as_str()];
-    match models {
-        CodemodeModels::Included => sections.push(MODELS_DESCRIPTION),
-        CodemodeModels::Excluded => {}
+    if let Some(section) = &models_section {
+        sections.push(section);
     }
     sections.push(
         "The `codemode` section of the system prompt lists the tools scripts can call, by namespace, as far as space allows.",
@@ -303,10 +311,24 @@ mod tests {
 
     #[test]
     fn description_adds_models_section() {
-        let without = codemode_description(CodemodeModels::Excluded);
-        let with = codemode_description(CodemodeModels::Included);
+        let without = codemode_description(CodemodeModels::Excluded, &ClassifierDefault::Unset);
+        let with = codemode_description(CodemodeModels::Included, &ClassifierDefault::Unset);
+        let resolver: crate::codemode::ClassifierResolver =
+            Arc::new(|_, _| Box::pin(async { Err("none".to_owned()) }));
+        let with_default = codemode_description(
+            CodemodeModels::Included,
+            &ClassifierDefault::Resolver(resolver),
+        );
         let (head, tail) = without.rsplit_once("\n\n").expect("sections");
-        assert_eq!(with, format!("{head}\n\n{MODELS_DESCRIPTION}\n\n{tail}"));
+        assert_eq!(
+            (with, with_default),
+            (
+                format!("{head}\n\n{MODELS_DESCRIPTION}\n\n{tail}"),
+                format!(
+                    "{head}\n\n{MODELS_DESCRIPTION}\n{CLASSIFIER_DEFAULT_DESCRIPTION}\n\n{tail}"
+                )
+            )
+        );
     }
 
     #[test]

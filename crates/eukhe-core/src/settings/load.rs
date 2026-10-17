@@ -67,6 +67,10 @@ const KNOWN_FIELDS: &[&str] = &[
     "gateway",
     "kernelTransport",
     "shell",
+    "modelRoles",
+    "providers",
+    "titles",
+    "tts",
 ];
 
 /// Extract each known field independently; ignore fields whose JSON type does

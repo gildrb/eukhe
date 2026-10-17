@@ -58,7 +58,7 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(documents::extension(deps))?;
     install(shell::extension(deps))?;
     install(tool_surface::extension(deps))?;
-    install(codemode::extension())?;
+    install(codemode::extension(deps))?;
     registry.fix_roster();
     Ok(registry)
 }

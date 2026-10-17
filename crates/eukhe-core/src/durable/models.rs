@@ -156,6 +156,8 @@ fn build_models(
     {
         models.set_provider(provider);
     }
+    // The installed tiny models as `local/<id>` classifiers (S9 `judge`).
+    crate::tiny::judge::add_local_provider(&models, agent_dir);
     Ok(models)
 }
 

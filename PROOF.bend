@@ -29,6 +29,7 @@ import ./bend/proof_infer.bend as Infer
 import ./bend/proof_quirks.bend as Quirks
 import ./bend/proof_tools.bend as Tools
 import ./bend/proof_screen.bend as Screen
+import ./bend/proof_tiny.bend as Tiny
 
 # (a) The view
 
@@ -566,3 +567,23 @@ def Laws.layout_apart(hs, y, rows):
 
 def Laws.layout_whole_when_room(hs, y, rows, fits):
   Screen.ps.layout_whole_when_room(hs, y, rows, fits)
+
+# (S9) Local tiny models
+
+def Laws.tiny_pick_in_chain(chain, up, m, used):
+  Tiny.pn.tiny_pick_in_chain(chain, up, m, used)
+
+def Laws.tiny_pick_first(pre, m, post, up, before, here):
+  Tiny.pn.tiny_pick_first(pre, m, post, up, before, here)
+
+def Laws.tiny_pick_unavailable(chain, up, none):
+  Tiny.pn.tiny_pick_unavailable(chain, up, none)
+
+def Laws.tiny_every_need_served(es, w):
+  Tiny.pn.tiny_every_need_served(es, w)
+
+def Laws.tiny_worker_current(es):
+  Tiny.pn.tiny_worker_current(es)
+
+def Laws.tiny_same_tag_joins(o, t, p):
+  Tiny.pn.tiny_same_tag_joins(o, t, p)

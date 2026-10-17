@@ -24,6 +24,9 @@ eukhe-chord.workspace = true
 eukhe-docs = { path = "../eukhe-docs" }
 # The `bash` tool's in-process interpreter and approval gate.
 eukhe-shell.workspace = true
+# S9 local tiny models: the role resolution, the worker client, the
+# title/judge/translate prompts (`tiny` module).
+eukhe-tiny = { path = "../eukhe-tiny" }
 base64 = "0.22"
 fancy-regex = "0.14"
 # The traces browser login's auth challenge (RSA-2048 keypair, OAEP-SHA256

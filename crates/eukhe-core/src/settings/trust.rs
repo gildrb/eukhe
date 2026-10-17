@@ -168,12 +168,13 @@ pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Sett
 /// The project scope an untrusted project keeps: every field is listed
 /// (the destructure and the struct literal have no `..`), so a new
 /// `Settings` field does not compile until it is classified here.
-/// Withheld: anything that names a program, command, or shell; installs
-/// or spawns code (packages, MCP servers and catalogs, skill paths);
-/// moves where sessions and kernel snapshots live; toggles execution
-/// gates (factory, the model allowlist); hides startup output (and so
-/// this warning); the global-only `trustedProjects` and `gateway`; and
-/// unknown keys. Everything else is a UI, model, or limit preference.
+/// Withheld: anything that names a program, command, shell, or library
+/// (`providers.tinyRuntimeLibrary`); installs or spawns code (packages,
+/// MCP servers and catalogs, skill paths); moves where sessions and
+/// kernel snapshots live; toggles execution gates (factory, the model
+/// allowlist); hides startup output (and so this warning); the
+/// global-only `trustedProjects` and `gateway`; and unknown keys.
+/// Everything else is a UI, model, or limit preference.
 fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
     let Settings {
         onboarding_shown,
@@ -239,6 +240,10 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         gateway,
         kernel_transport,
         shell,
+        model_roles,
+        providers,
+        titles,
+        tts,
         extra,
     } = document;
     let withheld = [
@@ -257,6 +262,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         ("gateway", gateway.is_some()),
         ("kernelTransport", kernel_transport.is_some()),
         ("shell", shell.is_some()),
+        ("providers", providers.is_some()),
     ];
     let ignored_keys = withheld
         .into_iter()
@@ -328,6 +334,10 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         gateway: None,
         kernel_transport: None,
         shell: None,
+        model_roles,
+        providers: None,
+        titles,
+        tts,
         extra: serde_json::Map::new(),
     };
     (kept, ignored_keys)

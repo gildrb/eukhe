@@ -1,4 +1,4 @@
-# Harness laws: inference
+# Harness laws: inference and local tiny models
 
 The shared rules (what a law secures, the adversary, H1 to H6) are in [harness.md](harness.md).
 
@@ -204,3 +204,185 @@ provider wire tests (`cargo test -p eukhe-ai --test providers`). Not
 modelled: the query map from a model to its targets (S6.2), the soft
 prompt and wire forms of a forced choice, and the split of deltas into
 chunks. Their tests tie them.
+
+### S9. Local tiny models
+
+A local tiny model is a small model that runs on this machine. eukhe uses
+it for some workloads (roles): session titles (`tiny`), typed judgments
+(`judge`), translation (`translate`), text to speech (`speech`) and speech
+to text (`dictation`). It is done as omp does it.
+
+The catalog (`eukhe-tiny/src/catalog.rs`) pins each model. Each file
+names its Hugging Face repository, the commit, the size and the sha256.
+The models: `lfm2.5-230m` and `lfm2.5-350m` (text, ONNX q4), `whisper-base`
+and `whisper-small` (speech to text), `kokoro` (Kokoro-82M, text to speech,
+with the misaki lexicon for its phonemes).
+
+Download. Only the user starts a download:
+`eukhe tiny-models download <id>` or `eukhe tiny-models download all`.
+`eukhe tiny-models list` shows each model as installed, missing or
+incomplete. Nothing else downloads a model.
+
+1. The download writes each file into a staging directory
+   (`<agent dir>/models/tiny/.staging-<id>-<pid>`). It computes the sha256
+   while it writes.
+2. A file of another size or another sha256 stops the download. The
+   staging directory is removed. An earlier install does not change. If
+   the staging directory cannot be removed, the download still fails
+   with its own error, and a warning names the directory.
+3. When all files are correct, one rename installs the directory as
+   `<agent dir>/models/tiny/<id>`. Thus a model is complete or absent.
+
+The worker. One worker process serves one model and backend, for every
+eukhe process. Its socket, bind lock and log are in
+`<agent dir>/run/tiny/` (`<id>-onnx.sock`, `.bind.lock`, `.log`). The
+worker and the client make this directory 0700, also when it exists
+already. The worker is
+`eukhe tiny-worker <id> --backend onnx --agent-dir <dir>`, a hidden
+command. It gets the agent dir of the process that starts it on its
+command line, never from its environment. Thus a daemon started with
+`--agent-dir` and a worker it starts use the same directory.
+
+1. A process that needs a model connects to the socket and sends `ping`.
+   The worker answers with its launch tag:
+   `<build id>|onnx|<device>|<dtype>`.
+2. Same tag: the process uses the worker (joined).
+3. Another tag: the process sends `shutdown`. The worker removes its
+   socket and answers `bye`. It takes no more connections or requests.
+   The requests of other processes that are in progress get their full
+   answers; then the worker exits. The process starts a new worker
+   (replaced). Thus a new build or a changed device or dtype setting
+   never uses a stale worker.
+4. No live socket: the process starts a worker (started). The worker
+   starts detached, in its own process group. It takes the bind lock
+   only while it checks the socket and binds it. If a live worker
+   answers, the new worker exits and the process uses the live one.
+5. The worker exits after 15 minutes without a request
+   (`EUKHE_TINY_WORKER_IDLE_MS` changes the window for tests). It
+   removes its socket first.
+6. Requests are JSON lines: `load`, `chat` (messages, prefill, stop
+   strings, max tokens), `transcribe` (audio, language), `speak` (text,
+   voice, speed). Each request gets one answer, in order. The client
+   makes the prompt and reads the output. If the worker stops during a
+   request, the client gets a typed error (`Crashed`) with the log path.
+   Each side reads a line of at most 256 MiB. The worker answers a
+   longer request line with `bad_request`; the client treats a longer
+   answer line as out of protocol. Neither side keeps the bytes of a
+   longer line.
+
+The engine (`eukhe-tiny-onnx`) is ONNX Runtime through the `ort` crate.
+The worker loads the runtime library at run time:
+`providers.tinyRuntimeLibrary`, else `ORT_DYLIB_PATH`, else
+`libonnxruntime.so` (nixpkgs `onnxruntime`, 1.24 or later). The build
+downloads nothing and links no runtime. Inference is on the CPU. The
+text tokenizer is eukhe's own (`tokenizer.rs`): the byte-level BPE of
+the model's `tokenizer.json`, with its added tokens, its pre-tokenizer
+regex and its ranked merges. A file with any other setting does not
+load.
+
+Roles. A role names a chain of models:
+
+1. The chain is `modelRoles.<role>` (when set), then
+   `retry.fallbackChains.<role>`. An explicit `[]` keeps the role on
+   its primary model only. An unset chain is the built-in priority: the
+   catalog models of the role, then the session's provider model (for a
+   text role).
+2. A local model is available when it is installed. A provider model is
+   available when it is the session's usable model.
+3. A task uses the first available model of the chain. When no model of
+   the chain is available, the task fails as `Unavailable`. It never uses
+   a model outside the chain.
+
+Uses. The first user message of a top-level session starts a title in
+the background (role `tiny`; `titles.generate: false` turns it off). The
+turn does not wait for it. A failure leaves the session without a title.
+A user name is never replaced. With `modelRoles.tiny` unset and no local
+model installed, the title is one more request to the session's provider.
+A scripted session (the faux-script test seam) takes no title. The
+`local` provider serves each text catalog model as a classifier model
+(`local/<id>`) on the `classify` path. A code-mode `models.classify()`
+call with no model (`null` or `undefined`) uses the `judge` role. Its
+model is the first model of the chain that is an available classifier
+model: an installed local model, or a provider classifier model with
+configured auth. When no model is available, the call fails with
+`Unavailable`, and the message names the role and its chain.
+`eukhe translate <lang> <text>`, `eukhe say <text> [--out f.wav]` and
+`eukhe transcribe <file.wav>` use the roles `translate`, `speech` and
+`dictation`. First paint never waits for a model load.
+
+Model: `bend/tiny.bend`. Laws: `LAWS.bend` section (S9). Proofs:
+`bend/proof_tiny.bend`. Every input is free: any chain, any set of
+available models, any needs of any processes with any tags, any worker
+exits, in any order.
+
+| Law | Says |
+| --- | --- |
+| `tiny_pick_in_chain` | A task uses only a model of its chain that is available (roles 3). |
+| `tiny_pick_first` | A task uses the first available model of its chain (roles 3). |
+| `tiny_pick_unavailable` | With no model of the chain available, the task fails as Unavailable (roles 3). |
+| `tiny_every_need_served` | Each need gets exactly one outcome: started, joined or replaced (worker 1-4). |
+| `tiny_worker_current` | After any events, the worker runs with the tag of the last need since the last exit (worker 3). |
+| `tiny_same_tag_joins` | A need with the tag of the running worker joins it (worker 2). |
+
+Code: `eukhe-tiny/src/roles.rs` `chain`, `pick`, `Candidate`,
+`FallbackChain`; `election.rs` `ensure`, `request`, `probe`, `Launcher`,
+`Got`; `worker.rs` `launch_tag`, `run_worker`, `bind`, `serve`;
+`client.rs` `TinyClient`, `TinyError`; `catalog.rs` `CATALOG`,
+`installed`, `install_state`; `download.rs` `download`; `tasks.rs`
+(prompts and output parsing); `eukhe-tiny-onnx/src/text.rs`,
+`whisper.rs`, `kokoro.rs`, `runtime.rs`, `tokenizer.rs`;
+`eukhe-core/src/tiny/` (settings, `resolve`, `title.rs`, `judge.rs`
+`judge_classifier`); `eukhe-core/src/durable/codemode.rs`;
+`eukhe-durable/src/codemode/models.rs` `ClassifierDefault`;
+`eukhe-daemon/src/worker/title.rs`; `eukhe-cli/src/tiny_command.rs`,
+`tiny_models_command.rs`.
+
+Tie: the bridge tests `bridge::the_rust_pick_equals_the_bend_model` and
+`bridge::the_rust_election_equals_the_bend_model` (`eukhe-tiny`) run
+`pick` on generated chains and available sets, and the real election
+(`ensure`, the real `serve`, in process, with a fake engine) on generated
+needs and exits, against `bend/bridge_tiny.bend`. Regression tests:
+`client::tests` (real worker processes in a temp run dir, started on the
+client's command line with no agent dir variable and another `HOME`:
+started, joined, replaced, idle exit, crash, not installed, the
+client's agent dir served); `worker::tests` (a shutdown lets another
+client's request in progress finish with its answer; an existing run
+dir is made 0700); `protocol::tests` (a line over the limit is skipped
+and the next line read); `download::tests` (a mock HTTP server: a bad
+sha256, a wrong size and a broken transfer install nothing; a partial
+install is replaced only on success; a staging dir that cannot be
+removed keeps the download's own error);
+`eukhe-core` `tiny::tests` (role resolution) and `tiny::judge::tests`
+(the `judge` model of a classification with no model);
+`eukhe-durable` `codemode::tests::calls` (`models.classify(null, …)`
+asks the default classifier); `eukhe-daemon`
+`tests/session_title_e2e.rs` (a supervisor on a temp socket and agent
+dir, a mock provider: the first prompt titles the session, and
+`titles.generate: false` titles nothing); `eukhe-tiny-onnx`
+`tokenizer::tests` (ids and text against the ids that Hugging Face
+`tokenizers` gave once for the same files and texts, and random text
+that encodes and decodes back to itself). Real-model tests run only
+with the models and the runtime library given (else they print why they
+skip): `eukhe-tiny-onnx` `text::tests` (a title from `lfm2.5-230m`),
+`whisper::round_trip_tests` (Kokoro speaks a sentence, Whisper reads it
+back) and the `tokenizer::tests` on the model files; `eukhe-core`
+`tiny::smoke_tests` (a title and a `Models::classify` judgment on the
+`local` provider, through a real worker). Not modelled: two processes
+that start a worker at the same time (the bind lock orders them; the
+second one uses the first worker).
+
+Not done:
+
+1. Nix packaging. The Nix package does not set the runtime library, so
+   local models do not run after a Nix install without more settings.
+   The package wrapper must set `ORT_DYLIB_PATH`, for example
+   `--set-default ORT_DYLIB_PATH ${onnxruntime}/lib/libonnxruntime.so`.
+   Until then, the user sets `providers.tinyRuntimeLibrary` or
+   `ORT_DYLIB_PATH`.
+2. Push-to-talk. eukhe does not record audio. There are two options:
+   - The `cpal` crate. It needs `alsa-sys`, which links `libasound`
+     through `pkg-config` at build time. The dev shell and the Nix files
+     do not supply them.
+   - No new crate. Record with `pw-record`, `parec` or `arecord` to a
+     temporary 16 kHz WAV file. Then transcribe the file as
+     `eukhe transcribe` does.

@@ -302,6 +302,13 @@ fn setup(name: &str, thinking: Option<&str>) -> Harness {
         .to_string(),
     )
     .expect("write models.json");
+    // No session title: its background request would reach the recording
+    // mock without the session's reasoning effort the tests assert.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        json!({ "titles": { "generate": false } }).to_string(),
+    )
+    .expect("write settings.json");
     let socket = dir.path().join(format!("{name}.sock"));
     let supervisor = spawn_supervisor(&socket, &agent_dir);
     let mut client = Client::connect(&socket);

@@ -736,29 +736,10 @@ impl Worker {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .session_name
             .clone();
-        if let Err(error) = meta::set_session_name(
-            hosted.harness(),
-            Some(name.to_string()),
-            &BACKGROUND_CONTEXT,
-        )
-        .await
-        {
-            return response_failure(None, command, &error.to_string(), None);
-        }
-        let summary = {
-            let mut core = self
-                .core
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            core.session_name = Some(name.to_string());
-            self.summary_locked(&core)
+        let summary = match self.commit_session_name(&hosted, name).await {
+            Ok(summary) => summary,
+            Err(error) => return response_failure(None, command, &error, None),
         };
-        self.publish_own_summary(&summary);
-        // Every attached client re-reads the name.
-        self.emit_worker_event(SessionEvent::SessionInfoChanged {
-            name: Some(name.to_string()),
-        });
-        self.push_roster_delta();
         // TS #2529 `applyStateSessionName`: a rename that changed an
         // existing name leaves the renamed session a displayed transcript
         // notice (" by parent" when the parent session directed it); a
@@ -788,6 +769,42 @@ impl Worker {
             command,
             Some(serde_json::to_value(&summary).unwrap_or(Value::Null)),
         )
+    }
+
+    /// Write `name` as the session name and tell everyone: the durable
+    /// name, the core mirror, the own summary, the `session_info_changed`
+    /// event, the roster. The caller holds [`Worker::rename_gate`].
+    ///
+    /// # Errors
+    ///
+    /// The durable commit's failure text.
+    pub(crate) async fn commit_session_name(
+        &self,
+        hosted: &HostedSession,
+        name: &str,
+    ) -> Result<eukhe_types::daemon::SessionSummary, String> {
+        meta::set_session_name(
+            hosted.harness(),
+            Some(name.to_string()),
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        let summary = {
+            let mut core = self
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            core.session_name = Some(name.to_string());
+            self.summary_locked(&core)
+        };
+        self.publish_own_summary(&summary);
+        // Every attached client re-reads the name.
+        self.emit_worker_event(SessionEvent::SessionInfoChanged {
+            name: Some(name.to_string()),
+        });
+        self.push_roster_delta();
+        Ok(summary)
     }
 }
 

@@ -446,7 +446,13 @@ fn setup(name: &str) -> (tempfile::TempDir, DelayedMock, Daemon, Client, String)
         .to_string(),
     )
     .expect("write models.json");
-    std::fs::write(agent_dir.join("settings.json"), "{}").expect("write settings.json");
+    // No session title: its background request would take a scripted mock
+    // answer meant for a delivered turn.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        json!({ "titles": { "generate": false } }).to_string(),
+    )
+    .expect("write settings.json");
     let socket = dir.path().join(format!("{name}.sock"));
     let supervisor = spawn_supervisor(&socket, &agent_dir);
     let mut client = Client::connect(&socket);

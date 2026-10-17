@@ -68,7 +68,9 @@ pub use docs::{
     CodemodeJournal, CodemodeRunState, CodemodeStart, CodemodeStore, JournalEntry, JournalGlobal,
     StartNamespace, StartTool, CODEMODE_JOURNAL_DOC, CODEMODE_RUN_DOC, CODEMODE_STORE_DOC,
 };
-pub use models::{create_model_tools, CODEMODE_INTERNAL_PREFIX};
+pub use models::{
+    create_model_tools, ClassifierDefault, ClassifierResolver, CODEMODE_INTERNAL_PREFIX,
+};
 pub use output::DEFAULT_MAX_OUTPUT_TOKENS;
 pub use tool::{
     create_codemode_extension, create_codemode_tool, CodemodeGlobal, CodemodeGlobalExecute,

@@ -276,6 +276,11 @@ impl Worker {
                     .await;
             }
         }
+        // The first prompt of an unnamed top-level session starts its
+        // generated title in the background (never awaited here).
+        if custom_row.is_none() {
+            self.start_title(&hosted, message);
+        }
         let when_busy = match payload.get("streamingBehavior").and_then(Value::as_str) {
             Some("steer") => WhenBusy::Steer,
             Some(_) | None => WhenBusy::FollowUp,

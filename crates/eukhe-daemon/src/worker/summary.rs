@@ -395,7 +395,7 @@ fn message_count(core: &SessionCore) -> u32 {
 }
 
 /// The first user message's text (summary `firstMessage`).
-fn first_message(view: &ShownView) -> Option<String> {
+pub(super) fn first_message(view: &ShownView) -> Option<String> {
     view.translator
         .mirror()
         .entries
