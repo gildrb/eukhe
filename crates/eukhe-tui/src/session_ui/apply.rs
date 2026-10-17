@@ -343,9 +343,12 @@ impl SessionUi {
                 }
             }
             // Saved-session list frames belong to the agents-view UI; the
-            // session view only reads its own session.
+            // session view only reads its own session. The session view
+            // never subscribes to the state tree: a frame changes nothing
+            // on screen, so it never marks the view dirty.
             DaemonClientEvent::SessionListItem { .. }
-            | DaemonClientEvent::SessionListProgress { .. } => {}
+            | DaemonClientEvent::SessionListProgress { .. }
+            | DaemonClientEvent::StateTreeUpdate { .. } => {}
         }
     }
 

@@ -182,7 +182,10 @@ async fn reopen(storage: &Path) -> (Harness, Conversation) {
     let storage = open_native_jsonl_storage(
         storage.to_str().unwrap(),
         &cx(),
-        JsonlStorageOptions { fsync: true },
+        JsonlStorageOptions {
+            fsync: true,
+            ..JsonlStorageOptions::default()
+        },
     )
     .await
     .unwrap();

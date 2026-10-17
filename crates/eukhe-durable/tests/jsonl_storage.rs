@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::errors::StorageError;
 use eukhe_durable::ids::mint;
-use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorage, JsonlStorageOptions};
+use eukhe_durable::storage::jsonl::{
+    open_native_jsonl_storage, CommitHistory, HistoryCommit, JsonlStorage, JsonlStorageOptions,
+};
 use eukhe_durable::types::{
     AnyTaskRecord, DocumentAddress, DocumentId, DocumentPoint, DocumentScope, EntryId, Seq,
     Storage, StorageWrite, TaskId, ROOT_CONVERSATION_ID,
@@ -514,7 +516,16 @@ async fn try_open(
     fs: Arc<dyn FileSystem>,
     fsync: bool,
 ) -> Result<JsonlStorage, StorageError> {
-    JsonlStorage::open(directory, fs, cx(), JsonlStorageOptions { fsync }).await
+    JsonlStorage::open(
+        directory,
+        fs,
+        cx(),
+        JsonlStorageOptions {
+            fsync,
+            ..JsonlStorageOptions::default()
+        },
+    )
+    .await
 }
 
 async fn open_storage(directory: &str) -> JsonlStorage {
@@ -817,6 +828,53 @@ async fn orders_multiple_live_task_replacements_in_one_sidecar_by_commit_ordinal
     assert_eq!(
         task(&reopened, task_id).await,
         Some(pending_task(task_id, "second"))
+    );
+}
+
+#[tokio::test]
+async fn keeps_the_replayed_and_later_commits_until_the_history_is_taken() {
+    let directory = temp_directory();
+    let storage = open_storage(&directory.path).await;
+    let root = json!({ "type": "conversation", "value": { "id": ROOT_CONVERSATION_ID.get() } });
+    let created = commit_ok(&storage, vec![root.clone()]).await;
+    let task_id = mint_task(&storage).await;
+    let pending = commit_ok(
+        &storage,
+        vec![task_write(pending_task_json(task_id, "first"))],
+    )
+    .await;
+    let ended = commit_ok(&storage, vec![task_write(terminal_task_json(task_id))]).await;
+    drop(storage);
+
+    let kept = get(JsonlStorage::open(
+        &directory.path,
+        Arc::new(native(&directory.path)),
+        cx(),
+        JsonlStorageOptions {
+            fsync: false,
+            history: CommitHistory::Keep,
+        },
+    )
+    .await);
+    let next_id = mint_task(&kept).await;
+    let next = task_write(pending_task_json(next_id, "next"));
+    let later = commit_ok(&kept, vec![next.clone()]).await;
+    let history = |seq: u64, writes: Vec<Value>| HistoryCommit {
+        seq: Seq::from_number(seq),
+        writes: writes.into_iter().map(write).collect(),
+    };
+    assert_eq!(
+        (kept.take_history(), kept.take_history()),
+        (
+            vec![
+                history(created, vec![root]),
+                // Recovery drops the sidecar state before the terminal record.
+                history(pending, Vec::new()),
+                history(ended, vec![task_write(terminal_task_json(task_id))]),
+                history(later, vec![next]),
+            ],
+            Vec::new(),
+        )
     );
 }
 

@@ -180,6 +180,10 @@ impl Supervisor {
         // envelope-overridden client id and the attached-session handle
         // (attach/detach keep the registry and the session list consistent;
         // the registry insertion is the delivery boundary).
+        // The state tree subscriptions ride the same targeted queue, under
+        // their own registry: only `subscribe_state_tree` adds a session.
+        let tree_subscriptions =
+            subscribers::ClientSubscriptions::new(connection_id.clone(), targeted_tx.clone());
         let attached = subscribers::ClientSubscriptions::new(connection_id.clone(), targeted_tx);
         // Roster subscription flag shared with the per-command dispatch
         // tasks (`roster_subscribe` flips it; the event arm filters pushes).
@@ -234,6 +238,7 @@ impl Supervisor {
                     let supervisor = Arc::clone(&self);
                     let effective_client_id = Arc::clone(&effective_client_id);
                     let attached = Arc::clone(&attached);
+                    let tree_subscriptions = Arc::clone(&tree_subscriptions);
                     let roster_subscribed = Arc::clone(&roster_subscribed);
                     let connection = Arc::clone(&connection);
                     let dispatch_tx = dispatch_tx.clone();
@@ -249,6 +254,7 @@ impl Supervisor {
                                 &trimmed,
                                 &effective_client_id,
                                 &attached,
+                                &tree_subscriptions,
                                 &roster_subscribed,
                                 &connection,
                                 &connection_id,
@@ -404,6 +410,7 @@ impl Supervisor {
         // connection whose loop has exited — then the worker-side detach
         // routes run as before.
         attached.detach_all(&self.session_subscribers);
+        tree_subscriptions.detach_all(&self.state_tree_subscribers);
         let attached_sessions = attached.session_ids();
         for active_session_id in &attached_sessions {
             if let Ok(resident) = self.registry.resolve(active_session_id).await {
@@ -537,6 +544,7 @@ impl Supervisor {
         line: &str,
         effective_client_id: &Arc<std::sync::Mutex<String>>,
         attached: &Arc<crate::supervisor::subscribers::ClientSubscriptions>,
+        tree_subscriptions: &Arc<crate::supervisor::subscribers::ClientSubscriptions>,
         roster_subscribed: &Arc<std::sync::atomic::AtomicBool>,
         connection: &Arc<crate::input_pause_lease::ClientConnectionState>,
         connection_id: &str,
@@ -631,6 +639,7 @@ impl Supervisor {
                 effective_client_id,
                 &request_client_id,
                 attached,
+                tree_subscriptions,
                 roster_subscribed,
                 connection,
                 connection_id,
@@ -656,6 +665,7 @@ impl Supervisor {
         effective_client_id: &Arc<std::sync::Mutex<String>>,
         request_client_id: &str,
         attached: &Arc<crate::supervisor::subscribers::ClientSubscriptions>,
+        tree_subscriptions: &Arc<crate::supervisor::subscribers::ClientSubscriptions>,
         roster_subscribed: &Arc<std::sync::atomic::AtomicBool>,
         connection: &Arc<crate::input_pause_lease::ClientConnectionState>,
         connection_id: &str,
@@ -730,6 +740,39 @@ impl Supervisor {
             DaemonCommand::RosterSubscribe { .. } => {
                 roster_subscribed.store(true, std::sync::atomic::Ordering::SeqCst);
                 let response = self.handle_roster_subscribe(&command_id, &type_name).await;
+                (vec![response_line(&response)], false)
+            }
+            DaemonCommand::SubscribeStateTree {
+                active_session_id, ..
+            } => {
+                // The subscription starts before the worker reads the tree
+                // for the reply: every record after the reply's cursor
+                // reaches this connection. A failed read ends it again.
+                tree_subscriptions.attach(&self.state_tree_subscribers, active_session_id);
+                let client_id = effective_client_id.lock().unwrap().clone();
+                let (lines, stop) = self
+                    .route_client_command(
+                        command,
+                        &client_id,
+                        attached,
+                        command_id,
+                        type_name,
+                        Some(stream),
+                    )
+                    .await;
+                let subscribed = lines
+                    .iter()
+                    .any(|line| line["type"] == "response" && line["success"] == true);
+                if !subscribed {
+                    tree_subscriptions.detach(&self.state_tree_subscribers, active_session_id);
+                }
+                (lines, stop)
+            }
+            DaemonCommand::UnsubscribeStateTree {
+                active_session_id, ..
+            } => {
+                tree_subscriptions.detach(&self.state_tree_subscribers, active_session_id);
+                let response = response_success(Some(&command_id), &type_name, None);
                 (vec![response_line(&response)], false)
             }
             DaemonCommand::RosterUnsubscribe { .. } => {

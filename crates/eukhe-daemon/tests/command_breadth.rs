@@ -530,6 +530,22 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "get_memory_tree", "activeSessionId": "sess", "node": {"id": 40, "count": 8}}"#,
     ),
     (
+        "get_state_tree",
+        r#"{"type": "get_state_tree", "activeSessionId": "sess", "since": 12}"#,
+    ),
+    (
+        "subscribe_state_tree",
+        r#"{"type": "subscribe_state_tree", "activeSessionId": "sess", "since": 12}"#,
+    ),
+    (
+        "unsubscribe_state_tree",
+        r#"{"type": "unsubscribe_state_tree", "activeSessionId": "sess"}"#,
+    ),
+    (
+        "get_state_rewind_plan",
+        r#"{"type": "get_state_rewind_plan", "activeSessionId": "sess", "cursor": 0}"#,
+    ),
+    (
         "agent_relay",
         r#"{"type": "agent_relay", "activeSessionId": "sess", "from": "scout", "to": "builder", "text": "hi"}"#,
     ),
@@ -576,6 +592,10 @@ fn known_command_types_match_the_ts_list() {
                     | "get_chat_view"
                     | "get_memory"
                     | "get_memory_tree"
+                    | "get_state_tree"
+                    | "subscribe_state_tree"
+                    | "unsubscribe_state_tree"
+                    | "get_state_rewind_plan"
                     | "agent_relay"
                     | "agent_reply"
                     | "get_run_outcome"

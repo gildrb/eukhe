@@ -1254,6 +1254,53 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native extension, advertised by the `state_tree` capability:
+    /// the session state tree, whole, or the records after the client
+    /// cursor `since` (reply: [`super::StateTreeReply`]).
+    GetStateTree {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<u64>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native extension, advertised by the `state_tree` capability:
+    /// subscribe this connection to the session state tree. The reply is
+    /// the `get_state_tree` reply (the snapshot, or the records after
+    /// `since`); from then on the connection gets each new record batch as
+    /// a `state_tree_update` frame (reply: [`super::StateTreeReply`]).
+    SubscribeStateTree {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<u64>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native extension, advertised by the `state_tree` capability:
+    /// end this connection's state tree subscription for the session. A
+    /// closed connection ends its subscriptions too.
+    UnsubscribeStateTree {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native extension, advertised by the `state_tree` capability:
+    /// what a rewind of the state tree to `cursor` does (reply:
+    /// [`super::StateRewindPlanReply`]).
+    GetStateRewindPlan {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        cursor: u64,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetToolDefinition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -1444,5 +1491,16 @@ mod tests {
         rt::<DaemonCommand>(
             r#"{"type":"get_memory_tree","activeSessionId":"s1","node":{"id":40,"count":8}}"#,
         );
+    }
+
+    #[test]
+    fn get_state_tree_and_rewind_plan_roundtrip() {
+        rt::<DaemonCommand>(r#"{"type":"get_state_tree","activeSessionId":"s1"}"#);
+        rt::<DaemonCommand>(r#"{"type":"get_state_tree","activeSessionId":"s1","since":12}"#);
+        rt::<DaemonCommand>(
+            r#"{"type":"get_state_rewind_plan","activeSessionId":"s1","cursor":0}"#,
+        );
+        rt::<DaemonCommand>(r#"{"type":"subscribe_state_tree","activeSessionId":"s1","since":3}"#);
+        rt::<DaemonCommand>(r#"{"type":"unsubscribe_state_tree","activeSessionId":"s1"}"#);
     }
 }

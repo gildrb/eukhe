@@ -283,8 +283,15 @@ pub(crate) async fn rename_saved_session_storage(
             storage_dir.display()
         )
     })?;
-    let storage =
-        open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
+    let storage = open_native_jsonl_storage(
+        directory,
+        cx,
+        JsonlStorageOptions {
+            fsync: true,
+            ..JsonlStorageOptions::default()
+        },
+    )
+    .await?;
     let session = Session::new(Arc::new(storage));
     let value = eukhe_chord::json::to_json(&name).map_err(SessionError::other)?;
     let committed = session

@@ -38,6 +38,32 @@ pub struct JsonlStorageOptions {
     /// Flush every affected sidecar before appending the main marker. Defaults
     /// to false.
     pub fsync: bool,
+    /// Keep the committed history for [`JsonlStorage::take_history`].
+    /// Defaults to [`CommitHistory::Drop`].
+    pub history: CommitHistory,
+}
+
+/// What [`JsonlStorage`] does with its committed history.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommitHistory {
+    /// Keep no commit.
+    #[default]
+    Drop,
+    /// Keep each commit that open replays, and each later commit, until
+    /// [`JsonlStorage::take_history`] takes them.
+    Keep,
+}
+
+/// One commit of the history: its sequence and its writes. A replayed
+/// commit has the writes as recovery rebuilds them: recovery drops the
+/// sidecar states of a task before its terminal record, and document
+/// contents that a later base replaces.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistoryCommit {
+    /// The commit's sequence.
+    pub seq: Seq,
+    /// The writes, in commit order.
+    pub writes: Vec<StorageWrite>,
 }
 
 /// Committed JSONL data that cannot be recovered (TS `JsonlCorruptionError`).
@@ -568,6 +594,8 @@ struct State {
     live_task_sidecars: HashSet<i64>,
     /// Files whose directory entries this fsync storage made durable.
     durable_entries: HashSet<String>,
+    /// The replayed commits, while [`CommitHistory::Keep`] keeps them.
+    history: Option<Vec<HistoryCommit>>,
 }
 
 /// Poisons the storage unless the commit that armed it settles: a commit
@@ -645,11 +673,24 @@ impl JsonlStorage {
             main_path,
             fsync: options.fsync,
             memory: MemoryStorage::new(),
-            state: Mutex::new(State::default()),
+            state: Mutex::new(State {
+                history: match options.history {
+                    CommitHistory::Drop => None,
+                    CommitHistory::Keep => Some(Vec::new()),
+                },
+                ..State::default()
+            }),
             commit_lock: AsyncMutex::new(()),
         };
         storage.recover(cx).await?;
         Ok(storage)
+    }
+
+    /// The kept history, in sequence order: the commits that open replayed
+    /// and the commits since. It stops keeping: a later call, or a storage
+    /// opened with [`CommitHistory::Drop`], returns none.
+    pub fn take_history(&self) -> Vec<HistoryCommit> {
+        self.lock().history.take().unwrap_or_default()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -724,6 +765,12 @@ impl JsonlStorage {
         }
         let seq = prepared.apply();
         self.adopt_sidecar_state(&json_writes);
+        if let Some(history) = &mut self.lock().history {
+            history.push(HistoryCommit {
+                seq,
+                writes: writes.to_vec(),
+            });
+        }
         self.reclaim_sidecars(&reclamations, cx).await;
         publication.settle();
         Ok(seq)
@@ -1401,6 +1448,12 @@ impl JsonlStorage {
             .prepare_commit(&typed, Some(Seq::from_number(sequence)))
             .map_err(|error| invalid(Arc::new(error)))?;
         prepared.apply();
+        if let Some(history) = &mut self.lock().history {
+            history.push(HistoryCommit {
+                seq: Seq::from_number(sequence),
+                writes: typed,
+            });
+        }
         Ok(())
     }
 

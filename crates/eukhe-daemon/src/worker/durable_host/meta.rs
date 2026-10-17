@@ -198,8 +198,15 @@ pub(crate) async fn mark_storage_archived(dir: &Path, cx: &Context) -> anyhow::R
     let directory = dir
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("session storage path {} is not UTF-8", dir.display()))?;
-    let storage =
-        open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
+    let storage = open_native_jsonl_storage(
+        directory,
+        cx,
+        JsonlStorageOptions {
+            fsync: true,
+            ..JsonlStorageOptions::default()
+        },
+    )
+    .await?;
     let session = Session::new(Arc::new(storage));
     let committed = session
         .commit(

@@ -873,6 +873,26 @@ impl Supervisor {
                                 &super::subscribers::event_line(frame.payload),
                             );
                         }
+                    } else if outbound_type == crate::peer::STATE_TREE_UPDATE_FRAME {
+                        // Only the connections that subscribed to the
+                        // session's state tree get the worker's bytes.
+                        let Ok(SessionAddress { active_session_id }) =
+                            serde_json::from_slice(&frame.payload)
+                        else {
+                            continue;
+                        };
+                        if let Some(active_session_id) = active_session_id.map(Cow::into_owned) {
+                            let outcome = reader_supervisor.state_tree_subscribers.publish(
+                                &active_session_id,
+                                &super::subscribers::event_line(frame.payload),
+                            );
+                            if !outcome.lagged.is_empty() {
+                                reader_supervisor.log_line(&format!(
+                                    "clients {} lagged on the state tree queue: frames dropped (session {active_session_id})",
+                                    outcome.lagged.join(", ")
+                                ));
+                            }
+                        }
                     } else if outbound_type == "heartbeats_changed" {
                         let Ok(payload) = serde_json::from_slice::<Value>(&frame.payload) else {
                             continue;

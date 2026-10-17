@@ -1,5 +1,5 @@
 //! The daemon-backed command runner behind the public commands `list`,
-//! `sessions`, `stop`, `rename`, `send`, and `schedule`: argument parsing,
+//! `sessions`, `stop`, `rename`, `state`, `send`, and `schedule`: argument parsing,
 //! request shaping, and output rendering. Ported from
 //! `cli/daemon-command.ts` (the `handleDaemonCommand` surface reachable
 //! from public routing).
@@ -7,6 +7,7 @@
 //! `schedule` maps to the internal `cron` command and `stop` to `kill`, exactly
 //! like `runInternalAgentCommand`/`runNestedAgentCommand` in public-command.ts.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -15,7 +16,9 @@ use eukhe_tui::daemon_client::{
     DEFAULT_REQUEST_TIMEOUT_MS,
 };
 use eukhe_types::daemon::{
-    DaemonCommand, DaemonProtocolInfo, DaemonResponse, StopOutcome, DAEMON_PROTOCOL_VERSION,
+    DaemonCommand, DaemonProtocolInfo, DaemonResponse, StateRewindPlanReply, StateTreeEffect,
+    StateTreeNode, StateTreeOp, StateTreeRecord, StateTreeReply, StateTreeSnapshot, StopOutcome,
+    DAEMON_PROTOCOL_VERSION,
 };
 use serde_json::{json, Value};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -50,6 +53,7 @@ pub(crate) fn run_daemon_command(command: &str, args: &[String]) -> Result<()> {
         "sessions" => run_sessions(&mut client, &parsed.positionals, parsed.json),
         "kill" => run_kill(&mut client, &parsed.positionals, parsed.json),
         "rename" => run_rename(&mut client, &parsed.positionals, parsed.json),
+        "state" => run_state(&mut client, &parsed.positionals, parsed.json),
         "send" => run_send(&mut client, &parsed.positionals, parsed.json),
         "cron" => run_cron(&mut client, &parsed.positionals, parsed.json),
         other => bail!("Unknown daemon command: {other}"),
@@ -537,6 +541,269 @@ fn run_rename(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// state
+// ---------------------------------------------------------------------------
+
+/// `state [<agent>] [--since <cursor>] [--follow]` and `state rewind-plan
+/// <cursor> [<agent>]`: the session state tree of one live agent.
+fn run_state(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
+    let (rewind_target, operands) = match args.split_first() {
+        Some((first, rest)) if first == "rewind-plan" => {
+            let (cursor, rest) = rest
+                .split_first()
+                .ok_or_else(|| anyhow!("Usage: eukhe state rewind-plan <cursor> [<agent>]"))?;
+            let cursor: u64 = cursor
+                .parse()
+                .with_context(|| format!("invalid cursor: {cursor}"))?;
+            (Some(cursor), rest)
+        }
+        Some(_) | None => (None, args),
+    };
+    let mut since: Option<u64> = None;
+    let mut follow = false;
+    let mut selector: Option<&str> = None;
+    let mut index = 0;
+    while index < operands.len() {
+        let operand = operands[index].as_str();
+        index += 1;
+        if operand == "--since" && rewind_target.is_none() {
+            let value = operands
+                .get(index)
+                .ok_or_else(|| anyhow!("--since requires a cursor"))?;
+            index += 1;
+            since = Some(
+                value
+                    .parse()
+                    .with_context(|| format!("invalid cursor: {value}"))?,
+            );
+            continue;
+        }
+        if operand == "--follow" && rewind_target.is_none() {
+            follow = true;
+            continue;
+        }
+        if selector.is_some() || operand.starts_with("--") {
+            bail!("Unknown state operand: {operand}");
+        }
+        selector = Some(operand);
+    }
+    let active_session_id = match selector {
+        Some(selector) => resolve_live_session_selector(client, selector)?,
+        None => only_live_session(client)?,
+    };
+    let command = match (rewind_target, follow) {
+        (Some(cursor), _) => DaemonCommand::GetStateRewindPlan {
+            id: None,
+            active_session_id: active_session_id.clone(),
+            cursor,
+            rest: serde_json::Map::new(),
+        },
+        (None, true) => DaemonCommand::SubscribeStateTree {
+            id: None,
+            active_session_id: active_session_id.clone(),
+            since,
+            rest: serde_json::Map::new(),
+        },
+        (None, false) => DaemonCommand::GetStateTree {
+            id: None,
+            active_session_id: active_session_id.clone(),
+            since,
+            rest: serde_json::Map::new(),
+        },
+    };
+    let data = require_success(client.request(command)?)?.unwrap_or(Value::Null);
+    if rewind_target.is_some() {
+        if json {
+            print_json(&data);
+            return Ok(());
+        }
+        let plan: StateRewindPlanReply =
+            serde_json::from_value(data).context("malformed state rewind plan")?;
+        let mut lines = vec![format!("rewind {} -> {}", plan.cursor, plan.target)];
+        for effect in plan.effects {
+            let (verb, node) = match effect {
+                StateTreeEffect::Start(node) => ("start", node),
+                StateTreeEffect::Stop(node) => ("stop", node),
+                StateTreeEffect::Restore(node) => ("restore", node),
+            };
+            lines.push(format!("{verb} {} {}", node.kind.name(), node.key));
+        }
+        println!("{}", lines.join("\n"));
+        return Ok(());
+    }
+    if json {
+        print_json(&data);
+    }
+    let reply: StateTreeReply = serde_json::from_value(data).context("malformed state tree")?;
+    let cursor = match &reply {
+        StateTreeReply::Snapshot(snapshot) => snapshot.cursor,
+        StateTreeReply::Records(records) => records.cursor,
+    };
+    if !json {
+        let lines = match &reply {
+            StateTreeReply::Snapshot(snapshot) => state_snapshot_lines(snapshot),
+            StateTreeReply::Records(records) => {
+                state_records_lines(records.from, records.cursor, &records.records)
+            }
+        };
+        println!("{}", lines.join("\n"));
+    }
+    if follow {
+        follow_state_tree(client, &active_session_id, cursor, json)?;
+    }
+    Ok(())
+}
+
+/// Print each `state_tree_update` of the subscribed session, from the
+/// cursor `have`: a frame the reply already covered is skipped, and an
+/// overlapping one prints only its records after `have`. Runs until the
+/// connection closes.
+fn follow_state_tree(
+    client: &mut Daemon,
+    active_session_id: &str,
+    mut have: u64,
+    json: bool,
+) -> Result<()> {
+    loop {
+        let Some(event) = client.runtime.block_on(client.events.recv()) else {
+            return Err(closed_error(None, client.client.socket_path()));
+        };
+        match event {
+            DaemonClientEvent::StateTreeUpdate {
+                active_session_id: session,
+                update,
+            } => {
+                if session != active_session_id || update.cursor <= have {
+                    continue;
+                }
+                if update.from > have {
+                    bail!(
+                        "missed the state tree records {have}..{}; run the command again",
+                        update.from
+                    );
+                }
+                let skip = usize::try_from(have - update.from)?;
+                let records = update.records.get(skip..).unwrap_or_default();
+                if json {
+                    print_json(
+                        &json!({ "from": have, "cursor": update.cursor, "records": records }),
+                    );
+                } else {
+                    println!(
+                        "{}",
+                        state_records_lines(have, update.cursor, records).join("\n")
+                    );
+                }
+                have = update.cursor;
+            }
+            DaemonClientEvent::DaemonClosing { reason } => {
+                return Err(closed_error(Some(&reason), client.client.socket_path()));
+            }
+            DaemonClientEvent::SessionClosed {
+                active_session_id: session,
+                reason,
+            } => {
+                if session == active_session_id {
+                    bail!("The agent session closed ({reason}).");
+                }
+            }
+            DaemonClientEvent::SessionEvent { .. }
+            | DaemonClientEvent::UndecodableSessionEvent { .. }
+            | DaemonClientEvent::DirectLinkLost { .. }
+            | DaemonClientEvent::SessionListItem { .. }
+            | DaemonClientEvent::SessionListProgress { .. }
+            | DaemonClientEvent::SideQuestionEvent { .. }
+            | DaemonClientEvent::RosterUpdate { .. }
+            | DaemonClientEvent::HeartbeatsChanged
+            | DaemonClientEvent::SessionBinding { .. } => {}
+        }
+    }
+}
+
+/// Records as `eukhe state --since` prints them: `cursor <to> (from
+/// <from>)`, then one line per change.
+fn state_records_lines(from: u64, to: u64, records: &[StateTreeRecord]) -> Vec<String> {
+    let mut lines = vec![format!("cursor {to} (from {from})")];
+    for record in records {
+        match record {
+            StateTreeRecord::Do(op) => lines.push(state_op_line(op)),
+            StateTreeRecord::Rewind(ops) => {
+                lines.push("rewind".to_string());
+                lines.extend(ops.iter().map(|op| format!("  {}", state_op_line(op))));
+            }
+        }
+    }
+    lines
+}
+
+/// The snapshot as `eukhe state` prints it: the cursor, then each node as
+/// `<kind> <key>`, indented two spaces per level under its parent.
+fn state_snapshot_lines(snapshot: &StateTreeSnapshot) -> Vec<String> {
+    let mut lines = vec![format!("cursor {}", snapshot.cursor)];
+    // Parents come before their children in id order, so one pass knows
+    // the depth of every parent. A top node hangs under the root (`0`).
+    let mut depths: HashMap<u64, usize> = HashMap::new();
+    let mut children: HashMap<u64, Vec<&StateTreeNode>> = HashMap::new();
+    for node in &snapshot.nodes {
+        let depth = depths.get(&node.parent).map_or(0, |depth| depth + 1);
+        depths.insert(node.id, depth);
+        children.entry(node.parent).or_default().push(node);
+    }
+    let mut stack: Vec<&StateTreeNode> = children
+        .get(&0)
+        .map(|top| top.iter().rev().copied().collect())
+        .unwrap_or_default();
+    while let Some(node) = stack.pop() {
+        let depth = depths.get(&node.id).copied().unwrap_or_default();
+        lines.push(format!(
+            "{}{} {}",
+            "  ".repeat(depth),
+            node.kind.name(),
+            node.key
+        ));
+        if let Some(below) = children.get(&node.id) {
+            stack.extend(below.iter().rev().copied());
+        }
+    }
+    lines
+}
+
+/// One state tree change: `put <kind> <key> #<id> under #<parent>` or
+/// `del #<id>`.
+fn state_op_line(op: &StateTreeOp) -> String {
+    match op {
+        StateTreeOp::Put(node) => format!(
+            "put {} {} #{} under #{}",
+            node.kind.name(),
+            node.key,
+            node.id,
+            node.parent
+        ),
+        StateTreeOp::Del { id } => format!("del #{id}"),
+    }
+}
+
+/// The one live agent, for a command without an agent operand.
+fn only_live_session(client: &mut Daemon) -> Result<String> {
+    let data = require_success(client.request(list_command(false))?)?;
+    let ids: Vec<&str> = data
+        .as_ref()
+        .and_then(|data| data.get("sessions"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("Daemon returned an invalid list response"))?
+        .iter()
+        .filter_map(|session| session.get("activeSessionId").and_then(Value::as_str))
+        .collect();
+    match ids.as_slice() {
+        [id] => Ok((*id).to_string()),
+        [] => Err(anyhow!("No active agents.")),
+        _ => Err(anyhow!(
+            "Several active agents; name one (see \"eukhe list\")."
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // send
 // ---------------------------------------------------------------------------
 
@@ -881,6 +1148,40 @@ mod tests {
         assert_eq!(send.positionals, args(&["target", "--", "hi", "there"]));
         let list = parse_daemon_command("list", &args(&["--", "-a"])).unwrap();
         assert_eq!(list.positionals, args(&["-a"]));
+    }
+
+    #[test]
+    fn state_snapshot_lines_indent_each_node_under_its_parent() {
+        use eukhe_types::daemon::StateTreeKind;
+        let node = |id, parent, kind, key: &str| StateTreeNode {
+            id,
+            parent,
+            kind,
+            key: key.to_string(),
+            value: Value::Null,
+        };
+        let snapshot = StateTreeSnapshot {
+            cursor: 7,
+            seq: Some(4),
+            nodes: vec![
+                node(1, 0, StateTreeKind::Conversation, "1"),
+                node(2, 0, StateTreeKind::Document, "9"),
+                node(3, 1, StateTreeKind::Task, "12"),
+                node(4, 3, StateTreeKind::Document, "13"),
+                node(5, 1, StateTreeKind::Entry, "14"),
+            ],
+        };
+        assert_eq!(
+            state_snapshot_lines(&snapshot),
+            [
+                "cursor 7",
+                "conversation 1",
+                "  task 12",
+                "    document 13",
+                "  entry 14",
+                "document 9",
+            ]
+        );
     }
 
     #[test]

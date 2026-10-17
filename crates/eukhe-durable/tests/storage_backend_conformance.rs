@@ -24,7 +24,10 @@ async fn jsonl(directory: &Path, fsync: bool) -> Arc<dyn Storage> {
         open_native_jsonl_storage(
             directory,
             &BACKGROUND_CONTEXT,
-            JsonlStorageOptions { fsync },
+            JsonlStorageOptions {
+                fsync,
+                ..JsonlStorageOptions::default()
+            },
         )
         .await
         .unwrap(),

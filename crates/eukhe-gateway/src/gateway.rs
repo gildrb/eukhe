@@ -776,6 +776,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | DaemonClientEvent::SessionListProgress { .. }
             | DaemonClientEvent::SideQuestionEvent { .. }
             | DaemonClientEvent::RosterUpdate { .. }
+            | DaemonClientEvent::StateTreeUpdate { .. }
             | DaemonClientEvent::HeartbeatsChanged => {}
         }
     }

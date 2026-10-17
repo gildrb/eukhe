@@ -49,6 +49,16 @@ impl OutboundFrame {
         }
     }
 
+    /// `state_tree_update`: new state tree records, for the supervisor to
+    /// route to the subscribed client connections.
+    pub(crate) fn state_tree_update(payload: Vec<u8>) -> Self {
+        OutboundFrame {
+            payload,
+            outbound_type: crate::peer::STATE_TREE_UPDATE_FRAME,
+            seq: 0,
+        }
+    }
+
     /// `heartbeats_changed` (TS daemon-mode `broadcastGlobal`): the store's
     /// heartbeat-catalog-change notification, re-broadcast daemon-wide by
     /// the supervisor.
@@ -426,7 +436,7 @@ impl Worker {
                                     // advances the flush position: it cannot be
                                     // delivered later, so a gated response must not
                                     // wait for it.
-                                    if role.lock().unwrap().streams_events() {
+                                    if role.lock().unwrap().streams(frame.outbound_type) {
                                         let active_session_id = active_session_id_of(&frame.payload);
                                         let header = json!({
                                             "kind": "outbound",

@@ -13,7 +13,7 @@ use eukhe_durable::harness::registry::Registry;
 use eukhe_durable::harness::types::{AgentChange, FieldChange, HarnessOptions, ReportFn};
 use eukhe_durable::harness::{Conversation, Harness, RootOptions};
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
+use eukhe_durable::storage::jsonl::{CommitHistory, JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
 
@@ -30,6 +30,7 @@ use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
 use super::registry::create_eukhe_registry;
 use super::settings::EukheSettings;
+use super::state_tree::LiveStateTree;
 use crate::admission::local_admission;
 use crate::kernel::python_skills::kernel_python_skills;
 use crate::resources::{load_resources, LoadedResources, ResourceLoaderOptions};
@@ -69,6 +70,7 @@ pub struct EukheSession {
     registry: Registry,
     deps: Arc<HostDeps>,
     stops: Mutex<Vec<ServiceStop>>,
+    state_tree: LiveStateTree,
 }
 
 impl EukheSession {
@@ -133,6 +135,12 @@ impl EukheSession {
         &self.deps
     }
 
+    /// The live state tree of the session.
+    #[must_use]
+    pub fn state_tree(&self) -> &LiveStateTree {
+        &self.state_tree
+    }
+
     /// Begin closing ([`HostDeps::begin_close`]), stop the session's
     /// services (reverse start order), then close the Harness after its
     /// running tasks settle. Idempotent: a later call stops nothing and
@@ -169,7 +177,7 @@ impl Drop for EukheSession {
 /// The legacy import, storage, resource loading, model resolution, or
 /// Harness open fails.
 pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSession, OpenError> {
-    let (storage, storage_dir) = open_storage(&config, cx).await?;
+    let (storage, storage_dir, jsonl) = open_storage(&config, cx).await?;
     let settings = Arc::new(if config.memory.is_some() && config.role.is_root() {
         EukheSettings::chat_memory_root(&config.cwd, &config.agent_dir)
     } else {
@@ -263,6 +271,20 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     options.now.clone_from(&config.now);
     options.on_report = Some(on_report);
     let harness = Harness::open(storage, options, cx).await?;
+    // Follow the commits before the first one after open; the storage
+    // keeps its history until the state tree takes it.
+    let state_tree = match LiveStateTree::start(&harness, || {
+        jsonl
+            .as_deref()
+            .map(JsonlStorage::take_history)
+            .unwrap_or_default()
+    }) {
+        Ok(state_tree) => state_tree,
+        Err(error) => {
+            close_after_failure(&harness, cx).await;
+            return Err(error.into());
+        }
+    };
 
     let opened = async {
         let root = open_root(&harness, &config, &models, &manager, cx).await?;
@@ -285,6 +307,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         registry,
         deps: Arc::clone(&deps),
         stops: Mutex::new(Vec::new()),
+        state_tree,
     };
     for start in deps.take_services() {
         let started = start(OpenedSession {
@@ -344,12 +367,14 @@ fn session_local_models(shared: &Models) -> Models {
     models
 }
 
+/// The storage of the session, its directory, and the JSONL storage that
+/// keeps the history for the state tree.
 async fn open_storage(
     config: &SessionConfig,
     cx: &Context,
-) -> Result<(Arc<dyn Storage>, Option<PathBuf>), OpenError> {
+) -> Result<(Arc<dyn Storage>, Option<PathBuf>, Option<Arc<JsonlStorage>>), OpenError> {
     match &config.storage {
-        SessionStorage::Memory => Ok((Arc::new(MemoryStorage::new()), None)),
+        SessionStorage::Memory => Ok((Arc::new(MemoryStorage::new()), None, None)),
         SessionStorage::Jsonl { dir, fsync } => {
             if let Some(legacy) = legacy_session_file(dir, &config.session_id) {
                 let report = import_legacy_session(&legacy, dir, cx)
@@ -373,14 +398,22 @@ async fn open_storage(
                 &dir.to_string_lossy(),
                 fs,
                 cx,
-                JsonlStorageOptions { fsync: *fsync },
+                JsonlStorageOptions {
+                    fsync: *fsync,
+                    history: CommitHistory::Keep,
+                },
             )
             .await
             .map_err(|source| OpenError::Storage {
                 dir: dir.clone(),
                 source,
             })?;
-            Ok((Arc::new(storage), Some(dir.clone())))
+            let storage = Arc::new(storage);
+            Ok((
+                Arc::clone(&storage) as Arc<dyn Storage>,
+                Some(dir.clone()),
+                Some(storage),
+            ))
         }
     }
 }

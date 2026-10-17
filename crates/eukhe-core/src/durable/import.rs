@@ -207,8 +207,15 @@ async fn write_storage(
     let directory = directory.to_str().ok_or_else(|| ImportError::StorageDir {
         path: directory.to_owned(),
     })?;
-    let storage =
-        open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
+    let storage = open_native_jsonl_storage(
+        directory,
+        cx,
+        JsonlStorageOptions {
+            fsync: true,
+            ..JsonlStorageOptions::default()
+        },
+    )
+    .await?;
     let harness = Harness::open(Arc::new(storage), harness_options(), cx).await?;
     let agent = AgentChange {
         model: plan

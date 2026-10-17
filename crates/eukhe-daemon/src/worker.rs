@@ -24,6 +24,7 @@ mod lifecycle;
 mod memory_updates;
 mod passivation;
 mod run_outcome;
+mod state_tree;
 mod summary;
 
 mod connection;
@@ -173,6 +174,9 @@ pub struct Worker {
     /// The installed session's `memory_update` forwarder (see
     /// `memory_updates`); aborted when the session closes or is replaced.
     memory_updates: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The installed session's `state_tree_update` forwarder (see
+    /// `state_tree`); aborted when the session closes or is replaced.
+    state_tree_updates: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The create-config faux script's models, built at the first open:
     /// every session this worker opens (create, replacements) consumes the
     /// one script in order.
@@ -341,6 +345,7 @@ impl Worker {
             rename_gate: tokio::sync::Mutex::new(()),
             chat_memory: tokio::sync::OnceCell::new(),
             memory_updates: std::sync::Mutex::new(None),
+            state_tree_updates: std::sync::Mutex::new(None),
             scripted_models: std::sync::OnceLock::new(),
             rlm_children: std::sync::OnceLock::new(),
             own_summary: Arc::new(Mutex::new(None)),

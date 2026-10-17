@@ -178,6 +178,8 @@ struct Client {
     reader: BufReader<std::os::unix::net::UnixStream>,
     writer: std::os::unix::net::UnixStream,
     events: Vec<Value>,
+    /// The `state_tree_update` frames this connection got.
+    tree_updates: Vec<Value>,
 }
 
 impl Client {
@@ -188,6 +190,7 @@ impl Client {
             reader: BufReader::new(stream),
             writer,
             events: Vec::new(),
+            tree_updates: Vec::new(),
         };
         let hello = client.read_line();
         assert_eq!(hello["type"], "daemon_hello");
@@ -253,8 +256,27 @@ impl Client {
     }
 
     fn collect_event(&mut self, line: &Value) {
-        if line.get("type").and_then(Value::as_str) == Some("session_event") {
-            self.events.push(line["event"].clone());
+        match line.get("type").and_then(Value::as_str) {
+            Some("session_event") => self.events.push(line["event"].clone()),
+            Some("state_tree_update") => self.tree_updates.push(line.clone()),
+            _ => {}
+        }
+    }
+
+    /// Block until a `state_tree_update` frame reaches `cursor`.
+    fn wait_for_tree_cursor(&mut self, cursor: u64) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !self
+            .tree_updates
+            .iter()
+            .any(|frame| frame["update"]["cursor"].as_u64() >= Some(cursor))
+        {
+            assert!(
+                Instant::now() < deadline,
+                "no state tree frame reached {cursor}"
+            );
+            let line = self.read_line();
+            self.collect_event(&line);
         }
     }
 
@@ -320,6 +342,7 @@ const MATRIX: &[(&str, &str)] = &[
     ("get_chat_view", "the startup chat view block"),
     ("get_memory", "the status gauge"),
     ("get_memory_tree", "/memory and the dashboard's Memory view"),
+    ("get_state_tree", "eukhe state"),
     ("get_tool_definition", "wire: get_tool_definition"),
     ("get_resource_snapshot", "wire: get_resource_snapshot"),
 ];
@@ -548,6 +571,188 @@ fn get_memory_tree_answers_the_root_sessions_tree() {
                 level: eukhe_types::daemon::MemoryTreeLevel::NoLine,
             }),
         }
+    );
+}
+
+/// The nodes that the first `count` state tree records make, in id order:
+/// a `put` sets its node; a `del` removes its node and the nodes below it.
+fn replay_state_tree(
+    records: &[eukhe_types::daemon::StateTreeRecord],
+    count: usize,
+) -> Vec<eukhe_types::daemon::StateTreeNode> {
+    use eukhe_types::daemon::{StateTreeOp, StateTreeRecord};
+    let mut nodes = std::collections::BTreeMap::new();
+    for record in &records[..count] {
+        match record {
+            StateTreeRecord::Do(StateTreeOp::Put(node)) => {
+                nodes.insert(node.id, node.clone());
+            }
+            StateTreeRecord::Do(StateTreeOp::Del { id }) => {
+                let mut gone = std::collections::BTreeSet::from([*id]);
+                nodes.retain(|key, node: &mut eukhe_types::daemon::StateTreeNode| {
+                    let keep = !gone.contains(key) && !gone.contains(&node.parent);
+                    if !keep {
+                        gone.insert(*key);
+                    }
+                    keep
+                });
+            }
+            StateTreeRecord::Rewind(_) => panic!("a derived tree records no rewind"),
+        }
+    }
+    nodes.into_values().collect()
+}
+
+/// `get_state_tree` answers the session's state tree: the snapshot holds
+/// the root conversation under the root, the records after cursor 0 make
+/// the snapshot, and a rewind plan to cursor 0 stops every node.
+#[test]
+fn get_state_tree_answers_the_sessions_tree() {
+    use eukhe_types::daemon::{
+        StateRewindPlanReply, StateTreeEffect, StateTreeKind, StateTreeNode, StateTreeNodeRef,
+        StateTreeReply,
+    };
+    let mut session = open_session();
+    let request = |name: &str, extra: Value| {
+        let mut command = info_command(name, &session.session_id);
+        if let (Some(command), Value::Object(extra)) = (command.as_object_mut(), extra) {
+            command.extend(extra);
+        }
+        command
+    };
+    let snapshot_command = request("get_state_tree", json!({}));
+    let plan_command = request("get_state_rewind_plan", json!({ "cursor": 0 }));
+    let records_command = request("get_state_tree", json!({ "since": 0 }));
+    let mut data = |id: &str, command: &Value| {
+        let (response, _) = session.client.timed_request(id, command);
+        assert_eq!(response["success"], true, "{command} failed: {response}");
+        response["data"].clone()
+    };
+    let snapshot = data("s1", &snapshot_command);
+    let plan = data("s2", &plan_command);
+    let records = data("s3", &records_command);
+    let StateTreeReply::Snapshot(snapshot) =
+        serde_json::from_value(snapshot).expect("the snapshot decodes")
+    else {
+        panic!("a snapshot without since");
+    };
+    let plan: StateRewindPlanReply = serde_json::from_value(plan).expect("the plan decodes");
+    let StateTreeReply::Records(records) =
+        serde_json::from_value(records).expect("the records decode")
+    else {
+        panic!("records with since");
+    };
+    let count = |cursor: u64| usize::try_from(cursor).expect("a cursor fits");
+    assert_eq!(
+        (
+            snapshot.nodes.first().cloned(),
+            replay_state_tree(&records.records, count(snapshot.cursor)),
+            records.from,
+            plan.target,
+            plan.effects,
+        ),
+        (
+            Some(StateTreeNode {
+                id: 1,
+                parent: 0,
+                kind: StateTreeKind::Conversation,
+                key: "1".to_owned(),
+                value: json!({ "id": 1 }),
+            }),
+            snapshot.nodes.clone(),
+            0,
+            0,
+            replay_state_tree(&records.records, count(plan.cursor))
+                .into_iter()
+                .map(|node| StateTreeEffect::Stop(StateTreeNodeRef {
+                    id: node.id,
+                    kind: node.kind,
+                    key: node.key,
+                }))
+                .collect::<Vec<_>>(),
+        )
+    );
+}
+
+/// `subscribe_state_tree` answers the snapshot and then streams the new
+/// records, from the snapshot's cursor on, to the subscribed connection
+/// only: another connection attached to the same session never gets a
+/// `state_tree_update` frame.
+#[test]
+fn subscribe_state_tree_streams_records_to_its_connection_only() {
+    use eukhe_types::daemon::{StateTreeRecord, StateTreeRecords, StateTreeReply};
+    let OpenSession {
+        _supervisor,
+        mut client,
+        session_id,
+        mock: _mock,
+        _dir: dir,
+    } = open_session();
+    let socket = dir.path().join("cmd-dispatch.sock");
+    let mut other = Client::connect(&socket);
+    other.send_command(
+        "o1",
+        &json!({ "type": "attach", "activeSessionId": session_id }),
+    );
+    assert_eq!(other.request("o1")["success"], true);
+    let mut subscribe = info_command("subscribe_state_tree", &session_id);
+    let (response, _) = client.timed_request("s1", &subscribe);
+    assert_eq!(response["success"], true, "subscribe failed: {response}");
+    let StateTreeReply::Snapshot(snapshot) =
+        serde_json::from_value(response["data"].clone()).expect("the snapshot decodes")
+    else {
+        panic!("a snapshot without since");
+    };
+    client.send_command(
+        "p1",
+        &json!({ "type": "prompt", "activeSessionId": session_id, "message": "hello" }),
+    );
+    assert_eq!(client.request("p1")["success"], true);
+    client.wait_for_settled();
+    // What the other connection reads after the turn, from the snapshot.
+    let mut since = info_command("get_state_tree", &session_id);
+    since["since"] = json!(snapshot.cursor);
+    let (response, _) = other.timed_request("o2", &since);
+    let StateTreeReply::Records(read) =
+        serde_json::from_value(response["data"].clone()).expect("the records decode")
+    else {
+        panic!("records with since");
+    };
+    client.wait_for_tree_cursor(read.cursor);
+    // The frames, applied from the snapshot's cursor as a client does.
+    let mut have = snapshot.cursor;
+    let mut streamed: Vec<StateTreeRecord> = Vec::new();
+    for frame in &client.tree_updates {
+        assert_eq!(frame["activeSessionId"], json!(session_id));
+        let update: StateTreeRecords =
+            serde_json::from_value(frame["update"].clone()).expect("the update decodes");
+        if update.cursor <= have {
+            continue;
+        }
+        assert!(
+            update.from <= have,
+            "a gap before {}: {update:?}",
+            update.from
+        );
+        let skip = usize::try_from(have - update.from).expect("a cursor fits");
+        streamed.extend(update.records[skip..].iter().cloned());
+        have = update.cursor;
+    }
+    let count = usize::try_from(read.cursor - snapshot.cursor).expect("a cursor fits");
+    // A round trip on the other connection: a frame routed to it would
+    // be on its queue before this answer.
+    let (response, _) = other.timed_request("o3", &info_command("get_state_tree", &session_id));
+    assert_eq!(response["success"], true);
+    subscribe["type"] = json!("unsubscribe_state_tree");
+    let (unsubscribed, _) = client.timed_request("s2", &subscribe);
+    assert_eq!(
+        (
+            streamed.get(..count).map(<[StateTreeRecord]>::to_vec),
+            read.records.is_empty(),
+            other.tree_updates.len(),
+            unsubscribed["success"].clone(),
+        ),
+        (Some(read.records), false, 0, json!(true))
     );
 }
 

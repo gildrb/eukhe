@@ -143,6 +143,13 @@ pub enum DaemonClientEvent {
         previous_active_session_id: String,
         active_session_id: String,
     },
+    /// `state_tree_update`: new records of a session's state tree. Only a
+    /// connection that sent `subscribe_state_tree` gets it (`eukhe state
+    /// --follow`); the interactive views never subscribe.
+    StateTreeUpdate {
+        active_session_id: String,
+        update: eukhe_types::daemon::StateTreeRecords,
+    },
 }
 
 /// Every field a non-response frame may carry, borrowed raw off the wire
@@ -177,6 +184,8 @@ struct InboundFrame<'a> {
     removed: Option<&'a RawValue>,
     #[serde(borrow, default)]
     resync: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    update: Option<&'a RawValue>,
 }
 
 /// The `meta` fields a session event's sequence rides on.
@@ -274,6 +283,14 @@ fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent
             resync: decode(frame.resync) == Some(true),
         }),
         "heartbeats_changed" => Some(DaemonClientEvent::HeartbeatsChanged),
+        // A frame whose records do not decode is dropped: the next frame
+        // starts after a cursor the follower lacks, and it re-subscribes.
+        "state_tree_update" => {
+            decode(frame.update).map(|update| DaemonClientEvent::StateTreeUpdate {
+                active_session_id: decode_string(frame.active_session_id),
+                update,
+            })
+        }
         "session_binding" => Some(DaemonClientEvent::SessionBinding {
             previous_active_session_id: decode_string(frame.previous_active_session_id),
             active_session_id: decode_string(frame.active_session_id),

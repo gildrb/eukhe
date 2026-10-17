@@ -456,7 +456,10 @@ async fn open_jsonl(dir: &std::path::Path) -> Arc<dyn Storage> {
             &dir.join("session").to_string_lossy(),
             fs,
             cx(),
-            JsonlStorageOptions { fsync: true },
+            JsonlStorageOptions {
+                fsync: true,
+                ..JsonlStorageOptions::default()
+            },
         )
         .await
         .expect("the JSONL storage opens"),

@@ -20,6 +20,7 @@ import ./bend/proof_child.bend as Children
 import ./bend/proof_run.bend as Runs
 import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
+import ./bend/proof_tree.bend as Trees
 
 # (a) The view
 
@@ -247,3 +248,38 @@ def Laws.admission_end_twice_changes_nothing(s, k, e):
 
 def Laws.admission_every_ticket_ends(s, k, live):
   Admission.every_ticket_ends(s, k, live)
+
+# (S1) The session tree
+
+def Laws.tree_apply_sound(t, good, r):
+  Trees.apply_sound(t, good, r)
+
+def Laws.tree_replay_sound(rs):
+  Trees.replay_sound(rs)
+
+def Laws.tree_snapshot(pre, post):
+  Trees.snapshot(pre, post)
+
+def Laws.tree_rewind_reaches(a, b, ga, gb):
+  Trees.rewind_reaches(a, b, ga, gb)
+
+def Laws.tree_rewind_still(a, ga):
+  Trees.rewind_still(a, ga)
+
+def Laws.tree_rewind_minimal(a, b, ga, gb):
+  Trees.rewind_minimal(a, b, ga, gb)
+
+def Laws.tree_delete_removes(t, good, x):
+  Trees.delete_removes(t, good, x)
+
+def Laws.tree_delete_within(t, good, x):
+  Trees.delete_within(t, good, x)
+
+def Laws.tree_delete_only_below(t, good, x):
+  Trees.delete_only_below(t, good, x)
+
+def Laws.tree_put_sets(t, good, k, p, v, fits):
+  Trees.put_sets(t, good, k, p, v, fits)
+
+def Laws.tree_put_keeps_others(t, good, k, p, v, x, other):
+  Trees.put_keeps_others(t, good, k, p, v, x, other)

@@ -18,6 +18,7 @@ pub mod storage;
 pub mod tasks;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod tree;
 pub mod types;
 
 /// The default line bound of a tool result.

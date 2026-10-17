@@ -149,6 +149,10 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "get_chat_view",
     "get_memory",
     "get_memory_tree",
+    "get_state_tree",
+    "subscribe_state_tree",
+    "unsubscribe_state_tree",
+    "get_state_rewind_plan",
     "agent_relay",
     "agent_reply",
     "get_run_outcome",
@@ -341,6 +345,7 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
                 eukhe_types::daemon::CHAT_VIEW_CAPABILITY,
                 eukhe_types::daemon::MEMORY_CAPABILITY,
                 eukhe_types::daemon::MEMORY_TREE_CAPABILITY,
+                eukhe_types::daemon::STATE_TREE_CAPABILITY,
             ]
             .iter()
             .map(std::string::ToString::to_string),
@@ -889,6 +894,18 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetMemoryTree {
             active_session_id, ..
         }
+        | DaemonCommand::GetStateTree {
+            active_session_id, ..
+        }
+        | DaemonCommand::GetStateRewindPlan {
+            active_session_id, ..
+        }
+        | DaemonCommand::SubscribeStateTree {
+            active_session_id, ..
+        }
+        | DaemonCommand::UnsubscribeStateTree {
+            active_session_id, ..
+        }
         | DaemonCommand::GetToolDefinition {
             active_session_id, ..
         }
@@ -1075,6 +1092,10 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetChatView { .. } => "get_chat_view",
         DaemonCommand::GetMemory { .. } => "get_memory",
         DaemonCommand::GetMemoryTree { .. } => "get_memory_tree",
+        DaemonCommand::GetStateTree { .. } => "get_state_tree",
+        DaemonCommand::GetStateRewindPlan { .. } => "get_state_rewind_plan",
+        DaemonCommand::SubscribeStateTree { .. } => "subscribe_state_tree",
+        DaemonCommand::UnsubscribeStateTree { .. } => "unsubscribe_state_tree",
         DaemonCommand::GetToolDefinition { .. } => "get_tool_definition",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",

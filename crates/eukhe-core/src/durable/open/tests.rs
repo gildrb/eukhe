@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -11,7 +12,9 @@ use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools}
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::types::{InputSubmissionDraft, ModelRef};
 use eukhe_durable::harness::ConversationEntryQuery;
-use eukhe_durable::types::EntryRecord;
+use eukhe_durable::storage::jsonl::open_native_jsonl_storage;
+use eukhe_durable::tree::{Applied, NodeId, StateKey, StateNode, StateTree};
+use eukhe_durable::types::{EntryRecord, Seq};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Message, Modality, StopReason, UserContent, UserContentBlock,
 };
@@ -244,6 +247,65 @@ async fn reopening_the_storage_keeps_the_root_and_its_entries() {
         1
     );
     session.close(cx()).await.expect("close");
+}
+
+#[tokio::test]
+async fn the_state_tree_follows_the_history_and_the_live_commits() {
+    let fixture = fixture();
+    fixture.faux.set_responses(vec![answer("first answer")]);
+    let mut config = fixture.config(fixture.jsonl());
+    config.model = Some(fixture.model().into());
+    let session = open_session(config.clone(), cx()).await.expect("open");
+    ask(&session, "first").await;
+    session.close(cx()).await.expect("close");
+
+    config.model = None;
+    let session = open_session(config, cx()).await.expect("reopen");
+    fixture.faux.set_responses(vec![answer("second answer")]);
+    ask(&session, "second").await;
+    let live = session
+        .state_tree()
+        .read(by_key)
+        .await
+        .expect("the state tree is built");
+    session.close(cx()).await.expect("close");
+
+    // The whole committed history makes the same tree. The ids may differ:
+    // the history keeps no early state of a terminal task, so the tree
+    // can see its records in another order.
+    let SessionStorage::Jsonl { dir, .. } = fixture.jsonl() else {
+        unreachable!("a JSONL storage")
+    };
+    let storage = open_native_jsonl_storage(
+        &dir.to_string_lossy(),
+        cx(),
+        JsonlStorageOptions {
+            fsync: false,
+            history: CommitHistory::Keep,
+        },
+    )
+    .await
+    .expect("the storage opens");
+    let (replayed, results) = StateTree::from_history(&storage.take_history());
+    assert_eq!(results, vec![Ok(Applied::Accepted); results.len()]);
+    assert_eq!(live, by_key(&replayed));
+}
+
+/// The nodes of the state tree by key, each with the key of its parent,
+/// and the last commit.
+type NodesByKey = BTreeMap<StateKey, (Option<StateKey>, StateNode)>;
+
+fn by_key(state: &StateTree) -> (NodesByKey, Option<Seq>) {
+    let key = |id| state.key(id).cloned().expect("every node has a key");
+    let nodes = state
+        .tree()
+        .iter()
+        .map(|(id, node)| {
+            let parent = (node.parent != NodeId::ROOT).then(|| key(node.parent));
+            (key(id), (parent, node.value.clone()))
+        })
+        .collect();
+    (nodes, state.seq())
 }
 
 fn tool_call(name: &str, arguments: serde_json::Value, id: &str) -> FauxResponseStep {

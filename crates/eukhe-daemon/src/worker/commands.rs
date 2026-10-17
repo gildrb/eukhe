@@ -72,6 +72,12 @@ impl Worker {
             "get_chat_view" => self.handle_get_chat_view().await,
             "get_memory" => self.handle_get_memory(payload).await,
             "get_memory_tree" => self.handle_get_memory_tree(payload).await,
+            "get_state_tree" => self.handle_get_state_tree("get_state_tree", payload).await,
+            "subscribe_state_tree" => {
+                self.handle_get_state_tree("subscribe_state_tree", payload)
+                    .await
+            }
+            "get_state_rewind_plan" => self.handle_get_state_rewind_plan(payload).await,
             "get_tool_definition" => self.handle_get_tool_definition(payload).await,
             "get_rlm_max_depth_status" => self.handle_get_rlm_max_depth_status().await,
             "get_available_models" => self.handle_get_available_models().await,
@@ -636,6 +642,8 @@ impl Worker {
             return;
         };
         self.stop_memory_updates();
+        // The session closed: its state tree forwarder stops.
+        self.follow_state_tree(None);
         // Closing begins before the abort: the abort withdraws the queued
         // inputs (a child's report), and their owners must leave them to
         // the reopened session, not start a run on this closing one.

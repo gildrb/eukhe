@@ -860,7 +860,10 @@ impl Supervisor {
             || client_wants_chunked
             || matches!(
                 command,
+                // `subscribe_state_tree`: the caller reads the success to
+                // keep or end the subscription.
                 DaemonCommand::Detach { .. }
+                    | DaemonCommand::SubscribeStateTree { .. }
                     | DaemonCommand::Kill { .. }
                     | DaemonCommand::Rename { .. }
                     | DaemonCommand::SetSessionName { .. }

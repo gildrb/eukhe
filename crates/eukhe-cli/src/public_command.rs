@@ -154,6 +154,7 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
             }
             run_internal_agent_command("rename", &rest)
         }
+        "state" => run_internal_agent_command("state", &rest),
         "send" => run_internal_agent_command("send", &rest),
         "schedule" => run_nested_agent_command("schedule", "cron", &rest),
         "status" => run_status(&rest),

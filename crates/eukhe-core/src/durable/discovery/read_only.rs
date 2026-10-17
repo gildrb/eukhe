@@ -38,7 +38,10 @@ pub(super) async fn open_read_only(
         directory,
         Arc::new(fs),
         cx,
-        JsonlStorageOptions { fsync: false },
+        JsonlStorageOptions {
+            fsync: false,
+            ..JsonlStorageOptions::default()
+        },
     )
     .await
 }

@@ -34,6 +34,7 @@ pub mod rlm;
 pub(crate) mod session_commands;
 mod settings;
 mod staging;
+mod state_tree;
 mod tool_contract;
 
 pub use admission_gate::AdmissionStateSink;
@@ -78,3 +79,4 @@ pub use session_commands::{
 };
 pub use settings::{harness_settings, thinking_level, EukheSettings};
 pub use staging::{sweep_stale_staging_dirs, StagingSweep};
+pub use state_tree::{LiveStateTree, TreeCursor};

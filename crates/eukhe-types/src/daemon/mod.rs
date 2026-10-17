@@ -119,6 +119,7 @@ mod outbound;
 mod plane;
 mod session_event;
 mod session_state;
+mod state_tree;
 mod worker;
 
 pub use agent_relay::AgentRelayEvent;
@@ -147,6 +148,11 @@ pub use session_event::{
 };
 pub use session_state::{
     AgentConnectionState, QueuedItem, SessionActionActive, SessionActionSnapshot, SessionSummary,
+};
+pub use state_tree::{
+    StateRewindPlanReply, StateTreeEffect, StateTreeKind, StateTreeNode, StateTreeNodeRef,
+    StateTreeOp, StateTreeRecord, StateTreeRecords, StateTreeReply, StateTreeSnapshot,
+    STATE_TREE_CAPABILITY,
 };
 pub use worker::{
     DaemonPeerCommand, DaemonWorkerCommand, DaemonWorkerDescriptor, DaemonWorkerFrameHeader,

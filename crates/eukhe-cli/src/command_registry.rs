@@ -79,6 +79,33 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
         "Rename an agent",
     ),
     CommandSpec::new(
+        &["state"],
+        "state [<agent>] [--since <cursor>] [--follow] [--json]",
+        "Show the state tree of an agent's session",
+    )
+    .description(
+        "The state tree holds every record of the session: its conversations, entries, tasks, \
+submissions, and documents. The first line is the cursor (the number of tree records); each \
+node shows as its kind and its record id, indented under its parent. Without <agent>, the only \
+active agent. With --follow, the command then prints each new batch of records as the session \
+commits it, until Ctrl+C.",
+    )
+    .options(&[
+        "--since <cursor>  Print the records after this cursor",
+        "--follow          Keep printing the new records",
+        "--json            Print JSON",
+    ]),
+    CommandSpec::new(
+        &["state", "rewind-plan"],
+        "state rewind-plan <cursor> [<agent>] [--json]",
+        "Show what a rewind of the state tree to a cursor does",
+    )
+    .description(
+        "Prints one line per node that the rewind touches: stop for a node that goes, start \
+for a node that comes back, restore for a node that changes.",
+    )
+    .options(&["--json  Print JSON"]),
+    CommandSpec::new(
         &["send"],
         "send [--from <agent>] <agent> <message>",
         "Send a message to an agent",

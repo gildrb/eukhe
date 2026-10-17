@@ -318,6 +318,17 @@ pub enum DaemonOutbound {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native, advertised by the `state_tree` capability: the new
+    /// records of the session state tree, sent only to the connections
+    /// that sent `subscribe_state_tree` for the session. It carries no
+    /// event sequence: it is not a session event, and clients that do not
+    /// subscribe never see a gap.
+    StateTreeUpdate {
+        active_session_id: String,
+        update: super::StateTreeRecords,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     SessionReplaced {
         active_session_id: String,
         state: Value,

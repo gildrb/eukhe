@@ -15,6 +15,7 @@ import ./bend/lease.bend as Ls
 import ./bend/child.bend as Ch
 import ./bend/run.bend as Rn
 import ./bend/admission.bend as Ad
+import ./bend/tree.bend as Tr
 
 # (a) The view
 # ------------
@@ -627,3 +628,97 @@ law admission_every_ticket_ends:
   for +k: Nat
   for live: {Maybe.is_some(&2, Ad.Tk, Ad.status(s, k)) == True{} : Bool}
   {Ad.ended(Ad.status(Ad.step(s, Ad.finish(Ad.status(s, k), k)), k)) == True{} : Bool}
+
+# (S1) The session tree
+# ---------------------
+# docs/harness.md S1, the model in bend/tree.bend. One tree holds the
+# state of a session; the journal is its list of records. Every record
+# is free: any put (valid or not), any delete, any rewind ops.
+
+# LAW: a record keeps a valid tree valid: keys in order, and every node
+# under the root or under a node (no orphan, no cycle)
+law tree_apply_sound:
+  for +t: List<&2, Tr.Ent>
+  for good: {Tr.sound(t) == True{} : Bool}
+  for r: Tr.Rec
+  {Tr.sound(Tr.apply(t, r)) == True{} : Bool}
+
+# LAW: so every journal makes a valid tree
+law tree_replay_sound:
+  for rs: List<&2, Tr.Rec>
+  {Tr.sound(Tr.replay(rs)) == True{} : Bool}
+
+# LAW: a snapshot after any prefix of the journal, with the records after
+# it, makes the tree of the whole journal. So a client that holds a
+# snapshot and gets the records after it holds the live tree.
+law tree_snapshot:
+  for +pre: List<&2, Tr.Rec>
+  for post: List<&2, Tr.Rec>
+  {Tr.go(post, Tr.replay(pre)) == Tr.replay(List.append(&2, Tr.Rec, pre, post)) : List<&2, Tr.Ent>}
+
+# LAW: a rewind with diff(current, target) makes the target, exactly
+law tree_rewind_reaches:
+  for +a: List<&2, Tr.Ent>
+  for +b: List<&2, Tr.Ent>
+  for ga: {Tr.sound(a) == True{} : Bool}
+  for gb: {Tr.sound(b) == True{} : Bool}
+  {Tr.apply(a, Tr.Rewind{Tr.diff(a, b)}) == b : List<&2, Tr.Ent>}
+
+# LAW: a rewind to the current tree has no ops
+law tree_rewind_still:
+  for +a: List<&2, Tr.Ent>
+  for ga: {Tr.sorted(a) == True{} : Bool}
+  {Tr.diff(a, a) == Nil{} : List<&2, Tr.Op>}
+
+# LAW: every op of a rewind is on a node that differs between the
+# current tree and the target: a rewind starts, stops or restores only
+# what changed
+law tree_rewind_minimal:
+  for +a: List<&2, Tr.Ent>
+  for +b: List<&2, Tr.Ent>
+  for ga: {Tr.sorted(a) == True{} : Bool}
+  for gb: {Tr.sorted(b) == True{} : Bool}
+  {Tr.changed(a, b, Tr.diff(a, b)) == True{} : Bool}
+
+# LAW: a delete removes its node
+law tree_delete_removes:
+  for +t: List<&2, Tr.Ent>
+  for good: {Tr.sound(t) == True{} : Bool}
+  for +x: Nat
+  {Tr.has(Tr.apply(t, Tr.Do{Tr.Del{x}}), x) == False{} : Bool}
+
+# LAW: a delete removes a node only when it is the deleted node or its
+# parent is removed: it removes the subtree, nothing else
+law tree_delete_only_below:
+  for +t: List<&2, Tr.Ent>
+  for good: {Tr.sound(t) == True{} : Bool}
+  for +x: Nat
+  {Tr.only_below(t, x, Tr.apply(t, Tr.Do{Tr.Del{x}})) == True{} : Bool}
+
+# LAW: a delete changes no node it keeps
+law tree_delete_within:
+  for +t: List<&2, Tr.Ent>
+  for good: {Tr.sound(t) == True{} : Bool}
+  for +x: Nat
+  {Tr.within(Tr.apply(t, Tr.Do{Tr.Del{x}}), t) == True{} : Bool}
+
+# LAW: a put under the root or a node sets its node
+law tree_put_sets:
+  for +t: List<&2, Tr.Ent>
+  for good: {Tr.sound(t) == True{} : Bool}
+  for +k: Nat
+  for +p: Nat
+  for +v: Nat
+  for fits: {Tr.ok(t, k, p) == True{} : Bool}
+  {Tr.get(Tr.apply(t, Tr.Do{Tr.Put{k, p, v}}), k) == Some{Tr.Ent{k, p, v}} : Maybe<&2, Tr.Ent>}
+
+# LAW: a put changes no other node
+law tree_put_keeps_others:
+  for +t: List<&2, Tr.Ent>
+  for good: {Tr.sound(t) == True{} : Bool}
+  for +k: Nat
+  for +p: Nat
+  for +v: Nat
+  for +x: Nat
+  for other: {Nat.is_eq(x, k) == False{} : Bool}
+  {Tr.get(Tr.apply(t, Tr.Do{Tr.Put{k, p, v}}), x) == Tr.get(t, x) : Maybe<&2, Tr.Ent>}

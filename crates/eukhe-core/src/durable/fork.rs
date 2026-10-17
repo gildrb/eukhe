@@ -423,8 +423,15 @@ async fn fork_storage(
     let directory = dir.to_str().ok_or_else(|| ForkError::TargetDir {
         path: dir.to_owned(),
     })?;
-    let storage =
-        open_native_jsonl_storage(directory, cx, JsonlStorageOptions { fsync: true }).await?;
+    let storage = open_native_jsonl_storage(
+        directory,
+        cx,
+        JsonlStorageOptions {
+            fsync: true,
+            ..JsonlStorageOptions::default()
+        },
+    )
+    .await?;
     let harness = Harness::open(Arc::new(storage), harness_options(), cx).await?;
     let forked = async {
         let source = match conversation {

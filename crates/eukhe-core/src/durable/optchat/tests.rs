@@ -265,7 +265,10 @@ impl Setup {
                 &self.dir.path().join("session").to_string_lossy(),
                 fs,
                 cx(),
-                JsonlStorageOptions { fsync: false },
+                JsonlStorageOptions {
+                    fsync: false,
+                    ..JsonlStorageOptions::default()
+                },
             )
             .await
             .unwrap(),

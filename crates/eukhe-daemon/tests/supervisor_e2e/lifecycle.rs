@@ -69,6 +69,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
             "chat_view",
             "memory",
             "memory_tree",
+            "state_tree",
         ])
     );
 

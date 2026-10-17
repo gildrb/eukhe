@@ -138,6 +138,9 @@ pub struct Supervisor {
     /// connections' per-connection queues here instead of waking every
     /// connection's ring arm; broadcast-class events keep the ring above.
     pub(crate) session_subscribers: subscribers::SessionSubscribers,
+    /// The `subscribe_state_tree` routing index: session -> the
+    /// connections that get its `state_tree_update` frames.
+    pub(crate) state_tree_subscribers: subscribers::SessionSubscribers,
     /// Live client connections: connection id -> the connection's
     /// effective client id (TS `this.clients` + `protocolClientId`).
     pub(crate) client_connections:
@@ -284,6 +287,7 @@ impl Supervisor {
             registry: SessionRegistry::new(),
             events,
             session_subscribers: subscribers::SessionSubscribers::new(),
+            state_tree_subscribers: subscribers::SessionSubscribers::new(),
             client_connections: std::sync::Mutex::new(std::collections::HashMap::new()),
             roster: std::sync::Mutex::new(crate::agent_roster::AgentRoster::new()),
             last_published_roster: std::sync::Mutex::new(std::collections::HashMap::new()),

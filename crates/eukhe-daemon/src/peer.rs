@@ -37,6 +37,9 @@ pub(crate) const PEER_GRANT_TTL_LIMIT_MS: i64 = 30_000;
 /// are swept first).
 pub(crate) const PEER_GRANT_LIMIT: usize = 1024;
 
+/// The `outboundType` of a state tree frame.
+pub(crate) const STATE_TREE_UPDATE_FRAME: &str = "state_tree_update";
+
 /// TS failure strings (wire parity).
 pub(crate) const PEER_AUTH_FAILED: &str = "Peer authentication failed";
 pub(crate) const PEER_GRANT_INVALID: &str = "Peer transport grant is invalid";
@@ -75,11 +78,15 @@ pub(crate) enum ConnectionRole {
 }
 
 impl ConnectionRole {
-    /// Whether event fan-out may stream to this connection.
-    pub(crate) fn streams_events(&self) -> bool {
+    /// Whether event fan-out may stream a frame of `outbound_type` to this
+    /// connection. A `state_tree_update` goes to the supervisor only: it
+    /// routes the frame to the client connections that subscribed.
+    pub(crate) fn streams(&self, outbound_type: &str) -> bool {
         match self {
             ConnectionRole::Supervisor { .. } => true,
-            ConnectionRole::SessionClient { session } => session.is_attached(),
+            ConnectionRole::SessionClient { session } => {
+                session.is_attached() && outbound_type != STATE_TREE_UPDATE_FRAME
+            }
             ConnectionRole::Unauthenticated | ConnectionRole::PeerWorker { .. } => false,
         }
     }
@@ -647,7 +654,7 @@ mod tests {
         let role = ConnectionRole::PeerWorker {
             session: Arc::new(PeerSession::new(grant)),
         };
-        assert!(!role.streams_events());
+        assert!(!role.streams("session_event"));
     }
 
     #[test]
@@ -655,19 +662,40 @@ mod tests {
         let role = ConnectionRole::SessionClient {
             session: Arc::new(PeerSession::new(grant(&soon(NOW, 10_000)))),
         };
-        assert!(!role.streams_events(), "not attached yet");
+        let supervisor = ConnectionRole::Supervisor {
+            generation: "sup:1".to_string(),
+        };
+        let streams = |role: &ConnectionRole| {
+            [
+                role.streams("session_event"),
+                role.streams(STATE_TREE_UPDATE_FRAME),
+            ]
+        };
+        let not_attached = streams(&role);
         if let ConnectionRole::SessionClient { session } = &role {
             session.mark_attached();
         }
-        assert!(role.streams_events());
+        let attached = streams(&role);
         if let ConnectionRole::SessionClient { session } = &role {
             session.mark_detached();
         }
-        assert!(!role.streams_events());
-        assert!(!ConnectionRole::Unauthenticated.streams_events());
-        assert!(ConnectionRole::Supervisor {
-            generation: "sup:1".to_string()
-        }
-        .streams_events());
+        // A direct client never gets the state tree frames: only the
+        // supervisor routes them, to the subscribed connections.
+        assert_eq!(
+            [
+                not_attached,
+                attached,
+                streams(&role),
+                streams(&ConnectionRole::Unauthenticated),
+                streams(&supervisor),
+            ],
+            [
+                [false, false],
+                [true, false],
+                [false, false],
+                [false, false],
+                [true, true],
+            ]
+        );
     }
 }
