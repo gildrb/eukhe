@@ -51,14 +51,17 @@ serde-saphyr = { version = "1.3", default-features = false, features = ["deseria
 ignore = "0.4"
 
 # platform/process: pidfd_open/pidfd_send_signal, which nix does not
-# wrap. Already in the graph through eukhe-ai. MIT OR Apache-2.0.
+# wrap; child_workspace: FICLONE extent clones. Already in the graph
+# through eukhe-ai. MIT OR Apache-2.0.
 [target.'cfg(target_os = "linux")'.dependencies]
-rustix = { version = "1", features = ["process"] }
+rustix = { version = "1", features = ["process", "fs"] }
 
 # platform/process: `kern.maxfilesperproc` through a safe sysctl
-# wrapper. MIT.
+# wrapper. MIT. child_workspace: clonefile extent clones through rustix
+# (already in the graph through tempfile). MIT OR Apache-2.0.
 [target.'cfg(target_os = "macos")'.dependencies]
 sysctl = "0.7"
+rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 # The Bend bridge harness (`eukhe_durable::testing::bridge`).

@@ -16,6 +16,7 @@ use std::sync::PoisonError;
 use eukhe_core::agent_messaging::{
     create_agent_session_message_row, AgentFamilyRelationship, AgentSessionMessageRowPayload,
 };
+use eukhe_core::child_workspace::{ChildWorkspace, Handback, WorkspaceMode};
 use eukhe_core::durable::children as durable;
 use eukhe_types::daemon::{DaemonCommand, PromptInput, WorkerLiveness};
 use eukhe_types::input_origin::ChildFailure;
@@ -330,7 +331,22 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 }
             } else {
                 let thinking = request.thinking.as_deref().or(identity.thinking.as_deref());
-                let cwd = identity.cwd.clone().unwrap_or_else(|| "/".to_owned());
+                let parent_cwd = identity.cwd.clone().unwrap_or_else(|| "/".to_owned());
+                let cwd = match request.workspace {
+                    WorkspaceMode::Shared => parent_cwd,
+                    // Idempotent: a rerun after a restart keeps the copy
+                    // the child already works in.
+                    WorkspaceMode::Isolated => {
+                        let workspace = ChildWorkspace::at(
+                            this.workspace_root(&request.child.rlm_child_id, &identity),
+                        );
+                        workspace
+                            .create(Path::new(&parent_cwd))
+                            .await
+                            .context("cannot create the child's isolated workspace")?;
+                        workspace.tree().to_string_lossy().into_owned()
+                    }
+                };
                 let runtime_metadata = json!({
                     "kind": "subagent",
                     "rlmChildId": request.child.rlm_child_id,
@@ -677,6 +693,23 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 }
                 Ok(_) | Err(_) => {}
             }
+            // An isolated child's changes come back once it stopped (so it
+            // writes nothing after the merge); the parent's later hand-back
+            // reads this record. Its remainder (the record, the kept
+            // conflicting versions) stays for the parent to read.
+            let root = {
+                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
+                this.workspace_root(&request.rlm_child_id, &identity)
+            };
+            let workspace = ChildWorkspace::at(root);
+            if workspace.is_created() {
+                workspace.hand_back().await.with_context(|| {
+                    format!(
+                        "hand back deleted RLM child {}'s workspace",
+                        request.rlm_child_id
+                    )
+                })?;
+            }
             {
                 let mut calls = this.durable_calls();
                 calls.done.insert(request.idempotency_key);
@@ -829,6 +862,56 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     &this.parent_active_session_id,
                 ),
             })
+        })
+    }
+
+    fn hand_back(
+        &self,
+        request: durable::RlmChildHandbackRequest,
+    ) -> durable::RlmHostFuture<'_, Option<Handback>> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let root = {
+                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
+                this.workspace_root(&request.rlm_child_id, &identity)
+            };
+            let workspace = ChildWorkspace::at(root);
+            if !workspace.is_created() {
+                return Ok(None);
+            }
+            // The child stops first (its kernel and background jobs with
+            // its worker), as for a delete: it writes nothing during or
+            // after the merge, and a later wake starts its kernel in the
+            // handed-back workspace. A plain kill: the session stays. A
+            // rerun after the record does not stop a child woken since.
+            if !workspace.is_handed_back() {
+                let killed = this
+                    .durable_command(&request.session_id, KILL_TIMEOUT_MS, |selector| {
+                        DaemonCommand::Kill {
+                            id: None,
+                            active_session_id: selector.to_owned(),
+                            rest: Map::default(),
+                        }
+                    })
+                    .await;
+                match killed {
+                    // Already gone: an ended worker, or a rerun after the kill.
+                    Err(error) if !format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
+                        return Err(error.context(format!(
+                            "stop RLM child session {} before its hand-back",
+                            request.session_id
+                        )));
+                    }
+                    Ok(_) | Err(_) => {}
+                }
+            }
+            let handback = workspace.hand_back().await.with_context(|| {
+                format!(
+                    "hand back RLM child {}'s workspace (session {})",
+                    request.rlm_child_id, request.session_id
+                )
+            })?;
+            Ok(Some(handback))
         })
     }
 }

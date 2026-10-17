@@ -436,6 +436,10 @@ pub struct Settings {
     /// Global-only: the chat gateways (`eukhe gateway`). A project-scope
     /// value is never read (see `settings::trust`).
     pub gateway: Option<GatewaySettings>,
+    /// `kernelTransport`: where the session's kernel runs (S3). Absent: a
+    /// local child process. Parsed by
+    /// `kernel::transport::KernelTransportSettings`.
+    pub kernel_transport: Option<serde_json::Value>,
     /// `shell`: the shell tool's execution gate.
     pub shell: Option<ShellSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).

@@ -4,6 +4,7 @@
 
 use eukhe_types::input_origin::{ChildExit, ChildFailure, InputOrigin, Report};
 
+use super::registry::HandbackOutcome;
 use crate::agent_messaging::sanitize_message_header_value;
 use serde::{Deserialize, Serialize};
 
@@ -26,11 +27,15 @@ pub(crate) enum ChildReport {
     Cancelled {
         session_name: String,
         reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handback: Option<HandbackOutcome>,
     },
     /// The child finished its task without sending an agent message back.
     CompletedWithoutReply {
         session_name: String,
         last_assistant_text_preview: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handback: Option<HandbackOutcome>,
     },
     /// The child's run failed. `failure` is absent on a report checkpointed
     /// before failures were typed.
@@ -39,6 +44,8 @@ pub(crate) enum ChildReport {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         failure: Option<ChildFailure>,
         error: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handback: Option<HandbackOutcome>,
     },
 }
 
@@ -52,19 +59,32 @@ impl ChildReport {
 
     /// The follow-up text: `[child-exited: cancelled|no-reply child:<name>]`
     /// or `[child-failed: <failure> child:<name>]` with the reason,
-    /// preview, or error as the body.
+    /// preview, or error as the body, then the workspace hand-back.
     pub(crate) fn text(&self) -> String {
-        let body = match self {
-            Self::Cancelled { reason, .. } => reason.clone().unwrap_or_default(),
+        let (body, handback) = match self {
+            Self::Cancelled {
+                reason, handback, ..
+            } => (reason.clone().unwrap_or_default(), handback),
             Self::CompletedWithoutReply {
                 last_assistant_text_preview,
+                handback,
                 ..
-            } => last_assistant_text_preview
-                .as_deref()
-                .filter(|preview| !preview.is_empty())
-                .map(|preview| format!("Last assistant text: {preview}"))
-                .unwrap_or_default(),
-            Self::Failed { error, .. } => error.clone(),
+            } => (
+                last_assistant_text_preview
+                    .as_deref()
+                    .filter(|preview| !preview.is_empty())
+                    .map(|preview| format!("Last assistant text: {preview}"))
+                    .unwrap_or_default(),
+                handback,
+            ),
+            Self::Failed {
+                error, handback, ..
+            } => (error.clone(), handback),
+        };
+        let body = match handback {
+            None => body,
+            Some(outcome) if body.is_empty() => outcome.text(),
+            Some(outcome) => format!("{body}\n\n{}", outcome.text()),
         };
         self.report().render(&body)
     }
@@ -116,6 +136,7 @@ mod tests {
         let report = ChildReport::CompletedWithoutReply {
             session_name: "f20-worker".to_owned(),
             last_assistant_text_preview: Some("done with the task".to_owned()),
+            handback: None,
         };
         assert_eq!(
             report.text(),
@@ -128,6 +149,7 @@ mod tests {
         let report = ChildReport::Cancelled {
             session_name: "worker [x]".to_owned(),
             reason: None,
+            handback: None,
         };
         assert_eq!(report.text(), "[child-exited: cancelled child:worker x]");
     }
@@ -137,6 +159,7 @@ mod tests {
         let report = ChildReport::Cancelled {
             session_name: "worker".to_owned(),
             reason: Some(DELETED_BY_PARENT.to_owned()),
+            handback: None,
         };
         assert_eq!(
             report.text(),
@@ -152,6 +175,7 @@ mod tests {
                 kind: eukhe_types::pi_ai::StreamFailureKind::RateLimit,
             }),
             error: "429 usage limit".to_owned(),
+            handback: None,
         };
         assert_eq!(
             report.text(),

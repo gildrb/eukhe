@@ -1676,6 +1676,27 @@ class ReplTest(unittest.TestCase):
         events = self.repl.execute("ok", "'alive'")
         self.assertEqual(one(events, "result")["text"], "'alive'")
 
+    def test_host_duplicate_reply_does_not_settle_the_request_in_flight(self):
+        code = "\n".join(
+            [
+                "from rlm.repl import host_request",
+                "reply = await host_request({'type': 'demo'})",
+                "reply",
+            ]
+        )
+        self.repl.send({"type": "execute", "id": "dup", "code": code})
+        request = self.repl.read_event()
+        while request.get("event") != "host_request":
+            request = self.repl.read_event()
+        # The host's reply to a repeated frame under the same id comes first.
+        duplicate = {"status": "duplicate", "error": f'host request id "{request["id"]}" was already used'}
+        self.repl.send({"type": "host_reply", "id": request["id"], "data": duplicate})
+        real = {"status": "ok", "result": {"answer": 42}}
+        self.repl.send({"type": "host_reply", "id": request["id"], "data": real})
+        events = self.repl.until_done("dup")
+        self.assertEqual(one(events, "result")["text"], repr(real))
+        self.assertEqual(one(events, "done")["status"], "ok")
+
     def test_host_request_cancelled_cell_drops_pending_future(self):
         code = "\n".join(
             [

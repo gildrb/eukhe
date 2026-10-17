@@ -31,7 +31,7 @@ use super::notice::{rlm_child_label, DELETED_BY_PARENT};
 use super::progress::{tx_note, utf16_length, NoteOutcome, RLM_PROGRESS_NOTE_MAX_LENGTH};
 use super::registry::{
     child_identity, read_children, resolve, tx_children, tx_put_row, tx_update_row, ChildDeletion,
-    ChildRow, ChildStatus, Resolved, CHILDREN_DOC,
+    ChildRow, ChildStatus, HandbackOutcome, Resolved, CHILDREN_DOC,
 };
 use super::task::ChildTaskInput;
 use super::wire::{
@@ -39,6 +39,7 @@ use super::wire::{
 };
 use super::Children;
 use crate::agent_messaging::assert_direct_agent_message_target;
+use crate::child_workspace::WorkspaceMode;
 use crate::durable::deps::{HostCall, HostRequestRegistry};
 use crate::kernel::rlm_runtime::{
     create_default_rlm_subagent_session_name, find_rlm_model_matches, kwargs_from_payload,
@@ -211,6 +212,8 @@ struct SpawnKwargs {
     name: Option<String>,
     model: Option<String>,
     thinking: Option<String>,
+    /// `None` when the caller did not choose (the shared workspace).
+    workspace: Option<WorkspaceMode>,
 }
 
 /// Unsupported keys are rejected with the sorted key list; name, model, and
@@ -218,7 +221,11 @@ struct SpawnKwargs {
 fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
     const OPERATION: &str = "rlm.spawn";
     let kwargs = kwargs_from_payload(data);
-    reject_unsupported_kwargs(&kwargs, OPERATION, &["name", "model", "thinking"])?;
+    reject_unsupported_kwargs(
+        &kwargs,
+        OPERATION,
+        &["name", "model", "thinking", "workspace"],
+    )?;
     let name = optional_string_kwarg(&kwargs, "name", OPERATION)?;
     let name = normalize_requested_rlm_subagent_session_name(name, OPERATION)?;
     if let Some(name) = &name {
@@ -229,10 +236,17 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
     let thinking = optional_string_kwarg(&kwargs, "thinking", OPERATION)?;
     let thinking =
         normalize_requested_rlm_subagent_thinking_level(thinking, OPERATION)?.map(String::from);
+    let workspace = match optional_string_kwarg(&kwargs, "workspace", OPERATION)? {
+        None => None,
+        Some("shared") => Some(WorkspaceMode::Shared),
+        Some("isolated") => Some(WorkspaceMode::Isolated),
+        Some(_) => bail!("{OPERATION} workspace must be \"shared\" or \"isolated\""),
+    };
     Ok(SpawnKwargs {
         name,
         model,
         thinking,
+        workspace,
     })
 }
 
@@ -352,6 +366,7 @@ async fn admit_spawns(
                     thinking: spec.kwargs.thinking,
                     spawned_by_request_id: spawned_by_request_id.clone(),
                     max_depth: Some(max_depth),
+                    workspace: spec.kwargs.workspace,
                     owed: None,
                 },
             )
@@ -436,6 +451,7 @@ async fn admit_spawns(
                         usage: None,
                         progress: None,
                         reporter: None,
+                        handback: None,
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
                     task_ids.push(task_id);
@@ -614,6 +630,7 @@ pub(super) fn entry(
                 .unwrap_or_else(|| whole_ms(row.started_at)),
         ),
         activity_stale_ms: None,
+        handback: row.handback.as_ref().map(HandbackOutcome::text),
     }
 }
 
@@ -768,6 +785,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
             duration_ms: Some(whole_ms(now - row.started_at)),
             tool_use_count: None,
             replied_since_task: None,
+            handback: row.handback.as_ref().map(HandbackOutcome::text),
         };
     }
     RlmChildResult {
@@ -781,6 +799,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
         duration_ms: Some(whole_ms(now - row.started_at)),
         tool_use_count: None,
         replied_since_task: None,
+        handback: row.handback.as_ref().map(HandbackOutcome::text),
     }
 }
 

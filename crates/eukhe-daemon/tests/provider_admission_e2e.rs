@@ -415,6 +415,7 @@ async fn spawn_and_prompt(children: &SupervisorChildSessions, child_id: &str, se
             max_depth: 2,
             spawned_by_request_id: None,
             parent_task_id: "1".to_owned(),
+            workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
         })
         .await
         .expect("spawn child");

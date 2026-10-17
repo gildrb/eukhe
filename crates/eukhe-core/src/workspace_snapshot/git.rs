@@ -108,7 +108,7 @@ pub(crate) async fn read_worktree_status(
 /// or index than `cwd` (`GIT_DIR`/`GIT_WORK_TREE` select the tree the manifest
 /// claims to describe), so they are scrubbed and the snapshot's git view
 /// is always `cwd`'s own.
-pub(super) fn git_command(args: &[&str], cwd: &Path) -> tokio::process::Command {
+pub(crate) fn git_command(args: &[&str], cwd: &Path) -> tokio::process::Command {
     const GIT_SELECTION_VARS: [&str; 7] = [
         "GIT_DIR",
         "GIT_WORK_TREE",

@@ -233,6 +233,7 @@ fn spawn_request(name: &str, prompt: &str) -> RlmChildSpawnRequest {
         max_depth: 2,
         spawned_by_request_id: None,
         parent_task_id: "1".to_string(),
+        workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
     }
 }
 

@@ -38,15 +38,16 @@ use eukhe_types::pi_ai::UserContent;
 use serde::{Deserialize, Serialize};
 
 use super::host::{
-    RlmChildCancelRequest, RlmChildObservation, RlmChildPromptRequest, RlmChildRunState,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmSubagentHost,
+    RlmChildCancelRequest, RlmChildHandbackRequest, RlmChildObservation, RlmChildPromptRequest,
+    RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest, RlmSubagentHost,
 };
 use super::notice::{ChildReport, DELETED_BY_PARENT};
 use super::registry::{
     child_identity, read_children, tx_attribute_usage, tx_remove_row, tx_row, tx_update_row,
-    ChildRow, ChildStatus,
+    ChildRow, ChildStatus, HandbackOutcome,
 };
 use super::watch::{Poll, Verdict, Vigil, CHILD_POLL_FAILURES};
+use crate::child_workspace::WorkspaceMode;
 use crate::durable::deps::SessionClosing;
 use crate::durable::observe::semantic_edges::{
     last_committed_request_id, SemanticEdgeRecorder, SEMANTIC_EDGES_LEDGER_FILENAME,
@@ -105,6 +106,10 @@ pub(crate) struct ChildTaskInput {
     /// configured bound); `None` on tasks admitted before it was recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) max_depth: Option<u32>,
+    /// Where the child works; `None` when the caller did not choose (the
+    /// shared workspace).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) workspace: Option<WorkspaceMode>,
     /// Set on a task that carries the report an aborted child task owed:
     /// it starts in the report phase. An abort cannot wait for the parent
     /// to place a report, so it hands the report to this task, which the
@@ -251,6 +256,7 @@ fn owed_on_abort(
                 report: ChildReport::Cancelled {
                     session_name: row.session_name.clone(),
                     reason: Some(DELETED_BY_PARENT.to_owned()),
+                    handback: row.handback.clone(),
                 },
                 withdrawn: 0,
             })
@@ -369,6 +375,7 @@ async fn spawn(
         max_depth: task.input.max_depth.unwrap_or(services.rlm_max_depth),
         spawned_by_request_id: task.input.spawned_by_request_id.clone(),
         parent_task_id: task_id.to_string(),
+        workspace: task.input.workspace.unwrap_or_default(),
     };
     let spawned = services.host.spawn(request).await;
     let conversation_id = task.conversation_id;
@@ -466,6 +473,7 @@ async fn prompt(
                     session_name: row.session_name,
                     failure: Some(ChildFailure::Undelivered),
                     error,
+                    handback: None,
                 })))
             },
             &cx,
@@ -561,6 +569,7 @@ fn watched_next(watched: Watched, poll: u64, now: f64, row: &mut ChildRow) -> Ne
                 report_next(ChildReport::CompletedWithoutReply {
                     session_name: row.session_name.clone(),
                     last_assistant_text_preview: answer_preview,
+                    handback: row.handback.clone(),
                 })
             }
         }
@@ -571,6 +580,7 @@ fn watched_next(watched: Watched, poll: u64, now: f64, row: &mut ChildRow) -> Ne
                 session_name: row.session_name.clone(),
                 failure: Some(failure),
                 error,
+                handback: row.handback.clone(),
             })
         }
     }
@@ -706,6 +716,15 @@ async fn watch(
             }
         }
     }
+    let handback = match &watched {
+        Watched::Watch(_) => None,
+        Watched::Answered { .. } | Watched::Failed { .. } | Watched::Stuck { .. } => {
+            tokio::select! {
+                outcome = hand_back(services.host.as_ref(), &identity.session_id, &identity.rlm_child_id) => outcome,
+                reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+            }
+        }
+    };
     let conversation_id = task.conversation_id;
     runtime
         .commit(
@@ -720,6 +739,7 @@ async fn watch(
                     tx_attribute_usage(&tx, conversation_id, &mut row, usage).await?;
                 }
                 row.progress = progress.or(row.progress);
+                row.handback = handback;
                 let next = watched_next(watched, poll, now, &mut row);
                 super::registry::tx_put_row(&tx, conversation_id, &row).await?;
                 Ok(Some(next))
@@ -727,6 +747,29 @@ async fn watch(
             &cx,
         )
         .await
+}
+
+/// Hand an ended child's workspace back into the parent's; `None` for a
+/// child in the shared workspace.
+#[tracing::instrument(skip(host))]
+async fn hand_back(
+    host: &dyn RlmSubagentHost,
+    session_id: &str,
+    rlm_child_id: &str,
+) -> Option<HandbackOutcome> {
+    match host
+        .hand_back(RlmChildHandbackRequest {
+            session_id: session_id.to_owned(),
+            rlm_child_id: rlm_child_id.to_owned(),
+        })
+        .await
+    {
+        Ok(Some(handback)) => Some(HandbackOutcome::Done { handback }),
+        Ok(None) => None,
+        Err(error) => Some(HandbackOutcome::Failed {
+            error: format!("{error:#}"),
+        }),
+    }
 }
 
 /// The conversation that owns child task `task`.
@@ -879,10 +922,9 @@ async fn abort(
     runtime: Runtime,
     cx: Context,
 ) -> SessionResult<()> {
-    let row = require_row(&runtime, &task, &cx).await?;
+    let mut row = require_row(&runtime, &task, &cx).await?;
     let task_id = child_task_id(&task);
     let running = !row.status.is_terminal();
-    let owed = owed_on_abort(&task.checkpoint, task_id, &row);
     let prompt_admissible = !matches!(task.checkpoint, ChildCheckpoint::Spawn);
     if running && prompt_admissible && !row.delete_requested() {
         let cancel = RlmChildCancelRequest {
@@ -895,6 +937,17 @@ async fn abort(
             )))?;
         }
     }
+    // A spawned child not handed back yet (the watch hands back an ended
+    // one) hands its workspace back now, after its run was cancelled.
+    let handback = if prompt_admissible && row.handback.is_none() {
+        hand_back(services.host.as_ref(), &row.session_id, &row.rlm_child_id).await
+    } else {
+        None
+    };
+    if let Some(outcome) = &handback {
+        row.handback = Some(outcome.clone());
+    }
+    let owed = owed_on_abort(&task.checkpoint, task_id, &row);
     let reporter = match owed {
         Some(owed) => {
             let definition = runtime
@@ -939,6 +992,9 @@ async fn abort(
                     if !row.status.is_terminal() {
                         row.status = ChildStatus::Cancelled;
                         row.error = Some(reason.to_owned());
+                    }
+                    if let Some(outcome) = &handback {
+                        row.handback = Some(outcome.clone());
                     }
                     match reporter {
                         // The new task settles the row once it admits the

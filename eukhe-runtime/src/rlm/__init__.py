@@ -29,6 +29,7 @@ from .harness import (
     get_harness_state,
 )
 from .jobs import Job, jobs
+from .remote import remote
 
 _NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
 _RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker')"
@@ -82,6 +83,7 @@ class RLMSubagent:
     label: str | None = None
     last_activity_at: float | None = None
     activity_stale_ms: float | None = None
+    handback: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,7 @@ class RLMChildResult:
     duration_ms: int | None
     tool_use_count: int | None
     replied_since_task: bool | None
+    handback: str | None = None
 
 
 def _spawn_handle_from_payload(payload: Any) -> RLMSpawnHandle:
@@ -199,6 +202,7 @@ async def spawn(
     name: str,
     model: str | None = None,
     thinking: str | None = None,
+    workspace: str | None = None,
 ) -> RLMSpawnHandle:
     """Spawn a recursive Eukhe child and return once its task is admitted.
 
@@ -206,6 +210,9 @@ async def spawn(
     ``model`` selects a child with an exact ``provider/model`` selector.
     ``thinking`` sets the child reasoning level (e.g. 'off', 'low', 'medium', 'high');
     defaults to the parent level; levels invalid for the resolved model fail the spawn.
+    ``workspace``: 'shared' (default) works in the parent's directory; 'isolated'
+    works in a copy-on-write copy of the parent's workspace whose changes come back
+    when the child ends; conflicts are reported.
     """
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
@@ -214,6 +221,8 @@ async def spawn(
         kwargs["model"] = model
     if thinking is not None:
         kwargs["thinking"] = thinking
+    if workspace is not None:
+        kwargs["workspace"] = workspace
     # Wire type stays "rlm.run" so kernels and hosts of different versions stay compatible.
     payload = await host_request("rlm.run", {"prompt": prompt, "kwargs": kwargs})
     return _spawn_handle_from_payload(payload)
@@ -223,7 +232,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     """Spawn several recursive Eukhe children together, all or none.
 
     Each task is a dict ``{"prompt": str, "name": str, "model"?: str,
-    "thinking"?: str}`` with the same rules as :func:`spawn`. The batch admits
+    "thinking"?: str, "workspace"?: str}`` with the same rules as :func:`spawn`. The batch admits
     atomically: when it would exceed the family's running-subagent cap
     (``subagentMaxConcurrency``) nothing is spawned and the call fails with
     ``subagent concurrency limit N is already full``.
@@ -234,7 +243,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     for task in tasks:
         if not isinstance(task, dict):
             raise TypeError(f"each task must be a dict, got {type(task).__name__}")
-        unknown = sorted(set(task) - {"prompt", "name", "model", "thinking"})
+        unknown = sorted(set(task) - {"prompt", "name", "model", "thinking", "workspace"})
         if unknown:
             raise TypeError(f"unsupported task keys: {', '.join(unknown)}")
         prompt = task.get("prompt")
@@ -242,7 +251,11 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
             raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
         if "name" not in task:
             raise TypeError("each task needs a name")
-        kwargs = {key: task[key] for key in ("name", "model", "thinking") if task.get(key) is not None}
+        kwargs = {
+            key: task[key]
+            for key in ("name", "model", "thinking", "workspace")
+            if task.get(key) is not None
+        }
         entries.append({"prompt": prompt, "kwargs": kwargs})
     payload = await host_request("rlm.run_batch", {"tasks": entries})
     handles = payload.get("handles")
@@ -382,6 +395,7 @@ def _subagent_from_payload(payload: Any, operation: str = "rlm.list_subagents") 
         label=_optional_str_field(payload, "label", operation),
         last_activity_at=_optional_int_field(payload, "last_activity_at", operation),
         activity_stale_ms=_optional_int_field(payload, "activity_stale_ms", operation),
+        handback=_optional_str_field(payload, "handback", operation),
     )
 
 
@@ -451,6 +465,7 @@ def _child_result_from_payload(payload: Any) -> RLMChildResult:
         duration_ms=_optional_int("duration_ms"),
         tool_use_count=_optional_int("tool_use_count"),
         replied_since_task=replied,
+        handback=_optional_str("handback"),
     )
 
 
@@ -691,8 +706,9 @@ class _RLMNamespace:
         name: str,
         model: str | None = None,
         thinking: str | None = None,
+        workspace: str | None = None,
     ) -> RLMSpawnHandle:
-        return await spawn(prompt, name=name, model=model, thinking=thinking)
+        return await spawn(prompt, name=name, model=model, thinking=thinking, workspace=workspace)
 
     async def spawn_batch(self, tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
         return await spawn_batch(tasks)
@@ -782,6 +798,7 @@ __all__ = [
     "host_request_sync",
     "list_subagents",
     "progress_note",
+    "remote",
     "rename",
     "rlm",
     "spawn",

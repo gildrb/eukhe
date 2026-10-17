@@ -10,21 +10,25 @@
     clippy::cast_precision_loss
 )]
 
-//! Verifier integration test: an oversized protocol line poisons the child
-//! and lands in protocol repair instead of buffering until OOM (TS #2423
-//! `MAX_PROTOCOL_LINE_CHARS` + the `oversized protocol line` repair test).
+//! Verifier integration test of the bounded protocol (docs/harness.md S3):
+//! an oversized host request gets an error reply and the session keeps
+//! working; a host request of a type the host does not serve gets an
+//! error reply without reaching a handler; an oversized line with no
+//! host-request header poisons the child and lands in protocol repair
+//! instead of buffering until OOM (TS #2423 `MAX_PROTOCOL_LINE_CHARS` +
+//! the `oversized protocol line` repair test).
 //!
 //! A fake runtime (a small executable script, not the real one) answers the
-//! ready handshake, streams 33 Mi of unterminated output for one request, and
-//! answers every other request normally — so the repair's replacement child
-//! serves the follow-up cell.
+//! ready handshake and serves each request as its code says — so the
+//! repair's replacement child serves the follow-up cell.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use eukhe_core::kernel::manager::{KernelStartOptions, ReplKernelManager};
 use eukhe_core::kernel::shared::{
-    ExecuteOptions, ExecuteStatus, HostRequestHandlers, KernelManagerOptions, KernelShutdownOptions,
+    host_handler, ExecuteOptions, ExecuteStatus, HostRequestHandlers, KernelManagerOptions,
+    KernelShutdownOptions,
 };
 
 #[path = "support/executable_script.rs"]
@@ -33,7 +37,9 @@ use executable_script::write_executable_script;
 
 /// Speaks protocol v3: ready, then per request the oversized unterminated
 /// line (the corruption under test), a multi-MiB blank line followed by a
-/// plain stdout frame (the linear-scan test), or a plain done frame.
+/// plain stdout frame (the linear-scan test), a host request (oversized,
+/// of an unserved type, or served) whose reply it echoes as stdout, or a
+/// plain done frame.
 const FAKE_RUNTIME: &str = r#"#!/usr/bin/env python3
 import json
 import sys
@@ -45,14 +51,27 @@ for line in sys.stdin:
         req = json.loads(line)
     except Exception:
         continue
-    if req.get("code") == "corrupt-huge-line":
+    code = req.get("code")
+    if code == "corrupt-huge-line":
         sys.stdout.write("x" * (33 * 1024 * 1024))
         sys.stdout.flush()
         time.sleep(30)
         break
-    if req.get("code") == "big-frame":
+    if code == "big-frame":
         sys.stdout.write(" " * (31 * 1024 * 1024) + "\n")
         sys.stdout.write(json.dumps({"event": "stdout", "id": req.get("id"), "text": "big"}) + "\n")
+    if code in ("huge-host-request", "unserved-host-request", "served-host-request"):
+        data = {"type": "echo"}
+        if code == "huge-host-request":
+            data["pad"] = "x" * (33 * 1024 * 1024)
+        if code == "unserved-host-request":
+            data["type"] = "nope.kind"
+        frame = {"event": "host_request", "id": "hr-" + code, "data": data}
+        sys.stdout.write(json.dumps(frame, separators=(",", ":")) + "\n")
+        sys.stdout.flush()
+        reply = json.loads(sys.stdin.readline())
+        text = json.dumps({"id": reply.get("id"), "data": reply.get("data")})
+        sys.stdout.write(json.dumps({"event": "stdout", "id": req.get("id"), "text": text}) + "\n")
     sys.stdout.write(json.dumps({"event": "done", "id": req.get("id"), "status": "ok"}) + "\n")
     sys.stdout.flush()
 "#;
@@ -67,18 +86,82 @@ fn fake_runtime_path() -> std::path::PathBuf {
 }
 
 fn manager(python: std::path::PathBuf) -> ReplKernelManager {
+    let mut host_handlers = HostRequestHandlers::new();
+    host_handlers.register(
+        "echo",
+        host_handler(|_payload| async { Ok(serde_json::json!({ "echoed": true })) }),
+    );
     ReplKernelManager::new(KernelManagerOptions {
         python: Some(python),
         cwd: Some(std::env::temp_dir()),
         env: HashMap::new(),
         session_id: Some("protocol-caps-test".to_string()),
-        host_handlers: HostRequestHandlers::new(),
+        host_handlers,
         python_skills: Vec::new(),
         snapshot: None,
         bootstrap_code: None,
         stderr_log_path: None,
+        transport: eukhe_core::kernel::KernelTransport::Local,
         on_background_work_settled: None,
     })
+}
+
+/// The host reply the fake runtime echoed for one host-request cell.
+async fn host_reply(manager: &ReplKernelManager, code: &str) -> serde_json::Value {
+    let result = manager
+        .execute(code, ExecuteOptions::default())
+        .await
+        .expect("the host-request cell must settle");
+    assert_eq!(result.status, ExecuteStatus::Ok, "{result:?}");
+    serde_json::from_str(&result.stdout).expect("the echoed reply")
+}
+
+#[tokio::test]
+async fn host_requests_get_one_reply_each_and_only_served_ones_run() {
+    let manager = manager(fake_runtime_path());
+    manager
+        .start(KernelStartOptions::default())
+        .await
+        .expect("fake kernel must start");
+    let replies = vec![
+        host_reply(&manager, "huge-host-request").await,
+        host_reply(&manager, "unserved-host-request").await,
+        host_reply(&manager, "served-host-request").await,
+    ];
+    assert_eq!(
+        replies,
+        vec![
+            serde_json::json!({
+                "id": "hr-huge-host-request",
+                "data": {
+                    "status": "error",
+                    "error": "host request frame exceeds the 33554432-byte protocol line limit",
+                },
+            }),
+            serde_json::json!({
+                "id": "hr-unserved-host-request",
+                "data": {
+                    "status": "error",
+                    "error": "host request type \"nope.kind\" is not available in this session",
+                },
+            }),
+            serde_json::json!({
+                "id": "hr-served-host-request",
+                "data": { "status": "ok", "result": { "echoed": true } },
+            }),
+        ]
+    );
+    // The session kept working: no repair, the same child serves on.
+    let follow = manager
+        .execute("42", ExecuteOptions::default())
+        .await
+        .expect("follow-up execute must not fail");
+    assert_eq!(follow.status, ExecuteStatus::Ok);
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        manager.shutdown(KernelShutdownOptions::default()),
+    )
+    .await;
 }
 
 #[tokio::test]

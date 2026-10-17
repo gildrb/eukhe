@@ -5,7 +5,7 @@
 //!
 //! Ported from `core/kernel/repl-manager.ts`.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -20,7 +20,7 @@ use tokio::sync::{oneshot, Notify};
 use crate::kernel::cancellation::{merge_signals, AbortSignal};
 use crate::kernel::live_kernels;
 use crate::kernel::orphan_journal;
-use crate::kernel::protocol::{parse_event, Event, Request, REPL_PROTOCOL_VERSION};
+use crate::kernel::protocol::{Event, Request, REPL_PROTOCOL_VERSION};
 use crate::kernel::shared::FACTORY_ACTIVITY_ACTIONS;
 use crate::kernel::shared::{
     parse_attachment_display, parse_sent_agent_message, BackgroundOutput, CellJob, ExecuteOptions,
@@ -46,13 +46,24 @@ const REPAIR_STEP_TIMEOUT_MS: u64 = 30_000;
 /// inside the bound, and a wedged reply errors instead of hanging the
 /// caller.
 const MCP_STATUS_SETTLE_MARGIN_MS: u64 = 5_000;
-/// Largest legit frame is an attachment display event, base64 capped at
-/// `MAX_ATTACHMENT_DATA_CHARS`; a line that cannot complete within this ceiling
-/// is corruption the protocol repair owns, not output worth buffering until OOM.
-const MAX_PROTOCOL_LINE_BYTES: usize = 32 * 1024 * 1024;
-/// Runtime-minted host-request ids never repeat; the bound only guards a
-/// misbehaving runtime from growing the dedup set forever.
-const MAX_HANDLED_HOST_REQUEST_IDS: usize = 1024;
+/// The `@remote` call's settle margin over its own timeout: the kernel
+/// answers a timed-out function itself; the margin bounds a wedged reply.
+const REMOTE_CALL_SETTLE_MARGIN_MS: u64 = 5_000;
+
+/// Why a `@remote` call ([`ReplKernelManager::remote_call`]) failed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RemoteCallError {
+    #[error("the kernel is not running")]
+    NotRunning,
+    #[error("the call could not reach the kernel: {0}")]
+    Unreachable(String),
+    #[error("{function} is not a @remote function of this kernel")]
+    Unknown { function: String },
+    #[error("{function} did not finish within {timeout_ms} ms")]
+    Timeout { function: String, timeout_ms: u64 },
+    #[error("{function} failed: {message}")]
+    Failed { function: String, message: String },
+}
 
 /// What a [`ReplKernelManager::mcp_resource`] request asks of a server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,7 +368,6 @@ struct Guarded {
     protocol_repair: Option<Arc<RepairHandle>>,
     kernel_stderr: String,
     background_bash_handles: HashMap<String, i32>,
-    handled_host_request_ids: (HashSet<String>, VecDeque<String>),
     /// Late agent-message handlers keyed by request id, insertion-ordered with eviction.
     late_handlers: VecDeque<(String, LateSentAgentMessageCallback)>,
     /// Resolvers for done events outside the active execution (the shutdown reply).
@@ -366,10 +376,11 @@ struct Guarded {
     /// Resolvers for out-of-band `factory_activity` done events (the
     /// factory bridge's lane; ids never collide with cell requests).
     factory_activity_waiters: HashMap<String, oneshot::Sender<Value>>,
-    /// Resolvers for out-of-band `mcp_status` done events (the MCP
-    /// status lane; ids never collide with cell requests — the eager
-    /// settle and the connections view ride it, and a slow server must
-    /// never hold the execution queue a python cell needs).
+    /// Resolvers for the done events of the dedicated lanes (`mcp_status`,
+    /// `mcp_call` and the `@remote` `call`; ids never collide with cell
+    /// requests — the eager settle and the connections view ride it, and
+    /// a slow server or function must never hold the execution queue a
+    /// python cell needs).
     mcp_status_waiters: HashMap<String, oneshot::Sender<Value>>,
     host_inflight: Vec<tokio::task::JoinHandle<()>>,
     active_execution: Option<Arc<ActiveExecution>>,
@@ -384,8 +395,17 @@ struct ChildHandle {
     pid: i32,
     stdin: Arc<tokio::sync::Mutex<Option<tokio::process::ChildStdin>>>,
     exit_rx: tokio::sync::watch::Receiver<Option<ExitInfo>>,
-    /// This kernel's own `bash()` orphan journal, reaped at teardown.
-    orphan_journal: std::path::PathBuf,
+    /// Who reaps the `bash()` process groups the kernel leaves at teardown.
+    orphan_reap: OrphanReap,
+}
+
+/// Who reaps the `bash()` process groups a killed kernel leaves.
+enum OrphanReap {
+    /// The host, from this kernel's own journal (a local kernel).
+    Journal(std::path::PathBuf),
+    /// The stub itself, at its shutdown or its stdin-EOF exit (a wrapped
+    /// kernel: its pids are not the host's).
+    Stub,
 }
 
 /// The RLM kernel manager: owns one `python -m rlm.repl` subprocess and the
@@ -501,6 +521,7 @@ impl Drop for Inner {
 mod delegations;
 mod events;
 mod execution;
+mod frames;
 mod host_requests;
 mod repair;
 mod requests;
@@ -546,7 +567,6 @@ impl ReplKernelManager {
                 protocol_repair: None,
                 kernel_stderr: String::new(),
                 background_bash_handles: HashMap::new(),
-                handled_host_request_ids: (HashSet::new(), VecDeque::new()),
                 late_handlers: VecDeque::new(),
                 pending_done_waiters: HashMap::new(),
                 bash_activity_waiters: HashMap::new(),
@@ -1206,6 +1226,98 @@ impl ReplKernelManager {
                 || format!("{label} failed: {}", status.unwrap_or("unset status")),
                 str::to_string,
             )),
+        }
+    }
+
+    /// Calls the kernel's `@remote` function `function` of `module` with
+    /// the keyword arguments `args` (the `call` request) and returns its
+    /// JSON result.
+    ///
+    /// Rides the dedicated lane like [`Self::mcp_tool_call`]: the call
+    /// never occupies the execution queue, and a cell can run meanwhile.
+    /// The kernel bounds the function by `timeout_ms` (a synchronous
+    /// function runs on a worker thread, so a hang never blocks the
+    /// kernel); the host waits that plus a settle margin, so a wedged
+    /// reply never hangs the caller.
+    ///
+    /// # Errors
+    ///
+    /// [`RemoteCallError`]: the kernel is not running or unreachable, the
+    /// function is not registered, it raised, or it did not finish in time.
+    #[tracing::instrument(level = "debug", skip(self, args))]
+    pub async fn remote_call(
+        &self,
+        module: &str,
+        function: &str,
+        args: &Value,
+        timeout_ms: u64,
+    ) -> Result<Value, RemoteCallError> {
+        if !self.is_running() {
+            return Err(RemoteCallError::NotRunning);
+        }
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        lock(&self.inner.guarded)
+            .mcp_status_waiters
+            .insert(request_id.clone(), tx);
+        let mut frame = Request::Call {
+            module: module.to_owned(),
+            function: function.to_owned(),
+            args: args.clone(),
+            timeout_ms,
+        }
+        .to_json();
+        frame["id"] = Value::String(request_id.clone());
+        if let Err(error) = self.inner.write_line(&frame).await {
+            lock(&self.inner.guarded)
+                .mcp_status_waiters
+                .remove(&request_id);
+            return Err(RemoteCallError::Unreachable(format!("{error:#}")));
+        }
+        let bound_ms = timeout_ms.saturating_add(REMOTE_CALL_SETTLE_MARGIN_MS);
+        let mut fields = match tokio::time::timeout(Duration::from_millis(bound_ms), rx).await {
+            Ok(Ok(fields)) => fields,
+            // The waiter was dropped: the kernel stopped or restarted.
+            Ok(Err(_)) => {
+                return Err(RemoteCallError::Unreachable(
+                    "the kernel stopped before it replied".to_owned(),
+                ));
+            }
+            Err(_) => {
+                lock(&self.inner.guarded)
+                    .mcp_status_waiters
+                    .remove(&request_id);
+                return Err(RemoteCallError::Timeout {
+                    function: function.to_owned(),
+                    timeout_ms,
+                });
+            }
+        };
+        let status = fields
+            .get("status")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let reason = fields
+            .get("reason")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        match (status.as_deref(), reason.as_deref()) {
+            (Some("ok"), _) => Ok(fields.get_mut("result").map_or(Value::Null, Value::take)),
+            (_, Some("timeout")) => Err(RemoteCallError::Timeout {
+                function: function.to_owned(),
+                timeout_ms,
+            }),
+            (_, Some("unknown")) => Err(RemoteCallError::Unknown {
+                function: function.to_owned(),
+            }),
+            (Some(_) | None, Some(_) | None) => Err(RemoteCallError::Failed {
+                function: function.to_owned(),
+                message: fields
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("the kernel gave no error text")
+                    .to_owned(),
+            }),
         }
     }
 

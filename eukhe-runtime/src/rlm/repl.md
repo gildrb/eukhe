@@ -36,6 +36,7 @@ event.
 | `mcp_status` | `{"type":"mcp_status","id":str,"servers":[str,...],"timeout_ms"?:number}` — host-side view query: per-server tool listing (opens each server on demand, bounded by `timeout_ms` per server; default 10s); the `done` frame carries `connections: [{server, tools: [{name, description}] | null, error: str | null}]` |
 | `mcp_call` | `{"type":"mcp_call","id":str,"server":str,"tool":str,"arguments"?:object|null,"timeout_ms"?:number}` — host-side MCP tool call (the `dyn` tool) on the same dedicated lane as `mcp_status`, bounded by `timeout_ms` (default 60s); the `done` frame carries `result` (JSON-safe; non-JSON values stringified). A failed lane request (either type) emits an `error` event and a `done` with `status: "error"` and `error: "<ename>: <evalue>"` |
 | `mcp_resource` | `{"type":"mcp_resource","id":str,"server":str,"uri"?:str,"timeout_ms"?:number}` — host-side MCP resource request (the `read mcp://` URL) on the same dedicated lane, bounded by `timeout_ms` (default 60s). Without `uri` the `done` frame's `result` is the server's listing `[{uri, name, mimeType, description}]`; with it, the resource's parts: `[{uri, mimeType, text}]` for text, `[{uri, mimeType, size}]` (bytes, no data) for binary. A failure is a `done` with `status: "error"` and `error` |
+| `call` | `{"type":"call","id":str,"module":str,"function":str,"args"?:object|null,"timeout_ms"?:number}` — host call of a `@remote` function (`rlm.remote`) on the same dedicated lane, with `args` as keyword arguments, bounded by `timeout_ms` (default 60s). A synchronous function runs on its own daemon thread, so one that hangs never blocks the runtime. The `done` frame carries `result` (JSON-safe), or `status: "error"` with `error` and `reason`: `unknown` (no such function), `timeout`, `raised`, or `oversize` (the result is over 16 Mi characters) |
 | `bash_activity` | `{"type":"bash_activity","id":str,"action":"list"|"tail"|"kill","activityId"?:str,"lines"?:int}` — out-of-band even during a running cell; tail lines 1–200, response capped at 16 KiB; opaque IDs resolve only against this kernel’s handles |
 | `shutdown` | `{"type":"shutdown","id"?:str}` |
 
@@ -43,6 +44,17 @@ Requests other than `interrupt`, `host_reply`, and `bash_activity` run strictly 
 a time. A malformed line
 produces `{"event":"error","id":null,"ename":"ProtocolError",...}` and the
 runtime keeps serving. Closing stdin is equivalent to `shutdown`.
+
+## Owner
+
+The runtime ends when its owner does. By default the owner is the host
+process (`EUKHE_KERNEL_OWNER_PID`, else the parent): a watchdog thread waits
+for its exit and then kills live `bash()` handles and the runtime's process
+group. With `EUKHE_KERNEL_OWNER=stdin` (a kernel behind a wrapper: a
+container, a VM, a remote host, where the host's pid is not visible) the
+owner is stdin: the runtime leads a process group of its own at start, and
+after stdin EOF it exits the same way when the EOF shutdown has not ended
+it within 30 seconds (a synchronous cell holding the loop).
 
 ## Events
 

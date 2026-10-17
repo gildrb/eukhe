@@ -40,15 +40,18 @@ use serde_json::{json, Value};
 
 mod report_delivery;
 mod watch;
+mod workspace;
 
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
 use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildDeleteRequest,
-    RlmChildListing, RlmChildObservation, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
-    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
-    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    RlmChildHandbackRequest, RlmChildListing, RlmChildObservation, RlmChildPromptRequest,
+    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
+    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
+    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
+use crate::child_workspace::Handback;
 use crate::durable::deps::{HarnessCell, HostCall, HostRequestRegistry, SessionClosing};
 use crate::durable::observe::rlm_usage::{
     apply_child_usage_attributions, entry_assistant_usage, ChildUsageAttributionData,
@@ -96,6 +99,8 @@ struct FakeState {
     tokens: HashMap<String, u64>,
     /// Whether every poll advances the tokens (the children progress).
     ticking: bool,
+    /// The hand-back every child reports (`None`: the shared workspace).
+    handback: Option<Handback>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -261,6 +266,11 @@ impl RlmSubagentHost for FakeHost {
                 active_session_ids: Vec::new(),
             });
         Box::pin(async move { Ok(capacity) })
+    }
+
+    fn hand_back(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>> {
+        let handback = lock(&self.state).handback.clone();
+        Box::pin(async move { Ok(handback) })
     }
 }
 

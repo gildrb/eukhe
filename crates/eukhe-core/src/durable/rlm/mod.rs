@@ -16,6 +16,7 @@ mod jobs;
 mod kernels;
 pub(crate) use self::kernels::submit_notice;
 pub(crate) mod refine;
+mod remote;
 pub mod skills_unavailable_notice;
 pub mod state_restore_notice;
 mod tool;
@@ -173,6 +174,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let _first_extension_wins = deps.rlm_kernels.set(Arc::downgrade(&runtime.kernels));
     host::register(&runtime);
     jobs::register(&runtime);
+    remote::register(&runtime);
     let refine_allowed = boundary::register(&runtime);
     let service_runtime = Arc::clone(&runtime);
     deps.add_service(Box::new(move |opened: OpenedSession| {

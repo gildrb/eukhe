@@ -2,7 +2,8 @@
 
 use super::{
     json, live_kernels, lock, oneshot, orphan_journal, Arc, Duration, Inner, KernelShutdownOptions,
-    KernelState, MemoSlot, Signal, HOST_REQUEST_SHUTDOWN_TIMEOUT_MS, KERNEL_SHUTDOWN_TIMEOUT_MS,
+    KernelState, MemoSlot, OrphanReap, Signal, HOST_REQUEST_SHUTDOWN_TIMEOUT_MS,
+    KERNEL_SHUTDOWN_TIMEOUT_MS,
 };
 
 // ---------------------------------------------------------------------------
@@ -196,19 +197,24 @@ impl Inner {
                 *stdin = None;
             }
             let pid = child.pid;
-            // The kernel leads its own process group (see `do_start`).
+            // The kernel leads its own process group (see `do_start`). A
+            // wrapped kernel's group is its wrapper's: the kill ends the
+            // wrapper, the closed stdin ends the stub, and the stub kills
+            // its own `bash()` groups on the way out.
             let _delivered = crate::platform::process::signal_process_group(pid, kill_signal);
-            // A killed/crashed kernel cannot run its own shutdown hook, so the
-            // host reaps the bash() process groups it journaled under this pid.
-            if pid > 0 {
-                if let Err(error) =
-                    orphan_journal::reap_kernel_orphan_processes(&child.orphan_journal, pid)
-                {
-                    self.append_diagnostic(&format!(
-                        "orphan journal {}: {error}",
-                        child.orphan_journal.display()
-                    ));
+            // A killed/crashed local kernel cannot run its own shutdown
+            // hook, so the host reaps the bash() process groups it
+            // journaled under this pid.
+            match &child.orphan_reap {
+                OrphanReap::Journal(journal) if pid > 0 => {
+                    if let Err(error) = orphan_journal::reap_kernel_orphan_processes(journal, pid) {
+                        self.append_diagnostic(&format!(
+                            "orphan journal {}: {error}",
+                            journal.display()
+                        ));
+                    }
                 }
+                OrphanReap::Journal(_) | OrphanReap::Stub => {}
             }
         }
         *lock(&self.start_memo) = None;

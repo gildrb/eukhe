@@ -54,6 +54,7 @@ fn test_options(snapshot_dir: Option<&Path>) -> KernelManagerOptions {
         }),
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
+        transport: eukhe_core::kernel::KernelTransport::Local,
         on_background_work_settled: None,
     }
 }

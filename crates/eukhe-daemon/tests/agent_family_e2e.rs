@@ -306,6 +306,7 @@ async fn spawn_settled_child(
             max_depth: 2,
             spawned_by_request_id: None,
             parent_task_id: index.to_string(),
+            workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
         })
         .await
         .expect("spawn the child");

@@ -59,6 +59,7 @@ fn test_options(snapshot_dir: Option<&std::path::Path>) -> KernelManagerOptions 
         // bootstrap after start; tests match that contract.
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
+        transport: eukhe_core::kernel::KernelTransport::Local,
     }
 }
 

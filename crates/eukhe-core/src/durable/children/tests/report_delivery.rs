@@ -404,6 +404,7 @@ fn checkpoints_stored_before_report_redelivery_decode() {
         report: ChildReport::Cancelled {
             session_name: "kid".to_owned(),
             reason: None,
+            handback: None,
         },
         withdrawn: 0,
     };

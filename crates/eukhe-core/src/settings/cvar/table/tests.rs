@@ -155,6 +155,7 @@ fn populated() -> Settings {
                 cwd: Some("d".into()),
             }),
         }),
+        kernel_transport: Some(Value::from(1)),
         shell: Some(ShellSettings {
             auto_effects: Some(vec![]),
         }),

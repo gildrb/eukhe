@@ -29,6 +29,7 @@ pub mod agent_messaging;
 pub mod agent_log;
 pub mod auth;
 pub mod autonomous;
+pub mod child_workspace;
 pub mod cron;
 pub mod durable;
 pub mod export_html;

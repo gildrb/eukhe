@@ -8,6 +8,7 @@
 //! explicit idempotency key; a rerun after a crash repeats the call with the
 //! same key and must observe the first call's effect, never a second one.
 
+use crate::child_workspace::{Handback, WorkspaceMode};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::Usage;
 use futures::future::BoxFuture;
@@ -52,6 +53,9 @@ pub struct RlmChildSpawnRequest {
     pub spawned_by_request_id: Option<String>,
     /// The parent's durable task that owns the child (`eukhe.rlm.child`).
     pub parent_task_id: String,
+    /// Where the child works: the parent's directory or its own
+    /// copy-on-write copy of the parent's workspace.
+    pub workspace: WorkspaceMode,
 }
 
 /// The created (or, on a repeated key, the previously created) child.
@@ -80,6 +84,13 @@ pub struct RlmChildPromptRequest {
     /// The child's roster id: the kickoff row's id is `spawn:<rlm_child_id>`.
     pub rlm_child_id: String,
     pub prompt: String,
+}
+
+/// Take an isolated child's workspace changes back into the parent's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RlmChildHandbackRequest {
+    pub session_id: String,
+    pub rlm_child_id: String,
 }
 
 /// Long-poll one child until its run settles or the budget ends.
@@ -302,6 +313,11 @@ pub trait RlmSubagentHost: Send + Sync {
     /// The spawn cap's bound and the family's active subagents, read
     /// before a spawn admits.
     fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity>;
+    /// Stop an isolated child (its session stays), then take its
+    /// workspace changes back into the parent's workspace (idempotent: a
+    /// repeat returns the first hand-back's record and stops nothing).
+    /// `None`: the child works in the shared workspace.
+    fn hand_back(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>>;
 }
 
 /// Host behavior for sessions with no child runtime: spawns and creates fail
@@ -366,5 +382,9 @@ impl RlmSubagentHost for NoRlmChildren {
 
     fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity> {
         Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
+    }
+
+    fn hand_back(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>> {
+        Box::pin(async { Ok(None) })
     }
 }

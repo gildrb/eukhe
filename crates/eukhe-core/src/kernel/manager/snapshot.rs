@@ -8,6 +8,7 @@ use super::{
     DEFAULT_SNAPSHOT_MAX_VARIABLE_BYTES, REPAIR_STEP_TIMEOUT_MS, RESTORE_EXECUTION_TIMEOUT_MS,
     SNAPSHOT_EXECUTION_TIMEOUT_MS,
 };
+use crate::kernel::transport::KernelTransport;
 
 /// The runtime snapshot writer's reason for a name above the per-variable
 /// cap (eukhe-runtime/src/rlm/repl.py): such a skipped name is a live
@@ -24,6 +25,23 @@ const STAT_TIMEOUT: Duration = Duration::from_millis(250);
 // ---------------------------------------------------------------------------
 
 impl Inner {
+    /// The kernel's view of the host path `host`: itself for a local
+    /// kernel, its sandbox path for a wrapped one. `None` (with a
+    /// diagnostic) when no shared mount holds it: the snapshot of a wrapped
+    /// kernel lives only where both sides see it.
+    fn kernel_path(&self, host: &std::path::Path) -> Option<String> {
+        match &self.options.transport {
+            KernelTransport::Local => Some(host.to_string_lossy().into_owned()),
+            KernelTransport::Wrapped(wrapper) => match wrapper.path_map.to_sandbox(host) {
+                Ok(sandbox) => Some(sandbox.to_string_lossy().into_owned()),
+                Err(error) => {
+                    self.append_diagnostic(&format!("namespace snapshot skipped: {error}"));
+                    None
+                }
+            },
+        }
+    }
+
     /// Serialize the user namespace to disk (best-effort, per-variable).
     /// `None` when the kernel isn't running or no snapshot target was
     /// configured. Never fails on kernel errors; they land in diagnostics.
@@ -59,9 +77,15 @@ impl Inner {
             let g = lock(&self.guarded);
             (g.user_executions, g.freshness_epoch)
         };
+        let (Some(path), Some(manifest_path)) = (
+            self.kernel_path(&cfg.path),
+            self.kernel_path(&cfg.manifest_path),
+        ) else {
+            return None;
+        };
         let request = Request::Snapshot {
-            path: cfg.path.to_string_lossy().to_string(),
-            manifest_path: cfg.manifest_path.to_string_lossy().to_string(),
+            path,
+            manifest_path,
             max_bytes: cfg.max_bytes.unwrap_or(DEFAULT_SNAPSHOT_MAX_BYTES),
             max_variable_bytes: cfg
                 .max_variable_bytes
@@ -278,8 +302,9 @@ impl Inner {
                 .ok();
             lock(&self.guarded).restored_manifest_stat = stat;
         }
+        let path = self.kernel_path(&cfg.path)?;
         let request = Request::Restore {
-            path: cfg.path.to_string_lossy().to_string(),
+            path,
             max_bytes: cfg.max_bytes.unwrap_or(DEFAULT_SNAPSHOT_MAX_BYTES),
             max_variable_bytes: cfg
                 .max_variable_bytes

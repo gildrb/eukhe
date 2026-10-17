@@ -65,6 +65,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "requestTiming",
     "trustedProjects",
     "gateway",
+    "kernelTransport",
     "shell",
 ];
 

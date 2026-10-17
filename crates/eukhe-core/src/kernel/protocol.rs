@@ -41,6 +41,16 @@ pub enum Request {
         servers: Vec<String>,
         timeout_ms: u64,
     },
+    /// Call a `@remote` function of the kernel (`module`, `function`: its
+    /// registration) with keyword arguments `args`, bounded by
+    /// `timeout_ms`. Answered by `done` (`status` `ok` with `result`, or
+    /// `error` with `error` and `reason`).
+    Call {
+        module: String,
+        function: String,
+        args: Value,
+        timeout_ms: u64,
+    },
     Shutdown,
 }
 
@@ -55,6 +65,7 @@ impl Request {
             Request::Restore { .. } => "restore",
             Request::ListNames => "list_names",
             Request::McpStatus { .. } => "mcp_status",
+            Request::Call { .. } => "call",
             Request::Shutdown => "shutdown",
         }
     }
@@ -96,6 +107,18 @@ impl Request {
             } => json!({
                 "type": "mcp_status",
                 "servers": servers,
+                "timeout_ms": timeout_ms,
+            }),
+            Request::Call {
+                module,
+                function,
+                args,
+                timeout_ms,
+            } => json!({
+                "type": "call",
+                "module": module,
+                "function": function,
+                "args": args,
                 "timeout_ms": timeout_ms,
             }),
             Request::Shutdown => json!({ "type": "shutdown" }),

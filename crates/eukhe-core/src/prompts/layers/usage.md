@@ -35,6 +35,7 @@ The following are mandatory rules, only to be overridden by clear user intent.
 <!-- /eukhe:chat-memory -->
 - Instructions to agents for multi-agent work:
   - When spawning a subagent, keep the handle to stop or inspect the child later.
+  - Spawn children that edit files in parallel with `workspace="isolated"`; read the hand-back conflicts in their report.
   - Ask for an explicit reply when needed; not every message needs a reply.
   - Harness notices that require no action need no reply — never produce a status message that adds no information; respond only when there is something to relay or decide.
   - Use `await rlm.list_subagents()` after kernel restart or compaction.

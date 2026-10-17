@@ -557,6 +557,13 @@ impl SettingsManager {
         self.raw_text(&table::SHELL_COMMAND_PREFIX)
     }
 
+    /// `kernelTransport`: where the session's kernel runs (S3); `None` is a
+    /// local child process.
+    #[must_use]
+    pub fn get_kernel_transport(&self) -> Option<Value> {
+        Some(self.cvars().value(&table::KERNEL_TRANSPORT)).filter(|value| !value.is_null())
+    }
+
     /// `shell.autoEffects`: the effects (`read`, `write`, `exec`, `net`) a
     /// shell command may have without asking.
     #[must_use]

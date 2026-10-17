@@ -116,6 +116,8 @@ pub struct IpythonKernelProvisionerOptions {
     /// session can tell the model before it wastes turns calling them
     /// (TS `IpythonToolOptions.onUnavailableSkills`).
     pub on_unavailable_skills: Option<UnavailableSkillsCallback>,
+    /// Where the kernel runs (the session's `kernelTransport` setting).
+    pub transport: crate::kernel::transport::KernelTransport,
 }
 
 /// Why and how long one startup failed, published through the shared startup
@@ -1034,6 +1036,7 @@ async fn start_kernel(
         snapshot,
         bootstrap_code: Some(bootstrap_code.clone()),
         stderr_log_path,
+        transport: options.transport.clone(),
     });
 
     emit_startup_progress(inner, on_progress, memo, "Starting Python kernel...");

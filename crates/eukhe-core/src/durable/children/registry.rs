@@ -5,6 +5,7 @@
 //! assistant row.
 
 use super::host::RlmChildIdentity;
+use crate::child_workspace::Handback;
 use crate::durable::observe::rlm_usage::{
     attributed_aggregate, attribution_draft, entry_assistant_usage, CHILD_USAGE_ATTRIBUTED_KIND,
 };
@@ -123,6 +124,34 @@ pub(crate) struct ChildRow {
     /// task was aborted owing it; the quiescence barrier waits on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) reporter: Option<u64>,
+    /// How handing an isolated child's workspace back went; `None` for a
+    /// child in the shared workspace or one not yet handed back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) handback: Option<HandbackOutcome>,
+}
+
+/// The persisted result of handing an isolated child's workspace back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub(crate) enum HandbackOutcome {
+    Done { handback: Handback },
+    Failed { error: String },
+}
+
+impl HandbackOutcome {
+    /// The parent-facing sentence(s) about the hand-back.
+    pub(crate) fn text(&self) -> String {
+        match self {
+            Self::Done { handback } => handback.text(),
+            Self::Failed { error } => format!(
+                "Workspace hand-back failed: {error}. The child's copy stays in place; nothing was lost."
+            ),
+        }
+    }
 }
 
 impl ChildRow {

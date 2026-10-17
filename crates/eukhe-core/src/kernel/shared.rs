@@ -359,6 +359,11 @@ pub struct KernelHostRequest {
 /// [`host_request_unavailable`] for an unknown type.
 pub trait KernelHostDispatch: Send + Sync {
     fn dispatch(&self, request: KernelHostRequest) -> HostHandlerFuture;
+    /// Whether `dispatch` has a handler for `request_type`: the kernel's
+    /// frame gate refuses a host request of a type it does not serve
+    /// before any handler runs. Implementations answer from the same
+    /// registry `dispatch` resolves against.
+    fn serves(&self, request_type: &str) -> bool;
 }
 
 /// The error a session answers for a host request type it does not serve.
@@ -422,6 +427,16 @@ impl HostRequestHandlers {
     #[must_use]
     pub fn dispatch(&self) -> Option<&Arc<dyn KernelHostDispatch>> {
         self.dispatch.as_ref()
+    }
+
+    /// Whether a host request of `request_type` has a handler: the
+    /// dispatch's answer when one is installed, else the map's.
+    #[must_use]
+    pub fn serves(&self, request_type: &str) -> bool {
+        match &self.dispatch {
+            Some(dispatch) => dispatch.serves(request_type),
+            None => self.handlers.contains_key(request_type),
+        }
     }
 
     /// The registered handlers, in no particular order.
@@ -505,6 +520,9 @@ pub struct KernelManagerOptions {
     pub bootstrap_code: Option<String>,
     /// File receiving the kernel process's stderr, rotated once at each spawn.
     pub stderr_log_path: Option<std::path::PathBuf>,
+    /// Where the kernel runs: a local child process (the default) or under
+    /// a wrapper (a container, a VM, a remote host).
+    pub transport: crate::kernel::transport::KernelTransport,
 }
 
 /// Shutdown options: whether to flush a final namespace snapshot and drain

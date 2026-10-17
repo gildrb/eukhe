@@ -23,7 +23,7 @@
 //! user-facing toggle yet, and there is no transport here - staging and
 //! verification only.
 
-mod git;
+pub(crate) mod git;
 mod manifest;
 #[cfg(test)]
 mod tests;

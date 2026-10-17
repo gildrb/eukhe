@@ -38,6 +38,9 @@ pub struct RlmSubagentEntry {
     pub last_activity_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity_stale_ms: Option<u64>,
+    /// The workspace hand-back of an isolated child, as text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handback: Option<String>,
 }
 
 /// Live child activity projected onto the roster row.
@@ -79,4 +82,7 @@ pub struct RlmChildResult {
     pub tool_use_count: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replied_since_task: Option<bool>,
+    /// The workspace hand-back of an isolated child, as text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handback: Option<String>,
 }

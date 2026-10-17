@@ -1,13 +1,19 @@
 //! Startup and child wiring: kernel process spawn, python resolution, stderr
 //! capture, and readiness handshake.
 
-use super::{
-    anyhow, live_kernels, lock, oneshot, orphan_journal, parse_event, Arc, AsyncReadExt, BufReader,
-    ChildHandle, Duration, ExitInfo, HashMap, Inner, KernelShutdownOptions, KernelStartOptions,
-    KernelState, Mutex, Ordering, Signal, StderrLog, Write, KERNEL_STDERR_LOG_BUDGET_MARKER,
-    MAX_KERNEL_STDERR_CHARS, MAX_KERNEL_STDERR_LOG_BYTES, MAX_PROTOCOL_LINE_BYTES,
-    READY_TIMEOUT_MS, REPL_PROTOCOL_VERSION,
+use std::ops::ControlFlow;
+
+use super::frames::{
+    Admission, FrameSplitter, Gate, ProtocolFault, Refusal, MAX_PROTOCOL_LINE_BYTES,
 };
+use super::{
+    anyhow, live_kernels, lock, oneshot, orphan_journal, Arc, AsyncReadExt, BufReader, ChildHandle,
+    Duration, ExitInfo, HashMap, Inner, KernelShutdownOptions, KernelStartOptions, KernelState,
+    Mutex, Ordering, OrphanReap, Signal, StderrLog, Write, KERNEL_STDERR_LOG_BUDGET_MARKER,
+    MAX_KERNEL_STDERR_CHARS, MAX_KERNEL_STDERR_LOG_BYTES, READY_TIMEOUT_MS, REPL_PROTOCOL_VERSION,
+};
+
+use crate::kernel::transport::{KernelTransport, KernelWrapper};
 
 // ---------------------------------------------------------------------------
 // Startup and child wiring
@@ -15,6 +21,13 @@ use super::{
 
 /// Numbers each spawned kernel's orphan journal within this host process.
 static NEXT_ORPHAN_JOURNAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// What one start runs: the host interpreter it resolved, or the
+/// transport's wrapper.
+enum Launch<'a> {
+    Local(std::path::PathBuf),
+    Wrapped(&'a KernelWrapper),
+}
 
 /// The environment of a local kernel, and of every program the host runs
 /// for an agent the same way (the `bash` tool's external steps): this
@@ -161,20 +174,25 @@ impl Inner {
         // kernel that is still booting.
         live_kernels::add(self);
 
-        let python = match self.resolve_python(options).await {
-            Ok(python) => python,
-            Err(error) => {
-                if self.start_stale(self.current_generation()) {
-                    // Never touch a newer start's state.
+        // A wrapped kernel runs the sandbox's interpreter: the host venv
+        // bootstrap is for a local kernel only.
+        let launch = match &self.options.transport {
+            KernelTransport::Local => match self.resolve_python(options).await {
+                Ok(python) => Launch::Local(python),
+                Err(error) => {
+                    if self.start_stale(self.current_generation()) {
+                        // Never touch a newer start's state.
+                        return Err(error);
+                    }
+                    live_kernels::remove(self);
+                    let mut g = lock(&self.guarded);
+                    if g.state != KernelState::Shutdown {
+                        g.state = KernelState::Idle;
+                    }
                     return Err(error);
                 }
-                live_kernels::remove(self);
-                let mut g = lock(&self.guarded);
-                if g.state != KernelState::Shutdown {
-                    g.state = KernelState::Idle;
-                }
-                return Err(error);
-            }
+            },
+            KernelTransport::Wrapped(wrapper) => Launch::Wrapped(wrapper),
         };
         let generation = self.current_generation();
         if self.start_stale(generation) {
@@ -184,43 +202,102 @@ impl Inner {
             return Err(anyhow!("Kernel was disposed during startup"));
         }
 
-        // bash.py journals its process groups under this pid into the
-        // kernel's own journal so the host can reap them if the runtime dies
-        // without running its shutdown hook.
-        let orphan_journal = std::env::temp_dir().join(format!(
-            "eukhe-kernel-orphans-{}-{}.jsonl",
-            std::process::id(),
-            NEXT_ORPHAN_JOURNAL.fetch_add(1, Ordering::Relaxed)
-        ));
-        let mut env = local_env(&self.options.env);
-        env.insert(
-            "EUKHE_KERNEL_OWNER_PID".to_string(),
-            std::process::id().to_string(),
-        );
-        env.insert(
-            orphan_journal::ORPHAN_PROCESS_JOURNAL_ENV.to_string(),
-            orphan_journal.to_string_lossy().into_owned(),
-        );
         let cwd = self.options.cwd.clone();
-        let mut command = tokio::process::Command::new(&python);
-        // `-P` (Python >= 3.11, the runtime's floor): the working directory is
-        // not prepended to `sys.path`, so a project's own `rlm/`, `json.py`,
-        // ... cannot shadow the runtime or the stdlib. `rlm.repl` appends the
-        // cwd at the END of `sys.path` after boot, so cells still import
-        // project-only modules; cells run with `cwd` as their working dir.
-        command
-            .args(["-P", "-m", "rlm.repl"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        // Its own process group: an abort the cell ignores past the grace
-        // kills the group, so subprocesses the cell started die with it.
-        command.process_group(0);
-        if let Some(cwd) = &cwd {
-            command.current_dir(cwd);
-        }
-        command.env_clear().envs(env);
-        let child = match command.spawn() {
+        let (command, orphan_reap, program) = match &launch {
+            Launch::Local(python) => {
+                // bash.py journals its process groups under this pid into
+                // the kernel's own journal so the host can reap them if the
+                // runtime dies without running its shutdown hook.
+                let orphan_journal = std::env::temp_dir().join(format!(
+                    "eukhe-kernel-orphans-{}-{}.jsonl",
+                    std::process::id(),
+                    NEXT_ORPHAN_JOURNAL.fetch_add(1, Ordering::Relaxed)
+                ));
+                let mut env = local_env(&self.options.env);
+                env.insert(
+                    "EUKHE_KERNEL_OWNER_PID".to_string(),
+                    std::process::id().to_string(),
+                );
+                env.insert(
+                    orphan_journal::ORPHAN_PROCESS_JOURNAL_ENV.to_string(),
+                    orphan_journal.to_string_lossy().into_owned(),
+                );
+                let mut command = tokio::process::Command::new(python);
+                // `-P` (Python >= 3.11, the runtime's floor): the working
+                // directory is not prepended to `sys.path`, so a project's
+                // own `rlm/`, `json.py`, ... cannot shadow the runtime or
+                // the stdlib. `rlm.repl` appends the cwd at the END of
+                // `sys.path` after boot, so cells still import project-only
+                // modules; cells run with `cwd` as their working dir.
+                command.args(["-P", "-m", "rlm.repl"]);
+                if let Some(cwd) = &cwd {
+                    command.current_dir(cwd);
+                }
+                command.env_clear().envs(env);
+                (
+                    Ok(command),
+                    OrphanReap::Journal(orphan_journal),
+                    python.display().to_string(),
+                )
+            }
+            Launch::Wrapped(wrapper) => {
+                // The wrapper is a host process with the host's environment
+                // (docker and ssh need theirs); the kernel in the sandbox
+                // gets only the entries the launch script sets. A remote
+                // kernel's process groups are not host pids: no journal, no
+                // host reap (its own shutdown and stdin-EOF exit reap them).
+                let mut kernel_env: Vec<(String, String)> = self
+                    .options
+                    .env
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect();
+                kernel_env.sort();
+                let python_paths: Vec<std::path::PathBuf> = self
+                    .options
+                    .python_skills
+                    .iter()
+                    .flat_map(|skill| [skill.package_path.clone(), skill.package_path.join("src")])
+                    .collect();
+                let launch_cwd = cwd
+                    .clone()
+                    .or_else(|| std::env::current_dir().ok())
+                    .unwrap_or_default();
+                let started = wrapper
+                    .launch(
+                        &launch_cwd,
+                        &kernel_env,
+                        |name| std::env::var(name).ok(),
+                        &python_paths,
+                    )
+                    .map_err(|error| format!("kernel transport: {error}"));
+                let program = wrapper.argv_prefix.join(" ");
+                let command = started.map(|launch| {
+                    for key in &launch.unmapped_env {
+                        self.append_diagnostic(&format!(
+                            "kernel transport: {key} left out (its host path is outside every mapped path)"
+                        ));
+                    }
+                    let mut command = tokio::process::Command::new(&launch.argv[0]);
+                    command.args(&launch.argv[1..]);
+                    command
+                });
+                (command, OrphanReap::Stub, program)
+            }
+        };
+        let spawned = command.and_then(|mut command| {
+            command
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            // Its own process group: an abort the cell ignores past the
+            // grace kills the group, so subprocesses the cell started die
+            // with it. A wrapped kernel's group is the wrapper's: killing
+            // it ends the wrapper, and the stub sees its stdin close.
+            command.process_group(0);
+            command.spawn().map_err(|error| error.to_string())
+        });
+        let child = match spawned {
             Ok(child) => child,
             Err(error) => {
                 // Fail a pending start promptly instead of riding out the
@@ -238,10 +315,7 @@ impl Inner {
                     let _ = tx.send(Err(anyhow!("spawn error: {error}")));
                 }
                 self.cleanup_resources(Signal::Term);
-                return Err(anyhow!(
-                    "failed to spawn kernel python {}: {error}",
-                    python.display()
-                ));
+                return Err(anyhow!("failed to spawn kernel {program}: {error}"));
             }
         };
         let (ready_tx, ready_rx) = oneshot::channel::<anyhow::Result<i64>>();
@@ -250,7 +324,7 @@ impl Inner {
             g.startup_protocol_error = None;
             g.ready_tx = Some(ready_tx);
         }
-        self.wire_child(child, generation, orphan_journal);
+        self.wire_child(child, generation, orphan_reap);
 
         let protocol = match self.wait_for_ready(ready_rx, generation).await {
             Ok(protocol) => protocol,
@@ -313,7 +387,7 @@ impl Inner {
         self: &Arc<Self>,
         mut child: tokio::process::Child,
         generation: u64,
-        orphan_journal: std::path::PathBuf,
+        orphan_reap: OrphanReap,
     ) {
         let pid = child.id().map_or(-1, |p| p as i32);
         let stdin = child.stdin.take();
@@ -325,7 +399,7 @@ impl Inner {
             pid,
             stdin: stdin.clone(),
             exit_rx,
-            orphan_journal,
+            orphan_reap,
         });
 
         if let Some(stdout) = stdout {
@@ -338,73 +412,57 @@ impl Inner {
             let inner = Arc::downgrade(self);
             let stdin_for_error = stdin;
             tokio::spawn(async move {
+                // The reader holds the stdin handle for its whole life.
+                let _stdin = stdin_for_error;
                 let mut reader = BufReader::new(stdout);
-                // A poisoned child's residue must not grow the buffer again
-                // before the protocol repair kills it: keep draining the pipe
-                // (so a wedged child cannot block on backpressure) and discard.
+                let mut splitter = FrameSplitter::new(MAX_PROTOCOL_LINE_BYTES);
+                let mut gate = Gate::new(MAX_PROTOCOL_LINE_BYTES);
+                // An unrecoverable stream's residue must not reach a handler
+                // before the protocol repair kills the child: keep draining
+                // the pipe (so a wedged child cannot block on backpressure)
+                // and discard.
                 let mut poisoned = false;
-                let mut buffered: Vec<u8> = Vec::new();
+                let mut refused: Vec<(String, Refusal)> = Vec::new();
                 let mut chunk = vec![0u8; 64 * 1024];
                 loop {
-                    match reader.read(&mut chunk).await {
+                    let n = match reader.read(&mut chunk).await {
                         Ok(0) | Err(_) => break,
-                        Ok(n) => {
-                            if poisoned {
-                                continue;
+                        Ok(n) => n,
+                    };
+                    if poisoned {
+                        continue;
+                    }
+                    let Some(inner) = inner.upgrade() else {
+                        break;
+                    };
+                    let serves = |kind: &str| inner.options.host_handlers.serves(kind);
+                    // The gate decides on every frame in order; refusals
+                    // are answered in that order once the read is cut.
+                    let _ = splitter.feed(&chunk[..n], &mut |frame| {
+                        match gate.admit(frame, &serves) {
+                            Admission::Serve(event) => inner.handle_event(event),
+                            Admission::Refuse { id, refusal } => refused.push((id, refusal)),
+                            Admission::Drop(fault) => {
+                                inner.append_diagnostic(&format!("dropped kernel frame: {fault}"));
                             }
-                            // `buffered` keeps only the newline-free tail of
-                            // earlier reads, so only the new bytes can hold a
-                            // newline: a multi-MiB line arriving in 64 KiB reads
-                            // is scanned once, not once per read.
-                            let mut scan_from = buffered.len();
-                            buffered.extend_from_slice(&chunk[..n]);
-                            if buffered.len() > MAX_PROTOCOL_LINE_BYTES {
-                                poisoned = true;
-                                buffered.clear();
-                                let Some(inner) = inner.upgrade() else {
-                                    break;
-                                };
-                                inner.fail_protocol_frame(
-                                    generation,
-                                    &format!(
-                                        "oversized protocol line: exceeds {MAX_PROTOCOL_LINE_BYTES} bytes"
-                                    ),
-                                );
-                                continue;
-                            }
-                            // Consume by offset and drain the prefix once per
-                            // read: per-frame drains would shift the tail each
-                            // iteration (quadratic copying for many short
-                            // frames in one chunk).
-                            let mut consumed = 0;
-                            while let Some(rel) =
-                                buffered[scan_from..].iter().position(|&b| b == b'\n')
-                            {
-                                let end = scan_from + rel;
-                                // An invalid-UTF-8 stream ends the reader, like
-                                // read_line's decode error did before.
-                                let Ok(trimmed) = std::str::from_utf8(&buffered[consumed..end])
-                                else {
-                                    return;
-                                };
-                                consumed = end + 1;
-                                scan_from = consumed;
-                                if trimmed.trim().is_empty() {
-                                    continue;
-                                }
-                                let Some(inner) = inner.upgrade() else {
-                                    return;
-                                };
-                                match parse_event(trimmed) {
-                                    Ok(event) => inner.handle_event(event),
-                                    Err(reason) => {
-                                        let _ = stdin_for_error;
-                                        inner.fail_protocol_frame(generation, &reason);
+                            Admission::Fail(fault) => {
+                                inner.fail_protocol_frame(generation, &fault.to_string());
+                                // A malformed line ends at its newline: the
+                                // frames after it still frame (the shutdown
+                                // reply of a corrupt child among them).
+                                match fault {
+                                    ProtocolFault::Malformed(_) => {}
+                                    ProtocolFault::Oversize { .. } | ProtocolFault::NotUtf8 => {
+                                        poisoned = true;
+                                        return ControlFlow::Break(());
                                     }
                                 }
                             }
-                            buffered.drain(..consumed);
                         }
+                        ControlFlow::Continue(())
+                    });
+                    for (id, refusal) in refused.drain(..) {
+                        inner.send_host_refusal(&id, &refusal).await;
                     }
                 }
             });

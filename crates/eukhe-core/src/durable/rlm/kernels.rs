@@ -27,6 +27,7 @@ use crate::kernel::shared::{
     KernelHostDispatch, KernelHostRequest, KernelShutdownOptions,
 };
 use crate::kernel::state_snapshot::{manifest_path_in, snapshot_path_in, RestoreResult};
+use crate::kernel::transport::KernelTransport;
 
 /// Bound on the background MCP settle after a prewarm boot (one wedged
 /// server must not keep the settle task alive forever).
@@ -181,6 +182,12 @@ impl KernelPool {
             registry: deps.host_requests.clone(),
             extra: deps.extra_host_handlers.clone(),
         });
+        // Where the kernel runs: the session's `kernelTransport` (a local
+        // child process when unset). A setting that does not parse fails
+        // the kernel's creation loudly, never a silent local fallback.
+        let transport =
+            KernelTransport::from_setting(deps.settings.manager().get_kernel_transport().as_ref())
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
         let provisioner = IpythonKernelProvisioner::new(
             cwd,
             IpythonKernelProvisionerOptions {
@@ -192,6 +199,7 @@ impl KernelPool {
                 snapshot_dir: snapshot_dir.clone(),
                 on_restore: Some(on_restore),
                 on_unavailable_skills: Some(on_unavailable_skills),
+                transport,
                 ..IpythonKernelProvisionerOptions::default()
             },
         );
@@ -415,5 +423,13 @@ impl KernelHostDispatch for RegistryDispatch {
         }
         let error = host_request_unavailable(&request_type);
         Box::pin(async move { Err::<Value, _>(error) })
+    }
+
+    fn serves(&self, request_type: &str) -> bool {
+        self.registry.get(request_type).is_some()
+            || self
+                .extra
+                .as_ref()
+                .is_some_and(|extra| extra.get(request_type).is_some())
     }
 }

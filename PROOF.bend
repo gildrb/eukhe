@@ -22,6 +22,7 @@ import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
 import ./bend/proof_tree.bend as Trees
 import ./bend/proof_job.bend as Jobs
+import ./bend/proof_sandbox.bend as Sandbox
 import ./bend/proof_cvar.bend as Cvars
 import ./bend/proof_director.bend as Directors
 import ./bend/proof_infer.bend as Infer
@@ -333,6 +334,32 @@ def Laws.rewind_stops_orphans(js, keep):
 
 def Laws.rewind_keeps_target_jobs(js, keep):
   Jobs.pj.rewind_keeps_target_jobs(js, keep)
+
+# (S3) The host and the sandbox
+
+def Laws.proto_one_reply_each(fs, max, allowed):
+  Sandbox.px.proto_one_reply_each(fs, max, allowed)
+
+def Laws.proto_runs_only_accepted(fs, max, allowed):
+  Sandbox.px.proto_runs_only_accepted(fs, max, allowed)
+
+def Laws.proto_runs_every_accepted(fs, max, allowed):
+  Sandbox.px.proto_runs_every_accepted(fs, max, allowed)
+
+def Laws.proto_rejects_oversize(i, l, k, max, allowed, over):
+  Sandbox.px.proto_rejects_oversize(i, l, k, max, allowed, over)
+
+def Laws.cow_keeps_parent(ks, par, base, child, k, listed, calm):
+  Sandbox.px.cow_keeps_parent(ks, par, base, child, k, listed, calm)
+
+def Laws.cow_takes_child(ks, par, base, child, k, listed, moved, still):
+  Sandbox.px.cow_takes_child(ks, par, base, child, k, listed, moved, still)
+
+def Laws.cow_conflict_reported(ks, par, base, child, k, listed, moved, also, apart):
+  Sandbox.px.cow_conflict_reported(ks, par, base, child, k, listed, moved, also, apart)
+
+def Laws.cow_conflict_is_real(ks, par, base, child, k, clash):
+  Sandbox.px.cow_conflict_is_real(ks, par, base, child, k, clash)
 
 # (S4) Settings as console variables
 

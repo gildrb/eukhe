@@ -413,6 +413,24 @@ impl SupervisorChildSessionsInner {
             None => std::env::temp_dir().join(format!("eukhe-rlm-{child_id}")),
         }
     }
+
+    /// The root of child `child_id`'s isolated workspace (its copies of
+    /// the parent's workspace and the hand-back record), beside the
+    /// parent's other children's.
+    fn workspace_root(&self, child_id: &str, identity: &ParentIdentity) -> PathBuf {
+        match &identity.session_id {
+            Some(session_id) => self
+                .agent_dir
+                .join("workspaces")
+                .join(session_id)
+                .join(child_id),
+            // No persistent parent: the ephemeral temp-dir fallback of
+            // [`Self::child_session_path`].
+            None => std::env::temp_dir()
+                .join("eukhe-rlm-workspaces")
+                .join(child_id),
+        }
+    }
 }
 
 mod durable_host;

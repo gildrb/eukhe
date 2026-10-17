@@ -84,6 +84,7 @@ impl Sim {
                 usage: None,
                 progress: None,
                 reporter: None,
+                handback: None,
             },
             open: true,
             inbox: Vec::new(),

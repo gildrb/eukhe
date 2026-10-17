@@ -1013,6 +1013,7 @@ async fn the_read_tool_serves_internal_urls() {
         usage: None,
         progress: None,
         reporter: None,
+        handback: None,
     };
     let root = session.root().id();
     session

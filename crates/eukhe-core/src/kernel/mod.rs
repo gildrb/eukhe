@@ -19,6 +19,7 @@ pub mod python_skills;
 pub mod rlm_runtime;
 pub mod shared;
 pub mod state_snapshot;
+pub mod transport;
 
 pub use bootstrap::{
     build_rlm_bootstrap_code, ensure_kernel_python, kernel_venv_dir, EnsureKernelPythonOptions,
@@ -39,3 +40,4 @@ pub use shared::{
     EXECUTE_STATUS_ABORTED, EXECUTE_STATUS_ERROR, EXECUTE_STATUS_OK,
 };
 pub use state_snapshot::{manifest_path_in, snapshot_path_in, RestoreResult, SnapshotResult};
+pub use transport::KernelTransport;

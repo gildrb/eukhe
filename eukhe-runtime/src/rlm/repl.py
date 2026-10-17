@@ -254,9 +254,18 @@ def _fail_pending_host_requests() -> None:
             future.set_exception(RuntimeError("host connection closed; host_request cannot be answered"))
 
 
+# The host's reply to a host request whose id it saw before (`frames.rs`
+# `Refusal::DuplicateId`). It answers the repeated frame, not the request
+# still in flight under that id, so it never settles a waiter.
+_DUPLICATE_REPLY_STATUS = "duplicate"
+
+
 def _resolve_host_reply(rid: str, data: dict[str, Any]) -> None:
-    """Reader-thread half of the host bridge; late/unknown replies are dropped."""
+    """Reader-thread half of the host bridge; late/unknown replies are dropped,
+    and so is the host's reply to a repeated id (the host logs that one)."""
     assert _loop is not None
+    if data.get("status") == _DUPLICATE_REPLY_STATUS:
+        return
     with _sync_lock:
         waiter = _pending_host_sync.get(rid)
     if waiter is not None:
@@ -1395,6 +1404,100 @@ async def _handle_mcp_resource(req: dict[str, Any], ns: dict[str, Any]) -> None:
     _send({"event": "done", "id": req["id"], "status": "ok", "result": result})
 
 
+
+def _run_on_daemon_thread(function: Callable[..., Any], name: str, kwargs: dict[str, Any]) -> "asyncio.Future[Any]":
+    """Run a synchronous ``@remote`` function on its own daemon thread.
+
+    Not the loop's default executor: a hung function would hold one of its
+    few workers for good, and interpreter exit joins them. A daemon thread
+    that never returns costs only itself.
+    """
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[Any] = loop.create_future()
+    context = contextvars.copy_context()
+
+    def settle(value: Any, error: BaseException | None) -> None:
+        if future.done():
+            return
+        if error is None:
+            future.set_result(value)
+        else:
+            future.set_exception(error)
+
+    def run() -> None:
+        try:
+            value = context.run(function, **kwargs)
+        except BaseException as exc:  # noqa: BLE001 - the call's error reply carries it
+            loop.call_soon_threadsafe(settle, None, exc)
+        else:
+            loop.call_soon_threadsafe(settle, value, None)
+
+    threading.Thread(target=run, name=f"remote:{name}", daemon=True).start()
+    return future
+
+
+async def _handle_call(req: dict[str, Any], ns: dict[str, Any]) -> None:
+    """One host `call` of a ``@remote`` function, answered by its `done`.
+
+    `done` carries `result` (JSON-safe; non-JSON values stringified) or
+    `status: "error"` with `error` and `reason`: `unknown` (no such function),
+    `timeout` (it did not finish within `timeout_ms`), `raised` (it raised,
+    wrong arguments included), `unencodable` (strict JSON cannot carry the
+    result: NaN, Infinity, a cycle), or `oversize` (the result does
+    not fit one protocol frame).
+
+    An ``async def`` function runs on the kernel loop: one that blocks without
+    awaiting stalls the whole kernel until it returns.
+    """
+    from .remote import lookup
+
+    rid = req["id"]
+    module, name = req["module"], req["function"]
+
+    def fail(reason: str, error: str) -> None:
+        _send({"event": "done", "id": rid, "status": "error", "reason": reason, "error": error})
+
+    args = req.get("args")
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        fail("raised", "TypeError: call args must be an object")
+        return
+    timeout_ms = req.get("timeout_ms", 60_000)
+    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or timeout_ms <= 0:
+        fail("raised", "ValueError: call timeout_ms must be a positive number")
+        return
+    function = lookup(module, name)
+    if function is None:
+        fail("unknown", f"{module}.{name} is not a @remote function of this kernel")
+        return
+    try:
+        if inspect.iscoroutinefunction(function):
+            running: Awaitable[Any] = function(**args)
+        else:
+            running = _run_on_daemon_thread(function, name, args)
+        value = await asyncio.wait_for(running, timeout_ms / 1000)
+    except asyncio.TimeoutError:
+        fail("timeout", f"{name} did not finish within {timeout_ms} ms")
+        return
+    except asyncio.CancelledError:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - the function's failure is the call's error
+        text = _safe_str(exc)
+        fail("raised", _cap_text(f"{type(exc).__name__}: {text}" if text else type(exc).__name__))
+        return
+    try:
+        # Strict: NaN/Infinity would make the `done` frame non-JSON.
+        result = json.loads(json.dumps(value, default=str, allow_nan=False))
+    except ValueError as exc:
+        fail("unencodable", _cap_text(f"{name} returned a value JSON cannot carry: {_safe_str(exc)}"))
+        return
+    if len(json.dumps(result)) > _PAYLOAD_CAP:
+        fail("oversize", f"{name} returned more than the {_PAYLOAD_CAP}-character frame cap")
+        return
+    _send({"event": "done", "id": rid, "status": "ok", "result": result})
+
+
 async def _handle_request(
     handler: Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]],
     req: dict[str, Any],
@@ -1514,6 +1617,10 @@ async def _serve(queue: asyncio.Queue[dict[str, Any]], ns: dict[str, Any]) -> No
             _spawn_mcp_lane(_handle_mcp_call, req, ns)
         elif rtype == "mcp_resource":
             _spawn_mcp_lane(_handle_mcp_resource, req, ns)
+        elif rtype == "call":
+            # A `@remote` call rides the same lane: a running cell does not
+            # hold it back, and a slow function does not hold back cells.
+            _spawn_mcp_lane(_handle_call, req, ns)
 
 
 def _handle_bash_activity(req: dict[str, Any]) -> None:
@@ -1573,6 +1680,8 @@ _REQUIRED_FIELDS = {
     # mcp_call's arguments are a JSON object; the handler validates them.
     "mcp_call": ("id", "server", "tool"),
     "mcp_resource": ("id", "server"),
+    # call's args are a JSON object; the handler validates them.
+    "call": ("id", "module", "function"),
     "bash_activity": ("id", "action"),
     "factory_activity": ("id", "action"),
     "shutdown": (),
@@ -1694,6 +1803,8 @@ def _read_requests(stdin_fd: int, queue: asyncio.Queue[dict[str, Any]]) -> None:
     _fail_sync_host_requests()
     _loop.call_soon_threadsafe(_fail_pending_host_requests)
     _loop.call_soon_threadsafe(queue.put_nowait, {"type": "shutdown", "eof": True})
+    if _owned_by_stdin():
+        threading.Thread(target=_stdin_owner_exit, daemon=True).start()
 
 
 def _resolve_owner_pid() -> int:
@@ -1765,8 +1876,7 @@ def _wait_owner_posix(owner: int, initial_ppid: int) -> None:
         wait_for_exit()
 
 
-def _owner_watchdog(owner: int, initial_ppid: int) -> None:
-    _wait_owner_posix(owner, initial_ppid)
+def _owner_gone() -> None:
     # Event-loop-independent by design: a synchronous cell monopolizes the
     # loop, so the queued EOF shutdown can never run; hard-exit from here.
     try:
@@ -1781,7 +1891,39 @@ def _owner_watchdog(owner: int, initial_ppid: int) -> None:
     os._exit(1)
 
 
+def _owner_watchdog(owner: int, initial_ppid: int) -> None:
+    _wait_owner_posix(owner, initial_ppid)
+    _owner_gone()
+
+
+# A kernel behind a wrapper (a container, a VM, a remote host) cannot see the
+# host's pid: its owner is its stdin, and EOF is the owner's end. The EOF
+# shutdown runs on the loop; when a synchronous cell holds the loop past the
+# grace, the exit happens from the reader's side.
+_OWNER_ENV = "EUKHE_KERNEL_OWNER"
+_OWNER_STDIN = "stdin"
+_STDIN_OWNER_EXIT_GRACE_S = 30.0
+
+
+def _owned_by_stdin() -> bool:
+    return os.environ.get(_OWNER_ENV) == _OWNER_STDIN
+
+
+def _stdin_owner_exit() -> None:
+    time.sleep(_STDIN_OWNER_EXIT_GRACE_S)
+    _owner_gone()
+
+
 def _start_owner_watchdog() -> None:
+    if _owned_by_stdin():
+        # Lead a process group (a wrapper may not start one) so the exit
+        # takes the cell's subprocesses down too.
+        if os.getpgrp() != os.getpid():
+            try:
+                os.setpgid(0, 0)
+            except OSError as exc:
+                print(f"kernel: cannot lead a process group: {exc}", file=sys.stderr)
+        return
     threading.Thread(
         target=_owner_watchdog, args=(_resolve_owner_pid(), os.getppid()), daemon=True
     ).start()

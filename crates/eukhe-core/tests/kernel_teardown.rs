@@ -22,7 +22,10 @@
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
 
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+
+#[path = "support/process_watch.rs"]
+mod process_watch;
+use process_watch::await_process_gone;
 
 #[path = "support/kernel_runtime.rs"]
 mod kernel_runtime;
@@ -37,39 +40,6 @@ fn test_lock() -> MutexGuard<'static, ()> {
     TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// True while a live (non-zombie) process with this pid exists.
-fn process_alive(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .ok()
-        .and_then(|raw| {
-            // pid (comm) state ...
-            let close = raw.rfind(')')?;
-            raw[close + 1..]
-                .trim_start()
-                .chars()
-                .next()
-                .map(|state| state != 'Z' && state != 'X')
-        })
-        .unwrap_or(false)
-}
-
-/// Poll until the pid leaves the live-process table (teardown kills are
-/// synchronous, but the kernel may be mid-boot when its owner drops, so the
-/// settle budget covers the boot finishing first).
-async fn await_process_gone(pid: i32) {
-    let deadline = Instant::now() + Duration::from_mins(1);
-    while process_alive(pid) {
-        assert!(
-            Instant::now() < deadline,
-            "kernel pid {pid} outlived the drop of its owner (teardown gap)"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
 }
 
 /// Start a manager and run the RLM bootstrap, mirroring the TS provisioner
@@ -115,6 +85,7 @@ fn test_options() -> eukhe_core::kernel::shared::KernelManagerOptions {
         snapshot: None,
         bootstrap_code: Some(eukhe_core::kernel::bootstrap::build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
+        transport: eukhe_core::kernel::KernelTransport::Local,
     }
 }
 

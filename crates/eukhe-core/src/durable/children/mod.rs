@@ -37,10 +37,10 @@ pub use commands::{
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
     NoRlmChildren, RlmChildActivityKind, RlmChildCancelRequest, RlmChildDeleteRequest,
-    RlmChildIdentity, RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPromptRequest,
-    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmCreateSessionHandle, RlmCreateSessionRequest, RlmHostFuture, RlmRenameRequest,
-    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    RlmChildHandbackRequest, RlmChildIdentity, RlmChildListing, RlmChildObservation,
+    RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmCreateSessionHandle, RlmCreateSessionRequest,
+    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
 };
 pub use registry::{
     has_unsettled_children, unsettled_child_tasks, unsettled_children, UnsettledChildren,

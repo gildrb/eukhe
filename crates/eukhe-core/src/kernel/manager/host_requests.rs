@@ -1,11 +1,14 @@
 //! Host request handling: execute-side requests answered by the host
 //! (harness/goal/etc.) and their settle/exit waits.
 
-use super::{
-    anyhow, json, lock, Arc, Duration, HostRequestPayload, Inner, Value,
-    MAX_HANDLED_HOST_REQUEST_IDS,
-};
+use super::frames::Refusal;
+use super::{anyhow, json, lock, Arc, Duration, HostRequestPayload, Inner, Value};
 use crate::kernel::shared::{host_request_unavailable, CellJob, KernelHostRequest};
+use crate::kernel::transport::KernelTransport;
+
+/// The `version` of an `fs.*` rejection the kernel transport answers: a
+/// sandbox path outside every shared mount.
+const FS_TRANSPORT_VERSION: &str = "transport@1";
 
 /// The cell source attached to a host request is capped at this many
 /// characters (TS #2475: `MAX_CELL_SOURCE_CHARS`, repl-manager.ts:81-82):
@@ -32,49 +35,52 @@ fn cap_cell_source(code: &str) -> String {
 // ---------------------------------------------------------------------------
 
 impl Inner {
-    /// Dispatch one typed request from kernel code to the registered handler
-    /// and reply over the protocol. Unhandled requests answer with an error.
-    pub(crate) fn start_host_request(self: &Arc<Self>, request_id: &str, data: Value) {
-        {
-            let mut g = lock(&self.guarded);
-            let (seen, order) = &mut g.handled_host_request_ids;
-            if seen.contains(request_id) {
-                return;
-            }
-            seen.insert(request_id.to_string());
-            order.push_back(request_id.to_string());
-            while seen.len() > MAX_HANDLED_HOST_REQUEST_IDS {
-                if let Some(oldest) = order.pop_front() {
-                    seen.remove(&oldest);
-                } else {
-                    break;
-                }
-            }
-        }
+    /// Run one host request the gate served (`frames.rs`) on its handler
+    /// and send its one reply over the protocol.
+    pub(crate) fn start_host_request(self: &Arc<Self>, request_id: String, data: Value) {
         let inner = Arc::clone(self);
-        let request_id = request_id.to_string();
         let task = tokio::spawn(async move {
-            let result = inner.handle_host_request(&data).await;
-            let reply = match result {
-                Ok(result) => json!({ "status": "ok", "result": result }),
-                Err(error) => {
-                    inner.append_diagnostic(&format!(
-                        "host request failed for {request_id}: {error:#}"
-                    ));
-                    json!({ "status": "error", "error": format!("{error:#}") })
-                }
-            };
-            let frame = json!({ "type": "host_reply", "id": request_id, "data": reply });
-            if let Err(error) = inner.write_line(&frame).await {
-                inner.append_diagnostic(&format!(
-                    "failed to send host request reply for {request_id}: {error:#}"
-                ));
-            }
+            let result = inner
+                .handle_host_request(&data)
+                .await
+                .map_err(|error| format!("{error:#}"));
+            inner.send_host_reply(&request_id, result).await;
         });
         let mut g = lock(&self.guarded);
         // Completed task handles are dropped so the inflight set stays bounded.
         g.host_inflight.retain(|handle| !handle.is_finished());
         g.host_inflight.push(task);
+    }
+
+    /// Send the one reply to host request `request_id`: its handler's
+    /// result, or the error of a failed request.
+    #[tracing::instrument(level = "debug", skip(self, reply))]
+    pub(crate) async fn send_host_reply(&self, request_id: &str, reply: Result<Value, String>) {
+        let data = match reply {
+            Ok(result) => json!({ "status": "ok", "result": result }),
+            Err(error) => {
+                self.append_diagnostic(&format!("host request failed for {request_id}: {error}"));
+                json!({ "status": "error", "error": error })
+            }
+        };
+        self.write_host_reply(request_id, data).await;
+    }
+
+    /// Send the one reply to a host request the gate refused
+    /// ([`Refusal::reply`]).
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub(crate) async fn send_host_refusal(&self, request_id: &str, refusal: &Refusal) {
+        self.append_diagnostic(&format!("host request refused for {request_id}: {refusal}"));
+        self.write_host_reply(request_id, refusal.reply()).await;
+    }
+
+    async fn write_host_reply(&self, request_id: &str, data: Value) {
+        let frame = json!({ "type": "host_reply", "id": request_id, "data": data });
+        if let Err(error) = self.write_line(&frame).await {
+            self.append_diagnostic(&format!(
+                "failed to send host request reply for {request_id}: {error:#}"
+            ));
+        }
     }
 
     async fn handle_host_request(&self, data: &Value) -> anyhow::Result<Value> {
@@ -108,27 +114,53 @@ impl Inner {
         if let Some(code) = &cell_source_code {
             payload.insert("cellSourceCode".to_string(), Value::String(code.clone()));
         }
-        if let Some(dispatch) = self.options.host_handlers.dispatch() {
-            return dispatch
+        // A wrapped kernel's `fs.*` paths are the sandbox's: they reach the
+        // handler as the host's, through the shared mounts, and the reply's
+        // paths go back as the sandbox's. A path outside every mount is
+        // refused here as the fs functions' typed rejection (`FsError`
+        // with reason `outside` in the kernel); no handler runs.
+        let path_map = match &self.options.transport {
+            KernelTransport::Wrapped(wrapper) if request_type.starts_with("fs.") => {
+                Some(&wrapper.path_map)
+            }
+            KernelTransport::Wrapped(_) | KernelTransport::Local => None,
+        };
+        if let Some(path_map) = path_map {
+            if let Err(error) = path_map.fs_request_to_host(request_type, &mut payload) {
+                return Ok(json!({
+                    "outcome": "rejected",
+                    "version": FS_TRANSPORT_VERSION,
+                    "reason": "outside",
+                    "message": format!("{request_type}: {error}"),
+                }));
+            }
+        }
+        let mut result = if let Some(dispatch) = self.options.host_handlers.dispatch() {
+            dispatch
                 .dispatch(KernelHostRequest {
                     request_type: request_type.to_string(),
                     data: Value::Object(payload),
                     cell_source_code,
                     call,
                 })
-                .await;
+                .await?
+        } else {
+            let handler = self
+                .options
+                .host_handlers
+                .get(request_type)
+                .ok_or_else(|| host_request_unavailable(request_type))?
+                .clone();
+            handler(HostRequestPayload {
+                data: Value::Object(payload),
+                cell_source_code: None,
+            })
+            .await?
+        };
+        if let Some(path_map) = path_map {
+            path_map.fs_reply_to_sandbox(&mut result);
         }
-        let handler = self
-            .options
-            .host_handlers
-            .get(request_type)
-            .ok_or_else(|| host_request_unavailable(request_type))?
-            .clone();
-        handler(HostRequestPayload {
-            data: Value::Object(payload),
-            cell_source_code: None,
-        })
-        .await
+        Ok(result)
     }
 
     /// Wait (bounded) for the in-flight host request tasks to settle.

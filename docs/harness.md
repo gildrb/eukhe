@@ -854,6 +854,288 @@ Not modelled: the map from jobs to documents and from entries to tree
 cursors (jobs 5 and 6), and the board's delivery order; the tests above
 tie them.
 
+### S3. The host and the sandbox
+
+The host decides; the sandbox executes. The sandbox is the kernel (the
+Python stub of a session): it sends frames to the host, one JSON object
+per line. A subagent can work in a sandbox of the workspace too: a copy
+of its parent's files.
+
+The protocol:
+
+1. The host reads the frames of the kernel in order. One gate decides on
+   each frame, before any handler sees it.
+2. A host request within the size limit, of a type the host serves, and
+   with an id it did not see before, is accepted. Only an accepted frame
+   reaches a handler, and every accepted frame reaches one. The handler's
+   result or error is its one reply.
+3. A host request over the size limit gets one error reply and does
+   nothing. The host reads only the head of the frame (the runtime
+   writes `event` and `id` first) and drops the rest, up to its newline.
+   The session keeps working.
+4. A host request of a type the host does not serve, without a type, or
+   with a used id gets one error reply and does nothing. The reply to a
+   used id has the status `duplicate`, not `error`. It goes out under the
+   id of a request that can still be in flight, so the runtime drops it
+   (`_resolve_host_reply`) and the host writes a diagnostic. Only the
+   handler's reply settles the first request with that id.
+5. Other events answer the host's own requests and need no reply. An
+   oversized stream or display event is dropped with a diagnostic.
+6. A frame the host cannot answer is a typed fault (`ProtocolFault`): a
+   line that is not UTF-8, a line that is not a protocol frame, or an
+   oversized line with no host-request header. The protocol repair then
+   replaces the kernel. It is loud: the request in flight fails with the
+   fault.
+7. The limits are constants in one place (`frames.rs`): the line limit
+   (32 MiB), the head the gate reads (4 KiB), and the ids it keeps
+   (1024). The runtime fails a cell whose `display` or `host_request`
+   payload is over 16 MiB before it writes the frame.
+
+The gate decides on the frames in order, and the refusals are written in
+that order. The reply of an accepted request comes when its handler
+ends, and the kernel matches it by id: a long request (`rlm.run`) does
+not hold back a short one.
+
+A subagent's workspace:
+
+1. `rlm.spawn(..., workspace="isolated")` gives the child its own copy of
+   the parent's workspace. `workspace="shared"` (the default) keeps
+   today's behavior: the child works in the parent's directory.
+2. At the spawn, the host copies the tracked and the untracked, not
+   ignored files of the parent's directory (`git ls-files`; without git,
+   the files its `.gitignore` files do not ignore) two times: the base
+   (the workspace as the child found it) and the child's copy (its
+   working directory). It never copies `.git`, `target/`, or another
+   ignored directory. A directory of more than 100,000 files is refused
+   (`MAX_WORKSPACE_FILES`): the spawn fails and names `shared`. The
+   hand-back lists the child's copy with its `.gitignore` files only.
+   `.git/info/exclude` and the global excludes do not apply there, so a
+   file of the child that only they ignore comes back to the parent.
+3. A copy clones the file's extents where the filesystem can (FICLONE on
+   Linux: btrfs, XFS; clonefile on macOS: APFS). Elsewhere it copies the
+   bytes and logs a warning with the counts. It never copies in silence.
+4. At the child's end (its run answers, fails, or stalls, or the parent
+   cancels or deletes it), the host first stops the child: its worker,
+   its kernel and its background jobs end, and its session stays. Then
+   the host takes the child's changes back into the parent's directory,
+   path by path:
+   - a path the child did not change keeps the parent's content;
+   - a path only the child changed gets the child's content (a removal
+     too);
+   - a path both changed to the same content keeps it;
+   - a path both changed to different contents keeps the parent's
+     content and is a conflict. The child's version stays in the
+     workspace's `conflicts/` directory.
+   - a path the child changed that the parent cannot hold as a file (a
+     directory is at that path, or a file or a symlink is where one of
+     its directories goes) keeps the parent's entry and is a conflict.
+     The child's version goes to `conflicts/`, and the hand-back
+     continues with the next path.
+5. The child's report and its roster row (`rlm.collect`,
+   `rlm.list_subagents`) carry the hand-back: the paths taken, the
+   conflicts, and where the child's versions are. A hand-back that fails
+   is reported too, and the copy stays.
+6. Each path is replaced in one rename, from a copy beside it. The copy
+   has the same name in every run, so a run after a crash removes the
+   copy that the crash left. The hand-back is idempotent: a path already
+   taken reads as changed by both to the same content. So a hand-back
+   that a crash cut runs again from the start to the same result. Its
+   record (`handback.json`) ends it, and a repeat after the record does
+   not stop the child again. Then the base and the copy are removed, and
+   the child's directory becomes a symlink to the parent's, so a child
+   woken later starts its kernel there.
+7. The workspace lives in `<agent dir>/workspaces/<parent session id>/<child id>/`.
+   A child that resumes after a daemon restart keeps its copy and its
+   base: its stored working directory is the copy.
+
+Why the default is `shared`: the prompts tell the parent to fan in
+through files the children write while they run ("Have children write
+files and read those files for fan-in", `prompts/layers/usage.md`), and
+a child replies with `agent_message` before its run ends. An isolated
+child's files reach the parent only at the end. Isolation is for
+children that change the same tree in parallel.
+
+Where the sandbox runs (the kernel transport):
+
+1. The setting `kernelTransport` selects the transport of a session. When
+   it is not set, the transport is `Local`: the kernel is a child process
+   of the host, in its own process group, with the host's environment.
+   This is the behavior before the transport.
+2. When it is set, the transport is `Wrapped`. The kernel command runs
+   under the wrapper's argv (`argvPrefix`). The same stub then runs in a
+   container (`docker exec -i <c>`, `podman exec -i <c>`,
+   `docker run -i --rm -v ...`), in a VM, or on a remote machine
+   (`ssh -T <host>`, with `"command": "shell"`). The NDJSON frames and
+   the frame limits do not change: the wrapper carries stdin and stdout.
+3. The wrapped kernel does not get the host's environment. It gets the
+   kernel's own entries, the host variables that `env` names, and
+   `EUKHE_KERNEL_OWNER=stdin`. An entry that holds a host path
+   (`EUKHE_CODING_AGENT_DIR`, `EUKHE_BASH_SHELL`) gets its sandbox path,
+   or it is left out with a diagnostic. The wrapper process itself keeps
+   the host's environment (docker and ssh need it). The sandbox has its
+   own interpreter with eukhe-runtime (`python`, default `python3`); the
+   host's kernel venv is not built for it. A Python skill imports in the
+   sandbox when a mount holds its directory: its sandbox path goes in
+   front of `PYTHONPATH`. Its dependencies must be in the sandbox.
+4. `pathMap` lists the shared mounts: each one is the same directory at
+   `sandbox` and at `host`. The kernel starts in the sandbox path of the
+   session's cwd. A cwd outside every mount stops the start with an error.
+   The deepest mount that holds a path maps it.
+5. An `fs.*` host request (`read`, `write`, `edit`, `grep`, `glob`) comes
+   with the sandbox's paths. The host maps its cwd and each path argument
+   (the paths of the `edit` section headers and `MV` rows too) to host
+   paths before a handler sees it. It maps the paths of the reply
+   (`absolute`, `destination`) back. A path outside every mount, or a
+   path relative to the sandbox's home (`~`), gets the typed rejection
+   (`FsError`, reason `outside`, version `transport@1`), and no handler
+   runs. "Outside" is checked on the host's disk too: the host resolves
+   the symlinks of the longest part of the host path (and of the cwd)
+   that exists, and the result must be in the resolved host directory of
+   a mount. So a symlink in a mount that points out of every mount, or a
+   `..` after such a symlink, gets the same rejection.
+6. The namespace snapshot of a wrapped kernel is written at the sandbox
+   path of the snapshot file. When no mount holds that file, the host
+   does not ask for a snapshot, and it writes a diagnostic.
+7. The lifetime follows the transport. A local kernel watches the host's
+   pid (`EUKHE_KERNEL_OWNER_PID`). A wrapped kernel watches its stdin:
+   at start it makes a process group of its own, and at stdin EOF it
+   shuts down. When a synchronous cell holds the loop, it exits after 30
+   seconds from the reader's side.
+8. A kill closes the kernel's stdin and then signals the wrapper's
+   process group. The wrapper ends, and so the stub sees its stdin close.
+   The host reaps the `bash()` process groups of a local kernel from its
+   journal. It cannot reap a remote process group: the pids are not the
+   host's. The stub's own shutdown and its stdin-EOF exit kill those
+   groups.
+
+An example (`settings.json`; a project scope that is not trusted cannot
+set it):
+
+```json
+"kernelTransport": {
+  "argvPrefix": ["docker", "exec", "-i", "box"],
+  "python": "/opt/venv/bin/python",
+  "pathMap": [{ "sandbox": "/work", "host": "/home/me/project" }],
+  "env": ["LANG"]
+}
+```
+
+`@remote`: a kernel function that the host offers as a tool.
+
+1. `@remote` (`rlm.remote`) records a Python function and announces it
+   with the host request `remote.register`: its name, its module and
+   qualified name, its docstring, and the JSON schema of its keyword
+   arguments (from the type hints). A parameter that cannot be given by
+   keyword is refused.
+2. The session adds it to the tool surface as `remote/<name>`. The model
+   reaches it through `dyn` only (S7): it never enters the roster.
+3. A call goes to the kernel of the calling conversation as the request
+   `call` (`module`, `function`, `args`). It uses the dedicated lane, so
+   it does not wait for a cell, and a cell does not wait for it. The
+   `done` frame gives the result or a typed error (`RemoteCallError`):
+   not running, unreachable, unknown, timeout, failed. A kernel that
+   stops or restarts before it replies gives `unreachable` at once, not
+   a timeout at the end of the bound. Wrong arguments give `failed` with
+   the `TypeError` text. A result that strict JSON cannot carry (NaN,
+   Infinity) gives `failed` (kernel reason `unencodable`); the frame
+   stays valid JSON, and the kernel keeps working.
+4. The session's blocking budget (S2, `toolBlockingBudgetMs`) bounds the
+   call. The kernel runs a synchronous function on its own daemon
+   thread. A function that hangs costs that thread: the call answers
+   `timeout`, and the kernel serves the next cells and calls. The result
+   of the `dyn` call keeps the S2 output limits.
+5. An `async def` function runs on the kernel's event loop, not on a
+   thread. If it blocks without `await`, the whole kernel stops until it
+   returns: cells and other calls wait, and its timeout cannot fire. Do
+   blocking work in a synchronous function.
+
+Model: `bend/sandbox.bend` (`serve`, `merge1`, `back`). Laws: `LAWS.bend`
+section (S3). Proofs: `bend/proof_sandbox.bend`. Every input is free:
+any frames of any length and kind, any limits, any workspaces of the
+parent, the base and the child.
+
+| Law | Says |
+| --- | --- |
+| `proto_one_reply_each` | Every frame gets exactly one reply, in order (S3.1, S3.2-4). |
+| `proto_runs_only_accepted` | The host runs only frames it accepts: within the size limit and of an allowed kind (S3.2). |
+| `proto_runs_every_accepted` | The host runs every frame it accepts (S3.2). |
+| `proto_rejects_oversize` | A frame over the size limit gets an error and runs nothing (S3.3). |
+| `cow_keeps_parent` | A path the child did not change keeps the parent's content (workspace 4). |
+| `cow_takes_child` | A path only the child changed gets the child's content (workspace 4). |
+| `cow_conflict_reported` | A path both changed to different contents keeps the parent's content and is reported as a conflict: no change is lost in silence (workspace 4, 5). |
+| `cow_conflict_is_real` | A conflict is real: both changed the path, to different contents (workspace 4). |
+
+Code: `eukhe-core/src/kernel/manager/frames.rs` (`FrameSplitter`,
+`Gate::admit`, `Admission`, `Refusal`, `ProtocolFault`, the limits);
+`kernel/manager/startup.rs` `wire_child` (the stdout reader) and
+`do_start` (the launch of each transport);
+`kernel/manager/host_requests.rs` (`start_host_request`,
+`send_host_reply`, the `fs.*` path map); `kernel/transport.rs`
+(`KernelTransport`, `KernelWrapper::launch`, `PathMap`);
+`kernel/manager/teardown.rs` (`OrphanReap`); `kernel/manager/mod.rs`
+(`remote_call`, `RemoteCallError`); `kernel/shared.rs`
+(`HostRequestHandlers::serves`, `KernelHostDispatch::serves`);
+`durable/rlm/kernels.rs` (`RegistryDispatch`, the `kernelTransport`
+setting); `durable/rlm/remote.rs` (`remote.register`, the `remote/<name>`
+tools); `eukhe-runtime/src/rlm/remote.py` (`remote`) and `repl.py`
+(`_handle_call`, the stdin owner); `eukhe-core/src/child_workspace/`
+(`ChildWorkspace`: `create`, `hand_back`; `merge.rs` `merge1`;
+`files.rs`: the listing, the clone, the one-rename replace);
+`durable/children/` (the `workspace` kwarg, `RlmSubagentHost::hand_back`,
+`HandbackOutcome` on the row and the report);
+`eukhe-daemon/src/rlm_children/` (the workspace at the spawn,
+`hand_back`, `delete`); `eukhe-runtime/src/rlm/__init__.py` (`spawn`).
+
+Ties: two bridge tests compare transcripts with `bend/bridge_sandbox.bend`
+byte for byte.
+
+- `kernel::manager::frames::bridge::the_rust_frame_gate_equals_the_bend_model`
+  writes 200 generated streams of host-request frames (ids, lengths,
+  kinds) as the runtime does, cuts each into reads of random sizes, and
+  prints the gate's reply to each frame and the frames it served. The
+  scenarios reach every rule: served, oversized, a kind not served, and a
+  frame exactly at the limit.
+- `child_workspace::bridge::the_rust_hand_back_equals_the_bend_model`
+  writes 200 generated parent, base and child file maps as real
+  directories, runs the hand-back, and prints the parent's files and the
+  conflicts. The scenarios reach every rule: kept, taken, a removal
+  taken, the same change, a conflict, and a conflict with a removal.
+
+Regression tests: `kernel_protocol_frame_caps` (an oversized host
+request, an unserved type and a served one each get one reply on a real
+child, and the session keeps working; an oversized line without a
+header lands in repair); `kernel::manager::frames::tests`
+(`a_repeated_id_of_a_request_in_flight_gets_a_duplicate_reply_and_no_handler`);
+`eukhe-runtime/test/test_repl.py`
+(`test_host_duplicate_reply_does_not_settle_the_request_in_flight`);
+`child_workspace::tests` (the copy leaves ignored files out; the
+hand-back; a hand-back cut by a crash runs again to the same result;
+`a_hand_back_after_a_crash_removes_the_copy_the_crash_left_beside_a_path`;
+`a_path_the_parent_holds_as_a_directory_or_under_a_file_is_a_conflict`);
+the children and daemon workspace tests (`rlm_workspace_e2e`
+`a_child_still_writing_at_its_end_stops_before_its_hand_back`: a child
+thread that still writes at the end writes nothing after the hand-back);
+`kernel::transport::tests` (the
+path map both ways, the `fs.*` request and reply maps and refusals,
+`fs_requests_reject_a_symlink_in_a_mount_that_points_out_of_every_mount`,
+the setting, the launch argv and environment); `kernel_transport` (the real
+stub under a fake wrapper, `setsid -w sh -c 'exec "$@"'`, in a sandbox
+directory mapped to another host directory: the cwd, the environment,
+an `fs.read` with host paths in and sandbox paths out, the typed
+refusal, the kill through the closed stdin); `kernel_remote` (register,
+call, a raising, unknown and hanging function, a NaN result and wrong
+arguments to an async function, then cells and calls still work; a
+kernel that exits during a call is unreachable);
+`eukhe-runtime/test/test_remote.py` (the schema, the `call`
+request, `test_a_nan_result_and_bad_async_arguments_answer_typed_errors`,
+the stdin owner). Not modelled: the order of the
+replies of accepted requests (handlers end in any order; the kernel
+matches by id), the duplicate-id refusal and its `duplicate` reply (the
+model's frames have distinct ids, and the bridge's streams too),
+directories and symlinks in the hand-back (the model's
+paths are flat files), the transport and `@remote` (the tests above tie
+them).
+
 ### S4. Settings as console variables
 
 Each setting is a console variable (a cvar). One table declares each cvar

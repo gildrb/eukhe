@@ -1027,6 +1027,18 @@ pub const GATEWAY_SIGNAL_CWD: Decl = Decl {
     init: Init::Text(""),
 };
 
+/// Where the session's kernel runs (S3); parsed by
+/// `kernel::transport::KernelTransportSettings`. Routes code execution,
+/// so an untrusted project may not set it and an agent never saves it.
+pub const KERNEL_TRANSPORT: Decl = Decl {
+    id: "kernelTransport",
+    ty: CvarType::Json,
+    scope: CvarScope::Local,
+    persist: false,
+    replicate: false,
+    init: Init::Null,
+};
+
 pub(crate) const SHELL_EFFECTS: &[&str] = &["read", "write", "exec", "net"];
 
 /// The effects a shell command may have without asking. An execution
@@ -1144,5 +1156,6 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_ALLOW,
     GATEWAY_SIGNAL_CLI_PATH,
     GATEWAY_SIGNAL_CWD,
+    KERNEL_TRANSPORT,
     SHELL_AUTO_EFFECTS,
 ];

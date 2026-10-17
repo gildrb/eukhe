@@ -3,15 +3,19 @@
 //! child again after a parent restart, a settled child reports its answer,
 //! reply flag, and usage, a restarted parent's resumed watch fails a child
 //! whose run was interrupted (without waking one no worker hosts), the
-//! task prompt lands as the parent's spawn kickoff row, and `rlm.rename`
-//! routes self and child renames.
+//! task prompt lands as the parent's spawn kickoff row, `rlm.rename`
+//! routes self and child renames, and an isolated child works on a copy
+//! of the parent's workspace handed back at its end.
 
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use eukhe_core::child_workspace::{Handback, WorkspaceMode};
 use eukhe_core::durable::children::{
-    RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildIdentity, RlmChildOutcome,
-    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildWaitRequest,
-    RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
+    RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
+    RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest,
+    RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
 };
 use eukhe_types::daemon::WorkerLiveness;
 use eukhe_types::input_origin::ChildFailure;
@@ -212,6 +216,7 @@ fn spawn_request() -> RlmChildSpawnRequest {
         max_depth: 3,
         spawned_by_request_id: Some("call-1".to_owned()),
         parent_task_id: "7".to_owned(),
+        workspace: WorkspaceMode::Shared,
     }
 }
 
@@ -687,5 +692,189 @@ async fn rename_routes_self_and_child_renames_through_the_supervisor() {
             ("child-passivated", "bench-runner", Some("parent")),
             (CHILD_SESSION, "bench-runner", Some("parent")),
         ]
+    );
+}
+
+/// The files under `dir` (relative path → content).
+fn files_under(dir: &Path) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        for entry in std::fs::read_dir(&next).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let relative = path
+                    .strip_prefix(dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                files.insert(relative, std::fs::read_to_string(&path).unwrap());
+            }
+        }
+    }
+    files
+}
+
+fn file_map(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
+    entries
+        .iter()
+        .map(|(path, body)| ((*path).to_owned(), (*body).to_owned()))
+        .collect()
+}
+
+/// Spawn `sub-0192a000` isolated in a parent whose workspace (`parent`)
+/// holds `a.txt`, `b.txt`, `c.txt`, a `.gitignore` and an ignored
+/// `target/x`; assert the child's create names its copy as its cwd and
+/// the copy holds the files not ignored. Returns the host and the
+/// workspace root.
+async fn spawn_isolated(
+    agent_dir: &Path,
+    parent: &Path,
+) -> (SupervisorChildSessions, std::path::PathBuf) {
+    let parent_files = file_map(&[
+        (".gitignore", "target/\n"),
+        ("a.txt", "a0"),
+        ("b.txt", "b0"),
+        ("c.txt", "c0"),
+        ("target/x", "build output"),
+    ]);
+    for (path, body) in &parent_files {
+        let path = parent.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+    let shared = Shared::default();
+    let sessions = host(&shared, agent_dir).await;
+    sessions.set_identity(ParentIdentity {
+        model: Some("mock/mock-1".to_owned()),
+        cwd: Some(parent.to_string_lossy().into_owned()),
+        session_id: Some("parent-session".to_owned()),
+        ..ParentIdentity::with_default_depth()
+    });
+    sessions
+        .spawn(RlmChildSpawnRequest {
+            workspace: WorkspaceMode::Isolated,
+            ..spawn_request()
+        })
+        .await
+        .unwrap();
+    let root = agent_dir
+        .join("workspaces")
+        .join("parent-session")
+        .join("sub-0192a000");
+    let tree = root.join("tree");
+    let cwds: Vec<Value> = commands_of(&shared, "create")
+        .iter()
+        .map(|create| create["config"]["cwd"].clone())
+        .collect();
+    assert_eq!(cwds, [json!(tree.to_string_lossy())]);
+    assert_eq!(
+        files_under(&tree),
+        file_map(&[
+            (".gitignore", "target/\n"),
+            ("a.txt", "a0"),
+            ("b.txt", "b0"),
+            ("c.txt", "c0"),
+        ])
+    );
+    (sessions, root)
+}
+
+fn handback_request() -> RlmChildHandbackRequest {
+    RlmChildHandbackRequest {
+        session_id: CHILD_SESSION.to_owned(),
+        rlm_child_id: "sub-0192a000".to_owned(),
+    }
+}
+
+/// S3: an isolated child works in its own copy of the parent's workspace
+/// (the files its `.gitignore` does not ignore). Its hand-back takes what
+/// only the child changed, keeps the parent's content where both changed
+/// (the child's version kept aside), and repeats as the same record. A
+/// child without a workspace hands back nothing.
+#[tokio::test]
+async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let (sessions, root) = spawn_isolated(dir.path(), parent.path()).await;
+    let tree = root.join("tree");
+    std::fs::write(tree.join("a.txt"), "a-child").unwrap();
+    std::fs::write(tree.join("c.txt"), "c-child").unwrap();
+    std::fs::write(parent.path().join("b.txt"), "b-parent").unwrap();
+    std::fs::write(parent.path().join("c.txt"), "c-parent").unwrap();
+    let handback = sessions.hand_back(handback_request()).await.unwrap();
+    let conflicts = root.join("conflicts");
+    assert_eq!(
+        handback,
+        Some(Handback {
+            taken: vec!["a.txt".to_owned()],
+            conflicts: vec!["c.txt".to_owned()],
+            kept: Some(conflicts.to_string_lossy().into_owned()),
+        })
+    );
+    assert_eq!(
+        sessions.hand_back(handback_request()).await.unwrap(),
+        handback
+    );
+    assert_eq!(
+        files_under(parent.path()),
+        file_map(&[
+            (".gitignore", "target/\n"),
+            ("a.txt", "a-child"),
+            ("b.txt", "b-parent"),
+            ("c.txt", "c-parent"),
+            ("target/x", "build output"),
+        ])
+    );
+    assert_eq!(files_under(&conflicts), file_map(&[("c.txt", "c-child")]));
+    assert_eq!(
+        sessions
+            .hand_back(RlmChildHandbackRequest {
+                session_id: "shared-child".to_owned(),
+                rlm_child_id: "sub-shared".to_owned(),
+            })
+            .await
+            .unwrap(),
+        None
+    );
+}
+
+/// `rlm.delete_subagent` deletes before the task's hand-back: the delete
+/// takes the isolated child's changes back first, and the later hand-back
+/// returns that record.
+#[tokio::test]
+async fn deleting_an_isolated_child_hands_its_workspace_back_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let (sessions, root) = spawn_isolated(dir.path(), parent.path()).await;
+    std::fs::write(root.join("tree").join("a.txt"), "a-child").unwrap();
+    sessions
+        .delete(RlmChildDeleteRequest {
+            idempotency_key: "rlm:7:delete".to_owned(),
+            session_id: CHILD_SESSION.to_owned(),
+            rlm_child_id: "sub-0192a000".to_owned(),
+        })
+        .await
+        .unwrap();
+    std::fs::write(parent.path().join("a.txt"), "a-parent-after").unwrap();
+    assert_eq!(
+        sessions.hand_back(handback_request()).await.unwrap(),
+        Some(Handback {
+            taken: vec!["a.txt".to_owned()],
+            conflicts: Vec::new(),
+            kept: None,
+        })
+    );
+    assert_eq!(
+        files_under(parent.path()),
+        file_map(&[
+            (".gitignore", "target/\n"),
+            ("a.txt", "a-parent-after"),
+            ("b.txt", "b0"),
+            ("c.txt", "c0"),
+            ("target/x", "build output"),
+        ])
     );
 }
