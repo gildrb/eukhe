@@ -22,6 +22,7 @@ import ./bend/cvar.bend as Cv
 import ./bend/director.bend as Dr
 import ./bend/infer.bend as If
 import ./bend/tools.bend as Tl
+import ./bend/screen.bend as Sc
 
 # (a) The view
 # ------------
@@ -1368,3 +1369,93 @@ law gate_finish_runs_all:
   for +ans: List<&2, Bool>
   for fin: {Tl.End.finished(Tl.Ran.end(Tl.exec(ss, auto, ans))) == True{} : Bool}
   {Tl.Ran.steps(Tl.exec(ss, auto, ans)) == ss : List<&2, Tl.Step>}
+
+# (S8) The interface
+# ------------------
+# docs/harness.md S8, the model in bend/screen.bend. Every input is free:
+# any blocks, growths, finals, flushes and resizes in any order; any
+# chunk sizes and frames; any check results; any child heights.
+
+# LAW: committed blocks come first: the scrollback has no gap
+law tx_gapless:
+  for es: List<&2, Sc.Ev>
+  for +w: Nat
+  {Sc.gapless(Sc.Tx.blocks(Sc.run(es, Sc.Tx{Nil{}, 0n, w}))) == True{} : Bool}
+
+# LAW: the scrollback only grows: what is committed stays, unchanged, in
+# its place, whatever comes after
+law tx_scrollback_append_only:
+  for +pre: List<&2, Sc.Ev>
+  for post: List<&2, Sc.Ev>
+  for +w: Nat
+  {Sc.pre(Sc.scroll(Sc.Tx.blocks(Sc.run(pre, Sc.Tx{Nil{}, 0n, w}))), Sc.scroll(Sc.Tx.blocks(Sc.run(List.append(&2, Sc.Ev, pre, post), Sc.Tx{Nil{}, 0n, w})))) == True{} : Bool}
+
+# LAW: a resize writes no block again
+law tx_resize_keeps:
+  for +t: Sc.Tx
+  for +w: Nat
+  {Sc.Tx.blocks(Sc.step(t, Sc.Resize{w})) == Sc.Tx.blocks(t) : List<&2, Sc.Blk>}
+
+# LAW: after a flush no final block waits: the first block not committed
+# is active
+law tx_flush_settles:
+  for +t: Sc.Tx
+  {Sc.flushed(Sc.Tx.blocks(Sc.step(t, Sc.Flush{}))) == True{} : Bool}
+
+# LAW: the screen never shows text that did not arrive
+law pace_never_ahead:
+  for es: List<&2, Sc.PEv>
+  for +min: Nat
+  for +k: Nat
+  {Nat.is_le(Sc.Pace.shown(Sc.pace.run(es, min, k, Sc.Pace{0n, 0n})), Sc.Pace.recv(Sc.pace.run(es, min, k, Sc.Pace{0n, 0n}))) == True{} : Bool}
+
+# LAW: the screen never shows less than before
+law pace_never_back:
+  for +min: Nat
+  for +k: Nat
+  for +p: Sc.Pace
+  for e: Sc.PEv
+  {Nat.is_le(Sc.Pace.shown(p), Sc.Pace.shown(Sc.pace.step(min, k, p, e))) == True{} : Bool}
+
+# LAW: with a minimum of at least 1, a backlog of b characters is all
+# shown after b frames
+law pace_drains:
+  for +min: Nat
+  for +k: Nat
+  for +p: Sc.Pace
+  for +n: Nat
+  for one: {Nat.is_le(1n, min) == True{} : Bool}
+  for behind: {Nat.is_le(Sc.Pace.shown(p), Sc.Pace.recv(p)) == True{} : Bool}
+  for enough: {Nat.is_le(Nat.sub(Sc.Pace.recv(p), Sc.Pace.shown(p)), n) == True{} : Bool}
+  {Sc.Pace.shown(Sc.pace.run(Sc.frames(n), min, k, p)) == Sc.Pace.recv(p) : Nat}
+
+# LAW: only a frame that passed its check reaches the terminal, and a
+# frame that failed both checks is reported
+law verify_only_checked:
+  for f: Nat
+  for g: Nat
+  for +ok1: Bool
+  for +ok2: Bool
+  {Sc.checked(Sc.present(f, g, ok1, ok2), ok1, ok2) == True{} : Bool}
+
+# LAW: no child is drawn outside the viewport
+law layout_inside:
+  for hs: List<&2, Nat>
+  for +y: Nat
+  for +rows: Nat
+  {Sc.inside(Sc.vstack(hs, y, rows), rows) == True{} : Bool}
+
+# LAW: no two children overlap
+law layout_apart:
+  for hs: List<&2, Nat>
+  for +y: Nat
+  for +rows: Nat
+  {Sc.apart(Sc.vstack(hs, y, rows), y) == True{} : Bool}
+
+# LAW: children that fit are drawn whole
+law layout_whole_when_room:
+  for +hs: List<&2, Nat>
+  for +y: Nat
+  for +rows: Nat
+  for fits: {Nat.is_le(Nat.add(y, Sc.sum(hs)), rows) == True{} : Bool}
+  {Sc.heights(Sc.vstack(hs, y, rows)) == hs : List<&2, Nat>}

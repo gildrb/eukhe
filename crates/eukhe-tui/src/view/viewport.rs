@@ -73,8 +73,32 @@ pub(crate) struct Viewport {
     /// Requests since the last frame; the frame applies them against
     /// its own geometry.
     pending: Vec<ScrollRequest>,
-    /// Rows of the settled blocks `0..=committed`, filled on first use.
+    /// Rows of the settled blocks: the splash, then the settled prefix of
+    /// the chat, filled on first use. Fullscreen keeps its own settled
+    /// prefix: nothing it shows enters the native scrollback.
     settled: Vec<Option<Vec<Line>>>,
+    /// The terminal changed size or the chat was replaced: the next
+    /// fullscreen frame paints in full.
+    pub(super) stale: bool,
+}
+
+impl Viewport {
+    /// The chat entries whose rows the window caches.
+    fn settled_entries(&self) -> usize {
+        self.settled.len().saturating_sub(1)
+    }
+
+    /// Chat entry `index` changed: render it again when shown.
+    pub(super) fn forget(&mut self, index: usize) {
+        if let Some(slot) = self.settled.get_mut(index + 1) {
+            *slot = None;
+        }
+    }
+
+    /// The chat entries from `index` on left: drop their cached rows.
+    pub(super) fn forget_from(&mut self, index: usize) {
+        self.settled.truncate(index + 1);
+    }
 }
 
 /// The blocks of one frame.
@@ -214,25 +238,25 @@ impl AgentView {
     /// Compose the fullscreen frame for a `width` x `height` terminal:
     /// exactly `height` live rows and no history. The dock is laid out
     /// first; the toasts sit above it; the transcript window takes the
-    /// rest. A replay frame asks the terminal for a full repaint.
+    /// rest. A reshaped frame asks the terminal for a full repaint.
     pub fn compose_fullscreen(&mut self, width: usize, height: usize) -> ChatFrame {
-        let start = self.begin_frame(width);
+        self.refresh_loader();
+        let start = self.begin_fullscreen_frame(width);
         if start != FrameStart::Continue {
             self.viewport.settled.clear();
         }
-        while self.committed < self.chat.len() && self.entry_settled(self.committed) {
-            self.committed += 1;
+        self.advance_paces();
+        let mut settled = self.viewport.settled_entries();
+        while settled < self.chat.len() && self.entry_settled(settled) {
+            settled += 1;
         }
-        self.viewport
-            .settled
-            .resize_with(self.committed + 1, || None);
-        let replay = start == FrameStart::Replay;
+        self.viewport.settled.resize_with(settled + 1, || None);
         if let Some(screen) = self.onboarding.as_mut() {
             let kb = self.editor.keybindings();
             let mut live = screen.render(&self.theme, width, height, kb);
             crate::screen_mode::fill_height(&mut live, height);
             return ChatFrame {
-                replay,
+                start,
                 history: Vec::new(),
                 live,
                 cursor: None,
@@ -256,7 +280,7 @@ impl AgentView {
         live.extend(toasts);
         live.extend(dock);
         ChatFrame {
-            replay,
+            start,
             history: Vec::new(),
             live,
             cursor,
@@ -265,7 +289,7 @@ impl AgentView {
 
     /// The transcript window: exactly `window` rows.
     fn transcript_window(&mut self, width: usize, window: usize) -> Vec<Line> {
-        let mut live: Vec<Vec<Line>> = (self.committed..self.chat.len())
+        let mut live: Vec<Vec<Line>> = (self.viewport.settled_entries()..self.chat.len())
             .map(|index| self.render_entry_at(index, width))
             .collect();
         live.push(self.render_transcript_tail(width));

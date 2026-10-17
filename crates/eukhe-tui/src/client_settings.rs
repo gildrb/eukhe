@@ -23,6 +23,9 @@ pub trait ClientSettings: Send + Sync {
     fn theme_sources(&self) -> crate::theme_catalog::ThemeSources;
     /// Record a theme warning in the agent log (the chat shows it too).
     fn log_theme_warning(&self, message: &str);
+    /// Record a frame the off-screen check rejected in the agent log (the
+    /// screen shows a toast too).
+    fn log_render_error(&self, message: &str);
     /// `terminal.showImages` (TS default true).
     fn show_images(&self) -> bool;
     /// Persists `terminal.showImages` to the global scope.
@@ -121,6 +124,10 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_show_hardware_cursor(&self, enabled: bool) -> Result<()>;
+    /// `terminal.streamPace.minChars` (default 2; 0 reads as 1) and
+    /// `terminal.streamPace.lag` (default 3): how fast streamed text
+    /// reaches the screen.
+    fn stream_pace(&self) -> crate::pace::PaceRate;
     /// `editorPaddingX` (TS default 0).
     fn editor_padding_x(&self) -> u64;
     /// Persists `editorPaddingX` to the global scope.

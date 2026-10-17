@@ -319,7 +319,7 @@ async fn drive_onboarding_pane(
                 | UiInput::SettleIdle
                 | UiInput::WaitIdle { .. }
                 | UiInput::Scroll(_) => {}
-                UiInput::Resize => view.request_replay(),
+                UiInput::Resize => view.note_resize(),
                 }
             }
             // The login flows drive the mounted dialog through the

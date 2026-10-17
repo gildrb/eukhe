@@ -180,10 +180,13 @@ fn ctrl_o() -> KeyEvent {
 }
 
 /// The session opens into its transcript at once; the chat view lands
-/// later as one collapsed summary row (never the `<chat>` text), and
-/// Ctrl+O — cycled to the expanded level — shows the full view text.
+/// later as one collapsed summary row (never the `<chat>` text). The row
+/// is committed to scrollback, so Ctrl+O -- cycled to the expanded level
+/// -- does not write it again (docs/harness.md S8: committed rows are
+/// written once; a detail level applies to the live area and to the rows
+/// committed after it).
 #[test]
-fn the_chat_view_lands_after_first_paint_and_expands() {
+fn the_chat_view_lands_after_first_paint_and_its_row_stays_as_written() {
     std::env::remove_var("TMUX");
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("tui.sock");
@@ -200,11 +203,10 @@ fn the_chat_view_lands_after_first_paint_and_expands() {
     let plan = HeadlessPlan {
         steps: vec![
             wait(SUMMARY),
-            // Overview -> Details -> All: tool output (and the view's
-            // body with it) expands at All.
+            // Overview -> Details -> All: the committed row keeps its
+            // collapsed form.
             HeadlessStep::Key(ctrl_o()),
             HeadlessStep::Key(ctrl_o()),
-            wait("2+1|plan the release"),
         ],
         width: 100,
         height: 30,
@@ -235,10 +237,15 @@ fn the_chat_view_lands_after_first_paint_and_expands() {
         frames[view]
     );
     let last = frames.last().expect("frames were captured");
+    assert_eq!(
+        last.matches(SUMMARY).count(),
+        1,
+        "the committed summary row stays, once:\n{last}"
+    );
     for line in VIEW_TEXT.lines() {
         assert!(
-            last.contains(line),
-            "the expanded block shows the view line {line:?}:\n{last}"
+            !last.contains(line),
+            "the committed row is not written again expanded ({line:?}):\n{last}"
         );
     }
 }

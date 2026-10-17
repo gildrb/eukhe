@@ -68,6 +68,10 @@ fn saturating_u32(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
+fn saturating_usize(value: u64) -> usize {
+    usize::try_from(value).unwrap_or(usize::MAX)
+}
+
 impl SettingsManager {
     /// The value of a Choice cvar as the settings enum it names.
     ///
@@ -128,6 +132,21 @@ impl SettingsManager {
     #[must_use]
     pub fn get_fullscreen(&self) -> bool {
         self.cvars().bool(&table::TERMINAL_FULLSCREEN)
+    }
+
+    /// `terminal.streamPace.minChars`: the fewest streamed characters a
+    /// frame reveals. A 0 reads as 1, since a zero minimum would stall a
+    /// small backlog.
+    #[must_use]
+    pub fn get_stream_pace_min_chars(&self) -> usize {
+        saturating_usize(self.cvars().nat(&table::TERMINAL_STREAM_PACE_MIN_CHARS)).max(1)
+    }
+
+    /// `terminal.streamPace.lag`: how far the screen trails the stream; a
+    /// frame reveals backlog / (1 + lag) characters.
+    #[must_use]
+    pub fn get_stream_pace_lag(&self) -> usize {
+        saturating_usize(self.cvars().nat(&table::TERMINAL_STREAM_PACE_LAG))
     }
 
     /// `treeFilterMode` (TS `getTreeFilterMode`): the `/tree` selector's

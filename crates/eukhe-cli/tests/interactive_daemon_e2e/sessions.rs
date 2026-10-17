@@ -775,8 +775,9 @@ async fn tui_headless_done_with_a_turn_settling_parks_the_closed_input_channel()
 }
 
 /// A refused submit restores the draft through the backgrounded outcome:
-/// killing the session's worker (and removing its file, so the durable-id
-/// rebind cannot resurrect it) makes the prompt's round trip settle as a
+/// killing the session's worker (and removing its storage, so neither the
+/// re-attach nor the durable-id rebind can resurrect it) makes the
+/// prompt's round trip settle as a
 /// refusal, and the outcome folds back as the `⚠ Error` row plus the
 /// draft back in the editor (TS `onSubmit`'s catch: showError + the
 /// restore/retain ladder) — the turn never ran.
@@ -801,20 +802,54 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
     )
     .await;
 
-    // Kill the worker and remove its file AFTER the TUI attached but
-    // BEFORE the submit: the harness task lands at +400ms (the attach
-    // completed at run start), and the plan's WaitMs(900) holds the
-    // submit until long after the kill's stop resolved — the prompt then
-    // settles as a refusal (the durable-id rebind cannot resume a session
-    // with no file), never as a turn.
+    // Ordered by observation, never by wall time: the session is stopped
+    // only once the daemon counts the TUI's attach (its row's
+    // `attachedClients`), and the plan submits only once the TUI shows
+    // the stop (the `killed` error row) AND the dead direct worker link
+    // (the connection-lost row; a submit racing the link's close would
+    // go out on the dying link, which may have sent it -- no refusal).
+    // The storage goes first, so the stop leaves nothing to resume (the
+    // stop's own archive mark lands in a storage with no header): the
+    // prompt settles as a refusal (the re-attach and the durable-id
+    // rebind cannot resume the session), never as a turn.
     let kill_socket = supervisor.socket.clone();
     let kill_session_dir = session_dir.clone();
     let kill_session_id = session_id.clone();
     let kill_task = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(400)).await;
         let (client, _events) = eukhe_tui::daemon_client::DaemonClient::connect(&kill_socket)
             .await
             .expect("connect supervisor");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let listed = client
+                .request_ok(DaemonCommand::List {
+                    id: None,
+                    all: None,
+                    cwd: None,
+                    session_dir: None,
+                    include_client_owned: None,
+                    rest: serde_json::Map::default(),
+                })
+                .await
+                .expect("list");
+            let attached = listed["sessions"].as_array().is_some_and(|rows| {
+                rows.iter().any(|row| {
+                    row["activeSessionId"] == kill_session_id.as_str()
+                        && row["attachedClients"].as_u64().unwrap_or_default() > 0
+                })
+            });
+            if attached {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the TUI never attached the session: {listed}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let storages = session_dirs(&kill_session_dir);
+        assert_eq!(storages.len(), 1, "the session's storage: {storages:?}");
+        std::fs::remove_dir_all(&storages[0]).expect("remove the session storage");
         client
             .request_ok(DaemonCommand::Kill {
                 id: None,
@@ -824,15 +859,6 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
             .await
             .expect("kill session worker");
         client.close();
-        for entry in std::fs::read_dir(&kill_session_dir)
-            .expect("read session dir")
-            .flatten()
-        {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                std::fs::remove_file(&path).expect("remove the session file");
-            }
-        }
     });
 
     let options = eukhe_tui::interactive::InteractiveOptions {
@@ -868,7 +894,14 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
-            eukhe_tui::interactive::HeadlessStep::WaitMs(900),
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "The daemon stopped this agent session".to_string(),
+                timeout_ms: 30_000,
+            },
+            eukhe_tui::interactive::HeadlessStep::WaitRender {
+                needle: "Daemon connection lost; reconnecting...".to_string(),
+                timeout_ms: 30_000,
+            },
             eukhe_tui::interactive::HeadlessStep::Submit("lost prompt".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
         ],
@@ -880,15 +913,26 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
         .expect("interactive run");
     kill_task.await.expect("the kill task");
     let rendered = outcome.frames.join("\n");
-    // The refusal surfaced as the error row, and the draft returned to the
-    // editor (the restore arm: empty editor, own generation, same session).
     assert!(
-        rendered.contains("! Error"),
+        rendered.contains("The daemon stopped this agent session")
+            && rendered.contains("Daemon connection lost; reconnecting..."),
+        "the stop and the dead worker link were observed before the submit:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("timed out waiting for the headless render condition"),
+        "a render barrier expired:\n{rendered}"
+    );
+    // The refusal surfaced as its own error row (the daemon rejected the
+    // prompt request -- the stop's row above is not it), and the draft
+    // returned to the editor (the restore arm: empty editor, own
+    // generation, same session).
+    assert!(
+        rendered.contains("! Error: the daemon rejected the prompt request"),
         "the refused submit surfaced the error row:\n{rendered}"
     );
     let last = outcome.frames.last().expect("a final frame");
     assert!(
-        last.contains("lost prompt"),
+        last.lines().any(|row| row.trim_end() == "> lost prompt"),
         "the refused draft returned to the editor:\n{last}"
     );
     assert!(

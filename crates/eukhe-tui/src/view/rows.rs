@@ -184,27 +184,35 @@ impl AgentView {
                 // A streaming message renders through its per-entry state
                 // (`streaming`): the block cache (TS's per-component
                 // `blockCache`) replays settled blocks, the last render
-                // replays whole while the message is unchanged. A settled
-                // message's blocks are final, so its rendered rows live
-                // once in the entry layout and the cached copy is dropped
-                // (a resumed large session's duplicate copy was the TUI's
-                // biggest single retained allocation in the tui-memory
-                // census); any later re-render rebuilds the same rows from
-                // the message's own text.
-                if message.streaming {
-                    self.with_streaming_rows(index, message, width, <[Line]>::to_vec)
-                } else {
-                    self.md_caches.borrow_mut().remove(&index);
-                    let mut settled = crate::markdown::MarkdownBlockCache::default();
-                    render_assistant(
-                        message,
-                        detail,
-                        &self.theme,
-                        &self.code_block_indent,
-                        width,
-                        preceded_by_tool_activity,
-                        &mut settled,
-                    )
+                // replays whole while the message is unchanged. A message
+                // whose pace still holds text back renders the part that
+                // shows. A settled message's blocks are final, so its
+                // rendered rows live once in the entry layout and the
+                // cached copy is dropped (a resumed large session's
+                // duplicate copy was the TUI's biggest single retained
+                // allocation in the tui-memory census); any later
+                // re-render rebuilds the same rows from the message's own
+                // text.
+                match (self.paced_message(index, message), message.streaming) {
+                    (Some(shown), true | false) => {
+                        self.with_streaming_rows(index, &shown, width, <[Line]>::to_vec)
+                    }
+                    (None, true) => {
+                        self.with_streaming_rows(index, message, width, <[Line]>::to_vec)
+                    }
+                    (None, false) => {
+                        self.md_caches.borrow_mut().remove(&index);
+                        let mut settled = crate::markdown::MarkdownBlockCache::default();
+                        render_assistant(
+                            message,
+                            detail,
+                            &self.theme,
+                            &self.code_block_indent,
+                            width,
+                            preceded_by_tool_activity,
+                            &mut settled,
+                        )
+                    }
                 }
             }
             ChatEntry::Tool(card) => {

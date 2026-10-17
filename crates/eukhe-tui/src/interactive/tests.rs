@@ -213,6 +213,10 @@ fn the_headless_settle_names_every_stuck_member() {
             ..Default::default()
         },
         HeadlessSettle {
+            pacing: true,
+            ..Default::default()
+        },
+        HeadlessSettle {
             reload_pending: true,
             ..Default::default()
         },
@@ -254,12 +258,13 @@ fn the_headless_settle_names_every_stuck_member() {
         queued: 1,
         idle_barrier: true,
         dirty: true,
+        pacing: true,
         reload_pending: true,
         auth_panel_open: true,
         mcp_auth_pending: true,
         anthropic_warning_mark_pending: true,
     };
-    assert_eq!(all.blockers().len(), 10);
+    assert_eq!(all.blockers().len(), 11);
     assert!(
         all.blockers()
             .iter()

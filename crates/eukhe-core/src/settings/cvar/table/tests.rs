@@ -7,8 +7,8 @@ use crate::settings::types::{
     CompactionSettings, DirectorSettings, FactorySettings, GatewaySettings, ImageSettings,
     MarkdownSettings, MemorySettings, MermaidRenderingMode, ProviderRetrySettings,
     ProviderWaitSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, Settings,
-    ShellSettings, SignalGatewaySettings, TerminalSettings, ThinkingBudgetsSettings,
-    ThinkingLevelSetting, TransportSetting, WarningSettings,
+    ShellSettings, SignalGatewaySettings, StreamPaceSettings, TerminalSettings,
+    ThinkingBudgetsSettings, ThinkingLevelSetting, TransportSetting, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -119,6 +119,10 @@ fn populated() -> Settings {
             clear_on_shrink: Some(true),
             show_terminal_progress: Some(true),
             fullscreen: Some(true),
+            stream_pace: Some(StreamPaceSettings {
+                min_chars: Some(1),
+                lag: Some(1),
+            }),
         }),
         images: Some(ImageSettings {
             auto_resize: Some(true),

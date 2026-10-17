@@ -760,7 +760,7 @@ fn load_scope(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::types::MarkdownSettings;
+    use crate::settings::types::{MarkdownSettings, StreamPaceSettings, TerminalSettings};
 
     #[test]
     fn in_memory_loads_merges_and_saves() {
@@ -866,6 +866,55 @@ mod tests {
         };
         let manager = SettingsManager::in_memory(&settings);
         assert_eq!(manager.get_code_block_indent(), "    ");
+    }
+
+    /// `terminal.streamPace`: absent -> defaults (2, 3); set -> the values;
+    /// a `minChars` of 0 reads as 1.
+    #[test]
+    fn stream_pace_reads_terminal_settings_with_defaults() {
+        let read = |pace: Option<StreamPaceSettings>| {
+            let manager = SettingsManager::in_memory(&Settings {
+                terminal: Some(TerminalSettings {
+                    stream_pace: pace,
+                    ..TerminalSettings::default()
+                }),
+                ..Settings::default()
+            });
+            (
+                manager.get_stream_pace_min_chars(),
+                manager.get_stream_pace_lag(),
+            )
+        };
+        let absent = SettingsManager::in_memory(&Settings::default());
+        assert_eq!(
+            (
+                absent.get_stream_pace_min_chars(),
+                absent.get_stream_pace_lag()
+            ),
+            (2, 3)
+        );
+        assert_eq!(read(None), (2, 3));
+        assert_eq!(
+            read(Some(StreamPaceSettings {
+                min_chars: Some(5),
+                lag: Some(0),
+            })),
+            (5, 0)
+        );
+        assert_eq!(
+            read(Some(StreamPaceSettings {
+                min_chars: Some(0),
+                lag: None,
+            })),
+            (1, 3)
+        );
+        assert_eq!(
+            read(Some(StreamPaceSettings {
+                min_chars: Some(u64::MAX),
+                lag: Some(u64::MAX),
+            })),
+            (usize::MAX, usize::MAX)
+        );
     }
 
     /// TS #2709: the Ctrl+O level persists as the global `chatDetail`

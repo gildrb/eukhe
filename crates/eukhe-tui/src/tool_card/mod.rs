@@ -1,12 +1,14 @@
 //! Tool-call card rendering, the TUI side of the TS `tool-execution.ts` /
 //! `tool-panel.ts` / `ipython-cell.ts` / `bash.ts` renderer stack. The card
 //! model mirrors the TS component state (args, execution start, partial
-//! results, live timing); each tool renders through its own shell
-//! (`ipython` self-renders, `bash` and the generic fallback render the
-//! `ToolPanel` on the panel background).
+//! results, live timing); each tool builds its card as `crate::element`
+//! elements (`ipython` as bare rows, `bash` and the generic fallback inside
+//! a tool `Panel`) and the element renderer draws them.
 
 pub mod bash;
 pub mod generic;
+#[cfg(test)]
+mod golden_tests;
 pub mod highlight;
 pub mod ipython;
 pub mod ipython_details;
@@ -17,7 +19,8 @@ use std::time::Instant;
 use serde_json::Value;
 
 use crate::chat::Detail;
-use crate::theme::{Theme, ThemeColor};
+use crate::element::{Panel, Status};
+use crate::theme::{Theme, ThemeBg, ThemeColor};
 use crate::{Line, Span};
 
 /// One tool call and its execution state (TS `ToolExecutionComponent`
@@ -135,12 +138,6 @@ pub(crate) fn image_block_bytes(block: &Value) -> usize {
         )
 }
 
-/// The animated working icon glyph (TS `working-icon.ts`).
-#[must_use]
-pub fn working_icon(frame: usize) -> &'static str {
-    crate::chat::working_icon_frame(frame)
-}
-
 /// Render one tool-call card through its tool shell. `show_images` is the
 /// `terminal.showImages` setting (TS `showImages` on the tool component):
 /// image blocks render their metadata rows when set, their
@@ -164,72 +161,36 @@ pub fn render_tool_card(
 /// The generic panel status (TS `ToolExecutionComponent.panelStatus`):
 /// the last non-partial result settles the card; error wins even while
 /// streaming; `running` animates until then.
-pub(crate) enum PanelStatus {
-    Queued,
-    Running,
-    Done,
-    Error,
-}
-
-pub(crate) fn panel_status(card: &ToolCallCard) -> PanelStatus {
+pub(crate) fn panel_status(card: &ToolCallCard) -> Status {
     if let Some(result) = &card.result {
         if !card.result_partial {
             return if result.is_error {
-                PanelStatus::Error
+                Status::Error
             } else {
-                PanelStatus::Done
+                Status::Done
             };
         }
         if result.is_error {
-            return PanelStatus::Error;
+            return Status::Error;
         }
     }
     if card.started {
-        PanelStatus::Running
+        Status::Running
     } else {
-        PanelStatus::Queued
+        Status::Queued
     }
 }
 
-/// The panel header row: `label * status` (TS `panelHeader`).
-pub(crate) fn panel_header(card: &ToolCallCard, frame: usize, theme: &Theme) -> Line {
-    use crate::theme::ThemeColor::{BashMode, Dim, Error, Muted, Success};
-    let muted = theme.fg_style(Muted);
-    let dim = theme.fg_style(Dim);
-    let mut header: Line = vec![Span::styled(card.name.clone(), muted)];
-    header.push(Span::styled(crate::glyphs::SEP.to_string(), dim));
-    let status: Line = match panel_status(card) {
-        PanelStatus::Error => vec![Span::styled("error".to_string(), theme.fg_style(Error))],
-        PanelStatus::Done => vec![Span::styled("done".to_string(), theme.fg_style(Success))],
-        PanelStatus::Running => vec![Span::styled(
-            format!("{} running", working_icon(frame)),
-            theme.fg_style(BashMode),
-        )],
-        PanelStatus::Queued => vec![Span::styled("queued".to_string(), theme.fg_style(Muted))],
-    };
-    header.extend(status);
-    header
-}
-
-/// One tool-panel row: content indented by 2, padded to the full width on
-/// the panel background (TS `toolPanelLine`).
-pub(crate) fn panel_line(content: Line, bg: crate::style::Style, width: usize) -> Line {
-    let padding = 2usize;
-    let content_width = layout::panel_content_width(width);
-    let mut line: Line = vec![Span::styled(" ".repeat(padding), bg)];
-    let used: usize = content
-        .iter()
-        .map(|s| crate::width::str_width(&s.content))
-        .sum();
-    for span in content {
-        line.push(Span::styled(span.content, bg.patch(span.style)));
+/// The tool panel a `bash` or generic card sits in (TS `ToolPanel`): the
+/// `name - status` header on the tool panel fill, padded by 2.
+fn panel(card: &ToolCallCard) -> Panel {
+    Panel {
+        title: card.name.clone(),
+        status: panel_status(card),
+        fill: ThemeBg::ToolPanelBg,
+        padding: 2,
+        children: Vec::new(),
     }
-    if used > content_width {
-        return crate::width::truncate_line(&line, width, "");
-    }
-    line.push(Span::styled(" ".repeat(content_width - used), bg));
-    line.push(Span::styled(" ".repeat(padding), bg));
-    line
 }
 
 /// `formatDuration` for the bash panel: tenths of a second.
@@ -503,14 +464,14 @@ mod tests {
             ..Default::default()
         });
         card.result_partial = true;
-        assert!(matches!(panel_status(&card), PanelStatus::Error));
+        assert_eq!(panel_status(&card), Status::Error);
         card.result_partial = false;
-        assert!(matches!(panel_status(&card), PanelStatus::Error));
+        assert_eq!(panel_status(&card), Status::Error);
         card.result = Some(ToolResultView::default());
-        assert!(matches!(panel_status(&card), PanelStatus::Done));
+        assert_eq!(panel_status(&card), Status::Done);
         card.result = None;
-        assert!(matches!(panel_status(&card), PanelStatus::Running));
+        assert_eq!(panel_status(&card), Status::Running);
         card.started = false;
-        assert!(matches!(panel_status(&card), PanelStatus::Queued));
+        assert_eq!(panel_status(&card), Status::Queued);
     }
 }

@@ -210,6 +210,12 @@ async fn run_interactive_surface(
         // value (interactive-mode.ts `new TUI(..., getShowHardwareCursor())`);
         // the settings menu's toggle updates it in place.
         view.show_hardware_cursor = settings.show_hardware_cursor();
+        view.pace_rate = settings.stream_pace();
+        // Every frame the off-screen check rejects goes to the agent log.
+        let log = std::sync::Arc::clone(settings);
+        crate::inline_term::log_rejections_with(Box::new(move |message| {
+            log.log_render_error(message);
+        }));
         view.quiet_startup = settings.quiet_startup();
         // TS #2709: the interactive-mode constructor assigns the persisted
         // `chatDetail` level (`assignChatDetail(getChatDetail())`), so a
@@ -472,7 +478,7 @@ async fn run_interactive_surface(
                             if let Ok((_width, height)) = crossterm::terminal::size() {
                                 view.set_terminal_rows(height);
                             }
-                            view.request_replay();
+                            view.note_resize();
                             opening_dirty = true;
                         }
                         other => {
@@ -962,13 +968,13 @@ async fn run_interactive_surface(
                     UiInput::Scroll(request) => view.scroll_viewport(request),
                     UiInput::Resize => {
                         // The editor lays its window out against the new row
-                        // count, and the terminal reflowed its scrollback:
-                        // the branch's dirty flag replays the history at the
-                        // new geometry.
+                        // count. The scrollback stays as it is: the next
+                        // frame redraws only the live area at the new size
+                        // (fullscreen paints again in full).
                         if let Ok((_width, height)) = crossterm::terminal::size() {
                             view.set_terminal_rows(height);
                         }
-                        view.request_replay();
+                        view.note_resize();
                     }
                     UiInput::WaitIdle { .. } | UiInput::SubmitAndSettle { .. } => {
                         unreachable!("barrier handled above")
@@ -1113,6 +1119,15 @@ async fn run_interactive_surface(
         // select would never reach a post-gate arm; a paint's
         // deadline wipe only happens after the wake already fired,
         // and the next iteration re-arms while the state persists).
+        // A frame the off-screen check rejected was not written (the
+        // writer logged it): a toast shows it, with the next frame.
+        if crate::app::show_rejection(&mut view) {
+            session.dirty = true;
+        }
+        // Streamed text still behind its pace needs the next frame.
+        if view.is_pacing() {
+            session.dirty = true;
+        }
         if session.dirty && render_deadline.is_none() {
             render_deadline = Some(Instant::now());
         }

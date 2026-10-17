@@ -914,9 +914,9 @@ impl Renderer {
                 // previous surface's `clear_live` (or the shell) left at
                 // column 0; fullscreen, the first frame repaints the
                 // alternate screen.
-                let (_, rows) = crossterm::terminal::size()?;
+                let (columns, rows) = crossterm::terminal::size()?;
                 Ok(Renderer::Terminal {
-                    term: SurfaceTerminal::new(screen_mode, rows),
+                    term: SurfaceTerminal::new(screen_mode, columns, rows),
                     show_hardware_cursor,
                 })
             }
@@ -979,7 +979,7 @@ impl Renderer {
                 let cursor = cursor
                     .filter(|_| *show_hardware_cursor)
                     .map(|(row, col)| LiveCursor { row, col });
-                term.paint(&mut std::io::stdout().lock(), lines, cursor, height)
+                term.paint(&mut std::io::stdout().lock(), lines, cursor, width, height)
             }
             Renderer::Headless {
                 width,
@@ -1005,8 +1005,8 @@ impl Renderer {
     pub(super) fn resize(&mut self) -> std::io::Result<()> {
         match self {
             Renderer::Terminal { term, .. } => {
-                let (_, rows) = crossterm::terminal::size()?;
-                term.resize(&mut std::io::stdout().lock(), rows)
+                let (columns, rows) = crossterm::terminal::size()?;
+                term.resize(&mut std::io::stdout().lock(), columns, rows)
             }
             Renderer::Headless { .. } => Ok(()),
         }

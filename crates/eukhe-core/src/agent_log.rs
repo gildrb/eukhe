@@ -13,11 +13,12 @@ use crate::session::manager::format_iso;
 /// TS `AGENT_LOG_MAX_BYTES` (`logging.ts`): the log rotates at 20 MiB.
 const AGENT_LOG_MAX_BYTES: u64 = 20 * 1024 * 1024;
 
-/// An entry's severity (TS `Logger.info`/`Logger.warn`).
+/// An entry's severity (TS `Logger.info`/`Logger.warn`/`Logger.error`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentLogLevel {
     Info,
     Warn,
+    Error,
 }
 
 impl AgentLogLevel {
@@ -25,6 +26,7 @@ impl AgentLogLevel {
         match self {
             AgentLogLevel::Info => "info",
             AgentLogLevel::Warn => "warn",
+            AgentLogLevel::Error => "error",
         }
     }
 }

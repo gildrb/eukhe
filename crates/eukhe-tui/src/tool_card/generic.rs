@@ -1,10 +1,12 @@
-//! Generic tool-panel rendering and count-only geometry share one preview traversal.
+//! The generic tool card: the call's arguments and its output, each a
+//! short preview inside the tool panel.
 
-use super::layout::{panel_content_width, RowOutput};
+use super::layout::{images, wrapped_text};
 use super::ToolCallCard;
 use crate::chat::Detail;
+use crate::element::{self, Element, Fit, Inline, Tick};
 use crate::theme::{Theme, ThemeColor};
-use crate::{Line, Span};
+use crate::Line;
 
 #[must_use]
 pub fn render(
@@ -15,70 +17,43 @@ pub fn render(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    let mut out = RowOutput::new();
-    traverse(card, detail, theme, width, show_images, &mut out);
-    out.panel(card, frame, theme, width);
-    out.into_lines()
-}
-
-fn traverse(
-    card: &ToolCallCard,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    show_images: bool,
-    out: &mut RowOutput,
-) {
-    let content_width = panel_content_width(width);
+    let mut panel = super::panel(card);
+    let rows = &mut panel.children;
+    let expanded = detail.tool_output_expanded();
     let args = serde_json::to_string_pretty(&card.args).unwrap_or_default();
-    let output = card.result.as_ref().map(|r| r.text_output(show_images));
     if !args.is_empty() {
-        fallback_preview(
-            &args,
-            detail.tool_output_expanded(),
-            theme,
-            content_width,
-            out,
-        );
+        fallback_preview(&args, expanded, rows);
     }
+    let output = card.result.as_ref().map(|r| r.text_output(show_images));
     if let Some(output) = output.as_deref().filter(|o| !o.is_empty()) {
-        if !out.is_empty() {
-            out.blank();
+        if !rows.is_empty() {
+            rows.push(Element::blank());
         }
-        fallback_preview(
-            output,
-            detail.tool_output_expanded(),
-            theme,
-            content_width,
-            out,
-        );
+        fallback_preview(output, expanded, rows);
     }
-    out.images(card.result.as_ref(), show_images, theme);
+    rows.extend(images(card.result.as_ref(), show_images, theme));
+    element::render(&Element::Panel(panel), theme, width, Tick(frame))
 }
 
 /// Preview the first three source lines, not the first three wrapped rows.
-fn fallback_preview(
-    text: &str,
-    expanded: bool,
-    theme: &Theme,
-    content_width: usize,
-    out: &mut RowOutput,
-) {
-    let tool_output = theme.fg_style(ThemeColor::ToolOutput);
-    if expanded {
-        out.wrapped_text(text, tool_output, content_width);
-        return;
-    }
+fn fallback_preview(text: &str, expanded: bool, rows: &mut Vec<Element>) {
     let lines: Vec<&str> = text.split('\n').collect();
-    if lines.len() <= 3 {
-        out.wrapped_text(text, tool_output, content_width);
+    if expanded || lines.len() <= 3 {
+        rows.extend(wrapped_text(text, ThemeColor::ToolOutput));
         return;
     }
-    out.wrapped_text(&lines[..3].join("\n"), tool_output, content_width);
-    out.push(vec![Span::styled(
-        format!("{} {} more lines", crate::glyphs::ELLIPSIS, lines.len() - 3),
-        theme.fg_style(ThemeColor::Dim),
-    )]);
+    rows.extend(
+        lines[..3]
+            .iter()
+            .flat_map(|line| wrapped_text(line, ThemeColor::ToolOutput)),
+    );
+    rows.push(Element::text(
+        Fit::Keep,
+        vec![Inline::role(
+            format!("{} {} more lines", crate::glyphs::ELLIPSIS, lines.len() - 3),
+            ThemeColor::Dim,
+        )],
+    ));
 }
 
 #[cfg(test)]

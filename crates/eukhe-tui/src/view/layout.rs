@@ -31,15 +31,18 @@ impl AgentView {
             | ChatEntry::CustomPanel(_)
             | ChatEntry::ChatView(_)
             | ChatEntry::Swarm(_) => true,
+            // A message settles once it stopped streaming and its pace
+            // shows all its text.
             ChatEntry::Assistant(message) => {
                 !message.streaming
+                    && self.pace_drained(index)
                     && (!last || !crate::snapshot::is_superseded_attempt_row(&self.chat[index]))
             }
             // A cell whose final result carries a still-running background
             // shell is settled: its result never changes again.
             ChatEntry::Tool(card) => !matches!(
                 crate::tool_card::panel_status(card),
-                crate::tool_card::PanelStatus::Queued | crate::tool_card::PanelStatus::Running
+                crate::element::Status::Queued | crate::element::Status::Running
             ),
             ChatEntry::BashExecution(card) => !card.running,
         }
@@ -63,14 +66,18 @@ impl AgentView {
     }
 
     /// The last `rows` rows of the entry at `index` (the live area's
-    /// clip): a streaming message copies only those from its last render,
-    /// any other entry renders whole and drops the rows above.
+    /// clip): a streaming or paced message copies only those from its
+    /// last render, any other entry renders whole and drops the rows
+    /// above.
     pub(super) fn render_entry_tail(&self, index: usize, width: usize, rows: usize) -> Vec<Line> {
         if let ChatEntry::Assistant(message) = &self.chat[index] {
-            if message.streaming {
-                return self.with_streaming_rows(index, message, width, |all| {
-                    all[all.len().saturating_sub(rows)..].to_vec()
-                });
+            let tail = |all: &[Line]| all[all.len().saturating_sub(rows)..].to_vec();
+            match (self.paced_message(index, message), message.streaming) {
+                (Some(shown), true | false) => {
+                    return self.with_streaming_rows(index, &shown, width, tail);
+                }
+                (None, true) => return self.with_streaming_rows(index, message, width, tail),
+                (None, false) => {}
             }
         }
         let mut all = self.render_entry_at(index, width);

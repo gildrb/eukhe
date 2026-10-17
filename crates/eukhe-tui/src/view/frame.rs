@@ -1,15 +1,20 @@
-//! The chat frame for the inline terminal: newly settled entries as
-//! history, then the live area -- unsettled entries, the transcript tail,
-//! toasts, and the dock or the open panel -- and the caret.
+//! The chat frame for the inline terminal (docs/harness.md S8): newly
+//! committed entries as history, then the live area -- unsettled
+//! entries, the transcript tail, toasts, and the dock or the open panel
+//! -- and the caret.
+//!
+//! Committed rows are never written again. A new width, theme, detail
+//! level, image setting, or code indent applies to the live area and to
+//! the rows committed after it; the scrollback keeps what it holds.
 
 use super::AgentView;
 use crate::inline_term::LiveCursor;
 use crate::style::Modifier;
 use crate::Line;
 
-/// What the scrollback was rendered at. A frame at another shape
-/// replays the history.
-pub(super) struct HistoryShape {
+/// The inputs the fullscreen window's cached rows were rendered at. A
+/// fullscreen frame at another shape renders them again and repaints.
+pub(super) struct RenderShape {
     width: usize,
     detail: crate::chat::Detail,
     theme: crate::theme::Theme,
@@ -17,12 +22,36 @@ pub(super) struct HistoryShape {
     show_images: bool,
 }
 
+/// What the inline terminal holds of the current transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Scrollback {
+    /// Nothing: the next inline frame is the first paint.
+    Empty,
+    /// The rows of a transcript the chat replaced: they stay as written.
+    /// The next inline frame writes one separator row that names the
+    /// break, and the new transcript's history goes below it.
+    Replaced(TranscriptBreak),
+    /// The committed rows of this transcript.
+    Written,
+}
+
+/// Why the chat holds a new transcript; the separator row names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranscriptBreak {
+    /// Another session: a switch, `/new`, a resume, a rebind.
+    Session,
+    /// The same session, fetched again after a reconnect.
+    Resync,
+    /// The same session, rebuilt: a fork or tree move, `/reload`, a
+    /// refetch after a compaction.
+    Rebuild,
+}
+
 /// One composed chat frame for [`crate::inline_term::InlineTerminal`].
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ChatFrame {
-    /// The screen and scrollback must be cleared before this frame:
-    /// `history` is the full replay (splash and every settled entry).
-    pub replay: bool,
+    /// How this frame relates to what the terminal shows.
+    pub start: FrameStart,
     /// Rows that move into scrollback with this frame.
     pub history: Vec<Line>,
     /// The live area, top to bottom.
@@ -33,24 +62,30 @@ pub struct ChatFrame {
 
 /// How a composed frame relates to the frames before it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum FrameStart {
-    /// The surface's first frame.
+pub enum FrameStart {
+    /// The surface's first frame: the splash, then the history so far.
     First,
-    /// The shape changed or a replay was requested: every row is redone.
-    Replay,
+    /// Fullscreen only: the size, a render setting, or the transcript
+    /// changed, so the alternate screen is painted again in full. An
+    /// inline frame never has it: the inline terminal redraws its live
+    /// area on a width change and keeps the scrollback.
+    Reshaped,
     /// The rows composed before still hold.
     Continue,
 }
 
 impl AgentView {
-    /// Start a frame at `width`: refresh the loader's elapsed time and
-    /// decide whether the frame replays. A first or replay frame starts
-    /// the commit cursor over.
-    pub(super) fn begin_frame(&mut self, width: usize) -> FrameStart {
+    /// Refresh the loader's elapsed time for this frame.
+    pub(super) fn refresh_loader(&mut self) {
         if let (Some(working), Some(since)) = (&mut self.working, self.working_since) {
             working.elapsed_secs = since.elapsed().as_secs();
         }
-        let layout_holds = |shape: &HistoryShape| {
+    }
+
+    /// Compare the render inputs with the fullscreen window's last shape
+    /// and keep the new one. Returns how the fullscreen frame starts.
+    pub(super) fn begin_fullscreen_frame(&mut self, width: usize) -> FrameStart {
+        let layout_holds = |shape: &RenderShape| {
             shape.width == width
                 && shape.detail == self.detail
                 && shape.show_images == self.show_images
@@ -58,25 +93,22 @@ impl AgentView {
         };
         // The theme compares by generation first: an unchanged theme costs
         // one integer compare, a re-resolved one its tables.
-        let start = match &self.history_shape {
+        let start = match &self.fullscreen_shape {
             None => FrameStart::First,
             Some(shape)
-                if self.replay_requested || !layout_holds(shape) || shape.theme != self.theme =>
+                if self.viewport.stale || !layout_holds(shape) || shape.theme != self.theme =>
             {
-                FrameStart::Replay
+                FrameStart::Reshaped
             }
             Some(_) => FrameStart::Continue,
         };
-        if start != FrameStart::Continue {
-            self.committed = 0;
-        }
-        self.replay_requested = false;
+        self.viewport.stale = false;
         // The shape is rebuilt only when something in it changed.
-        let current = self.history_shape.as_ref().is_some_and(|shape| {
+        let current = self.fullscreen_shape.as_ref().is_some_and(|shape| {
             layout_holds(shape) && shape.theme.generation() == self.theme.generation()
         });
         if !current {
-            self.history_shape = Some(HistoryShape {
+            self.fullscreen_shape = Some(RenderShape {
                 width,
                 detail: self.detail,
                 theme: self.theme.clone(),
@@ -87,35 +119,77 @@ impl AgentView {
         start
     }
 
-    /// Compose the next frame for a `width` x `height` terminal: advance
-    /// the commit cursor over the settled prefix of the chat (their rows
-    /// become history), then lay out the live area. A changed shape or a
-    /// change that reached scrollback makes this a replay frame.
+    /// Compose the next frame for a `width` x `height` terminal. One
+    /// frame is one step of the transcript protocol: the streamed text
+    /// reveals one more paced step, the ledger opens a block for each new
+    /// entry and finishes each settled one up to the first that is not,
+    /// and the flush commits the final prefix: those entries' rows become
+    /// history, written once at the current width. Then the live area is
+    /// laid out.
     pub fn compose(&mut self, width: usize, height: usize) -> ChatFrame {
-        let start = self.begin_frame(width);
-        let mut history = Vec::new();
-        // The splash goes into scrollback once, with the surface's first
-        // frame, and again with every replay.
-        if start != FrameStart::Continue {
-            history = self.splash_rows(width);
+        self.refresh_loader();
+        // The splash goes into scrollback once, with the first frame; a
+        // new transcript starts below one separator row.
+        let (start, mut history) = match self.scrollback {
+            Scrollback::Empty => (FrameStart::First, self.splash_rows(width)),
+            Scrollback::Replaced(why) => (
+                FrameStart::Continue,
+                vec![self.transcript_break_row(why, width)],
+            ),
+            Scrollback::Written => (FrameStart::Continue, Vec::new()),
+        };
+        self.scrollback = Scrollback::Written;
+        if self.ledger.width() != width {
+            self.ledger.resize(width);
         }
-        while self.committed < self.chat.len() && self.entry_settled(self.committed) {
-            history.extend(self.render_entry_at(self.committed, width));
-            self.committed += 1;
+        self.advance_paces();
+        self.ledger.open_to(self.chat.len());
+        for index in self.ledger.committed()..self.chat.len() {
+            if !self.entry_settled(index) {
+                break;
+            }
+            self.ledger.finish(index);
+        }
+        for index in self.ledger.flush() {
+            history.extend(self.render_entry_at(index, width));
+            self.paces.remove(&index);
         }
         let (live, cursor) = self.compose_live(width, height);
         ChatFrame {
-            replay: start == FrameStart::Replay,
+            start,
             history,
             live,
             cursor,
         }
     }
 
+    /// The separator row above a new transcript: a dim rule that names
+    /// the break and the session, cut to `width`.
+    fn transcript_break_row(&self, why: TranscriptBreak, width: usize) -> Line {
+        let label = match why {
+            TranscriptBreak::Session => "new session",
+            TranscriptBreak::Resync => "reconnected",
+            TranscriptBreak::Rebuild => "transcript rebuilt",
+        };
+        let rule = crate::glyphs::RULE;
+        let mut text = match &self.chrome.session_name {
+            Some(name) => format!("{rule}{rule} {label}: {name} "),
+            None => format!("{rule}{rule} {label} "),
+        };
+        let used = crate::width::str_width(&text);
+        text.push_str(&rule.repeat(width.saturating_sub(used)));
+        vec![self.theme.fg(
+            crate::theme::ThemeColor::Dim,
+            crate::width::truncate_to_width(&text, width, ""),
+        )]
+    }
+
     /// The live area: the dock (or the open panel) at the bottom, and
-    /// above it the unsettled entries, the transcript tail, and the
-    /// toasts, clipped from the top to the rows the dock leaves free. The
-    /// onboarding pane owns the whole area.
+    /// above it a vertical stack (`stack::vstack`) of the unsettled
+    /// entries, the transcript tail, and the toasts, in the rows the dock
+    /// leaves free. The children are cut from their top, newest first, so
+    /// they fit: the stack then draws each one whole. The onboarding pane
+    /// owns the whole area.
     fn compose_live(&mut self, width: usize, height: usize) -> (Vec<Line>, Option<LiveCursor>) {
         if let Some(screen) = self.onboarding.as_mut() {
             let kb = self.editor.keybindings();
@@ -127,23 +201,23 @@ impl AgentView {
         // entries newest first until the budget fills -- entries wholly
         // above the live area never render, and a streaming message
         // copies only the rows that show.
-        let mut chunks = vec![self.toast_rows(width), self.render_transcript_tail(width)];
-        let mut filled: usize = chunks.iter().map(Vec::len).sum();
-        for index in (self.committed..self.chat.len()).rev() {
+        let mut children: Vec<Vec<Line>> = Vec::new();
+        let mut filled: usize = 0;
+        for mut child in [self.toast_rows(width), self.render_transcript_tail(width)] {
+            child.drain(..child.len().saturating_sub(budget - filled));
+            filled += child.len();
+            children.push(child);
+        }
+        for index in (self.ledger.committed()..self.chat.len()).rev() {
             if filled >= budget {
                 break;
             }
             let entry = self.render_entry_tail(index, width, budget - filled);
             filled += entry.len();
-            chunks.push(entry);
+            children.push(entry);
         }
-        let mut rows: Vec<Line> = Vec::with_capacity(filled + dock.len());
-        for chunk in chunks.into_iter().rev() {
-            rows.extend(chunk);
-        }
-        if rows.len() > budget {
-            rows.drain(..rows.len() - budget);
-        }
+        children.reverse();
+        let mut rows = super::stack::stack_rows(children, budget);
         let cursor = self
             .dock_cursor
             .filter(|_| editor_focused)

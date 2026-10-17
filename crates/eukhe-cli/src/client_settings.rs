@@ -15,6 +15,9 @@ use eukhe_tui::theme_catalog::ThemeSources;
 /// The agent-log component theme warnings go to.
 const THEME_LOG_COMPONENT: &str = "coding-agent.theme";
 
+/// The agent-log component rejected frames go to.
+const RENDER_LOG_COMPONENT: &str = "tui-render";
+
 /// The run's theme flags (TS `additionalThemePaths`/`noThemes`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CliThemeFlags {
@@ -112,6 +115,14 @@ impl ClientSettings for CliClientSettings {
         );
     }
 
+    fn log_render_error(&self, message: &str) {
+        AgentLog::new(&self.agent_dir, RENDER_LOG_COMPONENT).log(
+            AgentLogLevel::Error,
+            message,
+            serde_json::Map::new(),
+        );
+    }
+
     fn default_service_tier(&self) -> String {
         // The wire name of the persisted default tier (TS
         // `getDefaultServiceTier()`), "default" when unset or unreadable.
@@ -126,6 +137,14 @@ impl ClientSettings for CliClientSettings {
             serde_json::from_value(serde_json::Value::String(tier.to_string()))
                 .map_err(|error| anyhow::anyhow!("Invalid service tier \"{tier}\": {error}"))?;
         self.manager().set_default_service_tier(parsed)
+    }
+
+    fn stream_pace(&self) -> eukhe_tui::pace::PaceRate {
+        let manager = self.manager();
+        eukhe_tui::pace::PaceRate {
+            min: manager.get_stream_pace_min_chars(),
+            lag: manager.get_stream_pace_lag(),
+        }
     }
 
     setting!(
@@ -268,6 +287,29 @@ impl ClientSettings for CliClientSettings {
 mod tests {
     use super::*;
 
+    /// `terminal.streamPace` in the settings file reaches the TUI rate; a
+    /// `minChars` of 0 reads as 1.
+    #[test]
+    fn stream_pace_reads_the_terminal_settings() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let agent_dir = dir.path().join("agent");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::write(
+            agent_dir.join("settings.json"),
+            r#"{ "terminal": { "streamPace": { "minChars": 0, "lag": 7 } } }"#,
+        )
+        .expect("settings file");
+        let settings = CliClientSettings::new(
+            dir.path().to_path_buf(),
+            agent_dir,
+            CliThemeFlags::default(),
+        );
+        assert_eq!(
+            settings.stream_pace(),
+            eukhe_tui::pace::PaceRate { min: 1, lag: 7 }
+        );
+    }
+
     /// The seam over the real settings store: every write persists through
     /// the eukhe-core manager and the next read (a fresh manager over the same
     /// dirs, exactly what every call does) sees it.
@@ -289,6 +331,7 @@ mod tests {
         assert_eq!(settings.mermaid_rendering_mode(), "streaming");
         assert_eq!(settings.tree_filter_mode(), "user-only");
         assert!(settings.warnings_anthropic_extra_usage());
+        assert_eq!(settings.stream_pace(), eukhe_tui::pace::PaceRate::DEFAULT);
 
         // Writes persist (the settings file lands in the agent dir).
         settings.set_theme("dark").expect("theme");

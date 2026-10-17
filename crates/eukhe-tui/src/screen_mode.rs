@@ -118,18 +118,20 @@ pub(crate) struct SurfaceTerminal {
 
 impl SurfaceTerminal {
     #[must_use]
-    pub(crate) fn new(mode: ScreenMode, height: u16) -> Self {
+    pub(crate) fn new(mode: ScreenMode, width: u16, height: u16) -> Self {
         SurfaceTerminal {
-            term: InlineTerminal::new(height),
+            term: InlineTerminal::new(width, height),
             mode,
             ready: false,
         }
     }
 
-    /// Paint one frame. The first fullscreen paint enters the alternate
-    /// screen (a previous fullscreen surface's frame stays until this
-    /// one replaces it); the first inline paint leaves it if a previous
-    /// surface left it on.
+    /// Paint one frame on a `width` x `height` terminal. The first
+    /// fullscreen paint enters the alternate screen (a previous
+    /// fullscreen surface's frame stays until this one replaces it); the
+    /// first inline paint leaves it if a previous surface left it on. A
+    /// frame the writer rejects is not shown and is kept for
+    /// [`crate::inline_term::take_rejection`].
     ///
     /// # Errors
     ///
@@ -139,12 +141,13 @@ impl SurfaceTerminal {
         out: &mut impl Write,
         mut rows: Vec<crate::Line>,
         cursor: Option<LiveCursor>,
+        width: u16,
         height: u16,
     ) -> io::Result<()> {
         match self.mode {
             ScreenMode::Inline => {
                 if !self.ready && leave_alt_screen(out) {
-                    self.term = InlineTerminal::new(height);
+                    self.term = InlineTerminal::new(width, height);
                 }
             }
             ScreenMode::Fullscreen => {
@@ -152,20 +155,22 @@ impl SurfaceTerminal {
                 if !self.ready {
                     enter_alt_screen(out)?;
                     clear_for_repaint(out)?;
-                    self.term = InlineTerminal::new(height);
+                    self.term = InlineTerminal::new(width, height);
                 }
             }
         }
         self.ready = true;
+        self.term.set_width(width);
         self.term.set_height(height);
-        self.term.paint(
+        let _painted = self.term.paint(
             out,
             InlineFrame {
                 history: &[],
                 live: &rows,
                 cursor,
             },
-        )
+        )?;
+        Ok(())
     }
 
     /// The terminal resized: the next paint redraws the whole frame at
@@ -174,9 +179,15 @@ impl SurfaceTerminal {
     /// # Errors
     ///
     /// Propagates the write error of `out`.
-    pub(crate) fn resize(&mut self, out: &mut impl Write, height: u16) -> io::Result<()> {
+    pub(crate) fn resize(
+        &mut self,
+        out: &mut impl Write,
+        width: u16,
+        height: u16,
+    ) -> io::Result<()> {
         match self.mode {
             ScreenMode::Inline => {
+                self.term.set_width(width);
                 self.term.set_height(height);
                 self.term.clear_live(out)
             }
@@ -248,9 +259,9 @@ mod tests {
         leave_alt_screen(&mut Vec::new());
 
         let mut out = Vec::new();
-        let mut first = SurfaceTerminal::new(ScreenMode::Fullscreen, 6);
+        let mut first = SurfaceTerminal::new(ScreenMode::Fullscreen, 40, 6);
         first
-            .paint(&mut out, rows(&["agents"]), None, 6)
+            .paint(&mut out, rows(&["agents"]), None, 40, 6)
             .expect("paint");
         first.clear(&mut out).expect("handoff");
         let first_text = String::from_utf8(std::mem::take(&mut out)).expect("utf8");
@@ -263,9 +274,9 @@ mod tests {
         assert_eq!(first_text.matches("\r\n").count(), 5, "{first_text:?}");
         assert!(!first_text.contains("\x1b[?1049l"));
 
-        let mut second = SurfaceTerminal::new(ScreenMode::Fullscreen, 6);
+        let mut second = SurfaceTerminal::new(ScreenMode::Fullscreen, 40, 6);
         second
-            .paint(&mut out, rows(&["chat"]), None, 6)
+            .paint(&mut out, rows(&["chat"]), None, 40, 6)
             .expect("paint");
         let second_text = String::from_utf8(std::mem::take(&mut out)).expect("utf8");
         assert!(!second_text.contains("\x1b[?1049"), "{second_text:?}");
@@ -286,9 +297,9 @@ mod tests {
         let _state = crate::exit_restore::TEST_STATE_LOCK.lock();
         leave_alt_screen(&mut Vec::new());
         let mut out = Vec::new();
-        let mut surface = SurfaceTerminal::new(ScreenMode::Inline, 6);
+        let mut surface = SurfaceTerminal::new(ScreenMode::Inline, 40, 6);
         surface
-            .paint(&mut out, rows(&["one", "two"]), None, 6)
+            .paint(&mut out, rows(&["one", "two"]), None, 40, 6)
             .expect("paint");
         let text = String::from_utf8(out).expect("utf8");
         assert!(!text.contains("\x1b[?1049") && !text.contains("\x1b[?1000"));

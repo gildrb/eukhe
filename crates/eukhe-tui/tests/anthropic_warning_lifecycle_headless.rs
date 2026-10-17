@@ -253,6 +253,7 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
         eukhe_tui::theme_catalog::ThemeSources::default()
     }
     fn log_theme_warning(&self, _message: &str) {}
+    fn log_render_error(&self, _message: &str) {}
     fn show_images(&self) -> bool {
         true
     }
@@ -306,6 +307,9 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
     }
     fn set_show_hardware_cursor(&self, _enabled: bool) -> Result<()> {
         Ok(())
+    }
+    fn stream_pace(&self) -> eukhe_tui::pace::PaceRate {
+        eukhe_tui::pace::PaceRate::DEFAULT
     }
     fn editor_padding_x(&self) -> u64 {
         0

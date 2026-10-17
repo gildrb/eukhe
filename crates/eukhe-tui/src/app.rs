@@ -7,7 +7,7 @@ use crate::inline_term::{InlineFrame, InlineTerminal};
 use crate::keys::key_event_to_id;
 use crate::session::{SessionEvent, SessionStream};
 use crate::theme::Theme;
-use crate::view::AgentView;
+use crate::view::{AgentView, FrameStart};
 use anyhow::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{self};
@@ -85,7 +85,8 @@ fn run_app_surface(
     // The replay surface owns the same enhanced-key modes as the session
     // (TS `ProcessTerminal.start`): bracketed pastes arrive as one chunk.
     crate::enhanced_keys::enable(&mut std::io::stdout())?;
-    let mut term = InlineTerminal::new(terminal::size()?.1);
+    let (width, height) = terminal::size()?;
+    let mut term = InlineTerminal::new(width, height);
 
     let theme = options.theme.clone();
     let mut view = AgentView::new(theme);
@@ -116,6 +117,7 @@ fn run_app_surface(
         let (_w, h) = crossterm::terminal::size()?;
         view.set_terminal_rows(h);
         draw(&mut term, &mut view)?;
+        let _shown = show_rejection(&mut view);
         // The verifier's panic driver: the unwind must cross the live
         // surface's unwind guard, not the already-restored exit.
         assert!(
@@ -133,9 +135,9 @@ fn run_app_surface(
                 Event::Paste(text) => {
                     view.editor.handle_paste(&text);
                 }
-                // A resize reflows the scrollback the terminal holds: the
-                // next frame replays the history at the new size.
-                Event::Resize(..) => view.request_replay(),
+                // A resize keeps the scrollback: the inline terminal
+                // redraws only its live area at the new width.
+                Event::Resize(..) => view.note_resize(),
                 Event::FocusGained | Event::FocusLost | Event::Mouse(_) => {}
             }
         }
@@ -220,20 +222,21 @@ pub fn dispatch_events(editor: &mut Editor, on_submit: &mut dyn FnMut(&str)) {
     }
 }
 
-/// Paint one chat frame through the inline terminal: a replay frame
-/// clears the screen and the scrollback first. The hardware cursor moves
-/// to the editor caret every frame (IME candidate windows anchor there)
-/// and shows only under `showHardwareCursor`.
+/// Paint one chat frame through the inline terminal. No frame clears the
+/// screen or the scrollback: a width change redraws only the live area,
+/// and a new transcript starts below a separator row.
+/// The hardware cursor moves to the editor caret every frame (IME
+/// candidate windows anchor there) and shows only under
+/// `showHardwareCursor`. A frame the off-screen check rejects is not
+/// written; the rejection waits in `inline_term::take_rejection`.
 pub(crate) fn draw(term: &mut InlineTerminal, view: &mut AgentView) -> Result<()> {
     let (width, height) = terminal::size()?;
     term.set_height(height);
+    term.set_width(width);
     term.set_cursor_visible(view.show_hardware_cursor);
     let frame = view.compose(usize::from(width), usize::from(height));
     let mut out = stdout().lock();
-    if frame.replay {
-        term.reset(&mut out)?;
-    }
-    term.paint(
+    let _painted = term.paint(
         &mut out,
         InlineFrame {
             history: &frame.history,
@@ -242,6 +245,18 @@ pub(crate) fn draw(term: &mut InlineTerminal, view: &mut AgentView) -> Result<()
         },
     )?;
     Ok(())
+}
+
+/// Take the frame the off-screen check last rejected (any surface; the
+/// writer already logged it) and show it to the user as a toast.
+/// Returns whether there was one.
+pub(crate) fn show_rejection(view: &mut AgentView) -> bool {
+    let Some(rejection) = crate::inline_term::take_rejection() else {
+        return false;
+    };
+    view.toasts
+        .push(format!("Screen update not shown: {}", rejection.message));
+    true
 }
 
 /// How much of the screen a fullscreen frame rewrites.
@@ -255,8 +270,9 @@ pub(crate) enum Paint {
 }
 
 /// Paint one fullscreen chat frame (exactly the terminal's height) into
-/// the alternate screen. A full paint or a replay frame (a resize, a
-/// changed shape) clears the screen and paints every row.
+/// the alternate screen. A full paint or a frame that does not continue
+/// the last one (a resize, a changed shape, a new transcript) clears the
+/// screen and paints every row; the alternate screen has no scrollback.
 pub(crate) fn draw_fullscreen(
     term: &mut InlineTerminal,
     view: &mut AgentView,
@@ -265,13 +281,14 @@ pub(crate) fn draw_fullscreen(
     let (width, height) = terminal::size()?;
     let frame = view.compose_fullscreen(usize::from(width), usize::from(height));
     let mut out = stdout().lock();
-    if paint == Paint::Full || frame.replay {
+    if paint == Paint::Full || frame.start != FrameStart::Continue {
         crate::screen_mode::clear_for_repaint(&mut out)?;
-        *term = InlineTerminal::new(height);
+        *term = InlineTerminal::new(width, height);
     }
     term.set_height(height);
+    term.set_width(width);
     term.set_cursor_visible(view.show_hardware_cursor);
-    term.paint(
+    let _painted = term.paint(
         &mut out,
         InlineFrame {
             history: &[],

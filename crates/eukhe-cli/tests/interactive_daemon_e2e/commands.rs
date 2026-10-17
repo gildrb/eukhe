@@ -884,16 +884,20 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
                 "second, and please keep this second parity turn short and intact".to_string(),
             ),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-            eukhe_tui::interactive::HeadlessStep::Submit("/compact focus on the goal".to_string()),
-            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
             // The collapsible block (TS `applyChatExpansion` fanning
             // `toolOutputExpanded` into `CompactionSummaryMessageComponent`):
-            // Ctrl+O twice walks overview -> details -> all, expanding the
-            // summary into the markdown body plus the token metadata; the
-            // third press wraps back to overview and re-collapses it.
+            // Ctrl+O twice walks overview -> details -> all. A detail
+            // change applies to the live area and the rows committed after
+            // it (S8.5), so the walk comes before `/compact`: the summary
+            // the rebuild commits renders expanded, the markdown body plus
+            // the token metadata.
             ctrl_o(),
             ctrl_o(),
             eukhe_tui::interactive::HeadlessStep::SettleIdle,
+            eukhe_tui::interactive::HeadlessStep::Submit("/compact focus on the goal".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+            // The third press wraps back to overview; the scrollback keeps
+            // the expanded block as it got it (S8.5).
             ctrl_o(),
             eukhe_tui::interactive::HeadlessStep::SettleIdle,
         ],
@@ -934,7 +938,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
     println!(
         "compaction loader evidence: {loader_frames} frames captured the loader row (soft check)"
     );
-    // The summary row: the TS header plus the collapsed summary.
+    // The summary row: the TS header plus the summary.
     assert!(
         rendered.contains("* Context compacted"),
         "the compaction summary header rendered:\n{rendered}"
@@ -943,48 +947,84 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         rendered.contains("the session story"),
         "the summary text rendered:\n{rendered}"
     );
-    // The rebuilt transcript presents the retained tail first, then the
-    // summary (TS `orderMessagesForTranscript`): the settled bottom-follow
-    // frame shows the retained second turn above the summary row, and the
-    // compacted-away first turn is gone.
+    // The rebuild is a new run of the transcript, not an edit (S8.8): the
+    // scrollback keeps the old transcript as written -- the compacted-away
+    // first turn stays above -- and one dim `transcript rebuilt` separator
+    // row heads the rebuilt transcript below it. Nothing was cleared
+    // (S8.9). The rebuilt part presents the retained tail first, then the
+    // summary (TS `orderMessagesForTranscript`), and the compacted-away
+    // first turn is gone from it.
     let last = outcome.frames.last().expect("the settled frame");
-    assert!(
-        last.contains("kept intact"),
-        "the retained second turn heads the rebuilt transcript:\n{last}"
+    let rows: Vec<&str> = last.lines().collect();
+    let separators: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.trim_start().starts_with("-- transcript rebuilt"))
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(
+        separators.len(),
+        1,
+        "the compaction rebuild wrote exactly one separator row:\n{last}"
     );
+    let (old, rebuilt) = rows.split_at(separators[0]);
+    let (old, rebuilt) = (old.join("\n"), rebuilt[1..].join("\n"));
     assert!(
-        last.contains("* Context compacted"),
+        old.contains("  first") && old.contains("history history") && old.contains("kept intact"),
+        "the old transcript stays in the scrollback above the separator:\n{last}"
+    );
+    for clear in ["\u{1b}[2J", "\u{1b}[3J"] {
+        assert!(
+            !last.contains(clear),
+            "nothing cleared the scrollback ({clear:?}):\n{last}"
+        );
+    }
+    let tail = rebuilt.find("kept intact").unwrap_or_else(|| {
+        panic!("the retained second turn heads the rebuilt transcript:\n{last}")
+    });
+    let summary = rebuilt
+        .find("* Context compacted")
+        .unwrap_or_else(|| panic!("the rebuilt transcript shows the summary row:\n{last}"));
+    assert!(
+        tail < summary,
         "the summary row follows the retained tail:\n{last}"
     );
     assert!(
-        !last.contains("first"),
+        !rebuilt.contains("first") && !rebuilt.contains("history history"),
         "the compacted-away first turn dropped from the rebuilt transcript:\n{last}"
     );
 
-    // The collapsible block: the expanded frames show the markdown body and
-    // the dim metadata row (TS `new Markdown(summary, ...)` + the
-    // `Compacted from N tokens \u{b7} focus: ...` row); the wrap back to
-    // overview re-collapses (the `EventSummary` returns, metadata gone).
-    let expanded = outcome
-        .frames
-        .iter()
-        .find(|frame| frame.contains("Compacted from"))
-        .expect("some frame captured the expanded compaction block");
+    // The collapsible block: the summary committed after the walk to
+    // `all`, so the rebuilt transcript shows it expanded -- the markdown
+    // body and the dim metadata row (TS `new Markdown(summary, ...)` + the
+    // `Compacted from N tokens \u{b7} focus: ...` row).
     assert!(
-        expanded.contains("Compacted from") && expanded.contains("tokens"),
-        "the expanded metadata row:\n{expanded}"
+        rendered.contains(" - expanded"),
+        "the Ctrl+O walk reached the `all` detail level:\n{rendered}"
     );
     assert!(
-        expanded.contains(" - focus: focus on the goal"),
-        "the /compact focus rides the expanded metadata:\n{expanded}"
+        rebuilt.contains("Compacted from") && rebuilt.contains("tokens"),
+        "the expanded metadata row:\n{last}"
     );
     assert!(
-        expanded.contains("Summary") && !expanded.contains("## Summary"),
-        "the expanded body renders the summary markdown, not the EventSummary flatten:\n{expanded}"
+        rebuilt.contains(" - focus: focus on the goal"),
+        "the /compact focus rides the expanded metadata:\n{last}"
     );
     assert!(
-        !last.contains("Compacted from"),
-        "the third Ctrl+O re-collapsed the block:\n{last}"
+        rebuilt.contains("Summary") && !rebuilt.contains("## Summary"),
+        "the expanded body renders the summary markdown, not the EventSummary flatten:\n{last}"
+    );
+    // The third Ctrl+O wrapped back to overview (the status line drops the
+    // `expanded` segment), and the scrollback keeps the block as it got it
+    // (S8.5): the committed rows are never written again.
+    let status = rows.last().expect("the status line");
+    assert!(
+        !status.contains(" - expanded") && !status.contains(" - details"),
+        "the third Ctrl+O wrapped the detail level back to overview:\n{last}"
+    );
+    assert!(
+        rebuilt.contains("Compacted from"),
+        "the committed block stays expanded in the scrollback:\n{last}"
     );
 
     // The compaction entry persisted (the durable `pi.compaction` record).
@@ -1146,8 +1186,11 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         "the forked session ran a turn:\n{rendered}"
     );
     // The navigation: TS `showStatus("Navigated to selected point")` plus
-    // the transcript rebuilt on the moved branch (the abandoned turn drops
-    // from the settled frame).
+    // the transcript rebuilt on the moved branch. Each rebuild is a new
+    // run of the transcript, not an edit (S8.8): the scrollback keeps the
+    // old transcript as written, one dim `transcript rebuilt` separator
+    // row heads the new one below it, and nothing was cleared (S8.9). The
+    // fork and the navigation each wrote one; the leaf no-op wrote none.
     assert!(
         rendered.contains("Navigated to selected point"),
         "the navigation note rendered:\n{rendered}"
@@ -1158,12 +1201,44 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         .rev()
         .find(|frame| frame.contains("Navigated to selected point"))
         .expect("the navigation frame");
+    let rows: Vec<&str> = settled.lines().collect();
+    let separators: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.trim_start().starts_with("-- transcript rebuilt"))
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(
+        separators.len(),
+        2,
+        "the fork and the navigation each wrote one separator row:\n{settled}"
+    );
+    let section = |from: usize, to: usize| rows[from..to].join("\n");
+    let source = section(0, separators[0]);
+    let forked = section(separators[0] + 1, separators[1]);
+    let moved = section(separators[1] + 1, rows.len());
     assert!(
-        !settled.contains("post-fork answer"),
+        source.contains("second question") && source.contains("second answer"),
+        "the source transcript stays in the scrollback above the fork's separator:\n{settled}"
+    );
+    assert!(
+        forked.contains("Forked to new session")
+            && forked.contains("post-fork answer")
+            && !forked.contains("second answer"),
+        "the forked transcript follows its separator:\n{settled}"
+    );
+    for clear in ["\u{1b}[2J", "\u{1b}[3J"] {
+        assert!(
+            !settled.contains(clear),
+            "nothing cleared the scrollback ({clear:?}):\n{settled}"
+        );
+    }
+    assert!(
+        !moved.contains("post-fork answer") && !moved.contains("second question"),
         "the abandoned branch dropped from the rebuilt transcript:\n{settled}"
     );
     assert!(
-        settled.contains("first answer"),
+        moved.contains("first answer") && moved.contains("Navigated to selected point"),
         "the moved branch kept the target path:\n{settled}"
     );
     // The daemon's fork of a persisted session writes a new storage beside

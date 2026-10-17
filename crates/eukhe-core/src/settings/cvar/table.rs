@@ -817,6 +817,25 @@ pub const TERMINAL_FULLSCREEN: Decl = Decl {
     init: Init::Bool(false),
 };
 
+/// `0` reads as 1.
+pub const TERMINAL_STREAM_PACE_MIN_CHARS: Decl = Decl {
+    id: "terminal.streamPace.minChars",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::Nat(2),
+};
+
+pub const TERMINAL_STREAM_PACE_LAG: Decl = Decl {
+    id: "terminal.streamPace.lag",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::Nat(3),
+};
+
 pub const IMAGES_AUTO_RESIZE: Decl = Decl {
     id: "images.autoResize",
     ty: CvarType::Bool,
@@ -1133,6 +1152,8 @@ pub const DECLS: &[Decl] = &[
     TERMINAL_CLEAR_ON_SHRINK,
     TERMINAL_SHOW_TERMINAL_PROGRESS,
     TERMINAL_FULLSCREEN,
+    TERMINAL_STREAM_PACE_MIN_CHARS,
+    TERMINAL_STREAM_PACE_LAG,
     IMAGES_AUTO_RESIZE,
     IMAGES_BLOCK_IMAGES,
     ENABLED_MODELS,

@@ -591,8 +591,8 @@ fn run_selector_surface(
     // (TS `ProcessTerminal.start`): a pasted filter query arrives as one
     // chunk instead of per-line keystrokes.
     crate::enhanced_keys::enable(&mut std::io::stdout())?;
-    let (_, rows) = terminal::size()?;
-    let mut term = crate::screen_mode::SurfaceTerminal::new(options.screen_mode, rows);
+    let (columns, rows) = terminal::size()?;
+    let mut term = crate::screen_mode::SurfaceTerminal::new(options.screen_mode, columns, rows);
     let theme = options.theme;
     let kb = options.keybindings;
     let start = Instant::now();
@@ -606,7 +606,7 @@ fn run_selector_surface(
             let (width, height) = terminal::size()?;
             let mut frame: Vec<Line> = selector.render(&theme, usize::from(width), &kb);
             frame.truncate(usize::from(height));
-            term.paint(&mut std::io::stdout().lock(), frame, None, height)?;
+            term.paint(&mut std::io::stdout().lock(), frame, None, width, height)?;
             dirty = false;
         }
         let tick = Duration::from_millis(50);
@@ -627,8 +627,8 @@ fn run_selector_surface(
                     None
                 }
                 // A resize repaints the frame whole at the new size.
-                Event::Resize(_, height) => {
-                    term.resize(&mut std::io::stdout().lock(), height)?;
+                Event::Resize(width, height) => {
+                    term.resize(&mut std::io::stdout().lock(), width, height)?;
                     None
                 }
                 // Wheel reports arrive only in fullscreen.

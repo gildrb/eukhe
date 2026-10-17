@@ -92,6 +92,9 @@ pub(super) struct HeadlessSettle {
     pub(super) idle_barrier: bool,
     /// A frame the loop has not painted yet.
     pub(super) dirty: bool,
+    /// Streamed text still behind its pace: the frames go on until all
+    /// of it shows, then the message settles (S8 pacing).
+    pub(super) pacing: bool,
     /// A `/reload` whose outcome has not landed.
     pub(super) reload_pending: bool,
     /// The inline auth panel is mounted.
@@ -121,6 +124,7 @@ impl HeadlessSettle {
             queued: view.queued.steering.len() + view.queued.follow_ups.len(),
             idle_barrier,
             dirty: session.dirty,
+            pacing: view.is_pacing(),
             reload_pending: session.reload_pending(),
             auth_panel_open: view.auth_panel.is_some(),
             mcp_auth_pending: session.pending_mcp_auth(),
@@ -160,6 +164,9 @@ impl HeadlessSettle {
         }
         if self.dirty {
             blockers.push("an unpainted frame".to_string());
+        }
+        if self.pacing {
+            blockers.push("streamed text still behind its pace".to_string());
         }
         if self.reload_pending {
             blockers.push("a reload in flight".to_string());

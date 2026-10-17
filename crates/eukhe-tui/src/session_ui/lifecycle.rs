@@ -622,7 +622,10 @@ impl SessionUi {
             self.speed_stats = None;
             view.chrome.speed_text = None;
         }
-        view.clear_chat();
+        view.clear_chat(match kind {
+            RebuildKind::Rebind => crate::view::TranscriptBreak::Session,
+            RebuildKind::Resync => crate::view::TranscriptBreak::Resync,
+        });
         // The rebuilt transcript invalidates the tracked status row.
         self.last_status_index = None;
         // The rebuild drops the previous run's pending-tool map (TS

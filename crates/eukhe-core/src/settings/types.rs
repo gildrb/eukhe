@@ -177,6 +177,17 @@ pub struct TerminalSettings {
     /// Run the interactive surfaces in the alternate screen (default
     /// inline).
     pub fullscreen: Option<bool>,
+    /// How fast streamed text appears on screen.
+    pub stream_pace: Option<StreamPaceSettings>,
+}
+
+/// `terminal.streamPace`: each frame reveals
+/// max(`minChars`, backlog / (1 + `lag`)) characters of streamed text.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamPaceSettings {
+    pub min_chars: Option<u64>,
+    pub lag: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

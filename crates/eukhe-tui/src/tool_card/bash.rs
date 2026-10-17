@@ -7,13 +7,14 @@
 
 use serde_json::Value;
 
-use super::layout::{panel_content_width, RowOutput};
+use super::layout::{images, wrapped_text};
 use super::{format_bash_duration, ToolCallCard, ToolResultView};
 use crate::chat::Detail;
 use crate::code_preview::{preview_bash_command, CodePreviewLanguage};
+use crate::element::{self, Element, Fit, Inline, Tick};
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{wrap_text, wrapped_text_count};
-use crate::{Line, Span};
+use crate::Line;
 
 /// Collapsed preview length in visual lines (TS `BASH_PREVIEW_LINES`).
 const BASH_PREVIEW_LINES: usize = 5;
@@ -27,46 +28,38 @@ pub fn render(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    let mut rows = RowOutput::new();
-    visit(card, detail, theme, width, &mut rows);
-    rows.images(card.result.as_ref(), show_images, theme);
-    rows.panel(card, frame, theme, width);
-    rows.into_lines()
-}
-
-fn visit(card: &ToolCallCard, detail: Detail, theme: &Theme, width: usize, rows: &mut RowOutput) {
-    let content_width = panel_content_width(width);
-    rows.wrapped_line(&format_bash_call(card, theme), content_width);
+    let mut panel = super::panel(card);
+    let content_width = panel.content_width(width);
+    let rows = &mut panel.children;
+    rows.push(Element::text(Fit::Wrap, format_bash_call(card)));
     if let Some(result) = &card.result {
         bash_result_rows(
             card,
             result,
             detail.tool_output_expanded(),
-            theme,
             content_width,
             rows,
         );
     }
+    rows.extend(images(card.result.as_ref(), show_images, theme));
+    element::render(&Element::Panel(panel), theme, width, Tick(frame))
 }
 
 /// The `$ command` call row (TS `formatBashCall`): dim, with the command
 /// preview (a non-bash language prefixes its label) and the timeout suffix.
-fn format_bash_call(card: &ToolCallCard, theme: &Theme) -> Line {
-    let dim = theme.fg_style(ThemeColor::Dim);
-    let error = theme.fg_style(ThemeColor::Error);
-    let tool_output = theme.fg_style(ThemeColor::ToolOutput);
+fn format_bash_call(card: &ToolCallCard) -> Vec<Inline> {
     let command = card.args.get("command");
     // `str(value)`: a missing or non-string command is invalid; a null or
     // empty string renders the `...` placeholder.
     let invalid = command.is_some_and(|value| !value.is_string());
     let command = command.and_then(Value::as_str);
-    let mut row: Line = vec![Span::styled("$ ".to_string(), dim)];
+    let mut row = vec![Inline::role("$ ", ThemeColor::Dim)];
     if invalid {
-        row.push(Span::styled("[invalid arg]".to_string(), error));
+        row.push(Inline::role("[invalid arg]", ThemeColor::Error));
     } else if command.unwrap_or_default().is_empty() {
-        row.push(Span::styled(
-            crate::glyphs::ELLIPSIS.to_string(),
-            tool_output,
+        row.push(Inline::role(
+            crate::glyphs::ELLIPSIS,
+            ThemeColor::ToolOutput,
         ));
     } else {
         let command = command.unwrap_or_default();
@@ -79,10 +72,13 @@ fn format_bash_call(card: &ToolCallCard, theme: &Theme) -> Line {
                 CodePreviewLanguage::Python => format!("python: {}", preview.text),
             }
         };
-        row.push(Span::styled(display, dim));
+        row.push(Inline::role(display, ThemeColor::Dim));
     }
     if let Some(timeout) = card.args.get("timeout").and_then(Value::as_f64) {
-        row.push(Span::styled(format!(" (timeout {timeout:.0}s)"), dim));
+        row.push(Inline::role(
+            format!(" (timeout {timeout:.0}s)"),
+            ThemeColor::Dim,
+        ));
     }
     row
 }
@@ -93,19 +89,17 @@ fn bash_result_rows(
     card: &ToolCallCard,
     result: &ToolResultView,
     expanded: bool,
-    theme: &Theme,
     content_width: usize,
-    rows: &mut RowOutput,
+    rows: &mut Vec<Element>,
 ) {
-    let tool_output = theme.fg_style(ThemeColor::ToolOutput);
+    let output_row =
+        |text: String| Element::text(Fit::Keep, vec![Inline::role(text, ThemeColor::ToolOutput)]);
     let output = result.text_output(true);
     let output = output.trim();
     if !output.is_empty() {
-        rows.blank();
+        rows.push(Element::blank());
         if expanded {
-            for line in output.split('\n') {
-                rows.push(vec![Span::styled(line.to_string(), tool_output)]);
-            }
+            rows.extend(output.split('\n').map(|line| output_row(line.to_string())));
         } else {
             let total: usize = output
                 .split('\n')
@@ -113,10 +107,13 @@ fn bash_result_rows(
                 .sum();
             let skipped = total.saturating_sub(BASH_PREVIEW_LINES);
             if skipped > 0 {
-                rows.push(vec![Span::styled(
-                    format!("{} {skipped} earlier lines", crate::glyphs::ELLIPSIS),
-                    theme.fg_style(ThemeColor::Dim),
-                )]);
+                rows.push(Element::text(
+                    Fit::Keep,
+                    vec![Inline::role(
+                        format!("{} {skipped} earlier lines", crate::glyphs::ELLIPSIS),
+                        ThemeColor::Dim,
+                    )],
+                ));
             }
             let mut remaining = skipped;
             for line in output.split('\n') {
@@ -127,15 +124,14 @@ fn bash_result_rows(
                 }
                 let wrapped = wrap_text(line, content_width);
                 if wrapped.is_empty() {
-                    rows.push(vec![Span::styled(String::new(), tool_output)]);
+                    rows.push(output_row(String::new()));
                 } else {
                     for row in wrapped.into_iter().skip(remaining) {
-                        rows.push(vec![Span::styled(
+                        rows.push(output_row(
                             row.iter()
                                 .map(|span| span.content.as_str())
                                 .collect::<String>(),
-                            tool_output,
-                        )]);
+                        ));
                     }
                 }
                 remaining = 0;
@@ -143,8 +139,8 @@ fn bash_result_rows(
         }
     }
     if let Some(warning) = truncation_warning(result) {
-        rows.blank();
-        rows.wrapped_text(&warning, theme.fg_style(ThemeColor::Warning), content_width);
+        rows.push(Element::blank());
+        rows.extend(wrapped_text(&warning, ThemeColor::Warning));
     }
     if let Some(started) = card.started_at {
         let label = if card.result_partial {
@@ -154,8 +150,8 @@ fn bash_result_rows(
         };
         let elapsed = card.ended_at.unwrap_or_else(std::time::Instant::now) - started;
         let text = format!("{label} {}", format_bash_duration(elapsed.as_millis()));
-        rows.blank();
-        rows.wrapped_text(&text, theme.fg_style(ThemeColor::Dim), content_width);
+        rows.push(Element::blank());
+        rows.extend(wrapped_text(&text, ThemeColor::Dim));
     }
 }
 

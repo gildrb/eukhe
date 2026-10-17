@@ -1,9 +1,8 @@
 //! Expanded cell output; painting and counting share the same output decisions.
 
 use super::{
-    add_wrapped, is_agent_message_receipt, normalize_error_details, str_width,
-    summarize_error_details, IpythonDetails, IpythonError, Line, RowOutput, Span, Theme,
-    ThemeColor, ToolCallCard, Value, OUTPUT_INDENT,
+    is_agent_message_receipt, normalize_error_details, str_width, summarize_error_details, wrapped,
+    Element, Inline, IpythonDetails, IpythonError, ThemeColor, ToolCallCard, Value, OUTPUT_INDENT,
 };
 
 /// `splitTraceback`: the lines before the traceback opener are ordinary
@@ -52,11 +51,9 @@ fn format_ipython_error_summary(error: &IpythonError) -> String {
 pub(super) fn render_output(
     card: &ToolCallCard,
     details: &IpythonDetails,
-    lines: &mut RowOutput,
+    rows: &mut Vec<Element>,
     has_code: bool,
     show_images: bool,
-    theme: &Theme,
-    width: usize,
 ) {
     let blocks = card
         .result
@@ -88,44 +85,26 @@ pub(super) fn render_output(
     let mut output_started = false;
     let mut output_marker_pending = true;
     let mut rendered_text_output = false;
-    let output_prefix = |output_marker_pending: &mut bool| -> Line {
-        if *output_marker_pending {
-            *output_marker_pending = false;
-            vec![Span::styled(
-                format!(" {} ", crate::glyphs::POINTER),
-                theme.fg_style(ThemeColor::Dim),
-            )]
-        } else {
-            vec![Span::raw(OUTPUT_INDENT)]
-        }
-    };
-    let start_output = |output_started: &mut bool, lines: &mut RowOutput| {
+    let start_output = |output_started: &mut bool, rows: &mut Vec<Element>| {
         if *output_started {
             return;
         }
         *output_started = true;
         if has_code {
-            lines.blank();
+            rows.push(Element::blank());
         }
     };
 
     if let Some((output, _)) = &traceback {
         if !output.is_empty() {
-            start_output(&mut output_started, lines);
+            start_output(&mut output_started, rows);
             rendered_text_output = true;
-            render_output_text(
-                lines,
-                output,
-                &OutputLabel::Out,
-                &mut output_marker_pending,
-                theme,
-                width,
-            );
+            render_output_text(rows, output, &OutputLabel::Out, &mut output_marker_pending);
         }
     } else if !text.trim().is_empty()
         && !is_agent_message_receipt(Some(text.as_str()), &details.sent_agent_messages)
     {
-        start_output(&mut output_started, lines);
+        start_output(&mut output_started, rows);
         rendered_text_output = true;
         let label = if is_error {
             OutputLabel::Err
@@ -133,27 +112,19 @@ pub(super) fn render_output(
             OutputLabel::Out
         };
         render_output_text(
-            lines,
+            rows,
             &normalize_error_details(&text),
             &label,
             &mut output_marker_pending,
-            theme,
-            width,
         );
     }
 
     if !rendered_text_output && card.result_partial {
-        start_output(&mut output_started, lines);
-        let prefix = output_prefix(&mut output_marker_pending);
-        add_wrapped(
-            lines,
-            &prefix,
-            &vec![Span::styled(
-                "waiting for output...".to_string(),
-                theme.fg_style(ThemeColor::Muted),
-            )],
-            width,
-        );
+        start_output(&mut output_started, rows);
+        rows.push(wrapped(
+            output_prefix(&mut output_marker_pending),
+            vec![Inline::role("waiting for output...", ThemeColor::Muted)],
+        ));
     } else if !rendered_text_output
         && traceback.is_none()
         && details.error.is_none()
@@ -161,56 +132,57 @@ pub(super) fn render_output(
         && card.started
         && image_count == 0
     {
-        start_output(&mut output_started, lines);
-        let prefix = output_prefix(&mut output_marker_pending);
-        add_wrapped(
-            lines,
-            &prefix,
-            &vec![Span::styled(
-                "no output".to_string(),
-                theme.fg_style(ThemeColor::Muted),
-            )],
-            width,
-        );
+        start_output(&mut output_started, rows);
+        rows.push(wrapped(
+            output_prefix(&mut output_marker_pending),
+            vec![Inline::role("no output", ThemeColor::Muted)],
+        ));
     }
 
     if let Some((_, traceback)) = &traceback {
-        start_output(&mut output_started, lines);
+        start_output(&mut output_started, rows);
         render_output_text(
-            lines,
+            rows,
             traceback,
             &OutputLabel::Err,
             &mut output_marker_pending,
-            theme,
-            width,
         );
     } else if let Some(error) = &details.error {
-        start_output(&mut output_started, lines);
+        start_output(&mut output_started, rows);
         render_output_text(
-            lines,
+            rows,
             &format_ipython_error_summary(error),
             &OutputLabel::Err,
             &mut output_marker_pending,
-            theme,
-            width,
         );
     }
 
     if image_count > 0 {
-        start_output(&mut output_started, lines);
+        start_output(&mut output_started, rows);
         let noun = if image_count == 1 { "image" } else { "images" };
         let text = if show_images {
             format!("{image_count} {noun} rendered below")
         } else {
             format!("{image_count} {noun} hidden")
         };
-        let prefix = output_prefix(&mut output_marker_pending);
-        add_wrapped(
-            lines,
-            &prefix,
-            &vec![Span::styled(text, theme.fg_style(ThemeColor::Muted))],
-            width,
-        );
+        rows.push(wrapped(
+            output_prefix(&mut output_marker_pending),
+            vec![Inline::role(text, ThemeColor::Muted)],
+        ));
+    }
+}
+
+/// The output gutter: the `>` marker on the first output row, the
+/// continuation indent after it.
+fn output_prefix(output_marker_pending: &mut bool) -> Vec<Inline> {
+    if *output_marker_pending {
+        *output_marker_pending = false;
+        vec![Inline::role(
+            format!(" {} ", crate::glyphs::POINTER),
+            ThemeColor::Dim,
+        )]
+    } else {
+        vec![Inline::plain(OUTPUT_INDENT)]
     }
 }
 
@@ -222,34 +194,21 @@ enum OutputLabel {
 /// One output section: `out` lines in toolOutput, `err` lines muted
 /// (stderr and tracebacks), the first line marked `>`.
 fn render_output_text(
-    lines: &mut RowOutput,
+    rows: &mut Vec<Element>,
     text: &str,
     label: &OutputLabel,
     output_marker_pending: &mut bool,
-    theme: &Theme,
-    width: usize,
 ) {
-    let color = match label {
+    let role = match label {
         OutputLabel::Out => ThemeColor::ToolOutput,
         OutputLabel::Err => ThemeColor::Muted,
     };
-    let style = theme.fg_style(color);
     for line in text.split('\n') {
-        let prefix = if *output_marker_pending {
-            *output_marker_pending = false;
-            vec![Span::styled(
-                format!(" {} ", crate::glyphs::POINTER),
-                theme.fg_style(ThemeColor::Dim),
-            )]
-        } else {
-            vec![Span::raw(OUTPUT_INDENT)]
-        };
         // Blank rows render one styled space (TS `theme.fg(color, line || " ")`).
-        let body = vec![Span::styled(
-            if line.is_empty() { " " } else { line }.to_string(),
-            style,
-        )];
-        add_wrapped(lines, &prefix, &body, width);
+        rows.push(wrapped(
+            output_prefix(output_marker_pending),
+            vec![Inline::role(if line.is_empty() { " " } else { line }, role)],
+        ));
     }
 }
 

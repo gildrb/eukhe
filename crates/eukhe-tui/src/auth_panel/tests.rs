@@ -807,7 +807,7 @@ fn a_url_wider_than_the_frame_renders_whole_as_one_logical_line() {
     );
     let _global = crate::inline_term::live_area_lock();
     let mut out = Vec::new();
-    crate::inline_term::InlineTerminal::new(30)
+    let painted = crate::inline_term::InlineTerminal::new(100, 30)
         .paint(
             &mut out,
             crate::inline_term::InlineFrame {
@@ -817,6 +817,7 @@ fn a_url_wider_than_the_frame_renders_whole_as_one_logical_line() {
             },
         )
         .expect("paint");
+    assert_eq!(painted, crate::inline_term::Painted::Drawn);
     let shown = crate::ansi::strip_ansi(&String::from_utf8(out).expect("utf8"));
     assert!(
         shown.contains(LONG_URL),

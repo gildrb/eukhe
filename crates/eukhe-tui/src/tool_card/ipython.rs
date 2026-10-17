@@ -13,7 +13,7 @@ use super::ipython_details::{
     format_duration, is_agent_message_receipt, parse_sent_agent_message, read_background_shell,
     BackgroundShell, BashCommands, IpythonDetails, IpythonError,
 };
-use super::layout::RowOutput;
+use super::layout::images;
 use super::{highlight, ToolCallCard};
 use crate::chat::Detail;
 use crate::code_preview::{
@@ -21,58 +21,47 @@ use crate::code_preview::{
     CodePreviewLanguage,
 };
 use crate::custom_message::AgentMessageDirection;
+use crate::element::{self, Element, Fit, Inline, Mark, Status, Tick};
 use crate::error_summary::{normalize_error_details, summarize_error_details};
 use crate::theme::{Theme, ThemeColor};
-use crate::width::{str_width, truncate_line, wrap_line};
-use crate::{Line, Span};
+use crate::width::str_width;
+use crate::Line;
 
 /// The output continuation indent (TS `OUTPUT_INDENT`).
 const OUTPUT_INDENT: &str = "   ";
 
-/// The card status (TS `statusKind`).
-enum CardStatus {
-    Queued,
-    Running,
-    Done,
-    Error,
-    Aborted,
-}
-
-impl CardStatus {
-    fn of(card: &ToolCallCard, details: &IpythonDetails) -> CardStatus {
-        let result = card.result.as_ref();
-        let is_error = result.is_some_and(|r| r.is_error);
-        if !card.result_partial {
-            if let Some(background) =
-                result.and_then(|r| read_background_shell(cell_code(card), &r.details))
-            {
-                return match background.exit_code {
-                    Some(0) => CardStatus::Done,
-                    Some(_) => CardStatus::Error,
-                    None => CardStatus::Running,
-                };
-            }
+/// The cell status (TS `statusKind`).
+fn cell_status(card: &ToolCallCard, details: &IpythonDetails) -> Status {
+    let result = card.result.as_ref();
+    let is_error = result.is_some_and(|r| r.is_error);
+    if !card.result_partial {
+        if let Some(background) =
+            result.and_then(|r| read_background_shell(cell_code(card), &r.details))
+        {
+            return match background.exit_code {
+                Some(0) => Status::Done,
+                Some(_) => Status::Error,
+                None => Status::Running,
+            };
         }
-        let status = details.status.as_deref();
-        if is_error || status == Some("error") {
-            return CardStatus::Error;
-        }
-        if status == Some("aborted") {
-            return CardStatus::Aborted;
-        }
-        let has_result = result.is_some_and(|r| {
-            details.error.is_some()
-                || !details.sent_agent_messages.is_empty()
-                || !r.content.is_empty()
-        });
-        if !card.result_partial && (status.is_some() || card.started || has_result) {
-            return CardStatus::Done;
-        }
-        if card.result_partial || card.started {
-            CardStatus::Running
-        } else {
-            CardStatus::Queued
-        }
+    }
+    let status = details.status.as_deref();
+    if is_error || status == Some("error") {
+        return Status::Error;
+    }
+    if status == Some("aborted") {
+        return Status::Aborted;
+    }
+    let has_result = result.is_some_and(|r| {
+        details.error.is_some() || !details.sent_agent_messages.is_empty() || !r.content.is_empty()
+    });
+    if !card.result_partial && (status.is_some() || card.started || has_result) {
+        return Status::Done;
+    }
+    if card.result_partial || card.started {
+        Status::Running
+    } else {
+        Status::Queued
     }
 }
 
@@ -94,20 +83,6 @@ pub fn render(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    let mut lines = RowOutput::new();
-    layout(card, frame, detail, theme, width, show_images, &mut lines);
-    lines.into_lines()
-}
-
-fn layout(
-    card: &ToolCallCard,
-    frame: usize,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    show_images: bool,
-    lines: &mut RowOutput,
-) {
     let code = cell_code(card).trim_end();
     let details = card.result.as_ref().map_or_else(
         || IpythonDetails::parse(&Value::Null),
@@ -120,29 +95,22 @@ fn layout(
 
     // The top line is identical collapsed or expanded, so detail toggles
     // never shift the layout or indentation.
-    lines.push(collapsed_line(
-        card,
-        &details,
-        background.as_ref(),
-        frame,
-        theme,
-        width,
-        code,
-    ));
+    let mut rows = vec![collapsed_line(card, &details, background.as_ref(), code)];
     // TS renders the sent-message receipt rows below the code (and below
     // the diff rows, which this card does not render) even when the cell
     // is collapsed; the body opens up only when expanded.
-    if !detail.tool_output_expanded() {
-        render_sent_agent_messages(lines, &details, false, theme, width);
-        return;
+    if detail.tool_output_expanded() {
+        let has_code = render_code(&mut rows, code, theme);
+        render_sent_agent_messages(&mut rows, &details, true, theme, width);
+        render_output(card, &details, &mut rows, has_code, show_images);
+        // Image blocks render below the card when shown (TS the
+        // `N images rendered below` note refers to these rows, which
+        // `tool-execution.ts` adds for every tool shell).
+        rows.extend(images(card.result.as_ref(), show_images, theme));
+    } else {
+        render_sent_agent_messages(&mut rows, &details, false, theme, width);
     }
-    let has_code = render_code(lines, code, theme, width);
-    render_sent_agent_messages(lines, &details, true, theme, width);
-    render_output(card, &details, lines, has_code, show_images, theme, width);
-    // Image blocks render below the card when shown (TS the
-    // `N images rendered below` note refers to these rows, which
-    // `tool-execution.ts` adds for every tool shell).
-    lines.images(card.result.as_ref(), show_images, theme);
+    element::render(&Element::Column(rows), theme, width, Tick(frame))
 }
 
 /// The fixed marker + summary line (TS `collapsedLine`).
@@ -150,18 +118,8 @@ fn collapsed_line(
     card: &ToolCallCard,
     details: &IpythonDetails,
     background: Option<&BackgroundShell>,
-    frame: usize,
-    theme: &Theme,
-    width: usize,
     code: &str,
-) -> Line {
-    let muted = theme.fg_style(ThemeColor::Muted);
-    let dim = theme.fg_style(ThemeColor::Dim);
-    let error = theme.fg_style(ThemeColor::Error);
-    let warning = theme.fg_style(ThemeColor::Warning);
-    let success = theme.fg_style(ThemeColor::Success);
-    let bash_mode = theme.fg_style(ThemeColor::BashMode);
-
+) -> Element {
     let dominant = dominant_bash(details, code);
     let preview = preview_ipython_code(code);
     let is_bash_cell = parse_ipython_bash_cell(code).is_some();
@@ -175,37 +133,33 @@ fn collapsed_line(
         }
     };
 
-    let marker: Line = match CardStatus::of(card, details) {
-        CardStatus::Error => vec![Span::styled(crate::glyphs::FAIL.to_string(), error)],
-        CardStatus::Aborted => vec![Span::styled(crate::glyphs::FAIL.to_string(), warning)],
-        CardStatus::Done => vec![Span::styled(crate::glyphs::OK.to_string(), success)],
-        CardStatus::Running => vec![Span::styled(
-            super::working_icon(frame).to_string(),
-            bash_mode,
-        )],
-        CardStatus::Queued => vec![Span::styled(crate::glyphs::DOT_OFF.to_string(), muted)],
+    let mut parts: Vec<Inline> = vec![
+        Inline::Status {
+            status: cell_status(card, details),
+            mark: Mark::Icon,
+        },
+        Inline::plain(" "),
+        Inline::role(language_label, ThemeColor::Muted),
+    ];
+    let mut part = |text: String, role: ThemeColor| {
+        parts.push(Inline::role(crate::glyphs::SEP, ThemeColor::Dim));
+        parts.push(Inline::role(text, role));
     };
-
-    let mut parts: Vec<Line> = Vec::new();
-    let mut marker = marker;
-    marker.push(Span::raw(" "));
-    marker.push(Span::styled(language_label, muted));
-    parts.push(marker);
     if let Some(bash) = dominant {
         let preview = preview_bash_command(&bash.first);
         if !preview.text.is_empty() {
-            parts.push(vec![Span::styled(preview.text, dim)]);
+            part(preview.text, ThemeColor::Dim);
         }
         if bash.count > 1 {
-            parts.push(vec![Span::styled(format!("+{} more", bash.count - 1), dim)]);
+            part(format!("+{} more", bash.count - 1), ThemeColor::Dim);
         }
     } else if !preview.text.is_empty() {
-        parts.push(vec![Span::styled(preview.text, dim)]);
+        part(preview.text, ThemeColor::Dim);
     } else if !card.started {
-        parts.push(vec![Span::styled("waiting for code".to_string(), dim)]);
+        part("waiting for code".to_string(), ThemeColor::Dim);
     }
     if let Some(counts) = line_counts(card, details, code) {
-        parts.push(vec![Span::styled(counts, dim)]);
+        part(counts, ThemeColor::Dim);
     }
     if let Some(duration) = details.duration_ms {
         let label = if background.is_some() {
@@ -213,7 +167,7 @@ fn collapsed_line(
         } else {
             format_duration(duration)
         };
-        parts.push(vec![Span::styled(label, dim)]);
+        part(label, ThemeColor::Dim);
     }
     if !card.result_partial {
         let error_name = details
@@ -222,23 +176,18 @@ fn collapsed_line(
             .map(|e| e.ename.clone())
             .or_else(|| details.error_ename.clone());
         if let Some(ename) = error_name {
-            parts.push(vec![Span::styled(ename, error)]);
+            part(ename, ThemeColor::Error);
         }
     }
     if let Some(exit_code) = background.and_then(|shell| shell.exit_code) {
         if exit_code != 0 {
-            parts.push(vec![Span::styled(format!("exit {exit_code}"), error)]);
+            part(format!("exit {exit_code}"), ThemeColor::Error);
         }
     }
-
-    let mut row: Line = vec![Span::raw(" ")];
-    for (index, part) in parts.iter().enumerate() {
-        if index > 0 {
-            row.push(Span::styled(crate::glyphs::SEP.to_string(), dim));
-        }
-        row.extend(part.iter().cloned());
+    Element::Inset {
+        left: 1,
+        child: Box::new(Element::text(Fit::Keep, parts)),
     }
-    truncate_line(&row, width, "")
 }
 
 /// A cell renders as bash when its executed `bash()` lines are at least
@@ -321,60 +270,46 @@ fn is_magic_line(statement: &str) -> bool {
 /// The expanded source rows (TS `renderCode`): the first line guttered
 /// `BRANCH`, continuation lines indented; bash cells and magic
 /// lines render in bashMode, python lines syntax highlighted.
-fn render_code(lines: &mut RowOutput, code: &str, theme: &Theme, width: usize) -> bool {
+fn render_code(rows: &mut Vec<Element>, code: &str, theme: &Theme) -> bool {
+    let branch = || vec![Inline::role(crate::glyphs::BRANCH, ThemeColor::Dim)];
     if code.is_empty() {
-        add_wrapped(
-            lines,
-            &vec![Span::styled(
-                crate::glyphs::BRANCH.to_string(),
-                theme.fg_style(ThemeColor::Dim),
-            )],
-            &vec![Span::styled(
-                "waiting for code".to_string(),
-                theme.fg_style(ThemeColor::Muted),
-            )],
-            width,
-        );
+        rows.push(wrapped(
+            branch(),
+            vec![Inline::role("waiting for code", ThemeColor::Muted)],
+        ));
         return false;
     }
     let is_bash_cell = parse_ipython_bash_cell(code).is_some();
-    let raw_lines: Vec<&str> = code.split('\n').collect();
-    let highlighted = if is_bash_cell {
+    let mut highlighted = if is_bash_cell {
         Vec::new()
     } else {
         highlight::highlight_python(code, &highlight::SyntaxPalette::from_theme(theme))
-    };
+    }
+    .into_iter();
     let statements = python_statement_lines(code);
-    for (index, raw_line) in raw_lines.iter().enumerate() {
-        let prefix: Line = if index == 0 {
-            vec![Span::styled(
-                crate::glyphs::BRANCH.to_string(),
-                theme.fg_style(ThemeColor::Dim),
-            )]
+    for (index, raw_line) in code.split('\n').enumerate() {
+        let gutter = if index == 0 {
+            branch()
         } else {
-            vec![Span::raw(OUTPUT_INDENT)]
+            vec![Inline::plain(OUTPUT_INDENT)]
         };
-        let statement = statements.get(index).cloned().unwrap_or_default();
-        let magic = is_magic_line(&statement) || parse_ipython_bash_cell(&statement).is_some();
-        let body: Line = if is_bash_cell || magic {
-            vec![Span::styled(
-                (*raw_line).to_string(),
-                theme.fg_style(ThemeColor::BashMode),
-            )]
+        let highlighted_line = highlighted.next();
+        let statement = statements.get(index).map_or("", String::as_str);
+        let magic = is_magic_line(statement) || parse_ipython_bash_cell(statement).is_some();
+        let body: Vec<Inline> = if is_bash_cell || magic {
+            vec![Inline::role(raw_line, ThemeColor::BashMode)]
         } else {
-            highlighted.get(index).cloned().unwrap_or_else(|| {
-                vec![Span::styled(
-                    (*raw_line).to_string(),
-                    theme.fg_style(ThemeColor::MdCodeBlock),
-                )]
-            })
+            highlighted_line.map_or_else(
+                || vec![Inline::role(raw_line, ThemeColor::MdCodeBlock)],
+                |line| line.into_iter().map(Inline::from).collect(),
+            )
         };
         let body = if body.is_empty() {
-            vec![Span::raw(" ")]
+            vec![Inline::plain(" ")]
         } else {
             body
         };
-        add_wrapped(lines, &prefix, &body, width);
+        rows.push(wrapped(gutter, body));
     }
     true
 }
@@ -384,7 +319,7 @@ fn render_code(lines: &mut RowOutput, code: &str, theme: &Theme, width: usize) -
 /// in the expanded view. The summary carries no body preview (the TS
 /// sent rows are the receipt summary alone).
 fn render_sent_agent_messages(
-    lines: &mut RowOutput,
+    rows: &mut Vec<Element>,
     details: &IpythonDetails,
     expanded: bool,
     theme: &Theme,
@@ -395,7 +330,7 @@ fn render_sent_agent_messages(
             continue;
         };
         if expanded {
-            lines.blank();
+            rows.push(Element::blank());
         }
         let direction = if sent.delivered {
             AgentMessageDirection::Sent
@@ -409,45 +344,30 @@ fn render_sent_agent_messages(
             &sent.counterpart,
             theme,
         );
-        let mut row: Line = vec![Span::raw(" ")];
-        row.extend(truncate_line(
-            &summary,
-            width.saturating_sub(1).max(1),
-            crate::glyphs::ELLIPSIS,
-        ));
-        lines.push(row);
+        rows.push(Element::Inset {
+            left: 1,
+            child: Box::new(Element::text(
+                Fit::Ellipsis,
+                summary.into_iter().map(Inline::from).collect(),
+            )),
+        });
         if expanded {
-            for row in
+            rows.extend(
                 crate::custom_message::render::agent_message_body(&sent.message, theme, width)
-            {
-                lines.push(row);
-            }
+                    .into_iter()
+                    .map(Element::line),
+            );
         }
     }
 }
 
 /// One indented card row (TS `addWrapped`): the first wrapped row carries
-/// `prefix`, continuation rows the matching indent; each row is truncated
-/// to the width so a narrow pane cannot overflow.
-fn add_wrapped(lines: &mut RowOutput, prefix: &Line, body: &Line, width: usize) {
-    let prefix_width: usize = prefix.iter().map(|s| str_width(&s.content)).sum();
-    let available = width.saturating_sub(1 + prefix_width).max(1);
-    let wrapped = wrap_line(body, available);
-    let mut rows: Vec<Line> = Vec::new();
-    if wrapped.is_empty() {
-        rows.push(Vec::new());
-    } else {
-        rows.extend(wrapped);
-    }
-    for (index, mut row) in rows.into_iter().enumerate() {
-        let mut line: Line = vec![Span::raw(" ")];
-        if index == 0 {
-            line.extend(prefix.iter().cloned());
-        } else {
-            line.push(Span::raw(" ".repeat(prefix_width)));
-        }
-        line.append(&mut row);
-        lines.push(truncate_line(&line, width, ""));
+/// `gutter`, continuation rows the matching indent, all after a one-space
+/// margin; each row is cut at the width so a narrow pane cannot overflow.
+fn wrapped(gutter: Vec<Inline>, body: Vec<Inline>) -> Element {
+    Element::Inset {
+        left: 1,
+        child: Box::new(Element::Row { gutter, body }),
     }
 }
 

@@ -11,15 +11,19 @@ use crate::editor::Editor;
 use crate::session::TranscriptItem;
 use crate::theme::Theme;
 
+#[cfg(test)]
+mod bridge;
 pub(crate) mod editor_surface;
 mod frame;
 mod layout;
+pub(crate) mod ledger;
 mod panels;
 mod rows;
+pub(crate) mod stack;
 mod streaming;
 mod viewport;
 
-pub use frame::ChatFrame;
+pub use frame::{ChatFrame, FrameStart, TranscriptBreak};
 pub use viewport::{ScrollAmount, ScrollRequest};
 
 pub struct AgentView {
@@ -140,16 +144,24 @@ pub struct AgentView {
     terminal_rows: u16,
     /// Cursor cell within the last dock render: (dock row, column).
     dock_cursor: Option<(usize, usize)>,
-    /// Entries `[0, committed)` are in scrollback (history). Only a
-    /// replay rewrites them.
-    committed: usize,
-    /// The shape the scrollback was rendered at; `None` before the first
-    /// frame. A frame at a different shape replays the history.
-    history_shape: Option<frame::HistoryShape>,
-    /// A change reached rows already in scrollback (a committed entry
-    /// mutated or left, the transcript was rebuilt): the next frame
-    /// clears the screen and replays the history.
-    replay_requested: bool,
+    /// Each chat entry's state on the inline terminal: active, final, or
+    /// committed (in scrollback). Committed rows are never written again.
+    ledger: ledger::Ledger,
+    /// What the inline terminal holds of this transcript: nothing yet,
+    /// a replaced transcript's rows, or this one's.
+    scrollback: frame::Scrollback,
+    /// The shape the fullscreen window's cached rows were rendered at;
+    /// `None` before the first fullscreen frame.
+    fullscreen_shape: Option<frame::RenderShape>,
+    /// The pace of each assistant entry seen streaming and not yet in
+    /// scrollback: the characters of its text that arrived and that
+    /// show (`crate::pace`).
+    paces: std::collections::HashMap<usize, crate::pace::Pace>,
+    /// The detail level the paces last counted at: a change shows or
+    /// hides thinking, and the paces recount (`advance_paces`).
+    pace_detail: Detail,
+    /// How fast a frame reveals streamed text (`terminal.streamPace`).
+    pub pace_rate: crate::pace::PaceRate,
     /// Per-streaming-assistant-entry render state (`streaming`): the
     /// markdown block cache (TS `Markdown.blockCache`, one per component
     /// instance) replays settled blocks while the final one grows, and
@@ -313,9 +325,12 @@ impl AgentView {
             quiet_startup: false,
             terminal_rows: 24,
             dock_cursor: None,
-            committed: 0,
-            history_shape: None,
-            replay_requested: false,
+            ledger: ledger::Ledger::default(),
+            scrollback: frame::Scrollback::Empty,
+            fullscreen_shape: None,
+            paces: std::collections::HashMap::new(),
+            pace_detail: Detail::Overview,
+            pace_rate: crate::pace::PaceRate::DEFAULT,
             md_caches: std::cell::RefCell::new(std::collections::HashMap::new()),
             toasts: crate::toast::Toasts::default(),
             screen_mode: crate::screen_mode::ScreenMode::Inline,
@@ -347,11 +362,13 @@ impl AgentView {
     /// failed attempt's error row leaves the chat when its retry replaces
     /// it -- SANCTIONED DIVERGENCE from TS, operator ruling 2026-09-23).
     /// The settled predicate keeps such a row live, so the pop never
-    /// reaches scrollback in practice; if it does, the history replays.
+    /// reaches scrollback in practice; if it does, the scrollback keeps
+    /// the row as written.
     pub fn pop_chat_entry(&mut self) -> Option<ChatEntry> {
         let index = self.chat.len().checked_sub(1)?;
-        self.mark_entry_stale(index);
-        self.committed = self.committed.min(index);
+        self.ledger.truncate(index);
+        self.paces.remove(&index);
+        self.viewport.forget_from(index);
         self.md_caches.borrow_mut().remove(&index);
         self.chat.pop()
     }
@@ -470,13 +487,24 @@ impl AgentView {
     }
 
     /// Drop the whole transcript (a fresh snapshot rebuild re-renders
-    /// every row). A transcript already in scrollback replays: the next
-    /// frame clears the screen and writes the rebuilt one.
-    pub fn clear_chat(&mut self) {
-        if self.committed > 0 {
-            self.replay_requested = true;
+    /// every row). The rebuilt chat is a new transcript (`why` says
+    /// which). The scrollback keeps the old one as written: when it has
+    /// entries there, the next frame writes one separator row naming the
+    /// break, and the new transcript commits below it. A scrollback that
+    /// holds only the splash (the opening frame before the session
+    /// attached) gets no separator.
+    pub fn clear_chat(&mut self, why: frame::TranscriptBreak) {
+        let replaced = match self.scrollback {
+            frame::Scrollback::Replaced(_) => true,
+            frame::Scrollback::Empty | frame::Scrollback::Written => self.ledger.committed() > 0,
+        };
+        if replaced {
+            self.scrollback = frame::Scrollback::Replaced(why);
         }
-        self.committed = 0;
+        self.ledger = ledger::Ledger::default();
+        self.paces.clear();
+        self.viewport.forget_from(0);
+        self.viewport.stale = true;
         self.chat.clear();
         self.md_caches.borrow_mut().clear();
         // A rebuilt transcript has no pending hold (TS
@@ -485,26 +513,33 @@ impl AgentView {
     }
 
     /// Note that one chat entry's content changed (streamed blocks,
-    /// tool-card state, an attached error row). An entry still live
-    /// re-renders with the next frame anyway; an entry already in
-    /// scrollback makes the next frame replay the history.
+    /// tool-card state, an attached error row). An active entry takes the
+    /// change with the next frame. A committed entry keeps the rows it
+    /// has in scrollback: the inline terminal does not show the change
+    /// (the fullscreen window renders the entry again).
     pub fn mark_entry_stale(&mut self, index: usize) {
-        if index < self.committed {
-            self.replay_requested = true;
-        }
+        self.ledger.grow(index, 1);
+        self.viewport.forget(index);
     }
 
-    /// The terminal changed size: its scrollback reflowed, so the next
-    /// frame clears it and replays the history at the new size.
-    pub fn request_replay(&mut self) {
-        if self.history_shape.is_some() {
-            self.replay_requested = true;
-        }
+    /// The terminal changed size. The inline scrollback stays as it is
+    /// (the inline terminal redraws only its live area); the fullscreen
+    /// window paints again in full with the next frame.
+    pub fn note_resize(&mut self) {
+        self.viewport.stale = true;
+    }
+
+    /// Whether streamed text still waits to show: the frame loop keeps
+    /// drawing frames until it is all on screen.
+    #[must_use]
+    pub fn is_pacing(&self) -> bool {
+        self.paces.values().any(|pace| !pace.drained())
     }
 
     /// The Ctrl+O cycle (`app.tools.expand`, TS
     /// `toggleToolOutputExpansion` + `applyChatExpansion`): step the
-    /// conversation level. The next frame replays the history at it.
+    /// conversation level. The live area and the rows committed from now
+    /// on use it; the scrollback keeps its rows.
     pub(crate) fn cycle_detail(&mut self) {
         self.detail = self.detail.next();
     }
@@ -590,6 +625,8 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
     }
 }
 
+#[cfg(test)]
+mod screen_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

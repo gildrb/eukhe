@@ -79,22 +79,24 @@ fn the_painted_frame_is_ascii_for_ascii_session_data() {
     // The selection at the top shows the running rows and the trailing
     // more row; at the bottom, the leading more row and the last row.
     let mut out: Vec<u8> = Vec::new();
-    let mut term = crate::inline_term::InlineTerminal::new(40);
+    let mut term = crate::inline_term::InlineTerminal::new(80, 40);
     let mut text = String::new();
     for selected in [0, mode.rows.len() - 1] {
         mode.selected = selected;
         let (lines, cursor) = mode.render_frame(80, 40);
         text.push_str(&render::frame_text(&lines));
         text.push('\n');
-        term.paint(
-            &mut out,
-            crate::inline_term::InlineFrame {
-                history: &[],
-                live: &lines,
-                cursor: cursor.map(|(row, col)| crate::inline_term::LiveCursor { row, col }),
-            },
-        )
-        .expect("paint");
+        let painted = term
+            .paint(
+                &mut out,
+                crate::inline_term::InlineFrame {
+                    history: &[],
+                    live: &lines,
+                    cursor: cursor.map(|(row, col)| crate::inline_term::LiveCursor { row, col }),
+                },
+            )
+            .expect("paint");
+        assert_eq!(painted, crate::inline_term::Painted::Drawn);
     }
     for needle in [
         "< back - root agent > subagents",

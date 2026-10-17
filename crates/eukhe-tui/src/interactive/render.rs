@@ -273,8 +273,9 @@ impl Renderer {
                 // until the first frame, which also sets the screen up for
                 // the view's mode (a fullscreen handoff keeps the previous
                 // surface on screen until then).
+                let (width, height) = terminal::size()?;
                 Ok(Renderer::Terminal {
-                    term: crate::inline_term::InlineTerminal::new(terminal::size()?.1),
+                    term: crate::inline_term::InlineTerminal::new(width, height),
                     shown: None,
                     ui_tx,
                     exit_guard,
@@ -403,7 +404,8 @@ impl Renderer {
                 // lock for its 2s budget and must not run on the resume
                 // path).
                 crate::enhanced_keys::enable(&mut std::io::stdout())?;
-                *term = crate::inline_term::InlineTerminal::new(terminal::size()?.1);
+                let (width, height) = terminal::size()?;
+                *term = crate::inline_term::InlineTerminal::new(width, height);
                 Ok(())
             }
             Renderer::Headless { .. } => Ok(()),
@@ -428,7 +430,7 @@ impl Renderer {
         let mut paint = crate::app::Paint::Changed;
         if *shown != Some(mode) {
             let mut out = std::io::stdout().lock();
-            let height = terminal::size()?.1;
+            let (width, height) = terminal::size()?;
             match mode {
                 ScreenMode::Fullscreen => {
                     if *shown == Some(ScreenMode::Inline) {
@@ -439,11 +441,12 @@ impl Renderer {
                 }
                 ScreenMode::Inline => {
                     // Back on the normal screen at the line the inline
-                    // live area started on: the history replays, since
-                    // entries settled while the alternate screen was up.
+                    // live area started on. Its scrollback is as the
+                    // inline frames left it: the entries that settled
+                    // while the alternate screen was up commit with the
+                    // next frame, below it.
                     if crate::screen_mode::leave_alt_screen(&mut out) {
-                        *term = crate::inline_term::InlineTerminal::new(height);
-                        view.request_replay();
+                        *term = crate::inline_term::InlineTerminal::new(width, height);
                     }
                 }
             }
@@ -473,9 +476,6 @@ impl Renderer {
         let text = match view.screen_mode {
             ScreenMode::Inline => {
                 let frame = view.compose(width, height);
-                if frame.replay {
-                    history.clear();
-                }
                 history.extend(frame.history.iter().map(crate::app::plain_row));
                 let mut text = history.join("\n");
                 for row in &frame.live {
@@ -598,8 +598,9 @@ pub(super) fn print_transcript(
     out: &mut impl std::io::Write,
 ) -> std::io::Result<()> {
     let rows = view.render_history(usize::from(width));
-    let mut term = crate::inline_term::InlineTerminal::new(height);
-    term.paint(
+    let mut term = crate::inline_term::InlineTerminal::new(width, height);
+    // A rejected frame is kept for `take_rejection`; the exit goes on.
+    let _painted = term.paint(
         out,
         crate::inline_term::InlineFrame {
             history: &rows,

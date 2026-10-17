@@ -146,6 +146,54 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     drop(supervisor);
 }
 
+/// Regression: the headless exit gate held for every pending member but
+/// the stream pace (S8 pacing: when the stream ends, the frames go on
+/// until all the text shows, then the message settles). A fast producer
+/// leaves a backlog behind the pace when its stream ends; the run ended
+/// right after the `WaitIdle` released, one or two frames in, and the
+/// captured transcript stopped mid-reply.
+#[tokio::test]
+async fn tui_headless_run_ends_only_after_the_paced_reply_shows_whole() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let session_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&session_dir).expect("session dir");
+    let supervisor = spawn_supervisor(dir.path());
+    // ~24k characters (~6k tokens) streamed at 20k tokens/second: the
+    // message streams (so it is paced) for ~0.3s, far faster than the
+    // pace shows it, so thousands of characters are backlog at the
+    // stream's end and the drain takes dozens of frames.
+    let reply = format!("PACE-HEAD {}PACE-TAIL shown", "paced ".repeat(4_000));
+    let script = serde_json::json!({
+        "engine": "faux",
+        "tokensPerSecond": 20_000,
+        "responses": [{ "text": reply.clone() }],
+    });
+    std::fs::write(dir.path().join("script.json"), script.to_string()).expect("write script");
+    let plan = eukhe_tui::interactive::HeadlessPlan {
+        steps: vec![
+            eukhe_tui::interactive::HeadlessStep::Submit("go".to_string()),
+            eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
+        ],
+        width: 100,
+        height: 30,
+    };
+    let outcome = run_headless_bounded(base_options(&supervisor, dir.path(), &session_dir), plan)
+        .await
+        .expect("interactive run");
+    assert_eq!(outcome.last_assistant_text.as_deref(), Some(reply.as_str()));
+    let last = outcome.frames.last().expect("the settled frame");
+    assert!(
+        last.contains("PACE-TAIL shown"),
+        "the run ended with the paced reply's tail on screen:\n{last}"
+    );
+    assert!(
+        last.contains("PACE-HEAD") && last.matches("paced").count() == 4_000,
+        "the paced reply settled whole into the transcript:\n{last}"
+    );
+    drop(supervisor);
+}
+
 /// User-keybinding verifier (TS `keybindings.json` parity, roadmap item
 /// "keybinding customization"): a settings fixture rebinding
 /// `app.tools.expand` from `ctrl+o` to `ctrl+alt+x` drives the whole

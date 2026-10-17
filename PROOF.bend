@@ -28,6 +28,7 @@ import ./bend/proof_director.bend as Directors
 import ./bend/proof_infer.bend as Infer
 import ./bend/proof_quirks.bend as Quirks
 import ./bend/proof_tools.bend as Tools
+import ./bend/proof_screen.bend as Screen
 
 # (a) The view
 
@@ -530,3 +531,38 @@ def Laws.gate_deny_stops(pre, s, post, auto, ans, free, held):
 
 def Laws.gate_finish_runs_all(ss, auto, ans, fin):
   Tools.pl.gate_finish_runs_all(ss, auto, ans, fin)
+
+# (S8) The interface
+
+def Laws.tx_gapless(es, w):
+  Screen.ps.tx_gapless(es, w)
+
+def Laws.tx_scrollback_append_only(pre, post, w):
+  Screen.ps.tx_scrollback_append_only(pre, post, w)
+
+def Laws.tx_resize_keeps(t, w):
+  Screen.ps.tx_resize_keeps(t, w)
+
+def Laws.tx_flush_settles(t):
+  Screen.ps.tx_flush_settles(t)
+
+def Laws.pace_never_ahead(es, min, k):
+  Screen.ps.pace_never_ahead(es, min, k)
+
+def Laws.pace_never_back(min, k, p, e):
+  Screen.ps.pace_never_back(min, k, p, e)
+
+def Laws.pace_drains(min, k, p, n, one, behind, enough):
+  Screen.ps.pace_drains(min, k, p, n, one, behind, enough)
+
+def Laws.verify_only_checked(f, g, ok1, ok2):
+  Screen.ps.verify_only_checked(f, g, ok1, ok2)
+
+def Laws.layout_inside(hs, y, rows):
+  Screen.ps.layout_inside(hs, y, rows)
+
+def Laws.layout_apart(hs, y, rows):
+  Screen.ps.layout_apart(hs, y, rows)
+
+def Laws.layout_whole_when_room(hs, y, rows, fits):
+  Screen.ps.layout_whole_when_room(hs, y, rows, fits)

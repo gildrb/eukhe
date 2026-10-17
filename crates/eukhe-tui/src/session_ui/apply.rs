@@ -198,7 +198,7 @@ impl SessionUi {
                 }
             });
         }
-        view.clear_chat();
+        view.clear_chat(crate::view::TranscriptBreak::Rebuild);
         for entry in entries {
             view.push_entry(entry);
         }
