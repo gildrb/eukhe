@@ -12,6 +12,18 @@ fn cfg(entries: &[(&str, &[&str])]) -> KeybindingsConfig {
         .collect()
 }
 
+/// A manager over an agent dir whose `binds.cfg` is `script`.
+fn with_binds_cfg(script: &str) -> (tempfile::TempDir, KeybindingsManager) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("binds.cfg"), script).unwrap();
+    let kb = KeybindingsManager::create(dir.path());
+    (dir, kb)
+}
+
+fn action(id: &str) -> Command {
+    Command::Action { id: id.to_string() }
+}
+
 #[test]
 fn defaults_match_ts() {
     let kb = KeybindingsManager::new();
@@ -24,19 +36,40 @@ fn defaults_match_ts() {
     assert!(!kb.matches("ctrl+o", "app.clear"));
 }
 
+/// The definitions sharing a default key share its bind: a press of the
+/// key runs every one of their actions (the screen picks its own); an
+/// unbound key runs nothing.
+#[test]
+fn shared_default_keys_run_every_action() {
+    let kb = KeybindingsManager::new();
+    assert_eq!(
+        kb.press("ctrl+o"),
+        Ok(vec![
+            action("app.tools.expand"),
+            action("app.agents.program"),
+            action("app.tree.filter.cycleForward"),
+        ])
+    );
+    assert_eq!(kb.press("f9"), Ok(Vec::new()));
+}
+
 #[test]
 fn user_rebind_supersedes_scope_default() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[("app.tools.expand", &["ctrl+e"])]));
+    let kb = KeybindingsManager::with_user_bindings(&cfg(&[("app.tools.expand", &["ctrl+e"])]));
     assert!(kb.matches("ctrl+e", "app.tools.expand"));
     // ctrl+e is also editor cursorLineEnd default in the same scope:
     // claimed => removed there.
     assert!(!kb.matches("ctrl+e", "tui.editor.cursorLineEnd"));
     assert!(kb.matches("end", "tui.editor.cursorLineEnd"));
+    // The rebound action leaves its default key; the key's other
+    // actions keep it.
+    assert!(!kb.matches("ctrl+o", "app.tools.expand"));
+    assert!(kb.matches("ctrl+o", "app.agents.program"));
 }
 
 #[test]
 fn keeps_shared_defaults_when_user_binding_repeats_own_default() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[(
+    let kb = KeybindingsManager::with_user_bindings(&cfg(&[(
         "tui.input.submit",
         &["enter", "ctrl+enter"],
     )]));
@@ -49,7 +82,7 @@ fn keeps_shared_defaults_when_user_binding_repeats_own_default() {
 
 #[test]
 fn keeps_shared_cursor_defaults_when_user_binding_repeats_own_default() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[("tui.select.up", &["up", "ctrl+p"])]));
+    let kb = KeybindingsManager::with_user_bindings(&cfg(&[("tui.select.up", &["up", "ctrl+p"])]));
     assert_eq!(
         kb.get_keys("tui.select.up"),
         vec!["up".to_string(), "ctrl+p".to_string()]
@@ -60,7 +93,7 @@ fn keeps_shared_cursor_defaults_when_user_binding_repeats_own_default() {
 #[test]
 fn evicts_defaults_claimed_as_added_user_binding() {
     let kb =
-        KeybindingsManager::with_user_bindings(cfg(&[("tui.editor.cursorUp", &["up", "ctrl+b"])]));
+        KeybindingsManager::with_user_bindings(&cfg(&[("tui.editor.cursorUp", &["up", "ctrl+b"])]));
     assert_eq!(
         kb.get_keys("tui.editor.cursorUp"),
         vec!["up".to_string(), "ctrl+b".to_string()]
@@ -72,85 +105,44 @@ fn evicts_defaults_claimed_as_added_user_binding() {
     );
 }
 
+/// Two legacy entries claiming one key both keep it: the imported bind
+/// runs both actions.
 #[test]
-fn reports_direct_user_binding_conflicts() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[
-        ("tui.input.submit", &["ctrl+x"]),
-        ("tui.select.confirm", &["ctrl+x"]),
-    ]));
-    // TS preserves the config's insertion order; the Rust config store
-    // is a BTreeMap, so the claimants list is deterministic by binding
-    // id ("tui.input.submit" sorts first, the TS config order too).
-    assert_eq!(
-        kb.get_conflicts(),
-        &[KeybindingConflict {
-            key: "ctrl+x".to_string(),
-            keybindings: vec![
-                "tui.input.submit".to_string(),
-                "tui.select.confirm".to_string(),
-            ],
-        }]
-    );
-    assert_eq!(
-        kb.get_keys("tui.editor.cursorLeft"),
-        vec!["left".to_string(), "ctrl+b".to_string()]
-    );
-}
-
-#[test]
-fn reports_conflicts_when_explicit_binding_restates_default() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[
+fn legacy_entries_sharing_a_key_share_its_bind() {
+    let kb = KeybindingsManager::with_user_bindings(&cfg(&[
         ("tui.editor.cursorUp", &["up", "ctrl+b"]),
         ("tui.editor.cursorLeft", &["left", "ctrl+b"]),
     ]));
     assert_eq!(
-        kb.get_conflicts(),
-        &[KeybindingConflict {
-            key: "ctrl+b".to_string(),
-            keybindings: vec![
-                "tui.editor.cursorLeft".to_string(),
-                "tui.editor.cursorUp".to_string(),
-            ],
-        }]
-    );
-    assert_eq!(
-        kb.get_keys("tui.editor.cursorUp"),
-        vec!["up".to_string(), "ctrl+b".to_string()]
+        kb.press("ctrl+b"),
+        Ok(vec![
+            action("tui.editor.cursorUp"),
+            action("tui.editor.cursorLeft"),
+        ])
     );
     assert_eq!(
         kb.get_keys("tui.editor.cursorLeft"),
         vec!["left".to_string(), "ctrl+b".to_string()]
-    );
-}
-
-#[test]
-fn dedupes_user_binding_keys() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[(
-        "tui.input.submit",
-        &["enter", "enter", "ctrl+enter"],
-    )]));
-    assert_eq!(
-        kb.get_keys("tui.input.submit"),
-        vec!["enter".to_string(), "ctrl+enter".to_string()]
     );
 }
 
 #[test]
 fn empty_user_array_disables_binding() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[("app.tools.expand", &[])]));
+    let kb = KeybindingsManager::with_user_bindings(&cfg(&[("app.tools.expand", &[])]));
     assert!(kb.get_keys("app.tools.expand").is_empty());
     assert!(!kb.matches("ctrl+o", "app.tools.expand"));
+    // The other actions of ctrl+o keep it.
+    assert!(kb.matches("ctrl+o", "app.agents.program"));
 }
 
 #[test]
-fn unknown_user_ids_stay_but_never_resolve() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[("not.a.binding", &["ctrl+q"])]));
+fn unknown_user_ids_bind_nothing() {
     assert_eq!(
-        kb.get_user_bindings().get("not.a.binding").unwrap(),
-        &["ctrl+q".to_string()]
+        legacy_binds(&cfg(&[("not.a.binding", &["ctrl+q"])])),
+        Vec::new()
     );
+    let kb = KeybindingsManager::with_user_bindings(&cfg(&[("not.a.binding", &["ctrl+q"])]));
     assert!(kb.get_keys("not.a.binding").is_empty());
-    // The unknown claim frees nothing (no definition owns it).
     assert_eq!(
         kb.get_keys("tui.editor.cursorLineStart"),
         vec![
@@ -182,7 +174,7 @@ fn editor_keybind_parity_defaults_resolve() {
     assert!(kb.matches("super+home", "tui.editor.cursorDocStart"));
     assert!(kb.matches("super+end", "tui.editor.cursorDocEnd"));
     // A user rebind replaces the default set.
-    let rebound = KeybindingsManager::with_user_bindings(cfg(&[("tui.editor.redo", &["ctrl+r"])]));
+    let rebound = KeybindingsManager::with_user_bindings(&cfg(&[("tui.editor.redo", &["ctrl+r"])]));
     assert!(rebound.matches("ctrl+r", "tui.editor.redo"));
     assert!(!rebound.matches("ctrl+shift+z", "tui.editor.redo"));
 }
@@ -213,8 +205,7 @@ fn list_edge_jump_defaults_resolve() {
 /// The heartbeats shortcut is gone (the operator's 2026-09-24
 /// directive: "Remove the shortcut of ctrl+r for heartbeats btw"):
 /// ctrl+r binds nothing by default (the /heartbeats command and the
-/// activity dock's heartbeats group own the open paths), and the
-/// rebind-freeing test no longer keeps an app-scope claim for it.
+/// activity dock's heartbeats group own the open paths).
 #[test]
 fn ctrl_r_is_unbound_by_default() {
     let kb = KeybindingsManager::new();
@@ -224,7 +215,7 @@ fn ctrl_r_is_unbound_by_default() {
 
 #[test]
 fn matching_is_case_and_order_insensitive() {
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[("app.tools.expand", &["Ctrl+O"])]));
+    let kb = KeybindingsManager::with_user_bindings(&cfg(&[("app.tools.expand", &["Ctrl+O"])]));
     assert!(kb.matches("ctrl+o", "app.tools.expand"));
     // A ctrl+shift binding matches the event id with shift first.
     assert!(kb.matches("shift+ctrl+z", "tui.editor.redo"));
@@ -234,6 +225,14 @@ fn matching_is_case_and_order_insensitive() {
     // An empty or trailing-modifier id never matches.
     assert!(!kb.matches("", "app.tools.expand"));
     assert!(!kb.matches("ctrl+", "app.tools.expand"));
+    // A binds.cfg key is normalized the same way before binding; the
+    // hint keeps its spelling.
+    let (_dir, kb) = with_binds_cfg("bind Shift+Ctrl+Q \"action app.clear\"\n");
+    assert!(kb.matches("ctrl+shift+q", "app.clear"));
+    assert_eq!(
+        kb.get_keys("app.clear"),
+        vec!["ctrl+c".to_string(), "Shift+Ctrl+Q".to_string()]
+    );
 }
 
 #[test]
@@ -245,30 +244,20 @@ fn migrate_renames_legacy_ids_and_orders() {
         "app.message.dequeue".to_string(),
         serde_json::json!("alt+u"),
     );
-    let (config, migrated) = migrate_keybindings_config(&raw);
-    assert!(migrated);
-    // Definition order first (the ordered config carries it).
-    let keys: Vec<&str> = config.iter().map(|(key, _)| key.as_str()).collect();
     assert_eq!(
-        keys,
-        [
-            "tui.editor.cursorUp",
-            "app.tools.expand",
-            "app.message.navigateOlder",
+        migrate_keybindings_config(&raw),
+        vec![
+            (
+                "tui.editor.cursorUp".to_string(),
+                serde_json::json!(["up", "ctrl+p"])
+            ),
+            ("app.tools.expand".to_string(), serde_json::json!("ctrl+x")),
+            (
+                "app.message.navigateOlder".to_string(),
+                serde_json::json!("alt+u")
+            ),
         ]
     );
-    let by_id = |id: &str| {
-        config
-            .iter()
-            .find(|(key, _)| key == id)
-            .map(|(_, value)| value.clone())
-            .unwrap()
-    };
-    assert_eq!(
-        by_id("tui.editor.cursorUp"),
-        serde_json::json!(["up", "ctrl+p"])
-    );
-    assert_eq!(by_id("app.tools.expand"), serde_json::json!("ctrl+x"));
 }
 
 #[test]
@@ -276,94 +265,47 @@ fn migrate_keeps_current_name_when_both_exist() {
     let mut raw = serde_json::Map::new();
     raw.insert("expandTools".to_string(), serde_json::json!("ctrl+x"));
     raw.insert("app.tools.expand".to_string(), serde_json::json!("ctrl+y"));
-    let (config, migrated) = migrate_keybindings_config(&raw);
-    assert!(migrated);
     assert_eq!(
-        config,
+        migrate_keybindings_config(&raw),
         vec![("app.tools.expand".to_string(), serde_json::json!("ctrl+y"))]
     );
 }
 
+/// The one-time import: with no `binds.cfg`, the legacy
+/// `keybindings.json` (legacy names migrated, malformed values dropped)
+/// is written as `binds.cfg`, and the JSON file stays in place.
 #[test]
-fn load_migrates_legacy_names_in_memory() {
+fn imports_keybindings_json_into_binds_cfg() {
     let dir = tempfile::tempdir().unwrap();
-    let mut raw = serde_json::Map::new();
-    raw.insert("selectConfirm".to_string(), serde_json::json!("enter"));
-    raw.insert("interrupt".to_string(), serde_json::json!("ctrl+x"));
-    std::fs::write(
-        dir.path().join("keybindings.json"),
-        serde_json::to_string(&serde_json::Value::Object(raw)).unwrap(),
-    )
-    .unwrap();
+    let legacy = r#"{
+  "cursorUp": ["up", "ctrl+b"],
+  "app.tools.expand": [],
+  "app.subagents.focus": "alt+g",
+  "app.model.select": 5
+}"#;
+    std::fs::write(dir.path().join("keybindings.json"), legacy).unwrap();
     let kb = KeybindingsManager::create(dir.path());
     assert_eq!(
-        kb.get_user_bindings()["tui.select.confirm"],
-        vec!["enter".to_string()]
+        std::fs::read_to_string(dir.path().join("binds.cfg")).unwrap(),
+        "# Key binds, imported from keybindings.json.\n\
+         bind alt+g \"action app.subagents.focus\"\n\
+         bind ctrl+b \"action tui.editor.cursorUp\"\n\
+         bind ctrl+o \"action app.agents.program; action app.tree.filter.cycleForward\"\n\
+         bind alt+a \"\"\n"
     );
     assert_eq!(
-        kb.get_user_bindings()["app.interrupt"],
-        vec!["ctrl+x".to_string()]
+        std::fs::read_to_string(dir.path().join("keybindings.json")).unwrap(),
+        legacy
     );
-    assert!(kb.matches("enter", "tui.select.confirm"));
-    assert!(kb.matches("ctrl+x", "app.interrupt"));
+    assert!(kb.matches("alt+g", "app.subagents.focus"));
+    assert!(!kb.matches("alt+a", "app.subagents.focus"));
+    assert!(kb.matches("ctrl+l", "app.model.select"));
 }
 
+/// Once `binds.cfg` exists it is the only source: a changed
+/// `keybindings.json` is never imported again.
 #[test]
-fn load_drops_malformed_values() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("keybindings.json"),
-        r#"{
-  "app.tools.expand": ["ctrl+o", "alt+o"],
-  "app.model.select": 5,
-  "app.exit": ["ctrl+d", 3],
-  "tui.input.submit": "enter",
-  "app.interrupt": []
-}"#,
-    )
-    .unwrap();
-    let kb = KeybindingsManager::create(dir.path());
-    // Well-formed single + array values load.
-    assert_eq!(
-        kb.get_user_bindings()["tui.input.submit"],
-        vec!["enter".to_string()]
-    );
-    assert_eq!(
-        kb.get_user_bindings()["app.tools.expand"],
-        vec!["ctrl+o".to_string(), "alt+o".to_string()]
-    );
-    // A number and a mixed array drop.
-    assert!(!kb.get_user_bindings().contains_key("app.model.select"));
-    assert!(!kb.get_user_bindings().contains_key("app.exit"));
-    // An empty array is a binding disable, not malformed.
-    assert!(kb.get_user_bindings().contains_key("app.interrupt"));
-    assert!(kb.get_keys("app.interrupt").is_empty());
-}
-
-#[test]
-fn missing_or_malformed_file_loads_defaults() {
-    let empty = tempfile::tempdir().unwrap();
-    let kb = KeybindingsManager::create(empty.path());
-    assert!(kb.get_user_bindings().is_empty());
-    assert!(kb.matches("ctrl+o", "app.tools.expand"));
-
-    let malformed = tempfile::tempdir().unwrap();
-    std::fs::write(malformed.path().join("keybindings.json"), "not json").unwrap();
-    let kb = KeybindingsManager::create(malformed.path());
-    assert!(kb.get_user_bindings().is_empty());
-
-    let array = tempfile::tempdir().unwrap();
-    std::fs::write(
-        array.path().join("keybindings.json"),
-        r#"["app.tools.expand"]"#,
-    )
-    .unwrap();
-    let kb = KeybindingsManager::create(array.path());
-    assert!(kb.get_user_bindings().is_empty());
-}
-
-#[test]
-fn reload_picks_up_file_changes() {
+fn never_reimports_once_binds_cfg_exists() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("keybindings.json"),
@@ -372,10 +314,88 @@ fn reload_picks_up_file_changes() {
     .unwrap();
     let mut kb = KeybindingsManager::create(dir.path());
     assert!(kb.matches("ctrl+e", "app.tools.expand"));
-    assert!(!kb.matches("ctrl+o", "app.tools.expand"));
     std::fs::write(
         dir.path().join("keybindings.json"),
         r#"{"app.tools.expand": "ctrl+t"}"#,
+    )
+    .unwrap();
+    kb.reload();
+    assert!(kb.matches("ctrl+e", "app.tools.expand"));
+    assert!(!kb.matches("ctrl+t", "app.tools.expand"));
+}
+
+#[test]
+fn missing_or_malformed_legacy_file_loads_defaults() {
+    let empty = tempfile::tempdir().unwrap();
+    let kb = KeybindingsManager::create(empty.path());
+    assert!(kb.matches("ctrl+o", "app.tools.expand"));
+    assert!(!empty.path().join("binds.cfg").exists());
+
+    for legacy in ["not json", r#"["app.tools.expand"]"#] {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("keybindings.json"), legacy).unwrap();
+        let kb = KeybindingsManager::create(dir.path());
+        assert!(kb.matches("ctrl+o", "app.tools.expand"));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("binds.cfg")).unwrap(),
+            "# Key binds, imported from keybindings.json.\n"
+        );
+    }
+}
+
+/// Regression: a `binds.cfg` that exists but cannot be read (here: a
+/// directory) silently dropped every user bind, and a failed import write
+/// was discarded. Both are now warnings; the binds stay as before.
+#[cfg(unix)]
+#[test]
+fn unreadable_binds_cfg_and_failed_import_are_warnings() {
+    let dir = tempfile::tempdir().unwrap();
+    let binds = dir.path().join("binds.cfg");
+    std::fs::create_dir(&binds).unwrap();
+    std::fs::write(
+        dir.path().join("keybindings.json"),
+        r#"{"app.tools.expand": "ctrl+e"}"#,
+    )
+    .unwrap();
+    let kb = KeybindingsManager::create(dir.path());
+    assert!(!kb.matches("ctrl+e", "app.tools.expand"));
+    assert_eq!(
+        kb.warnings(),
+        [format!(
+            "{} could not be read (Is a directory (os error 21)): no user key bind applies",
+            binds.display()
+        )]
+    );
+
+    // A dangling symlink: absent to the read, present to the import's
+    // create-new write, which fails.
+    let dir = tempfile::tempdir().unwrap();
+    let binds = dir.path().join("binds.cfg");
+    std::os::unix::fs::symlink(dir.path().join("gone"), &binds).unwrap();
+    std::fs::write(
+        dir.path().join("keybindings.json"),
+        r#"{"app.tools.expand": "ctrl+e"}"#,
+    )
+    .unwrap();
+    let kb = KeybindingsManager::create(dir.path());
+    assert!(kb.matches("ctrl+e", "app.tools.expand"));
+    assert_eq!(
+        kb.warnings(),
+        [format!(
+            "the keybindings.json binds could not be written to {} (File exists (os error 17)): they apply to this run only",
+            binds.display()
+        )]
+    );
+}
+
+/// `/reload` re-reads `binds.cfg`.
+#[test]
+fn reload_picks_up_binds_cfg_changes() {
+    let (dir, mut kb) = with_binds_cfg("bind ctrl+e \"action app.tools.expand\"\n");
+    assert!(kb.matches("ctrl+e", "app.tools.expand"));
+    std::fs::write(
+        dir.path().join("binds.cfg"),
+        "bind ctrl+t \"action app.tools.expand\"\n",
     )
     .unwrap();
     kb.reload();
@@ -383,46 +403,82 @@ fn reload_picks_up_file_changes() {
     assert!(!kb.matches("ctrl+e", "app.tools.expand"));
 }
 
+/// The first bind of a key wins: a user bind shadows every default
+/// action of its key, and the actions keep their other keys.
 #[test]
-fn startup_migration_rewrites_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let config_path = dir.path().join("keybindings.json");
-    std::fs::write(
-        &config_path,
-        "{\n  \"cursorUp\": [\"up\", \"ctrl+p\"],\n  \"expandTools\": \"ctrl+x\"\n}\n",
-    )
-    .unwrap();
-    assert!(migrate_keybindings_file(dir.path()).unwrap());
-    let rewritten = std::fs::read_to_string(&config_path).unwrap();
-    assert_eq!(
-        rewritten,
-        "{\n  \"tui.editor.cursorUp\": [\n    \"up\",\n    \"ctrl+p\"\n  ],\n  \"app.tools.expand\": \"ctrl+x\"\n}\n"
+fn first_user_bind_wins_over_defaults() {
+    let (_dir, kb) = with_binds_cfg(
+        "bind ctrl+o \"action app.model.select\"\n\
+         bind ctrl+o \"action app.clear\"\n",
     );
-    // A second run is a no-op (nothing left to migrate).
-    assert!(!migrate_keybindings_file(dir.path()).unwrap());
-}
-
-#[test]
-fn startup_migration_skips_missing_file() {
-    let dir = tempfile::tempdir().unwrap();
-    assert!(!migrate_keybindings_file(dir.path()).unwrap());
-}
-
-#[test]
-fn editor_claims_free_app_defaults_in_editor_scope() {
-    // TS keybindings-migration.test: explicit editor bindings win over
-    // same-scope application defaults.
-    let kb = KeybindingsManager::with_user_bindings(cfg(&[
-        ("tui.editor.cursorUp", &["up", "ctrl+o"]),
-        ("tui.editor.cursorDown", &["down", "ctrl+n"]),
-    ]));
+    assert_eq!(kb.press("ctrl+o"), Ok(vec![action("app.model.select")]));
+    assert!(!kb.matches("ctrl+o", "app.tools.expand"));
+    assert!(!kb.matches("ctrl+o", "app.clear"));
     assert_eq!(
-        kb.get_keys("tui.editor.cursorUp"),
-        vec!["up".to_string(), "ctrl+o".to_string()]
+        kb.get_keys("app.model.select"),
+        vec!["ctrl+l".to_string(), "ctrl+o".to_string()]
     );
     assert!(kb.get_keys("app.tools.expand").is_empty());
-    // No scope => a claim never frees its default.
-    assert_eq!(kb.get_keys("app.agents.new"), vec!["ctrl+n".to_string()]);
+}
+
+#[test]
+fn empty_bind_disables_a_default() {
+    let (_dir, kb) = with_binds_cfg("bind ctrl+o \"\"\n");
+    assert_eq!(kb.press("ctrl+o"), Ok(Vec::new()));
+    assert!(!kb.matches("ctrl+o", "app.tools.expand"));
+    assert!(!kb.matches("ctrl+o", "app.agents.program"));
+    assert_eq!(kb.key_text("app.tools.expand"), "");
+}
+
+/// A press runs its bind's commands in order, the aliases of `binds.cfg`
+/// expanded: the cvar commands for the daemon and the action for the
+/// client.
+#[test]
+fn press_runs_set_and_action() {
+    let (_dir, kb) = with_binds_cfg(
+        "alias quiet \"set compaction.enabled false\"\n\
+         bind f5 \"quiet; toggle retry.enabled; action app.tools.expand\"\n",
+    );
+    assert_eq!(
+        kb.press("f5"),
+        Ok(vec![
+            Command::Set {
+                id: "compaction.enabled".to_string(),
+                value: "false".to_string(),
+            },
+            Command::Toggle {
+                id: "retry.enabled".to_string(),
+            },
+            action("app.tools.expand"),
+        ])
+    );
+    assert!(kb.matches("f5", "app.tools.expand"));
+}
+
+/// An alias cycle or an unknown alias is reported by the press, and the
+/// key runs nothing (not even the action before the bad run).
+#[test]
+fn press_reports_cycle_and_runs_nothing() {
+    let (_dir, kb) = with_binds_cfg(
+        "alias a \"action app.tools.expand; b\"\n\
+         alias b \"a\"\n\
+         bind f6 \"a\"\n\
+         bind f7 \"action app.tools.expand; missing\"\n",
+    );
+    assert_eq!(
+        kb.press("f6"),
+        Err(ExpandError::Cycle {
+            alias: "b".to_string()
+        })
+    );
+    assert!(!kb.matches("f6", "app.tools.expand"));
+    assert_eq!(
+        kb.press("f7"),
+        Err(ExpandError::Unknown {
+            alias: "missing".to_string()
+        })
+    );
+    assert!(!kb.matches("f7", "app.tools.expand"));
 }
 
 #[test]

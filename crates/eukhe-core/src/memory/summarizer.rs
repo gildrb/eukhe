@@ -204,9 +204,8 @@ fn explicit_model(settings: &crate::settings::SettingsManager) -> Option<String>
     settings.get_memory_model().or_else(|| {
         settings
             .get_auxiliary_model()
-            .map(str::trim)
+            .map(|model| model.trim().to_string())
             .filter(|model| !model.is_empty())
-            .map(str::to_string)
     })
 }
 
@@ -253,13 +252,15 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
         // when no flag or session pins one.
         let all: Vec<Model> = registry.get_all().cloned().collect();
         let available: Vec<Model> = registry.get_available().into_iter().cloned().collect();
+        let default_provider = settings.get_default_provider();
+        let default_model_id = settings.get_default_model();
         let options = crate::models::InitialModelOptions {
             cli_provider: None,
             cli_model: None,
             scoped_models: &[],
             is_continuing: false,
-            default_provider: settings.get_default_provider(),
-            default_model_id: settings.get_default_model(),
+            default_provider: default_provider.as_deref(),
+            default_model_id: default_model_id.as_deref(),
             all_models: &all,
             available_models: &available,
         };

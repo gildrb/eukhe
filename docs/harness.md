@@ -854,6 +854,168 @@ Not modelled: the map from jobs to documents and from entries to tree
 cursors (jobs 5 and 6), and the board's delivery order; the tests above
 tie them.
 
+### S4. Settings as console variables
+
+Each setting is a console variable (a cvar). One table declares each cvar
+once: its id, its type, its scope, two flags and its default. The id is
+the dotted path of the key in `settings.json` (`retry.enabled`).
+
+1. The registry holds each id once. A second declaration of an id, or a
+   default that does not have the type of its cvar, stops eukhe at
+   startup (`RegistryError`).
+2. The scope is Global or Local. A Global cvar has one value for every
+   agent: only the global config sets it. A Local cvar can have a
+   different value in each agent.
+3. `persist`: an agent can write its sets of the cvar to its cfg.
+   `replicate`: clients see the value of the cvar.
+
+The value of a cvar comes from layers. A higher layer wins:
+
+```text
+default < config < each agent of the family, root first:
+                   its profile < its own sets
+```
+
+- The config is `settings.json` (global, then project) and then
+  `config.cfg` (global `<agent dir>/config.cfg`, then project
+  `.eukhe/config.cfg`). The project files obey the project trust rules
+  of `settings.json`. A project file never sets a Global cvar.
+- The profile of a subagent is `subagent.cfg`, then
+  `agents/<name>.cfg` for a named agent. The root session is the agent
+  `main`.
+- The sets of an agent are its runtime sets (`/set`, `/toggle`, the
+  session switches). They are session state: the conversation document
+  `eukhe.cvar.agent`, committed on each change. So the state tree shows
+  them, and a rewind or a fork restores them.
+
+In each layer, the last valid set of a cvar wins. A set is valid when its
+cvar is declared and its value has the type of the cvar. In a profile or
+an agent's sets, the cvar must also be Local. A set that is not valid is
+rejected with a typed error (`CvarError`): `Undeclared`, `BadValue`,
+`Global`, `NotBool`.
+
+A subagent starts from the family of its parent: the spawn carries the
+parent's layers. Its own profile and sets go on top of them.
+
+The session switches (transport, steering mode, follow-up mode, auto
+retry, auto compaction, service tier) are sets of the session's own
+agent. They do not change another session. A session cannot set a Global
+cvar: `/set --global` writes it to the global `config.cfg`. A `toggle`
+in `/set --global` flips the value of the global layer only (the global
+`settings.json`, then the global `config.cfg`). A project file never
+changes what it flips. The read, the change and the write of a cfg file
+hold the lock of the file, so two sessions that write at the same time
+do not lose a set. A cfg file that exists but eukhe cannot read is a
+settings error, and eukhe does not write it. The errors of a profile
+file and of an alias in the agent state that does not parse are
+settings errors too. The `eukhe.settings` service shows the settings
+errors of a session as an `eukhe.settings_error` row of its main
+conversation (display-only: the model does not see it). It shows the
+errors at open, and after a reload it shows each new error. It shows
+each distinct error one time for each session that eukhe opens.
+
+The command language is the same in the cfg files, in the `/set` slash
+command family and in key binds. A line is a list of commands, separated
+by `;`. A word in double quotes keeps its spaces.
+
+| Command | Does |
+| --- | --- |
+| `set <id> <value>` | Sets the cvar. |
+| `toggle <id>` | Sets a Bool cvar to the opposite of its value in the agent, with the values the agent inherits. |
+| `alias <name> "<cmds>"` | Gives a name to a list of commands. |
+| `bind <key> "<cmds>"` | Gives the commands that a key press runs. |
+| `action <id>` | Runs a built-in client action (in a bind). |
+| `<name>` | Runs the alias `<name>`. |
+
+4. An expansion replaces each run of an alias with its commands. It
+   nests at most one level per alias of the table and one more. A deeper
+   nest repeats an alias, so it is a cycle (`ExpandError::Cycle`). A run
+   of an alias that does not exist is `ExpandError::Unknown`. An
+   expansion that fails runs nothing.
+5. The key binds are in `<agent dir>/binds.cfg`. The first bind of a key
+   wins: the user's binds come before the default binds. A key with no
+   bind runs nothing; an empty bind (`bind <key> ""`) turns off a
+   default. The default actions that share a key share one bind; the
+   screen that gets the key runs its own action. A key press sends its
+   `set`, `toggle` and `alias` commands to the session and runs its
+   `action` commands in the client. eukhe writes `binds.cfg` one time
+   from `keybindings.json` when `binds.cfg` does not exist; the binds it
+   writes give each key the actions that `keybindings.json` gave it. A
+   `binds.cfg` that eukhe cannot read, or an import that eukhe cannot
+   write, shows a warning at startup and at `/reload`.
+6. `/cvar save` writes the agent's sets of `persist` cvars to its
+   `agents/<name>.cfg`. Read back as the profile, they give the same
+   values.
+
+Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`,
+`expand`, `press`). Laws: `LAWS.bend` section (S4). Proofs:
+`bend/proof_cvar.bend`. Every input is free: any declarations (with
+duplicate ids and wrong defaults), any config, any family of agents with
+any profiles and sets (wrong types, Global cvars, undeclared ids), any
+alias table and any binds.
+
+| Law | Says |
+| --- | --- |
+| `cvar_registry_unique` | The registry holds each id once (S4.1). |
+| `cvar_registry_typed` | Each default of the registry has its type (S4.1). |
+| `cvar_value_typed` | Each value has the type of its cvar in each agent; an undeclared cvar has no value. |
+| `cvar_inherits` | A subagent with no profile and no sets has its parent's values. |
+| `cvar_set_wins` | The last valid set of a subagent wins over its parent's value. |
+| `cvar_global_uniform` | A Global cvar has one value in each agent: the config on the default (S4.2). |
+| `cvar_written_flagged` | An agent writes to its cfg only `persist` cvars and replicates only `replicate` cvars (S4.3). |
+| `cvar_persist_roundtrip` | The written cfg, read back as the profile, gives the same value of each persisting cvar (S4.6). |
+| `cvar_toggle_twice` | Two toggles give back the value. |
+| `alias_expands_fully` | An expansion leaves no alias to run, or it reports a cycle or an unknown alias (S4.4). |
+| `alias_self_cycle` | An alias that runs itself is a cycle (S4.4). |
+| `alias_unknown_reported` | A run of an alias that does not exist is reported (S4.4). |
+| `alias_runs_body` | An alias of plain commands runs exactly its commands (S4.4). |
+| `bind_press_plain` | A key press runs only plain commands (S4.5). |
+| `bind_unbound_runs_nothing` | A key with no bind runs nothing (S4.5). |
+| `bind_first_wins` | A key press runs the commands of the first bind of the key (S4.5). |
+
+Code: `eukhe-types/src/cvar.rs` (the command language: `parse_list`,
+`parse_script`, `Aliases`, `expand`, `Binds::press`);
+`eukhe-core/src/settings/cvar.rs` (`Registry`, `Cvars::value`,
+`Cvars::execute`, `Sets::written`, `document_sets`) and
+`settings/cvar/table.rs` (the declarations); `settings/cfg.rs` (the
+config layer: `settings.json`, then the `config.cfg` files under the
+trust rules); `settings/manager.rs` and `settings/getters.rs` (the
+getters, all through `Cvars`); `eukhe-core/src/durable/cvar_agent.rs` (the
+session's agent: `CvarAgent`, the `eukhe.cvar.agent` document,
+`run_cvar_line`, `save_agent_cfg`) and `durable/settings.rs`
+(`EukheSettings`: the family of the session over its config). The daemon
+commands `cvar { line, global }` and `cvar_save` run them
+(`eukhe-daemon/src/setting_switches.rs`); a refused command answers its
+`CvarError` with `data: { kind, id?, message }`. A spawn carries the parent's
+family in the create config (`cvarFamily`). The TUI sends `/set`,
+`/toggle`, `/alias` and `/cvar` as `cvar` lines
+(`eukhe-tui/src/session_ui/cvar.rs`).
+
+Ties: the bridge test
+`settings::cvar::bridge::the_rust_cvars_equal_the_bend_model` compares
+transcripts with `bend/bridge_cvar.bend` byte for byte. It runs 300
+generated scenarios: registries (with duplicate ids and wrong
+defaults), values over a config and a family (wrong types, Global
+cvars, undeclared ids, profiles and sets), toggles of the last agent of
+a family (a subagent toggles a value that it inherits), the written sets
+(`persist` and `replicate`), expansions (cycles, unknown aliases) and
+key presses. The scenarios reach every rule.
+
+Regression tests: `a_switch_changes_only_its_own_session` (daemon: two
+workers over one agent dir; the switches of one do not change the other
+or `settings.json`); `a_setter_never_clobbers_a_global_settings_file_that_failed_to_parse`
+(a setter refuses to write over a `settings.json` that did not parse);
+`cvar_rejects_a_global_cvar_from_a_session`;
+`a_subagent_inherits_its_parents_family_under_its_profile`;
+`a_fork_starts_from_the_agent_state_at_its_fork_point`;
+`an_unreadable_cfg_file_is_reported_and_never_overwritten`;
+`concurrent_global_sets_both_land`;
+`a_global_toggle_flips_the_global_value_not_the_projects`;
+`profile_and_agent_alias_errors_reach_the_manager`;
+`settings_errors_show_as_a_row_of_the_session`;
+`unreadable_binds_cfg_and_failed_import_are_warnings`; the
+`keybindings::tests` of the `binds.cfg` import and of the presses.
+
 ### S6. The inference layer
 
 The inference layer is between the harness and the wire APIs. It decides

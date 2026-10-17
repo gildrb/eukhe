@@ -63,8 +63,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 use super::failover::{
-    failover_candidates, model_reference, ProviderFailoverPolicy, DEFAULT_PROVIDER_FAILOVER_POLICY,
-    MAX_TOTAL_PROVIDER_RETRIES,
+    failover_candidates, model_reference, ProviderFailoverPolicy, MAX_TOTAL_PROVIDER_RETRIES,
 };
 use super::image_route::{self, ImageRoute};
 use super::park::{
@@ -522,67 +521,37 @@ fn final_error_of(message: &AssistantMessage) -> String {
         .to_owned()
 }
 
-/// The `requestTiming` settings flag of the session's merged settings.
+/// The `requestTiming` settings flag of the session.
 fn request_timing_flag(settings: &SettingsManager) -> bool {
-    settings.settings().request_timing.unwrap_or(false)
+    settings.get_request_timing()
 }
 
-/// The failover policy from raw settings (`retry.failover`): the old
+/// The failover policy from the settings (`retry.failover`): the old
 /// per-provider retry budget maps to the Harness's durable retries, so only
 /// the enabled flag and the (ceiling-clamped) switch budget apply.
 fn failover_policy(settings: &SettingsManager) -> ProviderFailoverPolicy {
-    let defaults = DEFAULT_PROVIDER_FAILOVER_POLICY;
-    let Some(failover) = settings
-        .settings()
-        .retry
-        .as_ref()
-        .and_then(|retry| retry.failover.as_ref())
-    else {
-        return defaults;
-    };
     ProviderFailoverPolicy {
-        enabled: failover.enabled.unwrap_or(defaults.enabled),
-        max_switches: failover
-            .max_retries
-            .map_or(defaults.max_switches, |retries| {
-                u32::try_from(retries)
-                    .unwrap_or(SWITCH_BUDGET)
-                    .min(SWITCH_BUDGET)
-            }),
+        enabled: settings.get_failover_enabled(),
+        max_switches: u32::try_from(settings.get_failover_max_retries())
+            .unwrap_or(SWITCH_BUDGET)
+            .min(SWITCH_BUDGET),
     }
 }
 
-/// The quota-park policy from raw settings (`retry.provider.waitForUsage`).
+/// The quota-park policy from the settings (`retry.provider.waitForUsage`).
 fn park_policy(settings: &SettingsManager) -> ProviderParkPolicy {
-    let defaults = DEFAULT_PROVIDER_PARK_POLICY;
-    let Some(wait) = settings
-        .settings()
-        .retry
-        .as_ref()
-        .and_then(|retry| retry.provider.as_ref())
-        .and_then(|provider| provider.wait_for_usage.as_ref())
-    else {
-        return defaults;
-    };
     ProviderParkPolicy {
-        pause_until_reset: wait.pause_until_reset.unwrap_or(defaults.pause_until_reset),
-        max_pause_ms: wait.max_pause_ms.unwrap_or(defaults.max_pause_ms),
-        max_parks: wait.max_parks.map_or(defaults.max_parks, |parks| {
-            u32::try_from(parks).unwrap_or(defaults.max_parks)
-        }),
+        pause_until_reset: settings.get_park_pause_until_reset(),
+        max_pause_ms: settings.get_park_max_pause_ms(),
+        max_parks: u32::try_from(settings.get_park_max_parks())
+            .unwrap_or(DEFAULT_PROVIDER_PARK_POLICY.max_parks),
     }
 }
 
 /// The bounded-wait cap of the quick-retry policy (the park seam's
 /// reset-too-far bound).
 fn wait_cap_ms(settings: &SettingsManager) -> u64 {
-    settings
-        .settings()
-        .retry
-        .as_ref()
-        .and_then(|retry| retry.provider.as_ref())
-        .and_then(|provider| provider.max_retry_delay_ms)
-        .unwrap_or(60_000)
+    settings.get_max_retry_delay_ms()
 }
 
 /// Whether `context` attaches image blocks.

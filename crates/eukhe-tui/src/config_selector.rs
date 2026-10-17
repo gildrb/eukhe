@@ -824,7 +824,7 @@ mod keybind_tests {
                 keys.iter().map(|k| (*k).to_string()).collect(),
             );
         }
-        KeybindingsManager::with_user_bindings(bindings)
+        KeybindingsManager::with_user_bindings(&bindings)
     }
 
     /// TS #2493: with the default bindings ctrl+c rides

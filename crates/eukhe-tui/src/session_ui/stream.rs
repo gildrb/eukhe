@@ -302,7 +302,7 @@ mod streaming_tray_hint_tests {
             "app.message.followUp".to_string(),
             vec!["ctrl+q".to_string()],
         );
-        let kb = KeybindingsManager::with_user_bindings(config);
+        let kb = KeybindingsManager::with_user_bindings(&config);
         assert_eq!(
             streaming_tray_hint(&kb, true, "draft"),
             Some("Ctrl+Q to queue message".to_string()),

@@ -133,6 +133,13 @@ impl Worker {
                     .clone()
                     .filter(|name| !name.is_empty())
             }));
+            // A child starts from the family this session has now.
+            let session = self.session.clone();
+            host.set_parent_cvar_family_source(Arc::new(move || {
+                session.get().map_or_else(Vec::new, |hosted| {
+                    hosted.deps().settings.manager().cvars().family().to_vec()
+                })
+            }));
             // The family view's durable children: the main conversation's
             // children document (a restarted parent's passivated children
             // included), which the durable path keeps instead of the

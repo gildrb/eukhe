@@ -103,7 +103,7 @@ pub struct AgentsViewOptions {
     /// A status message the previous run left for this one (TS
     /// `persistentState.statusMessage`): the unattachable-child fallback.
     pub status_message: Option<String>,
-    /// The effective keybindings (user `keybindings.json` over the TS
+    /// The effective key binds (user `binds.cfg` over the TS
     /// defaults): every action and hint dispatches through this (TS
     /// `AgentsViewMode` creates its own `KeybindingsManager`), the same
     /// contract as the session view.

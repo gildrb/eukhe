@@ -100,6 +100,16 @@ impl SupervisorChildSessionsInner {
             // a harness child spawns harness grandchildren the same way).
             config["childScript"] = json!(script);
         }
+        // The child starts from the family its parent has now (its
+        // inherited layers, under its own profile and sets).
+        let family = self
+            .parent_cvar_family
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(family) = family {
+            config["cvarFamily"] = serde_json::to_value(family())?;
+        }
         // Runtime metadata mirrors the TS subagent runtime identity; a
         // depth-0 resident session carries none (it is a plain root session).
         let runtime_metadata = runtime_metadata.map(|mut metadata| {

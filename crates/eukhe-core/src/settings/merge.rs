@@ -41,12 +41,17 @@ fn merge_values(base: &mut Value, overrides: &Value) {
 }
 
 /// Migrate legacy settings shapes (queueMode, websockets, skills object,
-/// retry.maxDelayMs, bad markdown) - port of
+/// retry.maxDelayMs, bad markdown, onboardingCompleted) - port of
 /// `migrateSettings`.
 pub fn migrate(document: &mut serde_json::Map<String, Value>) {
     // queueMode -> steeringMode
     if let Some(queue_mode) = document.remove("queueMode") {
         document.entry("steeringMode").or_insert(queue_mode);
+    }
+    // onboardingCompleted (the legacy first-run flag) -> onboardingShown,
+    // which the first-run check reads alone.
+    if let Some(completed) = document.get("onboardingCompleted").cloned() {
+        document.entry("onboardingShown").or_insert(completed);
     }
     // websockets bool -> transport
     if !document.contains_key("transport") {

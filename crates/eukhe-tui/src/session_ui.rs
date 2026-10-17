@@ -10,6 +10,7 @@ mod bash;
 mod chat_view;
 mod commands;
 mod copy_export;
+mod cvar;
 mod factory;
 mod heartbeats;
 mod keys;
@@ -426,7 +427,7 @@ pub(crate) struct SessionUi {
     pub(crate) return_to_agents_view: bool,
     /// `/mcp login` / `/mcp logout` (the composition root's auth flows).
     client_auth: Option<crate::client_auth::ClientAuthCommandsHandle>,
-    /// The effective keybindings (user `keybindings.json` over the TS
+    /// The effective key binds (user `binds.cfg` over the TS
     /// defaults): hint labels and app-level handlers dispatch through this
     /// set, and `/new` runs carry it forward.
     keybindings: crate::keybindings::KeybindingsManager,

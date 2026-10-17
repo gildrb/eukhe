@@ -12,7 +12,7 @@ use eukhe_ai::types::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions
 use eukhe_chord::context::{AbortSignal, Context};
 use eukhe_core::durable::branch_summary::{
     build_branch_summary_request, estimate_branch_summary_request_tokens, finalize_branch_summary,
-    BranchSummaryDetails, DEFAULT_BRANCH_RESERVE_TOKENS,
+    BranchSummaryDetails,
 };
 use eukhe_core::durable::compaction::utils::SUMMARIZATION_SYSTEM_PROMPT;
 use eukhe_core::durable::messages::{BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX};
@@ -86,12 +86,7 @@ pub(crate) async fn generate(
         ));
     };
     let settings = deps.settings.manager();
-    let reserve = settings
-        .settings()
-        .branch_summary
-        .as_ref()
-        .and_then(|settings| settings.reserve_tokens)
-        .unwrap_or(DEFAULT_BRANCH_RESERVE_TOKENS);
+    let reserve = settings.get_branch_summary_reserve_tokens();
     // The fit check estimates the request the SESSION model would issue
     // (its window sizes the slice); the routed model re-slices with its own
     // window, exactly like TS.
@@ -104,7 +99,7 @@ pub(crate) async fn generate(
     );
     let model = resolve_auxiliary_model(
         deps,
-        settings.get_auxiliary_model(),
+        settings.get_auxiliary_model().as_deref(),
         settings.get_allowed_models().as_deref(),
         session_model,
         required,

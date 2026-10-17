@@ -7,13 +7,16 @@
 
 use std::sync::Arc;
 
+use eukhe_core::durable::cvar_agent::{run_cvar_line, CvarLineScope};
 use eukhe_core::durable::goals::goal_state;
 use eukhe_core::durable::rlm::{refine_now, RefineRequest};
 use eukhe_core::durable::EukheSession;
+use eukhe_core::settings::cvar::{table, Decl};
 use eukhe_core::settings::QueueModeSetting;
 use eukhe_core::settings::SettingsManager;
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::harness::InboxItem;
+use eukhe_types::cvar::Command;
 use eukhe_types::daemon::{CompactionReason, SessionEvent};
 use serde_json::{json, Value};
 
@@ -299,7 +302,7 @@ async fn refine(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, 
 }
 
 /// `set_auto_compaction` (TS `session.setAutoCompactionEnabled`): the
-/// settings default the session's compaction policy reads.
+/// session's own `compaction.enabled`, which its compaction policy reads.
 async fn set_auto_compaction(
     state: &Arc<RpcState>,
     payload: &Value,
@@ -308,21 +311,35 @@ async fn set_auto_compaction(
         .get("enabled")
         .and_then(Value::as_bool)
         .ok_or_else(|| "set_auto_compaction requires enabled".to_string())?;
-    settings_for(&*state.session.session().await)
-        .set_compaction_enabled(enabled)
-        .map_err(|error| error.to_string())?;
-    Ok(ResponseData::Absent)
+    set_session_cvar(state, &table::COMPACTION_ENABLED, &enabled.to_string()).await
 }
 
-/// `set_auto_retry` (TS `session.setAutoRetryEnabled`): the settings
-/// toggle the session retry policy reads.
+/// `set_auto_retry` (TS `session.setAutoRetryEnabled`): the session's own
+/// `retry.enabled`, which its retry policy reads.
 async fn set_auto_retry(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let enabled = payload
         .get("enabled")
         .and_then(Value::as_bool)
         .ok_or_else(|| "set_auto_retry requires enabled".to_string())?;
-    settings_for(&*state.session.session().await)
-        .set_retry_enabled(enabled)
+    set_session_cvar(state, &table::RETRY_ENABLED, &enabled.to_string()).await
+}
+
+/// Set `decl` to `value` in the session's own cvar layer (committed with
+/// its main conversation; never a settings.json write).
+#[tracing::instrument(skip(state))]
+pub(crate) async fn set_session_cvar(
+    state: &Arc<RpcState>,
+    decl: &Decl,
+    value: &str,
+) -> Result<ResponseData, String> {
+    let line = Command::Set {
+        id: decl.id.to_string(),
+        value: value.to_string(),
+    }
+    .to_string();
+    let session = state.session.session().await;
+    run_cvar_line(&session, &line, CvarLineScope::Session, &rpc_context())
+        .await
         .map_err(|error| error.to_string())?;
     Ok(ResponseData::Absent)
 }

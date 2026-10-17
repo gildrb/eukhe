@@ -18,7 +18,7 @@ pub fn run() -> i32 {
     let agent_dir = crate::config::get_agent_dir();
     let mut resolve_settings = SettingsManager::create(&cwd, &agent_dir);
     crate::package_command::report_settings_errors(&mut resolve_settings, "config command");
-    let theme_name = resolve_settings.get_theme().unwrap_or_default().to_string();
+    let theme_name = resolve_settings.get_theme().unwrap_or_default();
     let screen_mode = eukhe_tui::screen_mode::ScreenMode::from_fullscreen_setting(
         resolve_settings.get_fullscreen(),
     );

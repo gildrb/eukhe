@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 pub const CONFIG_DIR_NAME: &str = ".eukhe";
 
 /// Scope of a settings document.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SettingsScope {
     Global,
     Project,
@@ -64,6 +64,34 @@ pub trait SettingsStorage: Send + Sync {
 
     /// Where the global scope lives, for user-facing hints.
     fn global_location(&self) -> Option<&Path>;
+
+    /// The cfg file `name` of a scope (`config.cfg`, `subagent.cfg`,
+    /// `agents/<agent>.cfg`, `binds.cfg`): `<agentDir>/<name>` for the
+    /// global scope, `<cwd>/.eukhe/<name>` for the project. `Ok(None)` when
+    /// it is absent.
+    ///
+    /// # Errors
+    ///
+    /// When `name` is not a relative path of plain components, or the file
+    /// exists but cannot be read (permissions, not UTF-8).
+    fn read_cfg(&self, scope: SettingsScope, name: &str) -> Result<Option<String>>;
+
+    /// Read-modify-write the cfg file `name` of a scope under its lock:
+    /// `update` gets the content (`None` when absent) and returns the new
+    /// content (`None` writes nothing). The write is atomic and creates
+    /// the file's directories.
+    ///
+    /// # Errors
+    ///
+    /// When `name` is not a relative path of plain components, or the file
+    /// cannot be locked, read, or written. A file that exists but cannot
+    /// be read is never written.
+    fn with_cfg_lock(
+        &self,
+        scope: SettingsScope,
+        name: &str,
+        update: &mut dyn FnMut(Option<String>) -> Option<String>,
+    ) -> Result<()>;
 }
 
 /// File-backed storage with proper-lockfile directory locks (`{file}.lock`
@@ -73,6 +101,16 @@ pub struct FileSettingsStorage {
     global_path: PathBuf,
     project_dir: PathBuf,
     project_path: PathBuf,
+}
+
+/// `name` is a relative path of plain components (`config.cfg`,
+/// `agents/main.cfg`): no root, no `..`, no `.`, not empty.
+fn plain_cfg_name(name: &str) -> bool {
+    let path = Path::new(name);
+    !name.is_empty()
+        && path
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
 }
 
 use crate::platform::lock_dir::LockDir as LockGuard;
@@ -96,6 +134,14 @@ impl FileSettingsStorage {
             SettingsScope::Global => &self.global_path,
             SettingsScope::Project => &self.project_path,
         }
+    }
+
+    /// The cfg file `name` beside the scope's `settings.json`.
+    fn cfg_path(&self, scope: SettingsScope, name: &str) -> Option<PathBuf> {
+        if !plain_cfg_name(name) {
+            return None;
+        }
+        self.path(scope).parent().map(|dir| dir.join(name))
     }
 
     fn acquire_lock(path: &Path) -> Result<LockGuard> {
@@ -285,12 +331,50 @@ impl SettingsStorage for FileSettingsStorage {
         Ok(())
     }
 
+    fn read_cfg(&self, scope: SettingsScope, name: &str) -> Result<Option<String>> {
+        let path = self
+            .cfg_path(scope, name)
+            .ok_or_else(|| anyhow!("`{name}` is not a cfg file name"))?;
+        let _process_guard = process_lock(&path);
+        read_cfg_file(&path)
+    }
+
+    fn with_cfg_lock(
+        &self,
+        scope: SettingsScope,
+        name: &str,
+        update: &mut dyn FnMut(Option<String>) -> Option<String>,
+    ) -> Result<()> {
+        let path = self
+            .cfg_path(scope, name)
+            .ok_or_else(|| anyhow!("`{name}` is not a cfg file name"))?;
+        let _process_guard = process_lock(&path);
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let guard = Self::acquire_lock(&path)?;
+        if let Some(content) = update(read_cfg_file(&path)?) {
+            atomic_write_with(&path, &content, AtomicWriteOptions { fsync: true })?;
+        }
+        drop(guard);
+        Ok(())
+    }
+
     fn project_dir(&self) -> Option<&Path> {
         Some(&self.project_dir)
     }
 
     fn global_location(&self) -> Option<&Path> {
         Some(&self.global_path)
+    }
+}
+
+/// The content of cfg file `path`; `None` when it is absent.
+fn read_cfg_file(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(anyhow!("cannot read {}: {error}", path.display())),
     }
 }
 
@@ -397,6 +481,7 @@ pub fn realpath_if_present(path: &Path) -> Result<PathBuf> {
 pub struct InMemorySettingsStorage {
     global: Mutex<Option<String>>,
     project: Mutex<Option<String>>,
+    cfgs: Mutex<HashMap<(SettingsScope, String), String>>,
 }
 
 impl SettingsStorage for InMemorySettingsStorage {
@@ -422,6 +507,38 @@ impl SettingsStorage for InMemorySettingsStorage {
 
     fn global_location(&self) -> Option<&Path> {
         None
+    }
+
+    fn read_cfg(&self, scope: SettingsScope, name: &str) -> Result<Option<String>> {
+        if !plain_cfg_name(name) {
+            return Err(anyhow!("`{name}` is not a cfg file name"));
+        }
+        Ok(self
+            .cfgs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&(scope, name.to_string()))
+            .cloned())
+    }
+
+    fn with_cfg_lock(
+        &self,
+        scope: SettingsScope,
+        name: &str,
+        update: &mut dyn FnMut(Option<String>) -> Option<String>,
+    ) -> Result<()> {
+        if !plain_cfg_name(name) {
+            return Err(anyhow!("`{name}` is not a cfg file name"));
+        }
+        let mut cfgs = self
+            .cfgs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let key = (scope, name.to_string());
+        if let Some(next) = update(cfgs.get(&key).cloned()) {
+            cfgs.insert(key, next);
+        }
+        Ok(())
     }
 }
 

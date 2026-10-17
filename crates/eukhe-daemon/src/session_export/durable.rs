@@ -78,7 +78,7 @@ pub(crate) async fn export_html(
         tools: Some(tools),
         rendered_tools: None,
     };
-    let theme = deps.settings.manager().get_theme().map(str::to_owned);
+    let theme = deps.settings.manager().get_theme();
     eukhe_core::export_html::export_session_to_html(
         &data,
         theme.as_deref(),

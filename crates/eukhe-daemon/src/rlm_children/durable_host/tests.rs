@@ -243,6 +243,31 @@ async fn spawn_creates_once_under_the_requested_session_id() {
     assert_eq!(creates[0]["config"]["spawnedByRequestId"], "call-1");
 }
 
+/// A child create carries the family its parent has at spawn time
+/// (`cvarFamily`, read from the parent's live source).
+#[tokio::test]
+async fn spawn_carries_the_parents_cvar_family() {
+    use eukhe_core::settings::cvar::{AgentLayer, Set, Sets};
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    let sessions = host(&shared, dir.path()).await;
+    let family = vec![AgentLayer {
+        profile: Sets::default(),
+        sets: Sets(vec![Set {
+            id: "transport".to_owned(),
+            value: json!("sse"),
+        }]),
+    }];
+    let source = family.clone();
+    sessions.set_parent_cvar_family_source(Arc::new(move || source.clone()));
+    sessions.spawn(spawn_request()).await.unwrap();
+    let creates = commands_of(&shared, "create");
+    assert_eq!(
+        creates[0]["config"]["cvarFamily"],
+        serde_json::to_value(family).unwrap()
+    );
+}
+
 #[tokio::test]
 async fn a_restarted_parent_finds_its_resident_child() {
     let dir = tempfile::tempdir().unwrap();

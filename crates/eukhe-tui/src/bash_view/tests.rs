@@ -121,7 +121,7 @@ fn the_list_renders_columned_rows_and_one_hint() {
 fn the_list_hint_drops_unbound_keys() {
     let mut cfg = crate::keybindings::KeybindingsConfig::new();
     cfg.insert("app.modal.back".to_string(), Vec::new());
-    let kb = KeybindingsManager::with_user_bindings(cfg);
+    let kb = KeybindingsManager::with_user_bindings(&cfg);
     let view = BashView::new(activities(), 24);
     let frame = view.render(&theme(), 70, &kb);
     let text = frame_text(&frame);

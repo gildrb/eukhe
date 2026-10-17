@@ -73,7 +73,7 @@ macro_rules! str_setting {
 
 impl ClientSettings for CliClientSettings {
     fn theme(&self) -> Option<String> {
-        self.manager().get_theme().map(str::to_string)
+        self.manager().get_theme()
     }
 
     fn set_theme(&self, theme: &str) -> Result<()> {
@@ -176,14 +176,7 @@ impl ClientSettings for CliClientSettings {
     }
 
     fn memory_model(&self) -> Option<String> {
-        self.manager()
-            .global_settings()
-            .memory
-            .as_ref()
-            .and_then(|memory| memory.model.as_deref())
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .map(str::to_string)
+        self.manager().get_memory_model()
     }
 
     fn set_memory_model(&self, provider: &str, model_id: &str) -> Result<()> {

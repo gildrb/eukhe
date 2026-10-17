@@ -9,9 +9,6 @@ use std::fmt::Write as _;
 use super::utils::{serialize_conversation, SUMMARIZATION_SYSTEM_PROMPT};
 use crate::durable::messages::convert_to_llm;
 
-/// Default compaction reserve (TS `DEFAULT_COMPACTION_SETTINGS`).
-pub const DEFAULT_RESERVE_TOKENS: u64 = 16_384;
-
 /// Chars/4 heuristic token estimate (conservative; overestimates).
 #[must_use]
 pub fn estimate_tokens(message: &AgentMessage) -> u64 {

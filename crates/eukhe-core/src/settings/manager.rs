@@ -1,10 +1,17 @@
-//! `SettingsManager`: loads global + project settings, merges them, tracks
-//! modified fields, and writes back only what this session changed.
+//! `SettingsManager`: loads global + project settings, merges them, builds
+//! the cvar layers over them (`settings::cvar`, `settings::cfg`), and
+//! writes back only what this session changed.
 
 use std::sync::Arc;
 
 use anyhow::Result;
+use eukhe_types::cvar::{Aliases, Binds, Command};
 
+use super::cfg::{config_layer, replace_sets, run_script, CONFIG_CFG};
+use super::cvar::{
+    document_sets, registry, value_text, AgentLayer, CvarError, CvarWriteError, Cvars, LayerKind,
+    Sets, Target,
+};
 use super::load::from_value_lenient;
 use super::merge::{deep_merge, migrate};
 use super::storage::{SettingsScope, SettingsStorage};
@@ -14,19 +21,6 @@ use super::types::{
 };
 
 pub const RECENT_MODELS_LIMIT: usize = 20;
-pub const DEFAULT_IDLE_EVICTION_MINUTES: u64 = 90;
-/// Session archiving defaults (roadmap item: the sessions directory must not
-/// grow forever). Age rule mirrors the TS `idleEvictionMinutes` grammar
-/// (`number | "off" | "none"`, malformed falls back to the default).
-pub const DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS: u64 = 30;
-pub const DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS: usize = 200;
-/// `subagentMaxConcurrency` default (omp2 `task.maxConcurrency`).
-pub const DEFAULT_SUBAGENT_MAX_CONCURRENCY: u32 = 32;
-/// `subagentStallMs` default: a subagent with no progress for 10 minutes
-/// is stopped and reported stalled (docs/harness.md H5).
-pub const DEFAULT_SUBAGENT_STALL_MS: u64 = 600_000;
-/// `toolBlockingBudgetMs` default (omp2 `DispatchPolicy::blocking_limit`).
-pub const DEFAULT_TOOL_BLOCKING_BUDGET_MS: u64 = 30_000;
 
 #[derive(Debug, Clone)]
 pub struct SettingsError {
@@ -46,7 +40,11 @@ pub struct SettingsManager {
     project: Settings,
     project_trust: ProjectTrust,
     merged: Settings,
-    runtime_overrides: Settings,
+    /// The values every getter reads: the config layer (`settings.json`,
+    /// then `config.cfg`) and the agent family [`Self::set_family`] gave.
+    cvars: Cvars,
+    /// The aliases of the config cfg files.
+    aliases: Aliases,
     errors: Vec<SettingsError>,
     /// The raw global document (the parsed JSON before the lenient field
     /// load). The daemon model allowlist distinguishes an ABSENT
@@ -63,30 +61,40 @@ pub struct SettingsManager {
 impl SettingsManager {
     /// Load global + project settings from a storage backend.
     pub fn from_storage(storage: Arc<dyn SettingsStorage>) -> Self {
-        Self::load(storage, Vec::new(), Settings::default())
+        Self::load(storage, Vec::new(), Vec::new())
     }
 
     /// The one load path ([`Self::from_storage`] and [`Self::reload`]):
-    /// both scopes, the project trust decision, and the merge of the
-    /// global scope with the project scope that trust lets apply.
+    /// both scopes, the project trust decision, the merge of the global
+    /// scope with the project scope that trust lets apply, and the config
+    /// layer of cvars over it with `family` on top.
     fn load(
         storage: Arc<dyn SettingsStorage>,
         mut errors: Vec<SettingsError>,
-        runtime_overrides: Settings,
+        family: Vec<AgentLayer>,
     ) -> Self {
         let (global, global_raw, global_load_error) =
             load_scope(storage.as_ref(), SettingsScope::Global, &mut errors);
         let (project_document, _, project_load_error) =
             load_scope(storage.as_ref(), SettingsScope::Project, &mut errors);
-        let (project, project_trust) =
+        let (project, mut project_trust) =
             apply_project_trust(storage.as_ref(), &global, &project_document, &mut errors);
+        let merged = deep_merge(&global, &project);
+        let layer = config_layer(storage.as_ref(), &global, &merged, project_trust.level);
+        errors.extend(layer.errors);
+        for key in layer.withheld {
+            if !project_trust.ignored_keys.contains(&key) {
+                project_trust.ignored_keys.push(key);
+            }
+        }
         if let Some(message) = project_trust.warning(&[]) {
             errors.push(SettingsError {
                 scope: SettingsScope::Project,
                 message,
             });
         }
-        let merged = deep_merge(&global, &project);
+        let mut cvars = layer.cvars;
+        cvars.set_family(family);
         Self {
             storage,
             global,
@@ -94,7 +102,8 @@ impl SettingsManager {
             project,
             project_trust,
             merged,
-            runtime_overrides,
+            cvars,
+            aliases: layer.aliases,
             errors,
             global_raw,
             global_load_error,
@@ -188,7 +197,8 @@ impl SettingsManager {
         std::mem::take(&mut self.errors)
     }
 
-    /// Reload both scopes from storage.
+    /// Reload both scopes and the cfg files from storage; the family set by
+    /// [`Self::set_family`] stays.
     ///
     /// # Errors
     ///
@@ -196,9 +206,161 @@ impl SettingsManager {
     /// are recorded as load errors on the manager instead.
     pub fn reload(&mut self) -> Result<()> {
         let errors = std::mem::take(&mut self.errors);
-        let runtime_overrides = std::mem::take(&mut self.runtime_overrides);
-        *self = Self::load(Arc::clone(&self.storage), errors, runtime_overrides);
+        let family = self.cvars.family().to_vec();
+        *self = Self::load(Arc::clone(&self.storage), errors, family);
         Ok(())
+    }
+
+    /// The values the getters read.
+    #[must_use]
+    pub fn cvars(&self) -> &Cvars {
+        &self.cvars
+    }
+
+    /// The aliases of the config cfg files.
+    #[must_use]
+    pub fn aliases(&self) -> &Aliases {
+        &self.aliases
+    }
+
+    /// The agent family over the config layer (root first, the agent
+    /// itself last); it survives [`Self::reload`] and every setter.
+    pub fn set_family(&mut self, family: Vec<AgentLayer>) {
+        self.cvars.set_family(family);
+    }
+
+    /// A new agent's profile: the global-scope cfg `files` in order
+    /// (`subagent.cfg`, `agents/<name>.cfg`) run as profile commands over
+    /// this agent's values. Returns the profile sets, the aliases (this
+    /// manager's plus the files'), and what failed (an absent file is
+    /// skipped; a file that cannot be read is a failure).
+    #[must_use]
+    pub fn read_profile(&self, files: &[String]) -> (Sets, Aliases, Vec<SettingsError>) {
+        let mut agent = self.cvars.child();
+        let mut aliases = self.aliases.clone();
+        let mut errors = Vec::new();
+        for file in files {
+            match self.storage.read_cfg(SettingsScope::Global, file) {
+                Ok(Some(text)) => errors.extend(run_script(
+                    &mut agent,
+                    Target::Profile,
+                    &text,
+                    &mut aliases,
+                    SettingsScope::Global,
+                    file,
+                )),
+                Ok(None) => {}
+                Err(error) => errors.push(SettingsError {
+                    scope: SettingsScope::Global,
+                    message: format!("{file}: {error:#}"),
+                }),
+            }
+        }
+        (agent.agent().profile.clone(), aliases, errors)
+    }
+
+    /// Record `errors` with the load's errors (an agent profile's, which
+    /// the session reads over this manager).
+    pub fn push_errors(&mut self, errors: impl IntoIterator<Item = SettingsError>) {
+        self.errors.extend(errors);
+    }
+
+    /// The explicit global command (`/set --global`): run the `set` and
+    /// `toggle` commands over the global layer alone (the global
+    /// `settings.json`, then the global `config.cfg`; a project never
+    /// decides what a global toggle flips) and write each resulting set
+    /// into the global `config.cfg`, replacing the line that set the cvar
+    /// before. The read, the run, and the write hold the file's lock; then
+    /// the config layer is rebuilt.
+    ///
+    /// # Errors
+    ///
+    /// The first command that does not apply (then nothing is written); the
+    /// cfg file cannot be locked, read, or written.
+    pub fn run_global(&mut self, commands: &[Command]) -> Result<(), CvarWriteError> {
+        let registry = registry();
+        let global = serde_json::to_value(&self.global).unwrap_or(serde_json::Value::Null);
+        let mut outcome: Result<(), CvarError> = Ok(());
+        self.storage
+            .with_cfg_lock(SettingsScope::Global, CONFIG_CFG, &mut |current| {
+                let text = current.unwrap_or_default();
+                let mut layer = Cvars::new(registry, document_sets(registry, &global, &global));
+                let mut aliases = Aliases::default();
+                // The file's own failures were recorded at load.
+                let _recorded_at_load = run_script(
+                    &mut layer,
+                    Target::Config,
+                    &text,
+                    &mut aliases,
+                    SettingsScope::Global,
+                    CONFIG_CFG,
+                );
+                let before = layer.config().0.len();
+                outcome = match layer
+                    .execute(
+                        Target::Config,
+                        commands,
+                        &mut aliases,
+                        &mut Binds::default(),
+                    )
+                    .into_iter()
+                    .next()
+                {
+                    Some(error) => Err(error),
+                    None => Ok(()),
+                };
+                outcome
+                    .is_ok()
+                    .then(|| replace_sets(&text, &Sets(layer.config().0[before..].to_vec())))
+            })
+            .map_err(|error| CvarWriteError::Io(format!("{error:#}")))?;
+        outcome.map_err(CvarWriteError::Cvar)?;
+        self.rebuild_cvars();
+        Ok(())
+    }
+
+    /// Write `sets` into agent `name`'s profile (`agents/<name>.cfg` in
+    /// the global scope): each replaces the line of its cvar, every other
+    /// line stays. The read and the write hold the file's lock.
+    ///
+    /// # Errors
+    ///
+    /// A set that is not a valid agent set (an undeclared or Global cvar,
+    /// a bad value); a name that is not a plain file name; the cfg file
+    /// cannot be locked, read, or written.
+    pub fn write_agent_cfg(&mut self, name: &str, sets: &Sets) -> Result<(), CvarWriteError> {
+        if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+            return Err(CvarWriteError::Io(format!("`{name}` is not an agent name")));
+        }
+        for set in &sets.0 {
+            self.cvars
+                .check(LayerKind::Agent, &set.id, &value_text(&set.value))
+                .map_err(CvarWriteError::Cvar)?;
+        }
+        self.storage
+            .with_cfg_lock(
+                SettingsScope::Global,
+                &format!("agents/{name}.cfg"),
+                &mut |current| Some(replace_sets(&current.unwrap_or_default(), sets)),
+            )
+            .map_err(|error| CvarWriteError::Io(format!("{error:#}")))
+    }
+
+    /// Rebuild the merge and the config layer after a settings edit; the
+    /// family stays, and the config files' errors (recorded at load) are
+    /// not recorded again.
+    fn rebuild_cvars(&mut self) {
+        self.merged = deep_merge(&self.global, &self.project);
+        let layer = config_layer(
+            self.storage.as_ref(),
+            &self.global,
+            &self.merged,
+            self.project_trust.level,
+        );
+        let family = self.cvars.family().to_vec();
+        self.cvars = layer.cvars;
+        self.cvars.set_family(family);
+        self.aliases = layer.aliases;
     }
 
     /// Mutable global settings for the setters in sibling modules (the
@@ -244,80 +406,6 @@ impl SettingsManager {
             .model = Some(format!("{provider}/{model_id}"));
         self.save_global()
     }
-    /// `markdown.codeBlockIndent` (TS `getCodeBlockIndent`): the string the
-    /// chat markdown renderer indents fenced code blocks by; the default
-    /// matches the TS default, two spaces.
-    #[must_use]
-    pub fn get_code_block_indent(&self) -> String {
-        self.settings()
-            .markdown
-            .as_ref()
-            .and_then(|markdown| markdown.code_block_indent.clone())
-            .unwrap_or_else(|| "  ".to_string())
-    }
-
-    /// `terminal.showImages` (TS `getShowImages`): whether image blocks in
-    /// tool results render their type/dimension metadata rows; the
-    /// default matches the TS default, true.
-    #[must_use]
-    pub fn get_show_images(&self) -> bool {
-        self.settings()
-            .terminal
-            .as_ref()
-            .and_then(|terminal| terminal.show_images)
-            .unwrap_or(true)
-    }
-
-    /// `terminal.fullscreen`: whether the interactive surfaces run in the
-    /// alternate screen instead of inline; default false.
-    #[must_use]
-    pub fn get_fullscreen(&self) -> bool {
-        self.settings()
-            .terminal
-            .as_ref()
-            .and_then(|terminal| terminal.fullscreen)
-            .unwrap_or(false)
-    }
-
-    /// `treeFilterMode` (TS `getTreeFilterMode`): the `/tree` selector's
-    /// initial filter; an unset or invalid value falls back to
-    /// `user-only`, like the TS default.
-    #[must_use]
-    pub fn get_tree_filter_mode(&self) -> String {
-        let mode = self.settings().tree_filter_mode.clone().unwrap_or_default();
-        let valid = ["default", "no-tools", "user-only", "labeled-only", "all"];
-        if valid.contains(&mode.as_str()) && !mode.is_empty() {
-            mode
-        } else {
-            "user-only".to_string()
-        }
-    }
-
-    /// `chatDetail` (TS #2709 `getChatDetail`): the conversation-detail
-    /// level the chat starts at; an unset or invalid value falls back to
-    /// `overview` (the collapse mode: every activity item renders as
-    /// `details` does with only the thinking hidden - operator
-    /// directive 2026-09-28).
-    #[must_use]
-    pub fn get_chat_detail(&self) -> String {
-        match self.settings().chat_detail.as_deref() {
-            Some("details") => "details",
-            Some("all") => "all",
-            _ => "overview",
-        }
-        .to_string()
-    }
-
-    /// `branchSummary.skipPrompt` (TS `getBranchSummarySkipPrompt`).
-    #[must_use]
-    pub fn get_branch_summary_skip_prompt(&self) -> bool {
-        self.settings()
-            .branch_summary
-            .as_ref()
-            .and_then(|branch_summary| branch_summary.skip_prompt)
-            .unwrap_or(false)
-    }
-
     /// Record a model use at the front of `recentModels` (capped at 20).
     pub fn record_model_use(&mut self, provider: &str, model: &str) {
         let key = format!("{provider}/{model}");
@@ -431,27 +519,6 @@ impl SettingsManager {
         self.save_global()
     }
 
-    /// TS `getOnboardingShown`: the shown flag with the legacy completed
-    /// flag as fallback; first run is defined by the settings alone.
-    #[must_use]
-    pub fn get_onboarding_shown(&self) -> bool {
-        self.merged
-            .onboarding_shown
-            .or(self.merged.onboarding_completed)
-            .unwrap_or(false)
-    }
-
-    /// TS `getCompactionEnabled`: the auto-compaction toggle, on until the
-    /// user opts out (the merged view, like every TS settings getter).
-    #[must_use]
-    pub fn get_compaction_enabled(&self) -> bool {
-        self.merged
-            .compaction
-            .as_ref()
-            .and_then(|compaction| compaction.enabled)
-            .unwrap_or(true)
-    }
-
     /// Replace the `packages` array in the global settings file.
     pub fn set_packages(&mut self, packages: Vec<serde_json::Value>) {
         self.global.packages = Some(packages.clone());
@@ -460,7 +527,7 @@ impl SettingsManager {
             "packages",
             &serde_json::Value::Array(packages),
         );
-        self.merged = deep_merge(&self.global, &self.project);
+        self.rebuild_cvars();
     }
 
     /// Replace the `packages` array in the project settings file.
@@ -490,7 +557,7 @@ impl SettingsManager {
             field,
             &serde_json::Value::Array(array),
         );
-        self.merged = deep_merge(&self.global, &self.project);
+        self.rebuild_cvars();
     }
 
     /// Replace one resource-path array in the project settings file (TS
@@ -516,7 +583,7 @@ impl SettingsManager {
     /// document edit (the trust decision stands).
     fn refresh_project_scope(&mut self) {
         (self.project, _) = effective_project(&self.project_document, self.project_trust.level);
-        self.merged = deep_merge(&self.global, &self.project);
+        self.rebuild_cvars();
     }
 
     /// Write one field into a scope's file, merging with the current on-disk
@@ -567,108 +634,6 @@ impl SettingsManager {
         }
     }
 
-    // -- getters with TS semantics ------------------------------------------
-
-    #[must_use]
-    pub fn get_default_provider(&self) -> Option<&str> {
-        self.merged.default_provider.as_deref()
-    }
-
-    #[must_use]
-    pub fn get_default_model(&self) -> Option<&str> {
-        self.merged.default_model.as_deref()
-    }
-
-    /// Model for `rlm.spawn` without a pinned model; unset inherits parent.
-    #[must_use]
-    pub fn get_subagent_default_model(&self) -> Option<String> {
-        self.merged
-            .subagent_default_model
-            .as_ref()
-            .map(|m| m.trim().to_string())
-            .filter(|m| !m.is_empty())
-    }
-
-    #[must_use]
-    pub fn get_auxiliary_model(&self) -> Option<&str> {
-        self.merged.auxiliary_model.as_deref()
-    }
-
-    /// `memory.model`: the chat memory compactor's `provider/model-id`
-    /// (whitespace-only reads as unset).
-    #[must_use]
-    pub fn get_memory_model(&self) -> Option<String> {
-        self.merged
-            .memory
-            .as_ref()
-            .and_then(|memory| memory.model.as_deref())
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .map(str::to_string)
-    }
-
-    /// `memory.thinking`: the compactor's reasoning effort; unset is
-    /// medium (the reference compactor's effort; low overshoots the line
-    /// size much more often).
-    #[must_use]
-    pub fn get_memory_thinking(&self) -> super::types::ThinkingLevelSetting {
-        self.merged
-            .memory
-            .as_ref()
-            .and_then(|memory| memory.thinking)
-            .unwrap_or(super::types::ThinkingLevelSetting::Medium)
-    }
-
-    /// `memory.settleTimeoutMs`: how long a turn waits for the view's
-    /// lines to be summarized; then it goes on with the view as it is,
-    /// each line not summarized yet as its input cut to 512 bytes. Unset
-    /// or `0` is [`crate::memory::SETTLE_TIMEOUT`], as `subagentStallMs`
-    /// and `maxToolRounds` read `0`.
-    #[must_use]
-    pub fn get_memory_settle_timeout(&self) -> std::time::Duration {
-        self.merged
-            .memory
-            .as_ref()
-            .and_then(|memory| memory.settle_timeout_ms)
-            .filter(|ms| *ms > 0)
-            .map_or(
-                crate::memory::SETTLE_TIMEOUT,
-                std::time::Duration::from_millis,
-            )
-    }
-
-    /// TS `getImageModel`: the "provider/model-id" (or bare id) reference
-    /// that serves turns attaching images on session models without image
-    /// input. Same shape as `providerBackupModel`: malformed values behave
-    /// as unset and the image-turn refusal names the setting instead.
-    #[must_use]
-    pub fn get_image_model(&self) -> Option<String> {
-        self.merged
-            .image_model
-            .as_ref()
-            .map(|m| m.trim().to_string())
-            .filter(|m| !m.is_empty())
-    }
-
-    /// The daemon-level model allowlist (settings `allowedModels`): model
-    /// patterns the daemon may resolve to, enforced at every daemon
-    /// model resolution (`set_model`, RLM child-model resolution, the
-    /// worker startup chain) — a model outside the allowlist fails loudly,
-    /// never a fallback. Rust-only guardrail (no TS equivalent); `None` is
-    /// unrestricted. A daemon policy like `idleEvictionMinutes`: read from
-    /// the global scope only, so a project cannot weaken a box-level pin.
-    /// A list that trims to empty behaves as unset.
-    #[must_use]
-    pub fn get_allowed_models(&self) -> Option<Vec<String>> {
-        let patterns = self.global.allowed_models.as_ref()?;
-        let patterns: Vec<String> = patterns
-            .iter()
-            .map(|pattern| pattern.trim().to_string())
-            .filter(|pattern| !pattern.is_empty())
-            .collect();
-        (!patterns.is_empty()).then_some(patterns)
-    }
-
     /// TS `setDefaultServiceTier`: the persisted default a fresh session
     /// starts from; the stored string is the same vocabulary
     /// `get_default_service_tier` parses.
@@ -689,199 +654,29 @@ impl SettingsManager {
         self.save_global()
     }
 
-    /// Service tier a fresh session records as its preference (TS
-    /// `getDefaultServiceTier`: the setting when present, else `default`).
-    /// An unrecognized setting value falls back to the same `default`.
-    #[must_use]
-    pub fn get_default_service_tier(&self) -> eukhe_types::ai::ServiceTier {
-        use eukhe_types::ai::ServiceTier;
-        self.merged
-            .default_service_tier
-            .as_deref()
-            .and_then(|value| match value.trim().to_lowercase().as_str() {
-                "auto" => Some(ServiceTier::Auto),
-                "flex" => Some(ServiceTier::Flex),
-                "scale" => Some(ServiceTier::Scale),
-                "priority" => Some(ServiceTier::Priority),
-                "default" => Some(ServiceTier::Default),
-                _ => None,
-            })
-            .unwrap_or(ServiceTier::Default)
-    }
-
-    #[must_use]
-    pub fn get_recent_models(&self) -> Vec<String> {
-        self.merged.recent_models.clone().unwrap_or_default()
-    }
-
-    /// The steering queue's delivery mode (TS `steeringMode`): `all`
-    /// batches every queued steering message into ONE co-delivered turn
-    /// at the next turn boundary; `one-at-a-time` delivers one per turn.
-    /// The product default is `all`; both modes stay selectable through
-    /// the setting surface.
-    #[must_use]
-    pub fn get_steering_mode(&self) -> QueueModeSetting {
-        self.merged.steering_mode.unwrap_or(QueueModeSetting::All)
-    }
-
-    #[must_use]
-    pub fn get_follow_up_mode(&self) -> QueueModeSetting {
-        self.merged
-            .follow_up_mode
-            .unwrap_or(QueueModeSetting::OneAtATime)
-    }
-
-    #[must_use]
-    pub fn get_theme(&self) -> Option<&str> {
-        self.merged.theme.as_deref()
-    }
-
-    #[must_use]
-    pub fn get_default_thinking_level(&self) -> Option<ThinkingLevelSetting> {
-        self.merged.default_thinking_level
-    }
-
-    #[must_use]
-    pub fn get_rlm_max_depth(&self) -> Option<u64> {
-        self.global.rlm_max_depth
-    }
-
-    /// `gateway.signal`: the Signal gateway settings. Global settings
-    /// only: a gateway routes a remote party into code execution on this
-    /// machine, so no project may set it.
-    #[must_use]
-    pub fn get_signal_gateway(&self) -> Option<&crate::settings::types::SignalGatewaySettings> {
-        self.global
-            .gateway
-            .as_ref()
-            .and_then(|gateway| gateway.signal.as_ref())
-    }
-
-    /// `subagentMaxConcurrency`: how many subagents may run at once
-    /// (default 32; `0` is unlimited).
-    #[must_use]
-    pub fn get_subagent_max_concurrency(&self) -> u32 {
-        self.merged
-            .subagent_max_concurrency
-            .unwrap_or(DEFAULT_SUBAGENT_MAX_CONCURRENCY)
-    }
-
-    /// `subagentStallMs`: how long a subagent may show no progress before
-    /// its parent stops it and reports it stalled (default 10 min; `0` or
-    /// unset takes the default).
-    #[must_use]
-    pub fn get_subagent_stall(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(
-            self.merged
-                .subagent_stall_ms
-                .filter(|ms| *ms > 0)
-                .unwrap_or(DEFAULT_SUBAGENT_STALL_MS),
-        )
-    }
-
-    /// `toolBlockingBudgetMs`: the runtime's one blocking budget for a
-    /// tool call (default 30 s; `0` or unset takes the default).
-    #[must_use]
-    pub fn get_tool_blocking_budget(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(
-            self.merged
-                .tool_blocking_budget_ms
-                .filter(|ms| *ms > 0)
-                .unwrap_or(DEFAULT_TOOL_BLOCKING_BUDGET_MS),
-        )
-    }
-
-    /// The provider admission limits (`providerMaxInFlight`,
-    /// `providerMaxQueued`). Global settings only: the limits are shared by
-    /// every session of the agent dir, so no project may move them.
-    #[must_use]
-    pub fn get_admission_limits(&self) -> crate::admission::AdmissionLimits {
-        crate::admission::AdmissionLimits::new(
-            self.global.provider_max_in_flight.as_ref(),
-            self.global.provider_max_queued,
-        )
-    }
-
-    /// `number | "off" | "none"` -> finite minutes or Off; malformed falls
-    /// back to the default (90).
-    #[must_use]
-    pub fn get_idle_eviction(&self) -> IdleEviction {
-        match &self.global.idle_eviction_minutes {
-            Some(serde_json::Value::String(text)) if text == "off" || text == "none" => {
-                IdleEviction::Off
-            }
-            Some(serde_json::Value::Number(number)) => {
-                if let Some(minutes) = number.as_u64() {
-                    if minutes > 0 {
-                        return IdleEviction::Minutes(minutes);
-                    }
-                }
-                IdleEviction::Minutes(DEFAULT_IDLE_EVICTION_MINUTES)
-            }
-            _ => IdleEviction::Minutes(DEFAULT_IDLE_EVICTION_MINUTES),
-        }
-    }
-
-    /// Resolved session-archiving policy: which sessions the daemon's archive
-    /// sweep moves out of the sessions directory. Both rules are independent —
-    /// a session is archived when EITHER fires. `None` on a field disables
-    /// that rule.
-    #[must_use]
-    pub fn get_session_archive_policy(&self) -> SessionArchivePolicy {
-        let max_age_days = match &self.global.session_archive_max_age_days {
-            Some(serde_json::Value::String(text)) if text == "off" || text == "none" => None,
-            Some(serde_json::Value::Number(number)) => Some(
-                number
-                    .as_u64()
-                    .filter(|days| *days > 0)
-                    .unwrap_or(DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS),
-            ),
-            _ => Some(DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS),
-        };
-        let max_sessions = match &self.global.session_archive_max_sessions {
-            Some(serde_json::Value::String(text)) if text == "off" || text == "none" => None,
-            Some(serde_json::Value::Number(number)) => number
-                .as_u64()
-                .filter(|count| *count > 0)
-                .map(|count| count as usize),
-            _ => Some(DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS),
-        };
-        SessionArchivePolicy {
-            max_age_days,
-            max_sessions,
-        }
-    }
-
-    #[must_use]
-    pub fn get_transport(&self) -> TransportSetting {
-        self.merged.transport.unwrap_or(TransportSetting::Auto)
-    }
-
-    #[must_use]
-    pub fn get_session_dir(&self) -> Option<std::path::PathBuf> {
-        let session_dir = self.merged.session_dir.as_ref()?;
-        let home = eukhe_types::platform::home_dir()?;
-        Some(if session_dir == "~" {
-            home
-        } else if let Some(rest) = session_dir.strip_prefix("~/") {
-            home.join(rest)
-        } else {
-            session_dir.into()
-        })
-    }
-
     // -- persistence ---------------------------------------------------------
 
     /// Write the global scope back (project scope is host-written, not
-    /// user-set in this port), then re-derive the effective settings.
+    /// user-set in this port), then re-derive the effective settings. A
+    /// global document that failed to parse is never written: the setter
+    /// fails and the file stays as the user left it.
     fn save_global(&mut self) -> Result<()> {
+        if let Some(message) = self.global_load_error.clone() {
+            let message =
+                format!("Global settings not saved: settings file failed to parse: {message}");
+            self.errors.push(SettingsError {
+                scope: SettingsScope::Global,
+                message: message.clone(),
+            });
+            return Err(anyhow::anyhow!(message));
+        }
         let content = serde_json::to_string_pretty(&self.global)?;
         self.storage
             .with_lock(SettingsScope::Global, &mut |current| {
                 let _ = current;
                 Some(content.clone())
             })?;
-        self.merged = deep_merge(&self.global, &self.project);
+        self.rebuild_cvars();
         Ok(())
     }
 }
@@ -973,14 +768,17 @@ mod tests {
         manager
             .set_default_model_and_provider("prime-inference", "z-ai/glm-5.3")
             .unwrap();
-        assert_eq!(manager.get_default_provider(), Some("prime-inference"));
-        assert_eq!(manager.get_default_model(), Some("z-ai/glm-5.3"));
+        assert_eq!(
+            manager.get_default_provider().as_deref(),
+            Some("prime-inference")
+        );
+        assert_eq!(manager.get_default_model().as_deref(), Some("z-ai/glm-5.3"));
         assert_eq!(
             manager.get_recent_models(),
             vec!["prime-inference/z-ai/glm-5.3".to_string()]
         );
         manager.reload().unwrap();
-        assert_eq!(manager.get_default_model(), Some("z-ai/glm-5.3"));
+        assert_eq!(manager.get_default_model().as_deref(), Some("z-ai/glm-5.3"));
     }
 
     /// `factory.enabled` reads the GLOBAL scope only (the agent-dir
@@ -1142,25 +940,28 @@ mod tests {
             .unwrap();
         let manager = SettingsManager::from_storage(storage);
         assert_eq!(manager.get_default_provider(), None);
-        assert_eq!(manager.get_theme(), Some("eukhe"));
+        assert_eq!(manager.get_theme().as_deref(), Some("eukhe"));
     }
 
     #[test]
     fn idle_eviction_semantics() {
-        let mut manager = SettingsManager::in_memory(&Settings::default());
+        let eviction = |minutes: Option<serde_json::Value>| {
+            SettingsManager::in_memory(&Settings {
+                idle_eviction_minutes: minutes,
+                ..Settings::default()
+            })
+            .get_idle_eviction()
+        };
+        assert_eq!(eviction(None), IdleEviction::Minutes(90));
+        assert_eq!(eviction(Some(serde_json::json!("off"))), IdleEviction::Off);
         assert_eq!(
-            manager.get_idle_eviction(),
-            IdleEviction::Minutes(DEFAULT_IDLE_EVICTION_MINUTES)
+            eviction(Some(serde_json::json!(0))),
+            IdleEviction::Minutes(90)
         );
-        manager.global.idle_eviction_minutes = Some(serde_json::json!("off"));
-        assert_eq!(manager.get_idle_eviction(), IdleEviction::Off);
-        manager.global.idle_eviction_minutes = Some(serde_json::json!(0));
         assert_eq!(
-            manager.get_idle_eviction(),
-            IdleEviction::Minutes(DEFAULT_IDLE_EVICTION_MINUTES)
+            eviction(Some(serde_json::json!(45))),
+            IdleEviction::Minutes(45)
         );
-        manager.global.idle_eviction_minutes = Some(serde_json::json!(45));
-        assert_eq!(manager.get_idle_eviction(), IdleEviction::Minutes(45));
     }
 
     #[test]
@@ -1179,32 +980,48 @@ mod tests {
 
     #[test]
     fn session_archive_policy_semantics() {
+        let policy = |age: Option<serde_json::Value>, count: Option<serde_json::Value>| {
+            SettingsManager::in_memory(&Settings {
+                session_archive_max_age_days: age,
+                session_archive_max_sessions: count,
+                ..Settings::default()
+            })
+            .get_session_archive_policy()
+        };
         // Absent keys: both rules on with their defaults.
-        let mut manager = SettingsManager::in_memory(&Settings::default());
         assert_eq!(
-            manager.get_session_archive_policy(),
+            policy(None, None),
             SessionArchivePolicy {
-                max_age_days: Some(DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS),
-                max_sessions: Some(DEFAULT_SESSION_ARCHIVE_MAX_SESSIONS),
+                max_age_days: Some(30),
+                max_sessions: Some(200),
             }
         );
         // "off"/"none" disable a rule; malformed values fall back to the
-        // default (the `idleEvictionMinutes` grammar).
-        manager.global.session_archive_max_age_days = Some(serde_json::json!("off"));
-        assert_eq!(manager.get_session_archive_policy().max_age_days, None);
-        manager.global.session_archive_max_age_days = Some(serde_json::json!(0));
+        // default (the `idleEvictionMinutes` grammar); a count of 0 is off.
         assert_eq!(
-            manager.get_session_archive_policy().max_age_days,
-            Some(DEFAULT_SESSION_ARCHIVE_MAX_AGE_DAYS)
+            policy(
+                Some(serde_json::json!("off")),
+                Some(serde_json::json!("none"))
+            ),
+            SessionArchivePolicy {
+                max_age_days: None,
+                max_sessions: None,
+            }
         );
-        manager.global.session_archive_max_age_days = Some(serde_json::json!(14));
-        assert_eq!(manager.get_session_archive_policy().max_age_days, Some(14));
-        manager.global.session_archive_max_sessions = Some(serde_json::json!("none"));
-        assert_eq!(manager.get_session_archive_policy().max_sessions, None);
-        manager.global.session_archive_max_sessions = Some(serde_json::json!(0));
-        assert_eq!(manager.get_session_archive_policy().max_sessions, None);
-        manager.global.session_archive_max_sessions = Some(serde_json::json!(50));
-        assert_eq!(manager.get_session_archive_policy().max_sessions, Some(50));
+        assert_eq!(
+            policy(Some(serde_json::json!(0)), Some(serde_json::json!(0))),
+            SessionArchivePolicy {
+                max_age_days: Some(30),
+                max_sessions: None,
+            }
+        );
+        assert_eq!(
+            policy(Some(serde_json::json!(14)), Some(serde_json::json!(50))),
+            SessionArchivePolicy {
+                max_age_days: Some(14),
+                max_sessions: Some(50),
+            }
+        );
     }
 
     /// TS `getImageModel`: the `imageModel` reference reads trimmed, and

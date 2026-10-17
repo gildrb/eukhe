@@ -269,8 +269,8 @@ impl Worker {
         tokio::spawn(async move {
             let cwd = lock(&core).cwd.clone();
             let settings = eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir);
-            let prefix = settings.settings().shell_command_prefix.clone();
-            let shell_path = settings.settings().shell_path.clone();
+            let prefix = settings.get_shell_command_prefix();
+            let shell_path = settings.get_shell_path();
             let end = run_bash(RunBash {
                 command: &command,
                 cwd: &cwd,

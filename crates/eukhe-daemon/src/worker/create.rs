@@ -10,6 +10,7 @@ use std::sync::Arc;
 use eukhe_ai::providers::faux_script::FauxScriptError;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::autonomous::AgentAutonomousConfig;
+use eukhe_core::durable::cvar_agent::CvarAgent;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::{
     McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
@@ -55,6 +56,9 @@ pub(crate) struct CreateParams {
     /// The create config's autonomous flags (TS `createAgentSession`
     /// applies them to the startup session).
     pub(crate) autonomous: Option<AgentAutonomousConfig>,
+    /// The family a spawned child inherits (the create config's
+    /// `cvarFamily`: its parent's effective family, root first).
+    pub(crate) cvar_family: Option<Vec<eukhe_core::settings::cvar::AgentLayer>>,
 }
 
 impl CreateParams {
@@ -131,6 +135,13 @@ impl CreateParams {
                     .map_err(|error| format!("Invalid autonomous: {error}"))?,
             ),
         };
+        let cvar_family = match payload.get("cvarFamily") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                serde_json::from_value(value.clone())
+                    .map_err(|error| format!("Invalid cvarFamily: {error}"))?,
+            ),
+        };
         Ok(Self {
             session_path,
             no_session,
@@ -160,6 +171,7 @@ impl CreateParams {
             spawned_by_request_id: text(Some(payload), "spawnedByRequestId"),
             prompt,
             autonomous,
+            cvar_family,
         })
     }
 
@@ -423,6 +435,15 @@ impl Worker {
                     spawned_by_request_id: params.spawned_by_request_id.clone(),
                 }),
         };
+        // A spawned child is a subagent: the family its parent had, then
+        // `subagent.cfg` and its `agents/<name>.cfg`; anything else is the
+        // root agent `main`.
+        if config.role.rlm_depth > 0 {
+            config.cvar_agent = CvarAgent::Subagent {
+                inherited: params.cvar_family.clone().unwrap_or_default(),
+                name: params.name.clone(),
+            };
+        }
         config.model.clone_from(&params.model);
         config.thinking = params.thinking;
         // The parent's session file is its durable storage directory (the
@@ -740,11 +761,8 @@ impl Worker {
                 core.child_script.clone_from(&params.child_script);
                 core.prompt = params.prompt.clone();
                 core.scoped_models = self.resolve_scoped_models(params);
-                let settings = eukhe_core::settings::SettingsManager::create(
-                    &params.cwd,
-                    &self.config.agent_dir,
-                );
-                let tier = Some(settings.get_default_service_tier());
+                // The session's own default (its sets over the config).
+                let tier = Some(hosted.deps().settings.manager().get_default_service_tier());
                 core.service_tier = tier;
                 core.active_service_tier = tier;
                 core.suspended = withdrawn

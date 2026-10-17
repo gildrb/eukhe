@@ -10,12 +10,13 @@ use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::{clamp_thinking_level, get_supported_thinking_levels};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::EukheSession;
-use eukhe_core::settings::{QueueModeSetting, ThinkingLevelSetting};
+use eukhe_core::settings::cvar::table;
+use eukhe_core::settings::ThinkingLevelSetting;
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
-use super::commands::{settings_for, RpcState};
+use super::commands::{set_session_cvar, settings_for, RpcState};
 use super::protocol::ResponseData;
 use super::reads::{agent_model, main_agent, rpc_context};
 
@@ -235,8 +236,8 @@ pub(crate) async fn cycle_thinking_level(state: &Arc<RpcState>) -> Result<Respon
 }
 
 /// `set_steering_mode` / `set_follow_up_mode` (TS
-/// `session.setSteeringMode`/`setFollowUpMode`): the settings default the
-/// session's inbox placement reads.
+/// `session.setSteeringMode`/`setFollowUpMode`): the session's own queue
+/// mode, which its inbox placement reads.
 pub(crate) async fn set_queue_mode(
     state: &Arc<RpcState>,
     payload: &Value,
@@ -246,23 +247,17 @@ pub(crate) async fn set_queue_mode(
         .get("mode")
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{name} requires a mode"))?;
-    let setting = match mode {
-        "all" => QueueModeSetting::All,
-        "one-at-a-time" => QueueModeSetting::OneAtATime,
-        other => {
-            return Err(format!(
-                "Invalid queue mode \"{other}\". Valid values: all, one-at-a-time"
-            ));
-        }
-    };
-    let mut settings = settings_for(&*state.session.session().await);
-    if name == "set_steering_mode" {
-        settings.set_steering_mode(setting)
-    } else {
-        settings.set_follow_up_mode(setting)
+    if !matches!(mode, "all" | "one-at-a-time") {
+        return Err(format!(
+            "Invalid queue mode \"{mode}\". Valid values: all, one-at-a-time"
+        ));
     }
-    .map_err(|error| error.to_string())?;
-    Ok(ResponseData::Absent)
+    let decl = if name == "set_steering_mode" {
+        &table::STEERING_MODE
+    } else {
+        &table::FOLLOW_UP_MODE
+    };
+    set_session_cvar(state, decl, mode).await
 }
 
 #[cfg(test)]

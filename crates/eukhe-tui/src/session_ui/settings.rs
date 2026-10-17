@@ -617,7 +617,7 @@ impl SessionUi {
                 }
                 let resolved = self.resolve_theme(value);
                 view.theme = resolved.theme;
-                self.theme_warning_rows(&resolved.warnings, view);
+                self.warning_rows(&resolved.warnings, view);
             }
             other => {
                 self.error_row(&format!("Unknown setting: {other}"), view);
@@ -860,6 +860,7 @@ impl SessionUi {
                 // so the reloaded manager replaces it.
                 let mut keybindings = view.editor.keybindings().clone();
                 keybindings.reload();
+                self.warning_rows(keybindings.warnings(), view);
                 view.editor.set_keybindings(keybindings);
                 // TS re-applies the settings theme (`getTheme` -> `setTheme`),
                 // re-reading the theme files.
@@ -870,7 +871,7 @@ impl SessionUi {
                 if let Some(name) = settings_theme {
                     let resolved = self.resolve_theme(&name);
                     view.theme = resolved.theme;
-                    self.theme_warning_rows(&resolved.warnings, view);
+                    self.warning_rows(&resolved.warnings, view);
                 }
                 // TS `refreshConnectionCatalog`: the daemon's model catalog
                 // re-fetch lands through the run loop's channel.

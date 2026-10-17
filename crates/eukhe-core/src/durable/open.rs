@@ -18,6 +18,7 @@ use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
 
 use super::admission_gate::{wrap_models_with_admission, AdmissionGate};
+use super::cvar_agent::{load_agent_state, read_agent_state};
 use super::deps::{
     HostDeps, OpenedSession, ResolvedServices, ServiceStop, SessionConfig, SessionStorage,
 };
@@ -71,6 +72,8 @@ pub struct EukheSession {
     deps: Arc<HostDeps>,
     stops: Mutex<Vec<ServiceStop>>,
     state_tree: Arc<LiveStateTree>,
+    /// Serializes the agent-state changes (`cvar` lines, main moves).
+    cvar_gate: tokio::sync::Mutex<()>,
 }
 
 impl EukheSession {
@@ -110,11 +113,12 @@ impl EukheSession {
             )
             .await?;
         *self.main.lock().unwrap_or_else(PoisonError::into_inner) = conversation.clone();
-        Ok(())
+        load_agent_state(self, cx).await
     }
 
     /// Re-read the main conversation after a commit that called
-    /// [`set_main_conversation`] (a fork or tree navigation).
+    /// [`set_main_conversation`] (a fork or tree navigation), and its agent
+    /// state ([`super::cvar_agent`]).
     ///
     /// # Errors
     ///
@@ -122,7 +126,13 @@ impl EukheSession {
     pub async fn reload_main(&self, cx: &Context) -> SessionResult<Conversation> {
         let main = main_conversation(&self.harness, cx).await?;
         *self.main.lock().unwrap_or_else(PoisonError::into_inner) = main.clone();
+        load_agent_state(self, cx).await?;
         Ok(main)
+    }
+
+    /// The gate of the agent-state changes.
+    pub(crate) fn cvar_gate(&self) -> &tokio::sync::Mutex<()> {
+        &self.cvar_gate
     }
 
     #[must_use]
@@ -181,7 +191,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     let settings = Arc::new(if config.memory.is_some() && config.role.is_root() {
         EukheSettings::chat_memory_root(&config.cwd, &config.agent_dir)
     } else {
-        EukheSettings::new(&config.cwd, &config.agent_dir)
+        EukheSettings::with_agent(&config.cwd, &config.agent_dir, config.cvar_agent.clone())
     });
     let manager = settings.manager();
     // A caller-supplied collection (the faux-script seams) may serve several
@@ -267,7 +277,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         tracing::warn!(session_id = %session_id, error = %error, "durable harness report");
     });
     let mut options = HarnessOptions::new(models.clone(), Arc::new(registry.clone()));
-    options.settings = Some(settings);
+    options.settings = Some(settings.clone());
     options.env = Some(env_factory(&config.cwd));
     options.now.clone_from(&config.now);
     options.on_report = Some(on_report);
@@ -291,6 +301,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     let opened = async {
         let root = open_root(&harness, &config, &models, &manager, cx).await?;
         let main = main_conversation(&harness, cx).await?;
+        settings.set_agent_state(read_agent_state(&harness, &main, cx).await?);
         adopt_session_model(&main, &config, &models, &manager, cx).await?;
         Ok::<_, OpenError>((root, main))
     };
@@ -310,6 +321,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         deps: Arc::clone(&deps),
         stops: Mutex::new(Vec::new()),
         state_tree,
+        cvar_gate: tokio::sync::Mutex::new(()),
     };
     for start in deps.take_services() {
         let started = start(OpenedSession {
@@ -443,10 +455,7 @@ async fn load_session_resources(
     manager: &SettingsManager,
 ) -> Result<SessionResources, OpenError> {
     let user_servers = manager
-        .settings()
-        .mcp_servers
-        .clone()
-        .unwrap_or_default()
+        .get_mcp_servers()
         .into_iter()
         .filter_map(|(server, value)| {
             serde_json::from_value(value)

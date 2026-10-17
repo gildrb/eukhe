@@ -35,8 +35,7 @@ use crate::durable::observe::compaction_trace::trace;
 use super::auxiliary_model::{resolve_auxiliary_model, AuxiliaryModelContext};
 use super::head;
 use super::summary_request::{
-    build_summarization_request, estimate_summary_request_tokens,
-    history_summary_completion_budget, DEFAULT_RESERVE_TOKENS,
+    build_summarization_request, estimate_summary_request_tokens, history_summary_completion_budget,
 };
 use super::utils::{
     compute_file_lists, extract_file_ops_from_message, format_file_operations, FileOperations,
@@ -314,16 +313,9 @@ async fn harness_read_context(
         .await
 }
 
-/// The session's compaction reserve tokens (the settings file's
-/// `compaction.reserveTokens`, or the default).
+/// The session's compaction reserve tokens (`compaction.reserveTokens`).
 fn compaction_reserve_tokens(deps: &super::HostDeps) -> u64 {
-    deps.settings
-        .manager()
-        .settings()
-        .compaction
-        .as_ref()
-        .and_then(|compaction| compaction.reserve_tokens)
-        .unwrap_or(DEFAULT_RESERVE_TOKENS)
+    deps.settings.manager().get_compaction_reserve_tokens()
 }
 
 /// Extra request options the auxiliary-model routing resolved.

@@ -116,8 +116,8 @@ async fn set_model_refuses_models_outside_the_allowlist() {
     let response = worker.dispatch("set_model", &set_model).await;
     assert!(response.success, "unrestricted switch: {response:?}");
     let settings = SettingsManager::create(dir.path(), dir.path().join("agent"));
-    assert_eq!(settings.get_default_provider(), Some(provider.as_str()));
-    assert_eq!(settings.get_default_model(), Some("faux-1"));
+    assert_eq!(settings.get_default_provider(), Some(provider.clone()));
+    assert_eq!(settings.get_default_model().as_deref(), Some("faux-1"));
     assert_eq!(connection_state(&worker).await["model"]["id"], "faux-1");
 }
 

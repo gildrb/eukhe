@@ -80,7 +80,7 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     // selection, cut/copy of the selection, and character transposition.
     // The `super+` defaults are the macOS Cmd keys (the kitty protocol
     // delivers them as the SUPER modifier); every binding stays
-    // user-configurable through keybindings.json exactly like the rest.
+    // user-configurable through binds.cfg exactly like the rest.
     (
         "tui.editor.redo",
         def!(

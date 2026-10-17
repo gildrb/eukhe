@@ -77,7 +77,7 @@ fn hints_delete_slot_rides_the_selected_row() {
     let mut cfg = crate::keybindings::KeybindingsConfig::new();
     cfg.insert("app.agents.delete".to_string(), Vec::new());
     let mut mode = mode_with_parent_and_child();
-    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(cfg);
+    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(&cfg);
     assert!(
         !flat(&mode.render_hints(120, None)).contains("Ctrl+X"),
         "an unbound delete never advertises"
@@ -98,7 +98,7 @@ fn hints_drop_segments_for_unbound_actions() {
     cfg.insert("app.agents.open".to_string(), Vec::new());
     cfg.insert("app.agents.new".to_string(), Vec::new());
     let mut mode = mode_with_parent_and_child();
-    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(cfg);
+    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(&cfg);
     let hints = flat(&mode.render_hints(120, None));
     assert!(!hints.contains("navigate"), "{hints}");
     assert!(hints.contains("Enter open"), "{hints}");
@@ -112,7 +112,7 @@ fn hints_drop_segments_for_unbound_actions() {
     cfg.insert("tui.select.confirm".to_string(), Vec::new());
     cfg.insert("app.agents.open".to_string(), Vec::new());
     let mut mode = mode_with_parent_and_child();
-    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(cfg);
+    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(&cfg);
     let hints = flat(&mode.render_hints(120, None));
     assert!(!hints.contains(" open"), "{hints}");
     assert!(hints.contains("navigate"), "{hints}");
@@ -121,7 +121,7 @@ fn hints_drop_segments_for_unbound_actions() {
     let mut cfg = crate::keybindings::KeybindingsConfig::new();
     cfg.insert("app.agents.back".to_string(), Vec::new());
     let mut mode = mode_with_parent_and_child();
-    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(cfg);
+    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(&cfg);
     mode.scope_active = true;
     let hints = flat(&mode.render_hints(120, None));
     assert!(!hints.contains("parent"), "{hints}");
@@ -133,7 +133,7 @@ fn hints_drop_segments_for_unbound_actions() {
         vec!["ctrl+x".to_string(), "ctrl+d".to_string()],
     );
     let mut mode = mode_with_parent_and_child();
-    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(cfg);
+    mode.keybindings = crate::keybindings::KeybindingsManager::with_user_bindings(&cfg);
     let hints = flat(&mode.render_hints(120, None));
     assert!(hints.contains("Ctrl+X/Ctrl+D stop"), "{hints}");
 }

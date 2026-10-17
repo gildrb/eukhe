@@ -11,6 +11,7 @@ pub mod branch_summary;
 pub mod children;
 mod codemode;
 pub mod compaction;
+pub mod cvar_agent;
 mod deps;
 mod digest;
 mod discovery;

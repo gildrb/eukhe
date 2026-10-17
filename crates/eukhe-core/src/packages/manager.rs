@@ -160,7 +160,7 @@ impl PackageManager {
     }
 
     pub(super) fn settings_npm_command(&self) -> Option<Vec<String>> {
-        self.settings.settings().npm_command.clone()
+        self.settings.get_npm_command()
     }
 
     /// Built-in skills directory; `None` when disabled.
@@ -170,10 +170,7 @@ impl PackageManager {
 
     /// Settings flag: load built-in skills (default true).
     pub(super) fn enable_builtin_skills(&self) -> bool {
-        self.settings
-            .settings()
-            .enable_builtin_skills
-            .unwrap_or(true)
+        self.settings.get_enable_builtin_skills()
     }
 
     /// Extra force-exclude patterns for built-in skills.
@@ -511,7 +508,7 @@ impl PackageManager {
         if let Some(root) = &self.global_npm_root {
             return Ok(root.clone());
         }
-        let (program, args) = npm::npm_command(self.settings.settings().npm_command.as_ref());
+        let (program, args) = npm::npm_command(self.settings.get_npm_command().as_ref());
         let root = npm::discover_global_npm_root(&program, &args)?;
         Ok(root)
     }
@@ -598,7 +595,7 @@ impl PackageManager {
     }
 
     fn run_npm_command(&mut self, args: &[&str], cwd: Option<&Path>) -> Result<()> {
-        let (program, configured) = npm::npm_command(self.settings.settings().npm_command.as_ref());
+        let (program, configured) = npm::npm_command(self.settings.get_npm_command().as_ref());
         let mut full_args: Vec<String> = configured;
         full_args.extend(args.iter().map(std::string::ToString::to_string));
         super::process::run_command(
@@ -613,7 +610,7 @@ impl PackageManager {
         source: &GitSource,
         scope: SourceScope,
     ) -> Result<()> {
-        let npm_command = self.settings.settings().npm_command.clone();
+        let npm_command = self.settings.get_npm_command();
         git::install_git(
             source,
             scope,

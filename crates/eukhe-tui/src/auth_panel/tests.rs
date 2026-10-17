@@ -256,7 +256,7 @@ fn cancel_runs_through_the_effective_binding() {
     // stays mounted, waiting.
     let mut cfg = crate::keybindings::KeybindingsConfig::new();
     cfg.insert("tui.select.cancel".to_string(), Vec::new());
-    let kb = KeybindingsManager::with_user_bindings(cfg);
+    let kb = KeybindingsManager::with_user_bindings(&cfg);
     let (mut panel, mut answer) = mount_paste();
     panel.handle_key("ctrl+c", &kb, &mut sink());
     assert!(
@@ -266,7 +266,7 @@ fn cancel_runs_through_the_effective_binding() {
     // A rebound cancel binding moves the cancel key.
     let mut cfg = crate::keybindings::KeybindingsConfig::new();
     cfg.insert("tui.select.cancel".to_string(), vec!["ctrl+q".to_string()]);
-    let kb = KeybindingsManager::with_user_bindings(cfg);
+    let kb = KeybindingsManager::with_user_bindings(&cfg);
     let (mut panel, mut answer) = mount_paste();
     panel.handle_key("ctrl+c", &kb, &mut sink());
     assert!(answer.try_recv().is_err(), "the default key went inert");

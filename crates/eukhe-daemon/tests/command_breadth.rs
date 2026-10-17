@@ -394,6 +394,14 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "set_auto_retry", "activeSessionId": "sess", "enabled": true}"#,
     ),
     (
+        "cvar",
+        r#"{"type": "cvar", "activeSessionId": "sess", "line": "set transport sse", "global": false}"#,
+    ),
+    (
+        "cvar_save",
+        r#"{"type": "cvar_save", "activeSessionId": "sess"}"#,
+    ),
+    (
         "compact",
         r#"{"type": "compact", "activeSessionId": "sess"}"#,
     ),
@@ -600,6 +608,8 @@ fn known_command_types_match_the_ts_list() {
                     | "agent_reply"
                     | "get_run_outcome"
                     | "get_worker_liveness"
+                    | "cvar"
+                    | "cvar_save"
             ),
             "unexpected non-TS command type: {extra}"
         );

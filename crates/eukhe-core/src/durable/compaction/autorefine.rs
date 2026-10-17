@@ -77,8 +77,7 @@ fn allowed(deps: &HostDeps) -> bool {
 }
 
 fn gates(deps: &HostDeps) -> AutoRefineGates {
-    let auto_refine = deps.settings.manager().settings().auto_refine.clone();
-    AutoRefineGates::from_settings(auto_refine.as_ref())
+    AutoRefineGates::from_settings(Some(&deps.settings.manager().get_auto_refine()))
 }
 
 /// Consume an armed trigger at one quiescent boundary: the gates, the

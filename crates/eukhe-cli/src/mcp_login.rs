@@ -43,10 +43,7 @@ pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path
                 eukhe_core::settings::SettingsManager::create(&user_cwd, &user_agent_dir);
             Some(
                 settings
-                    .settings()
-                    .mcp_servers
-                    .clone()
-                    .unwrap_or_default()
+                    .get_mcp_servers()
                     .into_iter()
                     .filter_map(|(server, config)| {
                         serde_json::from_value::<McpServerConfig>(config)
@@ -61,11 +58,7 @@ pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path
         get_catalog_sources: Some(Box::new(move || {
             let settings =
                 eukhe_core::settings::SettingsManager::create(&catalog_cwd, &catalog_agent_dir);
-            settings
-                .settings()
-                .mcp_catalog_sources
-                .clone()
-                .unwrap_or_default()
+            settings.get_mcp_catalog_sources()
         })),
         remote_source: None,
         probe_override: None,

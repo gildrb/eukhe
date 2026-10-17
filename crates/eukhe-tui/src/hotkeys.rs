@@ -1,7 +1,7 @@
 //! The `/hotkeys` guide (TS `getHotkeysGuide` in
 //! `modes/interactive/interactive-mode.ts`): the full keyboard-shortcut
 //! reference rendered from the EFFECTIVE bindings, so user
-//! `keybindings.json` overrides show their keys in the guide.
+//! `binds.cfg` binds show their keys in the guide.
 
 use crate::keybindings::{format_key_text, KeybindingsManager};
 use std::fmt::Write;
@@ -216,7 +216,7 @@ mod tests {
             "app.tools.expand".to_string(),
             vec!["ctrl+alt+x".to_string()],
         );
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let guide = hotkeys_guide(&kb);
         assert!(guide.contains("| `Ctrl+Alt+X` | Cycle overview"), "{guide}");
         assert!(!guide.contains("`Ctrl+O`"), "{guide}");
@@ -230,7 +230,7 @@ mod tests {
         // when unbound).
         let mut cfg = crate::keybindings::KeybindingsConfig::new();
         cfg.insert("app.tools.expand".to_string(), Vec::new());
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let guide = hotkeys_guide(&kb);
         assert!(guide.contains("| `` | Cycle overview"), "{guide}");
         assert!(!guide.contains("Ctrl+O"), "{guide}");

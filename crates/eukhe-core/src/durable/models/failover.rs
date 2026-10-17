@@ -27,16 +27,6 @@ pub struct ProviderFailoverPolicy {
     pub max_switches: u32,
 }
 
-/// Default policy: failover on, up to [`MAX_TOTAL_PROVIDER_RETRIES`]
-/// provider attempts per request (the whole-episode ceiling —
-/// the SANCTIONED DIVERGENCE of 2026-09-23: the per-provider budget alone
-/// let a chain of N candidate providers stack 5xN retries into the ~30
-/// attempts the operator ruled too many).
-pub const DEFAULT_PROVIDER_FAILOVER_POLICY: ProviderFailoverPolicy = ProviderFailoverPolicy {
-    enabled: true,
-    max_switches: MAX_TOTAL_PROVIDER_RETRIES,
-};
-
 /// The whole-episode provider-attempt ceiling (the old
 /// `MAX_TOTAL_PROVIDER_RETRIES`): a request walks at most this many provider
 /// attempts (the primary plus switches) before the final failure surfaces.

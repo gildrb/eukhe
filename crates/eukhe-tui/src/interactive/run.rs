@@ -197,7 +197,7 @@ async fn run_interactive_surface(
     view.editor.set_autocomplete_provider(Box::new(
         crate::autocomplete::CombinedAutocompleteProvider::from_registry(options.cwd.clone()),
     ));
-    // The effective bindings (user `keybindings.json` merged over the TS
+    // The effective binds (user `binds.cfg` over the TS
     // defaults) drive the editor, the pickers, and every hint the view
     // renders (TS `KeybindingsManager.create()` + `setKeybindings`).
     view.editor.set_keybindings(options.keybindings.clone());
@@ -552,9 +552,12 @@ async fn run_interactive_surface(
         });
         session.dirty = true;
     }
-    // A theme that failed to load paints the default; the reason lands
-    // once the attach rebuilt the transcript.
-    session.theme_warning_rows(&resolved_theme.warnings, &mut view);
+    // A theme that failed to load paints the default, and an unreadable
+    // binds.cfg binds the defaults only; the reasons land once the attach
+    // rebuilt the transcript.
+    session.warning_rows(&resolved_theme.warnings, &mut view);
+    let binds_warnings = view.editor.keybindings().warnings().to_vec();
+    session.warning_rows(&binds_warnings, &mut view);
     if let Some(notice) = check_tmux_keyboard_setup().await {
         view.push_entry(crate::chat::ChatEntry::Status {
             text: format!("Warning: {notice}"),

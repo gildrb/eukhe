@@ -79,6 +79,8 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "set_follow_up_mode"
         | "set_auto_compaction"
         | "set_auto_retry"
+        | "cvar"
+        | "cvar_save"
         | "compact"
         | "refine"
         | "abort_compaction"

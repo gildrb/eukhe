@@ -606,7 +606,7 @@ mod tests {
         );
         let mut bindings = crate::keybindings::KeybindingsConfig::new();
         bindings.insert("tui.select.cancel".to_string(), Vec::new());
-        let unbound = KeybindingsManager::with_user_bindings(bindings);
+        let unbound = KeybindingsManager::with_user_bindings(&bindings);
         assert_eq!(key_hint(&unbound, &["tui.select.cancel"], "close"), None);
         assert_eq!(
             key_hint(&unbound, &["tui.select.up", "tui.select.down"], "navigate").as_deref(),

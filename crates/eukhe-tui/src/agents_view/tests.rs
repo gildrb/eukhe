@@ -238,7 +238,7 @@ fn mode_with_user_bindings(bindings: &[(&str, &str)]) -> AgentsViewMode {
         selected_row_identity: None,
         selected_key: None,
         status_message: None,
-        keybindings: crate::keybindings::KeybindingsManager::with_user_bindings(cfg),
+        keybindings: crate::keybindings::KeybindingsManager::with_user_bindings(&cfg),
         show_hardware_cursor: false,
         screen_mode: crate::screen_mode::ScreenMode::Inline,
         incident_notice_state: None,

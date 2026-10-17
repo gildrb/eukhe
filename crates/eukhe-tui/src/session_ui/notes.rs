@@ -296,9 +296,10 @@ impl SessionUi {
         self.dirty = true;
     }
 
-    /// One warning row per theme problem (a missing or invalid theme, a
-    /// registered file that failed to load).
-    pub(crate) fn theme_warning_rows(&mut self, warnings: &[String], view: &mut AgentView) {
+    /// One warning row per problem (a missing or invalid theme, a
+    /// registered theme file that failed to load, a `binds.cfg` that could
+    /// not be read).
+    pub(crate) fn warning_rows(&mut self, warnings: &[String], view: &mut AgentView) {
         for warning in warnings {
             view.push_entry(ChatEntry::Status {
                 text: format!("Warning: {warning}"),

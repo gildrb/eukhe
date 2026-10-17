@@ -6,6 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use eukhe_core::settings::TransportSetting;
 use serde_json::{json, Value};
 
 use super::*;
@@ -77,8 +78,21 @@ async fn connection_state(worker: &Worker) -> Value {
     response.data.expect("connection state data")
 }
 
-fn settings(dir: &Path) -> SettingsManager {
-    SettingsManager::create(dir, dir.join("agent"))
+/// The settings of `worker`'s session (its own sets over the config).
+fn session_settings(worker: &Worker) -> Arc<eukhe_core::settings::SettingsManager> {
+    worker
+        .session
+        .get()
+        .expect("a hosted session")
+        .deps()
+        .settings
+        .manager()
+}
+
+/// The global settings documents of `dir`'s agent dir, as another process
+/// would read them.
+fn global_settings(dir: &Path) -> eukhe_core::settings::SettingsManager {
+    eukhe_core::settings::SettingsManager::create(dir, dir.join("agent"))
 }
 
 /// The connection state carries the settings-seeded switches: the TS
@@ -319,7 +333,7 @@ async fn set_service_tier_clamps_the_active_tier() {
         assert_eq!(core.active_service_tier, Some(ServiceTier::Default));
     }
     assert_eq!(
-        settings(dir.path()).get_default_service_tier(),
+        session_settings(&worker).get_default_service_tier(),
         ServiceTier::Default,
         "an unsupported tier never becomes the default"
     );
@@ -356,10 +370,10 @@ async fn replacement_reseed_restores_the_settings_tier() {
     assert_eq!(core.active_service_tier, Some(ServiceTier::Default));
 }
 
-/// `set_transport` persists the settings value; an unknown transport
+/// `set_transport` sets the session's transport; an unknown transport
 /// fails the command.
 #[tokio::test]
-async fn set_transport_persists_the_setting() {
+async fn set_transport_sets_the_session_transport() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created_worker(dir.path(), Some(faux_script(false))).await;
     let response = worker
@@ -367,7 +381,7 @@ async fn set_transport_persists_the_setting() {
         .await;
     assert!(response.success, "failed: {response:?}");
     assert!(matches!(
-        settings(dir.path()).get_transport(),
+        session_settings(&worker).get_transport(),
         TransportSetting::WebSocket
     ));
     let response = worker
@@ -376,8 +390,8 @@ async fn set_transport_persists_the_setting() {
     assert!(!response.success);
 }
 
-/// The queue-mode switches persist and show on the connection state, and
-/// reject values outside the TS vocabulary.
+/// The queue-mode switches show on the connection state, and reject
+/// values outside the TS vocabulary.
 #[tokio::test]
 async fn queue_mode_switches_update_the_state() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -408,9 +422,9 @@ async fn queue_mode_switches_update_the_state() {
     }
 }
 
-/// `set_auto_retry` persists the toggle the retry policy reads.
+/// `set_auto_retry` sets the toggle the session's retry policy reads.
 #[tokio::test]
-async fn set_auto_retry_persists_the_toggle() {
+async fn set_auto_retry_sets_the_session_toggle() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created_worker(dir.path(), Some(faux_script(false))).await;
     let response = worker
@@ -418,60 +432,182 @@ async fn set_auto_retry_persists_the_toggle() {
         .await;
     assert!(response.success, "failed: {response:?}");
     assert_eq!(
-        settings(dir.path())
-            .settings()
-            .retry
-            .as_ref()
-            .and_then(|retry| retry.enabled),
-        Some(false)
+        session_settings(&worker).cvars().value_of("retry.enabled"),
+        Some(json!(false))
     );
     let response = worker.dispatch("set_auto_retry", &json!({})).await;
     assert!(!response.success);
 }
 
-/// `set_auto_compaction` flips the connection-state flag through the
-/// persisted setting; a session created afterwards reads it back.
+/// Regression (S4 scope leak): the switches wrote the global
+/// settings.json, so a switch in one session changed every other session
+/// over the same agent dir. Now each is a set of a Local cvar in the
+/// session's own layer: the session that switched shows it, another
+/// session (and the global settings.json) keep their values.
 #[tokio::test]
-async fn set_auto_compaction_persists_the_toggle() {
+async fn a_switch_changes_only_its_own_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let switched = created_worker(dir.path(), Some(faux_script(false))).await;
+    let other = created_worker(dir.path(), Some(faux_script(false))).await;
+    for (command, payload) in [
+        ("set_auto_compaction", json!({ "enabled": false })),
+        ("set_auto_retry", json!({ "enabled": false })),
+        ("set_steering_mode", json!({ "mode": "one-at-a-time" })),
+        ("set_follow_up_mode", json!({ "mode": "all" })),
+        ("set_transport", json!({ "transport": "sse" })),
+    ] {
+        let response = switched.dispatch(command, &payload).await;
+        assert!(response.success, "{command} failed: {response:?}");
+    }
+    let shown = |state: &Value| {
+        (
+            state["autoCompactionEnabled"].clone(),
+            state["steeringMode"].clone(),
+            state["followUpMode"].clone(),
+        )
+    };
+    assert_eq!(
+        shown(&connection_state(&switched).await),
+        (json!(false), json!("one-at-a-time"), json!("all"))
+    );
+    assert_eq!(
+        shown(&connection_state(&other).await),
+        (json!(true), json!("all"), json!("one-at-a-time"))
+    );
+    let values = |settings: &eukhe_core::settings::SettingsManager| {
+        let cvars = settings.cvars();
+        (cvars.value_of("retry.enabled"), cvars.value_of("transport"))
+    };
+    let unchanged = (Some(json!(true)), Some(json!("auto")));
+    assert_eq!(
+        values(&session_settings(&switched)),
+        (Some(json!(false)), Some(json!("sse")))
+    );
+    assert_eq!(values(&session_settings(&other)), unchanged);
+    assert_eq!(values(&global_settings(dir.path())), unchanged);
+}
+
+/// `cvar` runs a line into the session and answers its replicated values;
+/// a session set of a Global cvar is rejected with kind `global` and
+/// applies nothing of its line.
+#[tokio::test]
+async fn cvar_rejects_a_global_cvar_from_a_session() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created_worker(dir.path(), Some(faux_script(false))).await;
-    assert_eq!(
-        connection_state(&worker).await["autoCompactionEnabled"],
-        json!(true)
-    );
     let response = worker
-        .dispatch("set_auto_compaction", &json!({ "enabled": false }))
+        .dispatch(
+            "cvar",
+            &json!({ "line": "set transport sse; set rlmMaxDepth 3" }),
+        )
         .await;
-    assert!(response.success, "failed: {response:?}");
+    let message = CvarError::Global {
+        id: "rlmMaxDepth".to_string(),
+    }
+    .to_string();
+    assert_eq!(
+        response,
+        DaemonResponse {
+            id: None,
+            command: "cvar".to_string(),
+            success: false,
+            data: Some(json!({ "kind": "global", "id": "rlmMaxDepth", "message": message })),
+            error: Some(message.clone()),
+            error_info: None,
+        }
+    );
+    // The wire line drops `error` when `data` is present: the message
+    // must reach the client in `data` (a TUI showed "unknown error").
+    assert_eq!(
+        crate::protocol::response_line(&response),
+        json!({
+            "type": "response",
+            "command": "cvar",
+            "success": false,
+            "data": { "kind": "global", "id": "rlmMaxDepth", "message": message },
+        })
+    );
+    assert!(matches!(
+        session_settings(&worker).get_transport(),
+        TransportSetting::Auto
+    ));
+
+    let response = worker
+        .dispatch("cvar", &json!({ "line": "toggle compaction.enabled" }))
+        .await;
+    assert_eq!(
+        response,
+        response_success(
+            None,
+            "cvar",
+            Some(json!({
+                "values": session_settings(&worker).cvars().replicated(),
+                "errors": [],
+            }))
+        )
+    );
     assert_eq!(
         connection_state(&worker).await["autoCompactionEnabled"],
-        json!(false)
-    );
-    assert!(!settings(dir.path()).get_compaction_enabled());
-    let restarted = created_worker(dir.path(), Some(faux_script(false))).await;
-    assert_eq!(
-        connection_state(&restarted).await["autoCompactionEnabled"],
         json!(false)
     );
 }
 
-/// A failed settings write fails the command and flips nothing.
+/// `cvar` with `global` writes the global config.cfg: every session over
+/// the agent dir reads the value.
 #[tokio::test]
-async fn set_auto_compaction_fails_without_flipping_on_a_failed_save() {
+async fn a_global_cvar_line_reaches_every_session() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created_worker(dir.path(), Some(faux_script(false))).await;
-    // Replace the agent dir with a file: the settings save cannot create
-    // agent/settings.json.
-    std::fs::remove_dir_all(dir.path().join("agent")).expect("remove agent dir");
-    std::fs::write(dir.path().join("agent"), b"not a directory").expect("agent file");
+    let other = created_worker(dir.path(), Some(faux_script(false))).await;
     let response = worker
-        .dispatch("set_auto_compaction", &json!({ "enabled": false }))
+        .dispatch(
+            "cvar",
+            &json!({ "line": "set steeringMode one-at-a-time", "global": true }),
+        )
         .await;
-    assert!(!response.success, "must fail: {response:?}");
+    assert!(response.success, "failed: {response:?}");
     assert_eq!(
-        connection_state(&worker).await["autoCompactionEnabled"],
-        json!(true)
+        connection_state(&other).await["steeringMode"],
+        json!("one-at-a-time")
     );
+}
+
+/// A spawned child (`rlmDepth` > 0) installs the create's `cvarFamily` as
+/// its inherited layers: it starts with its parent's Local set,
+/// `subagent.cfg` overrides it, and a Global cvar keeps the config's value
+/// whatever the profile says.
+#[tokio::test]
+async fn a_child_inherits_its_parents_family_under_its_profile() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("agent")).expect("agent dir");
+    let worker = Arc::new(Worker::new(
+        worker_config(dir.path(), Some(faux_script(false))),
+        None,
+    ));
+    create(
+        &worker,
+        &json!({
+            "noSession": true,
+            "cwd": dir.path(),
+            "name": "scout",
+            "rlmDepth": 1,
+            "rlmMaxDepth": 3,
+            "cvarFamily": [
+                { "profile": [], "sets": [{ "id": "transport", "value": "sse" }] },
+            ],
+        }),
+    )
+    .await;
+    let values = || {
+        let cvars = session_settings(&worker).cvars().clone();
+        (cvars.value_of("transport"), cvars.value_of("rlmMaxDepth"))
+    };
+    assert_eq!(values(), (Some(json!("sse")), Some(Value::Null)));
+    std::fs::write(
+        dir.path().join("agent/subagent.cfg"),
+        "set transport web-socket\nset rlmMaxDepth 9\n",
+    )
+    .expect("subagent.cfg");
+    assert_eq!(values(), (Some(json!("web-socket")), Some(Value::Null)));
 }
 
 /// `abort_retry` without a retry in progress is a success no-op (TS aborts

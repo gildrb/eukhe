@@ -1,10 +1,13 @@
 //! The interactive settings-menu accessors (TS settings-manager getters and
 //! setters behind the `/settings` rows). Every
 //! setter writes the global scope like the TS `markModified` + `save` pair;
-//! every getter reads the merged effective settings with the TS defaults.
+//! every getter reads its cvar (`settings::cvar::table`) with its declared
+//! default.
 
 use anyhow::{anyhow, Result};
 
+use super::cvar::{table, CvarType};
+use super::getters::{default_nat, default_text};
 use super::manager::SettingsManager;
 
 impl SettingsManager {
@@ -26,11 +29,7 @@ impl SettingsManager {
     /// environment value; this port has no such override).
     #[must_use]
     pub fn get_clear_on_shrink(&self) -> bool {
-        self.settings()
-            .terminal
-            .as_ref()
-            .and_then(|terminal| terminal.clear_on_shrink)
-            .unwrap_or(false)
+        self.cvars().bool(&table::TERMINAL_CLEAR_ON_SHRINK)
     }
 
     /// `terminal.clearOnShrink` setter.
@@ -46,14 +45,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `terminal.showTerminalProgress` (TS default false).
+    /// `terminal.showTerminalProgress`.
     #[must_use]
     pub fn get_show_terminal_progress(&self) -> bool {
-        self.settings()
-            .terminal
-            .as_ref()
-            .and_then(|terminal| terminal.show_terminal_progress)
-            .unwrap_or(false)
+        self.cvars().bool(&table::TERMINAL_SHOW_TERMINAL_PROGRESS)
     }
 
     /// `terminal.showTerminalProgress` setter.
@@ -83,14 +78,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `images.autoResize` (TS default true).
+    /// `images.autoResize`.
     #[must_use]
     pub fn get_image_auto_resize(&self) -> bool {
-        self.settings()
-            .images
-            .as_ref()
-            .and_then(|images| images.auto_resize)
-            .unwrap_or(true)
+        self.cvars().bool(&table::IMAGES_AUTO_RESIZE)
     }
 
     /// `images.autoResize` setter.
@@ -106,14 +97,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `images.blockImages` (TS default false).
+    /// `images.blockImages`.
     #[must_use]
     pub fn get_block_images(&self) -> bool {
-        self.settings()
-            .images
-            .as_ref()
-            .and_then(|images| images.block_images)
-            .unwrap_or(false)
+        self.cvars().bool(&table::IMAGES_BLOCK_IMAGES)
     }
 
     /// `images.blockImages` setter.
@@ -129,10 +116,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `enableSkillCommands` (TS default true).
+    /// `enableSkillCommands`.
     #[must_use]
     pub fn get_enable_skill_commands(&self) -> bool {
-        self.settings().enable_skill_commands.unwrap_or(true)
+        self.cvars().bool(&table::ENABLE_SKILL_COMMANDS)
     }
 
     /// `enableSkillCommands` setter.
@@ -145,10 +132,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `enableBuiltinSkills` (TS default true).
+    /// `enableBuiltinSkills`.
     #[must_use]
     pub fn get_enable_builtin_skills(&self) -> bool {
-        self.settings().enable_builtin_skills.unwrap_or(true)
+        self.cvars().bool(&table::ENABLE_BUILTIN_SKILLS)
     }
 
     /// `enableBuiltinSkills` setter.
@@ -161,11 +148,11 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `showHardwareCursor` (TS default false; the `EUKHE_HARDWARE_CURSOR`
-    /// override is not part of this port).
+    /// `showHardwareCursor` (the `EUKHE_HARDWARE_CURSOR` override is not
+    /// part of this port).
     #[must_use]
     pub fn get_show_hardware_cursor(&self) -> bool {
-        self.settings().show_hardware_cursor.unwrap_or(false)
+        self.cvars().bool(&table::SHOW_HARDWARE_CURSOR)
     }
 
     /// `showHardwareCursor` setter.
@@ -178,10 +165,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `editorPaddingX` (TS default 0, clamped 0-3).
+    /// `editorPaddingX` (the setter clamps 0-3).
     #[must_use]
     pub fn get_editor_padding_x(&self) -> u64 {
-        self.settings().editor_padding_x.unwrap_or(0)
+        self.cvars().nat(&table::EDITOR_PADDING_X)
     }
 
     /// `editorPaddingX` setter (clamped 0-3).
@@ -194,10 +181,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `autocompleteMaxVisible` (TS default 5, clamped 3-20).
+    /// `autocompleteMaxVisible` (the setter clamps 3-20).
     #[must_use]
     pub fn get_autocomplete_max_visible(&self) -> u64 {
-        self.settings().autocomplete_max_visible.unwrap_or(5)
+        self.cvars().nat(&table::AUTOCOMPLETE_MAX_VISIBLE)
     }
 
     /// `autocompleteMaxVisible` setter (clamped 3-20).
@@ -210,10 +197,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `quietStartup` (TS default false).
+    /// `quietStartup`.
     #[must_use]
     pub fn get_quiet_startup(&self) -> bool {
-        self.settings().quiet_startup.unwrap_or(false)
+        self.cvars().bool(&table::QUIET_STARTUP)
     }
 
     /// `quietStartup` setter.
@@ -226,26 +213,25 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `idleEvictionMinutes` (TS `number | "off"`; a `none` value or an
-    /// invalid number falls back to the default like the TS getter).
+    /// `idleEvictionMinutes` (TS `number | "off"`; a `none` value reads as
+    /// `off`, an invalid number as the default, like the TS getter).
     #[must_use]
     pub fn get_idle_eviction_minutes(&self) -> String {
-        match self.settings().idle_eviction_minutes.as_ref() {
-            Some(value) if value.as_str() == Some("off") || value.as_str() == Some("none") => {
-                "off".to_string()
-            }
-            Some(value) => match value.as_f64() {
-                Some(number) if number.is_finite() && number > 0.0 => {
-                    let rounded = number.round();
-                    if (number - rounded).abs() < f64::EPSILON {
-                        format!("{rounded:.0}")
-                    } else {
-                        format!("{number}")
-                    }
+        let decl = &table::IDLE_EVICTION_MINUTES;
+        let value = self.cvars().value(decl);
+        if value.as_str() == Some("off") || value.as_str() == Some("none") {
+            return "off".to_string();
+        }
+        match value.as_f64() {
+            Some(number) if number.is_finite() && number > 0.0 => {
+                let rounded = number.round();
+                if (number - rounded).abs() < f64::EPSILON {
+                    format!("{rounded:.0}")
+                } else {
+                    format!("{number}")
                 }
-                _ => super::manager::DEFAULT_IDLE_EVICTION_MINUTES.to_string(),
-            },
-            None => super::manager::DEFAULT_IDLE_EVICTION_MINUTES.to_string(),
+            }
+            _ => default_nat(decl).to_string(),
         }
     }
 
@@ -272,20 +258,21 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `markdown.mermaid` (TS default `streaming`; only `off` and `final`
-    /// are recognized).
+    /// `markdown.mermaid` (`off`, `final`, or `streaming`).
     #[must_use]
     pub fn get_mermaid_rendering_mode(&self) -> &'static str {
-        match self
-            .settings()
-            .markdown
-            .as_ref()
-            .and_then(|markdown| markdown.mermaid)
-        {
-            Some(super::types::MermaidRenderingMode::Off) => "off",
-            Some(super::types::MermaidRenderingMode::Final) => "final",
-            _ => "streaming",
+        let decl = &table::MARKDOWN_MERMAID;
+        let mode = self.cvars().text(decl);
+        match decl.ty {
+            CvarType::Choice(modes) => modes.iter().find(|known| **known == mode).copied(),
+            CvarType::Bool
+            | CvarType::Nat
+            | CvarType::Text
+            | CvarType::List
+            | CvarType::ChoiceList(_)
+            | CvarType::Json => None,
         }
+        .unwrap_or_else(|| default_text(decl))
     }
 
     /// `markdown.mermaid` setter (`off`, `final`, or `streaming`).
@@ -308,15 +295,10 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
-    /// `warnings` (TS `WarningSettings`; a missing document is all-default,
-    /// and `anthropicExtraUsage` defaults true).
+    /// `warnings.anthropicExtraUsage`.
     #[must_use]
     pub fn get_warnings_anthropic_extra_usage(&self) -> bool {
-        self.settings()
-            .warnings
-            .as_ref()
-            .and_then(|warnings| warnings.anthropic_extra_usage)
-            .unwrap_or(true)
+        self.cvars().bool(&table::WARNINGS_ANTHROPIC_EXTRA_USAGE)
     }
 
     /// `warnings.anthropicExtraUsage` setter.
@@ -356,19 +338,12 @@ impl SettingsManager {
 
     /// `factory.enabled` (the agent factory's opt-in gate): unset reads
     /// as disabled — the factory stays off until the user runs
-    /// `/factory on`. The read is GLOBAL SCOPE ONLY, exactly the agent-dir
+    /// `/factory on`. A Global cvar: only the global settings set it, the
     /// document `set_factory_enabled` writes and the kernel's factory gate
-    /// reads, so no project-scope override can flip the gate out from
-    /// under the kernel (a project `.eukhe/settings.json` with
-    /// `factory.enabled` never diverges the daemon's lane advertisement
-    /// or the client's `/factory status` from what the kernel will do).
+    /// reads, so no project can flip the gate out from under the kernel.
     #[must_use]
     pub fn get_factory_enabled(&self) -> bool {
-        self.global_settings()
-            .factory
-            .as_ref()
-            .and_then(|factory| factory.enabled)
-            .unwrap_or(false)
+        self.cvars().bool(&table::FACTORY_ENABLED)
     }
 
     /// `factory.enabled` setter: persists the opt-in gate to the global
@@ -390,6 +365,7 @@ impl SettingsManager {
     /// persisted model-scope patterns (`None` is no filter).
     #[must_use]
     pub fn get_enabled_models(&self) -> Option<Vec<String>> {
-        self.settings().enabled_models.clone()
+        let patterns = self.cvars().list(&table::ENABLED_MODELS);
+        (!patterns.is_empty()).then_some(patterns)
     }
 }

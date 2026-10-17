@@ -188,8 +188,8 @@ pub struct InteractiveOptions {
     /// OAuth, the provider catalog) the composition root owns. `None`
     /// reports the commands as unavailable.
     pub provider_auth: Option<crate::provider_auth::ProviderAuthCommandsHandle>,
-    /// The effective keybindings (defaults merged with the user's
-    /// `keybindings.json`, loaded by the composition root; TS
+    /// The effective key binds (the user's `binds.cfg` over the default
+    /// binds, loaded by the composition root; TS
     /// `KeybindingsManager.create()`): every hint and key handler renders
     /// and dispatches through this set.
     pub keybindings: KeybindingsManager,

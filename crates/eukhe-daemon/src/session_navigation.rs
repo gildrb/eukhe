@@ -70,6 +70,8 @@ struct LiveIdentity {
     parent_session_path: Option<String>,
     child_script: Option<String>,
     prompt: eukhe_core::durable::PromptConfig,
+    /// The family a subagent inherited at spawn.
+    cvar_family: Vec<eukhe_core::settings::cvar::AgentLayer>,
 }
 
 impl SessionNavigation {
@@ -98,6 +100,7 @@ impl SessionNavigation {
             parent_session_path: core.parent_session_path.clone(),
             child_script: core.child_script.clone(),
             prompt: core.prompt.clone(),
+            cvar_family: hosted.deps().settings.agent().inherited().to_vec(),
         })
     }
 
@@ -390,6 +393,7 @@ fn replacement_params(
         spawned_by_request_id: None,
         prompt: live.prompt,
         autonomous: None,
+        cvar_family: Some(live.cvar_family),
     }
 }
 

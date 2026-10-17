@@ -1,5 +1,6 @@
 //! The keys concern: the terminal input grammar -- key dispatch, paste,
 //! and the input-state seams.
+use super::cvar::CvarLineTarget;
 use super::{
     key_event_to_id, AgentView, ChatEntry, DaemonCommand, DockFocusSource, Duration,
     EffortPickerAction, Instant, KeyEvent, Map, QueueBrowseDirection, QueueLane, Result, SessionUi,
@@ -7,6 +8,7 @@ use super::{
 };
 use crate::glyphs::WARN;
 use crate::view::{ScrollAmount, ScrollRequest};
+use eukhe_types::cvar::{render_list, Command};
 
 /// How long the Ctrl+C exit hint arms the second-press exit (TS
 /// `EXIT_HINT_DURATION_MS`).
@@ -224,6 +226,40 @@ impl SessionUi {
         let Some(id) = key_event_to_id(&key) else {
             return Ok(());
         };
+        // The key's bind (`binds.cfg` over the defaults, `Binds::press`):
+        // its `set`/`toggle`/`alias` commands go to the session's daemon;
+        // its `action` commands run through the ladder below (each
+        // `matches` reads the same bind), and a bind of cvar commands
+        // only ends here. A bind that fails to expand (an alias cycle or
+        // an unknown alias) runs nothing and says why.
+        match view.editor.keybindings().press(&id) {
+            Err(error) => {
+                self.error_row(&format!("key {id}: {error}"), view);
+                return Ok(());
+            }
+            Ok(commands) => {
+                let mut cvar_commands = Vec::new();
+                let mut runs_action = false;
+                for command in commands {
+                    match command {
+                        Command::Action { .. } => runs_action = true,
+                        Command::Set { .. } | Command::Toggle { .. } | Command::Alias { .. } => {
+                            cvar_commands.push(command);
+                        }
+                        // A press runs no bind; an expansion leaves no run
+                        // of an alias.
+                        Command::Bind { .. } | Command::Run { .. } => {}
+                    }
+                }
+                if !cvar_commands.is_empty() {
+                    self.run_cvar_line(&render_list(&cvar_commands), CvarLineTarget::Session, view)
+                        .await;
+                    if !runs_action {
+                        return Ok(());
+                    }
+                }
+            }
+        }
         // The fullscreen transcript window's keys come before the editor
         // and the dock (inline mode leaves them to the editor); an open
         // completion menu keeps its own paging.
@@ -256,7 +292,7 @@ impl SessionUi {
         // delete-char-forward), then the app actions in registration
         // order (`app.clear` first, `app.tools.expand` next). Every match
         // goes through the effective bindings, so a user
-        // `keybindings.json` override moves both the handler and the hint.
+        // `binds.cfg` bind moves both the handler and the hint.
         // The activity dock owns focus while focused: Enter (and a second
         // Alt+A) opens the focused group's own view directly (the
         // operator's direct-navigation redesign), left/right step the
@@ -878,6 +914,18 @@ pub(crate) fn opening_echo_key_claimed(
     id: &str,
     editor: &crate::editor::Editor,
 ) -> bool {
+    // The bind hook: a key whose bind runs cvar commands, or fails to
+    // expand, is the ladder's before any arm.
+    let bind_hook = match kb.press(id) {
+        Err(_) => true,
+        Ok(commands) => commands.iter().any(|command| match command {
+            Command::Set { .. } | Command::Toggle { .. } | Command::Alias { .. } => true,
+            Command::Action { .. } | Command::Bind { .. } | Command::Run { .. } => false,
+        }),
+    };
+    if bind_hook {
+        return true;
+    }
     // The always-fire arms: the image paste, the escape ladder, the interrupt family, suspend, the model picker and
     // cycles, the detail cycle, the dock focus, the external editor, the
     // stash, the session-level commands, the queue browse, and the
@@ -939,7 +987,7 @@ mod opening_echo_claim_tests {
             .iter()
             .map(|(action, key)| (action.to_string(), vec![key.to_string()]))
             .collect::<BTreeMap<_, _>>();
-        KeybindingsManager::with_user_bindings(config)
+        KeybindingsManager::with_user_bindings(&config)
     }
 
     fn editor_with(text: &str) -> Editor {
@@ -1077,5 +1125,23 @@ mod opening_echo_claim_tests {
             "ctrl+t",
             &editor_with("draft")
         ));
+    }
+
+    /// A key bound to cvar commands only (a `binds.cfg` `toggle`), or to
+    /// an alias that does not expand, queues for the bind hook instead of
+    /// echoing into the editor as typed text.
+    #[test]
+    fn cvar_and_broken_binds_are_claimed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("binds.cfg"),
+            "bind g \"toggle compaction.enabled\"\nbind h \"missing\"\n",
+        )
+        .unwrap();
+        let kb = KeybindingsManager::create(dir.path());
+        let editor = editor_with("draft");
+        assert!(opening_echo_key_claimed(&kb, "g", &editor));
+        assert!(opening_echo_key_claimed(&kb, "h", &editor));
+        assert!(!opening_echo_key_claimed(&kb, "j", &editor));
     }
 }

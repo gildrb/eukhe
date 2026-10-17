@@ -226,7 +226,7 @@ mod tests {
     fn the_hint_omits_unbound_actions() {
         let mut bindings = crate::keybindings::KeybindingsConfig::new();
         bindings.insert("tui.select.cancel".to_string(), Vec::new());
-        let kb = KeybindingsManager::with_user_bindings(bindings);
+        let kb = KeybindingsManager::with_user_bindings(&bindings);
         let selector = UserMessageSelector::new(messages());
         let lines = selector.render(&theme(), 80, &kb);
         let rendered: Vec<String> = lines.iter().map(row_text).collect();

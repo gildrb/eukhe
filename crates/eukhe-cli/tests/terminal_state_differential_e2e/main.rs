@@ -211,7 +211,7 @@ fn diff_selector_child_mode() {
     let keybindings = if remap_exit {
         let mut bindings = eukhe_tui::keybindings::KeybindingsConfig::new();
         bindings.insert("app.clear".to_string(), vec!["ctrl+q".to_string()]);
-        eukhe_tui::keybindings::KeybindingsManager::with_user_bindings(bindings)
+        eukhe_tui::keybindings::KeybindingsManager::with_user_bindings(&bindings)
     } else {
         eukhe_tui::keybindings::KeybindingsManager::new()
     };

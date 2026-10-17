@@ -253,13 +253,15 @@ pub async fn resolve_session_model(
         } else {
             resolve_model_scope_from_models(&patterns, &available_legacy)
         };
+        let default_provider = settings.get_default_provider();
+        let default_model_id = settings.get_default_model();
         let mut options = InitialModelOptions {
             cli_provider: None,
             cli_model: None,
             scoped_models: &scoped,
             is_continuing: false,
-            default_provider: settings.get_default_provider(),
-            default_model_id: settings.get_default_model(),
+            default_provider: default_provider.as_deref(),
+            default_model_id: default_model_id.as_deref(),
             all_models: &all_legacy,
             available_models: &available_legacy,
         };

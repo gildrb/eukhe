@@ -167,7 +167,7 @@ fn setup(name: &str) -> Harness {
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
-    // Default compaction settings (keepRecentTokens 20000), like the perf
+    // Default compaction settings (keepRecentTokens 40000), like the perf
     // wave's repro: the fixture must be big enough that the walk finds a
     // cut with history to summarize — the default keep window is part of
     // what the gap hid behind.

@@ -996,6 +996,29 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Run a cvar command list (`eukhe_types::cvar`) for the session:
+    /// its own sets and aliases, or with `global` the global config.cfg
+    /// (`set` / `toggle` only). Answers `{ values, errors }`; a rejected
+    /// command fails with `data: { kind, id?, message }` (`CvarFailureData`).
+    Cvar {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        line: String,
+        #[serde(default)]
+        global: bool,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Write the session's own sets of persisting cvars to its
+    /// `agents/<agent>.cfg`.
+    CvarSave {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     Compact {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

@@ -3,20 +3,26 @@
 //! `set_scoped_models`, `cycle_thinking_level`, `set_service_tier`,
 //! `set_transport`, `set_steering_mode`, `set_follow_up_mode`,
 //! `set_auto_compaction`, `set_auto_retry`, `abort_retry` (TS daemon-mode
-//! cases). The wire contracts are TS-verbatim. Model and thinking switches
-//! configure the main conversation (`model_switch`); everything else is a
-//! settings write the Harness reads per use (`EukheSettings` reloads on
-//! change), and the connection state reads the same settings back.
-
-use std::path::Path;
+//! cases) — and the cvar commands (`cvar`, `cvar_save`, docs/harness.md
+//! S4). The wire contracts are TS-verbatim. Model and thinking switches
+//! configure the main conversation (`model_switch`); every other switch is
+//! a set of a Local cvar in this session's own layer (the same path as
+//! `cvar`, committed with the main conversation), never a settings.json
+//! write: another session over the same agent dir keeps its values. The
+//! Harness and the connection state read the session's settings
+//! (`EukheSettings`).
 
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::get_supported_thinking_levels;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::settings::{QueueModeSetting, SettingsManager, TransportSetting};
+use eukhe_core::durable::cvar_agent::{
+    run_cvar_line, save_agent_cfg, CvarLineError, CvarLineScope,
+};
+use eukhe_core::settings::cvar::{table, CvarError, Decl, Set};
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_types::ai::{ServiceTier, Transport};
-use eukhe_types::daemon::SessionEvent;
+use eukhe_types::cvar::{Command, ExpandError};
+use eukhe_types::daemon::{CvarFailureData, CvarFailureKind, SessionEvent};
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
@@ -209,17 +215,13 @@ impl Worker {
 
     /// The replacement sessions (`new_session` / `switch_session` /
     /// `import_jsonl` / `fork`) re-seed the service tier like a create: the
-    /// settings default preference, then the active tier re-clamps against
+    /// session's default preference, then the active tier re-clamps against
     /// the restored model (the clamp's event contract).
     pub(crate) fn reseed_service_tier_for_replacement(&self) {
-        let cwd = self
-            .core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .cwd
-            .clone();
-        let default_tier =
-            SettingsManager::create(&cwd, &self.config.agent_dir).get_default_service_tier();
+        let Some(hosted) = self.session.get() else {
+            return;
+        };
+        let default_tier = hosted.deps().settings.manager().get_default_service_tier();
         self.core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -358,7 +360,7 @@ impl Worker {
                 None,
             );
         };
-        let (preference_changed, effective_changed, supported, effective, cwd) = {
+        let (preference_changed, effective_changed, supported, effective) = {
             let mut core = self
                 .core
                 .lock()
@@ -370,24 +372,19 @@ impl Worker {
             let effective_changed = core.active_service_tier != Some(effective);
             core.service_tier = Some(tier);
             core.active_service_tier = Some(effective);
-            (
-                preference_changed,
-                effective_changed,
-                supported,
-                effective,
-                core.cwd.clone(),
-            )
+            (preference_changed, effective_changed, supported, effective)
         };
         if preference_changed && supported {
             // TS persists the default only when the model supports the
-            // tier (#2144: `supportsServiceTier(this.model, serviceTier)`).
-            let mut settings = SettingsManager::create(&cwd, &self.config.agent_dir);
-            if let Err(error) = settings.set_default_service_tier(tier) {
+            // tier (#2144: `supportsServiceTier(this.model, serviceTier)`);
+            // here the default is this session's own set.
+            let saved = self
+                .set_session_cvar(COMMAND, &table::DEFAULT_SERVICE_TIER, tier.as_str())
+                .await;
+            if let Some(error) = saved.error {
                 // The session already switched; the default is best-effort
                 // like TS.
-                eprintln!(
-                    "eukhe-daemon worker: persisting the default service tier failed: {error}"
-                );
+                eprintln!("eukhe-daemon worker: setting the default service tier failed: {error}");
             }
         }
         if effective_changed {
@@ -399,10 +396,11 @@ impl Worker {
     }
 
     /// `set_transport { transport }` (TS `settingsManager.setTransport` +
-    /// `agent.transport`): persist the transport setting. The live stream
-    /// resolves transport per request from settings, so the persisted
-    /// default is the whole switch.
-    pub(crate) fn handle_set_transport(&self, payload: &Value) -> DaemonResponse {
+    /// `agent.transport`): this session's `transport`. The live stream
+    /// resolves transport per request from the session's settings, so the
+    /// set is the whole switch.
+    #[tracing::instrument(skip(self, payload))]
+    pub(crate) async fn handle_set_transport(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "set_transport";
         if let Err(response) = self.require_created(COMMAND) {
             return response;
@@ -414,52 +412,53 @@ impl Worker {
         else {
             return response_failure(None, COMMAND, "set_transport requires a transport", None);
         };
-        let setting = match transport {
-            Transport::Auto => TransportSetting::Auto,
-            Transport::Sse => TransportSetting::Sse,
-            Transport::Websocket | Transport::WebsocketCached => TransportSetting::WebSocket,
+        let value = match transport {
+            Transport::Auto => "auto",
+            Transport::Sse => "sse",
+            Transport::Websocket | Transport::WebsocketCached => "web-socket",
         };
-        if let Err(error) = self.settings().set_transport(setting) {
-            return response_failure(None, COMMAND, &error.to_string(), None);
-        }
-        response_success(None, COMMAND, None)
+        self.set_session_cvar(COMMAND, &table::TRANSPORT, value)
+            .await
     }
 
     /// `set_steering_mode` / `set_follow_up_mode { mode }` (TS
-    /// `session.setSteeringMode` / `setFollowUpMode`): the queue delivery
-    /// mode, persisted to settings; the session's inbox placement and the
-    /// connection state read it back.
-    pub(crate) fn handle_set_queue_mode(&self, command: &str, payload: &Value) -> DaemonResponse {
+    /// `session.setSteeringMode` / `setFollowUpMode`): this session's queue
+    /// delivery mode; its inbox placement and connection state read it
+    /// back.
+    #[tracing::instrument(skip(self, payload))]
+    pub(crate) async fn handle_set_queue_mode(
+        &self,
+        command: &str,
+        payload: &Value,
+    ) -> DaemonResponse {
         if let Err(response) = self.require_created(command) {
             return response;
         }
-        let setting = match payload.get("mode").and_then(Value::as_str) {
-            Some(mode) if mode == QUEUE_MODES[0] => QueueModeSetting::All,
-            Some(mode) if mode == QUEUE_MODES[1] => QueueModeSetting::OneAtATime,
-            _ => {
-                return response_failure(
-                    None,
-                    command,
-                    &format!("{command} requires mode \"all\" or \"one-at-a-time\""),
-                    None,
-                );
-            }
+        let Some(mode) = payload
+            .get("mode")
+            .and_then(Value::as_str)
+            .filter(|mode| QUEUE_MODES.contains(mode))
+        else {
+            return response_failure(
+                None,
+                command,
+                &format!("{command} requires mode \"all\" or \"one-at-a-time\""),
+                None,
+            );
         };
-        let mut settings = self.settings();
-        let persisted = if command == "set_steering_mode" {
-            settings.set_steering_mode(setting)
+        let decl = if command == "set_steering_mode" {
+            &table::STEERING_MODE
         } else {
-            settings.set_follow_up_mode(setting)
+            &table::FOLLOW_UP_MODE
         };
-        if let Err(error) = persisted {
-            return response_failure(None, command, &error.to_string(), None);
-        }
-        response_success(None, command, None)
+        self.set_session_cvar(command, decl, mode).await
     }
 
     /// `set_auto_retry { enabled }` (TS `session.setAutoRetryEnabled`):
-    /// the provider retry policy reads the setting on every request.
-    pub(crate) fn handle_set_auto_retry(&self, payload: &Value) -> DaemonResponse {
+    /// this session's `retry.enabled`, which the provider retry policy
+    /// reads on every request.
+    #[tracing::instrument(skip(self, payload))]
+    pub(crate) async fn handle_set_auto_retry(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "set_auto_retry";
         if let Err(response) = self.require_created(COMMAND) {
             return response;
@@ -467,19 +466,18 @@ impl Worker {
         let Some(enabled) = payload.get("enabled").and_then(Value::as_bool) else {
             return response_failure(None, COMMAND, "set_auto_retry requires enabled", None);
         };
-        if let Err(error) = self.settings().set_retry_enabled(enabled) {
-            return response_failure(None, COMMAND, &error.to_string(), None);
-        }
-        response_success(None, COMMAND, None)
+        self.set_session_cvar(COMMAND, &table::RETRY_ENABLED, &enabled.to_string())
+            .await
     }
 
     /// `set_auto_compaction { enabled }` (TS
-    /// `session.setAutoCompactionEnabled` →
-    /// `settingsManager.setCompactionEnabled`): the settings value is the
-    /// switch — the Harness's compaction policy and the connection state
-    /// both read it, so a restarted session keeps it. A failed settings
-    /// save fails the command and flips nothing.
-    pub(crate) fn handle_set_auto_compaction(&self, payload: &Value) -> DaemonResponse {
+    /// `session.setAutoCompactionEnabled`): this session's
+    /// `compaction.enabled` — the Harness's compaction policy and the
+    /// connection state both read it, and the session's agent state keeps
+    /// it across a restart. A failed commit fails the command and flips
+    /// nothing.
+    #[tracing::instrument(skip(self, payload))]
+    pub(crate) async fn handle_set_auto_compaction(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "set_auto_compaction";
         if let Err(response) = self.require_created(COMMAND) {
             return response;
@@ -488,10 +486,86 @@ impl Worker {
             .get("enabled")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        if let Err(error) = self.settings().set_compaction_enabled(enabled) {
-            return response_failure(None, COMMAND, &error.to_string(), None);
+        self.set_session_cvar(COMMAND, &table::COMPACTION_ENABLED, &enabled.to_string())
+            .await
+    }
+
+    /// `cvar { line, global }`: run a cvar command list for this session
+    /// (its own sets and aliases), or with `global` write its `set` /
+    /// `toggle` commands to the global config.cfg. Answers the replicated
+    /// values; a rejected command applies nothing and fails with its typed
+    /// `data` ([`CvarFailureData`]).
+    #[tracing::instrument(skip(self, payload))]
+    pub(crate) async fn handle_cvar(&self, payload: &Value) -> DaemonResponse {
+        const COMMAND: &str = "cvar";
+        let Some(line) = payload.get("line").and_then(Value::as_str) else {
+            return response_failure(None, COMMAND, "cvar requires a line", None);
+        };
+        let scope = if payload.get("global").and_then(Value::as_bool) == Some(true) {
+            CvarLineScope::Global
+        } else {
+            CvarLineScope::Session
+        };
+        match self.cvar_line(COMMAND, line, scope).await {
+            Ok(values) => response_success(
+                None,
+                COMMAND,
+                Some(json!({ "values": values, "errors": [] })),
+            ),
+            Err(response) => response,
         }
-        response_success(None, COMMAND, None)
+    }
+
+    /// `cvar_save`: write this session's own sets of persisting cvars to
+    /// its `agents/<agent>.cfg`.
+    #[tracing::instrument(skip(self))]
+    pub(crate) async fn handle_cvar_save(&self) -> DaemonResponse {
+        const COMMAND: &str = "cvar_save";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let saved = match hosted.session() {
+            Ok(session) => save_agent_cfg(&session).await,
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
+        match saved {
+            Ok(()) => response_success(None, COMMAND, None),
+            Err(error) => cvar_failure(COMMAND, &error),
+        }
+    }
+
+    /// Set `decl` to `value` in this session's own layer (a switch
+    /// command's `set`).
+    #[tracing::instrument(skip(self, decl))]
+    async fn set_session_cvar(&self, command: &str, decl: &Decl, value: &str) -> DaemonResponse {
+        let line = Command::Set {
+            id: decl.id.to_string(),
+            value: value.to_string(),
+        }
+        .to_string();
+        match self.cvar_line(command, &line, CvarLineScope::Session).await {
+            Ok(_) => response_success(None, command, None),
+            Err(response) => response,
+        }
+    }
+
+    /// Run `line` for this session; the failure is `command`'s response.
+    #[tracing::instrument(skip(self))]
+    #[allow(clippy::result_large_err)] // the error is the wire response itself
+    async fn cvar_line(
+        &self,
+        command: &str,
+        line: &str,
+        scope: CvarLineScope,
+    ) -> Result<Vec<Set>, DaemonResponse> {
+        let hosted = self.hosted(command)?;
+        let session = hosted
+            .session()
+            .map_err(|error| response_failure(None, command, &error.to_string(), None))?;
+        run_cvar_line(&session, line, scope, &BACKGROUND_CONTEXT)
+            .await
+            .map_err(|error| cvar_failure(command, &error))
     }
 
     /// `abort_retry` (TS `session.abortRetry`): stop an in-flight provider
@@ -543,18 +617,41 @@ impl Worker {
         hosted.events_delivered().await;
         response_success(None, COMMAND, None)
     }
+}
 
-    /// The session's settings manager for a write (the session cwd's
-    /// project scope over this worker's agent dir).
-    fn settings(&self) -> SettingsManager {
-        let cwd = self
-            .core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .cwd
-            .clone();
-        SettingsManager::create(Path::new(&cwd), &self.config.agent_dir)
-    }
+/// The failure response of `command` for a cvar line that did not apply:
+/// the message is the error's text; a rejected command also carries its
+/// typed `data` (`{ kind, id?, message }`: the wire line drops `error`
+/// when `data` is present).
+fn cvar_failure(command: &str, error: &CvarLineError) -> DaemonResponse {
+    let message = error.to_string();
+    let mut response = response_failure(None, command, &message, None);
+    let data = match error {
+        CvarLineError::Cvar(error) => {
+            let (kind, id) = match error {
+                CvarError::Parse(_) => (CvarFailureKind::Parse, None),
+                CvarError::Expand(ExpandError::Cycle { alias }) => {
+                    (CvarFailureKind::Cycle, Some(alias))
+                }
+                CvarError::Expand(ExpandError::Unknown { alias }) => {
+                    (CvarFailureKind::UnknownAlias, Some(alias))
+                }
+                CvarError::Undeclared { id } => (CvarFailureKind::Undeclared, Some(id)),
+                CvarError::BadValue { id, .. } => (CvarFailureKind::BadValue, Some(id)),
+                CvarError::Global { id } => (CvarFailureKind::Global, Some(id)),
+                CvarError::NotBool { id } => (CvarFailureKind::NotBool, Some(id)),
+                CvarError::Action { id } => (CvarFailureKind::Action, Some(id)),
+            };
+            Some(CvarFailureData {
+                kind,
+                id: id.cloned(),
+                message,
+            })
+        }
+        CvarLineError::NotGlobal { .. } | CvarLineError::Unnamed | CvarLineError::Io(_) => None,
+    };
+    response.data = data.and_then(|data| serde_json::to_value(data).ok());
+    response
 }
 
 #[cfg(test)]

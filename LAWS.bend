@@ -17,6 +17,7 @@ import ./bend/run.bend as Rn
 import ./bend/admission.bend as Ad
 import ./bend/tree.bend as Tr
 import ./bend/job.bend as Jb
+import ./bend/cvar.bend as Cv
 import ./bend/infer.bend as If
 
 # (a) The view
@@ -827,6 +828,143 @@ law rewind_keeps_target_jobs:
   for +js: List<&2, Jb.Slot>
   for +keep: List<&2, Nat>
   {Jb.kept(Jb.rewind(js, keep), js, keep) == True{} : Bool}
+
+# (S4) Settings as console variables
+# ----------------------------------
+# docs/harness.md S4, the model in bend/cvar.bend. Every input is free:
+# any declarations (duplicate ids, wrong defaults), any config.cfg, any
+# family of agents with any profiles and sets (wrong types, Global cvars,
+# undeclared ids), any alias table.
+
+# LAW: the registry holds each id once: a second declaration is rejected
+law cvar_registry_unique:
+  for xs: List<&2, Cv.Decl>
+  {Cv.unique(Cv.registry(xs)) == True{} : Bool}
+
+# LAW: every declaration of the registry has a default of its type
+law cvar_registry_typed:
+  for xs: List<&2, Cv.Decl>
+  {Cv.all_typed(Cv.registry(xs)) == True{} : Bool}
+
+# LAW: every value has the type of its cvar, in every agent; an
+# undeclared cvar has no value
+law cvar_value_typed:
+  for +xs: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +x: Nat
+  {Cv.typed.at(Cv.find(Cv.registry(xs), x), Cv.value(Cv.registry(xs), cfg, fam, x)) == True{} : Bool}
+
+# LAW: a subagent with no profile and no sets has its parent's values
+law cvar_inherits:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +x: Nat
+  {Cv.value(ds, cfg, List.append(&2, Cv.Ag, fam, [Cv.Ag{Nil{}, Nil{}}]), x) == Cv.value(ds, cfg, fam, x) : Maybe<&2, Cv.Val>}
+
+# LAW: a subagent's last valid set wins over its parent's value
+law cvar_set_wins:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +p: List<&2, Cv.Bind>
+  for +ss: List<&2, Cv.Bind>
+  for +x: Nat
+  for +v: Cv.Val
+  for ok: {Cv.valid(ds, Cv.Agent{}, Cv.Bind{x, v}) == True{} : Bool}
+  {Cv.value(ds, cfg, List.append(&2, Cv.Ag, fam, [Cv.Ag{p, List.append(&2, Cv.Bind, ss, [Cv.Bind{x, v}])}]), x) == Some{v} : Maybe<&2, Cv.Val>}
+
+# LAW: a Global cvar has one value in every agent of every family: the
+# value of config.cfg on the default; no profile or set changes it
+law cvar_global_uniform:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +x: Nat
+  for +d: Cv.Decl
+  for found: {Cv.find(ds, x) == Some{d} : Maybe<&2, Cv.Decl>}
+  for global: {Cv.Decl.local(d) == False{} : Bool}
+  {Cv.value(ds, cfg, fam, x) == Some{Cv.root.val(ds, cfg, x, d)} : Maybe<&2, Cv.Val>}
+
+# LAW: an agent writes to its cfg only cvars that persist, and replicates
+# only cvars that replicate
+law cvar_written_flagged:
+  for ss: List<&2, Cv.Bind>
+  for +ds: List<&2, Cv.Decl>
+  for +f: Cv.Flag
+  {Cv.all_flag(Cv.written(ss, ds, f), ds, f) == True{} : Bool}
+
+# LAW: the cfg an agent writes, read back as its profile, gives the same
+# value of every cvar that persists
+law cvar_persist_roundtrip:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +ss: List<&2, Cv.Bind>
+  for +x: Nat
+  for keeps: {Cv.flag.at(Cv.find(ds, x), Cv.Persist{}) == True{} : Bool}
+  {Cv.value(ds, cfg, [Cv.Ag{Cv.written(ss, ds, Cv.Persist{}), Nil{}}], x) == Cv.value(ds, cfg, [Cv.Ag{Nil{}, ss}], x) : Maybe<&2, Cv.Val>}
+
+# LAW: a toggle twice, in any agent of any family, gives back the value
+law cvar_toggle_twice:
+  for +ds: List<&2, Cv.Decl>
+  for +cfg: List<&2, Cv.Bind>
+  for +fam: List<&2, Cv.Ag>
+  for +a: Cv.Ag
+  for +x: Nat
+  {Cv.value(ds, cfg, List.append(&2, Cv.Ag, fam, [Cv.toggle(ds, cfg, fam, Cv.toggle(ds, cfg, fam, a, x), x)]), x) == Cv.value(ds, cfg, List.append(&2, Cv.Ag, fam, [a]), x) : Maybe<&2, Cv.Val>}
+
+# LAW: an expansion leaves no alias to run: every alias is expanded, or
+# the expansion reports a cycle or an unknown alias
+law alias_expands_fully:
+  for cs: List<&2, Cv.Cmd>
+  for +as: List<&2, Cv.Alias>
+  {Cv.Exp.plain(Cv.expand(cs, as)) == True{} : Bool}
+
+# LAW: an alias that runs itself is a cycle, not an endless expansion
+law alias_self_cycle:
+  for +n: Nat
+  for +as: List<&2, Cv.Alias>
+  {Cv.expand([Cv.CRun{n}], Cv.Alias{n, [Cv.CRun{n}]} <> as) == Cv.Cycle{} : Cv.Exp}
+
+# LAW: a run of an alias that does not exist is reported
+law alias_unknown_reported:
+  for +n: Nat
+  for +as: List<&2, Cv.Alias>
+  for gone: {Cv.body(as, n) == [Cv.CGone{n}] : List<&2, Cv.Cmd>}
+  {Cv.expand([Cv.CRun{n}], as) == Cv.Unknown{} : Cv.Exp}
+
+# LAW: an alias with plain commands runs exactly its commands
+law alias_runs_body:
+  for +n: Nat
+  for +b: List<&2, Cv.Cmd>
+  for +as: List<&2, Cv.Alias>
+  for flat: {Cv.plain(b) == True{} : Bool}
+  {Cv.expand([Cv.CRun{n}], Cv.Alias{n, b} <> as) == Cv.Flat{b} : Cv.Exp}
+
+# LAW: a key press runs only plain commands: every alias it names is
+# expanded, or the press reports a cycle or an unknown alias
+law bind_press_plain:
+  for +bs: List<&2, Cv.KeyBind>
+  for +k: Nat
+  for +as: List<&2, Cv.Alias>
+  {Cv.Exp.plain(Cv.press(bs, k, as)) == True{} : Bool}
+
+# LAW: a key with no bind runs nothing
+law bind_unbound_runs_nothing:
+  for +bs: List<&2, Cv.KeyBind>
+  for +k: Nat
+  for +as: List<&2, Cv.Alias>
+  for free: {Cv.bound(bs, k) == Nil{} : List<&2, Cv.Cmd>}
+  {Cv.press(bs, k, as) == Cv.Flat{Nil{}} : Cv.Exp}
+
+# LAW: a press of a key runs the commands of its first bind
+law bind_first_wins:
+  for +k: Nat
+  for +c: List<&2, Cv.Cmd>
+  for +rest: List<&2, Cv.KeyBind>
+  for +as: List<&2, Cv.Alias>
+  {Cv.press(Cv.KeyBind{k, c} <> rest, k, as) == Cv.expand(c, as) : Cv.Exp}
 
 # (S6) The inference layer
 # ------------------------

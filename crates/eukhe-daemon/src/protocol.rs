@@ -157,6 +157,8 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "agent_reply",
     "get_run_outcome",
     "get_worker_liveness",
+    "cvar",
+    "cvar_save",
 ];
 
 /// Parsed client command envelope.
@@ -816,6 +818,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::SetAutoRetry {
             active_session_id, ..
         }
+        | DaemonCommand::Cvar {
+            active_session_id, ..
+        }
+        | DaemonCommand::CvarSave {
+            active_session_id, ..
+        }
         | DaemonCommand::Compact {
             active_session_id, ..
         }
@@ -1064,6 +1072,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::SetFollowUpMode { .. } => "set_follow_up_mode",
         DaemonCommand::SetAutoCompaction { .. } => "set_auto_compaction",
         DaemonCommand::SetAutoRetry { .. } => "set_auto_retry",
+        DaemonCommand::Cvar { .. } => "cvar",
+        DaemonCommand::CvarSave { .. } => "cvar_save",
         DaemonCommand::Compact { .. } => "compact",
         DaemonCommand::Refine { .. } => "refine",
         DaemonCommand::AbortCompaction { .. } => "abort_compaction",

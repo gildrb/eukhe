@@ -112,6 +112,7 @@ pub mod agent_roster;
 mod chat_turn_wait;
 mod chat_view;
 mod command;
+mod cvar;
 pub mod framing;
 pub mod herdr_env;
 mod memory;
@@ -130,6 +131,7 @@ pub use command::{
     DaemonCommandFrameType, DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput,
     StreamingBehavior,
 };
+pub use cvar::{CvarFailureData, CvarFailureKind, CvarReply, CvarValue};
 pub use memory::{
     MemoryKindCount, MemoryLine, MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryTree,
     MemoryTreeLevel, MemoryTreeMessage, MemoryTreeNode, MemoryTreeReply, MemoryUpdate, MemoryZoom,

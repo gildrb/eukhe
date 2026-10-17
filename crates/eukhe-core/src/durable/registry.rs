@@ -1,7 +1,7 @@
 //! The extension registry of an eukhe session, installed in prompt order:
-//! `eukhe.prompt`, `eukhe.rlm`, `eukhe.digest`, `eukhe.compaction`,
-//! `eukhe.retry_outcome`, `eukhe.optchat`, `eukhe.goals`, `eukhe.children`,
-//! `eukhe.documents`, `codemode`.
+//! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`, `eukhe.digest`,
+//! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
+//! `eukhe.goals`, `eukhe.children`, `eukhe.documents`, `codemode`.
 
 use std::sync::Arc;
 
@@ -11,6 +11,7 @@ use eukhe_durable::session::SessionResult;
 use super::deps::HostDeps;
 use super::{
     children, codemode, compaction, digest, documents, goals, optchat, prompt, retry_outcome, rlm,
+    settings,
 };
 
 /// A registry with every eukhe extension of the session installed.
@@ -21,6 +22,7 @@ use super::{
 pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     let registry = create_registry();
     registry.install(prompt::extension(deps))?;
+    registry.install(settings::extension(deps))?;
     registry.install(rlm::extension(deps))?;
     registry.install(digest::extension(deps))?;
     registry.install(compaction::extension(deps))?;

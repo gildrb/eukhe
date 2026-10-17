@@ -493,7 +493,10 @@ async fn settings_changes_reach_the_open_session() {
         r#"{"defaultModel":"other","retry":{"maxRetries":9}}"#,
     )
     .expect("settings");
-    assert_eq!(settings.manager().get_default_model(), Some("other"));
+    assert_eq!(
+        settings.manager().get_default_model(),
+        Some("other".to_string())
+    );
     let resolved = eukhe_durable::harness::agent::resolve_settings(Some(&settings.harness()));
     assert_eq!(resolved.retry.max_retries, 9);
     session.close(cx()).await.expect("close");

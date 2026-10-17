@@ -92,10 +92,7 @@ fn assemble_breakdown(
     // MCP gating: auth-gated built-in integrations drop their skills;
     // enabled persistent generic servers add the prompt MCP guidance.
     let user_servers = settings
-        .settings()
-        .mcp_servers
-        .clone()
-        .unwrap_or_default()
+        .get_mcp_servers()
         .into_iter()
         .filter_map(|(server, config)| {
             serde_json::from_value(config)

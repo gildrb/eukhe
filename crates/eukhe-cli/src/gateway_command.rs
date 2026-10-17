@@ -111,7 +111,7 @@ fn gateway_config(
     if let Some(error) = settings.global_load_error() {
         anyhow::bail!("could not read {}: {error}", global_path.display());
     }
-    let signal = settings.get_signal_gateway().cloned().unwrap_or_default();
+    let signal = settings.get_signal_gateway();
     let cli_path = signal.cli_path.as_deref().map_or_else(
         || PathBuf::from("signal-cli"),
         crate::config::expand_tilde_path,

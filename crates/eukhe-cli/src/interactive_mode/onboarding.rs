@@ -50,8 +50,8 @@ impl StartupModelProbe {
                 cli_model: self.cli_model.as_deref(),
                 scoped_models: &scoped,
                 is_continuing: self.is_continuing,
-                default_provider: settings.get_default_provider(),
-                default_model_id: settings.get_default_model(),
+                default_provider: settings.get_default_provider().as_deref(),
+                default_model_id: settings.get_default_model().as_deref(),
                 all_models: &all,
                 available_models: &available,
             });

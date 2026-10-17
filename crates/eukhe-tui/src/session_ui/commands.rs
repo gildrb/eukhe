@@ -749,6 +749,12 @@ impl SessionUi {
                 self.handle_rlm_max_depth_command(view, &resolved.args)
                     .await;
             }
+            // `/set`, `/toggle`, `/alias`, `/cvar` (docs/harness.md S4):
+            // console variables, sent to the session's daemon as `cvar`.
+            "set" | "toggle" | "alias" | "cvar" => {
+                self.handle_cvar_command(resolved.name, &resolved.args, view)
+                    .await;
+            }
             // `/speed [on|off]` (TS `setSpeedDisplay`): toggle the footer
             // tok/sec readout for this session -- the dim dock row with the
             // latest response's rate and the session average.

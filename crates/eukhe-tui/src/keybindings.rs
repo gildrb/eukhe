@@ -1,14 +1,17 @@
-//! Global keybinding registry with TS DEFAULT_* defaults.
+//! Global key binds with TS DEFAULT_* defaults.
 //!
-//! Port of `packages/tui/src/keybindings.ts` + `coding-agent/src/core/keybindings.ts`.
-//! Every binding is configurable via `~/.eukhe/keybindings.json`; the
-//! defaults below are the TS product's DEFAULT_* tables verbatim. User
-//! bindings load with the TS parse semantics (`toKeybindingsConfig` +
-//! `migrateKeybindingsConfig`): legacy names migrate, malformed values drop,
-//! and an empty array disables a binding.
+//! Port of `packages/tui/src/keybindings.ts` + `coding-agent/src/core/keybindings.ts`,
+//! on the console-variable command language (`eukhe_types::cvar`). The
+//! defaults below are the TS product's DEFAULT_* tables verbatim; each
+//! default key runs `action <id>`. The user's `bind` and `alias` lines live
+//! in `<agentDir>/binds.cfg` and come before the defaults: the first bind
+//! of a key wins, and an empty bind (`bind ctrl+o ""`) runs nothing. A
+//! legacy `keybindings.json` (TS parse semantics: legacy names migrate,
+//! malformed values drop, an empty array disables a binding) is imported
+//! once into a new `binds.cfg`.
 
-use anyhow::Result;
-use std::collections::BTreeMap;
+use eukhe_types::cvar::{parse_script, Aliases, Binds, Command, ExpandError};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,15 +39,9 @@ mod definitions;
 
 pub use definitions::{APP_KEYBINDINGS, TUI_KEYBINDINGS};
 
+/// A legacy `keybindings.json`: the keys per action id (an empty list
+/// disables the action).
 pub type KeybindingsConfig = BTreeMap<String, Vec<String>>;
-
-/// One explicit user-config conflict (TS `KeybindingConflict`): a key
-/// claimed by more than one user binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeybindingConflict {
-    pub key: String,
-    pub keybindings: Vec<String>,
-}
 
 /// A parsed key id (TS `parseKeyId`): the modifier set plus the base key,
 /// lowercase, so matching is case- and order-insensitive exactly like
@@ -89,19 +86,6 @@ fn parse_key_id(id: &str) -> Option<ParsedKeyId> {
         }
     }
     Some(parsed)
-}
-
-/// TS `normalizeKeys`: dedupe preserving first-seen order; a single key is a
-/// one-element list. Malformed ids stay (they simply never match, like TS).
-fn normalize_keys(keys: &[String]) -> Vec<String> {
-    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut out = Vec::new();
-    for key in keys {
-        if seen.insert(key.clone()) {
-            out.push(key.clone());
-        }
-    }
-    out
 }
 
 /// The legacy pre-namespaced keybinding ids and their current names (TS
@@ -176,40 +160,34 @@ fn legacy_migration(id: &str) -> Option<&'static str> {
 
 /// The config object as an ordered entry list (`serde_json` maps sort keys,
 /// so the TS object order -- definition ids first, extras sorted after -- is
-/// carried by this vector; [`write_json_object`] renders it in order).
+/// carried by this vector).
 pub type OrderedConfig = Vec<(String, serde_json::Value)>;
 
 /// TS `migrateKeybindingsConfig`: rename legacy ids (a legacy entry is
 /// dropped when its current name also exists) and order the object with
 /// known ids first in definition order, extras sorted after. Values are
 /// carried over unchanged (filtering happens in [`to_keybindings_config`]).
-/// Returns the migrated entries and whether any rename happened.
-#[must_use]
-pub fn migrate_keybindings_config(
-    raw: &serde_json::Map<String, serde_json::Value>,
-) -> (OrderedConfig, bool) {
-    let mut migrated = false;
+fn migrate_keybindings_config(raw: &serde_json::Map<String, serde_json::Value>) -> OrderedConfig {
     let mut config: OrderedConfig = Vec::new();
     for (key, value) in raw {
         let Some(next_key) = legacy_migration(key) else {
             config.push((key.clone(), value.clone()));
             continue;
         };
-        migrated = true;
         if raw.contains_key(next_key) {
             // The current name is authoritative; the legacy entry drops.
             continue;
         }
         config.push((next_key.to_string(), value.clone()));
     }
-    (order_keybindings_config(config), migrated)
+    order_keybindings_config(config)
 }
 
 /// TS `orderKeybindingsConfig`: known ids first in definition order, the
 /// rest sorted.
 fn order_keybindings_config(mut config: OrderedConfig) -> OrderedConfig {
     let mut ordered: OrderedConfig = Vec::new();
-    for (id, _) in TUI_KEYBINDINGS.iter().chain(APP_KEYBINDINGS.iter()) {
+    for (id, _) in definitions() {
         if let Some(position) = config.iter().position(|(key, _)| key == id) {
             let (_, value) = config.remove(position);
             ordered.push((id.to_string(), value));
@@ -222,8 +200,7 @@ fn order_keybindings_config(mut config: OrderedConfig) -> OrderedConfig {
 
 /// TS `toKeybindingsConfig`: a value is a key list only when it is a string
 /// or an array whose every entry is a string (an empty array disables the
-/// binding); anything else drops. Unknown ids survive -- they never
-/// resolve, but stay in the round-tripped config.
+/// binding); anything else drops.
 fn to_keybindings_config(value: &serde_json::Value) -> Option<Vec<String>> {
     match value {
         serde_json::Value::String(key) => Some(vec![key.clone()]),
@@ -238,23 +215,19 @@ fn to_keybindings_config(value: &serde_json::Value) -> Option<Vec<String>> {
     }
 }
 
-/// Read the raw config object at `path` (TS `loadRawConfig`): a missing
-/// file, malformed JSON, or a non-object document read as absent.
-fn load_raw_config(path: &Path) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let bytes = std::fs::read(path).ok()?;
-    let parsed: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    parsed.as_object().cloned()
-}
-
-/// TS `KeybindingsManager.loadFromFile`: migrate legacy names, then filter
-/// to the well-formed key lists.
-fn load_config(path: &Path) -> KeybindingsConfig {
-    let Some(raw) = load_raw_config(path) else {
+/// The legacy `keybindings.json` at `path` (TS `loadFromFile`): legacy
+/// names migrated, then filtered to the well-formed key lists. A missing
+/// file, malformed JSON, or a non-object document read as empty.
+fn load_legacy_config(path: &Path) -> KeybindingsConfig {
+    let Some(raw) = std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|parsed| parsed.as_object().cloned())
+    else {
         return KeybindingsConfig::new();
     };
-    let (config, _migrated) = migrate_keybindings_config(&raw);
     let mut bindings = KeybindingsConfig::new();
-    for (id, value) in &config {
+    for (id, value) in &migrate_keybindings_config(&raw) {
         if let Some(keys) = to_keybindings_config(value) {
             bindings.insert(id.clone(), keys);
         }
@@ -262,250 +235,384 @@ fn load_config(path: &Path) -> KeybindingsConfig {
     bindings
 }
 
-/// Write a JSON object with the TS `JSON.stringify(config, null, 2)`
-/// formatting: two-space nesting, a trailing newline. Written by hand
-/// (not via `serde_json`) so the definition-first key ordering survives.
-fn write_json_object(path: &Path, entries: &OrderedConfig) -> Result<()> {
-    let mut out = String::from("{\n");
-    let count = entries.len();
-    for (index, (key, value)) in entries.iter().enumerate() {
-        out.push_str("  ");
-        out.push_str(&serde_json::to_string(key)?);
-        out.push_str(": ");
-        // `JSON.stringify(config, null, 2)`: a property's nested values
-        // sit two deeper than the property's own indent (key at 2, nested
-        // elements at 4, closing bracket back at 2).
-        out.push_str(&stringify_value(value, 4)?);
-        if index + 1 < count {
-            out.push(',');
-        }
-        out.push('\n');
-    }
-    if count == 0 {
-        out = String::from("{}\n");
-    } else {
-        out.push('}');
-        out.push('\n');
-    }
-    std::fs::write(path, out)?;
-    Ok(())
+/// The definitions in table order (TUI first, then app).
+fn definitions() -> impl Iterator<Item = &'static (&'static str, KeybindingDefinition)> {
+    TUI_KEYBINDINGS.iter().chain(APP_KEYBINDINGS.iter())
 }
 
-/// The `JSON.stringify(value, null, indent)` body for one value: scalars
-/// inline, arrays and objects one element per line with `indent` spaces.
-fn stringify_value(value: &serde_json::Value, indent: usize) -> Result<String> {
-    match value {
-        serde_json::Value::Array(entries) => {
-            if entries.is_empty() {
-                return Ok("[]".to_string());
-            }
-            let mut out = String::from("[\n");
-            for (index, entry) in entries.iter().enumerate() {
-                out.push_str(&" ".repeat(indent));
-                out.push_str(&stringify_value(entry, indent + 2)?);
-                if index + 1 < entries.len() {
-                    out.push(',');
-                }
-                out.push('\n');
-            }
-            out.push_str(&" ".repeat(indent.saturating_sub(2)));
-            out.push(']');
-            Ok(out)
-        }
-        serde_json::Value::Object(map) => {
-            if map.is_empty() {
-                return Ok("{}".to_string());
-            }
-            let mut out = String::from("{\n");
-            let count = map.len();
-            for (index, (key, entry)) in map.iter().enumerate() {
-                out.push_str(&" ".repeat(indent));
-                out.push_str(&serde_json::to_string(key)?);
-                out.push_str(": ");
-                out.push_str(&stringify_value(entry, indent + 2)?);
-                if index + 1 < count {
-                    out.push(',');
-                }
-                out.push('\n');
-            }
-            out.push_str(&" ".repeat(indent.saturating_sub(2)));
-            out.push('}');
-            Ok(out)
-        }
-        scalar => Ok(serde_json::to_string(scalar)?),
-    }
-}
-
-/// TS `migrateKeybindingsConfigFile` (the startup migration in
-/// `coding-agent/src/migrations.ts`): rewrite `<agentDir>/keybindings.json`
-/// with migrated names (and the definition-first ordering) when any legacy
-/// id was found; a missing or malformed file is a no-op. Returns whether
-/// the file was rewritten.
-///
-/// # Errors
-///
-/// Returns `Err` when serializing or writing the rewritten
-/// `keybindings.json` fails.
-pub fn migrate_keybindings_file(agent_dir: &Path) -> Result<bool> {
-    let config_path = agent_dir.join("keybindings.json");
-    let Some(raw) = load_raw_config(&config_path) else {
-        return Ok(false);
-    };
-    let (config, migrated) = migrate_keybindings_config(&raw);
-    if !migrated {
-        return Ok(false);
-    }
-    write_json_object(&config_path, &config)?;
-    Ok(true)
-}
-
-/// Resolved binding table: definition defaults overlaid with user config.
-#[derive(Debug, Clone)]
-pub struct KeybindingsManager {
-    definitions: BTreeMap<&'static str, KeybindingDefinition>,
-    resolved: BTreeMap<String, Vec<String>>,
-    user_bindings: KeybindingsConfig,
-    conflicts: Vec<KeybindingConflict>,
-    config_path: Option<PathBuf>,
-}
-
-fn all_definitions() -> BTreeMap<&'static str, KeybindingDefinition> {
-    let mut map = BTreeMap::new();
-    for (id, definition) in TUI_KEYBINDINGS.iter().chain(APP_KEYBINDINGS.iter()) {
-        map.insert(*id, definition.clone());
-    }
-    map
-}
-
-impl KeybindingsManager {
-    /// All definitions with the TS defaults.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::with_user_bindings(KeybindingsConfig::new())
-    }
-
-    #[must_use]
-    pub fn with_user_bindings(user_bindings: KeybindingsConfig) -> Self {
-        let definitions = all_definitions();
-        let mut manager = Self {
-            definitions,
-            resolved: BTreeMap::new(),
-            user_bindings,
-            conflicts: Vec::new(),
-            config_path: None,
+/// The keys of each definition (in table order) that a legacy
+/// `keybindings.json` gave it (TS `KeybindingsManager.rebuild()`): a user
+/// entry replaces the definition's keys outright; within one default
+/// scope, a key a user entry adds (outside its own defaults) is freed
+/// from the other defaults of that scope. Unknown ids claim nothing.
+fn legacy_resolution(user_bindings: &KeybindingsConfig) -> Vec<(&'static str, Vec<&str>)> {
+    // The scopes of the user entries that add each key.
+    let mut added_claims: BTreeMap<&str, Vec<&'static str>> = BTreeMap::new();
+    for (id, keys) in user_bindings {
+        let Some((_, definition)) = definitions().find(|(known, _)| known == id) else {
+            continue;
         };
-        manager.rebuild();
-        manager
-    }
-
-    /// TS `KeybindingsManager.create(agentDir)`: the user bindings from
-    /// `<agentDir>/keybindings.json` (legacy names migrated, malformed
-    /// values dropped), remembered for [`reload`](Self::reload).
-    #[must_use]
-    pub fn create(agent_dir: &Path) -> Self {
-        let config_path = agent_dir.join("keybindings.json");
-        let user_bindings = load_config(&config_path);
-        let definitions = all_definitions();
-        let mut manager = Self {
-            definitions,
-            resolved: BTreeMap::new(),
-            user_bindings,
-            conflicts: Vec::new(),
-            config_path: Some(config_path),
+        let Some(scope) = definition.default_key_scope else {
+            continue;
         };
-        manager.rebuild();
-        manager
-    }
-
-    /// TS `reload()`: re-read the config file this manager was created
-    /// from (a no-op for a manager without one).
-    pub fn reload(&mut self) {
-        let Some(config_path) = &self.config_path else {
-            return;
-        };
-        self.user_bindings = load_config(config_path);
-        self.rebuild();
-    }
-
-    /// Mirrors TS `KeybindingsManager.rebuild()`: user bindings replace a
-    /// definition's keys outright; within the same default scope, a key a
-    /// user binding adds (outside its own defaults) is freed from the
-    /// other defaults in that scope; keys explicitly claimed by more than
-    /// one user binding are reported as conflicts.
-    fn rebuild(&mut self) {
-        // Explicit claims: every key each known user binding names; added
-        // claims: the ones outside that binding's own defaults (these free
-        // same-scope defaults of other bindings).
-        let mut explicit_claims: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        let mut added_claims: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (id, keys) in &self.user_bindings {
-            let Some(definition) = self.definitions.get(id.as_str()) else {
-                // Unknown ids never resolve; they stay in the config for
-                // the round-trip.
-                continue;
-            };
-            for key in normalize_keys(keys) {
-                let claimants = explicit_claims.entry(key.clone()).or_default();
-                if !claimants.contains(id) {
-                    claimants.push(id.clone());
-                }
-                if !definition.default_keys.contains(&key.as_str()) {
-                    added_claims.entry(key).or_default().push(id.clone());
-                }
+        for key in keys {
+            if !definition.default_keys.contains(&key.as_str()) {
+                added_claims.entry(key).or_default().push(scope);
             }
         }
-        self.conflicts = explicit_claims
-            .iter()
-            .filter(|(_, claimants)| claimants.len() > 1)
-            .map(|(key, claimants)| KeybindingConflict {
-                key: key.clone(),
-                keybindings: claimants.clone(),
-            })
-            .collect();
-        self.resolved.clear();
-        for (id, definition) in &self.definitions {
-            let keys = match self.user_bindings.get(*id) {
-                Some(user_keys) => normalize_keys(user_keys),
+    }
+    definitions()
+        .map(|(id, definition)| {
+            let keys = match user_bindings.get(*id) {
+                Some(user_keys) => user_keys.iter().map(String::as_str).collect(),
                 None => definition
                     .default_keys
                     .iter()
+                    .copied()
                     .filter(|key| {
-                        let Some(scope) = definition.default_key_scope else {
-                            return true;
-                        };
-                        let key: &str = key;
-                        !added_claims.get(key).is_some_and(|claimants| {
-                            claimants.iter().any(|claimant| {
-                                self.definitions
-                                    .get(claimant.as_str())
-                                    .and_then(|d| d.default_key_scope)
-                                    == Some(scope)
-                            })
+                        definition.default_key_scope.is_none_or(|scope| {
+                            !added_claims
+                                .get(key)
+                                .is_some_and(|scopes| scopes.contains(&scope))
                         })
                     })
-                    .map(ToString::to_string)
                     .collect(),
             };
-            self.resolved.insert(id.to_string(), keys);
+            (*id, keys)
+        })
+        .collect()
+}
+
+/// The `bind` commands that reproduce a legacy `keybindings.json` over the
+/// default binds: one for every key whose actions differ from its default
+/// actions, of exactly the actions the legacy file gave it (`""` when
+/// none) -- a rebound action's new key, the default key it left (or that
+/// a `[]` entry emptied), the same-scope default an added key freed. The
+/// file's keys come first, in its order, then the default keys. A key the
+/// file left alone gets no bind, so a key several actions share by
+/// default (Enter, the arrows, Ctrl+O) keeps every action the file did
+/// not take off it.
+#[must_use]
+pub fn legacy_binds(user_bindings: &KeybindingsConfig) -> Vec<Command> {
+    // Per definition: its id, its legacy keys, its default keys (normal
+    // forms).
+    let table: Vec<(&str, BTreeSet<String>, BTreeSet<String>)> = legacy_resolution(user_bindings)
+        .into_iter()
+        .zip(definitions())
+        .map(|((id, legacy), (_, definition))| {
+            (
+                id,
+                legacy.into_iter().filter_map(canonical_key).collect(),
+                definition
+                    .default_keys
+                    .iter()
+                    .copied()
+                    .filter_map(canonical_key)
+                    .collect(),
+            )
+        })
+        .collect();
+    let candidates =
+        user_bindings.values().flatten().map(String::as_str).chain(
+            definitions().flat_map(|(_, definition)| definition.default_keys.iter().copied()),
+        );
+    let mut seen = BTreeSet::new();
+    let mut binds = Vec::new();
+    for written in candidates {
+        let Some(key) = canonical_key(written) else {
+            continue;
+        };
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let legacy: Vec<&str> = table
+            .iter()
+            .filter(|(_, legacy, _)| legacy.contains(&key))
+            .map(|(id, _, _)| *id)
+            .collect();
+        let default: Vec<&str> = table
+            .iter()
+            .filter(|(_, _, default)| default.contains(&key))
+            .map(|(id, _, _)| *id)
+            .collect();
+        if legacy != default {
+            binds.push(Command::Bind {
+                key: written.to_string(),
+                body: legacy
+                    .into_iter()
+                    .map(|id| Command::Action { id: id.to_string() })
+                    .collect(),
+            });
+        }
+    }
+    binds
+}
+
+/// The user binds file in the agent dir.
+const BINDS_FILE: &str = "binds.cfg";
+
+/// The legacy keybindings file `binds.cfg` replaces.
+const LEGACY_FILE: &str = "keybindings.json";
+
+/// The text of `<agentDir>/binds.cfg`, and what went wrong reading it.
+/// When it does not exist and a legacy `keybindings.json` does, the legacy
+/// bindings are imported once: their [`legacy_binds`] are written as a new
+/// `binds.cfg` (never over a file that appeared meanwhile) and
+/// `keybindings.json` stays in place. Once `binds.cfg` exists it is the
+/// only source. A `binds.cfg` that exists but cannot be read binds nothing
+/// (a warning says so); a failed import write still binds the imported
+/// text for this run (a warning says so, and the next start imports
+/// again).
+fn read_binds_file(agent_dir: &Path) -> (String, Option<String>) {
+    let path = agent_dir.join(BINDS_FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => return (text, None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return (
+                String::new(),
+                Some(format!(
+                    "{} could not be read ({error}): no user key bind applies",
+                    path.display()
+                )),
+            )
+        }
+    }
+    let legacy = agent_dir.join(LEGACY_FILE);
+    if !legacy.exists() {
+        return (String::new(), None);
+    }
+    let mut text = format!("# Key binds, imported from {LEGACY_FILE}.\n");
+    for bind in legacy_binds(&load_legacy_config(&legacy)) {
+        text.push_str(&bind.to_string());
+        text.push('\n');
+    }
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, text.as_bytes()));
+    let warning = written.err().map(|error| {
+        format!(
+            "the {LEGACY_FILE} binds could not be written to {} ({error}): they apply to this run only",
+            path.display()
+        )
+    });
+    (text, warning)
+}
+
+/// A key id in its normal form (the [`parse_key_id`] semantics): the
+/// modifiers in a fixed order, then the key, lowercase; two ids that
+/// match each other have the same normal form. `None` for an id that
+/// never matches.
+fn canonical_key(id: &str) -> Option<String> {
+    let parsed = parse_key_id(id)?;
+    let mut key = String::new();
+    for (held, name) in [
+        (parsed.ctrl, "ctrl+"),
+        (parsed.shift, "shift+"),
+        (parsed.alt, "alt+"),
+        (parsed.super_key, "super+"),
+    ] {
+        if held {
+            key.push_str(name);
+        }
+    }
+    key.push_str(&parsed.key);
+    Some(key)
+}
+
+/// The key binds: the user binds (`<agentDir>/binds.cfg`, in order), then
+/// the default binds (each definition's default keys run `action <id>`;
+/// the definitions sharing a default key share its bind, and the context
+/// a key is pressed in picks among them). The first bind of a key wins,
+/// so a user bind of a key shadows its default actions, and an empty
+/// bind leaves the key running nothing. Keys are bound and looked up in
+/// their [`canonical_key`] form. The aliases of `binds.cfg` expand a
+/// press.
+#[derive(Debug, Clone)]
+pub struct KeybindingsManager {
+    binds: Binds,
+    /// How many of `binds` are the user's (they come first).
+    user_binds: usize,
+    aliases: Aliases,
+    /// The key as its first user bind spells it (hint labels; a default
+    /// key is labeled as its definition spells it).
+    labels: BTreeMap<String, String>,
+    /// The actions a press of each bound key runs (none when its
+    /// expansion fails).
+    actions: BTreeMap<String, Vec<String>>,
+    /// The agent dir whose `binds.cfg` [`reload`](Self::reload) re-reads.
+    agent_dir: Option<PathBuf>,
+    /// What went wrong reading `binds.cfg` ([`Self::warnings`]).
+    warnings: Vec<String>,
+}
+
+impl KeybindingsManager {
+    /// The default binds only.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_binds(&[], None)
+    }
+
+    /// The default binds under the binds a legacy `keybindings.json` with
+    /// `user_bindings` imports to ([`legacy_binds`]).
+    #[must_use]
+    pub fn with_user_bindings(user_bindings: &KeybindingsConfig) -> Self {
+        Self::with_binds(&legacy_binds(user_bindings), None)
+    }
+
+    /// The binds of `<agentDir>/binds.cfg` (imported once from a legacy
+    /// `keybindings.json`), remembered for [`reload`](Self::reload); a
+    /// problem reading or importing the file is in
+    /// [`warnings`](Self::warnings).
+    #[must_use]
+    pub fn create(agent_dir: &Path) -> Self {
+        let (text, warning) = read_binds_file(agent_dir);
+        let mut manager = Self::with_binds(&parse_script(&text).0, Some(agent_dir.to_path_buf()));
+        manager.warnings.extend(warning);
+        manager
+    }
+
+    /// Re-read `binds.cfg` (a no-op for a manager without an agent dir).
+    pub fn reload(&mut self) {
+        if let Some(agent_dir) = self.agent_dir.take() {
+            *self = Self::create(&agent_dir);
         }
     }
 
-    /// TS `matches` (via `matchesKey`): the input's parsed key id equals a
-    /// parsed configured key, so matching is case- and order-insensitive.
+    /// What went wrong reading `binds.cfg` at the last
+    /// [`create`](Self::create) or [`reload`](Self::reload), for the user.
     #[must_use]
-    pub fn matches(&self, data: &str, keybinding: &str) -> bool {
-        let Some(input) = parse_key_id(data) else {
-            return false;
-        };
-        self.resolved.get(keybinding).is_some_and(|keys| {
-            keys.iter()
-                .any(|key| parse_key_id(key).is_some_and(|parsed| parsed == input))
-        })
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
     }
 
+    /// The `bind` and `alias` commands of `script` over the default binds
+    /// (a `binds.cfg` line of any other command binds nothing).
+    fn with_binds(script: &[Command], agent_dir: Option<PathBuf>) -> Self {
+        let mut binds = Binds::default();
+        let mut aliases = Aliases::default();
+        let mut labels = BTreeMap::new();
+        let mut user_binds = 0;
+        for command in script {
+            match command {
+                Command::Bind { key, body } => {
+                    if let Some(canonical) = canonical_key(key) {
+                        labels
+                            .entry(canonical.clone())
+                            .or_insert_with(|| key.clone());
+                        binds.push(canonical, body.clone());
+                        user_binds += 1;
+                    }
+                }
+                Command::Alias { name, body } => aliases.define(name.clone(), body.clone()),
+                Command::Set { .. }
+                | Command::Toggle { .. }
+                | Command::Action { .. }
+                | Command::Run { .. } => {}
+            }
+        }
+        let mut defaults: Vec<(String, Vec<Command>)> = Vec::new();
+        for (id, definition) in definitions() {
+            for written in definition.default_keys {
+                let Some(key) = canonical_key(written) else {
+                    continue;
+                };
+                let action = Command::Action { id: id.to_string() };
+                match defaults.iter_mut().find(|(known, _)| *known == key) {
+                    Some((_, body)) => body.push(action),
+                    None => defaults.push((key, vec![action])),
+                }
+            }
+        }
+        for (key, body) in defaults {
+            binds.push(key, body);
+        }
+        let mut actions: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (key, _) in binds.iter() {
+            if actions.contains_key(key) {
+                continue;
+            }
+            let ids = binds
+                .press(key, &aliases)
+                .map(|commands| {
+                    commands
+                        .into_iter()
+                        .filter_map(|command| match command {
+                            Command::Action { id } => Some(id),
+                            Command::Set { .. }
+                            | Command::Toggle { .. }
+                            | Command::Alias { .. }
+                            | Command::Bind { .. }
+                            | Command::Run { .. } => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            actions.insert(key.to_string(), ids);
+        }
+        Self {
+            binds,
+            user_binds,
+            aliases,
+            labels,
+            actions,
+            agent_dir,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// The commands a press of `data` runs (`Binds::press`): its winning
+    /// bind expanded with the `binds.cfg` aliases; none for an unbound or
+    /// malformed key.
+    ///
+    /// # Errors
+    ///
+    /// The bind runs an alias that cycles or does not exist.
+    pub fn press(&self, data: &str) -> Result<Vec<Command>, ExpandError> {
+        match canonical_key(data) {
+            Some(key) => self.binds.press(&key, &self.aliases),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// TS `matches` (via `matchesKey`): a press of `data` runs the action
+    /// `keybinding`; matching is case- and modifier-order-insensitive.
+    #[must_use]
+    pub fn matches(&self, data: &str, keybinding: &str) -> bool {
+        canonical_key(data)
+            .and_then(|key| self.actions.get(&key))
+            .is_some_and(|actions| actions.iter().any(|id| id == keybinding))
+    }
+
+    /// The keys whose press runs the action `keybinding`: the definition's
+    /// default keys in its order (as it spells them), then the user binds'
+    /// keys in bind order (as the user spells them).
     #[must_use]
     pub fn get_keys(&self, keybinding: &str) -> Vec<String> {
-        self.resolved.get(keybinding).cloned().unwrap_or_default()
+        let default_keys = definitions()
+            .find(|(id, _)| *id == keybinding)
+            .map_or(&[][..], |(_, definition)| definition.default_keys);
+        let user_keys = self
+            .binds
+            .iter()
+            .take(self.user_binds)
+            .filter_map(|(key, _)| Some((key.to_string(), self.labels.get(key)?.clone())));
+        let default_keys = default_keys
+            .iter()
+            .filter_map(|written| Some((canonical_key(written)?, (*written).to_string())));
+        let mut seen = BTreeSet::new();
+        default_keys
+            .chain(user_keys)
+            .filter(|(key, _)| {
+                self.actions
+                    .get(key)
+                    .is_some_and(|actions| actions.iter().any(|id| id == keybinding))
+            })
+            .filter(|(key, _)| seen.insert(key.clone()))
+            .map(|(_, label)| label)
+            .collect()
     }
 
     /// Whether `data` is the macOS option-composed form of one of the id's
@@ -515,18 +622,16 @@ impl KeybindingsManager {
     /// binding composes).
     #[must_use]
     pub fn matches_option_composed(&self, data: &str, keybinding: &str) -> bool {
-        self.resolved.get(keybinding).is_some_and(|keys| {
-            keys.iter().any(|key| {
-                let composed = parse_key_id(key).and_then(|parsed| {
-                    (parsed.alt
-                        && !parsed.ctrl
-                        && !parsed.shift
-                        && !parsed.super_key
-                        && parsed.key == "s")
-                        .then_some("\u{df}")
-                });
-                composed.is_some_and(|composed| composed == data)
-            })
+        self.get_keys(keybinding).iter().any(|key| {
+            let composed = parse_key_id(key).and_then(|parsed| {
+                (parsed.alt
+                    && !parsed.ctrl
+                    && !parsed.shift
+                    && !parsed.super_key
+                    && parsed.key == "s")
+                    .then_some("\u{df}")
+            });
+            composed.is_some_and(|composed| composed == data)
         })
     }
 
@@ -542,25 +647,13 @@ impl KeybindingsManager {
         format_key_text(&self.get_keys(keybinding).join("/"))
     }
 
-    /// The raw user bindings (TS `getUserBindings`): migrated ids with the
-    /// well-formed key lists, unknown ids included.
-    #[must_use]
-    pub fn get_user_bindings(&self) -> &KeybindingsConfig {
-        &self.user_bindings
-    }
-
-    /// TS `getConflicts`: keys explicitly claimed by more than one user
-    /// binding.
-    #[must_use]
-    pub fn get_conflicts(&self) -> &[KeybindingConflict] {
-        &self.conflicts
-    }
-
     /// TS `getEffectiveConfig` / `getResolvedBindings`: the effective key
-    /// list per definition id (used by shortcut conflict rules).
+    /// list per definition id.
     #[must_use]
     pub fn get_effective_config(&self) -> BTreeMap<String, Vec<String>> {
-        self.resolved.clone()
+        definitions()
+            .map(|(id, _)| (id.to_string(), self.get_keys(id)))
+            .collect()
     }
 }
 

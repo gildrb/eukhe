@@ -13,6 +13,9 @@ fn main() {
         eprintln!("Error: starting a new session failed: {error}");
         std::process::exit(1);
     }
+    // The cvar table is checked here, before any session runs: a table that
+    // declares an id twice or a default of the wrong type stops eukhe now.
+    let _ = eukhe_core::settings::cvar::registry();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = eukhe_cli::main_with_runtime(&args, &eukhe_cli::PrintRuntime);
     std::process::exit(code);

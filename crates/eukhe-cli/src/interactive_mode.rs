@@ -368,16 +368,8 @@ fn build_tui_options(
         .session_dir
         .clone()
         .or_else(|| Some(config.agent_dir.join("sessions")));
-    // TS startup migrations rewrite legacy keybinding ids in
-    // `keybindings.json` before the manager loads them
-    // (`migrateKeybindingsConfigFile` in `runMigrations`).
-    if let Err(error) = eukhe_tui::keybindings::migrate_keybindings_file(&config.agent_dir) {
-        // A failed migration never blocks startup: the manager below
-        // falls back to the previous file contents (or the defaults).
-        eprintln!("Warning: could not migrate keybindings: {error:#}");
-    }
-    // TS `KeybindingsManager.create(agentDir)`: the user's
-    // `keybindings.json` merged over the shipped defaults drives the TUI.
+    // The user's `<agentDir>/binds.cfg` (a legacy `keybindings.json` is
+    // imported into it once) over the shipped default binds drives the TUI.
     let keybindings = eukhe_tui::keybindings::KeybindingsManager::create(&config.agent_dir);
     // Test seam: a scripted faux daemon session (same contract as the print
     // runtime). Verification harness only; never set by the product.
@@ -459,7 +451,7 @@ fn build_tui_options(
         show_images,
         screen_mode,
         // TS startup reads the settings theme (`getTheme() || "eukhe"`).
-        theme: settings.get_theme().map(str::to_string).unwrap_or_default(),
+        theme: settings.get_theme().unwrap_or_default(),
         // The client-settings seam the interactive commands persist
         // through (`/settings`); themes register from the resource system
         // and the `--theme`/`--no-themes` flags.

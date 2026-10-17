@@ -159,6 +159,12 @@ pub type ParentModelSource =
 /// session core, so a parent renamed since `create` signs with its new name.
 pub type ParentNameSource = std::sync::Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
+/// Reads the parent session's effective cvar family (root first) at spawn
+/// time: the worker answers from its session settings, so a child starts
+/// from the values its parent has now (docs/harness.md S4).
+pub type ParentCvarFamilySource =
+    std::sync::Arc<dyn Fn() -> Vec<eukhe_core::settings::cvar::AgentLayer> + Send + Sync>;
+
 /// Reads the parent session's durable children roster (the durable
 /// worker's `eukhe.rlm.children` document, the one `rlm.list_subagents`
 /// reads) as family identities: the durable path records its children
@@ -189,6 +195,9 @@ struct SupervisorChildSessionsInner {
     /// The parent's live session-name reader (the durable worker's core);
     /// `None` leaves the kickoff's `from` endpoint unnamed.
     parent_name: std::sync::Mutex<Option<ParentNameSource>>,
+    /// The parent's live cvar family reader (the durable worker's
+    /// settings); `None` spawns children with no inherited family.
+    parent_cvar_family: std::sync::Mutex<Option<ParentCvarFamilySource>>,
     /// The parent's durable children reader (the durable worker's main
     /// conversation); `None` leaves the family view empty.
     durable_children: std::sync::Mutex<Option<DurableChildrenSource>>,
@@ -222,6 +231,7 @@ impl SupervisorChildSessions {
                 durable_calls: std::sync::Mutex::new(durable_host::DurableCalls::default()),
                 parent_model: std::sync::Mutex::new(None),
                 parent_name: std::sync::Mutex::new(None),
+                parent_cvar_family: std::sync::Mutex::new(None),
                 delete_notifier: std::sync::Mutex::new(None),
                 durable_children: std::sync::Mutex::new(None),
                 worker_token: std::sync::Mutex::new(None),
@@ -272,6 +282,16 @@ impl SupervisorChildSessions {
         *self
             .inner
             .parent_name
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
+    }
+
+    /// Wire the parent's live cvar family reader: each child create carries
+    /// the family it answers (`cvarFamily`).
+    pub fn set_parent_cvar_family_source(&self, source: ParentCvarFamilySource) {
+        *self
+            .inner
+            .parent_cvar_family
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
     }

@@ -45,7 +45,7 @@ impl Worker {
             }
             "compact" => self.handle_compaction(payload).await,
             "abort_compaction" => self.handle_abort_compaction().await,
-            "set_auto_compaction" => self.handle_set_auto_compaction(payload),
+            "set_auto_compaction" => self.handle_set_auto_compaction(payload).await,
             "wait_for_idle" => self.handle_wait_for_idle(payload).await,
             "wait_for_headless_completion" => {
                 self.handle_wait_for_headless_completion(payload).await
@@ -98,10 +98,18 @@ impl Worker {
             "set_scoped_models" => self.handle_set_scoped_models(payload),
             "cycle_thinking_level" => self.handle_cycle_thinking_level().await,
             "set_service_tier" => self.handle_set_service_tier(payload).await,
-            "set_transport" => self.handle_set_transport(payload),
-            "set_steering_mode" => self.handle_set_queue_mode("set_steering_mode", payload),
-            "set_follow_up_mode" => self.handle_set_queue_mode("set_follow_up_mode", payload),
-            "set_auto_retry" => self.handle_set_auto_retry(payload),
+            "set_transport" => self.handle_set_transport(payload).await,
+            "set_steering_mode" => {
+                self.handle_set_queue_mode("set_steering_mode", payload)
+                    .await
+            }
+            "set_follow_up_mode" => {
+                self.handle_set_queue_mode("set_follow_up_mode", payload)
+                    .await
+            }
+            "set_auto_retry" => self.handle_set_auto_retry(payload).await,
+            "cvar" => self.handle_cvar(payload).await,
+            "cvar_save" => self.handle_cvar_save().await,
             "abort_retry" => self.handle_abort_retry().await,
             "get_session_tree" => self.tree_navigation.get_session_tree().await,
             "get_user_messages_for_forking" => {

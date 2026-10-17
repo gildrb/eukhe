@@ -75,14 +75,7 @@ pub static BOUNDARY_DOC: ConversationDoc<BoundaryState> = match ConversationDoc:
 pub(super) fn register(runtime: &Arc<RlmRuntime>) -> bool {
     let deps = &runtime.deps;
     // TS `_includeCompactSkill`: the compaction `agentCallable` setting.
-    let agent_callable = deps
-        .settings
-        .manager()
-        .settings()
-        .compaction
-        .as_ref()
-        .and_then(|compaction| compaction.agent_callable)
-        .unwrap_or(true);
+    let agent_callable = deps.settings.manager().get_compaction_agent_callable();
     if agent_callable {
         let weak = Arc::downgrade(runtime);
         deps.host_requests

@@ -503,7 +503,7 @@ mod tests {
             "app.tree.filter.noTools".to_string(),
             vec!["ctrl+y".to_string()],
         );
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let text = frame_text(&selector().render(&theme, 200, &kb));
         assert!(text.contains("Ctrl+B: label"), "{text}");
         assert!(
@@ -522,7 +522,7 @@ mod tests {
         // One emptied filter drops its key from the key run.
         let mut cfg = crate::keybindings::KeybindingsConfig::new();
         cfg.insert("app.tree.filter.noTools".to_string(), Vec::new());
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let text = frame_text(&selector().render(&theme, 200, &kb));
         assert!(
             text.contains("Ctrl+D/Ctrl+U/Ctrl+L/Ctrl+A: filters ("),
@@ -537,7 +537,7 @@ mod tests {
         ] {
             cfg.insert(id.to_string(), Vec::new());
         }
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let text = frame_text(&selector().render(&theme, 200, &kb));
         assert!(
             text.contains("Ctrl+D/Ctrl+T/Ctrl+U/Ctrl+L/Ctrl+A: filters."),
@@ -557,7 +557,7 @@ mod tests {
             cfg.insert(id.to_string(), Vec::new());
         }
         cfg.insert("app.tree.editLabel".to_string(), Vec::new());
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let text = frame_text(&selector().render(&theme, 200, &kb));
         assert!(!text.contains("filters"), "{text}");
         assert!(!text.contains("label."), "{text}");
@@ -580,7 +580,7 @@ mod tests {
         assert!(text.contains("  Enter select  Esc back"), "{text}");
         let mut cfg = crate::keybindings::KeybindingsConfig::new();
         cfg.insert("tui.select.confirm".to_string(), vec!["ctrl+m".to_string()]);
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let mut sel = selector();
         sel.handle_key(&kb, "ctrl+m");
         let text = frame_text(&sel.render(&theme, 120, &kb));
@@ -589,7 +589,7 @@ mod tests {
         // keeps the confirm segment alone, never the default Esc.
         let mut cfg = crate::keybindings::KeybindingsConfig::new();
         cfg.insert("tui.select.cancel".to_string(), Vec::new());
-        let kb = KeybindingsManager::with_user_bindings(cfg);
+        let kb = KeybindingsManager::with_user_bindings(&cfg);
         let mut sel = selector();
         sel.handle_key(&kb, "enter");
         let text = frame_text(&sel.render(&theme, 120, &kb));

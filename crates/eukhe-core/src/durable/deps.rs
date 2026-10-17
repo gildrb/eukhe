@@ -182,6 +182,9 @@ pub struct SessionConfig {
     pub session_id: String,
     pub storage: SessionStorage,
     pub role: SessionRole,
+    /// Which agent the session is in the cvar layers: its inherited family
+    /// and profile files (the root agent `main` by default).
+    pub cvar_agent: super::cvar_agent::CvarAgent,
     /// Model of a new root conversation; `None` resolves the settings default.
     pub model: Option<ModelRequest>,
     /// Thinking level of a new root conversation; `None` resolves the
@@ -259,6 +262,7 @@ impl SessionConfig {
             session_id: session_id.into(),
             storage,
             role: SessionRole::default(),
+            cvar_agent: super::cvar_agent::CvarAgent::Root,
             model: None,
             thinking: None,
             memory: None,

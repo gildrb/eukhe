@@ -336,5 +336,5 @@ fn agents_view_exit_bindings() -> eukhe_tui::keybindings::KeybindingsManager {
     let config = [("app.session.resume".to_string(), vec!["ctrl+q".to_string()])]
         .into_iter()
         .collect::<BTreeMap<_, _>>();
-    eukhe_tui::keybindings::KeybindingsManager::with_user_bindings(config)
+    eukhe_tui::keybindings::KeybindingsManager::with_user_bindings(&config)
 }

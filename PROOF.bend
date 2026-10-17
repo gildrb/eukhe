@@ -22,6 +22,7 @@ import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
 import ./bend/proof_tree.bend as Trees
 import ./bend/proof_job.bend as Jobs
+import ./bend/proof_cvar.bend as Cvars
 import ./bend/proof_infer.bend as Infer
 import ./bend/proof_quirks.bend as Quirks
 
@@ -330,6 +331,56 @@ def Laws.rewind_stops_orphans(js, keep):
 
 def Laws.rewind_keeps_target_jobs(js, keep):
   Jobs.pj.rewind_keeps_target_jobs(js, keep)
+
+# (S4) Settings as console variables
+
+def Laws.cvar_registry_unique(xs):
+  Cvars.pv.cvar_registry_unique(xs)
+
+def Laws.cvar_registry_typed(xs):
+  Cvars.pv.cvar_registry_typed(xs)
+
+def Laws.cvar_value_typed(xs, cfg, fam, x):
+  Cvars.pv.cvar_value_typed(xs, cfg, fam, x)
+
+def Laws.cvar_inherits(ds, cfg, fam, x):
+  Cvars.pv.cvar_inherits(ds, cfg, fam, x)
+
+def Laws.cvar_set_wins(ds, cfg, fam, p, ss, x, v, ok):
+  Cvars.pv.cvar_set_wins(ds, cfg, fam, p, ss, x, v, ok)
+
+def Laws.cvar_global_uniform(ds, cfg, fam, x, d, found, global):
+  Cvars.pv.cvar_global_uniform(ds, cfg, fam, x, d, found, global)
+
+def Laws.cvar_written_flagged(ss, ds, f):
+  Cvars.pv.cvar_written_flagged(ss, ds, f)
+
+def Laws.cvar_persist_roundtrip(ds, cfg, ss, x, keeps):
+  Cvars.pv.cvar_persist_roundtrip(ds, cfg, ss, x, keeps)
+
+def Laws.cvar_toggle_twice(ds, cfg, fam, a, x):
+  Cvars.pv.cvar_toggle_twice(ds, cfg, fam, a, x)
+
+def Laws.alias_expands_fully(cs, as):
+  Cvars.pv.alias_expands_fully(cs, as)
+
+def Laws.alias_self_cycle(n, as):
+  Cvars.pv.alias_self_cycle(n, as)
+
+def Laws.alias_unknown_reported(n, as, gone):
+  Cvars.pv.alias_unknown_reported(n, as, gone)
+
+def Laws.alias_runs_body(n, b, as, flat):
+  Cvars.pv.alias_runs_body(n, b, as, flat)
+
+def Laws.bind_press_plain(bs, k, as):
+  Cvars.pv.bind_press_plain(bs, k, as)
+
+def Laws.bind_unbound_runs_nothing(bs, k, as, free):
+  Cvars.pv.bind_unbound_runs_nothing(bs, k, as, free)
+
+def Laws.bind_first_wins(k, c, rest, as):
+  Cvars.pv.bind_first_wins(k, c, rest, as)
 
 # (S6) The inference layer
 
