@@ -87,7 +87,7 @@ pub struct Tool {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constrained_sampling: Option<ToolConstrainedSampling>,
     /// eukhe addition: the tool's claim on a strict schema when the
-    /// provider takes fewer strict tools than a request has (docs/harness.md
+    /// provider takes fewer strict tools than a request has (docs/inference.md
     /// S6.3): higher first. Default 0: every tool equal.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub priority: u32,

@@ -1,4 +1,4 @@
-//! The tool surface (docs/harness.md S7): the session's roster of tools is
+//! The tool surface (docs/tools.md S7): the session's roster of tools is
 //! fixed when it opens ([`eukhe_durable::harness::registry::Registry::fix_roster`]);
 //! a tool that comes later (an MCP server's tool, a host tool that joins)
 //! is reached through the one roster tool `dyn`, which lists the dynamic

@@ -37,7 +37,7 @@ impl Default for OutputLimits {
 }
 
 /// Whether an output is bounded: the one limits value of a tool call, a
-/// cell, or a job (docs/harness.md S2). Truncation is on by default, with
+/// cell, or a job (docs/runtime.md S2). Truncation is on by default, with
 /// the default limits; `Off` is the explicit opt-out, which keeps every
 /// byte. Every truncation is visible: the bytes kept and the bytes counted
 /// as dropped are every byte the output produced.

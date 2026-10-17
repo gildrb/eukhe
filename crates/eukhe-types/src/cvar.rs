@@ -1,4 +1,4 @@
-//! The console-variable command language (docs/harness.md S4,
+//! The console-variable command language (docs/control.md S4,
 //! `bend/cvar.bend`): the lines of a `.cfg` file, the `/set` slash command
 //! family, and the commands a key bind runs.
 //!

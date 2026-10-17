@@ -1,4 +1,4 @@
-//! `@remote` (docs/harness.md S3): a Python function of the kernel that the
+//! `@remote` (docs/runtime.md S3): a Python function of the kernel that the
 //! host offers as a dynamic tool.
 //!
 //! The runtime's `@remote` decorator announces the function with the

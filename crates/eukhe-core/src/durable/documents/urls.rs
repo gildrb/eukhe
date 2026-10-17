@@ -1,4 +1,4 @@
-//! The `read` function's internal URLs (docs/harness.md S7): `repo://` and
+//! The `read` function's internal URLs (docs/tools.md S7): `repo://` and
 //! `skill://` read a file or directory under their root through the
 //! session's documents (anchorable like any read); `agent://` reads a
 //! subagent's chat, `memory://` the chat memory, and `mcp://` an MCP

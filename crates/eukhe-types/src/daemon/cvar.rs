@@ -1,4 +1,4 @@
-//! The `cvar` command's wire shapes (docs/harness.md S4): the values it
+//! The `cvar` command's wire shapes (docs/control.md S4): the values it
 //! answers and the typed data of a rejected command.
 
 use serde::{Deserialize, Serialize};

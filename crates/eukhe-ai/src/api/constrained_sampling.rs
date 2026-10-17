@@ -463,7 +463,7 @@ pub struct StrictSupport {
     pub cap: Option<u32>,
 }
 
-/// The strict schema budget (docs/harness.md S6.3; model `bend/infer.bend`
+/// The strict schema budget (docs/inference.md S6.3; model `bend/infer.bend`
 /// `strict`): of the tools that would get strict schemas, with
 /// `priorities`, which keep them when a request takes at most `cap`. The
 /// highest priorities keep them; among equal priorities the earlier tool

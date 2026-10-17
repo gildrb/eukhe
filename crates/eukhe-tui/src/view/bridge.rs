@@ -1,5 +1,5 @@
 //! The bridge from the interface's Rust code to its Bend model
-//! (`bend/screen.bend`, docs/harness.md S8): the transcript ledger
+//! (`bend/screen.bend`, docs/interface.md S8): the transcript ledger
 //! ([`Ledger`]), the pace ([`crate::pace::Pace`]), the verify decision
 //! ([`crate::inline_term::present`]) and the vertical stack ([`vstack`])
 //! run generated scenarios, and `bend/bridge_screen.bend` must print the

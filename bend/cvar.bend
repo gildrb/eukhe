@@ -1,4 +1,4 @@
-# cvar: the model of settings as console variables (docs/harness.md,
+# cvar: the model of settings as console variables (docs/control.md,
 # S4). Each setting (a cvar) is declared once, with a type, a scope, and
 # flags for persistence and replication. Values come in layers; a higher
 # layer wins:

@@ -1,4 +1,4 @@
-# tools: the model of the tool surface (docs/harness.md, S7).
+# tools: the model of the tool surface (docs/tools.md, S7).
 #
 # 1. The roster. A session starts with a fixed roster of tools. Tools
 #    that come later (MCP servers, skills, extensions) join the dynamic

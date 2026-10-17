@@ -749,7 +749,7 @@ impl SessionUi {
                 self.handle_rlm_max_depth_command(view, &resolved.args)
                     .await;
             }
-            // `/set`, `/toggle`, `/alias`, `/cvar` (docs/harness.md S4):
+            // `/set`, `/toggle`, `/alias`, `/cvar` (docs/control.md S4):
             // console variables, sent to the session's daemon as `cvar`.
             "set" | "toggle" | "alias" | "cvar" => {
                 self.handle_cvar_command(resolved.name, &resolved.args, view)

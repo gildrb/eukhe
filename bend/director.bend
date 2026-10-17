@@ -1,4 +1,4 @@
-# director: the model of the Director stack (docs/harness.md, S5). The
+# director: the model of the Director stack (docs/control.md, S5). The
 # agent loop asks the stack what to do after each model turn. A Director
 # is one layer: a plan, a goal, a reminder, a forced tool call. Layers
 # stack and nest. The top layer decides first; each layer gives one

@@ -1,4 +1,4 @@
-//! The declaration of every cvar (docs/harness.md S4): each setting of
+//! The declaration of every cvar (docs/control.md S4): each setting of
 //! `settings.json` once, by the dotted path of its key.
 //!
 //! Global: one value for the whole family, read from the global config

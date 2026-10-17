@@ -1,4 +1,4 @@
-//! The `bash` tool's approval path end to end (docs/harness.md S7.8): a
+//! The `bash` tool's approval path end to end (docs/tools.md S7.8): a
 //! real supervisor and worker, the scripted faux model calling `bash`. An
 //! attached client gets one `shell_approval` frame per gated step and
 //! answers with `answer_shell_approval`: it approves the first write and

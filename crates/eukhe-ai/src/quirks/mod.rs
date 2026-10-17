@@ -1,4 +1,4 @@
-//! The quirks rulebook (docs/harness.md S6.1; model `bend/infer.bend`
+//! The quirks rulebook (docs/inference.md S6.1; model `bend/infer.bend`
 //! section 1): which wire settings a model family, a model, and a host
 //! need, as data.
 //!

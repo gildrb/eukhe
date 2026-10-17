@@ -1,4 +1,4 @@
-# proof_tools: the S7 laws (docs/harness.md) of the tool surface model in
+# proof_tools: the S7 laws (docs/tools.md) of the tool surface model in
 # bend/tools.bend. An event never touches the roster, and a turn sends
 # the session's roster (`pl.sent_go`, by induction on the events). A join
 # appends to `dyn`; a quit drops every copy (`pl.drop_go`, with the head

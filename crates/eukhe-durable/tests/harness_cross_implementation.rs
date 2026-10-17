@@ -90,7 +90,7 @@ fn fixtures() -> PathBuf {
 }
 
 /// What `probe` does once it has reported its details (durable in TS; in
-/// eukhe they are published to live observers only, docs/harness.md S2).
+/// eukhe they are published to live observers only, docs/runtime.md S2).
 #[derive(Clone, Copy)]
 enum AfterDetails {
     /// Die like a crashed process (TS `process.exit(0)`).
@@ -525,7 +525,7 @@ async fn resumes_rust_crash_like_ts() {
 /// The records of `probe`'s progress (output, then details and the
 /// diagnostic) in the crash fixtures: TS and eukhe before S2 commit each
 /// progress update to `pi.live` (seq 9 and 10). Eukhe now keeps progress in
-/// memory (docs/harness.md S2), so a crashed Rust process leaves the
+/// memory (docs/runtime.md S2), so a crashed Rust process leaves the
 /// fixture storage without these two commits.
 fn without_progress(files: Vec<(String, String)>) -> Vec<(String, String)> {
     files

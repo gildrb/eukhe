@@ -3,7 +3,7 @@
 //! `set_scoped_models`, `cycle_thinking_level`, `set_service_tier`,
 //! `set_transport`, `set_steering_mode`, `set_follow_up_mode`,
 //! `set_auto_compaction`, `set_auto_retry`, `abort_retry` (TS daemon-mode
-//! cases) — and the cvar commands (`cvar`, `cvar_save`, docs/harness.md
+//! cases) — and the cvar commands (`cvar`, `cvar_save`, docs/control.md
 //! S4). The wire contracts are TS-verbatim. Model and thinking switches
 //! configure the main conversation (`model_switch`); every other switch is
 //! a set of a Local cvar in this session's own layer (the same path as

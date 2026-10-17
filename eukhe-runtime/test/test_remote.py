@@ -1,4 +1,4 @@
-"""``@remote`` and the wrapped kernel's stdin owner (docs/harness.md S3)."""
+"""``@remote`` and the wrapped kernel's stdin owner (docs/runtime.md S3)."""
 
 from __future__ import annotations
 

@@ -18,7 +18,7 @@
 //!
 //! A move or fork takes the session back to an earlier point of its
 //! history: it stops every running job that the session state tree at that
-//! point does not hold (docs/harness.md S2), and the response names them:
+//! point does not hold (docs/runtime.md S2), and the response names them:
 //! `stoppedJobs` ended within the wait, `stoppingJobs` got the kill and
 //! had not ended yet.
 

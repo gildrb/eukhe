@@ -1,4 +1,4 @@
-//! Pacing of streamed assistant text (docs/harness.md S8, rule 2; model
+//! Pacing of streamed assistant text (docs/interface.md S8, rule 2; model
 //! `bend/screen.bend` section 2, `pace.step`).
 //!
 //! Text arrives in chunks of any size. Each frame shows more of it: at

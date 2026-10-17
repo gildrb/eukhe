@@ -923,7 +923,7 @@ impl crate::memory::Summarizer for NoSummarizer {
     }
 }
 
-/// The wire `read` tool serves the internal URLs (docs/harness.md S7):
+/// The wire `read` tool serves the internal URLs (docs/tools.md S7):
 /// a chat-memory message, a subagent's chat, a skill's `SKILL.md` and a
 /// workspace file; a `..` above `repo://` is rejected even though the file
 /// it names exists, never clamped to the root.

@@ -1,4 +1,4 @@
-# proof_sandbox: the S3 laws (docs/harness.md) of the sandbox model in
+# proof_sandbox: the S3 laws (docs/runtime.md) of the sandbox model in
 # bend/sandbox.bend: the protocol and the copy-on-write hand-back.
 #
 # The protocol: one host step adds one reply and runs the frame iff it is

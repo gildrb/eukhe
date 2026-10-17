@@ -1,4 +1,4 @@
-//! The chat frame for the inline terminal (docs/harness.md S8): newly
+//! The chat frame for the inline terminal (docs/interface.md S8): newly
 //! committed entries as history, then the live area -- unsettled
 //! entries, the transcript tail, toasts, and the dock or the open panel
 //! -- and the caret.

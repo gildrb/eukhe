@@ -459,7 +459,7 @@ pub trait TaskRuntimeBackend: DocumentReader + DocumentObserver {
     /// invocation or `cx` is cancelled.
     fn sleep(&self, until: f64, cx: &Context) -> BoxFuture<'static, SessionResult<()>>;
     /// The Harness's board of running tool calls' progress: delivered to
-    /// live observers, never stored (docs/harness.md S2).
+    /// live observers, never stored (docs/runtime.md S2).
     fn live_progress(&self) -> LiveProgress;
 }
 

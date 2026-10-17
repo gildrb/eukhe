@@ -490,7 +490,7 @@ async fn rejects_details_still_waiting_when_the_call_is_aborted_during_after_too
 }
 
 /// The settle of an abort carries everything the call reported, also what
-/// no publication reached yet (docs/harness.md S2, `stream_settle_carries_all`).
+/// no publication reached yet (docs/runtime.md S2, `stream_settle_carries_all`).
 #[tokio::test]
 async fn answers_an_aborted_tool_with_all_its_reported_output_published_or_not() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());

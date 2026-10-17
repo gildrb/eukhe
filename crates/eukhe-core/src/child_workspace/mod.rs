@@ -1,4 +1,4 @@
-//! Copy-on-write child workspaces (docs/harness.md S3; model
+//! Copy-on-write child workspaces (docs/runtime.md S3; model
 //! `bend/sandbox.bend`, `back`).
 //!
 //! An isolated child works on its own copy of its parent's workspace. At

@@ -1,4 +1,4 @@
-//! The console-variable commands (docs/harness.md S4): `/set`,
+//! The console-variable commands (docs/control.md S4): `/set`,
 //! `/set --global`, `/toggle`, `/alias`, `/cvar` and `/cvar save`, each
 //! sent to the session's daemon as a `cvar` command list, plus the one
 //! client method a key bind runs its commands through

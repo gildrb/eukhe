@@ -10,7 +10,7 @@
     clippy::cast_precision_loss
 )]
 
-//! The kernel transport (docs/harness.md S3) on the real runtime: a fake
+//! The kernel transport (docs/runtime.md S3) on the real runtime: a fake
 //! wrapper (`setsid -w sh -c 'exec "$@"'`, so the stub runs in a session of
 //! its own, like a process behind `docker exec` or `ssh`) runs the
 //! unchanged stub in a sandbox directory that maps to a different host

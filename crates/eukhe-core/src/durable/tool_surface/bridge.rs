@@ -1,5 +1,5 @@
 //! The bridge between the tool surface and its Bend model (`bend/tools.bend`
-//! sections 1 and 2, whose laws `PROOF.bend` proves; docs/harness.md S7):
+//! sections 1 and 2, whose laws `PROOF.bend` proves; docs/tools.md S7):
 //! both run the same scenarios and must print the same transcript, byte for
 //! byte.
 //!

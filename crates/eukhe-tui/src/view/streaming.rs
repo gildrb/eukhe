@@ -3,7 +3,7 @@
 //! message unchanged: those replay its last render whole, and a frame that
 //! needs only the rows on screen copies only those.
 //!
-//! The text shows at a pace (`crate::pace`, docs/harness.md S8 rule 2):
+//! The text shows at a pace (`crate::pace`, docs/interface.md S8 rule 2):
 //! each frame reveals part of what arrived, and a message that stopped
 //! streaming stays live until all of it shows.
 

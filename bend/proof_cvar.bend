@@ -1,4 +1,4 @@
-# proof_cvar: the S4 laws (docs/harness.md) of the cvar model in
+# proof_cvar: the S4 laws (docs/control.md) of the cvar model in
 # bend/cvar.bend.
 #
 # A layer of sets is read one set at a time (`pv.layer_cons`), so a set

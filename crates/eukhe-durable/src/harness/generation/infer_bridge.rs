@@ -1,4 +1,4 @@
-//! The bridges between the inference layer (docs/harness.md S6) and its
+//! The bridges between the inference layer (docs/inference.md S6) and its
 //! Bend model (`bend/infer.bend`, whose laws `PROOF.bend` proves): both
 //! run the same scenarios and must print the same transcript, byte for
 //! byte.

@@ -215,7 +215,7 @@ pub struct AutonomousSettings {
     pub timeout_ms: Option<AutonomousLimitSetting>,
 }
 
-/// The Director stack (docs/harness.md S5).
+/// The Director stack (docs/control.md S5).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DirectorSettings {

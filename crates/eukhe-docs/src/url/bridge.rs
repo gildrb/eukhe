@@ -1,5 +1,5 @@
 //! The bridge from the internal URL paths ([`Url::names`]) to their Bend
-//! model (`bend/tools.bend` §3, docs/harness.md S7): generated paths of
+//! model (`bend/tools.bend` §3, docs/tools.md S7): generated paths of
 //! names, `..`, `.` and empty segments run through the Rust code, and
 //! `bend/bridge_paths.bend` must print the same transcript, byte for byte.
 //!

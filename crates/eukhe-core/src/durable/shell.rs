@@ -1,4 +1,4 @@
-//! `eukhe.shell`: the `bash` tool (`bash@1`, docs/harness.md S7). It runs
+//! `eukhe.shell`: the `bash` tool (`bash@1`, docs/tools.md S7). It runs
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
 //! directory. A step whose effect is in the auto set (the `shell.autoEffects`
 //! setting, default `read`) runs unasked; every other step runs only when

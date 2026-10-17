@@ -1,4 +1,4 @@
-# tree: the model of the session tree (docs/harness.md, S1). One tree
+# tree: the model of the session tree (docs/state.md, S1). One tree
 # holds all the state of a session. The journal is a list of records;
 # each record changes the tree. Replay of the journal makes the tree
 # again; a replay of a prefix is a snapshot.

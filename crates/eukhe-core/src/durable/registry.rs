@@ -5,7 +5,7 @@
 //! `eukhe.dyn`, `codemode`. Every tool
 //! schema is built with the intent `i` and a version
 //! (`tool_contract::build`), and the roster is fixed once every extension
-//! is installed (docs/harness.md S7): a tool that comes later goes behind
+//! is installed (docs/tools.md S7): a tool that comes later goes behind
 //! `dyn`.
 
 use std::sync::Arc;

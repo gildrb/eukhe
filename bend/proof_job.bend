@@ -1,4 +1,4 @@
-# proof_job: the S2 laws (docs/harness.md) of the job model in
+# proof_job: the S2 laws (docs/runtime.md) of the job model in
 # bend/job.bend: output caps and drops, one end per job, ended jobs stay
 # ended, a blocking call never outlives its budget, a tool call's stream
 # journals one final record carrying everything, and a rewind stops

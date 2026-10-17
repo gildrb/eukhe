@@ -1,5 +1,5 @@
 //! The transcript protocol and the pace through `AgentView::compose`
-//! (docs/harness.md S8): committed rows are written once, whatever
+//! (docs/interface.md S8): committed rows are written once, whatever
 //! changes after them, and streamed text shows at its pace.
 
 use super::*;

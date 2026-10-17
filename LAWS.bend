@@ -638,7 +638,7 @@ law admission_every_ticket_ends:
 
 # (S1) The session tree
 # ---------------------
-# docs/harness.md S1, the model in bend/tree.bend. One tree holds the
+# docs/state.md S1, the model in bend/tree.bend. One tree holds the
 # state of a session; the journal is its list of records. Every record
 # is free: any put (valid or not), any delete, any rewind ops.
 
@@ -732,7 +732,7 @@ law tree_put_keeps_others:
 
 # (S2) Jobs and limits
 # --------------------
-# docs/harness.md S2, the model in bend/job.bend. Every event is free:
+# docs/runtime.md S2, the model in bend/job.bend. Every event is free:
 # any output size, exit, kill or tick, in any order; any output cap or
 # the opt-out; any budget; any tool call stream; any job table.
 
@@ -835,7 +835,7 @@ law rewind_keeps_target_jobs:
 
 # (S3) The host and the sandbox
 # -----------------------------
-# docs/harness.md S3, the model in bend/sandbox.bend. Every input is
+# docs/runtime.md S3, the model in bend/sandbox.bend. Every input is
 # free: any frames of any length and kind, any limits, any workspaces of
 # the parent, the base and the child.
 
@@ -920,7 +920,7 @@ law cow_conflict_is_real:
 
 # (S4) Settings as console variables
 # ----------------------------------
-# docs/harness.md S4, the model in bend/cvar.bend. Every input is free:
+# docs/control.md S4, the model in bend/cvar.bend. Every input is free:
 # any declarations (duplicate ids, wrong defaults), any config.cfg, any
 # family of agents with any profiles and sets (wrong types, Global cvars,
 # undeclared ids), any alias table.
@@ -1057,7 +1057,7 @@ law bind_first_wins:
 
 # (S5) The Director stack
 # -----------------------
-# docs/harness.md S5, the model in bend/director.bend. Every verdict is
+# docs/control.md S5, the model in bend/director.bend. Every verdict is
 # free: each layer of each step says what the adversary picks.
 
 # LAW: a decision never grows the stack past its cap
@@ -1116,7 +1116,7 @@ law dir_rewind_restores:
 
 # (S6) The inference layer
 # ------------------------
-# docs/harness.md S6, the model in bend/infer.bend. Every input is free:
+# docs/inference.md S6, the model in bend/infer.bend. Every input is free:
 # any rulebook, query and directive; any replies of the model; any
 # provider support; any tools; any stream; any context sizes.
 
@@ -1273,7 +1273,7 @@ law compact_starts_early:
 
 # (S7) The tool surface
 # ---------------------
-# docs/harness.md S7, the model in bend/tools.bend. Every input is free:
+# docs/tools.md S7, the model in bend/tools.bend. Every input is free:
 # any tools that join and quit, any schemas, any paths, any scripts, any
 # auto set, any answers of the user.
 
@@ -1372,7 +1372,7 @@ law gate_finish_runs_all:
 
 # (S8) The interface
 # ------------------
-# docs/harness.md S8, the model in bend/screen.bend. Every input is free:
+# docs/interface.md S8, the model in bend/screen.bend. Every input is free:
 # any blocks, growths, finals, flushes and resizes in any order; any
 # chunk sizes and frames; any check results; any child heights.
 

@@ -1,4 +1,4 @@
-# infer: the model of the inference layer's rules (docs/harness.md, S6).
+# infer: the model of the inference layer's rules (docs/inference.md, S6).
 #
 # 1. The quirks rulebook. A rule says: at a layer (a model family, a
 #    model, a host), for a target id of that layer, directive d has value

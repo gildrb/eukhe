@@ -164,7 +164,7 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
 
 /// Asks the user whether one gated step of a `bash` tool script may run
-/// (docs/harness.md S7): the daemon worker asks its attached clients and
+/// (docs/tools.md S7): the daemon worker asks its attached clients and
 /// waits for the first answer. `None` (the future's output) means no
 /// answer came (no client attached, or the clients detached): a denial.
 pub type ShellApprovalSink = Arc<
@@ -502,13 +502,13 @@ pub struct HostDeps {
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
-    /// The jobs of the session (docs/harness.md S2).
+    /// The jobs of the session (docs/runtime.md S2).
     pub jobs: super::jobs::JobTable,
     /// The session's live state tree, set when the session opens.
     pub(crate) state_tree: OnceLock<Weak<super::LiveStateTree>>,
     /// The closing gate of the session's background parent submissions.
     pub(crate) closing: SessionClosing,
-    /// The session's dynamic tools, reached through `dyn` (docs/harness.md
+    /// The session's dynamic tools, reached through `dyn` (docs/tools.md
     /// S7): a host tool that comes after the roster was fixed joins here.
     pub tool_surface: super::tool_surface::ToolSurface,
 }

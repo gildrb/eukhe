@@ -1,4 +1,4 @@
-# proof_screen: the S8 laws (docs/harness.md) of the interface model in
+# proof_screen: the S8 laws (docs/interface.md) of the interface model in
 # bend/screen.bend: the scrollback has no gap and only grows, a resize and
 # a flush keep it in order, the pacer never runs ahead nor back and drains
 # a backlog, only checked frames reach the terminal, and a vertical stack

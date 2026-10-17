@@ -1,4 +1,4 @@
-//! The shell's approval vocabulary (docs/harness.md, S7): the effect class
+//! The shell's approval vocabulary (docs/tools.md, S7): the effect class
 //! of one step of a `bash` script, the question the host asks the
 //! attached client about a step whose class is not in the auto set, and
 //! the client's answer.

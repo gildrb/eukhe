@@ -1,4 +1,4 @@
-//! The vertical stack of the live area (docs/harness.md S8, rule 4; model
+//! The vertical stack of the live area (docs/interface.md S8, rule 4; model
 //! `bend/screen.bend` section 4, `vstack`): children one under the other
 //! from the top of the viewport, clipped to its height. No child is drawn
 //! outside the viewport, no two overlap, and children that fit are drawn

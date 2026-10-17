@@ -1,4 +1,4 @@
-//! Settings as console variables (docs/harness.md S4; the model is
+//! Settings as console variables (docs/control.md S4; the model is
 //! `bend/cvar.bend`, its laws are proven in `PROOF.bend`).
 //!
 //! Each setting (a cvar) is declared once in [`table`]: its id (the dotted

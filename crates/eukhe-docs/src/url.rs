@@ -1,4 +1,4 @@
-//! Internal URLs (docs/harness.md S7, `bend/tools.bend` §3): `scheme://path`
+//! Internal URLs (docs/tools.md S7, `bend/tools.bend` §3): `scheme://path`
 //! names something the session holds instead of a file under the working
 //! directory. The path is a list of `/`-separated segments under the root
 //! of its scheme: `..` goes up one, `.` and empty segments stay, and a path
