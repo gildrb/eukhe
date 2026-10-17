@@ -107,14 +107,16 @@ impl JsonResponse {
     }
 }
 
-/// A `POST` request with `headers` and `body`, as `new Request(url, init)`
-/// builds it: invalid header names/values reject with a `TypeError`.
-pub(crate) fn post_request(
+/// A request with `method`, `headers` and an optional `body`, as
+/// `new Request(url, init)` builds it: invalid header names/values reject
+/// with a `TypeError`.
+pub(crate) fn json_request(
+    method: reqwest::Method,
     url: url::Url,
     headers: &IndexMap<String, String>,
-    body: String,
+    body: Option<String>,
 ) -> Result<reqwest::Request, Thrown> {
-    let mut request = reqwest::Request::new(reqwest::Method::POST, url);
+    let mut request = reqwest::Request::new(method, url);
     for (name, value) in headers {
         let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| {
             ErrorObject::named("TypeError", format!("Invalid header name: \"{name}\"")).thrown()
@@ -124,16 +126,11 @@ pub(crate) fn post_request(
         })?;
         request.headers_mut().insert(name, value);
     }
-    *request.body_mut() = Some(body.into());
+    *request.body_mut() = body.map(Into::into);
     Ok(request)
 }
 
-/// One attempt of a JSON `POST`: `fetch(url, { method: "POST", headers,
-/// body, signal })` where `signal` combines the caller's signal with a fresh
-/// `AbortSignal.timeout(timeoutMs)`. A non-2xx response throws
-/// `"<label> returned <status>"` with the body; a timeout that is not a
-/// caller abort throws `"Request timed out after <ms>ms"`; a caller abort
-/// rejects with the signal's reason.
+/// One attempt of a JSON `POST`: [`fetch_json`] with `Method::POST`.
 pub(crate) async fn post_json(
     fetch: Option<&FetchFunction>,
     url: &str,
@@ -143,10 +140,40 @@ pub(crate) async fn post_json(
     signal: Option<&AbortSignal>,
     timeout_ms: Option<f64>,
 ) -> Result<JsonResponse, Thrown> {
+    fetch_json(
+        fetch,
+        reqwest::Method::POST,
+        url,
+        headers,
+        Some(body),
+        label,
+        signal,
+        timeout_ms,
+    )
+    .await
+}
+
+/// One attempt of a JSON request: `fetch(url, { method, headers, body,
+/// signal })` where `signal` combines the caller's signal with a fresh
+/// `AbortSignal.timeout(timeoutMs)`. A non-2xx response throws
+/// `"<label> returned <status>"` with the body; a timeout that is not a
+/// caller abort throws `"Request timed out after <ms>ms"`; a caller abort
+/// rejects with the signal's reason.
+#[allow(clippy::too_many_arguments)] // the `fetch` init fields, each named
+pub(crate) async fn fetch_json(
+    fetch: Option<&FetchFunction>,
+    method: reqwest::Method,
+    url: &str,
+    headers: &IndexMap<String, String>,
+    body: Option<String>,
+    label: &str,
+    signal: Option<&AbortSignal>,
+    timeout_ms: Option<f64>,
+) -> Result<JsonResponse, Thrown> {
     let exchange = async {
         let parsed_url = url::Url::parse(url)
             .map_err(|_| ErrorObject::named("TypeError", "Invalid URL").thrown())?;
-        let request = post_request(parsed_url, headers, body)?;
+        let request = json_request(method, parsed_url, headers, body)?;
         let response = send(fetch, request).await?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();

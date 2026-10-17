@@ -44,6 +44,7 @@ fn populated() -> Settings {
             reserve_tokens: Some(1),
             keep_recent_tokens: Some(1),
             agent_callable: Some(true),
+            provider_token_count: Some(true),
         }),
         memory: Some(MemorySettings {
             model: Some("m".into()),

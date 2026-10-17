@@ -96,7 +96,7 @@ fn yes_no(value: bool) -> String {
 }
 
 /// The TS `formatTokenCount`: `1M`/`1.0M`, `128K`/`163.8K`, plain below 1K.
-fn format_token_count(count: u64) -> String {
+pub(crate) fn format_token_count(count: u64) -> String {
     let count = count as f64;
     if count >= 1_000_000.0 {
         let millions = count / 1_000_000.0;
@@ -148,7 +148,7 @@ fn print_table(models: &[eukhe_types::ai::Model]) {
     }
 }
 
-fn pad_end(value: &str, width: usize) -> String {
+pub(crate) fn pad_end(value: &str, width: usize) -> String {
     let len = value.chars().count();
     if len >= width {
         value.to_string()

@@ -242,6 +242,36 @@ for a node that comes back, restore for a node that changes.",
     CommandSpec::new(&["model"], "model list [search]", "Inspect available models"),
     CommandSpec::new(&["model", "list"], "model list [search]", "List available models"),
     CommandSpec::new(
+        &["provider"],
+        "provider <caps|models>",
+        "Inspect what a provider's API offers besides chat",
+    )
+    .description(
+        "Capabilities come from the quirks rulebook per provider, API, and base URL. Only \
+`provider models` sends a request, and only to the provider named.",
+    ),
+    CommandSpec::new(
+        &["provider", "caps"],
+        "provider caps [<provider>] [--json]",
+        "List each provider's capabilities and endpoints",
+    )
+    .description(
+        "Prints one block per provider, API, and base URL among the provider's chat models \
+(every provider with chat models when none is named): each capability with its \
+`<dialect>: <endpoint>`, or `unsupported`. Sends no request.",
+    )
+    .options(&["--json  Print JSON"]),
+    CommandSpec::new(
+        &["provider", "models"],
+        "provider models <provider> [--json]",
+        "List the models the provider's API offers now",
+    )
+    .description(
+        "Asks the provider's own model-listing endpoint through its first chat model that \
+has `list_models`; a provider without one fails without sending a request.",
+    )
+    .options(&["--json  Print JSON"]),
+    CommandSpec::new(
         &["session"],
         "session export <file> [output]",
         "Manage saved sessions",

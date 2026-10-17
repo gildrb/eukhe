@@ -16,6 +16,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+# harness/generation: the provider token count's fallback to the local
+# estimate is logged. MIT.
+tracing.workspace = true
 # env/native: process-group kill, statfs magic, inotify (Linux) and kqueue
 # (macOS) watches through safe wrappers (rustix's kevent is unsafe). MIT.
 nix = { version = "0.29", features = ["signal", "fs", "inotify", "event"] }

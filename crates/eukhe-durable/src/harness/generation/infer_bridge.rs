@@ -11,7 +11,8 @@
 //!   (`unknown_<d>`), so the model's known list is `0 .. ALL.len()`. Value
 //!   `v` (0 or 1) is the `v`-th value of the directive's type (`false`,
 //!   `true`; the count `v`; the prefix list `["p<v>"]`; the `v`-th member
-//!   of an enum). Target `t` is the id `t<t>` at its layer. Rules name
+//!   of an enum; for a capability endpoint `false`, then the first dialect
+//!   that implements it). Target `t` is the id `t<t>` at its layer. Rules name
 //!   targets 0 to 2; a query's family or host target 3 is no target
 //!   (`None`: a model that no family or no host matches), which the model
 //!   reads as a target no rule names. Each rulebook also runs with two
@@ -33,6 +34,7 @@
 use std::fmt::Write as _;
 
 use eukhe_ai::api::constrained_sampling::strict_budget;
+use eukhe_ai::capabilities::Dialect;
 use eukhe_ai::quirks::{compile, Answer, Directive, Layer, Query, RawRule, ValueKind};
 use eukhe_ai::utils::stream_repeat::RepetitionGuard;
 use eukhe_types::pi_ai::{MaxTokensField, SessionAffinityFormat, ThinkingFormat};
@@ -40,7 +42,7 @@ use serde_json::{json, Value as JsonValue};
 
 use super::decide::{threshold_for, Threshold};
 use super::force::{ForceEscalation, ForceReply, ForceStep};
-use crate::harness::types::{BackgroundMargin, CompactionPolicy};
+use crate::harness::types::{BackgroundMargin, CompactionPolicy, ThresholdTokens};
 use crate::testing::bridge::{compare, Rng, Scenario};
 
 // The quirks rulebook
@@ -61,6 +63,14 @@ fn raw_value(d: usize, v: usize) -> JsonValue {
         ValueKind::MaxTokensField => json!(MaxTokensField::ALL[v].as_str()),
         ValueKind::ThinkingFormat => json!(ThinkingFormat::ALL[v].as_str()),
         ValueKind::SessionAffinityFormat => json!(SessionAffinityFormat::ALL[v].as_str()),
+        // 0 is `false` (no endpoint), 1 the first dialect with one.
+        ValueKind::Endpoint(capability) => match v {
+            0 => json!(false),
+            _ => json!(Dialect::ALL
+                .into_iter()
+                .find(|dialect| dialect.endpoint(capability).is_some())
+                .map(Dialect::as_str)),
+        },
     }
 }
 
@@ -288,6 +298,7 @@ fn first_problem(rng: &mut Rng, events: &mut String, transcript: &mut String) {
         reserve_tokens: f64::from(u32::try_from(reserve).unwrap()),
         keep_recent_tokens: 0.0,
         background: BackgroundMargin::WindowPercent(f64::from(u32::try_from(percent).unwrap())),
+        token_count: ThresholdTokens::Estimate,
     };
     let limit = window - reserve;
     let margin = window * percent / 100;

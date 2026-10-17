@@ -6,6 +6,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod capabilities;
 pub mod env_api_keys;
 pub mod model_catalog;
 pub mod models;

@@ -77,6 +77,7 @@ pub struct CompactionSettings {
     pub reserve_tokens: Option<u64>,
     pub keep_recent_tokens: Option<u64>,
     pub agent_callable: Option<bool>,
+    pub provider_token_count: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

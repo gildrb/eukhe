@@ -16,7 +16,8 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::{
     BackgroundMargin, ConversationStreamOptions, Extension, HarnessSettings, HarnessSettingsSource,
-    PartialCompactionPolicy, PartialRetryPolicy, QueueMode, SubmissionDraft, WriteSubmissionDraft,
+    PartialCompactionPolicy, PartialRetryPolicy, QueueMode, SubmissionDraft, ThresholdTokens,
+    WriteSubmissionDraft,
 };
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::SessionResult;
@@ -476,7 +477,9 @@ fn load(
 ///   request, and the provider reads an absent transport differently from
 ///   an explicit `auto`.
 /// - `compaction.{enabled, reserveTokens, keepRecentTokens}` -> the
-///   compaction policy.
+///   compaction policy; `compaction.providerTokenCount` -> where its
+///   threshold check gets the input tokens (the provider's own counter when
+///   on, else the local estimate).
 /// - `steeringMode` / `followUpMode` -> the queue modes.
 /// - `maxToolRounds` -> the tool rounds one run may make (`0`: the
 ///   Harness default).
@@ -512,6 +515,11 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             // crosses the blocking threshold (`bend/infer.bend` §5); the
             // blocking threshold and the overflow arm stay the safety nets.
             background: Some(BackgroundMargin::WindowPercent(10.0)),
+            token_count: Some(if manager.get_compaction_provider_token_count() {
+                ThresholdTokens::Provider
+            } else {
+                ThresholdTokens::Estimate
+            }),
         }),
         progress: None,
         tool_execution: None,
@@ -587,6 +595,7 @@ mod tests {
         assert_eq!(resolved.steering_mode, QueueMode::All);
         assert_eq!(resolved.follow_up_mode, QueueMode::OneAtATime);
         assert_eq!(resolved.stream, ConversationStreamOptions::default());
+        assert_eq!(resolved.compaction.token_count, ThresholdTokens::Estimate);
     }
 
     /// The default keep window is 40,000 tokens, and with every catalog
@@ -633,7 +642,7 @@ mod tests {
         std::fs::create_dir_all(&cwd).expect("cwd");
         write(
             &agent.join("settings.json"),
-            r#"{"retry":{"maxRetries":7,"baseDelayMs":500,"provider":{"timeoutMs":9000,"maxRetryDelayMs":1000,"streamIdleTimeoutMs":45000,"streamRepeatLimit":12}},"compaction":{"enabled":false,"reserveTokens":1000,"keepRecentTokens":2000},"steeringMode":"one-at-a-time","followUpMode":"all","transport":"sse"}"#,
+            r#"{"retry":{"maxRetries":7,"baseDelayMs":500,"provider":{"timeoutMs":9000,"maxRetryDelayMs":1000,"streamIdleTimeoutMs":45000,"streamRepeatLimit":12}},"compaction":{"enabled":false,"reserveTokens":1000,"keepRecentTokens":2000,"providerTokenCount":true},"steeringMode":"one-at-a-time","followUpMode":"all","transport":"sse"}"#,
         );
         let settings = EukheSettings::new(&cwd, &agent);
         let resolved = resolve_settings(Some(&settings.current()));
@@ -653,6 +662,7 @@ mod tests {
                 reserve_tokens: 1000.0,
                 keep_recent_tokens: 2000.0,
                 background: BackgroundMargin::WindowPercent(10.0),
+                token_count: ThresholdTokens::Provider,
             }
         );
         assert_eq!(resolved.steering_mode, QueueMode::OneAtATime);

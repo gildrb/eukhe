@@ -83,6 +83,29 @@ what a request may ask of a provider.
    40,000; system entries count). The kept part is at most half of the
    threshold, so a compaction always has history to summarize. With a
    small context window, the compaction thus keeps less than the setting.
+   The threshold check uses a local estimate of the request's input
+   tokens. When `compaction.providerTokenCount` is on (default off), the
+   check asks the provider's token counter (`count_tokens`) first. This
+   adds one request to the provider per generation. When the provider has
+   no counter or the count fails, the check logs a warning and uses the
+   local estimate.
+7. A provider can have more operations than the chat stream. The
+   capability surface names eight: `count_tokens`, `list_models`,
+   `embed`, `generate_image`, `tokenize`, `usage`, `web_search` and
+   `compact`. The rulebook gives the support as data: the directive with
+   the name of the operation has the dialect of the endpoint (for
+   example `"list_models": "openai"`), or `false`. The compiler rejects a
+   dialect that has no implementation of that operation. A host of scope
+   `capabilities` (`openai`, `google`, `llama-cpp`) serves only these
+   lookups. It sets only capability directives, and the wire lookup skips
+   it, so it changes no request: a local `openai` provider keeps the
+   loopback settings. An operation
+   that the provider does not have fails with the typed error
+   `Unsupported { capability, provider }` before auth or a request. It
+   never uses another provider or the local estimate. A caller that
+   wants the estimate asks for it. `eukhe provider caps [<provider>]`
+   shows the support and sends no request. `eukhe provider models
+   <provider>` asks the provider for its model list.
 
 Model: `bend/infer.bend`. Laws: `LAWS.bend` section (S6). Proofs:
 `bend/proof_infer.bend`, `bend/proof_quirks.bend`. Every input is free:
@@ -133,10 +156,18 @@ rules); the resolvers that take the rulebook as their detected input:
 `eukhe-ai/src/utils/stream_repeat.rs` (`RepetitionGuard`,
 `MAX_CHUNK_BYTES`, `StreamRepeat`), `api/lazy.rs` `watched_lazy_stream`;
 `eukhe-durable/src/harness/generation/decide.rs` `threshold_for`,
-`types/settings.rs` `BackgroundMargin`;
+`types/settings.rs` `BackgroundMargin`, `ThresholdTokens`;
+`eukhe-durable/src/harness/generation.rs` `threshold_compaction`,
+`provider_tokens` (the provider count and its logged fallback);
+`eukhe-core/src/settings/cvar/table.rs`
+`COMPACTION_PROVIDER_TOKEN_COUNT`;
 `eukhe-core/src/durable/settings.rs` (`WindowPercent(10.0)`, the repeat
 limit); `eukhe-daemon/src/worker/durable_host/translator.rs`
-(`summary_write`, `end_lost_placements`, the held ends at a snapshot).
+(`summary_write`, `end_lost_placements`, the held ends at a snapshot);
+`eukhe-ai/src/capabilities/` (`Capability`, `Dialect::endpoint`,
+`capabilities_of`, one module per dialect), `models/capabilities.rs`
+(the `Models` operations), `Directive::Endpoint`;
+`eukhe-cli/src/provider_command.rs`.
 
 Tie: the bridge tests
 `harness::generation::infer_bridge::the_rust_quirks_rulebook_equals_the_bend_model`

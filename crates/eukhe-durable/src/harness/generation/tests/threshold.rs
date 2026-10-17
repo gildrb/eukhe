@@ -2,7 +2,7 @@
 //! (spec §8.3; `bend/infer.bend` §5, law `compact_starts_early`).
 
 use crate::harness::generation::decide::{threshold_for, Threshold};
-use crate::harness::types::{BackgroundMargin, CompactionPolicy};
+use crate::harness::types::{BackgroundMargin, CompactionPolicy, ThresholdTokens};
 
 /// A 200k window less 16384 reserved: blocking above 183616; a tenth of
 /// the window (20000) below it, background above 163616.
@@ -12,6 +12,7 @@ const EARLY: CompactionPolicy = CompactionPolicy {
     reserve_tokens: 16384.0,
     keep_recent_tokens: 20000.0,
     background: BackgroundMargin::WindowPercent(10.0),
+    token_count: ThresholdTokens::Estimate,
 };
 
 fn over(sizes: &[f64], window: u64, policy: &CompactionPolicy) -> Vec<Option<Threshold>> {

@@ -194,6 +194,23 @@ pub struct CompactionPolicy {
     pub keep_recent_tokens: f64,
     /// How far below the blocking threshold background compaction starts.
     pub background: BackgroundMargin,
+    /// Where the threshold check gets the input tokens of a request.
+    /// Stored policies without the field use the local estimate.
+    #[serde(default)]
+    pub token_count: ThresholdTokens,
+}
+
+/// Where the compaction threshold check gets the input tokens of a request.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ThresholdTokens {
+    /// The local estimate of the context (no provider request).
+    #[default]
+    Estimate,
+    /// The provider's own token counter (`count_tokens`): one more provider
+    /// request per preparation. When the provider has no counter or the
+    /// count fails, the harness logs it and uses the local estimate.
+    Provider,
 }
 
 impl CompactionPolicy {
@@ -255,6 +272,7 @@ pub struct PartialCompactionPolicy {
     pub reserve_tokens: Option<f64>,
     pub keep_recent_tokens: Option<f64>,
     pub background: Option<BackgroundMargin>,
+    pub token_count: Option<ThresholdTokens>,
 }
 
 /// How often running progress is committed. Each progress commit is a

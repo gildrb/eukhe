@@ -115,3 +115,42 @@ async fn the_openrouter_provider_at_a_loopback_url_keeps_the_openrouter_settings
         })
     );
 }
+
+/// The capability hosts (scope `capabilities`) change no wire: provider
+/// `openai` behind a loopback URL sends what any provider there sends (the
+/// loopback host: no `store`, no `developer` role).
+#[tokio::test]
+async fn the_openai_provider_at_a_loopback_url_keeps_the_loopback_settings() {
+    let mut openai = chat_model("openai", "gpt-5", "http://localhost:8080/v1");
+    openai.reasoning = true;
+    let mut custom = openai.clone();
+    custom.provider = "my-local".to_owned();
+    let sent = payload(&openai).await;
+    assert_eq!(
+        (
+            sent.get("store").cloned(),
+            sent["messages"][0]["role"].clone()
+        ),
+        (None, json!("system"))
+    );
+    assert_eq!(sent, payload(&custom).await);
+}
+
+/// A llama.cpp provider on a LAN address names no wire host, as before
+/// the capability rules: it sends what a provider without a host sends.
+#[tokio::test]
+async fn a_llama_cpp_provider_on_a_lan_address_sends_the_hostless_wire() {
+    let mut llama = chat_model("llama-cpp", "gemma-3-4b", "http://192.168.1.20:8080/v1");
+    llama.reasoning = true;
+    let mut custom = llama.clone();
+    custom.provider = "my-lan".to_owned();
+    let sent = payload(&llama).await;
+    assert_eq!(
+        (
+            sent.get("store").cloned(),
+            sent["messages"][0]["role"].clone()
+        ),
+        (Some(json!(false)), json!("developer"))
+    );
+    assert_eq!(sent, payload(&custom).await);
+}

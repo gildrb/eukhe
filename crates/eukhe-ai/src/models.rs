@@ -6,6 +6,7 @@
 //! owns the model. [`create_provider`] builds a provider from parts; built-in
 //! provider factories and custom providers both go through it.
 
+mod capabilities;
 mod collection;
 mod create_provider;
 mod provider;
@@ -18,6 +19,7 @@ use eukhe_types::pi_ai::{
     ModelType, ProviderHeaders, Usage, UsageCost,
 };
 
+pub use capabilities::ModelsCapabilityOptions;
 pub use collection::{create_models, CreateModelsOptions, Models};
 pub(crate) use create_provider::build_provider;
 pub use create_provider::{

@@ -312,6 +312,20 @@ pub const COMPACTION_AGENT_CALLABLE: Decl = Decl {
     init: Init::Bool(true),
 };
 
+/// When on, the Harness asks the provider's own token counter
+/// (`count_tokens`) for the input tokens of each request before the
+/// compaction threshold check. This adds one request to the provider per
+/// generation. A provider without a counter, or a failed count, uses the
+/// local estimate, and the Harness logs it.
+pub const COMPACTION_PROVIDER_TOKEN_COUNT: Decl = Decl {
+    id: "compaction.providerTokenCount",
+    ty: CvarType::Bool,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Bool(false),
+};
+
 /// `provider/model-id`; unset falls back to `auxiliaryModel`.
 pub const MEMORY_MODEL: Decl = Decl {
     id: "memory.model",
@@ -1099,6 +1113,7 @@ pub const DECLS: &[Decl] = &[
     COMPACTION_RESERVE_TOKENS,
     COMPACTION_KEEP_RECENT_TOKENS,
     COMPACTION_AGENT_CALLABLE,
+    COMPACTION_PROVIDER_TOKEN_COUNT,
     MEMORY_MODEL,
     MEMORY_THINKING,
     MEMORY_SETTLE_TIMEOUT_MS,

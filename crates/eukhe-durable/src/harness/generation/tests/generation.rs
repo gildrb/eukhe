@@ -38,7 +38,7 @@ use crate::harness::types::{
     ConversationRetryPolicy, ConversationStreamOptions, Extension, FieldChange, HarnessOptions,
     HarnessSettings, HarnessSettingsSource, InputSubmissionDraft, ModelRef,
     PartialCompactionPolicy, PartialProgressPolicy, PartialRetryPolicy, ProgressPolicy, QueueMode,
-    ToolExecutionMode, WhenBusy,
+    ThresholdTokens, ToolExecutionMode, WhenBusy,
 };
 use crate::harness::{Conversation, Harness, RootOptions, TaskAbortResult};
 use crate::session::tests::support::ControlledStorage;
@@ -1236,6 +1236,7 @@ fn resolves_settings_over_the_built_in_defaults() {
             reserve_tokens: 16384.0,
             keep_recent_tokens: 20000.0,
             background: BackgroundMargin::Tokens(32768.0),
+            token_count: ThresholdTokens::Estimate,
         }
     );
     assert_eq!(
@@ -1256,6 +1257,7 @@ fn resolves_settings_over_the_built_in_defaults() {
         }),
         compaction: Some(PartialCompactionPolicy {
             background: Some(BackgroundMargin::WindowPercent(10.0)),
+            token_count: Some(ThresholdTokens::Provider),
             ..PartialCompactionPolicy::default()
         }),
         ..HarnessSettings::default()
@@ -1271,6 +1273,7 @@ fn resolves_settings_over_the_built_in_defaults() {
         partial.compaction,
         CompactionPolicy {
             background: BackgroundMargin::WindowPercent(10.0),
+            token_count: ThresholdTokens::Provider,
             ..defaults.compaction
         }
     );

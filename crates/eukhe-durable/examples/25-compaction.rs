@@ -140,6 +140,7 @@ pub async fn run(
         reserve_tokens: Some(1000.0),
         keep_recent_tokens: Some(400.0),
         background: Some(BackgroundMargin::Tokens(background_tokens)),
+        token_count: None,
     };
     let settings = Arc::new(LiveSettings::new(HarnessSettings {
         compaction: Some(compaction(800.0)),

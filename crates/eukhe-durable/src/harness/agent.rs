@@ -13,8 +13,8 @@ use futures::FutureExt;
 use super::types::{
     Agent, AgentChange, AgentState, BackgroundMargin, CompactionPolicy, ConversationRetryPolicy,
     Extension, ExtensionsChange, FieldChange, HarnessSettings, HookHandlers, ProgressPolicy,
-    PromptSection, QueueMode, RegistrySnapshot, Settings, ToolCaller, ToolExecutionMode,
-    ToolRegistration, ToolsChange,
+    PromptSection, QueueMode, RegistrySnapshot, Settings, ThresholdTokens, ToolCaller,
+    ToolExecutionMode, ToolRegistration, ToolsChange,
 };
 use crate::documents::{DocDefinition, RewindableConversationDoc};
 use crate::session::{document_retention, SessionError, SessionResult, Tx};
@@ -32,6 +32,7 @@ pub const DEFAULT_COMPACTION_POLICY: CompactionPolicy = CompactionPolicy {
     reserve_tokens: 16384.0,
     keep_recent_tokens: 20000.0,
     background: BackgroundMargin::Tokens(32768.0),
+    token_count: ThresholdTokens::Estimate,
 };
 
 pub const DEFAULT_PROGRESS_POLICY: ProgressPolicy = ProgressPolicy {
@@ -107,6 +108,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
             background: compaction
                 .and_then(|compaction| compaction.background)
                 .unwrap_or(DEFAULT_COMPACTION_POLICY.background),
+            token_count: compaction
+                .and_then(|compaction| compaction.token_count)
+                .unwrap_or(DEFAULT_COMPACTION_POLICY.token_count),
         },
         // Field by field, so an unset interval keeps its default.
         progress: ProgressPolicy {

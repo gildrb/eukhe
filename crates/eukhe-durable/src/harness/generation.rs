@@ -20,13 +20,15 @@ mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use eukhe_ai::capabilities::CapabilityOptions;
+use eukhe_ai::models::ModelsCapabilityOptions;
 use eukhe_ai::types::{DeferredCancelOptions, DeferredFetchOptions, ProviderRequestOptions};
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait_ms, RetryDelay};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, DeferredHandle, Message, ModelThinkingLevel,
+    AssistantContentBlock, AssistantMessage, DeferredHandle, Message, Model, ModelThinkingLevel,
     StopReason, ThinkingLevel, ToolCall, ToolChoice, UserContent, UserMessage,
 };
 use serde::{Deserialize, Serialize};
@@ -37,7 +39,7 @@ use self::decide::{
 };
 use self::force::{soft_prompt, ForceReply, ForceStep, Forcing};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
-use self::stream::stream_response;
+use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
 use crate::harness::compaction::{estimate_context, select_cut};
 use crate::harness::inbox::{has_queued_summary, INBOX_DOC};
@@ -51,6 +53,7 @@ use crate::harness::tool::{append_tool_result, harness_error, ToolResultMeta};
 use crate::harness::types::{
     CompactionPolicy, CompactionReason, CompactionResult, ContextOptions, ContextView,
     ConversationStreamOptions, GenerationHooks, ModelRef, PromptInput, RequestMessages, Settings,
+    ThresholdTokens,
 };
 use crate::session::{SessionError, SessionResult};
 use crate::tasks::{define_task, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime};
@@ -336,13 +339,20 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         polls: 0,
         compacted: compacted.is_some(),
     };
+    let policy = &settings.compaction;
+    // The provider's count costs one request, so it runs only when the
+    // threshold check runs.
+    let checks = !at.compacted && policy.enabled && resolved.context_window != 0;
+    let counted = match policy.token_count {
+        ThresholdTokens::Provider if checks => {
+            Some(provider_tokens(&runtime, &resolved, &settings.stream, &view, &entries).await)
+        }
+        ThresholdTokens::Provider | ThresholdTokens::Estimate => None,
+    };
     let prepared = before_request(at, || {
-        threshold_compaction(
-            &view,
-            &entries,
-            resolved.context_window,
-            &settings.compaction,
-        )
+        threshold_compaction(&view, resolved.context_window, policy, || {
+            counted.unwrap_or_else(|| estimate_context(&view, &planned_messages(&entries)))
+        })
     });
     let compaction = runtime.registry().builtins().compaction.clone();
     let task_id = runtime.task_id().erase();
@@ -740,29 +750,72 @@ fn compaction_end(outcome: Option<&TaskOutcome<CompactionResult>>) -> (Compacted
 }
 
 /// Which threshold compaction preparation starts before its request (spec
-/// §8.3): [`threshold_for`] the estimated context with the planned system
-/// entries, and only when range selection finds a cut. The caller starts a
-/// background one only while no compaction is listed.
+/// §8.3): [`threshold_for`] the request's input `tokens`, and only when
+/// range selection finds a cut. `tokens` runs only when the policy and the
+/// window let the check run. The caller starts a background one only while
+/// no compaction is listed.
 #[expect(
     clippy::cast_precision_loss,
     reason = "TS compares token counts as doubles"
 )]
 fn threshold_compaction(
     view: &ContextView,
-    planned: &[SystemDraft],
     context_window: u64,
     policy: &CompactionPolicy,
+    tokens: impl FnOnce() -> u64,
 ) -> Option<Threshold> {
     if !policy.enabled || context_window == 0 {
         return None;
     }
-    let extra: Vec<Message> = planned
+    threshold_for(tokens() as f64, context_window, policy)
+        .filter(|_| select_cut(view, policy.keep_window(context_window)).is_some())
+}
+
+/// The model messages of the system entries preparation plans to append.
+fn planned_messages(planned: &[SystemDraft]) -> Vec<Message> {
+    planned
         .iter()
         .flat_map(|entry| entry.model.iter().flatten().cloned())
-        .collect();
-    let tokens = estimate_context(view, &extra) as f64;
-    threshold_for(tokens, context_window, policy)
-        .filter(|_| select_cut(view, policy.keep_window(context_window)).is_some())
+        .collect()
+}
+
+/// The input tokens of the request being prepared, by the provider's own
+/// counter ([`ThresholdTokens::Provider`]): the transcript and the planned
+/// system entries, in the context the request sends. The count request
+/// takes the request options of the stream (`stream`: timeout, retries,
+/// headers), so it obeys the same limits and sends the same headers. When
+/// the provider has no counter or the count fails, this logs a warning and
+/// returns the local estimate: the caller asked for that choice, so it is
+/// never silent.
+#[tracing::instrument(skip_all, fields(provider = %model.provider, model = %model.id))]
+async fn provider_tokens(
+    runtime: &Runtime,
+    model: &Model,
+    stream: &ConversationStreamOptions,
+    view: &ContextView,
+    planned: &[SystemDraft],
+) -> u64 {
+    let extra = planned_messages(planned);
+    let messages = view.messages.iter().chain(&extra).cloned().collect();
+    let mut request = stream.simple_stream_options().stream.request;
+    request.signal = Some(runtime.signal());
+    let options = ModelsCapabilityOptions::from(CapabilityOptions { request });
+    match runtime
+        .models()
+        .count_tokens(model, request_context(messages), options)
+        .await
+    {
+        Ok(count) => count.input_tokens,
+        Err(error) => {
+            tracing::warn!(
+                provider = %model.provider,
+                model = %model.id,
+                %error,
+                "provider token count failed; the compaction threshold uses the local estimate"
+            );
+            estimate_context(view, &extra)
+        }
+    }
 }
 
 /// `{ reason }` failure detail.

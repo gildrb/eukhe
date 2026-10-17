@@ -11,8 +11,8 @@
 //! budget, the `service_tier` request field and response-tier pricing, and
 //! the `provider_stream_failure` diagnostic on failed streams.
 
-mod compat;
-mod convert;
+pub(crate) mod compat;
+pub(crate) mod convert;
 mod params;
 mod streaming;
 #[cfg(test)]

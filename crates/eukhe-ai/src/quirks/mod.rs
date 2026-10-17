@@ -24,7 +24,10 @@
 //!   host speaks), else the host that names its provider id, else the host
 //!   with the longest URL fragment in its base URL (ties: the smaller host
 //!   id). One host per model: the signals do not combine, so a provider
-//!   host keeps its settings whatever its base URL.
+//!   host keeps its settings whatever its base URL. A host of scope
+//!   `capabilities` serves only capability lookups ([`Lookup`]): it may set
+//!   only capability directives, and a wire lookup skips it as if it named
+//!   nothing, so it never changes a request's wire settings.
 //!
 //! The shipped rulebook is `rulebook.json`, compiled into the binary and
 //! compiled once on first use.
@@ -37,6 +40,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
+use crate::capabilities::{Capability, Dialect};
 use crate::types::{MaxTokensField, Model, SessionAffinityFormat, ThinkingFormat};
 
 #[cfg(test)]
@@ -116,6 +120,9 @@ pub enum Directive {
     ToolChoiceNative,
     /// Forcing a tool choice costs no prompt-cache invalidation.
     ToolChoiceFree,
+    /// The endpoint dialect that serves a provider capability
+    /// ([`Capability`]), or `false`: the host or model does not have it.
+    Endpoint(Capability),
 }
 
 impl Directive {
@@ -139,6 +146,14 @@ impl Directive {
         Self::AdaptiveThinking,
         Self::ToolChoiceNative,
         Self::ToolChoiceFree,
+        Self::Endpoint(Capability::CountTokens),
+        Self::Endpoint(Capability::ListModels),
+        Self::Endpoint(Capability::Embed),
+        Self::Endpoint(Capability::GenerateImage),
+        Self::Endpoint(Capability::Tokenize),
+        Self::Endpoint(Capability::Usage),
+        Self::Endpoint(Capability::WebSearch),
+        Self::Endpoint(Capability::Compact),
     ];
 
     /// The name rules use.
@@ -163,6 +178,7 @@ impl Directive {
             Self::AdaptiveThinking => "adaptive_thinking",
             Self::ToolChoiceNative => "tool_choice_native",
             Self::ToolChoiceFree => "tool_choice_free",
+            Self::Endpoint(capability) => capability.as_str(),
         }
     }
 
@@ -173,6 +189,33 @@ impl Directive {
             .iter()
             .copied()
             .find(|directive| directive.as_str() == name)
+    }
+
+    /// The capability this directive gives the endpoint of; `None` for a
+    /// wire directive.
+    #[must_use]
+    pub const fn capability(self) -> Option<Capability> {
+        match self {
+            Self::Endpoint(capability) => Some(capability),
+            Self::Store
+            | Self::DeveloperRole
+            | Self::DeveloperRolePrefixes
+            | Self::ReasoningEffort
+            | Self::MaxTokensField
+            | Self::ReasoningContentOnAssistant
+            | Self::ThinkingFormat
+            | Self::AnthropicCacheControlPrefixes
+            | Self::SessionAffinityHeaders
+            | Self::SessionAffinityFormat
+            | Self::LongCacheRetention
+            | Self::StrictTools
+            | Self::StrictCap
+            | Self::GoogleValidatedTools
+            | Self::QwenChatTemplate
+            | Self::AdaptiveThinking
+            | Self::ToolChoiceNative
+            | Self::ToolChoiceFree => None,
+        }
     }
 
     /// The type of the directive's value.
@@ -198,6 +241,7 @@ impl Directive {
             Self::ThinkingFormat => ValueKind::ThinkingFormat,
             Self::SessionAffinityFormat => ValueKind::SessionAffinityFormat,
             Self::StrictCap => ValueKind::Count,
+            Self::Endpoint(capability) => ValueKind::Endpoint(capability),
         }
     }
 }
@@ -217,6 +261,8 @@ pub enum ValueKind {
     ThinkingFormat,
     /// A `SessionAffinityFormat` wire string.
     SessionAffinityFormat,
+    /// A [`Dialect`] wire string that implements the capability, or `false`.
+    Endpoint(Capability),
 }
 
 impl ValueKind {
@@ -247,6 +293,17 @@ impl ValueKind {
                 .as_str()
                 .and_then(SessionAffinityFormat::parse)
                 .map(Value::SessionAffinityFormat),
+            Self::Endpoint(capability) => match raw {
+                JsonValue::Bool(false) => Some(Value::Endpoint(None)),
+                JsonValue::String(name) => Dialect::parse(name)
+                    .filter(|dialect| dialect.endpoint(capability).is_some())
+                    .map(|dialect| Value::Endpoint(Some(dialect))),
+                JsonValue::Null
+                | JsonValue::Bool(true)
+                | JsonValue::Number(_)
+                | JsonValue::Array(_)
+                | JsonValue::Object(_) => None,
+            },
         }
     }
 }
@@ -260,6 +317,8 @@ pub enum Value {
     MaxTokensField(MaxTokensField),
     ThinkingFormat(ThinkingFormat),
     SessionAffinityFormat(SessionAffinityFormat),
+    /// The dialect of a capability endpoint; `None`: unsupported.
+    Endpoint(Option<Dialect>),
 }
 
 /// The answer of a lookup.
@@ -321,8 +380,32 @@ pub enum QuirksError {
     },
     #[error("a {layer} rule targets `{target}`, which no {layer} definition names")]
     UndefinedTarget { layer: Layer, target: String },
+    #[error("host `{host}` serves capability lookups only, but its rule sets `{directive}`")]
+    WireDirectiveOnCapabilityHost { host: String, directive: String },
     #[error(transparent)]
     FamilyOverlap(#[from] FamilyOverlap),
+}
+
+/// What a host lookup is for ([`Rulebook::query`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lookup {
+    /// The wire settings of a request: hosts of scope `capabilities` do not
+    /// apply.
+    Wire,
+    /// The capability endpoints of a provider: every host applies.
+    Capabilities,
+}
+
+/// Which lookups a host serves.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HostScope {
+    /// Wire and capability lookups.
+    #[default]
+    All,
+    /// Capability lookups only: the host never changes a request's wire
+    /// settings, and its rules may set only capability directives.
+    Capabilities,
 }
 
 /// Two families that match one model ([`Rulebook::query`]).
@@ -469,6 +552,8 @@ struct HostEntry {
     providers: Vec<String>,
     #[serde(default)]
     urls: Vec<String>,
+    #[serde(default)]
+    scope: HostScope,
 }
 
 #[derive(Debug, Deserialize)]
@@ -504,6 +589,8 @@ pub struct Rulebook {
     by_provider: HashMap<String, String>,
     /// URL fragment (lowercase) and host id.
     by_url: Vec<(String, String)>,
+    /// The hosts of scope `capabilities`.
+    capability_hosts: HashSet<String>,
     rules: Rules,
 }
 
@@ -577,15 +664,18 @@ impl Rulebook {
 
     /// Parse and compile a rulebook: `families` (`id`, `on`: `id` or
     /// `names`, `match`: a regex), `hosts` (`id`, `apis`, `providers`,
-    /// `urls`), and `rules` (`layer`, `target`, `set`: directive → value).
-    /// Unknown fields are errors.
+    /// `urls`, `scope`: `all` (default) or `capabilities`), and `rules`
+    /// (`layer`, `target`, `set`: directive → value). Unknown fields are
+    /// errors.
     ///
     /// # Errors
     ///
     /// When the text is not a rulebook, a pattern is not a regex, two
     /// definitions share an id, two hosts share an API or a provider, a
-    /// family or host rule targets an undefined id, or the rules do not
+    /// family or host rule targets an undefined id, a host of scope
+    /// `capabilities` gets a wire directive, or the rules do not
     /// [`compile`].
+    #[allow(clippy::too_many_lines)] // one parse-and-check pass; each check is a short loop
     pub fn from_json(text: &str) -> Result<Self, Vec<QuirksError>> {
         let entry: RulebookEntry = serde_json::from_str(text)
             .map_err(|error| vec![QuirksError::Format(error.to_string())])?;
@@ -616,6 +706,7 @@ impl Rulebook {
         let mut by_api = HashMap::new();
         let mut by_provider = HashMap::new();
         let mut by_url = Vec::new();
+        let mut capability_hosts = HashSet::new();
         for host in &entry.hosts {
             if host_ids.contains(&host.id.as_str()) {
                 errors.push(QuirksError::DuplicateId {
@@ -625,6 +716,9 @@ impl Rulebook {
                 continue;
             }
             host_ids.push(&host.id);
+            if host.scope == HostScope::Capabilities {
+                capability_hosts.insert(host.id.clone());
+            }
             for api in &host.apis {
                 claim(&mut by_api, api, &host.id, &mut errors);
             }
@@ -669,6 +763,17 @@ impl Rulebook {
                     target: target.clone(),
                 });
             }
+            if capability_hosts.contains(target) {
+                errors.extend(
+                    rules.layers[Layer::Host.index()][target]
+                        .keys()
+                        .filter(|directive| directive.capability().is_none())
+                        .map(|directive| QuirksError::WireDirectiveOnCapabilityHost {
+                            host: target.clone(),
+                            directive: directive.as_str().to_owned(),
+                        }),
+                );
+            }
         }
         if errors.is_empty() {
             Ok(Self {
@@ -676,6 +781,7 @@ impl Rulebook {
                 by_api,
                 by_provider,
                 by_url,
+                capability_hosts,
                 rules,
             })
         } else {
@@ -683,12 +789,16 @@ impl Rulebook {
         }
     }
 
-    /// The targets `model` names (see the module docs).
+    /// The targets `model` names for `lookup` (see the module docs).
     ///
     /// # Errors
     ///
     /// [`FamilyOverlap`] when two families match `model`.
-    pub fn query<'a>(&'a self, model: &'a Model) -> Result<Query<'a>, FamilyOverlap> {
+    pub fn query<'a>(
+        &'a self,
+        model: &'a Model,
+        lookup: Lookup,
+    ) -> Result<Query<'a>, FamilyOverlap> {
         let lower_id = model.id.to_lowercase();
         let mut candidates: Option<Vec<String>> = None;
         let mut matching = self.families.iter().filter(|family| match family.on {
@@ -709,20 +819,28 @@ impl Rulebook {
         Ok(Query {
             family: family.map(|family| family.id.as_str()),
             model: &model.id,
-            host: self.host(model),
+            host: self.host(model, lookup),
         })
     }
 
-    /// The host `model` names (see the module docs).
-    fn host(&self, model: &Model) -> Option<&str> {
+    /// The host `model` names for `lookup` (see the module docs): a host
+    /// that does not serve `lookup` is skipped as if it named nothing.
+    fn host(&self, model: &Model, lookup: Lookup) -> Option<&str> {
+        let serves = |host: &&String| match lookup {
+            Lookup::Capabilities => true,
+            Lookup::Wire => !self.capability_hosts.contains(host.as_str()),
+        };
         let base_url = model.base_url.to_lowercase();
         self.by_api
             .get(&model.api)
-            .or_else(|| self.by_provider.get(&model.provider))
+            .filter(serves)
+            .or_else(|| self.by_provider.get(&model.provider).filter(serves))
             .or_else(|| {
                 self.by_url
                     .iter()
-                    .filter(|(fragment, _)| base_url.contains(fragment.as_str()))
+                    .filter(|(fragment, host)| {
+                        base_url.contains(fragment.as_str()) && serves(&host)
+                    })
                     .max_by(|(left, left_host), (right, right_host)| {
                         left.len()
                             .cmp(&right.len())
@@ -745,7 +863,7 @@ impl Rulebook {
     ) -> Result<(), Vec<QuirksError>> {
         let errors: Vec<QuirksError> = models
             .into_iter()
-            .filter_map(|model| self.query(model).err().map(QuirksError::from))
+            .filter_map(|model| self.query(model, Lookup::Wire).err().map(QuirksError::from))
             .collect();
         if errors.is_empty() {
             Ok(())
@@ -769,13 +887,20 @@ pub struct Quirks<'a> {
 }
 
 impl<'a> Quirks<'a> {
-    /// The shipped rulebook's query for `model`. A model that two families
-    /// match names no family: the overlap is logged as an error, once per
-    /// model id.
+    /// The shipped rulebook's wire query for `model`
+    /// ([`Quirks::for_lookup`] with [`Lookup::Wire`]).
     #[must_use]
     pub fn of(model: &'a Model) -> Self {
+        Self::for_lookup(model, Lookup::Wire)
+    }
+
+    /// The shipped rulebook's query for `model` and `lookup`. A model that
+    /// two families match names no family: the overlap is logged as an
+    /// error, once per model id.
+    #[must_use]
+    pub fn for_lookup(model: &'a Model, lookup: Lookup) -> Self {
         let book = Rulebook::shipped();
-        let query = book.query(model).unwrap_or_else(|error| {
+        let query = book.query(model, lookup).unwrap_or_else(|error| {
             let first_report = REPORTED_OVERLAPS
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
@@ -786,7 +911,7 @@ impl<'a> Quirks<'a> {
             Query {
                 family: None,
                 model: &model.id,
-                host: book.host(model),
+                host: book.host(model, lookup),
             }
         });
         Self { query }
@@ -812,7 +937,8 @@ impl<'a> Quirks<'a> {
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
-            | Value::SessionAffinityFormat(_) => None,
+            | Value::SessionAffinityFormat(_)
+            | Value::Endpoint(_) => None,
         }
     }
 
@@ -823,7 +949,8 @@ impl<'a> Quirks<'a> {
             | Value::Count(_)
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
-            | Value::SessionAffinityFormat(_) => None,
+            | Value::SessionAffinityFormat(_)
+            | Value::Endpoint(_) => None,
         }
     }
 
@@ -860,7 +987,8 @@ impl<'a> Quirks<'a> {
             | Value::Count(_)
             | Value::Prefixes(_)
             | Value::ThinkingFormat(_)
-            | Value::SessionAffinityFormat(_) => None,
+            | Value::SessionAffinityFormat(_)
+            | Value::Endpoint(_) => None,
         }
     }
 
@@ -879,7 +1007,8 @@ impl<'a> Quirks<'a> {
             | Value::Count(_)
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
-            | Value::SessionAffinityFormat(_) => None,
+            | Value::SessionAffinityFormat(_)
+            | Value::Endpoint(_) => None,
         }
     }
 
@@ -904,7 +1033,8 @@ impl<'a> Quirks<'a> {
             | Value::Count(_)
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
-            | Value::ThinkingFormat(_) => None,
+            | Value::ThinkingFormat(_)
+            | Value::Endpoint(_) => None,
         }
     }
 
@@ -926,6 +1056,24 @@ impl<'a> Quirks<'a> {
         match self.known(Directive::StrictCap)? {
             Value::Count(cap) => Some(*cap),
             Value::Bool(_)
+            | Value::Prefixes(_)
+            | Value::MaxTokensField(_)
+            | Value::ThinkingFormat(_)
+            | Value::SessionAffinityFormat(_)
+            | Value::Endpoint(_) => None,
+        }
+    }
+
+    /// [`Directive::Endpoint`]: the dialect that serves `capability`;
+    /// `None` when no rule gives one or a rule says `false`. Ask it of a
+    /// [`Lookup::Capabilities`] query: a wire query skips the hosts of
+    /// scope `capabilities`.
+    #[must_use]
+    pub fn endpoint(&self, capability: Capability) -> Option<Dialect> {
+        match self.known(Directive::Endpoint(capability))? {
+            Value::Endpoint(dialect) => *dialect,
+            Value::Bool(_)
+            | Value::Count(_)
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)

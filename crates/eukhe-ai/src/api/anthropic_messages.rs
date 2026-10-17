@@ -17,7 +17,7 @@
 mod client;
 mod events;
 mod federation;
-mod params;
+pub(crate) mod params;
 mod sse;
 
 use std::sync::Arc;
@@ -321,7 +321,7 @@ fn browser_headers() -> ProviderHeaders {
 }
 
 /// TS `isOAuthToken`.
-fn is_oauth_token(api_key: &str) -> bool {
+pub(crate) fn is_oauth_token(api_key: &str) -> bool {
     api_key.contains("sk-ant-oat")
 }
 

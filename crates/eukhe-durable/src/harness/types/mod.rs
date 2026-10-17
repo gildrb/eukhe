@@ -44,7 +44,8 @@ pub use settings::{
     BackgroundMargin, Clock, CompactionPolicy, ConversationCreated, ConversationRetryPolicy,
     ConversationStreamOptions, EnvFactory, ForcedTool, HarnessOptions, HarnessSettings,
     HarnessSettingsSource, LiveSettings, PartialCompactionPolicy, PartialProgressPolicy,
-    PartialRetryPolicy, ProgressPolicy, QueueMode, ReportFn, Settings, ToolExecutionMode,
+    PartialRetryPolicy, ProgressPolicy, QueueMode, ReportFn, Settings, ThresholdTokens,
+    ToolExecutionMode,
 };
 pub use tools::{
     ExecuteToolOptions, InvocationTaskOptions, NestedToolExecutionResult, OutputRetain,

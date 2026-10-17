@@ -1,9 +1,10 @@
 use serde_json::json;
 
 use super::{
-    compile, Answer, Directive, FamilyOverlap, Layer, Query, Quirks, QuirksError, RawRule,
+    compile, Answer, Directive, FamilyOverlap, Layer, Lookup, Query, Quirks, QuirksError, RawRule,
     Rulebook, Value, ValueKind,
 };
+use crate::capabilities::{Capability, Dialect};
 use crate::types::{MaxTokensField, Model, SessionAffinityFormat, ThinkingFormat};
 
 fn model(api: &str, provider: &str, id: &str, base_url: &str) -> Model {
@@ -87,7 +88,7 @@ fn a_model_two_shipped_families_match_names_no_family() {
         "http://localhost:8000/v1",
     );
     assert_eq!(
-        Rulebook::shipped().query(&both),
+        Rulebook::shipped().query(&both, Lookup::Wire),
         Err(FamilyOverlap {
             model: "qwen3-opus-5".to_owned(),
             first: "claude-adaptive".to_owned(),
@@ -143,6 +144,67 @@ fn a_value_of_the_wrong_type_does_not_compile() {
             value: json!("nope"),
             kind: ValueKind::ThinkingFormat,
         }]
+    );
+}
+
+#[test]
+fn a_capability_takes_only_a_dialect_that_implements_it_or_false() {
+    let errors = compile(&[
+        rule(Layer::Host, "h", "usage", json!("anthropic")),
+        rule(Layer::Host, "h", "embed", json!(true)),
+        rule(Layer::Host, "h", "tokenize", json!("xai")),
+        rule(Layer::Model, "m", "tokenize", json!(false)),
+    ])
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        vec![
+            QuirksError::BadValue {
+                layer: Layer::Host,
+                target: "h".to_owned(),
+                directive: "usage".to_owned(),
+                value: json!("anthropic"),
+                kind: ValueKind::Endpoint(Capability::Usage),
+            },
+            QuirksError::BadValue {
+                layer: Layer::Host,
+                target: "h".to_owned(),
+                directive: "embed".to_owned(),
+                value: json!(true),
+                kind: ValueKind::Endpoint(Capability::Embed),
+            },
+        ]
+    );
+    let rules = compile(&[
+        rule(Layer::Host, "host", "tokenize", json!("xai")),
+        rule(Layer::Model, "mod", "tokenize", json!(false)),
+    ])
+    .unwrap();
+    let host_only = Query {
+        family: None,
+        model: "other",
+        host: Some("host"),
+    };
+    assert_eq!(
+        (
+            rules.lookup(&host_only, Directive::Endpoint(Capability::Tokenize)),
+            rules.lookup(&QUERY, Directive::Endpoint(Capability::Tokenize)),
+            rules.lookup(&QUERY, Directive::Endpoint(Capability::Usage)),
+        ),
+        (
+            Answer::Known(&Value::Endpoint(Some(Dialect::Xai))),
+            Answer::Known(&Value::Endpoint(Some(Dialect::Xai))),
+            Answer::Unknown,
+        )
+    );
+    let model_only = Query {
+        family: None,
+        model: "mod",
+        host: None,
+    };
+    assert_eq!(
+        rules.lookup(&model_only, Directive::Endpoint(Capability::Tokenize)),
+        Answer::Known(&Value::Endpoint(None))
     );
 }
 
@@ -297,8 +359,10 @@ fn a_query_names_the_host_by_api_then_provider_then_longest_url() {
         ),
         model("chat", "other", "x", "https://elsewhere.test"),
     ];
-    let queries: Vec<Result<Query<'_>, FamilyOverlap>> =
-        cases.iter().map(|model| book.query(model)).collect();
+    let queries: Vec<Result<Query<'_>, FamilyOverlap>> = cases
+        .iter()
+        .map(|model| book.query(model, Lookup::Wire))
+        .collect();
     assert_eq!(
         queries,
         [
@@ -328,6 +392,116 @@ fn a_query_names_the_host_by_api_then_provider_then_longest_url() {
                 host: None,
             }),
         ]
+    );
+}
+
+#[test]
+fn a_wire_lookup_skips_a_host_of_scope_capabilities() {
+    let book = Rulebook::from_json(
+        r#"{
+          "families": [],
+          "hosts": [
+            { "id": "caps", "providers": ["prov"], "urls": ["caps.test"], "scope": "capabilities" },
+            { "id": "local", "urls": ["//localhost"] }
+          ],
+          "rules": [
+            { "layer": "host", "target": "caps", "set": { "tokenize": "llama-cpp" } },
+            { "layer": "host", "target": "local", "set": { "store": false } }
+          ]
+        }"#,
+    )
+    .unwrap();
+    let at_localhost = model("chat", "prov", "m", "http://localhost:8080/v1");
+    let on_lan = model("chat", "prov", "m", "http://192.168.1.20:8080/v1");
+    let by_url = model("chat", "other", "m", "https://caps.test/v1");
+    let hosts = |model: &Model| {
+        [Lookup::Wire, Lookup::Capabilities]
+            .map(|lookup| book.query(model, lookup).unwrap().host.map(str::to_owned))
+    };
+    let caps = Some("caps".to_owned());
+    assert_eq!(
+        [hosts(&at_localhost), hosts(&on_lan), hosts(&by_url)],
+        [
+            [Some("local".to_owned()), caps.clone()],
+            [None, caps.clone()],
+            [None, caps],
+        ]
+    );
+}
+
+#[test]
+fn a_host_of_scope_capabilities_sets_only_capability_directives() {
+    let errors = Rulebook::from_json(
+        r#"{
+          "families": [],
+          "hosts": [{ "id": "caps", "providers": ["prov"], "scope": "capabilities" }],
+          "rules": [
+            { "layer": "host", "target": "caps", "set": { "tokenize": "llama-cpp", "store": false } }
+          ]
+        }"#,
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        vec![QuirksError::WireDirectiveOnCapabilityHost {
+            host: "caps".to_owned(),
+            directive: "store".to_owned(),
+        }]
+    );
+}
+
+/// The capability hosts of the shipped rulebook change no wire setting:
+/// provider `openai` behind a loopback URL keeps the loopback settings, and
+/// a llama.cpp provider on a LAN address gets no host settings, as before
+/// the capability rules; both keep their capability endpoints where they
+/// had them.
+#[test]
+fn the_shipped_capability_hosts_keep_the_wire_settings() {
+    let openai_local = model(
+        "openai-completions",
+        "openai",
+        "gpt-4o",
+        "http://localhost:8080/v1",
+    );
+    let llama_lan = model(
+        "openai-completions",
+        "llama-cpp",
+        "gemma-3-4b",
+        "http://192.168.1.20:8080/v1",
+    );
+    let llama_local = model(
+        "openai-completions",
+        "llama.cpp",
+        "gemma-3-4b",
+        "http://127.0.0.1:8080/v1",
+    );
+    let wire = |model: &Model| {
+        let quirks = Quirks::of(model);
+        (
+            quirks.query().host.map(str::to_owned),
+            quirks.store(),
+            quirks.developer_role(),
+        )
+    };
+    let loopback = Some("loopback".to_owned());
+    assert_eq!(
+        [wire(&openai_local), wire(&llama_lan), wire(&llama_local)],
+        [
+            (loopback.clone(), Some(false), Some(false)),
+            (None, None, None),
+            (loopback, Some(false), Some(false)),
+        ]
+    );
+    let tokenize = |model: &Model| {
+        Quirks::for_lookup(model, Lookup::Capabilities).endpoint(Capability::Tokenize)
+    };
+    assert_eq!(
+        [
+            tokenize(&openai_local),
+            tokenize(&llama_lan),
+            tokenize(&llama_local)
+        ],
+        [None, Some(Dialect::LlamaCpp), Some(Dialect::LlamaCpp)]
     );
 }
 

@@ -147,6 +147,17 @@ impl Drop for StopOnDrop {
     }
 }
 
+/// The provider context of a request over `messages`: the system prompt and
+/// the tool loadout travel as positional system messages, so the context
+/// sets neither.
+pub(super) fn request_context(messages: Vec<Message>) -> PiContext {
+    PiContext {
+        system_prompt: None,
+        messages,
+        tools: None,
+    }
+}
+
 /// Stream one request and return the terminal message. Partials commit as
 /// trailing writes at most every `progress.partial_interval_ms` (default
 /// 100 ms) with one commit in flight; the end stops the throttle and awaits
@@ -173,15 +184,9 @@ pub(super) async fn stream_response(
         interval: Duration::from_secs_f64(interval.max(0.0) / 1000.0),
     };
     let _guard = StopOnDrop(throttle.clone());
-    let events = runtime.models().stream_simple(
-        model,
-        PiContext {
-            system_prompt: None,
-            messages,
-            tools: None,
-        },
-        options.into(),
-    );
+    let events = runtime
+        .models()
+        .stream_simple(model, request_context(messages), options.into());
     let mut iter = events.events();
     while let Some(event) = iter.next().await {
         // A partial without content, such as pi-ai's opening `start` event,

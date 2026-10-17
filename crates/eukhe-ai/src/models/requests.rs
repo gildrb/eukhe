@@ -167,7 +167,7 @@ impl Models {
 
     /// Resolves auth for `model` and merges it into the request: explicit
     /// request options win per field; the Models-only transform runs last.
-    async fn apply_auth<M: CatalogModel, O: RequestOptions<M>>(
+    pub(super) async fn apply_auth<M: CatalogModel, O: RequestOptions<M>>(
         &self,
         model: &M,
         options: ModelsRequestOptions<O>,

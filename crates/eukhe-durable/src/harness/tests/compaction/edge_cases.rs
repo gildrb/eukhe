@@ -24,7 +24,7 @@ use crate::harness::tests::support::{add_hooks, add_section, compaction_task, co
 use crate::harness::tests::task_support::deferred;
 use crate::harness::types::{
     AgentChange, BackgroundMargin, CompactionDecision, CompactionHooks, CompactionPolicy,
-    CompactionReason, CompactionResult, FieldChange, ModelRef,
+    CompactionReason, CompactionResult, FieldChange, ModelRef, ThresholdTokens,
 };
 use crate::harness::usage::{UsageState, USAGE_DOC};
 use crate::session::tests::support::ControlledStorage;
@@ -612,6 +612,7 @@ async fn treats_silent_overflow_as_an_ordinary_answer(response: AssistantMessage
         reserve_tokens: -100_000.0,
         keep_recent_tokens: 150.0,
         background: BackgroundMargin::Tokens(0.0),
+        token_count: ThresholdTokens::Estimate,
     });
     chat.faux.agent(response);
     let input = submit(&chat, "go").await;
