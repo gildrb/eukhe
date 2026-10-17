@@ -71,10 +71,13 @@ const IPYTHON_VERSION: &str = "ipython@1";
 /// The `ipython` tool schema: the shared `i`, then `code`.
 #[must_use]
 pub fn ipython_parameters() -> TSchema {
-    crate::durable::tool_contract::parameters([(
-        "code",
-        Type::string_with(Options::new().set("description", CODE_DESCRIPTION)),
-    )])
+    crate::durable::tool_contract::parameters(
+        1,
+        [(
+            "code",
+            Type::string_with(Options::new().set("description", CODE_DESCRIPTION)),
+        )],
+    )
 }
 
 /// The `ipython` registration: sequential (the kernel is single-threaded),
@@ -107,7 +110,7 @@ fn session_error(error: &anyhow::Error) -> SessionError {
 }
 
 /// The call's abort as the error the Harness treats as an abort.
-fn aborted(cx: &Context) -> Option<SessionError> {
+pub(crate) fn aborted(cx: &Context) -> Option<SessionError> {
     cx.abort_signal()
         .and_then(|signal| signal.reason())
         .map(SessionError::Aborted)
@@ -123,7 +126,7 @@ fn error_result(message: String) -> ToolExecutionResult {
 }
 
 /// Resolves when the call aborts; never for a call without an abort signal.
-async fn call_aborted(cx: &Context) {
+pub(crate) async fn call_aborted(cx: &Context) {
     match cx.abort_signal() {
         Some(signal) => {
             signal.cancelled().await;
@@ -446,7 +449,7 @@ fn settle_detached(
 }
 
 /// `text`, then one line per diagnostic (its message and what it bounded).
-fn with_diagnostics(mut text: String, diagnostics: &[ToolDiagnostic]) -> String {
+pub(crate) fn with_diagnostics(mut text: String, diagnostics: &[ToolDiagnostic]) -> String {
     for diagnostic in diagnostics {
         let severity = match diagnostic.severity {
             ToolDiagnosticSeverity::Info => "info",

@@ -908,3 +908,251 @@ async fn a_rewind_keeps_a_job_that_started_before_its_target_when_the_node_came_
     );
     session.close(cx()).await.expect("close");
 }
+
+/// A chat-memory compactor that is never asked: every test message is
+/// short.
+struct NoSummarizer;
+
+impl crate::memory::Summarizer for NoSummarizer {
+    fn complete(
+        &self,
+        _context: eukhe_types::pi_ai::Context,
+        _started: crate::memory::ResponseStarted,
+    ) -> crate::memory::SummarizerFuture {
+        Box::pin(async { Err(anyhow::anyhow!("no model in this test")) })
+    }
+}
+
+/// The wire `read` tool serves the internal URLs (docs/harness.md S7):
+/// a chat-memory message, a subagent's chat, a skill's `SKILL.md` and a
+/// workspace file; a `..` above `repo://` is rejected even though the file
+/// it names exists, never clamped to the root.
+#[tokio::test]
+async fn the_read_tool_serves_internal_urls() {
+    use crate::durable::children::{tx_put_row, ChildRow, ChildStatus};
+    use crate::memory::{Kind, Memory};
+    let fixture = fixture();
+    let child_id = "0192a000-0000-7000-8000-0000000000c1";
+    let child_dir = fixture.sessions.join(child_id);
+    fixture.faux.set_responses(vec![answer("found it")]);
+    let mut child = SessionConfig::new(
+        &fixture.agent_dir,
+        &fixture.cwd,
+        child_id,
+        SessionStorage::Jsonl {
+            dir: child_dir.clone(),
+            fsync: true,
+        },
+    );
+    child.models = Some(fixture.models.clone());
+    child.model = Some(fixture.model().into());
+    let child = open_session(child, cx()).await.expect("open the subagent");
+    ask(&child, "find the bug").await;
+    child.close(cx()).await.expect("close the subagent");
+
+    let skill_dir = fixture.agent_dir.join("skill-notes/notes");
+    std::fs::create_dir_all(&skill_dir).expect("skill dir");
+    let skill = "---\nname: notes\ndescription: Notes.\n---\n# Notes\n";
+    std::fs::write(skill_dir.join("SKILL.md"), skill).expect("skill");
+    std::fs::write(fixture.cwd.join("a.txt"), "alpha\n").expect("file");
+    let outside = fixture.cwd.parent().expect("parent").join("secret.txt");
+    std::fs::write(&outside, "outside\n").expect("outside file");
+    let memory = Memory::open(fixture.agent_dir.join("chat"), Arc::new(NoSummarizer))
+        .await
+        .expect("memory");
+    memory.append(Kind::User, "earlier").await.expect("append");
+    fixture.faux.set_responses(vec![
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "memory://0" }),
+            "call-1",
+        ),
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "agent://scout" }),
+            "call-2",
+        ),
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "skill://notes" }),
+            "call-3",
+        ),
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "repo://a.txt" }),
+            "call-4",
+        ),
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "repo://../secret.txt" }),
+            "call-5",
+        ),
+        answer("done"),
+    ]);
+    let mut config = fixture.config(SessionStorage::Memory);
+    config.model = Some(fixture.model().into());
+    config.memory = Some(memory);
+    config.prompt.additional_skill_paths = vec![skill_dir.to_string_lossy().into_owned()];
+    let session = open_session(config, cx()).await.expect("open");
+    let row = ChildRow {
+        task_id: 7,
+        rlm_child_id: "sub-1".to_owned(),
+        session_id: child_id.to_owned(),
+        session_name: "scout".to_owned(),
+        label: "find the bug".to_owned(),
+        started_at: 0.0,
+        status: ChildStatus::Done,
+        active_session_id: None,
+        session_dir: Some(child_dir.to_string_lossy().into_owned()),
+        model: None,
+        answer_preview: None,
+        error: None,
+        replied_since_task: false,
+        deletion: None,
+        settled: true,
+        usage: None,
+        progress: None,
+        reporter: None,
+    };
+    let root = session.root().id();
+    session
+        .harness()
+        .commit(
+            move |tx| async move { tx_put_row(&tx, root, &row).await },
+            cx(),
+        )
+        .await
+        .expect("the subagent's row");
+    ask(&session, "read the urls").await;
+    let tag = eukhe_docs::file_hash;
+    assert_eq!(
+        tool_results(&entries(&session).await),
+        vec![
+            ("read".to_owned(), false, "0+0|user: earlier".to_owned()),
+            (
+                "read".to_owned(),
+                false,
+                "user: find the bug\neukhe: found it".to_owned()
+            ),
+            (
+                "read".to_owned(),
+                false,
+                format!(
+                    "[{}#{}]\n1:---\n2:name: notes\n3:description: Notes.\n4:---\n5:# Notes",
+                    skill_dir.join("SKILL.md").display(),
+                    tag(skill)
+                )
+            ),
+            (
+                "read".to_owned(),
+                false,
+                format!("[a.txt#{}]\n1:alpha", tag("alpha\n"))
+            ),
+            (
+                "read".to_owned(),
+                true,
+                "repo://../secret.txt goes above the root of repo://; `..` cannot leave it"
+                    .to_owned()
+            ),
+        ]
+    );
+    session.close(cx()).await.expect("close");
+}
+
+/// A raw JSON-RPC stdio MCP server with resources: a paginated listing, a
+/// text resource and a binary one.
+const RESOURCE_SERVER: &str = r#"import base64, json, sys
+while line := sys.stdin.readline():
+    request = json.loads(line)
+    if request.get("id") is None:
+        continue
+    method = request.get("method")
+    params = request.get("params") or {}
+    if method == "initialize":
+        result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "fixture", "version": "1"}}
+    elif method == "tools/list":
+        result = {"tools": []}
+    elif method == "resources/list" and params.get("cursor") is None:
+        result = {"resources": [{"uri": "note://a", "name": "a", "mimeType": "text/plain", "description": "A note"}], "nextCursor": "2"}
+    elif method == "resources/list":
+        result = {"resources": [{"uri": "bin://b", "name": "b", "mimeType": "image/png"}]}
+    elif method == "resources/read" and params["uri"] == "note://a":
+        result = {"contents": [{"uri": "note://a", "mimeType": "text/plain", "text": "alpha\nbeta"}]}
+    elif method == "resources/read":
+        result = {"contents": [{"uri": params["uri"], "mimeType": "image/png", "blob": base64.b64encode(b"\x89PNG1234").decode()}]}
+    else:
+        result = {}
+    print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+"#;
+
+/// The wire `read` tool reads an MCP server's resources through the
+/// session's kernel (where the MCP client runs): `mcp://<server>` lists
+/// them, `mcp://<server>/<uri>` reads one (a binary one as a note of its
+/// size and type); a server the session does not have is rejected.
+#[tokio::test]
+async fn the_read_tool_reads_mcp_resources() {
+    let fixture = fixture();
+    let server = fixture.agent_dir.join("resource_server.py");
+    std::fs::write(&server, RESOURCE_SERVER).expect("server");
+    let mut config = fixture.config(SessionStorage::Memory);
+    let python = config
+        .kernel_python
+        .clone()
+        .expect("the test kernel python");
+    std::fs::write(
+        fixture.agent_dir.join("settings.json"),
+        serde_json::json!({
+            "mcpServers": {
+                "fx": { "type": "stdio", "command": python, "args": [server] }
+            }
+        })
+        .to_string(),
+    )
+    .expect("settings");
+    fixture.faux.set_responses(vec![
+        tool_call("read", serde_json::json!({ "path": "mcp://fx" }), "call-1"),
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "mcp://fx/note://a" }),
+            "call-2",
+        ),
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "mcp://fx/bin://b" }),
+            "call-3",
+        ),
+        tool_call(
+            "read",
+            serde_json::json!({ "path": "mcp://nope/x" }),
+            "call-4",
+        ),
+        answer("done"),
+    ]);
+    config.model = Some(fixture.model().into());
+    config.prompt.generic_mcp_servers = vec!["fx".to_owned()];
+    let session = open_session(config, cx()).await.expect("open");
+    ask(&session, "read the resources").await;
+    assert_eq!(
+        tool_results(&entries(&session).await),
+        vec![
+            (
+                "read".to_owned(),
+                false,
+                "mcp://fx/note://a\ta\ttext/plain\tA note\nmcp://fx/bin://b\tb\timage/png\t"
+                    .to_owned()
+            ),
+            ("read".to_owned(), false, "alpha\nbeta".to_owned()),
+            (
+                "read".to_owned(),
+                false,
+                "[binary resource bin://b: 8 bytes, image/png]".to_owned()
+            ),
+            (
+                "read".to_owned(),
+                true,
+                "No MCP server nope in this session; its servers: fx".to_owned()
+            ),
+        ]
+    );
+    session.close(cx()).await.expect("close");
+}

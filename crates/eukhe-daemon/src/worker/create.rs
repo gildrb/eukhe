@@ -542,6 +542,13 @@ impl Worker {
                 },
             );
         }));
+        // The `bash` tool's approval questions go to the attached clients
+        // (the first answer wins; no client, no answer: a denial).
+        let shell_approvals = self.shell_approvals.clone();
+        config.shell_approval = Some(Arc::new(move |request| {
+            let shell_approvals = shell_approvals.clone();
+            Box::pin(async move { shell_approvals.ask(request).await })
+        }));
         // Each accepted `rlm.progress.note` is a roster `note` candidate:
         // keep the latest on the core and push the changed summary.
         let progress_core = Arc::clone(&self.core);

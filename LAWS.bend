@@ -20,6 +20,7 @@ import ./bend/job.bend as Jb
 import ./bend/cvar.bend as Cv
 import ./bend/director.bend as Dr
 import ./bend/infer.bend as If
+import ./bend/tools.bend as Tl
 
 # (a) The view
 # ------------
@@ -1182,3 +1183,102 @@ law compact_starts_early:
   for small: {Nat.is_le(m, lim) == True{} : Bool}
   for steps: {If.steps_le(xs, m, 0n) == True{} : Bool}
   {If.m.lt(If.first_at(xs, Nat.sub(lim, m), 0n), If.first_at(xs, 1n+lim, 0n)) == True{} : Bool}
+
+# (S7) The tool surface
+# ---------------------
+# docs/harness.md S7, the model in bend/tools.bend. Every input is free:
+# any tools that join and quit, any schemas, any paths, any scripts, any
+# auto set, any answers of the user.
+
+# LAW: no event changes the roster: tools that join go behind `dyn`
+law roster_fixed:
+  for es: List<&2, Tl.Ev>
+  for +s: Tl.Sess
+  {Tl.Sess.roster(Tl.run(es, s)) == Tl.Sess.roster(s) : List<&2, Nat>}
+
+# LAW: every request of a session sends the roster it started with
+law roster_sent_fixed:
+  for es: List<&2, Tl.Ev>
+  for +r: List<&2, Nat>
+  for d: List<&2, Nat>
+  {Tl.all_eq(Tl.Sess.sent(Tl.run(es, Tl.Sess{r, d, Nil{}})), r) == True{} : Bool}
+
+# LAW: a tool that joins is reachable through `dyn`
+law dyn_reaches_joined:
+  for +s: Tl.Sess
+  for +t: Nat
+  {Tl.dyn_call(Tl.step(s, Tl.Join{t}), t) == True{} : Bool}
+
+# LAW: a tool that quits is not reachable through `dyn`
+law dyn_drops_quit:
+  for +s: Tl.Sess
+  for +t: Nat
+  {Tl.dyn_call(Tl.step(s, Tl.Quit{t}), t) == False{} : Bool}
+
+# LAW: every schema the harness sends has the intent parameter
+law schema_has_intent:
+  for s: Tl.Schema
+  {Tl.elem(Tl.Schema.params(Tl.build(s)), Tl.intent()) == True{} : Bool}
+
+# LAW: every schema the harness sends has a version of at least 1
+law schema_versioned:
+  for s: Tl.Schema
+  {Nat.is_le(1n, Tl.Schema.version(Tl.build(s))) == True{} : Bool}
+
+# LAW: the harness keeps every parameter a tool declares
+law schema_keeps_params:
+  for +s: Tl.Schema
+  for +x: Nat
+  for has: {Tl.elem(Tl.Schema.params(s), x) == True{} : Bool}
+  {Tl.elem(Tl.Schema.params(Tl.build(s)), x) == True{} : Bool}
+
+# LAW: building a built schema changes nothing
+law schema_build_idempotent:
+  for +s: Tl.Schema
+  {Tl.build(Tl.build(s)) == Tl.build(s) : Tl.Schema}
+
+# LAW: a path that goes above its root is rejected, never clamped
+law path_rejects_escape:
+  for +segs: List<&2, Tl.Seg>
+  for out: {Tl.stays(segs, 0n) == False{} : Bool}
+  {Tl.resolve(segs) == None{} : Maybe<&2, List<&2, Nat>>}
+
+# LAW: a path that stays under its root resolves
+law path_resolves_inside:
+  for +segs: List<&2, Tl.Seg>
+  for inside: {Tl.stays(segs, 0n) == True{} : Bool}
+  {Maybe.is_some(&2, List<&2, Nat>, Tl.resolve(segs)) == True{} : Bool}
+
+# LAW: the steps that ran are the script's first steps, in order
+law gate_prefix:
+  for +ss: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for ans: List<&2, Bool>
+  {Tl.prefix(Tl.Ran.steps(Tl.exec(ss, auto, ans)), ss) == True{} : Bool}
+
+# LAW: no more gated steps run than the user approved
+law gate_needs_yes:
+  for +ss: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for +ans: List<&2, Bool>
+  {Nat.is_le(Tl.gated(Tl.Ran.steps(Tl.exec(ss, auto, ans)), auto), Tl.yeses(ans)) == True{} : Bool}
+
+# LAW: a denial stops the script at the denied step: the steps before it
+# ran, it and every later step did not
+law gate_deny_stops:
+  for +pre: List<&2, Tl.Step>
+  for +s: Tl.Step
+  for +post: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for ans: List<&2, Bool>
+  for free: {Tl.gated(pre, auto) == 0n : Nat}
+  for held: {Tl.auto.at(auto, s) == False{} : Bool}
+  {Tl.exec(List.append(&2, Tl.Step, pre, s <> post), auto, False{} <> ans) == Tl.Ran{pre, Tl.Denied{Tl.Step.id(s)}} : Tl.Ran}
+
+# LAW: a script that finished ran every step
+law gate_finish_runs_all:
+  for +ss: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for +ans: List<&2, Bool>
+  for fin: {Tl.End.finished(Tl.Ran.end(Tl.exec(ss, auto, ans))) == True{} : Bool}
+  {Tl.Ran.steps(Tl.exec(ss, auto, ans)) == ss : List<&2, Tl.Step>}

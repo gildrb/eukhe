@@ -121,7 +121,7 @@ pub async fn run(
 
     // Uninstall removes an extension by name; conversations that select it
     // stop getting its code.
-    registry.uninstall(&audit);
+    registry.uninstall(&audit)?;
     writeln!(out, "after uninstall: {}", tools(&root).await?)?;
 
     harness.close(context).await?;

@@ -64,7 +64,7 @@ impl From<JobId> for String {
     }
 }
 
-/// How a detached cell ended.
+/// How a detached cell or `bash` tool script ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CellStatus {
@@ -103,6 +103,15 @@ pub enum JobSettled {
         status: CellStatus,
         output: String,
     },
+    /// A detached `bash` tool script ended (`Ok`: it finished with status
+    /// 0; `Error`: another status, an `exit`, or a refused step;
+    /// `Killed`: its job's kill); `output` is its whole projection,
+    /// bounded once by the producer.
+    Shell {
+        job: JobId,
+        status: CellStatus,
+        output: String,
+    },
     /// A background kernel `bash()` command exited; its output stays with
     /// the handle.
     #[serde(rename_all = "camelCase")]
@@ -118,10 +127,12 @@ impl JobSettled {
     #[must_use]
     pub fn report(&self) -> Report {
         match self {
-            Self::Cell { job, status, .. } => Report::JobSettled {
-                job: job.clone(),
-                status: *status,
-            },
+            Self::Cell { job, status, .. } | Self::Shell { job, status, .. } => {
+                Report::JobSettled {
+                    job: job.clone(),
+                    status: *status,
+                }
+            }
             Self::Bash { pid, exit_code, .. } => Report::BashDone {
                 pid: *pid,
                 exit_code: *exit_code,

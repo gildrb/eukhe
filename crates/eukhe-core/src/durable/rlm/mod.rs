@@ -20,8 +20,11 @@ pub mod skills_unavailable_notice;
 pub mod state_restore_notice;
 mod tool;
 
+pub(crate) use kernels::session_env;
+pub(crate) use tool::{aborted, call_aborted, with_diagnostics};
+
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Serializes the real-kernel tests of this crate: each boots a `CPython`
 /// kernel, several boots at once starve every wait budget under a

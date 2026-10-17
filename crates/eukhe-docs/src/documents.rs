@@ -9,6 +9,7 @@ use crate::grep::{GrepError, GrepOutput, GrepRequest};
 use crate::hashline::{apply_hashline, HashlineOptions, HashlineOutcome};
 use crate::read::{self, ReadError, ReadView};
 use crate::store::EditStore;
+use crate::url::{Located, Url};
 use crate::write::{self, LockedWriter, WriteError, WriteOutcome};
 
 /// Reads, writes, and edits of one session.
@@ -43,6 +44,25 @@ impl Documents {
     /// See [`ReadError`].
     pub fn read(&self, cwd: &Path, path: &str) -> Result<ReadView, ReadError> {
         read::read(&self.store, cwd, self.home.as_deref(), path)
+    }
+
+    /// Read the file-backed internal URL `url` (`repo://`, `skill://`;
+    /// its path may carry a `:selector`): `locate` turns the names the
+    /// path reaches under its scheme's root into the file or directory to
+    /// read and that root. Display paths stay relative to `cwd`.
+    ///
+    /// # Errors
+    ///
+    /// [`ReadError::Url`] when the path goes above its root, as written or
+    /// through a symlink, [`ReadError::NotFound`] when `locate` finds
+    /// nothing; else see [`ReadError`].
+    pub fn read_under(
+        &self,
+        cwd: &Path,
+        url: Url<'_>,
+        locate: impl Fn(&[&str]) -> Option<Located>,
+    ) -> Result<ReadView, ReadError> {
+        read::read_under(&self.store, cwd, self.home.as_deref(), url, locate)
     }
 
     /// Create or overwrite `path` relative to `cwd`.

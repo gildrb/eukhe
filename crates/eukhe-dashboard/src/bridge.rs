@@ -352,6 +352,7 @@ impl Bridge {
             | DaemonClientEvent::SessionListItem { .. }
             | DaemonClientEvent::SessionListProgress { .. }
             | DaemonClientEvent::SideQuestionEvent { .. }
+            | DaemonClientEvent::ShellApproval { .. }
             | DaemonClientEvent::RosterUpdate { .. }
             | DaemonClientEvent::StateTreeUpdate { .. }
             | DaemonClientEvent::HeartbeatsChanged => None,

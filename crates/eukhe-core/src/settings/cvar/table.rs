@@ -1027,6 +1027,19 @@ pub const GATEWAY_SIGNAL_CWD: Decl = Decl {
     init: Init::Text(""),
 };
 
+pub(crate) const SHELL_EFFECTS: &[&str] = &["read", "write", "exec", "net"];
+
+/// The effects a shell command may have without asking. An execution
+/// gate: an untrusted project may not set it and an agent never saves it.
+pub const SHELL_AUTO_EFFECTS: Decl = Decl {
+    id: "shell.autoEffects",
+    ty: CvarType::ChoiceList(SHELL_EFFECTS),
+    scope: CvarScope::Local,
+    persist: false,
+    replicate: false,
+    init: Init::List(&["read"]),
+};
+
 pub const DECLS: &[Decl] = &[
     ONBOARDING_SHOWN,
     ONBOARDING_COMPLETED,
@@ -1131,4 +1144,5 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_ALLOW,
     GATEWAY_SIGNAL_CLI_PATH,
     GATEWAY_SIGNAL_CWD,
+    SHELL_AUTO_EFFECTS,
 ];

@@ -624,6 +624,7 @@ dependencies = [
  "eukhe-docs",
  "eukhe-durable",
  "eukhe-models",
+ "eukhe-shell",
  "eukhe-types",
  "fancy-regex",
  "futures",
@@ -768,6 +769,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "eukhe-shell"
+version = "0.9.9-eukhe.1"
+dependencies = [
+ "eukhe-types",
+ "globset",
+ "grep-regex",
+ "grep-searcher",
+ "nix",
+ "parking_lot",
+ "tempfile",
+ "tokio",
  "tracing",
 ]
 

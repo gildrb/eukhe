@@ -163,3 +163,120 @@ fn display_path_prefers_cwd_then_home() {
         ["a.rs", "~/q/a.rs", "/etc/x"]
     );
 }
+
+fn repo_url(path: &str) -> Url<'_> {
+    Url {
+        scheme: crate::Scheme::Repo,
+        path,
+    }
+}
+
+/// The names joined under `root`; `missing` names none.
+fn under(root: &Path) -> impl Fn(&[&str]) -> Option<crate::Located> + '_ {
+    |names| {
+        (names.first() != Some(&"missing")).then(|| crate::Located {
+            root: root.to_path_buf(),
+            path: names
+                .iter()
+                .fold(root.to_path_buf(), |path, name| path.join(name)),
+        })
+    }
+}
+
+#[test]
+fn url_reads_a_file_under_its_root_with_a_selector() {
+    let (dir, store) = setup("one\ntwo\nthree\n");
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/b.rs"), "one\ntwo\nthree\n").unwrap();
+    let view = read_under(
+        &store,
+        dir.path(),
+        None,
+        repo_url("src/./b.rs:2"),
+        under(&root),
+    )
+    .unwrap();
+    let tag = crate::file_hash("one\ntwo\nthree\n");
+    assert_eq!(
+        (view.path, view.absolute, view.rendered),
+        (
+            "root/src/b.rs".to_owned(),
+            root.join("src/b.rs"),
+            format!("[root/src/b.rs#{tag}]\n1:one\n2:two\n3:three")
+        )
+    );
+}
+
+#[test]
+fn url_above_its_root_is_rejected_even_when_the_file_exists() {
+    let (dir, store) = setup("one\n");
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(&root).unwrap();
+    let errors: Vec<String> = ["../a.rs", "x/../../a.rs:1", "/..", "missing/x"]
+        .into_iter()
+        .map(|path| {
+            read_under(&store, dir.path(), None, repo_url(path), under(&root))
+                .unwrap_err()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            "repo://../a.rs goes above the root of repo://; `..` cannot leave it",
+            "repo://x/../../a.rs goes above the root of repo://; `..` cannot leave it",
+            "repo:///.. goes above the root of repo://; `..` cannot leave it",
+            "Path 'repo://missing/x' not found",
+        ]
+    );
+}
+
+/// A symlink inside the root that points outside it is rejected: the real
+/// path must stay under the root's real path. A symlink that stays inside
+/// reads as usual.
+#[test]
+fn url_through_a_symlink_out_of_its_root_is_rejected() {
+    let (dir, store) = setup("secret\n");
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/b.rs"), "inside\n").unwrap();
+    std::os::unix::fs::symlink(dir.path().join("a.rs"), root.join("out.rs")).unwrap();
+    std::os::unix::fs::symlink(dir.path(), root.join("up")).unwrap();
+    std::os::unix::fs::symlink(root.join("src"), root.join("in")).unwrap();
+    let read = |path| {
+        read_under(&store, dir.path(), None, repo_url(path), under(&root))
+            .map(|view| view.rendered)
+            .map_err(|error| error.to_string())
+    };
+    assert_eq!(
+        [read("out.rs"), read("up/a.rs:1"), read("in/b.rs")],
+        [
+            Err("repo://out.rs resolves outside the root of repo:// through a symlink".to_owned()),
+            Err("repo://up/a.rs resolves outside the root of repo:// through a symlink".to_owned()),
+            Ok(format!(
+                "[root/in/b.rs#{}]\n1:inside",
+                crate::file_hash("inside\n")
+            )),
+        ]
+    );
+}
+
+/// A root without a real path (here: gone) is an error, not a read that
+/// skips the symlink check.
+#[test]
+fn url_under_a_root_without_a_real_path_is_an_error() {
+    let (dir, store) = setup("outside\n");
+    let got = read_under(&store, dir.path(), None, repo_url("a.rs"), |_| {
+        Some(crate::Located {
+            root: dir.path().join("gone"),
+            path: dir.path().join("a.rs"),
+        })
+    })
+    .map(|view| view.rendered)
+    .map_err(|error| error.to_string());
+    assert_eq!(
+        got,
+        Err("gone: No such file or directory (os error 2)".to_owned())
+    );
+}

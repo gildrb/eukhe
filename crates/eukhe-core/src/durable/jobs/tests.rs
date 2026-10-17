@@ -133,9 +133,9 @@ fn a_rewind_kills_the_running_jobs_the_target_does_not_hold() {
 fn a_job_counts_the_output_written_before_it_started() {
     let table = JobTable::default();
     let job = table.start(JobSpec {
-        id: JobId::new("cell-1").expect("id"),
-        kind: JobKind::Cell,
-        label: "print(1)".to_owned(),
+        id: JobId::new("shell-1").expect("id"),
+        kind: JobKind::Shell,
+        label: "yes | head".to_owned(),
         truncation: capped(10),
         written: 15,
         kill: Box::new(|_| {}),

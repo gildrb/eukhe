@@ -163,6 +163,18 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 /// worker admits it through its one job-settled wake; `None` drops it.
 pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
 
+/// Asks the user whether one gated step of a `bash` tool script may run
+/// (docs/harness.md S7): the daemon worker asks its attached clients and
+/// waits for the first answer. `None` (the future's output) means no
+/// answer came (no client attached, or the clients detached): a denial.
+pub type ShellApprovalSink = Arc<
+    dyn Fn(
+            eukhe_types::shell::ShellApprovalRequest,
+        ) -> BoxFuture<'static, Option<eukhe_types::shell::ShellVerdict>>
+        + Send
+        + Sync,
+>;
+
 /// An MCP login surface: the UI the OAuth flow drives and its HTTP client
 /// (see [`crate::mcp::wire_begin_login`]).
 #[derive(Clone)]
@@ -235,6 +247,9 @@ pub struct SessionConfig {
     /// Settled detached jobs (the daemon's job-settled wake); `None` drops
     /// them.
     pub job_settled: Option<JobSettledSink>,
+    /// The approval channel of the `bash` tool's gated steps; `None`
+    /// leaves every gated step unanswered (denied).
+    pub shell_approval: Option<ShellApprovalSink>,
     /// Boot the main conversation's Python kernel in the background at open
     /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
     /// daemon's sessions): honored for top-level sessions only (the TS
@@ -281,6 +296,7 @@ impl SessionConfig {
             late_agent_message: None,
             progress_note: None,
             job_settled: None,
+            shell_approval: None,
             prewarm_kernel: false,
             #[cfg(test)]
             kernel_python: Some(kernel_runtime::kernel_python()),
@@ -462,6 +478,8 @@ pub struct HostDeps {
     pub late_agent_message: Option<LateAgentMessageSink>,
     pub progress_note: Option<ProgressNoteSink>,
     pub job_settled: Option<JobSettledSink>,
+    /// [`SessionConfig::shell_approval`].
+    pub shell_approval: Option<ShellApprovalSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
@@ -490,6 +508,9 @@ pub struct HostDeps {
     pub(crate) state_tree: OnceLock<Weak<super::LiveStateTree>>,
     /// The closing gate of the session's background parent submissions.
     pub(crate) closing: SessionClosing,
+    /// The session's dynamic tools, reached through `dyn` (docs/harness.md
+    /// S7): a host tool that comes after the roster was fixed joins here.
+    pub tool_surface: super::tool_surface::ToolSurface,
 }
 
 /// A barrier through a commit observer's queue.
@@ -532,6 +553,7 @@ impl HostDeps {
             late_agent_message: config.late_agent_message.clone(),
             progress_note: config.progress_note.clone(),
             job_settled: config.job_settled.clone(),
+            shell_approval: config.shell_approval.clone(),
             prewarm_kernel: config.prewarm_kernel,
             kernel_python: config.kernel_python.clone(),
             harness: HarnessCell::default(),
@@ -543,6 +565,7 @@ impl HostDeps {
             closing: SessionClosing::default(),
             jobs: super::jobs::JobTable::default(),
             state_tree: OnceLock::new(),
+            tool_surface: super::tool_surface::ToolSurface::default(),
             semantic_edges: services.semantic_edges,
         }
     }

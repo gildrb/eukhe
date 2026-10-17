@@ -53,6 +53,32 @@ print("sentinel tail " + secret, file=sys.stderr, flush=True)
 raise ImportError("fixture startup crash")
 """
 
+# A raw JSON-RPC stdio server with resources: a paginated listing, a text
+# resource and a binary one.
+_RESOURCE_STDIO_FIXTURE = r"""import base64, json, sys
+while line := sys.stdin.readline():
+    request = json.loads(line)
+    if request.get("id") is None:
+        continue
+    method = request.get("method")
+    params = request.get("params") or {}
+    if method == "initialize":
+        result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "fixture", "version": "1"}}
+    elif method == "tools/list":
+        result = {"tools": []}
+    elif method == "resources/list" and params.get("cursor") is None:
+        result = {"resources": [{"uri": "note://a", "name": "a", "mimeType": "text/plain", "description": "A note"}], "nextCursor": "2"}
+    elif method == "resources/list":
+        result = {"resources": [{"uri": "bin://b", "name": "b", "mimeType": "image/png"}]}
+    elif method == "resources/read" and params["uri"] == "note://a":
+        result = {"contents": [{"uri": "note://a", "mimeType": "text/plain", "text": "alpha\nbeta"}]}
+    elif method == "resources/read":
+        result = {"contents": [{"uri": params["uri"], "mimeType": "image/png", "blob": base64.b64encode(b"\x89PNG1234").decode()}]}
+    else:
+        result = {}
+    print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+"""
+
 
 _HTTP_FIXTURE = """from mcp.server.mcpserver import MCPServer
 server = MCPServer("fixture")
@@ -580,6 +606,37 @@ class McpRegistryTest(unittest.TestCase):
             return json.loads(result)
 
         return run(scenario())
+
+    def test_real_stdio_lists_and_reads_resources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "resource_server.py"
+            fixture.write_text(_RESOURCE_STDIO_FIXTURE)
+            config = {"type": "stdio", "command": sys.executable, "args": [str(fixture)], "cwd": tmp}
+
+            async def scenario():
+                generation = mcp._Generation("fx", config)
+                await generation.open()
+                try:
+                    return (
+                        await generation.resources(),
+                        await generation.read_resource("note://a"),
+                        await generation.read_resource("bin://b"),
+                    )
+                finally:
+                    await generation.close()
+
+            listed, text, binary = run(scenario())
+        self.assertEqual(
+            (listed, text, binary),
+            (
+                [
+                    {"uri": "note://a", "name": "a", "mimeType": "text/plain", "description": "A note"},
+                    {"uri": "bin://b", "name": "b", "mimeType": "image/png", "description": ""},
+                ],
+                [{"uri": "note://a", "mimeType": "text/plain", "text": "alpha\nbeta"}],
+                [{"uri": "bin://b", "mimeType": "image/png", "size": 8}],
+            ),
+        )
 
     def test_real_acp_stdio_preserves_cwd_and_exact_env(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1361,6 +1361,40 @@ async def _handle_mcp_status(req: dict[str, Any], ns: dict[str, Any]) -> None:
     _send({"event": "done", "id": req["id"], "status": "ok", "connections": connections})
 
 
+async def _handle_mcp_call(req: dict[str, Any], ns: dict[str, Any]) -> None:
+    from . import mcp as mcp_mod
+
+    server = req.get("server")
+    tool = req.get("tool")
+    if not isinstance(server, str) or not isinstance(tool, str):
+        raise ValueError("mcp_call requires string server and tool names")
+    arguments = req.get("arguments")
+    if arguments is not None and not isinstance(arguments, dict):
+        raise ValueError("mcp_call arguments must be an object or null")
+    timeout_ms = req.get("timeout_ms", 60_000)
+    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or timeout_ms <= 0:
+        raise ValueError("mcp_call timeout_ms must be a positive number")
+    result = await asyncio.wait_for(mcp_mod.call_tool(server, tool, arguments), timeout_ms / 1000)
+    _send({"event": "done", "id": req["id"], "status": "ok", "result": json.loads(json.dumps(result, default=str))})
+
+
+async def _handle_mcp_resource(req: dict[str, Any], ns: dict[str, Any]) -> None:
+    """A host-side MCP resource request (the `read mcp://` URL): without
+    `uri` the server's resource listing, with it the resource's contents."""
+    from . import mcp as mcp_mod
+
+    server = req["server"]
+    uri = req.get("uri")
+    if uri is not None and (not isinstance(uri, str) or not uri):
+        raise ValueError("mcp_resource uri must be a non-empty string or absent")
+    timeout_ms = req.get("timeout_ms", 60_000)
+    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or timeout_ms <= 0:
+        raise ValueError("mcp_resource timeout_ms must be a positive number")
+    work = mcp_mod.list_resources(server) if uri is None else mcp_mod.read_resource(server, uri)
+    result = await asyncio.wait_for(work, timeout_ms / 1000)
+    _send({"event": "done", "id": req["id"], "status": "ok", "result": result})
+
+
 async def _handle_request(
     handler: Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]],
     req: dict[str, Any],
@@ -1382,8 +1416,10 @@ async def _handle_request(
         _send({"event": "done", "id": rid, "status": "error"})
 
 
-async def _mcp_status_lane(req: dict[str, Any], ns: dict[str, Any]) -> None:
-    """One dedicated-lane `mcp_status` request.
+async def _mcp_lane(
+    handler: Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]], req: dict[str, Any], ns: dict[str, Any]
+) -> None:
+    """One dedicated-lane MCP request (`mcp_status` or `mcp_call`).
 
     The failure shape mirrors `_handle_request`'s backstop (one broken
     request fails alone, never the lane, never the serve loop); a
@@ -1391,33 +1427,40 @@ async def _mcp_status_lane(req: dict[str, Any], ns: dict[str, Any]) -> None:
     tearing the kernel down and owns the deadline.
     """
     try:
-        await _handle_mcp_status(req, ns)
+        await handler(req, ns)
     except asyncio.CancelledError:
         raise
     except BaseException as exc:  # noqa: BLE001 - one broken lane request fails alone
         rid = req["id"]
         try:
-            _send(_error_event(rid, exc))
-            _send({"event": "done", "id": rid, "status": "error"})
+            error = _error_event(rid, exc)
+            _send(error)
+            # The done frame carries the error text too: the host settles
+            # lane waiters by the done event alone.
+            text = f"{error['ename']}: {error['evalue']}" if error["evalue"] else error["ename"]
+            _send({"event": "done", "id": rid, "status": "error", "error": text})
         except BaseException:
             pass
 
 
-def _spawn_mcp_status_lane(req: dict[str, Any], ns: dict[str, Any]) -> None:
-    """Hand one `mcp_status` request to the dedicated lane.
+def _spawn_mcp_lane(
+    handler: Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]], req: dict[str, Any], ns: dict[str, Any]
+) -> None:
+    """Hand one MCP request (`mcp_status` or `mcp_call`) to the dedicated lane.
 
     `mcp_status` opens and lists the configured generic servers (the eager
     background settle and the connections view both ride it), and a slow or
-    unreachable server can hold it for the whole per-server timeout. Awaiting
-    it inline on the execution queue would park the user's first python cell
+    unreachable server can hold it for the whole per-server timeout; a host
+    `mcp_call` (the `dyn` tool) can likewise run for its whole timeout. Awaiting
+    either inline on the execution queue would park the user's first python cell
     behind a server handshake that no cell asked for (finding: the eager
     settle must never contend with the user's first-turn path; the join point
     stays at first use through the registry's per-server locks). The lane task
     runs on the same loop (the registry dispatch joins concurrent listings
     and an early user call onto the same in-flight open), so ordering between
-    cells is untouched — only status work stops occupying the cell queue.
+    cells is untouched — only MCP work stops occupying the cell queue.
     """
-    task = asyncio.get_running_loop().create_task(_mcp_status_lane(req, ns))
+    task = asyncio.get_running_loop().create_task(_mcp_lane(handler, req, ns))
     _mcp_status_tasks.add(task)
     task.add_done_callback(_mcp_status_tasks.discard)
 
@@ -1464,9 +1507,13 @@ async def _serve(queue: asyncio.Queue[dict[str, Any]], ns: dict[str, Any]) -> No
         elif rtype == "list_names":
             await _handle_request(_handle_list_names, req, ns)
         elif rtype == "mcp_status":
-            # The dedicated lane (see `_spawn_mcp_status_lane`): status/open
+            # The dedicated lane (see `_spawn_mcp_lane`): status/open
             # work never occupies the execution queue.
-            _spawn_mcp_status_lane(req, ns)
+            _spawn_mcp_lane(_handle_mcp_status, req, ns)
+        elif rtype == "mcp_call":
+            _spawn_mcp_lane(_handle_mcp_call, req, ns)
+        elif rtype == "mcp_resource":
+            _spawn_mcp_lane(_handle_mcp_resource, req, ns)
 
 
 def _handle_bash_activity(req: dict[str, Any]) -> None:
@@ -1523,6 +1570,9 @@ _REQUIRED_FIELDS = {
     # mcp_status's server list is a JSON array, so only its id is a
     # string-required field; the handler validates the list itself.
     "mcp_status": ("id",),
+    # mcp_call's arguments are a JSON object; the handler validates them.
+    "mcp_call": ("id", "server", "tool"),
+    "mcp_resource": ("id", "server"),
     "bash_activity": ("id", "action"),
     "factory_activity": ("id", "action"),
     "shutdown": (),

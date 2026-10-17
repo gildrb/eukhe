@@ -34,6 +34,8 @@ event.
 | `restore` | `{"type":"restore","id":str,"path":str}` |
 | `list_names` | `{"type":"list_names","id":str}` |
 | `mcp_status` | `{"type":"mcp_status","id":str,"servers":[str,...],"timeout_ms"?:number}` — host-side view query: per-server tool listing (opens each server on demand, bounded by `timeout_ms` per server; default 10s); the `done` frame carries `connections: [{server, tools: [{name, description}] | null, error: str | null}]` |
+| `mcp_call` | `{"type":"mcp_call","id":str,"server":str,"tool":str,"arguments"?:object|null,"timeout_ms"?:number}` — host-side MCP tool call (the `dyn` tool) on the same dedicated lane as `mcp_status`, bounded by `timeout_ms` (default 60s); the `done` frame carries `result` (JSON-safe; non-JSON values stringified). A failed lane request (either type) emits an `error` event and a `done` with `status: "error"` and `error: "<ename>: <evalue>"` |
+| `mcp_resource` | `{"type":"mcp_resource","id":str,"server":str,"uri"?:str,"timeout_ms"?:number}` — host-side MCP resource request (the `read mcp://` URL) on the same dedicated lane, bounded by `timeout_ms` (default 60s). Without `uri` the `done` frame's `result` is the server's listing `[{uri, name, mimeType, description}]`; with it, the resource's parts: `[{uri, mimeType, text}]` for text, `[{uri, mimeType, size}]` (bytes, no data) for binary. A failure is a `done` with `status: "error"` and `error` |
 | `bash_activity` | `{"type":"bash_activity","id":str,"action":"list"|"tail"|"kill","activityId"?:str,"lines"?:int}` — out-of-band even during a running cell; tail lines 1–200, response capped at 16 KiB; opaque IDs resolve only against this kernel’s handles |
 | `shutdown` | `{"type":"shutdown","id"?:str}` |
 

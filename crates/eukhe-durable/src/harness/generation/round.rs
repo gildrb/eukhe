@@ -25,6 +25,7 @@ use crate::harness::live::run::{
     append_assistant, create_generation, hand_over, start_run, timestamp,
 };
 use crate::harness::live::{child_draft, end_run, run_task_id, ToolSlot, ToolSlotStatus, LIVE_DOC};
+use crate::harness::registry::{RosterChange, RosterFixed};
 use crate::harness::tool::{
     append_tool_result, harness_error, ToolResultMeta, ToolTaskInput, ToolTaskResult,
 };
@@ -492,6 +493,12 @@ pub(super) async fn finish_tool_round(
                 let mut boundary =
                     prepare_boundary(&tx, conversation_id, queue_modes(&runtime)).await?;
                 if !added.is_empty() {
+                    if runtime.registry().roster().is_some() {
+                        return Err(RosterFixed {
+                            change: RosterChange::AddTools(added),
+                        }
+                        .into());
+                    }
                     add_tools(&tx, conversation_id, &added).await?;
                 }
                 let live = tx.doc(&LIVE_DOC, conversation_id).await?;

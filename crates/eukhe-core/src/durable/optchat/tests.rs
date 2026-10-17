@@ -566,7 +566,8 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                         },
                         "n": { "type": "integer", "minimum": 1 }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "title": "v2"
                 }),
             ),
             (
@@ -582,7 +583,8 @@ async fn zoom_and_date_keep_their_schemas_and_read_the_chat() {
                         },
                         "id": { "type": "integer", "minimum": 0 }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "title": "v1"
                 }),
             ),
         ]

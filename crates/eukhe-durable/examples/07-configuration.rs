@@ -224,7 +224,7 @@ pub async fn run(
         context,
     )
     .await?;
-    registry.uninstall(&files);
+    registry.uninstall(&files)?;
     writeln!(out, "files uninstalled: {}", tools(&root, context).await?)?;
     registry.install(files)?;
     writeln!(out, "files reinstalled: {}", tools(&root, context).await?)?;

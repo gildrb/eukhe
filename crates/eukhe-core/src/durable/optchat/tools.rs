@@ -54,19 +54,22 @@ pub(crate) fn memory_tools(memory: &Memory) -> Vec<Arc<ToolRegistration>> {
     let zoom = ToolRegistration::new(
         "zoom",
         ZOOM_TOOL_DESCRIPTION,
-        tool_contract::parameters([
-            (
-                "id",
-                Type::union([
-                    Type::integer_with(Options::new().set("minimum", 0)),
-                    Type::string(),
-                ]),
-            ),
-            (
-                "n",
-                Type::optional(Type::integer_with(Options::new().set("minimum", 1))),
-            ),
-        ]),
+        tool_contract::parameters(
+            2,
+            [
+                (
+                    "id",
+                    Type::union([
+                        Type::integer_with(Options::new().set("minimum", 0)),
+                        Type::string(),
+                    ]),
+                ),
+                (
+                    "n",
+                    Type::optional(Type::integer_with(Options::new().set("minimum", 1))),
+                ),
+            ],
+        ),
         move |params, api, cx| {
             let memory = zoom_memory.clone();
             async move {
@@ -88,7 +91,10 @@ pub(crate) fn memory_tools(memory: &Memory) -> Vec<Arc<ToolRegistration>> {
     let date = ToolRegistration::new(
         "date",
         DATE_TOOL_DESCRIPTION,
-        tool_contract::parameters([("id", Type::integer_with(Options::new().set("minimum", 0)))]),
+        tool_contract::parameters(
+            1,
+            [("id", Type::integer_with(Options::new().set("minimum", 0)))],
+        ),
         move |params, _api, _cx| {
             let memory = date_memory.clone();
             async move {
@@ -117,7 +123,7 @@ pub(crate) fn memory_tools(memory: &Memory) -> Vec<Arc<ToolRegistration>> {
 /// The name is ambiguous, or the registry or the agent's log cannot be
 /// read.
 #[tracing::instrument(name = "optchat.agent_chat", skip(reader, cx))]
-pub(super) async fn agent_chat(
+pub(crate) async fn agent_chat(
     reader: &(impl DocumentReader + ?Sized),
     conversation: ConversationId,
     name: &str,

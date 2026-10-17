@@ -1989,6 +1989,123 @@ class ReplTest(unittest.TestCase):
             self.assertEqual(done["reason"], "snapshot not found")
 
 
+class McpCallLaneTest(unittest.TestCase):
+    """In-process checks of the dedicated-lane `mcp_call` request."""
+
+    def test_mcp_call_lane_round_trip_and_failure(self):
+        sys.path.insert(0, SRC)
+        self.addCleanup(sys.path.remove, SRC)
+        import rlm.mcp as mcp_mod
+        import rlm.repl as repl
+
+        calls = []
+
+        async def fake_call_tool(server, tool, arguments=None):
+            calls.append((server, tool, arguments))
+            if tool == "boom":
+                raise RuntimeError("server exploded")
+            return {"echo": arguments["message"], "odd": b"x"}
+
+        sent = []
+
+        async def main():
+            repl._spawn_mcp_lane(
+                repl._handle_mcp_call,
+                {"type": "mcp_call", "id": "c1", "server": "fx", "tool": "echo", "arguments": {"message": "hi"}, "timeout_ms": 5000},
+                {},
+            )
+            repl._spawn_mcp_lane(repl._handle_mcp_call, {"type": "mcp_call", "id": "c2", "server": "fx", "tool": "boom"}, {})
+            repl._spawn_mcp_lane(repl._handle_mcp_call, {"type": "mcp_call", "id": "c3", "server": 7, "tool": "echo"}, {})
+            await asyncio.wait(set(repl._mcp_status_tasks), timeout=5)
+
+        with mock.patch.object(mcp_mod, "call_tool", fake_call_tool), mock.patch.object(repl, "_send", sent.append):
+            asyncio.run(main())
+
+        dones = {event["id"]: event for event in sent if event["event"] == "done"}
+        self.assertEqual(
+            dones,
+            {
+                "c1": {"event": "done", "id": "c1", "status": "ok", "result": {"echo": "hi", "odd": "b'x'"}},
+                "c2": {"event": "done", "id": "c2", "status": "error", "error": "RuntimeError: server exploded"},
+                "c3": {
+                    "event": "done",
+                    "id": "c3",
+                    "status": "error",
+                    "error": "ValueError: mcp_call requires string server and tool names",
+                },
+            },
+        )
+        self.assertEqual(calls, [("fx", "echo", {"message": "hi"}), ("fx", "boom", None)])
+
+
+class McpResourceLaneTest(unittest.TestCase):
+    """In-process checks of the dedicated-lane `mcp_resource` request."""
+
+    def test_mcp_resource_lane_lists_reads_and_fails(self):
+        sys.path.insert(0, SRC)
+        self.addCleanup(sys.path.remove, SRC)
+        import rlm.mcp as mcp_mod
+        import rlm.repl as repl
+
+        calls = []
+
+        async def fake_list_resources(server):
+            calls.append(("list", server))
+            return [{"uri": "note://a", "name": "a", "mimeType": "text/plain", "description": ""}]
+
+        async def fake_read_resource(server, uri):
+            calls.append(("read", server, uri))
+            if uri == "boom://x":
+                raise RuntimeError("server exploded")
+            return [{"uri": uri, "mimeType": "text/plain", "text": "alpha"}]
+
+        sent = []
+
+        async def main():
+            for req in (
+                {"type": "mcp_resource", "id": "r1", "server": "fx", "timeout_ms": 5000},
+                {"type": "mcp_resource", "id": "r2", "server": "fx", "uri": "note://a"},
+                {"type": "mcp_resource", "id": "r3", "server": "fx", "uri": "boom://x"},
+                {"type": "mcp_resource", "id": "r4", "server": "fx", "uri": ""},
+            ):
+                repl._spawn_mcp_lane(repl._handle_mcp_resource, req, {})
+            await asyncio.wait(set(repl._mcp_status_tasks), timeout=5)
+
+        with (
+            mock.patch.object(mcp_mod, "list_resources", fake_list_resources),
+            mock.patch.object(mcp_mod, "read_resource", fake_read_resource),
+            mock.patch.object(repl, "_send", sent.append),
+        ):
+            asyncio.run(main())
+
+        dones = {event["id"]: event for event in sent if event["event"] == "done"}
+        self.assertEqual(
+            dones,
+            {
+                "r1": {
+                    "event": "done",
+                    "id": "r1",
+                    "status": "ok",
+                    "result": [{"uri": "note://a", "name": "a", "mimeType": "text/plain", "description": ""}],
+                },
+                "r2": {
+                    "event": "done",
+                    "id": "r2",
+                    "status": "ok",
+                    "result": [{"uri": "note://a", "mimeType": "text/plain", "text": "alpha"}],
+                },
+                "r3": {"event": "done", "id": "r3", "status": "error", "error": "RuntimeError: server exploded"},
+                "r4": {
+                    "event": "done",
+                    "id": "r4",
+                    "status": "error",
+                    "error": "ValueError: mcp_resource uri must be a non-empty string or absent",
+                },
+            },
+        )
+        self.assertEqual(calls, [("list", "fx"), ("read", "fx", "note://a"), ("read", "fx", "boom://x")])
+
+
 class FinishRequestTest(unittest.TestCase):
     """In-process checks of the parked-interrupt bookkeeping on request finish."""
 

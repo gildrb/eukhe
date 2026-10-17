@@ -713,6 +713,7 @@ fn follow_state_tree(
             | DaemonClientEvent::SessionListItem { .. }
             | DaemonClientEvent::SessionListProgress { .. }
             | DaemonClientEvent::SideQuestionEvent { .. }
+            | DaemonClientEvent::ShellApproval { .. }
             | DaemonClientEvent::RosterUpdate { .. }
             | DaemonClientEvent::HeartbeatsChanged
             | DaemonClientEvent::SessionBinding { .. } => {}

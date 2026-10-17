@@ -1,13 +1,94 @@
-//! Application-owned registry of extensions (`harness/registry.ts`).
+//! Application-owned registry of extensions (`harness/registry.ts`), and
+//! the fixed tool roster of docs/harness.md S7.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use eukhe_types::pi_ai::{IndexMap, Tool};
+
 use super::agent::INSTRUCTIONS_KEY;
-use super::types::{BuiltinTasks, Extension, InstalledSection, InstalledTool, RegistryReader};
+use super::types::{
+    BuiltinTasks, Extension, InstalledSection, InstalledTool, RegistryReader, ToolCaller,
+};
 use crate::session::{SessionError, SessionResult, Unsubscribe};
 use crate::tasks::AnyTask;
+
+/// What would change a fixed roster.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RosterChange {
+    /// [`Registry::install`] of the extension with this name.
+    Install(String),
+    /// [`Registry::uninstall`] of the extension with this name.
+    Uninstall(String),
+    /// A conversation's `configure` of this `pi.agent` field (`tools`,
+    /// `modelTools` or `extensions`).
+    Configure(&'static str),
+    /// A tool round's `add_tools` of these tools.
+    AddTools(Vec<String>),
+}
+
+impl fmt::Display for RosterChange {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Install(name) => write!(formatter, "installing extension {name}"),
+            Self::Uninstall(name) => write!(formatter, "uninstalling extension {name}"),
+            Self::Configure(field) => write!(formatter, "configuring {field}"),
+            Self::AddTools(names) => write!(formatter, "adding tools {}", names.join(", ")),
+        }
+    }
+}
+
+/// A change of a fixed roster, rejected (docs/harness.md S7). It reaches
+/// callers as [`SessionError::Other`]; downcast to read the change.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "The tool roster of this session is fixed: {change} would change it. \
+     A tool that comes later goes behind the dynamic tool."
+)]
+pub struct RosterFixed {
+    pub change: RosterChange,
+}
+
+impl From<RosterFixed> for SessionError {
+    fn from(error: RosterFixed) -> Self {
+        Self::Other(Arc::new(error))
+    }
+}
+
+/// The tools of `extensions` the model may call, as declared, in install
+/// order; a later tool with a name replaces the earlier one in place, as
+/// agent resolution composes them.
+fn model_roster(extensions: &[Arc<Extension>]) -> Vec<Tool> {
+    let mut roster: IndexMap<&str, Tool> = IndexMap::new();
+    for tool in extensions
+        .iter()
+        .flat_map(|extension| extension.tools.iter())
+        .filter(|tool| {
+            tool.callers
+                .as_ref()
+                .is_none_or(|callers| callers.contains(&ToolCaller::Model))
+        })
+    {
+        roster.insert(tool.name.as_str(), tool.tool());
+    }
+    roster.into_values().collect()
+}
+
+/// Fails with [`RosterFixed`] when `roster` is fixed and `extensions` would
+/// offer the model other tools.
+fn keep_roster(
+    roster: Option<&Arc<[Tool]>>,
+    extensions: &[Arc<Extension>],
+    change: impl FnOnce() -> RosterChange,
+) -> SessionResult<()> {
+    match roster {
+        Some(fixed) if **fixed != *model_roster(extensions) => {
+            Err(RosterFixed { change: change() }.into())
+        }
+        Some(_) | None => Ok(()),
+    }
+}
 
 /// TS `/^[a-z][a-z0-9_-]*$/`.
 const SECTION_KEY_PATTERN: &str = "/^[a-z][a-z0-9_-]*$/";
@@ -27,6 +108,9 @@ struct RegistryState {
     tasks: Vec<AnyTask>,
     task_index: HashMap<String, usize>,
     builtins: BuiltinTasks,
+    /// The model-facing tools [`Registry::fix_roster`] fixed; `None` while
+    /// the roster is open.
+    roster: Option<Arc<[Tool]>>,
 }
 
 /// Immutable view of one published registry state (TS `RegistrySnapshot`).
@@ -57,12 +141,19 @@ impl RegistrySnapshot {
             tasks,
             task_index,
             builtins,
+            roster: None,
         }
     }
 
-    /// Build and validate the state of `extensions`.
-    fn new(extensions: Vec<Arc<Extension>>, builtins: BuiltinTasks) -> SessionResult<Self> {
+    /// Build and validate the state of `extensions`, with the roster
+    /// `roster`.
+    fn new(
+        extensions: Vec<Arc<Extension>>,
+        builtins: BuiltinTasks,
+        roster: Option<Arc<[Tool]>>,
+    ) -> SessionResult<Self> {
         let mut state = Self::builtins_only(builtins);
+        state.roster = roster;
         for extension in &extensions {
             for task in &extension.tasks {
                 let name = task.name();
@@ -84,6 +175,13 @@ impl RegistrySnapshot {
         Ok(Self {
             state: Arc::new(state),
         })
+    }
+
+    /// The model-facing tools [`Registry::fix_roster`] fixed, as declared;
+    /// `None` while the roster is open.
+    #[must_use]
+    pub fn roster(&self) -> Option<&[Tool]> {
+        self.state.roster.as_deref()
     }
 
     /// Installed extensions, in install order.
@@ -236,47 +334,75 @@ impl Registry {
     ///
     /// The extension has two tools with one name, two sections with one key,
     /// an invalid or reserved section key, or a task whose name is already
-    /// installed; nothing is published then.
+    /// installed; the roster is fixed and the install would change it
+    /// ([`RosterFixed`]). Nothing is published then.
     pub fn install(&self, extension: Arc<Extension>) -> SessionResult<()> {
         validate_extension(&extension)?;
-        let next = {
+        let (next, builtins, roster) = {
             let current = self.current();
             let installed = current.installed();
             let index = installed
                 .iter()
                 .position(|existing| existing.name == extension.name);
+            let name = extension.name.clone();
             let mut next = installed.to_vec();
             match index {
                 Some(index) => next[index] = extension,
                 None => next.push(extension),
             }
-            (next, current.builtins().clone())
+            let roster = current.state.roster.clone();
+            keep_roster(roster.as_ref(), &next, || RosterChange::Install(name))?;
+            (next, current.builtins().clone(), roster)
         };
-        self.publish(next.0, next.1)
+        self.publish(next, builtins, roster)
     }
 
     /// Remove the installed extension with `extension.name`, whichever object
     /// it is. A later install appends.
-    pub fn uninstall(&self, extension: &Extension) {
-        let next = {
+    ///
+    /// # Errors
+    ///
+    /// The roster is fixed and the extension offers the model a tool
+    /// ([`RosterFixed`]); nothing is published then.
+    pub fn uninstall(&self, extension: &Extension) -> SessionResult<()> {
+        let (next, builtins, roster) = {
             let current = self.current();
             let installed = current.installed();
             if !installed
                 .iter()
                 .any(|existing| existing.name == extension.name)
             {
-                return;
+                return Ok(());
             }
             let next: Vec<_> = installed
                 .iter()
                 .filter(|existing| existing.name != extension.name)
                 .cloned()
                 .collect();
-            (next, current.builtins().clone())
+            let roster = current.state.roster.clone();
+            keep_roster(roster.as_ref(), &next, || {
+                RosterChange::Uninstall(extension.name.clone())
+            })?;
+            (next, current.builtins().clone(), roster)
         };
-        // Removing an extension cannot introduce a task name collision.
-        if let Err(error) = self.publish(next.0, next.1) {
-            unreachable!("uninstall cannot make the registry invalid: {error}");
+        self.publish(next, builtins, roster)
+    }
+
+    /// Fix the model-facing roster at the tools the installed extensions
+    /// offer the model (docs/harness.md S7). From then on every request
+    /// sends that roster: an install or uninstall that would change it fails
+    /// with [`RosterFixed`], and so do a conversation's `configure` of its
+    /// tools or extensions and a tool round's `add_tools`. A tool that comes
+    /// later goes behind the application's dynamic tool.
+    pub fn fix_roster(&self) {
+        let (installed, builtins) = {
+            let current = self.current();
+            (current.installed().to_vec(), current.builtins().clone())
+        };
+        let roster = model_roster(&installed).into();
+        // The same extensions cannot introduce a task name collision.
+        if let Err(error) = self.publish(installed, builtins, Some(roster)) {
+            unreachable!("fixing the roster cannot make the registry invalid: {error}");
         }
     }
 
@@ -286,8 +412,9 @@ impl Registry {
         &self,
         extensions: Vec<Arc<Extension>>,
         builtins: BuiltinTasks,
+        roster: Option<Arc<[Tool]>>,
     ) -> SessionResult<()> {
-        let next = RegistrySnapshot::new(extensions, builtins)?;
+        let next = RegistrySnapshot::new(extensions, builtins, roster)?;
         *self.current() = next;
         let listeners: Vec<Listener> = self
             .inner

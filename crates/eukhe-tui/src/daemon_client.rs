@@ -123,6 +123,13 @@ pub enum DaemonClientEvent {
         active_session_id: String,
         event: Value,
     },
+    /// `shell_approval`: the session's `bash` tool asks whether one step
+    /// may run; the client answers with `answer_shell_approval` (the first
+    /// answer of any attached client wins).
+    ShellApproval {
+        active_session_id: String,
+        request: eukhe_types::shell::ShellApprovalRequest,
+    },
     /// `roster_update`: live roster deltas for subscribers (the agents
     /// view): changed entries upsert by agent id, `removed` deletes, and
     /// `resync` replaces the whole roster.
@@ -186,6 +193,8 @@ struct InboundFrame<'a> {
     resync: Option<&'a RawValue>,
     #[serde(borrow, default)]
     update: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    request: Option<&'a RawValue>,
 }
 
 /// The `meta` fields a session event's sequence rides on.
@@ -254,6 +263,12 @@ fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent
         "side_question_event" => Some(DaemonClientEvent::SideQuestionEvent {
             active_session_id: decode_string(frame.active_session_id),
             event: decode(frame.event).unwrap_or(Value::Null),
+        }),
+        // A question that does not decode is dropped: this client leaves
+        // it to the others (or to the detach, a denial).
+        "shell_approval" => decode(frame.request).map(|request| DaemonClientEvent::ShellApproval {
+            active_session_id: decode_string(frame.active_session_id),
+            request,
         }),
         "session_list_item" => Some(DaemonClientEvent::SessionListItem {
             session: decode(frame.session).unwrap_or(Value::Null),

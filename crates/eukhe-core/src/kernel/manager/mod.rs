@@ -54,6 +54,14 @@ const MAX_PROTOCOL_LINE_BYTES: usize = 32 * 1024 * 1024;
 /// misbehaving runtime from growing the dedup set forever.
 const MAX_HANDLED_HOST_REQUEST_IDS: usize = 1024;
 
+/// What a [`ReplKernelManager::mcp_resource`] request asks of a server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpResource<'a> {
+    /// The server's resource listing.
+    List,
+    /// The contents of the resource `uri`.
+    Read { uri: &'a str },
+}
 /// Progress callback for kernel bootstrap (`ensure_kernel_python`).
 pub type KernelBootstrapProgressHandler = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -501,6 +509,7 @@ mod startup;
 mod teardown;
 
 use requests::{append_capped, describe_failure, DroppedText, Signal};
+pub(crate) use startup::local_env;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -1087,6 +1096,116 @@ impl ReplKernelManager {
                 ));
                 None
             }
+        }
+    }
+
+    /// Calls one MCP tool on a configured generic server (the runtime
+    /// `mcp_call` request; the host `dyn` tool's backend) and returns the
+    /// tool's JSON result.
+    ///
+    /// Rides the same dedicated MCP lane as [`Self::mcp_tool_listing`]:
+    /// the done event settles by request id, so the call never occupies
+    /// the execution queue. The kernel bounds the call by `timeout_ms`;
+    /// the host waits that plus the lane's settle margin, so a wedged
+    /// reply never hangs the caller.
+    ///
+    /// # Errors
+    ///
+    /// The kernel isn't running, the frame can't be written, the call
+    /// doesn't settle inside its bound, or the server/tool call failed
+    /// (the kernel's error text).
+    pub async fn mcp_tool_call(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: &Value,
+        timeout_ms: u64,
+    ) -> Result<Value, String> {
+        let frame = json!({
+            "type": "mcp_call",
+            "server": server,
+            "tool": tool,
+            "arguments": arguments,
+            "timeout_ms": timeout_ms,
+        });
+        self.mcp_lane(frame, &format!("mcp tool call {server}/{tool}"), timeout_ms)
+            .await
+    }
+
+    /// Lists the resources of one configured generic MCP server, or reads
+    /// one of them (the runtime `mcp_resource` request; the `read mcp://`
+    /// URL's backend), on the same dedicated lane as
+    /// [`Self::mcp_tool_call`]. A listing is `[{uri, name, mimeType,
+    /// description}]`; a read is the resource's parts, `[{uri, mimeType,
+    /// text}]` for text and `[{uri, mimeType, size}]` for binary.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::mcp_tool_call`].
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub async fn mcp_resource(
+        &self,
+        server: &str,
+        request: McpResource<'_>,
+        timeout_ms: u64,
+    ) -> Result<Value, String> {
+        let mut frame = json!({
+            "type": "mcp_resource",
+            "server": server,
+            "timeout_ms": timeout_ms,
+        });
+        match request {
+            McpResource::List => {}
+            McpResource::Read { uri } => frame["uri"] = json!(uri),
+        }
+        self.mcp_lane(
+            frame,
+            &format!("mcp resource request to {server}"),
+            timeout_ms,
+        )
+        .await
+    }
+
+    /// Send `frame` (an MCP lane request; its id is added here) and wait
+    /// for its `done` frame: the kernel bounds the work by `timeout_ms`,
+    /// the host waits that plus the lane's settle margin. `label` names the
+    /// request in errors.
+    #[tracing::instrument(level = "debug", skip(self, frame))]
+    async fn mcp_lane(
+        &self,
+        mut frame: Value,
+        label: &str,
+        timeout_ms: u64,
+    ) -> Result<Value, String> {
+        if !self.is_running() {
+            return Err("the kernel is not running".to_string());
+        }
+        let request_id = uuid::Uuid::new_v4().to_string();
+        frame["id"] = json!(request_id);
+        let (tx, rx) = oneshot::channel();
+        lock(&self.inner.guarded)
+            .mcp_status_waiters
+            .insert(request_id.clone(), tx);
+        if let Err(error) = self.inner.write_line(&frame).await {
+            lock(&self.inner.guarded)
+                .mcp_status_waiters
+                .remove(&request_id);
+            return Err(format!("{label} could not reach the kernel: {error:#}"));
+        }
+        let bound_ms = timeout_ms.saturating_add(MCP_STATUS_SETTLE_MARGIN_MS);
+        let Ok(Ok(mut fields)) = tokio::time::timeout(Duration::from_millis(bound_ms), rx).await
+        else {
+            lock(&self.inner.guarded)
+                .mcp_status_waiters
+                .remove(&request_id);
+            return Err(format!("{label} did not settle within {bound_ms} ms"));
+        };
+        match fields.get("status").and_then(Value::as_str) {
+            Some("ok") => Ok(fields.get_mut("result").map_or(Value::Null, Value::take)),
+            status => Err(fields.get("error").and_then(Value::as_str).map_or_else(
+                || format!("{label} failed: {}", status.unwrap_or("unset status")),
+                str::to_string,
+            )),
         }
     }
 

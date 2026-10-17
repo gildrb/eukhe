@@ -250,9 +250,9 @@ pub fn create_heartbeat_prompt_message(
 ///   `{pid, command, exitCode}` in details; a later kernel read that
 ///   reaches the model first withdraws it through its details
 ///   (`bash.consumed`);
-/// - a detached `ipython` cell: a `job_settled` row carrying
-///   `[job-settled job:ID status:S]` plus the cell's bounded output, with
-///   `{job, status}` in details.
+/// - a detached `ipython` cell or `bash` tool script: a `job_settled` row
+///   carrying `[job-settled job:ID status:S]` plus its bounded output,
+///   with `{job, status}` in details.
 #[must_use]
 pub fn create_job_settled_message(
     settled: &JobSettled,
@@ -278,6 +278,11 @@ pub fn create_job_settled_message(
             )
         }
         JobSettled::Cell {
+            job,
+            status,
+            output,
+        }
+        | JobSettled::Shell {
             job,
             status,
             output,
@@ -392,6 +397,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                         | REFINEMENT_OUTCOME_CUSTOM_TYPE
                         | PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
                         | crate::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE
+                        | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE
                 ) {
                     continue;
                 }

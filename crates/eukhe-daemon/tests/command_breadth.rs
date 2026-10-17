@@ -569,6 +569,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "get_worker_liveness",
         r#"{"type": "get_worker_liveness", "activeSessionId": "sess"}"#,
     ),
+    (
+        "answer_shell_approval",
+        r#"{"type": "answer_shell_approval", "activeSessionId": "sess", "requestId": "r1", "verdict": "deny"}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -596,6 +600,7 @@ fn known_command_types_match_the_ts_list() {
                     | "list_kernel_bash"
                     | "tail_kernel_bash"
                     | "kill_kernel_bash"
+                    | "answer_shell_approval"
                     | "mark_anthropic_warning_shown"
                     | "get_chat_view"
                     | "get_memory"

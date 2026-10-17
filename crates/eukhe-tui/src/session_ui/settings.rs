@@ -1,11 +1,12 @@
 //! The settings concern: the `/settings` menu and its row-apply/persist
-//! switches, the `/import` confirm flow, and the fast/rlm-max-depth/
-//! reload command surface, plus the parked `ReloadNote` and
-//! `PendingConfirm` types.
+//! switches, the `/import` confirm flow and the `bash` step questions, and
+//! the fast/rlm-max-depth/reload command surface, plus the parked
+//! `ReloadNote` and `PendingConfirm` types.
 use super::{
     key_event_to_id, AgentView, DaemonCommand, Duration, KeyEvent, Map, PathBuf, Result, SessionUi,
     StatusKind, Value, UI_REQUEST_TIMEOUT_MS,
 };
+use eukhe_types::shell::ShellVerdict;
 
 /// The `/reload` task's report: the daemon reloaded the session's live
 /// inputs, or the failure message (TS `handleReloadCommand`'s outcome).
@@ -20,6 +21,12 @@ pub(super) enum PendingConfirm {
     /// The import's stored session cwd is gone: `Yes` retries with the
     /// fallback cwd (TS `promptForMissingSessionCwd`).
     ImportCwdFallback { path: String, fallback_cwd: String },
+    /// The `bash` tool's step question: `Yes` approves, `No`, escape, and
+    /// ctrl+c deny (`answer_shell_approval` to the asking session).
+    ShellApproval {
+        active_session_id: String,
+        request_id: String,
+    },
 }
 
 impl SessionUi {
@@ -74,30 +81,89 @@ impl SessionUi {
             let kb = view.editor.keybindings();
             confirm.handle_key(kb, &id)
         };
-        match action {
-            crate::confirm::ConfirmAction::None => {}
-            crate::confirm::ConfirmAction::Cancel => {
-                view.confirm = None;
-                self.pending_confirm = None;
+        // Escape and ctrl+c answer like `No`.
+        let yes = match action {
+            crate::confirm::ConfirmAction::None => {
+                self.dirty = true;
+                return Ok(());
             }
-            crate::confirm::ConfirmAction::Select(option) => {
-                let pending = self.pending_confirm.take();
-                view.confirm = None;
-                if option == "Yes" {
-                    match pending {
-                        Some(PendingConfirm::Import { path }) => {
-                            self.run_import(&path, None, view).await?;
-                        }
-                        Some(PendingConfirm::ImportCwdFallback { path, fallback_cwd }) => {
-                            self.run_import(&path, Some(&fallback_cwd), view).await?;
-                        }
-                        None => {}
-                    }
-                }
+            crate::confirm::ConfirmAction::Cancel => false,
+            crate::confirm::ConfirmAction::Select(option) => option == "Yes",
+        };
+        let pending = self.pending_confirm.take();
+        view.confirm = None;
+        let outcome = match pending {
+            Some(PendingConfirm::Import { path }) if yes => {
+                self.run_import(&path, None, view).await
             }
+            Some(PendingConfirm::ImportCwdFallback { path, fallback_cwd }) if yes => {
+                self.run_import(&path, Some(&fallback_cwd), view).await
+            }
+            Some(PendingConfirm::ShellApproval {
+                active_session_id,
+                request_id,
+            }) => {
+                let verdict = if yes {
+                    ShellVerdict::Approve
+                } else {
+                    ShellVerdict::Deny
+                };
+                self.answer_shell_approval(active_session_id, request_id, verdict, view)
+                    .await;
+                Ok(())
+            }
+            Some(PendingConfirm::Import { .. } | PendingConfirm::ImportCwdFallback { .. })
+            | None => Ok(()),
+        };
+        // A queued step question opens once no confirm is open (the import
+        // may have opened its cwd fallback).
+        if view.confirm.is_none() {
+            self.open_next_shell_approval(view);
         }
         self.dirty = true;
-        Ok(())
+        outcome
+    }
+
+    /// Open the oldest queued `shell_approval` question, if any.
+    pub(super) fn open_next_shell_approval(&mut self, view: &mut AgentView) {
+        let Some((active_session_id, request)) = self.shell_approvals.pop_front() else {
+            return;
+        };
+        view.confirm = Some(crate::confirm::ConfirmPanel::yes_no(
+            &format!("Allow shell step {}?", request.step),
+            &format!("{}: {}", request.effect.as_str(), request.command),
+        ));
+        self.pending_confirm = Some(PendingConfirm::ShellApproval {
+            active_session_id,
+            request_id: request.request_id,
+        });
+        self.dirty = true;
+    }
+
+    /// Send the user's verdict on one step question; a failure (another
+    /// client answered first, the session detached) lands as an error row.
+    async fn answer_shell_approval(
+        &mut self,
+        active_session_id: String,
+        request_id: String,
+        verdict: ShellVerdict,
+        view: &mut AgentView,
+    ) {
+        if let Err(error) = self
+            .bounded_request(
+                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                DaemonCommand::AnswerShellApproval {
+                    id: None,
+                    active_session_id,
+                    request_id,
+                    verdict,
+                    rest: Map::default(),
+                },
+            )
+            .await
+        {
+            self.error_row(&format!("Shell approval not sent: {error:#}"), view);
+        }
     }
 
     /// The import request and its outcomes (TS `handleImportCommand`'s

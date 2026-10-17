@@ -1,6 +1,7 @@
 //! Jobs (docs/harness.md S2): everything that runs long is one [`Job`]. A
-//! user bash is a job from its start; an `ipython` cell becomes one when
-//! its call outlives the blocking budget (ADR 0010). A job counts its output
+//! user bash is a job from its start; an `ipython` cell or a `bash` tool
+//! script becomes one when its call outlives the blocking budget (ADR
+//! 0010). A job counts its output
 //! under the session's output cap, reports exactly one end, and has a kill.
 //!
 //! The Bend model `bend/job.bend` is the specification. `LAWS.bend` section
@@ -51,15 +52,18 @@ pub enum JobKind {
     Cell,
     /// A user bash command (`!`, `execute_bash`, `execute_bash_and_wait`).
     UserBash,
+    /// A `bash` tool script whose call detached.
+    Shell,
 }
 
 impl JobKind {
-    /// The name: `cell` or `bash`.
+    /// The name: `cell`, `bash`, or `shell`.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::Cell => "cell",
             Self::UserBash => "bash",
+            Self::Shell => "shell",
         }
     }
 }

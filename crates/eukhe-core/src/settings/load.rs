@@ -65,6 +65,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "requestTiming",
     "trustedProjects",
     "gateway",
+    "shell",
 ];
 
 /// Extract each known field independently; ignore fields whose JSON type does

@@ -596,6 +596,17 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native extension, advertised by the `shell_approval`
+    /// capability: a client's answer to one `shell_approval` frame.
+    AnswerShellApproval {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        request_id: String,
+        verdict: crate::shell::ShellVerdict,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     TailKernelBash {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

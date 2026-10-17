@@ -11,6 +11,8 @@
 //! - [`grep`]: regex search rendered as `[path#TAG]` / `N:TEXT` rows that
 //!   become edit anchors.
 //! - [`glob`]: matching paths, newest first, as a folded listing.
+//! - [`Url`]: internal URLs (`repo://`, `skill://`, `agent://`, `memory://`)
+//!   whose `..` cannot leave the scheme's root.
 //! - [`rebase_content`]: byte-level three-way rebase of a stale edit onto the
 //!   current file.
 //! - [`apply_hashline`]: the hashline `edit` engine; writes go through the
@@ -33,7 +35,10 @@ mod read;
 mod rebase;
 mod scope;
 mod store;
+#[cfg(test)]
+mod testing;
 pub mod text;
+mod url;
 mod write;
 
 pub use documents::Documents;
@@ -60,4 +65,5 @@ pub use store::{
     DEFAULT_MAX_PATHS, DEFAULT_MAX_TOTAL_BYTES, DEFAULT_MAX_VERSIONS_PER_PATH,
     MAX_SNAPSHOT_FILE_BYTES, NOOP_HARD_LIMIT,
 };
+pub use url::{Located, Scheme, Url, UrlError};
 pub use write::{WriteDisposition, WriteError, WriteOutcome};

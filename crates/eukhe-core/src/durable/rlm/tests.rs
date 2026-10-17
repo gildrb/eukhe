@@ -36,25 +36,25 @@ use crate::durable::{
 use crate::kernel::state_snapshot::manifest_path_in;
 use eukhe_types::job::{CellStatus, JobId, JobSettled};
 
-fn cx() -> &'static Context {
+pub(crate) fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
 }
 
 /// Kernel boots and cells run in real time.
-const WAIT_MS: u64 = 90_000;
+pub(crate) const WAIT_MS: u64 = 90_000;
 
 use super::kernel_test_lock;
 
 /// Directories, models, and the faux provider of one session that survive a
 /// reopen, like a worker host's own objects.
-struct Fixture {
-    dir: TempDir,
-    faux: FauxProviderHandle,
+pub(crate) struct Fixture {
+    pub(crate) dir: TempDir,
+    pub(crate) faux: FauxProviderHandle,
     models: Models,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let dir = TempDir::new().expect("temp dir");
         for sub in ["agent", "work"] {
             std::fs::create_dir_all(dir.path().join(sub)).expect("fixture dir");
@@ -74,7 +74,10 @@ impl Fixture {
     }
 
     /// Open with `configure` applied to the config last.
-    async fn open_configured(&self, configure: impl FnOnce(&mut SessionConfig)) -> EukheSession {
+    pub(crate) async fn open_configured(
+        &self,
+        configure: impl FnOnce(&mut SessionConfig),
+    ) -> EukheSession {
         let mut config = SessionConfig::new(
             self.dir.path().join("agent"),
             self.dir.path().join("work"),
@@ -125,7 +128,7 @@ fn ipython(call_id: &str, code: &str) -> FauxResponseStep {
     .into()
 }
 
-fn text(reply: &str) -> FauxResponseStep {
+pub(crate) fn text(reply: &str) -> FauxResponseStep {
     faux_assistant_message(
         vec![faux_text(reply)],
         FauxAssistantMessageOptions::default(),
@@ -133,7 +136,7 @@ fn text(reply: &str) -> FauxResponseStep {
     .into()
 }
 
-async fn submit(session: &EukheSession, input: &str) -> SubmissionId {
+pub(crate) async fn submit(session: &EukheSession, input: &str) -> SubmissionId {
     session
         .root()
         .submit(InputSubmissionDraft::new(input), cx())
@@ -142,7 +145,7 @@ async fn submit(session: &EukheSession, input: &str) -> SubmissionId {
         .id()
 }
 
-async fn settle(session: &EukheSession, id: SubmissionId) -> SubmissionStatus {
+pub(crate) async fn settle(session: &EukheSession, id: SubmissionId) -> SubmissionStatus {
     session
         .harness()
         .submission(id, cx())
@@ -156,7 +159,7 @@ async fn settle(session: &EukheSession, id: SubmissionId) -> SubmissionStatus {
         .status()
 }
 
-async fn entries(session: &EukheSession) -> Vec<EntryRecord> {
+pub(crate) async fn entries(session: &EukheSession) -> Vec<EntryRecord> {
     let page = session
         .root()
         .entries(ConversationEntryQuery::default(), 1000, None, cx())
@@ -165,7 +168,7 @@ async fn entries(session: &EukheSession) -> Vec<EntryRecord> {
     page.items.into_iter().rev().collect()
 }
 
-fn results(entries: &[EntryRecord]) -> Vec<ToolResultMessage> {
+pub(crate) fn results(entries: &[EntryRecord]) -> Vec<ToolResultMessage> {
     entries
         .iter()
         .filter(|entry| entry.kind == "pi.tool-result")
@@ -178,7 +181,7 @@ fn results(entries: &[EntryRecord]) -> Vec<ToolResultMessage> {
         .collect()
 }
 
-fn result_text(message: &ToolResultMessage) -> String {
+pub(crate) fn result_text(message: &ToolResultMessage) -> String {
     message
         .content
         .iter()
@@ -660,6 +663,13 @@ async fn boundary_requests_schedule_and_the_requested_refinement_runs_after_the_
         text(&proposal),
         text("done"),
     ]);
+    // A one-turn session is too short to compact whatever the size of the
+    // roster's tool declarations, which count toward the kept tail.
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        r#"{"compaction":{"keepRecentTokens":1000000}}"#,
+    )
+    .expect("write settings.json");
     let session = fixture.open().await;
     let id = submit(&session, "go").await;
     assert_eq!(settle(&session, id).await, SubmissionStatus::Done);

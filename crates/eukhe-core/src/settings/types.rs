@@ -240,6 +240,16 @@ pub struct FactorySettings {
     pub enabled: Option<bool>,
 }
 
+/// `shell`: the shell tool's execution gate. An untrusted project may not
+/// set it (see `settings::trust`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellSettings {
+    /// The effects (`read`, `write`, `exec`, `net`) a shell command may
+    /// have without asking; unset is `read` only.
+    pub auto_effects: Option<Vec<String>>,
+}
+
 /// `gateway`: the chat gateways `eukhe gateway` runs. Global-only: a
 /// gateway routes a remote party into code execution on this machine, so
 /// no project scope may set it (see `settings::trust`).
@@ -426,6 +436,8 @@ pub struct Settings {
     /// Global-only: the chat gateways (`eukhe gateway`). A project-scope
     /// value is never read (see `settings::trust`).
     pub gateway: Option<GatewaySettings>,
+    /// `shell`: the shell tool's execution gate.
+    pub shell: Option<ShellSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

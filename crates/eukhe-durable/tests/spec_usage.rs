@@ -865,8 +865,8 @@ fn examples(app: &Arc<dyn App>) -> Examples {
                     registry.install(subagent)?;
                     registry.install(chat)?;
                     registry.install(skills_v2)?; // same name: conversations selecting skills render v2 at their next request
-                    registry.uninstall(&skills); // selecting conversations get a system delta removing its section; nothing is rewritten
-                                                 // Restart: the host installs its extensions again; stored names resolve against them.
+                    registry.uninstall(&skills)?; // selecting conversations get a system delta removing its section; nothing is rewritten
+                                                  // Restart: the host installs its extensions again; stored names resolve against them.
                     Ok(harness)
                 }
                 .boxed()

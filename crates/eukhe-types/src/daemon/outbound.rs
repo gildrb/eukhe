@@ -318,6 +318,16 @@ pub enum DaemonOutbound {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native, advertised by the `shell_approval` capability: the
+    /// session's `bash` tool asks the attached clients whether one step
+    /// may run. Unsequenced, like `side_question_event`: the first
+    /// `answer_shell_approval` for its request id wins.
+    ShellApproval {
+        active_session_id: String,
+        request: crate::shell::ShellApprovalRequest,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     /// Rust-native, advertised by the `state_tree` capability: the new
     /// records of the session state tree, sent only to the connections
     /// that sent `subscribe_state_tree` for the session. It carries no

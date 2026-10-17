@@ -125,6 +125,8 @@ pub struct Worker {
     recovery: Arc<Mutex<Option<WorkerRecoveryJournal>>>,
     /// Live side-question runs (registry, guards, event frames).
     side_questions: crate::side_question::SideQuestionManager,
+    /// The `bash` tool's open approval questions (`answer_shell_approval`).
+    shell_approvals: crate::shell_approval::ShellApprovals,
     /// Single-use peer-transport grants (worker memory only).
     pub(crate) peer_grants: PeerGrantStore,
     /// Compaction commands.
@@ -290,6 +292,11 @@ impl Worker {
             events.clone(),
             config.active_session_id.clone(),
         );
+        let shell_approvals = crate::shell_approval::ShellApprovals::new(
+            Arc::clone(&core),
+            events.clone(),
+            config.active_session_id.clone(),
+        );
         let compaction = crate::compaction::CompactionManager::new(
             session.clone(),
             events.clone(),
@@ -324,6 +331,7 @@ impl Worker {
             events,
             recovery,
             side_questions,
+            shell_approvals,
             peer_grants: PeerGrantStore::new(),
             compaction,
             tree_navigation,

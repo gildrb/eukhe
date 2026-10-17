@@ -1,7 +1,8 @@
 //! The documents functions behind both entry points: [`perform`] runs one
-//! decoded call on the session's documents, and the `fs.*` kernel host
-//! requests (`fs.read`, `fs.write`, `fs.edit`, `fs.grep`, `fs.glob`) repair
-//! the kernel's arguments by the function's contract, perform it, and reply
+//! decoded call on the session's documents (a `read` of an internal URL
+//! through [`super::urls`]), and the `fs.*` kernel host requests
+//! (`fs.read`, `fs.write`, `fs.edit`, `fs.grep`, `fs.glob`) repair the
+//! kernel's arguments by the function's contract, perform it, and reply
 //! `done` with the typed result and the repair warnings, or `rejected` with
 //! a reason and the model-facing message. Every reply carries the function
 //! revision (`read@1`, `edit@hl.1`).
@@ -10,19 +11,22 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_docs::{
     Documents, EditError, FileChange, GlobError, GlobOutput, GrepError, GrepOutput,
-    HashlineOutcome, Notice, ReadContent, ReadError, ReadView, WriteDisposition, WriteError,
-    WriteOutcome,
+    HashlineOutcome, Notice, ReadContent, ReadError, ReadView, Url, UrlError, WriteDisposition,
+    WriteError, WriteOutcome,
 };
-use eukhe_types::pi_ai::JsonObject;
+use eukhe_durable::harness::types::ToolExecutionApi;
+use eukhe_types::pi_ai::{ImageContent, JsonObject};
 use futures::FutureExt;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::task::JoinError;
 
 use super::contract::{EditArgs, Function, GlobArgs, GrepArgs, ReadArgs, WriteArgs};
-use super::DocumentsHost;
+use super::{urls, DocumentsHost};
 use crate::durable::{HostCall, HostRequestRegistry};
 
 /// Every request carries the kernel's working directory, so relative paths
@@ -43,13 +47,21 @@ pub(super) struct Rejection {
 }
 
 impl Rejection {
-    fn new(function: Function, reason: &'static str, error: &impl ToString) -> Self {
+    pub(super) fn new(function: Function, reason: &'static str, error: &impl ToString) -> Self {
         Self {
             version: function.version(),
             reason,
             message: error.to_string(),
         }
     }
+}
+
+/// A performed call: its typed result and, for a `memory://` message read
+/// whole, the message's images (the wire tool shows them; the kernel's
+/// reply carries the text only).
+pub(super) struct Performed {
+    pub(super) done: Done,
+    pub(super) images: Vec<ImageContent>,
 }
 
 #[derive(Serialize)]
@@ -91,11 +103,26 @@ impl Done {
 pub(super) struct ReadReply {
     version: &'static str,
     path: String,
-    absolute: PathBuf,
+    /// The file read; `None` for an internal URL read as text.
+    absolute: Option<PathBuf>,
     rendered: String,
     diags: Vec<String>,
     #[serde(flatten)]
     content: ReadReplyContent,
+}
+
+impl ReadReply {
+    /// An internal URL (`agent://`, `memory://`) read as `text`.
+    pub(super) fn text(url: String, text: String) -> Self {
+        Self {
+            version: Function::Read.version(),
+            path: url,
+            absolute: None,
+            rendered: text.clone(),
+            diags: Vec::new(),
+            content: ReadReplyContent::Text { text },
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -110,6 +137,10 @@ enum ReadReplyContent {
     },
     Directory {
         entries: Vec<DirEntryReply>,
+    },
+    /// What the session holds behind an internal URL, as text.
+    Text {
+        text: String,
     },
 }
 
@@ -183,7 +214,7 @@ fn notice_lines(notices: &[Notice]) -> Vec<String> {
     notices.iter().map(ToString::to_string).collect()
 }
 
-fn read_reply(view: ReadView) -> ReadReply {
+pub(super) fn read_reply(view: ReadView) -> ReadReply {
     let content = match view.content {
         ReadContent::File(file) => ReadReplyContent::File {
             tag: file.tag,
@@ -211,18 +242,27 @@ fn read_reply(view: ReadView) -> ReadReply {
         version: Function::Read.version(),
         diags: notice_lines(&view.diags),
         path: view.path,
-        absolute: view.absolute,
+        absolute: Some(view.absolute),
         rendered: view.rendered,
         content,
     }
 }
 
-fn read_rejection(error: &ReadError) -> &'static str {
+pub(super) fn read_rejection(error: &ReadError) -> &'static str {
     match error {
         ReadError::NotFound(_) => "not_found",
         ReadError::Selector(_) => "selector",
         ReadError::Binary { .. } => "binary",
         ReadError::Io { .. } => "io",
+        ReadError::Url(error) => url_rejection(error),
+    }
+}
+
+/// The rejection reason of an internal URL no root serves.
+pub(super) fn url_rejection(error: &UrlError) -> &'static str {
+    match error {
+        UrlError::UnknownScheme { .. } => "scheme",
+        UrlError::Escapes { .. } | UrlError::Leaves { .. } => "escapes",
     }
 }
 
@@ -355,9 +395,9 @@ fn decode<T: DeserializeOwned>(function: Function, args: JsonObject) -> Result<T
     })
 }
 
-/// Run one call whose arguments are already in the function's dialect,
-/// resolving relative paths against `cwd`. Blocking: file I/O.
-pub(super) fn perform(
+/// Run one call on `documents`, resolving relative paths against `cwd`.
+/// Blocking: file I/O.
+fn perform_blocking(
     documents: &Documents,
     function: Function,
     cwd: &Path,
@@ -402,23 +442,44 @@ pub(super) fn perform(
     }
 }
 
-/// Repair the kernel's arguments by the function's contract, then perform
-/// the call.
-fn kernel_reply(documents: &Documents, function: Function, cwd: &Path, args: JsonObject) -> Reply {
-    let repaired = match function.repair(args) {
-        Ok(repaired) => repaired,
-        Err(error) => return Reply::Rejected(Rejection::new(function, "arguments", &error)),
+/// Run one call whose arguments are already in the function's dialect,
+/// resolving relative paths against `cwd`: a `read` of an internal URL
+/// through [`urls::read`] (`api` is the tool call it runs in), the rest on
+/// a blocking thread. The outer error is a failed worker.
+#[tracing::instrument(name = "documents.perform", skip_all, fields(function = function.name()))]
+pub(super) async fn perform(
+    host: &Arc<DocumentsHost>,
+    function: Function,
+    cwd: PathBuf,
+    args: JsonObject,
+    api: Option<Arc<dyn ToolExecutionApi>>,
+    cx: &Context,
+) -> Result<Result<Performed, Rejection>, JoinError> {
+    let url = match function {
+        Function::Read => args
+            .get("path")
+            .and_then(Value::as_str)
+            .and_then(Url::parse),
+        Function::Write | Function::Edit | Function::Grep | Function::Glob => None,
     };
-    match perform(documents, function, cwd, repaired.arguments) {
-        Ok(done) => Reply::Done {
-            done,
-            warnings: repaired.repairs.iter().map(ToString::to_string).collect(),
-        },
-        Err(rejection) => Reply::Rejected(rejection),
+    match url {
+        Some(Ok(url)) => urls::read(host, api, cwd, url, cx).await,
+        Some(Err(error)) => Ok(Err(urls::url_error(&error))),
+        None => {
+            let host = Arc::clone(host);
+            tokio::task::spawn_blocking(move || {
+                perform_blocking(&host.documents, function, &cwd, args).map(|done| Performed {
+                    done,
+                    images: Vec::new(),
+                })
+            })
+            .await
+        }
     }
 }
 
-/// Serve one `fs.*` request on a blocking thread; relative paths resolve
+/// Serve one `fs.*` request: repair the kernel's arguments by the
+/// function's contract, then perform the call; relative paths resolve
 /// against the cwd the kernel sent with it (its `os.getcwd()`).
 async fn handle(
     host: Arc<DocumentsHost>,
@@ -433,10 +494,25 @@ async fn handle(
         "{request_type} cwd must be absolute, got {}",
         request.cwd.display()
     );
-    let reply = tokio::task::spawn_blocking(move || {
-        kernel_reply(&host.documents, function, &request.cwd, request.args)
-    })
-    .await?;
+    let reply = match function.repair(request.args) {
+        Err(error) => Reply::Rejected(Rejection::new(function, "arguments", &error)),
+        Ok(repaired) => match perform(
+            &host,
+            function,
+            request.cwd,
+            repaired.arguments,
+            call.call,
+            &BACKGROUND_CONTEXT,
+        )
+        .await?
+        {
+            Ok(performed) => Reply::Done {
+                done: performed.done,
+                warnings: repaired.repairs.iter().map(ToString::to_string).collect(),
+            },
+            Err(rejection) => Reply::Rejected(rejection),
+        },
+    };
     Ok(serde_json::to_value(reply)?)
 }
 

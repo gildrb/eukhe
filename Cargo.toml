@@ -8,6 +8,7 @@ members = [
     "crates/eukhe-durable",
     "crates/eukhe-models",
     "crates/eukhe-docs",
+    "crates/eukhe-shell",
     "crates/eukhe-core",
     "crates/eukhe-daemon",
     "crates/eukhe-tui",
@@ -47,6 +48,7 @@ eukhe-types = { path = "crates/eukhe-types" }
 eukhe-chord = { path = "crates/eukhe-chord" }
 eukhe-ai = { path = "crates/eukhe-ai" }
 eukhe-durable = { path = "crates/eukhe-durable" }
+eukhe-shell = { path = "crates/eukhe-shell" }
 thiserror = "2"
 futures = "0.3"
 toml = "0.9"

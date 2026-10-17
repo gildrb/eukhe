@@ -26,6 +26,7 @@ import ./bend/proof_cvar.bend as Cvars
 import ./bend/proof_director.bend as Directors
 import ./bend/proof_infer.bend as Infer
 import ./bend/proof_quirks.bend as Quirks
+import ./bend/proof_tools.bend as Tools
 
 # (a) The view
 
@@ -458,3 +459,47 @@ def Laws.guard_keeps_others(xs, k, calm):
 
 def Laws.compact_starts_early(xs, m, lim, small, steps):
   Infer.pi.compact_starts_early(xs, m, lim, small, steps)
+
+# (S7) The tool surface
+
+def Laws.roster_fixed(es, s):
+  Tools.pl.roster_fixed(es, s)
+
+def Laws.roster_sent_fixed(es, r, d):
+  Tools.pl.roster_sent_fixed(es, r, d)
+
+def Laws.dyn_reaches_joined(s, t):
+  Tools.pl.dyn_reaches_joined(s, t)
+
+def Laws.dyn_drops_quit(s, t):
+  Tools.pl.dyn_drops_quit(s, t)
+
+def Laws.schema_has_intent(s):
+  Tools.pl.schema_has_intent(s)
+
+def Laws.schema_versioned(s):
+  Tools.pl.schema_versioned(s)
+
+def Laws.schema_keeps_params(s, x, has):
+  Tools.pl.schema_keeps_params(s, x, has)
+
+def Laws.schema_build_idempotent(s):
+  Tools.pl.schema_build_idempotent(s)
+
+def Laws.path_rejects_escape(segs, out):
+  Tools.pl.path_rejects_escape(segs, out)
+
+def Laws.path_resolves_inside(segs, inside):
+  Tools.pl.path_resolves_inside(segs, inside)
+
+def Laws.gate_prefix(ss, auto, ans):
+  Tools.pl.gate_prefix(ss, auto, ans)
+
+def Laws.gate_needs_yes(ss, auto, ans):
+  Tools.pl.gate_needs_yes(ss, auto, ans)
+
+def Laws.gate_deny_stops(pre, s, post, auto, ans, free, held):
+  Tools.pl.gate_deny_stops(pre, s, post, auto, ans, free, held)
+
+def Laws.gate_finish_runs_all(ss, auto, ans, fin):
+  Tools.pl.gate_finish_runs_all(ss, auto, ans, fin)

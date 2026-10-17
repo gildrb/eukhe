@@ -15,10 +15,10 @@ use eukhe_durable::harness::types::{
     ToolExecutionApi, ToolExecutionMode, ToolExecutionResult, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
+use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
 
 use super::contract::Function;
-use super::requests::perform;
+use super::requests::{perform, Performed};
 use super::DocumentsHost;
 use crate::durable::bounded_output::BoundedOutput;
 use crate::durable::HostDeps;
@@ -56,9 +56,16 @@ pub(super) fn document_tool(
     define_tool(registration)
 }
 
-fn text_result(text: String, is_error: bool, details: serde_json::Value) -> ToolExecutionResult {
+fn text_result(
+    text: String,
+    images: Vec<ImageContent>,
+    is_error: bool,
+    details: serde_json::Value,
+) -> ToolExecutionResult {
+    let mut output = vec![UserContentBlock::Text(TextContent::new(text))];
+    output.extend(images.into_iter().map(UserContentBlock::Image));
     ToolExecutionResult {
-        output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+        output: Some(output),
         is_error: Some(is_error),
         details: Some(JsonValue::from(details)),
         ..ToolExecutionResult::default()
@@ -87,14 +94,13 @@ async fn execute(
         .cwd
         .clone()
         .map_or_else(|| deps.cwd.clone(), PathBuf::from);
-    let performed =
-        tokio::task::spawn_blocking(move || perform(&host.documents, function, &cwd, args))
-            .await
-            .map_err(|error| {
-                SessionError::error(format!("{} worker failed: {error}", function.name()))
-            })?;
+    let performed = perform(&host, function, cwd, args, Some(Arc::clone(&api)), cx)
+        .await
+        .map_err(|error| {
+            SessionError::error(format!("{} worker failed: {error}", function.name()))
+        })?;
     match performed {
-        Ok(done) => {
+        Ok(Performed { done, images }) => {
             let mut output = BoundedOutput::in_session(
                 deps.storage_dir.as_deref(),
                 &api.task_id().to_string(),
@@ -105,12 +111,12 @@ async fn execute(
             let details = serde_json::to_value(&done).map_err(SessionError::other)?;
             Ok(ToolExecutionResult {
                 diagnostics: bounded.map(|diagnostic| vec![diagnostic]),
-                ..text_result(text, false, details)
+                ..text_result(text, images, false, details)
             })
         }
         Err(rejection) => {
             let details = serde_json::to_value(&rejection).map_err(SessionError::other)?;
-            Ok(text_result(rejection.message, true, details))
+            Ok(text_result(rejection.message, Vec::new(), true, details))
         }
     }
 }

@@ -82,12 +82,13 @@ def _with_warnings(rendered: str, warnings: list[str]) -> str:
 
 @dataclass(frozen=True)
 class Doc:
-    """A read file or directory. ``text`` is the whole file (LF, no BOM);
+    """A read file or directory, or an internal URL read as text (``kind``
+    ``"text"``, ``absolute`` None). ``text`` is the whole file (LF, no BOM);
     ``header`` is the ``[path#TAG]`` an edit section starts with."""
 
     version: str
     path: str
-    absolute: str
+    absolute: str | None
     kind: str
     rendered: str
     diags: list[str]
@@ -211,7 +212,10 @@ def read(*args: Any, **kwargs: Any) -> Doc:
 
     ``path`` may carry a selector: ``"src/a.rs:50-120"``, ``":N+K"``,
     ``":raw"``. A file prints as ``[path#TAG]`` plus ``N:TEXT`` rows; the
-    shown lines become editable anchors.
+    shown lines become editable anchors. Internal URLs: ``repo://<path>``,
+    ``skill://<name>/<path>``, ``agent://<name|id>``, ``memory://[<id>[/<n>]]``
+    (``mcp://`` is the wire tool's; here use ``await mcp.read_resource``);
+    a ``..`` above a URL's root, or a symlink out of it, is rejected.
     """
     reply = _call("read", ("path",), args, kwargs)
     return Doc(

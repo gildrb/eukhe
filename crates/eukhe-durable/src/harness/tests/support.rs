@@ -241,7 +241,7 @@ pub(crate) struct Installed {
 
 impl Installed {
     pub(crate) fn dispose(&self) {
-        self.registry.uninstall(&self.extension);
+        self.registry.uninstall(&self.extension).unwrap();
     }
 }
 

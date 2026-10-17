@@ -21,7 +21,7 @@ pub(crate) enum AuthOutcome {
 }
 
 /// One outbound frame: the serialized JSON payload plus its private-frame
-/// `outboundType` (`session_event` or `side_question_event`), mirroring the
+/// `outboundType` (`session_event`, `side_question_event`, ...), mirroring the
 /// TS worker frame header. The supervisor fans frames out per its own
 /// routing (clients attached to the session).
 pub(crate) struct OutboundFrame {
@@ -45,6 +45,16 @@ impl OutboundFrame {
         OutboundFrame {
             payload,
             outbound_type: "side_question_event",
+            seq: 0,
+        }
+    }
+
+    /// `shell_approval`: one `bash` step's approval question, for the
+    /// supervisor to route to the session's attached clients.
+    pub(crate) fn shell_approval(payload: Vec<u8>) -> Self {
+        OutboundFrame {
+            payload,
+            outbound_type: crate::shell_approval::SHELL_APPROVAL_FRAME,
             seq: 0,
         }
     }
@@ -1148,6 +1158,7 @@ impl Worker {
                 core.attached_client_ids.retain(|entry| entry != id);
             }
         }
+        self.shell_approvals.release_if_unattached(&core);
     }
 
     pub(crate) fn handle_detach(&self, payload: &Value) -> DaemonResponse {
@@ -1182,6 +1193,7 @@ impl Worker {
         if !held_elsewhere {
             core.attached_client_ids.retain(|id| id != &client_id);
         }
+        self.shell_approvals.release_if_unattached(&core);
         drop(core);
         response_success(None, "detach", None)
     }

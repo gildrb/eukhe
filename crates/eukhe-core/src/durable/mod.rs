@@ -36,16 +36,18 @@ mod retry_outcome;
 pub mod rlm;
 pub(crate) mod session_commands;
 mod settings;
+mod shell;
 mod staging;
 mod state_tree;
 mod tool_contract;
+pub mod tool_surface;
 
 pub use admission_gate::AdmissionStateSink;
 pub use deps::{
     HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry, JobSettledSink,
     LateAgentMessageSink, McpLogin, ModelRequest, OpenedSession, ParentLink, PromptConfig,
-    ServiceStart, ServiceStop, SessionConfig, SessionRole, SessionStorage, SummaryDeltaSink,
-    TurnWait, TurnWaitSink,
+    ServiceStart, ServiceStop, SessionConfig, SessionRole, SessionStorage, ShellApprovalSink,
+    SummaryDeltaSink, TurnWait, TurnWaitSink,
 };
 pub use discovery::{
     list_sessions, most_recent_session_for_cwd, read_main_transcript, read_session_cwd,

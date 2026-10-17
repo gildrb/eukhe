@@ -13,12 +13,14 @@ use crate::entries::RESET_ENTRY;
 use crate::harness::agent::configure;
 use crate::harness::context::read_context;
 use crate::harness::live::run::{create_compaction, timestamp, CompactionInput};
+use crate::harness::registry::{RosterChange, RosterFixed};
 use crate::harness::scheduler::{ConversationAbortReach, InvocationBinding, TaskScheduler};
 use crate::harness::submissions::{SubmissionHandle, Submissions};
 use crate::harness::types::{
     Agent, AgentChange, CompactionReason, CompactionResult, ContextOptions, ContextView,
-    ConversationAbortOptions, ConversationCreateOptions, ConversationHandle, InputSubmissionDraft,
-    SettledSubmissionRecord, Submission, SubmissionAbort, SubmissionDraft, WriteSubmissionDraft,
+    ConversationAbortOptions, ConversationCreateOptions, ConversationHandle, FieldChange,
+    InputSubmissionDraft, SettledSubmissionRecord, Submission, SubmissionAbort, SubmissionDraft,
+    WriteSubmissionDraft,
 };
 use crate::session::{SessionResult, TransactionScope, Tx};
 use crate::types::{
@@ -84,12 +86,39 @@ impl Conversation {
     }
 
     /// `configure()` in its own commit.
+    ///
+    /// # Errors
+    ///
+    /// The registry's roster is fixed and the change sets the agent's
+    /// `tools`, `modelTools` or `extensions` ([`RosterFixed`]); nothing is
+    /// written then. Commit failures.
     #[must_use]
     pub fn configure(
         &self,
         change: AgentChange,
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<()>> {
+        if self.core.options.registry.snapshot().roster().is_some() {
+            let touched = [
+                ("tools", !matches!(change.tools, FieldChange::Keep)),
+                (
+                    "modelTools",
+                    !matches!(change.model_tools, FieldChange::Keep),
+                ),
+                (
+                    "extensions",
+                    !matches!(change.extensions, FieldChange::Keep),
+                ),
+            ]
+            .into_iter()
+            .find_map(|(field, touched)| touched.then_some(field));
+            if let Some(field) = touched {
+                let rejected = RosterFixed {
+                    change: RosterChange::Configure(field),
+                };
+                return future::ready(Err(rejected.into())).boxed();
+            }
+        }
         let id = self.id;
         self.core
             .session

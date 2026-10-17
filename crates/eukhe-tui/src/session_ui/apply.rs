@@ -261,6 +261,19 @@ impl SessionUi {
                     self.apply_side_question_event(&event, view);
                 }
             }
+            // The `bash` tool asks whether one step may run: asked at once,
+            // or queued behind the open confirm (answered in order).
+            DaemonClientEvent::ShellApproval {
+                active_session_id,
+                request,
+            } => {
+                if active_session_id == self.active_session_id {
+                    self.shell_approvals.push_back((active_session_id, request));
+                    if view.confirm.is_none() {
+                        self.open_next_shell_approval(view);
+                    }
+                }
+            }
             DaemonClientEvent::SessionClosed {
                 active_session_id,
                 reason,

@@ -169,7 +169,7 @@ fn glob_until(
     {
         return Err(GlobError::RootSearch);
     }
-    if let Some(scheme) = inputs.iter().find_map(|input| url_scheme(input)) {
+    if let Some(scheme) = inputs.iter().find_map(|input| crate::url::scheme_of(input)) {
         return Err(GlobError::UnsupportedScheme { scheme });
     }
 
@@ -337,17 +337,6 @@ fn split_inputs(root: &Path, raw: &str) -> Result<Vec<String>, GlobError> {
     } else {
         Ok(inputs)
     }
-}
-
-/// The lowercase scheme of a `scheme://` input.
-fn url_scheme(input: &str) -> Option<String> {
-    let (scheme, _) = input.split_once("://")?;
-    let mut bytes = scheme.bytes();
-    let valid = bytes
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic())
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-'));
-    valid.then(|| scheme.to_ascii_lowercase())
 }
 
 /// Splits an input at its first glob segment into a base directory and a

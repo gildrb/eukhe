@@ -95,6 +95,7 @@ pub mod session_stats;
 pub mod session_store;
 pub mod session_usage;
 pub(crate) mod setting_switches;
+pub(crate) mod shell_approval;
 pub mod side_question;
 mod signal_drain;
 pub mod snapshot_stream;

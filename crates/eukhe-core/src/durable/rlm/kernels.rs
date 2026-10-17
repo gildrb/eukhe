@@ -83,6 +83,22 @@ fn skills_notice(errors: &UnavailablePythonSkills) -> CustomNotice {
     )
 }
 
+/// What the session adds to the environment of its kernels and of the
+/// `bash` tool's external steps: the agent dir, and the chat-memory flag
+/// (a chat-memory session remembers through the chat: the kernel's
+/// `rlm.harness` holds tools only).
+pub(crate) fn session_env(deps: &HostDeps) -> HashMap<String, String> {
+    let mut env = HashMap::with_capacity(2);
+    env.insert(
+        "EUKHE_CODING_AGENT_DIR".to_string(),
+        deps.agent_dir.to_string_lossy().to_string(),
+    );
+    if deps.memory.is_some() {
+        env.insert("EUKHE_CHAT_MEMORY".to_string(), "1".to_string());
+    }
+    env
+}
+
 /// The per-conversation kernels of one session.
 pub(crate) struct KernelPool {
     deps: Weak<HostDeps>,
@@ -160,16 +176,7 @@ impl KernelPool {
                 lock(&notices).push(skills_notice(errors));
             })
         };
-        let mut env = HashMap::with_capacity(2);
-        env.insert(
-            "EUKHE_CODING_AGENT_DIR".to_string(),
-            deps.agent_dir.to_string_lossy().to_string(),
-        );
-        // A chat-memory session remembers through the chat: the kernel's
-        // `rlm.harness` holds tools only.
-        if deps.memory.is_some() {
-            env.insert("EUKHE_CHAT_MEMORY".to_string(), "1".to_string());
-        }
+        let env = session_env(&deps);
         let dispatch = Arc::new(RegistryDispatch {
             registry: deps.host_requests.clone(),
             extra: deps.extra_host_handlers.clone(),

@@ -344,7 +344,7 @@ async fn keeps_an_abandoned_task_whose_definition_is_missing_waiting_until_it_is
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    setup.registry.uninstall(&late);
+    setup.registry.uninstall(&late).unwrap();
     let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     let worker = lock(&worker_id).expect("the worker was created");
@@ -398,7 +398,7 @@ async fn orphans_an_abandoned_task_whose_definition_is_missing_once_an_abort_is_
     started.wait().await;
     opened.harness.close(context()).await.unwrap();
 
-    setup.registry.uninstall(&gone);
+    setup.registry.uninstall(&gone).unwrap();
     let opened = open_jsonl(&path, &setup).await;
     opened.harness.resume().unwrap();
     let worker = lock(&worker_id).expect("the worker was created");

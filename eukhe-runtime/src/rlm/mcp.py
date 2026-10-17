@@ -5,6 +5,8 @@ Two surfaces, one module:
 - Dispatch: ``list_tools(connection)`` / ``call_tool(connection, tool, arguments)``
   open a configured MCP server (host-resolved via ``mcp.config``), discover its
   tools, and call them. Adding a service is data, not a new Python module.
+  ``list_resources(connection)`` / ``read_resource(connection, uri)`` list and
+  read the server's resources (the host ``read mcp://`` URL).
 - Discovery: ``list_plugins`` / ``search_plugins`` (host-owned catalog),
   ``list_connections`` (the user's actual connections), ``search_tools`` /
   ``describe_tool`` (live tool metadata). Inventory calls are bounded and never
@@ -18,6 +20,7 @@ Two surfaces, one module:
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import hashlib
 import io
@@ -44,7 +47,9 @@ __all__ = [
     "describe_tool",
     "list_connections",
     "list_plugins",
+    "list_resources",
     "list_tools",
+    "read_resource",
     "reload",
     "search_plugins",
     "search_tools",
@@ -393,6 +398,56 @@ class _Generation:
                 result = await self.session.call_tool(tool, arguments)
         return _parse_result(result)
 
+    async def resources(self) -> list[dict[str, Any]]:
+        """The server's resources (``resources/list``), following its cursors
+        for at most ``_MAX_TOOL_PAGES`` pages and stopping at a repeated one."""
+        resources: list[dict[str, Any]] = []
+        cursors: set[str] = set()
+        cursor: str | None = None
+        async with self._call_lock:
+            async with asyncio.timeout(self.call_timeout):
+                for _ in range(_MAX_TOOL_PAGES):
+                    response = await self._list_resources_page(cursor)
+                    for resource in getattr(response, "resources", None) or []:
+                        resources.append(
+                            {
+                                "uri": str(getattr(resource, "uri", "")),
+                                "name": getattr(resource, "name", "") or "",
+                                "mimeType": _mime_type(resource),
+                                "description": getattr(resource, "description", "") or "",
+                            }
+                        )
+                    cursor = getattr(response, "next_cursor", None) or getattr(response, "nextCursor", None)
+                    if not isinstance(cursor, str) or not cursor or cursor in cursors:
+                        break
+                    cursors.add(cursor)
+        return resources
+
+    async def _list_resources_page(self, cursor: str | None) -> Any:
+        if cursor is None:
+            return await self.session.list_resources()
+        from mcp.types import PaginatedRequestParams
+
+        return await self.session.list_resources(params=PaginatedRequestParams(cursor=cursor))
+
+    async def read_resource(self, uri: str) -> list[dict[str, Any]]:
+        """One resource's contents (``resources/read``): a text part keeps its
+        text; a binary part is described by its size and mime type only."""
+        async with self._call_lock:
+            async with asyncio.timeout(self.call_timeout):
+                result = await self.session.read_resource(uri)
+        contents: list[dict[str, Any]] = []
+        for part in getattr(result, "contents", None) or []:
+            entry = {"uri": str(getattr(part, "uri", uri)), "mimeType": _mime_type(part)}
+            text = getattr(part, "text", None)
+            if isinstance(text, str):
+                entry["text"] = text
+            else:
+                blob = getattr(part, "blob", None) or ""
+                entry["size"] = len(base64.b64decode(blob)) if isinstance(blob, str) else len(blob)
+            contents.append(entry)
+        return contents
+
     async def close(self) -> None:
         lifecycle = self._lifecycle
         if lifecycle is None:
@@ -505,13 +560,24 @@ class _Registry:
         return await self._tracked(operation)
 
     async def call(self, server: str, tool: str, arguments: dict[str, Any]) -> Any:
-        async def operation() -> Any:
+        return await self._on(server, lambda generation: generation.call(tool, arguments))
+
+    async def resources(self, server: str) -> list[dict[str, Any]]:
+        return await self._on(server, lambda generation: generation.resources())
+
+    async def read_resource(self, server: str, uri: str) -> list[dict[str, Any]]:
+        return await self._on(server, lambda generation: generation.read_resource(uri))
+
+    async def _on(self, server: str, work: Callable[[_Generation], Awaitable[_T]]) -> _T:
+        """Run `work` on `server`'s open generation, under its lock."""
+
+        async def operation() -> _T:
             self._accepting_work()
             _validate_name(server, "server")
             lock = self._locks.setdefault(server, asyncio.Lock())
             async with lock:
                 generation = await self._get_locked(server)
-                return await generation.call(tool, arguments)
+                return await work(generation)
 
         return await self._tracked(operation)
 
@@ -627,6 +693,25 @@ async def call_tool(server: str, tool: str, arguments: dict[str, Any] | None = N
     if arguments is not None and not isinstance(arguments, dict):
         raise TypeError("arguments must be a dict or None")
     return await _dispatch(lambda: _registry.call(server, tool, arguments or {}))
+
+
+async def list_resources(server: str) -> list[dict[str, Any]]:
+    """The resources of `server`: ``[{uri, name, mimeType, description}]``."""
+    return await _dispatch(lambda: _registry.resources(server))
+
+
+async def read_resource(server: str, uri: str) -> list[dict[str, Any]]:
+    """The contents of resource `uri` of `server`: ``[{uri, mimeType, text}]``
+    for text parts, ``[{uri, mimeType, size}]`` (bytes) for binary parts."""
+    if not isinstance(uri, str) or not uri:
+        raise TypeError("uri must be a non-empty string")
+    return await _dispatch(lambda: _registry.read_resource(server, uri))
+
+
+def _mime_type(item: Any) -> str | None:
+    """A resource's or a resource part's mime type, across SDK spellings."""
+    mime = getattr(item, "mime_type", None)
+    return mime if mime is not None else getattr(item, "mimeType", None)
 
 
 async def reload(server: str | None = None) -> None:

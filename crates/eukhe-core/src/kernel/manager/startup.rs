@@ -16,6 +16,19 @@ use super::{
 /// Numbers each spawned kernel's orphan journal within this host process.
 static NEXT_ORPHAN_JOURNAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// The environment of a local kernel, and of every program the host runs
+/// for an agent the same way (the `bash` tool's external steps): this
+/// process's environment with `overlay` over it.
+pub(crate) fn local_env(overlay: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut env: HashMap<String, String> = std::env::vars().collect();
+    env.extend(
+        overlay
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
+    env
+}
+
 impl Inner {
     /// True when a teardown (or newer start) superseded the start that
     /// captured `generation`.
@@ -179,10 +192,7 @@ impl Inner {
             std::process::id(),
             NEXT_ORPHAN_JOURNAL.fetch_add(1, Ordering::Relaxed)
         ));
-        let mut env: HashMap<String, String> = std::env::vars().collect();
-        for (key, value) in &self.options.env {
-            env.insert(key.clone(), value.clone());
-        }
+        let mut env = local_env(&self.options.env);
         env.insert(
             "EUKHE_KERNEL_OWNER_PID".to_string(),
             std::process::id().to_string(),

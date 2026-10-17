@@ -32,7 +32,11 @@ pub fn canonical_key(absolute: &Path) -> PathBuf {
 }
 
 /// Drop `.` components and resolve `..` against the preceding component,
-/// without touching the filesystem.
+/// without touching the filesystem. This is filesystem semantics, not
+/// confinement: `..` at `/` stays at `/` (POSIX `/..` is `/`), and a
+/// relative path's leading `..` is dropped (callers join onto a root first,
+/// as node `path.resolve` does). Internal URLs never come here: their paths
+/// go through [`crate::Url::names`], which rejects a `..` above the root.
 #[must_use]
 pub fn lexical_normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();

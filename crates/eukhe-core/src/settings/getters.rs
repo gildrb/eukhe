@@ -556,4 +556,11 @@ impl SettingsManager {
     pub fn get_shell_command_prefix(&self) -> Option<String> {
         self.raw_text(&table::SHELL_COMMAND_PREFIX)
     }
+
+    /// `shell.autoEffects`: the effects (`read`, `write`, `exec`, `net`) a
+    /// shell command may have without asking.
+    #[must_use]
+    pub fn get_shell_auto_effects(&self) -> Vec<String> {
+        self.cvars().list(&table::SHELL_AUTO_EFFECTS)
+    }
 }

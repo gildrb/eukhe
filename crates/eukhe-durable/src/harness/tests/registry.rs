@@ -19,10 +19,11 @@ use super::support::{
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::harness::agent::{agent_hooks, resolve_agent, resolve_settings};
 use crate::harness::define::{define_extension, hook, section, wrap_section, wrap_tool};
+use crate::harness::registry::{RosterChange, RosterFixed};
 use crate::harness::types::{
     Agent, AgentState, Extension, ExtensionSelection, GenerationHooks, HarnessSettings,
     HookRegistration, ModelRef, PartialProgressPolicy, ProgressPolicy, PromptInput, PromptSection,
-    RegistryReader, RegistrySnapshot, ToolFilter, ToolHooks, ToolRegistration,
+    RegistryReader, RegistrySnapshot, ToolCaller, ToolFilter, ToolHooks, ToolRegistration,
 };
 use crate::session::{SessionError, SessionResult};
 use crate::tasks::{define_task, AnyTask, TaskDefinition};
@@ -201,8 +202,8 @@ fn installs_replaces_in_place_and_uninstalls_extensions_by_name() {
         Some("Read files")
     );
     // Uninstall matches the name, whichever object; a later install appends.
-    registry.uninstall(&a);
-    registry.uninstall(&a);
+    registry.uninstall(&a).unwrap();
+    registry.uninstall(&a).unwrap();
     assert_eq!(names(registry.snapshot().installed()), ["b"]);
     registry.install(Arc::clone(&a)).unwrap();
     assert_eq!(names(registry.snapshot().installed()), ["b", "a"]);
@@ -297,8 +298,67 @@ fn always_holds_the_built_in_tasks_which_are_not_an_extension() {
     with_custom.push(custom);
     assert_eq!(registry.snapshot().tasks(), with_custom);
     assert_eq!(registry.snapshot().task("app.custom"), with_custom.last());
-    registry.uninstall(&Extension::named("custom"));
+    registry.uninstall(&Extension::named("custom")).unwrap();
     assert_eq!(registry.snapshot().task("app.custom"), None);
+}
+
+#[test]
+fn a_fixed_roster_rejects_every_change_of_the_tools_the_model_sees() {
+    let registry = create_registry();
+    let extension = |name: &str, tools: Vec<Arc<ToolRegistration>>| {
+        Arc::new(Extension {
+            tools,
+            ..Extension::named(name)
+        })
+    };
+    registry
+        .install(extension("files", vec![tool("read")]))
+        .unwrap();
+    registry.fix_roster();
+    let rejection = |result: SessionResult<()>| {
+        let Err(SessionError::Other(error)) = result else {
+            panic!("not rejected");
+        };
+        error.downcast_ref::<RosterFixed>().cloned()
+    };
+    assert_eq!(
+        [
+            rejection(registry.install(extension("late", vec![tool("late")]))),
+            rejection(registry.uninstall(&Extension::named("files"))),
+            rejection(registry.install(extension(
+                "files",
+                vec![tool_described("read", "another description")]
+            ))),
+        ],
+        [
+            Some(RosterFixed {
+                change: RosterChange::Install("late".to_owned())
+            }),
+            Some(RosterFixed {
+                change: RosterChange::Uninstall("files".to_owned())
+            }),
+            Some(RosterFixed {
+                change: RosterChange::Install("files".to_owned())
+            }),
+        ]
+    );
+    // A tool only other tools call, and the same tools again, keep it.
+    let nested = tool_with("nested", |mut tool| {
+        tool.callers = Some(vec![ToolCaller::Tools]);
+        tool
+    });
+    registry.install(extension("nested", vec![nested])).unwrap();
+    registry
+        .install(extension("files", vec![tool("read")]))
+        .unwrap();
+    let snapshot = registry.snapshot();
+    assert_eq!(
+        (
+            snapshot.roster().map(<[_]>::to_vec),
+            names(snapshot.installed())
+        ),
+        (Some(vec![tool("read").tool()]), vec!["files", "nested"])
+    );
 }
 
 // ─── settings ───────────────────────────────────────────────────────────

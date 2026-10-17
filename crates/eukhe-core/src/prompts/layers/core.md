@@ -1,6 +1,6 @@
 # eukhe harness
 
-The eukhe harness's model tools are `ipython`, a persistent CPython REPL, and the file tools `read`, `edit`, `grep`, and `glob`, each documented in its own description. All other tools are "programmatic tools", functions inside the Python REPL called via "programmatic tool calling" (PTC). All programmatic tools are async unless described otherwise and can be run in the background. `await` works directly and globally in the REPL.
+The eukhe harness's model tools are `ipython`, a persistent CPython REPL, the file tools `read`, `edit`, `grep`, and `glob`, and `bash`, an in-process shell whose steps that write files, run other programs, or use the network wait for the user's approval, each documented in its own description. All other tools are "programmatic tools", functions inside the Python REPL called via "programmatic tool calling" (PTC). All programmatic tools are async unless described otherwise and can be run in the background. `await` works directly and globally in the REPL.
 
 The harness often sends messages to the agent. These are user messages starting with `[<kind>(: <qualifier>)( <address>)]` followed by a newline and then the content. They are not user-generated.
 

@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use crate::notice::{Notice, NoticeKind, Omitted, Unit};
 use crate::store::{EditStore, MAX_SNAPSHOT_FILE_BYTES};
 use crate::text::{normalize_to_lf, strip_bom};
+use crate::url::{Located, Url, UrlError};
 
 pub use listing::DirEntry;
 pub use selector::SelectorError;
@@ -44,6 +45,8 @@ pub enum ReadError {
         #[source]
         source: std::io::Error,
     },
+    #[error(transparent)]
+    Url(#[from] crate::url::UrlError),
 }
 
 /// One inclusive, one-based span of source lines.
@@ -103,9 +106,86 @@ pub(crate) fn read(
         let split = selector::split_path_and_selector(authored);
         (crate::path::resolve(cwd, home, split.path), split.selector)
     };
+    project_path(store, cwd, home, authored, absolute, None, selector)
+}
+
+/// Read the internal URL `url` (whose path may carry a `:selector`):
+/// `locate` turns the names the path reaches under its scheme's root into
+/// the file or directory to read and that root (`None`: there is none).
+/// The real path (symlinks followed) must stay under the root's real path,
+/// and the read opens that checked real path. Display paths stay relative
+/// to `cwd`.
+///
+/// # Errors
+///
+/// The path goes above its root, as written or through a symlink, `locate`
+/// finds nothing, the path or the root has no real path, or as [`read`].
+pub(crate) fn read_under(
+    store: &EditStore,
+    cwd: &Path,
+    home: Option<&Path>,
+    url: Url<'_>,
+    locate: impl Fn(&[&str]) -> Option<Located>,
+) -> Result<ReadView, ReadError> {
+    let authored = format!("{}://{}", url.scheme.name(), url.path);
+    let (located, path, selector) = match url.names().map(|names| locate(&names)) {
+        Ok(Some(literal)) if literal.path.exists() => (literal, url.path, None),
+        Ok(Some(_) | None) | Err(_) => {
+            let split = selector::split_path_and_selector(url.path);
+            let names = Url {
+                path: split.path,
+                ..url
+            }
+            .names()?;
+            let located = locate(&names).ok_or_else(|| ReadError::NotFound(authored.clone()))?;
+            (located, split.path, split.selector)
+        }
+    };
+    let real_root = std::fs::canonicalize(&located.root).map_err(|source| ReadError::Io {
+        display: display_path(&located.root, cwd, home),
+        source,
+    })?;
+    let real = std::fs::canonicalize(&located.path).map_err(|source| match source.kind() {
+        std::io::ErrorKind::NotFound => ReadError::NotFound(authored.clone()),
+        _ => ReadError::Io {
+            display: display_path(&located.path, cwd, home),
+            source,
+        },
+    })?;
+    if !real.starts_with(&real_root) {
+        return Err(UrlError::Leaves {
+            scheme: url.scheme.name(),
+            path: path.to_owned(),
+        }
+        .into());
+    }
+    project_path(
+        store,
+        cwd,
+        home,
+        &authored,
+        located.path,
+        Some(&real),
+        selector,
+    )
+}
+
+/// Project the file or directory at `absolute`, opened at `real` when
+/// given (the checked real path of `absolute`); `authored` names it in a
+/// not-found message.
+fn project_path(
+    store: &EditStore,
+    cwd: &Path,
+    home: Option<&Path>,
+    authored: &str,
+    absolute: PathBuf,
+    real: Option<&Path>,
+    selector: Option<&str>,
+) -> Result<ReadView, ReadError> {
+    let open = real.unwrap_or(&absolute);
     let selector = selector::parse_selector(selector)?;
     let display = display_path(&absolute, cwd, home);
-    let metadata = std::fs::metadata(&absolute).map_err(|source| match source.kind() {
+    let metadata = std::fs::metadata(open).map_err(|source| match source.kind() {
         std::io::ErrorKind::NotFound => ReadError::NotFound(authored.to_owned()),
         _ => ReadError::Io {
             display: display.clone(),
@@ -125,7 +205,7 @@ pub(crate) fn read(
                 [] | [_, _, ..] => return Err(SelectorError::directory_multi_range().into()),
             },
         };
-        let entries = listing::list(&absolute).map_err(|source| ReadError::Io {
+        let entries = listing::list(open).map_err(|source| ReadError::Io {
             display: display.clone(),
             source,
         })?;
@@ -138,7 +218,7 @@ pub(crate) fn read(
             diags: listing.diags,
         });
     }
-    let bytes = std::fs::read(&absolute).map_err(|source| ReadError::Io {
+    let bytes = std::fs::read(open).map_err(|source| ReadError::Io {
         display: display.clone(),
         source,
     })?;

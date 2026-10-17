@@ -142,8 +142,9 @@ impl JobNotices {
                 pid,
                 command,
             }),
-            // A cell's output rides its notice; no read withdraws it.
-            JobSettled::Cell { .. } => {}
+            // A cell's or script's output rides its notice; no read
+            // withdraws it.
+            JobSettled::Cell { .. } | JobSettled::Shell { .. } => {}
         }
         Ok(())
     }

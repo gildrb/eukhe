@@ -7,8 +7,8 @@ use crate::settings::types::{
     CompactionSettings, DirectorSettings, FactorySettings, GatewaySettings, ImageSettings,
     MarkdownSettings, MemorySettings, MermaidRenderingMode, ProviderRetrySettings,
     ProviderWaitSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, Settings,
-    SignalGatewaySettings, TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting,
-    TransportSetting, WarningSettings,
+    ShellSettings, SignalGatewaySettings, TerminalSettings, ThinkingBudgetsSettings,
+    ThinkingLevelSetting, TransportSetting, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -154,6 +154,9 @@ fn populated() -> Settings {
                 cli_path: Some("c".into()),
                 cwd: Some("d".into()),
             }),
+        }),
+        shell: Some(ShellSettings {
+            auto_effects: Some(vec![]),
         }),
         extra: serde_json::Map::new(),
     }

@@ -101,6 +101,7 @@ impl SessionUi {
             last_assistant_text: None,
             osc_sink: crate::clipboard::OscSink::Stdout,
             pending_confirm: None,
+            shell_approvals: std::collections::VecDeque::new(),
             provider_auth: options.provider_auth.clone(),
             pending_model_sign_in: None,
             auth_panel_notes,

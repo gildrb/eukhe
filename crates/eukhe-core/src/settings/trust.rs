@@ -237,6 +237,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         request_timing,
         trusted_projects,
         gateway,
+        shell,
         extra,
     } = document;
     let withheld = [
@@ -253,6 +254,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         ("sessionDir", session_dir.is_some()),
         ("trustedProjects", trusted_projects.is_some()),
         ("gateway", gateway.is_some()),
+        ("shell", shell.is_some()),
     ];
     let ignored_keys = withheld
         .into_iter()
@@ -322,6 +324,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         request_timing,
         trusted_projects: None,
         gateway: None,
+        shell: None,
         extra: serde_json::Map::new(),
     };
     (kept, ignored_keys)
