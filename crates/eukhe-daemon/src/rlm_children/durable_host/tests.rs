@@ -3,9 +3,10 @@
 //! child again after a parent restart, a settled child reports its answer,
 //! reply flag, and usage, a restarted parent's resumed watch fails a child
 //! whose run was interrupted (without waking one no worker hosts), the
-//! task prompt lands as the parent's spawn kickoff row, `rlm.rename`
-//! routes self and child renames, and an isolated child works on a copy
-//! of the parent's workspace handed back at its end.
+//! task prompt lands as the parent's spawn kickoff row (waiting out a
+//! supervisor restart), `rlm.rename` routes self and child renames, and an
+//! isolated child works on a copy of the parent's workspace handed back at
+//! its end.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -152,7 +153,13 @@ async fn fake_supervisor(shared: Shared) -> std::path::PathBuf {
         "eukhe-durable-host-{}.sock",
         uuid::Uuid::new_v4().simple()
     ));
-    let listener = bind_transport(&socket).await.unwrap();
+    serve_fake_supervisor(shared, &socket).await;
+    socket
+}
+
+/// Serve the fake supervisor on `socket`.
+async fn serve_fake_supervisor(shared: Shared, socket: &Path) {
+    let listener = bind_transport(socket).await.unwrap();
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
             let shared = Arc::clone(&shared);
@@ -182,7 +189,6 @@ async fn fake_supervisor(shared: Shared) -> std::path::PathBuf {
             });
         }
     });
-    socket
 }
 
 async fn host(shared: &Shared, agent_dir: &std::path::Path) -> SupervisorChildSessions {
@@ -622,6 +628,50 @@ async fn the_task_prompt_lands_as_the_parents_spawn_kickoff() {
             "fromRelationship": "parent",
         })
     );
+}
+
+/// A child prompt sent while the supervisor is down (`kill -9`: its stale
+/// socket refuses connects, and the workers live on for the restarted
+/// supervisor) waits for the supervisor to accept again: the child gets
+/// its prompt once, and the prompt never fails the child as undelivered.
+#[tokio::test]
+async fn a_prompt_waits_out_a_supervisor_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = Shared::default();
+    let socket = dir.path().join("supervisor.sock");
+    // The killed supervisor's socket file stays behind, refusing connects.
+    drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+    let sessions = SupervisorChildSessions::new(
+        Arc::new(crate::supervisor_link::SupervisorLink::new(socket.clone())),
+        dir.path().to_path_buf(),
+        "parent-live".to_owned(),
+    );
+    sessions.set_identity(ParentIdentity {
+        model: Some("mock/mock-1".to_owned()),
+        cwd: Some(dir.path().to_string_lossy().into_owned()),
+        session_id: Some("parent-session".to_owned()),
+        ..ParentIdentity::with_default_depth()
+    });
+    let mut prompt = sessions.prompt(RlmChildPromptRequest {
+        idempotency_key: "rlm:7:prompt".to_owned(),
+        session_id: CHILD_SESSION.to_owned(),
+        rlm_child_id: "sub-0192a000".to_owned(),
+        prompt: "Investigate".to_owned(),
+    });
+    // The refused connect fails at once; the prompt stays pending, waiting
+    // for the supervisor instead of failing.
+    assert!(
+        futures::poll!(prompt.as_mut()).is_pending(),
+        "a prompt against a down supervisor waits for it"
+    );
+    assert!(commands_of(&shared, "prompt").is_empty());
+    // The restarted supervisor binds the same path.
+    std::fs::remove_file(&socket).unwrap();
+    serve_fake_supervisor(Arc::clone(&shared), &socket).await;
+    prompt.await.unwrap();
+    let prompts = commands_of(&shared, "prompt");
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    assert_eq!(prompts[0]["admissionId"], "rlm:7:prompt");
 }
 
 /// `rlm.rename` over the supervisor: a self rename addresses this worker's

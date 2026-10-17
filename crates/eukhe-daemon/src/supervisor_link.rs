@@ -26,6 +26,24 @@ struct LinkTimeout;
 #[error("supervisor link write failed before the request was sent")]
 struct LinkWriteFailed;
 
+/// A connect that never reached a supervisor (nothing listens on the
+/// socket: the supervisor is down or restarting): no command was sent, so
+/// a retry once the supervisor accepts again is safe.
+#[derive(Debug, thiserror::Error)]
+#[error("connect supervisor {socket}")]
+struct LinkConnectFailed {
+    socket: String,
+    #[source]
+    source: Box<dyn std::error::Error + Send + Sync>,
+}
+
+/// Whether `error` is a link connect that reached no supervisor (see
+/// [`LinkConnectFailed`]): no command was sent.
+#[must_use]
+pub(crate) fn supervisor_unreachable(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<LinkConnectFailed>().is_some()
+}
+
 /// One request/response exchange over the supervisor client socket.
 struct LinkClient {
     reader: BufReader<Box<dyn AsyncReadHalf>>,
@@ -224,7 +242,10 @@ impl SupervisorLink {
     async fn connect(&self) -> Result<LinkClient> {
         let stream = connect_transport(&self.socket_path)
             .await
-            .with_context(|| format!("connect supervisor {}", self.socket_path.display()))?;
+            .map_err(|error| LinkConnectFailed {
+                socket: self.socket_path.display().to_string(),
+                source: error.into(),
+            })?;
         let (reader, writer) = stream.split();
         let mut client = LinkClient {
             reader: BufReader::new(reader),

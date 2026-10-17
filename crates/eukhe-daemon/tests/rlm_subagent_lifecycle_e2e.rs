@@ -624,6 +624,23 @@ fn restart_lane(restart: Restart, state: ChildAtRestart) {
                     .any(|row| row["id"] == json!(child_id) && row["status"] == "running")
                     .then_some(())
             });
+            // The row runs from the spawn on, before its task prompt is
+            // admitted: the restart must find the child mid-run, its
+            // prompt admitted (the held response keeps the run going).
+            let kid = wait_until(Duration::from_secs(30), "the kid worker", || {
+                client
+                    .roster()
+                    .into_iter()
+                    .find(|row| row["sessionName"] == "kid" && row["runtimeKind"] == "subagent")
+            });
+            let kid_active = kid["activeSessionId"].as_str().expect("kid id").to_owned();
+            wait_until(Duration::from_secs(30), "the kid's admitted task", || {
+                client
+                    .messages(&kid_active)
+                    .iter()
+                    .any(|message| message_text(message).contains("run the lane task"))
+                    .then_some(())
+            });
         }
         ChildAtRestart::ReportQueued => {
             assert_eq!(spawned["results"][0]["status"], "done", "{spawned}");

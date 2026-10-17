@@ -75,6 +75,12 @@ const INTERRUPTED_ERROR: &str =
 /// probes were failing (no worker hosts it and none is coming).
 const WORKER_EXITED_ERROR: &str = "Child worker exited: no live worker process hosts the child";
 
+/// The first pause before a child prompt retries a supervisor that refused
+/// its connect (a restart); each retry doubles it up to
+/// [`SUPERVISOR_RETRY_MAX`].
+const SUPERVISOR_RETRY_BASE: Duration = Duration::from_millis(100);
+const SUPERVISOR_RETRY_MAX: Duration = Duration::from_secs(2);
+
 /// Whether `child_dir`'s display entry names `child_id` and still says
 /// `running` (no settle completed it); a missing entry reads `false`.
 async fn display_running(child_dir: &Path, child_id: &str) -> Result<bool> {
@@ -465,35 +471,57 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // `agent_message` row; its content (the labeled task) is the
             // model context.
             let (content, kickoff) = this.spawn_kickoff(&request.rlm_child_id, &request.prompt);
-            this.durable_command(&request.session_id, PROMPT_TIMEOUT_MS, |selector| {
-                DaemonCommand::Prompt {
-                    id: None,
-                    active_session_id: selector.to_owned(),
-                    message: content.clone(),
-                    input: PromptInput {
-                        content: None,
-                        images: None,
-                        streaming_behavior: None,
-                        queue_if_busy: None,
-                        expand_prompt_templates: None,
-                        source: Some(json!("rpc")),
-                        agent_message_id: None,
-                        custom_message: Some(kickoff.clone()),
-                        queue_key: None,
-                        prefix_messages: None,
-                        // The child's submission dedupes by it: a rerun
-                        // after a parent crash admits nothing twice.
-                        admission_id: Some(key.clone()),
-                        rlm_notice_nonce: None,
-                        reply_to: None,
-                    },
-                    rest: Map::default(),
+            let make = |selector: &str| DaemonCommand::Prompt {
+                id: None,
+                active_session_id: selector.to_owned(),
+                message: content.clone(),
+                input: PromptInput {
+                    content: None,
+                    images: None,
+                    streaming_behavior: None,
+                    queue_if_busy: None,
+                    expand_prompt_templates: None,
+                    source: Some(json!("rpc")),
+                    agent_message_id: None,
+                    custom_message: Some(kickoff.clone()),
+                    queue_key: None,
+                    prefix_messages: None,
+                    // The child's submission dedupes by it: a rerun
+                    // after a parent crash admits nothing twice.
+                    admission_id: Some(key.clone()),
+                    rlm_notice_nonce: None,
+                    reply_to: None,
+                },
+                rest: Map::default(),
+            };
+            // A supervisor restart (its workers, this parent's and the
+            // child's, live through it) refuses the connect before any
+            // command is sent: the prompt waits for the supervisor to
+            // accept again, within its budget, instead of failing the
+            // child as undelivered.
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(PROMPT_TIMEOUT_MS);
+            let mut pause = SUPERVISOR_RETRY_BASE;
+            loop {
+                match this
+                    .durable_command(&request.session_id, PROMPT_TIMEOUT_MS, &make)
+                    .await
+                {
+                    Err(error)
+                        if crate::supervisor_link::supervisor_unreachable(&error)
+                            && tokio::time::Instant::now() + pause < deadline =>
+                    {
+                        tokio::time::sleep(pause).await;
+                        pause = (pause * 2).min(SUPERVISOR_RETRY_MAX);
+                    }
+                    outcome => {
+                        outcome.map_err(|error| {
+                            error
+                                .context(format!("prompt RLM child session {}", request.session_id))
+                        })?;
+                        break;
+                    }
                 }
-            })
-            .await
-            .map_err(|error| {
-                error.context(format!("prompt RLM child session {}", request.session_id))
-            })?;
+            }
             this.durable_calls().done.insert(key);
             Ok(())
         })
