@@ -483,6 +483,9 @@ def Laws.strict_by_priority(cap, ts):
 def Laws.guard_cuts_repeats(xs, k, rep):
   Infer.pi.guard_cuts_repeats(xs, k, rep)
 
+def Laws.guard_cuts_loops(xs, k, lp):
+  Infer.pi.guard_cuts_loops(xs, k, lp)
+
 def Laws.guard_keeps_others(xs, k, calm):
   Infer.pi.guard_keeps_others(xs, k, calm)
 

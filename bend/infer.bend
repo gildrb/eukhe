@@ -14,8 +14,8 @@
 # 3. The strict schema budget. A provider takes at most `cap` strict
 #    schemas. The tools of highest priority get them; the other tools are
 #    loose: the client repairs their output.
-# 4. The repetition guard. A stream that repeats one chunk k times in a
-#    row is cut.
+# 4. The repetition guard. A stream whose last k chunks are periodic,
+#    with a period of at most k/4 (at least 1), is cut.
 # 5. Early compaction. Compaction starts when the context reaches the
 #    threshold, a margin below the limit.
 #
@@ -373,31 +373,108 @@ def count(+ts: List<&2, Tool>, +i: Nat) -> Nat:
 
 # 4. The repetition guard
 # -----------------------
+#
+# Chunks read so far are kept newest first (`seen`). Period 1+q has a
+# counter: how many chunks, from the newest, each equal the chunk 1+q
+# places before it. The guard cuts after the chunk that brings the
+# counter of some period 1+q (1+q at most periods(k)) to k - (1+q): then
+# the last k chunks repeat with that period. Period 1 is the old rule:
+# k equal chunks in a row.
 
 type Cut is Data:
   Whole{}        # the stream went to its end
   CutAt{at: Nat} # the stream was cut after `at` chunks
 
-# the run of chunk x after prev came run times in a row
-def run.at(same: Bool, run: Nat) -> Nat:
-  match same:
-    case True{}:
-      1n+run
-    case False{}:
-      1n
+# k/4, rounded down
+def quarter(+k: Nat) -> Nat:
+  match k:
+    case 0n:
+      0n
+    case 1n+a:
+      match a:
+        case 0n:
+          0n
+        case 1n+b:
+          match b:
+            case 0n:
+              0n
+            case 1n+c:
+              match c:
+                case 0n:
+                  0n
+                case 1n+d:
+                  1n+quarter(d)
 
-# the first chunk of xs makes a run of k: it equals prev and prev came
-# run times, or k is at most 1
-def cut.at(+xs: List<&2, Nat>, +k: Nat, +prev: Nat, +run: Nat) -> Bool:
+# the longest period the guard checks: q, but at least 1
+def periods.of(q: Nat) -> Nat:
+  match q:
+    case 0n:
+      1n
+    case 1n+r:
+      1n+r
+
+# the longest period the guard checks for k: k/4, but at least 1
+def periods(+k: Nat) -> Nat:
+  periods.of(quarter(k))
+
+# the chunk i places back in s (0: the newest) is x
+def back(s: List<&2, Nat>, +i: Nat, +x: Nat) -> Bool:
+  match s i:
+    case Nil{} _:
+      False{}
+    case y <> rest 0n:
+      Nat.is_eq(x, y)
+    case y <> rest 1n+j:
+      back(rest, j, x)
+
+# the newest chunk of s equals the chunk 1+q places before it
+def cycle.at(s: List<&2, Nat>, +q: Nat) -> Bool:
+  match s:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      back(rest, q, x)
+
+# the counter of period 1+q; hit is cycle.at(s, q)
+def cycle.go(s: List<&2, Nat>, +q: Nat, hit: Bool) -> Nat:
+  match s:
+    case Nil{}:
+      0n
+    case x <> +rest:
+      match hit:
+        case True{}:
+          1n+cycle.go(rest, q, cycle.at(rest, q))
+        case False{}:
+          0n
+
+# the counter of period 1+q on s: how many chunks, from the newest, each
+# equal the chunk 1+q places before it
+def cycle(+s: List<&2, Nat>, +q: Nat) -> Nat:
+  cycle.go(s, q, cycle.at(s, q))
+
+# the counter of some period 1+q, q < n, reaches k - (1+q)
+def fires.go(+s: List<&2, Nat>, +k: Nat, +n: Nat) -> Bool:
+  match n:
+    case 0n:
+      False{}
+    case 1n+q:
+      Bool.or(Nat.is_le(Nat.sub(k, 1n+q), cycle(s, q)), fires.go(s, k, q))
+
+# after the chunks s (newest first), the guard cuts
+def fires(+s: List<&2, Nat>, +k: Nat) -> Bool:
+  fires.go(s, k, periods(k))
+
+# the first chunk of xs, read after seen, cuts the stream
+def fire.at(xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>) -> Bool:
   match xs:
     case Nil{}:
       False{}
     case x <> rest:
-      Nat.is_le(k, run.at(Nat.is_eq(x, prev), run))
+      fires(x <> seen, k)
 
-# read chunks; prev came run times in a row; n chunks read so far; hit is
-# cut.at(xs, k, prev, run)
-def guard.go(xs: List<&2, Nat>, +k: Nat, +prev: Nat, +run: Nat, n: Nat, hit: Bool) -> Cut:
+# read chunks; seen the chunks read so far, newest first; n chunks read so
+# far; hit is fire.at(xs, k, seen)
+def guard.go(xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, n: Nat, hit: Bool) -> Cut:
   match xs:
     case Nil{}:
       Whole{}
@@ -406,13 +483,51 @@ def guard.go(xs: List<&2, Nat>, +k: Nat, +prev: Nat, +run: Nat, n: Nat, hit: Boo
         case True{}:
           CutAt{1n+n}
         case False{}:
-          +r = run.at(Nat.is_eq(x, prev), run)
-          guard.go(rest, k, x, r, 1n+n, cut.at(rest, k, x, r))
+          guard.go(rest, k, x <> seen, 1n+n, fire.at(rest, k, x <> seen))
 
-# the guard with a run of k (k >= 2 in production): it cuts the stream
-# after the chunk that makes k equal chunks in a row
+# the guard with a window of k chunks (k = 64 by default): it cuts the
+# stream after the chunk that makes the last k chunks periodic with a
+# period of at most periods(k); a k of at most 1 cuts at the first chunk
 def guard(+xs: List<&2, Nat>, +k: Nat) -> Cut:
-  guard.go(xs, k, 0n, 0n, 0n, cut.at(xs, k, 0n, 0n))
+  guard.go(xs, k, Nil{}, 0n, fire.at(xs, k, Nil{}))
+
+# each of the first m chunks of s (newest first) equals the chunk 1+q
+# places before it
+def each(s: List<&2, Nat>, +q: Nat, m: Nat) -> Bool:
+  match s m:
+    case _ 0n:
+      True{}
+    case Nil{} 1n+n:
+      False{}
+    case x <> +rest 1n+n:
+      Bool.and(back(rest, q, x), each(rest, q, n))
+
+# the last k chunks of s (newest first) are periodic with some period 1+q,
+# q < n: each of the last k - (1+q) equals the chunk 1+q before it
+def periodic.go(+s: List<&2, Nat>, +k: Nat, +n: Nat) -> Bool:
+  match n:
+    case 0n:
+      False{}
+    case 1n+q:
+      Bool.or(each(s, q, Nat.sub(k, 1n+q)), periodic.go(s, k, q))
+
+# the last k chunks of s are periodic with a period of at most periods(k)
+def periodic(+s: List<&2, Nat>, +k: Nat) -> Bool:
+  periodic.go(s, k, periods(k))
+
+# some window of xs (read after seen) is periodic: the last k chunks of
+# some prefix
+def loops.go(xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case +x <> +rest:
+      Bool.or(periodic(x <> seen, k), loops.go(rest, k, x <> seen))
+
+# some window of k chunks of xs is periodic with a period of at most
+# periods(k)
+def loops(+xs: List<&2, Nat>, +k: Nat) -> Bool:
+  loops.go(xs, k, Nil{})
 
 # how many chunks at the start of xs equal x
 def same_run.at(+xs: List<&2, Nat>, +x: Nat) -> Bool:

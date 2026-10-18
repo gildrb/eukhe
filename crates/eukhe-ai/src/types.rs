@@ -197,10 +197,11 @@ pub struct ProviderRequestOptions<M = Model> {
     /// ([`StreamClock::hold`](crate::utils::stream_idle::StreamClock::hold)).
     pub stream_clock: Option<StreamClock>,
     /// The repetition guard of chat streams: `Models` fails a stream whose
-    /// text or thinking repeats one complete, non-blank output line this
-    /// many times in a row as repeating
-    /// (`StreamFailureKind::StreamRepeating`, retryable). Default (absent
-    /// or `0`)
+    /// last this many complete, non-blank text or thinking output lines
+    /// repeat with a period of at most a quarter of them (one line this
+    /// many times in a row, or a block of lines four times or more) as
+    /// repeating (`StreamFailureKind::StreamRepeating`, retryable). Default
+    /// (absent or `0`)
     /// [`DEFAULT_STREAM_REPEAT_LIMIT`](crate::utils::stream_repeat::DEFAULT_STREAM_REPEAT_LIMIT).
     pub stream_repeat_limit: Option<u32>,
 }

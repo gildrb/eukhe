@@ -21,7 +21,9 @@
 //!   call ([`ForceEscalation`], model `force`), the strict budget
 //!   ([`strict_budget`], model `strict`), the repetition guard
 //!   ([`RepetitionGuard`], model `guard`: chunk id `x` is the line `c<x>`,
-//!   fed in deltas cut at random points), and early compaction
+//!   fed in deltas cut at random points; the chunks are random, a cycle of
+//!   1 to 4 chunks, the same with one chunk changed, or the observed
+//!   thinking loop of [`OBSERVED_CYCLE`]), and early compaction
 //!   ([`threshold_for`], model `first_at`). For compaction the limit is
 //!   the blocking threshold `L = window - reserve` and the margin `m` a
 //!   whole number of tokens; the code compares strictly (`tokens > L - m`,
@@ -259,9 +261,38 @@ fn strict_problem(rng: &mut Rng, events: &mut String, transcript: &mut String) {
     transcript.push('\n');
 }
 
+/// The observed thinking loop (docs/inference.md S6.5) as chunk ids: 14
+/// lines, then this cycle of 7 lines, in which no line comes twice in a row.
+const OBSERVED_CYCLE: [u64; 7] = [9, 11, 14, 10, 11, 15, 13];
+
 fn guard_problem(rng: &mut Rng, events: &mut String, transcript: &mut String) {
-    let k = u32::try_from(rng.below(5)).unwrap();
-    let chunks: Vec<u64> = (0..rng.below(12)).map(|_| rng.below(3)).collect();
+    let (k, chunks): (u64, Vec<u64>) = match rng.below(4) {
+        0 => (
+            rng.below(10),
+            (0..rng.below(16)).map(|_| rng.below(3)).collect(),
+        ),
+        kind @ (1 | 2) => {
+            let block: Vec<u64> = (0..rng.range(1, 4)).map(|_| rng.below(3)).collect();
+            let mut chunks: Vec<u64> = (0..rng.below(4)).map(|_| rng.below(3)).collect();
+            let repeated = usize::try_from(rng.range(1, 24)).unwrap();
+            chunks.extend(block.iter().copied().cycle().take(repeated));
+            if kind == 2 {
+                // A near miss: one chunk of the cycle changed.
+                let at = usize::try_from(rng.below(u64::try_from(chunks.len()).unwrap())).unwrap();
+                chunks[at] = 3;
+            }
+            (rng.range(2, 16), chunks)
+        }
+        _ => {
+            let length = usize::try_from(rng.range(40, 98)).unwrap();
+            let chunks = (0..14)
+                .chain(OBSERVED_CYCLE.iter().copied().cycle())
+                .take(length)
+                .collect();
+            (rng.pick(&[27, 28, 32, 64]).unwrap(), chunks)
+        }
+    };
+    let k = u32::try_from(k).unwrap();
     write!(events, "g {k}").unwrap();
     for chunk in &chunks {
         write!(events, " {chunk}").unwrap();

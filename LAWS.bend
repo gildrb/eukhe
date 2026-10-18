@@ -1255,11 +1255,20 @@ law guard_cuts_repeats:
   for rep: {If.repeats(xs, k) == True{} : Bool}
   {If.Cut.cut(If.guard(xs, k)) == True{} : Bool}
 
-# LAW: a stream that never repeats a chunk k times in a row is not cut
+# LAW: a stream with a window of k chunks that is periodic, with a period
+# of at most k/4 (at least 1), is cut
+law guard_cuts_loops:
+  for +xs: List<&2, Nat>
+  for +k: Nat
+  for lp: {If.loops(xs, k) == True{} : Bool}
+  {If.Cut.cut(If.guard(xs, k)) == True{} : Bool}
+
+# LAW: a stream with no window of k chunks that is periodic, with a
+# period of at most k/4 (at least 1), is not cut
 law guard_keeps_others:
   for +xs: List<&2, Nat>
   for +k: Nat
-  for calm: {If.repeats(xs, k) == False{} : Bool}
+  for calm: {If.loops(xs, k) == False{} : Bool}
   {If.guard(xs, k) == If.Whole{} : If.Cut}
 
 # LAW: when each turn grows the context by at most m, compaction (at the

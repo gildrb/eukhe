@@ -7,8 +7,11 @@
 # a take and its drop split every count (`pi.count_split`), ranking keeps
 # every count (`pi.count_rank`) and sorts by priority (`pi.sorted_rank`),
 # and a sorted list's take dominates its drop (`pi.dom_split`). The guard:
-# a run that reaches k is cut (`pi.cut_run`), and with no k-run the run so
-# far plus what follows stays below k (`pi.inv`, `pi.keep_go`). Compaction:
+# the counter of period p is at least m exactly when the first m chunks
+# each equal the chunk p before them (`pi.each_cycle`), so the guard fires
+# exactly at a periodic window (`pi.fires_periodic`, `pi.cut_go`,
+# `pi.keep_go`), and k equal chunks in a row end in one (`pi.run_loops`,
+# `pi.rep_go`). Compaction:
 # while below the threshold the next size stays within the limit
 # (`pi.compact_go`).
 
@@ -583,6 +586,137 @@ def pi.or_r_true(a: Bool, +b: Bool, +h: {Bool.or(a, b) == True{} : Bool}, +ea: {
 # The repetition guard
 # --------------------
 
+def pi.or_tl(a: Bool, +b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      pi.absurdF({Bool.or(False{}, b) == True{} : Bool}, h)
+
+def pi.or_tr(a: Bool, +b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+# one chunk more: each and the counter take the same step
+def pi.each_step(b: Bool, +x: Nat, +rest: List<&2, Nat>, +q: Nat, +n: Nat, +ih: {If.each(rest, q, n) == Nat.is_le(n, If.cycle(rest, q)) : Bool}) -> {Bool.and(b, If.each(rest, q, n)) == Nat.is_le(1n+n, If.cycle.go(x <> rest, q, b)) : Bool}:
+  match b:
+    case True{}:
+      ih
+    case False{}:
+      {==}
+
+# the first m chunks each equal the chunk 1+q before them exactly when the
+# counter of period 1+q is at least m
+def pi.each_cycle(+s: List<&2, Nat>, +q: Nat, +m: Nat) -> {If.each(s, q, m) == Nat.is_le(m, If.cycle(s, q)) : Bool}:
+  match s m:
+    case _ 0n:
+      Equal.sym(Bool, Nat.is_le(0n, If.cycle(s, q)), True{}, pi.le0(If.cycle(s, q)))
+    case Nil{} 1n+n:
+      {==}
+    case x <> rest 1n+n:
+      pi.each_step(If.back(rest, q, x), x, rest, q, n, pi.each_cycle(rest, q, n))
+
+# the counters fire exactly when the window is periodic
+def pi.fires_periodic(+s: List<&2, Nat>, +k: Nat, +n: Nat) -> {If.fires.go(s, k, n) == If.periodic.go(s, k, n) : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+q:
+      %pi.each_cycle(s, q, Nat.sub(k, 1n+q)) : {Bool.or(_, If.fires.go(s, k, q)) == Bool.or(If.each(s, q, Nat.sub(k, 1n+q)), If.periodic.go(s, k, q)) : Bool}
+      %Equal.sym(Bool, If.fires.go(s, k, q), If.periodic.go(s, k, q), pi.fires_periodic(s, k, q)) : {Bool.or(If.each(s, q, Nat.sub(k, 1n+q)), _) == Bool.or(If.each(s, q, Nat.sub(k, 1n+q)), If.periodic.go(s, k, q)) : Bool}
+      {==}
+
+# a guard that has not cut yet cuts a stream with a periodic window
+def pi.cut_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, +n: Nat, hit: Bool, +eh: {If.fire.at(xs, k, seen) == hit : Bool}, +lp: {If.loops.go(xs, k, seen) == True{} : Bool}) -> {If.Cut.cut(If.guard.go(xs, k, seen, n, hit)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      pi.absurdF({If.Cut.cut(If.guard.go(Nil{}, k, seen, n, hit)) == True{} : Bool}, lp)
+    case x <> rest:
+      match hit:
+        case True{}:
+          {==}
+        case False{}:
+          +ep = Equal.trans(Bool, If.periodic(x <> seen, k), If.fires(x <> seen, k), False{}, Equal.sym(Bool, If.fires(x <> seen, k), If.periodic(x <> seen, k), pi.fires_periodic(x <> seen, k, If.periods(k))), eh)
+          pi.cut_go(rest, k, x <> seen, 1n+n, If.fire.at(rest, k, x <> seen), {==}, pi.or_r_true(If.periodic(x <> seen, k), If.loops.go(rest, k, x <> seen), lp, ep))
+
+# a guard on a stream with no periodic window never cuts
+def pi.keep_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, +n: Nat, hit: Bool, +eh: {If.fire.at(xs, k, seen) == hit : Bool}, +calm: {If.loops.go(xs, k, seen) == False{} : Bool}) -> {If.guard.go(xs, k, seen, n, hit) == If.Whole{} : If.Cut}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      match hit:
+        case True{}:
+          +cp = pi.or_l(If.periodic(x <> seen, k), If.loops.go(rest, k, x <> seen), calm)
+          +fp = Equal.trans(Bool, If.fires(x <> seen, k), If.periodic(x <> seen, k), False{}, pi.fires_periodic(x <> seen, k, If.periods(k)), cp)
+          pi.void({If.CutAt{1n+n} == If.Whole{} : If.Cut}, pi.flip(If.fires(x <> seen, k), eh, fp))
+        case False{}:
+          pi.keep_go(rest, k, x <> seen, 1n+n, If.fire.at(rest, k, x <> seen), {==}, pi.or_r(If.periodic(x <> seen, k), If.loops.go(rest, k, x <> seen), calm))
+
+# period 1 is always checked
+def pi.periodic_ge1(+s: List<&2, Nat>, +k: Nat, +r: Nat, +e: {If.each(s, 0n, Nat.sub(k, 1n)) == True{} : Bool}) -> {If.periodic.go(s, k, 1n+r) == True{} : Bool}:
+  match r:
+    case 0n:
+      pi.or_tl(If.each(s, 0n, Nat.sub(k, 1n)), If.periodic.go(s, k, 0n), e)
+    case 1n+t:
+      pi.or_tr(If.each(s, 1n+t, Nat.sub(k, 2n+t)), If.periodic.go(s, k, 1n+t), pi.periodic_ge1(s, k, t, e))
+
+def pi.periodic_one(+s: List<&2, Nat>, +k: Nat, q: Nat, +e: {If.each(s, 0n, Nat.sub(k, 1n)) == True{} : Bool}) -> {If.periodic.go(s, k, If.periods.of(q)) == True{} : Bool}:
+  match q:
+    case 0n:
+      pi.periodic_ge1(s, k, 0n, e)
+    case 1n+r:
+      pi.periodic_ge1(s, k, r, e)
+
+def pi.sub1_le(+k: Nat, +s: Nat, +h: {Nat.is_le(k, 1n+s) == True{} : Bool}) -> {Nat.is_le(Nat.sub(k, 1n), s) == True{} : Bool}:
+  match k:
+    case 0n:
+      pi.le0(s)
+    case 1n+j:
+      match j:
+        case 0n:
+          pi.le0(s)
+        case 1n+i:
+          h
+
+def pi.le_add0(+k: Nat, +run: Nat, +h: {Nat.is_le(k, Nat.add(run, 0n)) == True{} : Bool}) -> {Nat.is_le(k, run) == True{} : Bool}:
+  %Equal.sym(Nat, run, Nat.add(run, 0n), pi.add_zero(run)) : {Nat.is_le(k, _) == True{} : Bool}
+  h
+
+# a run that reaches k - 1 with what continues it: one chunk more
+def pi.run_h(e: Bool, +y: Nat, +r2: List<&2, Nat>, +x: Nat, +s: List<&2, Nat>, +K: Nat, +ee: {Nat.is_eq(y, x) == e : Bool}, +h: {Nat.is_le(K, Nat.add(If.cycle(x <> s, 0n), If.same_run.go(y <> r2, x, e))) == True{} : Bool}, +lt: {Nat.is_le(K, If.cycle(x <> s, 0n)) == False{} : Bool}) -> {Nat.is_le(K, Nat.add(If.cycle.go(y <> x <> s, 0n, e), If.same_run(r2, y))) == True{} : Bool}:
+  match e:
+    case True{}:
+      %Equal.sym(Nat, y, x, pi.eq_true(y, x, ee)) : {Nat.is_le(K, 1n+Nat.add(If.cycle(x <> s, 0n), If.same_run(r2, _))) == True{} : Bool}
+      %pi.add_succ(If.cycle(x <> s, 0n), If.same_run(r2, x)) : {Nat.is_le(K, _) == True{} : Bool}
+      h
+    case False{}:
+      pi.void({Nat.is_le(K, Nat.add(If.cycle.go(y <> x <> s, 0n, False{}), If.same_run(r2, y))) == True{} : Bool}, pi.flip(Nat.is_le(K, If.cycle(x <> s, 0n)), pi.le_add0(K, If.cycle(x <> s, 0n), h), lt))
+
+# a run of x whose counter of period 1, with the chunks that continue it,
+# reaches k - 1 ends in a periodic window
+def pi.run_loops(+rest: List<&2, Nat>, +k: Nat, +x: Nat, +s: List<&2, Nat>, c: Bool, +ec: {Nat.is_le(Nat.sub(k, 1n), If.cycle(x <> s, 0n)) == c : Bool}, +h: {Nat.is_le(Nat.sub(k, 1n), Nat.add(If.cycle(x <> s, 0n), If.same_run(rest, x))) == True{} : Bool}) -> {Bool.or(If.periodic(x <> s, k), If.loops.go(rest, k, x <> s)) == True{} : Bool}:
+  match rest:
+    case Nil{}:
+      match c:
+        case True{}:
+          +e = Equal.trans(Bool, If.each(x <> s, 0n, Nat.sub(k, 1n)), Nat.is_le(Nat.sub(k, 1n), If.cycle(x <> s, 0n)), True{}, pi.each_cycle(x <> s, 0n, Nat.sub(k, 1n)), ec)
+          pi.or_tl(If.periodic(x <> s, k), If.loops.go(Nil{}, k, x <> s), pi.periodic_one(x <> s, k, If.quarter(k), e))
+        case False{}:
+          pi.void({Bool.or(If.periodic(x <> s, k), If.loops.go(Nil{}, k, x <> s)) == True{} : Bool}, pi.flip(Nat.is_le(Nat.sub(k, 1n), If.cycle(x <> s, 0n)), pi.le_add0(Nat.sub(k, 1n), If.cycle(x <> s, 0n), h), ec))
+    case y <> r2:
+      match c:
+        case True{}:
+          +e = Equal.trans(Bool, If.each(x <> s, 0n, Nat.sub(k, 1n)), Nat.is_le(Nat.sub(k, 1n), If.cycle(x <> s, 0n)), True{}, pi.each_cycle(x <> s, 0n, Nat.sub(k, 1n)), ec)
+          pi.or_tl(If.periodic(x <> s, k), If.loops.go(y <> r2, k, x <> s), pi.periodic_one(x <> s, k, If.quarter(k), e))
+        case False{}:
+          +h2 = pi.run_h(Nat.is_eq(y, x), y, r2, x, s, Nat.sub(k, 1n), {==}, h, ec)
+          +r = pi.run_loops(r2, k, y, x <> s, Nat.is_le(Nat.sub(k, 1n), If.cycle(y <> x <> s, 0n)), {==}, h2)
+          pi.or_tr(If.periodic(x <> s, k), If.loops.go(y <> r2, k, x <> s), r)
+
 # a run that reaches k after its first chunk
 def pi.rhead(xs: List<&2, Nat>, +k: Nat) -> Bool:
   match xs:
@@ -591,124 +725,31 @@ def pi.rhead(xs: List<&2, Nat>, +k: Nat) -> Bool:
     case x <> +rest:
       Nat.is_le(k, 1n+If.same_run(rest, x))
 
-# a run counter is at least one
-def pi.ra_ge(b: Bool, +run: Nat, +k: Nat, +s: Nat, +ec: {Nat.is_le(k, 1n+s) == True{} : Bool}) -> {Nat.is_le(k, Nat.add(If.run.at(b, run), s)) == True{} : Bool}:
-  match b:
-    case True{}:
-      pi.le_trans(k, 1n+s, 1n+Nat.add(run, s), ec, pi.le_add_r(run, s))
-    case False{}:
-      ec
-
-def pi.le_add0(+k: Nat, +run: Nat, +h: {Nat.is_le(k, Nat.add(run, 0n)) == True{} : Bool}) -> {Nat.is_le(k, run) == True{} : Bool}:
-  %Equal.sym(Nat, run, Nat.add(run, 0n), pi.add_zero(run)) : {Nat.is_le(k, _) == True{} : Bool}
-  h
-
-def pi.no_run(+k: Nat, +run: Nat, +h: {Nat.is_le(k, Nat.add(run, 0n)) == True{} : Bool}, +lt: {Nat.is_lt(run, k) == True{} : Bool}) -> Empty:
-  pi.flip(Nat.is_le(k, run), pi.le_add0(k, run, h), pi.lt_nle(run, k, lt))
-
-# the next run still reaches k
-def pi.cut_run_h(e: Bool, +y: Nat, +r2: List<&2, Nat>, +prev: Nat, +run: Nat, +k: Nat, +ee: {Nat.is_eq(y, prev) == e : Bool}, +h: {Nat.is_le(k, Nat.add(run, If.same_run.go(y <> r2, prev, e))) == True{} : Bool}, +lt: {Nat.is_lt(run, k) == True{} : Bool}) -> {Nat.is_le(k, Nat.add(If.run.at(e, run), If.same_run(r2, y))) == True{} : Bool}:
-  match e:
-    case True{}:
-      %Equal.sym(Nat, y, prev, pi.eq_true(y, prev, ee)) : {Nat.is_le(k, 1n+Nat.add(run, If.same_run(r2, _))) == True{} : Bool}
-      %pi.add_succ(run, If.same_run(r2, prev)) : {Nat.is_le(k, _) == True{} : Bool}
-      h
-    case False{}:
-      pi.void({Nat.is_le(k, Nat.add(1n, If.same_run(r2, y))) == True{} : Bool}, pi.no_run(k, run, h, lt))
-
-# a run that will reach k is cut
-def pi.cut_run(+xs: List<&2, Nat>, +k: Nat, +prev: Nat, +run: Nat, +n: Nat, hit: Bool, +eh: {If.cut.at(xs, k, prev, run) == hit : Bool}, +h: {Nat.is_le(k, Nat.add(run, If.same_run(xs, prev))) == True{} : Bool}, +lt: {Nat.is_lt(run, k) == True{} : Bool}) -> {If.Cut.cut(If.guard.go(xs, k, prev, run, n, hit)) == True{} : Bool}:
+# a stream that repeats a chunk k times in a row has a periodic window
+# (period 1)
+def pi.rep_go(+xs: List<&2, Nat>, +k: Nat, +seen: List<&2, Nat>, c: Bool, +ec: {pi.rhead(xs, k) == c : Bool}, +rep: {If.repeats(xs, k) == True{} : Bool}) -> {If.loops.go(xs, k, seen) == True{} : Bool}:
   match xs:
     case Nil{}:
-      pi.void({If.Cut.cut(If.Whole{}) == True{} : Bool}, pi.no_run(k, run, h, lt))
-    case y <> r2:
-      match hit:
-        case True{}:
-          {==}
-        case False{}:
-          +R = If.run.at(Nat.is_eq(y, prev), run)
-          +h2 = pi.cut_run_h(Nat.is_eq(y, prev), y, r2, prev, run, k, {==}, h, lt)
-          pi.cut_run(r2, k, y, R, 1n+n, If.cut.at(r2, k, y, R), {==}, h2, pi.nle_lt(k, R, eh))
-
-def pi.cut_go(+xs: List<&2, Nat>, +k: Nat, +prev: Nat, +run: Nat, +n: Nat, hit: Bool, +eh: {If.cut.at(xs, k, prev, run) == hit : Bool}, c: Bool, +ec: {pi.rhead(xs, k) == c : Bool}, +rep: {If.repeats(xs, k) == True{} : Bool}) -> {If.Cut.cut(If.guard.go(xs, k, prev, run, n, hit)) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      pi.absurdF({If.Cut.cut(If.guard.go(Nil{}, k, prev, run, n, hit)) == True{} : Bool}, rep)
+      pi.absurdF({If.loops.go(Nil{}, k, seen) == True{} : Bool}, rep)
     case x <> rest:
-      match hit:
+      match c:
         case True{}:
-          {==}
+          +S = If.same_run(rest, x)
+          +C = If.cycle(x <> seen, 0n)
+          +h = pi.le_trans(Nat.sub(k, 1n), S, Nat.add(C, S), pi.sub1_le(k, S, ec), pi.le_add_r(C, S))
+          pi.run_loops(rest, k, x, seen, Nat.is_le(Nat.sub(k, 1n), C), {==}, h)
         case False{}:
-          match c:
-            case True{}:
-              +R = If.run.at(Nat.is_eq(x, prev), run)
-              pi.cut_run(rest, k, x, R, 1n+n, If.cut.at(rest, k, x, R), {==}, pi.ra_ge(Nat.is_eq(x, prev), run, k, If.same_run(rest, x), ec), pi.nle_lt(k, R, eh))
-            case False{}:
-              +R = If.run.at(Nat.is_eq(x, prev), run)
-              +rr = pi.or_r_true(Nat.is_le(k, 1n+If.same_run(rest, x)), If.repeats(rest, k), rep, ec)
-              pi.cut_go(rest, k, x, R, 1n+n, If.cut.at(rest, k, x, R), {==}, pi.rhead(rest, k), {==}, rr)
+          +rr = pi.or_r_true(Nat.is_le(k, 1n+If.same_run(rest, x)), If.repeats(rest, k), rep, ec)
+          pi.or_tr(If.periodic(x <> seen, k), If.loops.go(rest, k, x <> seen), pi.rep_go(rest, k, x <> seen, pi.rhead(rest, k), {==}, rr))
+
+def pi.guard_cuts_loops(+xs: List<&2, Nat>, +k: Nat, lp: {If.loops(xs, k) == True{} : Bool}) -> {If.Cut.cut(If.guard(xs, k)) == True{} : Bool}:
+  pi.cut_go(xs, k, Nil{}, 0n, If.fire.at(xs, k, Nil{}), {==}, lp)
 
 def pi.guard_cuts_repeats(+xs: List<&2, Nat>, +k: Nat, rep: {If.repeats(xs, k) == True{} : Bool}) -> {If.Cut.cut(If.guard(xs, k)) == True{} : Bool}:
-  pi.cut_go(xs, k, 0n, 0n, 0n, If.cut.at(xs, k, 0n, 0n), {==}, pi.rhead(xs, k), {==}, rep)
+  pi.cut_go(xs, k, Nil{}, 0n, If.fire.at(xs, k, Nil{}), {==}, pi.rep_go(xs, k, Nil{}, pi.rhead(xs, k), {==}, rep))
 
-# the run so far plus the chunks that continue it stays below k
-def pi.inv(xs: List<&2, Nat>, +k: Nat, +prev: Nat, +run: Nat) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case +x <> +rest:
-      Nat.is_lt(Nat.add(If.run.at(Nat.is_eq(x, prev), run), If.same_run(rest, x)), k)
-
-def pi.inv_step_e(e: Bool, +y: Nat, +r2: List<&2, Nat>, +k: Nat, +x: Nat, +a: Nat, +ee: {Nat.is_eq(y, x) == e : Bool}, +iv: {Nat.is_lt(Nat.add(a, If.same_run.go(y <> r2, x, e)), k) == True{} : Bool}, +calm: {If.repeats(y <> r2, k) == False{} : Bool}) -> {Nat.is_lt(Nat.add(If.run.at(e, a), If.same_run(r2, y)), k) == True{} : Bool}:
-  match e:
-    case True{}:
-      %Equal.sym(Nat, y, x, pi.eq_true(y, x, ee)) : {Nat.is_lt(1n+Nat.add(a, If.same_run(r2, _)), k) == True{} : Bool}
-      %pi.add_succ(a, If.same_run(r2, x)) : {Nat.is_lt(_, k) == True{} : Bool}
-      iv
-    case False{}:
-      pi.nle_lt(k, 1n+If.same_run(r2, y), pi.or_l(Nat.is_le(k, 1n+If.same_run(r2, y)), If.repeats(r2, k), calm))
-
-def pi.inv_step(+rest: List<&2, Nat>, +k: Nat, +x: Nat, +a: Nat, +iv: {Nat.is_lt(Nat.add(a, If.same_run(rest, x)), k) == True{} : Bool}, +calm: {If.repeats(rest, k) == False{} : Bool}) -> {pi.inv(rest, k, x, a) == True{} : Bool}:
-  match rest:
-    case Nil{}:
-      {==}
-    case y <> r2:
-      pi.inv_step_e(Nat.is_eq(y, x), y, r2, k, x, a, {==}, iv, calm)
-
-def pi.keep_go(+xs: List<&2, Nat>, +k: Nat, +prev: Nat, +run: Nat, +n: Nat, hit: Bool, +eh: {If.cut.at(xs, k, prev, run) == hit : Bool}, +iv: {pi.inv(xs, k, prev, run) == True{} : Bool}, +calm: {If.repeats(xs, k) == False{} : Bool}) -> {If.guard.go(xs, k, prev, run, n, hit) == If.Whole{} : If.Cut}:
-  match xs:
-    case Nil{}:
-      {==}
-    case x <> rest:
-      match hit:
-        case True{}:
-          +A = If.run.at(Nat.is_eq(x, prev), run)
-          +S = If.same_run(rest, x)
-          pi.void({If.CutAt{1n+n} == If.Whole{} : If.Cut}, pi.flip(Nat.is_le(k, Nat.add(A, S)), pi.le_trans(k, A, Nat.add(A, S), eh, pi.le_add(A, S)), pi.lt_nle(Nat.add(A, S), k, iv)))
-        case False{}:
-          +A = If.run.at(Nat.is_eq(x, prev), run)
-          +cr = pi.or_r(Nat.is_le(k, 1n+If.same_run(rest, x)), If.repeats(rest, k), calm)
-          pi.keep_go(rest, k, x, A, 1n+n, If.cut.at(rest, k, x, A), {==}, pi.inv_step(rest, k, x, A, iv, cr), cr)
-
-def pi.inv0_e(e: Bool, +s: Nat, +k: Nat, +c: {Nat.is_le(k, 1n+s) == False{} : Bool}) -> {Nat.is_lt(Nat.add(If.run.at(e, 0n), s), k) == True{} : Bool}:
-  match e:
-    case True{}:
-      pi.nle_lt(k, 1n+s, c)
-    case False{}:
-      pi.nle_lt(k, 1n+s, c)
-
-def pi.inv0(+xs: List<&2, Nat>, +k: Nat, +calm: {If.repeats(xs, k) == False{} : Bool}) -> {pi.inv(xs, k, 0n, 0n) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      {==}
-    case x <> rest:
-      pi.inv0_e(Nat.is_eq(x, 0n), If.same_run(rest, x), k, pi.or_l(Nat.is_le(k, 1n+If.same_run(rest, x)), If.repeats(rest, k), calm))
-
-def pi.keeps(+xs: List<&2, Nat>, +k: Nat, +calm: {If.repeats(xs, k) == False{} : Bool}) -> {If.guard(xs, k) == If.Whole{} : If.Cut}:
-  pi.keep_go(xs, k, 0n, 0n, 0n, If.cut.at(xs, k, 0n, 0n), {==}, pi.inv0(xs, k, calm), calm)
-
-def pi.guard_keeps_others(+xs: List<&2, Nat>, +k: Nat, calm: {If.repeats(xs, k) == False{} : Bool}) -> {If.guard(xs, k) == If.Whole{} : If.Cut}:
-  pi.keeps(xs, k, calm)
+def pi.guard_keeps_others(+xs: List<&2, Nat>, +k: Nat, calm: {If.loops(xs, k) == False{} : Bool}) -> {If.guard(xs, k) == If.Whole{} : If.Cut}:
+  pi.keep_go(xs, k, Nil{}, 0n, If.fire.at(xs, k, Nil{}), {==}, calm)
 
 # Early compaction
 # ----------------

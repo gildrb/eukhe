@@ -25,8 +25,8 @@ fn chunked_snapshot_attach_streams_begin_chunk_end() {
     // A scripted turn whose answer is large enough to split the transcript
     // into several chunks under the 512 KiB budget. Its lines are numbered:
     // the chat streams' repetition guard (`bend/infer.bend` §4) cuts a
-    // stream that repeats one line (or one 4 KiB run of a long line) 64
-    // times in a row, so a degenerate `xxx…` answer never completes.
+    // stream whose last 64 lines (or 4 KiB runs of a long line) repeat a
+    // block of up to 16, so a degenerate `xxx…` answer never completes.
     let pad = "x".repeat(64);
     let answer = (0..10_000).fold(String::new(), |mut answer, line| {
         writeln!(answer, "line {line:05} {pad}").expect("write to a String");

@@ -1,13 +1,16 @@
 //! eukhe addition: the repetition guard of chat streams (`bend/infer.bend`
 //! §4, `guard`).
 //!
-//! A model caught in a loop emits the same line over and over until its
-//! output budget runs out. Every chat stream `Models` dispatches is watched
-//! in one place, whatever its provider: the stream's text and thinking are
-//! read as chunks, and the chunk that makes one chunk come `k` times in a
-//! row aborts the request and ends the stream with a
+//! A model caught in a loop emits the same line, or the same block of
+//! lines, over and over until its output budget runs out. Every chat stream
+//! `Models` dispatches is watched in one place, whatever its provider: the
+//! stream's text and thinking are read as chunks, and the chunk that makes
+//! the last `k` chunks periodic, with a period of at most `k / 4` chunks (at
+//! least 1: four full repetitions of the cycle), aborts the request and ends
+//! the stream with a
 //! [`StreamFailureKind::StreamRepeating`](eukhe_types::pi_ai::StreamFailureKind)
-//! error, which the caller's retry policy re-issues like a stall.
+//! error, which the caller's retry policy re-issues like a stall. Period 1
+//! is one chunk `k` times in a row.
 //!
 //! A chunk is one complete output line of a text or thinking block: the
 //! text up to (not including) a `\n`. A partial last line is not a chunk
@@ -15,11 +18,18 @@
 //! is not a chunk. A line longer than [`MAX_CHUNK_BYTES`] ends a chunk at
 //! that length (on a character boundary), and the rest of the line starts
 //! the next one: a loop with no newline (`abab…`) is still cut, and a
-//! guard never buffers more than one chunk per block. Each content block
-//! keeps its own partial line, so interleaved blocks never merge lines;
-//! the complete lines of every block count in one run, in arrival order.
+//! guard never buffers more than one partial chunk per block. Each content
+//! block keeps its own partial line, so interleaved blocks never merge
+//! lines; the complete lines of every block count in one sequence, in
+//! arrival order.
+//!
+//! The guard keeps the last `k / 4` chunks and one counter per period: the
+//! counter of period `p` is how many chunks in a row, up to the newest,
+//! each equal the chunk `p` before it. The last `k` chunks are periodic
+//! with period `p` exactly when that counter is at least `k - p`. Its
+//! memory is thus bounded by `k / 4` chunks, whatever the stream's length.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_types::pi_ai::AssistantMessageEvent;
@@ -27,9 +37,11 @@ use eukhe_types::pi_ai::AssistantMessageEvent;
 use super::stream_failure::{stream_repeating_failure, ProviderError};
 use crate::types::ProviderRequestOptions;
 
-/// Default of `ProviderRequestOptions::stream_repeat_limit`: 64 equal lines
-/// in a row, far beyond what real output repeats (table rows and the like
-/// differ, and blank lines do not count).
+/// Default of `ProviderRequestOptions::stream_repeat_limit`: a window of 64
+/// lines that repeats with a period of at most 16 lines (one line 64 times
+/// in a row, or a block of up to 16 lines four times), far beyond what real
+/// output repeats (table rows and the like differ, and blank lines do not
+/// count).
 pub const DEFAULT_STREAM_REPEAT_LIMIT: u32 = 64;
 
 /// The longest chunk, in bytes: a longer line is cut into chunks of at
@@ -39,48 +51,59 @@ pub const MAX_CHUNK_BYTES: usize = 4096;
 /// Where a [`RepetitionGuard`] cut its stream: model `CutAt{at}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepetitionCut {
-    /// The chunks read, including the one that completed the run.
+    /// The chunks read, including the one that completed the window.
     pub chunks: u64,
-    /// The repeated chunk.
+    /// The shortest period of the window, in chunks (1: one chunk repeated).
+    pub period: u32,
+    /// The chunk that completed the window.
     pub line: String,
 }
 
 /// The repetition guard of one stream: model `guard(xs, k)`, fed one delta
-/// at a time. It counts how many times in a row the same chunk came; the
-/// chunk that brings the run to `k` cuts the stream (a `k` of at most 1
-/// cuts at the first chunk). A stream that never repeats one chunk `k`
-/// times in a row is never cut. Stop feeding it at the first cut.
+/// at a time. The chunk that makes the last `k` chunks periodic, with a
+/// period of at most `max(1, k / 4)`, cuts the stream (a `k` of at most 1
+/// cuts at the first chunk). A stream with no such window of `k` chunks is
+/// never cut. Stop feeding it at the first cut.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepetitionGuard {
     limit: u32,
+    /// The longest period checked: `max(1, limit / 4)`.
+    periods: usize,
     /// The partial last line of each content block, by content index.
     partial: HashMap<usize, String>,
-    previous: Option<String>,
-    run: u32,
+    /// The last chunks, newest first; at most `periods` of them.
+    history: VecDeque<String>,
+    /// The counter of each period `q + 1`, for every period that has a
+    /// chunk in `history` to compare with: how many chunks in a row, up to
+    /// the newest, each equal the chunk `q + 1` before them (model
+    /// `cycle(seen, q)`).
+    counters: Vec<u32>,
     chunks: u64,
 }
 
 impl RepetitionGuard {
-    /// A guard that cuts at `limit` equal chunks in a row.
+    /// A guard that cuts at a periodic window of `limit` chunks.
     #[must_use]
     pub fn new(limit: u32) -> Self {
         Self {
             limit,
+            periods: usize::try_from((limit / 4).max(1)).unwrap_or(usize::MAX),
             partial: HashMap::new(),
-            previous: None,
-            run: 0,
+            history: VecDeque::new(),
+            counters: Vec::new(),
             chunks: 0,
         }
     }
 
-    /// The number of equal chunks in a row that cuts the stream.
+    /// The number of chunks in the window that cuts the stream.
     #[must_use]
     pub const fn limit(&self) -> u32 {
         self.limit
     }
 
     /// Read `delta`, the next output of content block `content_index`;
-    /// returns the cut when one of the chunks it completes makes the run.
+    /// returns the cut when one of the chunks it completes makes the last
+    /// `limit` chunks periodic.
     pub fn push(&mut self, content_index: usize, delta: &str) -> Option<RepetitionCut> {
         let mut rest = delta;
         loop {
@@ -111,18 +134,34 @@ impl RepetitionGuard {
                 continue;
             }
             self.chunks += 1;
-            self.run = if self.previous.as_deref() == Some(line.as_str()) {
-                self.run.saturating_add(1)
-            } else {
-                1
-            };
-            if self.run >= self.limit {
+            // A period with no chunk that far back has a counter of 0; it
+            // completes a window only when `limit <= period`, which a
+            // period of at most `max(1, limit / 4)` allows only for a
+            // `limit` of at most 1: that window is this chunk alone.
+            let mut period = (self.limit <= 1).then_some(1);
+            for ((seen, counter), p) in self.history.iter().zip(&mut self.counters).zip(1u32..) {
+                *counter = if *seen == line {
+                    counter.saturating_add(1)
+                } else {
+                    0
+                };
+                if period.is_none() && self.limit.saturating_sub(p) <= *counter {
+                    period = Some(p);
+                }
+            }
+            if let Some(period) = period {
                 return Some(RepetitionCut {
                     chunks: self.chunks,
+                    period,
                     line,
                 });
             }
-            self.previous = Some(line);
+            if self.history.len() < self.periods {
+                self.counters.push(0);
+            } else {
+                self.history.pop_back();
+            }
+            self.history.push_front(line);
         }
     }
 }
@@ -193,11 +232,12 @@ impl StreamRepeat {
         tracing::debug!(
             limit,
             chunks = cut.chunks,
+            period = cut.period,
             "stream repetition guard cut the stream"
         );
         self.cut.abort(None);
         Some(ProviderError::StreamFailure(stream_repeating_failure(
-            limit, &cut.line,
+            limit, cut.period, &cut.line,
         )))
     }
 }

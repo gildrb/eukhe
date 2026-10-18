@@ -721,11 +721,12 @@ pub fn stream_stalled_failure(idle_timeout_ms: f64) -> StreamFailureError {
 /// message shows; a longer line is cut there and marked with `…`.
 const REPEATED_LINE_SHOWN_CHARS: usize = 80;
 
-/// Failure for a stream the repetition guard cut: the same output line
-/// `limit` times in a row (the repetition guard of `Models`). Retryable by
-/// kind, like a stall.
+/// Failure for a stream the repetition guard cut: its last `limit` output
+/// lines repeat with a period of `period` lines (1: the same line `limit`
+/// times in a row); `line` is the newest (the repetition guard of
+/// `Models`). Retryable by kind, like a stall.
 #[must_use]
-pub fn stream_repeating_failure(limit: u32, line: &str) -> StreamFailureError {
+pub fn stream_repeating_failure(limit: u32, period: u32, line: &str) -> StreamFailureError {
     let info = StreamFailureInfo {
         kind: StreamFailureKind::StreamRepeating,
         provider_error_type: None,
@@ -738,7 +739,12 @@ pub fn stream_repeating_failure(limit: u32, line: &str) -> StreamFailureError {
         Some((end, _)) => format!("{}…", &line[..end]),
         None => line.to_owned(),
     };
-    let detail = format!("the same line {limit} times in a row: {shown:?}");
+    let detail = match period {
+        0 | 1 => format!("the same line {limit} times in a row: {shown:?}"),
+        _ => format!(
+            "a cycle of {period} lines repeated over the last {limit} lines, ending with {shown:?}"
+        ),
+    };
     StreamFailureError {
         message: stream_failure_message(&info, Some(&detail)),
         info,

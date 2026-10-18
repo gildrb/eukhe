@@ -145,7 +145,7 @@ Settings in `~/.eukhe/settings.json`:
 |`maxToolRounds`|`250`|Tool rounds one turn may make; at the cap the turn ends as failed; `0` takes the default|
 |`compaction.keepRecentTokens`|`40000`|Tokens of recent context that compaction keeps; capped per model at half the size where compaction starts|
 |`compaction.providerTokenCount`|`false`|Ask the provider's own token counter before the compaction check; one more request per generation; a provider with no counter uses the local estimate|
-|`retry.provider.streamRepeatLimit`|`64`|A stream that sends one line this many times in a row stops and retries; `0` takes the default|
+|`retry.provider.streamRepeatLimit`|`64`|A stream whose last this many lines repeat one line, or a block of up to a quarter of them, stops and retries; `0` takes the default|
 |`directors.stackCap`|`8`|Reminders and forced calls that the Director stack holds; `0` takes the default|
 |`directors.maxSteps`|`200`|Continuations that one run may make; a new user input resets the count; `0` takes the default|
 

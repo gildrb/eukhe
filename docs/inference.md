@@ -58,13 +58,29 @@ what a request may ask of a provider.
    stream. A chunk is one complete, non-blank output line. A line longer
    than 4096 bytes (`MAX_CHUNK_BYTES`) ends a chunk at that length, on a
    character boundary; the remaining text starts the next chunk. Thus a
-   loop with no newline (`abab…`) is also cut, and the guard keeps at
-   most one chunk in memory for each block. When one chunk comes `k`
-   times in a row (setting `retry.provider.streamRepeatLimit`, default
-   64), the guard aborts the request. The stream then ends with the
-   retryable `stream_repeating` failure, which the harness treats like a
-   stall. A stream that never repeats a chunk `k` times in a row is not
-   cut.
+   loop with no newline (`abab…`) is also cut. The guard keeps a window
+   of the last `k` chunks (setting `retry.provider.streamRepeatLimit`,
+   default 64). The window is periodic with period `p` when each chunk in
+   it, after the first `p`, is equal to the chunk `p` before it. When the
+   window is periodic with a period of 1 to `k / 4` chunks (at least 1),
+   the guard aborts the request. Thus a cycle must come at least four
+   times. Period 1 is one chunk `k` times in a row. With the default, a
+   block of up to 16 lines that comes four times is cut. The stream then
+   ends with the retryable `stream_repeating` failure, which the harness
+   treats like a stall. The failure message gives the period and the last
+   line. A stream with no periodic window of `k` chunks is not cut. For
+   each period `p`, the guard keeps a counter: the number of chunks in a
+   row, up to the newest, that are equal to the chunk `p` before them. The
+   window is periodic with period `p` when this counter is `k - p` or
+   more. Thus the guard keeps at most `k / 4` chunks and `k / 4` counters,
+   and one partial chunk for each block, for all lengths of the stream.
+   Example: in a real session, `qwen3.8-27b` looped in its thinking for
+   1,359 lines on a cycle of 7 lines, and no line came two times in a
+   row. The rule before this one (one chunk `k` times in a row) did not
+   cut it. This guard cuts it at line 77. A reply that ends with no text
+   and no tool call (for example only thinking, when the guard did not
+   cut it) is no answer either: the harness fails it as a model error and
+   retries it like a stall (docs/harness.md H4.7).
 6. Compaction starts on the background path when the context is more
    than the threshold: the limit (`contextWindow - reserveTokens`) less a
    margin (`BackgroundMargin`). The eukhe session sets the margin to 10%
@@ -135,7 +151,8 @@ support; any tools; any stream; any context sizes.
 | `strict_keeps_every_tool` | Every tool is strict or loose, as many times as it was given (S6.4). |
 | `strict_by_priority` | Every strict tool has a priority of at least every loose tool (S6.4). |
 | `guard_cuts_repeats` | A stream that repeats a chunk `k` times in a row is cut (S6.5). |
-| `guard_keeps_others` | A stream that never repeats a chunk `k` times in a row is not cut (S6.5). |
+| `guard_cuts_loops` | A stream with a window of `k` chunks that is periodic, with a period of at most `k / 4` (at least 1), is cut (S6.5). |
+| `guard_keeps_others` | A stream with no window of `k` chunks that is periodic, with a period of at most `k / 4` (at least 1), is not cut (S6.5). |
 | `compact_starts_early` | When each turn grows the context by at most the margin, compaction starts before any turn over the limit (S6.6). |
 
 Code: `eukhe-ai/src/quirks/mod.rs` (`compile`, `Rules::lookup`,
@@ -182,8 +199,10 @@ swapped, against `bend/bridge_quirks.bend`; the directives are the first
 of each value type in `Directive::ALL`, and a query can name no family
 or no host) and
 `the_rust_inference_units_equal_the_bend_model` (the escalation, the
-strict budget, the guard on lines fed in random deltas, and the
-compaction threshold, against `bend/bridge_infer.bend`) compare the
+strict budget, the guard on lines fed in random deltas: random chunks,
+cycles of 1 to 4 chunks, the same cycles with one chunk changed, and the
+observed loop of 7 lines against windows of 27, 28, 32 and 64 chunks, and
+the compaction threshold, against `bend/bridge_infer.bend`) compare the
 transcripts byte for byte. The code compares token counts strictly
 (`>`), so for whole token counts the model threshold is the limit less
 the margin, plus one. Regression tests: `quirks::tests` (the shipped
@@ -202,7 +221,14 @@ checks), `openai_completions::tests::host_quirks`
 `anthropic_forced_tool_choice` test
 `the_forced_choice_predicate_matches_the_wire`,
 `utils::stream_repeat::tests` (`a_loop_with_no_newline_is_cut_in_bounded_chunks`,
-`a_long_line_is_chunked_on_character_boundaries`),
+`a_long_line_is_chunked_on_character_boundaries`,
+`the_observed_thinking_loop_is_cut_at_its_77th_line`,
+`the_observed_thinking_loop_fails_as_repeating_by_default`,
+`a_cycle_longer_than_a_quarter_of_the_window_is_not_cut`,
+`a_single_differing_line_restarts_the_window`,
+`the_guard_keeps_a_quarter_of_the_window`, and
+`the_guard_cuts_where_the_model_does`: every stream of three chunk values
+up to 8 chunks, for every `k` up to 12),
 `generation::tests::threshold`, the translator tests
 `a_summary_write_that_leaves_the_inbox_unsettled_ends_its_compaction` and
 `a_snapshot_ends_the_compactions_whose_end_it_may_have_replaced`, and the

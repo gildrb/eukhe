@@ -13,7 +13,7 @@
 #                  order (1: the model called the tool)
 #   s C P...       the strict budget: cap C, one tool per P (its
 #                  priority); tool i is the i-th, from 0
-#   g K X...       the repetition guard: run K, X the chunk ids in order
+#   g K X...       the repetition guard: window K, X the chunk ids in order
 #   t T L X...     early compaction: X the context sizes per turn; T the
 #                  threshold, L the limit
 #
