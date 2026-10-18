@@ -43,6 +43,7 @@ use std::time::Duration;
 pub use browse::{read_view, write_browse_page, BrowseSummary, ReadView};
 pub use compactor::{ResponseStarted, Summarizer, SummarizerFuture};
 pub use import::{import_sessions, ImportReport};
+pub(crate) use prompts::TURN_TASK;
 pub use prompts::{
     memory_system_layer, subagent_system_layer, AGENT_NAME, DATE_TOOL_DESCRIPTION,
     ZOOM_TOOL_DESCRIPTION,

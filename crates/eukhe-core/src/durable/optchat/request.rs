@@ -26,7 +26,7 @@ use super::docs::{decode, write, CallState, CALL_DOC};
 use super::lines::{lead_of, Lead};
 use super::tools::memory_error;
 use super::OptChat;
-use crate::memory::{CompactionPrompt, MemoryRole};
+use crate::memory::{CompactionPrompt, MemoryRole, TURN_TASK};
 
 /// The `before_request` transform of one request.
 pub(super) async fn transform(
@@ -94,7 +94,7 @@ pub(super) async fn transform(
     let start_at = start_message
         .and_then(|first| messages.iter().rposition(|message| *message == first))
         .unwrap_or(0);
-    let messages = request_messages(&call, messages, start_at, |message| {
+    let messages = request_messages(&call, chat.role, messages, start_at, |message| {
         state_rows.contains(message)
     });
     if pinned_root {
@@ -224,10 +224,13 @@ async fn pin(
 /// user's words, reports, nudges) joined by a blank line, their images
 /// after it, its last text block marked as the request's end; then any
 /// harness state among those leading rows; then the rest of the call.
-/// Messages before `start` (the call's first message) are in the chat log
-/// and dropped.
+/// A root call's text block starts with the [`TURN_TASK`] line, so the
+/// model tells a turn from a compaction by a mark, not by a missing one; a
+/// subagent's block is its task alone. Messages before `start` (the call's
+/// first message) are in the chat log and dropped.
 pub(crate) fn request_messages(
     call: &CallState,
+    role: MemoryRole,
     mut messages: Vec<Message>,
     start: usize,
     is_state: impl Fn(&Message) -> bool,
@@ -290,8 +293,14 @@ pub(crate) fn request_messages(
         })
         .collect();
     texts.retain(|text| !text.is_empty());
-    if !texts.is_empty() {
-        parts.push(UserContentBlock::Text(TextContent::new(texts.join("\n\n"))));
+    let joined = texts.join("\n\n");
+    let text = match role {
+        MemoryRole::Root if joined.is_empty() => TURN_TASK.to_string(),
+        MemoryRole::Root => format!("{TURN_TASK}\n{joined}"),
+        MemoryRole::Subagent => joined,
+    };
+    if !text.is_empty() {
+        parts.push(UserContentBlock::Text(TextContent::new(text)));
     }
     parts.extend(images);
     if let Some(UserContentBlock::Text(end)) = parts

@@ -37,7 +37,7 @@ use super::OptChat;
 use crate::durable::{HarnessCell, TurnWait, TurnWaitSink};
 use crate::memory::{
     AppendKey, CompactionPrompt, Kind, Memory, MemoryRole, Summarizer, SummarizerFuture, CAP,
-    DATE_TOOL_DESCRIPTION, ZOOM_TOOL_DESCRIPTION,
+    DATE_TOOL_DESCRIPTION, TURN_TASK, ZOOM_TOOL_DESCRIPTION,
 };
 
 fn cx() -> &'static Context {
@@ -472,7 +472,8 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
     let second_view = view_text(&setup.memory).await;
     session.run(&setup.chat, "again").await;
     // The end of the call's first message carries the request's end mark.
-    let first_user = format!("user:{first_view}|hello[cache]");
+    // The turn line goes to the model only; the chat logs the words alone.
+    let first_user = format!("user:{first_view}|{TURN_TASK}\nhello[cache]");
     assert_eq!(
         (
             requests.described(),
@@ -490,7 +491,7 @@ async fn a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them() {
                 ],
                 vec![
                     "system".to_string(),
-                    format!("user:{second_view}|again[cache]"),
+                    format!("user:{second_view}|{TURN_TASK}\nagain[cache]"),
                 ],
             ],
             vec![
@@ -811,7 +812,9 @@ fn system(text: &str, timestamp: u64) -> Message {
 /// The request shape: systems before the call's first non-user message
 /// replayed into one; the view pieces (all but the last cache-marked), the
 /// leading user texts joined, their images after; harness state after the
-/// first message; earlier messages dropped.
+/// first message; earlier messages dropped. A root call marks its texts
+/// as a turn (a bare message once read as a compaction input); a
+/// subagent's texts are its task alone.
 #[test]
 fn a_request_joins_the_leading_user_texts_behind_the_view() {
     let call = CallState {
@@ -840,7 +843,16 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
         state.clone(),
         Message::Assistant(answer("reply")),
     ];
-    let request = request_messages(&call, messages, 2, |message| *message == state);
+    let subagent = request_messages(
+        &call,
+        MemoryRole::Subagent,
+        messages.clone(),
+        2,
+        |message| *message == state,
+    );
+    let request = request_messages(&call, MemoryRole::Root, messages, 2, |message| {
+        *message == state
+    });
     let Message::System(system) = &request[0] else {
         panic!("a system message leads");
     };
@@ -848,13 +860,13 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
         (
             system.content.clone(),
             request[1..].iter().map(describe).collect::<Vec<_>>(),
-            request[1].clone()
+            request[1].clone(),
+            describe(&subagent[1]),
         ),
         (
             SystemContent::Text("base\n\npatch".to_string()),
             vec![
-                "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond[cache]|[image image/png]"
-                    .to_string(),
+                format!("user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|{TURN_TASK}\nfirst\n\nsecond[cache]|[image image/png]"),
                 "user:[state] kernel restored".to_string(),
                 "assistant:reply".to_string(),
             ],
@@ -867,7 +879,7 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
                     }),
                     UserContentBlock::Text(TextContent::new("1+1|b\n</chat>")),
                     UserContentBlock::Text(TextContent {
-                        text: "first\n\nsecond".to_string(),
+                        text: format!("{TURN_TASK}\nfirst\n\nsecond"),
                         text_signature: None,
                         cache_breakpoint: Some(CacheBreakpoint::Ephemeral),
                     }),
@@ -875,6 +887,8 @@ fn a_request_joins_the_leading_user_texts_behind_the_view() {
                 ]),
                 timestamp: 7,
             }),
+            "user:<chat>\n0+1|a\n[cache]|1+1|b\n</chat>|first\n\nsecond[cache]|[image image/png]"
+                .to_string(),
         )
     );
 }

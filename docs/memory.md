@@ -224,7 +224,7 @@ the reason).
 | 23 | Past 128,000 bytes, one batch merges the most due pairs down to 64,000 bytes. | `mod.rs` `VIEW_CEILING`, `VIEW_FLOOR`; `chat.rs` `Chat::batch` | Law `fit_reaches_budget`; bridge | matched |
 | 24 | A batch merges only pairs whose parent is built. If it cannot reach 64 KB yet, it merges what it can at each new message until it does. | `Chat::grow`, `Chat::batch` (`shrinking`) | Laws `fit_merges_built`, `fit_reaches_budget`; bridge (late compactor); `chat::tests::a_restart_keeps_a_shrinking_view_shrinking` | fixed (F1) |
 | 25 | Save the view to `view.json`, load it at start. Never rebuild it from the log. | `actor.rs` `Actor::load`, `save_view`; `chat.rs` `Chat::from_loaded` | `chat::tests::the_view_folds_from_the_logged_merges`, `a_restart_keeps_a_shrinking_view_shrinking`; `service::tests::deleting_the_saved_view_reproduces_the_identical_view` | deliberate (D1) |
-| 26 | A call's input is `[tools] [system prompt] [view] [new message]`. | `optchat/request.rs` `transform`, `request_messages` | `optchat::tests::a_request_joins_the_leading_user_texts_behind_the_view` | matched |
+| 26 | A call's input is `[tools] [system prompt] [view] [new message]`. | `optchat/request.rs` `transform`, `request_messages` | `optchat::tests::a_request_joins_the_leading_user_texts_behind_the_view` | deliberate (D11) |
 | 27 | Tools and system prompt never change: no dates, no state. | `memory/prompts.rs` `memory_system_layer`; `prompts/system_prompt.rs` `environment_section` | `prompts::system_prompt::tests::chat_memory_prompt_leads_with_memory_and_ends_with_the_user_instructions` | matched (D4) |
 | 28 | Between batches the view only grows at its end. A batch rewrites it once. | `Chat::grow` | Laws `message_appends`, `merge_is_one_pair`; bridge | matched |
 | 29 | The view goes in blocks of 4 lines. One cache mark on the last whole block, one on the request's end. | `mod.rs` `BLOCK`; `view.rs` `pieces`; `request.rs`; `memory/compactor.rs` `build_line` | `view::tests::pieces_end_the_marked_piece_at_the_last_whole_block`, `compactor::tests::the_view_is_marked_at_its_last_whole_block` | matched |
@@ -262,7 +262,7 @@ the reason).
 | 46 | If a call is running, hand m to it between tool calls and log it as `user`. | Harness steering; `lines.rs` `user_input_line` | `optchat::tests::a_message_sent_during_a_call_joins_it_between_tool_calls` | matched |
 | 47 | Else wait until every message before m is summarized, then call in a fresh session. | `request.rs` `transform`, `pin`; `actor.rs` view waiters (`settled_render`), `deadline_view` | `service::tests::a_settled_view_never_shows_a_placeholder_while_another_client_appends`, `a_turn_gets_the_view_by_its_deadline_when_the_model_never_answers`; laws `settle_reached`, `need_first` | deliberate (D10) |
 | 48 | Log each reply, tool call and result as it happens. | `optchat/logger.rs` | `optchat::tests::a_crash_between_append_and_cursor_logs_no_line_twice` | matched |
-| 49 | Render the view before logging the new message. The message goes whole after it. | `logger.rs` `log_conversation`; `request.rs` | `optchat::tests::a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them` | matched |
+| 49 | Render the view before logging the new message. The message goes whole after it. | `logger.rs` `log_conversation`; `request.rs` | `optchat::tests::a_run_sends_the_pinned_view_and_its_own_messages_and_logs_them` | deliberate (D11) |
 | 50 | Nothing carries over between turns. | `request.rs` `request_messages` | Same test | matched |
 | 51 | Per-turn state goes after the view, never in the system prompt. | `request.rs` `request_messages` | `optchat::tests::a_request_joins_the_leading_user_texts_behind_the_view` | matched |
 | 52 | `zoom(id, n)`: the description verbatim; `n` a power of 2, `id` a multiple of `n`. | `prompts.rs` `ZOOM_TOOL_DESCRIPTION`; `chat.rs` `Chat::zoom`; `optchat/tools.rs` | `chat::tests::zoom_opens_lines_and_messages`, `optchat::tests::zoom_and_date_keep_their_schemas_and_read_the_chat` | matched |
@@ -376,3 +376,13 @@ the reason).
   to 512 bytes, never the placeholder and never an error. The line is
   summarized later as usual; the next turn sees its summary
   (docs/harness.md H2.3).
+- **D11. A turn is marked "Turn:".** The gist marks a compaction with
+  "Compaction:" and puts a turn's new message after the view with no mark.
+  A model must then tell a turn by the missing mark. One model took a bare
+  user message for a compaction input and replied with a summary line.
+  eukhe puts the line `Turn: the new message follows. Answer it as Eukhe,
+  with your tools; do not summarize it.` before the new message, and the
+  prompt's opening names both marks (`memory/prompts.rs` `INTRO`,
+  `TURN_TASK`). The line goes to the model only. The chat logs the
+  user's words alone. A subagent's first message has no mark: its task
+  follows the view.

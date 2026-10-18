@@ -9,6 +9,10 @@
 //!   tasks), and the spec says to drop it then.
 //! - The agent's replies are the `talk` kind, the name eukhe's logs have
 //!   always used, where the spec writes `unii`.
+//! - A turn's new message comes after a [`TURN_TASK`] line, as a
+//!   compaction's comes after "Compaction:", and the opening says so. The
+//!   spec marks only compactions, so a model had to tell a turn by the
+//!   missing mark; one took a bare user message for a compaction input.
 
 /// The agent's name in its memory prompts.
 pub const AGENT_NAME: &str = "Eukhe";
@@ -16,7 +20,12 @@ pub const AGENT_NAME: &str = "Eukhe";
 /// The opening of the system prompt (§5).
 const INTRO: &str = r#"You are Eukhe, an AI agent that works for one user in a single chat that never
 ends. Each call to you is a turn or a compaction: the view below is followed by
-the user's new message, or by a task starting "Compaction:"."#;
+a task starting "Turn:" and the user's new message, or by a task starting
+"Compaction:"."#;
+
+/// The line before a turn's new message, after the view.
+pub(crate) const TURN_TASK: &str =
+    "Turn: the new message follows. Answer it as Eukhe, with your tools; do not summarize it.";
 
 /// How to read the view (§5 "# The view").
 const VIEW_DOC: &str = r#"# The view
@@ -193,6 +202,10 @@ mod tests {
         let end = computers + spec[computers..].find("\n\n").unwrap() + 2;
         let expected = format!("{}{}", &spec[..computers], &spec[end..])
             .replace("- unii: Unii's replies", "- eukhe: Unii's replies")
+            .replace(
+                "followed by\nthe user's new message, or by a task starting \"Compaction:\".",
+                "followed by\na task starting \"Turn:\" and the user's new message, or by a task starting\n\"Compaction:\".",
+            )
             .replace("Unii", super::AGENT_NAME);
         assert_eq!(super::memory_system_layer(), expected);
     }
