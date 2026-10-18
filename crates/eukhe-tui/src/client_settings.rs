@@ -53,6 +53,11 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_show_terminal_progress(&self, enabled: bool) -> Result<()>;
+    /// `terminal.showSpeed` (default true): the status line's generation
+    /// speed (prefill, decode, and the summary of the last response).
+    fn show_speed(&self) -> bool {
+        true
+    }
     /// `terminal.fullscreen` (default false: inline).
     fn fullscreen(&self) -> bool;
     /// Persists `terminal.fullscreen` to the global scope.

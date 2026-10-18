@@ -91,6 +91,7 @@ fn assistant(content: Vec<AssistantContentBlock>, stop_reason: StopReason) -> Me
         end_turn: None,
         timestamp: now(),
         duration_ms: None,
+        timing: None,
     })
 }
 

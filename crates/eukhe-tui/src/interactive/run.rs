@@ -215,6 +215,7 @@ async fn run_interactive_surface(
         // the settings menu's toggle updates it in place.
         view.show_hardware_cursor = settings.show_hardware_cursor();
         view.pace_rate = settings.stream_pace();
+        view.show_speed = settings.show_speed();
         // Every frame the off-screen check rejects goes to the agent log.
         let log = std::sync::Arc::clone(settings);
         crate::inline_term::log_rejections_with(Box::new(move |message| {

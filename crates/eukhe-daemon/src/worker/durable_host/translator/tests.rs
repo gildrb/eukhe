@@ -1141,6 +1141,31 @@ fn auto_retry_frames() {
     assert_eq!(retry_delay_ms(1_000.0, 2_500.0), 0);
 }
 
+/// The serving server's prompt progress goes out at once as its own frame,
+/// never parked with the coalesced message updates.
+#[test]
+fn prompt_progress_goes_out_immediately() {
+    let mut translator = translator(CoalesceMode::Coalesced);
+    start_streaming(&mut translator);
+    let progress = eukhe_types::pi_ai::PromptProgress {
+        total: 4_096,
+        cache: 1_024,
+        processed: 2_048,
+        time_ms: 350,
+    };
+    let mut frames = Vec::new();
+    translator.provider_event(&ProviderWireEvent::PromptProgress(progress), &mut frames);
+    assert_eq!(frames, [SessionEvent::PromptProgress { progress }]);
+    assert_eq!(
+        wire(&frames),
+        [json!({
+            "type": "prompt_progress",
+            "progress": { "total": 4_096, "cache": 1_024, "processed": 2_048, "timeMs": 350 },
+        })]
+    );
+    assert!(!translator.has_parked());
+}
+
 #[test]
 fn a_snapshot_seeds_and_replaces_the_mirror() {
     let call = assistant(

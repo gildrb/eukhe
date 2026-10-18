@@ -13,6 +13,7 @@ pub use thinking_levels::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::pi_ai::ResponseTiming;
 use crate::{JsNumber, JsonMap};
 
 // ---------------------------------------------------------------------------
@@ -502,6 +503,10 @@ pub struct AssistantMessage {
     pub error_message: Option<String>,
     /// Unix timestamp in milliseconds.
     pub timestamp: u64,
+    /// When the stream gave its first byte, first token and last token
+    /// (milliseconds after `timestamp`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<ResponseTiming>,
     #[serde(flatten)]
     pub rest: JsonMap,
 }

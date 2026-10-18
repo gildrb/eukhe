@@ -315,3 +315,36 @@ fn a_short_row_cuts_the_left_side_and_keeps_the_context() {
     let line = render_status_line(&state, Detail::Overview, &theme(), 14);
     assert_eq!(text(&line), " Press Ctr...");
 }
+
+/// The speed segment yields first: at a narrow width the other segments
+/// (the detail level too) stay whole and the speed drops; with some room
+/// it shows cut; with room enough it shows whole after the model.
+#[test]
+fn the_speed_segment_yields_to_the_other_segments() {
+    let state = ChromeState {
+        speed: Some(crate::gen_speed::SpeedPhase::Done(
+            crate::gen_speed::ResponseSpeed {
+                ttft: std::time::Duration::from_millis(500),
+                prefill: crate::gen_speed::Prefill::Rate(2000.0),
+                decode_tokens_per_second: Some(50.0),
+            },
+        )),
+        ..base()
+    };
+    let row = |width: usize| text(&render_status_line(&state, Detail::All, &theme(), width));
+    assert_eq!(
+        [row(60), row(80), row(120)],
+        [
+            format!(
+                " [M] mock - [D] eukhe - @ main - expanded{}ctx: 0.0%/128K",
+                " ".repeat(4)
+            ),
+            " [M] mock - prefill 2000 tok/... - [D] eukhe - @ main - expanded ctx: 0.0%/128K"
+                .to_string(),
+            format!(
+                " [M] mock - prefill 2000 tok/s (TTFT 0.50s) · decode 50.0 tok/s - [D] eukhe - @ main - expanded{}ctx: 0.0%/128K",
+                " ".repeat(10)
+            ),
+        ]
+    );
+}

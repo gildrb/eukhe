@@ -213,6 +213,7 @@ mod tests {
             stop_reason_raw: None,
             error_message: None,
             timestamp: 0,
+            timing: None,
             rest: serde_json::Map::default(),
         })
     }

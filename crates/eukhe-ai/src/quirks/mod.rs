@@ -120,6 +120,12 @@ pub enum Directive {
     ToolChoiceNative,
     /// Forcing a tool choice costs no prompt-cache invalidation.
     ToolChoiceFree,
+    /// openai-completions: the server streams prompt-processing progress
+    /// (`prompt_progress` chunks) when the request sets `return_progress`
+    /// (llama.cpp `llama-server`). A server feature, not a wire setting: a
+    /// host of scope `capabilities` may set it, and a capability lookup
+    /// reads it.
+    PromptProgress,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.
     Endpoint(Capability),
@@ -146,6 +152,7 @@ impl Directive {
         Self::AdaptiveThinking,
         Self::ToolChoiceNative,
         Self::ToolChoiceFree,
+        Self::PromptProgress,
         Self::Endpoint(Capability::CountTokens),
         Self::Endpoint(Capability::ListModels),
         Self::Endpoint(Capability::Embed),
@@ -178,6 +185,7 @@ impl Directive {
             Self::AdaptiveThinking => "adaptive_thinking",
             Self::ToolChoiceNative => "tool_choice_native",
             Self::ToolChoiceFree => "tool_choice_free",
+            Self::PromptProgress => "prompt_progress",
             Self::Endpoint(capability) => capability.as_str(),
         }
     }
@@ -214,7 +222,8 @@ impl Directive {
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
             | Self::ToolChoiceNative
-            | Self::ToolChoiceFree => None,
+            | Self::ToolChoiceFree
+            | Self::PromptProgress => None,
         }
     }
 
@@ -233,7 +242,8 @@ impl Directive {
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
             | Self::ToolChoiceNative
-            | Self::ToolChoiceFree => ValueKind::Bool,
+            | Self::ToolChoiceFree
+            | Self::PromptProgress => ValueKind::Bool,
             Self::DeveloperRolePrefixes | Self::AnthropicCacheControlPrefixes => {
                 ValueKind::Prefixes
             }
@@ -767,7 +777,10 @@ impl Rulebook {
                 errors.extend(
                     rules.layers[Layer::Host.index()][target]
                         .keys()
-                        .filter(|directive| directive.capability().is_none())
+                        .filter(|directive| {
+                            directive.capability().is_none()
+                                && **directive != Directive::PromptProgress
+                        })
                         .map(|directive| QuirksError::WireDirectiveOnCapabilityHost {
                             host: target.clone(),
                             directive: directive.as_str().to_owned(),
@@ -1109,5 +1122,12 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn tool_choice_free(&self) -> Option<bool> {
         self.flag(Directive::ToolChoiceFree)
+    }
+
+    /// [`Directive::PromptProgress`]. Ask it of a [`Lookup::Capabilities`]
+    /// query: the llama.cpp host has scope `capabilities`.
+    #[must_use]
+    pub fn prompt_progress(&self) -> Option<bool> {
+        self.flag(Directive::PromptProgress)
     }
 }

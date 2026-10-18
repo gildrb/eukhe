@@ -458,6 +458,7 @@ fn empty_output(model: &Model, provider_thinking_level: Option<String>) -> Assis
         end_turn: None,
         timestamp: now_ms(),
         duration_ms: None,
+        timing: None,
     }
 }
 

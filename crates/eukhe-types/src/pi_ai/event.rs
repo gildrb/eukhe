@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::content::ToolCall;
 use super::message::AssistantMessage;
 use super::partial::Partial;
+use super::timing::PromptProgress;
 use super::usage::{DoneReason, ErrorReason};
 
 /// Event protocol for `AssistantMessageEventStream`.
@@ -13,6 +14,8 @@ use super::usage::{DoneReason, ErrorReason};
 /// `done`. A stream may terminate directly with `error` when request setup
 /// fails before generation starts; after `start`, failures also terminate
 /// with `error`. Updates and `done` never appear before `start`.
+/// `prompt_progress` (llama.cpp `llama-server`) comes between `start` and
+/// the first content event: how far the server got through the prompt.
 ///
 /// `partial` is the response so far: one [`Partial`] shared by every event
 /// of the stream, read when handling the event (it may already be ahead).
@@ -26,6 +29,11 @@ use super::usage::{DoneReason, ErrorReason};
 pub enum AssistantMessageEvent {
     #[serde(rename = "start")]
     Start { partial: Partial },
+    #[serde(rename = "prompt_progress")]
+    PromptProgress {
+        progress: PromptProgress,
+        partial: Partial,
+    },
     #[serde(rename = "text_start")]
     TextStart {
         content_index: usize,
@@ -95,6 +103,7 @@ impl AssistantMessageEvent {
     pub const fn type_name(&self) -> &'static str {
         match self {
             Self::Start { .. } => "start",
+            Self::PromptProgress { .. } => "prompt_progress",
             Self::TextStart { .. } => "text_start",
             Self::TextDelta { .. } => "text_delta",
             Self::TextEnd { .. } => "text_end",
@@ -114,6 +123,7 @@ impl AssistantMessageEvent {
     pub const fn partial(&self) -> Option<&Partial> {
         match self {
             Self::Start { partial }
+            | Self::PromptProgress { partial, .. }
             | Self::TextStart { partial, .. }
             | Self::TextDelta { partial, .. }
             | Self::TextEnd { partial, .. }

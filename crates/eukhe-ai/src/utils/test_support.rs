@@ -27,6 +27,7 @@ pub(crate) fn faux_assistant_message(
         end_turn: None,
         timestamp: 0,
         duration_ms: None,
+        timing: None,
     }
 }
 

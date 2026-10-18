@@ -205,6 +205,7 @@ mod tests {
             end_turn: None,
             timestamp,
             duration_ms: None,
+            timing: None,
         })
     }
 

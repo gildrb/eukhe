@@ -79,6 +79,7 @@ fn assistant_message(text: &str, calls: &[&str], stop_reason: Option<StopReason>
         end_turn: None,
         timestamp: 2,
         duration_ms: None,
+        timing: None,
     })
 }
 

@@ -181,6 +181,7 @@ pub fn faux_assistant_message(
         end_turn: None,
         timestamp: options.timestamp.unwrap_or_else(now_ms),
         duration_ms: None,
+        timing: None,
     }
 }
 
@@ -549,6 +550,7 @@ fn base_message(
         end_turn: None,
         timestamp: now_ms(),
         duration_ms: None,
+        timing: None,
     }
 }
 

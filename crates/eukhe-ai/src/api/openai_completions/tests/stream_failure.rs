@@ -136,6 +136,7 @@ fn prime_inference_compat(cache_control_format: Option<CacheControlFormat>) -> R
         session_affinity_format: SessionAffinityFormat::OpenAI,
         supports_long_cache_retention: true,
         vllm_priority: None,
+        supports_prompt_progress: false,
     }
 }
 

@@ -2,7 +2,7 @@
 //! overridden by the explicit `model.compat` (TS `detectCompat` /
 //! `getCompat`).
 
-use crate::quirks::Quirks;
+use crate::quirks::{Lookup, Quirks};
 use crate::types::{IndexMap, KnownProvider};
 
 use crate::types::{
@@ -45,6 +45,9 @@ pub(crate) struct ResolvedCompat {
     pub(crate) session_affinity_format: SessionAffinityFormat,
     pub(crate) supports_long_cache_retention: bool,
     pub(crate) vllm_priority: Option<f64>,
+    /// The quirks rulebook's `prompt_progress` (a capability lookup):
+    /// request `return_progress` and read the `prompt_progress` chunks.
+    pub(crate) supports_prompt_progress: bool,
 }
 
 /// The model's explicit `openai-completions` compat block.
@@ -128,6 +131,9 @@ pub(crate) fn detect_compat(model: &Model) -> ResolvedCompat {
         session_affinity_format,
         supports_long_cache_retention: quirks.long_cache_retention().unwrap_or(true),
         vllm_priority: None,
+        supports_prompt_progress: Quirks::for_lookup(model, Lookup::Capabilities)
+            .prompt_progress()
+            .unwrap_or(false),
     }
 }
 
@@ -207,5 +213,8 @@ pub(crate) fn get_compat(model: &Model) -> ResolvedCompat {
             .supports_long_cache_retention
             .unwrap_or(detected.supports_long_cache_retention),
         vllm_priority: compat.vllm_priority,
+        supports_prompt_progress: compat
+            .supports_prompt_progress
+            .unwrap_or(detected.supports_prompt_progress),
     }
 }

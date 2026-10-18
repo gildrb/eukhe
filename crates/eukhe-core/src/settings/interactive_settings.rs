@@ -64,6 +64,12 @@ impl SettingsManager {
         self.save_global_scope()
     }
 
+    /// `terminal.showSpeed`: the status line's generation speed.
+    #[must_use]
+    pub fn get_show_speed(&self) -> bool {
+        self.cvars().bool(&table::TERMINAL_SHOW_SPEED)
+    }
+
     /// `terminal.fullscreen` setter (the getter lives with the manager's
     /// startup accessors).
     ///

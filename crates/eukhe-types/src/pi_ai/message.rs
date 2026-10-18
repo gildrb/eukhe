@@ -12,6 +12,7 @@ use super::content::{
 };
 use super::settings::ModelThinkingLevel;
 use super::string_enum::string_enum;
+use super::timing::ResponseTiming;
 use super::tool::{Tool, ToolReference};
 use super::usage::{StopReason, Usage};
 use super::{Api, JsonObject, JsonValue, ProviderId};
@@ -201,6 +202,10 @@ pub struct AssistantMessage {
     /// deferred results fetched later.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+    /// When the stream gave its first byte, first token and last token. Set
+    /// with `duration_ms`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<ResponseTiming>,
 }
 
 string_enum! {

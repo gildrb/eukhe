@@ -156,6 +156,7 @@ pub(crate) fn assistant(text: &str, options: AssistantOptions<'_>) -> AssistantM
         end_turn: None,
         timestamp: 2,
         duration_ms: None,
+        timing: None,
     }
 }
 

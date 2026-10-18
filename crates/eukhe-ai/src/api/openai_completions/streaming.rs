@@ -12,7 +12,7 @@ use crate::api::constrained_sampling::{
 use crate::models::calculate_cost;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, JsonObject, JsonValue, Model,
-    Partial, StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
+    Partial, PromptProgress, StopReason, TextContent, ThinkingContent, ToolCall, Usage, UsageCost,
 };
 use crate::utils::diagnostics::{thrown, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -115,6 +115,20 @@ pub(crate) fn parse_chunk_usage(raw_usage: &JsonValue, model: &Model) -> Usage {
     };
     calculate_cost(model, &mut usage);
     usage
+}
+
+/// eukhe addition: llama.cpp `llama-server`'s `prompt_progress` (sent on a
+/// stream chunk when the request sets `return_progress`): `total`, `cache`,
+/// `processed` (the cached tokens included) and `time_ms`. `None` when
+/// `total` or `processed` is missing.
+pub(crate) fn parse_prompt_progress(raw: &JsonValue) -> Option<PromptProgress> {
+    let count = |key: &str| raw.get(key).and_then(JsonValue::as_f64).map(tokens);
+    Some(PromptProgress {
+        total: count("total")?,
+        cache: count("cache").unwrap_or(0),
+        processed: count("processed")?,
+        time_ms: count("time_ms").unwrap_or(0),
+    })
 }
 
 /// Streaming state of one response.
@@ -418,6 +432,10 @@ impl<'a> StreamState<'a> {
         let chunk_usage = chunk.get("usage").filter(|usage| js_truthy(Some(usage)));
         if let Some(usage) = chunk_usage {
             self.output.usage = parse_chunk_usage(usage, self.model);
+        }
+        // eukhe addition: llama.cpp prompt progress, before the first token.
+        if let Some(progress) = chunk.get("prompt_progress").and_then(parse_prompt_progress) {
+            self.emit(|partial| AssistantMessageEvent::PromptProgress { progress, partial });
         }
 
         let Some(choice) = chunk

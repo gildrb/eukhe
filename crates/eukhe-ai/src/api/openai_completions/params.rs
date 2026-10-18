@@ -130,6 +130,11 @@ pub(crate) fn build_params(
             json!({ "include_usage": true }),
         );
     }
+    // eukhe addition: llama.cpp `llama-server` streams `prompt_progress`
+    // chunks while it processes the prompt.
+    if compat.supports_prompt_progress {
+        insert(&mut params, "return_progress", json!(true));
+    }
     if compat.supports_store {
         insert(&mut params, "store", json!(false));
     }

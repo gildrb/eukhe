@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use futures::Stream;
 use tokio::sync::watch;
 
-use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent, Partial};
+use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent, Partial, ResponseTiming};
 
 type Predicate<T> = Box<dyn Fn(&T) -> bool + Send + Sync>;
 type Extractor<T, R> = Box<dyn Fn(&T) -> R + Send + Sync>;
@@ -277,8 +277,10 @@ impl<T, R> Drop for EventStreamIter<T, R> {
 /// completes at `done` or `error` with the final assistant message.
 ///
 /// It also times the response: the final message (`done` or `error` event, or
-/// the result passed to `end()`) gets `duration_ms`, measured with a monotonic
-/// clock from the stream's creation, unless the message already has one or its
+/// the result passed to `end()`) gets `duration_ms` and `timing` (the first
+/// byte at `start`, the first and the last token at the text, thinking and
+/// tool-call starts and deltas), measured with a monotonic clock from the
+/// stream's creation, unless the message already has a duration or its
 /// `timestamp` predates the stream. A stream that forwards a response which
 /// started elsewhere, such as a deferred result fetched later, therefore
 /// leaves it untimed.
@@ -289,6 +291,15 @@ pub struct AssistantMessageEventStream {
     partial: Arc<OnceLock<Partial>>,
     started_at: u64,
     started_at_monotonic: Instant,
+    marks: Arc<Mutex<StreamMarks>>,
+}
+
+/// When the stream reached each [`ResponseTiming`] mark, after its creation.
+#[derive(Debug, Default)]
+struct StreamMarks {
+    first_byte: Option<Duration>,
+    first_token: Option<Duration>,
+    last_token: Option<Duration>,
 }
 
 impl Default for AssistantMessageEventStream {
@@ -320,6 +331,7 @@ impl AssistantMessageEventStream {
                     AssistantMessageEvent::Done { message, .. } => message.clone(),
                     AssistantMessageEvent::Error { error, .. } => error.clone(),
                     AssistantMessageEvent::Start { .. }
+                    | AssistantMessageEvent::PromptProgress { .. }
                     | AssistantMessageEvent::TextStart { .. }
                     | AssistantMessageEvent::TextDelta { .. }
                     | AssistantMessageEvent::TextEnd { .. }
@@ -336,24 +348,35 @@ impl AssistantMessageEventStream {
             partial: Arc::new(OnceLock::new()),
             started_at,
             started_at_monotonic,
+            marks: Arc::new(Mutex::new(StreamMarks::default())),
         }
     }
 
-    /// See [`EventStream::push`]. Times the final message of a `done` or
-    /// `error` event.
+    /// See [`EventStream::push`]. Marks the first byte and the tokens, and
+    /// times the final message of a `done` or `error` event.
     pub fn push(&self, mut event: AssistantMessageEvent) {
         match &mut event {
             AssistantMessageEvent::Done { message, .. } => self.time(message),
             AssistantMessageEvent::Error { error, .. } => self.time(error),
-            AssistantMessageEvent::Start { .. }
-            | AssistantMessageEvent::TextStart { .. }
+            AssistantMessageEvent::Start { .. } => {
+                let at = self.started_at_monotonic.elapsed();
+                let mut marks = self.marks.lock().unwrap_or_else(PoisonError::into_inner);
+                marks.first_byte.get_or_insert(at);
+            }
+            AssistantMessageEvent::TextStart { .. }
             | AssistantMessageEvent::TextDelta { .. }
-            | AssistantMessageEvent::TextEnd { .. }
             | AssistantMessageEvent::ThinkingStart { .. }
             | AssistantMessageEvent::ThinkingDelta { .. }
-            | AssistantMessageEvent::ThinkingEnd { .. }
             | AssistantMessageEvent::ToolCallStart { .. }
-            | AssistantMessageEvent::ToolCallDelta { .. }
+            | AssistantMessageEvent::ToolCallDelta { .. } => {
+                let at = self.started_at_monotonic.elapsed();
+                let mut marks = self.marks.lock().unwrap_or_else(PoisonError::into_inner);
+                marks.first_token.get_or_insert(at);
+                marks.last_token = Some(at);
+            }
+            AssistantMessageEvent::PromptProgress { .. }
+            | AssistantMessageEvent::TextEnd { .. }
+            | AssistantMessageEvent::ThinkingEnd { .. }
             | AssistantMessageEvent::ToolCallEnd { .. } => {}
         }
         self.inner.push(event);
@@ -407,10 +430,13 @@ impl AssistantMessageEventStream {
         {
             return;
         }
-        let elapsed = self.started_at_monotonic.elapsed();
-        // TS `Math.round(performance.now() - start)`: round to whole milliseconds.
-        let rounded = (elapsed + Duration::from_micros(500)).as_millis();
-        message.duration_ms = Some(u64::try_from(rounded).unwrap_or(u64::MAX));
+        message.duration_ms = Some(whole_ms(self.started_at_monotonic.elapsed()));
+        let marks = self.marks.lock().unwrap_or_else(PoisonError::into_inner);
+        message.timing = Some(ResponseTiming {
+            first_byte_ms: marks.first_byte.map(whole_ms),
+            first_token_ms: marks.first_token.map(whole_ms),
+            last_token_ms: marks.last_token.map(whole_ms),
+        });
     }
 
     /// See [`EventStream::events`].
@@ -428,6 +454,13 @@ impl AssistantMessageEventStream {
     pub async fn into_result(self) -> AssistantMessage {
         self.inner.into_result().await
     }
+}
+
+/// `elapsed` in whole milliseconds (TS `Math.round(performance.now() -
+/// start)`).
+fn whole_ms(elapsed: Duration) -> u64 {
+    let rounded = (elapsed + Duration::from_micros(500)).as_millis();
+    u64::try_from(rounded).unwrap_or(u64::MAX)
 }
 
 /// Factory for [`AssistantMessageEventStream`] (for use in extensions).
@@ -601,5 +634,71 @@ mod tests {
         let mut late = message(crate::utils::now_ms(), None);
         stream.time(&mut late);
         assert_eq!(late.duration_ms, None);
+    }
+
+    #[tokio::test]
+    async fn stamps_ordered_timing_from_the_start_and_the_token_events() {
+        let stream = AssistantMessageEventStream::new();
+        let output = message(crate::utils::now_ms(), None);
+        stream.push_partial(&output, |partial| AssistantMessageEvent::Start { partial });
+        stream.push_partial(&output, |partial| AssistantMessageEvent::TextStart {
+            content_index: 0,
+            partial,
+        });
+        for delta in ["a", "b", "c"] {
+            stream.push_partial(&output, |partial| AssistantMessageEvent::TextDelta {
+                content_index: 0,
+                delta: delta.to_owned(),
+                partial,
+            });
+        }
+        stream.push(done(output));
+        let result = stream.result().await;
+        let Some(ResponseTiming {
+            first_byte_ms: Some(first_byte),
+            first_token_ms: Some(first_token),
+            last_token_ms: Some(last_token),
+        }) = result.timing
+        else {
+            panic!("every mark is set: {:?}", result.timing);
+        };
+        let duration = result.duration_ms.expect("duration is set");
+        assert!(first_byte <= first_token, "{first_byte} <= {first_token}");
+        assert!(first_token <= last_token, "{first_token} <= {last_token}");
+        assert!(last_token <= duration, "{last_token} <= {duration}");
+    }
+
+    #[tokio::test]
+    async fn a_response_without_tokens_has_only_the_first_byte() {
+        let stream = AssistantMessageEventStream::new();
+        let output = message(crate::utils::now_ms(), None);
+        stream.push_partial(&output, |partial| AssistantMessageEvent::Start { partial });
+        stream.push(done(output));
+        let timing = stream.result().await.timing;
+        assert!(
+            matches!(
+                timing,
+                Some(ResponseTiming {
+                    first_byte_ms: Some(_),
+                    first_token_ms: None,
+                    last_token_ms: None,
+                })
+            ),
+            "{timing:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_response_without_events_has_no_marks() {
+        let stream = AssistantMessageEventStream::new();
+        stream.end(Some(message(crate::utils::now_ms(), None)));
+        assert_eq!(
+            stream.result().await.timing,
+            Some(ResponseTiming {
+                first_byte_ms: None,
+                first_token_ms: None,
+                last_token_ms: None,
+            })
+        );
     }
 }

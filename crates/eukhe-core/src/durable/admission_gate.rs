@@ -312,6 +312,7 @@ fn failure(model: &Model, stop_reason: StopReason, error_message: String) -> Ass
         end_turn: None,
         timestamp,
         duration_ms: None,
+        timing: None,
     }
 }
 

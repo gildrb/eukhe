@@ -54,8 +54,8 @@ use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, TypedEntryDraft};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, Message, Model, StopReason,
-    TranscriptContext, Usage, UserContent, UserContentBlock,
+    AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, Message, Model,
+    PromptProgress, StopReason, TranscriptContext, Usage, UserContent, UserContentBlock,
 };
 use futures::{FutureExt, StreamExt};
 use std::collections::HashMap;
@@ -84,10 +84,11 @@ use crate::settings::SettingsManager;
 
 const SWITCH_BUDGET: u32 = MAX_TOTAL_PROVIDER_RETRIES;
 
-/// The provider runtime's failover events (the backup-switch
-/// `auto_retry_*` vocabulary the durable Harness does not emit): broadcast
-/// to every subscriber; the daemon worker translates them onto the wire.
-#[derive(Debug, Clone)]
+/// The provider runtime's wire events the durable Harness does not emit
+/// (the backup-switch `auto_retry_*` vocabulary and the serving server's
+/// prompt progress): broadcast to every subscriber; the daemon worker
+/// translates them onto the wire.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderWireEvent {
     /// The failed request re-routes to `backup_model` ("provider/model-id")
     /// immediately.
@@ -106,6 +107,9 @@ pub enum ProviderWireEvent {
         final_error: Option<String>,
         restored_model: Option<String>,
     },
+    /// The serving request's server reported prompt progress (llama.cpp
+    /// `prompt_progress`, before the first token).
+    PromptProgress(PromptProgress),
 }
 
 /// One underlying provider dispatch of the wrapped chain: the provider's
@@ -234,7 +238,8 @@ impl ProviderRuntime {
     }
 
     /// The runtime's wire events (the `auto_retry_*` failover
-    /// vocabulary); a late subscriber sees only later events.
+    /// vocabulary and prompt progress); a late subscriber sees only later
+    /// events.
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<ProviderWireEvent> {
         self.inner.events.subscribe()
@@ -325,6 +330,12 @@ async fn run_request(
                 }
                 AssistantMessageEvent::Error { error, .. } => {
                     terminal = Some(error.clone());
+                }
+                AssistantMessageEvent::PromptProgress { progress, .. } => {
+                    let _ = inner
+                        .events
+                        .send(ProviderWireEvent::PromptProgress(*progress));
+                    out.push(event);
                 }
                 _ => out.push(event),
             }
@@ -592,6 +603,7 @@ fn refuted_message(model: &Model, text: &str) -> AssistantMessage {
         end_turn: None,
         timestamp: now_millis(),
         duration_ms: None,
+        timing: None,
     }
 }
 
@@ -1404,5 +1416,57 @@ mod tests {
         .await;
         assert_eq!(message.stop_reason, StopReason::Stop);
         assert!(!fixture.runtime.is_quota_parked());
+    }
+
+    /// The serving stream's prompt progress reaches the runtime's wire
+    /// subscribers and still streams out to the caller.
+    #[tokio::test]
+    async fn prompt_progress_goes_to_the_wire_and_the_caller() {
+        let fixture = fixture(/*text_only*/ false);
+        let model = fixture.faux_a.get_model();
+        let progress = PromptProgress {
+            total: 4_096,
+            cache: 1_024,
+            processed: 2_048,
+            time_ms: 350,
+        };
+        let dispatch: OriginalDispatch = Arc::new(move |_model, _context| {
+            let stream = create_assistant_message_event_stream();
+            let message = faux_assistant_message("ok", FauxAssistantMessageOptions::default());
+            stream.push(AssistantMessageEvent::Start {
+                partial: message.clone().into(),
+            });
+            stream.push(AssistantMessageEvent::PromptProgress {
+                progress,
+                partial: message.clone().into(),
+            });
+            stream.push(AssistantMessageEvent::Done {
+                reason: DoneReason::Stop,
+                message: message.clone(),
+            });
+            stream.end(Some(message));
+            stream
+        });
+        let mut events = fixture.runtime.subscribe();
+        let kinds: Vec<&str> = dispatch_request(
+            Arc::clone(&fixture.runtime.inner),
+            model,
+            TranscriptContext::from_normalized_messages(vec![user_message(UserContent::Text(
+                "hello".to_owned(),
+            ))]),
+            dispatch,
+            CarriedOptions::default(),
+            /*simple*/ true,
+        )
+        .events()
+        .map(|event| event.type_name())
+        .collect()
+        .await;
+        assert_eq!(kinds, ["start", "prompt_progress", "done"]);
+        assert_eq!(
+            events.try_recv().expect("the progress event"),
+            ProviderWireEvent::PromptProgress(progress)
+        );
+        assert!(events.try_recv().is_err());
     }
 }

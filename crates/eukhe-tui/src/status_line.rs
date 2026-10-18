@@ -14,6 +14,10 @@ use crate::{Line, Span};
 /// The widest the path segment's text gets (omp `path.maxLength`).
 const PATH_MAX_WIDTH: usize = 35;
 
+/// The narrowest cut of the speed segment worth showing; with less room
+/// the segment drops.
+const SPEED_MIN_WIDTH: usize = 12;
+
 /// The status line row for `width` columns: one margin column on each
 /// side, the left segments, and the context usage flush right. The left
 /// side gives way first when the row is short.
@@ -46,6 +50,9 @@ pub fn render_status_line(
     if let Some(model) = model_segment(state, theme) {
         segments.push(model);
     }
+    // The speed segment sits after the model but yields first: it gets
+    // only the room the other segments leave (below).
+    let speed_at = segments.len();
     segments.push(vec![theme.fg(
         ThemeColor::Dim,
         path_label(&state.cwd, state.git.as_ref(), &roots),
@@ -77,13 +84,6 @@ pub fn render_status_line(
     if let Some(dock) = &state.activity {
         segments.extend(activity_segments(dock, theme));
     }
-    let mut left: Line = Vec::new();
-    for (index, segment) in segments.into_iter().enumerate() {
-        if index > 0 {
-            left.push(theme.fg(ThemeColor::Dim, crate::glyphs::SEP));
-        }
-        left.extend(segment);
-    }
     let mut right: Line = state
         .context
         .map(|context| context_segment(context, theme))
@@ -93,6 +93,31 @@ pub fn render_status_line(
         right.clear();
     }
     let room = inner.saturating_sub(line_width(&right) + usize::from(!right.is_empty()));
+    if let Some(speed) = &state.speed {
+        let separator = line_width(&[theme.fg(ThemeColor::Dim, crate::glyphs::SEP)]);
+        let others: usize = segments
+            .iter()
+            .map(|segment| line_width(segment))
+            .sum::<usize>()
+            + separator * segments.len().saturating_sub(1);
+        let spare = room.saturating_sub(others + separator);
+        let text = vec![theme.fg(ThemeColor::Muted, speed.text(std::time::Instant::now()))];
+        if line_width(&text) <= spare {
+            segments.insert(speed_at, text);
+        } else if spare >= SPEED_MIN_WIDTH {
+            segments.insert(
+                speed_at,
+                crate::chrome::truncate_spans_to_width(&text, spare),
+            );
+        }
+    }
+    let mut left: Line = Vec::new();
+    for (index, segment) in segments.into_iter().enumerate() {
+        if index > 0 {
+            left.push(theme.fg(ThemeColor::Dim, crate::glyphs::SEP));
+        }
+        left.extend(segment);
+    }
     let left = crate::chrome::truncate_spans_to_width(&left, room);
     let mut row: Line = vec![Span::raw(" ")];
     let used = line_width(&left) + line_width(&right);
@@ -257,7 +282,7 @@ fn context_color(percent: f64, window: u64) -> ThemeColor {
 }
 
 /// omp `formatNumber`: 999, 1.5K, 128K, 1M, 2.5M, 1B.
-fn format_count(count: u64) -> String {
+pub(crate) fn format_count(count: u64) -> String {
     let scaled = |value: f64, unit: &str| {
         let text = format!("{value:.1}");
         format!("{}{unit}", text.strip_suffix(".0").unwrap_or(&text))

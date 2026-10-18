@@ -43,7 +43,7 @@
     { "layer": "host", "target": "cloudflare-workers-ai", "set": { "store": false, "developer_role": false, "long_cache_retention": false } },
     { "layer": "host", "target": "deepseek", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "thinking_format": "deepseek", "reasoning_content_on_assistant": true, "list_models": "openai", "usage": "deepseek" } },
     { "layer": "host", "target": "google", "set": { "count_tokens": "google", "list_models": "google", "embed": "google", "web_search": "google" } },
-    { "layer": "host", "target": "llama-cpp", "set": { "count_tokens": "llama-cpp", "list_models": "openai", "embed": "openai", "tokenize": "llama-cpp" } },
+    { "layer": "host", "target": "llama-cpp", "set": { "count_tokens": "llama-cpp", "list_models": "openai", "embed": "openai", "tokenize": "llama-cpp", "prompt_progress": true } },
     { "layer": "host", "target": "loopback", "set": { "store": false, "developer_role": false } },
     { "layer": "host", "target": "mistral", "set": { "strict_tools": true, "list_models": "openai", "embed": "openai" } },
     { "layer": "host", "target": "moonshot", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens" } },

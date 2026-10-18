@@ -215,6 +215,9 @@ pub(crate) struct SessionUi {
     /// tokens and wall-clock span summed over completed responses.
     /// `None` until the first recorded sample; a rebind restarts it.
     speed_stats: Option<SpeedStats>,
+    /// The status line's generation speed: the phase of the streaming
+    /// request and the last response's rates; a rebind restarts it.
+    speed_clock: crate::gen_speed::SpeedClock,
     /// The session's effective service tier (TS `connectionState.serviceTier`),
     /// seeded from the attach state and kept live by `service_tier_changed`
     /// events; the `/fast` toggle reads it.

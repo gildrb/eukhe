@@ -592,6 +592,7 @@ impl EventTranslator {
                 }
                 SessionEvent::MessageStart { .. }
                 | SessionEvent::MessageUpdate { .. }
+                | SessionEvent::PromptProgress { .. }
                 | SessionEvent::ToolExecutionStart { .. }
                 | SessionEvent::ToolExecutionUpdate { .. }
                 | SessionEvent::ToolExecutionEnd { .. }
@@ -727,9 +728,9 @@ impl EventTranslator {
         });
     }
 
-    /// A provider failover event of the session's provider runtime (the
-    /// backup-switch `auto_retry_*` vocabulary the durable
-    /// Harness itself does not emit): flushed after any parked update,
+    /// A provider runtime wire event (the backup-switch `auto_retry_*`
+    /// vocabulary and the serving server's prompt progress, neither of which
+    /// the durable Harness itself emits): flushed after any parked update,
     /// like the harness's own retry frames. A switch joins the open retry
     /// episode; a successful switch's end closes it.
     pub fn provider_event(&mut self, event: &ProviderWireEvent, out: &mut Vec<SessionEvent>) {
@@ -741,6 +742,7 @@ impl EventTranslator {
                 episode.final_error = Some(error_message.clone());
             }
             ProviderWireEvent::AutoRetryEnd { .. } => self.retry_episode = None,
+            ProviderWireEvent::PromptProgress(_) => {}
         }
         out.push(provider_wire_frame(event));
     }
@@ -1581,7 +1583,7 @@ fn retry_delay_ms(at: f64, from: f64) -> u64 {
     })
 }
 
-/// The session event of one provider failover event.
+/// The session event of one provider runtime wire event.
 fn provider_wire_frame(event: &ProviderWireEvent) -> SessionEvent {
     match event {
         ProviderWireEvent::AutoRetryStart {
@@ -1610,6 +1612,9 @@ fn provider_wire_frame(event: &ProviderWireEvent) -> SessionEvent {
             attempt: u64::from(*attempt),
             final_error: final_error.clone(),
             restored_model: restored_model.clone(),
+        },
+        ProviderWireEvent::PromptProgress(progress) => SessionEvent::PromptProgress {
+            progress: *progress,
         },
     }
 }

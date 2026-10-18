@@ -71,6 +71,7 @@ fn assistant(text: &str, timestamp: u64) -> Message {
         end_turn: None,
         timestamp,
         duration_ms: None,
+        timing: None,
     })
 }
 

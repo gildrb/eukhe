@@ -111,6 +111,16 @@ impl SessionUi {
     ) -> Option<CvarReply> {
         match self.send_cvar_line(line, target).await {
             Ok(reply) => {
+                // The status line follows `terminal.showSpeed` at once.
+                if let Some(show) = reply
+                    .values
+                    .iter()
+                    .find(|value| value.id == "terminal.showSpeed")
+                    .and_then(|value| value.value.as_bool())
+                {
+                    view.show_speed = show;
+                    self.sync_speed(view);
+                }
                 let shown = parse_list(line)
                     .ok()
                     .and_then(|commands| match commands.as_slice() {

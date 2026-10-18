@@ -13,6 +13,7 @@ mod openrouter_cache_control_models;
 mod openrouter_cache_write_repro;
 mod openrouter_reasoning_options;
 mod prompt_cache;
+mod prompt_progress;
 mod provider_stream_event;
 mod qwen_token_plan_models;
 mod raw_stop_reason;

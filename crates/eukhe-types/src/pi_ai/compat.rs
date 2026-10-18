@@ -143,6 +143,11 @@ pub struct OpenAICompletionsCompat {
     /// Whether the provider supports long prompt cache retention. Default: true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_long_cache_retention: Option<bool>,
+    /// Whether the server streams prompt-processing progress when the
+    /// request sets `return_progress` (llama.cpp `llama-server`). Default:
+    /// the quirks rulebook's `prompt_progress`, else false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_prompt_progress: Option<bool>,
     /// vLLM scheduler priority sent as the top-level `priority` request field.
     #[serde(
         default,

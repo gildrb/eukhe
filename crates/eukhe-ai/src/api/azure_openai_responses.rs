@@ -222,6 +222,7 @@ fn new_output(model: &Model) -> AssistantMessage {
         end_turn: None,
         timestamp: now_ms(),
         duration_ms: None,
+        timing: None,
     }
 }
 

@@ -11,6 +11,7 @@ use super::{AgentRelayEvent, MemoryUpdate, SessionActionSnapshot};
 use crate::ai::{ServiceTier, UserContentBlock};
 use crate::goal::GoalState;
 use crate::output::OmittedOutput;
+use crate::pi_ai::PromptProgress;
 use crate::session::AgentMessage;
 
 /// One session event, tagged by `type`.
@@ -35,6 +36,11 @@ pub enum SessionEvent {
         answer: Option<TurnAnswer>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+    },
+    /// The model request's server reported how far it got through the
+    /// prompt (llama.cpp `llama-server`), before the first token.
+    PromptProgress {
+        progress: PromptProgress,
     },
     /// A message entered the transcript. A streamed assistant message
     /// carries the `start` update.
@@ -194,6 +200,7 @@ impl SessionEvent {
             | Self::AgentEnd { .. }
             | Self::TurnStart
             | Self::TurnEnd { .. }
+            | Self::PromptProgress { .. }
             | Self::ToolExecutionStart { .. }
             | Self::ToolExecutionUpdate { .. }
             | Self::ToolExecutionEnd { .. }

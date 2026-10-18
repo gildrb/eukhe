@@ -62,6 +62,7 @@ impl Partial {
                 grow(&mut shared, output, *content_index)
             }
             AssistantMessageEvent::Start { .. }
+            | AssistantMessageEvent::PromptProgress { .. }
             | AssistantMessageEvent::TextStart { .. }
             | AssistantMessageEvent::TextEnd { .. }
             | AssistantMessageEvent::ThinkingStart { .. }
@@ -133,6 +134,7 @@ fn grow(shared: &mut AssistantMessage, output: &AssistantMessage, index: usize) 
         end_turn,
         timestamp,
         duration_ms,
+        timing,
     } = output;
     assign(&mut shared.api, api);
     assign(&mut shared.provider, provider);
@@ -150,6 +152,7 @@ fn grow(shared: &mut AssistantMessage, output: &AssistantMessage, index: usize) 
     assign(&mut shared.end_turn, end_turn);
     assign(&mut shared.timestamp, timestamp);
     assign(&mut shared.duration_ms, duration_ms);
+    assign(&mut shared.timing, timing);
     true
 }
 

@@ -375,8 +375,10 @@ impl SessionUi {
                 self.pending_tools.clear();
                 self.aborted_tools.clear();
                 self.start_loader(view);
+                self.speed_clock.request_started(std::time::Instant::now());
             }
             TurnUpdate::UserMessage(text) => {
+                self.speed_clock.prompt_added(text.chars().count() as u64);
                 // TS `addMessageToChat`'s user case: a skill block parses
                 // into the skill-invocation card plus the trailing
                 // argument text as its own user block.
@@ -460,6 +462,20 @@ impl SessionUi {
                 result,
                 is_error,
             } => {
+                // The result goes into the next request's prompt.
+                self.speed_clock.prompt_added(
+                    result
+                        .content
+                        .iter()
+                        .map(|block| match block {
+                            eukhe_types::ai::UserContentBlock::Text(text) => {
+                                text.text.chars().count() as u64
+                            }
+                            eukhe_types::ai::UserContentBlock::Image(_)
+                            | eukhe_types::ai::UserContentBlock::Raw(_) => 0,
+                        })
+                        .sum(),
+                );
                 // The landed-result gate keeps the loader safe: after the
                 // interrupt delivers the parked queue, a late end frame from
                 // the aborted run must not rewrite the new turn's activity
@@ -655,6 +671,9 @@ impl SessionUi {
                     }
                 }
             }
+            TurnUpdate::PromptProgress(progress) => {
+                self.speed_clock.prompt_progress(progress);
+            }
             TurnUpdate::MemoryUpdate(update) => {
                 self.apply_memory_update(update, view);
             }
@@ -723,6 +742,7 @@ impl SessionUi {
             }
             TurnUpdate::StatusUpdate => {}
         }
+        self.sync_speed(view);
         self.dirty = true;
     }
 
@@ -790,9 +810,21 @@ impl SessionUi {
             if let Some(working) = &mut view.working {
                 working.tokens = working.tokens.max(current);
             }
+            // This message's own output so far, tool-call arguments
+            // included: the provider's count when it streams one, else the
+            // content at 4 characters per token.
+            let tool_chars: u64 = tool_calls
+                .iter()
+                .map(|(_, name, args)| (name.len() + args.to_string().len()) as u64)
+                .sum();
+            self.speed_clock.streamed(
+                std::time::Instant::now(),
+                usage_output.max((content_chars + tool_chars) / 4),
+            );
         } else {
             self.working_tokens.settle(usage_output);
             self.record_speed_sample(message, view);
+            self.speed_clock.settled(message, std::time::Instant::now());
         }
         if let Some(text) = blocks.iter().rev().find_map(|block| match block {
             MessageBlock::Text(text) => Some(text.clone()),

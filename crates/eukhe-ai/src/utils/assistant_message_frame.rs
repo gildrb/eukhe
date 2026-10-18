@@ -182,6 +182,7 @@ fn clone_start_message(message: &AssistantMessage) -> AssistantMessage {
         end_turn: None,
         timestamp: message.timestamp,
         duration_ms: None,
+        timing: None,
     }
 }
 
@@ -322,6 +323,16 @@ impl AssistantMessageFrameEncoder {
             }
             AssistantMessageEvent::Error { .. } => {
                 self.terminal = true;
+                return Ok(None);
+            }
+            // Progress changes no block: the frame protocol has no frame
+            // for it.
+            AssistantMessageEvent::PromptProgress { .. } => {
+                if !self.started {
+                    return Err(error(
+                        "Assistant message prompt_progress event appears before start".to_owned(),
+                    ));
+                }
                 return Ok(None);
             }
             AssistantMessageEvent::TextStart {
@@ -523,6 +534,7 @@ impl AssistantMessageFrameEncoder {
                 }))
             }
             AssistantMessageEvent::Start { .. }
+            | AssistantMessageEvent::PromptProgress { .. }
             | AssistantMessageEvent::Done { .. }
             | AssistantMessageEvent::Error { .. } => Ok(None),
         }

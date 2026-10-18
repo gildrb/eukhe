@@ -22,6 +22,7 @@ mod partial;
 mod routing;
 mod settings;
 mod string_enum;
+mod timing;
 mod tool;
 mod tool_schema;
 mod usage;
@@ -72,6 +73,7 @@ pub use settings::{
     SamplingParamsByThinkingLevel, ServiceTier, SessionAffinityFormat, ThinkingBudgets,
     ThinkingLevel, ThinkingLevelMap, ThinkingTokenBudgetField, ToolChoice, Transport,
 };
+pub use timing::{PromptProgress, ResponseTiming};
 pub use tool::{
     ConstrainedSamplingConfig, GrammarFormat, GrammarVariants, JsonSchemaStrictness, Tool,
     ToolConstrainedSampling, ToolReference,

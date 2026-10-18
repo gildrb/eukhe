@@ -491,6 +491,7 @@ pub(crate) fn refiner(
                 stop_reason_raw: None,
                 error_message: None,
                 timestamp: reply.timestamp,
+                timing: None,
                 rest: serde_json::Map::default(),
             })
         })

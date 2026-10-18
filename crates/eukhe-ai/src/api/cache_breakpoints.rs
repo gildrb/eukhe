@@ -70,27 +70,24 @@ pub fn excess_breakpoints_error(
     if marked <= MAX_MARKED_BLOCKS {
         return None;
     }
-    let message = AssistantMessage {
-        content: Vec::new(),
-        api: model.api.clone(),
-        provider: model.provider.clone(),
-        model: model.id.clone(),
-        response_model: None,
-        response_id: None,
-        provider_thinking_level: None,
-        thinking_level: None,
-        diagnostics: None,
-        usage: Usage::default(),
-        stop_reason: StopReason::Error,
-        deferred: None,
-        error_message: Some(format!(
-            "Too many cache breakpoints: the request marks {marked} blocks, at most {MAX_MARKED_BLOCKS} are allowed"
-        )),
-        raw_stop_reason: None,
-        end_turn: None,
-        timestamp: now_ms(),
-        duration_ms: None,
-    };
+    let message = AssistantMessage { content: Vec::new(),
+    api: model.api.clone(),
+    provider: model.provider.clone(),
+    model: model.id.clone(),
+    response_model: None,
+    response_id: None,
+    provider_thinking_level: None,
+    thinking_level: None,
+    diagnostics: None,
+    usage: Usage::default(),
+    stop_reason: StopReason::Error,
+    deferred: None,
+    error_message: Some(format!(
+        "Too many cache breakpoints: the request marks {marked} blocks, at most {MAX_MARKED_BLOCKS} are allowed"
+    )),
+    raw_stop_reason: None,
+    end_turn: None,
+    timestamp: now_ms(), duration_ms: None, timing: None };
     let stream = AssistantMessageEventStream::new();
     stream.push(AssistantMessageEvent::Error {
         reason: ErrorReason::Error,

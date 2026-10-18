@@ -73,6 +73,7 @@ impl SessionUi {
             service_tier: None,
             speed_display_enabled: false,
             speed_stats: None,
+            speed_clock: crate::gen_speed::SpeedClock::default(),
             client_settings: options.client_settings.clone(),
             anthropic_subscription_warning_shown: false,
             anthropic_warning_mark_pending: std::sync::Arc::default(),
@@ -625,6 +626,8 @@ impl SessionUi {
             view.memory_tree = None;
             self.speed_stats = None;
             view.chrome.speed_text = None;
+            self.speed_clock = crate::gen_speed::SpeedClock::default();
+            view.chrome.speed = None;
         }
         view.clear_chat(match kind {
             RebuildKind::Rebind => crate::view::TranscriptBreak::Session,

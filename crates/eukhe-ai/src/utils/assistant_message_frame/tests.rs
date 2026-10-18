@@ -29,6 +29,7 @@ fn seed() -> AssistantMessage {
         end_turn: None,
         timestamp: 1,
         duration_ms: None,
+        timing: None,
     }
 }
 

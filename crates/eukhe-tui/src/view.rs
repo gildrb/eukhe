@@ -131,6 +131,9 @@ pub struct AgentView {
     /// a visible cursor across the pane (`positionHardwareCursor` and the
     /// paint tail move it while hidden).
     pub show_hardware_cursor: bool,
+    /// `terminal.showSpeed` (default true): the status line shows the
+    /// generation speed.
+    pub show_speed: bool,
     /// The brand splash never renders while set: a chat that opens or
     /// rebinds directly into a non-empty transcript suppresses it (TS
     /// mounts the chat over an already-attached connection, so its first
@@ -321,6 +324,7 @@ impl AgentView {
             memory_tree: None,
             show_images: true,
             show_hardware_cursor: false,
+            show_speed: true,
             splash_suppressed: false,
             quiet_startup: false,
             terminal_rows: 24,

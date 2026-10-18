@@ -571,6 +571,7 @@ fn replays_opencode_go_reasoning_thinking_blocks_as_reasoning_content() {
         session_affinity_format: SessionAffinityFormat::OpenAI,
         supports_long_cache_retention: true,
         vllm_priority: None,
+        supports_prompt_progress: false,
     };
     let transcript = context(json!({
         "messages": [{

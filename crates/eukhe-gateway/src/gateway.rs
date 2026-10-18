@@ -820,6 +820,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::MessageEnd { .. }
             | SessionEvent::TurnStart
             | SessionEvent::TurnEnd { .. }
+            | SessionEvent::PromptProgress { .. }
             | SessionEvent::ToolExecutionStart { .. }
             | SessionEvent::ToolExecutionUpdate { .. }
             | SessionEvent::ToolExecutionEnd { .. }

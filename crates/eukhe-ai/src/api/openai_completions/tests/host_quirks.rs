@@ -137,14 +137,15 @@ async fn the_openai_provider_at_a_loopback_url_keeps_the_loopback_settings() {
 }
 
 /// A llama.cpp provider on a LAN address names no wire host, as before
-/// the capability rules: it sends what a provider without a host sends.
+/// the capability rules: it sends what a provider without a host sends,
+/// plus `return_progress` from its capability host.
 #[tokio::test]
 async fn a_llama_cpp_provider_on_a_lan_address_sends_the_hostless_wire() {
     let mut llama = chat_model("llama-cpp", "gemma-3-4b", "http://192.168.1.20:8080/v1");
     llama.reasoning = true;
     let mut custom = llama.clone();
     custom.provider = "my-lan".to_owned();
-    let sent = payload(&llama).await;
+    let mut sent = payload(&llama).await;
     assert_eq!(
         (
             sent.get("store").cloned(),
@@ -152,5 +153,9 @@ async fn a_llama_cpp_provider_on_a_lan_address_sends_the_hostless_wire() {
         ),
         (Some(json!(false)), json!("developer"))
     );
+    let return_progress = sent
+        .as_object_mut()
+        .and_then(|object| object.remove("return_progress"));
+    assert_eq!(return_progress, Some(json!(true)));
     assert_eq!(sent, payload(&custom).await);
 }

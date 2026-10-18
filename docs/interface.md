@@ -58,6 +58,58 @@ text that arrived. The text on the screen stays where it was, and the
 thinking that the change shows above that text is on the screen
 immediately.
 
+Generation speed. The status line shows the speed of the model request,
+after the model segment. The setting is `terminal.showSpeed` (default
+true). `/toggle terminal.showSpeed` hides or shows the segment at once.
+
+1. Prefill. A turn starts a model request. Until the first token, the
+   segment shows `prefill <elapsed>s`. After the first response of the
+   session, it also shows an estimate of the prompt tokens that the cache
+   does not hold: `prefill 3.2s (~1.2K tok)`. The estimate is the output
+   of the last response plus the user text and the tool results since
+   then, at 4 characters for each token.
+2. Prefill progress. A llama.cpp `llama-server` sends its progress
+   through the prompt when the request sets `return_progress`
+   (`prompt_progress`: `total`, `cache`, `processed`, `time_ms`). The
+   request sets it when the quirks rulebook gives the host
+   `prompt_progress` (provider `llama.cpp` or `llama-cpp`), or when
+   `compat.supportsPromptProgress` is true. The worker sends each report
+   to the clients as a `prompt_progress` session event. The segment then
+   shows `prefill <processed>/<total> tokens`. The other providers keep
+   the elapsed time.
+3. Decode. When the first token shows, the segment shows
+   `decode N tok/s`: the output tokens after the first one, divided by
+   the time since the first token. The token count is the count of the
+   provider when it streams one, else the streamed text and tool
+   arguments at 4 characters for each token. The rate shows after
+   250 ms of decode.
+4. Summary. When the response settles, the segment shows the exact
+   rates from the usage and the stream marks of the provider, until the
+   next turn: `prefill X tok/s (TTFT Ys) · decode Z tok/s`. The prefill
+   rate is the uncached prompt tokens (input and cache write) divided by
+   the time to first token (TTFT). When the cache gave 95 % or more of
+   the prompt, the segment shows `prefill cached (TTFT Ys)`. Without a
+   prompt count, it shows `TTFT Ys` only. A failed or stopped response
+   shows no segment.
+
+The stream marks come from `AssistantMessageEventStream`. On the final
+message it sets `timing` (`firstByteMs`, `firstTokenMs`, `lastTokenMs`:
+milliseconds after `timestamp`, the request start) with `durationMs`.
+The first byte is the `start` event. The first and the last token are the
+text, thinking and tool-call start and delta events. A message without
+`timing` uses the times that the client saw. The segment does not stop a
+frame: the status line reads the clock at the frame, and no disk or
+network work occurs.
+
+Code: `eukhe-tui/src/gen_speed.rs` `SpeedClock`, `SpeedPhase`,
+`SpeedSample`, `ResponseSpeed`; `status_line.rs` `render_status_line`;
+`session_ui/apply.rs` (the clock follows the turn events);
+`eukhe-ai/src/utils/event_stream.rs` (`timing`);
+`api/openai_completions/streaming.rs` `parse_prompt_progress`. Tests:
+`gen_speed::tests` (the rate math), `tests/gen_speed_headless.rs` (a
+scripted provider turn with timed events: each phase on the status line,
+and the setting off).
+
 Off-screen check. A virtual terminal (`vt.rs`) holds the screen as the
 writer left it. Each frame runs on a copy of it first:
 

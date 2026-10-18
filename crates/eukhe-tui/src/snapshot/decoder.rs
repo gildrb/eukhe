@@ -102,6 +102,9 @@ pub enum TurnUpdate {
     /// turn on the shared chat (`waiting`), or that wait ended. The loader
     /// note shows the wait; nothing lands in the transcript.
     ChatTurnWait { waiting: bool },
+    /// `prompt_progress`: the model request's server got this far through
+    /// the prompt (llama.cpp); the status line's prefill segment shows it.
+    PromptProgress(eukhe_types::pi_ai::PromptProgress),
     /// `memory_update`: the chat memory's compactor summarized lines or
     /// merged the view. A live transcript row (display only) and the
     /// status gauge's view size.
@@ -160,6 +163,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::TurnEnd { error, .. } => TurnUpdate::TurnEnded {
             error: error.clone(),
         },
+        SessionEvent::PromptProgress { progress } => TurnUpdate::PromptProgress(*progress),
         SessionEvent::MessageStart {
             message,
             assistant_message_event,

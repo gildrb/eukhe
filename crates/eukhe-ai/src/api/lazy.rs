@@ -37,6 +37,7 @@ fn create_error_message(model: &Model, error_message: String, timestamp: u64) ->
         end_turn: None,
         timestamp,
         duration_ms: None,
+        timing: None,
     }
 }
 

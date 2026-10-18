@@ -281,7 +281,9 @@ impl Models {
                         .and_then(|diagnostic| diagnostic.details.as_ref()?.get("kind")?.as_str())
                         == Some(StreamFailureKind::Auth.as_str()),
                 ),
-                AssistantMessageEvent::TextStart { .. }
+                // Prompt progress: the server accepted the request.
+                AssistantMessageEvent::PromptProgress { .. }
+                | AssistantMessageEvent::TextStart { .. }
                 | AssistantMessageEvent::TextDelta { .. }
                 | AssistantMessageEvent::TextEnd { .. }
                 | AssistantMessageEvent::ThinkingStart { .. }

@@ -39,6 +39,7 @@ fn assistant_node(id: &str, parent: Option<&str>, timestamp: &str) -> TreeNodeDa
                     stop_reason_raw: None,
                     error_message: None,
                     timestamp: 0,
+                    timing: None,
                     rest: Map::default(),
                 },
             ),

@@ -468,6 +468,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::TurnEnd { .. }
             | SessionEvent::MessageStart { .. }
             | SessionEvent::MessageUpdate { .. }
+            | SessionEvent::PromptProgress { .. }
             | SessionEvent::MessageEnd { .. }
             | SessionEvent::ToolExecutionStart { .. }
             | SessionEvent::ToolExecutionUpdate { .. }
@@ -541,10 +542,11 @@ async fn goal_loop(
     }
 }
 
-/// The session's provider failover events onto the wire (the
-/// backup-switch frames): translated under the core lock so the parked
-/// update flush keeps stream order; a start also reports the retry to the
-/// run hook. A stopped bridge's late events drop on the epoch check.
+/// The session's provider runtime wire events (the backup-switch frames and
+/// the serving server's prompt progress): translated under the core lock so
+/// the parked update flush keeps stream order; a start also reports the
+/// retry to the run hook. A stopped bridge's late events drop on the epoch
+/// check.
 async fn provider_loop(
     epoch: u64,
     mut events: tokio::sync::broadcast::Receiver<ProviderWireEvent>,

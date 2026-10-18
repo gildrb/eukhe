@@ -147,6 +147,10 @@ impl ClientSettings for CliClientSettings {
         }
     }
 
+    fn show_speed(&self) -> bool {
+        self.manager().get_show_speed()
+    }
+
     setting!(
         show_images,
         set_show_images,

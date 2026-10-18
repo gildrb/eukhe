@@ -178,6 +178,7 @@ impl StreamRepeat {
                 ..
             } => self.guard.push(*content_index, delta)?,
             AssistantMessageEvent::Start { .. }
+            | AssistantMessageEvent::PromptProgress { .. }
             | AssistantMessageEvent::TextStart { .. }
             | AssistantMessageEvent::TextEnd { .. }
             | AssistantMessageEvent::ThinkingStart { .. }

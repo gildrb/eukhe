@@ -450,6 +450,43 @@ fn a_host_of_scope_capabilities_sets_only_capability_directives() {
     );
 }
 
+#[test]
+fn a_host_of_scope_capabilities_may_set_prompt_progress() {
+    let book = Rulebook::from_json(
+        r#"{
+          "families": [],
+          "hosts": [{ "id": "caps", "providers": ["prov"], "scope": "capabilities" }],
+          "rules": [
+            { "layer": "host", "target": "caps", "set": { "tokenize": "llama-cpp", "prompt_progress": true } }
+          ]
+        }"#,
+    )
+    .unwrap();
+    let lan = model("openai-completions", "prov", "m", "http://10.0.0.2:8080/v1");
+    let query = book.query(&lan, Lookup::Capabilities).unwrap();
+    assert_eq!(
+        book.lookup(&query, Directive::PromptProgress),
+        Answer::Known(&Value::Bool(true))
+    );
+    let errors = Rulebook::from_json(
+        r#"{
+          "families": [],
+          "hosts": [{ "id": "caps", "providers": ["prov"], "scope": "capabilities" }],
+          "rules": [
+            { "layer": "host", "target": "caps", "set": { "prompt_progress": true, "store": false } }
+          ]
+        }"#,
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        vec![QuirksError::WireDirectiveOnCapabilityHost {
+            host: "caps".to_owned(),
+            directive: "store".to_owned(),
+        }]
+    );
+}
+
 /// The capability hosts of the shipped rulebook change no wire setting:
 /// provider `openai` behind a loopback URL keeps the loopback settings, and
 /// a llama.cpp provider on a LAN address gets no host settings, as before

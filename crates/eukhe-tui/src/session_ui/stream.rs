@@ -2,6 +2,7 @@
 //! over provider stream events, plus the `/speed` readout and the
 //! streaming/running/resume hint helpers.
 use super::{AgentView, SessionUi, Value, WorkingState};
+use crate::gen_speed::format_rate;
 use crate::glyphs::WARN;
 
 /// The loader's token accounting (TS `AgentActivityTracker`): the live
@@ -84,17 +85,17 @@ impl SpeedStats {
     }
 }
 
-/// TS `formatRate`: whole numbers at 100 tok/s and above, one decimal
-/// below.
-fn format_rate(tokens_per_second: f64) -> String {
-    if tokens_per_second >= 100.0 {
-        format!("{tokens_per_second:.0}")
-    } else {
-        format!("{tokens_per_second:.1}")
-    }
-}
-
 impl SessionUi {
+    /// Show the speed clock's phase on the status line, or nothing while
+    /// `terminal.showSpeed` is off.
+    pub(super) fn sync_speed(&self, view: &mut AgentView) {
+        view.chrome.speed = if view.show_speed {
+            self.speed_clock.phase().cloned()
+        } else {
+            None
+        };
+    }
+
     /// The working loader starts with a `Waiting` activity and a zero
     /// token count (TS `agent_start` resets the tracker), anchored at
     /// this instant.

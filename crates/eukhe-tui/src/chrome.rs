@@ -92,6 +92,10 @@ pub struct ChromeState {
     /// `None` until the first completed response while the display is on
     /// (TS renders nothing when enabled without text).
     pub speed_text: Option<String>,
+    /// The status line's generation speed (`terminal.showSpeed`): the
+    /// phase of the streaming request, else the last response's rates;
+    /// `None` renders no segment.
+    pub speed: Option<crate::gen_speed::SpeedPhase>,
     /// Hide the splash `cwd` line (TS `getSplashCwd` returns `undefined`
     /// for the scoped agents view, so its metadata rows stay centered
     /// against the logo without the cwd row).

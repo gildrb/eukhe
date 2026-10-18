@@ -69,6 +69,7 @@ pub(crate) mod exit_restore;
 mod external_editor;
 pub mod factory_view;
 pub mod fuzzy;
+pub mod gen_speed;
 pub mod git_placement;
 pub(crate) mod glyphs;
 pub mod goal_surface;

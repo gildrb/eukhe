@@ -127,6 +127,7 @@ fn populated() -> Settings {
             show_images: Some(true),
             clear_on_shrink: Some(true),
             show_terminal_progress: Some(true),
+            show_speed: Some(true),
             fullscreen: Some(true),
             stream_pace: Some(StreamPaceSettings {
                 min_chars: Some(1),

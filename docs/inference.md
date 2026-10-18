@@ -97,9 +97,15 @@ what a request may ask of a provider.
    example `"list_models": "openai"`), or `false`. The compiler rejects a
    dialect that has no implementation of that operation. A host of scope
    `capabilities` (`openai`, `google`, `llama-cpp`) serves only these
-   lookups. It sets only capability directives, and the wire lookup skips
-   it, so it changes no request: a local `openai` provider keeps the
-   loopback settings. An operation
+   lookups. It sets only capability directives and `prompt_progress`,
+   and the wire lookup skips it, so it changes no other request setting:
+   a local `openai` provider keeps the loopback settings. The
+   `llama-cpp` host sets `"prompt_progress": true`: an
+   `openai-completions` request then sends `"return_progress": true`,
+   and the stream gives a `prompt_progress` event (`total`, `cache`,
+   `processed`, `time_ms`) for each progress chunk, before the first
+   token. `model.compat.supportsPromptProgress` wins over the rulebook.
+   An operation
    that the provider does not have fails with the typed error
    `Unsupported { capability, provider }` before auth or a request. It
    never uses another provider or the local estimate. A caller that

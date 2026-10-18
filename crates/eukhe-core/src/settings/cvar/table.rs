@@ -823,6 +823,16 @@ pub const TERMINAL_SHOW_TERMINAL_PROGRESS: Decl = Decl {
     init: Init::Bool(false),
 };
 
+/// The status line's generation speed (prefill, decode).
+pub const TERMINAL_SHOW_SPEED: Decl = Decl {
+    id: "terminal.showSpeed",
+    ty: CvarType::Bool,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::Bool(true),
+};
+
 pub const TERMINAL_FULLSCREEN: Decl = Decl {
     id: "terminal.fullscreen",
     ty: CvarType::Bool,
@@ -1279,6 +1289,7 @@ pub const DECLS: &[Decl] = &[
     TERMINAL_SHOW_IMAGES,
     TERMINAL_CLEAR_ON_SHRINK,
     TERMINAL_SHOW_TERMINAL_PROGRESS,
+    TERMINAL_SHOW_SPEED,
     TERMINAL_FULLSCREEN,
     TERMINAL_STREAM_PACE_MIN_CHARS,
     TERMINAL_STREAM_PACE_LAG,
