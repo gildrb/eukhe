@@ -191,6 +191,7 @@ fn headless_options(socket: &Path, dir: &Path) -> eukhe_tui::interactive::Intera
         prompt_stash: std::sync::Arc::default(),
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     }
 }
 

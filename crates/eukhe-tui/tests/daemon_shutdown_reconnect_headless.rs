@@ -389,6 +389,7 @@ fn options_with_session(socket: PathBuf, session: SessionSelection) -> Interacti
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     }
 }
 

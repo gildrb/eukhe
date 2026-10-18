@@ -243,6 +243,9 @@ pub const APP_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     ("app.session.tree", def!(&[])),
     ("app.session.fork", def!(&[])),
     ("app.session.resume", def!(&[])),
+    // Dictation (S9): no default key; `binds.cfg` binds them.
+    ("app.stt.pushToTalk", def!(&[])),
+    ("app.stt.toggle", def!(&[])),
     ("app.agents.back", def!(&["left"])),
     ("app.agents.open", def!(&["right"])),
     ("app.modal.back", def!(&["left"])),

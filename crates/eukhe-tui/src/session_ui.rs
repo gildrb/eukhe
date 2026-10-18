@@ -11,6 +11,7 @@ mod chat_view;
 mod commands;
 mod copy_export;
 mod cvar;
+mod dictation;
 mod factory;
 mod heartbeats;
 mod keys;
@@ -377,6 +378,16 @@ pub(crate) struct SessionUi {
     /// Where a backgrounded `@name message` delivery reports its outcome
     /// (the run loop folds a failure into an error row).
     agent_message_notes: mpsc::UnboundedSender<AgentMessageOutcome>,
+    /// The dictation backends the composition root gave (`None`: the
+    /// dictation keys say that dictation is not available).
+    dictation: Option<crate::dictation::Dictation>,
+    /// The dictation take that runs; dropping it aborts the take.
+    dictation_take: Option<dictation::DictationTake>,
+    /// The id of the newest take: the update of an older take never
+    /// lands.
+    dictation_takes: u64,
+    /// Where a take reports its steps (the run loop folds them).
+    dictation_updates: mpsc::UnboundedSender<crate::dictation::DictationUpdate>,
     /// The chat memory's view size, once a `get_memory` reply or a
     /// `memory_update` reported it for this session (the status line's
     /// `mem` gauge); `None` until then.

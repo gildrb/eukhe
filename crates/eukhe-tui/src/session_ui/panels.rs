@@ -18,6 +18,8 @@ pub(crate) struct ActivityUpdates {
     pub memory_tree: mpsc::UnboundedSender<super::MemoryTreeUpdate>,
     /// Settled `@name message` deliveries (see [`AgentMessageOutcome`]).
     pub agent_messages: mpsc::UnboundedSender<AgentMessageOutcome>,
+    /// The steps of a dictation take (see [`crate::dictation::run_take`]).
+    pub dictation: mpsc::UnboundedSender<crate::dictation::DictationUpdate>,
 }
 
 impl SessionUi {

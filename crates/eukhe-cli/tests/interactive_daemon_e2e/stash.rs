@@ -70,6 +70,7 @@ async fn tui_prompt_stash_round_trips_across_in_place_switch() {
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let enter = || {
         eukhe_tui::interactive::HeadlessStep::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
@@ -211,6 +212,7 @@ async fn tui_prompt_stash_survives_the_agents_view_handoff() {
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
 
     // Run one: the draft is typed, then the resume key hands the pane to
@@ -371,6 +373,7 @@ async fn tui_prompt_stash_restores_a_pasted_image_with_the_draft() {
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let ctrl_v = || {
         eukhe_tui::interactive::HeadlessStep::Key(KeyEvent::new(
@@ -489,6 +492,7 @@ async fn tui_ctrl_s_stashes_and_restores_the_prompt_draft() {
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let key = |code: KeyCode, modifiers: KeyModifiers| {
         eukhe_tui::interactive::HeadlessStep::Key(KeyEvent::new(code, modifiers))
@@ -640,6 +644,7 @@ async fn tui_ctrl_s_stash_keeps_a_held_draft_and_reports_the_empty_editor() {
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let key = |code: KeyCode, modifiers: KeyModifiers| {
         eukhe_tui::interactive::HeadlessStep::Key(KeyEvent::new(code, modifiers))
@@ -791,6 +796,7 @@ async fn tui_ctrl_s_stash_is_remappable_via_keybindings_json() {
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let key = |code: KeyCode, modifiers: KeyModifiers| {
         eukhe_tui::interactive::HeadlessStep::Key(KeyEvent::new(code, modifiers))
@@ -942,6 +948,7 @@ async fn tui_ctrl_s_during_queue_browse_stashes_the_draft_and_keeps_the_parked_m
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let key = |code: KeyCode, modifiers: KeyModifiers| {
         eukhe_tui::interactive::HeadlessStep::Key(KeyEvent::new(code, modifiers))

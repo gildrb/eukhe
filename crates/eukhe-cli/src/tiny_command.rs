@@ -49,9 +49,13 @@ struct RoleContext {
 
 impl RoleContext {
     fn open() -> Result<Self, String> {
-        let agent_dir = get_agent_dir();
         let cwd = std::env::current_dir().map_err(|error| format!("Cannot read cwd: {error}"))?;
-        let settings = SettingsManager::create(&cwd, &agent_dir);
+        Self::in_dirs(&cwd, get_agent_dir())
+    }
+
+    /// The settings of `cwd` and the tiny home and client of `agent_dir`.
+    fn in_dirs(cwd: &Path, agent_dir: PathBuf) -> Result<Self, String> {
+        let settings = SettingsManager::create(cwd, &agent_dir);
         let worker_exe = eukhe_core::tiny::worker_exe()
             .map_err(|error| format!("Cannot find the {APP_NAME} executable: {error}"))?;
         let client = eukhe_core::tiny::client(&agent_dir, settings.cvars(), worker_exe);
@@ -291,18 +295,54 @@ pub fn run_transcribe_command(args: &[String]) -> i32 {
 
 fn transcribe(args: &[String]) -> Result<(), String> {
     let args = parse_transcribe(args)?;
-    let audio =
-        eukhe_tiny_onnx::read_wav(Path::new(&args.file)).map_err(|error| error.to_string())?;
-    let context = RoleContext::open()?;
-    let model = context.local_model(Role::Dictation)?;
-    let request = TranscribeRequest {
-        audio,
-        language: args.language,
-    };
-    let transcript =
-        block_on(context.client.transcribe(model, request))?.map_err(|error| error.to_string())?;
-    println!("{}", transcript.text.trim());
+    let cwd = std::env::current_dir().map_err(|error| format!("Cannot read cwd: {error}"))?;
+    let text = block_on(transcribe_file(
+        cwd,
+        get_agent_dir(),
+        args.file,
+        args.language,
+    ))??;
+    println!("{text}");
     Ok(())
+}
+
+/// The trimmed text of the WAV file `wav`, read by the `dictation` role's
+/// local model (settings of `cwd` and `agent_dir`); `language` empty
+/// detects the language.
+#[tracing::instrument]
+async fn transcribe_file(
+    cwd: PathBuf,
+    agent_dir: PathBuf,
+    wav: PathBuf,
+    language: String,
+) -> Result<String, String> {
+    let audio = eukhe_tiny_onnx::read_wav(&wav).map_err(|error| error.to_string())?;
+    let context = RoleContext::in_dirs(&cwd, agent_dir)?;
+    let model = context.local_model(Role::Dictation)?;
+    let transcript = context
+        .client
+        .transcribe(model, TranscribeRequest { audio, language })
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(transcript.text.trim().to_owned())
+}
+
+/// The TUI's dictation transcriber: [`transcribe_file`] in the session's
+/// cwd and agent dir, with the language detected.
+pub(crate) struct RoleTranscriber {
+    pub(crate) cwd: PathBuf,
+    pub(crate) agent_dir: PathBuf,
+}
+
+impl eukhe_tui::dictation::Transcriber for RoleTranscriber {
+    fn transcribe(&self, wav: PathBuf) -> eukhe_tui::dictation::DictationFuture<String> {
+        Box::pin(transcribe_file(
+            self.cwd.clone(),
+            self.agent_dir.clone(),
+            wav,
+            String::new(),
+        ))
+    }
 }
 
 #[cfg(test)]

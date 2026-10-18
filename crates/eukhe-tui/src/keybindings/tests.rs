@@ -455,6 +455,40 @@ fn press_runs_set_and_action() {
     assert!(kb.matches("f5", "app.tools.expand"));
 }
 
+/// The dictation actions have no default key; a `binds.cfg` bind gives
+/// each its key, and the alias form binds the same way.
+#[test]
+fn dictation_actions_bind_only_through_binds_cfg() {
+    let defaults = KeybindingsManager::new();
+    let (_dir, kb) = with_binds_cfg(
+        "alias talk \"action app.stt.pushToTalk\"\n\
+         bind f8 \"action app.stt.toggle\"\n\
+         bind ctrl+space talk\n",
+    );
+    assert_eq!(
+        (
+            defaults.get_keys("app.stt.pushToTalk"),
+            defaults.get_keys("app.stt.toggle"),
+            kb.get_keys("app.stt.pushToTalk"),
+            kb.get_keys("app.stt.toggle"),
+            kb.press("ctrl+space"),
+            kb.matches("ctrl+space", "app.stt.pushToTalk"),
+            kb.matches("f8", "app.stt.toggle"),
+            kb.matches("f8", "app.stt.pushToTalk"),
+        ),
+        (
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+            vec!["ctrl+space".to_string()],
+            vec!["f8".to_string()],
+            Ok(vec![action("app.stt.pushToTalk")]),
+            true,
+            true,
+            false,
+        )
+    );
+}
+
 /// An alias cycle or an unknown alias is reported by the press, and the
 /// key runs nothing (not even the action before the bad run).
 #[test]

@@ -310,6 +310,48 @@ configured auth. When no model is available, the call fails with
 `eukhe transcribe <file.wav>` use the roles `translate`, `speech` and
 `dictation`. First paint never waits for a model load.
 
+Dictation. The TUI types speech into the editor draft:
+
+1. `stt.enabled` (default `false`) turns on the dictation keys. The TUI
+   reads the value from the session at each key press that starts a
+   take. When the value is `false`, the key shows how to turn it on.
+2. The actions `app.stt.pushToTalk` and `app.stt.toggle` have no default
+   key. The user binds them in `binds.cfg` (S4.5), for example
+   `bind f8 "action app.stt.toggle"`. Push-to-talk records while the key
+   is held: the terminal sends the key again at each auto-repeat, and a
+   gap of more than 300 ms (800 ms after the first press) is the
+   release. Toggle records until the next press of its key.
+3. The recorder is the first program on `PATH` of `pw-record`, `parec`
+   and `arecord` (on macOS: `sox`, then `ffmpeg`). It writes raw 16 kHz
+   mono 16-bit samples to its stdout, and the TUI writes them to a
+   temporary WAV file. When the program fails, the take fails with the
+   stderr of the program. eukhe does not try the next program.
+4. The `dictation` role reads the file as `eukhe transcribe` does (local
+   models only). The text goes into the draft at the cursor. An empty
+   text shows "Dictation heard no speech".
+5. The status line shows `[REC] recording`, then `[STT] transcribing`.
+   Esc during a take stops the recorder, removes the file and shows
+   "Dictation cancelled". A failure shows as an error row.
+
+eukhe does not use the `cpal` crate. `cpal` needs `alsa-sys`, which
+links `libasound` through `pkg-config` at build time. The CI runners
+(`ubuntu-24.04`) do not install `libasound2-dev`, and the Nix build
+would need `alsa-lib` and `pkg-config`. A recorder program needs
+nothing at build time. Dictation is client input: it has no Bend model.
+Code: `eukhe-tui/src/dictation.rs` (`Recorder`, `Transcriber`,
+`SubprocessRecorder`, `run_take`, `wav_bytes`);
+`session_ui/dictation.rs` (`handle_dictation_key`,
+`apply_dictation_update`); `status_line.rs`;
+`eukhe-cli/src/tiny_command.rs` (`RoleTranscriber`, `transcribe_file`).
+Tests: `eukhe-tui` `dictation::tests` (a fake recorder and transcriber:
+toggle, the hold release, a recorder failure, an abort that stops the
+recorder and removes the file; the subprocess recorder with `/bin/sh`
+programs: the first program found, its stderr, no audio, no program),
+`keybindings::tests::dictation_actions_bind_only_through_binds_cfg`,
+`status_line::tests::the_dictation_phase_leads_the_line` and
+`tests/dictation_headless.rs` (the TUI on a mock daemon: toggle,
+push-to-talk, Esc, a failure, `stt.enabled` off).
+
 Model: `bend/tiny.bend`. Laws: `LAWS.bend` section (S9). Proofs:
 `bend/proof_tiny.bend`. Every input is free: any chain, any set of
 available models, any needs of any processes with any tags, any worker
@@ -379,10 +421,3 @@ Not done:
    `--set-default ORT_DYLIB_PATH ${onnxruntime}/lib/libonnxruntime.so`.
    Until then, the user sets `providers.tinyRuntimeLibrary` or
    `ORT_DYLIB_PATH`.
-2. Push-to-talk. eukhe does not record audio. There are two options:
-   - The `cpal` crate. It needs `alsa-sys`, which links `libasound`
-     through `pkg-config` at build time. The dev shell and the Nix files
-     do not supply them.
-   - No new crate. Record with `pw-record`, `parec` or `arecord` to a
-     temporary 16 kHz WAV file. Then transcribe the file as
-     `eukhe transcribe` does.

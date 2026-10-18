@@ -61,6 +61,40 @@ fn the_idle_line_reads_model_path_branch_and_context() {
     assert!(line.iter().all(|span| span.style.bg.is_none()));
 }
 
+/// A dictation take leads the line: red while it records, accent while it
+/// transcribes; no take, no segment.
+#[test]
+fn the_dictation_phase_leads_the_line() {
+    let theme = theme();
+    let lead = |phase| {
+        let state = ChromeState {
+            dictation: phase,
+            ..base()
+        };
+        let line = render_status_line(&state, Detail::Overview, &theme, 120);
+        let span = &line[1];
+        (span.content.clone(), span.style.fg)
+    };
+    assert_eq!(
+        (
+            lead(Some(crate::dictation::Phase::Recording)),
+            lead(Some(crate::dictation::Phase::Transcribing)),
+            lead(None).0,
+        ),
+        (
+            (
+                "[REC] recording, esc cancels".to_string(),
+                theme.fg_style(ThemeColor::Error).fg
+            ),
+            (
+                "[STT] transcribing, esc cancels".to_string(),
+                theme.fg_style(ThemeColor::Accent).fg
+            ),
+            "[M] mock".to_string(),
+        )
+    );
+}
+
 #[test]
 fn the_model_segment_carries_the_tier_badge_and_thinking_level() {
     let state = ChromeState {

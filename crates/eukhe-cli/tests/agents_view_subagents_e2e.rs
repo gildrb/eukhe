@@ -298,6 +298,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
         session_has_children: view.opened_has_children,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let child_plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![

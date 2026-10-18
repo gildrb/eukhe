@@ -358,6 +358,11 @@ impl SessionUi {
             self.subagents_focused = false;
             self.update_subagent_summary(view);
         }
+        // Dictation (S9): its two keys, and Esc while a take runs (the
+        // take's cancel comes before every other Esc meaning).
+        if self.handle_dictation_key(&id, view).await {
+            return Ok(());
+        }
         // Image paste (TS `app.clipboard.pasteImage`, default ctrl+v):
         // reads the clipboard image and inserts its marker into the
         // editor. The editor's own ctrl+v is unbound otherwise, so the
@@ -928,8 +933,8 @@ pub(crate) fn opening_echo_key_claimed(
     }
     // The always-fire arms: the image paste, the escape ladder, the interrupt family, suspend, the model picker and
     // cycles, the detail cycle, the dock focus, the external editor, the
-    // stash, the session-level commands, the queue browse, and the
-    // follow-up key.
+    // stash, the session-level commands, the queue browse, the
+    // follow-up key, and the dictation keys.
     if kb.matches(id, "app.clipboard.pasteImage")
         || kb.matches(id, "app.input.clear")
         || kb.matches(id, "app.interrupt")
@@ -949,6 +954,8 @@ pub(crate) fn opening_echo_key_claimed(
         || kb.matches(id, "app.message.moveEarlier")
         || kb.matches(id, "app.message.moveLater")
         || kb.matches(id, "app.message.followUp")
+        || kb.matches(id, "app.stt.pushToTalk")
+        || kb.matches(id, "app.stt.toggle")
     {
         return true;
     }

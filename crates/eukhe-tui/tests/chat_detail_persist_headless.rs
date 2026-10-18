@@ -360,6 +360,7 @@ fn options(socket: PathBuf, settings: Arc<StubSettings>) -> InteractiveOptions {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: Some(settings),
+        dictation: None,
     }
 }
 

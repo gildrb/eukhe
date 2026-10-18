@@ -31,6 +31,15 @@ pub fn render_status_line(
         temp: &temp,
     };
     let mut segments: Vec<Line> = Vec::new();
+    match state.dictation {
+        Some(crate::dictation::Phase::Recording) => segments.push(vec![
+            theme.fg(ThemeColor::Error, "[REC] recording, esc cancels")
+        ]),
+        Some(crate::dictation::Phase::Transcribing) => segments.push(vec![
+            theme.fg(ThemeColor::Accent, "[STT] transcribing, esc cancels")
+        ]),
+        None => {}
+    }
     if let Some(hint) = &state.tray_override {
         segments.push(vec![theme.fg(ThemeColor::Muted, hint.clone())]);
     }

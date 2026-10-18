@@ -246,6 +246,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         providers,
         titles,
         tts,
+        stt,
         extra,
     } = document;
     let withheld = [
@@ -342,6 +343,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         providers: None,
         titles,
         tts,
+        stt,
         extra: serde_json::Map::new(),
     };
     (kept, ignored_keys)

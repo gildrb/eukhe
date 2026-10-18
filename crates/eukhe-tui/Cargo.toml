@@ -25,13 +25,15 @@ base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net", "process"] }
 uuid = { version = "1", features = ["v4"] }
+# Dictation: the temporary WAV file of a take goes away with the take.
+tempfile = "3"
+tracing = { workspace = true }
 
 [[bin]]
 name = "eukhe-tui-replay"
 path = "src/bin/eukhe-tui-replay.rs"
 
 [dev-dependencies]
-tempfile = "3"
 proptest = { workspace = true }
 
 [lints]

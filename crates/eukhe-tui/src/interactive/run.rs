@@ -170,6 +170,10 @@ async fn run_interactive_surface(
     // folds a failure into an error row (the draft returns).
     let (agent_messages_tx, mut agent_messages_rx) =
         mpsc::unbounded_channel::<crate::session_ui::AgentMessageOutcome>();
+    // A dictation take reports its steps here (recording, transcribing,
+    // the transcript or the failure).
+    let (dictation_tx, mut dictation_rx) =
+        mpsc::unbounded_channel::<crate::dictation::DictationUpdate>();
     // The double-Ctrl+C force-quit guard: the terminal reader observes the
     // pair even while this loop is wedged in a daemon request, and a plain
     // std-thread watchdog enforces the exit deadline without the runtime.
@@ -293,6 +297,7 @@ async fn run_interactive_surface(
         let chat_view_tx = chat_view_tx.clone();
         let memory_tree_tx = memory_tree_tx.clone();
         let agent_messages_tx = agent_messages_tx.clone();
+        let dictation_tx = dictation_tx.clone();
         tokio::spawn(async move {
             let session = SessionUi::open(
                 client,
@@ -311,6 +316,7 @@ async fn run_interactive_surface(
                     chat_view: chat_view_tx,
                     memory_tree: memory_tree_tx,
                     agent_messages: agent_messages_tx,
+                    dictation: dictation_tx,
                 },
             )
             .await?;
@@ -1483,6 +1489,11 @@ async fn run_interactive_surface(
             maybe_agent_message = agent_messages_rx.recv() => {
                 if let Some(outcome) = maybe_agent_message {
                     session.apply_agent_message_outcome(outcome, &mut view);
+                }
+            }
+            maybe_dictation = dictation_rx.recv() => {
+                if let Some(update) = maybe_dictation {
+                    session.apply_dictation_update(update, &mut view);
                 }
             }
             Some(placement) = git_rx.recv() => {

@@ -217,6 +217,10 @@ pub struct InteractiveOptions {
     /// composition root implements the seam over the real store; `None`
     /// reports the commands' persistence as unavailable.
     pub client_settings: Option<std::sync::Arc<dyn crate::client_settings::ClientSettings>>,
+    /// Dictation into the editor draft (`app.stt.pushToTalk`,
+    /// `app.stt.toggle`): the recorder and the `dictation` role the
+    /// composition root gives. `None` reports dictation as not available.
+    pub dictation: Option<crate::dictation::Dictation>,
 }
 
 // The opaque service handles (provider_auth,

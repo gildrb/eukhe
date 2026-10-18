@@ -582,6 +582,7 @@ fn base_options(
         restore_dock_focus: false,
         client_settings: None,
         provider_auth: None,
+        dictation: None,
     }
 }
 

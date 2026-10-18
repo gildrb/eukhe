@@ -145,6 +145,7 @@ fn session_options(
         prompt_stash: std::sync::Arc::default(),
         session_has_children: true,
         restore_dock_focus,
+        dictation: None,
     }
 }
 

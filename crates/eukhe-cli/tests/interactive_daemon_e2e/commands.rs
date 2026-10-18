@@ -57,6 +57,7 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -227,6 +228,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     // The interactive runtime's own launch sequence, minus the TTY: spawn
     // the real supervisor binary detached and wait for the hello handshake.
@@ -315,6 +317,7 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -507,6 +510,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -644,6 +648,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         prompt_stash: std::sync::Arc::default(),
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -733,6 +738,7 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -869,6 +875,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let ctrl_o = || {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
@@ -1097,6 +1104,7 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let key = |code: KeyCode| {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(

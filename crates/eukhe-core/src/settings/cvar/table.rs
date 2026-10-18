@@ -1187,6 +1187,17 @@ pub const TTS_LOCAL_VOICE: Decl = Decl {
     init: Init::Text("af_heart"),
 };
 
+/// Dictation into the editor draft (the `dictation` role): off until the
+/// user turns it on. Replicated: the TUI reads it at each dictation key.
+pub const STT_ENABLED: Decl = Decl {
+    id: "stt.enabled",
+    ty: CvarType::Bool,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::Bool(false),
+};
+
 pub const DECLS: &[Decl] = &[
     ONBOARDING_SHOWN,
     ONBOARDING_COMPLETED,
@@ -1312,4 +1323,5 @@ pub const DECLS: &[Decl] = &[
     PROVIDERS_TINY_RUNTIME_LIBRARY,
     TITLES_GENERATE,
     TTS_LOCAL_VOICE,
+    STT_ENABLED,
 ];

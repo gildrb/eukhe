@@ -57,6 +57,7 @@ pub mod confirm;
 pub mod custom_message;
 pub mod daemon_client;
 pub mod daemon_reconnect;
+pub mod dictation;
 pub mod direct_transport;
 pub mod editor;
 pub mod effort_picker;

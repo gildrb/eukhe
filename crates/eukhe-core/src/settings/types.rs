@@ -233,6 +233,14 @@ pub struct TtsSettings {
     pub local_voice: Option<String>,
 }
 
+/// `stt`: speech to text (dictation into the editor draft).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SttSettings {
+    /// Turn on the dictation keys (default false).
+    pub enabled: Option<bool>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalSettings {
@@ -540,6 +548,8 @@ pub struct Settings {
     pub titles: Option<TitleSettings>,
     /// `tts`: text to speech.
     pub tts: Option<TtsSettings>,
+    /// `stt`: speech to text.
+    pub stt: Option<SttSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

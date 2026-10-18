@@ -75,6 +75,7 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     // 45s per turn is the throughput bound: the producer finishes each
     // turn in ~4s, so 45s tolerates real box load (sibling e2e binaries,
@@ -254,6 +255,7 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let key = |code: KeyCode, modifiers: KeyModifiers| {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(code, modifiers))
@@ -416,6 +418,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
         session_has_children: false,
         restore_dock_focus: false,
         client_settings: None,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -563,6 +566,7 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
         prompt_stash: std::sync::Arc::default(),
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -699,6 +703,7 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         prompt_stash: std::sync::Arc::default(),
         session_has_children: false,
         restore_dock_focus: false,
+        dictation: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![

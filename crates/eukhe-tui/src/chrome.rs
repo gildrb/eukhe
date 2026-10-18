@@ -80,6 +80,9 @@ pub struct ChromeState {
     /// The status line's leading hint (TS `getTrayOverrideLabel`): the
     /// armed Ctrl+C exit hint or the streaming follow-up hint.
     pub tray_override: Option<String>,
+    /// The dictation take's phase (recording, transcribing); `None`
+    /// while no take runs.
+    pub dictation: Option<crate::dictation::Phase>,
     /// The activity groups the status line shows while they count
     /// something; `None` means no session owns this view (the replay and
     /// app surfaces).

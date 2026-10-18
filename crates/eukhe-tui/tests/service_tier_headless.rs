@@ -286,6 +286,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         prompt_stash: std::sync::Arc::default(),
         session_has_children: false,
         client_settings: None,
+        dictation: None,
     }
 }
 

@@ -8,7 +8,7 @@ use crate::settings::types::{
     ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings,
     ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
     RetryFailoverSettings, RetrySettings, Settings, ShellSettings, SignalGatewaySettings,
-    SshSettings, StreamPaceSettings, TerminalSettings, ThinkingBudgetsSettings,
+    SshSettings, StreamPaceSettings, SttSettings, TerminalSettings, ThinkingBudgetsSettings,
     ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, WarningSettings,
 };
 
@@ -192,6 +192,9 @@ fn populated() -> Settings {
         }),
         tts: Some(TtsSettings {
             local_voice: Some("af_heart".into()),
+        }),
+        stt: Some(SttSettings {
+            enabled: Some(true),
         }),
         extra: serde_json::Map::new(),
     }

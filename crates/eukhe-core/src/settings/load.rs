@@ -72,6 +72,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "providers",
     "titles",
     "tts",
+    "stt",
 ];
 
 /// Extract each known field independently; ignore fields whose JSON type does

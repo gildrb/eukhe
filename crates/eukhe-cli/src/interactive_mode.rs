@@ -494,6 +494,15 @@ fn build_tui_options(
         session_rlm_depth: None,
         session_has_children: false,
         restore_dock_focus: false,
+        // Dictation into the draft: a recorder program on PATH, and the
+        // `dictation` role in this cwd and agent dir.
+        dictation: Some(eukhe_tui::dictation::Dictation {
+            recorder: std::sync::Arc::new(eukhe_tui::dictation::SubprocessRecorder::platform()),
+            transcriber: std::sync::Arc::new(crate::tiny_command::RoleTranscriber {
+                cwd: config.cwd.clone(),
+                agent_dir: config.agent_dir.clone(),
+            }),
+        }),
     };
     Ok(tui_options_value)
 }
