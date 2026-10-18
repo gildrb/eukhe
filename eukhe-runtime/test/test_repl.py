@@ -702,6 +702,20 @@ class ReplTest(unittest.TestCase):
             self.assertEqual(one(events, "result")["text"], "42")
             self.assertEqual(fresh.shutdown(), 0)
 
+    def test_snapshot_never_saves_the_bootstrap_handles(self):
+        # Every name the session bootstrap (`build_rlm_bootstrap_code`) binds is
+        # re-created on each start: a snapshot that saved one would make the
+        # resumed session's restore notice claim it was revived.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "kernel-state.dill")
+            manifest_path = os.path.join(tmp, "kernel-state.json")
+            bootstrap = "rlm = bash = jobs = mcp = read = write = edit = grep = glob = 1\nkeep = 2"
+            self.assertEqual(one(self.repl.execute("b1", bootstrap), "done")["status"], "ok")
+            self.repl.send({"type": "snapshot", "id": "b2", "path": path, "manifest_path": manifest_path})
+            done = one(self.repl.until_done("b2"), "done")
+            self.assertEqual(done["status"], "ok")
+            self.assertEqual(done["saved"], ["keep"])
+
     def test_snapshot_skips_off_cell_bash_handles(self):
         # A handle created outside any cell (here: a plain thread) carries no
         # unpicklable cell-task reference, so dill would happily persist its

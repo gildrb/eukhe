@@ -968,6 +968,25 @@ async fn run_startup(
     }
 }
 
+/// The `ipython_state_restored` notice a boot owes the model, if any. Only
+/// a boot over an existing snapshot owes one: a failed restore (`None`)
+/// tells the model its state could not be revived, and a restore that
+/// revived or lost names lists them. A snapshot that saved no names (a
+/// kernel no cell ever used: the bootstrap's own handles are never saved)
+/// had nothing to revive and lost nothing, so it owes no notice.
+fn owed_restore_notice(
+    snapshot_existed: bool,
+    restore: Option<RestoreResult>,
+) -> Option<RestoreResult> {
+    if !snapshot_existed {
+        return None;
+    }
+    match restore {
+        Some(result) if result.restored.is_empty() && result.failed.is_empty() => None,
+        restore => Some(restore.unwrap_or_default()),
+    }
+}
+
 /// Boot one kernel, restore the prior namespace, then run the runtime
 /// bootstrap.
 async fn start_kernel(
@@ -1106,9 +1125,7 @@ async fn start_kernel(
         snapshot_existed = snapshot_path_in(dir).exists();
         emit_startup_progress(inner, on_progress, memo, "Restoring Python state...");
         let restore = manager.restore_state().await;
-        if snapshot_existed {
-            pending_restore = Some(restore.unwrap_or_default());
-        }
+        pending_restore = owed_restore_notice(snapshot_existed, restore);
     }
     emit_startup_progress(inner, on_progress, memo, "Preparing Python runtime...");
     // The bootstrap runs on the dispose signal (TS startKernel races every
@@ -1256,6 +1273,42 @@ async fn start_kernel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_snapshot_with_names_or_a_failed_restore_owes_a_notice() {
+        use crate::kernel::state_snapshot::SnapshotSkip;
+        let result = |restored: &[&str], failed: &[&str]| RestoreResult {
+            restored: restored.iter().map(ToString::to_string).collect(),
+            failed: failed
+                .iter()
+                .map(|name| SnapshotSkip {
+                    name: (*name).to_string(),
+                    reason: "boom".to_string(),
+                })
+                .collect(),
+            ..RestoreResult::default()
+        };
+        // No snapshot on disk: nothing to tell.
+        assert_eq!(owed_restore_notice(false, None), None);
+        assert_eq!(owed_restore_notice(false, Some(result(&["x"], &[]))), None);
+        // A snapshot of a never-used kernel saved no names: nothing was
+        // revived and nothing lost, so no "could not be revived" notice.
+        assert_eq!(owed_restore_notice(true, Some(result(&[], &[]))), None);
+        // A failed restore owes the could-not-be-revived notice.
+        assert_eq!(
+            owed_restore_notice(true, None),
+            Some(RestoreResult::default())
+        );
+        // Revived or lost names are reported.
+        assert_eq!(
+            owed_restore_notice(true, Some(result(&["x"], &[]))),
+            Some(result(&["x"], &[]))
+        );
+        assert_eq!(
+            owed_restore_notice(true, Some(result(&[], &["y"]))),
+            Some(result(&[], &["y"]))
+        );
+    }
 
     #[test]
     fn a_spent_stop_arm_releases_only_its_own_boot() {
