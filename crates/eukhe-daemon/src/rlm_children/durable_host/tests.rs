@@ -639,8 +639,9 @@ async fn a_prompt_waits_out_a_supervisor_restart() {
     let dir = tempfile::tempdir().unwrap();
     let shared = Shared::default();
     let socket = dir.path().join("supervisor.sock");
-    // The killed supervisor's socket file stays behind, refusing connects.
-    drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+    // The killed supervisor's socket file stays behind, refusing connects
+    // (never listening, so no concurrent fork's descriptor copy revives it).
+    drop(crate::socket::bind_dead_socket(&socket));
     let sessions = SupervisorChildSessions::new(
         Arc::new(crate::supervisor_link::SupervisorLink::new(socket.clone())),
         dir.path().to_path_buf(),

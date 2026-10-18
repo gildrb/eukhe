@@ -341,3 +341,40 @@ fn get_context_tree_answers_from_memory_on_a_grown_store() {
          (expected {SEEDED_CHILDREN} within {CACHE_FILL_DEADLINE:?})"
     );
 }
+
+/// The daemon's allocator never puts its threads into THP direct
+/// compaction. Without the `no_thp` build, mimalloc marks its 1 GiB arenas
+/// `MADV_HUGEPAGE`, and on a host with THP defrag "madvise" each first touch
+/// of a 2 MiB arena region compacts memory in the faulting thread
+/// (measured: 197 failed compaction stalls per run of the test above, and
+/// 1.1-1.9 s reads when a tokio worker thread faulted in one). With the
+/// fix no mapping of the daemon carries the `hg` (`MADV_HUGEPAGE`) flag.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_daemon_never_advises_huge_pages() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("daemon.sock");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let daemon = spawn_daemon(&socket, &agent_dir);
+    let smaps = std::fs::read_to_string(format!("/proc/{}/smaps", daemon.child.id()))
+        .expect("daemon smaps");
+    // A mapping's header line ("start-end perms offset dev inode path")
+    // precedes its "Field: value" lines, VmFlags last.
+    let mut mapping = "";
+    let mut advised = Vec::new();
+    for line in smaps.lines() {
+        if let Some(flags) = line.strip_prefix("VmFlags:") {
+            if flags.split_whitespace().any(|flag| flag == "hg") {
+                advised.push(mapping.to_string());
+            }
+        } else if !line
+            .split_whitespace()
+            .next()
+            .is_some_and(|field| field.ends_with(':'))
+        {
+            mapping = line;
+        }
+    }
+    assert_eq!(advised, Vec::<String>::new());
+}

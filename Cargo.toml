@@ -59,7 +59,15 @@ proptest = { version = "1.11", default-features = false, features = ["std"] }
 # The eukhe and eukhe-daemon binaries' global allocator: returns freed
 # pages to the OS and caps arena sprawl without unsafe in eukhe code
 # (replaces glibc mallopt/malloc_trim). MIT.
-mimalloc = "0.1"
+# `no_thp`: without it, mimalloc v3 marks its 1 GiB arenas MADV_HUGEPAGE.
+# On a host with THP defrag "madvise", each first touch of a 2 MiB arena
+# region then runs direct compaction in the faulting thread. On fragmented
+# memory that is 0.2-2 s of kernel CPU, and a tokio worker thread that
+# faults in that window stalls every task queued on it (the 1.1-1.9 s
+# /context reads of context_latency_e2e). The feature only removes that
+# madvise: the process THP mode and the THP mode of child processes stay
+# as the host sets them.
+mimalloc = { version = "0.1", features = ["no_thp"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

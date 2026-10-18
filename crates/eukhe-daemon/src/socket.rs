@@ -289,15 +289,43 @@ pub(crate) async fn reap_stale_worker_sockets(supervisor_socket: &Path) -> usize
     removed
 }
 
+/// Test fixture: the socket file a crashed endpoint leaves behind. The
+/// socket binds `path` but never listens, so a connect is refused for as
+/// long as any descriptor copy lives. A bound-then-dropped LISTENER does
+/// not give that guarantee in a test process: a concurrent test's
+/// `fork` copies the listener's descriptor, and the copy keeps the socket
+/// accepting until that child's `exec` closes it (milliseconds under
+/// load), so a probe in that window sees a live listener.
+#[cfg(test)]
+pub(crate) fn bind_dead_socket(path: &Path) -> socket2::Socket {
+    let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)
+        .expect("dead socket fixture: create");
+    let address = socket2::SockAddr::unix(path).expect("dead socket fixture: address");
+    socket.bind(&address).expect("dead socket fixture: bind");
+    socket
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use eukhe_types::platform::transport::bind_transport;
 
-    /// Bind and drop the listener: the socket file outlives the fd with
-    /// nobody listening - exactly a crashed worker's residue.
-    async fn bind_stale_socket(path: &Path) {
-        drop(bind_transport(path).await.expect("bind stale socket"));
+    /// The socket file outlives the fd with nobody listening - exactly a
+    /// crashed worker's residue.
+    fn bind_stale_socket(path: &Path) {
+        drop(bind_dead_socket(path));
+    }
+
+    /// The stale fixture refuses connects while another descriptor copy
+    /// of its socket lives (a concurrent test's fork before its exec): a
+    /// probe can never mistake the residue for a live listener.
+    #[tokio::test]
+    async fn the_stale_fixture_refuses_connects_while_a_descriptor_copy_lives() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let forked_copy = bind_dead_socket(&socket).try_clone().unwrap();
+        assert!(!can_connect(&socket, Duration::from_millis(250)).await);
+        drop(forked_copy);
     }
 
     #[tokio::test]
@@ -540,7 +568,7 @@ mod tests {
     async fn stale_socket_file_is_removed_and_the_path_rebinds() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        bind_stale_socket(&socket).await;
+        bind_stale_socket(&socket);
         assert!(socket.exists());
         prepare_socket_path(&socket).await.unwrap();
         assert!(!socket.exists(), "stale socket file must be unlinked");
@@ -565,7 +593,7 @@ mod tests {
     async fn unlink_refuses_a_replaced_file_with_a_new_identity() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        bind_stale_socket(&socket).await;
+        bind_stale_socket(&socket);
         let stale = socket_identity(&socket).unwrap();
         // Move the probed file aside instead of unlinking it: its inode
         // stays allocated, so the replacement bound at the path is
@@ -574,7 +602,7 @@ mod tests {
         // straight back to the replacement, which the gate cannot see.
         let aside = dir.path().join("probed.sock");
         std::fs::rename(&socket, &aside).unwrap();
-        bind_stale_socket(&socket).await;
+        bind_stale_socket(&socket);
         assert_ne!(socket_identity(&socket).unwrap(), stale);
         let error = unlink_stale_socket(&socket, stale).await.unwrap_err();
         assert!(error.to_string().contains("changed ownership"), "{error}");
@@ -595,7 +623,7 @@ mod tests {
     async fn cleanup_waits_while_a_rival_startup_holds_the_lock() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        bind_stale_socket(&socket).await;
+        bind_stale_socket(&socket);
         // A rival startup worker owns the cleanup lock: a fresh empty
         // `{path}.lock` directory, exactly what LockDir::acquire sees as a
         // live proper-lockfile lock.
@@ -641,7 +669,7 @@ mod tests {
     async fn a_stale_cleanup_lock_of_a_crashed_holder_is_reclaimed() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        bind_stale_socket(&socket).await;
+        bind_stale_socket(&socket);
         let crashed_lock = dir.path().join("daemon.sock.lock");
         std::fs::create_dir(&crashed_lock).unwrap();
         let six_seconds_ago =
@@ -665,11 +693,11 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let supervisor = dir.path().join("d.sock");
         let dead = worker_socket_path(&supervisor, "dead00000000");
-        bind_stale_socket(&dead).await;
+        bind_stale_socket(&dead);
         let live = worker_socket_path(&supervisor, "live00000000");
         let _live_listener = bind_transport(&live).await.unwrap();
         let held = worker_socket_path(&supervisor, "held00000000");
-        bind_stale_socket(&held).await;
+        bind_stale_socket(&held);
         let held_lock = eukhe_core::platform::LockDir::path_for(&held);
         std::fs::create_dir(&held_lock).unwrap();
         let orphan_lock = eukhe_core::platform::LockDir::path_for(&worker_socket_path(
@@ -682,7 +710,7 @@ mod tests {
         );
         filetime::set_file_mtime(&orphan_lock, crashed).unwrap();
         let foreign = worker_socket_path(&dir.path().join("other.sock"), "dead00000000");
-        bind_stale_socket(&foreign).await;
+        bind_stale_socket(&foreign);
         let not_a_socket = worker_socket_path(&supervisor, "file00000000");
         std::fs::write(&not_a_socket, b"not a socket").unwrap();
 
