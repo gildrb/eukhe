@@ -9,6 +9,8 @@
   makeWrapper,
   uv,
   git,
+  onnxruntime,
+  stdenv,
   src,
   # The source revision (flake `self.rev`/`self.dirtyRev`), compiled into the
   # build identity: the flake source carries no .git for the build to ask.
@@ -49,13 +51,16 @@ rustPlatform.buildRustPackage {
     cp crates/eukhe-core/tests/fixtures/mcp/plugins-catalog.v2.json "$catalog/plugins/catalog.v2.json"
     python3 scripts/release/bundle_catalog.py generate --catalog-dir "$catalog" --out "$payload"
     rm -r "$catalog"
+    # The tiny-model worker loads ONNX Runtime (>= 1.24) at run time; a
+    # user's own ORT_DYLIB_PATH wins.
     makeWrapper "$payload/eukhe" "$out/bin/eukhe" \
       --suffix PATH : ${
         lib.makeBinPath [
           uv
           git
         ]
-      }
+      } \
+      --set-default ORT_DYLIB_PATH ${lib.getLib onnxruntime}/lib/libonnxruntime${stdenv.hostPlatform.extensions.sharedLibrary}
   '';
 
   meta = {

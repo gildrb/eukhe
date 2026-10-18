@@ -279,7 +279,9 @@ command line, never from its environment. Thus a daemon started with
 The engine (`eukhe-tiny-onnx`) is ONNX Runtime through the `ort` crate.
 The worker loads the runtime library at run time:
 `providers.tinyRuntimeLibrary`, else `ORT_DYLIB_PATH`, else
-`libonnxruntime.so` (nixpkgs `onnxruntime`, 1.24 or later). The build
+`libonnxruntime.so` (nixpkgs `onnxruntime`, 1.24 or later). The Nix
+package wrapper and the dev shell set `ORT_DYLIB_PATH` to the nixpkgs
+library (`--set-default`: a value the user sets wins). The build
 downloads nothing and links no runtime. Inference is on the CPU. The
 text tokenizer is eukhe's own (`tokenizer.rs`): the byte-level BPE of
 the model's `tokenizer.json`, with its added tokens, its pre-tokenizer
@@ -462,12 +464,3 @@ back) and the `tokenizer::tests` on the model files; `eukhe-core`
 `local` provider, through a real worker). Not modelled: two processes
 that start a worker at the same time (the bind lock orders them; the
 second one uses the first worker).
-
-Not done:
-
-1. Nix packaging. The Nix package does not set the runtime library, so
-   local models do not run after a Nix install without more settings.
-   The package wrapper must set `ORT_DYLIB_PATH`, for example
-   `--set-default ORT_DYLIB_PATH ${onnxruntime}/lib/libonnxruntime.so`.
-   Until then, the user sets `providers.tinyRuntimeLibrary` or
-   `ORT_DYLIB_PATH`.

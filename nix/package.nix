@@ -10,6 +10,7 @@
   makeWrapper,
   uv,
   git,
+  onnxruntime,
   release,
 }:
 let
@@ -44,14 +45,17 @@ stdenv.mkDerivation {
     mkdir -p "$payload" "$out/bin"
     cp -R eukhe eukhe-runtime skills LICENSE models.bundled.json mcp-services.bundled.json "$payload/"
     # uv builds the Python kernel's venv; git commits the chat memory after
-    # every turn. A user's own uv or git earlier on PATH wins.
+    # every turn. A user's own uv or git earlier on PATH wins. The tiny-model
+    # worker loads ONNX Runtime (>= 1.24) at run time; a user's own
+    # ORT_DYLIB_PATH wins.
     makeWrapper "$payload/eukhe" "$out/bin/eukhe" \
       --suffix PATH : ${
         lib.makeBinPath [
           uv
           git
         ]
-      }
+      } \
+      --set-default ORT_DYLIB_PATH ${lib.getLib onnxruntime}/lib/libonnxruntime${stdenv.hostPlatform.extensions.sharedLibrary}
     runHook postInstall
   '';
 

@@ -1,6 +1,7 @@
 # eukhe
 
-eukhe is a coding agent with one endless chat as its memory.
+eukhe (Greek εὐχή: a wish, a prayer) is a coding agent with one endless chat
+as its memory.
 
 eukhe is a fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
 by Prime Intellect. It is not affiliated with Prime Intellect, Victor Taelin or Earendil.
@@ -66,6 +67,10 @@ eukhe chat status [--json] # show the chat size and compactor progress
 eukhe chat browse          # write the whole memory as one HTML page
 eukhe chat import sessions <path>...
 eukhe status               # show daemon state
+eukhe state [agent]        # show the session state tree
+eukhe provider caps        # list provider capabilities; no network
+eukhe provider models <p>  # list the models of provider <p>
+eukhe tiny-models          # list or download local models
 eukhe doctor [--fix]       # check or repair the daemon
 eukhe shutdown [--force]   # stop all agents and the daemon
 ```
@@ -138,13 +143,144 @@ Settings in `~/.eukhe/settings.json`:
 |`retry.provider.streamIdleTimeoutMs`|`300000`|A model stream with no event for this long fails as stalled and retries; `0` is no limit|
 |`memory.settleTimeoutMs`|`20000`|How long a turn waits for the memory's summaries; then a line not summarized yet shows its message cut to 512 bytes; `0` takes the default|
 |`maxToolRounds`|`250`|Tool rounds one turn may make; at the cap the turn ends as failed; `0` takes the default|
+|`compaction.keepRecentTokens`|`40000`|Tokens of recent context that compaction keeps; capped per model at half the size where compaction starts|
+|`compaction.providerTokenCount`|`false`|Ask the provider's own token counter before the compaction check; one more request per generation; a provider with no counter uses the local estimate|
+|`retry.provider.streamRepeatLimit`|`64`|A stream that sends one line this many times in a row stops and retries; `0` takes the default|
+|`directors.stackCap`|`8`|Reminders and forced calls that the Director stack holds; `0` takes the default|
+|`directors.maxSteps`|`200`|Continuations that one run may make; a new user input resets the count; `0` takes the default|
 
 The daemon applies the provider limits to all sessions together. The roster
 shows a waiting request as `queued` and a running one as `generating`.
 
+## Settings files
+
+Each setting is a console variable (cvar). Its id is the dotted key in
+`settings.json`. The value comes from layers. A higher layer wins:
+
+1. The default.
+2. `~/.eukhe/settings.json`, then the project `.eukhe/settings.json`.
+3. `~/.eukhe/config.cfg`, then the project `.eukhe/config.cfg`.
+4. The agent profile: `~/.eukhe/agents/main.cfg` for the root session;
+   `~/.eukhe/subagent.cfg`, then `~/.eukhe/agents/<name>.cfg`, for a
+   subagent.
+5. The sets of the agent while it runs (`/set`, `/toggle`).
+
+The project files obey project trust. A project file never sets a global
+setting.
+
+A cfg file has one command list on each line. A `;` separates two
+commands. Double quotes keep spaces. `#` starts a comment.
+
+```sh
+set compaction.keepRecentTokens 60000
+toggle titles.generate
+alias quiet "set terminal.streamPace.lag 0; set titles.generate false"
+```
+
+Key binds are in `~/.eukhe/binds.cfg`. The first bind of a key wins. User
+binds come before the defaults. An empty bind removes a default bind:
+
+```sh
+bind ctrl+e "action app.tools.expand"
+bind ctrl+o ""
+```
+
+|Command|Effect|
+|---|---|
+|`/set [--global] <id> <value>`|Set a value for this session; `--global` writes it to `~/.eukhe/config.cfg`|
+|`/toggle <id>`|Flip a true/false setting|
+|`/alias <name> "<commands>"`|Make `<name>` run the commands|
+|`/cvar`|Show the settings that clients see|
+|`/cvar save`|Write the session's sets to `~/.eukhe/agents/<name>.cfg`|
+|`/reload`|Read `binds.cfg` again|
+
+More settings:
+
+|Key|Default|Effect|
+|---|---|---|
+|`shell.autoEffects`|`["read"]`|Effects of a `bash` tool step that run without approval: `read`, `write`, `exec`, `net`; a different step asks the attached client; no answer is a denial (no agent or untrusted project can set it)|
+|`kernelTransport`|none|Run the Python kernel through a wrapper, e.g. `{"argvPrefix":["docker","exec","-i","box"],"pathMap":[{"sandbox":"/work","host":"/home/me/project"}]}`; `"command":"shell"` for ssh; none runs it as a local process (no agent or untrusted project can set it)|
+|`ssh.hosts`|`[]`|Hosts that `ssh://host/path` reads can go to, as written in the URL (`box` or `user@box`); reads only, through your `ssh` and `~/.ssh/config` (global only)|
+|`titles.generate`|`true`|Make a session title from the first message with the `tiny` role; a name you gave stays|
+|`terminal.streamPace.minChars`|`2`|Fewest streamed characters that one frame shows; `0` reads as 1|
+|`terminal.streamPace.lag`|`3`|How far the screen stays behind the stream: each frame shows the backlog divided by `1 + lag`|
+|`terminal.showSpeed`|`true`|Show the generation speed on the status line: `prefill <elapsed>s` (or `prefill p/n tokens` from a llama.cpp server), `decode N tok/s`, then `prefill X tok/s (TTFT Ys) · decode Z tok/s` after the reply|
+
+## Local models
+
+eukhe can run small models on your computer for titles, judgments,
+translation, speech and dictation. eukhe does not download them
+automatically:
+
+```sh
+eukhe tiny-models                       # list models and their state
+eukhe tiny-models download lfm2.5-230m  # download one model, or all
+eukhe translate de hello                # translate text to German
+eukhe say "hello" [--out a.wav]         # speak text, or write a WAV file
+eukhe transcribe a.wav                  # write the text of a WAV file
+```
+
+The models are `lfm2.5-230m` and `lfm2.5-350m` (text), `whisper-base` and
+`whisper-small` (speech to text), and `kokoro` (text to speech). They go in
+`~/.eukhe/models/tiny/`. The download checks the size and the sha256 of each
+file. The models need ONNX Runtime 1.24 or newer. The Nix package sets
+`ORT_DYLIB_PATH` to the nixpkgs library; your own `ORT_DYLIB_PATH` wins.
+
+Each task has a role. A role uses its model, then its fallback list. It uses
+the first model that is available: a local model must be installed, and a
+provider model must be the session's model. If no model is available, the
+task fails.
+
+|Role|Task|Default order|
+|---|---|---|
+|`tiny`|Session titles|`local/lfm2.5-230m`, `local/lfm2.5-350m`, the session's model|
+|`judge`|Typed judgments|Same as `tiny`|
+|`translate`|Translation|Same as `tiny`|
+|`speech`|Text to speech|`local/kokoro`|
+|`dictation`|Speech to text|`local/whisper-base`, `local/whisper-small`|
+
+|Key|Default|Effect|
+|---|---|---|
+|`modelRoles.<role>`|none|The model of the role: `local/<id>` or `provider/model`|
+|`retry.fallbackChains.<role>`|default order|List of models after `modelRoles.<role>`; `[]` uses only `modelRoles.<role>`|
+|`tts.localVoice`|`af_heart`|Voice of `eukhe say`; `--voice` overrides it|
+|`stt.enabled`|`false`|Dictation into the editor with the `dictation` role|
+|`providers.tinyRuntimeLibrary`|none|Path of the ONNX Runtime library; none uses `ORT_DYLIB_PATH` (global only)|
+
+For dictation, set `stt.enabled true`, then bind `action app.stt.pushToTalk`
+(hold the key) or `action app.stt.toggle` in `binds.cfg`. Both are not bound
+by default. Recording uses the first of `pw-record`, `parec` and `arecord`
+on `PATH` (macOS: `sox`, then `ffmpeg`).
+
+## Directors
+
+After each final answer, a stack of Directors can continue the run: the
+goal, the autonomous run, reminders and forced tool calls.
+
+|Command|Effect|
+|---|---|
+|`/remind <text>`|Put `<text>` first in the next continuation; a reminder does not start a continuation|
+|`/force <tool> [--tries <n>]`|Make the next requests call `<tool>` until a response calls it; after `n` misses (default `1`) the generation fails|
+
+## Providers
+
+`eukhe provider caps [provider]` shows what each provider can do beside
+chat: count tokens, list models, embeddings, images, usage, web search and
+compaction. It sends no request. `eukhe provider models <provider>` asks the
+provider for its model list: ID, name, context and maximum output.
+
+## Session state
+
+Each session keeps a state tree: its conversations, tasks, jobs and
+documents. `eukhe state [agent]` shows it. `--since <cursor>` shows the
+changes after a cursor. `--follow` shows new changes until Ctrl+C.
+`eukhe state rewind-plan <cursor>` shows what a rewind to the cursor stops,
+starts and restores.
+
 ## Develop
 
 ```sh
+nix develop  # Rust toolchain, uv, git, ONNX Runtime (sets ORT_DYLIB_PATH)
 make check   # fmt, clippy, tests
 ```
 

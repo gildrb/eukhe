@@ -47,6 +47,24 @@
         };
       });
 
+      # The build inputs of the source package plus the tools the suites
+      # and the tiny-model worker need at run time.
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.eukhe-from-source ];
+          packages = [
+            pkgs.cargo
+            pkgs.rustc
+            pkgs.clippy
+            pkgs.rustfmt
+            pkgs.uv
+            pkgs.git
+            pkgs.onnxruntime
+          ];
+          env.ORT_DYLIB_PATH = "${lib.getLib pkgs.onnxruntime}/lib/libonnxruntime${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
+        };
+      });
+
       overlays.default = final: _prev: {
         eukhe = self.packages.${final.stdenv.hostPlatform.system}.default;
       };

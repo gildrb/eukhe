@@ -80,8 +80,10 @@ background bookkeeping.
   Signal service, only while the user runs `eukhe gateway` (through the
   signal-cli the user installed), plus the pinned model files that
   `eukhe tiny-models download` fetches from Hugging Face when the user runs
-  it (each file checked against its pinned sha256 before install). No
-  telemetry, no catalog fetches, no uploads, no automatic model downloads.
+  it (each file checked against its pinned sha256 before install), plus
+  read-only `ssh://` reads to the hosts the user lists in `ssh.hosts`
+  (through the user's own `ssh` and `~/.ssh/config`). No telemetry, no
+  catalog fetches, no uploads, no automatic model downloads.
 - Startup work never delays the first paint; slow bookkeeping runs on a
   background worker. Changes to the launch path keep the first frame unblocked.
 
