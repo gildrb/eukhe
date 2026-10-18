@@ -44,17 +44,18 @@ pub static GOAL_DOC: RewindableConversationDoc<GoalState> = match RewindableConv
     Err(_) => panic!("eukhe.goal has a valid version"),
 };
 
-/// Version 1 recorded a continuation without its origin. The record only
-/// replays a decision on a crash rerun, so a continuation record is
-/// dropped and the rerun decides again.
-fn migrate_loop(value: &JsonObject, _from: u64) -> Result<GoalLoopState, CallbackError> {
+/// Version 1 recorded a continuation without its origin. Versions 1 and 2
+/// could record the removed no-progress backoff (`{"type":"wait","until":
+/// ms}`). The record only replays a decision on a crash rerun, so the
+/// migration drops such a record and the rerun decides again.
+fn migrate_loop(value: &JsonObject, from: u64) -> Result<GoalLoopState, CallbackError> {
     let mut value = value.clone();
     let outcome = value
         .get("yield")
         .and_then(|record| record.get("outcome"))
         .and_then(|outcome| outcome.get("type"))
         .and_then(JsonValue::as_str);
-    if outcome == Some("continue") {
+    if outcome == Some("wait") || (from == 1 && outcome == Some("continue")) {
         value.remove("yield");
     }
     Ok(from_json(&JsonValue::Object(Arc::new(value)))?)
@@ -64,7 +65,7 @@ fn migrate_loop(value: &JsonObject, _from: u64) -> Result<GoalLoopState, Callbac
 pub(crate) static LOOP_DOC: ConversationDoc<GoalLoopState> = match ConversationDoc::define(
     DocDefinition {
         kind: "eukhe.goal.loop",
-        version: 2,
+        version: 3,
         initial: GoalLoopState::default,
         migrate: Some(migrate_loop),
         checkpoint_when: Some(|_, _, _| true),
@@ -120,9 +121,6 @@ pub(crate) enum YieldOutcome {
     Continue { text: String, origin: InputOrigin },
     /// End the run.
     End,
-    /// The no-progress backoff: decide again once the wall clock reaches
-    /// `until` (ms).
-    Wait { until: u64 },
 }
 
 /// The committed value of `token` in `conversation_id`; `None` when the
@@ -184,4 +182,49 @@ pub(crate) fn write_doc<T: Serialize>(draft: &Draft, value: &T) -> SessionResult
         assign_json(draft, name, child)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use eukhe_types::goal::GoalContextKind;
+
+    use super::*;
+
+    fn migrated(text: &str, from: u64) -> GoalLoopState {
+        let value = JsonValue::parse(text).expect("json");
+        migrate_loop(value.as_object().expect("object"), from).expect("migrate")
+    }
+
+    /// A version 2 record of the removed no-progress backoff loads: the
+    /// migration drops it, so the rerun decides again.
+    #[test]
+    fn a_wait_record_of_the_removed_backoff_is_dropped() {
+        let old = r#"{"accounted":7,"yield":{"taskId":7,"outcome":{"type":"wait","until":20000}}}"#;
+        assert_eq!(
+            migrated(old, 2),
+            GoalLoopState {
+                accounted: Some(TaskId::from_number(7)),
+                yield_record: None,
+            }
+        );
+    }
+
+    /// A version 2 continuation carries its origin: the migration keeps it.
+    #[test]
+    fn a_version_2_continuation_is_kept() {
+        let state = GoalLoopState {
+            accounted: None,
+            yield_record: Some(YieldRecord {
+                task_id: TaskId::from_number(7),
+                outcome: YieldOutcome::Continue {
+                    text: "go on".to_owned(),
+                    origin: InputOrigin::Goal {
+                        context: GoalContextKind::Continuation,
+                    },
+                },
+            }),
+        };
+        let text = serde_json::to_string(&state).expect("encode");
+        assert_eq!(migrated(&text, 2), state);
+    }
 }

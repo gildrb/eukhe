@@ -7,22 +7,11 @@
 //! Every write goes through [`stamp`] (the state normalization:
 //! `updated_at`, the derived `active` flag, and the creation-based timer).
 
-use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, StopReason, Usage};
+use eukhe_types::pi_ai::{AssistantMessage, StopReason, Usage};
 
 use crate::goals::{
     normalize_goal_state, validate_goal_budget, validate_goal_objective, GoalState, GoalStatus,
 };
-
-/// How many consecutive no-output turns the continuation mint tolerates
-/// before the goal finishes (the 402 diagnosis's small cap).
-pub(crate) const CONTINUATION_NO_PROGRESS_CAP: u32 = 3;
-
-/// The backoff base for consecutive no-output turns (10s, 20s, 40s ...).
-pub(crate) const CONTINUATION_NO_PROGRESS_BACKOFF_BASE_MS: u64 = 10_000;
-
-/// The terminal reason of a goal whose continuations stopped making progress.
-pub const NO_PROGRESS_CAP_REASON: &str =
-    "Goal continuation cap reached: consecutive turns made no progress";
 
 /// The default reason of a failed assistant response.
 const ASSISTANT_FAILED: &str = "Assistant response failed";
@@ -88,9 +77,6 @@ pub(crate) fn new_goal(
         time_used_seconds: 0,
         continuations_used: 0,
         created_at: Some(now),
-        // A fresh goal never inherits the previous goal's no-progress streak.
-        no_progress_streak: Some(0),
-        no_progress_turn_ms: None,
         updated_at: Some(now),
         last_reason: None,
         last_error: None,
@@ -219,17 +205,6 @@ pub(crate) fn spends_budget(stop_reason: StopReason) -> bool {
     }
 }
 
-/// Whether the response produced no output: every content block is empty.
-/// Tool calls are always output.
-#[must_use]
-pub fn turn_produced_no_output(message: &AssistantMessage) -> bool {
-    message.content.iter().all(|block| match block {
-        AssistantContentBlock::Text(text) => text.text.is_empty(),
-        AssistantContentBlock::Thinking(thinking) => thinking.thinking.is_empty(),
-        AssistantContentBlock::ToolCall(_) => false,
-    })
-}
-
 /// The provider-failure text when `message` settled as a terminal provider
 /// failure (stop reason `error`, not the quota-park `rate_limit` class).
 #[must_use]
@@ -257,103 +232,18 @@ pub fn terminal_provider_failure(message: &AssistantMessage) -> Option<String> {
     )
 }
 
-/// The continuation mint's decision at a final answer.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Mint {
-    /// No continuation; `Some` carries a state change to write (the
-    /// no-progress cap's terminal error).
-    Refuse(Option<GoalState>),
-    /// The answer produced no output: the strike is written and the
-    /// continuation waits until `until` (wall-clock ms).
-    Backoff { state: GoalState, until: u64 },
-    /// One continuation slot is consumed; the goal-context continuation
-    /// text of the written state continues the run.
-    Continue(GoalState),
-}
-
-/// The mint at a final answer (old `next_continuation_message` with its
-/// progress gate). Provider failures and quota parks never reach a final
-/// answer on the Harness, so the gate's remaining arm is the no-output
-/// strike with its doubling backoff and the unconditional cap.
+/// The continuation mint at a final answer or after a manual compaction
+/// (old `next_continuation_message`): the goal with one continuation slot
+/// consumed, whose goal-context continuation text continues the run; `None`
+/// when the goal does not own the continuation wakeup. An empty reply never
+/// reaches it: the Harness fails it as a model error (docs/harness.md
+/// H4.7), and the failed run fails the goal.
 #[must_use]
-pub(crate) fn mint(state: &GoalState, answer: &AssistantMessage, now: u64) -> Mint {
-    if !owns_continuation_wakeup(state) {
-        return Mint::Refuse(None);
-    }
-    let mut current = state.clone();
-    // Only a turn of this goal's lifetime judges it; a legacy state without
-    // `created_at` keeps the check.
-    let turn_is_this_goals = current
-        .created_at
-        .is_none_or(|created_at| answer.timestamp > created_at);
-    // The examined-turn dedup: a turn at or before the last counted one
-    // never re-enters the progress machinery.
-    let turn_ms = i64::try_from(answer.timestamp).unwrap_or(i64::MAX);
-    let turn_is_new = current
-        .no_progress_turn_ms
-        .is_none_or(|examined| turn_ms > examined);
-    let streak = current.no_progress_streak.unwrap_or(0);
-    if turn_is_this_goals && turn_is_new {
-        if turn_produced_no_output(answer) {
-            let streak = streak.saturating_add(1);
-            let struck = GoalState {
-                no_progress_streak: Some(streak),
-                no_progress_turn_ms: Some(turn_ms),
-                ..current
-            };
-            if streak >= CONTINUATION_NO_PROGRESS_CAP {
-                return Mint::Refuse(Some(cap_error(&struck)));
-            }
-            let until = now.saturating_add(
-                CONTINUATION_NO_PROGRESS_BACKOFF_BASE_MS
-                    .saturating_mul(2u64.saturating_pow(streak.saturating_sub(1))),
-            );
-            return Mint::Backoff {
-                state: struck,
-                until,
-            };
-        }
-        if streak != 0 {
-            // A progress turn resets the streak.
-            current = GoalState {
-                no_progress_streak: Some(0),
-                no_progress_turn_ms: Some(turn_ms),
-                ..current
-            };
-        }
-    }
-    mint_slot(&current)
-}
-
-/// The mint once a no-progress backoff window passed: the cap check and the
-/// slot, without judging a turn again.
-#[must_use]
-pub(crate) fn mint_after_backoff(state: &GoalState) -> Mint {
-    if !owns_continuation_wakeup(state) {
-        return Mint::Refuse(None);
-    }
-    mint_slot(state)
-}
-
-/// The unconditional cap, then one continuation slot.
-fn mint_slot(state: &GoalState) -> Mint {
-    if state.no_progress_streak.unwrap_or(0) >= CONTINUATION_NO_PROGRESS_CAP {
-        return Mint::Refuse(Some(cap_error(state)));
-    }
-    Mint::Continue(GoalState {
+pub(crate) fn mint(state: &GoalState) -> Option<GoalState> {
+    owns_continuation_wakeup(state).then(|| GoalState {
         continuations_used: state.continuations_used.saturating_add(1),
         last_reason: None,
         last_error: None,
         ..state.clone()
     })
-}
-
-fn cap_error(state: &GoalState) -> GoalState {
-    GoalState {
-        active: false,
-        status: GoalStatus::Error,
-        last_reason: Some(NO_PROGRESS_CAP_REASON.to_owned()),
-        last_error: Some(NO_PROGRESS_CAP_REASON.to_owned()),
-        ..state.clone()
-    }
 }

@@ -188,10 +188,11 @@ the autonomous run, a reminder, and a forced tool call.
 3. The loop of one run has a global budget of steps. Each continuation
    costs 1 step. When no step is left, a continuation yields.
 4. The verdict of each kind comes from the session state:
-   - Goal: an active goal mints a continuation (`Again`), with the
-     no-progress backoff, or refuses it at the no-progress cap (`Yield`).
-     A paused, budget-limited, complete, or failed goal yields. A cleared
-     goal leaves.
+   - Goal: an active goal mints a continuation (`Again`). A paused,
+     budget-limited, complete, or failed goal yields. A cleared goal
+     leaves. An empty reply never gets to the goal: the harness fails it
+     as a model error ([harness.md](harness.md) H4.7), and the goal fails
+     with that error.
    - Autonomous: it defers while a goal drives continuations, so the goal
      keeps its priority. A disabled run leaves. Else its gates and limits
      continue the run (`Again`) or stop it (`Yield`).

@@ -75,19 +75,6 @@ pub struct GoalState {
     pub continuations_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<u64>,
-    /// The consecutive-no-output-turn streak at the continuation mint
-    /// (the hot-loop killer's cap counter, the 402 diagnosis's (b)):
-    /// durable so a worker restart cannot reset the streak and un-cap a
-    /// degenerate loop. A fresh goal starts at 0; a turn that produced
-    /// output resets it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_progress_streak: Option<u32>,
-    /// The last turn the streak counted (its Unix-ms timestamp): the
-    /// re-consult dedup across a worker restart (the in-process key is
-    /// live-only, so the durable row carries it — the same corpse never
-    /// strikes twice, however often the session rebuilds).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_progress_turn_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -115,10 +102,39 @@ pub fn empty_goal_state() -> GoalState {
         time_used_seconds: 0,
         continuations_used: 0,
         created_at: None,
-        no_progress_streak: None,
-        no_progress_turn_ms: None,
         updated_at: None,
         last_reason: None,
         last_error: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A goal persisted before the no-progress strike was removed carries
+    /// `noProgressStreak` and `noProgressTurnMs`: it still loads, and the
+    /// old keys are ignored.
+    #[test]
+    fn a_goal_with_the_removed_no_progress_keys_still_loads() {
+        let old = r#"{"active":true,"status":"active","goalId":"g1","objective":"ship it","tokensUsed":40,"timeUsedSeconds":12,"continuationsUsed":2,"createdAt":1000,"noProgressStreak":1,"noProgressTurnMs":2000,"updatedAt":3000}"#;
+        let goal: GoalState = serde_json::from_str(old).expect("old goal");
+        assert_eq!(
+            goal,
+            GoalState {
+                active: true,
+                status: GoalStatus::Active,
+                goal_id: Some("g1".to_owned()),
+                objective: Some("ship it".to_owned()),
+                token_budget: None,
+                tokens_used: 40,
+                time_used_seconds: 12,
+                continuations_used: 2,
+                created_at: Some(1000),
+                updated_at: Some(3000),
+                last_reason: None,
+                last_error: None,
+            }
+        );
     }
 }

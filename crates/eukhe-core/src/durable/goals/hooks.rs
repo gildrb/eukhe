@@ -15,14 +15,13 @@
 //!   call of the tool makes the forced call; the miss that fails the
 //!   generation removes the layer and records the failure in a display row.
 //! - `on_yield`: at a final answer the Director stack decides
-//!   (`crate::durable::directors`): an active goal mints one continuation
-//!   (with the no-progress backoff and cap); otherwise an enabled
-//!   autonomous run consults its gates and limits; reminders lead the
-//!   continuation, or stay on the stack when no continuation comes; a
-//!   forced call not made yet continues the run forced. Queued user input
-//!   and unsettled RLM children hold the continuation (the queued run or
-//!   the child's report run reaches its own final answer). An aborted run
-//!   never reaches `on_yield`.
+//!   (`crate::durable::directors`): an active goal mints one continuation;
+//!   otherwise an enabled autonomous run consults its gates and limits;
+//!   reminders lead the continuation, or stay on the stack when no
+//!   continuation comes; a forced call not made yet continues the run
+//!   forced. Queued user input and unsettled RLM children hold the
+//!   continuation (the queued run or the child's report run reaches its
+//!   own final answer). An aborted run never reaches `on_yield`.
 //!
 //! Every decision is recorded in `eukhe.goal.loop` keyed by the generation
 //! task, in the same commit as its goal, autonomous and stack changes, so a
@@ -30,9 +29,8 @@
 //! twice.
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use eukhe_chord::context::{await_with_context, Context};
+use eukhe_chord::context::Context;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::define::hook;
 use eukhe_durable::harness::types::{
@@ -56,8 +54,8 @@ use super::docs::{
 use super::host::GoalsHost;
 use super::ops::{goal_context, submit_goal_context, user_input_queued};
 use super::state::{
-    accounted, failed, mint, mint_after_backoff, owns_continuation_wakeup, served, spends_budget,
-    stamp, terminal_provider_failure, Mint, UsageOutcome,
+    accounted, failed, mint, owns_continuation_wakeup, served, spends_budget, stamp,
+    terminal_provider_failure, UsageOutcome,
 };
 use crate::autonomous::{now_millis, AutonomousRuntimeState};
 use crate::durable::children::has_unsettled_children;
@@ -295,21 +293,19 @@ impl GoalsHost {
             .await?
             .and_then(|state| state.yield_record)
             .filter(|record| record.task_id == task_id);
-        let mut turn = match recorded.map(|record| record.outcome) {
-            Some(YieldOutcome::Continue { text, origin }) => return Ok(Some((text, origin))),
-            Some(YieldOutcome::End) => return Ok(None),
-            Some(YieldOutcome::Wait { until }) => backoff(until, api, cx).await?,
-            None => {
-                // Queued user input owns the boundary; unsettled children
-                // hold the continuation until their report run.
-                if user_input_queued(api, conversation_id, cx).await?
-                    || has_unsettled_children(api, conversation_id, cx).await?
-                {
-                    return Ok(None);
-                }
-                GoalTurn::Answer(Box::new(answer.clone()))
-            }
-        };
+        if let Some(record) = recorded {
+            return Ok(match record.outcome {
+                YieldOutcome::Continue { text, origin } => Some((text, origin)),
+                YieldOutcome::End => None,
+            });
+        }
+        // Queued user input owns the boundary; unsettled children hold the
+        // continuation until their report run.
+        if user_input_queued(api, conversation_id, cx).await?
+            || has_unsettled_children(api, conversation_id, cx).await?
+        {
+            return Ok(None);
+        }
         let input = read_doc(api, &LIVE_DOC, conversation_id, cx)
             .await?
             .and_then(|live| live.run)
@@ -338,7 +334,7 @@ impl GoalsHost {
                 // The gates run outside the commit, when the step reaches
                 // the autonomous run.
                 if let Judged::NeedAutonomous =
-                    judge(&state.stack, &goal, &autonomous, None, &turn, now_millis())?
+                    judge(&state.stack, &goal, &autonomous, None, now_millis())?
                 {
                     let mut runtime = autonomous.to_runtime();
                     let decision =
@@ -356,7 +352,6 @@ impl GoalsHost {
                 StepInput {
                     task_id,
                     input,
-                    turn: turn.clone(),
                     seen,
                     decided: decided.clone(),
                     limits,
@@ -366,10 +361,6 @@ impl GoalsHost {
             .await?
             {
                 Step::Retry => decided = None,
-                Step::Wait { until } => {
-                    turn = backoff(until, api, cx).await?;
-                    decided = None;
-                }
                 Step::Done {
                     continuation,
                     abort,
@@ -465,36 +456,6 @@ impl GoalsHost {
     }
 }
 
-/// Wait out a goal's no-progress backoff until `until` (wall-clock ms);
-/// user input queued meanwhile makes the goal yield.
-#[tracing::instrument(skip_all)]
-async fn backoff(until: u64, api: &HookApi, cx: &Context) -> SessionResult<GoalTurn> {
-    let now = now_millis();
-    if until > now {
-        await_with_context(tokio::time::sleep(Duration::from_millis(until - now)), cx)
-            .await
-            .map_err(SessionError::Aborted)?;
-    }
-    Ok(
-        if user_input_queued(api, api.conversation_id(), cx).await? {
-            GoalTurn::Queued
-        } else {
-            GoalTurn::AfterBackoff
-        },
-    )
-}
-
-/// What the goal judges at a step.
-#[derive(Debug, Clone)]
-enum GoalTurn {
-    /// The final answer (the no-progress gate judges it).
-    Answer(Box<AssistantMessage>),
-    /// The no-progress backoff passed: the cap and the slot only.
-    AfterBackoff,
-    /// User input came during the backoff: the goal yields.
-    Queued,
-}
-
 /// The autonomous decision of a step on the state `before`, made before
 /// the step's commit (the gates run outside it).
 #[derive(Debug, Clone)]
@@ -529,8 +490,6 @@ struct Pass {
     /// Written when the loop goes on: the autonomous run after its
     /// continuation.
     autonomous_continued: Option<AutonomousDocState>,
-    /// Written whatever the loop does: the goal's no-progress cap error.
-    goal_change: Option<GoalState>,
     /// Written whatever the loop does: the stopped autonomous run.
     autonomous_stopped: Option<AutonomousDocState>,
     /// The forced call whose layer aborted.
@@ -541,12 +500,6 @@ struct Pass {
 #[derive(Debug, PartialEq)]
 enum Judged {
     Pass(Box<Pass>),
-    /// The goal's answer made no output: the strike is written and the
-    /// step waits until `until`.
-    Backoff {
-        state: GoalState,
-        until: u64,
-    },
     /// The step reaches the autonomous run, whose gates did not run yet.
     NeedAutonomous,
 }
@@ -611,9 +564,8 @@ fn begin(
 /// The verdict of each layer of `stack` (bottom first), top first, down to
 /// the first one that decides (not Defer, not Leave), from the session
 /// state:
-/// - Goal: an active goal mints a continuation (Again) or refuses it at
-///   the no-progress cap (Yield); a paused, budget-limited, complete or
-///   failed goal yields; a cleared goal leaves.
+/// - Goal: an active goal mints a continuation (Again); a paused,
+///   budget-limited, complete or failed goal yields; a cleared goal leaves.
 /// - Autonomous: defers to a goal that drives continuations; leaves when
 ///   disabled; else its gates and limits continue (Again) or stop (Yield).
 /// - Reminder: its text leads the continuation, and it leaves; when no
@@ -626,47 +578,33 @@ fn judge(
     goal: &GoalState,
     autonomous: &AutonomousDocState,
     decided: Option<&AutonomousDecided>,
-    turn: &GoalTurn,
     now: u64,
 ) -> SessionResult<Judged> {
     let mut pass = Pass::default();
     for layer in stack.iter().rev() {
         let verdict = match &layer.kind {
             LayerKind::Goal => match goal.status {
-                GoalStatus::Active if goal.objective.is_some() => {
-                    let minted = match turn {
-                        GoalTurn::Answer(answer) => mint(goal, answer, now),
-                        GoalTurn::AfterBackoff => mint_after_backoff(goal),
-                        GoalTurn::Queued => Mint::Refuse(None),
-                    };
-                    match minted {
-                        Mint::Continue(state) => {
-                            let written = stamp(state, now);
-                            let (text, row) =
-                                goal_context(&written, GoalContextKind::Continuation)?;
-                            pass.continuation = Some((
-                                text,
-                                InputOrigin::Goal {
-                                    context: GoalContextKind::Continuation,
-                                },
-                            ));
-                            pass.goal_slot = Some((written, row));
-                            Verdict::Again
-                        }
-                        Mint::Refuse(change) => {
-                            pass.goal_change = change.map(|next| stamp(next, now));
-                            Verdict::Yield
-                        }
-                        Mint::Backoff { state, until } => {
-                            return Ok(Judged::Backoff { state, until })
-                        }
+                GoalStatus::Active => match mint(goal) {
+                    Some(state) => {
+                        let written = stamp(state, now);
+                        let (text, row) = goal_context(&written, GoalContextKind::Continuation)?;
+                        pass.continuation = Some((
+                            text,
+                            InputOrigin::Goal {
+                                context: GoalContextKind::Continuation,
+                            },
+                        ));
+                        pass.goal_slot = Some((written, row));
+                        Verdict::Again
                     }
-                }
+                    // An active goal without an objective drives nothing.
+                    None => Verdict::Leave,
+                },
                 GoalStatus::Paused
                 | GoalStatus::BudgetLimited
                 | GoalStatus::Complete
                 | GoalStatus::Error => Verdict::Yield,
-                GoalStatus::Idle | GoalStatus::Active => Verdict::Leave,
+                GoalStatus::Idle => Verdict::Leave,
             },
             LayerKind::Autonomous => {
                 if owns_continuation_wakeup(goal) {
@@ -746,7 +684,6 @@ fn judge(
 struct StepInput {
     task_id: TaskId,
     input: Option<SubmissionId>,
-    turn: GoalTurn,
     seen: Seen,
     decided: Option<AutonomousDecided>,
     limits: DirectorLimits,
@@ -757,8 +694,6 @@ struct StepInput {
 enum Step {
     /// The step reaches the autonomous run, whose gates must run first.
     Retry,
-    /// The goal's no-progress backoff: step again at `until`.
-    Wait { until: u64 },
     /// The step's decision: the continuation, and the forced call that
     /// failed the loop.
     Done {
@@ -784,7 +719,6 @@ async fn commit_step(
                 let StepInput {
                     task_id,
                     input,
-                    turn,
                     seen,
                     decided,
                     limits,
@@ -815,22 +749,10 @@ async fn commit_step(
                     &goal_state,
                     &autonomous_state,
                     decided.as_ref(),
-                    &turn,
                     now,
                 )?;
                 let mut pass = match judged {
                     Judged::NeedAutonomous => return Ok(Step::Retry),
-                    Judged::Backoff { state, until } => {
-                        if let Some((draft, _)) = &goal {
-                            write_doc(draft, &stamp(state, now))?;
-                        }
-                        loop_state.yield_record = Some(YieldRecord {
-                            task_id,
-                            outcome: YieldOutcome::Wait { until },
-                        });
-                        write_doc(&loop_draft, &loop_state)?;
-                        return Ok(Step::Wait { until });
-                    }
                     Judged::Pass(pass) => *pass,
                 };
                 let left = state.run.as_ref().map_or(limits.max_steps, |run| run.left);
@@ -859,9 +781,6 @@ async fn commit_step(
                     end: ticked.end,
                 });
                 write_doc(&directors_draft, &state)?;
-                if let (Some(change), Some((draft, _))) = (pass.goal_change, &goal) {
-                    write_doc(draft, &change)?;
-                }
                 if let (Some(stopped), Some((draft, _))) = (pass.autonomous_stopped, &autonomous) {
                     write_doc(draft, &stopped)?;
                 }
@@ -903,7 +822,7 @@ async fn commit_step(
                 Ok(Step::Done {
                     continuation: match outcome {
                         YieldOutcome::Continue { text, origin } => Some((text, origin)),
-                        YieldOutcome::End | YieldOutcome::Wait { .. } => None,
+                        YieldOutcome::End => None,
                     },
                     abort,
                 })
@@ -948,7 +867,6 @@ mod tests {
             &GoalState::default(),
             &AutonomousDocState::initial(),
             None,
-            &GoalTurn::AfterBackoff,
             0,
         )
         .expect("judge")

@@ -19,7 +19,7 @@ use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 
 use super::docs::{open_doc, read_doc, write_doc, GOAL_DOC};
-use super::state::{completed, mint_after_backoff, new_goal, paused, resumed, served, stamp, Mint};
+use super::state::{completed, mint, new_goal, paused, resumed, served, stamp};
 use crate::autonomous::now_millis;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::goals::{
@@ -335,13 +335,7 @@ pub async fn continue_goal_after_compaction(
     withdraw_queued_goal_contexts(harness, conversation_id, cx).await?;
     let (goal, text) = update_goal(
         &conversation,
-        |current, _| {
-            Ok(match mint_after_backoff(current) {
-                Mint::Continue(next) => Some((next, Some(GoalContextKind::Continuation))),
-                Mint::Refuse(change) => change.map(|next| (next, None)),
-                Mint::Backoff { state, .. } => Some((state, None)),
-            })
-        },
+        |current, _| Ok(mint(current).map(|next| (next, Some(GoalContextKind::Continuation)))),
         cx,
     )
     .await?;

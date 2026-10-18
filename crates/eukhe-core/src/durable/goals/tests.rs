@@ -1,7 +1,7 @@
 //! The goal extension on a real Harness with faux models: goal
 //! continuation and completion, durable counters across a reopen, the
-//! autonomous limits and gates, the no-progress cap, the budget steer, and
-//! aborts.
+//! autonomous limits and gates, the goal failure at empty replies, the
+//! budget steer, and aborts.
 
 use std::future::Future;
 use std::pin::Pin;
