@@ -78,13 +78,26 @@ fn route<L: DaemonLauncher>(
     }
     let path = request.uri().path().to_string();
     if path.ends_with(SOCKET_PATH) {
-        let origin = request
-            .headers()
+        let headers = request.headers();
+        let origin = headers
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
-        if !crate::access::same_origin(origin, &host) {
-            tracing::warn!(%origin, %host, "refused a WebSocket from another origin");
+        // A forwarder that rewrites `Host` to this address (poros) names the
+        // public authority the page was served under; the nearest
+        // forwarder's value is the last one.
+        let forwarded_host = headers
+            .get_all("x-forwarded-host")
+            .iter()
+            .next_back()
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.rsplit(',').next())
+            .map(str::trim);
+        let from_page = crate::access::same_origin(origin, &host)
+            || forwarded_host
+                .is_some_and(|forwarded| crate::access::same_origin(origin, forwarded));
+        if !from_page {
+            tracing::warn!(%origin, %host, ?forwarded_host, "refused a WebSocket from another origin");
             return plain(StatusCode::FORBIDDEN, "this origin is not allowed");
         }
         return upgrade(request, config, launcher);

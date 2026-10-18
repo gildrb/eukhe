@@ -63,6 +63,19 @@ Use the name that `tailscale status` shows for this computer, without
 `https://` and without a port. Without `--allow-host`, the dashboard refuses
 the requests that come through `tailscale serve`.
 
+### Phone (poros)
+
+[poros](https://github.com/gildrb/poros) runs the dashboard and gives it its
+own HTTPS link on your tailnet. It needs no `--allow-host`:
+
+```nu
+poros eukhe dashboard
+```
+
+Open the `Poros URL` that it prints. poros sends each request to the
+dashboard with `Host` set to the local address, and it names the HTTPS link in
+`X-Forwarded-Host`.
+
 ## Security
 
 > [!WARNING]
@@ -78,9 +91,11 @@ the requests that come through `tailscale serve`.
   page on a name that points to `127.0.0.1` cannot read the app or use the
   socket.
 - The WebSocket must come from a page of the dashboard. Its `Origin` header
-  must have the same host and port as its `Host` header. An upgrade with no
+  must have the same host and port as its `Host` header, or as the last
+  `X-Forwarded-Host` header that a forwarder adds (poros). An upgrade with no
   `Origin`, or with another origin, gets `403`. This stops other web pages
-  in your browser from using the socket.
+  in your browser from using the socket: a web page cannot add
+  `X-Forwarded-Host` to a WebSocket upgrade.
 - The content security policy permits only the app's own files: scripts,
   styles, fonts, the service worker, the manifest and the socket. Images can
   also be `data:` and `blob:` URLs. There is no inline script or style.

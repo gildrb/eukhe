@@ -281,8 +281,9 @@ starts and restores.
 
 `eukhe dashboard` serves a web app for the CLI session: chat, live turn
 activity, session controls, saved sessions and the chat memory. It listens
-on `127.0.0.1` only. To use it on a phone, put `tailscale serve` in front
-and add `--allow-host <tailnet name>`. See [docs/dashboard.md](docs/dashboard.md).
+on `127.0.0.1` only. To use it on a phone, run it under poros
+(`poros eukhe dashboard`), or put `tailscale serve` in front and add
+`--allow-host <tailnet name>`. See [docs/dashboard.md](docs/dashboard.md).
 
 ## Develop
 

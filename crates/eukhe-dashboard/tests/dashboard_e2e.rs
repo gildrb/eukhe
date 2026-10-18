@@ -1,6 +1,7 @@
 //! The dashboard end to end against a scripted daemon socket: the server
 //! answers the app's files and its WebSocket only to loopback (or allowed)
-//! hosts and to its own origin; a tab's socket greets with `hello`, opens
+//! hosts and to its own origin (or the public origin a forwarder such as
+//! poros declares); a tab's socket greets with `hello`, opens
 //! the newest root session (create + attach), resumes from a cursor, sends
 //! a message whose reply streams back as session events with cursors,
 //! runs daemon commands for the bound session, hears approvals and
@@ -330,11 +331,11 @@ fn header<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
 type Socket = tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
 
 /// Open the bridge's socket with `host` in the request (the connection
-/// goes to loopback) and `origin`, if any.
+/// goes to loopback) and the extra `headers` (`origin`, forwarder headers).
 async fn upgrade(
     port: u16,
     host: &str,
-    origin: Option<&str>,
+    headers: &[(&'static str, &str)],
 ) -> Result<Socket, tungstenite::Error> {
     let stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
@@ -342,10 +343,10 @@ async fn upgrade(
     let mut request = format!("ws://{host}/api/ws")
         .into_client_request()
         .expect("request");
-    if let Some(origin) = origin {
+    for (name, value) in headers {
         request
             .headers_mut()
-            .insert("origin", origin.parse().expect("origin"));
+            .append(*name, value.parse().expect("header value"));
     }
     tokio_tungstenite::client_async(request, stream)
         .await
@@ -357,7 +358,7 @@ async fn open_tab(port: u16) -> Socket {
     upgrade(
         port,
         &format!("127.0.0.1:{port}"),
-        Some(&format!("http://127.0.0.1:{port}")),
+        &[("origin", &format!("http://127.0.0.1:{port}"))],
     )
     .await
     .expect("the bridge's socket")
@@ -502,6 +503,28 @@ async fn the_app_files_load_on_loopback_with_their_types_and_tags() {
     assert_eq!(status, "HTTP/1.1 404 Not Found");
 }
 
+/// The HTTP status an upgrade was refused with; panics on acceptance.
+fn refused(result: Result<Socket, tungstenite::Error>) -> u16 {
+    match result {
+        Err(tungstenite::Error::Http(response)) => response.status().as_u16(),
+        Err(error) => panic!("expected an HTTP refusal, got {error}"),
+        Ok(_) => panic!("the upgrade was accepted"),
+    }
+}
+
+/// An accepted socket of a dashboard without a daemon: `hello`, then why.
+async fn expect_accepted(result: Result<Socket, tungstenite::Error>) {
+    let mut socket = result.expect("the page's own socket");
+    expect_hello(&mut socket).await;
+    assert_eq!(
+        next_frame(&mut socket).await,
+        json!({
+            "type": "unavailable",
+            "error": "start the eukhe daemon: no daemon here",
+        })
+    );
+}
+
 #[tokio::test]
 async fn the_socket_and_files_answer_only_their_own_origin_and_hosts() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -521,18 +544,22 @@ async fn the_socket_and_files_answer_only_their_own_origin_and_hosts() {
         get_async(port, "/", "box.tail1234.ts.net".to_string(), String::new()).await;
     assert_eq!(status, "HTTP/1.1 200 OK");
 
-    let refused = |result: Result<Socket, tungstenite::Error>| match result {
-        Err(tungstenite::Error::Http(response)) => response.status().as_u16(),
-        Err(error) => panic!("expected an HTTP refusal, got {error}"),
-        Ok(_) => panic!("the upgrade was accepted"),
-    };
+    let local_origin = format!("http://localhost:{port}");
+    let rebound_origin = format!("http://{rebound}");
     let statuses = [
         // Cross-site WebSocket hijacking: another site's page.
-        refused(upgrade(port, &loopback, Some("http://evil.example")).await),
-        refused(upgrade(port, &loopback, Some(&format!("http://localhost:{port}"))).await),
-        refused(upgrade(port, &loopback, None).await),
-        refused(upgrade(port, &rebound, Some(&format!("http://{rebound}"))).await),
-        refused(upgrade(port, "box.tail1234.ts.net", Some("https://evil.example")).await),
+        refused(upgrade(port, &loopback, &[("origin", "http://evil.example")]).await),
+        refused(upgrade(port, &loopback, &[("origin", &local_origin)]).await),
+        refused(upgrade(port, &loopback, &[]).await),
+        refused(upgrade(port, &rebound, &[("origin", &rebound_origin)]).await),
+        refused(
+            upgrade(
+                port,
+                "box.tail1234.ts.net",
+                &[("origin", "https://evil.example")],
+            )
+            .await,
+        ),
     ];
     assert_eq!(statuses, [403, 403, 403, 403, 403]);
     assert_eq!(
@@ -542,27 +569,91 @@ async fn the_socket_and_files_answer_only_their_own_origin_and_hosts() {
     );
 
     // The page's own origin, on loopback and under the allowed name.
-    for (host, origin) in [
-        (loopback.clone(), format!("http://{loopback}")),
-        (
-            "box.tail1234.ts.net".to_string(),
-            "https://box.tail1234.ts.net".to_string(),
-        ),
-    ] {
-        let mut socket = upgrade(port, &host, Some(&origin))
-            .await
-            .expect("the page's own socket");
-        expect_hello(&mut socket).await;
-        let frame = next_frame(&mut socket).await;
-        assert_eq!(
-            frame,
-            json!({
-                "type": "unavailable",
-                "error": "start the eukhe daemon: no daemon here",
-            })
-        );
-    }
+    let own_origin = format!("http://{loopback}");
+    expect_accepted(upgrade(port, &loopback, &[("origin", &own_origin)]).await).await;
+    expect_accepted(
+        upgrade(
+            port,
+            "box.tail1234.ts.net",
+            &[("origin", "https://box.tail1234.ts.net")],
+        )
+        .await,
+    )
+    .await;
     assert_eq!(bridges.load(Ordering::SeqCst), 2);
+}
+
+/// What poros sends: `Host` rewritten to the local address, the browser's
+/// `Origin` (the public HTTPS authority), and that authority in
+/// `X-Forwarded-Host`. The page behind it connects with no `--allow-host`;
+/// another site's page behind it does not.
+#[tokio::test]
+async fn a_socket_behind_poros_answers_only_the_declared_public_origin() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bridges = Arc::new(AtomicUsize::new(0));
+    let port = serve(config(dir.path(), Vec::new()), Down(Arc::clone(&bridges))).await;
+    let loopback = format!("127.0.0.1:{port}");
+    let public = "box.tail1234.ts.net:46101";
+    let public_origin = format!("https://{public}");
+
+    let statuses = [
+        // Another site's page behind the forwarder.
+        refused(
+            upgrade(
+                port,
+                &loopback,
+                &[
+                    ("origin", "https://evil.example"),
+                    ("x-forwarded-host", public),
+                ],
+            )
+            .await,
+        ),
+        // The public name on another port.
+        refused(
+            upgrade(
+                port,
+                &loopback,
+                &[
+                    ("origin", "https://box.tail1234.ts.net:9"),
+                    ("x-forwarded-host", public),
+                ],
+            )
+            .await,
+        ),
+        // Only the nearest forwarder's name counts.
+        refused(
+            upgrade(
+                port,
+                &loopback,
+                &[
+                    ("origin", &public_origin),
+                    ("x-forwarded-host", public),
+                    ("x-forwarded-host", "proxy.internal"),
+                ],
+            )
+            .await,
+        ),
+        // No forwarder named it.
+        refused(upgrade(port, &loopback, &[("origin", &public_origin)]).await),
+    ];
+    assert_eq!(statuses, [403, 403, 403, 403]);
+    assert_eq!(bridges.load(Ordering::SeqCst), 0);
+
+    expect_accepted(
+        upgrade(
+            port,
+            &loopback,
+            &[
+                ("origin", &public_origin),
+                ("x-forwarded-host", public),
+                ("x-forwarded-proto", "https"),
+            ],
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(bridges.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

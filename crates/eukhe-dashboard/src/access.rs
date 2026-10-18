@@ -3,9 +3,14 @@
 //! allowed (`eukhe dashboard --allow-host <name>`) in its `Host`; that
 //! defeats DNS rebinding, where a foreign name resolves to 127.0.0.1 but
 //! the browser still sends that name. A WebSocket upgrade must also carry
-//! the page's own `Origin` (scheme, host and port of the `Host` it was
-//! served under); that defeats cross-site WebSocket hijacking, where
-//! another site's page opens the socket with its own origin.
+//! the page's own `Origin`: the origin of the `Host` it was served under,
+//! or of the public authority that a forwarder in front of the dashboard
+//! names in `X-Forwarded-Host` (poros rewrites `Host` to the local address
+//! and keeps the browser's `Origin`). That defeats cross-site WebSocket
+//! hijacking, where another site's page opens the socket with its own
+//! origin: a page cannot add `X-Forwarded-Host` to a WebSocket handshake,
+//! so the header comes only from a forwarder or a local program, and a
+//! local program can send any `Origin` anyway.
 
 /// The host names that are always allowed.
 const LOOPBACK: [&str; 3] = ["127.0.0.1", "localhost", "[::1]"];
