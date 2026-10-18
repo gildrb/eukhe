@@ -206,22 +206,40 @@ pub fn open_pidfd(_pid: u32) -> std::io::Result<OwnedFd> {
     Err(std::io::ErrorKind::Unsupported.into())
 }
 
+/// What a signal through a kernel-held process handle did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PidfdSignal {
+    /// The kernel queued the signal for the pinned process (a zombie
+    /// still takes it).
+    Delivered,
+    /// The pinned process has exited and been reaped (`ESRCH`): the handle
+    /// names that one process, so it is provably gone.
+    Exited,
+    /// The signal was not sent and nothing is known about the process (a
+    /// refused permission, a platform with no pidfd).
+    Failed,
+}
+
 /// Signal through the kernel-held handle (`pidfd_send_signal`): the
 /// signal reaches the pinned process and nothing else.
 #[cfg(target_os = "linux")]
 #[must_use]
-pub fn pidfd_signal(fd: &OwnedFd, signal: Signal) -> bool {
+pub fn pidfd_signal(fd: &OwnedFd, signal: Signal) -> PidfdSignal {
     let signal = match signal {
         Signal::Term => rustix::process::Signal::TERM,
         Signal::Kill => rustix::process::Signal::KILL,
     };
-    rustix::process::pidfd_send_signal(fd, signal).is_ok()
+    match rustix::process::pidfd_send_signal(fd, signal) {
+        Ok(()) => PidfdSignal::Delivered,
+        Err(rustix::io::Errno::SRCH) => PidfdSignal::Exited,
+        Err(_) => PidfdSignal::Failed,
+    }
 }
 
 #[cfg(target_os = "macos")]
 #[must_use]
-pub fn pidfd_signal(_fd: &OwnedFd, _signal: Signal) -> bool {
-    false
+pub fn pidfd_signal(_fd: &OwnedFd, _signal: Signal) -> PidfdSignal {
+    PidfdSignal::Failed
 }
 
 /// Resolve once the process behind `pid` has exited, parked on the kernel's

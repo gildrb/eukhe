@@ -206,7 +206,11 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
         match event["type"].as_str() {
             Some("message_start") => saw_start = true,
             Some("message_update") => updates += 1,
-            Some("message_end") => {
+            // The reply is the turn's assistant message: a boot notice of the
+            // session's kernel (a write placed at the next boundary) lands in
+            // the reply's own commit when the boot finishes during the turn,
+            // and streams after the reply inside the same turn.
+            Some("message_end") if event["message"]["role"] == "assistant" => {
                 // pi-ai assistant content is a block array (the old scripted
                 // engine emitted a plain string).
                 final_text = event["message"]["content"][0]["text"]

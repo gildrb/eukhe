@@ -126,7 +126,11 @@ impl Client {
     }
 
     /// Drive one prompt to its final scripted text: send, await the ack,
-    /// then read streamed session events to the turn end.
+    /// then read streamed session events to the turn end. The reply is the
+    /// turn's assistant message: a boot notice of the session's kernel (a
+    /// write placed at the next boundary) lands in the reply's own commit
+    /// when the boot finishes during the turn, and streams after the reply
+    /// inside the same turn.
     fn prompt_and_final_text(&mut self, id: &str, command: &Value) -> String {
         self.send_command(id, command);
         let mut final_text = String::new();
@@ -143,7 +147,7 @@ impl Client {
             }
             if line["type"] == "session_event" {
                 match line["event"]["type"].as_str() {
-                    Some("message_end") => {
+                    Some("message_end") if line["event"]["message"]["role"] == "assistant" => {
                         // pi-ai assistant content is a block array (the old
                         // scripted engine emitted a plain string).
                         final_text = line["event"]["message"]["content"][0]["text"]

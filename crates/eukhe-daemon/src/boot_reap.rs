@@ -342,47 +342,61 @@ async fn stop_target_within(
         #[cfg(target_os = "linux")]
         ReapKind::Supervisor => Vec::new(),
     };
-    let kill_trees = || {
-        for tree in &trees {
-            if identity_current(tree) {
-                let _ = eukhe_core::platform::process::signal_process_group(
-                    i32::try_from(tree.pid).unwrap_or(0),
-                    eukhe_core::platform::process::Signal::Kill,
-                );
+    let outcome = signal_pinned(target, &pidfd, term_grace, kill_verify).await;
+    drop(pidfd);
+    match outcome {
+        ReapOutcome::AlreadyGone | ReapOutcome::Term | ReapOutcome::Kill => {
+            for tree in &trees {
+                if identity_current(tree) {
+                    let _ = eukhe_core::platform::process::signal_process_group(
+                        i32::try_from(tree.pid).unwrap_or(0),
+                        eukhe_core::platform::process::Signal::Kill,
+                    );
+                }
             }
         }
-    };
-    if eukhe_core::platform::process::pidfd_signal(
-        &pidfd,
-        eukhe_core::platform::process::Signal::Term,
-    ) {
-        if await_gone(target, term_grace).await {
-            drop(pidfd);
-            kill_trees();
-            return ReapOutcome::Term;
-        }
-        let leads_group = matches!(target.kind, ReapKind::Worker)
-            && identity_current(target)
-            && eukhe_core::platform::process::process_group_id(target.pid)
-                == i32::try_from(target.pid).ok();
-        if leads_group {
-            let _ = eukhe_core::platform::process::signal_process_group(
-                i32::try_from(target.pid).unwrap_or(0),
-                eukhe_core::platform::process::Signal::Kill,
-            );
-        }
-        if eukhe_core::platform::process::pidfd_signal(
-            &pidfd,
-            eukhe_core::platform::process::Signal::Kill,
-        ) && await_gone(target, kill_verify).await
-        {
-            drop(pidfd);
-            kill_trees();
-            return ReapOutcome::Kill;
-        }
+        ReapOutcome::Survived => {}
     }
-    drop(pidfd);
-    ReapOutcome::Survived
+    outcome
+}
+
+/// The signal ladder on the pinned process `pidfd` holds: SIGTERM, the
+/// grace, the group and process SIGKILL, the verify. A process that
+/// exited and was reaped since the liveness gate (a worker that answered
+/// its routed shutdown exits on its own, and its supervisor's child
+/// reaper collects it at once) answers the handle's signal with `ESRCH`:
+/// that is proof it is gone, never a survivor - a false survivor keeps
+/// the stopped session's descriptor and fails the stop.
+async fn signal_pinned(
+    target: &ReapTarget,
+    pidfd: &std::os::fd::OwnedFd,
+    term_grace: Duration,
+    kill_verify: Duration,
+) -> ReapOutcome {
+    use eukhe_core::platform::process::{pidfd_signal, PidfdSignal, Signal};
+    match pidfd_signal(pidfd, Signal::Term) {
+        PidfdSignal::Delivered => {}
+        PidfdSignal::Exited => return ReapOutcome::AlreadyGone,
+        PidfdSignal::Failed => return ReapOutcome::Survived,
+    }
+    if await_gone(target, term_grace).await {
+        return ReapOutcome::Term;
+    }
+    let leads_group = matches!(target.kind, ReapKind::Worker)
+        && identity_current(target)
+        && eukhe_core::platform::process::process_group_id(target.pid)
+            == i32::try_from(target.pid).ok();
+    if leads_group {
+        let _ = eukhe_core::platform::process::signal_process_group(
+            i32::try_from(target.pid).unwrap_or(0),
+            Signal::Kill,
+        );
+    }
+    match pidfd_signal(pidfd, Signal::Kill) {
+        PidfdSignal::Delivered if await_gone(target, kill_verify).await => ReapOutcome::Kill,
+        PidfdSignal::Exited => ReapOutcome::Kill,
+        PidfdSignal::Delivered | PidfdSignal::Failed => ReapOutcome::Survived,
+    }
 }
 
 /// The process groups led by descendants of `root` other than `root`'s
@@ -1058,6 +1072,32 @@ mod tests {
             outcome,
             ReapOutcome::Kill,
             "the stop escalation must SIGKILL a term-ignoring worker"
+        );
+    }
+
+    /// The clean-stop race: a target alive at the liveness gate that exits
+    /// and is reaped before the first signal (a worker that answered its
+    /// routed shutdown, collected by the supervisor's child reaper while
+    /// the stop reads its process trees) is gone, never a survivor. The
+    /// handle opens while the child lives, the child is killed and reaped,
+    /// then the ladder runs on the held handle. LINUX ONLY: the handle
+    /// opens only where the kernel provides pidfds.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_target_reaped_before_the_first_signal_is_gone() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("300")
+            .spawn()
+            .expect("spawn sleep");
+        let reaped = target(child.id());
+        let pidfd =
+            eukhe_core::platform::process::open_pidfd(reaped.pid).expect("the handle opens");
+        child.kill().expect("kill sleep");
+        child.wait().expect("reap sleep");
+        assert_eq!(
+            signal_pinned(&reaped, &pidfd, TERM_GRACE, KILL_VERIFY).await,
+            ReapOutcome::AlreadyGone,
+            "a reaped target must never read as a survivor"
         );
     }
 
