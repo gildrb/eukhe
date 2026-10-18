@@ -282,6 +282,13 @@ fn daemon_answer(command: &Value) -> Value {
         "get_session_stats" => {
             json!({ "tokens": { "total": 42 }, "for": command["activeSessionId"] })
         }
+        // The worker writes the export where `outputPath` says.
+        kind @ ("export_html" | "export_jsonl") => {
+            let path = command["outputPath"].as_str().expect("an output path");
+            let session = command["activeSessionId"].as_str().unwrap_or_default();
+            std::fs::write(path, format!("{kind} of {session}")).expect("write the export");
+            json!({ "path": path })
+        }
         _ => json!({}),
     }
 }
@@ -386,7 +393,7 @@ async fn expect_hello(socket: &mut Socket) {
         hello,
         json!({
             "type": "hello", "protocol": 2, "build": build,
-            "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run"],
+            "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run", "export", "delete", "rename"],
         })
     );
 }
@@ -836,6 +843,14 @@ async fn run_reaches_the_daemon_for_the_bound_session_only_when_allowed() {
         (5, json!({ "type": "prompt", "message": "sneak" })),
         (6, json!({ "type": "detach" })),
         (7, json!({ "type": "launch_missiles" })),
+        (
+            9,
+            json!({ "type": "export_html", "outputPath": "/tmp/anywhere.html" }),
+        ),
+        (
+            10,
+            json!({ "type": "delete_saved_session", "sessionPath": "/s/newest.jsonl" }),
+        ),
     ] {
         let reply = request(
             &mut socket,
@@ -859,6 +874,8 @@ async fn run_reaches_the_daemon_for_the_bound_session_only_when_allowed() {
             json!({ "type": "failure", "id": 5, "error": "the dashboard does not run prompt" }),
             json!({ "type": "failure", "id": 6, "error": "the dashboard does not run detach" }),
             json!({ "type": "failure", "id": 7, "error": unknown }),
+            json!({ "type": "failure", "id": 9, "error": "the dashboard does not run export_html" }),
+            json!({ "type": "failure", "id": 10, "error": "the dashboard does not run delete_saved_session" }),
         ]
     );
     let queue = request(
@@ -871,6 +888,228 @@ async fn run_reaches_the_daemon_for_the_bound_session_only_when_allowed() {
         daemon.next_command(),
         json!({ "type": "get_queue", "activeSessionId": "s1" }),
         "the refused commands never reached the daemon"
+    );
+}
+
+/// A catalog command names its sessions itself: it reaches the daemon with
+/// no session id (the supervisor answers for every session), even when
+/// the tab sends one.
+#[tokio::test]
+async fn catalog_commands_go_without_a_session_id() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
+    let port = serve(config(dir.path(), Vec::new()), Running).await;
+    let mut socket = bound_tab(port, &daemon).await;
+    let renamed = request(
+        &mut socket,
+        json!({ "id": 2, "op": "run", "command": {
+            "type": "rename_saved_session", "sessionPath": "/s/other.jsonl",
+            "name": "Other", "activeSessionId": "spoofed",
+        } }),
+    )
+    .await;
+    assert_eq!(
+        (renamed, daemon.next_command()),
+        (
+            json!({ "type": "reply", "id": 2, "data": {} }),
+            json!({ "type": "rename_saved_session", "sessionPath": "/s/other.jsonl", "name": "Other" }),
+        )
+    );
+}
+
+/// Answer the held `list` with one live row for the newest session.
+fn answer_list(daemon: &ScriptedDaemon, attached_clients: u32) {
+    let held = daemon
+        .held_answers
+        .recv_timeout(DEADLINE)
+        .expect("the held list");
+    daemon.write(&json!({
+        "type": "response", "id": held["id"], "command": "list", "success": true,
+        "data": { "sessions": [
+            { "sessionFile": "/s/other.jsonl", "activeSessionId": null, "attachedClients": 0 },
+            {
+                "sessionFile": "/s/newest.jsonl", "activeSessionId": "s1",
+                "attachedClients": attached_clients,
+            },
+        ] },
+    }));
+}
+
+/// Deleting a chat stops the worker that hosts it when no other window
+/// has it open (the tab lets its own binding go first), then deletes the
+/// file with no session id; a chat open in another window is refused and
+/// nothing is stopped.
+// The held list is answered from the test thread while the bridge runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_chat_stops_its_idle_worker_and_refuses_one_open_elsewhere() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &["list"]);
+    let port = serve(config(dir.path(), Vec::new()), Running).await;
+    let mut socket = bound_tab(port, &daemon).await;
+    let commands = |daemon: &ScriptedDaemon, count: usize| -> Vec<Value> {
+        (0..count)
+            .map(|_| {
+                let mut command = daemon.next_command();
+                command
+                    .as_object_mut()
+                    .expect("a command")
+                    .remove("sessionDir");
+                command
+            })
+            .collect()
+    };
+    let listed = json!({
+        "type": "list_saved_sessions", "cwd": dir.path().display().to_string(), "scope": null,
+    });
+    let live = json!({ "type": "list", "all": true, "includeClientOwned": true });
+
+    // This tab and one other window: refused, nothing stopped.
+    send(
+        &mut socket,
+        &json!({ "id": 2, "op": "delete", "sessionId": "newest" }),
+    )
+    .await;
+    answer_list(&daemon, 2);
+    let refused = next_frame(&mut socket).await;
+    assert_eq!(
+        (refused, commands(&daemon, 2)),
+        (
+            json!({
+                "type": "failure", "id": 2,
+                "error": "the chat is open in another window: close it there first",
+            }),
+            vec![listed.clone(), live.clone()],
+        )
+    );
+
+    // Only this tab: it lets go, the worker stops, the file goes.
+    send(
+        &mut socket,
+        &json!({ "id": 3, "op": "delete", "sessionId": "newest" }),
+    )
+    .await;
+    answer_list(&daemon, 1);
+    let deleted = next_frame(&mut socket).await;
+    assert_eq!(
+        (deleted, commands(&daemon, 5)),
+        (
+            json!({ "type": "reply", "id": 3, "data": { "deleted": "newest" } }),
+            vec![
+                listed,
+                live,
+                json!({ "type": "detach", "activeSessionId": "s1" }),
+                json!({ "type": "kill", "activeSessionId": "s1" }),
+                json!({ "type": "delete_saved_session", "sessionPath": "/s/newest.jsonl" }),
+            ],
+        )
+    );
+}
+
+/// A rename goes through the worker that hosts the chat (its file is the
+/// worker's), and through the catalog for a saved file no worker hosts.
+// The held list is answered from the test thread while the bridge runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rename_goes_through_the_live_worker_else_the_catalog() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &["list"]);
+    let port = serve(config(dir.path(), Vec::new()), Running).await;
+    let mut socket = bound_tab(port, &daemon).await;
+    let mut sent = Vec::new();
+    for (id, attached_clients, live) in [(2, 1, true), (3, 0, false)] {
+        send(
+            &mut socket,
+            &json!({ "id": id, "op": "rename", "sessionId": "newest", "name": "Plans" }),
+        )
+        .await;
+        let held = daemon
+            .held_answers
+            .recv_timeout(DEADLINE)
+            .expect("the held list");
+        let row = if live {
+            json!({ "sessionFile": "/s/newest.jsonl", "activeSessionId": "s1", "attachedClients": attached_clients })
+        } else {
+            json!({ "sessionFile": "/s/newest.jsonl", "activeSessionId": null, "attachedClients": 0 })
+        };
+        daemon.write(&json!({
+            "type": "response", "id": held["id"], "command": "list", "success": true,
+            "data": { "sessions": [row] },
+        }));
+        let reply = next_frame(&mut socket).await;
+        // list_saved_sessions, list, then the rename itself.
+        let mut commands: Vec<Value> = (0..3).map(|_| daemon.next_command()).collect();
+        let rename = commands.pop().expect("three commands");
+        sent.push((reply, rename));
+    }
+    assert_eq!(
+        sent,
+        vec![
+            (
+                json!({ "type": "reply", "id": 2, "data": { "renamed": "newest", "name": "Plans" } }),
+                json!({ "type": "set_session_name", "activeSessionId": "s1", "name": "Plans" }),
+            ),
+            (
+                json!({ "type": "reply", "id": 3, "data": { "renamed": "newest", "name": "Plans" } }),
+                json!({ "type": "rename_saved_session", "sessionPath": "/s/newest.jsonl", "name": "Plans" }),
+            ),
+        ]
+    );
+}
+
+/// An export answers the file's bytes and leaves no file behind; the daemon
+/// writes it into a private folder of the bridge's choosing.
+#[tokio::test]
+async fn an_export_answers_the_file_and_leaves_nothing_behind() {
+    use base64::Engine as _;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
+    let port = serve(config(dir.path(), Vec::new()), Running).await;
+    let mut socket = bound_tab(port, &daemon).await;
+
+    let mut answers = Vec::new();
+    let mut folders = Vec::new();
+    for (id, format) in [(2, "html"), (3, "jsonl")] {
+        let frame = request(
+            &mut socket,
+            json!({ "id": id, "op": "export", "format": format }),
+        )
+        .await;
+        let reply = &frame["data"];
+        let command = daemon.next_command();
+        let path = std::path::PathBuf::from(command["outputPath"].as_str().expect("a path"));
+        let folder = path.parent().expect("a folder").to_path_buf();
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(reply["data"].as_str().expect("base64 data"))
+            .expect("decode");
+        answers.push((
+            frame["type"].clone(),
+            reply["name"].clone(),
+            reply["mimeType"].clone(),
+            String::from_utf8(data).expect("utf-8"),
+            command["type"].clone(),
+        ));
+        folders.push(folder.exists());
+    }
+    assert_eq!(
+        (answers, folders),
+        (
+            vec![
+                (
+                    json!("reply"),
+                    json!("eukhe-session-s1.html"),
+                    json!("text/html"),
+                    "export_html of s1".to_string(),
+                    json!("export_html"),
+                ),
+                (
+                    json!("reply"),
+                    json!("eukhe-session-s1.jsonl"),
+                    json!("application/jsonl"),
+                    "export_jsonl of s1".to_string(),
+                    json!("export_jsonl"),
+                ),
+            ],
+            vec![false, false],
+        )
     );
 }
 

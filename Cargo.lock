@@ -694,6 +694,7 @@ name = "eukhe-dashboard"
 version = "0.9.9-eukhe.1"
 dependencies = [
  "anyhow",
+ "base64",
  "eukhe-build-info",
  "eukhe-tui",
  "eukhe-types",

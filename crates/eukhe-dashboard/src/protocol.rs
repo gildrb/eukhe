@@ -13,8 +13,8 @@ use serde_json::{Map, Value};
 pub(crate) const PROTOCOL_VERSION: u32 = 2;
 
 /// The ops a tab may send, as `hello` lists them.
-pub(crate) const OPS: [&str; 7] = [
-    "sessions", "open", "new", "prompt", "abort", "memory", "run",
+pub(crate) const OPS: [&str; 10] = [
+    "sessions", "open", "new", "prompt", "abort", "memory", "run", "export", "delete", "rename",
 ];
 
 /// One request from the tab.
@@ -71,6 +71,27 @@ pub(crate) enum Request {
     /// One daemon command for the bound session (`type`-tagged, camelCase
     /// fields, without `activeSessionId`: the bridge sets it).
     Run { command: Map<String, Value> },
+    /// The bound session's transcript as a file the browser saves: the
+    /// daemon writes it into a private temporary folder and the bridge
+    /// answers its bytes.
+    Export { format: ExportFormat },
+    /// Delete a saved root session. A worker that hosts it is stopped
+    /// first when no other client is attached to it; the tab's own
+    /// binding lets it go.
+    Delete { session_id: String },
+    /// Rename a saved root session: through the worker that hosts it, else
+    /// in the saved file.
+    Rename { session_id: String, name: String },
+}
+
+/// The file an `export` makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExportFormat {
+    /// The standalone viewer page.
+    Html,
+    /// The history as a linear session file.
+    Jsonl,
 }
 
 /// How a message sent while a turn runs waits.
@@ -259,6 +280,31 @@ mod tests {
     }
 
     #[test]
+    fn export_requests_decode_by_format() {
+        let decode = |text: &str| serde_json::from_str::<ClientFrame>(text).unwrap();
+        assert_eq!(
+            [
+                decode(r#"{"id":6,"op":"export","format":"html"}"#),
+                decode(r#"{"id":7,"op":"export","format":"jsonl"}"#),
+            ],
+            [
+                ClientFrame {
+                    id: 6,
+                    request: Request::Export {
+                        format: ExportFormat::Html
+                    }
+                },
+                ClientFrame {
+                    id: 7,
+                    request: Request::Export {
+                        format: ExportFormat::Jsonl
+                    }
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn server_frames_encode_tagged() {
         assert_eq!(
             serde_json::to_value(ServerFrame::Failure {
@@ -300,7 +346,7 @@ mod tests {
             .unwrap(),
             json!({
                 "type": "hello", "protocol": 2, "build": "b",
-                "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run"],
+                "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run", "export", "delete", "rename"],
             })
         );
         assert_eq!(

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::Context;
+use base64::Engine as _;
 use eukhe_tui::daemon_client::{outdated_daemon_notice, DaemonClient, DaemonClientEvent};
 use eukhe_tui::saved_sessions::{
     create_resident, list_root_sessions, CreatedSession, DaemonLauncher, SavedSession,
@@ -26,7 +27,7 @@ use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{self, Message};
 
 use crate::command_policy::{verdict, Verdict};
-use crate::protocol::{ClientFrame, EventCursor, PromptMode, Request, ServerFrame};
+use crate::protocol::{ClientFrame, EventCursor, ExportFormat, PromptMode, Request, ServerFrame};
 use crate::DashboardConfig;
 
 /// The attach capabilities: the interactive client's set (snapshot state
@@ -113,6 +114,26 @@ enum Answer {
         active_session_id: String,
         stream: EventStream,
     },
+}
+
+/// One row of the daemon's `list` (with `all`): a saved session, or the
+/// live summary of the worker that hosts its file.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListedSession {
+    #[serde(default)]
+    active_session_id: Option<String>,
+    #[serde(default)]
+    session_file: Option<String>,
+    #[serde(default)]
+    attached_clients: u32,
+}
+
+/// A worker that hosts a saved session's file.
+struct LiveWorker {
+    active_session_id: String,
+    /// The clients attached to it (the tab itself, when it is bound there).
+    attached_clients: u32,
 }
 
 /// The session an open binds.
@@ -457,15 +478,226 @@ impl Tab {
                 // The bridge numbers the daemon's requests and owns the
                 // session the command addresses.
                 command.remove("id");
-                command.insert("activeSessionId".to_string(), json!(active_session_id));
-                let command = serde_json::from_value::<DaemonCommand>(Value::Object(command))
-                    .with_context(|| format!("read the {kind:?} command"))?;
-                match verdict(&command) {
-                    Verdict::Allowed => self.client.request_ok(command).await.map(Answer::Data),
+                let mut addressed = command.clone();
+                addressed.insert("activeSessionId".to_string(), json!(active_session_id));
+                let read = |fields: Map<String, Value>| {
+                    serde_json::from_value::<DaemonCommand>(Value::Object(fields))
+                        .with_context(|| format!("read the {kind:?} command"))
+                };
+                let addressed = read(addressed)?;
+                match verdict(&addressed) {
+                    Verdict::Bound => self.client.request_ok(addressed).await.map(Answer::Data),
+                    // A catalog command names its sessions itself: with no
+                    // session id the supervisor answers for every session
+                    // (with one, a worker would answer for its own).
+                    Verdict::Catalog => {
+                        command.remove("activeSessionId");
+                        self.client
+                            .request_ok(read(command)?)
+                            .await
+                            .map(Answer::Data)
+                    }
                     Verdict::Refused => anyhow::bail!("the dashboard does not run {kind}"),
                 }
             }
+            Request::Export { format } => {
+                let active_session_id = self.bound()?;
+                let (extension, mime_type) = match format {
+                    ExportFormat::Html => ("html", "text/html"),
+                    ExportFormat::Jsonl => ("jsonl", "application/jsonl"),
+                };
+                let name = format!("eukhe-session-{active_session_id}.{extension}");
+                // A private folder: the transcript never sits where another
+                // user of the machine can read it.
+                let folder = std::env::temp_dir()
+                    .join(format!("eukhe-dashboard-export-{}", uuid::Uuid::new_v4()));
+                tokio::fs::DirBuilder::new()
+                    .mode(0o700)
+                    .create(&folder)
+                    .await
+                    .with_context(|| format!("create {}", folder.display()))?;
+                let file = folder.join(&name);
+                let output_path = Some(file.display().to_string());
+                let command = match format {
+                    ExportFormat::Html => DaemonCommand::ExportHtml {
+                        id: None,
+                        active_session_id,
+                        output_path,
+                        rest: Map::default(),
+                    },
+                    ExportFormat::Jsonl => DaemonCommand::ExportJsonl {
+                        id: None,
+                        active_session_id,
+                        output_path,
+                        rest: Map::default(),
+                    },
+                };
+                let exported = match self.client.request_ok(command).await {
+                    Ok(_) => tokio::fs::read(&file)
+                        .await
+                        .with_context(|| format!("read {}", file.display())),
+                    Err(error) => Err(error.context("export the session")),
+                };
+                if let Err(error) = tokio::fs::remove_dir_all(&folder).await {
+                    tracing::warn!(%error, folder = %folder.display(), "could not remove the export folder");
+                }
+                Ok(Answer::Data(json!({
+                    "name": name,
+                    "mimeType": mime_type,
+                    "data": base64::engine::general_purpose::STANDARD.encode(exported?),
+                })))
+            }
+            Request::Delete { session_id } => {
+                let saved = self.saved_root(&session_id).await?;
+                if let Some(LiveWorker {
+                    active_session_id,
+                    attached_clients,
+                }) = self.live_worker(&saved).await?
+                {
+                    let here =
+                        self.binding().active_session_id() == Some(active_session_id.as_str());
+                    let others = attached_clients.saturating_sub(u32::from(here));
+                    anyhow::ensure!(
+                        others == 0,
+                        "the chat is open in another window: close it there first"
+                    );
+                    // The tab lets its own chat go before its worker stops.
+                    let let_go = {
+                        let mut binding = self.binding();
+                        let bound_here =
+                            binding.active_session_id() == Some(active_session_id.as_str());
+                        if bound_here {
+                            *binding = Binding::Unbound;
+                        }
+                        bound_here
+                    };
+                    if let_go {
+                        self.detach(&active_session_id).await?;
+                    }
+                    self.client
+                        .request_ok(DaemonCommand::Kill {
+                            id: None,
+                            active_session_id,
+                            rest: Map::default(),
+                        })
+                        .await
+                        .context("stop the chat's worker")?;
+                }
+                let deleted = self
+                    .client
+                    .request_ok(DaemonCommand::DeleteSavedSession {
+                        id: None,
+                        active_session_id: None,
+                        session_path: saved.path,
+                        rest: Map::default(),
+                    })
+                    .await
+                    .context("delete the chat")?;
+                if deleted.get("ok").and_then(Value::as_bool) == Some(false) {
+                    anyhow::bail!(
+                        "{}",
+                        deleted
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("the daemon did not delete the chat")
+                    );
+                }
+                Ok(Answer::Data(json!({ "deleted": session_id })))
+            }
+            Request::Rename { session_id, name } => {
+                let saved = self.saved_root(&session_id).await?;
+                // A live worker owns its file: it renames the session. With
+                // none, the catalog renames the saved file.
+                if let Some(LiveWorker {
+                    active_session_id, ..
+                }) = self.live_worker(&saved).await?
+                {
+                    self.client
+                        .request_ok(DaemonCommand::SetSessionName {
+                            id: None,
+                            active_session_id,
+                            name: name.clone(),
+                            worker_token: None,
+                            rest: Map::default(),
+                        })
+                        .await
+                        .context("rename the chat")?;
+                } else {
+                    let renamed = self
+                        .client
+                        .request_ok(DaemonCommand::RenameSavedSession {
+                            id: None,
+                            active_session_id: None,
+                            session_path: saved.path,
+                            name: name.clone(),
+                            rest: Map::default(),
+                        })
+                        .await
+                        .context("rename the chat")?;
+                    if renamed.get("ok").and_then(Value::as_bool) == Some(false) {
+                        anyhow::bail!(
+                            "{}",
+                            renamed
+                                .get("error")
+                                .and_then(Value::as_str)
+                                .unwrap_or("the daemon did not rename the chat")
+                        );
+                    }
+                }
+                Ok(Answer::Data(json!({ "renamed": session_id, "name": name })))
+            }
         }
+    }
+
+    /// The saved root session `session_id` names.
+    async fn saved_root(&self, session_id: &str) -> anyhow::Result<SavedSession> {
+        self.root_sessions()
+            .await?
+            .into_iter()
+            .find(|saved| saved.id == session_id)
+            .with_context(|| format!("no saved root session {session_id}"))
+    }
+
+    /// The worker that hosts `saved`'s file, if any: the daemon's list
+    /// answers a hosted file with the worker's live summary.
+    #[tracing::instrument(skip_all, fields(session = %saved.id))]
+    async fn live_worker(&self, saved: &SavedSession) -> anyhow::Result<Option<LiveWorker>> {
+        let listed = self
+            .client
+            .request_ok(DaemonCommand::List {
+                id: None,
+                all: Some(true),
+                cwd: None,
+                session_dir: Some(self.config.session_dir.display().to_string()),
+                include_client_owned: Some(true),
+                rest: Map::default(),
+            })
+            .await
+            .context("list the live sessions")?;
+        let rows: Vec<ListedSession> = serde_json::from_value(
+            listed
+                .get("sessions")
+                .cloned()
+                .context("the session list has no sessions")?,
+        )
+        .context("read the session list")?;
+        let saved_file = tokio::fs::canonicalize(&saved.path).await.ok();
+        for row in rows {
+            let (Some(active_session_id), Some(file)) = (row.active_session_id, row.session_file)
+            else {
+                continue;
+            };
+            let same_file = file == saved.path
+                || (saved_file.is_some()
+                    && tokio::fs::canonicalize(&file).await.ok() == saved_file);
+            if same_file && !active_session_id.is_empty() {
+                return Ok(Some(LiveWorker {
+                    active_session_id,
+                    attached_clients: row.attached_clients,
+                }));
+            }
+        }
+        Ok(None)
     }
 
     /// The bound session's active id.

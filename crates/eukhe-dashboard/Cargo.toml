@@ -29,6 +29,9 @@ http-body-util = "0.1"
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 # A fresh admission id per prompt.
 uuid = { version = "1", features = ["v4"] }
+# An export's file bytes in the `export` reply. Already in the tree through
+# eukhe-ai, eukhe-core and eukhe-tui; MIT OR Apache-2.0.
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

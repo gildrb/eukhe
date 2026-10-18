@@ -148,6 +148,9 @@ and answers each one with its `id`. Events do not wait for requests.
 |`abort`|none|`null`|
 |`memory`|`node?: {id, count}`|One level of the chat memory tree|
 |`run`|`command`|The data of the daemon's answer|
+|`export`|`format` (`html` or `jsonl`)|`{name, mimeType, data}`: the file of the bound session, `data` in base64|
+|`delete`|`sessionId`|`{deleted}`: the id of the deleted saved root session|
+|`rename`|`sessionId`, `name`|`{renamed, name}`: the worker that hosts the session renames it; with no worker, the saved file is renamed|
 
 - `open` with no `sessionId` and no `path` opens the newest root session. If
   there is no session, it makes a new one.
@@ -159,6 +162,14 @@ and answers each one with its `id`. Events do not wait for requests.
   snapshot. It does not send an event that the snapshot already has.
 - `prompt` with the same `admissionId` is sent only one time. The server
   makes an id when the page does not send one.
+- `export` tells the daemon to write the file into a new private folder
+  (mode `0700`) in the temporary folder, reads the file, and removes the
+  folder.
+- `delete` refuses a session that another client (another tab, the CLI,
+  the Signal gateway) has open: `the chat is open in another window: close
+  it there first`. Otherwise it stops the worker of the session, if one
+  hosts it, and deletes the session. When the tab is bound to the session,
+  the tab lets it go first: open another session next.
 
 ### `run`
 
@@ -169,11 +180,16 @@ It replaces a value that the page sends.
 The server runs these commands: the controls and the inspection of the bound
 session (model, thinking, service tier, steering and follow-up modes,
 auto-compaction, auto-retry, cvars, compaction, retry, queue, `bash` approval
-answers, session name, fork, export, trees, prompts, memory, statistics), and
-the management of saved sessions (list, rename, delete). The list is in
+answers, session name, fork, trees, prompts, memory, statistics), and the
+catalog commands (`list_saved_sessions`, `rename_saved_session`,
+`cron_list`, `heartbeats_list`). The server sends a catalog command without
+a session id, so that the daemon answers for all sessions. The list is in
 `crates/eukhe-dashboard/src/command_policy.rs`.
 
 The server refuses the other commands with the failure
 `the dashboard does not run <type>`. These are the commands that the bridge
-does itself (`create`, `attach`, `detach`, `prompt`), worker and supervisor
-commands, and daemon commands such as `shutdown`.
+does itself (`create`, `attach`, `detach`, `prompt`; `export_html` and
+`export_jsonl`, which write to any path that `outputPath` names, so use the
+`export` op; `delete_saved_session`, which cannot stop the worker of the
+session, so use the `delete` op), worker and supervisor commands, and daemon
+commands such as `shutdown`.

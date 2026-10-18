@@ -1,17 +1,24 @@
-//! Which daemon commands a tab may `run`: the bound session's user
-//! controls (models, thinking, queue, compaction, retry, cvars, approvals,
-//! inspection) and saved-session management are allowed; everything the
-//! bridge owns itself (create, attach, detach, prompts) and every
-//! worker-internal or supervisor-wide command is refused. The match names
-//! every variant, so a new daemon command does not compile until it is
-//! classified here.
+//! Which daemon commands a tab may `run`, and how they are sent. The
+//! bound session's user controls (models, thinking, queue, compaction,
+//! retry, cvars, approvals, inspection) go to the bound session: the
+//! bridge sets its id. Catalog commands (saved sessions, schedules) name
+//! their sessions themselves and go with no session id, so the supervisor
+//! answers for every session. Everything the bridge owns itself (create,
+//! attach, detach, prompts, exports, deletes: a raw export writes wherever
+//! its `outputPath` says, a raw delete cannot stop the chat's worker
+//! first) and every worker-internal or supervisor-wide command is refused.
+//! The match names every variant, so a new daemon command does not compile
+//! until it is classified here.
 
 use eukhe_types::daemon::DaemonCommand;
 
-/// Whether the dashboard runs one command for a tab.
+/// Whether, and how, the dashboard runs one command for a tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verdict {
-    Allowed,
+    /// Sent for the bound session (the bridge sets `activeSessionId`).
+    Bound,
+    /// Sent with no session id: the command names its sessions itself.
+    Catalog,
     Refused,
 }
 
@@ -21,7 +28,10 @@ pub(crate) enum Verdict {
 pub(crate) fn verdict(command: &DaemonCommand) -> Verdict {
     match command {
         DaemonCommand::ListSavedSessions { .. }
-        | DaemonCommand::Rename { .. }
+        | DaemonCommand::RenameSavedSession { .. }
+        | DaemonCommand::CronList { .. }
+        | DaemonCommand::HeartbeatsList { .. } => Verdict::Catalog,
+        DaemonCommand::Rename { .. }
         | DaemonCommand::CancelPromptAdmission { .. }
         | DaemonCommand::Abort { .. }
         | DaemonCommand::AbortAndSendQueued { .. }
@@ -43,8 +53,6 @@ pub(crate) fn verdict(command: &DaemonCommand) -> Verdict {
         | DaemonCommand::MutateQueuedMessage { .. }
         | DaemonCommand::ClearQueue { .. }
         | DaemonCommand::AbortAndClearQueue { .. }
-        | DaemonCommand::CronList { .. }
-        | DaemonCommand::HeartbeatsList { .. }
         | DaemonCommand::SetModel { .. }
         | DaemonCommand::CycleModel { .. }
         | DaemonCommand::SetScopedModels { .. }
@@ -63,11 +71,7 @@ pub(crate) fn verdict(command: &DaemonCommand) -> Verdict {
         | DaemonCommand::AbortRetry { .. }
         | DaemonCommand::Fork { .. }
         | DaemonCommand::NavigateTree { .. }
-        | DaemonCommand::ExportHtml { .. }
-        | DaemonCommand::ExportJsonl { .. }
         | DaemonCommand::SetSessionName { .. }
-        | DaemonCommand::RenameSavedSession { .. }
-        | DaemonCommand::DeleteSavedSession { .. }
         | DaemonCommand::GetSessionContext { .. }
         | DaemonCommand::GetSessionTree { .. }
         | DaemonCommand::GetUserMessagesForForking { .. }
@@ -77,8 +81,11 @@ pub(crate) fn verdict(command: &DaemonCommand) -> Verdict {
         | DaemonCommand::GetMemory { .. }
         | DaemonCommand::GetMemoryTree { .. }
         | DaemonCommand::GetStateTree { .. }
-        | DaemonCommand::GetToolDefinition { .. } => Verdict::Allowed,
-        DaemonCommand::List { .. }
+        | DaemonCommand::GetToolDefinition { .. } => Verdict::Bound,
+        DaemonCommand::ExportHtml { .. }
+        | DaemonCommand::ExportJsonl { .. }
+        | DaemonCommand::DeleteSavedSession { .. }
+        | DaemonCommand::List { .. }
         | DaemonCommand::ListAgentPeers { .. }
         | DaemonCommand::GetDirectWorkerTransport { .. }
         | DaemonCommand::GetWorkerLiveness { .. }
