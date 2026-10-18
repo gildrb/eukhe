@@ -218,39 +218,81 @@ pub fn language_name(language: &str) -> &str {
     }
 }
 
-/// The system prompt of a translation. The instruction itself is in the
-/// user turn: on LFM2.5-230M a system-only instruction makes the model
-/// answer the text or explain the task instead of translating it.
-pub const TRANSLATE_SYSTEM_PROMPT: &str = "You are a translator. Output only the translation.";
-
-/// A translation request: `text` into `language` (a code or a name).
+/// A translation request: `text` into `language` (a code or a name). The
+/// recipe won a fixed eval (10 short sentences into de/fr/es/pt,
+/// docs/inference.md S9) over a system-only instruction, the language code,
+/// an example pair and a generic user instruction: one user turn
+/// `Translate from English to <Language>.\nEnglish: <text>`, the
+/// assistant turn prefilled with `<Language>:`. A single-line text stops
+/// at the first line end: what follows is no part of the translation.
 #[must_use]
 pub fn translate_request(language: &str, text: &str) -> ChatRequest {
     let estimate = u32::try_from(text.chars().count())
         .unwrap_or(u32::MAX)
         .saturating_mul(2)
         .saturating_add(TRANSLATE_MIN_TOKENS);
+    let name = language_name(language);
+    let stop = if text.trim().contains('\n') {
+        Vec::new()
+    } else {
+        vec!["\n".to_owned()]
+    };
     ChatRequest {
-        messages: vec![
-            message(ChatRole::System, TRANSLATE_SYSTEM_PROMPT),
-            message(
-                ChatRole::User,
-                format!(
-                    "Translate this text to {}:\n{text}",
-                    language_name(language)
-                ),
+        messages: vec![message(
+            ChatRole::User,
+            format!(
+                "Translate from English to {name}.\nEnglish: {}",
+                text.trim()
             ),
-        ],
-        prefill: String::new(),
-        stop: Vec::new(),
+        )],
+        prefill: format!("{name}:"),
+        stop,
         max_tokens: estimate.min(TRANSLATE_MAX_TOKENS),
     }
 }
 
-/// The translation in a reply (trimmed).
-#[must_use]
-pub fn translation_text(reply: &str) -> String {
-    reply.trim().to_owned()
+/// Why a translation reply is no translation.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TranslationError {
+    /// The reply is empty.
+    #[error("the model gave no translation into {language}")]
+    Empty { language: String },
+    /// The reply is the input again (letters and digits, case ignored), for
+    /// an input with letters: a tiny model that did not translate repeats
+    /// its input.
+    #[error("the model returned the text unchanged instead of translating it into {language}")]
+    Unchanged { language: String },
+}
+
+/// The letters and digits of `text`, lower case.
+fn comparable(text: &str) -> String {
+    text.chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// The translation of `text` into `language` in a reply (trimmed).
+///
+/// # Errors
+///
+/// [`TranslationError::Empty`] for an empty reply;
+/// [`TranslationError::Unchanged`] when the reply repeats `text`.
+pub fn translation_text(
+    language: &str,
+    text: &str,
+    reply: &str,
+) -> Result<String, TranslationError> {
+    let translation = reply.trim();
+    let language = language_name(language).to_owned();
+    if translation.is_empty() {
+        return Err(TranslationError::Empty { language });
+    }
+    let input = comparable(text);
+    if input.chars().any(char::is_alphabetic) && comparable(translation) == input {
+        return Err(TranslationError::Unchanged { language });
+    }
+    Ok(translation.to_owned())
 }
 
 /// A provider model's reply to `request` read as a worker's would be: the

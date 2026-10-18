@@ -120,8 +120,14 @@ pub fn pick<'a, T: PartialEq>(chain: &'a [T], up: &[T]) -> Pick<&'a T> {
     }
 }
 
+/// The catalog model the `translate` role's built-in priority takes first:
+/// on the S9 translation eval (docs/inference.md) LFM2.5-230M scores well
+/// below LFM2.5-350M.
+const TRANSLATE_FIRST: &str = "lfm2.5-350m";
+
 /// The chain of `role`: the primary, then the fallback chain. With an
-/// unset fallback, the built-in priority: the role's catalog models, then
+/// unset fallback, the built-in priority: the role's catalog models (in
+/// catalog order, but [`TRANSLATE_FIRST`] first for `translate`), then
 /// `session_model` (a provider selector; empty: none) for a text role.
 /// A candidate appears once, at its first place.
 #[must_use]
@@ -135,10 +141,17 @@ pub fn chain(role: Role, settings: &RoleSettings, session_model: &str) -> Vec<Ca
             selectors.extend(list.iter().map(|selector| Candidate::parse(selector)));
         }
         FallbackChain::Unset => {
+            let mut local: Vec<&CatalogModel> = CATALOG
+                .iter()
+                .filter(|model| model.roles.contains(&role))
+                .collect();
+            match role {
+                Role::Translate => local.sort_by_key(|model| model.id != TRANSLATE_FIRST),
+                Role::Tiny | Role::Judge | Role::Speech | Role::Dictation => {}
+            }
             selectors.extend(
-                CATALOG
-                    .iter()
-                    .filter(|model| model.roles.contains(&role))
+                local
+                    .into_iter()
                     .map(|model| Candidate::Local(model.id.to_owned())),
             );
             if role.takes_remote() && !session_model.is_empty() {

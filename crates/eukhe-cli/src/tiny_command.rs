@@ -12,7 +12,8 @@ use std::process::ExitCode;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::settings::SettingsManager;
 use eukhe_core::tiny::{
-    run_text, Pick, Role, RoleSettings, RoleUnavailable, TextBackends, TinyClient, TinyHome,
+    run_text, Candidate, Pick, Role, RoleSettings, RoleUnavailable, TextBackends, TinyClient,
+    TinyHome,
 };
 use eukhe_tiny::{CatalogModel, SpeakRequest, TranscribeRequest};
 use eukhe_types::pi_ai::Model;
@@ -155,7 +156,15 @@ fn translate(args: &[String]) -> Result<(), String> {
         )
         .await
         .map_err(|error| error.to_string())?;
-        println!("{}", eukhe_tiny::translation_text(&reply));
+        let translation =
+            eukhe_tiny::translation_text(language, &text, &reply).map_err(|error| {
+                let model = match &candidate {
+                    Candidate::Local(id) => format!("{}{id}", eukhe_tiny::LOCAL_PREFIX),
+                    Candidate::Remote(selector) => selector.clone(),
+                };
+                format!("{error} (model {model}; modelRoles.translate picks another)")
+            })?;
+        println!("{translation}");
         Ok(())
     })?
 }

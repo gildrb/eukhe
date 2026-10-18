@@ -115,20 +115,30 @@ fn an_unset_chain_with_nothing_installed_uses_the_session_model() {
     );
 }
 
+/// The built-in priority follows the catalog, except that `translate`
+/// takes LFM2.5-350M first (the S9 translation eval).
 #[test]
 fn the_first_installed_local_model_comes_first() {
     let role = settings("", FallbackChain::Unset);
     assert_eq!(
         (
+            eukhe_tiny::chain(Role::Translate, &role, SESSION),
             resolve_with(Role::Translate, &role, SESSION, |model| {
-                model.id == "lfm2.5-350m"
+                model.id == "lfm2.5-230m"
             }),
             resolve_with(Role::Translate, &role, SESSION, |_| true),
+            resolve_with(Role::Tiny, &role, SESSION, |_| true),
             resolve_with(Role::Dictation, &role, SESSION, |model| {
                 model.id == "whisper-small"
             }),
         ),
         (
+            vec![
+                local("lfm2.5-350m"),
+                local("lfm2.5-230m"),
+                Candidate::Remote(SESSION.to_owned()),
+            ],
+            Pick::Use(local("lfm2.5-230m")),
             Pick::Use(local("lfm2.5-350m")),
             Pick::Use(local("lfm2.5-230m")),
             Pick::Use(local("whisper-small")),

@@ -123,26 +123,46 @@ fn labels_parse() {
 #[test]
 fn the_translate_request_names_the_language() {
     assert_eq!(
-        translate_request("fr", "good morning"),
-        ChatRequest {
-            messages: vec![
-                ChatMessage {
-                    role: ChatRole::System,
-                    content: "You are a translator. Output only the translation.".to_owned(),
-                },
-                ChatMessage {
+        (
+            translate_request("fr", "good morning"),
+            translate_request("de", "line one\nline two").stop,
+        ),
+        (
+            ChatRequest {
+                messages: vec![ChatMessage {
                     role: ChatRole::User,
-                    content: "Translate this text to French:\ngood morning".to_owned(),
-                },
-            ],
-            prefill: String::new(),
-            stop: Vec::new(),
-            max_tokens: 88,
-        }
+                    content: "Translate from English to French.\nEnglish: good morning".to_owned(),
+                }],
+                prefill: "French:".to_owned(),
+                stop: vec!["\n".to_owned()],
+                max_tokens: 88,
+            },
+            Vec::<String>::new(),
+        )
     );
+    assert_eq!(language_name("Klingon"), "Klingon");
+}
+
+/// A reply that repeats the input (what LFM2.5-230M did for `de hello`) is
+/// a failed translation, not the answer.
+#[test]
+fn an_unchanged_echo_is_a_failed_translation() {
+    let german = || "German".to_owned();
     assert_eq!(
-        (language_name("Klingon"), translation_text("  bonjour \n")),
-        ("Klingon", "bonjour".to_owned())
+        [
+            translation_text("de", "hello", "  Hallo \n"),
+            translation_text("de", "hello", "Hello!"),
+            translation_text("de", "good morning, my friend", "Good morning, my friend."),
+            translation_text("de", "hello", "  "),
+            translation_text("de", "42", "42"),
+        ],
+        [
+            Ok("Hallo".to_owned()),
+            Err(TranslationError::Unchanged { language: german() }),
+            Err(TranslationError::Unchanged { language: german() }),
+            Err(TranslationError::Empty { language: german() }),
+            Ok("42".to_owned()),
+        ]
     );
 }
 

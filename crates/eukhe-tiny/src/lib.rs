@@ -37,7 +37,7 @@ pub use protocol::{
 pub use roles::{chain, pick, Candidate, FallbackChain, Pick, Role, RoleSettings, LOCAL_PREFIX};
 pub use tasks::{
     judge_request, language_name, normalize_title, parse_label, remote_reply_text, title_request,
-    translate_request, translation_text, JUDGE_SYSTEM_PROMPT, TITLE_SYSTEM_PROMPT,
-    TRANSLATE_SYSTEM_PROMPT,
+    translate_request, translation_text, TranslationError, JUDGE_SYSTEM_PROMPT,
+    TITLE_SYSTEM_PROMPT,
 };
 pub use worker::{launch_tag, run_worker};

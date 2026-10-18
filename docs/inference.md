@@ -286,7 +286,8 @@ Roles. A role names a chain of models:
    `retry.fallbackChains.<role>`. An explicit `[]` keeps the role on
    its primary model only. An unset chain is the built-in priority: the
    catalog models of the role, then the session's provider model (for a
-   text role).
+   text role). For `translate`, `lfm2.5-350m` comes before
+   `lfm2.5-230m` (see Translation).
 2. A local model is available when it is installed. A provider model is
    available when it is the session's usable model.
 3. A task uses the first available model of the chain. When no model of
@@ -309,6 +310,44 @@ configured auth. When no model is available, the call fails with
 `eukhe translate <lang> <text>`, `eukhe say <text> [--out f.wav]` and
 `eukhe transcribe <file.wav>` use the roles `translate`, `speech` and
 `dictation`. First paint never waits for a model load.
+
+Translation. The request is one user turn,
+`Translate from English to <Language>.\nEnglish: <text>`, and the
+assistant turn starts with `<Language>:`. A text of one line stops at
+the first line end. If the reply is empty, or has the same letters and
+digits as the input (case ignored), the translation fails with a typed
+error (`TranslationError::Empty`, `TranslationError::Unchanged`) and
+prints nothing. A tiny model that does not translate repeats its input,
+so such a reply is never the answer. An input with no letters is
+exempt. This recipe won a fixed eval: 10 short English sentences
+(`hello`, `good morning, my friend`, ... `See you tomorrow.`) into
+German, French, Spanish and Portuguese, greedy, each variant stopped at
+the first line end. The table gives the echoes (replies equal to the
+input) out of 40 and the mean chrF (0 to 100) against one reference
+translation:
+
+| Variant | 230m echoes | 230m chrF | 350m echoes | 350m chrF |
+| --- | --- | --- | --- | --- |
+| system "translator" + user `Translate this text to <Language>:` (old) | 9 | 34 | 0 | 64 |
+| instruction in the system prompt only | 24 | 12 | not run | not run |
+| language code, not name | 27 | 13 | not run | not run |
+| old + one example pair | 2 | 36 | 0 | 41 |
+| old + prefill `<Language>: ` | 2 | 52 | 0 | 59 |
+| old + one example pair + prefill `<Language>: ` | 1 | 20 | not run | not run |
+| user `Translate this text to <Language>:` + prefill `<Language>:`, no system prompt | 16 | 26 | 2 | 53 |
+| user `Translate from English to <Language>.\nEnglish: <text>` + prefill `<Language>:` (new) | 1 | 53 | 0 | 65 |
+| new without "from English" (`Text:`) | 4 | 47 | 0 | 62 |
+| new + the "translator" system prompt | 0 | 49 | 0 | 59 |
+| new + one example pair | 0 | 59 | 0 | 59 |
+
+The new recipe is the best on `lfm2.5-350m` and close to the best on
+`lfm2.5-230m`. The example pair needs one example per target language, so
+eukhe does not use it. `lfm2.5-230m` still translates badly even with the
+new recipe (`hello` into German gives `willkommen`). Thus the built-in
+`translate` chain takes `lfm2.5-350m` first when it is installed.
+`lfm2.5-350m` gives `Hallo`, `Vielen Dank.` and `Où est la gare ?`, but
+it also makes errors (`Gute Morgensinn, mein Freund`). The prompt names
+English as the source language. The eval tested English sources only.
 
 Dictation. The TUI types speech into the editor draft:
 
@@ -394,8 +433,11 @@ and the next line read); `download::tests` (a mock HTTP server: a bad
 sha256, a wrong size and a broken transfer install nothing; a partial
 install is replaced only on success; a staging dir that cannot be
 removed keeps the download's own error);
-`eukhe-core` `tiny::tests` (role resolution) and `tiny::judge::tests`
-(the `judge` model of a classification with no model);
+`eukhe-core` `tiny::tests` (role resolution; `translate` takes
+`lfm2.5-350m` first) and `tiny::judge::tests`
+(the `judge` model of a classification with no model); `eukhe-tiny`
+`tasks::tests` (the translate request; a reply that repeats the input
+is `TranslationError::Unchanged`);
 `eukhe-durable` `codemode::tests::calls` (`models.classify(null, …)`
 asks the default classifier); `eukhe-daemon`
 `tests/session_title_e2e.rs` (a supervisor on a temp socket and agent
@@ -405,7 +447,9 @@ dir, a mock provider: the first prompt titles the session, and
 `tokenizers` gave once for the same files and texts, and random text
 that encodes and decodes back to itself). Real-model tests run only
 with the models and the runtime library given (else they print why they
-skip): `eukhe-tiny-onnx` `text::tests` (a title from `lfm2.5-230m`),
+skip): `eukhe-tiny-onnx` `text::tests` (a title from `lfm2.5-230m` and,
+when present, from `lfm2.5-350m`, whose graph has a `num_logits_to_keep`
+input),
 `whisper::round_trip_tests` (Kokoro speaks a sentence, Whisper reads it
 back) and the `tokenizer::tests` on the model files; `eukhe-core`
 `tiny::smoke_tests` (a title and a `Models::classify` judgment on the

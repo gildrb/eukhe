@@ -115,6 +115,9 @@ enum Feed {
     PositionIds(IntKind),
     /// The number of cached tokens (scalar or `[1]`).
     PastLength { kind: IntKind, rank: usize },
+    /// How many final positions get logits (scalar or `[1]`): one, the
+    /// next token's (LFM2.5-350M's export has this input).
+    LogitsToKeep { kind: IntKind, rank: usize },
     /// A cache entry: zeros of this shape first, then the paired
     /// `present…` output of the previous step.
     State(Vec<i64>),
@@ -160,6 +163,10 @@ impl Graph {
                 "attention_mask" => Feed::AttentionMask(int_kind(name, dtype)?),
                 "position_ids" => Feed::PositionIds(int_kind(name, dtype)?),
                 "past_sequence_length" => Feed::PastLength {
+                    kind: int_kind(name, dtype)?,
+                    rank: dtype.tensor_shape().map_or(0, |shape| shape.len()),
+                },
+                "num_logits_to_keep" | "logits_to_keep" => Feed::LogitsToKeep {
                     kind: int_kind(name, dtype)?,
                     rank: dtype.tensor_shape().map_or(0, |shape| shape.len()),
                 },
@@ -398,6 +405,9 @@ impl Model {
                     vec![1; *rank],
                     std::iter::once(i64::try_from(past).unwrap_or(i64::MAX)),
                 ),
+                Feed::LogitsToKeep { kind, rank } => {
+                    int_tensor(*kind, vec![1; *rank], std::iter::once(1))
+                }
                 Feed::State(_) => cache
                     .next()
                     .and_then(Option::take)
@@ -515,48 +525,54 @@ mod tests {
         );
     }
 
-    /// Needs `EUKHE_TINY_TEST_MODELS` (a directory with `lfm2.5-230m/`)
-    /// and `ORT_DYLIB_PATH`; skipped otherwise.
+    /// Needs `EUKHE_TINY_TEST_MODELS` (a directory with `lfm2.5-230m/` and,
+    /// optionally, `lfm2.5-350m/`, whose graph has a `num_logits_to_keep`
+    /// input) and `ORT_DYLIB_PATH`; skipped otherwise.
     #[test]
     fn lfm2_writes_a_title() {
         let Some(models) = std::env::var_os("EUKHE_TINY_TEST_MODELS") else {
             println!("SKIPPED: EUKHE_TINY_TEST_MODELS is not set");
             return;
         };
-        let dir = PathBuf::from(models).join("lfm2.5-230m");
-        if !dir.is_dir() {
-            println!("SKIPPED: {} is not a directory", dir.display());
-            return;
-        }
         let Some(library) = std::env::var_os("ORT_DYLIB_PATH") else {
             println!("SKIPPED: ORT_DYLIB_PATH is not set");
             return;
         };
-        let runtime = Runtime::new(&EngineOptions {
-            device: "cpu".to_owned(),
-            dtype: String::new(),
-            runtime_library: PathBuf::from(library),
-        })
-        .expect("runtime options");
-        let mut engine = TextEngine::new(dir, ChatTemplate::ChatMl, runtime);
-        let started = Instant::now();
-        engine.load().expect("load");
-        let loaded = started.elapsed();
-        let started = Instant::now();
-        let reply = engine.chat(&title_request()).expect("chat");
-        let generated = started.elapsed();
-        println!(
-            "title: {:?} ({:?}); load {loaded:?}, chat {generated:?}",
-            reply.text, reply.stop
-        );
-        match reply.stop {
-            StopReason::Stop | StopReason::Eos => {}
-            StopReason::Length => panic!("no end within 24 tokens: {reply:?}"),
+        for model in ["lfm2.5-230m", "lfm2.5-350m"] {
+            let dir = PathBuf::from(&models).join(model);
+            if !dir.is_dir() {
+                println!("SKIPPED {model}: {} is not a directory", dir.display());
+                continue;
+            }
+            let runtime = Runtime::new(&EngineOptions {
+                device: "cpu".to_owned(),
+                dtype: String::new(),
+                runtime_library: PathBuf::from(&library),
+            })
+            .expect("runtime options");
+            let mut engine = TextEngine::new(dir, ChatTemplate::ChatMl, runtime);
+            let started = Instant::now();
+            engine.load().expect("load");
+            let loaded = started.elapsed();
+            let started = Instant::now();
+            let reply = engine.chat(&title_request()).expect("chat");
+            let generated = started.elapsed();
+            println!(
+                "{model} title: {:?} ({:?}); load {loaded:?}, chat {generated:?}",
+                reply.text, reply.stop
+            );
+            match reply.stop {
+                StopReason::Stop | StopReason::Eos => {}
+                StopReason::Length => panic!("{model}: no end within 24 tokens: {reply:?}"),
+            }
+            assert!(
+                !reply.text.trim().is_empty(),
+                "{model}: empty title: {reply:?}"
+            );
+            assert!(
+                !reply.text.contains("</title>"),
+                "{model}: stop string kept: {reply:?}"
+            );
         }
-        assert!(!reply.text.trim().is_empty(), "empty title: {reply:?}");
-        assert!(
-            !reply.text.contains("</title>"),
-            "stop string kept: {reply:?}"
-        );
     }
 }
