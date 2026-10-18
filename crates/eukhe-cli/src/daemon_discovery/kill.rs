@@ -247,16 +247,18 @@ pub(super) fn listener_signature(listeners: &[DiscoveredDaemonProcess]) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon_discovery::DiscoveryScope;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
     /// A state root inside a test-created fixture dir; the ambient
     /// environment's real paths are never part of any sweep.
     fn fixture_root(dir: &Path) -> DaemonStateRoot {
+        let socket_dir = dir.join("agent").join("sockets");
         DaemonStateRoot {
             agent_dir: dir.join("agent"),
-            socket_dir: dir.join("agent").join("sockets"),
-            default_socket_path: dir.join("agent").join("sockets").join("daemon.sock"),
+            default_socket_path: socket_dir.join("daemon.sock"),
+            scope: DiscoveryScope::Default { socket_dir },
         }
     }
 
@@ -280,8 +282,10 @@ mod tests {
         for dir in ["/tmp/mission-tmp/eukhe-1000", "/tmp/eukhe-1000"] {
             let root = DaemonStateRoot {
                 agent_dir: PathBuf::from(dir),
-                socket_dir: PathBuf::from(dir),
                 default_socket_path: PathBuf::from(dir).join("daemon.sock"),
+                scope: DiscoveryScope::Default {
+                    socket_dir: PathBuf::from(dir),
+                },
             };
             let mut stopped: Vec<(String, String)> = Vec::new();
             let mut failed: Vec<(String, String)> = Vec::new();

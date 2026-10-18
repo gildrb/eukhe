@@ -10,8 +10,8 @@
 //! - TS's `acquireDaemonShutdownAdmission` (supervisor-ownership
 //!   coordination during update handoffs) has no Rust counterpart yet.
 //! - The supervisor-ownership registry rule of the TS state-root matcher is
-//!   not ported; the invocation's configured daemon socket (`--daemon-socket`
-//!   or `EUKHE_DAEMON_SOCKET`) is in scope instead (see the module docs).
+//!   not ported; a named socket (`--daemon-socket` or `EUKHE_DAEMON_SOCKET`)
+//!   or agent dir scopes the invocation instead (see the module docs).
 
 use std::path::Path;
 

@@ -344,9 +344,10 @@ fn parse_boolean_options(
 }
 
 /// The options of a daemon-discovery command (`status`, `doctor`,
-/// `shutdown`): its boolean flags plus the `--daemon-socket <path>` the
-/// invocation targets (flag, then `EUKHE_DAEMON_SOCKET`, then the
-/// default - the same precedence every mode uses to start its daemon).
+/// `shutdown`): its boolean flags plus the `--daemon-socket <path>` that
+/// scopes the invocation to that daemon alone (else `EUKHE_DAEMON_SOCKET`,
+/// else `EUKHE_CODING_AGENT_DIR`, else this user's default scope; see
+/// `daemon_discovery::current_state_root`).
 struct DiscoveryOptions {
     flags: HashSet<String>,
     daemon_socket: Option<String>,

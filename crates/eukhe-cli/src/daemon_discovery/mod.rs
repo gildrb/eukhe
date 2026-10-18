@@ -10,15 +10,18 @@
 //! so a supervisor whose own listener vanished is still reachable for
 //! `shutdown --force`.
 //!
-//! Scope: one *state root* -- the agent dir, the default socket dir, and the
-//! invocation's own daemon socket (`--daemon-socket`, else
-//! `EUKHE_DAEMON_SOCKET`, else the per-user default). A daemon started under
-//! a different HOME or agent dir is another root's business; stopping it
-//! from here would kill unrelated live sessions. (TS keeps custom socket
-//! paths outside both directories in scope through its supervisor-ownership
-//! registry, which records every supervisor's socket under the agent dir
-//! that started it. That registry is not ported: a daemon on a custom socket
-//! is in scope only for invocations configured with that same socket.)
+//! Scope: one *state root*, narrowed by what the invocation names. A
+//! command scoped to a socket (`--daemon-socket`, else `EUKHE_DAEMON_SOCKET`)
+//! discovers and acts on the daemon on that socket only; one scoped to an
+//! agent dir (`EUKHE_CODING_AGENT_DIR`) on the daemons whose sockets sit
+//! inside that agent dir only. Only an unscoped invocation sweeps this
+//! user's default scope: the per-user default socket dir, the default agent
+//! dir, and the default socket. A daemon outside the scope is another
+//! root's business (an isolated test daemon, or the user's own daemon seen
+//! from an isolated invocation); stopping it from here would kill unrelated
+//! live sessions. Reaching any other daemon takes naming its socket. (TS
+//! keeps custom socket paths in scope through its supervisor-ownership
+//! registry; that registry is not ported.)
 //!
 //! Containment: every scan, probe, and stop is scoped to an explicit
 //! [`DaemonStateRoot`] handed in by the caller -- the CLI passes the
@@ -61,18 +64,52 @@ pub(crate) struct DiscoveredDaemonProcess {
     pub uptime_seconds: Option<u64>,
 }
 
-/// The state root an invocation reads: the agent dir, the default socket
-/// dir, and the daemon socket this invocation targets (TS
+/// Which daemons an invocation discovers and acts on (see the module docs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DiscoveryScope {
+    /// Nothing named: this user's default scope -- every socket in the
+    /// per-user default socket dir, anywhere inside the (default) agent dir,
+    /// and the default socket.
+    Default { socket_dir: PathBuf },
+    /// `--daemon-socket` or `EUKHE_DAEMON_SOCKET`: the root's socket only.
+    Socket,
+    /// `EUKHE_CODING_AGENT_DIR` without a named socket: sockets inside the
+    /// root's agent dir only.
+    AgentDir,
+}
+
+/// The state root an invocation reads: the agent dir, the daemon socket this
+/// invocation targets, and the scope its env and flags name (TS
 /// `DaemonStateRoot`). All follow HOME/TMPDIR/agent-dir/daemon-socket
 /// overrides, so an isolated root resolves to isolated paths.
 #[derive(Debug, Clone)]
 pub(crate) struct DaemonStateRoot {
     pub agent_dir: PathBuf,
-    pub socket_dir: PathBuf,
     /// The invocation's own daemon socket: `--daemon-socket`, then
     /// `EUKHE_DAEMON_SOCKET`, then the per-user default - the socket every
-    /// mode starts its daemon on, so it may sit outside `socket_dir`.
+    /// mode starts its daemon on, so it may sit outside the socket dir.
     pub default_socket_path: PathBuf,
+    pub scope: DiscoveryScope,
+}
+
+impl DaemonStateRoot {
+    /// True when `socket_path` is in this root's scope: the root's own
+    /// socket under a socket scope, a socket inside the agent dir under an
+    /// agent-dir scope, and either of those or a socket in the default
+    /// socket dir under the default scope (TS `createDaemonStateRootMatcher`
+    /// minus the not-yet-ported ownership registry rule). Containment
+    /// (never-touch paths, the chat lock) is [`state_root_matches`]'s.
+    pub(crate) fn scope_contains(&self, socket_path: &Path) -> bool {
+        match &self.scope {
+            DiscoveryScope::Socket => socket_path == self.default_socket_path,
+            DiscoveryScope::AgentDir => inside(socket_path.parent(), &self.agent_dir),
+            DiscoveryScope::Default { socket_dir } => {
+                socket_path == self.default_socket_path
+                    || socket_path.parent() == Some(socket_dir)
+                    || inside(socket_path.parent(), &self.agent_dir)
+            }
+        }
+    }
 }
 
 /// Directories the lib's unit tests must never touch: the developer box's
@@ -156,19 +193,29 @@ pub(crate) struct DaemonInfo {
 }
 
 /// The current invocation's state root (TS `currentDaemonStateRoot`), for
-/// the `--daemon-socket` value the command was given.
+/// the `--daemon-socket` value the command was given: a named socket (flag
+/// or env) scopes it to that socket, else a named agent dir to that agent
+/// dir; only an invocation naming neither gets the default scope.
 pub(crate) fn current_state_root(daemon_socket: Option<&str>) -> DaemonStateRoot {
+    let env_names = |key: &str| std::env::var_os(key).is_some_and(|value| !value.is_empty());
+    let scope = if daemon_socket.is_some() || env_names(config::ENV_DAEMON_SOCKET) {
+        DiscoveryScope::Socket
+    } else if env_names(config::ENV_AGENT_DIR) {
+        DiscoveryScope::AgentDir
+    } else {
+        DiscoveryScope::Default {
+            socket_dir: eukhe_daemon::platform::socket_dir(),
+        }
+    };
     DaemonStateRoot {
         agent_dir: config::get_agent_dir(),
-        socket_dir: eukhe_daemon::platform::socket_dir(),
         default_socket_path: config::resolve_daemon_socket_path(daemon_socket),
+        scope,
     }
 }
 
-/// A socket belongs to the root when it is the root's default socket, sits
-/// in the socket dir, or anywhere inside the agent dir (TS
-/// `createDaemonStateRootMatcher` minus the not-yet-ported ownership
-/// registry rule; the configured default socket stands in for it).
+/// A socket belongs to the root when it is in the root's scope and not
+/// contained away (never-touch paths, the chat memory's lock socket).
 fn state_root_matches(root: &DaemonStateRoot, socket_path: &Path) -> bool {
     if is_never_touch(socket_path) {
         return false;
@@ -178,10 +225,7 @@ fn state_root_matches(root: &DaemonStateRoot, socket_path: &Path) -> bool {
     if socket_path == eukhe_core::memory::chat_dir(&root.agent_dir).join("lock") {
         return false;
     }
-    if socket_path == root.default_socket_path || socket_path.parent() == Some(&root.socket_dir) {
-        return true;
-    }
-    inside(socket_path.parent(), &root.agent_dir)
+    root.scope_contains(socket_path)
 }
 
 /// True when `directory` is `parent` or sits below it (TS `isInside`).
@@ -480,11 +524,17 @@ pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
         .iter()
         .map(|worker| worker.supervisor_socket_path.clone())
         .collect();
+    // Only the default scope sweeps the per-user socket dir: a scoped
+    // invocation never even lists it.
+    let swept = match &root.scope {
+        DiscoveryScope::Default { socket_dir } => scan_socket_dir(socket_dir),
+        DiscoveryScope::Socket | DiscoveryScope::AgentDir => Vec::new(),
+    };
     let mut sockets: BTreeSet<PathBuf> = process_by_socket
         .keys()
         .cloned()
         .chain(
-            scan_socket_dir(&root.socket_dir)
+            swept
                 .into_iter()
                 .filter(|path| !is_worker_socket_path(path)),
         )
@@ -580,14 +630,35 @@ const SHUTDOWN_QUIET_PERIOD_MS: u128 = 1_000;
 mod tests {
     use super::*;
 
-    /// A synthetic state root inside a fixture directory: unit tests never
-    /// touch the ambient environment's real agent dir or socket dir.
+    /// A synthetic default-scope state root inside a fixture directory:
+    /// unit tests never touch the ambient environment's real agent dir or
+    /// socket dir. Its socket dir is [`fixture_socket_dir`].
     fn fixture_root(dir: &Path) -> DaemonStateRoot {
         DaemonStateRoot {
             agent_dir: dir.join("agent"),
-            socket_dir: dir.join("agent").join("sockets"),
-            default_socket_path: dir.join("agent").join("sockets").join("daemon.sock"),
+            default_socket_path: fixture_socket_dir(dir).join("daemon.sock"),
+            scope: DiscoveryScope::Default {
+                socket_dir: fixture_socket_dir(dir),
+            },
         }
+    }
+
+    /// The fixture's default socket dir, beside (not inside) its agent dir
+    /// like the product's `<tmp>/eukhe-<uid>` beside `~/.eukhe`.
+    fn fixture_socket_dir(dir: &Path) -> PathBuf {
+        dir.join("sockets")
+    }
+
+    /// Accept-and-drop listener on `path`: a probe finds it reachable
+    /// without the hello wait (so it reads stale), and its socket file is a
+    /// live listener for the whole test.
+    fn listen(path: &Path) {
+        let listener = std::os::unix::net::UnixListener::bind(path).expect("bind");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                drop(stream);
+            }
+        });
     }
 
     #[test]
@@ -604,21 +675,44 @@ mod tests {
     }
 
     #[test]
-    fn state_root_matches_own_paths_only() {
-        let root = fixture_root(Path::new("/fixture"));
-        assert!(state_root_matches(&root, &root.default_socket_path));
-        assert!(state_root_matches(
-            &root,
-            &root.socket_dir.join("daemon.sock")
-        ));
-        assert!(state_root_matches(
-            &root,
-            &root.agent_dir.join("nested/daemon.sock")
-        ));
-        assert!(!state_root_matches(
-            &root,
-            Path::new("/tmp/other-root/daemon.sock")
-        ));
+    fn state_root_matches_scoped_paths_only() {
+        let fixture = Path::new("/fixture");
+        let default = fixture_root(fixture);
+        let custom = PathBuf::from("/fixture/custom/daemon.sock");
+        let candidates = [
+            default.default_socket_path.clone(),
+            fixture_socket_dir(fixture).join("other.sock"),
+            default.agent_dir.join("nested/daemon.sock"),
+            custom.clone(),
+            PathBuf::from("/tmp/other-root/daemon.sock"),
+        ];
+        let socket_scoped = DaemonStateRoot {
+            default_socket_path: custom,
+            scope: DiscoveryScope::Socket,
+            ..default.clone()
+        };
+        let agent_dir_scoped = DaemonStateRoot {
+            scope: DiscoveryScope::AgentDir,
+            ..default.clone()
+        };
+        let matches = |root: &DaemonStateRoot| -> Vec<bool> {
+            candidates
+                .iter()
+                .map(|path| state_root_matches(root, path))
+                .collect()
+        };
+        assert_eq!(
+            [
+                matches(&default),
+                matches(&socket_scoped),
+                matches(&agent_dir_scoped)
+            ],
+            [
+                vec![true, true, true, false, false],
+                vec![false, false, false, true, false],
+                vec![false, false, true, false, false],
+            ]
+        );
     }
 
     #[test]
@@ -627,17 +721,16 @@ mod tests {
             let dir = Path::new(dir);
             let root = DaemonStateRoot {
                 agent_dir: dir.to_path_buf(),
-                socket_dir: dir.to_path_buf(),
                 default_socket_path: dir.join("daemon.sock"),
+                scope: DiscoveryScope::Default {
+                    socket_dir: dir.to_path_buf(),
+                },
             };
             assert!(
                 !state_root_matches(&root, &root.default_socket_path),
                 "containment must beat root matching for {dir:?}"
             );
-            assert!(!state_root_matches(
-                &root,
-                &root.socket_dir.join("worker-x.sock")
-            ));
+            assert!(!state_root_matches(&root, &dir.join("worker-x.sock")));
         }
         assert!(is_never_touch(Path::new("/tmp/mission-daemon")));
         assert!(is_never_touch(Path::new("/tmp/mission-daemon/daemon.sock")));
@@ -657,8 +750,10 @@ mod tests {
             let dir = *dir;
             let root = DaemonStateRoot {
                 agent_dir: PathBuf::from(dir),
-                socket_dir: PathBuf::from(dir),
                 default_socket_path: PathBuf::from(dir).join("daemon.sock"),
+                scope: DiscoveryScope::Default {
+                    socket_dir: PathBuf::from(dir),
+                },
             };
             assert!(
                 scan_listening_daemons(&root).is_empty(),
@@ -680,19 +775,110 @@ mod tests {
     fn discovery_reports_orphan_files_inside_the_given_root_only() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = fixture_root(tmp.path());
-        std::fs::create_dir_all(&root.socket_dir).expect("socket dir");
+        let socket_dir = fixture_socket_dir(tmp.path());
+        std::fs::create_dir_all(&socket_dir).expect("socket dir");
         // Bind and drop: the listener's socket file stays behind (std does
         // not unlink it), an orphan file in the fixture root.
         drop(
-            std::os::unix::net::UnixListener::bind(root.socket_dir.join("leftover.sock"))
-                .expect("bind"),
+            std::os::unix::net::UnixListener::bind(socket_dir.join("leftover.sock")).expect("bind"),
         );
         let infos = discover_daemons(&root);
         assert_eq!(infos.len(), 1);
-        assert_eq!(infos[0].socket_path, root.socket_dir.join("leftover.sock"));
+        assert_eq!(infos[0].socket_path, socket_dir.join("leftover.sock"));
         assert_eq!(infos[0].status, DaemonStatus::OrphanFile);
         // Not the root's default path: leftover.sock, not daemon.sock.
         assert!(!infos[0].is_default);
+    }
+
+    /// The invocation's scope follows what it names: a socket (flag, then
+    /// env) scopes it to that socket whatever else is set, an agent dir to
+    /// that agent dir, and only an invocation naming neither gets the
+    /// default scope with the per-user socket dir.
+    #[test]
+    fn the_invocation_scope_follows_the_named_socket_then_agent_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let socket = tmp.path().join("env-daemon.sock");
+        let agent_dir = tmp.path().join("agent");
+        let scopes = {
+            let _env = config::env_lock();
+            let saved: Vec<(&str, Option<std::ffi::OsString>)> =
+                [config::ENV_DAEMON_SOCKET, config::ENV_AGENT_DIR]
+                    .into_iter()
+                    .map(|key| (key, std::env::var_os(key)))
+                    .collect();
+            std::env::remove_var(config::ENV_DAEMON_SOCKET);
+            std::env::remove_var(config::ENV_AGENT_DIR);
+            let unscoped = current_state_root(None).scope;
+            let flag = current_state_root(socket.to_str()).scope;
+            std::env::set_var(config::ENV_AGENT_DIR, &agent_dir);
+            let agent_dir_env = current_state_root(None).scope;
+            std::env::set_var(config::ENV_DAEMON_SOCKET, &socket);
+            let both_env = current_state_root(None).scope;
+            for (key, value) in saved {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+            [unscoped, flag, agent_dir_env, both_env]
+        };
+        assert_eq!(
+            scopes,
+            [
+                DiscoveryScope::Default {
+                    socket_dir: eukhe_daemon::platform::socket_dir(),
+                },
+                DiscoveryScope::Socket,
+                DiscoveryScope::AgentDir,
+                DiscoveryScope::Socket,
+            ]
+        );
+    }
+
+    /// The regression: an invocation scoped to its own socket or agent dir
+    /// also swept the per-user default socket dir, so an isolated
+    /// `shutdown --force` stopped the user's default daemon. Live
+    /// listeners on the default socket and on a custom socket: the socket
+    /// scope finds its own only, the agent-dir scope neither (a daemon
+    /// inside the agent dir is found by the listener census, which these
+    /// non-product listeners are not part of), and the default scope never
+    /// the custom socket it was not given.
+    #[test]
+    fn each_scope_discovers_its_own_daemons_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let default = fixture_root(tmp.path());
+        std::fs::create_dir_all(fixture_socket_dir(tmp.path())).expect("socket dir");
+        let custom = tmp.path().join("custom-daemon.sock");
+        for socket in [&default.default_socket_path, &custom] {
+            listen(socket);
+        }
+        let socket_scoped = DaemonStateRoot {
+            default_socket_path: custom.clone(),
+            scope: DiscoveryScope::Socket,
+            ..default.clone()
+        };
+        let agent_dir_scoped = DaemonStateRoot {
+            scope: DiscoveryScope::AgentDir,
+            ..default.clone()
+        };
+        let found = |root: &DaemonStateRoot| -> Vec<PathBuf> {
+            discover_daemons(root)
+                .into_iter()
+                .map(|info| info.socket_path)
+                .collect()
+        };
+        assert_eq!(
+            [
+                found(&socket_scoped),
+                found(&agent_dir_scoped),
+                found(&default)
+            ],
+            [
+                vec![custom],
+                Vec::new(),
+                vec![default.default_socket_path.clone()],
+            ]
+        );
     }
 
     /// The regression: a daemon started on `EUKHE_DAEMON_SOCKET` (or
@@ -725,16 +911,11 @@ mod tests {
 
         // Accepted connections drop at once: the probe is reachable
         // without the hello wait.
-        let listener = std::os::unix::net::UnixListener::bind(&env_socket).expect("bind");
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                drop(stream);
-            }
-        });
+        listen(&env_socket);
         let root = DaemonStateRoot {
             agent_dir: tmp.path().join("agent"),
-            socket_dir: tmp.path().join("sockets"),
             default_socket_path: env_socket.clone(),
+            scope: DiscoveryScope::Socket,
         };
         let found: Vec<(PathBuf, bool, DaemonStatus)> = discover_daemons(&root)
             .into_iter()

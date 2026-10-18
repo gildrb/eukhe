@@ -144,7 +144,7 @@ for a node that comes back, restore for a node that changes.",
         "Show background service status",
     )
     .options(&[
-        "--daemon-socket <path>  Include the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--daemon-socket <path>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
         "--json                  Print JSON",
     ]),
     CommandSpec::new(
@@ -154,7 +154,7 @@ for a node that comes back, restore for a node that changes.",
     )
     .options(&[
         "--fix                   Remove stale sockets and stop idle orphaned services",
-        "--daemon-socket <path>  Include the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--daemon-socket <path>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
         "--json                  Print JSON",
     ]),
     CommandSpec::new(
@@ -180,11 +180,11 @@ for a node that comes back, restore for a node that changes.",
         "Stop every agent and background service",
     )
     .description(
-        "Without --force, an interactive confirmation is required. --force also kills unresponsive workers.",
+        "Without --force, an interactive confirmation is required. --force also kills unresponsive workers. A socket (--daemon-socket, EUKHE_DAEMON_SOCKET) or agent dir (EUKHE_CODING_AGENT_DIR) limits it to that daemon.",
     )
     .options(&[
         "--force                 Skip confirmation and kill unresponsive processes",
-        "--daemon-socket <path>  Include the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
+        "--daemon-socket <path>  Only the daemon on this socket (default: EUKHE_DAEMON_SOCKET)",
         "--json                  Print JSON",
     ]),
     CommandSpec::new(

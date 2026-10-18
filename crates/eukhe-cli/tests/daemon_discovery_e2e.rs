@@ -510,6 +510,148 @@ fn discovery_and_shutdown_from_another_root_leave_a_foreign_daemon_alive() {
     wait_until_stopped(&socket_a, &mut daemon);
 }
 
+/// Run the CLI with an isolated HOME and TMPDIR under `fixture` -- so the
+/// unscoped default scope is `<fixture>/tmp/eukhe-<uid>` plus
+/// `<fixture>/home/.eukhe`, never the box's real ones -- and only the
+/// scope-naming variables in `scope` set.
+fn run_cli_scoped(fixture: &Path, scope: &[(&str, &Path)], args: &[&str]) -> Output {
+    let mut command = Command::new(cli_binary());
+    command
+        .args(args)
+        .env("HOME", fixture.join("home"))
+        .env("TMPDIR", fixture.join("tmp"))
+        .env_remove("EUKHE_CODING_AGENT_DIR")
+        .stdin(Stdio::null());
+    for key in SCRUB_ENV {
+        command.env_remove(key);
+    }
+    for (key, value) in scope {
+        command.env(key, value);
+    }
+    command.output().expect("spawn CLI binary")
+}
+
+/// The `shutdown --force --json` report's socket paths, after asserting
+/// the run succeeded with no failed rows.
+fn force_shutdown_paths(output: &Output) -> Vec<String> {
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shutdown stdout: {} stderr: {}",
+        stdout(output),
+        stderr(output)
+    );
+    let report: Value = serde_json::from_str(&stdout(output)).expect("shutdown json report");
+    assert!(
+        report
+            .get("failed")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty),
+        "shutdown must not fail: {report}"
+    );
+    reported_socket_paths(&report)
+}
+
+/// The regression: `shutdown --force` scoped to its own socket and agent
+/// dir (isolated HOME, `EUKHE_DAEMON_SOCKET`, `EUKHE_CODING_AGENT_DIR`)
+/// also swept the per-user default socket dir and stopped the default
+/// daemon there. TMPDIR points the default-discovery root at the fixture,
+/// so its `eukhe-<uid>/daemon.sock` daemon stands in for the user's own.
+/// A scope named by env socket, by agent dir alone, or by the
+/// `--daemon-socket` flag stops its own daemon and leaves the default one
+/// running; only the unscoped invocation reaches the default daemon.
+#[test]
+fn a_scoped_shutdown_stops_its_own_daemon_and_leaves_the_default_one_running() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path();
+    let tmp = root.join("tmp");
+    let uid = std::fs::metadata(root).expect("fixture metadata").uid();
+    let default_dir = tmp.join(format!("eukhe-{uid}"));
+    std::fs::create_dir_all(&default_dir).expect("default socket dir");
+    std::fs::set_permissions(&default_dir, std::fs::Permissions::from_mode(0o700))
+        .expect("default socket dir mode");
+    let default_socket = default_dir.join("daemon.sock");
+    let mut default_daemon = spawn_daemon(&default_socket, &root.join("home/.eukhe"), &tmp);
+    let assert_default_running = |default_daemon: &mut Daemon, after: &str| {
+        assert!(
+            UnixStream::connect(&default_socket).is_ok(),
+            "{after}: the default daemon must still accept connections"
+        );
+        assert!(
+            default_daemon.child.try_wait().expect("wait").is_none(),
+            "{after}: the default daemon process must still run"
+        );
+    };
+
+    // Scoped by env socket and agent dir, the reported bug's environment:
+    // `status` lists its own daemon only, `shutdown --force` stops it only.
+    let env_agent = root.join("env/agent");
+    let env_socket = root.join("env/daemon.sock");
+    let mut env_daemon = spawn_daemon(&env_socket, &env_agent, &tmp);
+    let env_scope = [
+        ("EUKHE_DAEMON_SOCKET", env_socket.as_path()),
+        ("EUKHE_CODING_AGENT_DIR", env_agent.as_path()),
+    ];
+    let status = run_cli_scoped(root, &env_scope, &["status", "--json"]);
+    assert_eq!(status.status.code(), Some(0), "{}", stderr(&status));
+    let listed: Vec<String> = serde_json::from_str::<Vec<Value>>(&stdout(&status))
+        .expect("status json")
+        .iter()
+        .filter_map(|row| row.get("socketPath").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    assert_eq!(listed, vec![env_socket.to_string_lossy().to_string()]);
+    let shutdown = run_cli_scoped(root, &env_scope, &["shutdown", "--force", "--json"]);
+    assert_eq!(
+        force_shutdown_paths(&shutdown),
+        vec![env_socket.to_string_lossy().to_string()]
+    );
+    wait_until_stopped(&env_socket, &mut env_daemon);
+    assert_default_running(&mut default_daemon, "env-scoped shutdown");
+
+    // Scoped by agent dir alone: the daemon inside it, not the default one
+    // the unscoped socket resolution would name.
+    let agent_only = root.join("agent-only");
+    let agent_only_socket = agent_only.join("daemon.sock");
+    let mut agent_only_daemon = spawn_daemon(&agent_only_socket, &agent_only, &tmp);
+    let shutdown = run_cli_scoped(
+        root,
+        &[("EUKHE_CODING_AGENT_DIR", agent_only.as_path())],
+        &["shutdown", "--force", "--json"],
+    );
+    assert_eq!(
+        force_shutdown_paths(&shutdown),
+        vec![agent_only_socket.to_string_lossy().to_string()]
+    );
+    wait_until_stopped(&agent_only_socket, &mut agent_only_daemon);
+    assert_default_running(&mut default_daemon, "agent-dir-scoped shutdown");
+
+    // Scoped by the flag, nothing in the env.
+    let flag_socket = root.join("flag.sock");
+    let mut flag_daemon = spawn_daemon(&flag_socket, &root.join("flag-agent"), &tmp);
+    let flag = flag_socket.to_string_lossy().to_string();
+    let shutdown = run_cli_scoped(
+        root,
+        &[],
+        &["shutdown", "--force", "--json", "--daemon-socket", &flag],
+    );
+    assert_eq!(force_shutdown_paths(&shutdown), vec![flag]);
+    wait_until_stopped(&flag_socket, &mut flag_daemon);
+    assert_default_running(&mut default_daemon, "flag-scoped shutdown");
+
+    // Positive control: the unscoped invocation does reach the default
+    // daemon through the same TMPDIR seam, so its survival above is the
+    // scope's doing.
+    let shutdown = run_cli_scoped(root, &[], &["shutdown", "--force", "--json"]);
+    assert_eq!(
+        force_shutdown_paths(&shutdown),
+        vec![default_socket.to_string_lossy().to_string()]
+    );
+    wait_until_stopped(&default_socket, &mut default_daemon);
+}
+
 /// Wait for the daemon's socket to stop accepting connections and its
 /// process to exit, bounded at 10s (a supervisor shutdown handshake is fast;
 /// the bound only guards a stuck test).

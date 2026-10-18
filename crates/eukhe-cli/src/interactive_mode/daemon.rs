@@ -197,10 +197,12 @@ pub async fn ensure_daemon_running_with(
     }
 }
 
-/// The `shutdown` command that stops whatever holds `socket_path`: the
-/// discovery commands target the default socket unless told otherwise.
+/// The `shutdown` command that stops whatever holds `socket_path`: the bare
+/// command when `socket_path` is the socket that command, run in this
+/// environment, targets and its scope reaches; else one naming the socket.
 fn shutdown_command(socket_path: &Path) -> String {
-    if socket_path == eukhe_daemon::socket::default_daemon_socket_path() {
+    let root = crate::daemon_discovery::current_state_root(None);
+    if root.default_socket_path == socket_path && root.scope_contains(socket_path) {
         "eukhe shutdown --force".to_string()
     } else {
         format!(
