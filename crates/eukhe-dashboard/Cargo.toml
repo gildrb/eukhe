@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Web dashboard for Eukhe: the CLI session and its memory in a browser, on loopback."
+description = "Web dashboard for Eukhe: the CLI session, its memory and its controls in a browser, on loopback."
 
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
+# The build identity `hello` reports (with the web files' digest).
+eukhe-build-info = { path = "../eukhe-build-info" }
 # The public daemon-wire client (`eukhe_tui::daemon_client::DaemonClient`).
 eukhe-tui = { path = "../eukhe-tui" }
 serde = { workspace = true }

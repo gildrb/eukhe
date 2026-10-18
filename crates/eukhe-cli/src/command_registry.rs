@@ -377,18 +377,22 @@ Runs until Ctrl+C. See docs/gateway.md.",
     .options(&["--daemon-socket <path>  Use a specific daemon socket"]),
     CommandSpec::new(
         &["dashboard"],
-        "dashboard [--port <port>] [--no-open] [--daemon-socket <path>]",
-        "Open the web dashboard: chat with the current session and browse its memory",
+        "dashboard [--port <port>] [--no-open] [--allow-host <name>]... [--daemon-socket <path>]",
+        "Open the web dashboard: chat with and control the current session, browse its memory",
     )
     .description(
         "Serves a mobile-friendly web dashboard on 127.0.0.1 and opens it in the browser. It \
-chats with the newest session (the one the CLI and the gateway use, or one you pick) and shows the \
-chat memory as a tree of dated lines you can open down to each message. It listens on loopback \
-only and has no login: anyone who can reach the port can use it. Runs until Ctrl+C.",
+chats with the newest session (the one the CLI and the gateway use, or one you pick), controls it \
+(model, thinking, queue, compaction, approvals, saved sessions), and shows the chat memory as a \
+tree of dated lines you can open down to each message. It listens on loopback only and has no \
+login: anyone who can reach the port can use it. It answers only to loopback host names and to \
+the names you add with --allow-host (for example the name `tailscale serve` gives your machine), \
+and its socket accepts only pages it served itself. Runs until Ctrl+C. See docs/dashboard.md.",
     )
     .options(&[
         "--port <port>           Listen on this port (default: a free port)",
         "--no-open               Print the URL without opening the browser",
+        "--allow-host <name>     Also answer to this host name (repeatable), e.g. a tailscale serve name",
         "--daemon-socket <path>  Use a specific daemon socket",
     ]),
     CommandSpec::new(

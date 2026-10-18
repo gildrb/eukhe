@@ -1,11 +1,21 @@
-//! The browser bridge's frames: JSON text messages on the tab's
-//! WebSocket. The tab sends numbered requests; the server answers each
-//! with a reply or a failure under the same number, and pushes the bound
-//! session's events as they come.
+//! The browser bridge's frames (protocol 2): JSON text messages on the
+//! tab's WebSocket. The server greets with `hello`; the tab sends numbered
+//! requests, which run concurrently, and the server answers each with a
+//! reply or a failure under the same number. The bound session's events,
+//! approval questions and resyncs are pushed as they come.
 
-use eukhe_types::daemon::{MemoryZoom, SessionEvent};
+use eukhe_types::daemon::{DaemonResumeCursor, MemoryZoom, SessionEvent};
+use eukhe_types::shell::ShellApprovalRequest;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
+
+/// The protocol version `hello` announces.
+pub(crate) const PROTOCOL_VERSION: u32 = 2;
+
+/// The ops a tab may send, as `hello` lists them.
+pub(crate) const OPS: [&str; 7] = [
+    "sessions", "open", "new", "prompt", "abort", "memory", "run",
+];
 
 /// One request from the tab.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -21,18 +31,36 @@ pub(crate) struct ClientFrame {
 pub(crate) enum Request {
     /// The saved root sessions, newest first.
     Sessions,
-    /// Bind the tab to a saved session (`path`), or to the newest root
-    /// session (`None`; a new one when none is saved), and answer its
-    /// transcript and state.
+    /// Bind the tab to a saved root session (by `session_id` or `path`),
+    /// or to the newest one (neither; a new one when none is saved), and
+    /// answer its transcript, state and resume cursor. With `resume` (the
+    /// cursor of the last event the tab saw) the reply says whether the
+    /// tab missed anything.
     Open {
         #[serde(default)]
+        session_id: Option<String>,
+        #[serde(default)]
         path: Option<String>,
+        #[serde(default)]
+        resume: Option<DaemonResumeCursor>,
     },
-    /// Bind the tab to a new session.
-    New,
+    /// Bind the tab to a new session in `cwd` (the dashboard's new-session
+    /// folder when absent).
+    New {
+        #[serde(default)]
+        cwd: Option<String>,
+    },
     /// Send a message to the bound session; while a turn runs it waits as
-    /// a steer (between tool calls) or a follow-up (after the turn).
-    Prompt { text: String, mode: PromptMode },
+    /// a steer (between tool calls) or a follow-up (after the turn). The
+    /// tab's `admission_id` makes a retried send idempotent.
+    Prompt {
+        text: String,
+        mode: PromptMode,
+        #[serde(default)]
+        admission_id: Option<String>,
+        #[serde(default)]
+        images: Vec<PromptImage>,
+    },
     /// Stop the bound session's turn.
     Abort,
     /// One level of the chat memory's tree (`node` `None`: the view).
@@ -40,6 +68,9 @@ pub(crate) enum Request {
         #[serde(default)]
         node: Option<MemoryZoom>,
     },
+    /// One daemon command for the bound session (`type`-tagged, camelCase
+    /// fields, without `activeSessionId`: the bridge sets it).
+    Run { command: Map<String, Value> },
 }
 
 /// How a message sent while a turn runs waits.
@@ -50,6 +81,24 @@ pub(crate) enum PromptMode {
     FollowUp,
 }
 
+/// One image a message carries.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PromptImage {
+    /// Base64, without a `data:` prefix.
+    pub(crate) data: String,
+    pub(crate) mime_type: String,
+}
+
+/// Where an event sits in the session's event stream: the tab's resume
+/// cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub(crate) struct EventCursor<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) generation: Option<&'a str>,
+    pub(crate) sequence: u64,
+}
+
 /// One frame to the tab.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(
@@ -58,14 +107,29 @@ pub(crate) enum PromptMode {
     rename_all_fields = "camelCase"
 )]
 pub(crate) enum ServerFrame<'a> {
+    /// The first frame on every socket.
+    Hello {
+        protocol: u32,
+        /// Changes whenever the eukhe build or any web file does.
+        build: &'a str,
+        ops: &'a [&'a str],
+    },
     /// Request `id` succeeded.
     Reply { id: u64, data: Value },
     /// Request `id` failed.
     Failure { id: u64, error: String },
-    /// One event of the bound session.
-    Event { event: &'a SessionEvent },
-    /// The bound session moved (a worker replacement) or closed: the tab
-    /// opens it again.
+    /// One event of the bound session, with its cursor when the daemon
+    /// gave one.
+    Event {
+        event: &'a SessionEvent,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cursor: Option<EventCursor<'a>>,
+    },
+    /// The bound session's `bash` tool asks whether one step may run; the
+    /// tab answers with `run` `answer_shell_approval`.
+    Approval { request: &'a ShellApprovalRequest },
+    /// The bound session moved (a worker replacement), lost its worker
+    /// link, or closed: the tab opens it again.
     Resync { reason: String },
     /// The daemon is not reachable: the server closes the socket next and
     /// the tab tries again.
@@ -87,6 +151,8 @@ impl ServerFrame<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eukhe_types::shell::ShellEffect;
+    use serde_json::json;
 
     #[test]
     fn requests_decode_from_the_tab_shapes() {
@@ -95,7 +161,45 @@ mod tests {
             decode(r#"{"id":1,"op":"open","path":null}"#),
             ClientFrame {
                 id: 1,
-                request: Request::Open { path: None }
+                request: Request::Open {
+                    session_id: None,
+                    path: None,
+                    resume: None
+                }
+            }
+        );
+        assert_eq!(
+            decode(
+                r#"{"id":1,"op":"open","sessionId":"s","resume":{"generation":"g","sequence":4}}"#
+            ),
+            ClientFrame {
+                id: 1,
+                request: Request::Open {
+                    session_id: Some("s".to_string()),
+                    path: None,
+                    resume: Some(DaemonResumeCursor {
+                        active_session_id: None,
+                        generation: Some("g".to_string()),
+                        sequence: Some(4),
+                        event_sequence: None,
+                    })
+                }
+            }
+        );
+        assert_eq!(
+            decode(r#"{"id":2,"op":"new"}"#),
+            ClientFrame {
+                id: 2,
+                request: Request::New { cwd: None }
+            }
+        );
+        assert_eq!(
+            decode(r#"{"id":2,"op":"new","cwd":"/w"}"#),
+            ClientFrame {
+                id: 2,
+                request: Request::New {
+                    cwd: Some("/w".to_string())
+                }
             }
         );
         assert_eq!(
@@ -104,7 +208,26 @@ mod tests {
                 id: 2,
                 request: Request::Prompt {
                     text: "hi".to_string(),
-                    mode: PromptMode::FollowUp
+                    mode: PromptMode::FollowUp,
+                    admission_id: None,
+                    images: Vec::new(),
+                }
+            }
+        );
+        assert_eq!(
+            decode(
+                r#"{"id":2,"op":"prompt","text":"hi","mode":"steer","admissionId":"a1","images":[{"data":"AA==","mimeType":"image/png"}]}"#
+            ),
+            ClientFrame {
+                id: 2,
+                request: Request::Prompt {
+                    text: "hi".to_string(),
+                    mode: PromptMode::Steer,
+                    admission_id: Some("a1".to_string()),
+                    images: vec![PromptImage {
+                        data: "AA==".to_string(),
+                        mime_type: "image/png".to_string()
+                    }],
                 }
             }
         );
@@ -124,6 +247,15 @@ mod tests {
                 request: Request::Abort
             }
         );
+        assert_eq!(
+            decode(r#"{"id":5,"op":"run","command":{"type":"get_queue"}}"#),
+            ClientFrame {
+                id: 5,
+                request: Request::Run {
+                    command: Map::from_iter([("type".to_string(), json!("get_queue"))])
+                }
+            }
+        );
     }
 
     #[test]
@@ -134,14 +266,57 @@ mod tests {
                 error: "no".to_string()
             })
             .unwrap(),
-            serde_json::json!({ "type": "failure", "id": 7, "error": "no" })
+            json!({ "type": "failure", "id": 7, "error": "no" })
         );
         assert_eq!(
             serde_json::to_value(ServerFrame::Event {
-                event: &SessionEvent::AgentStart
+                event: &SessionEvent::AgentStart,
+                cursor: None,
             })
             .unwrap(),
-            serde_json::json!({ "type": "event", "event": { "type": "agent_start" } })
+            json!({ "type": "event", "event": { "type": "agent_start" } })
+        );
+        assert_eq!(
+            serde_json::to_value(ServerFrame::Event {
+                event: &SessionEvent::AgentStart,
+                cursor: Some(EventCursor {
+                    generation: Some("g"),
+                    sequence: 9
+                }),
+            })
+            .unwrap(),
+            json!({
+                "type": "event",
+                "event": { "type": "agent_start" },
+                "cursor": { "generation": "g", "sequence": 9 },
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(ServerFrame::Hello {
+                protocol: PROTOCOL_VERSION,
+                build: "b",
+                ops: &OPS,
+            })
+            .unwrap(),
+            json!({
+                "type": "hello", "protocol": 2, "build": "b",
+                "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run"],
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(ServerFrame::Approval {
+                request: &ShellApprovalRequest {
+                    request_id: "r1".to_string(),
+                    step: 0,
+                    command: "rm -rf build".to_string(),
+                    effect: ShellEffect::Write,
+                }
+            })
+            .unwrap(),
+            json!({
+                "type": "approval",
+                "request": { "requestId": "r1", "step": 0, "command": "rm -rf build", "effect": "write" },
+            })
         );
     }
 }

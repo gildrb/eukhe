@@ -1,5 +1,6 @@
 //! The loopback HTTP/1.1 server: the app's files, and the WebSocket
-//! upgrade (`.../api/ws`) that starts one daemon bridge per tab.
+//! upgrade (`.../api/ws`) that starts one daemon bridge per tab. Every
+//! request passes the [`crate::access`] checks first.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -16,15 +17,16 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 use crate::bridge::Bridge;
-use crate::protocol::ServerFrame;
+use crate::protocol::{ServerFrame, OPS, PROTOCOL_VERSION};
 use crate::DashboardConfig;
 use eukhe_tui::saved_sessions::DaemonLauncher;
 
 /// The path suffix of the bridge's WebSocket.
 const SOCKET_PATH: &str = "/api/ws";
 
-/// The app's content policy: its own files and its own socket only.
-const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'";
+/// The app's content policy: its own files, fonts, worker, manifest and
+/// socket only; images also from `data:` and `blob:` URLs (pasted images).
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; frame-ancestors 'none'";
 
 type Body = Full<Bytes>;
 
@@ -63,8 +65,28 @@ fn route<L: DaemonLauncher>(
     config: Arc<DashboardConfig>,
     launcher: Arc<L>,
 ) -> Response<Body> {
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| request.uri().authority().map(ToString::to_string))
+        .unwrap_or_default();
+    if !crate::access::host_allowed(&host, &config.allowed_hosts) {
+        tracing::warn!(%host, "refused a request for a host the dashboard does not serve");
+        return plain(StatusCode::FORBIDDEN, "this host is not allowed");
+    }
     let path = request.uri().path().to_string();
     if path.ends_with(SOCKET_PATH) {
+        let origin = request
+            .headers()
+            .get(header::ORIGIN)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        if !crate::access::same_origin(origin, &host) {
+            tracing::warn!(%origin, %host, "refused a WebSocket from another origin");
+            return plain(StatusCode::FORBIDDEN, "this origin is not allowed");
+        }
         return upgrade(request, config, launcher);
     }
     if request.method() != Method::GET && request.method() != Method::HEAD {
@@ -73,13 +95,30 @@ fn route<L: DaemonLauncher>(
     let Some(asset) = crate::assets::lookup(&path) else {
         return plain(StatusCode::NOT_FOUND, "not found");
     };
-    let mut response = Response::new(Full::new(Bytes::from_static(asset.body.as_bytes())));
+    // Every load revalidates (`no-cache`): the entity tag answers an
+    // unchanged file with 304, and a new eukhe build serves new files
+    // under the same names. The service worker keeps the offline shell.
+    let unchanged = request
+        .headers()
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|tags| {
+            tags.split(',')
+                .any(|tag| tag.trim().trim_start_matches("W/") == asset.etag)
+        });
+    let mut response = if unchanged {
+        let mut response = Response::new(Full::new(Bytes::new()));
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        response
+    } else {
+        Response::new(Full::new(Bytes::from_static(asset.body)))
+    };
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static(asset.content_type),
     );
-    // A new eukhe build serves new files under the same names.
+    headers.insert(header::ETAG, HeaderValue::from_static(asset.etag));
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
@@ -129,8 +168,23 @@ fn upgrade<L: DaemonLauncher>(
                 return;
             }
         };
-        let socket =
+        let mut socket =
             WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, None).await;
+        let build = format!(
+            "{}+web.{}",
+            eukhe_build_info::BUILD_ID,
+            crate::assets::DIGEST
+        );
+        let hello = ServerFrame::Hello {
+            protocol: PROTOCOL_VERSION,
+            build: &build,
+            ops: &OPS,
+        }
+        .to_text();
+        if let Err(error) = socket.send(Message::text(hello)).await {
+            tracing::debug!(%error, "greeting the tab failed");
+            return;
+        }
         match Bridge::connect(config, launcher.as_ref()).await {
             Ok(bridge) => bridge.run(socket).await,
             Err(error) => {

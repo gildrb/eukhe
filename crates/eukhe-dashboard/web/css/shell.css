@@ -1,0 +1,99 @@
+/* The shell: phone = one pane; tablet = Inbox | main (+ aside drawer);
+   desktop = Inbox | main | aside, all on the 8px grid. */
+
+.app {
+  height: var(--vvh, 100dvh);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  max-width: 2400px;
+  margin-inline: auto;
+  position: relative;
+}
+
+.pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; container-type: inline-size; }
+.pane > .page {
+  height: 100%; overflow-y: auto; overscroll-behavior: contain;
+  container-type: inline-size; container-name: page;
+  /* Focused fields and scrolled-to rows clear the phone page footer
+     (44px row + safe area, the pages.css .pg-foot geometry). */
+  --page-foot-h: calc(var(--touch-target) + max(var(--safe-bottom), 8px));
+  scroll-padding-bottom: calc(var(--page-foot-h) + 16px);
+}
+
+/* 56px bg fade under the status bar / top edge (gildrb name-bar trick). */
+.main::before, .aside::before {
+  content: ""; position: absolute; z-index: 5; inset: 0 0 auto 0; pointer-events: none;
+  height: calc(var(--safe-top) + 56px);
+  background-image: linear-gradient(to bottom, var(--bg) var(--safe-top), transparent);
+}
+
+.inbox { display: none; }
+.aside { display: none; }
+
+/* ---------- Inbox column ---------- */
+.inbox {
+  flex-direction: column; box-shadow: inset -1px 0 var(--hairline);
+  padding-top: var(--safe-top);
+}
+.inbox-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 48px 24px 16px 32px; scrollbar-width: none; }
+.inbox-list::-webkit-scrollbar { display: none; }
+.inbox-brand { color: var(--primary); font-size: var(--heading-size); letter-spacing: var(--heading-tracking); padding-bottom: 16px; }
+.inbox-group { padding-block: 16px 0; }
+.inbox-group-title { color: var(--tertiary); font-size: var(--small-size); line-height: var(--small-line); padding-bottom: 4px; }
+.inbox-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px;
+  padding-block: 8px; color: var(--tertiary); text-decoration: none; border-radius: 2px; outline-offset: 4px;
+}
+.inbox-row + .inbox-row { box-shadow: inset 0 1px var(--hairline); }
+.inbox-title { grid-column: 1 / -1; color: var(--secondary); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.inbox-row[data-fresh="true"] .inbox-title, .inbox-row[aria-current="page"] .inbox-title { color: var(--primary); }
+.inbox-status { color: var(--tertiary); font-size: var(--small-size); line-height: var(--small-line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-row[data-urgent="true"] .inbox-status { color: var(--primary); }
+.inbox-meta { color: var(--tertiary); font-size: var(--small-size); line-height: var(--small-line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (hover: hover) { .inbox-row:hover .inbox-title { color: var(--primary); } }
+.inbox-foot { padding: 12px 24px 24px 32px; display: flex; flex-direction: column; gap: 12px; box-shadow: inset 0 1px var(--hairline); }
+.inbox-actions { display: flex; justify-content: space-between; align-items: center; min-height: var(--touch-target); }
+.inbox-empty { color: var(--tertiary); padding-block: 16px; }
+.inbox .field-input { border-radius: var(--media-radius); padding-inline: 20px; }
+
+/* ---------- Aside ---------- */
+.aside { box-shadow: inset 1px 0 var(--hairline); background-color: var(--bg); padding-top: var(--safe-top); }
+.aside-close { position: absolute; z-index: 6; top: calc(var(--safe-top) + 12px); right: 24px; }
+
+/* Phone: an aside page is pushed full screen over the main pane. */
+@media (max-width: 767px) {
+  .app[data-aside="open"] .aside {
+    display: block; position: absolute; inset: 0; z-index: 20;
+    box-shadow: none;
+  }
+}
+
+/* Tablet: Inbox 240 | main; the aside is a right drawer. */
+@media (min-width: 768px) {
+  .app { grid-template-columns: var(--sidebar-column) minmax(0, 1fr); }
+  .app[data-inbox="hidden"] { grid-template-columns: minmax(0, 1fr); }
+  .inbox { display: flex; }
+  .app[data-inbox="hidden"] .inbox { display: none; }
+  .aside {
+    display: block; position: absolute; z-index: 20; inset: 0 0 0 auto; width: var(--aside-column);
+    transform: translateX(100%); visibility: hidden;
+    transition-property: transform, visibility; transition-duration: var(--transition-duration); transition-timing-function: var(--ease-spring);
+  }
+  .app[data-aside="open"] .aside { transform: none; visibility: visible; }
+}
+
+/* Desktop: the aside docks as a third column and shows Turn by default. */
+@media (min-width: 1280px) {
+  .app { grid-template-columns: var(--sidebar-column) minmax(0, 1fr) var(--aside-column); padding-inline: 0; }
+  .app[data-inbox="hidden"] { grid-template-columns: minmax(0, 1fr) var(--aside-column); }
+  .app[data-aside="none"] { grid-template-columns: var(--sidebar-column) minmax(0, 1fr); }
+  .app[data-aside="none"][data-inbox="hidden"] { grid-template-columns: minmax(0, 1fr); }
+  .aside { position: relative; inset: auto; width: auto; transform: none; visibility: visible; transition: none; }
+  .app[data-aside="none"] .aside { display: none; }
+}
+
+/* Ultra-wide: keep the whole stack centered. */
+@media (min-width: 2400px) {
+  .app { box-shadow: inset 1px 0 var(--hairline), inset -1px 0 var(--hairline); }
+}
