@@ -35,12 +35,5 @@
   },
   "browserslist": [
     "baseline widely available"
-  ],
-  "devEngines": {
-    "packageManager": {
-      "name": "npm",
-      "version": "11.20.0",
-      "onFail": "download"
-    }
-  }
+  ]
 }
