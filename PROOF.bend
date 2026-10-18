@@ -30,6 +30,7 @@ import ./bend/proof_quirks.bend as Quirks
 import ./bend/proof_tools.bend as Tools
 import ./bend/proof_screen.bend as Screen
 import ./bend/proof_tiny.bend as Tiny
+import ./bend/proof_effort.bend as Effort
 
 # (a) The view
 
@@ -593,3 +594,62 @@ def Laws.tiny_worker_current(es):
 
 def Laws.tiny_same_tag_joins(o, t, p):
   Tiny.pn.tiny_same_tag_joins(o, t, p)
+
+# (S10) Reasoning depth
+
+def Laws.effort_offered_plain(map):
+  Effort.pe.effort_offered_plain(map)
+
+def Laws.effort_offered_null(map, l, null):
+  Effort.pe.effort_offered_null(map, l, null)
+
+def Laws.effort_offered_ext(r, map, l, x, in):
+  Effort.pe.effort_offered_ext(r, map, l, x, in)
+
+def Laws.effort_offered_kept(map, l, k):
+  Effort.pe.effort_offered_kept(map, l, k)
+
+def Laws.effort_offered_asc(m):
+  Effort.pe.effort_offered_asc(m)
+
+def Laws.effort_clamp_offered(m, l, ne):
+  Effort.pe.effort_clamp_offered(m, l, ne)
+
+def Laws.effort_clamp_keeps(m, l, in):
+  Effort.pe.effort_clamp_keeps(m, l, in)
+
+def Laws.effort_clamp_idem(m, l):
+  Effort.pe.effort_clamp_idem(m, l)
+
+def Laws.effort_cycle_still(m, l, d, few):
+  Effort.pe.effort_cycle_still(m, l, d, few)
+
+def Laws.effort_cycle_next(m, pre, a, b, post, split):
+  Effort.pe.effort_cycle_next(m, pre, a, b, post, split)
+
+def Laws.effort_cycle_wrap(m, h, pre, z, split):
+  Effort.pe.effort_cycle_wrap(m, h, pre, z, split)
+
+def Laws.effort_cycle_prev(m, pre, a, b, post, split):
+  Effort.pe.effort_cycle_prev(m, pre, a, b, post, split)
+
+def Laws.effort_cycle_wrap_back(m, h, pre, z, split):
+  Effort.pe.effort_cycle_wrap_back(m, h, pre, z, split)
+
+def Laws.effort_cycle_inverse(m, l, in):
+  Effort.pe.effort_cycle_inverse(m, l, in)
+
+def Laws.effort_cycle_inverse_back(m, l, in):
+  Effort.pe.effort_cycle_inverse_back(m, l, in)
+
+def Laws.effort_unset_default(mo):
+  Effort.pe.effort_unset_default(mo)
+
+def Laws.effort_settle_offered(m, st, dflt, k, ne, settled):
+  Effort.pe.effort_settle_offered(m, st, dflt, k, ne, settled)
+
+def Laws.effort_stored_is_sent(s, dflt, acts):
+  Effort.pe.effort_stored_is_sent(s, dflt, acts)
+
+def Laws.effort_shown_is_sent(s, dflt, acts):
+  Effort.pe.effort_shown_is_sent(s, dflt, acts)

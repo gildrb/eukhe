@@ -53,6 +53,22 @@ fn shared_default_keys_run_every_action() {
     assert_eq!(kb.press("f9"), Ok(Vec::new()));
 }
 
+/// The thinking-level cycles own their default keys alone: no other
+/// definition binds shift+tab or shift+alt+tab (the settings menu's
+/// shift+tab tab switch is its own raw key, which the menu takes first).
+#[test]
+fn the_thinking_cycle_keys_have_no_other_action() {
+    let kb = KeybindingsManager::new();
+    assert_eq!(
+        kb.press("shift+tab"),
+        Ok(vec![action("app.thinking.cycleForward")])
+    );
+    assert_eq!(
+        kb.press("shift+alt+tab"),
+        Ok(vec![action("app.thinking.cycleBackward")])
+    );
+}
+
 #[test]
 fn user_rebind_supersedes_scope_default() {
     let kb = KeybindingsManager::with_user_bindings(&cfg(&[("app.tools.expand", &["ctrl+e"])]));

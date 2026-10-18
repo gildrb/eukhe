@@ -185,6 +185,17 @@ bind ctrl+e "action app.tools.expand"
 bind ctrl+o ""
 ```
 
+|Key|Action|Effect|
+|---|---|---|
+|Shift+Tab|`app.thinking.cycleForward`|Set the next thinking level that the model offers; after the last level, go to the first|
+|Shift+Alt+Tab|`app.thinking.cycleBackward`|Set the previous thinking level that the model offers; before the first level, go to the last|
+
+These keys operate at the prompt only. An open menu or picker uses Shift+Tab
+first (the settings menu goes to the previous tab). A model with fewer than
+two levels keeps its level, and the status row shows `Current model offers no
+other thinking level`. `/effort` shows the levels that the model offers and
+marks the current level.
+
 |Command|Effect|
 |---|---|
 |`/set [--global] <id> <value>`|Set a value for this session; `--global` writes it to `~/.eukhe/config.cfg`|

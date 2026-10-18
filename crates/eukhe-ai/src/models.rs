@@ -13,6 +13,7 @@ mod provider;
 mod refresh;
 mod requests;
 
+use eukhe_types::daemon::CycleDirection;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
     AnyModel, ClassifierModel, ImageModel, Model, ModelCost, ModelCostRates, ModelThinkingLevel,
@@ -255,6 +256,30 @@ pub fn clamp_thinking_level(model: &Model, level: ModelThinkingLevel) -> ModelTh
         .copied()
         .find(|candidate| available.contains(candidate))
         .unwrap_or(first)
+}
+
+/// The level one cycle step moves to (TS `cycleThinkingLevel`): from the
+/// level the model runs `current` at (its clamp), the next level of the
+/// supported ladder `Forward` or the previous one `Backward`, wrapping at
+/// the ends. `None` when the ladder offers fewer than two levels: no step
+/// changes anything.
+#[must_use]
+pub fn cycle_thinking_level(
+    model: &Model,
+    current: ModelThinkingLevel,
+    direction: CycleDirection,
+) -> Option<ModelThinkingLevel> {
+    let ladder = get_supported_thinking_levels(model);
+    if ladder.len() < 2 {
+        return None;
+    }
+    let shown = clamp_thinking_level(model, current);
+    let index = ladder.iter().position(|level| *level == shown)?;
+    let step = match direction {
+        CycleDirection::Forward => 1,
+        CycleDirection::Backward => ladder.len() - 1,
+    };
+    Some(ladder[(index + step) % ladder.len()])
 }
 
 /// Whether two models are equal by type, id, and provider. `false` when

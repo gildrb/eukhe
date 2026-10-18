@@ -217,3 +217,26 @@ same rows as before the element tree);
 committed row again). Not modelled: where the reflow of a terminal puts
 the live area (an estimate, checked by the virtual terminal), and the
 map from entries to rows. Their tests tie them.
+
+#### Keys
+
+The keys below operate at the prompt. An open menu, picker or panel gets
+each key first: in the settings menu, Shift+Tab goes to the previous tab
+and does not change the thinking level.
+
+| Key | Action | Effect |
+| --- | --- | --- |
+| Shift+Tab | `app.thinking.cycleForward` | Set the next thinking level that the model offers. After the last level, go to the first. |
+| Shift+Alt+Tab | `app.thinking.cycleBackward` | Set the previous thinking level that the model offers. Before the first level, go to the last. |
+
+The daemon command is `cycle_thinking_level` with a `direction`. A model
+with fewer than two levels keeps its level, and the status row shows
+`Current model offers no other thinking level`. Otherwise the tray label
+and the `Thinking level: <level>` status row show the new level. `/effort`
+shows the levels that the model offers and marks the current level. A
+session with no level yet shows no level, never `off`.
+
+Code: `eukhe-tui/src/keybindings/definitions.rs` (the defaults);
+`session_ui/keys.rs` (the key arms); `session_ui/model_picker.rs`
+`cycle_thinking_level`, `show_thinking_level`. Tests:
+`tests/effort_tray_label_headless.rs`.

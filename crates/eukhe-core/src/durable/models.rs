@@ -293,12 +293,7 @@ pub async fn resolve_session_model(
     enforce_allowlist(settings, &format!("{}/{}", model.provider, model.id))?;
     let thinking = requested_thinking
         .or(pattern_thinking)
-        .or_else(|| {
-            settings
-                .get_default_thinking_level()
-                .map(super::thinking_level)
-        })
-        .unwrap_or(ModelThinkingLevel::Medium);
+        .unwrap_or_else(|| super::default_thinking_level(settings));
     Ok(Some(ResolvedModel {
         thinking: clamp_thinking_level(&model, thinking),
         model: ModelRef {

@@ -58,6 +58,8 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
     let interrupt = key_display(kb, "app.interrupt");
     let exit = key_display(kb, "app.exit");
     let select_model = key_display(kb, "app.model.select");
+    let cycle_thinking = key_display(kb, "app.thinking.cycleForward");
+    let cycle_thinking_back = key_display(kb, "app.thinking.cycleBackward");
     let expand_tools = key_display(kb, "app.tools.expand");
     let focus_subagents = key_display(kb, "app.subagents.focus");
     let external_editor = key_display(kb, "app.editor.external");
@@ -139,6 +141,7 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
         r"| `{exit}` | Exit (when editor is empty) |
 | `{suspend}` | Suspend to background |
 | `{select_model}` | Open model selector |
+| `{cycle_thinking}` / `{cycle_thinking_back}` | Next / previous thinking level |
 | `{expand_tools}` | Cycle overview -> thinking + diffs -> all output |"
     );
     let _ = writeln!(
@@ -195,6 +198,10 @@ mod tests {
         assert!(guide.contains("Select to start / end of text"), "{guide}");
         assert!(
             guide.contains("| `Alt+up` / `Alt+down` | Browse and edit queued messages |"),
+            "{guide}"
+        );
+        assert!(
+            guide.contains("| `Shift+Tab` / `Shift+Alt+Tab` | Next / previous thinking level |"),
             "{guide}"
         );
         // The fullscreen transcript window's keys.

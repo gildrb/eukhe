@@ -567,6 +567,29 @@ impl SessionUi {
                 .await;
             return Ok(());
         }
+        // `app.thinking.cycleForward`/`app.thinking.cycleBackward`
+        // (defaults shift+tab / shift+alt+tab): step the session's
+        // thinking level through the ladder the model offers. An open
+        // overlay (the settings menu's tab switch, every picker) took
+        // the key above, so this arm sees it only at the prompt.
+        if view
+            .editor
+            .keybindings()
+            .matches(&id, "app.thinking.cycleForward")
+        {
+            self.cycle_thinking_level(eukhe_types::daemon::CycleDirection::Forward, view)
+                .await;
+            return Ok(());
+        }
+        if view
+            .editor
+            .keybindings()
+            .matches(&id, "app.thinking.cycleBackward")
+        {
+            self.cycle_thinking_level(eukhe_types::daemon::CycleDirection::Backward, view)
+                .await;
+            return Ok(());
+        }
         if view.editor.keybindings().matches(&id, "app.tools.expand") {
             // TS `app.tools.expand` (default ctrl+o) cycles conversation
             // detail: overview -> details -> all -> overview.
@@ -932,7 +955,7 @@ pub(crate) fn opening_echo_key_claimed(
         return true;
     }
     // The always-fire arms: the image paste, the escape ladder, the interrupt family, suspend, the model picker and
-    // cycles, the detail cycle, the dock focus, the external editor, the
+    // cycles, the thinking-level cycles, the detail cycle, the dock focus, the external editor, the
     // stash, the session-level commands, the queue browse, the
     // follow-up key, and the dictation keys.
     if kb.matches(id, "app.clipboard.pasteImage")
@@ -943,6 +966,8 @@ pub(crate) fn opening_echo_key_claimed(
         || kb.matches(id, "app.model.select")
         || kb.matches(id, "app.model.cycleForward")
         || kb.matches(id, "app.model.cycleBackward")
+        || kb.matches(id, "app.thinking.cycleForward")
+        || kb.matches(id, "app.thinking.cycleBackward")
         || kb.matches(id, "app.tools.expand")
         || kb.matches(id, "app.subagents.focus")
         || kb.matches(id, "app.editor.external")
@@ -1105,6 +1130,8 @@ mod opening_echo_claim_tests {
             "ctrl+z",
             "ctrl+l",
             "alt+m",
+            "shift+tab",
+            "shift+alt+tab",
             "ctrl+o",
             "alt+a",
             "ctrl+g",

@@ -13,7 +13,7 @@
 //! (`EukheSettings`).
 
 use eukhe_ai::auth::AuthOperationOptions;
-use eukhe_ai::models::get_supported_thinking_levels;
+use eukhe_ai::models::cycle_thinking_level;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::cvar_agent::{
     run_cvar_line, save_agent_cfg, CvarLineError, CvarLineScope,
@@ -22,7 +22,7 @@ use eukhe_core::settings::cvar::{table, CvarError, Decl, Set};
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_types::ai::{ServiceTier, Transport};
 use eukhe_types::cvar::{Command, ExpandError};
-use eukhe_types::daemon::{CvarFailureData, CvarFailureKind, SessionEvent};
+use eukhe_types::daemon::{CvarFailureData, CvarFailureKind, CycleDirection, SessionEvent};
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
@@ -283,15 +283,23 @@ impl Worker {
         response_success(None, COMMAND, None)
     }
 
-    /// `cycle_thinking_level` (TS `session.cycleThinkingLevel`): models
-    /// without reasoning answer success with `null` data; reasoning models
-    /// cycle through their supported levels (the `set_thinking_level`
-    /// flow).
-    pub(crate) async fn handle_cycle_thinking_level(&self) -> DaemonResponse {
+    /// `cycle_thinking_level { direction? }` (TS
+    /// `session.cycleThinkingLevel`): one step through the levels the
+    /// model offers, forward unless `direction` is `backward`, wrapping at
+    /// the ends (`cycle_thinking_level`, docs/inference.md S10). A ladder
+    /// of fewer than two levels (no model, no reasoning, an `off`-only
+    /// map) answers success with `null` data: nothing changes. Else the
+    /// step applies through the `set_thinking_level` flow.
+    pub(crate) async fn handle_cycle_thinking_level(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "cycle_thinking_level";
         let hosted = match self.hosted(COMMAND) {
             Ok(hosted) => hosted,
             Err(response) => return response,
+        };
+        let direction = if payload.get("direction").and_then(Value::as_str) == Some("backward") {
+            CycleDirection::Backward
+        } else {
+            CycleDirection::Forward
         };
         let agent = match hosted.main() {
             Ok(main) => match main.agent(&BACKGROUND_CONTEXT).await {
@@ -300,8 +308,7 @@ impl Worker {
             },
             Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
-        // TS `supportsThinking()`: the model must support reasoning.
-        let Some(model) = agent
+        let Some(next) = agent
             .model
             .as_ref()
             .and_then(|model| {
@@ -310,19 +317,10 @@ impl Worker {
                     .models
                     .get_model(&model.provider, &model.model_id)
             })
-            .filter(|model| model.reasoning)
+            .and_then(|model| cycle_thinking_level(&model, agent.thinking_level, direction))
         else {
             return response_success(None, COMMAND, Some(Value::Null));
         };
-        let levels = get_supported_thinking_levels(&model);
-        let Some(first) = levels.first() else {
-            return response_success(None, COMMAND, Some(Value::Null));
-        };
-        // TS: `indexOf` -1 cycles to the first level.
-        let next = levels
-            .iter()
-            .position(|level| *level == agent.thinking_level)
-            .map_or(*first, |index| levels[(index + 1) % levels.len()]);
         let applied = self
             .handle_set_thinking_level(&json!({ "level": next.as_str() }))
             .await;

@@ -312,6 +312,54 @@ async fn cycle_thinking_level_cycles_the_supported_levels() {
     assert_eq!(connection_state(&worker).await["thinkingLevel"], level);
 }
 
+/// `cycle_thinking_level { direction }` steps through the faux reasoning
+/// ladder (off, minimal, low, medium, high) both ways and wraps; the
+/// connection state shows each applied level.
+#[tokio::test]
+async fn cycle_thinking_level_steps_both_ways_and_wraps() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), Some(faux_script(true))).await;
+    let mut shown = vec![connection_state(&worker).await["thinkingLevel"].clone()];
+    for direction in ["backward", "forward", "forward", "forward", "backward"] {
+        let response = worker
+            .dispatch("cycle_thinking_level", &json!({ "direction": direction }))
+            .await;
+        assert!(response.success, "cycle {direction}: {response:?}");
+        shown.push(connection_state(&worker).await["thinkingLevel"].clone());
+    }
+    assert_eq!(
+        shown,
+        ["medium", "low", "medium", "high", "off", "high"].map(|level| json!(level))
+    );
+}
+
+/// Regression: an unset thinking level showed as `off` while the request
+/// sent no level and the server thought at its own default. The shown
+/// conversation without a level now shows `default`, never `off`.
+#[tokio::test]
+async fn an_unset_thinking_level_shows_as_default() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created_worker(dir.path(), Some(faux_script(true))).await;
+    let hosted = worker.session.get().expect("a hosted session");
+    hosted
+        .main()
+        .expect("main")
+        .configure(
+            eukhe_durable::harness::types::AgentChange {
+                thinking_level: eukhe_durable::harness::types::FieldChange::Clear,
+                ..eukhe_durable::harness::types::AgentChange::default()
+            },
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        .expect("clear the level");
+    hosted.events_delivered().await;
+    assert_eq!(
+        connection_state(&worker).await["thinkingLevel"],
+        json!("default")
+    );
+}
+
 /// `set_service_tier` keeps the REQUESTED preference while an unsupported
 /// tier clamps the active state to `default` (TS #2144); the settings
 /// default persists only for a supported tier; a missing tier fails.

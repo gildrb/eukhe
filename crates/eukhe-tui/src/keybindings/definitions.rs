@@ -226,6 +226,14 @@ pub const APP_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     ("app.model.toggleScope", def!(&["alt+s"])),
     ("app.model.cycleForward", def!(&["alt+m"])),
     ("app.model.cycleBackward", def!(&["shift+alt+m"])),
+    (
+        "app.thinking.cycleForward",
+        def!(&["shift+tab"], scope "editor"),
+    ),
+    (
+        "app.thinking.cycleBackward",
+        def!(&["shift+alt+tab"], scope "editor"),
+    ),
     ("app.tools.expand", def!(&["ctrl+o"], scope "editor")),
     ("app.subagents.focus", def!(&["alt+a"])),
     ("app.heartbeats.openSelected", def!(&["right"])),

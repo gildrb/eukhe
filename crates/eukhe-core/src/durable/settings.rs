@@ -566,6 +566,16 @@ pub fn thinking_level(setting: ThinkingLevelSetting) -> ModelThinkingLevel {
     }
 }
 
+/// The level a session runs at when nothing requests one: the settings
+/// default, else `medium` (TS `DEFAULT_THINKING_LEVEL`). Callers clamp it
+/// to the model's ladder.
+#[must_use]
+pub fn default_thinking_level(manager: &SettingsManager) -> ModelThinkingLevel {
+    manager
+        .get_default_thinking_level()
+        .map_or(ModelThinkingLevel::Medium, thinking_level)
+}
+
 #[cfg(test)]
 mod tests {
     use eukhe_durable::harness::agent::resolve_settings;

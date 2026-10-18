@@ -17,6 +17,8 @@ mod digest;
 pub mod directors;
 mod discovery;
 pub mod documents;
+#[cfg(test)]
+mod effort_bridge;
 mod entries;
 mod env;
 mod export;
@@ -82,6 +84,6 @@ pub use session_commands::{
     classify_session_command, commit_session_command_echo, commit_session_command_failure,
     execute_session_command, SessionCommand, SessionCommandName, SessionCommandOutcome,
 };
-pub use settings::{harness_settings, thinking_level, EukheSettings};
+pub use settings::{default_thinking_level, harness_settings, thinking_level, EukheSettings};
 pub use staging::{sweep_stale_staging_dirs, StagingSweep};
 pub use state_tree::{LiveStateTree, TreeCursor};

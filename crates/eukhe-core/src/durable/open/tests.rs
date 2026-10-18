@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions};
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
-    FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
+    FauxModelDefinition, FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_ai::utils::text::get_system_message_text;
 use eukhe_ai::utils::transcript::{get_current_system_message, get_current_tools};
@@ -20,7 +20,8 @@ use eukhe_durable::tree::{
 use eukhe_durable::types::{EntryRecord, Seq};
 use eukhe_types::job::JobId;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, Message, Modality, StopReason, UserContent, UserContentBlock,
+    AssistantContentBlock, Message, Modality, ModelThinkingLevel, StopReason, UserContent,
+    UserContentBlock,
 };
 
 use super::*;
@@ -460,6 +461,66 @@ async fn a_new_root_takes_the_settings_default_model() {
         .expect("open");
     let agent = session.root().agent(cx()).await.expect("agent");
     assert_eq!(agent.model, Some(model));
+    session.close(cx()).await.expect("close");
+}
+
+/// Regression: a main conversation with a model and no stored thinking
+/// level (a legacy import) ran at `off`'s wire value, or at the server's
+/// own default, while the session showed `off`. Open settles it on the
+/// settings default clamped to the model's ladder (`xhigh` -> `high` on a
+/// ladder that stops at `high`), so the shown level is the sent one.
+#[tokio::test]
+async fn open_settles_an_unset_thinking_level_on_the_clamped_default() {
+    let fixture = fixture();
+    let thinker = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("thinker".to_owned()),
+        models: Some(vec![FauxModelDefinition {
+            id: "deep".to_owned(),
+            reasoning: Some(true),
+            ..FauxModelDefinition::default()
+        }]),
+        ..RegisterFauxProviderOptions::default()
+    });
+    fixture.models.set_provider(thinker.provider.clone());
+    std::fs::write(
+        fixture.agent_dir.join("settings.json"),
+        r#"{"defaultThinkingLevel":"xhigh"}"#,
+    )
+    .expect("settings");
+    let model = ModelRef {
+        provider: "thinker".to_owned(),
+        model_id: "deep".to_owned(),
+    };
+    let mut config = fixture.config(fixture.jsonl());
+    config.model = Some(model.clone().into());
+    let session = open_session(config.clone(), cx()).await.expect("open");
+    session
+        .root()
+        .configure(
+            AgentChange {
+                thinking_level: FieldChange::Clear,
+                ..AgentChange::default()
+            },
+            cx(),
+        )
+        .await
+        .expect("clear the level");
+    session.close(cx()).await.expect("close");
+
+    let session = open_session(config, cx()).await.expect("reopen");
+    let state: AgentState = from_json(&JsonValue::Object(
+        session
+            .harness()
+            .snapshot(&AGENT_DOC, session.main().id(), cx())
+            .await
+            .expect("snapshot")
+            .expect("agent state"),
+    ))
+    .expect("decode");
+    assert_eq!(
+        (state.model, state.thinking_level),
+        (Some(model), Some(ModelThinkingLevel::High))
+    );
     session.close(cx()).await.expect("close");
 }
 

@@ -1,4 +1,4 @@
-# Harness laws: inference and local tiny models
+# Harness laws: inference, local tiny models and reasoning depth
 
 The shared rules (what a law secures, the adversary, H1 to H6) are in [harness.md](harness.md).
 
@@ -490,3 +490,117 @@ back) and the `tokenizer::tests` on the model files; `eukhe-core`
 `local` provider, through a real worker). Not modelled: two processes
 that start a worker at the same time (the bind lock orders them; the
 second one uses the first worker).
+
+### S10. Reasoning depth
+
+The reasoning depth (thinking level) of a session sets how much the
+model thinks before it answers. The levels, in ladder order, are `off`,
+`minimal`, `low`, `medium`, `high`, `xhigh` and `max`.
+
+The ladder of a model. A model offers some levels of the ladder, in
+ladder order:
+
+1. A model without reasoning offers `off` only. Its thinking-level map
+   (`thinkingLevelMap`) has no effect.
+2. A reasoning model keeps each level by its entry in the map. A `null`
+   entry removes the level. A wire string keeps the level. A missing
+   entry keeps the level, but not `xhigh` or `max`: these two levels
+   need an explicit entry. A model with no map is a model with no
+   entries.
+3. Thus a reasoning model can offer `off` only (each other entry is
+   `null`) or no level (each entry is `null`).
+
+The clamp. The clamp moves a level to a level that the model offers:
+
+1. An offered level does not change.
+2. Another level goes to the first offered level up the ladder from it.
+   When there is no such level, it goes to the first offered level down
+   the ladder from it.
+3. When the model offers no level, the clamp is `off`.
+
+The cycle. A cycle step (`cycle_thinking_level`, forward or backward)
+moves one level along the offered levels:
+
+1. When the model offers fewer than two levels, the step changes
+   nothing. This is true for a model without reasoning and for a model
+   that offers `off` only. The daemon answers `null`.
+2. Else the step starts at the clamp of the current level. Forward goes
+   to the next offered level. From the last offered level it goes to
+   the first. Backward goes to the offered level before. From the first
+   offered level it goes to the last.
+3. Thus forward visits each offered level one time in each lap, in
+   ladder order. A backward step cancels a forward step, and a forward
+   step cancels a backward step.
+
+The session. The main conversation stores its level. The level can be
+unset:
+
+1. Open settles the stored level. It takes the stored level, else the
+   default (`defaultThinkingLevel` in the settings, else `medium`). When
+   the session model is in the catalog, open clamps this level to the
+   model. Without a catalog model, open keeps the level.
+2. A model switch clamps the current level to the new model. A set
+   clamps the requested level to the model (without a catalog model it
+   keeps the requested level). A cycle step sets the level that the
+   step gives.
+3. The sent level. The durable runtime sends the stored level, else
+   `off`. Each provider clamps this level to the model before it sends
+   the request.
+4. The displayed level. The daemon summary and the connection state
+   (`thinkingLevel`) show the stored level clamped to the model (the
+   stored level without a catalog model). Thus they show the level that
+   the requests send. An unset level shows as `default`, never as
+   `off`.
+
+Model: `bend/effort.bend`. Laws: `LAWS.bend` section (S10). Proofs:
+`bend/proof_effort.bend`. Every input is free: any model, with or
+without reasoning, with any map (each entry missing, `null` or a wire
+string); any level; any stored level and default; any model switches,
+sets and cycle steps, in any order.
+
+| Law | Says |
+| --- | --- |
+| `effort_offered_plain` | A model without reasoning offers `off` only, with any map (ladder 1). |
+| `effort_offered_null` | A reasoning model never offers a level with a `null` entry (ladder 2). |
+| `effort_offered_ext` | A model offers `xhigh` or `max` only with a wire entry for it (ladder 2). |
+| `effort_offered_kept` | A reasoning model offers each level that its map keeps: a wire entry, or a missing entry below `xhigh` (ladder 2). |
+| `effort_offered_asc` | The offered levels go up the ladder strictly: no level comes two times (ladder). |
+| `effort_clamp_offered` | When the model offers a level, the clamp of each level is an offered level. Thus a model switch lands on an offered level (clamp 2, session 2). |
+| `effort_clamp_keeps` | The clamp does not change an offered level (clamp 1). |
+| `effort_clamp_idem` | A second clamp changes nothing, also when the model offers no level (clamp 3). |
+| `effort_cycle_still` | With fewer than two offered levels, a cycle step changes nothing (cycle 1). |
+| `effort_cycle_next` | Forward from an offered level goes to the next offered level (cycle 2). |
+| `effort_cycle_wrap` | Forward from the last offered level goes to the first (cycle 2). |
+| `effort_cycle_prev` | Backward from an offered level goes to the offered level before it (cycle 2). |
+| `effort_cycle_wrap_back` | Backward from the first offered level goes to the last (cycle 2). |
+| `effort_cycle_inverse` | From an offered level, a backward step cancels a forward step (cycle 3). |
+| `effort_cycle_inverse_back` | From an offered level, a forward step cancels a backward step (cycle 3). |
+| `effort_unset_default` | An unset level shows as `default`, never as `off` (session 4). |
+| `effort_settle_offered` | When the model offers a level, open settles on an offered level (session 1). |
+| `effort_stored_is_sent` | After open and any actions, the session stores the level that it sends (session 1-3). |
+| `effort_shown_is_sent` | After open and any actions, the display shows the level that the session sends (session 4). |
+
+Code: `eukhe-ai/src/models.rs` `get_supported_thinking_levels`,
+`clamp_thinking_level`, `cycle_thinking_level`; the provider clamps in
+`eukhe-ai/src/api/`; `eukhe-core/src/durable/open.rs`
+`settle_main_agent`; `eukhe-daemon/src/model_switch.rs` (model switch,
+set); `setting_switches.rs` `handle_cycle_thinking_level`;
+`worker/summary.rs` `thinking_level`; `rpc/model_commands.rs`.
+
+Tie: the bridge test
+`durable::effort_bridge::the_rust_reasoning_depth_equals_the_bend_model`
+(`eukhe-core`) runs `get_supported_thinking_levels`,
+`clamp_thinking_level` and `cycle_thinking_level` (forward and
+backward, from each ladder level) on catalog models against
+`bend/bridge_effort.bend`. The models are the edge models (no
+reasoning, no map, an `off`-only ladder, an empty ladder, one level,
+explicit `xhigh` and `max`) and random models (each entry missing,
+`null` or a wire string). The test requires that the models reach each
+rule. Regression tests: `eukhe-core` `durable::open::tests`
+(`open_settles_an_unset_thinking_level_on_the_clamped_default`: open
+settles an unset level on the clamped default); `eukhe-daemon`
+`setting_switches::tests` (`cycle_thinking_level` without reasoning
+answers `null`; forward and backward steps wrap; an unset level shows
+as `default`). Not modelled:
+the order of the settings that give the default level, and the mapping
+of a level to the wire value of each provider.

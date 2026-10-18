@@ -97,7 +97,7 @@ impl Worker {
             "set_thinking_level" => self.handle_set_thinking_level(payload).await,
             "cycle_model" => self.handle_cycle_model(payload).await,
             "set_scoped_models" => self.handle_set_scoped_models(payload),
-            "cycle_thinking_level" => self.handle_cycle_thinking_level().await,
+            "cycle_thinking_level" => self.handle_cycle_thinking_level(payload).await,
             "set_service_tier" => self.handle_set_service_tier(payload).await,
             "set_transport" => self.handle_set_transport(payload).await,
             "set_steering_mode" => {

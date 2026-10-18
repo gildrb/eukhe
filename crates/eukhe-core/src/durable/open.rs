@@ -5,12 +5,18 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions, Models};
+use eukhe_ai::models::{
+    clamp_thinking_level, create_models as create_pi_models, CreateModelsOptions, Models,
+};
 use eukhe_chord::context::Context;
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::env::{NativeExecutionEnv, NativeExecutionEnvOptions};
 use eukhe_durable::errors::StorageError;
+use eukhe_durable::harness::agent::AGENT_DOC;
 use eukhe_durable::harness::registry::Registry;
-use eukhe_durable::harness::types::{AgentChange, FieldChange, HarnessOptions, ReportFn};
+use eukhe_durable::harness::types::{
+    AgentChange, AgentState, FieldChange, HarnessOptions, ReportFn,
+};
 use eukhe_durable::harness::{Conversation, Harness, RootOptions};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::storage::jsonl::{CommitHistory, JsonlStorage, JsonlStorageOptions};
@@ -30,7 +36,7 @@ use super::models::{create_models, resolve_session_model, ModelsError};
 use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
 use super::registry::create_eukhe_registry;
-use super::settings::EukheSettings;
+use super::settings::{default_thinking_level, EukheSettings};
 use super::state_tree::LiveStateTree;
 use crate::admission::local_admission;
 use crate::kernel::python_skills::kernel_python_skills;
@@ -302,7 +308,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         let root = open_root(&harness, &config, &models, &manager, cx).await?;
         let main = main_conversation(&harness, cx).await?;
         settings.set_agent_state(read_agent_state(&harness, &main, cx).await?);
-        adopt_session_model(&main, &config, &models, &manager, cx).await?;
+        settle_main_agent(&harness, &main, &config, &models, &manager, cx).await?;
         Ok::<_, OpenError>((root, main))
     };
     let (root, main) = match opened.await {
@@ -586,41 +592,62 @@ async fn open_root(
         .await?)
 }
 
-/// An existing main conversation without a model (a legacy file that never
-/// recorded one) takes the session model a new root would start with (TS
-/// resume: a session without a saved model falls back to the startup
-/// model). A model that does not resolve leaves it unset (logged): its run
-/// reports `no_model`, as before the fallback.
+/// Settle the main conversation's model and thinking level at open, so the
+/// level the session shows is the level its requests send
+/// (docs/inference.md S10). A main conversation without a model (a legacy
+/// file that never recorded one) takes the session model a new root would
+/// start with (TS resume: a session without a saved model falls back to
+/// the startup model); a model that does not resolve stays unset
+/// (logged): its run reports `no_model`, as before the fallback. A
+/// conversation without a stored level (a legacy import, a session that
+/// started without a model) takes the settings default level. The level
+/// is clamped to the model's ladder, also when the model's thinking-level
+/// map changed since the level was stored; without a catalog model it
+/// stays as it is.
 ///
 /// # Errors
 ///
 /// Reading or configuring the conversation's agent fails.
-async fn adopt_session_model(
+async fn settle_main_agent(
+    harness: &Harness,
     main: &Conversation,
     config: &SessionConfig,
     models: &eukhe_ai::models::Models,
     manager: &SettingsManager,
     cx: &Context,
 ) -> Result<(), OpenError> {
-    if main.agent(cx).await?.model.is_some() {
-        return Ok(());
+    let state: Option<AgentState> = match harness.snapshot(&AGENT_DOC, main.id(), cx).await? {
+        Some(value) => Some(from_json(&JsonValue::Object(value)).map_err(SessionError::other)?),
+        None => None,
+    };
+    let stored = state.as_ref().and_then(|state| state.thinking_level);
+    let mut change = AgentChange::default();
+    let model = match state.and_then(|state| state.model) {
+        Some(model) => models.get_model(&model.provider, &model.model_id),
+        None => match resolve_session_model(models, manager, config.model.as_ref(), None, cx).await
+        {
+            Ok(Some(resolved)) => {
+                let model = models.get_model(&resolved.model.provider, &resolved.model.model_id);
+                change.model = FieldChange::Set(resolved.model);
+                model
+            }
+            Ok(None) => None,
+            Err(ModelsError::Cancelled) => return Err(ModelsError::Cancelled.into()),
+            Err(error) => {
+                tracing::warn!(%error, "the session has no model and none resolves");
+                None
+            }
+        },
+    };
+    let level = stored.unwrap_or_else(|| default_thinking_level(manager));
+    let settled = model
+        .as_ref()
+        .map_or(level, |model| clamp_thinking_level(model, level));
+    if stored != Some(settled) {
+        change.thinking_level = FieldChange::Set(settled);
     }
-    match resolve_session_model(models, manager, config.model.as_ref(), None, cx).await {
-        Ok(Some(resolved)) => {
-            main.configure(
-                AgentChange {
-                    model: FieldChange::Set(resolved.model),
-                    ..AgentChange::default()
-                },
-                cx,
-            )
-            .await?;
-        }
-        Ok(None) => {}
-        Err(ModelsError::Cancelled) => return Err(ModelsError::Cancelled.into()),
-        Err(error) => {
-            tracing::warn!(%error, "the session has no model and none resolves");
-        }
+    if change.model != FieldChange::Keep || change.thinking_level != FieldChange::Keep {
+        main.configure(change, cx).await?;
     }
     Ok(())
 }

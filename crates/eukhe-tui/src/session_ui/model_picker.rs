@@ -521,40 +521,7 @@ impl SessionUi {
             )
             .await;
         match switched {
-            Ok(_) => {
-                // The tray's effort suffix follows the level the switch
-                // wrote: the daemon clamps the request (TS `setThinkingLevel`
-                // emits the effective level; the Rust daemon answers no such
-                // event, so the client re-reads the state `/effort` targets).
-                // A failed read falls back to the requested level, never the
-                // previous model's stale suffix.
-                let state = self
-                    .bounded_request(
-                        Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
-                        DaemonCommand::GetState {
-                            id: None,
-                            active_session_id: self.active_session_id.clone(),
-                            rest: Map::default(),
-                        },
-                    )
-                    .await;
-                match state {
-                    Ok(data) => {
-                        view.chrome.thinking_suffix = crate::chrome::tray_thinking_suffix(&data);
-                    }
-                    // The switch succeeded; the state read did not. TS
-                    // `applyThinkingLevel` patches the requested level into
-                    // the connection state (the `thinking_level_changed`
-                    // event corrects it later), so render the requested
-                    // level -- never the previous model's stale suffix.
-                    Err(_) => {
-                        view.chrome.thinking_suffix =
-                            eukhe_types::ai::thinking_level_from_str(level)
-                                .map(|parsed| parsed.wire_name().to_string());
-                    }
-                }
-                self.note(&format!("Thinking level: {level}"), view);
-            }
+            Ok(_) => self.show_thinking_level(level, view).await,
             Err(error) => {
                 // TS `showError`: the ! Error row with the error tone.
                 view.push_entry(ChatEntry::Status {
@@ -564,6 +531,73 @@ impl SessionUi {
                 self.dirty = true;
             }
         }
+    }
+
+    /// The `app.thinking.cycleForward`/`cycleBackward` actions (defaults
+    /// shift+tab / shift+alt+tab): the daemon `cycle_thinking_level`
+    /// command applies the next (or previous) level of the ladder the
+    /// session's model offers, with wrap. A `null` answer means that the
+    /// model offers fewer than two levels: nothing changed, and a short
+    /// note says so. Otherwise the applied level shows like an `/effort`
+    /// switch.
+    pub(super) async fn cycle_thinking_level(
+        &mut self,
+        direction: CycleDirection,
+        view: &mut AgentView,
+    ) {
+        let cycled = self
+            .bounded_request(
+                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                DaemonCommand::CycleThinkingLevel {
+                    id: None,
+                    active_session_id: self.active_session_id.clone(),
+                    direction: Some(direction),
+                    rest: Map::default(),
+                },
+            )
+            .await;
+        match cycled {
+            Ok(Value::Null) => {
+                self.note("Current model offers no other thinking level", view);
+            }
+            Ok(data) => match data.get("level").and_then(Value::as_str) {
+                Some(level) => {
+                    let level = level.to_string();
+                    self.show_thinking_level(&level, view).await;
+                }
+                None => self.error_row("the cycle answer carried no thinking level", view),
+            },
+            Err(error) => self.error_row(&format!("{error:#}"), view),
+        }
+        self.dirty = true;
+    }
+
+    /// Show a level that the daemon applied: the tray's `model:effort`
+    /// label follows the effective level, then the
+    /// `Thinking level: <level>` status row records it. The daemon clamps
+    /// a request (TS `setThinkingLevel` emits the effective level; the
+    /// Rust daemon answers no such event), so the client reads the state
+    /// again. A failed read falls back to the applied level, never the
+    /// previous model's stale suffix (TS `applyThinkingLevel` patches the
+    /// level into the connection state; the `thinking_level_changed`
+    /// event corrects it later).
+    async fn show_thinking_level(&mut self, level: &str, view: &mut AgentView) {
+        let state = self
+            .bounded_request(
+                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                DaemonCommand::GetState {
+                    id: None,
+                    active_session_id: self.active_session_id.clone(),
+                    rest: Map::default(),
+                },
+            )
+            .await;
+        view.chrome.thinking_suffix = match state {
+            Ok(data) => crate::chrome::tray_thinking_suffix(&data),
+            Err(_) => eukhe_types::ai::thinking_level_from_str(level)
+                .map(|parsed| parsed.wire_name().to_string()),
+        };
+        self.note(&format!("Thinking level: {level}"), view);
     }
 
     /// Refresh the chrome model label after a live switch (TS

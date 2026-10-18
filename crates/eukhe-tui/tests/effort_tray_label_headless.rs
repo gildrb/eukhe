@@ -8,6 +8,12 @@
 //! `model:effort` while the session's model supports reasoning, keeps the
 //! bare model id when it does not, and the label follows a `/effort`
 //! switch live.
+//!
+//! Also verifies the thinking-level cycle keys (`app.thinking.cycleForward`
+//! on shift+tab, `app.thinking.cycleBackward` on shift+alt+tab): the mock
+//! answers `cycle_thinking_level` as the daemon does (the next or previous
+//! level of the offered ladder, with wrap; `null` for fewer than two
+//! levels), and the settings menu keeps shift+tab for its tab switch.
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
 // fixed in place; each exception carries its one-line justification):
 // - the casts: terminal-layout arithmetic narrows structurally bounded
@@ -32,6 +38,7 @@
 //   removals would ripple through the callers without changing behavior.
 #![allow(clippy::unnecessary_wraps)]
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -86,6 +93,22 @@ fn plain_session() -> MockSession {
     }
 }
 
+/// The Elpis `qwen3.8` model: its thinking level map offers the ladder
+/// off, low, medium, xhigh. The session starts at `low`.
+fn elpis_session() -> MockSession {
+    MockSession {
+        model: json!({ "id": "qwen3.8", "name": "Qwen 3.8", "provider": "elpis", "reasoning": true }),
+        levels: vec![
+            "off".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "xhigh".to_string(),
+        ],
+        level: "low".to_string(),
+        fail_state_after_switch: false,
+    }
+}
+
 impl MockSession {
     fn bind(self, socket: &std::path::Path) -> MockSupervisor {
         MockSupervisor {
@@ -97,8 +120,8 @@ impl MockSession {
 
 /// One mock supervisor serving a single attached session: the state
 /// blocks report the session's model and live level, and
-/// `set_thinking_level` moves that level so the client's state re-reads
-/// observe the switch.
+/// `set_thinking_level` and `cycle_thinking_level` move that level so the
+/// client's state re-reads observe the switch.
 struct MockSupervisor {
     listener: UnixListener,
     session: MockSession,
@@ -106,8 +129,11 @@ struct MockSupervisor {
 
 impl MockSupervisor {
     /// Serve one connection: attach an empty session, then answer the
-    /// state reads and the thinking switch off the live level.
-    fn serve(mut self) {
+    /// state reads and the thinking switches off the live level. Returns
+    /// the `direction` field of each `cycle_thinking_level` command, in
+    /// arrival order (`null` when the command has no direction).
+    fn serve(mut self) -> Vec<Value> {
+        let mut cycles = Vec::new();
         // Armed by `set_thinking_level` when the session pins the
         // failed-read fallback: every later state read refuses.
         let mut state_reads_fail = false;
@@ -194,6 +220,41 @@ impl MockSupervisor {
                         }),
                     );
                 }
+                // The daemon's answer: `null` when the model offers fewer
+                // than two levels (nothing changes), else the next (or, for
+                // `backward`, the previous) level of the ladder, with wrap.
+                // The live level moves to it.
+                "cycle_thinking_level" => {
+                    let direction = command.get("direction").cloned().unwrap_or(Value::Null);
+                    let levels = &self.session.levels;
+                    let data = if levels.len() < 2 {
+                        Value::Null
+                    } else {
+                        let count = levels.len();
+                        let at = levels
+                            .iter()
+                            .position(|level| *level == self.session.level)
+                            .expect("the live level is on the ladder");
+                        let next = if direction.as_str() == Some("backward") {
+                            (at + count - 1) % count
+                        } else {
+                            (at + 1) % count
+                        };
+                        self.session.level = levels[next].clone();
+                        json!({ "level": self.session.level })
+                    };
+                    cycles.push(direction);
+                    write_json(
+                        &mut writer,
+                        &json!({
+                            "type": "response",
+                            "id": id,
+                            "command": "cycle_thinking_level",
+                            "success": true,
+                            "data": data,
+                        }),
+                    );
+                }
                 "detach" => {
                     write_json(
                         &mut writer,
@@ -219,6 +280,7 @@ impl MockSupervisor {
                 }
             }
         }
+        cycles
     }
 
     /// The slim attach result: one empty session whose state reports the
@@ -323,8 +385,9 @@ fn options(socket: PathBuf) -> InteractiveOptions {
 }
 
 /// Run the headless plan against a fresh mock supervisor and return the
-/// captured frames.
-fn run_plan(session: MockSession, steps: Vec<HeadlessStep>) -> Vec<String> {
+/// captured frames and the directions of the cycle requests that the
+/// mock received.
+fn run_plan(session: MockSession, steps: Vec<HeadlessStep>) -> (Vec<String>, Vec<Value>) {
     std::env::remove_var("TMUX");
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("tui.sock");
@@ -343,8 +406,8 @@ fn run_plan(session: MockSession, steps: Vec<HeadlessStep>) -> Vec<String> {
     let outcome = runtime
         .block_on(run_interactive(options(socket), UiMode::Headless(plan)))
         .expect("interactive run");
-    handle.join().expect("mock supervisor finished");
-    outcome.frames
+    let cycles = handle.join().expect("mock supervisor finished");
+    (outcome.frames, cycles)
 }
 
 /// `/effort` moves the status line's thinking label live: the attach
@@ -360,7 +423,7 @@ fn effort_command_moves_the_tray_model_label() {
         },
         HeadlessStep::WaitMs(200),
     ];
-    let frames = run_plan(reasoning_session(), steps);
+    let (frames, _) = run_plan(reasoning_session(), steps);
     assert!(
         frames.iter().any(|frame| frame.contains(MEDIUM)),
         "the attach state seeds the level suffix:\n{}",
@@ -397,7 +460,7 @@ fn effort_switch_with_failed_state_read_never_keeps_the_stale_suffix() {
         },
         HeadlessStep::WaitMs(200),
     ];
-    let frames = run_plan(session, steps);
+    let (frames, _) = run_plan(session, steps);
     let switched = frames
         .iter()
         .rev()
@@ -421,7 +484,7 @@ fn tray_label_stays_bare_without_reasoning() {
         needle: "[M] gpt-4o-mini".to_string(),
         timeout_ms: 10_000,
     }];
-    let frames = run_plan(plain_session(), steps);
+    let (frames, _) = run_plan(plain_session(), steps);
     let all = frames.join("\n---\n");
     assert!(
         frames.iter().any(|frame| frame.contains("[M] gpt-4o-mini")),
@@ -437,3 +500,224 @@ fn tray_label_stays_bare_without_reasoning() {
 /// reports the `auto` service tier, the badge after the model).
 const MEDIUM: &str = "[M] glm-5.3 auto - [med]";
 const HIGH: &str = "[M] glm-5.3 auto - [high]";
+
+/// The status line's model segment of the Elpis session at each level.
+const ELPIS_OFF: &str = "[M] qwen3.8 auto - [ ] off";
+const ELPIS_LOW: &str = "[M] qwen3.8 auto - [low]";
+const ELPIS_MEDIUM: &str = "[M] qwen3.8 auto - [med]";
+const ELPIS_XHIGH: &str = "[M] qwen3.8 auto - [xhi]";
+
+/// Shift+Tab as the input reader decodes `\x1b[Z`.
+fn shift_tab() -> HeadlessStep {
+    HeadlessStep::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT))
+}
+
+/// Shift+Alt+Tab (the meta-wrapped `ESC ESC [ Z`).
+fn shift_alt_tab() -> HeadlessStep {
+    HeadlessStep::Key(KeyEvent::new(
+        KeyCode::BackTab,
+        KeyModifiers::SHIFT | KeyModifiers::ALT,
+    ))
+}
+
+fn wait_render(needle: &str) -> HeadlessStep {
+    HeadlessStep::WaitRender {
+        needle: needle.to_string(),
+        timeout_ms: 10_000,
+    }
+}
+
+/// The Elpis tray labels in the order the frames show them (one entry per
+/// change of the label).
+fn elpis_label_sequence(frames: &[String]) -> Vec<&'static str> {
+    let mut sequence: Vec<&'static str> = Vec::new();
+    for frame in frames {
+        let label = [ELPIS_OFF, ELPIS_LOW, ELPIS_MEDIUM, ELPIS_XHIGH]
+            .into_iter()
+            .find(|label| frame.contains(label));
+        if let Some(label) = label {
+            if sequence.last() != Some(&label) {
+                sequence.push(label);
+            }
+        }
+    }
+    sequence
+}
+
+/// The first frame that shows `note` also shows `label`: the tray follows
+/// the level in the same paint as the status note.
+fn assert_note_with_label(frames: &[String], note: &str, label: &str) {
+    let frame = frames
+        .iter()
+        .find(|frame| frame.contains(note))
+        .unwrap_or_else(|| panic!("no frame shows {note:?}:\n{}", frames.join("\n---\n")));
+    assert!(
+        frame.contains(label),
+        "{note:?} without {label:?}:\n{frame}"
+    );
+}
+
+/// Shift+Tab steps the Elpis ladder forward with wrap: low, medium,
+/// xhigh, off, low. Each press sends one forward cycle, and the tray
+/// label follows each applied level.
+#[test]
+fn shift_tab_cycles_the_offered_ladder_forward() {
+    let steps = vec![
+        wait_render(ELPIS_LOW),
+        shift_tab(),
+        wait_render(ELPIS_MEDIUM),
+        shift_tab(),
+        wait_render(ELPIS_XHIGH),
+        shift_tab(),
+        wait_render(ELPIS_OFF),
+        shift_tab(),
+        wait_render(ELPIS_LOW),
+        HeadlessStep::WaitMs(200),
+    ];
+    let (frames, cycles) = run_plan(elpis_session(), steps);
+    assert_eq!(cycles, vec![json!("forward"); 4]);
+    assert_eq!(
+        elpis_label_sequence(&frames),
+        vec![ELPIS_LOW, ELPIS_MEDIUM, ELPIS_XHIGH, ELPIS_OFF, ELPIS_LOW]
+    );
+    assert_note_with_label(&frames, "Thinking level: medium", ELPIS_MEDIUM);
+    assert_note_with_label(&frames, "Thinking level: xhigh", ELPIS_XHIGH);
+    assert_note_with_label(&frames, "Thinking level: off", ELPIS_OFF);
+    assert_note_with_label(&frames, "Thinking level: low", ELPIS_LOW);
+}
+
+/// Shift+Alt+Tab steps the ladder backward with wrap: low, off, xhigh.
+#[test]
+fn shift_alt_tab_cycles_the_offered_ladder_backward() {
+    let steps = vec![
+        wait_render(ELPIS_LOW),
+        shift_alt_tab(),
+        wait_render(ELPIS_OFF),
+        shift_alt_tab(),
+        wait_render(ELPIS_XHIGH),
+        HeadlessStep::WaitMs(200),
+    ];
+    let (frames, cycles) = run_plan(elpis_session(), steps);
+    assert_eq!(cycles, vec![json!("backward"); 2]);
+    assert_eq!(
+        elpis_label_sequence(&frames),
+        vec![ELPIS_LOW, ELPIS_OFF, ELPIS_XHIGH]
+    );
+    assert_note_with_label(&frames, "Thinking level: off", ELPIS_OFF);
+    assert_note_with_label(&frames, "Thinking level: xhigh", ELPIS_XHIGH);
+}
+
+/// `/effort` lists exactly the offered levels, in ladder order, and marks
+/// the effective level only.
+#[test]
+fn effort_picker_lists_the_offered_levels_with_the_effective_one_marked() {
+    let steps = vec![
+        wait_render(ELPIS_LOW),
+        HeadlessStep::Submit("/effort".to_string()),
+        wait_render("Thinking Level"),
+        HeadlessStep::WaitMs(100),
+    ];
+    let (frames, cycles) = run_plan(elpis_session(), steps);
+    assert_eq!(cycles, Vec::<Value>::new());
+    let picker = frames
+        .iter()
+        .rev()
+        .find(|frame| frame.contains("Thinking Level"))
+        .expect("the picker rendered");
+    // Each level row reads `[x] <level>` or `[ ] <level>` (the status
+    // line at `low` carries no checkbox).
+    let rows: Vec<(bool, String)> = picker
+        .lines()
+        .filter_map(|row| {
+            let (checked, at) = match (row.find("[x] "), row.find("[ ] ")) {
+                (Some(at), _) => (true, at),
+                (None, Some(at)) => (false, at),
+                (None, None) => return None,
+            };
+            let level = row[at + 4..].split_whitespace().next()?;
+            Some((checked, level.to_string()))
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            (false, "off".to_string()),
+            (true, "low".to_string()),
+            (false, "medium".to_string()),
+            (false, "xhigh".to_string()),
+        ],
+        "{picker}"
+    );
+}
+
+/// An `off`-only ladder: Shift+Tab asks the daemon once, the `null`
+/// answer changes nothing, and a short note says so.
+#[test]
+fn shift_tab_on_an_off_only_ladder_changes_nothing() {
+    let steps = vec![
+        wait_render("[M] gpt-4o-mini"),
+        shift_tab(),
+        wait_render("Current model offers no other thinking level"),
+        HeadlessStep::WaitMs(200),
+    ];
+    let (frames, cycles) = run_plan(plain_session(), steps);
+    assert_eq!(cycles, vec![json!("forward")]);
+    let all = frames.join("\n---\n");
+    assert!(!all.contains("Thinking level:"), "{all}");
+    let noted = frames
+        .iter()
+        .find(|frame| frame.contains("Current model offers no other thinking level"))
+        .expect("the note rendered");
+    // The path segment follows the tier directly: no thinking label.
+    assert!(noted.contains("[M] gpt-4o-mini auto - [T] /tmp"), "{noted}");
+}
+
+/// An unset session level (the state reports `default` before the
+/// session has an explicit level) never shows as `off`: the tray keeps
+/// the bare model id, and `/effort` marks no row as current.
+#[test]
+fn an_unset_level_never_shows_as_off() {
+    let mut session = elpis_session();
+    session.level = "default".to_string();
+    let steps = vec![
+        wait_render("[M] qwen3.8 auto - [T] /tmp"),
+        HeadlessStep::Submit("/effort".to_string()),
+        wait_render("Thinking Level"),
+        HeadlessStep::WaitMs(100),
+    ];
+    let (frames, cycles) = run_plan(session, steps);
+    assert_eq!(cycles, Vec::<Value>::new());
+    let all = frames.join("\n---\n");
+    assert!(!all.contains(ELPIS_OFF), "{all}");
+    let picker = frames
+        .iter()
+        .rev()
+        .find(|frame| frame.contains("Thinking Level"))
+        .expect("the picker rendered");
+    assert!(!picker.contains("[x] "), "{picker}");
+    for level in ["off", "low", "medium", "xhigh"] {
+        assert!(picker.contains(&format!("[ ] {level}")), "{picker}");
+    }
+}
+
+/// The open settings menu takes Shift+Tab first: it switches the tab
+/// back (Models to General), and no cycle request reaches the daemon.
+#[test]
+fn settings_menu_keeps_shift_tab_for_its_tabs() {
+    let steps = vec![
+        wait_render(ELPIS_LOW),
+        HeadlessStep::Submit("/settings".to_string()),
+        wait_render("General"),
+        HeadlessStep::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        wait_render("Transport"),
+        shift_tab(),
+        wait_render("Auto-compact"),
+        HeadlessStep::WaitMs(200),
+    ];
+    let (frames, cycles) = run_plan(elpis_session(), steps);
+    assert_eq!(cycles, Vec::<Value>::new());
+    let last = frames.last().expect("the run captured frames");
+    assert!(last.contains("Auto-compact"), "{last}");
+    assert!(!last.contains("Transport"), "{last}");
+    assert!(!frames.join("\n").contains("Thinking level:"));
+}

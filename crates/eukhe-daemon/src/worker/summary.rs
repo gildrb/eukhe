@@ -65,12 +65,31 @@ fn catalog_model(session: &SessionSlot, provider: &str, model_id: &str) -> Optio
     session.get()?.deps().models.get_model(provider, model_id)
 }
 
-/// The shown conversation's thinking level (`off` when unset).
-pub(crate) fn thinking_level(core: &SessionCore) -> String {
-    core.view
+/// The shown conversation's thinking level as its requests send it
+/// (docs/inference.md S10): the stored level clamped to the model's
+/// ladder, the clamp every provider applies before it sends a level. An
+/// unset level shows as `default`, never as `off`: open settles every
+/// main conversation on a level, so `default` shows only before a
+/// conversation is shown.
+pub(crate) fn thinking_level(core: &SessionCore, session: &SessionSlot) -> String {
+    let Some(agent) = core
+        .view
         .as_ref()
-        .and_then(|view| view.translator.mirror().agent.thinking_level)
-        .map_or("off", |level| level.as_str())
+        .map(|view| &view.translator.mirror().agent)
+    else {
+        return "default".to_string();
+    };
+    let Some(level) = agent.thinking_level else {
+        return "default".to_string();
+    };
+    agent
+        .model
+        .as_ref()
+        .and_then(|model_ref| catalog_model(session, &model_ref.provider, &model_ref.model_id))
+        .map_or(level, |model| {
+            eukhe_ai::models::clamp_thinking_level(&model, level)
+        })
+        .as_str()
         .to_string()
 }
 
@@ -95,7 +114,7 @@ impl Worker {
     pub(crate) fn summary_locked(&self, core: &SessionCore) -> SessionSummary {
         let mut summary = session_summary(
             core,
-            &thinking_level(core),
+            &thinking_level(core, &self.session),
             model_metadata(core, &self.session),
             self.user_bash.is_running(),
             quota_parked(&self.session),
@@ -148,7 +167,7 @@ impl Worker {
             active_session_id: Some(core.active_session_id.clone()),
             cwd: core.cwd.clone(),
             model,
-            thinking_level: thinking_level(core),
+            thinking_level: thinking_level(core, &self.session),
             service_tier: core
                 .active_service_tier
                 .unwrap_or(eukhe_types::ai::ServiceTier::Auto)
@@ -350,7 +369,7 @@ pub(crate) async fn push_roster_delta(context: &RosterPushContext) {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut summary = session_summary(
             &core,
-            &thinking_level(&core),
+            &thinking_level(&core, &context.session),
             model_metadata(&core, &context.session),
             context.user_bash.is_running(),
             quota_parked(&context.session),

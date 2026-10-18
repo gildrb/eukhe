@@ -12,7 +12,7 @@ use std::path::Path;
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::clamp_thinking_level;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::durable::thinking_level;
+use eukhe_core::durable::default_thinking_level;
 use eukhe_core::models::SetModelSelectionError;
 use eukhe_core::settings::{SettingsManager, ThinkingLevelSetting};
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
@@ -243,9 +243,7 @@ pub(crate) async fn apply_model(
         if current_thinks {
             agent.thinking_level
         } else {
-            SettingsManager::create(&deps.cwd, &deps.agent_dir)
-                .get_default_thinking_level()
-                .map_or(ModelThinkingLevel::Medium, thinking_level)
+            default_thinking_level(&SettingsManager::create(&deps.cwd, &deps.agent_dir))
         }
     };
     let level = clamp_thinking_level(model, current);

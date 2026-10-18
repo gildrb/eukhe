@@ -7,12 +7,13 @@
 use std::sync::Arc;
 
 use eukhe_ai::auth::AuthOperationOptions;
-use eukhe_ai::models::{clamp_thinking_level, get_supported_thinking_levels};
+use eukhe_ai::models::clamp_thinking_level;
 use eukhe_chord::context::Context;
 use eukhe_core::durable::EukheSession;
 use eukhe_core::settings::cvar::table;
 use eukhe_core::settings::ThinkingLevelSetting;
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
+use eukhe_types::daemon::CycleDirection;
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::{json, Value};
 
@@ -212,24 +213,24 @@ async fn apply_thinking_level(
     Ok(())
 }
 
-/// `cycle_thinking_level` (TS `session.cycleThinkingLevel`): cycle the
-/// supported levels; a model without reasoning answers `null`.
+/// `cycle_thinking_level` (TS `session.cycleThinkingLevel`): one forward
+/// step through the levels the model offers (`cycle_thinking_level`); a
+/// ladder of fewer than two levels answers `null`.
 pub(crate) async fn cycle_thinking_level(state: &Arc<RpcState>) -> Result<ResponseData, String> {
     let _ops = state.model_ops.lock().await;
-    let (current, levels) = {
+    let next = {
         let session = state.session.session().await;
         let agent = main_agent(&session, &rpc_context()).await?;
-        let Some(model) = agent_model(&session, &agent).filter(|model| model.reasoning) else {
-            return Ok(ResponseData::Present(Value::Null));
-        };
-        (agent.thinking_level, get_supported_thinking_levels(&model))
+        agent_model(&session, &agent).and_then(|model| {
+            eukhe_ai::models::cycle_thinking_level(
+                &model,
+                agent.thinking_level,
+                CycleDirection::Forward,
+            )
+        })
     };
-    if levels.is_empty() {
+    let Some(next) = next else {
         return Ok(ResponseData::Present(Value::Null));
-    }
-    let next = match levels.iter().position(|level| *level == current) {
-        Some(index) => levels[(index + 1) % levels.len()],
-        None => levels[0],
     };
     apply_thinking_level(state, next).await?;
     Ok(ResponseData::Present(json!({ "level": next.as_str() })))
