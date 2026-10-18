@@ -1,23 +1,20 @@
-// No-flash theme bootstrap (gildrb themeScript), loaded blocking in <head>
-// because the CSP forbids inline scripts. A forced theme lives in
-// localStorage.theme; otherwise the OS preference applies. Keeps
-// <meta name="theme-color"> in sync with the scheme in effect.
+// No-flash theme bootstrap, loaded blocking in <head> (the CSP forbids
+// inline scripts). Every color is `light-dark()`, so the root's
+// `color-scheme` picks the palette: a forced theme lives in
+// localStorage.theme, otherwise the OS preference applies. The app keeps
+// both in sync afterwards (src/lib/actions.ts, applyTheme).
 {
-  const classes = { dark: 'theme-dark', light: 'theme-light' };
-  const colors = { dark: '#000000', light: '#ffffff' };
   const root = document.documentElement;
-  const query = matchMedia('(prefers-color-scheme: dark)');
+  let theme = null;
   try {
-    const theme = localStorage.getItem('theme');
-    if (theme === 'dark' || theme === 'light') root.classList.add(classes[theme]);
+    theme = localStorage.getItem('theme');
   } catch {
     // Storage blocked: follow the OS.
   }
-  const sync = () => {
-    const forced = ['dark', 'light'].find((theme) => root.classList.contains(classes[theme]));
-    const color = colors[forced || (query.matches ? 'dark' : 'light')];
-    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute('content', color);
-  };
-  sync();
-  query.addEventListener('change', sync);
+  const forced = theme === 'dark' || theme === 'light' ? theme : null;
+  root.style.colorScheme = forced || 'light dark';
+  const dark = forced ? forced === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+    meta.setAttribute('content', dark ? '#212121' : '#ffffff');
+  }
 }

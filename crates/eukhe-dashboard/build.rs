@@ -1,8 +1,9 @@
 //! Embeds the web app: every file under `web/` (dotfiles excepted) becomes
 //! one entry of the generated asset table, with its content type, its
-//! entity tag, and its bytes (`include_bytes!`). The web side stays
-//! build-free: a new file under `web/` is served after the next cargo
-//! build, with no table to edit. Also computes the digest of the whole
+//! entity tag, and its bytes (`include_bytes!`). `web/` is the committed
+//! output of the UI build (`ui/`, `make dashboard-ui`), so cargo needs no
+//! Node: a new file under `web/` is served after the next cargo build,
+//! with no table to edit. Also computes the digest of the whole
 //! tree, which `hello` reports in its `build` value.
 //!
 //! A file whose extension has no known content type fails the build: the

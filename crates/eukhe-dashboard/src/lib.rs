@@ -1,5 +1,5 @@
 //! Web dashboard (`eukhe dashboard`): a small loopback HTTP server that
-//! ships a build-free web app (plain HTML/CSS/JS embedded in the binary)
+//! ships a web app (built from `ui/` into `web/`, embedded in the binary)
 //! and bridges each browser tab over a WebSocket to the eukhe daemon. The
 //! tab chats with the root session the CLI and the Signal gateway use and
 //! browses the chat memory's tree. A daemon-wire client like the TUI: it

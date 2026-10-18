@@ -156,6 +156,25 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  # The dashboard's web app is built from crates/eukhe-dashboard/ui by Vite+
+  # into crates/eukhe-dashboard/web, which is committed (cargo and Nix build
+  # without Node). Rebuild it and fail when the committed output differs.
+  dashboard-ui:
+    name: dashboard UI (vp check + build, web/ up to date)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - run: make dashboard-ui
+      - run: git diff --exit-code --stat -- crates/eukhe-dashboard/web
+      - run: test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
+
   clippy-test:
     name: check + clippy (workspace)
     runs-on: ubuntu-24.04

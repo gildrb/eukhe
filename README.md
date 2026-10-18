@@ -301,6 +301,7 @@ on `127.0.0.1` only. To use it on a phone, run it under poros
 ```sh
 nix develop  # Rust toolchain, uv, git, ONNX Runtime (sets ORT_DYLIB_PATH)
 make check   # fmt, clippy, tests
+make dashboard-ui  # Node: rebuild the dashboard web app into crates/eukhe-dashboard/web (commit it)
 ```
 
 Run tests with a clean environment. Inherited `EUKHE_*` variables point

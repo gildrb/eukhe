@@ -11,10 +11,28 @@ CLI. It works on a phone and on a desktop.
 - Manage saved sessions: rename, fork, export, delete, new session.
 - Browse the chat memory as a tree of dated lines, down to each message.
 
-The app is plain HTML, CSS and JavaScript in the eukhe binary. It does not
-load files from the network. The fonts are in the binary too (Inter and
-Ioskeley Mono, SIL Open Font License; the license texts are at
-`fonts/inter-OFL.txt` and `fonts/IoskeleyMono-OFL.txt`).
+The app is in the eukhe binary. It does not load files from the network.
+The fonts are in the binary too (Inter and Ioskeley Mono, SIL Open Font
+License; the license texts are at `fonts/inter-OFL.txt` and
+`fonts/IoskeleyMono-OFL.txt`).
+
+## Change the app
+
+The source is in `crates/eukhe-dashboard/ui` (TypeScript, Preact with
+Radix primitives, StyleX, Vite+). `vp build` writes the app into
+`crates/eukhe-dashboard/web`, which is committed: `build.rs` embeds every
+file there, so cargo and Nix builds need no Node.
+
+1. Edit the source under `ui/src` (files that are copied as they are, such
+   as fonts and icons, are under `ui/public`).
+2. Run `make dashboard-ui`. It installs the locked packages, runs
+   `vp check` (format, lint, types) and `vp build`.
+3. Commit `ui/` and `web/` together. CI rebuilds the app and fails when
+   `web/` differs from the build.
+
+To see changes without a Rust build, run `npx vp dev` in `ui/` with
+`EUKHE_DASHBOARD=127.0.0.1:<port>` naming a running dashboard: the dev
+server proxies `api/ws` to it.
 
 ## Run
 
