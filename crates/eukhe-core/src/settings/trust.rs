@@ -2,8 +2,8 @@
 //! whatever repository the user opened, so the keys that can run code,
 //! redirect credentials or data, or move where code and kernel state load
 //! from apply only when the global `trustedProjects` list covers the
-//! project directory. `trustedProjects` and `gateway` are read from the
-//! global scope only.
+//! project directory. `trustedProjects`, `gateway` and `ssh` are read from
+//! the global scope only.
 
 use std::path::{Path, PathBuf};
 
@@ -146,7 +146,7 @@ pub(super) fn apply_project_trust(
 
 /// The project scope that applies at a trust level, plus the present keys
 /// it did not apply. A trusted project keeps everything except the
-/// global-only `trustedProjects` and `gateway`.
+/// global-only `trustedProjects`, `gateway` and `ssh`.
 pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Settings, Vec<String>) {
     match level {
         TrustLevel::Trusted => {
@@ -154,6 +154,7 @@ pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Sett
             let ignored = [
                 ("trustedProjects", project.trusted_projects.take().is_some()),
                 ("gateway", project.gateway.take().is_some()),
+                ("ssh", project.ssh.take().is_some()),
             ]
             .into_iter()
             .filter(|(_, present)| *present)
@@ -173,7 +174,7 @@ pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Sett
 /// MCP servers and catalogs, skill paths); moves where sessions and
 /// kernel snapshots live; toggles execution gates (factory, the model
 /// allowlist); hides startup output (and so this warning); the
-/// global-only `trustedProjects` and `gateway`; and unknown keys.
+/// global-only `trustedProjects`, `gateway` and `ssh`; and unknown keys.
 /// Everything else is a UI, model, or limit preference.
 fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
     let Settings {
@@ -240,6 +241,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         gateway,
         kernel_transport,
         shell,
+        ssh,
         model_roles,
         providers,
         titles,
@@ -262,6 +264,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         ("gateway", gateway.is_some()),
         ("kernelTransport", kernel_transport.is_some()),
         ("shell", shell.is_some()),
+        ("ssh", ssh.is_some()),
         ("providers", providers.is_some()),
     ];
     let ignored_keys = withheld
@@ -334,6 +337,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         gateway: None,
         kernel_transport: None,
         shell: None,
+        ssh: None,
         model_roles,
         providers: None,
         titles,

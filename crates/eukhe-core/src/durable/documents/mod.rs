@@ -3,10 +3,12 @@
 //! `glob` tools and the kernel's `fs.*` host requests. Both entry points
 //! decode through one contract per function and share the store, so a
 //! `read()` in the kernel makes its lines anchorable for the `edit` tool and
-//! the other way round. `read` also serves the internal URLs (`urls`).
+//! the other way round. `read` also serves the internal URLs (`urls`), and
+//! `ssh://` through the user's own `ssh` program (`ssh`).
 
 mod contract;
 mod requests;
+mod ssh;
 mod tool;
 mod urls;
 

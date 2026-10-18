@@ -8,8 +8,8 @@ use crate::settings::types::{
     ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings,
     ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
     RetryFailoverSettings, RetrySettings, Settings, ShellSettings, SignalGatewaySettings,
-    StreamPaceSettings, TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting,
-    TitleSettings, TransportSetting, TtsSettings, WarningSettings,
+    SshSettings, StreamPaceSettings, TerminalSettings, ThinkingBudgetsSettings,
+    ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -171,6 +171,9 @@ fn populated() -> Settings {
         kernel_transport: Some(Value::from(1)),
         shell: Some(ShellSettings {
             auto_effects: Some(vec![]),
+        }),
+        ssh: Some(SshSettings {
+            hosts: Some(vec![]),
         }),
         model_roles: Some(ModelRolesSettings {
             tiny: Some("m".into()),

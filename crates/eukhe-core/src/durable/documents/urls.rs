@@ -1,12 +1,15 @@
 //! The `read` function's internal URLs (docs/tools.md S7): `repo://` and
 //! `skill://` read a file or directory under their root through the
 //! session's documents (anchorable like any read); `agent://` reads a
-//! subagent's chat, `memory://` the chat memory, and `mcp://` an MCP
-//! server's resources (through the kernel, where the MCP client runs), as
-//! text. The path is confined by [`Url::names`]: a `..` above the scheme's
-//! root is an `escapes` rejection, never clamped; a file-backed read whose
-//! real path leaves the root's real path through a symlink is one too.
+//! subagent's chat, `memory://` the chat memory, `mcp://` an MCP server's
+//! resources (through the kernel, where the MCP client runs), and `ssh://`
+//! a file of a host that `ssh.hosts` allows (through the user's own
+//! `ssh`, [`super::ssh`]), as text. The path is confined by
+//! [`Url::names`] and [`Url::remote`]: a `..` above the scheme's root is
+//! an `escapes` rejection, never clamped; a file-backed read whose real
+//! path leaves the root's real path through a symlink is one too.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -20,6 +23,7 @@ use super::contract::Function;
 use super::requests::{
     read_rejection, read_reply, url_rejection, Done, Performed, ReadReply, Rejection,
 };
+use super::ssh::{SshError, SshRead};
 use super::DocumentsHost;
 use crate::durable::optchat::agent_chat;
 use crate::durable::tool_surface::kernel_manager;
@@ -257,6 +261,34 @@ pub(super) async fn read(
                             .join("\n")
                     }
                 };
+                Ok(Zoomed {
+                    text,
+                    images: Vec::new(),
+                })
+            }
+            .await
+        }
+        Scheme::Ssh => {
+            async {
+                let remote = url.remote().map_err(|error| url_error(&error))?;
+                let ssh_rejection = |error: SshError| rejection(error.reason(), &error);
+                let Some(api) = api else {
+                    return Err(ssh_rejection(SshError::NoCall));
+                };
+                let Some(deps) = host.deps.upgrade() else {
+                    return Err(rejection("io", &"the session is closing"));
+                };
+                let authored = format!("ssh://{}", url.path);
+                let read = SshRead::new(
+                    OsStr::new("ssh"),
+                    &authored,
+                    remote,
+                    &deps.settings.manager().get_ssh_hosts(),
+                    deps.blocking_budget(),
+                    api.truncation().max_bytes(),
+                )
+                .map_err(ssh_rejection)?;
+                let text = read.run().await.map_err(ssh_rejection)?;
                 Ok(Zoomed {
                     text,
                     images: Vec::new(),

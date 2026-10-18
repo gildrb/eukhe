@@ -30,7 +30,7 @@ Path suffixes: :50 or :50- starts at line 50; :50-200 inclusive; :50+150 counts 
 Sources:
 - File: `[foo.ts#1A2B]` snapshot, then `N:TEXT` lines. Copy `[FILENAME#TAG]` for anchored edits; NEVER invent tag.
 - Directory: complete root; child listings cap at 12 (`… N more`), read child.
-- Internal URLs: `repo://<path>` under the workspace root; `skill://<name>/<path>` under a skill's directory (bare `skill://<name>`: its SKILL.md); `agent://<name|id>` a subagent's chat; `memory://` the chat view, `memory://<id>` message id whole, `memory://<id>/<n>` line id+n; `mcp://<server>` an MCP server's resources, `mcp://<server>/<uri>` one resource. `..` never leaves a URL's root: a path above it, or a symlink out of it, is rejected.";
+- Internal URLs: `repo://<path>` under the workspace root; `skill://<name>/<path>` under a skill's directory (bare `skill://<name>`: its SKILL.md); `agent://<name|id>` a subagent's chat; `memory://` the chat view, `memory://<id>` message id whole, `memory://<id>/<n>` line id+n; `mcp://<server>` an MCP server's resources, `mcp://<server>/<uri>` one resource; `ssh://<host>/<path>` one remote text file (`/<path>` from the remote root, `/~/<path>` under the remote home; only hosts in the user's `ssh.hosts`). `..` never leaves a URL's root: a path above it, or a symlink out of it, is rejected.";
 
 const GREP_DESCRIPTION: &str = "Regex: Rust syntax. `path`: `;`-separated file/dir/glob; default `.`. Default case-sensitive, gitignore respected; `skip` paginates files.
 File-only selector: `src/foo.ts:50-100`. Literal `\\n`/`\\\\n` enables cross-line.

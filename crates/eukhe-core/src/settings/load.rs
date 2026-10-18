@@ -67,6 +67,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "gateway",
     "kernelTransport",
     "shell",
+    "ssh",
     "modelRoles",
     "providers",
     "titles",

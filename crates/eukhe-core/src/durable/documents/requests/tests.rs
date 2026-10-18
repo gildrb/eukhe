@@ -286,6 +286,9 @@ async fn urls_the_session_cannot_serve_are_typed_rejections() {
         "repo://leak",
         "skill://notes/../../x",
         "ssh://host/etc/passwd",
+        "ssh://-oProxyCommand=x/etc/passwd",
+        "ssh://host/~/../etc/passwd",
+        "sftp://host/etc/passwd",
         "skill://nope/SKILL.md",
         "memory://",
         "agent://Scout",
@@ -318,8 +321,20 @@ async fn urls_the_session_cannot_serve_are_typed_rejections() {
                 "skill://notes/../../x goes above the root of skill://; `..` cannot leave it"
             ),
             rejected(
+                "arguments",
+                "ssh:// reads run in a tool call (the call's output cap bounds them); there is none"
+            ),
+            rejected(
+                "arguments",
+                "ssh://-oProxyCommand=x/ does not name a host; write ssh://<host>/<path> with a host of letters, digits, `.`, `-`, `_` and `@` (set ports and options in ~/.ssh/config)"
+            ),
+            rejected(
+                "escapes",
+                "ssh://host/~/../etc/passwd goes above the root of ssh://; `..` cannot leave it"
+            ),
+            rejected(
                 "scheme",
-                "Unknown scheme ssh://; read serves agent://, skill://, memory://, mcp://, and repo://"
+                "Unknown scheme sftp://; read serves agent://, skill://, memory://, mcp://, repo://, and ssh://"
             ),
             rejected("not_found", "Path 'skill://nope/SKILL.md' not found"),
             rejected("not_found", "this session has no chat memory"),

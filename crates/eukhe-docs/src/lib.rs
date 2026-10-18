@@ -65,5 +65,5 @@ pub use store::{
     DEFAULT_MAX_PATHS, DEFAULT_MAX_TOTAL_BYTES, DEFAULT_MAX_VERSIONS_PER_PATH,
     MAX_SNAPSHOT_FILE_BYTES, NOOP_HARD_LIMIT,
 };
-pub use url::{Located, Scheme, Url, UrlError};
+pub use url::{Located, Remote, Scheme, Url, UrlError};
 pub use write::{WriteDisposition, WriteError, WriteOutcome};

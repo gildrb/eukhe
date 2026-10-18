@@ -263,6 +263,7 @@ pub(super) fn url_rejection(error: &UrlError) -> &'static str {
     match error {
         UrlError::UnknownScheme { .. } => "scheme",
         UrlError::Escapes { .. } | UrlError::Leaves { .. } => "escapes",
+        UrlError::Host { .. } => "arguments",
     }
 }
 

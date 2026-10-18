@@ -596,4 +596,11 @@ impl SettingsManager {
     pub fn get_shell_auto_effects(&self) -> Vec<String> {
         self.cvars().list(&table::SHELL_AUTO_EFFECTS)
     }
+
+    /// `ssh.hosts`: the hosts an `ssh://` read may reach (Global: new
+    /// outbound traffic). Empty: every `ssh://` read is rejected.
+    #[must_use]
+    pub fn get_ssh_hosts(&self) -> Vec<String> {
+        self.cvars().list(&table::SSH_HOSTS)
+    }
 }

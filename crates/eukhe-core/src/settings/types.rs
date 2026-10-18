@@ -326,6 +326,17 @@ pub struct ShellSettings {
     pub auto_effects: Option<Vec<String>>,
 }
 
+/// `ssh`: the `ssh://` reads of the `read` tool. Global-only: a read
+/// reaches a remote host, new outbound traffic, so no project scope may
+/// set it (see `settings::trust`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshSettings {
+    /// The hosts (as the URL names them: `box`, `user@box`) an `ssh://`
+    /// read may reach. Absent or empty: none.
+    pub hosts: Option<Vec<String>>,
+}
+
 /// `gateway`: the chat gateways `eukhe gateway` runs. Global-only: a
 /// gateway routes a remote party into code execution on this machine, so
 /// no project scope may set it (see `settings::trust`).
@@ -518,6 +529,9 @@ pub struct Settings {
     pub kernel_transport: Option<serde_json::Value>,
     /// `shell`: the shell tool's execution gate.
     pub shell: Option<ShellSettings>,
+    /// Global-only: the hosts `ssh://` reads may reach. A project-scope
+    /// value is never read (see `settings::trust`).
+    pub ssh: Option<SshSettings>,
     /// `modelRoles`: the primary model of each S9 role.
     pub model_roles: Option<ModelRolesSettings>,
     /// `providers`: the local tiny-model worker's settings.

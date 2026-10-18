@@ -47,9 +47,9 @@ tools behind `dyn`, the internal URLs and the shell.
    `mcp://<server>` lists the resources of a server and
    `mcp://<server>/<uri>` reads one (text; a binary part is a note with
    its size and MIME type), bounded like any read. The server must be one
-   of the generic MCP servers of the session. `ssh://` gets the rejection
-   `scheme`: eukhe has no SSH client. `glob` rejects all schemes; `grep`
-   does not find a scheme path.
+   of the generic MCP servers of the session. `ssh://<host>/<path>` reads
+   one remote text file (item 9 has the rules). `glob` rejects all
+   schemes; `grep` does not find a scheme path.
 6. Confinement. A URL path is a list of `/`-separated segments under the
    root of its scheme. `..` goes up one segment; `.` and an empty segment
    do not move. A path that goes above its root gets the rejection
@@ -58,7 +58,10 @@ tools behind `dyn`, the internal URLs and the shell.
    read resolves the real path (it follows symlinks) and requires it under
    the real path of the root. A symlink out of the root also gets the
    rejection `escapes`. This guard is against the filesystem; the model
-   stays the lexical rule. A plain file path is not confined; this is the
+   stays the lexical rule. An `ssh://` path has one of two roots on its
+   host: the remote `/`, or the remote home when the first segment is
+   exactly `~`. eukhe cannot see the remote filesystem, so a remote
+   symlink is not checked. A plain file path is not confined; this is the
    same as before. Absolute paths and `..` from the working directory
    still read any file. `lexical_normalize` keeps the filesystem rule
    (`/..` is `/`) and is not used for URL paths.
@@ -161,6 +164,45 @@ tools behind `dyn`, the internal URLs and the shell.
    thus not stop an effect; it would only seem to. Also, `bash()` gives a
    live process handle (pid, kill, tail, background notices) that an
    in-process shell cannot give. The `bash` tool is the gated surface.
+9. Remote reads (`ssh://`). An `ssh://` read is new outbound traffic, so
+   it is off by default:
+   1. The host must be in the setting `ssh.hosts` (a list of strings;
+      default empty). The setting is Global: eukhe reads it from the
+      global `settings.json` only, and a project cannot set it. The host
+      must agree with an entry as written (`box`, `me@box`). When the list
+      is empty, each `ssh://` read gets the rejection `not_allowed`, and
+      the message names `ssh.hosts`.
+   2. The host is letters, digits, `.`, `-`, `_` and `@`. It must not
+      start with `-`. Other hosts get the rejection `arguments`. Put
+      ports, users and options in `~/.ssh/config`.
+   3. `ssh://box/etc/hosts` reads `/etc/hosts`. `ssh://box/~/notes/a.md`
+      reads `notes/a.md` under the remote home. `ssh://box/~/../x` and
+      `ssh://box/../x` get the rejection `escapes` (item 6).
+   4. eukhe runs the `ssh` program of the user with the user's
+      `~/.ssh/config`: `ssh -T -o BatchMode=yes -o ConnectTimeout=<s>
+      -o ClearAllForwardings=yes -- <host> "cat -- '<path>'"`. eukhe
+      handles no key and no password. With `BatchMode`, a host that asks
+      for a password or a passphrase fails at once. The path goes to the
+      remote shell as one single-quoted word (`'` becomes `'\''`). Thus no
+      character of the path is shell syntax on the remote host. The
+      remote login shell must be a POSIX shell.
+   5. The output cap of the call (S2) keeps the first bytes of the file.
+      eukhe counts the remaining bytes, and the first line of the reply
+      gives the number that the cap dropped. The blocking budget
+      (`toolBlockingBudgetMs`) ends the read: `ssh` runs in its own
+      process group, and eukhe kills the group at the deadline. A read
+      that did not fill the cap by the deadline gets the rejection
+      `timeout`. A read that filled the cap gives its bytes, and the
+      first line tells that the cap dropped that number of bytes or more.
+   6. The read must run in a tool call. A kernel `read()` outside a tool
+      call has no output cap, so it gets the rejection `arguments`.
+   7. The rejections are typed: `host` (an unknown host, a host that does
+      not connect, a host key that is not known or that changed), `auth`
+      (the host refused each key), `not_found`, `is_directory`,
+      `permission_denied`, `binary` (not UTF-8 text, or a NUL byte),
+      `timeout`, and `io` (no `ssh` on `PATH`, or another failure).
+   8. The read is of one whole file, as text. It has no `[path#TAG]`
+      header and no selector, and its lines are not edit anchors.
 
 Model: `bend/tools.bend`. Laws: `LAWS.bend` section (S7). Proofs:
 `bend/proof_tools.bend`. Every input is free: any tools that join and
@@ -193,10 +235,12 @@ every schema, then fixes the roster); `durable/tool_contract.rs`
 (`parameters`, `build`); `durable/tool_surface/mod.rs` (`ToolSurface`,
 the `dyn` tool, `report_issue`); `kernel/manager/mod.rs`
 `mcp_tool_call` and the `mcp_call` request of the kernel's MCP lane
-(`eukhe-runtime/src/rlm/repl.py`); `eukhe-docs/src/url.rs` (`Url::names`,
-the one place that walks a URL path); `eukhe-core/src/durable/shell.rs`
-(the `bash` tool and its approval) and the crate `eukhe-shell` (the
-in-process shell, `effect.rs`, the gate).
+(`eukhe-runtime/src/rlm/repl.py`); `eukhe-docs/src/url.rs` (`walk`, the
+one place that walks a URL path, under `Url::names` and `Url::remote`);
+`eukhe-core/src/durable/documents/ssh.rs` (`SshRead`: the `ssh.hosts`
+check, the `ssh` arguments, the bounded read and the typed errors);
+`eukhe-core/src/durable/shell.rs` (the `bash` tool and its approval) and
+the crate `eukhe-shell` (the in-process shell, `effect.rs`, the gate).
 
 Tie: the bridge test
 `durable::tool_surface::bridge::the_rust_tool_surface_equals_the_bend_model`
@@ -206,7 +250,8 @@ drives a real registry with its roster fixed, a `ToolSurface` and
 (the registry is also asked to install them) and quit (the registry is
 also asked to drop the roster), requests resolved as the Harness resolves
 them, and schemas built twice. `bend/bridge_paths.bend` compares
-`Url::names` with the model `resolve` and `stays`. `bend/bridge_shell.bend`
+`Url::names` with the model `resolve` and `stays`; `Url::remote` walks
+with the same `walk`. `bend/bridge_shell.bend`
 compares the gate of `eukhe-shell`
 (`run::tests::the_gate_runs_as_its_model`) with the model `exec`.
 Regression tests:
@@ -214,8 +259,13 @@ Regression tests:
 `durable::tool_surface::tests` (an open session over two turns: every
 request sends the same roster while a late tool is listed and run through
 `dyn`, `report_issue` stores its row, and install and `configure` are
-rejected), and the daemon test `dyn_tool_e2e` (a configured stdio MCP
+rejected), the daemon test `dyn_tool_e2e` (a configured stdio MCP
 server's tool is listed and called through `dyn`; the transcript holds one
-tool loadout). Not modelled: the wire form of the version annotation, the
-MCP listing and call through the kernel, and the row of a report. Their
-tests tie them.
+tool loadout), `url::tests::an_ssh_url_*` (the host and path rules), and
+`durable::documents::ssh::tests` (a fake `ssh` that records its arguments
+and plays hosts: a path with shell syntax reads the file of that name and
+runs nothing, each failure is its typed error, the output cap counts the
+dropped bytes, and the budget kills `ssh`). Not modelled: the wire form of
+the version annotation, the MCP listing and call through the kernel, the
+row of a report, and the remote side of an `ssh://` read. Their tests tie
+them.

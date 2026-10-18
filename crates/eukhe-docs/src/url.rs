@@ -4,7 +4,9 @@
 //! of its scheme: `..` goes up one, `.` and empty segments stay, and a path
 //! that goes above its root is rejected, never clamped. A file-backed URL
 //! also has a real-path guard the model does not need: its real path
-//! (symlinks followed) must stay under the root's real path.
+//! (symlinks followed) must stay under the root's real path. An `ssh://`
+//! path has one of two roots on its host: the remote `/`, or the remote
+//! home when its first segment is `~` ([`Url::remote`]).
 
 use std::path::PathBuf;
 
@@ -25,16 +27,20 @@ pub enum Scheme {
     Mcp,
     /// `repo://<path>`: a file under the workspace root.
     Repo,
+    /// `ssh://<host>/<path>`: a file on a host the user allows, read
+    /// through the user's own `ssh` ([`Url::remote`]).
+    Ssh,
 }
 
 impl Scheme {
     /// Every scheme, in the order the messages name them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Agent,
         Self::Skill,
         Self::Memory,
         Self::Mcp,
         Self::Repo,
+        Self::Ssh,
     ];
 
     /// The scheme's name, without `://`.
@@ -46,6 +52,7 @@ impl Scheme {
             Self::Memory => "memory",
             Self::Mcp => "mcp",
             Self::Repo => "repo",
+            Self::Ssh => "ssh",
         }
     }
 }
@@ -55,7 +62,7 @@ impl Scheme {
 pub enum UrlError {
     /// The scheme is not one of [`Scheme::ALL`].
     #[error(
-        "Unknown scheme {scheme}://; read serves agent://, skill://, memory://, mcp://, and repo://"
+        "Unknown scheme {scheme}://; read serves agent://, skill://, memory://, mcp://, repo://, and ssh://"
     )]
     UnknownScheme {
         /// Lowercase scheme without punctuation.
@@ -78,6 +85,16 @@ pub enum UrlError {
         /// The rejected path, as written.
         path: String,
     },
+    /// The host of an `ssh://` URL is not a plain host name: empty, a
+    /// leading `-` (an `ssh` option), or a character other than a letter,
+    /// a digit, `.`, `-`, `_` and `@`.
+    #[error(
+        "ssh://{host}/ does not name a host; write ssh://<host>/<path> with a host of letters, digits, `.`, `-`, `_` and `@` (set ports and options in ~/.ssh/config)"
+    )]
+    Host {
+        /// The rejected host, as written.
+        host: String,
+    },
 }
 
 /// Where a file-backed URL's names lead: the file or directory, and the
@@ -86,6 +103,16 @@ pub enum UrlError {
 pub struct Located {
     pub root: PathBuf,
     pub path: PathBuf,
+}
+
+/// Where an `ssh://` URL's names lead on the remote host.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Remote<'a> {
+    /// The host as written (`box`, `user@box`).
+    pub host: &'a str,
+    /// The path the remote read gets: absolute (`/etc/hosts`), or relative
+    /// to the remote home (`notes/a.md`; `.` for the home).
+    pub path: String,
 }
 
 /// One segment of a URL path.
@@ -132,23 +159,69 @@ impl<'a> Url<'a> {
     ///
     /// [`UrlError::Escapes`] when a `..` goes above the root.
     pub fn names(self) -> Result<Vec<&'a str>, UrlError> {
-        let mut at = Vec::new();
-        for segment in segments(self.path) {
-            match segment {
-                Segment::Name(name) => at.push(name),
-                Segment::Here => {}
-                Segment::Up => {
-                    if at.pop().is_none() {
-                        return Err(UrlError::Escapes {
-                            scheme: self.scheme.name(),
-                            path: self.path.to_owned(),
-                        });
-                    }
+        walk(self.path).ok_or_else(|| self.escapes())
+    }
+
+    /// The host and remote path of an `ssh://<host>/<path>` URL. The path
+    /// is walked like every URL path. Its root is the remote `/`; when its
+    /// first segment is `~`, the root is the remote home and the path is
+    /// relative to it.
+    ///
+    /// # Errors
+    ///
+    /// [`UrlError::Host`] when the host is not a plain host name;
+    /// [`UrlError::Escapes`] when a `..` goes above the root.
+    pub fn remote(self) -> Result<Remote<'a>, UrlError> {
+        let (host, rest) = self.path.split_once('/').unwrap_or((self.path, ""));
+        let plain = !host.is_empty()
+            && !host.starts_with('-')
+            && host.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'@')
+            });
+        if !plain {
+            return Err(UrlError::Host {
+                host: host.to_owned(),
+            });
+        }
+        let home = rest
+            .strip_prefix('~')
+            .filter(|under| under.is_empty() || under.starts_with('/'));
+        let path = match home {
+            Some(under) => {
+                let names = walk(under).ok_or_else(|| self.escapes())?;
+                if names.is_empty() {
+                    ".".to_owned()
+                } else {
+                    names.join("/")
                 }
             }
-        }
-        Ok(at)
+            None => format!("/{}", walk(rest).ok_or_else(|| self.escapes())?.join("/")),
+        };
+        Ok(Remote { host, path })
     }
+
+    fn escapes(self) -> UrlError {
+        UrlError::Escapes {
+            scheme: self.scheme.name(),
+            path: self.path.to_owned(),
+        }
+    }
+}
+
+/// The names `path` reaches under its root, root first; `None` when a
+/// `..` goes above the root.
+fn walk(path: &str) -> Option<Vec<&str>> {
+    let mut at = Vec::new();
+    for segment in segments(path) {
+        match segment {
+            Segment::Name(name) => at.push(name),
+            Segment::Here => {}
+            Segment::Up => {
+                at.pop()?;
+            }
+        }
+    }
+    Some(at)
 }
 
 /// The segments of a URL path, in order.
@@ -190,7 +263,7 @@ mod tests {
                 names("REPO://a/b/../c"),
                 names("memory://"),
                 names("skill://s/../t/x.md"),
-                names("ssh://host/etc"),
+                names("sftp://host/etc"),
                 names("src/a.rs"),
                 names("C:/x"),
             ],
@@ -200,7 +273,7 @@ mod tests {
                 Some(Ok(vec![])),
                 Some(Ok(vec!["t", "x.md"])),
                 Some(Err(UrlError::UnknownScheme {
-                    scheme: "ssh".to_owned()
+                    scheme: "sftp".to_owned()
                 })),
                 None,
                 None,
@@ -229,6 +302,89 @@ mod tests {
                     scheme: "agent",
                     path: "/..".to_owned()
                 })),
+            ]
+        );
+    }
+
+    fn remote(authored: &str) -> Result<Remote<'_>, UrlError> {
+        Url::parse(authored).expect("a URL").and_then(Url::remote)
+    }
+
+    fn at<'a>(host: &'a str, path: &str) -> Remote<'a> {
+        Remote {
+            host,
+            path: path.to_owned(),
+        }
+    }
+
+    #[test]
+    fn an_ssh_url_names_a_host_and_a_path_under_slash_or_the_home() {
+        assert_eq!(
+            [
+                remote("ssh://box/etc/hosts"),
+                remote("SSH://me@box.lan/a/./b//c/../d"),
+                remote("ssh://box"),
+                remote("ssh://box/"),
+                remote("ssh://box/~"),
+                remote("ssh://box/~/notes/a.md"),
+                remote("ssh://box/~notes/a.md"),
+                remote("ssh://box/a/~/b"),
+                remote("ssh://box/~/-rf"),
+                remote("ssh://box/x'; rm -rf ~ #"),
+            ],
+            [
+                at("box", "/etc/hosts"),
+                at("me@box.lan", "/a/b/d"),
+                at("box", "/"),
+                at("box", "/"),
+                at("box", "."),
+                at("box", "notes/a.md"),
+                at("box", "/~notes/a.md"),
+                at("box", "/a/~/b"),
+                at("box", "-rf"),
+                at("box", "/x'; rm -rf ~ #"),
+            ]
+            .map(Ok)
+        );
+    }
+
+    #[test]
+    fn an_ssh_url_rejects_an_option_or_shell_text_as_host_and_a_path_above_its_root() {
+        let host = |host: &str| {
+            Err(UrlError::Host {
+                host: host.to_owned(),
+            })
+        };
+        let escapes = |path: &str| {
+            Err(UrlError::Escapes {
+                scheme: "ssh",
+                path: path.to_owned(),
+            })
+        };
+        assert_eq!(
+            [
+                remote("ssh:///etc/hosts"),
+                remote("ssh://-oProxyCommand=touch%20x/etc"),
+                remote("ssh://box;id/etc"),
+                remote("ssh://$(id)/etc"),
+                remote("ssh://box id/etc"),
+                remote("ssh://`id`/etc"),
+                remote("ssh://box:22/etc"),
+                remote("ssh://box/../etc"),
+                remote("ssh://box/~/../etc"),
+                remote("ssh://box/~/a/../../b"),
+            ],
+            [
+                host(""),
+                host("-oProxyCommand=touch%20x"),
+                host("box;id"),
+                host("$(id)"),
+                host("box id"),
+                host("`id`"),
+                host("box:22"),
+                escapes("box/../etc"),
+                escapes("box/~/../etc"),
+                escapes("box/~/a/../../b"),
             ]
         );
     }

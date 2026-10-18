@@ -9,7 +9,8 @@
 //! The Global cvars are the settings eukhe read from the global document
 //! only before cvars (`rlmMaxDepth`, `providerMaxInFlight`,
 //! `providerMaxQueued`, `idleEvictionMinutes`, the session archive rules,
-//! `allowedModels`, `factory.enabled`, `trustedProjects`, `gateway.*`)
+//! `allowedModels`, `factory.enabled`, `trustedProjects`, `gateway.*`,
+//! `ssh.hosts`)
 //! plus `memory.model` and `memory.thinking`: the chat-memory compactor is
 //! one per daemon, built over the agent dir alone
 //! (`memory::summarizer::configured_memory_model` and
@@ -1085,6 +1086,18 @@ pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     init: Init::List(&["read"]),
 };
 
+/// The hosts an `ssh://` read may reach (docs/tools.md S7.5): new
+/// outbound traffic, so a project may not set it and an agent never
+/// saves it. Empty: every `ssh://` read is rejected.
+pub const SSH_HOSTS: Decl = Decl {
+    id: "ssh.hosts",
+    ty: CvarType::List,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::EmptyList,
+};
+
 /// `modelRoles.<role>`: the primary model of an S9 role (`local/<id>` or
 /// `provider/model`); `""`: unset (`eukhe_tiny::chain`).
 const fn model_role(id: &'static str) -> Decl {
@@ -1283,6 +1296,7 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_CWD,
     KERNEL_TRANSPORT,
     SHELL_AUTO_EFFECTS,
+    SSH_HOSTS,
     MODEL_ROLE_TINY,
     MODEL_ROLE_JUDGE,
     MODEL_ROLE_TRANSLATE,
