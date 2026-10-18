@@ -226,6 +226,9 @@ def Laws.run_rounds_fail_at_cap(cfg, evs):
 def Laws.run_polls_need_defers(cfg, evs):
   Runs.polls_need_defers(cfg, evs)
 
+def Laws.run_no_answer_is_an_error(cfg, tool, retrying, r, c, a, p, same, last):
+  Runs.no_answer(cfg, tool, retrying, r, c, a, p, same, last)
+
 # (H3) A user's request never waits behind background work
 
 def Laws.admission_preempts(s):

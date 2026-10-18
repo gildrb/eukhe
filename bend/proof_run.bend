@@ -11,6 +11,8 @@
 #   every run, by induction on its inputs.
 # - polls_need_defers: an invariant of the run and its deferred replies in
 #   a row, by induction on its inputs.
+# - no_answer: by computation: Ended.reply makes a message with no text
+#   and no call an Error, whatever its stop reason.
 
 import Base
 import ./run.bend as R
@@ -1139,3 +1141,9 @@ def rounds_fail_at_cap(+cfg: R.Cfg, +evs: List<&2, R.Ev>) -> Or({R.capped(R.run(
 
 def polls_need_defers(+cfg: R.Cfg, +evs: List<&2, R.Ev>) -> Or({R.polled(R.run(cfg, evs)) == False{} : Bool}, {R.defers(cfg, evs) == 1n+R.Cfg.polls(cfg) : Nat}):
   polls_of(cfg, R.run(cfg, evs), R.defers(cfg, evs), pinv_run(evs, cfg, R.init(cfg), 0n, Unit{}))
+
+# a message that ends the model's turn with no text and no tool call steps
+# as a model error does: retried while retries are left and the retry
+# policy is on, else the run fails on the model
+def no_answer(+cfg: R.Cfg, -tool: Bool, +retrying: Bool, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +same: Nat, +last: Nat) -> {R.call(cfg, R.Ended.reply(R.Ended{tool, False{}, False{}, retrying}), r, c, a, p, same, last) == R.retry(cfg, retrying, r, c, a, p, same, last) : R.St}:
+  {==}

@@ -3,15 +3,16 @@
 //! the same scenarios and must print the same transcript, byte for byte.
 //!
 //! A scenario is a list of inputs (`bend/bridge_run.bend` documents the
-//! format): model replies, finished rounds, compaction results, aborts. The
-//! driver below calls, at each phase, the decision that phase calls in
-//! production, and keeps the counters its checkpoints carry: a preparation
-//! goes through [`before_request`], a resumed one through
-//! [`after_compaction`], a reply through [`after_reply`], a finished round
-//! through [`Rounds::finish`] and [`RoundEnd::reset`]. An abort ends every
-//! phase: the generation's `abort` handler has no other outcome, and
-//! `classify` yields to it. After each input both sides print the phase and
-//! the counts left.
+//! format): model replies, messages that end the model's turn (which
+//! [`Ended::reply`] reads, as `classify` does), finished rounds, compaction
+//! results, aborts. The driver below calls, at each phase, the decision
+//! that phase calls in production, and keeps the counters its checkpoints
+//! carry: a preparation goes through [`before_request`], a resumed one
+//! through [`after_compaction`], a reply through [`after_reply`], a
+//! finished round through [`Rounds::finish`] and [`RoundEnd::reset`]. An
+//! abort ends every phase: the generation's `abort` handler has no other
+//! outcome, and `classify` yields to it. After each input both sides print
+//! the phase and the counts left.
 //!
 //! [`compare`] runs it (and skips without `bend`, unless
 //! `EUKHE_REQUIRE_BEND` is set).
@@ -20,8 +21,8 @@ use std::fmt::Write as _;
 use std::num::NonZeroU32;
 
 use super::decide::{
-    after_compaction, after_reply, before_request, Compacted, Compaction, Counts, Failure, Limit,
-    Limits, Prepared, Reply, RoundEnd, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
+    after_compaction, after_reply, before_request, Compacted, Compaction, Counts, Ended, Failure,
+    Limit, Limits, Prepared, Reply, RoundEnd, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
 };
 use crate::testing::bridge::{compare, Rng, Scenario};
 
@@ -46,16 +47,24 @@ enum Fin {
     Resets,
 }
 
+/// What the model answers: a reply as `classify` decides it, or a message
+/// that ends the model's turn, which [`Ended::reply`] reads.
+#[derive(Clone, Copy)]
+enum Answer {
+    Reply(Reply<()>),
+    Ended(Ended),
+}
+
 /// One input, as the model reads it: an abort, or what the world answers
 /// in the run's phase. A phase reads its own part of a `Go`: preparation
-/// and a call the reply (at preparation an overflow with a cut is a
+/// and a call the answer (at preparation an overflow with a cut is a
 /// context over the blocking threshold), a compaction `got`, a round
 /// `hash` and `fin`.
 #[derive(Clone, Copy)]
 enum Input {
     Abort,
     Go {
-        reply: Reply<()>,
+        answer: Answer,
         hash: u64,
         fin: Fin,
         got: Compacted,
@@ -63,9 +72,9 @@ enum Input {
 }
 
 impl Input {
-    fn reply(reply: Reply<()>) -> Self {
+    fn answer(answer: Answer) -> Self {
         Self::Go {
-            reply,
+            answer,
             hash: 0,
             fin: Fin::Goes,
             got: Compacted::Entry,
@@ -74,7 +83,7 @@ impl Input {
 
     fn write(self, events: &mut String) {
         let Self::Go {
-            reply,
+            answer,
             hash,
             fin,
             got,
@@ -83,12 +92,27 @@ impl Input {
             events.push_str("a\n");
             return;
         };
-        let (kind, flag) = match reply {
-            Reply::Text => ('t', false),
-            Reply::Calls => ('c', false),
-            Reply::Deferred(()) => ('d', false),
-            Reply::Error { retryable } => ('e', retryable),
-            Reply::Overflow { cut } => ('o', cut),
+        let (kind, flag, held) = match answer {
+            Answer::Reply(Reply::Text) => ('t', false, String::new()),
+            Answer::Reply(Reply::Calls) => ('c', false, String::new()),
+            Answer::Reply(Reply::Deferred(())) => ('d', false, String::new()),
+            Answer::Reply(Reply::Error { retryable }) => ('e', retryable, String::new()),
+            Answer::Reply(Reply::Overflow { cut }) => ('o', cut, String::new()),
+            Answer::Ended(Ended {
+                tool_use,
+                text,
+                calls,
+                retrying,
+            }) => (
+                'm',
+                retrying,
+                format!(
+                    " {} {} {}",
+                    u8::from(tool_use),
+                    u8::from(text),
+                    u8::from(calls)
+                ),
+            ),
         };
         let flag = u8::from(flag);
         let fin = match fin {
@@ -101,7 +125,7 @@ impl Input {
             Compacted::Nothing => 1,
             Compacted::Failed => 2,
         };
-        let _ = writeln!(events, "g {kind} {flag} {hash} {fin} {got}");
+        let _ = writeln!(events, "g {kind} {flag} {hash} {fin} {got}{held}");
     }
 }
 
@@ -133,13 +157,18 @@ impl Run {
             return;
         }
         let Input::Go {
-            reply,
+            answer,
             hash,
             fin,
             got,
         } = input
         else {
             return self.end("aborted");
+        };
+        // `classify`: a message that ends the model's turn makes its reply.
+        let reply = match answer {
+            Answer::Reply(reply) => reply,
+            Answer::Ended(ended) => ended.reply(),
         };
         let at = self.at;
         match self.phase {
@@ -240,26 +269,33 @@ fn pick(rng: &mut Rng, phase: Phase, last_hash: &mut u64) -> Input {
         return Input::Abort;
     }
     match phase {
-        Phase::Prepare => Input::reply(if rng.chance(20) {
+        Phase::Prepare => Input::answer(Answer::Reply(if rng.chance(20) {
             Reply::Overflow {
                 cut: rng.chance(70),
             }
         } else {
             Reply::Text
-        }),
-        Phase::Call => Input::reply(match rng.below(100) {
-            0..10 => Reply::Text,
-            10..45 => Reply::Calls,
-            45..65 => Reply::Deferred(()),
-            65..85 => Reply::Error {
+        })),
+        Phase::Call => Input::answer(match rng.below(100) {
+            0..10 => Answer::Reply(Reply::Text),
+            10..40 => Answer::Reply(Reply::Calls),
+            40..55 => Answer::Reply(Reply::Deferred(())),
+            55..70 => Answer::Reply(Reply::Error {
                 retryable: rng.chance(70),
-            },
-            _ => Reply::Overflow {
+            }),
+            // Half of these hold no text and no tool call.
+            70..85 => Answer::Ended(Ended {
+                tool_use: rng.chance(50),
+                text: rng.chance(30),
+                calls: rng.chance(30),
+                retrying: rng.chance(70),
+            }),
+            _ => Answer::Reply(Reply::Overflow {
                 cut: rng.chance(60),
-            },
+            }),
         }),
         Phase::Compact(_) => Input::Go {
-            reply: Reply::Text,
+            answer: Answer::Reply(Reply::Text),
             hash: 0,
             fin: Fin::Goes,
             got: match rng.below(100) {
@@ -273,7 +309,7 @@ fn pick(rng: &mut Rng, phase: Phase, last_hash: &mut u64) -> Input {
                 *last_hash = rng.below(3);
             }
             Input::Go {
-                reply: Reply::Text,
+                answer: Answer::Reply(Reply::Text),
                 hash: *last_hash,
                 fin: match rng.below(100) {
                     0..5 => Fin::Stops,

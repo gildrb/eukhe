@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 
 use self::decide::{
     after_compaction, after_reply, before_request, threshold_for, Compacted, Compaction, Counts,
-    Failure, Limits, Prepared, Reply, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
+    Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
 };
 use self::force::{soft_prompt, ForceReply, ForceStep, Forcing};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
@@ -956,13 +956,45 @@ async fn classify(
     let settings = runtime.settings();
     let reply = if let Some(handle) = deferred {
         Reply::Deferred(handle)
-    } else if message.stop_reason == StopReason::ToolUse && !calls.is_empty() {
-        Reply::Calls
     } else if matches!(
         message.stop_reason,
         StopReason::Stop | StopReason::Length | StopReason::ToolUse
     ) {
-        Reply::Text
+        let reply = Ended {
+            tool_use: message.stop_reason == StopReason::ToolUse,
+            text: message.content.iter().any(|content| match content {
+                AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
+                AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => false,
+            }),
+            calls: !calls.is_empty(),
+            retrying: settings.retry.enabled,
+        }
+        .reply();
+        if matches!(reply, Reply::Error { .. }) {
+            // The model gave no answer (H4.7). The message fails before it is
+            // appended: the user sees why, and a retry leaves it out of the
+            // next request's context, so it sends the same request again.
+            let thinking: usize = message
+                .content
+                .iter()
+                .map(|content| match content {
+                    AssistantContentBlock::Thinking(thinking) => thinking.thinking.chars().count(),
+                    AssistantContentBlock::Text(_) | AssistantContentBlock::ToolCall(_) => 0,
+                })
+                .sum();
+            let only = if thinking > 0 {
+                format!(", only {thinking} characters of thinking")
+            } else {
+                String::new()
+            };
+            message.error_message = Some(format!(
+                "The model gave no answer: its reply (stop reason {}) has no text and no tool \
+                 call{only}",
+                message.stop_reason.as_str()
+            ));
+            message.stop_reason = StopReason::Error;
+        }
+        reply
     } else if message.stop_reason == StopReason::Error && is_context_overflow(&message, None) {
         // An overflow is never retried: only a compaction can make the next
         // request fit.
@@ -1002,7 +1034,8 @@ async fn classify(
     // A forced call judges each answer: one without the call is kept in the
     // transcript, any other calls it made get `not_run` results, and it is
     // asked again while retries remain, else it fails the run. Deferred,
-    // failed, and overflowing replies go on as usual.
+    // failed, and overflowing replies go on as usual, and so does a reply
+    // with no text and no tool call (H4.7): it is a failed reply.
     let forced = request.forced;
     if let Some(force) = request
         .force

@@ -599,7 +599,7 @@ async fn shows_a_late_joiner_a_compaction_that_is_summarizing() {
     chat.harness.close(context()).await.unwrap();
 }
 
-async fn treats_silent_overflow_as_an_ordinary_answer(response: AssistantMessage) {
+async fn treats_silent_overflow_as_an_ordinary_answer(responses: Vec<AssistantMessage>) {
     let chat = open(OpenOptions {
         context_window: Some(300),
         ..OpenOptions::default()
@@ -614,7 +614,9 @@ async fn treats_silent_overflow_as_an_ordinary_answer(response: AssistantMessage
         background: BackgroundMargin::Tokens(0.0),
         token_count: ThresholdTokens::Estimate,
     });
-    chat.faux.agent(response);
+    for response in responses {
+        chat.faux.agent(response);
+    }
     let input = submit(&chat, "go").await;
     assert_eq!(
         input.wait(context()).await.unwrap().state.status(),
@@ -636,13 +638,19 @@ async fn treats_silent_overflow_as_an_ordinary_answer(response: AssistantMessage
 
 #[tokio::test]
 async fn treats_silent_overflow_as_an_ordinary_answer_a_stop_whose_input_exceeds_the_window() {
-    treats_silent_overflow_as_an_ordinary_answer(answer("fine")).await;
+    treats_silent_overflow_as_an_ordinary_answer(vec![answer("fine")]).await;
 }
 
+/// A reply with no output is no answer (docs/harness.md H4.7): it is
+/// retried as a model error, never compacted as an overflow.
 #[tokio::test]
 async fn treats_silent_overflow_as_an_ordinary_answer_a_length_stop_that_fills_the_window_without_output(
 ) {
-    treats_silent_overflow_as_an_ordinary_answer(with_stop("", StopReason::Length)).await;
+    treats_silent_overflow_as_an_ordinary_answer(vec![
+        with_stop("", StopReason::Length),
+        answer("fine"),
+    ])
+    .await;
 }
 
 #[tokio::test]

@@ -271,6 +271,27 @@ A run is one user turn: model calls, tool rounds, retries, until it ends.
    against the invocation's cancel signal. A handler that honours the
    signal returns at once; one that does not is dropped after
    `ABORT_GRACE` (3 s).
+7. A reply that ends the model's turn (stop reason `stop`, `length` or
+   `toolUse`) with no text and no tool call is no answer: for example
+   only thinking, or nothing. A text block with only white space is no
+   text. Such a reply never ends the run as answered. `classify` changes
+   it to a failed message before it appends it: the stop reason becomes
+   `error` and the error message tells the user that the model gave no
+   answer (`The model gave no answer: its reply (stop reason stop) has
+   no text and no tool call, only N characters of thinking`). The reply
+   then goes the same way as a stalled or cut stream: when the retry
+   policy is enabled, it is retried while retries are left (item 5);
+   else, or when no retry is left, the run fails with `model_error` and
+   that text. A failed message is not in the context of the next
+   request, so the retry sends the same request again. Under a forced
+   tool call, such a reply is a failed reply, not an answer that missed
+   the call. The retry policy alone makes it retryable: the reply is not
+   a provider stream failure, so no `StreamFailureKind` applies (a
+   `stream_drop` diagnostic is not retryable by its kind, and
+   `malformed_response` is never retryable), and the stream of the
+   reply does not change for other callers. The memory compactor
+   counts a thinking-only reply as a try (H1.4), and the compaction
+   summary has its own check for empty text.
 
 Changed from the first draft: the round count and the loop guard travel
 in each generation's input (durable, so a restart keeps them), not in a
@@ -289,9 +310,11 @@ tools; its limits count down (rounds, compactions, retries, polls left).
 Each step is one Rust decision: prepare `before_request`, a compaction's
 end `after_compaction` (an overflow's needs its entry; a threshold one
 fails the run only when it failed, not when it found nothing), a reply
-`after_reply`, a round's end `Rounds::finish` then `RoundEnd::reset` (a
-control stops the run uncounted; a queued reset ends it only after the
-round counted, so the cap and the loop guard come first). Proofs:
+`after_reply` (a message that ends the model's turn first goes through
+`Ended::reply`, the model's `Ended.reply`), a round's end
+`Rounds::finish` then `RoundEnd::reset` (a control stops the run
+uncounted; a queued reset ends it only after the round counted, so the
+cap and the loop guard come first). Proofs:
 `bend/proof_run.bend`. The measure `M` orders a run lexicographically
 (rounds left, then compactions, retries and polls left in the
 generation, then the phase) and writes that order as one mixed-radix
@@ -308,17 +331,21 @@ inputs).
 | `run_rounds_fail_at_cap` | The round cap fails a run only once it has made exactly `max(cap, 1)` rounds (H4.2). |
 | `run_loop_needs_repeats` | A loop fails a run only when its last `loop` rounds had the same calls and results (H4.3). |
 | `run_polls_need_defers` | The poll cap fails a run only after `polls + 1` deferred replies in a row: the request's and each of its `polls` polls' (H4.4). |
+| `run_no_answer_is_an_error` | A message that ends the model's turn with no text and no tool call never answers: its step is a model error's, a retry while retries are left and the retry policy is on, else the run fails on the model (H4.7). |
 
 Each of these breaks fails a proof: no poll cap, no round cap, a cap
 that fails a run early, a poll count that a non-deferred reply does not
 reset, a loop count that ignores the hash, an ignored abort in the tools
-phase, a retry that does not spend a retry.
+phase, a retry that does not spend a retry, a reply with no text and no
+tool call that answers.
 
 Code: `eukhe-durable/src/harness/generation/decide.rs` (`before_request`,
-`after_compaction`, `after_reply`, `Rounds::finish`, `RoundEnd::reset`,
-`MAX_POLLS`, `LOOP_ROUNDS`); `generation.rs` `prepare` (both decisions,
-`compaction_end`, `threshold_compaction`), `classify` (the reply, then
-the step), `GenerationInput.rounds`, `GenerationCheckpoint::Poll.polls`,
+`after_compaction`, `after_reply`, `Ended::reply`, `Rounds::finish`,
+`RoundEnd::reset`, `MAX_POLLS`, `LOOP_ROUNDS`); `generation.rs` `prepare`
+(both decisions, `compaction_end`, `threshold_compaction`), `classify`
+(the reply; a reply that is no answer becomes a failed message; then the
+step),
+`GenerationInput.rounds`, `GenerationCheckpoint::Poll.polls`,
 `request` (a failed hook fails the run), `abort` (every checkpoint ends
 aborted); `generation/round.rs` `finish_tool_round`, `round_hash`
 (SHA-256 of the calls and results, 53 bits); `scheduler/execution.rs`
@@ -327,10 +354,12 @@ aborted); `generation/round.rs` `finish_tool_round`, `round_hash`
 
 Tie: the bridge test `harness::generation::bridge::the_rust_decisions_equal_the_bend_model`
 calls, at each phase, the production decision that phase calls
-(`before_request`, `after_compaction`, `after_reply`, `Rounds::finish`,
-`RoundEnd::reset`), keeps the counters the checkpoints carry, and runs
-`bend/bridge_run.bend` on 401 generated scenarios (the production limits
-and random small ones; every reply, threshold, compaction result, round
+(`before_request`, `after_compaction`, `Ended::reply`, `after_reply`,
+`Rounds::finish`, `RoundEnd::reset`), keeps the counters the checkpoints
+carry, and runs `bend/bridge_run.bend` on 401 generated scenarios (the
+production limits and random small ones; every reply, every message that
+ends the model's turn with or without text, tool calls and tool use and
+with the retry policy on or off, threshold, compaction result, round
 hash and end, and abort), comparing the phase and the counts left after
 each input, byte for byte. Not in the bridge: the abort itself (the
 `abort` handler has one outcome; H4.6's race is `Inner::run`), and the
@@ -341,7 +370,10 @@ it. Regression tests (`harness::generation::tests`):
 `the_same_calls_whose_results_change_are_no_loop`,
 `an_abort_ends_a_run_stuck_in_a_request_hook`,
 `recovery::keeps_the_rounds_a_run_made_across_reopen`,
-`fails_a_response_still_deferred_after_its_last_poll`.
+`fails_a_response_still_deferred_after_its_last_poll`,
+`no_answer::a_reply_of_only_thinking_is_retried_and_then_answers`,
+`replies_of_only_thinking_past_the_retries_fail_the_run_with_model_error`,
+`a_reply_of_only_thinking_fails_without_retrying_when_the_retry_policy_is_disabled`.
 
 ### H5. Every subagent reports back exactly once
 

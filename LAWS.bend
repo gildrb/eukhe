@@ -546,6 +546,22 @@ law run_polls_need_defers:
   for +evs: List<&2, Rn.Ev>
   Or({Rn.polled(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.defers(cfg, evs) == 1n+Rn.Cfg.polls(cfg) : Nat})
 
+# LAW: a message that ends the model's turn (stop, length or tool use)
+# with no text and no tool call never answers the run (H4.7): the model
+# gave no answer, so the step is a model error's, a retry while retries
+# are left and the retry policy is on, else the run fails on the model
+law run_no_answer_is_an_error:
+  for +cfg: Rn.Cfg
+  for tool: Bool
+  for +retrying: Bool
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +p: Nat
+  for +same: Nat
+  for +last: Nat
+  {Rn.call(cfg, Rn.Ended.reply(Rn.Ended{tool, False{}, False{}, retrying}), r, c, a, p, same, last) == Rn.retry(cfg, retrying, r, c, a, p, same, last) : Rn.St}
+
 # (H3) A user's request never waits behind background work
 # ---------------------------------------------------------
 # docs/harness.md H3, the model in bend/admission.bend: one provider's

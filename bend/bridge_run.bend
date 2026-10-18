@@ -10,9 +10,14 @@
 #   9 cap polls retries loop      the limits (first line)
 #   a                             an abort
 #   g kind flag hash fin got      a Go: kind t text, c calls, d deferred,
-#                                 e error (flag: retryable), o overflow
-#                                 (flag: a cut exists); fin 0 goes on,
-#                                 1 stops, 2 resets; got 0 built, 1 kept,
+#     [tool text calls]           e error (flag: retryable), o overflow
+#                                 (flag: a cut exists), m a message that
+#                                 ends the model's turn, which
+#                                 R.Ended.reply reads (flag: the retry
+#                                 policy is on; tool: its stop reason is
+#                                 tool use, text: it has text, calls: it
+#                                 has a tool call); fin 0 goes on, 1
+#                                 stops, 2 resets; got 0 built, 1 kept,
 #                                 2 broke
 #
 # After each input it prints the run with the counts left, as the model
@@ -46,21 +51,23 @@ def tok.head(s: String) -> Char:
     case SCon{c, t}:
       c
 
-def reply.pick(t: Bool, c: Bool, d: Bool, e: Bool, flag: Bool) -> R.Reply:
-  match t c d e:
-    case True{} c d e:
+def reply.pick(m: Bool, t: Bool, c: Bool, d: Bool, e: Bool, flag: Bool, +ws: List<&2, String>) -> R.Reply:
+  match m t c d e:
+    case True{} t c d e:
+      R.Ended.reply(R.Ended{tok.bool(tok.at(ws, 6n)), tok.bool(tok.at(ws, 7n)), tok.bool(tok.at(ws, 8n)), flag})
+    case False{} True{} c d e:
       R.Text{}
-    case False{} True{} d e:
+    case False{} False{} True{} d e:
       R.Calls{}
-    case False{} False{} True{} e:
+    case False{} False{} False{} True{} e:
       R.Deferred{}
-    case False{} False{} False{} True{}:
+    case False{} False{} False{} False{} True{}:
       R.Error{flag}
-    case False{} False{} False{} False{}:
+    case False{} False{} False{} False{} False{}:
       R.Overflow{flag}
 
-def reply.of(+k: Char, flag: Bool) -> R.Reply:
-  reply.pick(Char.is_eq(k, 't'), Char.is_eq(k, 'c'), Char.is_eq(k, 'd'), Char.is_eq(k, 'e'), flag)
+def reply.of(+k: Char, flag: Bool, +ws: List<&2, String>) -> R.Reply:
+  reply.pick(Char.is_eq(k, 'm'), Char.is_eq(k, 't'), Char.is_eq(k, 'c'), Char.is_eq(k, 'd'), Char.is_eq(k, 'e'), flag, ws)
 
 def fin.of(n: Nat) -> R.Fin:
   match n:
@@ -89,7 +96,7 @@ def ev.pick(abort: Bool, +ws: List<&2, String>) -> R.Ev:
     case True{}:
       R.Abort{}
     case False{}:
-      R.Go{reply.of(tok.head(tok.at(ws, 1n)), tok.bool(tok.at(ws, 2n))), tok.nat(tok.at(ws, 3n)), fin.of(tok.nat(tok.at(ws, 4n))), got.of(tok.nat(tok.at(ws, 5n)))}
+      R.Go{reply.of(tok.head(tok.at(ws, 1n)), tok.bool(tok.at(ws, 2n)), ws), tok.nat(tok.at(ws, 3n)), fin.of(tok.nat(tok.at(ws, 4n))), got.of(tok.nat(tok.at(ws, 5n)))}
 
 def ev.of(+ws: List<&2, String>) -> R.Ev:
   ev.pick(Char.is_eq(tok.head(tok.at(ws, 0n)), 'a'), ws)

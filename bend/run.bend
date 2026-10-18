@@ -64,13 +64,40 @@ type Ph is Data:
   Failed{why: Why}
 
 # how a model call ended. At prepare, an overflow is a context over the
-# threshold; cut: compaction finds a cut
+# threshold; cut: compaction finds a cut. A message that ends the model's
+# turn makes Text, Calls or Error through Ended.reply
 type Reply is Data:
   Text{}
   Calls{}
   Deferred{}
   Error{retryable: Bool}
   Overflow{cut: Bool}
+
+# what a message that ends the model's turn (stop reason stop, length or
+# tool use) holds: tool: its stop reason is tool use; text: a text block
+# that is not blank; calls: a tool call; retrying: the retry policy is on
+type Ended is Data:
+  Ended{tool: Bool, text: Bool, calls: Bool, retrying: Bool}
+
+def Ended.pick(calls: Bool, text: Bool, tool: Bool, retrying: Bool) -> Reply:
+  match calls text tool:
+    case True{} text True{}:
+      Calls{}
+    case True{} text False{}:
+      Text{}
+    case False{} True{} tool:
+      Text{}
+    case False{} False{} tool:
+      Error{retrying}
+
+# the reply such a message makes (Ended::reply, docs/harness.md H4.7): its
+# calls when the stop reason is tool use and it has calls, else an answer
+# when it has text or a call. With no text and no call the model gave no
+# answer: a model error, retryable when the retry policy is on
+def Ended.reply(m: Ended) -> Reply:
+  match m:
+    case Ended{tool, text, calls, retrying}:
+      Ended.pick(calls, text, tool, retrying)
 
 # how a compaction ended: it appended its entry, it found nothing to
 # compact (or declined), or it failed (or was aborted or orphaned)

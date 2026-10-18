@@ -50,16 +50,55 @@ pub(crate) struct Counts {
 /// How a model call ended; `D` is what a deferred reply is polled with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reply<D> {
-    /// A final answer: stop, length, or tool use without calls.
+    /// A final answer: stop, length, or tool use without calls, with text
+    /// or a tool call ([`Ended::reply`]).
     Text,
     /// Tool calls.
     Calls,
     /// Deferred, with its handle.
     Deferred(D),
-    /// Any other end; retryable under the retry policy.
+    /// Any other end, or an end with no text and no tool call (the model
+    /// gave no answer, H4.7); retryable under the retry policy.
     Error { retryable: bool },
     /// A context overflow; `cut`: compaction is on and finds a cut.
     Overflow { cut: bool },
+}
+
+/// What a message that ends the model's turn (stop reason stop, length, or
+/// tool use) holds, as [`Ended::reply`] reads it.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent facts, field by field the Bend model's `Ended`"
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Ended {
+    /// The stop reason is tool use.
+    pub(crate) tool_use: bool,
+    /// The message has a text block whose text is not blank.
+    pub(crate) text: bool,
+    /// The message has a tool call.
+    pub(crate) calls: bool,
+    /// The retry policy is enabled.
+    pub(crate) retrying: bool,
+}
+
+impl Ended {
+    /// The reply the message makes (H4.7): its calls when the stop reason
+    /// is tool use and it has calls; else an answer when it has text or a
+    /// call. With no text and no call, the model gave no answer: the reply
+    /// is a model error, retryable when the retry policy is enabled, so it
+    /// never ends the run as answered.
+    pub(crate) fn reply<D>(self) -> Reply<D> {
+        if self.tool_use && self.calls {
+            Reply::Calls
+        } else if self.text || self.calls {
+            Reply::Text
+        } else {
+            Reply::Error {
+                retryable: self.retrying,
+            }
+        }
+    }
 }
 
 /// What follows a reply.

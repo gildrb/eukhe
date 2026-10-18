@@ -766,38 +766,53 @@ async fn autonomous_gates_continue_on_failure_and_stop_on_pass() {
     harness.close(cx()).await.expect("close");
 }
 
+/// An empty reply is no answer (docs/harness.md H4.7): the harness retries
+/// it like a stall (three retries by default) and then fails the run with
+/// the model error, which fails the goal; it never reaches the goal's
+/// continuation mint.
 #[tokio::test(start_paused = true)]
-async fn empty_answers_back_off_and_hit_the_no_progress_cap() {
+async fn empty_replies_are_retried_and_then_fail_the_goal() {
     let setup = setup();
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     setup
         .host_request("goal.create", json!({ "objective": "make progress" }))
         .await
         .expect("goal.create succeeds");
-    let created_at = stored_goal(&harness, &root)
+    // Stamped after the goal's write, as a real provider stamps a reply.
+    let updated_at = stored_goal(&harness, &root)
         .await
-        .created_at
-        .expect("created_at");
+        .updated_at
+        .expect("goal stamped");
     setup.faux.set_responses(vec![
-        answer_at("", created_at + 1_000),
-        answer_at("", created_at + 2_000),
-        answer_at("", created_at + 3_000),
+        answer_at("", updated_at + 1_000),
+        answer_at("", updated_at + 2_000),
+        answer_at("", updated_at + 3_000),
+        answer_at("", updated_at + 4_000),
+        answer("recovered"),
         answer("unused"),
     ]);
 
     submit(&root, "work").await;
     harness.wait_for_idle(cx()).await.expect("idle");
+    // The failed run never reached a final answer: no continuation.
+    assert_eq!(user_texts(&entries(&root).await), vec!["work".to_owned()]);
 
+    // The next run of the conversation settles the failed one.
+    submit(&root, "again").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
     let goal = stored_goal(&harness, &root).await;
-    assert_eq!(goal.status, GoalStatus::Error);
-    assert_eq!(goal.no_progress_streak, Some(3));
     assert_eq!(
-        goal.last_error.as_deref(),
-        Some("Goal continuation cap reached: consecutive turns made no progress")
+        (
+            goal.status,
+            goal.last_error.as_deref(),
+            goal.continuations_used
+        ),
+        (
+            GoalStatus::Error,
+            Some("The model gave no answer: its reply (stop reason stop) has no text and no tool call"),
+            0
+        )
     );
-    // Two strikes waited out their backoff and continued; the third capped.
-    assert_eq!(goal.continuations_used, 2);
-    assert_eq!(user_texts(&entries(&root).await).len(), 3);
     assert_eq!(setup.faux.get_pending_response_count(), 1);
     harness.close(cx()).await.expect("close");
 }
