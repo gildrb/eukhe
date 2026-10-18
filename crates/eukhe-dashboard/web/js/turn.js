@@ -1,6 +1,6 @@
 // PURE session state: the open reply plus every SessionEvent folded in
-// (`reduce`), and `derivePhase`, the one source of the status line, the
-// Inbox row status, the document title, the badge and announcements.
+// (`reduce`), and `derivePhase`, the one source of the activity line, the
+// sidebar status word, the document title, the badge and announcements.
 // No DOM, no clock reads: callers pass `now`.
 
 const CHARS_PER_TOKEN = 4; // eukhe-tui/src/gen_speed.rs
@@ -92,7 +92,7 @@ export function openSession(reply, previous, now) {
 }
 
 /** The session's display title. */
-export function sessionTitle(session, fallback = 'New session') {
+export function sessionTitle(session, fallback = 'New chat') {
   const name = session.state && session.state.sessionName;
   if (name) return name;
   if (session.summary && session.summary.sessionName) return session.summary.sessionName;
@@ -450,165 +450,67 @@ export function toolTarget(args) {
   return json === '{}' ? '' : json;
 }
 
-function modelName(model) {
+/** A model's display name (`Faux Model`). */
+export function modelName(model) {
   if (!model) return '';
   if (typeof model === 'string') return model;
   return model.name || model.id || '';
 }
 
-function basename(path) {
+/** The last path segment (`/home/gil/eukhe` → `eukhe`). */
+export function basename(path) {
   if (!path) return '';
   const parts = String(path).split('/').filter(Boolean);
   return parts.length ? parts[parts.length - 1] : '/';
 }
 
-function contextPercent(session) {
-  const usage = session.state && session.state.contextUsage;
-  if (!usage) return null;
-  if (Number.isFinite(usage.percent)) return usage.percent;
-  if (usage.tokens && usage.contextWindow) return (usage.tokens / usage.contextWindow) * 100;
-  return null;
-}
-
 function phase(kind, label, extra = {}) {
-  return { phase: kind, label, detail: '', metrics: [], urgent: false, since: 0, progress: null, ...extra };
+  return { phase: kind, label, running: false, urgent: false, action: null, announce: '', ...extra };
 }
 
 /**
- * The one status. `fmt` is format.js (injected to keep this module pure).
- * Returns `{ phase, label, detail, metrics: string[], since, progress, urgent, announce }`.
+ * The one live status of the bound session (the activity line, the
+ * sidebar status word, the document title, announcements). `fmt` is
+ * format.js, injected to keep this module pure. Returns
+ * `{ phase, label, running, urgent, action: null|'cancelRetry'|'cancelCompaction', announce }`.
  */
 export function derivePhase(state, now, fmt) {
-  const { link, session, approvals } = state;
-  const pendingApprovals = (approvals || []).filter((item) => item.status !== 'elsewhere');
-  if (pendingApprovals.length) {
-    const first = pendingApprovals[0];
-    return phase('approval', 'Needs approval', {
-      detail: first.command,
-      metrics: [effectWords(first.effect)],
-      urgent: true,
-      announce: `Needs approval: ${first.command}`,
-    });
+  const { session, approvals } = state;
+  if (!session) return phase('none', '');
+  const { turn } = session;
+  const waiting = (approvals || []).filter((item) => item.status !== 'elsewhere');
+  if (waiting.length) {
+    return phase('approval', 'Waiting for your approval', { running: true, urgent: true, announce: `Needs your approval: ${waiting[0].command}` });
   }
-  if (link.status === 'unavailable') return phase('unavailable', 'Daemon unreachable', { detail: link.error || '', announce: 'Daemon unreachable' });
-  if (link.status === 'offline') {
-    const seconds = Math.max(0, Math.ceil((link.retryAt - now) / 1000));
-    return phase('offline', 'Offline', { detail: seconds ? `retrying in ${fmt.num(seconds)}\u00a0s` : 'retrying…', announce: 'Offline' });
-  }
-  if (link.status === 'connecting') return phase('connecting', 'Connecting…');
-  if (link.catchingUp) return phase('catchingUp', 'Catching up…');
-  if (!session) return phase('opening', 'Opening…');
-  const { turn, summary } = session;
-  const elapsed = turn.running ? [`turn ${fmt.duration(now - turn.startedAt)}`] : [];
   if (turn.retry) {
     const left = Math.max(0, turn.retry.at + turn.retry.delayMs - now);
-    const of = turn.retry.maxAttempts ? `${turn.retry.attempt}/${turn.retry.maxAttempts}` : `${turn.retry.attempt}`;
-    return phase('retrying', `Retrying ${of}`, {
-      detail: turn.retry.errorMessage,
-      metrics: [left > 0 ? `in ${fmt.duration(left)}` : 'now'],
-      since: turn.retry.at,
-      announce: `Retrying, attempt ${turn.retry.attempt}`,
-    });
+    return phase('retrying', left > 0 ? `Retrying in ${fmt.seconds(left)}` : 'Retrying', { running: true, action: 'cancelRetry', announce: 'Retrying' });
   }
-  if (turn.compacting) {
-    return phase('compacting', 'Compacting context', { metrics: [fmt.duration(now - turn.compacting.at)], since: turn.compacting.at, announce: 'Compacting context' });
+  if (turn.compacting) return phase('compacting', 'Compacting the context', { running: true, action: 'cancelCompaction', announce: 'Compacting the context' });
+  if (session.bash) return phase('bash', `Running a command ${fmt.clock(now - session.bash.startedAt)}`, { running: true });
+  const tools = Object.values(session.tools).filter((tool) => tool.status === 'running');
+  if (turn.running && tools.length === 1) {
+    return phase('tool', `Running ${tools[0].name} ${fmt.clock(now - tools[0].startedAt)}`, { running: true, announce: `Running ${tools[0].name}` });
   }
-  if (session.bash) {
-    return phase('bash', `$ ${session.bash.command.split('\n')[0]}`, { metrics: [fmt.duration(now - session.bash.startedAt)], since: session.bash.startedAt });
+  if (turn.running && tools.length > 1) {
+    const since = Math.min(...tools.map((tool) => tool.startedAt));
+    return phase('tools', `Running ${fmt.num(tools.length)} tools ${fmt.clock(now - since)}`, { running: true, announce: `Running ${tools.length} tools` });
   }
-  const running = Object.values(session.tools).filter((tool) => tool.status === 'running');
-  if (turn.running && running.length === 1) {
-    const [tool] = running;
-    return phase('tool', tool.name, {
-      detail: toolTarget(tool.args),
-      metrics: [fmt.duration(now - tool.startedAt), ...elapsed],
-      since: tool.startedAt,
-      announce: `Running ${tool.name}`,
-    });
+  if (turn.running && turn.chatWait) return phase('memory', 'Waiting for memory', { running: true });
+  if (turn.running && turn.stream === 'writing') {
+    const rate = liveRate(turn, now);
+    return phase('writing', rate ? `Writing ${fmt.rate(rate)}` : 'Writing', { running: true, announce: 'Writing' });
   }
-  if (turn.running && running.length > 1) {
-    const names = [...new Set(running.map((tool) => tool.name))].join(', ');
-    const since = Math.min(...running.map((tool) => tool.startedAt));
-    return phase('tools', `${running.length} tools running`, { detail: names, metrics: [fmt.duration(now - since), ...elapsed], since, announce: `Running ${running.length} tools` });
+  if (turn.running && turn.stream === 'thinking') return phase('thinking', 'Thinking', { running: true, announce: 'Thinking' });
+  if (turn.running && turn.prefill && !turn.firstTokenAt && turn.prefill.total) {
+    return phase('prefill', `Reading the prompt ${fmt.num(turn.prefill.processed)} of ${fmt.num(turn.prefill.total)} tokens`, { running: true, announce: 'Reading the prompt' });
   }
-  if (turn.running && turn.chatWait) return phase('chatWait', 'Waiting for the chat turn', { metrics: elapsed });
-  if (turn.running && turn.stream) {
-    const estimate = liveRate(turn, now);
-    const metrics = [];
-    if (estimate) metrics.push(`≈${fmt.rate(estimate)}`);
-    if (turn.stream === 'writing' && turn.deltaChars) metrics.push(fmt.tokens(Math.round(turn.deltaChars / CHARS_PER_TOKEN)));
-    metrics.push(...elapsed);
-    return phase(turn.stream, turn.stream === 'thinking' ? 'Thinking' : 'Writing', {
-      metrics,
-      since: turn.deltaStartAt,
-      announce: turn.stream === 'thinking' ? 'Thinking' : 'Writing',
-    });
+  if (turn.running && session.summary && session.summary.admission === 'queued' && !turn.requestAt) {
+    return phase('admission', 'Waiting for a model slot', { running: true });
   }
-  if (turn.running && turn.prefill && !turn.firstTokenAt) {
-    const progress = turn.prefill.total ? turn.prefill.processed / turn.prefill.total : 0;
-    const { rate, etaMs } = prefillRate(turn.prefill);
-    const metrics = [`${fmt.num(turn.prefill.processed)} / ${fmt.tokens(turn.prefill.total)}`];
-    if (rate) metrics.push(fmt.rate(rate));
-    if (etaMs !== null && Number.isFinite(etaMs)) metrics.push(`~${fmt.duration(etaMs)}`);
-    return phase('prefill', `Prefill ${fmt.percent(progress)}`, { metrics, progress, since: turn.prefillAt, announce: 'Reading the prompt' });
-  }
-  if (turn.running && summary && summary.admission === 'queued' && !turn.firstTokenAt && !turn.requestAt) {
-    return phase('admission', 'Waiting for a provider slot', { metrics: [fmt.duration(now - turn.startedAt)], since: turn.startedAt });
-  }
-  if (turn.running) {
-    const since = turn.requestAt || turn.startedAt;
-    return phase('waiting', 'Waiting for first token', { metrics: [fmt.duration(now - since), ...elapsed.slice(turn.requestAt ? 0 : 1)], since, announce: 'Turn started' });
-  }
-  const sending = session.pending.find((item) => item.status === 'sending');
-  if (sending) return phase('sending', 'Sending…');
-  if (summary && summary.isQuotaParked) return phase('parked', 'Paused', { detail: 'usage limit', announce: 'Paused at the usage limit' });
-  if (summary && summary.hasRunningSubagents && !turn.endedAt) return phase('subagents', 'Subagents still running');
-  if (turn.error) {
-    return phase('failed', 'Failed', { detail: turn.error, urgent: true, announce: `Failed: ${turn.error}` });
-  }
-  if (turn.stopped) {
-    return phase('stopped', turn.endedAt ? `Stopped after ${fmt.duration(turn.endedAt - turn.startedAt)}` : 'Stopped', { announce: 'Stopped' });
-  }
-  const context = contextPercent(session);
-  if (!session.messages.length) {
-    const parts = [modelName(session.state.model), basename(session.state.cwd)].filter(Boolean);
-    return phase('idleNew', 'Ready', { metrics: parts });
-  }
-  const metrics = [];
-  const { last } = session;
-  if (last && last.rate) metrics.push(fmt.rate(last.rate));
-  if (last && Number.isFinite(last.ttftMs)) metrics.push(`TTFT ${fmt.duration(last.ttftMs)}`);
-  if (context !== null) metrics.push(`ctx ${fmt.percent(context, { of100: true })}`);
-  const label = last && last.durationMs ? `Done in ${fmt.duration(last.durationMs)}` : 'Idle';
-  return phase('idle', label, { metrics, announce: label });
-}
-
-/**
- * A minimal session for a list row that is not the bound one, so the
- * Inbox can call `derivePhase` on it too (`row.summary` when the bridge
- * sends one).
- */
-export function rowSession(row, now) {
-  const summary = row.summary || null;
-  const turn = freshTurn(now);
-  if (summary && summary.isStreaming) {
-    turn.running = true;
-    turn.startedAt = summary.lastActivityAt ? Date.parse(summary.lastActivityAt) : now;
-  }
-  if (summary && summary.isCompacting) turn.compacting = { reason: 'threshold', at: now, summary: '' };
-  return {
-    id: row.id,
-    path: row.path,
-    state: { cwd: row.cwd },
-    summary,
-    messages: summary && summary.messageCount ? [{ role: 'user', content: '' }] : [{ role: 'user', content: row.title || '' }],
-    live: null,
-    tools: {},
-    turn,
-    last: null,
-    bash: null,
-    pending: [],
-    notes: [],
-    queue: (summary && summary.sessionActions) || EMPTY_QUEUE,
-  };
+  if (turn.running) return phase('waiting', 'Thinking', { running: true, announce: 'Thinking' });
+  if (session.pending.some((item) => item.status === 'sending')) return phase('sending', 'Sending');
+  if (turn.error) return phase('failed', 'Failed', { urgent: true, announce: `Failed: ${turn.error}` });
+  if (turn.stopped) return phase('stopped', 'Stopped', { announce: 'Stopped' });
+  return phase('idle', '', { announce: turn.endedAt ? 'Done' : '' });
 }

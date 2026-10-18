@@ -16,7 +16,6 @@ function adopt(reply) {
   store.set((state) => ({
     session,
     opening: null,
-    stats: previous && previous.id === session.id ? state.stats : null,
     link: { ...state.link, catchingUp: false },
   }));
   return session;

@@ -1,0 +1,85 @@
+/* The composer: one box (codeBg, radius 22) with the same footprint in
+   every state. The textarea grows in exact 24px lines (1 to 8); the 36px
+   row inside the box is always there; the 36px send button is a control
+   (radius 8), never round. */
+
+.composer-wrap {
+  flex-shrink: 0; position: relative; z-index: 2; background-color: var(--bg);
+  padding: 0 24px 16px;
+}
+@media (max-width: 767px) {
+  .composer-wrap { padding: 0 12px calc(12px + var(--safe-bottom)); }
+}
+.composer {
+  max-width: var(--column); margin: 0 auto;
+  display: flex; flex-direction: column;
+  padding: 0 16px 8px; border-radius: var(--radius-composer); background-color: var(--code-bg);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+.composer:focus-within, .composer[data-drag="true"] { box-shadow: inset 0 0 0 1px var(--hairline); }
+
+.composer-field { position: relative; }
+/* The field's own padding (12 top, 8 bottom) makes one line a 44px target. */
+.composer-input {
+  display: block; width: 100%; padding: 12px 0 8px; border: 0; outline: none; resize: none; background: transparent;
+  color: var(--primary); font-size: 16px; line-height: 24px; font-weight: 400;
+  min-height: 44px; max-height: 212px; overflow-y: auto; overscroll-behavior: contain;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal;
+  field-sizing: content;
+}
+.composer-input::placeholder { color: var(--tertiary); opacity: 1; }
+.composer-input:focus-visible { outline: none; }
+.composer.measured .composer-input { field-sizing: fixed; }
+.composer-mirror {
+  position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none;
+  font-size: 16px; line-height: 24px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal;
+}
+.composer:not(.measured) .composer-mirror { display: none; }
+
+.composer-images { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 16px; }
+.composer-image { position: relative; }
+.composer-image img { width: 64px; height: 64px; object-fit: cover; border-radius: var(--radius-control); }
+.composer-image-remove {
+  position: absolute; top: -8px; right: -8px; width: 24px; height: 24px;
+  background-color: var(--bg); color: var(--primary); box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.composer-image-remove .icon { width: 16px; height: 16px; }
+
+.composer-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 36px; }
+.composer-left, .composer-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.composer-left { margin-left: -8px; }
+.composer-right { margin-right: -8px; flex-shrink: 0; }
+.composer-row .icon-button { width: 36px; height: 36px; }
+
+.model-button {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; height: 36px; padding: 0 8px;
+  border-radius: var(--radius-control); color: var(--secondary); font-size: 14px; line-height: 20px;
+}
+.model-button-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-button .icon { width: 16px; height: 16px; color: var(--tertiary); }
+.model-button:focus-visible { outline-offset: 2px; }
+.model-button:disabled { cursor: default; }
+@media (hover: hover) { .model-button:not(:disabled):hover { color: var(--primary); background-color: var(--bg); } }
+@media (pointer: coarse) {
+  .model-button::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); }
+}
+
+.composer-lane .segment[aria-checked="true"] { box-shadow: none; }
+.composer-lane { background-color: transparent; box-shadow: inset 0 0 0 1px var(--hairline); }
+
+.send-button {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: var(--radius-control);
+  background-color: var(--primary); color: var(--bg); flex-shrink: 0;
+}
+.send-button .icon { width: 20px; height: 20px; }
+.send-button .stop-icon { display: none; }
+.send-button[data-state="stop"] .send-icon { display: none; }
+.send-button[data-state="stop"] .stop-icon { display: block; }
+.send-button[data-state="empty"] { background-color: var(--tertiary); cursor: default; }
+.send-button:focus-visible { outline-offset: 2px; }
+@media (pointer: coarse) {
+  .send-button::before {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%);
+  }
+}

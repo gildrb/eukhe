@@ -110,7 +110,7 @@ fn route<L: DaemonLauncher>(
     };
     // Every load revalidates (`no-cache`): the entity tag answers an
     // unchanged file with 304, and a new eukhe build serves new files
-    // under the same names. The service worker keeps the offline shell.
+    // under the same names.
     let unchanged = request
         .headers()
         .get(header::IF_NONE_MATCH)

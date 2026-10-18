@@ -4,7 +4,7 @@
 import { store } from './store.js';
 import { run } from './link.js';
 
-const ELSEWHERE_SHOWN_MS = 1000;
+const ELSEWHERE_SHOWN_MS = 3000;
 
 function setStatus(requestId, status) {
   store.set((state) => ({
@@ -34,11 +34,15 @@ export function addApproval(frame) {
   });
 }
 
-/** Clear every request the agent moved past (answered by another client). */
+/** Requests the agent moved past were answered by another client: say so briefly, then drop them. */
 export function settleApprovals() {
   const { approvals } = store.get();
-  if (!approvals.some((item) => item.status === 'pending')) return;
-  store.set({ approvals: approvals.filter((item) => item.status === 'answering') });
+  const moved = approvals.filter((item) => item.status === 'pending');
+  if (!moved.length) return;
+  for (const item of moved) setStatus(item.requestId, 'elsewhere');
+  setTimeout(() => {
+    for (const item of moved) drop(item.requestId);
+  }, ELSEWHERE_SHOWN_MS);
 }
 
 /** Drop all requests (the tab bound another session). */

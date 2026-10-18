@@ -93,9 +93,10 @@
   /* radii */
   --radius-code: 4px;
   --radius-row: 4px;
-  --radius-thumb: 8px;
-  --radius-terminal: 13px;
+  /* app radii: the only ones in use (inline code keeps --radius-code) */
+  --radius-control: 8px;
   --radius-bubble: 18px;
+  --radius-composer: 22px;
 
   /* motion */
   --duration: 330ms;
@@ -108,16 +109,17 @@
   --focus-offset: 4px;
 
   /* app geometry (eukhe additions on the 8px grid) */
-  --aside-column: 384px;
-  --conversation-column: 768px;
-  --keyboard: 0px;
-  --dock-h: 136px;
+  --sidebar-width: 260px;
+  --topbar-height: 56px;
+  --column: 720px;
+  --column-pad: 24px;
+  --row-height: 36px;
+  --control-height: 36px;
+  --menu-fade: 120ms;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
-  --gutter-left: max(var(--phone-gutter), var(--safe-left));
-  --gutter-right: max(var(--phone-gutter), var(--safe-right));
 }
 
 @media (prefers-color-scheme: light) {
@@ -184,10 +186,10 @@
   }
 }
 @media (max-width: 767px) {
-  :root { --link-gap: 6px; }
+  :root { --link-gap: 6px; --column-pad: 16px; }
 }
-@media (min-width: 1600px) {
-  :root { --aside-column: 480px; }
+@media (pointer: coarse) {
+  :root { --row-height: 44px; --control-height: 44px; }
 }
 @media screen and (prefers-reduced-motion: no-preference) {
   :root { --transition-duration: var(--duration); }

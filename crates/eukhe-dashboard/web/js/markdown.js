@@ -2,7 +2,7 @@
 // into top-level blocks; on each update only blocks whose source changed
 // (in practice the last one while streaming) are rebuilt.
 
-import { el, copyButton } from './ui.js';
+import { el, copyButton, icon } from './ui.js';
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)/;
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
@@ -184,7 +184,7 @@ function renderList(list) {
   for (const item of list.children) {
     const li = el('li', { class: item.task === null ? null : 'task' });
     if (item.task !== null) {
-      li.append(el('span', { class: 'task-box', role: 'img', 'aria-label': item.task ? 'Done' : 'Not done', text: item.task ? '☑' : '☐' }), ' ');
+      li.append(el('span', { class: 'task-box', 'data-done': item.task ? 'true' : 'false', role: 'img', 'aria-label': item.task ? 'Done' : 'Not done' }, item.task ? icon('check') : null));
     }
     inlineLines(item.lines, li);
     if (item.sub) li.append(renderList(item.sub));

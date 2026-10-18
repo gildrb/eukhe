@@ -97,8 +97,8 @@ dashboard with `Host` set to the local address, and it names the HTTPS link in
   in your browser from using the socket: a web page cannot add
   `X-Forwarded-Host` to a WebSocket upgrade.
 - The content security policy permits only the app's own files: scripts,
-  styles, fonts, the service worker, the manifest and the socket. Images can
-  also be `data:` and `blob:` URLs. There is no inline script or style.
+  styles, fonts, workers, the manifest and the socket. Images can also be
+  `data:` and `blob:` URLs. There is no inline script or style.
 - Give `--allow-host` only for a forwarder that you control, such as
   `tailscale serve`. A forwarder must keep the `Host` header of the request.
   `tailscale serve` keeps it.
@@ -107,15 +107,12 @@ dashboard with `Host` set to the local address, and it names the HTTPS link in
 - The socket refuses daemon commands that belong to the bridge or to the
   daemon itself (see [Protocol](#protocol)).
 
-## Caching and offline
+## Caching
 
 - Each file has an entity tag. The browser checks each file at each load
   (`Cache-Control: no-cache`) and gets `304` when the file did not change.
-- The service worker keeps the app shell for offline start. Its cache name
-  is the `build` value of the `hello` frame. A new eukhe build, or a change
-  to a web file, makes a new cache.
-- The service worker works only in a secure context: `localhost`,
-  `127.0.0.1`, or HTTPS (for example `tailscale serve`).
+- There is no service worker. A browser that has the service worker of an
+  older build removes the worker and its cache at the next load.
 
 ## Protocol
 

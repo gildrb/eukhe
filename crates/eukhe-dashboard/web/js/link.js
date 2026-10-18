@@ -96,7 +96,7 @@ export function connect() {
   current.addEventListener('open', () => {
     if (socket !== current) return;
     delay = BACKOFF_START_MS;
-    setLink({ status: 'open', error: null, hello: null });
+    setLink({ status: 'open', everOpen: true, error: null, hello: null });
     // A v2 bridge says `hello` first; an older one never does.
     readyTimer = setTimeout(ready, HELLO_WAIT_MS);
   });

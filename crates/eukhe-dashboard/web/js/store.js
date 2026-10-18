@@ -1,25 +1,24 @@
 // The tab's one state object. `set` merges a patch into the top level;
 // subscribers hear about it once per animation frame.
 //
-// State (WebPages codes against this shape):
-//   link:      { status: 'connecting'|'open'|'offline'|'unavailable', catchingUp, retryAt, error,
+// State:
+//   link:      { status: 'connecting'|'open'|'offline'|'unavailable', everOpen, catchingUp, retryAt, error,
 //                hello: { protocol, build, ops } | null }
-//   sessions:  { rows: [{ id, path, cwd, title, modified, … }], loading, error, at }
+//   sessions:  { rows: [{ id, path, cwd, title, modified }], loaded, loading, error }
 //   session:   null | turn.js `openSession` shape: { id, path, title, state (AgentConnectionState),
-//                summary (SessionSummary|null), cursor, messages, live, tools {callId→tool}, queue,
-//                turn, last, bash, goal, serviceTier, memory {stamp,last}, notes, pending }
+//                summary, cursor, messages, live, tools {callId→tool}, queue, turn, last, bash,
+//                goal, serviceTier, memory {stamp,last}, notes, pending }
 //   approvals: [{ requestId, step, command, effect, status: 'pending'|'answering'|'elsewhere' }]
-//   stats:     null | GetSessionStats reply (pages may set it)
-//   prefs:     { theme: 'system'|'light'|'dark', enterSendsOnTouch, notify }
+//   prefs:     { theme: 'system'|'light'|'dark', enterSendsOnTouch, notify, lane: 'steer'|'followUp' }
 //   frames:    [{ seq, at, dir: 'in'|'out', type, data }] ring (≤2000), mutated in place;
-//              framesSeq changes on every frame, framesDropped counts evicted frames
+//              framesSeq changes on every frame
 //   opening:   null | { id, error } while (or after failing) binding a session
-//   ui:        { inbox: bool (desktop Inbox shown), hidden: bool (tab hidden) }
+//   tick:      changes at 4 Hz while a turn runs (elapsed counters)
 
 const PREFS_KEY = 'eukhe.prefs';
 
 function storedPrefs() {
-  const defaults = { theme: 'system', enterSendsOnTouch: false, notify: false };
+  const defaults = { theme: 'system', enterSendsOnTouch: false, notify: false, lane: 'steer' };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
     const theme = localStorage.getItem('theme');
@@ -34,17 +33,16 @@ function storedPrefs() {
 }
 
 let state = {
-  link: { status: 'connecting', catchingUp: false, retryAt: 0, error: null, hello: null },
-  sessions: { rows: [], loading: false, error: null, at: 0 },
+  link: { status: 'connecting', everOpen: false, catchingUp: false, retryAt: 0, error: null, hello: null },
+  sessions: { rows: [], loaded: false, loading: false, error: null },
   session: null,
   approvals: [],
   opening: null,
-  stats: null,
   prefs: storedPrefs(),
   frames: [],
   framesSeq: 0,
   framesDropped: 0,
-  ui: { inbox: true, hidden: document.hidden },
+  tick: 0,
 };
 
 const listeners = new Set();

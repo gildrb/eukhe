@@ -19,20 +19,22 @@
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/shell.css">
-<link rel="stylesheet" href="css/chat.css">
-<link rel="stylesheet" href="css/dock.css">
-<link rel="stylesheet" href="css/pages.css">
+<link rel="stylesheet" href="css/conversation.css">
+<link rel="stylesheet" href="css/composer.css">
+<link rel="stylesheet" href="css/overlay.css">
+<link rel="stylesheet" href="css/settings.css">
 <link rel="modulepreload" href="js/main.js">
 <script type="module" src="js/main.js"></script>
 </head>
 <body>
-<a class="skip" href="#main">Skip to content</a>
-<div class="app" id="app" data-aside="none">
-  <nav class="inbox pane" id="inbox" aria-label="Sessions"></nav>
-  <main class="main pane" id="main" tabindex="-1"></main>
-  <aside class="aside pane" id="aside" aria-label="Details"></aside>
+<a class="skip" href="#composer-input">Skip to the message field</a>
+<div class="app" id="app">
+  <nav class="sidebar" id="sidebar" aria-label="Chats"></nav>
+  <div class="scrim" id="scrim" hidden></div>
+  <main class="main" id="main"></main>
 </div>
 <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
+<div id="alerter" class="sr-only" role="alert" aria-live="assertive"></div>
 <noscript><p>The eukhe dashboard needs JavaScript.</p></noscript>
 </body>
 </html>

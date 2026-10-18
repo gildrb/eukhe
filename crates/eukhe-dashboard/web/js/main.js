@@ -1,175 +1,161 @@
-// Boot: viewport, link, router → panes, store → pages/Inbox/title, frame
-// handling, keyboard shortcuts, service worker. Pages register themselves
-// through definePage; WebPages' modules load dynamically so a missing one
-// degrades to "Nothing here" instead of breaking the shell.
+// Boot and wiring: the sidebar, the top bar, the conversation and the
+// composer in one 100dvh column; the link (frames folded into the
+// session), the route (which chat, Settings), the 4 Hz tick while a turn
+// runs, the document title, and the keyboard.
 
 import { store } from './store.js';
-import { connect, onFrame, onReady, linkState, run } from './link.js';
-import { current, href, navigate, onRoute, isSessionPage } from './router.js';
-import { PageHost, pageFor } from './pages.js';
+import { connect, onFrame, onReady, run } from './link.js';
+import { current, chatHref, navigate, onRoute } from './router.js';
 import { reduce, derivePhase } from './turn.js';
 import { fmt } from './format.js';
-import { watchViewport } from './viewport.js';
-import { createInbox } from './inbox.js';
-import { attend } from './notify.js';
-import { bind, opening, createSession } from './binding.js';
+import { bind, opening } from './binding.js';
 import { addApproval, settleApprovals } from './approvals.js';
 import { refreshSessions } from './sessions.js';
-import { button, toast } from './ui.js';
-import './chat.js';
+import { layerCount } from './ui.js';
+import { attend } from './notify.js';
+import { createSidebar } from './sidebar.js';
+import { createTopbar } from './topbar.js';
+import { createConversation } from './conversation.js';
+import { createComposer } from './composer.js';
+import { openModelMenu } from './models.js';
+import { createSettings } from './settings.js';
+import { newChat } from './actions.js';
 
-const PAGE_MODULES = ['turn', 'tool', 'sessions', 'memory', 'queue', 'usage', 'model', 'settings', 'events'];
 const TICK_MS = 250;
-const SCROLL_KEY = 'eukhe.scroll.';
-const LIVE_PHASES = new Set(['tool', 'tools', 'writing', 'thinking', 'prefill', 'waiting', 'retrying', 'compacting', 'bash', 'admission', 'offline', 'chatWait']);
-
-const app = document.getElementById('app');
 const mainPane = document.getElementById('main');
-const asidePane = document.getElementById('aside');
-const desktop = matchMedia('(min-width: 1280px)');
-const mainHost = new PageHost(mainPane, 'main');
-const asideBody = document.createElement('div');
-asideBody.className = 'aside-body';
-const asideClose = button({ label: 'Close', onClick: () => {
-  const route = current();
-  navigate(href(route.page, { sessionId: route.sessionId, rest: route.rest, params: route.params }));
-} });
-asideClose.classList.add('aside-close');
-asidePane.append(asideBody, asideClose);
-const asideHost = new PageHost(asideBody, 'aside');
-const inbox = createInbox(document.getElementById('inbox'));
 
-let shownMain = null;
-let shownAside = null;
-let lastRouteKey = null;
+let composer = null;
+let conversation = null;
 
-function routeKey(route) {
-  return `${route.page}/${route.sessionId || ''}/${route.rest.join('/')}?${route.params.toString()}`;
-}
-
-function asideRoute(route) {
-  if (route.aside) return { page: route.aside.page, sessionId: route.sessionId, rest: route.aside.rest, params: route.aside.params, aside: null };
-  if (desktop.matches && route.sessionId && route.page !== 'turn' && pageFor('turn')) {
-    return { page: 'turn', sessionId: route.sessionId, rest: [], params: new URLSearchParams(), aside: null };
-  }
-  return null;
-}
-
-function saveScroll() {
-  if (!lastRouteKey || shownMain === 'chat') return;
-  const page = mainPane.querySelector('.page');
-  if (!page) return;
-  try {
-    sessionStorage.setItem(SCROLL_KEY + lastRouteKey, String(page.scrollTop));
-  } catch {
-    // Scroll restore is best effort.
-  }
-}
-
-function showRoute(route) {
-  if (route.page === 'chat' && !route.sessionId) {
-    // `#/` (and `#/last`, the install start_url): the most recent session.
-    bind(null).then((session) => navigate(href('chat', { sessionId: session.id, params: route.params }), { replace: true }), () => {});
-  } else if (isSessionPage(route.page) && route.sessionId && linkState() === 'open') {
-    bind(route.sessionId).catch(() => {});
-  }
-
-  saveScroll();
-  const key = routeKey(route);
-  const pageChanged = shownMain !== route.page;
-  mainHost.show(route.page, route);
-  shownMain = route.page;
-  if (key !== lastRouteKey && route.page !== 'chat') {
-    let top = 0;
+/** What every view module may ask of the app. */
+const app = {
+  newChat() {
+    newChat().catch((error) => app.notice(`No new chat. ${error.message}`));
+  },
+  openDrawer() {
+    sidebar.open();
+  },
+  openSettings(section = '') {
+    settings.open(section);
+  },
+  openModelMenu(anchor) {
+    openModelMenu(anchor);
+  },
+  title() {
+    const { session } = store.get();
+    return session ? session.title : '';
+  },
+  sessionId() {
+    const { session } = store.get();
+    return session ? session.id : null;
+  },
+  routeSessionId() {
+    return current().sessionId;
+  },
+  notice(text) {
+    conversation.notice(text);
+  },
+  reopen() {
+    bind(current().sessionId, { force: true }).catch(() => {});
+  },
+  retryLast() {
+    composer.retryLast();
+  },
+  resend(item) {
+    composer.resend(item);
+  },
+  editPending(item) {
+    composer.editPending(item);
+  },
+  async editQueued(lane, index, text) {
     try {
-      top = Number(sessionStorage.getItem(SCROLL_KEY + key) || 0);
-    } catch {
-      top = 0;
+      const reply = await run({ type: 'mutate_queued_message', lane, index, expectedText: text, mutation: { type: 'delete' } });
+      if (reply && reply.status === 'rejected') throw new Error('It was already sent.');
+      composer.fill(text);
+    } catch (error) {
+      app.notice(`Not editable. ${error.message}`);
     }
-    const page = mainPane.querySelector('.page');
-    if (page) page.scrollTop = top;
-  }
-  lastRouteKey = key;
-
-  const aside = asideRoute(route);
-  if (aside) {
-    asideHost.show(aside.page, aside);
-    shownAside = aside.page;
-    app.dataset.aside = route.aside ? 'open' : 'default';
-    asideClose.hidden = !route.aside;
-  } else {
-    if (shownAside) asideHost.dispose();
-    shownAside = null;
-    app.dataset.aside = 'none';
-  }
-
-  if (pageChanged) {
-    const heading = mainPane.querySelector('h1');
-    if (route.page !== 'chat' && heading) {
-      heading.tabIndex = -1;
-      heading.focus({ preventScroll: true });
-    } else if (route.page === 'chat' && matchMedia('(pointer: fine)').matches) {
-      document.getElementById('composer-input')?.focus({ preventScroll: true });
+  },
+  async removeQueued(lane, index, text) {
+    try {
+      const reply = await run({ type: 'mutate_queued_message', lane, index, expectedText: text, mutation: { type: 'delete' } });
+      if (reply && reply.status === 'rejected') throw new Error('It was already sent.');
+    } catch (error) {
+      app.notice(`Not removed. ${error.message}`);
     }
-  }
-  render(store.get());
-}
+  },
+  /** ↑ in an empty composer: edit the last queued message. True when there was one. */
+  editLastQueued() {
+    const { session } = store.get();
+    if (!session || !session.queue) return false;
+    const followUps = session.queue.followUps || [];
+    const steering = session.queue.steering || [];
+    if (followUps.length) app.editQueued('followUp', followUps.length - 1, followUps[followUps.length - 1].text);
+    else if (steering.length) app.editQueued('steering', steering.length - 1, steering[steering.length - 1].text);
+    else return false;
+    return true;
+  },
+};
+
+const sidebar = createSidebar(document.getElementById('sidebar'), app);
+const topbar = createTopbar(app);
+conversation = createConversation(app);
+composer = createComposer(app);
+const settings = createSettings(app);
+mainPane.append(topbar.node, conversation.node, composer.node);
 
 function render(state) {
-  const route = current();
-  mainHost.refresh();
-  if (shownAside) asideHost.refresh();
-  inbox.update(state, route);
-  app.dataset.inbox = state.ui.inbox ? 'shown' : 'hidden';
+  sidebar.update(state);
+  topbar.update(state);
+  conversation.update(state);
+  composer.update(state);
+  settings.update(state);
   const phase = derivePhase(state, Date.now(), fmt);
-  const failed = phase.phase === 'failed' ? 1 : 0;
-  attend({
-    phase,
-    sessionTitle: state.session ? state.session.title : '',
-    pageTitle: mainHost.title(),
-    needsYou: state.approvals.length + failed,
-    notify: state.prefs.notify,
-    hidden: state.ui.hidden,
-  });
+  attend({ phase, sessionTitle: state.session ? state.session.title : '', notify: state.prefs.notify, hidden: document.hidden });
 }
-
 store.subscribe(render);
+
+// ---------------------------------------------------------------- route --
+function showRoute(route) {
+  const state = store.get();
+  if (state.link.status === 'open') {
+    if (route.sessionId) bind(route.sessionId).catch(() => {});
+    else {
+      bind(null).then((session) => navigate(chatHref(session.id, route.settings), { replace: true }), () => {});
+    }
+  }
+  settings.sync(route, store.get());
+  render(store.get());
+}
 onRoute(showRoute);
 
-// Context usage, message count and stats carry no event: re-read them when
-// a turn ends, so an open tab matches a fresh one.
+// Context usage and message counts carry no event: re-read them when a turn ends.
 function refreshBoundState(sessionId) {
   run({ type: 'get_connection_state' }).then((fresh) => {
     store.set((state) => (state.session && state.session.id === sessionId && fresh
       ? { session: { ...state.session, state: { ...state.session.state, ...fresh } } }
       : null));
   }, () => {});
-  if (!store.get().stats) return;
-  run({ type: 'get_session_stats' }).then((stats) => {
-    store.set((state) => (state.session && state.session.id === sessionId ? { stats } : null));
-  }, () => {});
 }
 
-// ---------------------------------------------------------------- frames --
+// --------------------------------------------------------------- frames --
 onFrame('event', (frame) => {
   if (opening()) return;
   const state = store.get();
   if (!state.session) return;
   const session = reduce(state.session, frame.event, Date.now());
-  const next = frame.cursor ? { ...session, cursor: frame.cursor } : session;
-  store.set({ session: next });
+  store.set({ session: frame.cursor ? { ...session, cursor: frame.cursor } : session });
   switch (frame.event.type) {
-    case 'tool_execution_start':
-    case 'tool_execution_update':
     case 'tool_execution_end':
       settleApprovals();
       break;
     case 'agent_end':
       settleApprovals();
-      refreshBoundState(next.id);
+      refreshBoundState(session.id);
+      refreshSessions().catch(() => {});
       break;
     case 'turn_end':
-      refreshBoundState(next.id);
+      refreshBoundState(session.id);
       break;
     case 'session_info_changed':
       refreshSessions().catch(() => {});
@@ -179,95 +165,57 @@ onFrame('event', (frame) => {
   }
 });
 onFrame('approval', addApproval);
-onFrame('resync', (frame) => {
-  toast({ text: `${frame.reason}. Reopening…` });
-  const route = current();
-  bind(route.sessionId || (store.get().session && store.get().session.id) || null, { force: true }).catch(() => {});
+onFrame('resync', () => {
+  bind(current().sessionId || app.sessionId(), { force: true }).catch(() => {});
 });
 onReady(() => {
   const route = current();
-  const id = route.sessionId || null;
   refreshSessions().catch(() => {});
-  bind(id, { force: true }).then((session) => {
-    if (!route.sessionId && route.page === 'chat') navigate(href('chat', { sessionId: session.id, params: route.params }), { replace: true });
+  bind(route.sessionId || null, { force: true }).then((session) => {
+    if (!route.sessionId) navigate(chatHref(session.id, route.settings), { replace: true });
   }, () => {});
-  const { hello } = store.get().link;
-  if (hello && hello.build && 'serviceWorker' in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register(`sw.js?v=${encodeURIComponent(hello.build)}`).catch(() => {});
-  }
-});
-window.addEventListener('eukhe:reopen', () => {
-  bind(current().sessionId, { force: true }).catch(() => {});
 });
 
 // ------------------------------------------------------------ lifecycle --
-document.addEventListener('visibilitychange', () => {
-  store.set((state) => ({ ui: { ...state.ui, hidden: document.hidden } }));
-});
-desktop.addEventListener('change', () => showRoute(current()));
+document.addEventListener('visibilitychange', () => render(store.get()));
 setInterval(() => {
   if (document.hidden) return;
-  const state = store.get();
-  const phase = derivePhase(state, Date.now(), fmt);
-  if (LIVE_PHASES.has(phase.phase)) store.set({ tick: Date.now() });
+  const phase = derivePhase(store.get(), Date.now(), fmt);
+  if (phase.running) store.set({ tick: Date.now() });
 }, TICK_MS);
 
 // ------------------------------------------------------------- keyboard --
-function inField(target) {
-  return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
-}
-
 document.addEventListener('keydown', (event) => {
   const mod = event.metaKey || event.ctrlKey;
   const key = event.key.toLowerCase();
-  if (mod && !event.shiftKey && key === 'k') {
-    event.preventDefault();
-    if (getComputedStyle(document.getElementById('inbox')).display !== 'none') inbox.focusFilter();
-    else navigate(href('sessions'));
-    return;
-  }
   if (mod && event.shiftKey && key === 'o') {
     event.preventDefault();
-    createSession().then((session) => navigate(href('chat', { sessionId: session.id })), (error) => toast({ text: error.message, error: true }));
+    app.newChat();
     return;
   }
-  if (mod && event.shiftKey && key === 's') {
+  if (mod && !event.shiftKey && key === 'k') {
     event.preventDefault();
-    store.set((state) => ({ ui: { ...state.ui, inbox: !state.ui.inbox } }));
+    sidebar.focusSearch();
     return;
   }
-  if (event.key === 'Escape') {
-    if (document.querySelector('dialog[open]')) return;
-    const composer = document.getElementById('composer-input');
-    const typing = composer && document.activeElement === composer && composer.value.trim();
-    const state = store.get();
-    if (state.session && state.session.turn.running && !typing) {
-      const dock = document.querySelector('.dock');
-      if (dock && dock.dockApi) {
-        event.preventDefault();
-        dock.dockApi.stop();
-      }
-    }
-    return;
-  }
-  if (inField(event.target) || mod || event.altKey) return;
-  if (event.key === '/') {
-    const composer = document.getElementById('composer-input');
-    if (composer) {
+  if (event.key === 'Escape' && !layerCount()) {
+    const field = composer.input;
+    const typing = document.activeElement === field && composer.hasText();
+    const { session } = store.get();
+    if (session && session.turn.running && !typing) {
       event.preventDefault();
-      composer.focus();
+      composer.stop();
     }
-  } else if (event.key === '.') {
-    const route = current();
-    if (!route.sessionId) return;
-    event.preventDefault();
-    const open = route.aside && route.aside.page === 'turn';
-    navigate(href(route.page, { sessionId: route.sessionId, rest: route.rest, params: route.params, aside: open ? null : { page: 'turn' } }));
   }
 });
 
 // ----------------------------------------------------------------- boot --
-watchViewport();
+// Earlier builds registered a cache-first service worker; drop it.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) registration.unregister();
+  }, () => {});
+}
+if ('caches' in window) caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)), () => {});
 showRoute(current());
 connect();
-Promise.allSettled(PAGE_MODULES.map((name) => import(`./pages/${name}.js`))).then(() => showRoute(current()));

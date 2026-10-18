@@ -45,6 +45,21 @@ export function duration(ms) {
   return `${minutes}:${seconds}`;
 }
 
+/** Elapsed time as a clock (`0:07`, `2:17`, `1:02:05`). */
+export function clock(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '0:00';
+  const total = Math.floor(ms / 1000);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = String(total % 60).padStart(2, '0');
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
+}
+
+/** Whole seconds, rounded up (`8 s`). */
+export function seconds(ms) {
+  return `${integer.format(Math.max(0, Math.ceil(ms / 1000)))}${NBSP}s`;
+}
+
 /** A token count: exact below 10,000, compact above (`612`, `76k`). */
 export function tokens(value, { unit = true } = {}) {
   if (!Number.isFinite(value)) return '—';
@@ -116,4 +131,4 @@ export function percent(value, { of100 = false } = {}) {
   return percentFormat.format(of100 ? value / 100 : value);
 }
 
-export const fmt = { num, bytes, duration, tokens, rate, cost, date, time, relative, percent };
+export const fmt = { num, bytes, duration, clock, seconds, tokens, rate, cost, date, time, relative, percent };

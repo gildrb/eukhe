@@ -1,4 +1,4 @@
-// The saved-session list (`sessions` op), shared by the Inbox and pages.
+// The saved-session list (`sessions` op) behind the sidebar.
 
 import { store } from './store.js';
 import { request } from './link.js';
@@ -11,7 +11,7 @@ export function refreshSessions() {
   store.set((state) => ({ sessions: { ...state.sessions, loading: true, error: null } }));
   inflight = request('sessions')
     .then((rows) => {
-      store.set({ sessions: { rows: Array.isArray(rows) ? rows : [], loading: false, error: null, at: Date.now() } });
+      store.set({ sessions: { rows: Array.isArray(rows) ? rows : [], loaded: true, loading: false, error: null } });
       return rows;
     }, (error) => {
       store.set((state) => ({ sessions: { ...state.sessions, loading: false, error: error.message } }));
