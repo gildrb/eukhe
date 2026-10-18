@@ -66,22 +66,11 @@ impl std::ops::Deref for Supervisor {
 }
 
 /// Stop the daemon on `socket` by protocol so it can shut its workers down;
-/// kill the child when the protocol path fails. Drop runs even when the test
-/// panics, so a failing test must not leak worker processes.
+/// the inner `Daemon` guard then stops the supervisor and its workers. Drop
+/// runs even when the test panics, so a failing test leaks no workers.
 impl Drop for Supervisor {
     fn drop(&mut self) {
         graceful_shutdown(&self.0.socket);
-        // Snapshot the live worker children before the kill: workers run in
-        // their own process groups (detached, TS parity), so a graceful
-        // shutdown that times out orphans them when the supervisor dies.
-        // Reap them here — the supervisor-lost exit window is a backstop,
-        // not the teardown contract.
-        let worker_pids = child_pids_of(self.0.child.id());
-        let _ = self.0.child.kill();
-        let _ = self.0.child.wait();
-        for pid in worker_pids {
-            kill_worker(pid);
-        }
         let _ = std::fs::remove_file(&self.0.socket);
     }
 }

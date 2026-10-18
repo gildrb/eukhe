@@ -12,7 +12,7 @@
 #![cfg(target_os = "linux")]
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -35,6 +35,18 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, tmp_dir: &Path) -> Daemon {
         socket,
         Duration::from_secs(10),
     )
+}
+
+/// The socket file a crashed endpoint leaves behind: bound but never
+/// listening, so a connect is refused even while a descriptor copy lives.
+/// A bound-then-dropped LISTENER gives no such guarantee in a test process:
+/// a concurrent test's `fork` copies its descriptor, and the copy keeps the
+/// socket accepting until that child's `exec` closes it.
+fn bind_dead_socket(path: &Path) {
+    let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)
+        .expect("dead socket fixture: create");
+    let address = socket2::SockAddr::unix(path).expect("dead socket fixture: address");
+    socket.bind(&address).expect("dead socket fixture: bind");
 }
 
 /// One client connection over the supervisor socket.
@@ -171,7 +183,7 @@ fn a_custom_socket_supervisor_keeps_and_cleans_its_endpoints_beside_its_socket()
         socket_dir.join(minted.file_name().expect("worker socket name"))
     };
     let stale_socket = leftover("dead00000000");
-    drop(UnixListener::bind(&stale_socket).expect("bind stale worker socket"));
+    bind_dead_socket(&stale_socket);
     let orphan_lock = PathBuf::from(format!("{}.lock", leftover("gone00000000").display()));
     std::fs::create_dir(&orphan_lock).expect("orphan lock dir");
     let crashed =

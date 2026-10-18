@@ -53,11 +53,11 @@ use legacy_fixture::write_fixture;
 
 struct Supervisor(Daemon);
 
+/// Stop by protocol; the inner `Daemon` guard then stops the supervisor and
+/// its workers.
 impl Drop for Supervisor {
     fn drop(&mut self) {
         graceful_shutdown(&self.0.socket);
-        let _ = self.0.child.kill();
-        let _ = self.0.child.wait();
         let _ = std::fs::remove_file(&self.0.socket);
     }
 }

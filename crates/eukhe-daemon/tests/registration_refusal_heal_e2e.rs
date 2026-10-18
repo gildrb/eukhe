@@ -385,9 +385,7 @@ fn a_descriptorless_leftover_dies_and_its_session_resumes() {
     // state the incident left on disk (and the state a raced terminal
     // stop produced before the confirm-then-delete contract).
     drop(client);
-    let _ = daemon.child.kill();
-    let _ = daemon.child.wait();
-    drop(daemon);
+    daemon.kill_supervisor();
     assert!(
         process_alive(worker_process_id),
         "the worker survived its supervisor's hard death"
@@ -441,12 +439,8 @@ fn a_descriptorless_leftover_dies_and_its_session_resumes() {
         .to_string();
     run_one_turn(&mut client, &resumed_id, "p2");
 
-    // Teardown: the resumed worker dies with the daemon, never leaking
-    // into later test binaries.
+    // Teardown: the resumed worker dies with the daemon's guard.
     let _ = client.writer.shutdown(std::net::Shutdown::Both);
-    for pid in child_pids_of(daemon2.child.id()) {
-        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
-    }
     drop(daemon2);
 }
 
@@ -590,10 +584,7 @@ fn an_owned_stop_kills_a_worker_that_missed_the_shutdown() {
         .to_string();
     run_one_turn(&mut client, &resumed_id, "p2");
 
-    // Teardown: the resumed worker dies with the daemon.
+    // Teardown: the resumed worker dies with the daemon's guard.
     let _ = client.writer.shutdown(std::net::Shutdown::Both);
-    for pid in child_pids_of(daemon.child.id()) {
-        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
-    }
     drop(daemon);
 }

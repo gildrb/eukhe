@@ -4,19 +4,14 @@
 #![allow(dead_code)] // each including test binary uses its own subset
 
 use std::path::Path;
-use std::process::Child;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-/// The running supervisor; `SIGKILL`ed on drop.
+use super::process::Daemon;
+
+/// The running supervisor; its whole process tree is stopped on drop
+/// ([`Daemon`]).
 pub struct Supervisor {
-    child: Child,
-}
-
-impl Drop for Supervisor {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
+    daemon: Daemon,
 }
 
 impl Supervisor {
@@ -29,7 +24,8 @@ impl Supervisor {
             .append(true)
             .open(log)
             .expect("supervisor log");
-        let child = super::daemon::supervisor_command(socket, agent_dir)
+        let mut command = super::daemon::supervisor_command(socket, agent_dir);
+        command
             .stderr(log)
             .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
@@ -41,21 +37,15 @@ impl Supervisor {
             )
             // Parallel e2e load can starve a fresh worker's boot past the
             // 30 s default.
-            .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000")
-            .spawn()
-            .expect("spawn the supervisor");
-        let supervisor = Supervisor { child };
-        let deadline = Instant::now() + Duration::from_mins(3);
-        while std::os::unix::net::UnixStream::connect(socket).is_err() {
-            assert!(Instant::now() < deadline, "the supervisor never listened");
-            std::thread::sleep(Duration::from_millis(20));
+            .env("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "90000");
+        Supervisor {
+            daemon: Daemon::spawn_listening(&mut command, socket, Duration::from_mins(3)),
         }
-        supervisor
     }
 
-    /// `SIGKILL` the supervisor and reap it.
-    pub fn kill(mut self) {
-        self.child.kill().expect("SIGKILL the supervisor");
-        let _ = self.child.wait();
+    /// A crash: `SIGKILL` the supervisor alone and reap it; its workers
+    /// live on until a successor adopts them or this guard drops.
+    pub fn kill(&mut self) {
+        self.daemon.kill_supervisor();
     }
 }

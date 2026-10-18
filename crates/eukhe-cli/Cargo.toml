@@ -58,8 +58,9 @@ futures = { workspace = true }
 crossterm = "0.28"
 nix = { version = "0.29", features = ["term", "signal", "fs", "socket"] }
 # The safe calls nix lacks: TIOCSCTTY (the pty child's controlling-terminal
-# claim), PR_SET_PDEATHSIG (the daemon trampoline), and ptsname.
-rustix = { version = "1", features = ["process", "pty"] }
+# claim), PR_SET_PDEATHSIG (the daemon trampoline), and ptsname; and the
+# shared e2e `Daemon` guard's pidfd tree kill and wait.
+rustix = { version = "1", features = ["process", "pty", "event"] }
 
 [lints]
 workspace = true

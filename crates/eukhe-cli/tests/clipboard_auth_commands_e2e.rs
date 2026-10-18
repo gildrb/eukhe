@@ -25,7 +25,7 @@
 //! hook.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use eukhe_types::daemon::DaemonCommand;
 
@@ -38,69 +38,13 @@ use process::Daemon;
 
 struct Supervisor(Daemon);
 
+/// Stop by protocol; the inner `Daemon` guard then stops the supervisor and
+/// its workers.
 impl Drop for Supervisor {
     fn drop(&mut self) {
         graceful_shutdown(&self.0.socket);
-        let worker_pids = child_pids_of(self.0.child.id());
-        let _ = self.0.child.kill();
-        let _ = self.0.child.wait();
-        for pid in worker_pids {
-            kill_worker(pid);
-        }
         let _ = std::fs::remove_file(&self.0.socket);
     }
-}
-
-fn kill_worker(pid: u32) {
-    let pid_t = i32::try_from(pid).expect("a Linux pid fits pid_t");
-    // Ignored as before: an already-gone worker is fine, the wait below checks.
-    let _ = nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(pid_t),
-        nix::sys::signal::Signal::SIGKILL,
-    );
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_alive(pid) {
-        assert!(
-            Instant::now() < deadline,
-            "worker {pid} survived the teardown kill"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn process_alive(pid: u32) -> bool {
-    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
-        let rest = stat
-            .rsplit_once(')')
-            .map(|(_, rest)| rest)
-            .unwrap_or_default();
-        !rest.starts_with('Z')
-    })
-}
-
-fn child_pids_of(ppid: u32) -> Vec<u32> {
-    let mut pids = Vec::new();
-    let entries = std::fs::read_dir("/proc").expect("read /proc");
-    for entry in entries.flatten() {
-        let Ok(entry_pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{entry_pid}/stat")) else {
-            continue;
-        };
-        let Some((_, rest)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let mut fields = rest.split_whitespace();
-        fields.next(); // process state
-        let Ok(parent) = fields.next().unwrap_or_default().parse::<u32>() else {
-            continue;
-        };
-        if parent == ppid {
-            pids.push(entry_pid);
-        }
-    }
-    pids
 }
 
 fn graceful_shutdown(socket: &Path) {

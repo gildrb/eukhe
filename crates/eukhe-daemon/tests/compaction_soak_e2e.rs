@@ -31,6 +31,8 @@ mod durable_store;
 mod isolated_supervisor;
 #[path = "support/mock_llm.rs"]
 mod mock_llm;
+#[path = "support/process.rs"]
+mod process;
 #[path = "support/wire_client.rs"]
 mod wire_client;
 

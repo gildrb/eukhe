@@ -46,14 +46,11 @@ use durable_store::{legacy_storage, storage_contains};
 
 struct Supervisor(Daemon);
 
+/// Stop by protocol; the inner `Daemon` guard then stops the supervisor and
+/// its workers (a failing test must not leak worker processes).
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        // Stop by protocol so the supervisor shuts its workers down, then
-        // kill the child when the protocol path fails (a failing test must
-        // not leak worker processes).
         graceful_shutdown(&self.0.socket);
-        let _ = self.0.child.kill();
-        let _ = self.0.child.wait();
         let _ = std::fs::remove_file(&self.0.socket);
     }
 }

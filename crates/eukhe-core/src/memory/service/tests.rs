@@ -671,13 +671,18 @@ async fn a_second_handle_is_a_client_and_takes_over() {
 }
 
 /// A socket that refuses connections is stale (its owner died): the next
-/// process takes it over.
+/// process takes it over. The fixture binds without listening, so a connect
+/// is refused even while a concurrent test's `fork` holds a descriptor
+/// copy (a bound-then-dropped listener would keep accepting through such a
+/// copy until the child's `exec`).
 #[cfg(unix)]
 #[tokio::test]
 async fn a_stale_socket_is_taken_over() {
     let dir = tempfile::tempdir().unwrap();
     let lock = dir.path().join("lock");
-    drop(std::os::unix::net::UnixListener::bind(&lock).unwrap());
+    let dead = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None).unwrap();
+    dead.bind(&socket2::SockAddr::unix(&lock).unwrap()).unwrap();
+    drop(dead);
     assert!(lock.exists());
     let memory = Memory::open(dir.path(), no_model()).await.unwrap();
     assert!(memory.owns().await);

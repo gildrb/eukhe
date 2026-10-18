@@ -151,50 +151,34 @@ fn read_request_body(stream: &TcpStream) -> Option<String> {
 
 struct Supervisor(Daemon);
 
+/// Stop by protocol; the inner `Daemon` guard then stops the supervisor and
+/// its workers.
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        let supervisor_pid = graceful_shutdown(&self.0.socket);
-        let workers = supervisor_pid.map(child_pids_of).unwrap_or_default();
-        let _ = self.0.child.kill();
-        let _ = self.0.child.wait();
-        for pid in workers {
-            let Ok(pid) = i32::try_from(pid) else {
-                continue;
-            };
-            // Ignored as before: a worker already gone is fine.
-            let _ = nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(pid),
-                nix::sys::signal::Signal::SIGKILL,
-            );
-        }
+        graceful_shutdown(&self.0.socket);
     }
 }
 
-fn child_pids_of(ppid: u32) -> Vec<u32> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
+/// The protocol shutdown; waits (bounded) for the supervisor its hello
+/// names to exit.
+fn graceful_shutdown(socket: &Path) {
+    let Ok(stream) = std::os::unix::net::UnixStream::connect(socket) else {
+        return;
     };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let child = entry.file_name().to_string_lossy().parse::<u32>().ok()?;
-            let stat = std::fs::read_to_string(format!("/proc/{child}/stat")).ok()?;
-            let (_, rest) = stat.rsplit_once(')')?;
-            let parent = rest.split_whitespace().nth(1)?.parse::<u32>().ok()?;
-            (parent == ppid).then_some(child)
-        })
-        .collect()
-}
-
-/// The protocol shutdown; returns the supervisor pid its hello names.
-fn graceful_shutdown(socket: &Path) -> Option<u32> {
-    let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
-    let mut writer = stream.try_clone().ok()?;
+    let Ok(mut writer) = stream.try_clone() else {
+        return;
+    };
     let mut reader = BufReader::new(stream);
     let mut hello = String::new();
-    reader.read_line(&mut hello).ok()?;
-    let hello: Value = serde_json::from_str(hello.trim()).ok()?;
-    let pid = hello["supervisorPid"].as_u64()? as u32;
+    if reader.read_line(&mut hello).is_err() {
+        return;
+    }
+    let Ok(hello) = serde_json::from_str::<Value>(hello.trim()) else {
+        return;
+    };
+    let Some(pid) = hello["supervisorPid"].as_u64() else {
+        return;
+    };
     let shutdown = json!({
         "type": "command",
         "id": "remote-login-e2e-shutdown",
@@ -207,7 +191,6 @@ fn graceful_shutdown(socket: &Path) -> Option<u32> {
     while Path::new(&format!("/proc/{pid}")).exists() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(20));
     }
-    Some(pid)
 }
 
 /// The test's isolated world: home, agent dir, supervisor, token server.

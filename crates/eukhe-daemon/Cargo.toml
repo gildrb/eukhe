@@ -42,6 +42,9 @@ url = "2"
 # `test-util` (tokio time pause) is test-only: the mutation-drain latch test
 # drives real timeouts through the paused clock.
 tokio = { workspace = true, features = ["test-util"] }
+# The e2e `Daemon` guard pins and kills the supervisor's process tree
+# (pidfd, process groups) and waits on the pidfds.
+rustix = { version = "1", features = ["process", "event"] }
 
 [[bin]]
 name = "eukhe-daemon"

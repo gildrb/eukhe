@@ -55,10 +55,10 @@ impl Daemon {
         }
     }
 
-    /// A crash: `SIGKILL` the supervisor alone (its workers live on).
-    fn kill9(mut self) {
-        self.child.kill().expect("kill -9 the supervisor");
-        self.child.wait().expect("reap the supervisor");
+    /// A crash: `SIGKILL` the supervisor alone (its workers live on; the
+    /// guard stays in scope for the successor to inherit them).
+    fn kill9(&mut self) {
+        self.kill_supervisor();
     }
 }
 
@@ -605,7 +605,7 @@ fn restart_lane(restart: Restart, state: ChildAtRestart) {
         ]),
     };
     let parent_script = lane.script("parent", &before_responses);
-    let daemon = lane.supervisor();
+    let mut daemon = lane.supervisor();
     let mut client = connect(&lane.socket());
     let parent = lane.create_parent(&mut client, &parent_script, &child_script, None);
     client.request(

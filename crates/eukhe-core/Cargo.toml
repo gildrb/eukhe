@@ -74,6 +74,8 @@ proptest = { workspace = true }
 # The traces rate-gate test runs on paused tokio time (the 12s platform
 # interval auto-advances).
 tokio = { workspace = true, features = ["test-util"] }
+# The stale-socket fixtures bind a socket that never listens.
+socket2 = "0.6"
 
 [lints]
 workspace = true

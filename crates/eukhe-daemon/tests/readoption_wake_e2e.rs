@@ -374,7 +374,7 @@ fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart
     // orphaned) and relaunches over the same socket — the adoption scan
     // re-adopts the live worker.
     drop(client);
-    drop(supervisor);
+    supervisor.kill_supervisor();
     std::fs::remove_file(&socket).ok();
     let _supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
@@ -439,7 +439,7 @@ fn a_heartbeat_keeps_firing_across_a_supervisor_restart() {
     .expect("write faux script");
 
     // First generation: a scripted session with a 5s heartbeat.
-    let supervisor = spawn_daemon(&socket, &agent_dir);
+    let mut supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     let sessions = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
@@ -500,7 +500,7 @@ fn a_heartbeat_keeps_firing_across_a_supervisor_restart() {
 
     // The supervisor dies hard and relaunches; the worker is re-adopted.
     drop(client);
-    drop(supervisor);
+    supervisor.kill_supervisor();
     std::fs::remove_file(&socket).ok();
     let _supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
@@ -562,7 +562,7 @@ fn a_boot_fires_the_adopted_worker_due_job_and_never_resurrects_the_killed_sibli
     )
     .expect("write faux script");
 
-    let supervisor = spawn_daemon(&socket, &agent_dir);
+    let mut supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
     let sessions = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
@@ -628,7 +628,7 @@ fn a_boot_fires_the_adopted_worker_due_job_and_never_resurrects_the_killed_sibli
     // adopted alive (its due fire must continue), the killed lane's stop
     // finishes at the boot scan instead of resurrecting.
     drop(client);
-    drop(supervisor);
+    supervisor.kill_supervisor();
     std::fs::remove_file(&socket).ok();
     let _supervisor = spawn_daemon(&socket, &agent_dir);
     let mut client = Client::connect(&socket);

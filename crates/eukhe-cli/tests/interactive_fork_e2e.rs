@@ -87,46 +87,14 @@ fn interactive_fork_child_mode() {
 
 struct Supervisor(Daemon);
 
-/// Stop the supervisor by protocol and reap every worker it spawned, so a
-/// failing test leaks nothing. Drop runs even on panic.
+/// Stop the supervisor by protocol; the inner `Daemon` guard then stops the
+/// supervisor and its workers, so a failing test leaks nothing. Drop runs
+/// even on panic.
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        let supervisor_pid = graceful_shutdown(&self.0.socket);
-        let worker_pids = supervisor_pid.map(child_pids_of).unwrap_or_default();
-        let _ = self.0.child.kill();
-        let _ = self.0.child.wait();
-        for pid in worker_pids {
-            kill_worker(pid);
-        }
+        graceful_shutdown(&self.0.socket);
         let _ = std::fs::remove_file(&self.0.socket);
     }
-}
-
-/// Pids whose parent is `ppid` (the supervisor's live worker children).
-fn child_pids_of(ppid: u32) -> Vec<u32> {
-    let mut pids = Vec::new();
-    let entries = std::fs::read_dir("/proc").expect("read /proc");
-    for entry in entries.flatten() {
-        let Ok(entry_pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{entry_pid}/stat")) else {
-            continue;
-        };
-        // `comm` can contain spaces and parens, so parse after the last ')'.
-        let Some((_, rest)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let mut fields = rest.split_whitespace();
-        fields.next();
-        let Ok(parent) = fields.next().unwrap_or_default().parse::<u32>() else {
-            continue;
-        };
-        if parent == ppid {
-            pids.push(entry_pid);
-        }
-    }
-    pids
 }
 
 /// Liveness that ignores zombies: an unreaped child keeps its `/proc`
@@ -142,42 +110,30 @@ fn process_alive(pid: u32) -> bool {
     !state.starts_with('Z') && !state.starts_with('X')
 }
 
-fn kill_worker(pid: u32) {
-    let pid_t = i32::try_from(pid).expect("a Linux pid fits pid_t");
-    // Ignored as before: an already-gone worker is fine, the wait below checks.
-    let _ = nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(pid_t),
-        nix::sys::signal::Signal::SIGKILL,
-    );
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_alive(pid) {
-        assert!(
-            Instant::now() < deadline,
-            "worker {pid} survived the teardown kill"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-/// Send the daemon protocol shutdown and return the supervisor pid it
-/// names, so the caller can reap the detached workers it spawned.
-fn graceful_shutdown(socket: &Path) -> Option<u32> {
+/// Send the daemon protocol shutdown and wait (bounded) for the supervisor
+/// it names to exit.
+fn graceful_shutdown(socket: &Path) {
     let Ok(stream) = std::os::unix::net::UnixStream::connect(socket) else {
-        return None;
+        return;
     };
     let Ok(write_half) = stream.try_clone() else {
-        return None;
+        return;
     };
     let mut reader = BufReader::new(stream);
     let mut writer = write_half;
     let mut hello = String::new();
     if reader.read_line(&mut hello).is_err() {
-        return None;
+        return;
     }
     let Ok(hello) = serde_json::from_str::<Value>(hello.trim()) else {
-        return None;
+        return;
     };
-    let supervisor_pid = hello["supervisorPid"].as_u64()? as u32;
+    let Some(supervisor_pid) = hello["supervisorPid"].as_u64() else {
+        return;
+    };
+    let Ok(supervisor_pid) = u32::try_from(supervisor_pid) else {
+        return;
+    };
     let shutdown = json!({
         "type": "command",
         "id": "fork-e2e-shutdown",
@@ -189,13 +145,9 @@ fn graceful_shutdown(socket: &Path) -> Option<u32> {
     let _ = writer.write_all(line.as_bytes());
     let _ = writer.flush();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while process_alive(supervisor_pid) {
-        if Instant::now() > deadline {
-            return Some(supervisor_pid);
-        }
+    while process_alive(supervisor_pid) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(20));
     }
-    None
 }
 
 fn spawn_supervisor(socket: &Path, agent_dir: &Path, session_dir: &Path) -> Supervisor {

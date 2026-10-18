@@ -39,6 +39,8 @@ mod durable_store;
 mod isolated_supervisor;
 #[path = "../support/mock_llm.rs"]
 mod mock_llm;
+#[path = "../support/process.rs"]
+mod process;
 #[path = "../support/wire_client.rs"]
 mod wire_client;
 
@@ -135,8 +137,14 @@ impl World {
         ));
     }
 
+    /// The crashed supervisor's guard stays in place: its orphaned workers
+    /// belong to the successor once one serves the socket, and are stopped
+    /// by this guard if none ever does.
     fn kill_supervisor(&mut self) {
-        self.supervisor.take().expect("a running supervisor").kill();
+        self.supervisor
+            .as_mut()
+            .expect("a running supervisor")
+            .kill();
     }
 
     fn release_path(&self) -> PathBuf {
