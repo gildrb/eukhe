@@ -131,8 +131,12 @@ of 20,001, as the gist says (`O.agree.count(O.First{}, 20001n)`).
 The kernel cannot run 20,001 steps in one check (it runs out of fuel), so
 `bend/proof_push.bend` cuts the run into 20 chunks of 1,000 steps and one
 step. A lemma proven by induction joins the chunks. Each chunk starts from
-a written-out state and is checked by computation. On this machine
-`bend PROOF.bend` takes about 30 s and `--verdict` about 2 min 15 s.
+a written-out state and is checked by computation. Each join names the
+steps that are left as a literal (`20001n`, `19001n`, …, `1001n`), so the
+checker compares a sum with a literal at most 1,000 steps deep. A sum of
+20 nested sums against `20001n` makes the checker recurse 20,001 frames
+deep, and that overflows its JavaScript stack in some runs. On this
+machine `bend PROOF.bend` takes about 30 s and `--verdict` about 2 min 15 s.
 
 ### What is trusted
 
