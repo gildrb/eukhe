@@ -30,6 +30,26 @@ fn tier_model(provider: &str, api: &str, id: &str) -> Model {
     }
 }
 
+/// The offered tiers per model: every tier on an eligible `OpenAI`
+/// Responses model, `OpenRouter`'s two, and only `default` for a local
+/// OpenAI-compatible server (the dashboard then shows no tier control).
+#[test]
+fn supported_tiers_follow_the_eligibility_rule() {
+    use ServiceTier::{Auto, Default, Flex, Priority, Scale};
+    assert_eq!(
+        [
+            supported_service_tiers_fields("openai", "openai-responses", "gpt-5.5"),
+            supported_service_tiers_fields("openrouter", "openai-completions", "any/model"),
+            supported_service_tiers_fields("elpis-fast", "openai-completions", "qwen3.8-27b"),
+        ],
+        [
+            vec![Auto, Default, Flex, Scale, Priority],
+            vec![Default, Flex, Priority],
+            vec![Default],
+        ]
+    );
+}
+
 #[test]
 fn service_tier_eligibility_matches_ts() {
     use ServiceTier::*;

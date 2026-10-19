@@ -187,9 +187,10 @@ runtime-lock-check:
 	python3 scripts/release/test_runtime_lock.py
 
 # The dashboard web app: install the locked packages, check (format, lint,
-# types) and build crates/eukhe-dashboard/ui into crates/eukhe-dashboard/web,
-# the committed output that build.rs embeds. Run after every UI change.
+# types), test (`vp test`) and build crates/eukhe-dashboard/ui into
+# crates/eukhe-dashboard/web, the committed output that build.rs embeds.
+# Run after every UI change.
 dashboard-ui:
-	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp build
+	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
 .PHONY: check runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check dashboard-ui

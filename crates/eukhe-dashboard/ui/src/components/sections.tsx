@@ -8,14 +8,15 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "react";
 import {
   compactChat,
-  levelWord,
   listModels,
   modelKey,
   notificationsSupported,
   reloadState,
-  SERVICE_TIERS,
   setAndReload,
+  setModel,
   setPref,
+  setThinking,
+  setTier,
 } from "../lib/actions.ts";
 import { dateSpan, fmt } from "../lib/format.ts";
 import { request, run } from "../lib/link.ts";
@@ -35,7 +36,7 @@ import {
   TextField,
 } from "./controls.tsx";
 import { CopyButton } from "./CopyButton.tsx";
-import { setModel, setThinking, setTier } from "./ModelMenu.tsx";
+import { serviceTiers, thinkingLevels } from "./ModelMenu.tsx";
 
 const MODES = [
   { value: "one-at-a-time", label: "One at a time" },
@@ -251,36 +252,41 @@ export function ModelSection() {
   const [result, perform] = useAction();
   if (!session) return <NoChat />;
   const state = session.state;
-  const levels = state.availableThinkingLevels?.length ? state.availableThinkingLevels : ["off"];
-  const options = levels.map((level) => ({ value: level, label: levelWord(level) }));
+  // The daemon's own names, verbatim (as the CLI shows them).
+  const levels = thinkingLevels(state).map((level) => ({ value: level, label: level }));
+  const tiers = serviceTiers(state).map((tier) => ({ value: tier, label: tier }));
   return (
     <Stack>
       <ModelList />
-      <Labelled label="Thinking">
-        {levels.length <= 5 ? (
-          <Segmented
-            label="Thinking"
-            options={options}
-            value={state.thinkingLevel}
-            onChange={(level) => perform(() => setThinking(level))}
-          />
-        ) : (
+      {levels.length > 1 ? (
+        <Labelled label="Reasoning">
+          {levels.length <= 5 ? (
+            <Segmented
+              label="Reasoning"
+              options={levels}
+              value={state.thinkingLevel}
+              onChange={(level) => perform(() => setThinking(level))}
+            />
+          ) : (
+            <MenuSelect
+              label="Reasoning"
+              options={levels}
+              value={state.thinkingLevel}
+              onChange={(level) => perform(() => setThinking(level))}
+            />
+          )}
+        </Labelled>
+      ) : null}
+      {tiers.length > 1 ? (
+        <Labelled label="Service tier">
           <MenuSelect
-            label="Thinking"
-            options={options}
-            value={state.thinkingLevel}
-            onChange={(level) => perform(() => setThinking(level))}
+            label="Service tier"
+            options={tiers}
+            value={state.serviceTier ?? session.serviceTier ?? undefined}
+            onChange={(tier) => perform(() => setTier(tier))}
           />
-        )}
-      </Labelled>
-      <Labelled label="Service tier">
-        <MenuSelect
-          label="Service tier"
-          options={SERVICE_TIERS}
-          value={state.serviceTier ?? session.serviceTier ?? "default"}
-          onChange={(tier) => perform(() => setTier(tier))}
-        />
-      </Labelled>
+        </Labelled>
+      ) : null}
       {result ? <Status text={result.text} error={result.error} /> : null}
       <ScopedModels />
     </Stack>

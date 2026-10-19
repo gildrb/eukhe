@@ -93,20 +93,36 @@ pub(crate) fn thinking_level(core: &SessionCore, session: &SessionSlot) -> Strin
         .to_string()
 }
 
+/// The shown model, from the catalog.
+fn shown_model(core: &SessionCore, session: &SessionSlot) -> Option<Model> {
+    core.view
+        .as_ref()
+        .and_then(|view| view.translator.mirror().agent.model.clone())
+        .and_then(|model_ref| catalog_model(session, &model_ref.provider, &model_ref.model_id))
+}
+
 /// The thinking levels the shown model supports (`["off"]` without a
 /// reasoning model).
 pub(crate) fn available_thinking_levels(core: &SessionCore, session: &SessionSlot) -> Vec<String> {
-    let model = core
-        .view
-        .as_ref()
-        .and_then(|view| view.translator.mirror().agent.model.clone())
-        .and_then(|model_ref| catalog_model(session, &model_ref.provider, &model_ref.model_id));
-    match model {
+    match shown_model(core, session) {
         Some(model) => eukhe_ai::models::get_supported_thinking_levels(&model)
             .into_iter()
             .map(|level| level.as_str().to_string())
             .collect(),
         None => vec!["off".to_string()],
+    }
+}
+
+/// The service tiers the shown model honors (`["default"]` without one).
+fn available_service_tiers(core: &SessionCore, session: &SessionSlot) -> Vec<String> {
+    match shown_model(core, session) {
+        Some(model) => {
+            eukhe_types::ai::supported_service_tiers_fields(&model.provider, &model.api, &model.id)
+                .into_iter()
+                .map(|tier| tier.as_str().to_string())
+                .collect()
+        }
+        None => vec![eukhe_types::ai::ServiceTier::Default.as_str().to_string()],
     }
 }
 
@@ -174,6 +190,7 @@ impl Worker {
                 .as_str()
                 .to_string(),
             available_thinking_levels: available_thinking_levels(core, &self.session),
+            available_service_tiers: available_service_tiers(core, &self.session),
             is_bash_running: self.user_bash.is_running(),
             retry_attempt: mirror
                 .and_then(|mirror| mirror.retry_attempt)

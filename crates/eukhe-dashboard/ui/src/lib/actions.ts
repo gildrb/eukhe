@@ -159,26 +159,27 @@ export async function listModels(all = false): Promise<Model[]> {
   );
 }
 
-export const SERVICE_TIERS = [
-  { value: "auto", label: "Auto" },
-  { value: "default", label: "Default" },
-  { value: "flex", label: "Flex" },
-  { value: "scale", label: "Scale" },
-  { value: "priority", label: "Priority" },
-];
+// Level and tier names are the daemon's strings, shown verbatim as the CLI
+// shows them: `availableThinkingLevels` and `availableServiceTiers` of the
+// connection state. The UI keeps no list of its own.
 
-const LEVEL_WORDS: Record<string, string> = {
-  off: "Off",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Max",
-};
+/** Switch the model. */
+export function setModel(model: Model): Promise<void> {
+  return setAndReload({ type: "set_model", provider: model.provider, modelId: model.id });
+}
 
-/** A thinking level as a word. */
-export function levelWord(level: string): string {
-  return LEVEL_WORDS[level] ?? level.charAt(0).toUpperCase() + level.slice(1);
+/** Switch the thinking level (one of `availableThinkingLevels`). */
+export function setThinking(level: string): Promise<void> {
+  return setAndReload({ type: "set_thinking_level", level });
+}
+
+/** Switch the service tier (one of `availableServiceTiers`); the daemon may keep its own. */
+export async function setTier(serviceTier: string): Promise<void> {
+  await setAndReload({ type: "set_service_tier", serviceTier });
+  const kept = store.get().session?.state.serviceTier;
+  if (kept && kept !== serviceTier) {
+    throw new Error(`eukhe kept ${kept}: this model has no ${serviceTier} tier.`);
+  }
 }
 
 // -------------------------------------------------------------- sending --

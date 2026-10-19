@@ -66,6 +66,8 @@ export type AgentState = {
   model?: ModelRef | null;
   thinkingLevel?: string;
   availableThinkingLevels?: string[];
+  /** The tiers the model honors, as the CLI's /tier lists them (`["default"]` without any). */
+  availableServiceTiers?: string[];
   serviceTier?: string | null;
   isStreaming?: boolean;
   isCompacting?: boolean;

@@ -14,7 +14,7 @@ import { colors, media, radius, size, space, type } from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
 import { stopTurn } from "./Conversation.tsx";
 import { IconButton, Segmented } from "./controls.tsx";
-import { ModelMenu } from "./ModelMenu.tsx";
+import { ModelMenu, ReasoningMenu } from "./ModelMenu.tsx";
 
 const LINE = 24;
 const MAX_LINES = 8;
@@ -267,6 +267,7 @@ export function Composer() {
             <Plus aria-hidden="true" {...stylex.props(ui.icon)} />
           </IconButton>
           <ModelMenu />
+          <ReasoningMenu />
           <div {...stylex.props(styles.end)}>
             {running && hasText ? (
               <Segmented

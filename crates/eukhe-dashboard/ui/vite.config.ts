@@ -41,6 +41,8 @@ export default defineConfig({
       devMode: "css-only",
     }),
   ],
+  // `vp test`: component tests (colocated `*.test.tsx`) in a browser-like DOM.
+  test: { environment: "happy-dom", include: ["src/**/*.test.{ts,tsx}"] },
   // Radix and markdown-to-jsx are written for React: they get Preact's
   // compatibility layer in its place (preactjs.com, "Aliasing React to Preact").
   resolve: {

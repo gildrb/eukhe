@@ -100,6 +100,15 @@ pub enum ServiceTier {
 }
 
 impl ServiceTier {
+    /// Every tier, in the order pickers list them.
+    pub const ALL: [ServiceTier; 5] = [
+        Self::Auto,
+        Self::Default,
+        Self::Flex,
+        Self::Scale,
+        Self::Priority,
+    ];
+
     /// The wire name.
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -675,6 +684,21 @@ pub fn supports_service_tier_fields(
 #[must_use]
 pub fn supports_service_tier(model: &Model, tier: ServiceTier) -> bool {
     supports_service_tier_fields(&model.provider, &model.api, &model.id, tier)
+}
+
+/// The tiers a provider honors for one model, by
+/// [`supports_service_tier_fields`]: what every client offers
+/// (`["default"]` alone for a model with no tiers).
+#[must_use]
+pub fn supported_service_tiers_fields(
+    provider: &str,
+    api: &str,
+    model_id: &str,
+) -> Vec<ServiceTier> {
+    ServiceTier::ALL
+        .into_iter()
+        .filter(|tier| supports_service_tier_fields(provider, api, model_id, *tier))
+        .collect()
 }
 
 /// TS `supportsFastMode` (now `supportsServiceTier(model, "priority")`):

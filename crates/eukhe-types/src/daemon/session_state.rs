@@ -171,6 +171,10 @@ pub struct AgentConnectionState {
     pub thinking_level: String,
     pub service_tier: String,
     pub available_thinking_levels: Vec<String>,
+    /// The service tiers the shown model honors (`["default"]` without
+    /// tiers); the same rule as the CLI's `/tier`.
+    #[serde(default)]
+    pub available_service_tiers: Vec<String>,
     pub is_streaming: bool,
     pub is_compacting: bool,
     pub is_bash_running: bool,
