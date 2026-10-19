@@ -46,6 +46,9 @@ import ./bend/proof_progress_report.bend as Reports
 import ./laws/ladder.bend as Ladder
 import ./laws/kernel_local.bend as KernelLocal
 import ./bend/proof_kernel_local.bend as KernelLocals
+import ./laws/storage.bend as Storage
+import ./bend/proof_log.bend as Logs
+import ./bend/proof_staging.bend as Stagings
 
 # (a) The view
 
@@ -877,3 +880,41 @@ def KernelLocal.kernel_lock_sweep_removes_dead(ls):
 
 def KernelLocal.kernel_lock_sweep_keeps_live(ls):
   KernelLocals.pk.sweep_keeps_live(ls)
+
+# (D2) Storage and cron
+
+def Storage.log_reads_lines(ls, t):
+  Logs.pl.reads_lines(ls, t)
+
+def Storage.log_ack_durable(d, e):
+  Logs.pl.ack(d, e)
+
+def Storage.log_only_commits(d, e):
+  Logs.pl.only(d, e)
+
+def Storage.publish_never_overwrites(s, t, es, taken):
+  Stagings.pg.publish_taken(s, t, es, taken)
+
+def Storage.publish_moves(s, t, es, free):
+  Stagings.pg.publish_free(s, t, es, free)
+
+def Storage.sweep_never_live(pre, i, k, s, o, post):
+  Stagings.pg.sweep_never_live(pre, i, k, s, o, post)
+
+def Storage.sweep_never_young(pre, i, k, h, o, post):
+  Stagings.pg.sweep_never_young(pre, i, k, h, o, post)
+
+def Storage.sweep_stays_out(pre, i, k, h, s, post):
+  Stagings.pg.sweep_stays_out(pre, i, k, h, s, post)
+
+def Storage.sweep_reaches_every_depth(pre, i, k, post, sw):
+  Stagings.pg.sweep_reaches(pre, i, k, post, sw)
+
+def Storage.list_one_location(es, n):
+  Stagings.pg.one_location(es, n)
+
+def Storage.list_import_lists_storage(es, s):
+  Stagings.pg.import_lists(es, s)
+
+def Storage.list_import_keeps_others(es, s, n, ne):
+  Stagings.pg.import_keeps(es, s, n, ne)

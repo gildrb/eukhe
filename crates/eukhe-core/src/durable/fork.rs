@@ -30,7 +30,7 @@ use futures::FutureExt;
 use super::discovery::SessionLocation;
 use super::import::{import_legacy_session, ImportError};
 use super::main_conversation::{main_conversation, set_main_conversation};
-use super::staging::{publish, staging_dir, StagingKind};
+use super::staging::{lock_staging, publish, staging_dir, PublishError, StagingKind};
 use crate::session::manager::read_session_header;
 
 /// The durable storage's commit log, copied last (see [`copy_storage`]).
@@ -167,15 +167,25 @@ async fn fork_into(
     tokio::fs::create_dir_all(&parent)
         .await
         .map_err(io("create", &parent))?;
+    let _lock = lock_staging(&staging).map_err(io("lock staging directory", &staging))?;
     let forked = async {
         populate(source, &staging, cx).await?;
         let main = fork_storage(&staging, conversation, at, cwd, cx).await?;
         publish(&staging, new_dir, &parent)
             .await
-            .map_err(|error| ForkError::Io {
-                action: error.action,
-                path: error.path,
-                source: error.source,
+            .map_err(|error| match error {
+                PublishError::TargetExists => ForkError::TargetExists {
+                    path: new_dir.to_owned(),
+                },
+                PublishError::Step {
+                    action,
+                    path,
+                    source,
+                } => ForkError::Io {
+                    action,
+                    path,
+                    source,
+                },
             })?;
         Ok(main)
     }

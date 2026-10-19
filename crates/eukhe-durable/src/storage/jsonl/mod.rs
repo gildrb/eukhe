@@ -1,6 +1,8 @@
 //! JSONL storage backend. Port of `storage/jsonl/index.ts` and
 //! `storage/jsonl/node.ts`.
 
+#[cfg(test)]
+mod bridge;
 mod native;
 mod storage;
 

@@ -1,7 +1,8 @@
 //! Session listing and `--resume` resolution over a sessions directory that
-//! holds durable storages (`<sessions_dir>/<id>/`) and legacy `<id>.jsonl`
-//! files not imported yet (a legacy file whose `<id>/` directory exists is
-//! the durable session). A durable session's cwd is its main conversation's
+//! holds durable storages (`<sessions_dir>/<id>/`) and legacy `<stem>.jsonl`
+//! files not imported yet (a legacy file whose `<stem>/` directory exists is
+//! that directory's session; the id of a legacy row is its stem, the name
+//! of the storage it imports into). A durable session's cwd is its main conversation's
 //! `pi.agent` cwd, read through a view that never writes (the session may be
 //! open in another process); its recency is the newest file mtime in its
 //! directory. Selector tiers and messages are those of
@@ -95,18 +96,6 @@ pub struct SessionListing {
     pub modified: SystemTime,
 }
 
-impl SessionListing {
-    /// The durable directory the session opens as: its storage, or
-    /// `<sessions_dir>/<id>/` for a legacy file (imported on open).
-    #[must_use]
-    pub fn storage_dir(&self, sessions_dir: &Path) -> PathBuf {
-        match &self.location {
-            SessionLocation::Durable(dir) => dir.clone(),
-            SessionLocation::Legacy(_) => sessions_dir.join(&self.id),
-        }
-    }
-}
-
 /// Where a selector resolved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedListing {
@@ -153,7 +142,7 @@ pub async fn list_sessions(sessions_dir: &Path, cx: &Context) -> Vec<SessionList
         .collect()
         .await;
     for file in legacy {
-        if let Some(listing) = legacy_listing(sessions_dir, file).await {
+        if let Some(listing) = legacy_listing(file).await {
             listings.push(listing);
         }
     }
@@ -248,23 +237,29 @@ async fn durable_listing(dir: PathBuf, cx: &Context) -> Option<SessionListing> {
     })
 }
 
-async fn legacy_listing(sessions_dir: &Path, file: PathBuf) -> Option<SessionListing> {
+/// A legacy file not imported yet: its id is its file stem, the name of
+/// the storage directory every open imports it into
+/// ([`SessionLocation::storage_dir`]). When that directory exists, the
+/// session is that directory (listed as a storage, or not at all), never
+/// the file too: one session, one listing (`bend/staging.bend`).
+async fn legacy_listing(file: PathBuf) -> Option<SessionListing> {
+    let storage_dir = SessionLocation::Legacy(file.clone()).storage_dir();
+    if tokio::fs::symlink_metadata(&storage_dir).await.is_ok() {
+        return None;
+    }
+    let id = storage_dir.file_name()?.to_str()?.to_owned();
     let header = {
         let file = file.clone();
         tokio::task::spawn_blocking(move || read_session_header(&file))
             .await
             .ok()??
     };
-    if header.cwd.is_empty()
-        || tokio::fs::try_exists(sessions_dir.join(&header.id))
-            .await
-            .unwrap_or(true)
-    {
+    if header.cwd.is_empty() {
         return None;
     }
     let modified = tokio::fs::metadata(&file).await.ok()?.modified().ok()?;
     Some(SessionListing {
-        id: header.id,
+        id,
         location: SessionLocation::Legacy(file),
         cwd: header.cwd,
         modified,

@@ -33,7 +33,7 @@ use eukhe_types::pi_ai::{Message, ModelThinkingLevel};
 use futures::FutureExt;
 
 use self::plan::{plan_import, ImportPlan, PlannedHead};
-use super::staging::{publish, staging_dir, StagingKind};
+use super::staging::{lock_staging, publish, staging_dir, PublishError, StagingKind};
 use crate::durable::goals::import_legacy_goal;
 
 /// What [`import_legacy_session`] wrote.
@@ -127,6 +127,7 @@ pub async fn import_legacy_session(
     tokio::fs::create_dir_all(&parent)
         .await
         .map_err(io("create", &parent))?;
+    let _lock = lock_staging(&staging).map_err(io("lock staging directory", &staging))?;
     tokio::fs::create_dir(&staging)
         .await
         .map_err(io("create staging directory", &staging))?;
@@ -134,10 +135,19 @@ pub async fn import_legacy_session(
     let written = match write_storage(&staging, plan, cx).await {
         Ok(()) => publish(&staging, storage_dir, &parent)
             .await
-            .map_err(|error| ImportError::Io {
-                action: error.action,
-                path: error.path,
-                source: error.source,
+            .map_err(|error| match error {
+                PublishError::TargetExists => ImportError::AlreadyExists {
+                    path: storage_dir.to_owned(),
+                },
+                PublishError::Step {
+                    action,
+                    path,
+                    source,
+                } => ImportError::Io {
+                    action,
+                    path,
+                    source,
+                },
             }),
         Err(error) => Err(error),
     };

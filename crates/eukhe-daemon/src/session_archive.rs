@@ -316,15 +316,22 @@ const SWEEP_INTERVAL: Duration = Duration::from_mins(5);
 const SWEEP_SLEEP_CHUNK: Duration = Duration::from_secs(5);
 
 /// The daemon's archive-sweep loop: one sweep at boot, then every
-/// [`SWEEP_INTERVAL`] until the supervisor shuts down. Sweep failures log
-/// and retry on the next pass (the sweep is best-effort housekeeping; it
-/// must never take the daemon down).
+/// [`SWEEP_INTERVAL`] until the supervisor shuts down. Each pass also
+/// sweeps the staging leftovers ([`run_staging_sweep`]). Sweep failures
+/// log and retry on the next pass (the sweep is best-effort housekeeping;
+/// it must never take the daemon down).
 pub(crate) async fn archive_sweep_loop(supervisor: &std::sync::Arc<crate::supervisor::Supervisor>) {
     loop {
         match run_archive_sweep(supervisor).await {
             Ok(()) => {}
             Err(error) => {
                 supervisor.log_line(&format!("session archive sweep failed: {error:#}"));
+            }
+        }
+        match run_staging_sweep(supervisor).await {
+            Ok(()) => {}
+            Err(error) => {
+                supervisor.log_line(&format!("session staging sweep failed: {error:#}"));
             }
         }
         let mut remaining = SWEEP_INTERVAL;
@@ -337,6 +344,38 @@ pub(crate) async fn archive_sweep_loop(supervisor: &std::sync::Arc<crate::superv
             remaining -= chunk;
         }
     }
+}
+
+/// One sweep of the import and fork staging directories, delete tombstones
+/// and staging lock files that a crash left behind, at every depth of the
+/// roots where they are made: the sessions dir and the session artifacts
+/// tree (child sessions). A staging dir that a live process holds is never
+/// removed (eukhe-core `sweep_stale_staging_dirs`).
+async fn run_staging_sweep(
+    supervisor: &std::sync::Arc<crate::supervisor::Supervisor>,
+) -> Result<()> {
+    let agent_dir = supervisor.options.agent_dir.clone();
+    let sessions_dir = crate::paths::sessions_dir(&agent_dir)?;
+    let artifacts_dir = crate::context_tree_children::session_artifacts_dir(&agent_dir);
+    let sweep = tokio::task::spawn_blocking(move || {
+        eukhe_core::durable::sweep_stale_staging_dirs(&[&sessions_dir, &artifacts_dir])
+    })
+    .await
+    .context("join the staging sweep")?
+    .context("list a staging root")?;
+    for (path, error) in &sweep.failed {
+        supervisor.log_line(&format!(
+            "staging sweep: cannot remove stale session entry {}: {error}",
+            path.display()
+        ));
+    }
+    if !sweep.removed.is_empty() {
+        supervisor.log_line(&format!(
+            "staging sweep: removed {} stale session staging dir(s), tombstone(s) or lock file(s)",
+            sweep.removed.len()
+        ));
+    }
+    Ok(())
 }
 
 /// One sweep: resolve the policy from the current settings, collect the

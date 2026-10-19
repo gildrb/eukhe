@@ -243,7 +243,7 @@ async fn a_legacy_file_is_listed_as_its_storage_once_imported() {
     let listed = list_sessions(&fixture.sessions, cx()).await;
     assert_eq!(listed.len(), 1);
     assert_eq!(
-        listed[0].storage_dir(&fixture.sessions),
+        listed[0].location.storage_dir(),
         fixture.sessions.join("legacy-1")
     );
 

@@ -130,3 +130,77 @@ the daemon tests `get_state_tree_answers_the_sessions_tree` and
 `subscribe_state_tree_streams_records_to_its_connection_only`;
 `peer::tests::peer_session_attach_gates_event_stream`. Not modelled:
 the map from commits to records (S1, second list). Its tests tie it.
+
+### D2. Storage and cron
+
+A session's storage is a directory with one commit log, `main.jsonl`.
+A storage opens with fsync on in each worker.
+
+1. A commit appends one line to `main.jsonl` and flushes the file. The
+   first commit after an open also flushes the storage directory (the
+   entry of `main.jsonl`). An open also flushes the parent directory
+   (the entry of the storage directory). Only then is a commit
+   acknowledged.
+2. A crash can come at any step. It keeps the flushed bytes and any
+   first part of the bytes that are not flushed. It can also lose the
+   directory entries that are not flushed.
+3. An open reads only complete lines. It cuts a torn tail (the bytes
+   after the last newline) and never reads it as a commit.
+
+A new storage (an import of a legacy file, a fork) is built in a staging
+directory beside its place, `.<name>.import-<uuid>` or
+`.<name>.fork-<uuid>`.
+
+1. The builder creates the lock file `<staging>.lock` first and holds an
+   exclusive lock on it until the build ends.
+2. The publish renames the staging directory to its place only when no
+   entry has that name (`RENAME_NOREPLACE`). An entry at the target, even
+   an empty directory, stays as it was, and the build fails with "exists".
+3. The sweep runs at boot and every 5 minutes. It walks every depth of
+   the sessions directory and of `session-artifacts`. It does not go into
+   a storage, a symlink or a leftover. It removes a staging directory, a
+   delete tombstone, or a lock file without its directory, when no live
+   process holds its lock and nothing touched it for a day.
+
+The listing of a sessions directory shows a storage directory (not
+hidden, with `main.jsonl` and a cwd that reads) and a legacy file
+`<stem>.jsonl`. A legacy file is listed under its stem, the name of the
+storage that every open imports it into, and only while no directory
+has that name. So a session is listed once, before and after its
+import.
+
+Models: `bend/log.bend`, `bend/staging.bend`. Laws: `laws/storage.bend`.
+Proofs: `bend/proof_log.bend`, `bend/proof_staging.bend`.
+
+| Law | Says |
+| --- | --- |
+| `log_reads_lines` | An open reads exactly the complete lines, in order; a torn tail is never read. |
+| `log_ack_durable` | After any crash, the log is the old log, then every acknowledged commit, then maybe more. |
+| `log_only_commits` | After any crash, the log is the old log, then a prefix of the commits tried. |
+| `publish_never_overwrites` | A publish to a taken name fails and changes nothing. |
+| `publish_moves` | A publish to a free name moves the storage. |
+| `sweep_never_live` | A sweep never removes an entry whose lock a live process holds. |
+| `sweep_never_young` | A sweep never removes an entry touched within the day. |
+| `sweep_stays_out` | A sweep never removes an entry it does not reach. |
+| `sweep_reaches_every_depth` | A sweep removes every free, stale leftover it reaches. |
+| `list_one_location` | No name is listed both as a storage and as a legacy file. |
+| `list_import_lists_storage` | After an import, the stem is listed as a storage. |
+| `list_import_keeps_others` | An import changes the listing of no other name. |
+
+Code: `eukhe-durable/src/storage/jsonl/storage.rs` (`JsonlStorage::open`,
+the commit path, `read_lines`); `eukhe-core/src/durable/staging.rs`
+(`lock_staging`, `publish`, `sweep_stale_staging_dirs`);
+`platform/fs.rs` `rename_no_replace`; `durable/discovery.rs`
+(`list_sessions`); `eukhe-daemon/src/session_archive.rs` (the sweep
+loop).
+
+Tie: the bridge tests
+`storage::jsonl::bridge::the_commit_log_runs_as_its_model` (the real
+`JsonlStorage` over a file system that loses power after any step, at
+every crash point of a three-commit epoch and on 120 random histories)
+and `durable::staging::bridge::staging_sweep_and_listing_run_as_their_model`
+(publishes to every kind of target, 60 generated sweep trees, 30
+generated sessions directories with imports). Regression tests:
+`durable::staging::tests::publish_never_replaces_an_entry_at_the_target`,
+`a_held_staging_dir_is_never_swept`,
+`sweeps_leftovers_at_every_depth_it_owns`.

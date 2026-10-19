@@ -25,3 +25,23 @@ pub fn sync_directory(path: &Path) -> io::Result<()> {
 pub fn fsync(file: &File) -> io::Result<()> {
     nix::unistd::fsync(file.as_raw_fd()).map_err(io::Error::from)
 }
+
+/// Rename `from` to `to` only when nothing is at `to`: the check and the
+/// rename are one step of the kernel (`renameat2` `RENAME_NOREPLACE` on
+/// Linux, `renameatx_np` `RENAME_EXCL` on macOS), so a rename never
+/// replaces an entry, even an empty directory that appeared meanwhile.
+///
+/// # Errors
+///
+/// `AlreadyExists` when an entry is at `to`; else the OS error (also on a
+/// file system that cannot rename without replacement).
+pub fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        from,
+        rustix::fs::CWD,
+        to,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(io::Error::from)
+}

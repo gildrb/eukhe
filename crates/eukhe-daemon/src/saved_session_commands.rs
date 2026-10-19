@@ -420,7 +420,7 @@ fn remove_all(sidecars: &[PathBuf], targets: &[PathBuf]) -> Result<&'static str,
             tombstone.push(target.file_name().unwrap_or_default());
             tombstone.push(format!(".deleted-{}", uuid::Uuid::new_v4().simple()));
             let tombstone = target.with_file_name(tombstone);
-            // A boot sweep (eukhe-core `sweep_stale_staging_dirs`) may take
+            // A staging sweep (eukhe-core `sweep_stale_staging_dirs`) may take
             // the tombstone first: rename keeps the storage's old mtimes.
             std::fs::rename(target, &tombstone).and_then(|()| {
                 match std::fs::remove_dir_all(&tombstone) {

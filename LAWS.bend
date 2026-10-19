@@ -32,6 +32,7 @@ import ./laws/dashboard_tokens.bend as DashTokens
 import ./laws/progress.bend as Prg
 import ./laws/ladder.bend as Ladder
 import ./laws/kernel_local.bend as KernelLocal
+import ./laws/storage.bend as Storage
 
 # (a) The view
 # ------------

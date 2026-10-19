@@ -142,9 +142,10 @@ background bookkeeping.
   `~/.eukhe/sessions/<id>/`, so reattach works after a supervisor restart.
 - A storage is an append-only commit log (`main.jsonl`, fsync on each commit).
   Legacy `<id>.jsonl` files are only read: open imports them once. Imports and
-  forks build in a staging directory, fsync it, and rename it into place. A
-  sweep removes staging directories untouched for 24 hours. A delete removes
-  the storage and its legacy file.
+  forks build in a locked staging directory, fsync it, and rename it into
+  place only when nothing is there. A sweep at boot and every 5 minutes removes
+  staging directories untouched for 24 hours that no live build holds. A
+  delete removes the storage and its legacy file.
 - A worker whose supervisor stays unreachable for the lost-exit window
   (default 5 minutes) exits. Work in flight defers the exit by one more window
   at most. An idle worker closes its session; a worker with work records it

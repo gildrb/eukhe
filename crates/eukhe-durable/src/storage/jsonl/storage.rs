@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::env::{CreateDirOptions, FileError, FileErrorCode, FileKind, FileSystem, RemoveOptions};
@@ -663,6 +664,16 @@ impl JsonlStorage {
         fs.create_dir(&absolute, CreateDirOptions { recursive: true }, cx)
             .await
             .map_err(|error| failed(error_from_file("directory creation", error)))?;
+        // An fsync storage makes its own directory entry durable too: a
+        // power loss must not drop a new storage with acknowledged commits
+        // (bend/log.bend, `log_ack_durable`).
+        if options.fsync {
+            if let Some(parent) = Path::new(&absolute).parent().and_then(Path::to_str) {
+                fs.flush_directory(parent, cx).await.map_err(|error| {
+                    failed(error_from_file("flush of the parent directory", error))
+                })?;
+            }
+        }
         let main_path = fs
             .join_path(&[absolute.as_str(), MAIN_FILE], cx)
             .await

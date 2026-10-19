@@ -462,8 +462,10 @@ impl Supervisor {
         }
 
         // Session-archive sweep (roadmap: the sessions directory must not
-        // grow forever): boot sweep, then the periodic re-sweep at the TS
-        // idle-eviction cadence. Housekeeping only — it never gates serving.
+        // grow forever) and the sweep of the staging dirs, delete
+        // tombstones and staging lock files a crash left behind: boot
+        // sweep, then the periodic re-sweep at the TS idle-eviction
+        // cadence. Housekeeping only — it never gates serving.
         {
             let supervisor = Arc::clone(&self);
             tokio::spawn(async move {
@@ -471,9 +473,8 @@ impl Supervisor {
             });
         }
 
-        // Boot housekeeping, off the executor: dead-owner lease dirs, aged
-        // socket logs, and the session staging dirs and delete tombstones a
-        // crash left behind go. Journals without verifiable ownership stay
+        // Boot housekeeping, off the executor: dead-owner lease dirs and
+        // aged socket logs go. Journals without verifiable ownership stay
         // intact: a missing descriptor does not prove that no worker still
         // needs them.
         {
@@ -484,30 +485,9 @@ impl Supervisor {
                     &supervisor.options.agent_dir,
                     &supervisor.options.socket_path,
                 );
-                let swept = paths::sessions_dir(&supervisor.options.agent_dir).and_then(|dir| {
-                    eukhe_core::durable::sweep_stale_staging_dirs(&dir)
-                        .with_context(|| format!("list {}", dir.display()))
-                });
-                let staging = match swept {
-                    Ok(sweep) => {
-                        for (dir, error) in &sweep.failed {
-                            supervisor.log_line(&format!(
-                                "boot cleanup: cannot remove stale session dir {}: {error}",
-                                dir.display()
-                            ));
-                        }
-                        sweep.removed.len()
-                    }
-                    Err(error) => {
-                        supervisor.log_line(&format!(
-                            "boot cleanup: cannot sweep stale session dirs: {error:#}"
-                        ));
-                        0
-                    }
-                };
-                if leases + logs + staging > 0 {
+                if leases + logs > 0 {
                     supervisor.log_line(&format!(
-                        "boot cleanup: removed {leases} dead-owner lease dir(s), {logs} old socket log(s), {staging} stale session staging or tombstone dir(s)"
+                        "boot cleanup: removed {leases} dead-owner lease dir(s), {logs} old socket log(s)"
                     ));
                 }
             });
