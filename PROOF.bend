@@ -59,6 +59,8 @@ import ./laws/supervisor.bend as Sup
 import ./bend/proof_supervisor.bend as Supervision
 import ./bend/proof_replace.bend as Replacing
 import ./bend/proof_notice.bend as Notices
+import ./laws/gateway_width.bend as GatewayWidth
+import ./bend/proof_gateway_width.bend as GatewayWidths
 
 # (a) The view
 
@@ -1059,3 +1061,11 @@ def Sup.notice_shown_once(evs):
 
 def Sup.notice_per_restore(evs):
   Notices.pn.notice_per_restore(evs)
+
+# (G) The Signal gateway's tables
+
+def GatewayWidth.table_aligned(pre, row, post):
+  GatewayWidths.table_aligned(pre, row, post)
+
+def GatewayWidth.ascii_unchanged(rows, ones):
+  GatewayWidths.ascii_unchanged(rows, ones)

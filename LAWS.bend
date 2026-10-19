@@ -37,6 +37,7 @@ import ./laws/recover.bend as Rec
 import ./laws/catalog_union.bend as CatalogUnion
 import ./laws/cron.bend as Cronl
 import ./laws/supervisor.bend as Sup
+import ./laws/gateway_width.bend as GatewayWidth
 
 # (a) The view
 # ------------

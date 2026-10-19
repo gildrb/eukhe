@@ -2,6 +2,11 @@
 //! (`start:length:STYLE`, UTF-16 code units), and long replies split into
 //! chunks Signal accepts.
 
+use eukhe_tui::width::str_width;
+
+#[cfg(test)]
+mod tests;
+
 /// The UTF-16 length limit of one chunk.
 const CHUNK_UNITS: usize = 2000;
 
@@ -174,7 +179,7 @@ impl Rendered {
             .map(|column| {
                 rows.iter()
                     .filter_map(|row| row.get(column))
-                    .map(|cell| cell.text.chars().count())
+                    .map(|cell| str_width(&cell.text))
                     .max()
                     .unwrap_or(0)
             })
@@ -192,7 +197,7 @@ impl Rendered {
                 let cell_width = match row.get(column) {
                     Some(cell) => {
                         self.append(cell);
-                        cell.text.chars().count()
+                        str_width(&cell.text)
                     }
                     None => 0,
                 };

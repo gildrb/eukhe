@@ -8,6 +8,8 @@ mod sessions;
 mod setup;
 mod signal;
 mod style;
+#[cfg(test)]
+mod testing;
 
 use std::path::PathBuf;
 
