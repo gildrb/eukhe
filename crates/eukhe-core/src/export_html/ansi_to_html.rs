@@ -12,32 +12,17 @@
 
 use std::fmt::Write as _;
 
-/// The 16-color palette (indices 0-15): standard 30-37/40-47 plus the
-/// bright 90-97/100-107 variants.
-const ANSI_COLORS: [&str; 16] = [
-    "#000000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0",
-    "#808080", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
-];
+/// The color of palette index `index` as `#rrggbb` ([`eukhe_theme::ansi256`],
+/// the one ANSI-16 table and xterm-256 palette); `None` past 255.
+fn palette_hex(index: u64) -> Option<String> {
+    u8::try_from(index)
+        .ok()
+        .map(|index| eukhe_theme::ansi256(index).to_string())
+}
 
-/// Convert a 256-color index to a hex color (the 6x6x6 cube and the
-/// 24-step grayscale ramp).
-fn color256_to_hex(index: u64) -> String {
-    if index < 16 {
-        return ANSI_COLORS[index as usize].to_string();
-    }
-    if index < 232 {
-        let cube = index - 16;
-        let to_component = |n: u64| if n == 0 { 0 } else { 55 + n * 40 };
-        format!(
-            "#{:02x}{:02x}{:02x}",
-            to_component(cube / 36),
-            to_component((cube % 36) / 6),
-            to_component(cube % 6)
-        )
-    } else {
-        let gray = 8 + (index - 232) * 10;
-        format!("#{gray:02x}{gray:02x}{gray:02x}")
-    }
+/// The color of ANSI-16 index `index` (0-15) as `#rrggbb`.
+fn basic_hex(index: u64) -> String {
+    palette_hex(index).unwrap_or_default()
 }
 
 /// Escape HTML special characters.
@@ -116,10 +101,12 @@ fn apply_sgr(params: &[u64], style: &mut TextStyle) {
             }
             23 => style.italic = false,
             24 => style.underline = false,
-            30..=37 => style.fg = Some(ANSI_COLORS[(code - 30) as usize].to_string()),
+            30..=37 => style.fg = Some(basic_hex(code - 30)),
             38 => {
                 if params.get(i + 1) == Some(&5) && params.len() > i + 2 {
-                    style.fg = Some(color256_to_hex(params[i + 2]));
+                    if let Some(hex) = palette_hex(params[i + 2]) {
+                        style.fg = Some(hex);
+                    }
                     i += 2;
                 } else if params.get(i + 1) == Some(&2) && params.len() > i + 4 {
                     style.fg = Some(format!(
@@ -132,10 +119,12 @@ fn apply_sgr(params: &[u64], style: &mut TextStyle) {
                 }
             }
             39 => style.fg = None,
-            40..=47 => style.bg = Some(ANSI_COLORS[(code - 40) as usize].to_string()),
+            40..=47 => style.bg = Some(basic_hex(code - 40)),
             48 => {
                 if params.get(i + 1) == Some(&5) && params.len() > i + 2 {
-                    style.bg = Some(color256_to_hex(params[i + 2]));
+                    if let Some(hex) = palette_hex(params[i + 2]) {
+                        style.bg = Some(hex);
+                    }
                     i += 2;
                 } else if params.get(i + 1) == Some(&2) && params.len() > i + 4 {
                     style.bg = Some(format!(
@@ -148,8 +137,8 @@ fn apply_sgr(params: &[u64], style: &mut TextStyle) {
                 }
             }
             49 => style.bg = None,
-            90..=97 => style.fg = Some(ANSI_COLORS[(code - 90 + 8) as usize].to_string()),
-            100..=107 => style.bg = Some(ANSI_COLORS[(code - 100 + 8) as usize].to_string()),
+            90..=97 => style.fg = Some(basic_hex(code - 90 + 8)),
+            100..=107 => style.bg = Some(basic_hex(code - 100 + 8)),
             _ => {}
         }
         i += 1;

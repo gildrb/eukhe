@@ -20,7 +20,7 @@ pub trait ClientSettings: Send + Sync {
     /// Where theme names resolve (TS `setRegisteredThemes` from the
     /// resource loader + `getCustomThemesDir`), re-resolved per call so
     /// `/reload` and `/settings` see edited settings and files.
-    fn theme_sources(&self) -> crate::theme_catalog::ThemeSources;
+    fn theme_sources(&self) -> eukhe_theme::ThemeSources;
     /// Record a theme warning in the agent log (the chat shows it too).
     fn log_theme_warning(&self, message: &str);
     /// Record a frame the off-screen check rejected in the agent log (the

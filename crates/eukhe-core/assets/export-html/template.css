@@ -387,9 +387,9 @@
     }
 
     .copy-link-btn.copied {
-      background: var(--success, #22c55e);
-      color: white;
-      border-color: var(--success, #22c55e);
+      background: var(--success);
+      color: var(--body-bg);
+      border-color: var(--success);
     }
     .user-message.highlight,
     .assistant-message.highlight {
@@ -738,7 +738,7 @@
     }
 
     .tool-param-required {
-      color: var(--warning, #e8a838);
+      color: var(--warning);
       font-size: 10px;
     }
 
@@ -852,7 +852,7 @@
     }
 
     .markdown-content code {
-      background: rgba(128, 128, 128, 0.2);
+      background: color-mix(in srgb, var(--muted) 20%, transparent);
       color: var(--mdCode);
       padding: 0 4px;
       border-radius: 3px;
@@ -908,7 +908,7 @@
     }
 
     .markdown-content th {
-      background: rgba(128, 128, 128, 0.1);
+      background: color-mix(in srgb, var(--muted) 10%, transparent);
       font-weight: bold;
     }
 
@@ -965,7 +965,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
+      background: color-mix(in srgb, var(--body-bg) 50%, transparent);
       z-index: 98;
     }
 
@@ -1015,6 +1015,6 @@
 
     @media print {
       #sidebar, #sidebar-resizer, #sidebar-toggle { display: none !important; }
-      body { background: white; color: black; }
+      body { background: Canvas; color: CanvasText; }
       #content { max-width: none; }
     }

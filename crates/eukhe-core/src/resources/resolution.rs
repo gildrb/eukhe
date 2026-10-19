@@ -252,6 +252,27 @@ pub fn resolve_theme_paths(options: &super::ThemePathOptions) -> Result<Vec<Path
         .collect())
 }
 
+/// The theme sources of a client: the registered paths of
+/// [`resolve_theme_paths`] and `<agent-dir>/themes`. When the resource
+/// themes fail to resolve, the `--theme` paths and the custom directory
+/// still resolve, and the failure becomes a diagnostic.
+#[must_use]
+pub fn theme_sources(options: &super::ThemePathOptions) -> eukhe_theme::ThemeSources {
+    let custom_dir = Some(options.agent_dir.join("themes"));
+    match resolve_theme_paths(options) {
+        Ok(registered) => eukhe_theme::ThemeSources {
+            registered,
+            custom_dir,
+            diagnostics: Vec::new(),
+        },
+        Err(error) => eukhe_theme::ThemeSources {
+            registered: options.additional_theme_paths.clone(),
+            custom_dir,
+            diagnostics: vec![format!("Theme resources failed to resolve: {error:#}")],
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

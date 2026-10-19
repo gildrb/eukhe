@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/eukhe-build-info",
     "crates/eukhe-types",
+    "crates/eukhe-theme",
     "crates/eukhe-chord",
     "crates/eukhe-ai",
     "crates/eukhe-durable",

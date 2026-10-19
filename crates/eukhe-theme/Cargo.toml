@@ -1,0 +1,17 @@
+[package]
+name = "eukhe-theme"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Theme files, their validation, theme name resolution and color math for Eukhe."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

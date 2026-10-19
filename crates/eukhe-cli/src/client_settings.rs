@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use eukhe_core::agent_log::{AgentLog, AgentLogLevel};
 use eukhe_core::resources::ThemePathOptions;
+use eukhe_theme::ThemeSources;
 use eukhe_tui::client_settings::ClientSettings;
-use eukhe_tui::theme_catalog::ThemeSources;
 
 /// The agent-log component theme warnings go to.
 const THEME_LOG_COMPONENT: &str = "coding-agent.theme";
@@ -84,27 +84,12 @@ impl ClientSettings for CliClientSettings {
     }
 
     fn theme_sources(&self) -> ThemeSources {
-        let custom_dir = Some(self.agent_dir.join("themes"));
-        let options = ThemePathOptions {
+        eukhe_core::resources::theme_sources(&ThemePathOptions {
             cwd: self.cwd.clone(),
             agent_dir: self.agent_dir.clone(),
             additional_theme_paths: self.themes.paths.clone(),
             no_themes: self.themes.no_themes,
-        };
-        match eukhe_core::resources::resolve_theme_paths(&options) {
-            Ok(registered) => ThemeSources {
-                registered,
-                custom_dir,
-                diagnostics: Vec::new(),
-            },
-            // The resource themes are unavailable; the `--theme` paths and
-            // the custom directory still resolve.
-            Err(error) => ThemeSources {
-                registered: self.themes.paths.clone(),
-                custom_dir,
-                diagnostics: vec![format!("Theme resources failed to resolve: {error:#}")],
-            },
-        }
+        })
     }
 
     fn log_theme_warning(&self, message: &str) {

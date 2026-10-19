@@ -1,7 +1,7 @@
 {
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"title": "Pi Coding Agent Theme",
-	"description": "Theme schema for Pi coding agent",
+	"title": "Eukhe Theme",
+	"description": "Theme file for the Eukhe terminal UI and HTML export (docs/interface.md, Themes)",
 	"type": "object",
 	"required": ["name", "colors"],
 	"properties": {
@@ -17,23 +17,12 @@
 			"type": "object",
 			"description": "Reusable color variables",
 			"additionalProperties": {
-				"oneOf": [
-					{
-						"type": "string",
-						"description": "Hex color (#RRGGBB), variable reference, or empty string for terminal default"
-					},
-					{
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 255,
-						"description": "256-color palette index (0-255)"
-					}
-				]
+				"$ref": "#/$defs/colorValue"
 			}
 		},
 		"colors": {
 			"type": "object",
-			"description": "Theme color definitions (mdBody defaults to text; refinement colors have purple defaults)",
+			"description": "Theme color definitions. Optional: mdBody (defaults to text); background (defaults to export.pageBg, then userMessageBg, then the default theme's background); foreground, refinementHeader and refinementSummary (default to the builtin theme of the same mode: eukhe when the background is dark, light when it is light)",
 			"required": [
 				"accent",
 				"border",
@@ -162,11 +151,11 @@
 				},
 				"refinementHeader": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Harness refinement status (defaults to purple)"
+					"description": "Harness refinement status (defaults to the builtin theme of the same mode)"
 				},
 				"refinementSummary": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Harness refinement semantic summary (defaults to softer purple)"
+					"description": "Harness refinement semantic summary (defaults to the builtin theme of the same mode)"
 				},
 				"toolPendingBg": {
 					"$ref": "#/$defs/colorValue",
@@ -203,6 +192,14 @@
 				"mdBody": {
 					"$ref": "#/$defs/colorValue",
 					"description": "Markdown body text (assistant output); defaults to text"
+				},
+				"background": {
+					"$ref": "#/$defs/colorValue",
+					"description": "The canvas the theme is drawn on; its luminance decides light or dark (light above one half). The terminal default (\"\") on a surface token paints this color in the HTML export"
+				},
+				"foreground": {
+					"$ref": "#/$defs/colorValue",
+					"description": "The ink the terminal default (\"\") on a text token paints in the HTML export"
 				},
 				"mdHeading": {
 					"$ref": "#/$defs/colorValue",
@@ -353,7 +350,8 @@
 			"oneOf": [
 				{
 					"type": "string",
-					"description": "Hex color (#RRGGBB), variable reference, or empty string for terminal default"
+					"pattern": "^(|#[0-9a-fA-F]{6}|[^#].*)$",
+					"description": "#rrggbb, the name of a variable, or empty for the terminal default"
 				},
 				{
 					"type": "integer",

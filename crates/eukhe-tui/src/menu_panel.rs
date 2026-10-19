@@ -709,25 +709,21 @@ mod tests {
         }
     }
 
-    /// A theme too partial to compute a selection (no `selectedBg`, no
-    /// RGB on either side) still paints a wash -- the onboarding wash --
-    /// so a selected heartbeat/shell row never reads as unselected
-    /// (Macroscope PR #2908: the `highlight_wash` fallback must survive
-    /// the shared-wash switch).
+    /// A theme that computes no selection (a terminal-default
+    /// `selectedBg`, no RGB on either side) still paints a wash -- the
+    /// onboarding wash -- so a selected heartbeat/shell row never reads as
+    /// unselected (Macroscope PR #2908: the `highlight_wash` fallback must
+    /// survive the shared-wash switch).
     #[test]
     fn partial_themes_keep_the_onboarding_wash_on_selected_rows() {
-        let json = serde_json::from_str::<crate::theme::ThemeJson>(
-            r##"{
-                "name": "partial",
-                "colors": { "text": "#f4f4f5" }
-            }"##,
-        )
-        .expect("valid theme json");
-        let theme = crate::theme::Theme::from_json(&json, crate::theme::ColorMode::TrueColor)
-            .expect("theme resolves");
-        assert!(
-            theme.soft_selection_style().bg.is_none(),
-            "the partial theme computes no selection"
+        let theme = crate::theme::theme_with_colors(
+            &serde_json::json!({ "text": "#f4f4f5" }),
+            crate::theme::ColorMode::TrueColor,
+        );
+        assert_eq!(
+            theme.soft_selection_style().bg,
+            Some(crate::style::Color::Reset),
+            "the theme computes no selection"
         );
         // The ONE shared selection style keeps the same contract: with
         // no band color resolvable, it falls back to the onboarding

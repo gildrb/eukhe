@@ -8,6 +8,8 @@ description = "Terminal UI for Eukhe."
 
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
+# Theme files, validation, name resolution and color math.
+eukhe-theme = { path = "../eukhe-theme" }
 # The build identity a daemon's hello is compared against.
 eukhe-build-info = { path = "../eukhe-build-info" }
 crossterm = { version = "0.28", features = ["event-stream"] }

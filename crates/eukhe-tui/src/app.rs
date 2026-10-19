@@ -30,7 +30,7 @@ impl Default for AppOptions {
     fn default() -> Self {
         Self {
             theme: Theme::builtin(
-                crate::theme_catalog::DEFAULT_THEME_NAME,
+                eukhe_theme::DEFAULT_THEME_NAME,
                 crate::theme::detect_color_mode(),
             ),
             replay_delay_ms: 0,

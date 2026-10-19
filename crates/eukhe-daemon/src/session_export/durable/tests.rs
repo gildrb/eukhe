@@ -65,11 +65,63 @@ async fn export_html_writes_the_session_data() {
     let root = session.root().clone();
     ask(&fixture, &root, "hi", "hello").await;
     let out = fixture.dir.path().join("export.html");
-    let path = export_html(session.deps(), &root, Some(&out.to_string_lossy()), cx())
-        .await
-        .expect("export");
+    let path = export_html(
+        session.deps(),
+        &root,
+        Some(&out.to_string_lossy()),
+        ExportThemes::Session,
+        cx(),
+    )
+    .await
+    .expect("export");
     assert_eq!(path, out.to_string_lossy());
     let html = std::fs::read_to_string(&out).expect("read export");
     assert!(html.contains("Session Export"));
+    session.close(cx()).await.unwrap();
+}
+
+/// Regression (`Theme not found: dusk-apple`): the `theme` setting names a
+/// theme the terminal UI shows -- registered by the settings `themes`
+/// array, or by the requesting client (`themePaths`, its `--theme` files),
+/// in a file whose name differs from the theme's -- and the export paints
+/// that theme's colors.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn export_html_paints_a_registered_theme() {
+    let fixture = Fixture::new();
+    let registered = fixture.dir.path().join("cli-theme.json");
+    std::fs::write(
+        &registered,
+        include_str!("../../../../eukhe-theme/tests/fixtures/dusk-apple-theme.json"),
+    )
+    .expect("write theme");
+    let client_only = fixture.dir.path().join("client").join("cli-theme.json");
+    std::fs::create_dir_all(client_only.parent().expect("dir")).expect("dir");
+    std::fs::copy(&registered, &client_only).expect("copy theme");
+    fixture.settings(&serde_json::json!({
+        "theme": "dusk-apple",
+        "themes": [registered.to_string_lossy()],
+    }));
+    let session = fixture.open(SESSION_ID).await;
+    let root = session.root().clone();
+    ask(&fixture, &root, "hi", "hello").await;
+    let mut painted = Vec::new();
+    for (name, themes) in [
+        ("settings", ExportThemes::Session),
+        ("client", ExportThemes::Client(vec![client_only.clone()])),
+    ] {
+        let out = fixture.dir.path().join(format!("{name}.html"));
+        export_html(
+            session.deps(),
+            &root,
+            Some(&out.to_string_lossy()),
+            themes,
+            cx(),
+        )
+        .await
+        .expect("export");
+        let html = std::fs::read_to_string(&out).expect("read export");
+        painted.push((name, html.contains("--accent: #c4a77d;")));
+    }
+    assert_eq!(painted, [("settings", true), ("client", true)]);
     session.close(cx()).await.unwrap();
 }

@@ -240,3 +240,92 @@ Code: `eukhe-tui/src/keybindings/definitions.rs` (the defaults);
 `session_ui/keys.rs` (the key arms); `session_ui/model_picker.rs`
 `cycle_thinking_level`, `show_thinking_level`. Tests:
 `tests/effort_tray_label_headless.rs`.
+
+### T1. Themes
+
+One theme source serves the terminal UI and the HTML export (`/export`,
+`eukhe session export`). The crate `eukhe-theme` holds the theme files,
+the validator, the name resolver and the color math. The terminal UI
+and the export use the same functions.
+
+#### The theme file
+
+A theme file is JSON. Its schema is `theme-schema.json`, next to the
+bundled themes in `crates/eukhe-theme/themes/` (`eukhe`, `dark`,
+`light`).
+
+- `name`: the name the theme resolves by.
+- `vars`: named colors. A color value that is not a color names a
+  variable. The validator resolves each reference once, when it reads
+  the file. A missing variable or a cycle makes the file invalid.
+- `colors`: one color per token. A color is `#rrggbb` (a `#` and six hex
+  digits), `""` (the terminal default) or an xterm-256 index 0 to 255.
+  Any other value, an unknown token or a missing required token makes
+  the file invalid.
+- `export`: the optional `pageBg`, `cardBg` and `infoBg` of the HTML
+  export. Without them, the export derives the three backgrounds from
+  `userMessageBg`.
+
+The optional tokens fall back as follows:
+
+- `mdBody` falls back to `text`.
+- `background` falls back to `export.pageBg`, then to `userMessageBg`,
+  then to the background of the default theme.
+- `foreground`, `refinementHeader` and `refinementSummary` fall back to
+  the builtin theme of the same mode: `eukhe` for a dark theme, `light`
+  for a light theme.
+
+The mode comes from the background, never from the name. A theme is
+light when the WCAG relative luminance of its background is above one
+half.
+
+In the HTML export, every token is a CSS variable (`--<token>`) with a
+`#rrggbb` value. The terminal default (`""`) paints the foreground on a
+text token and the background on a surface token (the tokens that end
+in `Bg`, and `background`). `template.css` has no color of its own: it
+reads only these variables.
+
+#### Which theme
+
+The `theme` setting names the theme (`/settings`). When the setting is
+empty, the theme is `eukhe` on every surface. A name resolves by the
+`name` in the file, in this order:
+
+1. The registered files: the `themes` arrays of the settings, the
+   packages and the project directories, then the `--theme` paths.
+2. The builtin themes.
+3. The files in `<agent-dir>/themes/`.
+
+The first valid file with the name wins. A second valid file with the
+same name gives a collision warning. A name that no valid theme has
+resolves to `eukhe`, with a warning. Resolution never fails.
+
+The export uses the same sources as the terminal UI. The TUI sends its
+registered files with `/export` (`themePaths`). The daemon resolves the
+resource themes of the session when a client sends none (the
+dashboard). `eukhe session export` reads the `theme` setting and the
+`--theme` and `--no-themes` flags.
+
+#### Laws
+
+`laws/themes.bend` (T1) states the laws on the model in `bend/theme.bend`
+and `bend/color.bend`. `bend/proof_themes.bend` proves them:
+
+- The empty name resolves to the default theme. A name resolves to the
+  first valid theme that has it. A name that no valid theme has resolves
+  to the default theme with a warning.
+- A loaded file is valid, and the palette of a valid file defines every
+  token.
+- The mode follows the background. The name changes neither the palette
+  nor the mode.
+- In each shipped theme, every text token meets 4.5:1 against its
+  background and every non-text token (borders, rules, level marks)
+  meets 3:1. The user and custom message texts are measured on their
+  own surfaces. The contrast is an exact integer comparison.
+- In each shipped theme, the status colors (accent, success, warning,
+  error) stay distinct in a 256-color terminal.
+
+The bridge test `crates/eukhe-core/src/export_html/theme_bridge.rs` runs
+the Rust code and the model on the same scenarios. It checks that the
+model's tables equal the theme files, and that resolution, validation,
+luminance, contrast and the 256-color mapping agree.

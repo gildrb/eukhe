@@ -317,6 +317,7 @@ async fn export_html(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseD
         deps,
         &session.main(),
         output_path.as_deref(),
+        crate::session_export::durable::ExportThemes::from_payload(payload),
         &rpc_context(),
     )
     .await

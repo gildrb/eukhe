@@ -594,6 +594,7 @@ dependencies = [
  "eukhe-durable",
  "eukhe-gateway",
  "eukhe-models",
+ "eukhe-theme",
  "eukhe-tiny",
  "eukhe-tiny-onnx",
  "eukhe-tui",
@@ -627,6 +628,7 @@ dependencies = [
  "eukhe-durable",
  "eukhe-models",
  "eukhe-shell",
+ "eukhe-theme",
  "eukhe-tiny",
  "eukhe-types",
  "fancy-regex",
@@ -670,6 +672,7 @@ dependencies = [
  "eukhe-core",
  "eukhe-docs",
  "eukhe-durable",
+ "eukhe-theme",
  "eukhe-types",
  "filetime",
  "futures",
@@ -796,6 +799,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eukhe-theme"
+version = "0.10.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "eukhe-tiny"
 version = "0.10.0"
 dependencies = [
@@ -840,6 +852,7 @@ dependencies = [
  "clap",
  "crossterm",
  "eukhe-build-info",
+ "eukhe-theme",
  "eukhe-types",
  "fancy-regex",
  "ignore",

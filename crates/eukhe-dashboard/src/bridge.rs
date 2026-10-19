@@ -523,6 +523,9 @@ impl Tab {
                         id: None,
                         active_session_id,
                         output_path,
+                        // The dashboard registers no themes of its own: the
+                        // daemon resolves the session's resource themes.
+                        theme_paths: None,
                         rest: Map::default(),
                     },
                     ExportFormat::Jsonl => DaemonCommand::ExportJsonl {

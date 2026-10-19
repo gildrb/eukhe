@@ -27,10 +27,12 @@ use crate::durable::{read_export_data, SessionLocation};
 use crate::session::manager::SessionManager;
 use eukhe_types::session::FileEntry;
 
-use self::theme::resolve_export_theme;
+use self::theme::export_theme;
 
 pub mod ansi_to_html;
 mod theme;
+#[cfg(test)]
+mod theme_bridge;
 pub mod tool_render;
 
 pub use self::tool_render::{
@@ -107,9 +109,9 @@ fn generate_html(data: &SessionExportData, theme: &theme::ExportTheme) -> String
     let session_data = base64::engine::general_purpose::STANDARD.encode(session_data);
     let css = TEMPLATE_CSS
         .replacen("{{THEME_VARS}}", &theme.theme_vars, 1)
-        .replacen("{{BODY_BG}}", &theme.body_bg, 1)
-        .replacen("{{CONTAINER_BG}}", &theme.container_bg, 1)
-        .replacen("{{INFO_BG}}", &theme.info_bg, 1);
+        .replacen("{{BODY_BG}}", &theme.body_bg.to_string(), 1)
+        .replacen("{{CONTAINER_BG}}", &theme.container_bg.to_string(), 1)
+        .replacen("{{INFO_BG}}", &theme.info_bg.to_string(), 1);
     TEMPLATE_HTML
         .replacen("{{CSS}}", &css, 1)
         .replacen("{{JS}}", TEMPLATE_JS, 1)
@@ -128,24 +130,22 @@ fn write_export(html: &str, session_file: &Path, output_path: Option<&str>) -> R
 
 /// Export a session to HTML (the daemon worker's `export_html` command).
 ///
-/// `theme_name` is the session's configured theme (settings), resolved like
-/// the TS exporter against `agent_dir`; `session_file` is the session's
-/// JSONL path, which names the default output file; a given `output_path`
-/// is used verbatim (the caller resolves it against the session's cwd).
+/// `theme` is the session's configured theme, resolved by the caller
+/// through [`eukhe_theme::ThemeSources`] (the resolver the terminal UI
+/// uses); `session_file` is the session's JSONL path, which names the
+/// default output file; a given `output_path` is used verbatim (the caller
+/// resolves it against the session's cwd).
 ///
 /// # Errors
 ///
-/// Returns an error when the configured theme cannot be resolved or the
-/// export file cannot be written.
+/// Returns an error when the export file cannot be written.
 pub fn export_session_to_html(
     data: &SessionExportData,
-    theme_name: Option<&str>,
-    agent_dir: &Path,
+    theme: &eukhe_theme::Palette,
     session_file: &Path,
     output_path: Option<&str>,
 ) -> Result<String> {
-    let theme = resolve_export_theme(theme_name, agent_dir)?;
-    let html = generate_html(data, &theme);
+    let html = generate_html(data, &export_theme(theme));
     write_export(&html, session_file, output_path)
 }
 
@@ -156,15 +156,17 @@ pub fn export_session_to_html(
 /// legacy file not imported yet loads read-only like a session open (repair
 /// and migration in memory, nothing written), so exporting never imports.
 ///
+/// `theme` is the configured theme, resolved by the caller.
+///
 /// # Errors
 ///
 /// Returns an error when the input does not exist, cannot be read, or holds
-/// no entries (no file is written then), when the default theme cannot be
-/// resolved, or when the export file cannot be written.
+/// no entries (no file is written then), or when the export file cannot be
+/// written.
 pub async fn export_from_path(
     input_path: &Path,
     output_path: Option<&str>,
-    agent_dir: &Path,
+    theme: &eukhe_theme::Palette,
     cx: &Context,
 ) -> Result<String> {
     let exists = tokio::fs::try_exists(input_path)
@@ -185,8 +187,7 @@ pub async fn export_from_path(
     if data.entries.is_empty() {
         bail!("Session has no entries to export: {}", input_path.display());
     }
-    let theme = resolve_export_theme(None, agent_dir)?;
-    let html = generate_html(&data, &theme);
+    let html = generate_html(&data, &export_theme(theme));
     write_export(&html, input_path, output_path)
 }
 
@@ -277,14 +278,12 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn export_from_path_shape() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        let agent_dir = dir.path().join("agent");
-        std::fs::create_dir_all(&agent_dir).expect("agent dir");
         let session = fixture_session(dir.path());
         let out = dir.path().join("out.html");
         let returned = export_from_path(
             &session,
             Some(out.to_str().unwrap()),
-            &agent_dir,
+            &eukhe_theme::Palette::default_theme(),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -315,15 +314,18 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn default_output_name() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        let agent_dir = dir.path().join("agent");
-        std::fs::create_dir_all(&agent_dir).expect("agent dir");
         let session = fixture_session(dir.path());
         let cwd = tempfile::TempDir::new().expect("cwd");
         let previous = std::env::current_dir().expect("cwd");
         std::env::set_current_dir(cwd.path()).expect("chdir");
-        let returned = export_from_path(&session, None, &agent_dir, &BACKGROUND_CONTEXT)
-            .await
-            .expect("export");
+        let returned = export_from_path(
+            &session,
+            None,
+            &eukhe_theme::Palette::default_theme(),
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        .expect("export");
         std::env::set_current_dir(previous).expect("restore cwd");
         assert_eq!(returned, "eukhe-session-fixture-session.html");
         assert!(cwd.path().join(&returned).exists());
@@ -333,12 +335,10 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn missing_input_file() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        let agent_dir = dir.path().join("agent");
-        std::fs::create_dir_all(&agent_dir).expect("agent dir");
         let error = export_from_path(
             &dir.path().join("nope.jsonl"),
             None,
-            &agent_dir,
+            &eukhe_theme::Palette::default_theme(),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -354,15 +354,13 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn empty_legacy_file_errors_without_output() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        let agent_dir = dir.path().join("agent");
-        std::fs::create_dir_all(&agent_dir).expect("agent dir");
         let input = dir.path().join("empty.jsonl");
         std::fs::write(&input, "").expect("write empty session");
         let out = dir.path().join("out.html");
         let error = export_from_path(
             &input,
             Some(out.to_str().unwrap()),
-            &agent_dir,
+            &eukhe_theme::Palette::default_theme(),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -372,6 +370,54 @@ pub(crate) mod tests {
             format!("Session has no entries to export: {}", input.display())
         );
         assert!(!out.exists(), "an empty export file was written");
+    }
+
+    /// Regression (`Theme not found: dusk-apple`): a theme the terminal UI
+    /// shows -- a registered file whose name differs from its file name --
+    /// resolves through the same sources and exports with its own colors.
+    #[test]
+    fn a_registered_theme_exports() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let registered = dir.path().join("cli-theme.json");
+        std::fs::write(
+            &registered,
+            include_str!("../../../eukhe-theme/tests/fixtures/dusk-apple-theme.json"),
+        )
+        .expect("write theme");
+        let sources = eukhe_theme::ThemeSources {
+            registered: vec![registered],
+            custom_dir: Some(dir.path().join("agent").join("themes")),
+            diagnostics: Vec::new(),
+        };
+        let resolved = sources.resolve("dusk-apple");
+        assert_eq!(
+            (resolved.palette.name(), resolved.warnings),
+            ("dusk-apple", Vec::<String>::new())
+        );
+        let data = SessionExportData {
+            header: serde_json::json!({"type": "session", "id": "s"}),
+            entries: vec![],
+            leaf_id: None,
+            system_prompt: None,
+            tools: None,
+            rendered_tools: None,
+        };
+        let out = dir.path().join("out.html");
+        export_session_to_html(
+            &data,
+            &resolved.palette,
+            &dir.path().join("s.jsonl"),
+            Some(out.to_str().expect("utf-8")),
+        )
+        .expect("export");
+        let html = std::fs::read_to_string(&out).expect("read export");
+        assert_eq!(
+            [
+                html.contains("--accent: #c4a77d;"),
+                html.contains("--text: #e9e4de;")
+            ],
+            [true, true]
+        );
     }
 
     /// The export data shape serializes with the template's wire keys

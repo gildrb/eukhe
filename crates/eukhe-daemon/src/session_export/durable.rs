@@ -40,17 +40,49 @@ fn header(deps: &HostDeps) -> Value {
     export_header(&deps.session_id, &deps.cwd.to_string_lossy())
 }
 
+/// The registered theme files an HTML export resolves the session's theme
+/// name against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ExportThemes {
+    /// The requesting client's registered files (`themePaths`): the export
+    /// resolves exactly as that client's terminal UI does.
+    Client(Vec<PathBuf>),
+    /// The resource system's themes for the session cwd: a client that
+    /// sends none.
+    Session,
+}
+
+impl ExportThemes {
+    /// The `themePaths` of a command payload.
+    pub(crate) fn from_payload(payload: &Value) -> Self {
+        match payload.get("themePaths").and_then(Value::as_array) {
+            Some(paths) => ExportThemes::Client(
+                paths
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(PathBuf::from)
+                    .collect(),
+            ),
+            None => ExportThemes::Session,
+        }
+    }
+}
+
 /// `export_html`: render `conversation` to a standalone HTML file and answer
 /// the written path. A given `output_path` is used verbatim; without one the
-/// file is `eukhe-session-<session id>.html`.
+/// file is `eukhe-session-<session id>.html`. The session's `theme` setting
+/// resolves through [`eukhe_theme::ThemeSources`] (the terminal UI's
+/// resolver): a theme it cannot find is the default theme, and the
+/// warnings go to the log.
 ///
 /// # Errors
 ///
-/// History reads, theme resolution, or the file write fail.
+/// History reads or the file write fail.
 pub(crate) async fn export_html(
     deps: &HostDeps,
     conversation: &Conversation,
     output_path: Option<&str>,
+    themes: ExportThemes,
     cx: &Context,
 ) -> Result<String> {
     let ExportRows { entries, leaf_id } = export_rows(&history(conversation, cx).await?)?;
@@ -78,11 +110,28 @@ pub(crate) async fn export_html(
         tools: Some(tools),
         rendered_tools: None,
     };
-    let theme = deps.settings.manager().get_theme();
+    let sources = match themes {
+        ExportThemes::Client(registered) => eukhe_theme::ThemeSources {
+            registered,
+            custom_dir: Some(deps.agent_dir.join("themes")),
+            diagnostics: Vec::new(),
+        },
+        ExportThemes::Session => {
+            eukhe_core::resources::theme_sources(&eukhe_core::resources::ThemePathOptions {
+                cwd: deps.cwd.clone(),
+                agent_dir: deps.agent_dir.clone(),
+                additional_theme_paths: Vec::new(),
+                no_themes: false,
+            })
+        }
+    };
+    let resolved = sources.resolve(&deps.settings.manager().get_theme().unwrap_or_default());
+    for warning in &resolved.warnings {
+        tracing::warn!(%warning, "export theme");
+    }
     eukhe_core::export_html::export_session_to_html(
         &data,
-        theme.as_deref(),
-        &deps.agent_dir,
+        &resolved.palette,
         Path::new(&format!("{}.jsonl", deps.session_id)),
         output_path,
     )

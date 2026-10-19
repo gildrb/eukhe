@@ -33,8 +33,14 @@ fn message_texts(entries: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
-async fn export_to(input: &Path, out: &Path, agent_dir: &Path) -> anyhow::Result<String> {
-    export_from_path(input, Some(out.to_str().expect("utf-8")), agent_dir, cx()).await
+async fn export_to(input: &Path, out: &Path) -> anyhow::Result<String> {
+    export_from_path(
+        input,
+        Some(out.to_str().expect("utf-8")),
+        &eukhe_theme::Palette::default_theme(),
+        cx(),
+    )
+    .await
 }
 
 /// A durable storage directory exports its main conversation: the header
@@ -47,13 +53,9 @@ async fn durable_dir_exports_its_messages() {
     let entries = fixture.durable("durable-1", &cwd, &["hi"]).await;
     let out = fixture.project("out").join("export.html");
 
-    export_to(
-        &fixture.sessions.join("durable-1"),
-        &out,
-        &fixture.agent_dir,
-    )
-    .await
-    .expect("export");
+    export_to(&fixture.sessions.join("durable-1"), &out)
+        .await
+        .expect("export");
 
     let data = embedded_data(&std::fs::read_to_string(&out).expect("read export"));
     assert_eq!(
@@ -84,9 +86,7 @@ async fn imported_legacy_file_exports_its_storage() {
         .expect("import");
     let out = fixture.project("out").join("export.html");
 
-    export_to(&legacy, &out, &fixture.agent_dir)
-        .await
-        .expect("export");
+    export_to(&legacy, &out).await.expect("export");
 
     let data = embedded_data(&std::fs::read_to_string(&out).expect("read export"));
     assert_eq!(data["header"]["id"], "legacy-1");
@@ -107,7 +107,7 @@ async fn directory_without_storage_errors_without_output() {
     let dir = fixture.project("not-a-session");
     let out = fixture.project("out").join("export.html");
 
-    let error = export_to(&dir, &out, &fixture.agent_dir)
+    let error = export_to(&dir, &out)
         .await
         .expect_err("a directory without a storage must not export");
 
@@ -131,7 +131,7 @@ async fn empty_storage_errors_without_output() {
     let dir = fixture.sessions.join("empty-1");
     let out = fixture.project("out").join("export.html");
 
-    let error = export_to(&dir, &out, &fixture.agent_dir)
+    let error = export_to(&dir, &out)
         .await
         .expect_err("an empty session must not export");
 

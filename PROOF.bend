@@ -36,6 +36,8 @@ import ./laws/release.bend as Release
 import ./bend/proof_semver.bend as Semver
 import ./laws/auth_flight.bend as AuthFlight
 import ./bend/proof_auth_flight.bend as AuthFlights
+import ./laws/themes.bend as Themes
+import ./bend/proof_themes.bend as ThemeProofs
 
 # (a) The view
 
@@ -733,3 +735,35 @@ def AuthFlight.flight_after_end_stored(evs, k, f, c, lands, ok):
 
 def AuthFlight.flight_after_end_served(evs, k, f, c, lands, ok, ok2, fresh):
   AuthFlights.pf.flight_after_end_served(evs, k, f, c, lands, ok, ok2, fresh)
+
+# (T1) Themes
+
+def Themes.theme_resolve_empty(src):
+  ThemeProofs.theme_resolve_empty(src)
+
+def Themes.theme_resolve_first(pre, nm, id, post, n, ne, miss, same):
+  ThemeProofs.theme_resolve_first(pre, nm, id, post, n, ne, miss, same)
+
+def Themes.theme_resolve_missing(src, n, ne, miss):
+  ThemeProofs.theme_resolve_missing(src, n, ne, miss)
+
+def Themes.theme_load_valid(r, f, loaded):
+  ThemeProofs.theme_load_valid(r, f, loaded)
+
+def Themes.theme_tokens_complete(f, v):
+  ThemeProofs.theme_tokens_complete(f, v)
+
+def Themes.theme_mode_background(f, g, same):
+  ThemeProofs.theme_mode_background(f, g, same)
+
+def Themes.theme_palette_name_free(f, n):
+  ThemeProofs.theme_palette_name_free(f, n)
+
+def Themes.theme_mode_name_free(f, n):
+  ThemeProofs.theme_mode_name_free(f, n)
+
+def Themes.theme_shipped_legible(s):
+  ThemeProofs.theme_shipped_legible(s)
+
+def Themes.theme_shipped_status_distinct(s):
+  ThemeProofs.theme_shipped_status_distinct(s)

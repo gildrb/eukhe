@@ -1152,6 +1152,12 @@ pub enum DaemonCommand {
         active_session_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output_path: Option<String>,
+        /// The client's registered theme files (the resource system's
+        /// themes, then `--theme` paths): the export resolves the theme
+        /// name against them as the client's terminal UI does. Absent:
+        /// the daemon resolves the session's resource themes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        theme_paths: Option<Vec<String>>,
         #[serde(flatten)]
         rest: JsonMap,
     },

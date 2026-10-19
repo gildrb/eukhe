@@ -1,28 +1,46 @@
 //! `eukhe session export <session> [output]`: the HTML export of a saved
 //! session -- a durable storage directory or a legacy `.jsonl` file (TS
 //! main.ts' `--export` branch, reached through the `session export`
-//! rewrite; the export itself is eukhe-core's `export_from_path`).
+//! rewrite; the export itself is eukhe-core's `export_from_path`). The
+//! `theme` setting resolves through the terminal UI's sources (resource
+//! themes, `--theme` paths, `<agent-dir>/themes`).
+
+use std::path::Path;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::resources::ThemePathOptions;
 
 use crate::args::Args;
 
 /// Run the export and print the TS output: the written path on success
 /// (`Exported to: ...`), the error message on failure (the main entry's
-/// `Error: ...` prefix + exit 1).
-pub fn run(parsed: &Args, agent_dir: &std::path::Path) -> Result<i32, String> {
+/// `Error: ...` prefix + exit 1). Theme warnings print before it.
+pub fn run(parsed: &Args, cwd: &Path, agent_dir: &Path) -> Result<i32, String> {
     let Some(input) = parsed.export.as_deref() else {
         return Err("--export requires a value".to_string());
     };
     let output = parsed.messages.first().map(String::as_str);
+    let sources = eukhe_core::resources::theme_sources(&ThemePathOptions {
+        cwd: cwd.to_path_buf(),
+        agent_dir: agent_dir.to_path_buf(),
+        additional_theme_paths: parsed.themes.iter().map(|path| cwd.join(path)).collect(),
+        no_themes: parsed.no_themes,
+    });
+    let theme = eukhe_core::settings::SettingsManager::create(cwd, agent_dir)
+        .get_theme()
+        .unwrap_or_default();
+    let resolved = sources.resolve(&theme);
+    for warning in &resolved.warnings {
+        eprintln!("Warning: {warning}");
+    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| format!("starting the export runtime: {error}"))?;
     let exported = runtime.block_on(eukhe_core::export_html::export_from_path(
-        std::path::Path::new(input),
+        Path::new(input),
         output,
-        agent_dir,
+        &resolved.palette,
         &BACKGROUND_CONTEXT,
     ));
     match exported {
@@ -51,10 +69,12 @@ mod tests {
         })
     }
 
-    /// A fixture session exports to the requested output and the run prints
-    /// the TS success line.
+    /// A fixture session exports to the requested output in the `theme`
+    /// setting's colors, and the run prints the TS success line.
+    /// Regression: the CLI export used the default theme whatever the
+    /// setting said.
     #[test]
-    fn exports_a_session_file() {
+    fn exports_a_session_file_in_the_configured_theme() {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let input = dir.path().join("s.jsonl");
         std::fs::write(
@@ -71,9 +91,18 @@ mod tests {
         let parsed = parsed_with(Some(input.to_str().unwrap()), &[out.to_str().unwrap()]);
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(&agent_dir).expect("agent dir");
-        let code = run(&parsed, &agent_dir).expect("export runs");
+        std::fs::write(agent_dir.join("settings.json"), r#"{ "theme": "dark" }"#)
+            .expect("settings");
+        let code = run(&parsed, dir.path(), &agent_dir).expect("export runs");
         assert_eq!(code, 0);
-        assert!(out.exists());
+        let html = std::fs::read_to_string(&out).expect("read export");
+        assert_eq!(
+            [
+                html.contains("--accent: #8abeb7;"),
+                html.contains("--accent: #7c6faf;")
+            ],
+            [true, false]
+        );
     }
 
     /// A missing input file surfaces the TS error (through the main
@@ -82,7 +111,8 @@ mod tests {
     fn missing_file_errors() {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let parsed = parsed_with(Some("/nonexistent/session.jsonl"), &[]);
-        let error = run(&parsed, &dir.path().join("agent")).expect_err("missing file must fail");
+        let error = run(&parsed, dir.path(), &dir.path().join("agent"))
+            .expect_err("missing file must fail");
         assert!(error.starts_with("File not found:"), "unexpected: {error}");
     }
 
@@ -173,7 +203,7 @@ mod tests {
         let out = dir.path().join("exported.html");
         let parsed = parsed_with(Some(storage.to_str().unwrap()), &[out.to_str().unwrap()]);
 
-        assert_eq!(run(&parsed, &agent_dir), Ok(0));
+        assert_eq!(run(&parsed, dir.path(), &agent_dir), Ok(0));
 
         let data = embedded_data(&std::fs::read_to_string(&out).expect("read export"));
         assert_eq!(
@@ -219,7 +249,8 @@ mod tests {
         let out = dir.path().join("exported.html");
         let parsed = parsed_with(Some(input.to_str().unwrap()), &[out.to_str().unwrap()]);
 
-        let error = run(&parsed, &dir.path().join("agent")).expect_err("must not export");
+        let error =
+            run(&parsed, dir.path(), &dir.path().join("agent")).expect_err("must not export");
 
         assert_eq!(
             error,

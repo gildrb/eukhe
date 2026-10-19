@@ -168,7 +168,9 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
         // The TS product only reaches the export subsystem through the
         // `session export <file> [output]` rewrite; a standalone `--export`
         // already exited as a removed-flag diagnostic above.
-        return session_export::run(&parsed, &crate::config::get_agent_dir());
+        let cwd = std::env::current_dir()
+            .map_err(|error| format!("reading the working directory: {error}"))?;
+        return session_export::run(&parsed, &cwd, &crate::config::get_agent_dir());
     }
 
     if matches!(

@@ -336,7 +336,9 @@ pub(crate) fn highlight_wash(theme: &Theme) -> Color {
         blend(lift.2, canvas.2),
     );
     match theme.mode {
-        crate::theme::ColorMode::Color256 => Color::Indexed(crate::theme::rgb_to_256(washed)),
+        crate::theme::ColorMode::Color256 => Color::Indexed(eukhe_theme::rgb_to_256(
+            eukhe_theme::Rgb::new(washed.0, washed.1, washed.2),
+        )),
         crate::theme::ColorMode::TrueColor => Color::Rgb(washed.0, washed.1, washed.2),
     }
 }
@@ -377,34 +379,30 @@ mod tests {
     }
 
     use super::*;
-    use crate::theme::{ColorMode, Theme, ThemeJson};
-
-    fn custom_theme(json: &str, mode: ColorMode) -> Theme {
-        let json: ThemeJson = serde_json::from_str(json).expect("valid theme json");
-        Theme::from_json(&json, mode).expect("theme resolves")
-    }
+    use crate::theme::{theme_with_colors, ColorMode, Theme};
+    use serde_json::json;
 
     #[test]
     fn wash_blends_against_the_theme_background() {
-        let theme = custom_theme(
-            r##"{ "name": "custom", "colors": { "text": "#f4f4f5", "background": "#050506" } }"##,
+        let theme = theme_with_colors(
+            &json!({ "text": "#f4f4f5", "background": "#050506" }),
             ColorMode::TrueColor,
         );
         // Light text lifts white over the canvas (TS `HIGHLIGHT_LIFT` 0.08):
         // blend(255, 5) = 25, blend(255, 6) = 26.
         assert_eq!(highlight_wash(&theme), Color::Rgb(25, 25, 26));
-        let theme = custom_theme(
-            r##"{ "name": "custom", "colors": { "text": "#f4f4f5", "background": "#050506" } }"##,
+        let theme = theme_with_colors(
+            &json!({ "text": "#f4f4f5", "background": "#050506" }),
             ColorMode::Color256,
         );
         // The 256-color mode quantizes the washed colour, not the canvas.
         assert_eq!(
             highlight_wash(&theme),
-            Color::Indexed(crate::theme::rgb_to_256((25, 25, 26)))
+            Color::Indexed(eukhe_theme::rgb_to_256(eukhe_theme::Rgb::new(25, 25, 26)))
         );
 
-        let theme = custom_theme(
-            r##"{ "name": "custom", "colors": { "text": "#000000", "background": "#f0f0f0" } }"##,
+        let theme = theme_with_colors(
+            &json!({ "text": "#000000", "background": "#f0f0f0" }),
             ColorMode::TrueColor,
         );
         // Dark text lifts black over the light canvas: blend(0, 240) = 221.
@@ -420,20 +418,11 @@ mod tests {
         let theme = Theme::builtin("eukhe", ColorMode::Color256);
         assert_eq!(
             highlight_wash(&theme),
-            Color::Indexed(crate::theme::rgb_to_256((35, 35, 35)))
+            Color::Indexed(eukhe_theme::rgb_to_256(eukhe_theme::Rgb::new(35, 35, 35)))
         );
-        // A 3-hex background is not the TS `parseHexColor` shape: fallback.
-        let theme = custom_theme(
-            r##"{ "name": "custom", "colors": { "text": "#f4f4f5", "background": "#abc" } }"##,
-            ColorMode::TrueColor,
-        );
-        assert_eq!(highlight_wash(&theme), Color::Rgb(35, 35, 35));
         // Dark text without a background washes over the light canvas:
         // blend(0, 255) = 235.
-        let theme = custom_theme(
-            r##"{ "name": "custom", "colors": { "text": "#000000" } }"##,
-            ColorMode::TrueColor,
-        );
+        let theme = theme_with_colors(&json!({ "text": "#000000" }), ColorMode::TrueColor);
         assert_eq!(highlight_wash(&theme), Color::Rgb(235, 235, 235));
     }
 

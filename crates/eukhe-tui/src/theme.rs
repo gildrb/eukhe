@@ -1,14 +1,11 @@
-//! Theme engine ported from `coding-agent/src/modes/interactive/theme`.
-//!
-//! Ships the `eukhe`, `dark`, and `light` built-in palettes and loads theme
-//! files in the same variable/color layout (name resolution lives in
-//! [`crate::theme_catalog`]). Colors resolve to truecolor or 256-color ANSI
-//! depending on `COLORTERM`/`TERM`.
+//! The terminal theme: a resolved [`eukhe_theme::Palette`] rendered as
+//! terminal styles per color slot. The theme files, their validation and
+//! name resolution live in `eukhe-theme` (the resolver the HTML export
+//! shares; [`crate::theme_catalog`] mounts it). Colors render as truecolor
+//! or 256-color ANSI depending on `COLORTERM`/`TERM`.
 
 use crate::style::{Color, Modifier, Style};
-use anyhow::{anyhow, bail, Context, Result};
-use serde::Deserialize;
-use std::collections::BTreeMap;
+use eukhe_theme::{ColorValue, Palette, Rgb, Token};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,57 +115,57 @@ impl ThemeColor {
         ThemeColor::BashMode,
     ];
 
-    fn name(self) -> &'static str {
+    fn token(self) -> Token {
         match self {
-            ThemeColor::Accent => "accent",
-            ThemeColor::Border => "border",
-            ThemeColor::BorderAccent => "borderAccent",
-            ThemeColor::BorderMuted => "borderMuted",
-            ThemeColor::Success => "success",
-            ThemeColor::Error => "error",
-            ThemeColor::Warning => "warning",
-            ThemeColor::Muted => "muted",
-            ThemeColor::Dim => "dim",
-            ThemeColor::Text => "text",
-            ThemeColor::ThinkingText => "thinkingText",
-            ThemeColor::UserMessageText => "userMessageText",
-            ThemeColor::CustomMessageText => "customMessageText",
-            ThemeColor::CustomMessageLabel => "customMessageLabel",
-            ThemeColor::RefinementHeader => "refinementHeader",
-            ThemeColor::RefinementSummary => "refinementSummary",
-            ThemeColor::ToolTitle => "toolTitle",
-            ThemeColor::ToolOutput => "toolOutput",
-            ThemeColor::MdBody => "mdBody",
-            ThemeColor::MdHeading => "mdHeading",
-            ThemeColor::MdLink => "mdLink",
-            ThemeColor::MdLinkUrl => "mdLinkUrl",
-            ThemeColor::MdCode => "mdCode",
-            ThemeColor::MdCodeBlock => "mdCodeBlock",
-            ThemeColor::MdCodeBlockBorder => "mdCodeBlockBorder",
-            ThemeColor::MdQuote => "mdQuote",
-            ThemeColor::MdQuoteBorder => "mdQuoteBorder",
-            ThemeColor::MdHr => "mdHr",
-            ThemeColor::MdListBullet => "mdListBullet",
-            ThemeColor::ToolDiffAdded => "toolDiffAdded",
-            ThemeColor::ToolDiffRemoved => "toolDiffRemoved",
-            ThemeColor::ToolDiffText => "toolDiffText",
-            ThemeColor::ToolDiffContext => "toolDiffContext",
-            ThemeColor::SyntaxComment => "syntaxComment",
-            ThemeColor::SyntaxKeyword => "syntaxKeyword",
-            ThemeColor::SyntaxFunction => "syntaxFunction",
-            ThemeColor::SyntaxVariable => "syntaxVariable",
-            ThemeColor::SyntaxString => "syntaxString",
-            ThemeColor::SyntaxNumber => "syntaxNumber",
-            ThemeColor::SyntaxType => "syntaxType",
-            ThemeColor::SyntaxOperator => "syntaxOperator",
-            ThemeColor::SyntaxPunctuation => "syntaxPunctuation",
-            ThemeColor::ThinkingOff => "thinkingOff",
-            ThemeColor::ThinkingMinimal => "thinkingMinimal",
-            ThemeColor::ThinkingLow => "thinkingLow",
-            ThemeColor::ThinkingMedium => "thinkingMedium",
-            ThemeColor::ThinkingHigh => "thinkingHigh",
-            ThemeColor::ThinkingXhigh => "thinkingXhigh",
-            ThemeColor::BashMode => "bashMode",
+            ThemeColor::Accent => Token::Accent,
+            ThemeColor::Border => Token::Border,
+            ThemeColor::BorderAccent => Token::BorderAccent,
+            ThemeColor::BorderMuted => Token::BorderMuted,
+            ThemeColor::Success => Token::Success,
+            ThemeColor::Error => Token::Error,
+            ThemeColor::Warning => Token::Warning,
+            ThemeColor::Muted => Token::Muted,
+            ThemeColor::Dim => Token::Dim,
+            ThemeColor::Text => Token::Text,
+            ThemeColor::ThinkingText => Token::ThinkingText,
+            ThemeColor::UserMessageText => Token::UserMessageText,
+            ThemeColor::CustomMessageText => Token::CustomMessageText,
+            ThemeColor::CustomMessageLabel => Token::CustomMessageLabel,
+            ThemeColor::RefinementHeader => Token::RefinementHeader,
+            ThemeColor::RefinementSummary => Token::RefinementSummary,
+            ThemeColor::ToolTitle => Token::ToolTitle,
+            ThemeColor::ToolOutput => Token::ToolOutput,
+            ThemeColor::MdBody => Token::MdBody,
+            ThemeColor::MdHeading => Token::MdHeading,
+            ThemeColor::MdLink => Token::MdLink,
+            ThemeColor::MdLinkUrl => Token::MdLinkUrl,
+            ThemeColor::MdCode => Token::MdCode,
+            ThemeColor::MdCodeBlock => Token::MdCodeBlock,
+            ThemeColor::MdCodeBlockBorder => Token::MdCodeBlockBorder,
+            ThemeColor::MdQuote => Token::MdQuote,
+            ThemeColor::MdQuoteBorder => Token::MdQuoteBorder,
+            ThemeColor::MdHr => Token::MdHr,
+            ThemeColor::MdListBullet => Token::MdListBullet,
+            ThemeColor::ToolDiffAdded => Token::ToolDiffAdded,
+            ThemeColor::ToolDiffRemoved => Token::ToolDiffRemoved,
+            ThemeColor::ToolDiffText => Token::ToolDiffText,
+            ThemeColor::ToolDiffContext => Token::ToolDiffContext,
+            ThemeColor::SyntaxComment => Token::SyntaxComment,
+            ThemeColor::SyntaxKeyword => Token::SyntaxKeyword,
+            ThemeColor::SyntaxFunction => Token::SyntaxFunction,
+            ThemeColor::SyntaxVariable => Token::SyntaxVariable,
+            ThemeColor::SyntaxString => Token::SyntaxString,
+            ThemeColor::SyntaxNumber => Token::SyntaxNumber,
+            ThemeColor::SyntaxType => Token::SyntaxType,
+            ThemeColor::SyntaxOperator => Token::SyntaxOperator,
+            ThemeColor::SyntaxPunctuation => Token::SyntaxPunctuation,
+            ThemeColor::ThinkingOff => Token::ThinkingOff,
+            ThemeColor::ThinkingMinimal => Token::ThinkingMinimal,
+            ThemeColor::ThinkingLow => Token::ThinkingLow,
+            ThemeColor::ThinkingMedium => Token::ThinkingMedium,
+            ThemeColor::ThinkingHigh => Token::ThinkingHigh,
+            ThemeColor::ThinkingXhigh => Token::ThinkingXhigh,
+            ThemeColor::BashMode => Token::BashMode,
         }
     }
 }
@@ -200,17 +197,17 @@ impl ThemeBg {
         ThemeBg::ToolPanelBg,
     ];
 
-    fn name(self) -> &'static str {
+    fn token(self) -> Token {
         match self {
-            ThemeBg::SelectedBg => "selectedBg",
-            ThemeBg::UserMessageBg => "userMessageBg",
-            ThemeBg::CustomMessageBg => "customMessageBg",
-            ThemeBg::ToolPendingBg => "toolPendingBg",
-            ThemeBg::ToolSuccessBg => "toolSuccessBg",
-            ThemeBg::ToolErrorBg => "toolErrorBg",
-            ThemeBg::ToolDiffAddedBg => "toolDiffAddedBg",
-            ThemeBg::ToolDiffRemovedBg => "toolDiffRemovedBg",
-            ThemeBg::ToolPanelBg => "toolPanelBg",
+            ThemeBg::SelectedBg => Token::SelectedBg,
+            ThemeBg::UserMessageBg => Token::UserMessageBg,
+            ThemeBg::CustomMessageBg => Token::CustomMessageBg,
+            ThemeBg::ToolPendingBg => Token::ToolPendingBg,
+            ThemeBg::ToolSuccessBg => Token::ToolSuccessBg,
+            ThemeBg::ToolErrorBg => Token::ToolErrorBg,
+            ThemeBg::ToolDiffAddedBg => Token::ToolDiffAddedBg,
+            ThemeBg::ToolDiffRemovedBg => Token::ToolDiffRemovedBg,
+            ThemeBg::ToolPanelBg => Token::ToolPanelBg,
         }
     }
 }
@@ -229,221 +226,6 @@ const _: () = {
         index += 1;
     }
 };
-
-/// A theme file (TS `ThemeJsonSchema`): `$schema` and the HTML `export`
-/// section ride along unread.
-#[derive(Debug, Clone, Deserialize)]
-pub struct ThemeJson {
-    name: String,
-    #[serde(default)]
-    vars: BTreeMap<String, serde_json::Value>,
-    colors: BTreeMap<String, serde_json::Value>,
-}
-
-impl ThemeJson {
-    /// The name the theme registers under (TS `theme.name`).
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-/// The color tokens a theme file must define (TS `ThemeJsonSchema`'s
-/// required `colors` keys; `mdBody` and the refinement pair are optional).
-const REQUIRED_COLOR_TOKENS: [&str; 55] = [
-    "accent",
-    "border",
-    "borderAccent",
-    "borderMuted",
-    "success",
-    "error",
-    "warning",
-    "muted",
-    "dim",
-    "text",
-    "thinkingText",
-    "selectedBg",
-    "userMessageBg",
-    "userMessageText",
-    "customMessageBg",
-    "customMessageText",
-    "customMessageLabel",
-    "toolPendingBg",
-    "toolSuccessBg",
-    "toolErrorBg",
-    "toolDiffAddedBg",
-    "toolDiffRemovedBg",
-    "toolPanelBg",
-    "toolTitle",
-    "toolOutput",
-    "mdHeading",
-    "mdLink",
-    "mdLinkUrl",
-    "mdCode",
-    "mdCodeBlock",
-    "mdCodeBlockBorder",
-    "mdQuote",
-    "mdQuoteBorder",
-    "mdHr",
-    "mdListBullet",
-    "toolDiffAdded",
-    "toolDiffRemoved",
-    "toolDiffText",
-    "toolDiffContext",
-    "syntaxComment",
-    "syntaxKeyword",
-    "syntaxFunction",
-    "syntaxVariable",
-    "syntaxString",
-    "syntaxNumber",
-    "syntaxType",
-    "syntaxOperator",
-    "syntaxPunctuation",
-    "thinkingOff",
-    "thinkingMinimal",
-    "thinkingLow",
-    "thinkingMedium",
-    "thinkingHigh",
-    "thinkingXhigh",
-    "bashMode",
-];
-
-/// TS `resolveVarRefs`: numbers, `""`, and `#` values are terminal; any
-/// other string names a var, followed until a terminal value.
-fn resolve_var_refs<'a>(
-    value: &'a serde_json::Value,
-    vars: &'a BTreeMap<String, serde_json::Value>,
-) -> Result<&'a serde_json::Value> {
-    let mut current = value;
-    let mut visited: Vec<&str> = Vec::new();
-    loop {
-        let Some(name) = current.as_str() else {
-            return Ok(current);
-        };
-        if name.is_empty() || name.starts_with('#') {
-            return Ok(current);
-        }
-        if visited.contains(&name) {
-            bail!("Circular variable reference detected: {name}");
-        }
-        visited.push(name);
-        current = vars
-            .get(name)
-            .ok_or_else(|| anyhow!("Variable reference not found: {name}"))?;
-    }
-}
-
-/// TS `fgAnsi`/`bgAnsi` on a resolved value: `""` is the terminal
-/// default, an integer a 256-color index, `#rrggbb` a truecolor value.
-fn parse_color(value: &serde_json::Value) -> Result<Color> {
-    match value {
-        serde_json::Value::String(text) if text.is_empty() => Ok(Color::Reset),
-        serde_json::Value::String(text) => parse_hex6(text)
-            .map(|(r, g, b)| Color::Rgb(r, g, b))
-            .ok_or_else(|| anyhow!("Invalid hex color: {text}")),
-        serde_json::Value::Number(number) => number
-            .as_u64()
-            .and_then(|index| u8::try_from(index).ok())
-            .map(Color::Indexed)
-            .ok_or_else(|| anyhow!("Invalid color value: {number}")),
-        serde_json::Value::Null
-        | serde_json::Value::Bool(_)
-        | serde_json::Value::Array(_)
-        | serde_json::Value::Object(_) => bail!("Invalid color value: {value}"),
-    }
-}
-
-/// `#rrggbb` (TS `hexToRgb`: exactly six hex digits after the `#`).
-fn parse_hex6(text: &str) -> Option<(u8, u8, u8)> {
-    let hex = text.strip_prefix('#')?;
-    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let channel = |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], 16).ok();
-    Some((channel(0..2)?, channel(2..4)?, channel(4..6)?))
-}
-
-/// TS `parseHexColor` on the theme record's `background` (the onboarding
-/// wash canvas): `^#?([0-9a-f]{6})$` case-insensitive on the trimmed value,
-/// after one var lookup -- only the 6-hex shape parses; anything else
-/// (empty, 3-hex shorthand, an ANSI index, a var miss) stays `None` so
-/// callers fall back to their hardcoded canvases.
-fn parse_theme_background(
-    value: &serde_json::Value,
-    vars: &BTreeMap<String, serde_json::Value>,
-) -> Option<(u8, u8, u8)> {
-    let raw = value.as_str()?;
-    let resolved = vars
-        .get(raw)
-        .map_or(Some(raw), serde_json::Value::as_str)?
-        .trim();
-    parse_hex6(&format!(
-        "#{}",
-        resolved.strip_prefix('#').unwrap_or(resolved)
-    ))
-}
-
-/// Quantize RGB to the xterm 256-color palette (TS `rgbTo256`): nearest cube
-/// level per channel, gray chosen by luma, gray wins only for near-neutral
-/// colors where it is the closer weighted distance.
-#[must_use]
-pub fn rgb_to_256(rgb: (u8, u8, u8)) -> u8 {
-    const CUBE_VALUES: [u8; 6] = [0, 95, 135, 175, 215, 255];
-    const GRAY_VALUES: [u8; 24] = {
-        let mut values = [0u8; 24];
-        let mut index = 0;
-        while index < 24 {
-            values[index] = (8 + index * 10) as u8;
-            index += 1;
-        }
-        values
-    };
-    let (r, g, b) = (f64::from(rgb.0), f64::from(rgb.1), f64::from(rgb.2));
-    let find_closest = |value: f64, values: &[u8]| -> usize {
-        values
-            .iter()
-            .enumerate()
-            .min_by(|(_, candidate), (index, _)| {
-                (value - f64::from(**candidate))
-                    .abs()
-                    .partial_cmp(&(value - f64::from(values[*index])).abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map_or(0, |(index, _)| index)
-    };
-    let distance = |other: (u8, u8, u8)| -> f64 {
-        let (dr, dg, db) = (
-            r - f64::from(other.0),
-            g - f64::from(other.1),
-            b - f64::from(other.2),
-        );
-        dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114
-    };
-    let (r_index, g_index, b_index) = (
-        find_closest(r, &CUBE_VALUES),
-        find_closest(g, &CUBE_VALUES),
-        find_closest(b, &CUBE_VALUES),
-    );
-    let cube_rgb = (
-        CUBE_VALUES[r_index],
-        CUBE_VALUES[g_index],
-        CUBE_VALUES[b_index],
-    );
-    let cube_index = 16 + 36 * r_index + 6 * g_index + b_index;
-    let cube_dist = distance(cube_rgb);
-    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-    let gray_slot = find_closest(gray, &GRAY_VALUES);
-    let gray_value = GRAY_VALUES[gray_slot];
-    let gray_index = 232 + gray_slot;
-    let gray_dist = distance((gray_value, gray_value, gray_value));
-    let max_channel = r.max(g).max(b);
-    let min_channel = r.min(g).min(b);
-    if max_channel - min_channel < 10.0 && gray_dist < cube_dist {
-        u8::try_from(gray_index).unwrap_or(16)
-    } else {
-        u8::try_from(cube_index).unwrap_or(16)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorMode {
@@ -481,7 +263,9 @@ pub fn detect_color_mode() -> ColorMode {
 
 fn to_terminal_color(color: Color, mode: ColorMode) -> Color {
     match (color, mode) {
-        (Color::Rgb(r, g, b), ColorMode::Color256) => Color::Indexed(rgb_to_256((r, g, b))),
+        (Color::Rgb(r, g, b), ColorMode::Color256) => {
+            Color::Indexed(eukhe_theme::rgb_to_256(Rgb::new(r, g, b)))
+        }
         (c, _) => c,
     }
 }
@@ -507,28 +291,15 @@ fn luminance(rgb: (u16, u16, u16)) -> f64 {
     0.299 * f64::from(rgb.0) + 0.587 * f64::from(rgb.1) + 0.114 * f64::from(rgb.2)
 }
 
-/// The xterm-256 palette slot's RGB (TS `ansi256ToRgb`): the 6x6x6 cube
-/// and the gray ramp. The base ANSI slots (0-15) are terminal-defined, so
-/// their rendered color is unknown.
+/// The xterm-256 palette slot's RGB: the 6x6x6 cube and the gray ramp.
+/// The base ANSI slots (0-15) are terminal-defined, so their rendered
+/// color is unknown.
 fn indexed_to_rgb(index: u8) -> Option<(u16, u16, u16)> {
-    const CUBE_VALUES: [u16; 6] = [0, 95, 135, 175, 215, 255];
-    match index {
-        16..=231 => {
-            let slot = u16::from(index) - 16;
-            let (red, rest) = (slot / 36, slot % 36);
-            let (green, blue) = (rest / 6, rest % 6);
-            Some((
-                CUBE_VALUES[red as usize],
-                CUBE_VALUES[green as usize],
-                CUBE_VALUES[blue as usize],
-            ))
-        }
-        232..=255 => {
-            let gray = u16::from(index) * 10 - 2312;
-            Some((gray, gray, gray))
-        }
-        _ => None,
+    if eukhe_theme::is_terminal_defined(index) {
+        return None;
     }
+    let rgb = eukhe_theme::ansi256(index);
+    Some((u16::from(rgb.r), u16::from(rgb.g), u16::from(rgb.b)))
 }
 
 /// The luminance of what actually renders: a 256-color terminal paints the
@@ -574,90 +345,44 @@ impl PartialEq for Theme {
 }
 
 impl Theme {
-    /// TS `createTheme`: the refinement pair defaults by theme name,
-    /// `mdBody` falls back to `text`, and every slot resolves through the
-    /// vars to a terminal color.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` naming the slot when its value references a missing
-    /// or circular var, or is not `""`, a 0-255 index, or `#rrggbb`.
-    pub(crate) fn from_json(json: &ThemeJson, mode: ColorMode) -> Result<Theme> {
-        let refinement: Vec<(&str, serde_json::Value)> =
-            eukhe_types::themes::refinement_colors(&json.name)
-                .into_iter()
-                .map(|(slot, value)| (slot, serde_json::Value::from(value)))
-                .collect();
-        let mut slots: BTreeMap<&str, &serde_json::Value> = refinement
-            .iter()
-            .map(|(slot, value)| (*slot, value))
-            .collect();
-        slots.extend(
-            json.colors
-                .iter()
-                .map(|(slot, value)| (slot.as_str(), value)),
-        );
-        if let (None, Some(text)) = (json.colors.get("mdBody"), json.colors.get("text")) {
-            slots.insert("mdBody", text);
-        }
-        let mut fg = [Style::default(); ThemeColor::ALL.len()];
-        let mut bg = [None; ThemeBg::ALL.len()];
-        for (slot, value) in slots {
-            // Background slots end with "Bg" (camel case); the rest are
-            // foreground. Keys naming no slot (`background`) render nothing.
-            let (fg_key, bg_key) = if slot.ends_with("Bg") {
-                (None, ThemeBg::ALL.into_iter().find(|bg| bg.name() == slot))
-            } else {
-                (
-                    ThemeColor::ALL.into_iter().find(|fg| fg.name() == slot),
-                    None,
-                )
+    /// Render a resolved palette for a terminal of `mode`: the terminal
+    /// default (`""`) is [`Color::Reset`], an index stays an index, and a
+    /// `#rrggbb` value quantizes in a 256-color terminal.
+    #[must_use]
+    pub fn from_palette(palette: &Palette, mode: ColorMode) -> Theme {
+        let color = |token: Token| {
+            let color = match palette.value(token) {
+                ColorValue::Default => Color::Reset,
+                ColorValue::Indexed(index) => Color::Indexed(index),
+                ColorValue::Rgb(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
             };
-            if fg_key.is_none() && bg_key.is_none() {
-                continue;
-            }
-            let color = resolve_var_refs(value, &json.vars)
-                .and_then(parse_color)
-                .with_context(|| format!("color \"{slot}\""))?;
-            let color = to_terminal_color(color, mode);
-            if let Some(key) = bg_key {
-                bg[key as usize] = Some(color);
-            }
-            if let Some(key) = fg_key {
-                fg[key as usize] = Style::default().fg(color);
-            }
-        }
-        Ok(Theme {
-            name: json.name.clone(),
-            fg,
-            bg,
-            // `background` is not a fg/bg slot, so the loop above skips it;
-            // the wash reads it as its canvas (TS `parseHexColor`).
-            background: json
-                .colors
-                .get("background")
-                .and_then(|value| parse_theme_background(value, &json.vars)),
+            to_terminal_color(color, mode)
+        };
+        Theme {
+            name: palette.name().to_string(),
+            fg: ThemeColor::ALL.map(|slot| Style::default().fg(color(slot.token()))),
+            bg: ThemeBg::ALL.map(|slot| Some(color(slot.token()))),
+            background: palette
+                .declared_background()
+                .map(|rgb| (rgb.r, rgb.g, rgb.b)),
             mode,
             generation: NEXT_THEME_GENERATION.fetch_add(1, Ordering::Relaxed),
-        })
+        }
     }
 
-    /// A bundled theme ([`eukhe_types::themes::BUILTIN_THEME_NAMES`]).
-    /// User-facing names resolve through
-    /// [`crate::theme_catalog::ThemeSources::resolve`], which reports
-    /// unknown names.
+    /// A bundled theme ([`eukhe_theme::BUILTIN_THEME_NAMES`]).
+    /// User-facing names resolve through [`eukhe_theme::ThemeSources`],
+    /// which reports unknown names.
     ///
     /// # Panics
     ///
-    /// Panics when `name` is not a builtin or a bundled file is invalid:
-    /// callers name builtins statically, and the bundled files are
-    /// build-time data.
+    /// Panics when `name` is not a builtin: callers name builtins
+    /// statically.
     #[must_use]
     pub fn builtin(name: &str, mode: ColorMode) -> Theme {
-        let raw = eukhe_types::themes::builtin_theme_json(name)
-            .unwrap_or_else(|| panic!("{name} is not a builtin theme"));
-        let json: ThemeJson = serde_json::from_str(raw).expect("bundled theme JSON parses");
-        Theme::from_json(&json, mode).expect("bundled theme colors resolve")
+        let palette =
+            Palette::builtin(name).unwrap_or_else(|| panic!("{name} is not a builtin theme"));
+        Theme::from_palette(&palette, mode)
     }
 
     #[must_use]
@@ -934,41 +659,24 @@ fn span_with(span: crate::Span, modifier: Modifier) -> crate::Span {
     s
 }
 
-/// Read and validate a theme file (TS `parseThemeJsonContent`): JSON with
-/// a string `name`, optional `vars`, and every required color token.
+/// Tests: a theme whose required tokens are all the terminal default
+/// (`""`), with the `colors` entries of `overrides` (a JSON object) on
+/// top, rendered for `mode`.
 ///
-/// # Errors
+/// # Panics
 ///
-/// Returns `Err` carrying the path when the file cannot be read, is not
-/// a theme object, or misses required color tokens.
-pub fn read_theme_json(path: &std::path::Path) -> Result<ThemeJson> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read theme {}", path.display()))?;
-    let json: ThemeJson = serde_json::from_str(&raw)
-        .with_context(|| format!("Failed to parse theme {}", path.display()))?;
-    let missing: Vec<&str> = REQUIRED_COLOR_TOKENS
+/// Panics when the result is not a valid theme.
+#[cfg(test)]
+pub(crate) fn theme_with_colors(overrides: &serde_json::Value, mode: ColorMode) -> Theme {
+    let mut colors: serde_json::Map<String, serde_json::Value> = Token::ALL
         .into_iter()
-        .filter(|token| !json.colors.contains_key(*token))
+        .filter(|token| token.presence() == eukhe_theme::Presence::Required)
+        .map(|token| (token.name().to_string(), serde_json::Value::from("")))
         .collect();
-    if !missing.is_empty() {
-        bail!(
-            "Invalid theme {}: missing required color tokens: {}",
-            path.display(),
-            missing.join(", ")
-        );
-    }
-    Ok(json)
-}
-
-/// Load a theme file (TS `loadThemeFromPath`).
-///
-/// # Errors
-///
-/// Returns `Err` carrying the path when [`read_theme_json`] fails or a
-/// color does not resolve.
-pub fn load_theme_from_path(path: &std::path::Path, mode: ColorMode) -> Result<Theme> {
-    let json = read_theme_json(path)?;
-    Theme::from_json(&json, mode).with_context(|| format!("Invalid theme {}", path.display()))
+    colors.extend(overrides.as_object().expect("an object").clone());
+    let file = serde_json::json!({ "name": "custom", "colors": colors });
+    let palette = Palette::parse(&file.to_string()).expect("a valid theme");
+    Theme::from_palette(&palette, mode)
 }
 
 #[cfg(test)]
@@ -988,81 +696,31 @@ mod tests {
     }
 
     #[test]
-    fn rgb_to_256_gray() {
-        assert_eq!(rgb_to_256((0, 0, 0)), 16);
-        assert_eq!(rgb_to_256((255, 255, 255)), 231);
-    }
-
-    #[test]
     fn var_reference_resolves() {
         let theme = Theme::builtin("eukhe", ColorMode::Color256);
         let accent = theme.fg_style(ThemeColor::Accent);
         assert!(matches!(accent.fg, Some(Color::Indexed(_))));
     }
 
-    /// A theme file must carry every required token (TS schema check).
+    /// The file's own `#rrggbb` `background` is the onboarding canvas; an
+    /// empty one or an index leaves the canvas to the wash's fallback.
     #[test]
-    fn a_theme_file_missing_required_tokens_is_invalid() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let path = dir.path().join("partial.json");
-        let mut partial: serde_json::Value =
-            serde_json::from_str(include_str!("../tests/fixtures/dusk-apple-theme.json"))
-                .expect("fixture parses");
-        let colors = partial["colors"].as_object_mut().expect("colors");
-        colors.remove("bashMode");
-        colors.remove("thinkingXhigh");
-        std::fs::write(&path, partial.to_string()).expect("write theme");
-        let error = read_theme_json(&path).expect_err("partial theme");
-        assert_eq!(
-            format!("{error:#}"),
-            format!(
-                "Invalid theme {}: missing required color tokens: thinkingXhigh, bashMode",
-                path.display()
+    fn background_is_the_declared_six_hex() {
+        let theme = |background: serde_json::Value| {
+            theme_with_colors(
+                &serde_json::json!({ "background": background, "text": "#f4f4f5" }),
+                ColorMode::TrueColor,
             )
-        );
-    }
-
-    /// Var references chain (TS `resolveVarRefs` recursion) and integer
-    /// values are 256-color indices; a cycle is an error.
-    #[test]
-    fn var_references_chain_and_cycles_fail() {
-        let theme = |raw: &str| {
-            let json: ThemeJson = serde_json::from_str(raw).expect("valid theme json");
-            Theme::from_json(&json, ColorMode::TrueColor).map_err(|error| format!("{error:#}"))
+            .background_rgb()
         };
-        let chained = theme(
-            r##"{ "name": "c", "vars": { "a": "b", "b": "#102030", "i": 42 },
-                  "colors": { "accent": "a", "dim": "i" } }"##,
-        )
-        .expect("chained vars resolve");
         assert_eq!(
-            (
-                chained.fg_style(ThemeColor::Accent).fg,
-                chained.fg_style(ThemeColor::Dim).fg
-            ),
-            (Some(Color::Rgb(0x10, 0x20, 0x30)), Some(Color::Indexed(42)))
+            [
+                theme(serde_json::json!("#0A0B0C")),
+                theme(serde_json::json!("")),
+                theme(serde_json::json!(17)),
+            ],
+            [Some((0x0a, 0x0b, 0x0c)), None, None]
         );
-        assert_eq!(
-            theme(
-                r#"{ "name": "c", "vars": { "a": "b", "b": "a" }, "colors": { "accent": "a" } }"#
-            ),
-            Err("color \"accent\": Circular variable reference detected: a".to_string())
-        );
-    }
-
-    #[test]
-    fn background_parses_strict_six_hex_after_var_resolution() {
-        let json = serde_json::from_str::<ThemeJson>(
-            r##"{
-                "name": "custom",
-                "vars": { "canvas": "#0A0B0C" },
-                "colors": { "background": "canvas", "text": "#f4f4f5" }
-            }"##,
-        )
-        .expect("valid theme json");
-        let theme = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
-        // Case-insensitive 6-hex, reached through a var reference.
-        assert_eq!(theme.background_rgb(), Some((0x0a, 0x0b, 0x0c)));
     }
 
     /// The ONE selection style paints the soft wash in every theme,
@@ -1085,40 +743,21 @@ mod tests {
             theme.fg_style(ThemeColor::Accent).fg,
             "the accent never rides the selection band"
         );
-        let json = serde_json::from_str::<ThemeJson>(
-            r##"{
-                "name": "loud-accent",
-                "colors": { "text": "#f4f4f5", "accent": "#ff00ff", "selectedBg": "#222226" }
-            }"##,
-        )
-        .expect("valid theme json");
-        let loud = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
+        let loud = theme_with_colors(
+            &serde_json::json!({ "text": "#f4f4f5", "accent": "#ff00ff", "selectedBg": "#222226" }),
+            ColorMode::TrueColor,
+        );
         assert_eq!(
             loud.selection_row_style().bg,
             loud.soft_selection_style().bg,
             "the accent stays out of the band even when it is loud"
         );
-        let bare = serde_json::from_str::<ThemeJson>(
-            r##"{ "name": "bare", "colors": { "text": "#f4f4f5" } }"##,
-        )
-        .expect("valid theme json");
-        let bare = Theme::from_json(&bare, ColorMode::TrueColor).expect("theme resolves");
-        assert_eq!(
-            bare.selection_row_style().bg,
-            Some(crate::onboarding::highlight_wash(&bare)),
-            "with no resolvable band, the wash keeps the selected row readable"
+        // An empty `selectedBg` resolves to Reset, which the band filters:
+        // the wash takes the band.
+        let empty_slot = theme_with_colors(
+            &serde_json::json!({ "text": "#f4f4f5", "selectedBg": "" }),
+            ColorMode::TrueColor,
         );
-        // An empty `selectedBg` resolves the same way: the slot's
-        // Reset is filtered too, so the wash takes the band.
-        let empty_slot = serde_json::from_str::<ThemeJson>(
-            r##"{
-                "name": "empty-slot",
-                "colors": { "text": "#f4f4f5", "selectedBg": "" }
-            }"##,
-        )
-        .expect("valid theme json");
-        let empty_slot =
-            Theme::from_json(&empty_slot, ColorMode::TrueColor).expect("theme resolves");
         assert_eq!(empty_slot.bg_color(ThemeBg::SelectedBg), Some(Color::Reset));
         assert_eq!(
             empty_slot.selection_row_style().bg,
@@ -1194,36 +833,14 @@ mod tests {
     /// TS's ANSI guard.
     #[test]
     fn soft_selection_keeps_the_plain_selection_without_a_blend_base() {
-        let json = serde_json::from_str::<ThemeJson>(
-            r##"{
-                "name": "ansi",
-                "colors": {
-                    "selectedBg": 4,
-                    "userMessageBg": "#1a1a1f"
-                }
-            }"##,
-        )
-        .expect("valid theme json");
-        let theme = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
+        let theme = theme_with_colors(
+            &serde_json::json!({ "selectedBg": 4, "userMessageBg": "#1a1a1f" }),
+            ColorMode::TrueColor,
+        );
         assert_eq!(
             theme.soft_selection_style().bg,
             theme.bg_style(ThemeBg::SelectedBg).bg
         );
-    }
-
-    #[test]
-    fn background_stays_none_for_non_six_hex_shapes() {
-        // Empty, 3-hex shorthand, an unknown var, an ANSI index, and a
-        // missing value are all unparseable: the wash falls back to its
-        // hardcoded canvas (the built-in themes carry no background at all).
-        for raw in ["\"\"", "\"#abc\"", "\"5\"", "17", "null"] {
-            let json: ThemeJson = serde_json::from_str(&format!(
-                r#"{{ "name": "custom", "colors": {{ "background": {raw} }} }}"#
-            ))
-            .expect("valid theme json");
-            let theme = Theme::from_json(&json, ColorMode::TrueColor).expect("theme resolves");
-            assert_eq!(theme.background_rgb(), None, "background {raw}");
-        }
     }
 
     /// The selection band in every theme and color mode is the soft

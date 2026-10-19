@@ -208,8 +208,8 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
     fn set_theme(&self, _theme: &str) -> Result<()> {
         Ok(())
     }
-    fn theme_sources(&self) -> eukhe_tui::theme_catalog::ThemeSources {
-        eukhe_tui::theme_catalog::ThemeSources::default()
+    fn theme_sources(&self) -> eukhe_theme::ThemeSources {
+        eukhe_theme::ThemeSources::default()
     }
     fn log_theme_warning(&self, _message: &str) {}
     fn log_render_error(&self, _message: &str) {}

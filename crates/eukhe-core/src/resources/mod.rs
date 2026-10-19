@@ -134,7 +134,7 @@ pub struct ThemePathOptions {
     pub no_themes: bool,
 }
 
-pub use resolution::resolve_theme_paths;
+pub use resolution::{resolve_theme_paths, theme_sources};
 
 /// Load all session resources: package-manager resolution (configured
 /// packages, settings arrays, auto-discovery, bundled skills) feeds the

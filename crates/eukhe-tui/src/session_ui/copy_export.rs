@@ -81,6 +81,16 @@ impl SessionUi {
                 id: None,
                 active_session_id: self.active_session_id.clone(),
                 output_path,
+                // The files this client's theme resolves against, so the
+                // export paints the theme the terminal shows.
+                theme_paths: self.client_settings.as_ref().map(|settings| {
+                    settings
+                        .theme_sources()
+                        .registered
+                        .iter()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect()
+                }),
                 rest: Map::default(),
             }
         };

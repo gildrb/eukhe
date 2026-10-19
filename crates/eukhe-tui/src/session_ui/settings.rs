@@ -339,7 +339,7 @@ impl SessionUi {
         values.available_themes = self
             .client_settings
             .as_ref()
-            .map_or_else(crate::theme_catalog::ThemeSources::default, |settings| {
+            .map_or_else(eukhe_theme::ThemeSources::default, |settings| {
                 settings.theme_sources()
             })
             .available_names();

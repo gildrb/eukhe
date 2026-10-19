@@ -60,7 +60,8 @@ impl ExportCommands {
             let cx = &BACKGROUND_CONTEXT;
             match format {
                 ExportFormat::Html => {
-                    durable::export_html(hosted.deps(), &main, output_path, cx).await
+                    let themes = durable::ExportThemes::from_payload(payload);
+                    durable::export_html(hosted.deps(), &main, output_path, themes, cx).await
                 }
                 ExportFormat::Jsonl => {
                     durable::export_jsonl(hosted.deps(), &main, output_path, cx).await

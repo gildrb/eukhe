@@ -37,7 +37,7 @@ use clap::Parser;
 use eukhe_tui::app::{render_frame_text, run_app, AppOptions};
 use eukhe_tui::session::{JsonlSessionStream, SessionStream, TranscriptItem};
 use eukhe_tui::theme::{detect_color_mode, ColorMode, Theme};
-use eukhe_tui::theme_catalog::ThemeSources;
+use eukhe_tui::theme_catalog::resolve_theme;
 use eukhe_tui::view::AgentView;
 
 #[derive(Parser, Debug)]
@@ -94,7 +94,7 @@ fn main() -> Result<()> {
     // A builtin theme: an unknown name is a usage error here, not a
     // fallback (the verifier must render what it was asked to).
     let builtin_theme = |mode: ColorMode| -> Result<Theme> {
-        let resolved = ThemeSources::default().resolve(&args.theme, mode);
+        let resolved = resolve_theme(&eukhe_theme::ThemeSources::default(), &args.theme, mode);
         if resolved.warnings.is_empty() {
             Ok(resolved.theme)
         } else {
