@@ -1,55 +1,57 @@
+use super::restart_budget::{RestartBudget, RestartVerdict};
 use super::sessions::{saved_session_row, saved_session_summary};
-use super::supervision::{MAX_CONSECUTIVE_FAILURES, STABLE_LIFETIME_MS};
 use super::*;
+use crate::timeouts::{RESTART_GIVE_UP_AFTER, RESTART_WINDOW_MS};
 
 use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
 
-/// The crash-path failure count: spawn-dies-fast churn accumulates to
-/// the give-up cap (the storm's counter could never grow while
-/// relaunch-spawns kept resetting it); a child that lived past the
-/// stable window was healthy, so its death starts a fresh count.
+/// A worker that dies every 31 s is given up at its sixth failure: each
+/// failure lands inside the restart window of the ones before it. (The
+/// old count reset after any lifetime of 30 s, so this worker restarted
+/// forever.)
 #[test]
-fn churn_accumulates_and_a_stable_lifetime_resets() {
-    let descriptor: DaemonWorkerDescriptor = serde_json::from_value(serde_json::json!({
-        "version": 2,
-        "workerId": "test-worker",
-        "pid": 0,
-        "socketPath": "/tmp/none.sock",
-        "recoveryJournalPath": "/tmp/none.jsonl",
-        "supervisorSocketPath": "/tmp/none.sock",
-        "authenticationToken": "test",
-        "rootActiveSessionId": "none",
-        "createdAt": "2026-09-23T00:00:00Z",
-        "updatedAt": "2026-09-23T00:00:00Z",
-        "lifecycle": "ready",
-        "createCommand": {},
-        "consecutiveFailures": 0,
-    }))
-    .expect("descriptor");
-    let resident = ResidentWorker::new(
-        "test-worker".to_string(),
-        descriptor,
-        std::path::PathBuf::from("/tmp/none"),
+fn a_worker_that_dies_every_31_seconds_is_given_up() {
+    let base = std::time::Instant::now();
+    let mut budget = RestartBudget::default();
+    let verdicts: Vec<RestartVerdict> = (0..6u64)
+        .map(|k| budget.on_failure(base + Duration::from_secs(31 * k)))
+        .collect();
+    let relaunch = |failure, backoff_ms| RestartVerdict::Relaunch {
+        failure,
+        backoff: Duration::from_millis(backoff_ms),
+    };
+    assert_eq!(
+        verdicts,
+        vec![
+            relaunch(1, 250),
+            relaunch(2, 500),
+            relaunch(3, 1_000),
+            relaunch(4, 2_000),
+            relaunch(5, 4_000),
+            RestartVerdict::GiveUp { failures: 6 },
+        ]
     );
-    let now = 1_000_000_000u64;
-    // No spawn time (an adopted pid): plain accumulation.
-    assert_eq!(Supervisor::next_failure_count(&resident, now), 1);
-    assert_eq!(Supervisor::next_failure_count(&resident, now), 2);
-    // A stable lifetime: the healthy death starts a fresh count.
-    resident
-        .spawned_at_ms
-        .store(now - STABLE_LIFETIME_MS - 1, Ordering::SeqCst);
-    assert_eq!(Supervisor::next_failure_count(&resident, now), 1);
-    // A spawn that lived past the stable window but died young still accumulates.
-    resident
-        .spawned_at_ms
-        .store(now - STABLE_LIFETIME_MS + 10_000, Ordering::SeqCst);
-    assert_eq!(Supervisor::next_failure_count(&resident, now), 2);
 }
 
-/// A relaunch that FAILS produced no worker, so the count must
-/// accumulate to the give-up cap instead of resetting against the old spawn.
+/// Failures spaced wider than the restart window never give the worker
+/// up: each one is the only failure in its window.
+#[test]
+fn failures_wider_than_the_window_never_give_up() {
+    let base = std::time::Instant::now();
+    let mut budget = RestartBudget::default();
+    let verdicts: Vec<RestartVerdict> = (0..20u64)
+        .map(|k| budget.on_failure(base + Duration::from_millis((RESTART_WINDOW_MS + 1) * k)))
+        .collect();
+    let first = RestartVerdict::Relaunch {
+        failure: 1,
+        backoff: Duration::from_millis(250),
+    };
+    assert_eq!(verdicts, vec![first; 20]);
+}
+
+/// A relaunch that FAILS produced no worker: each failed relaunch counts
+/// against the restart budget, so the watch loop gives the worker up.
 #[tokio::test(start_paused = true)]
 async fn a_failed_relaunch_accumulates_to_the_give_up_cap() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -87,13 +89,6 @@ async fn a_failed_relaunch_accumulates_to_the_give_up_cap() {
         descriptor,
         dir.path().join("w-relaunch.descriptor.json"),
     ));
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("the clock is after the epoch")
-        .as_millis() as u64;
-    resident
-        .spawned_at_ms
-        .store(now_ms - STABLE_LIFETIME_MS - 1, Ordering::SeqCst);
     supervisor.registry.insert(Arc::clone(&resident)).await;
     tokio::time::timeout(
         Duration::from_secs(60),
@@ -152,9 +147,12 @@ async fn a_stop_during_the_storm_leaves_the_terminal_state_to_the_stop() {
     ));
     // The storm is at the cap and the stop already landed (the stop
     // path sets the flag before it finalizes the worker).
-    resident
-        .consecutive_failures
-        .store(MAX_CONSECUTIVE_FAILURES, Ordering::SeqCst);
+    {
+        let mut budget = resident.restart_budget.lock().await;
+        for _ in 0..RESTART_GIVE_UP_AFTER {
+            budget.on_failure(std::time::Instant::now());
+        }
+    }
     resident.intentional_stop.store(true, Ordering::SeqCst);
     supervisor.registry.insert(Arc::clone(&resident)).await;
     tokio::time::timeout(

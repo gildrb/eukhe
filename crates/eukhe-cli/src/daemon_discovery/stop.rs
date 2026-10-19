@@ -431,6 +431,7 @@ fn shutdown_daemon(socket_path: &Path, force: bool) -> bool {
                 let shutdown = DaemonCommand::Shutdown {
                     id: None,
                     force: Some(force),
+                    if_idle: None,
                     rest: serde_json::Map::default(),
                 };
                 // The daemon may stop before it answers; the connectivity

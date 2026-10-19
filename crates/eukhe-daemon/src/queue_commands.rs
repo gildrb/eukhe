@@ -259,6 +259,10 @@ impl Worker {
             .take_while(|((_, before), (_, after))| before == after)
             .count();
         let main = hosted.main().map_err(|error| error.to_string())?;
+        // The run gate is passed before any inbox input is withdrawn: an
+        // input taken out while a quiesce holds the gate would be lost to
+        // the stop that follows it.
+        let _admission = crate::worker::RunAdmission::enter(&self.core).await;
         // Withdraw every inbox submission from the first difference on.
         for (origin, input) in &original[unchanged..] {
             if *origin != Origin::Inbox {

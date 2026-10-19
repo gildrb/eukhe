@@ -466,6 +466,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         restore_dock_focus: false,
         client_settings: Some(std::sync::Arc::new(StubSettings::default())),
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

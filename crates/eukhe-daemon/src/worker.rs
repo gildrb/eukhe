@@ -23,7 +23,9 @@ mod harness_end;
 mod lifecycle;
 mod memory_updates;
 mod passivation;
+mod run_gate;
 mod run_outcome;
+pub(crate) use run_gate::RunAdmission;
 mod state_tree;
 mod summary;
 mod title;
@@ -569,6 +571,41 @@ pub(crate) fn record_recovery_with(
     ) {
         eprintln!("eukhe-daemon worker: recovery journal write failed: {error:#}");
     }
+}
+
+/// Re-record the busy revival evidence every
+/// [`crate::timeouts::BUSY_REFRESH_MS`] while the session has work, so the
+/// evidence age counts from the last refresh, not from the start of a long
+/// run. The interval runs on the monotonic clock.
+pub(crate) fn start_busy_refresh(
+    recovery: Arc<Mutex<Option<WorkerRecoveryJournal>>>,
+    core: Arc<Mutex<SessionCore>>,
+) {
+    tokio::spawn(async move {
+        let period = Duration::from_millis(crate::timeouts::BUSY_REFRESH_MS);
+        let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticks.tick().await;
+            let work = core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .work();
+            match work {
+                crate::work_gate::Work::Idle => {}
+                crate::work_gate::Work::Ongoing => {
+                    let mut guard = recovery
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let Some(Err(error)) =
+                        guard.as_mut().map(WorkerRecoveryJournal::refresh_busy)
+                    {
+                        eprintln!("eukhe-daemon worker: busy evidence refresh failed: {error:#}");
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// Entry point for the worker process.

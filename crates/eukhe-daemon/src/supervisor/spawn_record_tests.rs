@@ -82,6 +82,7 @@ async fn a_known_resident_registration_writes_nothing_to_disk() {
         worker_instance_id: "inst-live".to_string(),
         token: "reg-token".to_string(),
         pid: 4242,
+        build_id: Some(eukhe_build_info::DAEMON_BUILD_ID.to_string()),
         rest: Map::default(),
     };
     let response = supervisor

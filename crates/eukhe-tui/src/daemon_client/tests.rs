@@ -804,20 +804,25 @@ async fn without_capability_upgrade_is_a_no_op() {
     client.close();
 }
 
-/// The launcher's view of a greeting: another eukhe version is outdated
-/// (from `appVersion`, else `runtime.buildId`), and so is another build of
-/// this version (the regression: a daemon of an older commit, or a
-/// pre-identity build reporting the bare version, read as current); a hello
-/// without either is not, and another protocol name or a non-JSON first
-/// line is a typed foreign holder — never a plain connect failure the
-/// launcher would read as "nothing listening".
+/// The launcher's view of a greeting: the daemon's build is its
+/// `appVersion` and `runtime.buildId`, and it relates to this build by its
+/// id, else by the rank of its version; a hello without a build id and
+/// without another version has nothing to compare and reads as this build.
+/// Another protocol name or a non-JSON first line is a typed foreign
+/// holder — never a plain connect failure the launcher would read as
+/// "nothing listening".
 #[tokio::test]
-async fn greetings_classify_outdated_and_foreign_daemons() {
-    let pre_identity_build_id = format!("eukhe-daemon-rs-{CLIENT_APP_VERSION}");
+async fn greetings_classify_daemon_builds_and_foreign_daemons() {
+    use crate::daemon_build::{relation, Build, Relation};
+    const VERSION: &str = eukhe_build_info::VERSION;
+    let pre_identity_build_id = format!("eukhe-daemon-rs-{VERSION}");
     // A build compiled without a known commit reports the bare version
     // itself: then the pre-identity daemon is indistinguishable from it.
-    let pre_identity_outcome = (pre_identity_build_id != eukhe_build_info::DAEMON_BUILD_ID)
-        .then(|| format!("{CLIENT_APP_VERSION} (another build)"));
+    let pre_identity_outcome = if pre_identity_build_id == eukhe_build_info::DAEMON_BUILD_ID {
+        Relation::Same
+    } else {
+        Relation::Other
+    };
     let hello = |extra: Value| {
         let mut hello = json!({
             "type": "daemon_hello",
@@ -829,19 +834,19 @@ async fn greetings_classify_outdated_and_foreign_daemons() {
         hello.to_string()
     };
     let cases = [
-        hello(json!({ "appVersion": CLIENT_APP_VERSION })),
+        hello(json!({ "appVersion": VERSION })),
         hello(json!({ "appVersion": "0.0.1-old" })),
         hello(json!({ "runtime": { "buildId": "eukhe-daemon-rs-0.0.1-old" } })),
         hello(json!({
-            "appVersion": CLIENT_APP_VERSION,
+            "appVersion": VERSION,
             "runtime": { "buildId": eukhe_build_info::DAEMON_BUILD_ID },
         })),
         hello(json!({
-            "appVersion": CLIENT_APP_VERSION,
-            "runtime": { "buildId": format!("eukhe-daemon-rs-{CLIENT_APP_VERSION}+d1ca7bf22000") },
+            "appVersion": VERSION,
+            "runtime": { "buildId": format!("eukhe-daemon-rs-{VERSION}+d1ca7bf22000") },
         })),
         hello(json!({
-            "appVersion": CLIENT_APP_VERSION,
+            "appVersion": VERSION,
             "runtime": { "buildId": pre_identity_build_id },
         })),
         hello(json!({})),
@@ -871,9 +876,9 @@ async fn greetings_classify_outdated_and_foreign_daemons() {
         });
         let outcome = match DaemonClient::connect(&socket).await {
             Ok((client, _events)) => {
-                let outdated = client.outdated_daemon_version();
+                let outcome = relation(Build::THIS, client.daemon_build());
                 client.close();
-                Ok(outdated)
+                Ok(outcome)
             }
             Err(error) => Err((
                 is_foreign_daemon(&error),
@@ -888,13 +893,13 @@ async fn greetings_classify_outdated_and_foreign_daemons() {
     assert_eq!(
         outcomes,
         vec![
-            Ok(None),
-            Ok(Some("0.0.1-old".to_string())),
-            Ok(Some("0.0.1-old".to_string())),
-            Ok(None),
-            Ok(Some(format!("{CLIENT_APP_VERSION}+d1ca7bf22000"))),
+            Ok(Relation::Same),
+            Ok(Relation::Older),
+            Ok(Relation::Older),
+            Ok(Relation::Same),
+            Ok(Relation::Other),
             Ok(pre_identity_outcome),
-            Ok(None),
+            Ok(Relation::Same),
             Err((
                 true,
                 "the daemon on <socket> speaks an unknown protocol \"prime-agent.daemon\""

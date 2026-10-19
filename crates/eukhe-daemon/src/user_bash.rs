@@ -223,6 +223,15 @@ impl Worker {
                 None,
             );
         };
+        // A user bash is work a stop interrupts: it passes the run gate (a
+        // quiesced gate refuses it) and holds the admission until the
+        // claim makes the run visible to a quiesce.
+        let admission = match crate::worker::RunAdmission::try_enter(&self.core) {
+            Ok(admission) => admission,
+            Err(quiesced) => {
+                return response_failure(None, "execute_bash", &quiesced.to_string(), None)
+            }
+        };
         // Claim the slot synchronously (TS claims before the async dispatch
         // could slip a second command through).
         if !self.user_bash.claim() {
@@ -233,6 +242,7 @@ impl Worker {
                 None,
             );
         }
+        drop(admission);
         let exclude_from_context = payload
             .get("excludeFromContext")
             .and_then(Value::as_bool)
@@ -341,6 +351,9 @@ impl Worker {
                 None,
             );
         };
+        // A user bash is work a stop interrupts: it holds the run gate
+        // until it settles or detaches (a detached run counts as running).
+        let _admission = crate::worker::RunAdmission::enter(&self.core).await;
         // A fresh run owns a fresh abort state (each TS invocation owns its
         // own controller).
         self.user_bash

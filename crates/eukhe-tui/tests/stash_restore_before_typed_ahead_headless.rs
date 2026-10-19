@@ -234,6 +234,7 @@ fn options(
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

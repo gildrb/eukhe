@@ -55,6 +55,10 @@ import ./laws/catalog_union.bend as CatalogUnion
 import ./bend/proof_catalog_union.bend as CatalogUnions
 import ./laws/cron.bend as Cronl
 import ./bend/proof_cron_step.bend as Crons
+import ./laws/supervisor.bend as Sup
+import ./bend/proof_supervisor.bend as Supervision
+import ./bend/proof_replace.bend as Replacing
+import ./bend/proof_notice.bend as Notices
 
 # (a) The view
 
@@ -1020,3 +1024,38 @@ def Cronl.cron_claim_owned(s, e, i, x, o):
 
 def Cronl.cron_backoff_bounded(evs, s, e, i, k, c, nx):
   Crons.pc.cron_backoff_bounded(evs, s, e, i, k, c, nx)
+
+# (D1) Supervisor
+
+def Sup.restart_gives_up(c, pre, g, gs, many, fast):
+  Supervision.ps.restart_gives_up(c, pre, g, gs, many, fast)
+
+def Sup.timeouts_ordered(t):
+  Supervision.ps.timeouts_ordered(t)
+
+def Sup.revive_after_refresh(h, pos, b, c, d, soon):
+  Supervision.ps.revive_after_refresh(h, pos, b, c, d, soon)
+
+def Sup.orphan_never_aborts_resumable(window, evs):
+  Supervision.ps.orphan_never_aborts_resumable(window, evs)
+
+def Sup.idle_shutdown_never_aborts(bs, ops):
+  Supervision.ps.idle_shutdown_never_aborts(bs, ops)
+
+def Sup.adopt_same_build(sup, w, adopted):
+  Supervision.ps.adopt_same_build(sup, w, adopted)
+
+def Sup.replace_never_downgrades(ss):
+  Replacing.pr.replace_never_downgrades(ss)
+
+def Sup.replacement_terminates(bs, ss, cover):
+  Replacing.pr.replacement_terminates(bs, ss, cover)
+
+def Sup.background_never_replaces(c, d):
+  Replacing.pr.background_never_replaces(c, d)
+
+def Sup.notice_shown_once(evs):
+  Notices.pn.notice_shown_once(evs)
+
+def Sup.notice_per_restore(evs):
+  Notices.pn.notice_per_restore(evs)

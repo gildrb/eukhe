@@ -38,7 +38,9 @@ The transcript:
    new one writes one dim separator row that names the break (new
    session, reconnected, or transcript rebuilt) and the session, and the
    new history commits below it. A scrollback that holds only the splash
-   gets no separator.
+   gets no separator. A new transcript of a session does not hold the
+   kernel restore notices that the view showed before: each restore
+   shows its notice one time ([daemon.md](daemon.md) D1).
 9. After the first paint, the inline terminal never clears the screen or
    the scrollback (no `ESC[2J`, no `ESC[3J`). Fullscreen mode repaints
    its own alternate screen, which has no scrollback. There is no user

@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
+use eukhe_tui::daemon_build::{relation, Build, Relation};
 use eukhe_tui::daemon_client::DaemonClientEvent;
 use eukhe_types::ai::{
     AssistantContentBlock, AssistantMessage, StopReason, UserContent, UserContentBlock,
@@ -206,12 +207,11 @@ impl<L: DaemonLauncher> Gateway<L> {
                 () = tokio::time::sleep_until(retry.map_or_else(tokio::time::Instant::now, |(at, _)| at)), if !connected => {
                     match self.link.try_reconnect().await {
                         Ok(()) => {
-                            // Another client started this daemon. A daemon of
-                            // another build means eukhe was upgraded: stop, so
-                            // the service starts the gateway again on the new
-                            // build (else it would start old daemons).
-                            if let Some(version) = self.link.client.outdated_daemon_version() {
-                                tracing::info!(%version, "a daemon of another eukhe build runs; the gateway stops so its service restarts it on that build");
+                            // Another client started this daemon. A daemon not older than this gateway means
+                            // eukhe was upgraded: stop, so the service starts the gateway again on the new build.
+                            // An older daemon keeps serving this gateway, which never replaces a daemon.
+                            if let Relation::Newer | Relation::Other = relation(Build::THIS, self.link.client.daemon_build()) {
+                                tracing::info!(version = self.link.client.daemon_build().version, "a daemon of another eukhe build runs; the gateway stops so its service restarts it on that build");
                                 break Ok(());
                             }
                             self.daemon = DaemonState::Up;

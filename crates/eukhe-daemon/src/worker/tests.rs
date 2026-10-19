@@ -696,3 +696,69 @@ async fn crash(worker: &Worker) {
     let hosted = worker.session.take().expect("a hosted session");
     hosted.close(&BACKGROUND_CONTEXT).await.expect("close");
 }
+
+/// The journal record an orphan exit leaves for `worker`'s session.
+fn orphan_exit_record(
+    worker: &Worker,
+    busy: bool,
+    operation: &str,
+    recorded_at: String,
+) -> WorkerRecoveryRecord {
+    let core = worker.core.lock().unwrap();
+    WorkerRecoveryRecord {
+        active_session_id: core.active_session_id.clone(),
+        session_id: core.session_id.clone(),
+        session_file: core.session_file(),
+        busy,
+        operation: operation.to_owned(),
+        recorded_at,
+        failure: None,
+    }
+}
+
+/// An orphan exit with a run in flight hands the run over: the journal
+/// keeps busy revival evidence, the run is not aborted, and the session
+/// is not closed (the next supervisor resumes it from storage).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_orphan_exit_with_ongoing_work_hands_the_run_over() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(
+        dir.path(),
+        json!({ "responses": [{ "text": "never", "delayMs": 30_000 }] }),
+    )
+    .await;
+    let response = worker.dispatch("prompt", &json!({ "message": "go" })).await;
+    assert!(response.success, "prompt: {response:?}");
+    wait_busy(&worker, true).await;
+    // No `serve` runs here: the stored permit stands in for the accept
+    // loop's listener-closed confirmation.
+    worker.listener_closed.notify_one();
+
+    let exit = crate::supervisor_lost::leave_orphaned(&worker).await;
+
+    assert_eq!(exit, crate::work_gate::OrphanExit::Handover);
+    let record = latest_record(dir.path(), "recovery.jsonl");
+    let expected = orphan_exit_record(&worker, true, "orphaned", record.recorded_at.clone());
+    assert_eq!(record, expected);
+    assert!(
+        worker.core.lock().unwrap().is_busy(),
+        "the run was not aborted"
+    );
+    assert!(worker.session.get().is_some(), "the session was not closed");
+}
+
+/// An orphan exit without work closes the session and records it idle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_orphan_exit_closes_the_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path(), json!({ "responses": [] })).await;
+    worker.listener_closed.notify_one();
+
+    let exit = crate::supervisor_lost::leave_orphaned(&worker).await;
+
+    assert_eq!(exit, crate::work_gate::OrphanExit::Close);
+    let record = latest_record(dir.path(), "recovery.jsonl");
+    let expected = orphan_exit_record(&worker, false, "shutdown", record.recorded_at.clone());
+    assert_eq!(record, expected);
+    assert!(worker.session.get().is_none(), "the session closed");
+}

@@ -71,6 +71,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
             "memory",
             "memory_tree",
             "state_tree",
+            "idle_shutdown",
         ])
     );
 

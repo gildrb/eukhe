@@ -237,6 +237,9 @@ impl AgentCronSchedulerHooks for QueueHooks {
         let Some(hosted) = self.session.get() else {
             return Ok(Some("skipped"));
         };
+        // A fire is a run start: it passes the run gate (it waits while an
+        // idle shutdown decides) before it resumes or admits anything.
+        let admission = crate::worker::RunAdmission::enter(&self.core).await;
         // TS cron fires resume the suspension before admission
         // (`promptHeartbeat`/`promptUntilAccepted` carry `resumeIfIdle:
         // true`): a fire on a post-abort session is a resume site.
@@ -247,7 +250,9 @@ impl AgentCronSchedulerHooks for QueueHooks {
         // queued one instead of stacking.
         self.remove_queued_heartbeat_follow_up(job).await;
         let request = Self::fire_request(job);
-        let handle = submit_input(&hosted.main()?, &request, &BACKGROUND_CONTEXT).await?;
+        let handle =
+            submit_input(&hosted.main()?, &request, &admission, &BACKGROUND_CONTEXT).await?;
+        drop(admission);
         match tokio::time::timeout(
             std::time::Duration::from_millis(FIRE_SETTLE_TIMEOUT_MS),
             handle.wait(&BACKGROUND_CONTEXT),

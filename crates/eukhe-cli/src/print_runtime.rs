@@ -106,9 +106,15 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, String> {
     // Flag > env > default: the same `EUKHE_DAEMON_SOCKET` contract as
     // every other mode.
     let socket_path = crate::config::resolve_daemon_socket_path(options.daemon_socket.as_deref());
-    let ready = crate::interactive_mode::ensure_daemon_running(&socket_path, &options.config.cwd)
-        .await
-        .map_err(|error| format!("{error:#}"))?;
+    // An editor starts ACP, not the user at a terminal: it never replaces
+    // a running daemon.
+    let ready = crate::interactive_mode::ensure_daemon_running(
+        &socket_path,
+        &options.config.cwd,
+        eukhe_tui::daemon_build::Caller::Background,
+    )
+    .await
+    .map_err(|error| format!("{error:#}"))?;
     // ACP speaks JSON-RPC on stdout; the notice goes to the client's stderr.
     if let Some(notice) = ready.notice() {
         eprintln!("{notice}");

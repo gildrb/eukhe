@@ -116,11 +116,15 @@ command for it.
 Each daemon reports its build: `<version>+<commit>`, plus `.dirty.<hash>`
 (a hash of the changes) when the sources differ from the commit, or
 `<version>+src.<hash>` (a hash of the sources) when no commit is known, so
-two builds of other sources never share a build. After an upgrade or a
-rebuild, the next `eukhe` start replaces an idle daemon of another build,
-or a pre-rename `prime-agent` daemon on the socket. A daemon with active
-work keeps running until the next idle start; `eukhe shutdown` restarts it
-sooner. Sessions persist and reattach.
+two builds of other sources never share a build. After an upgrade, the
+next interactive `eukhe` start replaces an idle daemon of a lower
+version, or a pre-rename `prime-agent` daemon on the socket. Release
+versions have the semver order; a `-dev` build is below the releases of
+its series. Background clients (`eukhe dashboard`, `eukhe gateway`, ACP)
+never replace a running daemon. No client replaces a newer daemon or
+another build of the same version; the client tells you, and
+`eukhe shutdown` stops the daemon. A daemon with active work keeps
+running until the next idle start. Sessions persist and reattach.
 
 > [!WARNING]
 > eukhe runs model-generated Python and shell commands with your user

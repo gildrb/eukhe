@@ -320,15 +320,20 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
         "a forced stop is recorded as effects-unknown: {killed}"
     );
     // The grace windows ran before the escalation (the kill route's and
-    // the shutdown route's, 5 s each), and the whole stop stayed bounded
-    // well inside a parent's 30 s kill budget (two graces + TERM grace +
-    // the SIGKILL verify).
+    // the shutdown route's, one stop grace each), and the whole stop
+    // stayed bounded by the two graces, the TERM grace, the SIGKILL
+    // verify, and a margin for the test's own scheduling.
+    let graces = Duration::from_millis(2 * eukhe_daemon::timeouts::STOP_GRACE_MS);
+    let escalation = Duration::from_millis(
+        eukhe_daemon::timeouts::WORKER_TERM_GRACE_MS
+            + eukhe_daemon::timeouts::WORKER_KILL_VERIFY_MS,
+    );
     assert!(
-        elapsed >= Duration::from_secs(10),
+        elapsed >= graces,
         "the stop graces must run before the escalation: {elapsed:?}"
     );
     assert!(
-        elapsed <= Duration::from_secs(25),
+        elapsed <= graces + escalation + Duration::from_secs(5),
         "the escalation must stay bounded: {elapsed:?}"
     );
 

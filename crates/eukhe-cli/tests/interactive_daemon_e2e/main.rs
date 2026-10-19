@@ -583,6 +583,7 @@ fn base_options(
         client_settings: None,
         provider_auth: None,
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

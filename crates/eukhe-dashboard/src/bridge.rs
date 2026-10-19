@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::Context;
 use base64::Engine as _;
-use eukhe_tui::daemon_client::{outdated_daemon_notice, DaemonClient, DaemonClientEvent};
+use eukhe_tui::daemon_build::{kept_daemon_notice, Build};
+use eukhe_tui::daemon_client::{DaemonClient, DaemonClientEvent};
 use eukhe_tui::saved_sessions::{
     create_resident, list_root_sessions, CreatedSession, DaemonLauncher, SavedSession,
 };
@@ -163,8 +164,8 @@ impl Bridge {
         let (client, events) = DaemonClient::connect(&config.socket_path)
             .await
             .context("connect to the eukhe daemon")?;
-        if let Some(version) = client.outdated_daemon_version() {
-            tracing::warn!("{}", outdated_daemon_notice(&version));
+        if let Some(notice) = kept_daemon_notice(Build::THIS, client.daemon_build()) {
+            tracing::warn!("{notice}");
         }
         Ok(Self {
             reader_dead: client.reader_dead(),

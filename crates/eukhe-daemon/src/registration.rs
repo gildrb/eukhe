@@ -256,6 +256,7 @@ impl RegistrationTask {
             worker_instance_id: self.identity.worker_instance_id.clone(),
             token: self.identity.token.clone(),
             pid: u64::from(std::process::id()),
+            build_id: Some(eukhe_build_info::DAEMON_BUILD_ID.to_string()),
             rest: Map::default(),
         };
         let envelope = json!({

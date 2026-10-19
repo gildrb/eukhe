@@ -1434,6 +1434,14 @@ pub enum DaemonCommand {
         id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         force: Option<bool>,
+        /// `true`: stop only when no session holds work. The supervisor
+        /// asks every worker to quiesce and stops only when all of them
+        /// are idle; else it refuses with
+        /// [`super::DaemonErrorInfo::DaemonBusy`] and nothing stops.
+        /// Daemons that advertise [`super::IDLE_SHUTDOWN_CAPABILITY`]
+        /// know this field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        if_idle: Option<bool>,
         #[serde(flatten)]
         rest: JsonMap,
     },
@@ -1452,6 +1460,10 @@ pub enum DaemonCommand {
         worker_instance_id: String,
         token: String,
         pid: u64,
+        /// The worker's build (`eukhe-build-info::DAEMON_BUILD_ID`). A
+        /// supervisor adopts only a worker of its own build.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        build_id: Option<String>,
         #[serde(flatten)]
         rest: JsonMap,
     },

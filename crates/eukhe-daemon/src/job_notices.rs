@@ -37,7 +37,7 @@ use serde_json::Value;
 use eukhe_core::kernel::shared::{host_handler, HostRequestHandlers};
 
 use crate::agent_message_ingest::{withdraw_queued, WithdrawnLane};
-use crate::worker::{submit_input, InputRequest, SessionCore, SessionSlot, Worker};
+use crate::worker::{submit_input, InputRequest, RunAdmission, SessionCore, SessionSlot, Worker};
 
 /// The kernel read a finished command's result before its notice
 /// delivered (the `bash.consumed` host request): the queued notice is
@@ -135,7 +135,9 @@ impl JobNotices {
                 report: settled.report(),
             },
         };
-        submit_input(&hosted.main()?, &request, &BACKGROUND_CONTEXT).await?;
+        let admission = RunAdmission::enter(&self.core).await;
+        submit_input(&hosted.main()?, &request, &admission, &BACKGROUND_CONTEXT).await?;
+        drop(admission);
         match settled {
             JobSettled::Bash { pid, command, .. } => self.pending().push(PendingNotice {
                 request_id,

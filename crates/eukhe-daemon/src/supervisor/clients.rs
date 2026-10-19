@@ -676,6 +676,30 @@ impl Supervisor {
         match command {
             DaemonCommand::AckResult { .. } => (Vec::new(), false),
             DaemonCommand::Restart { .. } | DaemonCommand::Shutdown { .. } => {
+                // `ifIdle`: the supervisor decides, atomically with the
+                // stop, that no session holds work; a busy daemon refuses
+                // and nothing stops (see `idle_shutdown`).
+                if let DaemonCommand::Shutdown {
+                    if_idle: Some(true),
+                    ..
+                } = command
+                {
+                    match self.decide_idle_shutdown().await {
+                        super::idle_shutdown::IdleShutdown::Commit => {}
+                        super::idle_shutdown::IdleShutdown::Busy => {
+                            self.log_line(&format!(
+                                "{type_name} if idle refused: a session holds work"
+                            ));
+                            let response = response_failure(
+                                Some(&command_id),
+                                &type_name,
+                                "The daemon has work in flight; nothing was stopped",
+                                Some(eukhe_types::daemon::DaemonErrorInfo::DaemonBusy),
+                            );
+                            return (vec![response_line(&response)], false);
+                        }
+                    }
+                }
                 // WHO asked (the twice-killed fleet's field diagnosis: a
                 // stop seen from the outside was unattributable until the
                 // wire was reconstructed): the request's client id and
@@ -712,6 +736,10 @@ impl Supervisor {
                 // and launch a worker the stop pass would miss.
                 *self.shutdown_owner.lock().unwrap() = Some(connection_id.to_string());
                 self.shutting_down.store(true, Ordering::SeqCst);
+                // A committed idle shutdown held the replacement gate until
+                // here: the launches that waited now see the shutdown gate
+                // and refuse. (A no-op for any other stop.)
+                self.replacement_gate.open();
                 (lines, true)
             }
             DaemonCommand::List {

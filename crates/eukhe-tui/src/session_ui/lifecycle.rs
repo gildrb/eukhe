@@ -51,6 +51,7 @@ impl SessionUi {
             attach_event_sequence: 0,
             last_event_sequence: 0,
             attach_cursor_present: false,
+            restore_notices: crate::restore_notices::RestoreNotices::default(),
             session_name: None,
             cwd: options.cwd.clone(),
             session_dir: options.session_dir.clone(),
@@ -249,16 +250,10 @@ impl SessionUi {
         // after it to survive the rebuild.
         self.rebuild_view(view, &RebuildKind::Resync);
         // TS #2458 `formatDaemonReconnectBanner`: the recovered window
-        // reports the restart version-honestly.
-        let daemon_version = self
-            .client
-            .hello()
-            .get("appVersion")
-            .and_then(Value::as_str)
-            .map(str::to_string);
+        // reports the restart version-honestly, build identity included.
         let (text, status_kind) = crate::daemon_reconnect::reconnect_banner(
-            daemon_version.as_deref(),
-            eukhe_build_info::VERSION,
+            crate::daemon_build::Build::THIS,
+            self.client.daemon_build(),
         );
         view.push_entry(crate::chat::ChatEntry::Status {
             text,
@@ -349,7 +344,7 @@ impl SessionUi {
             }
         };
         let data = attached;
-        let attach = attach_data_from_response(data)?;
+        let mut attach = attach_data_from_response(data)?;
         // The bash slot follows the attached session's live state (TS
         // `applyConnectionStateSnapshot` patches `isBashRunning`): the
         // captured state drives the next rebuild's resync edge. The
@@ -370,7 +365,18 @@ impl SessionUi {
         };
         self.user_bash_running = resync_bash.snap_running;
         self.resync_bash = Some(resync_bash);
+        // The snapshot holds every stored message: a restore notice this
+        // view showed before stays out of the rebuilt transcript, and
+        // the record takes the notices it shows only once the attach
+        // decodes (`crate::restore_notices`).
+        let session_id = crate::snapshot::state_session_id(&attach.snapshot.state);
+        attach
+            .snapshot
+            .messages
+            .retain(|message| self.restore_notices.shows(session_id, message));
         let reconstructed = reconstruct(&attach)?;
+        self.restore_notices
+            .record(session_id, &attach.snapshot.messages);
         let mounted_session_changes = previous != attach.active_session_id;
         self.active_session_id = attach.active_session_id;
         // The new attachment exists (the snapshot above rebuilt from it):

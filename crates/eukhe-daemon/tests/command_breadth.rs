@@ -10,7 +10,7 @@
 
 use eukhe_daemon::protocol::command_active_session_id;
 use eukhe_daemon::protocol::command_type_name;
-use eukhe_daemon::protocol::parse_daemon_command_line;
+use eukhe_daemon::protocol::parse_supervisor_command_line;
 use eukhe_daemon::protocol::KNOWN_COMMAND_TYPES;
 
 /// TS `DAEMON_COMMAND_TYPES`, verbatim and in declaration order
@@ -634,7 +634,7 @@ fn every_command_type_parses_and_routes() {
             .to_string()
             + wire
             + "}";
-        let envelope = parse_daemon_command_line(&line)
+        let envelope = parse_supervisor_command_line(&line)
             .unwrap_or_else(|e| panic!("{type_name} must parse: {e}"));
         assert_eq!(
             command_type_name(&envelope.command),
@@ -656,13 +656,13 @@ fn every_command_type_parses_and_routes() {
 #[test]
 fn unknown_type_keeps_the_ts_error_string() {
     let line = r#"{"type":"command","id":"c1","protocol":{"name":"eukhe.daemon","version":7},"command":{"type":"not_a_command"}}"#;
-    let error = parse_daemon_command_line(line).unwrap_err();
+    let error = parse_supervisor_command_line(line).unwrap_err();
     assert_eq!(error.to_string(), "Unknown daemon command: not_a_command");
 
     // A known type with a malformed body is a malformed command, not
     // unknown (the TS second-pass error class).
     let line = r#"{"type":"command","id":"c2","protocol":{"name":"eukhe.daemon","version":7},"command":{"type":"kill"}}"#;
-    let error = parse_daemon_command_line(line).unwrap_err();
+    let error = parse_supervisor_command_line(line).unwrap_err();
     assert_eq!(
         error.to_string(),
         "Invalid daemon command: malformed kill command"

@@ -222,6 +222,12 @@ pub struct InteractiveOptions {
     /// `app.stt.toggle`): the recorder and the `dictation` role the
     /// composition root gives. `None` reports dictation as not available.
     pub dictation: Option<crate::dictation::Dictation>,
+    /// The background launcher of a daemon of this client's build: after an
+    /// unexpected daemon loss, the recovery relaunches the daemon through
+    /// it after the first failed reconnect. It starts a daemon only when
+    /// none listens and never replaces one. `None` only reconnects (a test
+    /// harness that owns its daemon).
+    pub daemon_launcher: Option<crate::saved_sessions::SharedDaemonLauncher>,
 }
 
 // The opaque service handles (provider_auth,

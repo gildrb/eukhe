@@ -47,10 +47,11 @@ pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 /// (`prompt_and_wait`, `wait_for_idle`) use the supervisor's long route
 /// timeout so a long turn cannot expire the request.
 pub const LONG_RUNNING_REQUEST_TIMEOUT_MS: u64 = 600_000;
-const CONNECT_TIMEOUT_MS: u64 = 3_000;
+/// The socket connect budget of one [`DaemonClient::connect`].
+pub(crate) const CONNECT_TIMEOUT_MS: u64 = 3_000;
 /// Hello handshake budget. A daemon loading a very large session can take
 /// well over the 3s TS default to greet.
-const HELLO_TIMEOUT_MS: u64 = 15_000;
+pub(crate) const HELLO_TIMEOUT_MS: u64 = 15_000;
 /// Connect attempts before a connect/handshake failure surfaces (the
 /// fatal error paths the operator hit: "Timed out after 15000ms waiting
 /// for the Eukhe daemon handshake" exited their TUI on the FIRST
@@ -60,20 +61,6 @@ const HELLO_TIMEOUT_MS: u64 = 15_000;
 pub(crate) const CONNECT_ATTEMPTS: u32 = 3;
 /// The first retry's backoff; each further attempt doubles it.
 const CONNECT_RETRY_BACKOFF_MS: u64 = 1_000;
-/// The product version this client build expects its daemon to run: the
-/// build's version (eukhe-build-info) the supervisor reports as its hello
-/// `appVersion`.
-const CLIENT_APP_VERSION: &str = eukhe_build_info::VERSION;
-
-/// The one-line notice a client shows when it keeps using a daemon that
-/// runs another eukhe version or build (the daemon had active work, so the
-/// launcher did not replace it).
-#[must_use]
-pub fn outdated_daemon_notice(daemon_version: &str) -> String {
-    format!(
-        "The background service runs eukhe {daemon_version}; it restarts on the next idle start (or run: eukhe shutdown)."
-    )
-}
 
 /// A non-response frame forwarded to the UI event loop.
 #[derive(Debug, Clone)]
@@ -661,35 +648,28 @@ impl DaemonClient {
         &self.hello
     }
 
-    /// The daemon's build when it is not this client's, as the outdated
-    /// notice names it: the hello `appVersion` when it differs from this
-    /// client's version, else the build inside `runtime.buildId` when that
-    /// is not this build's identity (a same-version daemon of an older
-    /// build; the bare version marks a pre-identity build). `None` when the
-    /// build matches, or when the daemon reports no `runtime.buildId` and
-    /// no other `appVersion` (nothing to compare).
+    /// The daemon's build: its hello `appVersion` and `runtime.buildId`
+    /// (empty when the hello does not report them). A hello without a
+    /// `runtime.buildId` whose `appVersion` is absent or this build's
+    /// version has nothing to compare: it reads as this build.
     #[must_use]
-    pub fn outdated_daemon_version(&self) -> Option<String> {
-        let app_version = self.hello.get("appVersion").and_then(Value::as_str);
-        if let Some(version) = app_version.filter(|version| *version != CLIENT_APP_VERSION) {
-            return Some(version.to_string());
-        }
-        let build_id = self
+    pub fn daemon_build(&self) -> crate::daemon_build::Build<'_> {
+        let version = self.hello.get("appVersion").and_then(Value::as_str);
+        let id = self
             .hello
             .get("runtime")
             .and_then(|runtime| runtime.get("buildId"))
-            .and_then(Value::as_str)?;
-        if build_id == eukhe_build_info::DAEMON_BUILD_ID {
-            return None;
+            .and_then(Value::as_str);
+        match (version, id) {
+            (None, None) => crate::daemon_build::Build::THIS,
+            (Some(version), None) if version == eukhe_build_info::VERSION => {
+                crate::daemon_build::Build::THIS
+            }
+            (version, id) => crate::daemon_build::Build {
+                version: version.unwrap_or_default(),
+                id: id.unwrap_or_default(),
+            },
         }
-        let build = build_id
-            .strip_prefix(eukhe_build_info::DAEMON_BUILD_ID_PREFIX)
-            .unwrap_or(build_id);
-        Some(if build == CLIENT_APP_VERSION {
-            format!("{build} (another build)")
-        } else {
-            build.to_string()
-        })
     }
 
     /// Send one command envelope and wait for the matching response, using

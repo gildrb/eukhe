@@ -158,7 +158,7 @@ impl SessionUi {
         else {
             return;
         };
-        let messages = match data
+        let mut messages = match data
             .get("messages")
             .map(<Vec<eukhe_types::session::AgentMessage> as serde::Deserialize>::deserialize)
         {
@@ -172,6 +172,10 @@ impl SessionUi {
             }
             None => return,
         };
+        // A restore notice this view showed before stays out of the
+        // rebuilt transcript (`crate::restore_notices`).
+        messages.retain(|message| self.restore_notices.shows(&self.session_id, message));
+        self.restore_notices.record(&self.session_id, &messages);
         let mut entries = crate::snapshot::transcript_to_entries(&messages);
         // The durable summary entry does not record the `/compact` focus;
         // the live `compaction_end` did (the outcome row pushed before the
@@ -239,6 +243,15 @@ impl SessionUi {
                 // sequence never lowers it below the attach's value.
                 if meta_sequence > self.last_event_sequence {
                     self.last_event_sequence = meta_sequence;
+                }
+                // A custom row renders from its `message_start`: a restore
+                // notice this view showed already does not show again
+                // (`crate::restore_notices`).
+                if let eukhe_types::daemon::SessionEvent::MessageStart { message, .. } = &*event {
+                    if !self.restore_notices.shows(&self.session_id, message) {
+                        return;
+                    }
+                    self.restore_notices.record(&self.session_id, [message]);
                 }
                 self.apply_update(event_to_update(&event), view);
             }

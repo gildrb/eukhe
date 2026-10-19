@@ -250,6 +250,7 @@ impl Worker {
         *self.recovery.lock().unwrap() = Some(WorkerRecoveryJournal::open(
             &self.config.recovery_journal_path,
         )?);
+        super::start_busy_refresh(Arc::clone(&self.recovery), Arc::clone(&self.core));
         // A worker spawned under a supervisor arms the orphan-exit monitor
         // (TS `startSupervisorMonitor`): nobody else reaps it if the
         // supervisor dies without a graceful stop.
@@ -571,6 +572,15 @@ impl Worker {
                             std::process::exit(0);
                         }
                         continue;
+                    }
+                    // The handover stays sequential too: its reply precedes
+                    // the exit. It has no close tail (the session is not
+                    // closed; the next worker resumes it from storage).
+                    if command_type == "worker_handover" {
+                        let response = self.dispatch(&command_type, &payload).await;
+                        self.write_response_frame(&sink, &request_id, response)
+                            .await;
+                        std::process::exit(0);
                     }
                     if command_type == "cancel_request" {
                         let watch = match serde_json::from_value(payload) {

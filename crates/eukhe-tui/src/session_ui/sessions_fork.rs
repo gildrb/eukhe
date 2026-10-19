@@ -375,6 +375,7 @@ impl SessionUi {
             restore_dock_focus: false,
             client_settings: self.client_settings.clone(),
             dictation: self.dictation.clone(),
+            daemon_launcher: None,
         }
     }
 

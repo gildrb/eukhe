@@ -1,9 +1,11 @@
-//! What the gateway and the dashboard share as daemon clients that open
-//! saved root sessions: the daemon launcher, the saved root-session list,
-//! and the resident create + slim attach.
+//! What the gateway, the dashboard, and the interactive client share as
+//! daemon clients: the daemon launcher (and its shared handle), the saved
+//! root-session list, and the resident create + slim attach.
 
 use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use anyhow::Context;
 use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle};
@@ -17,6 +19,36 @@ use crate::daemon_client::DaemonClient;
 /// quickly when a daemon already runs.
 pub trait DaemonLauncher: Send + Sync + 'static {
     fn ensure(&self) -> impl Future<Output = anyhow::Result<()>> + Send;
+}
+
+/// The future one [`SharedDaemonLauncher::ensure`] call returns.
+type EnsureFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
+
+/// A [`DaemonLauncher`] behind a shared, cloneable handle. The trait is
+/// not dyn-safe (its method returns `impl Future`); this handle is, so an
+/// options struct can hold the launcher the composition root gives.
+#[derive(Clone)]
+pub struct SharedDaemonLauncher(Arc<dyn Fn() -> EnsureFuture + Send + Sync>);
+
+impl SharedDaemonLauncher {
+    /// Share `launcher`.
+    pub fn new(launcher: impl DaemonLauncher) -> Self {
+        let launcher = Arc::new(launcher);
+        Self(Arc::new(move || -> EnsureFuture {
+            let launcher = Arc::clone(&launcher);
+            Box::pin(async move { launcher.ensure().await })
+        }))
+    }
+
+    /// Start the daemon, or confirm that one runs (see
+    /// [`DaemonLauncher::ensure`]).
+    ///
+    /// # Errors
+    ///
+    /// The launcher's error: the daemon did not start.
+    pub async fn ensure(&self) -> anyhow::Result<()> {
+        (self.0)().await
+    }
 }
 
 /// The attach capabilities: the interactive client's set (snapshot state

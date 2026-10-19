@@ -387,7 +387,7 @@ fn the_revived_worker_stays_supervised_and_the_session_reopens() {
     log_settles_without(
         &socket,
         &agent_dir,
-        "failed after 6 consecutive failures",
+        "failed after 6 failures in the restart window",
         Duration::from_secs(12),
     );
     log_settles_without(
@@ -446,7 +446,8 @@ fn a_worker_that_fails_to_death_releases_the_session_hold() {
     // worker's socket must have served continuously for the grace before
     // the kill fires.
     let worker_socket = worker_socket_of(&agent_dir, &socket, &session_id);
-    let give_up = format!("session worker {session_id} failed after 6 consecutive failures");
+    let give_up =
+        format!("session worker {session_id} failed after 6 failures in the restart window");
     let replay_grace = Duration::from_secs(4);
     let mut serving_since: Option<Instant> = None;
     let deadline = Instant::now() + Duration::from_mins(3);
@@ -578,7 +579,8 @@ fn the_give_up_sweep_reaps_a_live_leftover_of_the_abandoned_id() {
     // fails-to-death test).
     let worker_socket = worker_socket_of(&agent_dir, &socket, &session_id);
     kill_hard(worker_pid);
-    let give_up = format!("session worker {session_id} failed after 6 consecutive failures");
+    let give_up =
+        format!("session worker {session_id} failed after 6 failures in the restart window");
     let replay_grace = Duration::from_secs(4);
     let mut serving_since: Option<Instant> = None;
     let deadline = Instant::now() + Duration::from_mins(3);

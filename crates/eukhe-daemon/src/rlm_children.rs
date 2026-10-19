@@ -78,7 +78,6 @@ const WATCH_SETTLE_GRACE_MS: u64 = 250;
 const CREATE_TIMEOUT_MS: u64 = 120_000;
 const PROMPT_TIMEOUT_MS: u64 = 30_000;
 const STATE_TIMEOUT_MS: u64 = 30_000;
-const KILL_TIMEOUT_MS: u64 = 30_000;
 /// Budget for one session rename over the supervisor route (TS uses 30s).
 const RENAME_TIMEOUT_MS: u64 = 30_000;
 /// Grace over a collect budget passed to the worker `wait_for_idle`.

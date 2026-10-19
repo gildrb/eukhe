@@ -201,6 +201,7 @@ impl Worker {
                 return response_failure(None, "restore_actions", &error.to_string(), None)
             }
         };
+        let admission = crate::worker::RunAdmission::enter(&self.core).await;
         for action in actions {
             let id = action.get("id").and_then(Value::as_str).unwrap_or_default();
             let payload = action.get("payload").unwrap_or(&Value::Null);
@@ -225,7 +226,8 @@ impl Worker {
                 request_id: Some(format!("restored-action:{id}")),
                 origin: InputOrigin::User,
             };
-            if let Err(error) = submit_input(&main, &request, &BACKGROUND_CONTEXT).await {
+            if let Err(error) = submit_input(&main, &request, &admission, &BACKGROUND_CONTEXT).await
+            {
                 return response_failure(None, "restore_actions", &format!("{error:#}"), None);
             }
         }

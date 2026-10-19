@@ -95,16 +95,10 @@ impl Drop for ReplySlot<'_> {
 /// TS daemon-supervisor.ts:204 `WORKER_REQUEST_TIMEOUT_MS`.
 pub(crate) const WORKER_REQUEST_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1000;
 
-/// The cooperative grace of every stop (ADR 0011): a routed `kill` or
-/// `shutdown` gets this long to settle before the supervisor kills the
-/// worker's process group and records the stop as effects-unknown. One
-/// policy for every stop path, so a worker wedged in a run never holds a
-/// kill or a shutdown past it.
-pub(crate) const STOP_GRACE_MS: u64 = 5_000;
-
 /// The route budget of a client command: turn-long waits ride TS's 24 h
-/// worker-request budget, a kill rides the stop grace, everything else is
-/// a short control route.
+/// worker-request budget, a kill rides the stop grace
+/// ([`crate::timeouts::STOP_GRACE_MS`]), everything else is a short
+/// control route.
 pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
     if matches!(
         command,
@@ -119,7 +113,7 @@ pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
     ) {
         WORKER_REQUEST_TIMEOUT_MS
     } else if matches!(command, DaemonCommand::Kill { .. }) {
-        STOP_GRACE_MS
+        crate::timeouts::STOP_GRACE_MS
     } else {
         ROUTE_TIMEOUT_MS
     }

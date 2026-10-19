@@ -6,9 +6,10 @@ use eukhe_core::durable::children as durable;
 use super::{
     anyhow, json, ChildCloseReason, Context, DaemonCommand, DaemonSessionLifecycle, Duration, Map,
     ParentIdentity, Path, PathBuf, PromptInput, Result, SupervisorChildSessionsInner, Value,
-    CREATE_TIMEOUT_MS, IDLE_WAIT_GRACE_MS, KILL_TIMEOUT_MS, PROMPT_TIMEOUT_MS,
-    RUNTIME_METADATA_PROMPT_MAX, STATE_TIMEOUT_MS,
+    CREATE_TIMEOUT_MS, IDLE_WAIT_GRACE_MS, PROMPT_TIMEOUT_MS, RUNTIME_METADATA_PROMPT_MAX,
+    STATE_TIMEOUT_MS,
 };
+use crate::timeouts::RLM_CHILD_KILL_TIMEOUT_MS;
 
 /// Parsed ids of one created child session.
 struct CreatedSessionIds {
@@ -263,7 +264,7 @@ impl SupervisorChildSessionsInner {
             active_session_id: active_session_id.to_string(),
             rest,
         };
-        self.command(&command, KILL_TIMEOUT_MS)
+        self.command(&command, RLM_CHILD_KILL_TIMEOUT_MS)
             .await
             .with_context(|| format!("kill RLM child session {active_session_id}"))?;
         Ok(())

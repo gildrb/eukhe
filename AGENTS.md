@@ -156,6 +156,9 @@ background bookkeeping.
   the run from storage. A busy worker refreshes its busy record every
   5 minutes, so a long run still revives. An attached client relaunches a
   lost supervisor within 60 seconds.
-- The daemon hello reports `eukhe-build-info::DAEMON_BUILD_ID`. A client
-  treats a daemon of another build as stale and replaces it on an idle start.
+- The daemon hello reports `eukhe-build-info::DAEMON_BUILD_ID`. Only an
+  interactive start replaces a daemon, and only an idle daemon of a lower
+  version (`eukhe-tui` `daemon_build`). A background client never replaces
+  a daemon. A client never replaces a newer daemon or another build of the
+  same version; it tells the user.
 - No stubs, no `todo!()`, no swallowed errors.

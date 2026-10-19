@@ -342,6 +342,15 @@ fn orphan_card(result: ToolResultReplay) -> ChatEntry {
     }))
 }
 
+/// The durable session id in an attach snapshot's `state` (its
+/// `sessionId`, empty when the state has none).
+pub(crate) fn state_session_id(state: &Value) -> &str {
+    state
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+}
+
 /// Reconstruct the view state from slim attach data.
 ///
 /// # Errors
@@ -363,11 +372,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         .and_then(|state| state.get("sessionName"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    let session_id = state
-        .and_then(|state| state.get("sessionId"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let session_id = state_session_id(&snapshot.state).to_string();
     let last_event_sequence = snapshot.last_event_sequence;
     let event_generation = attach
         .last_event_cursor

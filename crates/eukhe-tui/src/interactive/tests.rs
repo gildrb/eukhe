@@ -74,6 +74,31 @@ fn the_shutdown_recovery_uses_the_ts_window_and_poll() {
     assert_eq!(lost.delay, Duration::from_secs(2));
 }
 
+/// Only an unexpected loss relaunches the daemon, and only after its
+/// first failed connect; an announced shutdown never does.
+#[test]
+fn a_lost_recovery_relaunches_after_its_first_failed_connect() {
+    use super::reconnect::{connect_leg, ConnectLeg};
+    let legs = [
+        (RecoveryKind::Lost, 0),
+        (RecoveryKind::Lost, 1),
+        (RecoveryKind::Lost, 4),
+        (RecoveryKind::Shutdown, 0),
+        (RecoveryKind::Shutdown, 4),
+    ]
+    .map(|(kind, failed_connects)| connect_leg(kind, failed_connects));
+    assert_eq!(
+        legs,
+        [
+            ConnectLeg::Connect,
+            ConnectLeg::RelaunchThenConnect,
+            ConnectLeg::RelaunchThenConnect,
+            ConnectLeg::Connect,
+            ConnectLeg::Connect,
+        ]
+    );
+}
+
 fn options(selection: ModelSelection) -> InteractiveOptions {
     InteractiveOptions {
         models: None,
@@ -106,6 +131,7 @@ fn options(selection: ModelSelection) -> InteractiveOptions {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

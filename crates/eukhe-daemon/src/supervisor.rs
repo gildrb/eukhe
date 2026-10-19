@@ -8,12 +8,14 @@
 //! commands and events between clients and workers (private-framed channel).
 
 mod accept_loop;
-mod adoption;
+pub(crate) mod adoption;
 mod clients;
+mod idle_shutdown;
 mod launch_budget;
 mod liveness;
 mod notes;
 mod options;
+pub(crate) mod restart_budget;
 mod root_identity;
 mod routing;
 mod sessions;
@@ -168,6 +170,9 @@ pub struct Supervisor {
     /// of the same name in the same scope fails the second caller.
     pub(crate) pending_session_names: std::sync::Mutex<std::collections::HashSet<String>>,
     pub(crate) shutting_down: AtomicBool,
+    /// The gate an idle shutdown holds while it decides: no worker is
+    /// launched, relaunched or adopted meanwhile.
+    pub(crate) replacement_gate: idle_shutdown::ReplacementGate,
     /// Whether some path has taken ownership of the one terminal stop pass.
     /// `shutting_down` flips synchronously when the shutdown command is
     /// accepted; this flag ensures exactly one connection runs
@@ -294,6 +299,7 @@ impl Supervisor {
             pending_registration_seeds: std::sync::Mutex::new(Vec::new()),
             pending_session_names: std::sync::Mutex::new(std::collections::HashSet::new()),
             shutting_down: AtomicBool::new(false),
+            replacement_gate: idle_shutdown::ReplacementGate::default(),
             shutdown_started: AtomicBool::new(false),
             shutdown_owner: std::sync::Mutex::new(None),
             accept_exit: AtomicBool::new(false),

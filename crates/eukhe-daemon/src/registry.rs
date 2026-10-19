@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -24,6 +24,7 @@ use serde_json::Value;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::protocol::DaemonResponse;
+use crate::supervisor::restart_budget::RestartBudget;
 
 /// One supervisor -> worker private-frame request.
 pub(crate) struct WorkerRequest {
@@ -136,12 +137,9 @@ pub(crate) struct ResidentWorker {
     /// Pending replies for in-flight requests on the current connection.
     pub(crate) pending: Mutex<HashMap<String, tokio::sync::oneshot::Sender<WorkerReply>>>,
     pub(crate) intentional_stop: AtomicBool,
-    pub(crate) consecutive_failures: AtomicU32,
-    /// Unix-millis timestamp of the current child's spawn (0 for an adopted
-    /// pid we never spawned): the crash path measures the child's lifetime
-    /// against it - only a lifetime past the stable window earns a counter
-    /// reset, so spawn-dies-fast churn accumulates to the give-up cap.
-    pub(crate) spawned_at_ms: AtomicU64,
+    /// The worker's crash failures inside the restart window: the watch
+    /// loop feeds it each crash and gives the worker up past its budget.
+    pub(crate) restart_budget: Mutex<RestartBudget>,
     /// The worker advertised `direct_peer_transport` in its `worker_auth`
     /// response (TS `workerAuthAdvertisesPeerTransport`).
     pub(crate) peer_transport_capable: AtomicBool,
@@ -236,8 +234,7 @@ impl ResidentWorker {
             )),
             pending: Mutex::new(HashMap::new()),
             intentional_stop: AtomicBool::new(false),
-            consecutive_failures: AtomicU32::new(0),
-            spawned_at_ms: AtomicU64::new(0),
+            restart_budget: Mutex::new(RestartBudget::default()),
             peer_transport_capable: AtomicBool::new(false),
             heartbeat_snapshot: Mutex::new(None),
             cron_snapshot: Mutex::new(None),

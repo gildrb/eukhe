@@ -421,6 +421,10 @@ impl Worker {
             Err(response) => return response,
         };
         let _replacement_gate = self.replacement_gate.lock().await;
+        // The navigation withdraws the queued inputs, may run a branch
+        // summary, and admits the inputs again: it holds the run gate for
+        // all of it, so an idle shutdown never stops it halfway.
+        let _admission = crate::worker::RunAdmission::enter(&self.core).await;
         let request = NavigateRequest::parse(payload);
         match self.navigate(&hosted, &request, &BACKGROUND_CONTEXT).await {
             Ok(data) => response_success(None, COMMAND, Some(data)),

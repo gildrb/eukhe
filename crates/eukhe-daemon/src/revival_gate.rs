@@ -26,26 +26,22 @@
 //!    rival worker over it would either fail on the lease (the 6-strike
 //!    storm) or, without leases enabled, double-serve the file.
 //! 4. Stale busy evidence. A `busy` recovery record is interrupted-work
-//!    proof only while it is recent: the crash window is minutes, not
-//!    hours. A record older than
-//!    [`REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS`] is residue of an era that
+//!    proof only while it is recent. A busy worker re-records it every
+//!    [`crate::timeouts::BUSY_REFRESH_MS`], so its age counts from the
+//!    last refresh, never from the start of a long run; a record older
+//!    than [`REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS`] is residue of an era that
 //!    already ended, and a timestamp dated beyond
 //!    [`REVIVAL_CLOCK_SKEW_MS`] into the future is not freshness proof
 //!    either (clock rollback must not zero the age) — uncertainty
-//!    never revives. The stale evidence that caused the boot storms was
-//!    five-hour-old journals (a prior crash/restore whose workers went
-//!    on to die or be stopped).
+//!    never revives. The law `revive_after_refresh` (LAWS.bend, D1)
+//!    proves that a boot within [`crate::timeouts::REVIVAL_BOOT_WINDOW_MS`]
+//!    of a busy worker's crash revives it, however long its run took.
 
 use std::path::Path;
 
 use eukhe_types::daemon::{DaemonWorkerDescriptor, DaemonWorkerLifecycle};
 
-/// How long a `busy` recovery record still proves interrupted live work.
-/// Genuine interruption is minutes old (a crash-restart); the stale
-/// evidence that caused the boot storms was hours old.
-/// Beyond the bound the session stays down and reopens through the next
-/// client create — the same recovery TS gives every dead worker.
-pub(crate) const REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS: u64 = 30 * 60 * 1000;
+use crate::timeouts::REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS;
 
 /// Freshness tolerates only this much wall-clock skew between the
 /// journal's writer and the boot reading it (two daemons on one shared
@@ -98,12 +94,14 @@ impl RevivalVeto {
     }
 }
 
-/// Whether a boot may relaunch one dead descriptor. `busy_recorded_at` is
-/// the newest `busy` record's timestamp when the journal proves live work.
+/// Whether a boot at `now_ms` may relaunch one dead descriptor.
+/// `busy_recorded_at` is the newest `busy` record's timestamp when the
+/// journal proves live work.
 pub(crate) fn revival_veto(
     agent_dir: &Path,
     descriptor: &DaemonWorkerDescriptor,
     busy_recorded_at: Option<&str>,
+    now_ms: u64,
 ) -> Option<RevivalVeto> {
     if matches!(descriptor.lifecycle, DaemonWorkerLifecycle::Failed) {
         return Some(RevivalVeto::GaveUp);
@@ -121,11 +119,8 @@ pub(crate) fn revival_veto(
     // timestamp cannot prove freshness — uncertainty must not revive a
     // session (the same philosophy as `read_interrupted`).
     let recorded_at = busy_recorded_at?;
-    let now = crate::util::now_ms();
-    let fresh = crate::util::iso_to_unix_ms(recorded_at).is_some_and(|at| {
-        at <= now.saturating_add(REVIVAL_CLOCK_SKEW_MS)
-            && now.saturating_sub(at) <= REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS
-    });
+    let fresh =
+        crate::util::iso_to_unix_ms(recorded_at).is_some_and(|at| busy_evidence_fresh(at, now_ms));
     if fresh {
         None
     } else {
@@ -133,6 +128,14 @@ pub(crate) fn revival_veto(
             recorded_at: recorded_at.to_string(),
         })
     }
+}
+
+/// Whether busy evidence recorded at `recorded_at_ms` still proves live
+/// work at `now_ms`: at most [`REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS`] old, and
+/// dated at most [`REVIVAL_CLOCK_SKEW_MS`] into the future.
+pub(crate) fn busy_evidence_fresh(recorded_at_ms: u64, now_ms: u64) -> bool {
+    recorded_at_ms <= now_ms.saturating_add(REVIVAL_CLOCK_SKEW_MS)
+        && now_ms.saturating_sub(recorded_at_ms) <= REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS
 }
 
 /// The session file's durable state is the archived belt (#2592's stop
@@ -212,7 +215,13 @@ mod tests {
         let file = session_file(Some("active"));
         let recorded_at = iso_from_unix_ms(now_ms() - 1_000);
         let agent_dir = agent_dir();
-        assert!(revival_veto(&agent_dir, &descriptor(Some(&file)), Some(&recorded_at)).is_none());
+        assert!(revival_veto(
+            &agent_dir,
+            &descriptor(Some(&file)),
+            Some(&recorded_at),
+            now_ms()
+        )
+        .is_none());
     }
 
     #[test]
@@ -222,8 +231,13 @@ mod tests {
         // before the boot (the 12:00-era restore era read at 17:07).
         let recorded_at = iso_from_unix_ms(now_ms() - 5 * 60 * 60 * 1000);
         let agent_dir = agent_dir();
-        let veto = revival_veto(&agent_dir, &descriptor(Some(&file)), Some(&recorded_at))
-            .expect("stale busy evidence must veto");
+        let veto = revival_veto(
+            &agent_dir,
+            &descriptor(Some(&file)),
+            Some(&recorded_at),
+            now_ms(),
+        )
+        .expect("stale busy evidence must veto");
         assert!(matches!(veto, RevivalVeto::StaleBusyEvidence { .. }));
     }
 
@@ -231,8 +245,13 @@ mod tests {
     fn an_unparsable_evidence_timestamp_vetoes_the_revival() {
         let file = session_file(Some("active"));
         let agent_dir = agent_dir();
-        let veto = revival_veto(&agent_dir, &descriptor(Some(&file)), Some("when?"))
-            .expect("uncertainty must not revive");
+        let veto = revival_veto(
+            &agent_dir,
+            &descriptor(Some(&file)),
+            Some("when?"),
+            now_ms(),
+        )
+        .expect("uncertainty must not revive");
         assert!(matches!(veto, RevivalVeto::StaleBusyEvidence { .. }));
     }
 
@@ -243,8 +262,13 @@ mod tests {
         // zero the age through saturating_sub: uncertainty never revives.
         let recorded_at = iso_from_unix_ms(now_ms() + 2 * 60 * 60 * 1000);
         let agent_dir = agent_dir();
-        let veto = revival_veto(&agent_dir, &descriptor(Some(&file)), Some(&recorded_at))
-            .expect("a future stamp is not freshness proof");
+        let veto = revival_veto(
+            &agent_dir,
+            &descriptor(Some(&file)),
+            Some(&recorded_at),
+            now_ms(),
+        )
+        .expect("a future stamp is not freshness proof");
         assert!(matches!(veto, RevivalVeto::StaleBusyEvidence { .. }));
     }
 
@@ -256,7 +280,13 @@ mod tests {
         let recorded_at = iso_from_unix_ms(now_ms() + 30 * 1000);
         let agent_dir = agent_dir();
         assert!(
-            revival_veto(&agent_dir, &descriptor(Some(&file)), Some(&recorded_at)).is_none(),
+            revival_veto(
+                &agent_dir,
+                &descriptor(Some(&file)),
+                Some(&recorded_at),
+                now_ms()
+            )
+            .is_none(),
             "a small skew is tolerated"
         );
     }
@@ -268,7 +298,7 @@ mod tests {
         let agent_dir = agent_dir();
         let mut descriptor = descriptor(Some(&file));
         descriptor.lifecycle = DaemonWorkerLifecycle::Failed;
-        let veto = revival_veto(&agent_dir, &descriptor, Some(&recorded_at))
+        let veto = revival_veto(&agent_dir, &descriptor, Some(&recorded_at), now_ms())
             .expect("failed lifecycle must veto");
         assert!(matches!(veto, RevivalVeto::GaveUp));
     }
@@ -280,8 +310,13 @@ mod tests {
         let file = session_file(Some("archived"));
         let recorded_at = iso_from_unix_ms(now_ms());
         let agent_dir = agent_dir();
-        let veto = revival_veto(&agent_dir, &descriptor(Some(&file)), Some(&recorded_at))
-            .expect("an archived session must not revive");
+        let veto = revival_veto(
+            &agent_dir,
+            &descriptor(Some(&file)),
+            Some(&recorded_at),
+            now_ms(),
+        )
+        .expect("an archived session must not revive");
         assert!(matches!(veto, RevivalVeto::SessionArchived));
     }
 
@@ -296,8 +331,13 @@ mod tests {
         let lease = crate::lease::acquire_runtime_session_lease(&file, &agent_dir);
         std::env::remove_var(crate::lease::SESSION_LEASES_ENABLED_ENV);
         let _lease = lease.expect("the test process acquires the lease");
-        let veto = revival_veto(&agent_dir, &descriptor(Some(&file)), Some(&recorded_at))
-            .expect("a live lease must veto");
+        let veto = revival_veto(
+            &agent_dir,
+            &descriptor(Some(&file)),
+            Some(&recorded_at),
+            now_ms(),
+        )
+        .expect("a live lease must veto");
         assert!(matches!(veto, RevivalVeto::LiveLeaseHeld { .. }));
     }
 
@@ -313,6 +353,59 @@ mod tests {
         let lease = crate::lease::acquire_runtime_session_lease(&file, &agent_dir);
         std::env::remove_var(crate::lease::SESSION_LEASES_ENABLED_ENV);
         drop(lease.expect("the test process acquires the lease"));
-        assert!(revival_veto(&agent_dir, &descriptor(Some(&file)), Some(&recorded_at)).is_none());
+        assert!(revival_veto(
+            &agent_dir,
+            &descriptor(Some(&file)),
+            Some(&recorded_at),
+            now_ms()
+        )
+        .is_none());
+    }
+
+    /// A long run's busy evidence stays fresh: the refresh re-records it,
+    /// so a boot after the max age (counted from the run's start) still
+    /// revives the session. Without the refresh, the same record is stale.
+    #[test]
+    fn refreshed_busy_evidence_outlives_the_max_age() {
+        let file = session_file(Some("active"));
+        let agent_dir = agent_dir();
+        let journal = agent_dir.join("w1.recovery.jsonl");
+        let now = now_ms();
+        let started = iso_from_unix_ms(now - REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS - 60_000);
+        let record = crate::journal::WorkerRecoveryRecord {
+            active_session_id: "w1".to_string(),
+            session_id: "s1".to_string(),
+            session_file: Some(file.to_string_lossy().to_string()),
+            busy: true,
+            operation: "run_started".to_string(),
+            recorded_at: started.clone(),
+            failure: None,
+        };
+        crate::journal::append_record(&journal, &serde_json::to_value(&record).unwrap()).unwrap();
+        let gate = |recorded_at: Option<String>| {
+            revival_veto(
+                &agent_dir,
+                &descriptor(Some(&file)),
+                recorded_at.as_deref(),
+                now,
+            )
+        };
+        let unrefreshed =
+            gate(crate::journal::WorkerRecoveryJournal::latest_busy_recorded_at(&journal));
+        assert_eq!(
+            unrefreshed,
+            Some(RevivalVeto::StaleBusyEvidence {
+                recorded_at: started
+            })
+        );
+
+        crate::journal::WorkerRecoveryJournal::open(&journal)
+            .unwrap()
+            .refresh_busy()
+            .unwrap();
+
+        let refreshed =
+            gate(crate::journal::WorkerRecoveryJournal::latest_busy_recorded_at(&journal));
+        assert_eq!(refreshed, None);
     }
 }

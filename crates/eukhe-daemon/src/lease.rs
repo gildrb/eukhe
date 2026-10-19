@@ -3,8 +3,10 @@
 //! One process may host one runtime per canonical session file. A lease is a
 //! directory `<agent-dir>/session-leases/<sha256(path)>.lock` containing
 //! `owner.json`; acquisition is an atomic rename of a candidate directory, and
-//! stale owners (dead pid, or a recycled pid whose start identity changed) are
-//! reclaimed. A separate guard lock serializes lease updates.
+//! stale owners (dead pid, a recycled pid whose start identity changed, or an
+//! owner whose start identity cannot be checked and whose `owner.json` its
+//! holder stopped refreshing) are reclaimed. A separate guard lock serializes
+//! lease updates.
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -12,6 +14,8 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use eukhe_types::platform::process::ProcessIdentity;
 
 pub const SESSION_LEASES_ENABLED_ENV: &str = "EUKHE_INTERNAL_SESSION_LEASES";
 pub const SESSION_LEASE_OWNER_ID_ENV: &str = "EUKHE_INTERNAL_SESSION_LEASE_OWNER_ID";
@@ -21,9 +25,9 @@ pub const SESSION_LEASE_OWNER_ID_ENV: &str = "EUKHE_INTERNAL_SESSION_LEASE_OWNER
 struct LeaseOwner {
     version: u32,
     token: String,
-    pid: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    process_start_id: Option<String>,
+    /// The holder: its pid and start identity (`pid`, `processStartId`).
+    #[serde(flatten)]
+    process: ProcessIdentity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     active_session_id: Option<String>,
     session_path: String,
@@ -68,9 +72,9 @@ impl SessionAlreadyActiveError {
             owner: owner
                 .and_then(|o| o.active_session_id.clone())
                 .filter(|id| !id.is_empty())
-                .or_else(|| owner.map(|o| format!("another process (pid {})", o.pid)))
+                .or_else(|| owner.map(|o| format!("another process (pid {})", o.process.pid)))
                 .unwrap_or_else(|| "another process".to_string()),
-            holder_pid: owner.map(|o| o.pid),
+            holder_pid: owner.map(|o| o.process.pid),
         }
     }
 }
@@ -138,26 +142,30 @@ fn read_owner(directory: &Path) -> Result<Option<LeaseOwner>> {
     Ok(Some(owner))
 }
 
-fn owner_alive(owner: &LeaseOwner) -> bool {
-    match is_process_alive(owner.pid) {
-        Ok(true) => {}
-        // A provably-dead owner is stale; an unverifiable one counts as
-        // alive, like the TS lease (reclaiming a live owner is worse).
-        Ok(false) => return false,
-        Err(_) => return true,
-    }
-    match owner.process_start_id.as_deref() {
-        None => true,
-        Some(expected) => match get_process_start_id(owner.pid) {
-            Some(current) => current == expected,
-            // Unobservable identity counts as alive, like the TS lease.
-            None => true,
-        },
-    }
-}
+/// The holder of a lease touches its `owner.json` this often, so a reader
+/// that cannot verify the owner's identity can still see that it runs.
+const OWNER_REFRESH: Duration = Duration::from_secs(60);
 
-fn lease_reclaimable(owner: Option<&LeaseOwner>) -> bool {
-    owner.is_none_or(|owner| !owner_alive(owner))
+/// An owner whose identity a reader cannot verify keeps its lease only
+/// while its `owner.json` is younger than this: five missed refreshes.
+const UNVERIFIED_OWNER_STALE_AFTER: Duration = Duration::from_secs(5 * OWNER_REFRESH.as_secs());
+
+/// Whether the lease in `directory` may be taken over: no owner, a dead
+/// owner (or a pid with another start identity), or an owner whose start
+/// identity was not recorded or cannot be read now - a recycled pid would
+/// look the same - and whose `owner.json` the holder stopped refreshing.
+fn lease_reclaimable(directory: &Path, owner: Option<&LeaseOwner>) -> bool {
+    let Some(owner) = owner else {
+        return true;
+    };
+    if !owner.process.is_alive() {
+        return true;
+    }
+    let verified = owner.process.process_start_id.is_some()
+        && get_process_start_id(owner.process.pid).is_some();
+    !verified
+        && crate::paths::mtime_age(&directory.join("owner.json"))
+            .is_some_and(|age| age > UNVERIFIED_OWNER_STALE_AFTER)
 }
 
 /// Whether a failed candidate-onto-lease-directory rename means the lease
@@ -269,8 +277,7 @@ fn with_lease_guard<T>(
                 // so it stays paced.
                 if crate::paths::mtime_age(&guard).is_some_and(|age| age > STALE_GUARD_AFTER)
                     && match read_owner(directory) {
-                        Ok(Some(owner)) => !owner_alive(&owner),
-                        Ok(None) => true,
+                        Ok(owner) => lease_reclaimable(directory, owner.as_ref()),
                         Err(_) => false,
                     }
                     && fs::remove_dir_all(&guard).is_ok()
@@ -305,6 +312,8 @@ pub struct SessionLease {
     directory: PathBuf,
     token: String,
     released: std::sync::atomic::AtomicBool,
+    /// Dropping this sender stops the thread that refreshes `owner.json`.
+    refresh_stop: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>,
 }
 
 impl SessionLease {
@@ -314,6 +323,9 @@ impl SessionLease {
             .swap(true, std::sync::atomic::Ordering::SeqCst)
         {
             return;
+        }
+        if let Ok(mut refresh_stop) = self.refresh_stop.lock() {
+            refresh_stop.take();
         }
         let _ = eukhe_core::session::window::flush_cache(&self.opened_path);
         // The usage-scan sidecar persists beside the window snapshot, in
@@ -363,11 +375,11 @@ pub struct LiveLeaseOwner {
 pub fn live_lease_owner(agent_dir: &Path, session_path: &Path) -> Option<LiveLeaseOwner> {
     let directory = lease_directory(agent_dir, session_path);
     let owner = read_owner(&directory).ok()??;
-    if !owner_alive(&owner) {
+    if lease_reclaimable(&directory, Some(&owner)) {
         return None;
     }
     Some(LiveLeaseOwner {
-        pid: owner.pid,
+        pid: owner.process.pid,
         active_session_id: owner.active_session_id.filter(|id| !id.is_empty()),
     })
 }
@@ -431,14 +443,50 @@ pub fn acquire_runtime_session_lease(
             let owner = LeaseOwner {
                 version: 1,
                 token: token.clone(),
-                pid: std::process::id(),
-                process_start_id: get_process_start_id(std::process::id()),
+                process: ProcessIdentity::current(),
                 active_session_id: std::env::var(SESSION_LEASE_OWNER_ID_ENV).ok(),
                 session_path: canonical.to_string_lossy().to_string(),
                 created_at: crate::util::now_iso(),
             };
             let owner_path = candidate.join("owner.json");
             fs::write(&owner_path, serde_json::to_string_pretty(&owner)? + "\n")?;
+            // The holder touches owner.json each refresh period while the
+            // lease is still its own, so a reader that cannot verify this
+            // process's identity sees that it runs. A lost rename drops the
+            // sender, which ends the thread.
+            let (refresh_stop, stopped) = std::sync::mpsc::channel::<()>();
+            let refresh_directory = directory.clone();
+            let refresh_token = token.clone();
+            let spawned = std::thread::Builder::new()
+                .name("session-lease-refresh".to_string())
+                .spawn(move || {
+                    while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                        stopped.recv_timeout(OWNER_REFRESH)
+                    {
+                        let ours = read_owner(&refresh_directory)
+                            .ok()
+                            .flatten()
+                            .is_some_and(|owner| owner.token == refresh_token);
+                        if !ours {
+                            return;
+                        }
+                        let owner_path = refresh_directory.join("owner.json");
+                        if let Err(error) = fs::File::options()
+                            .write(true)
+                            .open(&owner_path)
+                            .and_then(|file| file.set_modified(std::time::SystemTime::now()))
+                        {
+                            eprintln!(
+                                "session lease refresh of {} failed: {error}",
+                                owner_path.display()
+                            );
+                        }
+                    }
+                });
+            if let Err(error) = spawned {
+                let _ = fs::remove_dir_all(&candidate);
+                return Err(error.into());
+            }
             match fs::rename(&candidate, &directory) {
                 Ok(()) => {
                     return Ok(SessionLease {
@@ -447,6 +495,7 @@ pub fn acquire_runtime_session_lease(
                         directory: directory.clone(),
                         token,
                         released: std::sync::atomic::AtomicBool::new(false),
+                        refresh_stop: std::sync::Mutex::new(Some(refresh_stop)),
                     });
                 }
                 Err(error) => {
@@ -456,7 +505,7 @@ pub fn acquire_runtime_session_lease(
                     }
                     if is_rename_target_contention(&error) {
                         let existing = read_owner(&directory)?;
-                        if !lease_reclaimable(existing.as_ref()) {
+                        if !lease_reclaimable(&directory, existing.as_ref()) {
                             return Err(SessionAlreadyActiveError::for_owner(
                                 &canonical.to_string_lossy(),
                                 existing.as_ref(),
@@ -471,7 +520,7 @@ pub fn acquire_runtime_session_lease(
             }
         }
         let existing = read_owner(&directory)?;
-        if !lease_reclaimable(existing.as_ref()) {
+        if !lease_reclaimable(&directory, existing.as_ref()) {
             return Err(SessionAlreadyActiveError::for_owner(
                 &canonical.to_string_lossy(),
                 existing.as_ref(),
@@ -510,7 +559,7 @@ pub(crate) fn reclaim_dead_owner_leases(agent_dir: &Path) -> usize {
         {
             let reclaimed = with_lease_guard(&path, GuardWait::Fast, || {
                 let existing = read_owner(&path)?;
-                Ok(lease_reclaimable(existing.as_ref()) && reclaim_stale(&path))
+                Ok(lease_reclaimable(&path, existing.as_ref()) && reclaim_stale(&path))
             });
             if reclaimed.unwrap_or(false) {
                 removed += 1;
@@ -590,8 +639,10 @@ mod tests {
             let owner = LeaseOwner {
                 version: 1,
                 token: "dead-holder".to_owned(),
-                pid: 0,
-                process_start_id: get_process_start_id(0),
+                process: ProcessIdentity {
+                    pid: 0,
+                    process_start_id: get_process_start_id(0),
+                },
                 active_session_id: None,
                 session_path: canonical_session_path(&dead_path)
                     .to_string_lossy()
@@ -648,8 +699,10 @@ mod tests {
         let owner = LeaseOwner {
             version: 1,
             token: "dead-holder".to_owned(),
-            pid: 0,
-            process_start_id: get_process_start_id(0),
+            process: ProcessIdentity {
+                pid: 0,
+                process_start_id: get_process_start_id(0),
+            },
             active_session_id: None,
             session_path: canonical_session_path(&path).to_string_lossy().to_string(),
             created_at: crate::util::now_iso(),
@@ -728,6 +781,37 @@ mod tests {
         lease.release();
     }
 
+    /// An owner whose start identity is unknown holds its lease only while
+    /// it refreshes owner.json: once the file is older than the stale
+    /// bound, the lease is taken over (before, it counted as alive forever).
+    #[test]
+    fn an_unverified_owner_that_stops_refreshing_loses_its_lease() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        let held = acquire_runtime_session_lease(&path, dir.path()).unwrap();
+        let owner_path = held.directory.join("owner.json");
+        let mut owner = read_owner(&held.directory).unwrap().unwrap();
+        owner.process.process_start_id = None;
+        fs::write(
+            &owner_path,
+            serde_json::to_string_pretty(&owner).unwrap() + "\n",
+        )
+        .unwrap();
+        let refused_while_fresh = acquire_runtime_session_lease(&path, dir.path())
+            .unwrap_err()
+            .downcast_ref::<SessionAlreadyActiveError>()
+            .is_some();
+        let stale =
+            std::time::SystemTime::now() - UNVERIFIED_OWNER_STALE_AFTER - Duration::from_secs(1);
+        fs::File::open(&owner_path)
+            .unwrap()
+            .set_modified(stale)
+            .unwrap();
+        let taken = acquire_runtime_session_lease(&path, dir.path()).is_ok();
+        assert_eq!((refused_while_fresh, taken), (true, true));
+    }
+
     /// A stale-guard reclaim whose removal keeps failing must burn the
     /// budget instead of spinning past it on immediate retries.
     #[test]
@@ -741,8 +825,10 @@ mod tests {
         let owner = LeaseOwner {
             version: 1,
             token: "dead-holder".to_owned(),
-            pid: 0,
-            process_start_id: get_process_start_id(0),
+            process: ProcessIdentity {
+                pid: 0,
+                process_start_id: get_process_start_id(0),
+            },
             active_session_id: None,
             session_path: canonical_session_path(&path).to_string_lossy().to_string(),
             created_at: crate::util::now_iso(),

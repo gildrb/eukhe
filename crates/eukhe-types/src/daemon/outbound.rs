@@ -76,6 +76,11 @@ pub enum DaemonErrorInfo {
     /// supervisor's answer to a saturated route (the Codex
     /// `-32001 "Server overloaded; retry later."` analog on our wire).
     WorkerOverloaded,
+    /// A `shutdown` with `ifIdle` found a session with work (a run, a
+    /// compaction, queued input, a background job, an unsettled child)
+    /// or a worker that could not answer: nothing stopped, every session
+    /// keeps running.
+    DaemonBusy,
     /// A `code` this build does not know (a newer daemon's typed
     /// refusal): forwards-compatibility — the unknown code must degrade
     /// to the plain refusal message that rides the same response instead

@@ -198,6 +198,33 @@ pub enum DaemonWorkerCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// A `shutdown` with `ifIdle` asks the worker to quiesce: an idle
+    /// worker closes its run gate (no new run starts) and answers
+    /// success; a worker with work answers a failure and keeps its gate
+    /// open. The gate opens again on [`Self::WorkerRelease`], or by
+    /// itself after a bounded hold when no stop follows.
+    WorkerQuiesce {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// The idle shutdown did not commit: the worker opens its run gate.
+    WorkerRelease {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// A supervisor of another build gives the worker's session to its
+    /// own build: the worker records its work as resumable (no abort, no
+    /// close), answers, and exits; the supervisor relaunches the session.
+    WorkerHandover {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
 }
 
 /// The subset of `create` persisted in the durable worker descriptor.
@@ -253,6 +280,29 @@ pub struct DaemonWorkerDescriptor {
     pub last_error: Option<String>,
     #[serde(flatten)]
     pub rest: JsonMap,
+}
+
+/// The descriptor key of the worker's build (in `rest`).
+const DESCRIPTOR_BUILD_ID_KEY: &str = "buildId";
+
+impl DaemonWorkerDescriptor {
+    /// The build of the worker process this descriptor records
+    /// (`eukhe-build-info::DAEMON_BUILD_ID`); `None` for a descriptor
+    /// written before workers reported their build.
+    #[must_use]
+    pub fn build_id(&self) -> Option<&str> {
+        self.rest
+            .get(DESCRIPTOR_BUILD_ID_KEY)
+            .and_then(Value::as_str)
+    }
+
+    /// Record the build of the worker process.
+    pub fn set_build_id(&mut self, build_id: &str) {
+        self.rest.insert(
+            DESCRIPTOR_BUILD_ID_KEY.to_string(),
+            Value::String(build_id.to_string()),
+        );
+    }
 }
 
 /// The supervisor's process-level verdict on the worker that hosts one

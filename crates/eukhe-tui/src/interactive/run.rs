@@ -553,14 +553,15 @@ async fn run_interactive_surface(
     // composition-root snapshot keeps serving the picker.
     session.spawn_model_catalog_refresh();
     session.rebuild_view(&mut view, &crate::session_ui::RebuildKind::Rebind);
-    // The launcher kept a daemon of another eukhe version because it had
-    // active work: say so once, the restart happens on a later idle start.
-    if let Some(version) = session.client.outdated_daemon_version() {
+    // The launcher kept a daemon of another build (it had active work, it
+    // is newer than this window, or it is another build of this version):
+    // say so once.
+    if let Some(notice) = crate::daemon_build::kept_daemon_notice(
+        crate::daemon_build::Build::THIS,
+        session.client.daemon_build(),
+    ) {
         view.push_entry(crate::chat::ChatEntry::Status {
-            text: format!(
-                "Warning: {}",
-                crate::daemon_client::outdated_daemon_notice(&version)
-            ),
+            text: format!("Warning: {notice}"),
             kind: crate::chat::StatusKind::Warning,
         });
         session.dirty = true;
@@ -720,15 +721,14 @@ async fn run_interactive_surface(
     // tick arm's future can park without borrowing the attempt receiver
     // (the attempt arm owns its mutable borrow).
     let mut reconnect_attempt_in_flight = false;
-    // The reader-death watch is one-shot: once the loss is handled (or
-    // suppressed behind a live direct link), the arm parks so the closed
-    // watch cannot hot-spin the select loop.
+    // The reader-death watch is one-shot: once the loss is handled, the
+    // arm parks so the closed watch cannot hot-spin the select loop.
     let mut reader_loss_handled = false;
     // The supervisor connection died while a live direct link kept serving
-    // the session: the loss is retained (not recovered -- replacing the
-    // client would churn the working link) until the direct link itself
-    // dies; then the full reconnect driver owns the recovery instead of
-    // the session-plane retry loop, which would ride a dead supervisor.
+    // the session: the full reconnect driver heals the supervisor, and the
+    // loss stays retained until a reattach lands, so a direct link that
+    // dies after the driver ended arms a new full driver instead of the
+    // session-plane retry loop, which would ride a dead supervisor.
     let mut supervisor_lost = false;
     // Set once the event channel has returned None (a closed connection's
     // recv() resolves None instantly and forever -- see the events arm).
@@ -1372,12 +1372,23 @@ async fn run_interactive_surface(
                         // the loss behind it.
                     } else if session.client.direct_session_id().is_some() {
                         // A supervisor socket loss while a live direct link
-                        // still serves the session is not a pane-level loss
-                        // (session-plane commands ride the link): retain
-                        // the loss instead of recovering, and hand it to
-                        // the full reconnect driver when the direct link
-                        // later dies.
+                        // still serves the session: session-plane commands
+                        // ride the link, but the workers lose their
+                        // supervisor, so the full reconnect driver heals
+                        // it (it relaunches a lost supervisor) while the
+                        // link keeps serving the pane. The retained loss
+                        // hands the recovery to a new driver if the link
+                        // dies after this one ended.
                         supervisor_lost = true;
+                        if reconnect.is_none() {
+                            session.note_as(
+                                "the daemon connection closed -- reconnecting...",
+                                crate::chat::StatusKind::Warning,
+                                &mut view,
+                            );
+                            reconnect = Some(ReconnectLoop::start_lost());
+                        }
+                        session.dirty = true;
                     } else if session_reconnect.is_some() {
                         // The direct link already died and the session-plane
                         // driver is retrying through the NOW-DEAD
@@ -1531,8 +1542,8 @@ async fn run_interactive_surface(
                 if reconnect_connect.is_some() {
                     continue;
                 }
-                let (deadline, kind) = match reconnect.as_ref() {
-                    Some(state) => (state.deadline, state.kind),
+                let (deadline, kind, failed_connects) = match reconnect.as_ref() {
+                    Some(state) => (state.deadline, state.kind, state.failed_connects),
                     None => continue,
                 };
                 if tokio::time::Instant::now() > deadline {
@@ -1550,26 +1561,42 @@ async fn run_interactive_surface(
                 let (attempt_tx, attempt_rx) = tokio::sync::oneshot::channel();
                 reconnect_connect = Some(attempt_rx);
                 reconnect_attempt_in_flight = true;
-                // TS #2458: the shutdown recovery's discovery waits no
-                // longer than the bound -- one bounded connect+hello per
-                // poll (the fixed 100ms cadence re-arms faster than the
-                // retry helper's own backoff, and a single leg bounds the
-                // window's over-run; the hiccup window keeps the retrying
-                // helper).
-                let shutdown = matches!(kind, RecoveryKind::Shutdown);
+                // One bounded connect+hello per attempt (TS #2458: the
+                // shutdown recovery's discovery waits no longer than the
+                // bound); the loop's own cadence retries. After the first
+                // failed connect of an unexpected loss, the attempt first
+                // relaunches the daemon of this build, so the workers that
+                // outlived the lost supervisor are adopted before their
+                // lost-exit window ends.
+                let relaunch = match super::reconnect::connect_leg(kind, failed_connects) {
+                    super::reconnect::ConnectLeg::Connect => None,
+                    super::reconnect::ConnectLeg::RelaunchThenConnect => {
+                        options.daemon_launcher.clone()
+                    }
+                };
+                if relaunch.is_some() && failed_connects == 1 {
+                    session.note_as(
+                        "the Eukhe daemon is not answering; starting it again...",
+                        crate::chat::StatusKind::Warning,
+                        &mut view,
+                    );
+                    session.dirty = true;
+                }
                 tokio::spawn(async move {
                     // No outer timeout: dropping the future mid-attempt
                     // would cancel an in-flight handshake without its
                     // reader abort running (a leaked reader and socket on
                     // an accepting-but-silent daemon). The leg self-bounds
-                    // -- every attempt's connect and hello carry their own
-                    // budgets and abort their own reader on failure.
-                    let attempt = if shutdown {
-                        DaemonClient::connect(&socket_path).await
-                    } else {
-                        DaemonClient::connect_with_retry(&socket_path).await
-                    };
-                    let _ = attempt_tx.send(attempt);
+                    // -- the launcher waits a bounded startup, and the
+                    // connect and hello carry their own budgets and abort
+                    // their own reader on failure.
+                    if let Some(launcher) = relaunch {
+                        if let Err(error) = launcher.ensure().await {
+                            let _ = attempt_tx.send(Err(error.context("relaunch the Eukhe daemon")));
+                            return;
+                        }
+                    }
+                    let _ = attempt_tx.send(DaemonClient::connect(&socket_path).await);
                 });
             }
             maybe_attempt = async {
@@ -1675,7 +1702,8 @@ async fn run_interactive_surface(
                         }
                     }
                     Ok(Err(_)) => {
-                        if let Some(state) = reconnect.take() {
+                        if let Some(mut state) = reconnect.take() {
+                            state.failed_connects += 1;
                             reconnect = Some(state.next_attempt());
                         }
                     }

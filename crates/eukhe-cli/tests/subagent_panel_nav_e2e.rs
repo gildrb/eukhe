@@ -195,6 +195,7 @@ fn session_options(
         session_has_children: has_children,
         restore_dock_focus: false,
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

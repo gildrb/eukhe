@@ -5,6 +5,7 @@ use super::{
     KernelState, MemoSlot, OrphanReap, Signal, HOST_REQUEST_SHUTDOWN_TIMEOUT_MS,
     KERNEL_SHUTDOWN_TIMEOUT_MS,
 };
+use crate::kernel::shared::{KERNEL_KILL_VERIFY_MS, KERNEL_TERM_GRACE_MS};
 
 // ---------------------------------------------------------------------------
 // Teardown
@@ -76,7 +77,6 @@ impl Inner {
         }
         live_kernels::remove(self);
 
-        let mut performed_cleanup = false;
         let mut request_id: Option<String> = None;
         if opts.drain_host_requests {
             let in_flight = {
@@ -151,11 +151,46 @@ impl Inner {
                 g.graceful_shutdown_generation = None;
             }
         }
-        if !self.start_stale(generation) {
-            self.cleanup_resources(Signal::Term);
-            performed_cleanup = true;
+        if self.start_stale(generation) {
+            return false;
         }
-        performed_cleanup
+        // The graceful phases end the kernel in the normal case. A kernel
+        // whose exit is not seen gets SIGTERM, then SIGKILL; each signal
+        // goes to its whole process group.
+        let unexited = lock(&self.child).as_ref().and_then(|child| {
+            child
+                .exit_rx
+                .borrow()
+                .is_none()
+                .then(|| (child.pid, child.exit_rx.clone()))
+        });
+        let Some((pid, mut exit_rx)) = unexited else {
+            self.cleanup_resources(Signal::Term);
+            return true;
+        };
+        let _delivered = crate::platform::process::signal_process_group(pid, Signal::Term);
+        let term_grace = Duration::from_millis(KERNEL_TERM_GRACE_MS);
+        if tokio::time::timeout(term_grace, exit_rx.wait_for(Option::is_some))
+            .await
+            .is_ok()
+        {
+            self.cleanup_resources(Signal::Term);
+            return true;
+        }
+        self.append_diagnostic(&format!(
+            "kernel process group {pid} did not exit within {KERNEL_TERM_GRACE_MS}ms of SIGTERM; sending SIGKILL"
+        ));
+        self.cleanup_resources(Signal::Kill);
+        let kill_verify = Duration::from_millis(KERNEL_KILL_VERIFY_MS);
+        if tokio::time::timeout(kill_verify, exit_rx.wait_for(Option::is_some))
+            .await
+            .is_err()
+        {
+            self.append_diagnostic(&format!(
+                "kernel process {pid} survived SIGKILL for {KERNEL_KILL_VERIFY_MS}ms"
+            ));
+        }
+        true
     }
 
     /// Tear the child down: stop timers, fail pending work, close pipes, kill
@@ -218,5 +253,54 @@ impl Inner {
             }
         }
         *lock(&self.start_memo) = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::kernel::shared::{KernelManagerOptions, KernelShutdownOptions};
+    use crate::kernel::{manager::KernelStartOptions, ReplKernelManager};
+
+    /// A kernel that ignores SIGTERM and never answers the shutdown
+    /// request is killed: the teardown ends with no kernel process alive.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn teardown_kills_a_kernel_that_ignores_sigterm() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let pid_file = dir.path().join("kernel.pid");
+        let python = dir.path().join("ignores-sigterm");
+        std::fs::write(
+            &python,
+            format!(
+                "#!/usr/bin/env python3\nimport json, os, signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nopen({:?}, 'w').write(str(os.getpid()))\nprint(json.dumps({{'event': 'ready', 'protocol': 3, 'python': '3.13.0'}}), flush=True)\ntime.sleep(60)\n",
+                pid_file.display().to_string()
+            ),
+        )
+        .expect("write fake kernel");
+        std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake kernel");
+        let manager = ReplKernelManager::new(KernelManagerOptions {
+            python: Some(python),
+            ..Default::default()
+        });
+        manager
+            .start(KernelStartOptions::default())
+            .await
+            .expect("ready handshake");
+        let pid: u32 = std::fs::read_to_string(&pid_file)
+            .expect("kernel pid")
+            .parse()
+            .expect("pid number");
+        let performed = manager
+            .shutdown(KernelShutdownOptions {
+                snapshot: false,
+                drain_host_requests: false,
+            })
+            .await
+            .expect("shutdown");
+        let alive = eukhe_types::platform::process::is_process_alive(pid).expect("liveness");
+        assert_eq!((performed, alive), (true, false));
     }
 }

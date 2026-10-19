@@ -222,13 +222,12 @@ impl Supervisor {
         resident
             .intentional_stop
             .store(false, std::sync::atomic::Ordering::SeqCst);
-        resident
-            .consecutive_failures
-            .store(0, std::sync::atomic::Ordering::SeqCst);
+        resident.restart_budget.lock().await.clear();
         let last_error = {
             let mut descriptor = resident.descriptor.lock().await;
             descriptor.stop_requested_at = None;
             descriptor.archive_on_stop = None;
+            descriptor.consecutive_failures = 0;
             descriptor.lifecycle = DaemonWorkerLifecycle::Recovering;
             let last_error = descriptor.last_error.clone();
             let _ = persist_worker(&resident.descriptor_path, &descriptor);

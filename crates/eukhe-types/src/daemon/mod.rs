@@ -22,6 +22,11 @@ pub const DAEMON_PROTOCOL_VERSION: u64 = 7;
 /// field is populated where TS's open PR reads a removed path).
 pub const DAEMON_SCHEMA_REVISION: u64 = 30;
 pub const DAEMON_SCHEMA_ID: &str = "protocol-7-schema-30-8e4b17c2a9f5";
+/// The server capability that advertises `shutdown` with `ifIdle`: the
+/// supervisor stops only when every session is idle, and refuses a busy
+/// daemon with [`DaemonErrorInfo::DaemonBusy`]. A daemon without it does
+/// not know `ifIdle` and would stop unconditionally.
+pub const IDLE_SHUTDOWN_CAPABILITY: &str = "idle_shutdown";
 
 pub type DaemonClientId = String;
 pub type DaemonCommandId = String;
@@ -121,6 +126,7 @@ mod plane;
 mod session_event;
 mod session_state;
 mod state_tree;
+pub mod timing;
 mod worker;
 
 pub use agent_relay::AgentRelayEvent;

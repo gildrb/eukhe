@@ -511,6 +511,7 @@ async fn tui_two_back_to_back_submits_reach_the_daemon_in_order() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     // Two submits with NO barrier between them: the second's round trip is
     // armed while the first is still in flight — the ordering case the
@@ -629,6 +630,7 @@ async fn tui_submit_outlived_by_switch_stays_silent_on_the_new_session() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     // The submit's round trip straddles the switch: the switch step
     // applies one headless step after the submit, long before the
@@ -745,6 +747,7 @@ async fn tui_headless_done_with_a_turn_settling_parks_the_closed_input_channel()
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     // No trailing WaitIdle: the plan ends at the submit, and the run's
     // exit gate must hold on its own until the turn settles.
@@ -895,6 +898,7 @@ async fn tui_refused_submit_restores_the_draft_after_the_round_trip() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![

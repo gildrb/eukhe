@@ -57,12 +57,16 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         .build()
         .context("build the interactive runtime")?;
     runtime.block_on(async {
-        // A kept daemon of another version is announced by the session
-        // view itself (from its hello); the agents view gets it as its
-        // status line.
-        let daemon_notice = ensure_daemon_running(&tui_options.socket_path, &tui_options.cwd)
-            .await?
-            .notice();
+        // A kept daemon of another build is announced by the session view
+        // itself (from its hello); the agents view gets it as its status
+        // line. Only this interactive start may replace an older daemon.
+        let daemon_notice = ensure_daemon_running(
+            &tui_options.socket_path,
+            &tui_options.cwd,
+            eukhe_tui::daemon_build::Caller::Interactive,
+        )
+        .await?
+        .notice();
         // `eukhe agents` and bare `--resume` open the agents view
         // (TS `agentsViewRequested`); the view then opens sessions, and a
         // session exits back into the view until the user exits it. TS gates
@@ -438,7 +442,7 @@ fn build_tui_options(
         model_configured_providers: configured_providers,
         model_recent_models: recent,
         default_thinking_level,
-        socket_path,
+        socket_path: socket_path.clone(),
         cwd: config.cwd.clone(),
         session_dir,
         script_path,
@@ -514,6 +518,14 @@ fn build_tui_options(
                 agent_dir: config.agent_dir.clone(),
             }),
         }),
+        // A lost daemon relaunches through the background launcher: it
+        // starts a daemon when none listens and never replaces one.
+        daemon_launcher: Some(eukhe_tui::saved_sessions::SharedDaemonLauncher::new(
+            CliLauncher {
+                socket_path,
+                spawn_cwd: config.cwd.clone(),
+            },
+        )),
     };
     Ok(tui_options_value)
 }

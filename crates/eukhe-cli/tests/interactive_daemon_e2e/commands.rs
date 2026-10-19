@@ -58,6 +58,7 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -229,6 +230,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     // The interactive runtime's own launch sequence, minus the TTY: spawn
     // the real supervisor binary detached and wait for the hello handshake.
@@ -236,9 +238,15 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         socket: socket.clone(),
     };
     let exe = std::path::PathBuf::from(env!("CARGO_BIN_EXE_eukhe"));
-    eukhe_cli::ensure_daemon_running_with(&exe, &socket, dir.path())
-        .await
-        .expect("spawn the daemon");
+    eukhe_cli::ensure_daemon_running_with(
+        &exe,
+        eukhe_tui::daemon_build::Build::THIS,
+        &socket,
+        dir.path(),
+        eukhe_tui::daemon_build::Caller::Interactive,
+    )
+    .await
+    .expect("spawn the daemon");
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 }],
         width: 80,
@@ -318,6 +326,7 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -518,6 +527,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -663,6 +673,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         session_has_children: false,
         restore_dock_focus: false,
         dictation: None,
+        daemon_launcher: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -753,6 +764,7 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -890,6 +902,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let ctrl_o = || {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
@@ -1119,6 +1132,7 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let key = |code: KeyCode| {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(

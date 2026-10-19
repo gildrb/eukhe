@@ -59,8 +59,9 @@ programs.eukhe.gateway.enable = true;
 - The service starts only after the link (it needs
   `~/.local/share/signal-cli/data/accounts.json`).
 - The service restarts after a crash.
-- When a new eukhe build replaces the daemon, the gateway stops. The service
-  starts it again on the new build.
+- When the gateway connects again and finds a daemon that is not older than
+  its own build (an upgrade), the gateway stops. The service starts it again
+  on the new build. The gateway never replaces a daemon.
 - User services start at boot only with linger:
   `loginctl enable-linger $USER`.
 

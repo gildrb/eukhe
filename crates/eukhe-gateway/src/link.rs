@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Context;
-use eukhe_tui::daemon_client::{outdated_daemon_notice, DaemonClient, DaemonClientEvent};
+use eukhe_tui::daemon_build::{kept_daemon_notice, Build};
+use eukhe_tui::daemon_client::{DaemonClient, DaemonClientEvent};
 use eukhe_tui::saved_sessions::{attach, create_resident, list_root_sessions, CreatedSession};
 use eukhe_types::daemon::DaemonCommand;
 use serde_json::{Map, Value};
@@ -61,8 +62,8 @@ async fn connect_daemon(socket_path: &Path) -> anyhow::Result<Connection> {
     let (client, events) = DaemonClient::connect(socket_path)
         .await
         .context("connect to the eukhe daemon")?;
-    if let Some(version) = client.outdated_daemon_version() {
-        tracing::warn!("{}", outdated_daemon_notice(&version));
+    if let Some(notice) = kept_daemon_notice(Build::THIS, client.daemon_build()) {
+        tracing::warn!("{notice}");
     }
     Ok((client, events))
 }

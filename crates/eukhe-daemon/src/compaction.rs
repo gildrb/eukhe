@@ -224,6 +224,9 @@ impl Worker {
             .get("customInstructions")
             .and_then(Value::as_str)
             .map(str::to_string);
+        // A compaction is work a stop interrupts: it holds the run gate
+        // until it ends.
+        let _admission = crate::worker::RunAdmission::enter(&self.core).await;
         self.compaction.run(custom_instructions).await
     }
 

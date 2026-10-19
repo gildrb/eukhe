@@ -258,6 +258,33 @@ impl WorkerRecoveryJournal {
         })
     }
 
+    /// Record every busy session's latest record again with a new
+    /// `recorded_at`, so the revival age of its busy evidence counts from
+    /// now. A busy worker calls this every
+    /// [`crate::timeouts::BUSY_REFRESH_MS`]. The file stays bounded: the
+    /// next all-idle record compacts it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a record cannot be serialized or appended.
+    pub fn refresh_busy(&mut self) -> Result<()> {
+        let busy: Vec<WorkerRecoveryRecord> = self
+            .latest
+            .values()
+            .filter(|record| record.busy)
+            .cloned()
+            .collect();
+        for previous in busy {
+            let record = WorkerRecoveryRecord {
+                recorded_at: crate::util::now_iso(),
+                ..previous
+            };
+            append_record(&self.path, &serde_json::to_value(&record)?)?;
+            self.latest.insert(record.active_session_id.clone(), record);
+        }
+        Ok(())
+    }
+
     /// The worker failure a session's latest record carries, if any: why
     /// the worker that wrote the journal last gave its session up.
     #[must_use]

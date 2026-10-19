@@ -169,6 +169,7 @@ async fn tui_export_surface() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let html_out = dir.path().join("export.html");
     let jsonl_out = dir.path().join("branch.jsonl");

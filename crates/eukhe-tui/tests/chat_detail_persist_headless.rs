@@ -361,6 +361,7 @@ fn options(socket: PathBuf, settings: Arc<StubSettings>) -> InteractiveOptions {
         restore_dock_focus: false,
         client_settings: Some(settings),
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

@@ -1,8 +1,7 @@
 //! Worker supervision: the watch loop, the restart backoff, and
 //! the spawn/connect plumbing.
-use super::routing::{
-    fail_unsent_request, STOP_GRACE_MS, WORKER_REQUEST_TIMEOUT_MS, WORKER_SOCKET_CLOSED,
-};
+use super::restart_budget::RestartVerdict;
+use super::routing::{fail_unsent_request, WORKER_REQUEST_TIMEOUT_MS, WORKER_SOCKET_CLOSED};
 use super::{
     anyhow, connect_transport, create_command_payload, json, mpsc, persist_worker,
     persist_worker_at, probe_worker_socket, util, write_frame, Arc, Child, ClientRouting, Context,
@@ -12,6 +11,7 @@ use super::{
 };
 use crate::lease::is_process_alive;
 use crate::registry::WorkerRelay;
+use crate::timeouts::{RESTART_GIVE_UP_AFTER, STOP_GRACE_MS};
 use std::borrow::Cow;
 
 /// The routing fields of a worker `session_event` frame, read straight off
@@ -43,15 +43,6 @@ struct SessionAddress<'a> {
     #[serde(borrow, default)]
     active_session_id: Option<Cow<'a, str>>,
 }
-
-pub(super) const MAX_CONSECUTIVE_FAILURES: u32 = 5;
-/// A crash-path child that lived at least this long proved health: its death
-/// resets the failure count (a fresh count) instead of accumulating toward
-/// the give-up cap. Below it, a spawn-dies-fast child counts as another
-/// consecutive failure - the restart storm's counter could never grow.
-pub(super) const STABLE_LIFETIME_MS: u64 = 30_000;
-const BASE_BACKOFF_MS: u64 = 250;
-const MAX_BACKOFF_MS: u64 = 30_000;
 
 /// A failed/cancelled authentication must close both pump-owned socket halves.
 struct PreAuthPumps {
@@ -88,22 +79,8 @@ const ADOPTED_EXIT_FALLBACK_POLL: Duration = Duration::from_secs(30);
 
 impl Supervisor {
     /// Watch a worker process: on unexpected exit, restart with backoff.
-    /// The crash path's failure-count update: a child that lived past the
-    /// stable window was healthy, so its death starts a fresh count; a
-    /// spawn-dies-fast child (or an adopted pid with no spawn time of our
-    /// own) accumulates toward the give-up cap - the storm's counter could
-    /// never grow while relaunch-spawns kept resetting it.
-    pub(super) fn next_failure_count(resident: &ResidentWorker, now_ms: u64) -> u32 {
-        let spawned_at = resident.spawned_at_ms.load(Ordering::SeqCst);
-        let stable = spawned_at > 0 && now_ms.saturating_sub(spawned_at) >= STABLE_LIFETIME_MS;
-        if stable {
-            resident.consecutive_failures.store(1, Ordering::SeqCst);
-            1
-        } else {
-            resident.consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1
-        }
-    }
-
+    /// Each crash and each failed relaunch counts against the worker's
+    /// restart budget; past the budget, the worker is given up.
     pub(super) fn spawn_monitor(
         self: &Arc<Self>,
         resident: Arc<ResidentWorker>,
@@ -188,89 +165,94 @@ impl Supervisor {
                 descriptor.last_failure_at = Some(util::now_iso());
                 let _ = persist_worker(&resident.descriptor_path, &descriptor);
             }
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |elapsed| elapsed.as_millis() as u64);
-            let failures = Self::next_failure_count(&resident, now_ms);
-            if failures > MAX_CONSECUTIVE_FAILURES {
-                // A stop that lands during the relaunch storm owns the
-                // terminal state: the give-up must not persist `Failed`
-                // over the stop's tombstone or recreate a descriptor the
-                // stop already deleted (the next boot would adopt a
-                // cleanly stopped worker as `GaveUp`).
-                if self.is_stopping(&resident) {
-                    return;
-                }
-                let mut descriptor = resident.descriptor.lock().await;
-                descriptor.lifecycle = DaemonWorkerLifecycle::Failed;
-                descriptor.last_failure_at = Some(util::now_iso());
-                let journal_path = descriptor.recovery_journal_path.clone();
-                let _ = persist_worker(&resident.descriptor_path, &descriptor);
-                drop(descriptor);
-                // The give-up settles its own revival evidence (the storm
-                // cycle's breaker): the journal's busy records are what a
-                // later boot reads as "interrupted live work" — the
-                // verdict that gave up must outlive them, or every boot
-                // re-storms this same slot (the 12:00 → 17:07 recurrence).
-                if let Err(error) = crate::journal::WorkerRecoveryJournal::settle_busy_records(
-                    std::path::Path::new(&journal_path),
-                    "worker_gave_up",
-                ) {
+            let verdict = resident
+                .restart_budget
+                .lock()
+                .await
+                .on_failure(std::time::Instant::now());
+            let (failures, backoff) = match verdict {
+                RestartVerdict::Relaunch { failure, backoff } => (failure, backoff),
+                RestartVerdict::GiveUp { failures } => {
+                    // A stop that lands during the relaunch storm owns the
+                    // terminal state: the give-up must not persist `Failed`
+                    // over the stop's tombstone or recreate a descriptor the
+                    // stop already deleted (the next boot would adopt a
+                    // cleanly stopped worker as `GaveUp`).
+                    if self.is_stopping(&resident) {
+                        return;
+                    }
+                    let mut descriptor = resident.descriptor.lock().await;
+                    descriptor.lifecycle = DaemonWorkerLifecycle::Failed;
+                    descriptor.consecutive_failures = u64::from(failures);
+                    descriptor.last_failure_at = Some(util::now_iso());
+                    let journal_path = descriptor.recovery_journal_path.clone();
+                    let _ = persist_worker(&resident.descriptor_path, &descriptor);
+                    drop(descriptor);
+                    // The give-up settles its own revival evidence (the storm
+                    // cycle's breaker): the journal's busy records are what a
+                    // later boot reads as "interrupted live work" — the
+                    // verdict that gave up must outlive them, or every boot
+                    // re-storms this same slot (the 12:00 → 17:07 recurrence).
+                    if let Err(error) = crate::journal::WorkerRecoveryJournal::settle_busy_records(
+                        std::path::Path::new(&journal_path),
+                        "worker_gave_up",
+                    ) {
+                        self.log_line(&format!(
+                            "session worker {} give-up journal settle failed: {error:#}",
+                            resident.worker_id
+                        ));
+                    }
+                    // The give-up is final: routes waiting out this worker's
+                    // replacement must fail fast instead of parking.
+                    resident.note_retired();
+                    self.registry.remove(&resident.worker_id).await;
+                    self.registry.forget(&resident.worker_id).await;
+                    // The residency change lands in the scheduled-jobs
+                    // invalidation (TS `broadcastHeartbeatsChanged`: "every
+                    // daemon-owned scheduled-job mutation and worker residency
+                    // change"): the dead worker's durable jobs are passive from
+                    // here on, so a snapshot that excluded them while the
+                    // worker was live must not be served for the rest of the
+                    // refresh window.
+                    self.broadcast_heartbeats_changed();
+                    // The give-up settles the dead worker's rows exactly like
+                    // a stop (every owned non-ephemeral, non-queued row
+                    // passivates and keeps its model/thinking/cwd). No ledger
+                    // reseed, no transcript read.
+                    let ephemeral = resident.descriptor.lock().await.owner_client_id.is_some();
+                    self.passivate_roster_worker(&resident.worker_id, ephemeral)
+                        .await;
+                    // The exhausted-failure state must release the session
+                    // hold: a process this daemon spawned under the id that
+                    // outlived the failure loop keeps the session's runtime
+                    // lease and refuses every create for the file (the
+                    // zombie-holder incident). The belt reaps the id's
+                    // same-socket leftovers identity-gated; the last crashed
+                    // child is provably gone, and a dead holder's lease
+                    // self-heals on the next acquire.
+                    crate::boot_reap::reap_abandoned_workers(&self, &resident.worker_id).await;
                     self.log_line(&format!(
-                        "session worker {} give-up journal settle failed: {error:#}",
+                        "session worker {} failed after {failures} failures in the restart window",
                         resident.worker_id
                     ));
+                    return;
                 }
-                // The give-up is final: routes waiting out this worker's
-                // replacement must fail fast instead of parking.
-                resident.note_retired();
-                self.registry.remove(&resident.worker_id).await;
-                self.registry.forget(&resident.worker_id).await;
-                // The residency change lands in the scheduled-jobs
-                // invalidation (TS `broadcastHeartbeatsChanged`: "every
-                // daemon-owned scheduled-job mutation and worker residency
-                // change"): the dead worker's durable jobs are passive from
-                // here on, so a snapshot that excluded them while the
-                // worker was live must not be served for the rest of the
-                // refresh window.
-                self.broadcast_heartbeats_changed();
-                // The give-up settles the dead worker's rows exactly like
-                // a stop (every owned non-ephemeral, non-queued row
-                // passivates and keeps its model/thinking/cwd). No ledger
-                // reseed, no transcript read.
-                let ephemeral = resident.descriptor.lock().await.owner_client_id.is_some();
-                self.passivate_roster_worker(&resident.worker_id, ephemeral)
-                    .await;
-                // The exhausted-failure state must release the session
-                // hold: a process this daemon spawned under the id that
-                // outlived the failure loop keeps the session's runtime
-                // lease and refuses every create for the file (the
-                // zombie-holder incident). The belt reaps the id's
-                // same-socket leftovers identity-gated; the last crashed
-                // child is provably gone, and a dead holder's lease
-                // self-heals on the next acquire.
-                crate::boot_reap::reap_abandoned_workers(&self, &resident.worker_id).await;
-                self.log_line(&format!(
-                    "session worker {} failed after {failures} consecutive failures",
-                    resident.worker_id
-                ));
-                return;
-            }
-            let backoff_ms = (BASE_BACKOFF_MS << (failures - 1).min(7)).min(MAX_BACKOFF_MS);
+            };
+            resident.descriptor.lock().await.consecutive_failures = u64::from(failures);
             let cause = failure
                 .map(|failure| format!(" ({failure})"))
                 .unwrap_or_default();
             self.log_line(&format!(
-                "session worker {} exited unexpectedly{cause}; restarting in {backoff_ms}ms (failure {failures}/{MAX_CONSECUTIVE_FAILURES})",
-                resident.worker_id
+                "session worker {} exited unexpectedly{cause}; restarting in {}ms (failure {failures}/{RESTART_GIVE_UP_AFTER})",
+                resident.worker_id,
+                backoff.as_millis()
             ));
-            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+            tokio::time::sleep(backoff).await;
             match self.relaunch_worker(&resident).await {
                 Ok(new_child) => {
-                    // No counter reset on a successful relaunch: a spawn
-                    // that dies fast must accumulate toward the give-up cap
-                    // (the reset now comes only from a stable lifetime on
-                    // the crash path).
+                    // No budget change on a successful relaunch: a spawn
+                    // that dies fast counts as one more failure in the
+                    // restart window.
                     child = Some(new_child);
                 }
                 Err(error) => {
@@ -278,14 +260,12 @@ impl Supervisor {
                         "worker {} relaunch failed: {error:#}",
                         resident.worker_id
                     ));
+                    // No worker: the next loop turn counts this failure.
                     child = None;
                     adopted_pid = 0;
                     if self.is_stopping(&resident) {
                         return;
                     }
-                    // A failed relaunch has no lifetime of its own: clear
-                    // the spawn time so the count accumulates to the give-up cap.
-                    resident.spawned_at_ms.store(0, Ordering::SeqCst);
                 }
             }
         }
@@ -307,6 +287,10 @@ impl Supervisor {
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
     ) -> Result<Child> {
+        // The replacement gate: a relaunch waits while an idle shutdown
+        // decides (its create replay may resume a run), and a relaunch in
+        // flight makes that shutdown busy.
+        let _launch = self.replacement_gate.enter_launch().await;
         if self.is_stopping(resident) {
             return Err(anyhow!("supervisor is shutting down"));
         }
@@ -555,10 +539,6 @@ impl Supervisor {
                 image.program.display()
             )
         })?;
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.as_millis() as u64);
-        resident.spawned_at_ms.store(now_ms, Ordering::SeqCst);
         if std::env::var("EUKHE_DAEMON_DEBUG").is_ok() {
             eprintln!("[supervisor] spawned worker pid {:?}", child.id());
         }
@@ -572,6 +552,9 @@ impl Supervisor {
             descriptor.pid = u64::from(child_pid);
             descriptor.process_start_id = crate::protocol::process_start_id(child_pid);
             descriptor.lifecycle = DaemonWorkerLifecycle::Starting;
+            // The worker runs this supervisor's own image (the resolved
+            // running executable), so it runs this build.
+            descriptor.set_build_id(eukhe_build_info::DAEMON_BUILD_ID);
             // The spawn record's durability is per launch class
             // (`spawn_record_sync`): a fresh create rides the TS
             // `persistWorker` shape — the atomic rename without the

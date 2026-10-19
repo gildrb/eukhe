@@ -108,11 +108,15 @@ pub(crate) mod supervisor_lost;
 pub(crate) mod supervisor_parent_death;
 pub(crate) mod supervisor_roster;
 pub(crate) mod supervisor_roster_seed;
+pub mod timeouts;
 pub mod types;
 pub(crate) mod user_bash;
 pub mod util;
+pub(crate) mod work_gate;
 pub mod worker;
 pub(crate) mod worker_stderr;
 
 #[cfg(test)]
 pub(crate) mod durable_test_support;
+#[cfg(test)]
+mod supervision_bridge;

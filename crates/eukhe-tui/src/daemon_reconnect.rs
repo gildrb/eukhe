@@ -8,6 +8,7 @@
 //! so the window's expiry row follows the flow that owns the recovery.
 
 use crate::chat::StatusKind;
+use crate::daemon_build::{relation, Build, Relation};
 
 /// The reconnect driver that owns the run: which daemon closing armed it
 /// decides the backoff and the expiry row.
@@ -24,132 +25,77 @@ pub(crate) enum RecoveryKind {
 }
 
 /// TS #2458 `formatDaemonReconnectBanner`: the row a recovered window
-/// shows. `daemon_version` is the restarted daemon's hello `appVersion`
-/// (`None` when the daemon did not report one); `client_version` is this
-/// window's binary. The row is version-honest: a daemon NEWER than this
-/// window names the mismatch -- the user restarts the window to pick the
-/// update up -- while an older or unorderable daemon reports without the
-/// advice (restarting this window would pick up nothing).
-pub(crate) fn reconnect_banner(
-    daemon_version: Option<&str>,
-    client_version: &str,
-) -> (String, StatusKind) {
-    let Some(daemon_version) = daemon_version else {
-        return ("Daemon reconnected".to_string(), StatusKind::Info);
-    };
-    if daemon_version == client_version {
-        return (
-            format!("Daemon restarted (v{daemon_version}) - reconnected"),
+/// shows, from this window's build (`client`) and the restarted daemon's
+/// build (`daemon`, [`DaemonClient::daemon_build`](crate::daemon_client::DaemonClient::daemon_build)),
+/// in the order of [`crate::daemon_build`]. The row is version-honest: a
+/// daemon that is not older than this window names the mismatch (the user
+/// restarts the window to pick the update up), while an older daemon
+/// reports without the advice (restarting this window would pick up
+/// nothing).
+pub(crate) fn reconnect_banner(client: Build<'_>, daemon: Build<'_>) -> (String, StatusKind) {
+    let (client_version, daemon_version) = (client.version, daemon.version);
+    match relation(client, daemon) {
+        Relation::Same => (
+            format!("Daemon restarted (v{client_version}) - reconnected"),
             StatusKind::Info,
-        );
+        ),
+        Relation::Older => (
+            format!("Daemon restarted (v{daemon_version}), this window runs v{client_version}."),
+            StatusKind::Info,
+        ),
+        Relation::Newer => (
+            format!("Daemon restarted (v{daemon_version}), this window still runs v{client_version} - restart the window to pick up the update."),
+            StatusKind::Warning,
+        ),
+        Relation::Other => (
+            format!("Daemon restarted (v{daemon_version} (another build)), this window still runs v{client_version} - restart the window to pick up the update."),
+            StatusKind::Warning,
+        ),
     }
-    if is_daemon_version_newer(daemon_version, client_version) {
-        let message = format!(
-            "Daemon restarted (v{daemon_version}), this window still runs v{client_version} - restart the window to pick up the update."
-        );
-        return (message, StatusKind::Warning);
-    }
-    let message =
-        format!("Daemon restarted (v{daemon_version}), this window runs v{client_version}.");
-    (message, StatusKind::Info)
-}
-
-/// TS `isDaemonVersionNewer`: the numeric version prefixes order segment
-/// by segment; a numeric-equal release outranks the client's own
-/// prerelease (semver: "1.2.3" > "1.2.3-beta.1"), so a prerelease window
-/// still gets the restart advice.
-fn is_daemon_version_newer(daemon_version: &str, client_version: &str) -> bool {
-    let daemon = parse_numeric_version_prefix(daemon_version);
-    let client = parse_numeric_version_prefix(client_version);
-    for index in 0..daemon.len().max(client.len()) {
-        let daemon_segment = daemon.get(index).copied().unwrap_or(0);
-        let client_segment = client.get(index).copied().unwrap_or(0);
-        if daemon_segment != client_segment {
-            return daemon_segment > client_segment;
-        }
-    }
-    !has_prerelease_suffix(daemon_version) && has_prerelease_suffix(client_version)
-}
-
-/// TS `splitVersionSegments`: the dot- and dash-separated segments of a
-/// version ("1.2.3-beta.1" -> `["1", "2", "3", "beta", "1"]`).
-fn split_version_segments(value: &str) -> Vec<&str> {
-    value.split(['.', '-']).collect()
-}
-
-/// TS `parseNumericVersionPrefix`: the leading numeric segments; the first
-/// unparseable segment ends the prefix.
-fn parse_numeric_version_prefix(value: &str) -> Vec<u64> {
-    let mut segments = Vec::new();
-    for segment in split_version_segments(value) {
-        let Ok(parsed) = segment.parse::<u64>() else {
-            break;
-        };
-        segments.push(parsed);
-    }
-    segments
-}
-
-/// TS `hasPrereleaseSuffix`: whether the version continues past its
-/// numeric prefix with a prerelease suffix.
-fn has_prerelease_suffix(value: &str) -> bool {
-    let segments = split_version_segments(value);
-    let prefix_len = parse_numeric_version_prefix(value).len();
-    prefix_len > 0 && prefix_len < segments.len()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The TS #2458 banner table (interactive-update-relaunch.test.ts),
-    /// verbatim: the recovered window's row is version-honest.
+    fn build<'a>(version: &'a str, id: &'a str) -> Build<'a> {
+        Build { version, id }
+    }
+
+    /// The TS #2458 banner table (interactive-update-relaunch.test.ts) on
+    /// the order of eukhe builds: the recovered window's row is
+    /// version-honest.
     #[test]
     fn the_banner_table_is_the_ts_table() {
+        let banners = [
+            reconnect_banner(build("1.2.3", "a"), build("1.2.3", "a")),
+            reconnect_banner(build("1.2.3", "a"), build("2.0.0", "b")),
+            reconnect_banner(build("1.2.3-beta.1", "a"), build("1.2.3", "b")),
+            reconnect_banner(build("1.2.3", "a"), build("1.2.3-beta.1", "b")),
+            reconnect_banner(build("0.10.40", "a"), build("0.9.9-main.46", "b")),
+            reconnect_banner(build("0.9.9-main.46", "a"), build("0.10.40", "b")),
+        ];
         assert_eq!(
-            reconnect_banner(None, "1.2.3"),
-            ("Daemon reconnected".to_string(), StatusKind::Info)
-        );
-        assert_eq!(
-            reconnect_banner(Some("1.2.3"), "1.2.3"),
-            (
-                "Daemon restarted (v1.2.3) - reconnected".to_string(),
-                StatusKind::Info
-            )
-        );
-        let newer_banner = "Daemon restarted (v2.0.0), this window still runs v1.2.3 - restart the window to pick up the update.";
-        assert_eq!(
-            reconnect_banner(Some("2.0.0"), "1.2.3"),
-            (newer_banner.to_string(), StatusKind::Warning)
-        );
-        let prerelease_banner = "Daemon restarted (v1.2.3), this window still runs v1.2.3-beta.1 - restart the window to pick up the update.";
-        assert_eq!(
-            reconnect_banner(Some("1.2.3"), "1.2.3-beta.1"),
-            (prerelease_banner.to_string(), StatusKind::Warning)
-        );
-        let older_banner = "Daemon restarted (v1.2.3-beta.1), this window runs v1.2.3.";
-        assert_eq!(
-            reconnect_banner(Some("1.2.3-beta.1"), "1.2.3"),
-            (older_banner.to_string(), StatusKind::Info)
+            banners,
+            [
+                ("Daemon restarted (v1.2.3) - reconnected".to_string(), StatusKind::Info),
+                ("Daemon restarted (v2.0.0), this window still runs v1.2.3 - restart the window to pick up the update.".to_string(), StatusKind::Warning),
+                ("Daemon restarted (v1.2.3), this window still runs v1.2.3-beta.1 - restart the window to pick up the update.".to_string(), StatusKind::Warning),
+                ("Daemon restarted (v1.2.3-beta.1), this window runs v1.2.3.".to_string(), StatusKind::Info),
+                ("Daemon restarted (v0.9.9-main.46), this window runs v0.10.40.".to_string(), StatusKind::Info),
+                ("Daemon restarted (v0.10.40), this window still runs v0.9.9-main.46 - restart the window to pick up the update.".to_string(), StatusKind::Warning),
+            ]
         );
     }
 
-    /// TS `isDaemonVersionNewer`: numeric-prefix ordering with the semver
-    /// prerelease rule (a release outranks its own prereleases).
+    /// A same-version daemon of another build is not this window's build:
+    /// the banner names it and advises the restart (F19).
     #[test]
-    fn the_version_order_follows_the_ts_rules() {
-        assert!(is_daemon_version_newer("2.0.0", "1.2.3"));
-        assert!(!is_daemon_version_newer("1.2.2", "1.2.3"));
-        // A missing segment reads as zero: 1.2 < 1.2.1.
-        assert!(is_daemon_version_newer("1.2.1", "1.2"));
-        // Numeric-equal releases order by the prerelease suffix alone.
-        assert!(is_daemon_version_newer("1.2.3", "1.2.3-beta.1"));
-        assert!(!is_daemon_version_newer("1.2.3-beta.1", "1.2.3"));
-        assert!(!is_daemon_version_newer("1.2.3-beta.2", "1.2.3-beta.10"));
-        assert!(!is_daemon_version_newer("1.2.3-beta.1", "1.2.3-beta.2"));
-        // An unparseable version has an empty prefix: it reads as all
-        // zeros, so a real release orders above it but never below.
-        assert!(!is_daemon_version_newer("dev", "0.1.0"));
-        assert!(is_daemon_version_newer("0.1.0", "dev"));
+    fn another_build_of_this_version_is_named_in_the_banner() {
+        let another_build_banner = "Daemon restarted (v1.2.3 (another build)), this window still runs v1.2.3 - restart the window to pick up the update.";
+        assert_eq!(
+            reconnect_banner(build("1.2.3", "a"), build("1.2.3", "b")),
+            (another_build_banner.to_string(), StatusKind::Warning)
+        );
     }
 }

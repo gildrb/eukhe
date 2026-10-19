@@ -175,6 +175,7 @@ fn options(socket: PathBuf, agent_dir: &Path, dictation: Dictation) -> Interacti
         restore_dock_focus: false,
         client_settings: None,
         dictation: Some(dictation),
+        daemon_launcher: None,
     }
 }
 

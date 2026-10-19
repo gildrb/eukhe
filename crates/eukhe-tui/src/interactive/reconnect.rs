@@ -13,8 +13,45 @@ pub(super) type ReconnectConnect = tokio::sync::oneshot::Receiver<
 >;
 
 /// The client reconnect window after an unexpected daemon loss
-/// (10 minutes).
+/// (10 minutes). The relaunch happens much earlier: see
+/// [`LOST_RELAUNCH_LATEST_MS`].
 const RECONNECT_WINDOW: Duration = Duration::from_mins(10);
+
+/// The first reconnect attempt after an unexpected loss.
+const LOST_FIRST_ATTEMPT_MS: u64 = 1_000;
+
+/// The latest time after an unexpected loss at which the recovery starts
+/// its relaunch: the first attempt, plus that attempt's single connect
+/// (the connect and the hello budgets of [`DaemonClient::connect`]).
+const LOST_RELAUNCH_LATEST_MS: u64 = LOST_FIRST_ATTEMPT_MS
+    + crate::daemon_client::CONNECT_TIMEOUT_MS
+    + crate::daemon_client::HELLO_TIMEOUT_MS;
+
+// A worker alive at the loss outlives the relaunch (the worker's lost-exit
+// window derives from this bound).
+const _: () =
+    assert!(LOST_RELAUNCH_LATEST_MS <= eukhe_types::daemon::timing::CLIENT_RELAUNCH_WITHIN_MS);
+
+/// How one reconnect attempt reaches the daemon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ConnectLeg {
+    /// Connect once.
+    Connect,
+    /// Relaunch the daemon of this client's build, then connect once.
+    RelaunchThenConnect,
+}
+
+/// The connect leg of the next attempt of a `kind` recovery after
+/// `failed_connects` failed connects. Only an unexpected loss relaunches
+/// the daemon, from the attempt after the first failed connect on (the
+/// launcher returns at once when a daemon already runs). An announced
+/// shutdown never relaunches: an explicit stop stays stopped.
+pub(super) fn connect_leg(kind: RecoveryKind, failed_connects: u32) -> ConnectLeg {
+    match kind {
+        RecoveryKind::Lost if failed_connects > 0 => ConnectLeg::RelaunchThenConnect,
+        RecoveryKind::Lost | RecoveryKind::Shutdown => ConnectLeg::Connect,
+    }
+}
 
 /// The reconnect backoff cap.
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(10);
@@ -166,18 +203,22 @@ pub(super) struct ReconnectLoop {
     /// The closing that armed this driver: the reattach banner and the
     /// expiry row follow it.
     pub(super) kind: RecoveryKind,
+    /// The connects that failed so far: [`connect_leg`] relaunches the
+    /// daemon after the first.
+    pub(super) failed_connects: u32,
 }
 
 impl ReconnectLoop {
     /// The unexpected-loss driver: the reconnect window with doubling
     /// backoff and its own expiry row.
     pub(super) fn start_lost() -> Self {
-        let delay = Duration::from_secs(1);
+        let delay = Duration::from_millis(LOST_FIRST_ATTEMPT_MS);
         ReconnectLoop {
             deadline: tokio::time::Instant::now() + RECONNECT_WINDOW,
             next_attempt: tokio::time::Instant::now() + delay,
             delay,
             kind: RecoveryKind::Lost,
+            failed_connects: 0,
         }
     }
 
@@ -191,6 +232,7 @@ impl ReconnectLoop {
             next_attempt: tokio::time::Instant::now() + SHUTDOWN_RECONNECT_RETRY,
             delay: SHUTDOWN_RECONNECT_RETRY,
             kind: RecoveryKind::Shutdown,
+            failed_connects: 0,
         }
     }
 

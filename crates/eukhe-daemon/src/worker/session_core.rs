@@ -92,6 +92,8 @@ pub(crate) struct SessionCore {
     /// admission limit (summary `admission`); set by the session's
     /// admission sink.
     pub(crate) model_admission: Option<eukhe_types::daemon::agent_roster::ModelAdmission>,
+    /// The run-start gate an idle shutdown quiesces.
+    pub(crate) run_gate: super::run_gate::RunGate,
 }
 
 impl SessionCore {
@@ -132,6 +134,7 @@ impl SessionCore {
             progress_note: None,
             work_ledger: eukhe_core::durable::children::WorkLedger::default(),
             model_admission: None,
+            run_gate: super::run_gate::RunGate::default(),
         }
     }
 
@@ -148,15 +151,18 @@ impl SessionCore {
             .is_some_and(|view| view.translator.mirror().is_compacting())
     }
 
-    /// Whether a run, compaction, or queued input is in flight (the
-    /// supervisor-lost exit waits for it to settle).
-    pub(crate) fn has_ongoing_work(&self) -> bool {
-        self.is_busy()
-            || self.is_compacting()
-            || self
-                .view
-                .as_ref()
-                .is_some_and(|view| !view.inbox.is_empty())
+    /// The work the session holds: a run, a compaction, or a queued
+    /// input is [`Work::Ongoing`](crate::work_gate::Work::Ongoing).
+    pub(crate) fn work(&self) -> crate::work_gate::Work {
+        let queued = self
+            .view
+            .as_ref()
+            .is_some_and(|view| !view.inbox.is_empty());
+        if self.is_busy() || self.is_compacting() || queued {
+            crate::work_gate::Work::Ongoing
+        } else {
+            crate::work_gate::Work::Idle
+        }
     }
 
     /// The session's storage path as the summaries report it

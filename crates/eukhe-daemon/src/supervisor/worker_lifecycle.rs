@@ -5,7 +5,7 @@ use super::launch_budget::{
     DEFAULT_WORKER_CONNECT_TIMEOUT_MS, WORKER_CONNECT_BACKOFF_MS, WORKER_CONNECT_PROBE_MS,
     WORKER_CONNECT_TIMEOUT_ENV,
 };
-use super::routing::{STOP_GRACE_MS, WORKER_REQUEST_TIMEOUT_MS};
+use super::routing::WORKER_REQUEST_TIMEOUT_MS;
 use super::{
     anyhow, create_command_payload, json, persist_worker, socket, util, Arc, Context,
     DaemonCommand, DaemonWorkerDescriptor, DaemonWorkerLifecycle, DurableDaemonCreateCommand,
@@ -13,6 +13,7 @@ use super::{
     TypedCreateRejection, Value,
 };
 use crate::protocol::{response_failure, response_success, DaemonResponse};
+use crate::timeouts::STOP_GRACE_MS;
 use eukhe_types::daemon::StopOutcome;
 
 /// Explicit model selection from a session's create config (the wire
@@ -154,6 +155,10 @@ impl Supervisor {
             .as_ref()
             .map(crate::herdr::filter_client_env)
             .filter(|env| !env.is_empty());
+        // The replacement gate: a launch waits while an idle shutdown
+        // decides, and a launch in flight makes that shutdown busy. The
+        // ticket lives until the create replay answered.
+        let _launch = self.replacement_gate.enter_launch().await;
         // The shutdown gate: a create dispatched while the supervisor is
         // stopping must never launch a worker the stop pass would miss (a
         // late create racing a shutdown would otherwise orphan its worker

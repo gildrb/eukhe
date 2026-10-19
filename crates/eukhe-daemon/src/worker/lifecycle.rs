@@ -34,6 +34,21 @@ impl Worker {
         response_success(None, "shutdown", None)
     }
 
+    /// `worker_handover`: a supervisor of another build takes the session
+    /// to its own build. The admission closes first, then the work is
+    /// recorded resumable through the handover exit (no abort, no close:
+    /// the next worker resumes the run from the storage). The connection
+    /// loop exits the process after replying.
+    pub(crate) async fn handle_handover(&self) -> DaemonResponse {
+        self.core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .shutdown_requested = true;
+        crate::supervisor_lost::hand_over(self, crate::supervisor_lost::HandoverCause::Replaced)
+            .await;
+        response_success(None, "worker_handover", None)
+    }
+
     /// Bind the live session's schedule catalog (TS `rebindCronJobsToState`):
     /// the artifact partition, the job rebind, the scheduler start. Runs at
     /// create and after every session replacement.

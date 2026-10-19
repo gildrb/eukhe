@@ -192,6 +192,7 @@ fn headless_options(socket: &Path, dir: &Path) -> eukhe_tui::interactive::Intera
         session_has_children: false,
         restore_dock_focus: false,
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

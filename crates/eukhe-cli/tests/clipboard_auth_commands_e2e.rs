@@ -321,6 +321,7 @@ fn command_options(
         session_has_children: false,
         restore_dock_focus: false,
         dictation: None,
+        daemon_launcher: None,
     }
 }
 

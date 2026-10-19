@@ -157,6 +157,9 @@ pub(crate) struct SessionUi {
     /// cursor-less attaches of the same entry count -- a cursor-less
     /// attach stashes nothing (`view::handoff`).
     pub(crate) attach_cursor_present: bool,
+    /// The kernel restore notices this view showed: an attach or a
+    /// transcript refetch shows each one once (`crate::restore_notices`).
+    pub(crate) restore_notices: crate::restore_notices::RestoreNotices,
     session_name: Option<String>,
     /// Config carried over from the run options; `/new` sessions reuse it.
     cwd: PathBuf,

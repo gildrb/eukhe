@@ -52,12 +52,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::supervisor::Supervisor;
+use crate::timeouts::{WORKER_KILL_VERIFY_MS, WORKER_TERM_GRACE_MS};
 
-/// Grace after SIGTERM before the force escalation (the CLI stop contract's
-/// worker grace; TS `stopWorkerUntracked`'s non-force graceful deadline).
-const TERM_GRACE: Duration = Duration::from_secs(2);
+/// Grace after SIGTERM before the force escalation (the supervisor's
+/// worker TERM grace; TS `stopWorkerUntracked`'s non-force graceful deadline).
+const TERM_GRACE: Duration = Duration::from_millis(WORKER_TERM_GRACE_MS);
 /// Verify window after SIGKILL before the reap reports the survivor.
-const KILL_VERIFY: Duration = Duration::from_secs(1);
+const KILL_VERIFY: Duration = Duration::from_millis(WORKER_KILL_VERIFY_MS);
 /// Hard deadline after SIGKILL on the intentional-stop path (Codex
 /// app-server-daemon's `STOP_FORCE_TIMEOUT`): the force window a killed
 /// worker's teardown may still take — a D-state exit, a huge address

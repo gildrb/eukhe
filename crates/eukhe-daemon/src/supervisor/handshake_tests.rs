@@ -309,6 +309,7 @@ async fn a_mid_handshake_registration_cannot_kill_the_handshake() {
         worker_instance_id: String::new(),
         token: "wedge-token".to_string(),
         pid: 4242,
+        build_id: Some(eukhe_build_info::DAEMON_BUILD_ID.to_string()),
         rest: Map::default(),
     };
     let response = supervisor

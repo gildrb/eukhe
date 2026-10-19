@@ -22,9 +22,12 @@ use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::registry::ResidentWorker;
 use crate::supervisor::Supervisor;
 
-/// Worker round-trip budget for the sender-summary read and the delivery
-/// route (TS `WORKER_REQUEST_TIMEOUT_MS`).
-const WORKER_REQUEST_TIMEOUT_MS: u64 = 30_000;
+/// The route budget of the sender-summary read and of the delivery. The
+/// worker queues a delivered message and answers at once (it does not wait
+/// for a turn), so a live worker answers well inside this bound; a wedged
+/// target fails the send in 30 s instead of holding the sender's tool call
+/// for the 24 h turn budget of `routing::WORKER_REQUEST_TIMEOUT_MS`.
+const MESSAGE_ROUTE_TIMEOUT_MS: u64 = 30_000;
 
 impl Supervisor {
     /// `send_message`: route to the target worker as `worker_deliver_message`.
@@ -140,7 +143,7 @@ impl Supervisor {
                 &target,
                 "worker_deliver_message",
                 payload,
-                WORKER_REQUEST_TIMEOUT_MS,
+                MESSAGE_ROUTE_TIMEOUT_MS,
                 RouteAdmission::SupervisorInternal,
             )
             .await;
@@ -166,7 +169,7 @@ impl Supervisor {
                 resident,
                 "get_state",
                 json!({}),
-                WORKER_REQUEST_TIMEOUT_MS,
+                MESSAGE_ROUTE_TIMEOUT_MS,
                 RouteAdmission::Control,
             )
             .await?;

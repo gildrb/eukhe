@@ -193,7 +193,12 @@ async fn open_through_daemon(
 ) -> anyhow::Result<eukhe_core::memory::Memory> {
     let socket = crate::config::resolve_daemon_socket_path(None);
     let cwd = std::env::current_dir()?;
-    let ready = crate::interactive_mode::ensure_daemon_running(&socket, &cwd).await?;
+    let ready = crate::interactive_mode::ensure_daemon_running(
+        &socket,
+        &cwd,
+        eukhe_tui::daemon_build::Caller::Interactive,
+    )
+    .await?;
     if let Some(notice) = ready.notice() {
         eprintln!("{notice}");
     }

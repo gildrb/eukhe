@@ -36,6 +36,7 @@ import ./laws/storage.bend as Storage
 import ./laws/recover.bend as Rec
 import ./laws/catalog_union.bend as CatalogUnion
 import ./laws/cron.bend as Cronl
+import ./laws/supervisor.bend as Sup
 
 # (a) The view
 # ------------

@@ -4,11 +4,12 @@
 use std::sync::Arc;
 
 use super::{
-    anyhow, json, load_descriptors, response_failure, response_success, socket,
-    worker_connect_deadline, Context, DaemonCommand, DaemonResponse, DaemonWorkerLifecycle,
-    Duration, Ordering, Path, PathBuf, ResidentWorker, Result, Supervisor, Value,
+    anyhow, bail, json, load_descriptors, response_failure, response_success, socket,
+    worker_connect_deadline, Child, Context, DaemonCommand, DaemonResponse, DaemonWorkerLifecycle,
+    Duration, Ordering, Path, PathBuf, ResidentWorker, Result, RouteAdmission, Supervisor, Value,
     WorkerRegistration,
 };
+use crate::timeouts::STOP_GRACE_MS;
 
 /// An unobservable start identity does not prove that a live pid was recycled.
 /// Only an observed mismatch proves the descriptor's process is gone.
@@ -18,6 +19,28 @@ fn recorded_process_alive(
     observed: Option<&str>,
 ) -> bool {
     alive != Some(false) && (expected.is_none() || observed.is_none() || expected == observed)
+}
+
+/// Whether a supervisor keeps a live worker it finds (law
+/// `adopt_same_build`, LAWS.bend D1; the model in bend/launcher.bend).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Adoption {
+    /// The worker runs this supervisor's build: it is adopted.
+    Adopt,
+    /// The worker runs another build, or does not say which: it is not
+    /// adopted. It stops the way a lost worker stops (its work stays
+    /// resumable) and its session relaunches on this build.
+    Replace,
+}
+
+/// The adoption verdict for a worker that reports `worker_build` (`None`:
+/// a worker that reports no build) to a supervisor of `supervisor_build`.
+pub(crate) fn adoption_verdict(supervisor_build: &str, worker_build: Option<&str>) -> Adoption {
+    if worker_build == Some(supervisor_build) {
+        Adoption::Adopt
+    } else {
+        Adoption::Replace
+    }
 }
 
 impl Supervisor {
@@ -64,6 +87,9 @@ impl Supervisor {
         descriptor: crate::descriptor::WorkerDescriptor,
     ) {
         let worker_id = descriptor.worker_id.clone();
+        // An adoption brings a live worker into the roster: it waits while
+        // an idle shutdown decides, like a launch.
+        let _launch = self.replacement_gate.enter_launch().await;
         let guard = self.registry.adoption_guard(&worker_id).await;
         if self.registry.get(&worker_id).await.is_some() {
             // The worker re-registered before the descriptor scan reached it.
@@ -136,45 +162,61 @@ impl Supervisor {
         // while the monitor polled the dead pid the supervisor replaced,
         // counted six phantom exits, gave up on the id, and left the live
         // holder - lease and all - orphaned with every create refused).
+        let worker_build = resident
+            .descriptor
+            .lock()
+            .await
+            .build_id()
+            .map(str::to_string);
         let (result, revived_child) = if alive {
-            let adopted = self
-                .connect_worker(&resident, worker_connect_deadline())
-                .await;
-            if adopted.is_ok() {
-                // The boot reconciliation (the root-identity seam): the
-                // adopted worker already serves a session this supervisor
-                // has only ever seen through its PERSISTED record — and
-                // the record can name a superseded session (a whole-session
-                // replacement whose identity persist failed before the
-                // restart, or any descriptor the restart re-adopted
-                // mid-flight). Pull the live state BEFORE the routing
-                // opens: the roster write carries the identity follow, so
-                // the descriptor, the persisted record, and the binding
-                // re-bind onto the session the worker actually serves
-                // before a single client route can resolve them. A failed
-                // pull serves the persisted identity (logged) until the
-                // next roster write runs the follow from the live state.
-                if !self.refresh_roster_entry(&resident).await {
-                    // A failed pull is not proof the worker is dead: the
-                    // persisted identity is unreconciled, so the resident
-                    // is quarantined from every identity route until the
-                    // live word lands (a slow pull retries on the
-                    // backoff below; the worker's own roster push or a
-                    // later pull clears the fence). The routing refuses
-                    // (the conservative miss) instead of serving the
-                    // superseded identity.
-                    resident.mark_identity_quarantined();
-                    self.spawn_identity_reconciliation_retry(&resident);
-                    self.log_line(&format!(
+            match adoption_verdict(eukhe_build_info::DAEMON_BUILD_ID, worker_build.as_deref()) {
+                // A live worker of another build (or of no recorded build)
+                // is not adopted: its session moves to this build.
+                Adoption::Replace => match self.replace_worker_build(&resident).await {
+                    Ok(child) => (Ok(()), Some(child)),
+                    Err(error) => (Err(error), None),
+                },
+                Adoption::Adopt => {
+                    let adopted = self
+                        .connect_worker(&resident, worker_connect_deadline())
+                        .await;
+                    if adopted.is_ok() {
+                        // The boot reconciliation (the root-identity seam): the
+                        // adopted worker already serves a session this supervisor
+                        // has only ever seen through its PERSISTED record — and
+                        // the record can name a superseded session (a whole-session
+                        // replacement whose identity persist failed before the
+                        // restart, or any descriptor the restart re-adopted
+                        // mid-flight). Pull the live state BEFORE the routing
+                        // opens: the roster write carries the identity follow, so
+                        // the descriptor, the persisted record, and the binding
+                        // re-bind onto the session the worker actually serves
+                        // before a single client route can resolve them. A failed
+                        // pull serves the persisted identity (logged) until the
+                        // next roster write runs the follow from the live state.
+                        if !self.refresh_roster_entry(&resident).await {
+                            // A failed pull is not proof the worker is dead: the
+                            // persisted identity is unreconciled, so the resident
+                            // is quarantined from every identity route until the
+                            // live word lands (a slow pull retries on the
+                            // backoff below; the worker's own roster push or a
+                            // later pull clears the fence). The routing refuses
+                            // (the conservative miss) instead of serving the
+                            // superseded identity.
+                            resident.mark_identity_quarantined();
+                            self.spawn_identity_reconciliation_retry(&resident);
+                            self.log_line(&format!(
                         "session worker {worker_id}: the boot reconciliation pull failed; the resident is quarantined from routing until the live state lands"
                     ));
+                        }
+                        // The adopted worker's session already exists (its create
+                        // ran before the supervisor restart): routed client
+                        // commands may reach it immediately.
+                        resident.note_session_ready();
+                    }
+                    (adopted, None)
                 }
-                // The adopted worker's session already exists (its create
-                // ran before the supervisor restart): routed client
-                // commands may reach it immediately.
-                resident.note_session_ready();
             }
-            (adopted, None)
         } else {
             let interrupted =
                 crate::journal::WorkerRecoveryJournal::read_interrupted(&journal_path);
@@ -208,6 +250,7 @@ impl Supervisor {
                 &self.options.agent_dir,
                 &gated,
                 busy_recorded_at.as_deref(),
+                crate::util::now_ms(),
             );
             drop(gated);
             if let Some(veto) = veto {
@@ -276,6 +319,7 @@ impl Supervisor {
             worker_instance_id,
             token,
             pid,
+            build_id,
             ..
         } = command
         else {
@@ -303,7 +347,14 @@ impl Supervisor {
         let guard = self.registry.adoption_guard(active_session_id).await;
         let resident = match self.registry.get(active_session_id).await {
             Some(resident) => resident,
-            None => match self.adopt_registered_worker(&registration, token).await {
+            None => match self
+                .adopt_registered_worker(
+                    &registration,
+                    token,
+                    adoption_verdict(eukhe_build_info::DAEMON_BUILD_ID, build_id.as_deref()),
+                )
+                .await
+            {
                 Ok(resident) => resident,
                 Err(error) => {
                     let message = format!("{error:#}");
@@ -354,6 +405,11 @@ impl Supervisor {
                 descriptor.process_start_id = Some(start_id);
             }
             descriptor.socket_path.clone_from(socket_path);
+            // The registrant's own build word (in memory; the next persist
+            // carries it to the descriptor the next boot's adoption reads).
+            if let Some(build_id) = build_id {
+                descriptor.set_build_id(build_id);
+            }
             descriptor
                 .worker_instance_id
                 .clone_from(&worker_instance_id);
@@ -431,7 +487,11 @@ impl Supervisor {
         self: &Arc<Self>,
         registration: &WorkerRegistration,
         token: &str,
+        adoption: Adoption,
     ) -> Result<Arc<ResidentWorker>> {
+        // An adoption brings a live worker into the roster: it waits while
+        // an idle shutdown decides, like a launch.
+        let _launch = self.replacement_gate.enter_launch().await;
         let descriptor_path = self
             .descriptor_dir
             .join(format!("{}.json", registration.active_session_id));
@@ -518,6 +578,26 @@ impl Supervisor {
                 )
             ));
         }
+        match adoption {
+            Adoption::Adopt => {}
+            Adoption::Replace => {
+                // The registrant runs another build: it is not adopted. The
+                // persisted pid is stale, so the live registrant's identity
+                // is recorded first: the handover waits for this process.
+                {
+                    let mut descriptor = resident.descriptor.lock().await;
+                    descriptor.pid = registration.pid;
+                    descriptor.process_start_id =
+                        crate::lease::get_process_start_id(registration.pid as u32);
+                }
+                self.spawn_build_replacement(resident);
+                return Err(anyhow!(
+                    "{}: {} runs another build: its session moves to this supervisor's build; registration refused",
+                    crate::registration::UNKNOWN_SESSION_WORKER_PREFIX,
+                    registration.active_session_id
+                ));
+            }
+        }
         self.connect_worker(&resident, worker_connect_deadline())
             .await?;
         // The boot reconciliation (the root-identity seam): registration
@@ -551,6 +631,96 @@ impl Supervisor {
             "adopted session worker {worker_id} via self-registration"
         ));
         Ok(resident)
+    }
+
+    /// Move a registrant of another build to this build in the background
+    /// (the registrant's connection ends with its exit, and that must not
+    /// cancel the move). Under the adoption guard: a descriptor adoption
+    /// that moved the session first leaves a resident, and this one stops.
+    fn spawn_build_replacement(self: &Arc<Self>, resident: Arc<ResidentWorker>) {
+        let supervisor = Arc::clone(self);
+        tokio::spawn(async move {
+            let worker_id = resident.worker_id.clone();
+            let _guard = supervisor.registry.adoption_guard(&worker_id).await;
+            if supervisor.registry.get(&worker_id).await.is_some() {
+                return;
+            }
+            match supervisor.replace_worker_build(&resident).await {
+                Ok(child) => {
+                    supervisor.registry.insert(Arc::clone(&resident)).await;
+                    let child_pid = child.id().unwrap_or(0);
+                    supervisor.spawn_monitor(
+                        Arc::clone(&resident),
+                        Some(child),
+                        u64::from(child_pid),
+                    );
+                    supervisor.refresh_roster_entry(&resident).await;
+                    supervisor.log_line(&format!("session worker {worker_id} moved to this build"));
+                }
+                Err(error) => supervisor.log_line(&format!(
+                    "session worker {worker_id} could not move to this build: {error:#}"
+                )),
+            }
+        });
+    }
+
+    /// Give a live worker of another build to this build: the worker hands
+    /// its session over (its work stays resumable: busy recorded, no
+    /// abort, no close) and exits; then the session relaunches here (the
+    /// create replay). A worker that does not know the handover, or does
+    /// not exit within the stop grace, gets the identity-gated SIGTERM ->
+    /// SIGKILL escalation, which also leaves its storage resumable (a
+    /// worker has no signal handler: the signal ends it like a crash).
+    /// Returns the relaunched worker process.
+    async fn replace_worker_build(
+        self: &Arc<Self>,
+        resident: &Arc<ResidentWorker>,
+    ) -> Result<Child> {
+        let (pid, start_id) = {
+            let descriptor = resident.descriptor.lock().await;
+            (descriptor.pid as u32, descriptor.process_start_id.clone())
+        };
+        let handed_over = match self
+            .connect_worker(resident, worker_connect_deadline())
+            .await
+        {
+            Ok(()) => matches!(
+                self.route_command_typed(
+                    resident,
+                    "worker_handover",
+                    json!({}),
+                    STOP_GRACE_MS,
+                    RouteAdmission::Control,
+                )
+                .await,
+                Ok(response) if response.success
+            ),
+            Err(_) => false,
+        };
+        let exited = handed_over
+            && matches!(
+                tokio::time::timeout(
+                    Duration::from_millis(STOP_GRACE_MS),
+                    eukhe_core::platform::process::wait_for_exit(pid),
+                )
+                .await,
+                Ok(Ok(()))
+            );
+        if !exited {
+            match crate::boot_reap::stop_process(pid, start_id).await {
+                crate::boot_reap::ReapOutcome::Survived => {
+                    bail!("the worker of another build survived its stop")
+                }
+                crate::boot_reap::ReapOutcome::AlreadyGone
+                | crate::boot_reap::ReapOutcome::Term
+                | crate::boot_reap::ReapOutcome::Kill => {}
+            }
+        }
+        self.log_line(&format!(
+            "session worker {} of another build handed over (handover: {handed_over}); relaunching on this build",
+            resident.worker_id
+        ));
+        self.relaunch_worker(resident).await
     }
 
     /// Record one RLM child admission: the spawn edge in the daemon-owned
@@ -685,5 +855,96 @@ mod recorded_process_tests {
             Some("recycled")
         ));
         assert!(!recorded_process_alive(Some(false), Some("original"), None));
+    }
+}
+
+#[cfg(test)]
+mod build_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::{DaemonCommand, Ordering, Supervisor};
+    use crate::protocol::response_failure;
+    use crate::supervisor::SupervisorOptions;
+
+    /// F10: a live worker of another build that registers is not adopted.
+    /// It is told to hand its session over; a registrant that cannot be
+    /// reached gets the stop escalation, which leaves its storage
+    /// resumable. The relaunch on this build is the existing relaunch
+    /// path; here the supervisor is stopping, so no worker image runs.
+    #[tokio::test]
+    async fn a_registrant_of_another_build_is_not_adopted() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let socket_path = dir.path().join("daemon.sock");
+        let supervisor = Arc::new(
+            Supervisor::new(SupervisorOptions {
+                socket_path: socket_path.clone(),
+                agent_dir: dir.path().join("agent"),
+            })
+            .expect("supervisor"),
+        );
+        supervisor.pin_worker_connect_budget_for_tests(Duration::from_millis(1));
+        // The registrant's process: a child of this test, so the stop
+        // escalation signals nothing else.
+        let mut registrant = tokio::process::Command::new("sleep")
+            .arg("60")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn the registrant");
+        let pid = u64::from(registrant.id().expect("the registrant's pid"));
+        let worker_socket = dir.path().join("w-oldbuild.sock");
+        std::fs::create_dir_all(&supervisor.descriptor_dir).expect("descriptor dir");
+        std::fs::write(
+            supervisor.descriptor_dir.join("w-oldbuild.json"),
+            serde_json::json!({
+                "version": 2,
+                "workerId": "w-oldbuild",
+                "pid": pid,
+                "socketPath": worker_socket,
+                "recoveryJournalPath": dir.path().join("w-oldbuild.recovery.jsonl"),
+                "supervisorSocketPath": socket_path,
+                "authenticationToken": "old-token",
+                "rootActiveSessionId": "w-oldbuild",
+                "createdAt": "2026-10-19T00:00:00Z",
+                "updatedAt": "2026-10-19T00:00:00Z",
+                "lifecycle": "ready",
+                "createCommand": {},
+                "consecutiveFailures": 0,
+            })
+            .to_string(),
+        )
+        .expect("write the descriptor");
+        let command = DaemonCommand::WorkerRegister {
+            id: None,
+            active_session_id: "w-oldbuild".to_string(),
+            session_id: None,
+            socket_path: worker_socket.to_string_lossy().to_string(),
+            worker_instance_id: "inst-old".to_string(),
+            token: "old-token".to_string(),
+            pid,
+            build_id: Some("another-build".to_string()),
+            rest: serde_json::Map::default(),
+        };
+        let response = supervisor
+            .handle_worker_register("r1", "worker_register", &command)
+            .await;
+        // Before the background move runs (no await since the answer):
+        // the relaunch on this build is refused, so no worker image runs.
+        supervisor.shutting_down.store(true, Ordering::SeqCst);
+        assert_eq!(
+            response,
+            response_failure(
+                Some("r1"),
+                "worker_register",
+                "Unknown session worker: w-oldbuild runs another build: its session moves to this supervisor's build; registration refused",
+                None,
+            )
+        );
+        let status = tokio::time::timeout(Duration::from_secs(30), registrant.wait())
+            .await
+            .expect("the registrant was stopped")
+            .expect("the registrant's status");
+        assert!(!status.success(), "stopped by a signal: {status:?}");
+        assert!(supervisor.registry.get("w-oldbuild").await.is_none());
     }
 }

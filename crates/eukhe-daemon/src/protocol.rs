@@ -176,6 +176,10 @@ pub struct DaemonCommandEnvelope {
 pub enum EnvelopeParseError {
     #[error("Daemon commands require protocol {0} or newer")]
     ProtocolTooOld(u64),
+    /// The client speaks a newer protocol than this daemon: the client
+    /// is newer than the daemon, not older.
+    #[error("Daemon command protocol {client} is newer than this daemon's protocol {daemon}: the client is newer than the daemon")]
+    ProtocolTooNew { client: u64, daemon: u64 },
     #[error("Unknown daemon command: {0}")]
     UnknownCommand(String),
     #[error("Invalid daemon command: {0}")]
@@ -187,100 +191,6 @@ impl EnvelopeParseError {
     pub fn is_unknown_command(&self) -> bool {
         matches!(self, EnvelopeParseError::UnknownCommand(_))
     }
-}
-
-/// Parse one JSONL command line into an envelope. Non-envelope lines are
-/// treated as bare commands (TS backward compat). Unknown command types are
-/// preserved as an error so callers can reply with the exact TS wire error.
-///
-/// # Errors
-///
-/// Returns an error when the line is not valid JSON, the envelope is
-/// malformed (missing id, a non-string clientId, a bad command payload),
-/// the protocol is too old, or the command type is unknown
-/// (`EnvelopeParseError`).
-pub fn parse_daemon_command_line(line: &str) -> Result<DaemonCommandEnvelope, EnvelopeParseError> {
-    let value: Value = serde_json::from_str(line)
-        .map_err(|e| EnvelopeParseError::Invalid(format!("invalid JSON: {e}")))?;
-    parse_daemon_command_value(value)
-}
-
-fn parse_daemon_command_value(
-    mut value: Value,
-) -> Result<DaemonCommandEnvelope, EnvelopeParseError> {
-    // Bare commands (no `type: "command"` envelope) are accepted directly.
-    let (envelope_id, protocol, client_id, command_value) =
-        if value.get("type").and_then(Value::as_str) == Some("command") {
-            let obj = value.as_object_mut().ok_or_else(|| {
-                EnvelopeParseError::Invalid("command line is not an object".into())
-            })?;
-            let id = obj
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    EnvelopeParseError::Invalid("command envelope is missing id".into())
-                })?
-                .to_string();
-            let protocol = obj
-                .get("protocol")
-                .ok_or(EnvelopeParseError::ProtocolTooOld(
-                    DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION,
-                ))?;
-            let name = protocol.get("name").and_then(Value::as_str).unwrap_or("");
-            let version = protocol.get("version").and_then(Value::as_u64).unwrap_or(0);
-            if name != DAEMON_PROTOCOL_NAME
-                || version < DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION
-                || version > DAEMON_PROTOCOL_VERSION
-            {
-                return Err(EnvelopeParseError::ProtocolTooOld(
-                    DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION,
-                ));
-            }
-            let protocol = DaemonProtocolInfo {
-                name: name.to_string(),
-                version,
-            };
-            let client_id = match obj.get("clientId") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(s)) => Some(s.clone()),
-                Some(_) => {
-                    return Err(EnvelopeParseError::Invalid(
-                        "clientId must be a string".into(),
-                    ))
-                }
-            };
-            let command_value = obj.remove("command").ok_or_else(|| {
-                EnvelopeParseError::Invalid("command envelope is missing command".into())
-            })?;
-            (id, protocol, client_id, command_value)
-        } else {
-            let id = value
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            (id, current_protocol_info(), None, value)
-        };
-    let type_name = command_value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    // Keep the tag for the error after deserialization consumes the command value.
-    let type_name = type_name.to_string();
-    let Ok(command) = serde_json::from_value::<DaemonCommand>(command_value) else {
-        if !KNOWN_COMMAND_TYPES.contains(&type_name.as_str()) {
-            return Err(EnvelopeParseError::UnknownCommand(type_name));
-        }
-        return Err(EnvelopeParseError::Invalid(format!(
-            "malformed {type_name} command"
-        )));
-    };
-    Ok(DaemonCommandEnvelope {
-        id: envelope_id,
-        protocol,
-        client_id,
-        command,
-    })
 }
 
 /// Current protocol identity for this build.
@@ -350,6 +260,7 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
                 eukhe_types::daemon::MEMORY_CAPABILITY,
                 eukhe_types::daemon::MEMORY_TREE_CAPABILITY,
                 eukhe_types::daemon::STATE_TREE_CAPABILITY,
+                eukhe_types::daemon::IDLE_SHUTDOWN_CAPABILITY,
             ]
             .iter()
             .map(std::string::ToString::to_string),
@@ -360,24 +271,88 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
 /// Parse a client command line the way the TS supervisor does: only
 /// `type: "command"` envelopes are accepted; bare commands fail with the
 /// protocol error, because the supervisor has no pre-envelope clients.
+/// Unknown command types are preserved as an error so callers can reply
+/// with the exact TS wire error.
 ///
 /// # Errors
 ///
 /// Returns an error when the line is not valid JSON, is not a
 /// `type: "command"` envelope (bare commands fail as protocol-too-old),
-/// the envelope is malformed, the protocol is too old, or the command
-/// type is unknown (`EnvelopeParseError`).
+/// the envelope is malformed (missing id, a non-string clientId, a bad
+/// command payload), the protocol is too old or newer than this daemon's,
+/// or the command type is unknown (`EnvelopeParseError`).
 pub fn parse_supervisor_command_line(
     line: &str,
 ) -> Result<DaemonCommandEnvelope, EnvelopeParseError> {
-    let value: Value = serde_json::from_str(line)
+    let mut value: Value = serde_json::from_str(line)
         .map_err(|e| EnvelopeParseError::Invalid(format!("invalid JSON: {e}")))?;
     if value.get("type").and_then(Value::as_str) != Some("command") {
         return Err(EnvelopeParseError::ProtocolTooOld(
             DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION,
         ));
     }
-    parse_daemon_command_value(value)
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| EnvelopeParseError::Invalid("command line is not an object".into()))?;
+    let envelope_id = obj
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| EnvelopeParseError::Invalid("command envelope is missing id".into()))?
+        .to_string();
+    let protocol = obj
+        .get("protocol")
+        .ok_or(EnvelopeParseError::ProtocolTooOld(
+            DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION,
+        ))?;
+    let name = protocol.get("name").and_then(Value::as_str).unwrap_or("");
+    let version = protocol.get("version").and_then(Value::as_u64).unwrap_or(0);
+    if name != DAEMON_PROTOCOL_NAME || version < DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION {
+        return Err(EnvelopeParseError::ProtocolTooOld(
+            DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION,
+        ));
+    }
+    if version > DAEMON_PROTOCOL_VERSION {
+        return Err(EnvelopeParseError::ProtocolTooNew {
+            client: version,
+            daemon: DAEMON_PROTOCOL_VERSION,
+        });
+    }
+    let protocol = DaemonProtocolInfo {
+        name: name.to_string(),
+        version,
+    };
+    let client_id = match obj.get("clientId") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(_) => {
+            return Err(EnvelopeParseError::Invalid(
+                "clientId must be a string".into(),
+            ))
+        }
+    };
+    let command_value = obj
+        .remove("command")
+        .ok_or_else(|| EnvelopeParseError::Invalid("command envelope is missing command".into()))?;
+    // Keep the tag for the error after deserialization consumes the command value.
+    let type_name = command_value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let Ok(command) = serde_json::from_value::<DaemonCommand>(command_value) else {
+        if !KNOWN_COMMAND_TYPES.contains(&type_name.as_str()) {
+            return Err(EnvelopeParseError::UnknownCommand(type_name));
+        }
+        return Err(EnvelopeParseError::Invalid(format!(
+            "malformed {type_name} command"
+        )));
+    };
+    Ok(DaemonCommandEnvelope {
+        id: envelope_id,
+        protocol,
+        client_id,
+        command,
+    })
 }
 
 /// `proc:<start_time>` identity of a process (shared platform contract).
@@ -1147,7 +1122,7 @@ mod tests {
             ),
         ] {
             let line = serde_json::json!({"type":"command","id":"c1", "protocol":current_protocol_info(), "command":command}).to_string();
-            let parsed = parse_daemon_command_line(&line).unwrap();
+            let parsed = parse_supervisor_command_line(&line).unwrap();
             assert_eq!(command_type_name(&parsed.command), kind);
             assert_eq!(command_active_session_id(&parsed.command), Some("session"));
             assert!(eukhe_types::daemon::is_session_plane_daemon_command(kind));
@@ -1169,7 +1144,7 @@ mod tests {
             },
         })
         .to_string();
-        let parsed = parse_daemon_command_line(&line).unwrap();
+        let parsed = parse_supervisor_command_line(&line).unwrap();
         assert_eq!(command_type_name(&parsed.command), "answer_shell_approval");
         assert_eq!(command_active_session_id(&parsed.command), Some("session"));
         assert!(KNOWN_COMMAND_TYPES.contains(&"answer_shell_approval"));
@@ -1212,7 +1187,7 @@ mod tests {
             ),
         ] {
             let line = serde_json::json!({"type":"command","id":"c1", "protocol":current_protocol_info(), "command":command}).to_string();
-            let parsed = parse_daemon_command_line(&line).unwrap();
+            let parsed = parse_supervisor_command_line(&line).unwrap();
             assert_eq!(command_type_name(&parsed.command), "factory_activity");
             assert_eq!(command_active_session_id(&parsed.command), Some("session"));
             match &parsed.command {
@@ -1237,7 +1212,7 @@ mod tests {
     #[test]
     fn envelope_round_trips() {
         let line = r#"{"type":"command","id":"c1","protocol":{"name":"eukhe.daemon","version":7},"command":{"type":"list","all":true}}"#;
-        let envelope = parse_daemon_command_line(line).expect("envelope parses");
+        let envelope = parse_supervisor_command_line(line).expect("envelope parses");
         assert_eq!(envelope.id, "c1");
         assert!(matches!(envelope.command, DaemonCommand::List { .. }));
     }
@@ -1287,15 +1262,31 @@ mod tests {
     #[test]
     fn unknown_command_is_preserved() {
         let line = r#"{"type":"command","id":"c2","protocol":{"name":"eukhe.daemon","version":7},"command":{"type":"bogus_command","activeSessionId":"x"}}"#;
-        let err = parse_daemon_command_line(line).unwrap_err();
+        let err = parse_supervisor_command_line(line).unwrap_err();
         assert_eq!(err.to_string(), "Unknown daemon command: bogus_command");
     }
 
     #[test]
     fn old_protocol_is_rejected() {
         let line = r#"{"type":"command","id":"c3","protocol":{"name":"eukhe.daemon","version":6},"command":{"type":"list"}}"#;
-        let err = parse_daemon_command_line(line).unwrap_err();
-        assert!(err.to_string().contains("protocol 7 or newer"));
+        let err = parse_supervisor_command_line(line).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Daemon commands require protocol 7 or newer"
+        );
+    }
+
+    /// A client of a newer protocol is told that it is the newer side, not
+    /// that it must upgrade to the protocol it already passed.
+    #[test]
+    fn newer_protocol_is_rejected_as_too_new() {
+        let newer = DAEMON_PROTOCOL_VERSION + 1;
+        let line = json!({"type":"command", "id":"c4", "protocol":{"name":DAEMON_PROTOCOL_NAME,"version":newer}, "command":{"type":"list"}}).to_string();
+        let err = parse_supervisor_command_line(&line).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("Daemon command protocol {newer} is newer than this daemon's protocol {DAEMON_PROTOCOL_VERSION}: the client is newer than the daemon")
+        );
     }
 
     #[test]

@@ -15,7 +15,9 @@ use super::durable_host::bridge::{QueuedInput, QueuedMode};
 use super::durable_host::meta;
 use super::durable_host::suspended::{write_suspended, SuspendedState, WithdrawnInput};
 use super::durable_host::wire_messages::entry_wire_message;
-use super::{response_failure, response_success, HostedSession, KillCloseReason, Worker};
+use super::{
+    response_failure, response_success, HostedSession, KillCloseReason, RunAdmission, Worker,
+};
 use crate::protocol::DaemonResponse;
 
 impl Worker {
@@ -85,6 +87,9 @@ impl Worker {
             "worker_deliver_message" => self.handle_worker_deliver_message(payload).await,
             "kill" => self.handle_kill(payload).await,
             "shutdown" => self.handle_shutdown().await,
+            "worker_quiesce" => self.handle_quiesce().await,
+            "worker_release" => self.handle_release(),
+            "worker_handover" => self.handle_handover().await,
             "rename" => self.handle_rename("rename", payload).await,
             "set_session_name" => self.handle_rename("set_session_name", payload).await,
             "mark_anthropic_warning_shown" => self.handle_mark_anthropic_warning_shown().await,
@@ -290,6 +295,13 @@ impl Worker {
         // live input-pause lease keeps a `send` queued as held (the
         // release delivers it), exactly like a fresh admission.
         let paused = self.input_pauses.paused();
+        // A `send` passes the run gate before the inputs leave the store:
+        // inputs taken out while a quiesce holds the gate would be lost to
+        // the stop that follows it.
+        let admission = match queue {
+            AbortQueue::Send => Some(RunAdmission::enter(&self.core).await),
+            AbortQueue::Suspend | AbortQueue::Clear => None,
+        };
         let cleared = match mutate_withdrawn(&hosted, &self.core, &self.events, move |mut state| {
             state
                 .suspended
@@ -327,8 +339,10 @@ impl Worker {
         let data = match queue {
             AbortQueue::Suspend => None,
             AbortQueue::Send => {
-                if let Err(error) = resubmit(&hosted, cleared).await {
-                    return response_failure(None, command, &error, None);
+                if let Some(admission) = &admission {
+                    if let Err(error) = resubmit(&hosted, cleared, admission).await {
+                        return response_failure(None, command, &error, None);
+                    }
                 }
                 None
             }
@@ -829,8 +843,13 @@ impl AbortQueue {
     }
 }
 
-/// Submit `inputs` again on the main conversation, in order.
-async fn resubmit(hosted: &HostedSession, inputs: Vec<QueuedInput>) -> Result<(), String> {
+/// Submit `inputs` again on the main conversation, in order. The caller
+/// passed the run gate (`_admission`).
+async fn resubmit(
+    hosted: &HostedSession,
+    inputs: Vec<QueuedInput>,
+    _admission: &RunAdmission,
+) -> Result<(), String> {
     let main = hosted.main().map_err(|error| error.to_string())?;
     for input in inputs {
         main.submit(
@@ -979,7 +998,11 @@ pub(crate) async fn drain_withdrawn(
             .collect(),
         WithdrawnList::Held => current.held.iter().map(WithdrawnInput::queued).collect(),
     };
-    resubmit(hosted, drained).await?;
+    // The inputs stay in the store until they are resubmitted, so a wait
+    // at a quiesced gate loses nothing.
+    let admission = RunAdmission::enter(core).await;
+    resubmit(hosted, drained, &admission).await?;
+    drop(admission);
     let next = match list {
         WithdrawnList::Suspended => SuspendedState {
             suspended: Vec::new(),

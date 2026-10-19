@@ -25,9 +25,10 @@ use eukhe_types::pi_ai::{Usage, UsageCost};
 use super::{
     assert_thinking_supported, json, now_ms, resolve_child_model_from_settings, Arc, Context,
     Duration, Map, Path, PathBuf, Result, SupervisorChildSessions, SupervisorChildSessionsInner,
-    UnpinnedChildModel, Value, KILL_TIMEOUT_MS, PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS,
-    STATE_TIMEOUT_MS, WATCH_SETTLE_GRACE_MS,
+    UnpinnedChildModel, Value, PROMPT_TIMEOUT_MS, RENAME_TIMEOUT_MS, STATE_TIMEOUT_MS,
+    WATCH_SETTLE_GRACE_MS,
 };
+use crate::timeouts::RLM_CHILD_KILL_TIMEOUT_MS;
 
 /// Resolve the child model with the daemon `allowedModels` allowlist
 /// enforced (the parent's cwd scopes the settings read), refusing a model
@@ -175,7 +176,7 @@ impl SupervisorChildSessionsInner {
             return Ok(());
         }
         match self
-            .durable_command(&request.session_id, KILL_TIMEOUT_MS, make)
+            .durable_command(&request.session_id, RLM_CHILD_KILL_TIMEOUT_MS, make)
             .await
         {
             Err(error) if !format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
@@ -703,7 +704,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // The `rlmLedgerDelete` marker tells the supervisor this kill is
             // a delete (a plain stop must not tombstone the child).
             let killed = this
-                .durable_command(&request.session_id, KILL_TIMEOUT_MS, |selector| {
+                .durable_command(&request.session_id, RLM_CHILD_KILL_TIMEOUT_MS, |selector| {
                     DaemonCommand::Kill {
                         id: None,
                         active_session_id: selector.to_owned(),
@@ -914,7 +915,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // rerun after the record does not stop a child woken since.
             if !workspace.is_handed_back() {
                 let killed = this
-                    .durable_command(&request.session_id, KILL_TIMEOUT_MS, |selector| {
+                    .durable_command(&request.session_id, RLM_CHILD_KILL_TIMEOUT_MS, |selector| {
                         DaemonCommand::Kill {
                             id: None,
                             active_session_id: selector.to_owned(),
@@ -964,7 +965,7 @@ impl SupervisorChildSessions {
         for session_id in session_ids {
             let killed = self
                 .inner
-                .durable_command(session_id, KILL_TIMEOUT_MS, |selector| {
+                .durable_command(session_id, RLM_CHILD_KILL_TIMEOUT_MS, |selector| {
                     let mut rest = Map::new();
                     if let Some(marker) = reason.wire_marker() {
                         rest.insert("rlmCloseReason".to_owned(), json!(marker));

@@ -206,8 +206,10 @@ fn launcher_client_child_mode() {
     runtime
         .block_on(eukhe_cli::ensure_daemon_running_with(
             &cli_binary(),
+            eukhe_tui::daemon_build::Build::THIS,
             &socket,
             &spawn_cwd,
+            eukhe_tui::daemon_build::Caller::Interactive,
         ))
         .expect("launch supervisor");
 }

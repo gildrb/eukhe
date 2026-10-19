@@ -150,6 +150,7 @@ async fn the_refused_open_renders_both_ways_out_as_the_notice_panel() {
         restore_dock_focus: false,
         client_settings: None,
         dictation: None,
+        daemon_launcher: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 15_000 }],

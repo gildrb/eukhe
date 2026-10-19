@@ -20,7 +20,7 @@ use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBloc
 use serde_json::{json, Value};
 
 use super::durable_host::suspended::WithdrawnInput;
-use super::{sender_is_child_of, HostedSession, Worker};
+use super::{sender_is_child_of, HostedSession, RunAdmission, Worker};
 use crate::compaction::durable::ManualCompactionError;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 
@@ -128,7 +128,8 @@ pub(crate) fn parse_custom_message(value: Option<&Value>) -> Result<Option<Value
 
 /// Admit `request` on `conversation` as one input submission; its display
 /// row (if any) is the entry the input is placed as (an `eukhe.custom`
-/// input entry whose model message is the input).
+/// input entry whose model message is the input). The caller passed the
+/// run gate (`_admission`) and keeps the admission until this returns.
 ///
 /// # Errors
 ///
@@ -136,6 +137,7 @@ pub(crate) fn parse_custom_message(value: Option<&Value>) -> Result<Option<Value
 pub(crate) async fn submit_input(
     conversation: &Conversation,
     request: &InputRequest,
+    _admission: &RunAdmission,
     cx: &Context,
 ) -> anyhow::Result<SubmissionHandle> {
     let handle = conversation
@@ -179,7 +181,8 @@ impl Worker {
         request: &InputRequest,
     ) -> Result<SubmissionHandle, String> {
         let main = hosted.main().map_err(|error| error.to_string())?;
-        submit_input(&main, request, &BACKGROUND_CONTEXT)
+        let admission = RunAdmission::enter(&self.core).await;
+        submit_input(&main, request, &admission, &BACKGROUND_CONTEXT)
             .await
             .map_err(|error| format!("{error:#}"))
     }
