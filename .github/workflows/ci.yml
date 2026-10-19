@@ -342,24 +342,28 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Install Bend and Lean (pinned releases, sha256-checked)
+      - name: Install Bend (pinned release, sha256-checked)
         uses: ./.github/actions/setup-bend
-        with:
-          lean: "true"
       - name: Check the proofs
         run: |
           set -euo pipefail
           bend PROOF.bend | tee "${RUNNER_TEMP}/proof.out"
           grep -qx 'ALL PROOFS CHECK' "${RUNNER_TEMP}/proof.out"
+      # Before Lean: Lean's bin directory carries its own clang, without the
+      # C headers (stdbool.h) that the bridge's `bend -o` build needs.
+      - name: The release-version rule and its bridge to bend/semver.bend
+        env:
+          EUKHE_REQUIRE_BEND: "1"
+        run: python3 scripts/release/test_next_version.py
+      - name: Install Lean (pinned release, sha256-checked) for --verdict
+        uses: ./.github/actions/setup-bend
+        with:
+          lean: "true"
       - name: Check the proofs with the BendTT kernel
         run: |
           set -euo pipefail
           bend PROOF.bend --verdict | tee "${RUNNER_TEMP}/verdict.out"
           grep -qx 'ALL PROOFS CHECK' "${RUNNER_TEMP}/verdict.out"
-      - name: The release-version rule and its bridge to bend/semver.bend
-        env:
-          EUKHE_REQUIRE_BEND: "1"
-        run: python3 scripts/release/test_next_version.py
 
   # The supply-chain deny gate:
   #
