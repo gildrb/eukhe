@@ -1490,9 +1490,19 @@ async fn poisons_after_main_flush_failure_and_defers_reclamation(mode: Mode) {
         current_value(&deferred, id).await,
         Some(json!({ "count": 2 }))
     );
+    // An fsync open first makes the storage directory's own entry durable
+    // (a flush of its parent), then the replay flushes the marker it found.
+    let parent = std::path::Path::new(&directory.path)
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        .expect("the temp dir has a named parent");
     assert_eq!(
         recovery_env.operations(),
-        vec!["flush:main.jsonl".to_owned()]
+        vec![
+            format!("flush-directory:{parent}"),
+            "flush:main.jsonl".to_owned(),
+        ]
     );
     assert_eq!(
         read_lines(&directory.join(&format!("doc-{id}.jsonl"))).len(),
