@@ -1,7 +1,7 @@
 //! Prime Inference catalog constants: the provider's base URL (the compiled
 //! transport tuple its entries pin to) and the private-model id predicate.
 //! The Prime Inference models themselves ship compiled
-//! ([`crate::transports::prime_inference_offline_entries`]).
+//! ([`crate::transports::compiled_models`]).
 
 /// The Prime Inference API base URL (the compiled transport's `baseUrl`).
 pub const PRIME_INFERENCE_BASE_URL: &str = "https://api.pinference.ai/api/v1";

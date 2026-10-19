@@ -127,21 +127,6 @@ pub fn compiled_provider_ids() -> std::collections::BTreeSet<&'static str> {
         .collect()
 }
 
-/// The compiled Prime Inference entries (joined into every resolved
-/// catalog). Private ids (internal/, dev/, ids containing `:`) never ship
-/// compiled.
-#[must_use]
-pub fn prime_inference_offline_entries() -> Vec<Model> {
-    compiled_models()
-        .iter()
-        .filter(|model| {
-            model.provider == "prime-inference"
-                && !crate::prime_inference::is_private_prime_inference_model_id(&model.id)
-        })
-        .cloned()
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,13 +139,6 @@ mod tests {
         assert!(compiled_models()
             .iter()
             .any(|model| model.provider == "prime-inference"));
-        assert_eq!(
-            prime_inference_offline_entries().len(),
-            PRIME_INFERENCE_MODELS
-                .keys()
-                .filter(|id| !crate::prime_inference::is_private_prime_inference_model_id(id))
-                .count()
-        );
     }
 
     /// The supplement carries only transports the pi-ai table lacks: a

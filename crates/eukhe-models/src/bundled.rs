@@ -1,18 +1,18 @@
-//! Bundled snapshot loading: the second step of the no-cold-start chain.
+//! Bundled snapshot loading: one of the two sources of the built-in
+//! catalog (the compiled catalog is the other; [`crate::ModelCatalog`]
+//! serves their union).
 //!
 //! Ported from `bundled-model-catalog.ts`: the packaged assets
 //! (`models.bundled.json` + `mcp-services.bundled.json`) are generated at
 //! build time and shipped beside the executable (a damaged installation
 //! still offers the compiled model definitions). The models asset is parsed
-//! with the strict schema, pinned to compiled transports, and joined with
-//! the compiled Prime Inference entries.
+//! with the strict schema and pinned to compiled transports.
 
 use std::path::{Path, PathBuf};
 
 use crate::pinning::{pin_catalog_models, PinnedTemplates};
 use crate::prime_inference::is_private_prime_inference_model_id;
 use crate::schema::{parse_model_catalog, InvalidEntries};
-use crate::transports;
 use crate::Model;
 
 /// The packaged models asset file name.
@@ -78,16 +78,15 @@ impl BundledAssets {
 }
 
 /// Load + pin the bundled models snapshot. `None` (missing/damaged asset)
-/// falls back to the compiled model definitions; the same shape TS
+/// leaves the compiled model definitions alone; the same shape TS
 /// `loadBundledModels` catches for.
 #[must_use]
 pub fn load_bundled_models(asset: &str, templates: &PinnedTemplates) -> Option<Vec<Model>> {
     let payload: serde_json::Value = serde_json::from_str(asset).ok()?;
     let catalog = parse_model_catalog(&payload, InvalidEntries::Reject).ok()?;
     let mut models = pin_catalog_models(catalog.models.clone(), templates).ok()?;
-    // Prime Inference ships compiled (110 offline entries) — the packaged
-    // aggregate never carries it. Join any asset-provided prime entries
-    // (pinned to the compiled tuple) plus the compiled offline entries.
+    // Pinning skips Prime Inference (that domain ships compiled). Keep the
+    // asset's public entries on the compiled Prime Inference transport.
     for model in catalog.models {
         if model.provider != "prime-inference"
             || model.api != "openai-completions"
@@ -98,21 +97,13 @@ pub fn load_bundled_models(asset: &str, templates: &PinnedTemplates) -> Option<V
         }
         models.push(model);
     }
-    let offline = transports::prime_inference_offline_entries();
-    for model in offline {
-        if !models
-            .iter()
-            .any(|existing| existing.id == model.id && existing.provider == model.provider)
-        {
-            models.push(model);
-        }
-    }
     Some(models)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transports;
     use serde_json::json;
 
     fn asset(models: impl AsRef<[serde_json::Value]>) -> String {
@@ -141,21 +132,15 @@ mod tests {
     }
 
     #[test]
-    fn loads_pins_and_joins_prime_offline_entries() {
+    fn loads_and_pins_only_the_asset_entries() {
         let asset = asset(vec![entry("m1", "anthropic"), entry("m2", "openai")]);
         let models =
             load_bundled_models(&asset, &PinnedTemplates::from_compiled()).expect("loaded");
-        assert!(
-            models.len() > 110,
-            "pinned entries + 110 offline prime entries"
-        );
-        assert_eq!(
-            models
-                .iter()
-                .filter(|m| m.provider == "prime-inference")
-                .count(),
-            110
-        );
+        let keys: Vec<(&str, &str)> = models
+            .iter()
+            .map(|model| (model.provider.as_str(), model.id.as_str()))
+            .collect();
+        assert_eq!(keys, [("anthropic", "m1"), ("openai", "m2")]);
     }
 
     #[test]

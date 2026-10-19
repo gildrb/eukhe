@@ -1,5 +1,5 @@
-//! `ModelRegistry`: the built-in catalog (bundled snapshot | compiled
-//! fallback) with the user's models.json composed over it, and request auth
+//! `ModelRegistry`: the built-in catalog (the union of the bundled snapshot
+//! and the compiled catalog) with the user's models.json composed over it, and request auth
 //! per provider/model. Port of model-registry.ts. Fully local: building the
 //! catalog never touches the network. models.json parsing, composition, and
 //! its configured auth are `super::custom`'s, the same code the session's
@@ -21,9 +21,9 @@ use crate::auth::types::AuthCredential;
 use super::custom::{in_file, ModelsConfig, ProviderConfig};
 use super::prime_inference::{is_private_prime_inference_model, private_prime_inference_models};
 
-/// The process-wide built-in catalog: the packaged bundled snapshot, else
-/// the compiled fallback. The install's assets never change while the
-/// process runs, so one resolution serves every registry.
+/// The process-wide built-in catalog: the union of the packaged bundled
+/// snapshot and the compiled catalog. The install's assets never change
+/// while the process runs, so one resolution serves every registry.
 static BUILT_IN_CATALOG: LazyLock<ModelCatalog> = LazyLock::new(ModelCatalog::new);
 
 /// The result of `getApiKeyAndHeaders`.
@@ -366,7 +366,7 @@ impl ModelRegistry {
     }
 }
 
-/// The built-in catalog (bundled snapshot | compiled fallback), borrowed,
+/// The built-in catalog (bundled snapshot and compiled catalog), borrowed,
 /// then the bundled private Prime Inference table (listed, but gated out
 /// of `get_available` unless models.json declares the id).
 fn built_in_models() -> Vec<Cow<'static, Model>> {

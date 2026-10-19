@@ -51,6 +51,8 @@ import ./bend/proof_log.bend as Logs
 import ./bend/proof_staging.bend as Stagings
 import ./laws/recover.bend as Rec
 import ./bend/proof_recover.bend as Recover
+import ./laws/catalog_union.bend as CatalogUnion
+import ./bend/proof_catalog_union.bend as CatalogUnions
 
 # (a) The view
 
@@ -973,3 +975,29 @@ def Rec.rec_redo_is_noted(pass):
 
 def Rec.rec_quit_fails(cfg, pass, r, c, a, n, p):
   Recover.quit_fails(cfg, pass, r, c, a, n, p)
+
+# (C1) The catalog union
+
+def CatalogUnion.union_hides_nothing(bs, cs, k):
+  CatalogUnions.pcu.hides_nothing(bs, cs, k)
+
+def CatalogUnion.union_lists_each_model_once(bs, cs, k, ub, uc):
+  CatalogUnions.pcu.lists_once(bs, cs, k, ub, uc)
+
+def CatalogUnion.union_bundled_only(bs, cs, k, b, hb, hc):
+  CatalogUnions.pcu.bundled_only(bs, cs, k, b, hb, hc)
+
+def CatalogUnion.union_compiled_only(bs, cs, k, c, hb, hc):
+  CatalogUnions.pcu.compiled_only(bs, cs, k, c, hb, hc)
+
+def CatalogUnion.union_both_keeps_bundled(bs, cs, k, b, c, v, hb, hc, hv):
+  CatalogUnions.pcu.both_keeps_bundled(bs, cs, k, b, c, v, hb, hc, hv)
+
+def CatalogUnion.union_both_fills_from_compiled(bs, cs, k, b, c, hb, hc, hn, ha):
+  CatalogUnions.pcu.both_fills(bs, cs, k, b, c, hb, hc, hn, ha)
+
+def CatalogUnion.union_both_other_api(bs, cs, k, b, c, hb, hc, hn, ha):
+  CatalogUnions.pcu.both_other_api(bs, cs, k, b, c, hb, hc, hn, ha)
+
+def CatalogUnion.union_order_free(k, xs, xs2, ys, ys2, sx, sy):
+  CatalogUnions.pcu.order_free(k, xs, xs2, ys, ys2, sx, sy)

@@ -363,6 +363,67 @@ Regression tests: `utils::json_parse::tests`,
 `json_parse::relaxed::tests`, `tool::arguments::tests`, and
 `tool::result::tests`.
 
+#### S6 the built-in model catalog
+
+The built-in model catalog is the list of models that the `/model` menu,
+the registry and the daemon's `get_model_catalog` use. The user's
+`models.json` goes on top of it. It has two sources. Both are on this
+machine: eukhe does not fetch a catalog.
+
+1. The bundled catalog, `models.bundled.json` beside the executable. A
+   release makes it from the catalog repository
+   (`PrimeIntellect-ai/prime-agent-catalog`) at the commit in
+   `scripts/release/catalog-pin.json` and checks the sha256 of each
+   file. The parse is strict, and each entry must use a transport that
+   the client compiles in (transport pinning).
+2. The compiled catalog, the pi-ai tables of `eukhe-ai`
+   (`providers/data/*.json`) and the Prime Inference entries.
+
+The built-in catalog is the union of the two sources. A model is its
+provider and id.
+
+1. Each model of either source is in the catalog. Neither source hides
+   a model of the other. Each model is in the catalog one time.
+2. When the two sources have a model, the bundled entry gives its api,
+   its `baseUrl`, its data (`name`, `reasoning`, `input`, `cost`,
+   `contextWindow`, `maxTokens`) and each optional field that it has.
+   The compiled entry gives each optional field that the bundled entry
+   does not have (`thinkingLevelMap`, `compat`, `featured`, `headers`),
+   but only when the two entries use the same api.
+3. A model that only one source has comes from that source with no
+   change.
+4. The order is the bundled entries in bundled order, then the compiled
+   models that the bundle does not have, in compiled order. The fields
+   of a model come only from its entry in each source, thus the order in
+   which eukhe reads the sources changes no model.
+5. Without a bundled catalog, or with a damaged one, the catalog is the
+   compiled catalog.
+
+Thus a model that the compiled catalog has and the pinned catalog does
+not have (for example Claude Haiku 5.5) is in the `/model` menu.
+
+Every week, `.github/workflows/catalog-pin.yml` moves the pin to the
+newest commit of the catalog repository. It runs the same validation as
+`make catalog-pin`, records the commit and both sha256, and opens a pull
+request. CI runs on that pull request.
+
+Older builds kept a fetched catalog in
+`~/.eukhe/models/provider-model-catalog.v1.json`. No current code reads
+or writes that file.
+
+Laws: `laws/catalog_union.bend` (C1, the model in
+`bend/catalog_union.bend`, the proofs in `bend/proof_catalog_union.bend`).
+Code: `eukhe-models/src/effective.rs` (`effective_catalog`),
+`chain.rs` (`ModelCatalog::models`), `bundled.rs`
+(`load_bundled_models`), `pinning.rs`. Bridge:
+`effective::bridge::the_rust_union_equals_the_bend_model` runs the code
+against `bend/bridge_catalog_union.bend` on generated catalogs.
+Regression tests: `chain::tests::a_bundle_without_a_compiled_model_keeps_it`;
+`eukhe-daemon` `tests/model_catalog_e2e.rs`
+(`a_bundle_without_a_compiled_model_still_lists_it`: the pinned catalog
+snapshot as the bundle, an Anthropic login, and the daemon's catalog has
+Claude Haiku 5.5).
+
 ### S9. Local tiny models
 
 A local tiny model is a small model that runs on this machine. eukhe uses

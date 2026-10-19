@@ -1,15 +1,19 @@
-//! The no-cold-start chain: where the built-in models come from.
+//! The built-in models: where they come from.
 //!
-//! Port of the TS registry's local catalog layers (`bundled-model-catalog.ts`):
+//! Two local sources, after the TS registry's local catalog layers
+//! (`bundled-model-catalog.ts`):
 //!
-//! 1. packaged bundled snapshot (`models.bundled.json` beside the
+//! 1. the packaged bundled snapshot (`models.bundled.json` beside the
 //!    executable, strict-parsed and pinned);
-//! 2. compiled fallback (the 42 transport tuples + 110 offline Prime
-//!    Inference entries compiled into the binary).
+//! 2. the compiled catalog (the pi-ai tables plus the Prime Inference
+//!    entries compiled into the binary).
 //!
-//! A user always has models: the chain never touches the network. The
-//! bundled asset is part of the install, so its resolution is computed once
-//! per catalog instance and served from memory afterwards.
+//! The built-in catalog is their union ([`effective_catalog`]): every
+//! model of either source, the bundled entry winning the fields it states.
+//! Without a usable bundled snapshot it is the compiled catalog. A user
+//! always has models, and the catalog never touches the network. The
+//! bundled asset is part of the install, so its resolution is computed
+//! once per catalog instance and served from memory afterwards.
 //!
 //! The user's local `models.json` takes PRECEDENCE over this catalog; the
 //! registry that owns models.json merges custom models over this list.
@@ -18,16 +22,17 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::bundled::{load_bundled_models, BundledAssets};
+use crate::effective::effective_catalog;
 use crate::pinning::PinnedTemplates;
 use crate::transports;
 use crate::Model;
 
-/// The built-in model catalog: the bundled snapshot, else the compiled
-/// fallback.
+/// The built-in model catalog: the union of the bundled snapshot and the
+/// compiled catalog.
 pub struct ModelCatalog {
     bundled: BundledAssets,
-    /// The pinned bundled snapshot, resolved on first use (`None`: the
-    /// install has no usable asset and the compiled fallback serves).
+    /// The union, resolved on first use (`None`: the install has no usable
+    /// bundled asset and the compiled catalog serves alone).
     resolved: OnceLock<Option<Vec<Model>>>,
 }
 
@@ -58,14 +63,17 @@ impl ModelCatalog {
         }
     }
 
-    /// The built-in models through the no-cold-start chain. Never fails;
-    /// never touches the network.
+    /// The built-in models: the bundled snapshot's union with the compiled
+    /// catalog. Never fails; never touches the network.
     pub fn models(&self) -> &[Model] {
         self.resolved
             .get_or_init(|| {
-                self.bundled.read_models().and_then(|asset| {
-                    load_bundled_models(&asset, &PinnedTemplates::from_compiled())
-                })
+                self.bundled
+                    .read_models()
+                    .and_then(|asset| {
+                        load_bundled_models(&asset, &PinnedTemplates::from_compiled())
+                    })
+                    .map(|bundled| effective_catalog(bundled, transports::compiled_models()))
             })
             .as_deref()
             .unwrap_or_else(|| transports::compiled_models())
@@ -104,18 +112,14 @@ mod tests {
     }
 
     #[test]
-    fn compiled_fallback_without_a_bundled_asset() {
+    fn compiled_catalog_without_a_bundled_asset() {
         let dir = tempfile::tempdir().unwrap();
         let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
-        assert_eq!(
-            catalog.models().len(),
-            transports::compiled_models().len(),
-            "compiled fallback"
-        );
+        assert_eq!(catalog.models(), transports::compiled_models());
     }
 
     #[test]
-    fn bundled_asset_beats_compiled_fallback() {
+    fn a_bundled_asset_adds_to_the_compiled_catalog() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("models.bundled.json"),
@@ -124,19 +128,40 @@ mod tests {
         .unwrap();
         let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
         let models = catalog.models();
+        assert_eq!(models[0].id, "bundled-a");
+        assert_eq!(&models[1..], transports::compiled_models());
+    }
+
+    /// The pinned catalog snapshot has no Claude Haiku 5.5; the compiled
+    /// catalog has it. With that snapshot bundled, the model is still in
+    /// the built-in catalog, as the compiled catalog defines it.
+    #[test]
+    fn a_bundle_without_a_compiled_model_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("models.bundled.json"),
+            include_str!("../tests/fixtures/catalog.v1.json"),
+        )
+        .unwrap();
+        let haiku = |models: &[Model]| -> Option<Model> {
+            models
+                .iter()
+                .find(|model| model.provider == "anthropic" && model.id == "claude-haiku-5-5")
+                .cloned()
+        };
+        let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
         assert_eq!(
-            models.len(),
-            111,
-            "1 pinned bundled entry + 110 offline prime-inference entries"
+            haiku(catalog.models()),
+            haiku(transports::compiled_models())
         );
-        assert!(models.iter().any(|m| m.id == "bundled-a"));
+        assert!(haiku(catalog.models()).is_some());
     }
 
     #[test]
-    fn damaged_bundled_asset_falls_back_to_compiled() {
+    fn damaged_bundled_asset_serves_the_compiled_catalog() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("models.bundled.json"), "{broken").unwrap();
         let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
-        assert_eq!(catalog.models().len(), transports::compiled_models().len());
+        assert_eq!(catalog.models(), transports::compiled_models());
     }
 }

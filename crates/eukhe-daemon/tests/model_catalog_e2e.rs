@@ -15,12 +15,22 @@ mod process;
 use daemon::supervisor_command;
 use process::Daemon;
 
-fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
+/// Each test supervises a daemon and a session worker; serializing them
+/// keeps the harness out of parallel-spawn resource races.
+static DAEMON_E2E: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Spawn the supervisor with `package_dir` as the install's package
+/// directory: the bundled catalog it holds (if any) is the bundle the
+/// built-in catalog reads, never one beside the test binary.
+fn spawn_supervisor(socket: &Path, agent_dir: &Path, package_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
+    std::fs::create_dir_all(package_dir).expect("package dir");
     Daemon::spawn_bound(
         supervisor_command(socket, agent_dir)
             .env_remove("PRIME_API_KEY")
-            .env_remove("EUKHE_CODING_AGENT_DIR"),
+            .env_remove("ANTHROPIC_API_KEY")
+            .env_remove("EUKHE_CODING_AGENT_DIR")
+            .env("EUKHE_PACKAGE_DIR", package_dir),
         socket,
         Duration::from_secs(10),
     )
@@ -117,19 +127,9 @@ fn write_models_json(agent_dir: &Path, base_url: &str) {
     .expect("write models.json");
 }
 
-#[test]
-fn daemon_serves_the_local_catalog() {
-    let temp = tempfile::Builder::new()
-        .prefix("pa-model-catalog-")
-        .tempdir()
-        .expect("temp dir");
-    let dir = temp.path();
-    let agent_dir = dir.join("agent");
-    let socket = dir.join("daemon.sock");
-    // No auth beyond the models.json key: no provider credentials.
-    write_models_json(&agent_dir, "http://127.0.0.1:9/v1");
-    let supervisor = spawn_supervisor(&socket, &agent_dir);
-    let mut client = Client::connect(&socket);
+/// Create a session and answer its `get_model_catalog` data: the full
+/// catalog with the configured providers.
+fn served_catalog(client: &mut Client, dir: &Path, agent_dir: &Path) -> Value {
     let session_dir = agent_dir.join("sessions");
     let created = client.request(
         "create-1",
@@ -149,14 +149,108 @@ fn daemon_serves_the_local_catalog() {
         .or_else(|| created["data"]["sessionId"].as_str())
         .expect("session id")
         .to_string();
-
-    // get_model_catalog: the full catalog with the configured providers.
     let response = client.request(
         "catalog-1",
         &json!({ "type": "get_model_catalog", "activeSessionId": session_id }),
     );
     assert!(response["success"].as_bool().unwrap_or(false), "{response}");
-    let data = &response["data"];
+    response["data"].clone()
+}
+
+/// The catalog fields of a model object, for whole-object comparison.
+fn catalog_fields(model: &Value) -> Value {
+    let fields = [
+        "provider",
+        "id",
+        "name",
+        "api",
+        "baseUrl",
+        "reasoning",
+        "input",
+        "cost",
+        "contextWindow",
+        "maxTokens",
+    ];
+    fields
+        .iter()
+        .map(|field| ((*field).to_string(), model[*field].clone()))
+        .collect::<serde_json::Map<String, Value>>()
+        .into()
+}
+
+/// The pinned catalog snapshot (the eukhe-models parity fixture) has no
+/// Claude Haiku 5.5; the compiled catalog has it. With that snapshot as
+/// the install's bundled catalog, the `/model` list of an Anthropic login
+/// still has the model, as the compiled catalog defines it.
+#[test]
+fn a_bundle_without_a_compiled_model_still_lists_it() {
+    let _serial = DAEMON_E2E
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let temp = tempfile::Builder::new()
+        .prefix("pa-model-catalog-")
+        .tempdir()
+        .expect("temp dir");
+    let dir = temp.path();
+    let agent_dir = dir.join("agent");
+    let package_dir = dir.join("package");
+    let socket = dir.join("daemon.sock");
+    std::fs::create_dir_all(&package_dir).expect("package dir");
+    std::fs::write(
+        package_dir.join("models.bundled.json"),
+        include_str!("../../eukhe-models/tests/fixtures/catalog.v1.json"),
+    )
+    .expect("write the bundled catalog");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    std::fs::write(
+        agent_dir.join("auth.json"),
+        json!({ "anthropic": { "type": "api_key", "key": "sk-ant-catalog-e2e" } }).to_string(),
+    )
+    .expect("write auth.json");
+    let supervisor = spawn_supervisor(&socket, &agent_dir, &package_dir);
+    let mut client = Client::connect(&socket);
+    let data = served_catalog(&mut client, dir, &agent_dir);
+    let haiku = data["models"]
+        .as_array()
+        .expect("models array")
+        .iter()
+        .find(|model| model["provider"] == "anthropic" && model["id"] == "claude-haiku-5-5")
+        .map(catalog_fields);
+    let mut compiled = serde_json::to_value(
+        eukhe_ai::providers::anthropic_models::ANTHROPIC_MODELS
+            .get("claude-haiku-5-5")
+            .expect("the compiled Claude Haiku 5.5"),
+    )
+    .expect("serialize the compiled model");
+    // The registry model has no pricing tiers.
+    compiled["cost"]
+        .as_object_mut()
+        .expect("the compiled cost")
+        .remove("tiers");
+    assert_eq!(haiku, Some(catalog_fields(&compiled)));
+    assert_eq!(data["configuredProviders"], json!(["anthropic"]));
+    drop(client);
+    drop(supervisor);
+}
+
+#[test]
+fn daemon_serves_the_local_catalog() {
+    let _serial = DAEMON_E2E
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let temp = tempfile::Builder::new()
+        .prefix("pa-model-catalog-")
+        .tempdir()
+        .expect("temp dir");
+    let dir = temp.path();
+    let agent_dir = dir.join("agent");
+    let socket = dir.join("daemon.sock");
+    // No auth beyond the models.json key: no provider credentials.
+    write_models_json(&agent_dir, "http://127.0.0.1:9/v1");
+    // An install without a bundled catalog: the compiled catalog serves.
+    let supervisor = spawn_supervisor(&socket, &agent_dir, &dir.join("package"));
+    let mut client = Client::connect(&socket);
+    let data = served_catalog(&mut client, dir, &agent_dir);
     let models = data["models"].as_array().expect("models array");
     assert!(
         models.len() > 100,

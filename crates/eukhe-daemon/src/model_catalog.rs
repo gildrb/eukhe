@@ -1,6 +1,6 @@
 //! The `/model` picker's catalog surface (TS daemon-mode
-//! `get_model_catalog`): the full local catalog — bundled snapshot or
-//! compiled fallback, plus the user's models.json — and the providers with
+//! `get_model_catalog`): the full local catalog — the union of the bundled
+//! snapshot and the compiled catalog, plus the user's models.json — and the providers with
 //! configured auth. Each model object also carries the thinking levels and
 //! service tiers it offers, read from the eukhe-ai quirks rulebook
 //! (`eukhe_types::ai::CatalogModel`), so clients compute no ladder or tier

@@ -34,6 +34,7 @@ import ./laws/ladder.bend as Ladder
 import ./laws/kernel_local.bend as KernelLocal
 import ./laws/storage.bend as Storage
 import ./laws/recover.bend as Rec
+import ./laws/catalog_union.bend as CatalogUnion
 
 # (a) The view
 # ------------

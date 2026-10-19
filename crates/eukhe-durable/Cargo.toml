@@ -47,7 +47,7 @@ tempfile = { version = "3", optional = true }
 [features]
 # `eukhe_durable::testing`: the storage and environment conformance suites,
 # for the crate's own integration tests, and the Bend bridge harness, for
-# this crate's and eukhe-core's bridge tests.
+# this crate's, eukhe-models' and eukhe-core's bridge tests.
 testing = ["dep:tempfile"]
 
 [dev-dependencies]

@@ -14,7 +14,9 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   `.github/actions/setup-bend`. After each green `ci.yml` run of a push to main,
   `eukhe-release.yml` releases that commit as `eukhe-v<X.Y.P>` (title
   `Eukhe v<X.Y.P>`, the next patch of the `Cargo.toml` series `X.Y.0`) and writes
-  `nix/release.json`.
+  `nix/release.json`. Every week `catalog-pin.yml` moves
+  `scripts/release/catalog-pin.json` to the catalog repo's newest commit and
+  opens a PR (it starts `ci.yml` on it).
 - Prime Intellect stays as a third-party service: provider `prime-inference`,
   `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`,
   the model catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Everything that
@@ -104,8 +106,9 @@ background bookkeeping.
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 - `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs` and
   `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled
-  fallback model catalog. `eukhe-models` adds the transport templates pi-ai lacks
-  (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`).
+  model catalog. The built-in catalog is its union with the bundled snapshot
+  (`eukhe-models` `effective.rs`, laws in `laws/catalog_union.bend`). `eukhe-models`
+  adds the transport templates pi-ai lacks (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`).
   `crates/eukhe-models/tests/fixtures/catalog.v1.json` refreshes with
   `scripts/generate-catalog-fixture.py`.
 
@@ -119,7 +122,7 @@ background bookkeeping.
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
 |`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
 |`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
-|`eukhe-models`|Bundled model catalog and transport pinning|`eukhe-types`, `eukhe-ai`|
+|`eukhe-models`|Built-in model catalog (the union of the bundled snapshot and the compiled catalog) and transport pinning|`eukhe-types`, `eukhe-ai`|
 |`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|none|
 |`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`|
 |`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, the shared worker per model and its election, the worker client, role-based model selection|`eukhe-build-info`|

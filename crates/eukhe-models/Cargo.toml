@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Built-in model catalog: bundled snapshot, compiled fallback, transport pinning."
+description = "Built-in model catalog: the union of the bundled snapshot and the compiled catalog, transport pinning."
 
 [dependencies]
 eukhe-ai = { path = "../eukhe-ai" }
@@ -14,6 +14,8 @@ serde_json = { workspace = true }
 tracing = { version = "0.1", features = ["attributes"] }
 
 [dev-dependencies]
+# The Bend bridge harness (`eukhe_durable::testing::bridge`).
+eukhe-durable = { workspace = true, features = ["testing"] }
 tempfile = "3"
 
 [lints]

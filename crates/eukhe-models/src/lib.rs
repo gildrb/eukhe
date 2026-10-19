@@ -10,17 +10,20 @@
 //! - `packages/coding-agent/src/core/bundled-model-catalog.ts` -> [`bundled`]
 //!
 //! The packaged `models.bundled.json` (generated at build time from the
-//! catalog repo's `models/catalog.v1.json`) is the client-facing catalog
-//! contract; the compiled pi-ai table in `eukhe-ai` (converted by
-//! [`pi_ai_model`]) is the fallback. Everything the catalog can do is select
-//! among transports the client compiled in; it can never introduce a
-//! transport or change what a request sends.
+//! catalog repo's `models/catalog.v1.json`) and the compiled pi-ai table in
+//! `eukhe-ai` (converted by [`pi_ai_model`]) are the two sources of the
+//! built-in catalog; [`ModelCatalog`] serves their union
+//! ([`effective::effective_catalog`]: no source hides a model the other
+//! has; the bundled entry wins the fields it states). Everything the
+//! catalog can do is select among transports the client compiled in; it
+//! can never introduce a transport or change what a request sends.
 //!
 //! Ownership: eukhe-models depends on eukhe-ai (compiled transport
 //! templates) and eukhe-types (shared `Model`).
 
 pub mod bundled;
 pub mod compat;
+pub mod effective;
 pub mod pi_ai_model;
 pub mod pinning;
 pub mod prime_inference;

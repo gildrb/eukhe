@@ -33,7 +33,7 @@ deny:
 # local action (.github/actions/setup-bend) through the steps that use it.
 actionlint:
 	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint not installed (see rhysd/actionlint releases)"; exit 1; }
-	actionlint .github/workflows/ci.yml .github/workflows/eukhe-release.yml
+	actionlint .github/workflows/ci.yml .github/workflows/eukhe-release.yml .github/workflows/catalog-pin.yml
 
 # GLIBC baseline gate (eukhe-release.yml's build-linux job): a
 # GNU/Linux artifact must not require symbols above GLIBC_2.35, the Ubuntu
@@ -122,7 +122,9 @@ catalog-assets-fixture:
 # Move the catalog pin (scripts/release/catalog-pin.json) to the catalog
 # repo's current CATALOG_REF (default main): resolves the commit, fetches
 # both files at it, runs the full validation gates, and records the commit
-# and both sha256. Review the diff before committing it.
+# and both sha256. Review the diff before committing it. Every week
+# .github/workflows/catalog-pin.yml does the same for main and opens a
+# pull request with the new pin.
 CATALOG_REF ?= main
 catalog-pin:
 	python3 scripts/release/bundle_catalog.py pin --ref $(CATALOG_REF)

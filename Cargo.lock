@@ -776,6 +776,7 @@ name = "eukhe-models"
 version = "0.10.0"
 dependencies = [
  "eukhe-ai",
+ "eukhe-durable",
  "eukhe-types",
  "serde",
  "serde_json",
