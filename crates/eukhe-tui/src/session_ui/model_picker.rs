@@ -14,10 +14,11 @@ use serde_json::Value;
 /// again in the background.
 const MODEL_CATALOG_REFRESH_TTL: std::time::Duration = std::time::Duration::from_mins(1);
 
-/// A landed `get_model_catalog` refresh: the full catalog and the providers
-/// with configured auth (TS `AgentConnectionModelCatalog`).
+/// A landed `get_model_catalog` refresh: the full catalog (each entry with
+/// its served levels and tiers) and the providers with configured auth
+/// (TS `AgentConnectionModelCatalog`).
 pub(crate) struct ModelCatalogUpdate {
-    pub models: Vec<eukhe_types::ai::Model>,
+    pub models: Vec<eukhe_types::ai::CatalogModel>,
     pub configured_providers: std::collections::HashSet<String>,
 }
 
@@ -28,10 +29,13 @@ pub(super) enum ModelPickerTarget {
 }
 
 impl SessionUi {
-    /// The catalog entry for the current model (the `/fast` eligibility
-    /// check needs the provider and api, not just the id): the
+    /// The catalog entry for the current model (the `/tier` completions
+    /// need its served tiers, the image check its input): the
     /// provider-aware match of [`find_current_model_entry`].
-    pub(super) fn current_model_entry(&self, view: &AgentView) -> Option<&eukhe_types::ai::Model> {
+    pub(super) fn current_model_entry(
+        &self,
+        view: &AgentView,
+    ) -> Option<&eukhe_types::ai::CatalogModel> {
         let model_id = view.chrome.model_id.as_deref()?;
         find_current_model_entry(
             &self.model_catalog,
@@ -256,10 +260,10 @@ impl SessionUi {
     /// same-id entry under another provider is a different model and never
     /// wins the picker's `current` marker or selection).
     fn current_model(&self, view: &AgentView) -> Option<CurrentModel> {
-        let model = self.current_model_entry(view)?;
+        let entry = self.current_model_entry(view)?;
         Some(CurrentModel {
-            provider: model.provider.clone(),
-            model_id: model.id.clone(),
+            provider: entry.model.provider.clone(),
+            model_id: entry.model.id.clone(),
         })
     }
 
@@ -286,7 +290,7 @@ impl SessionUi {
                 // they are.
                 return;
             };
-            let models: Vec<eukhe_types::ai::Model> = value
+            let models: Vec<eukhe_types::ai::CatalogModel> = value
                 .get("models")
                 .cloned()
                 .and_then(|models| serde_json::from_value(models).ok())
@@ -357,18 +361,20 @@ impl SessionUi {
         let reasoning = current.and_then(|current| {
             self.model_catalog
                 .iter()
-                .find(|model| model.provider == current.provider && model.id == current.model_id)
-                .map(|model| model.reasoning)
+                .find(|entry| {
+                    entry.model.provider == current.provider && entry.model.id == current.model_id
+                })
+                .map(|entry| entry.model.reasoning)
         });
         if reasoning == Some(true) {
             return state
                 .and_then(|state| state.get("thinkingLevel"))
                 .and_then(Value::as_str)
-                .and_then(eukhe_types::ai::thinking_level_from_str);
+                .and_then(eukhe_types::ai::ModelThinkingLevel::parse);
         }
         self.default_thinking_level
             .as_deref()
-            .and_then(eukhe_types::ai::thinking_level_from_str)
+            .and_then(eukhe_types::ai::ModelThinkingLevel::parse)
             .or(Some(eukhe_types::ai::ModelThinkingLevel::Medium))
     }
 
@@ -594,7 +600,7 @@ impl SessionUi {
             .await;
         view.chrome.thinking_suffix = match state {
             Ok(data) => crate::chrome::tray_thinking_suffix(&data),
-            Err(_) => eukhe_types::ai::thinking_level_from_str(level)
+            Err(_) => eukhe_types::ai::ModelThinkingLevel::parse(level)
                 .map(|parsed| parsed.wire_name().to_string()),
         };
         self.note(&format!("Thinking level: {level}"), view);
@@ -688,15 +694,15 @@ fn current_model_from_selector(selector: &str) -> Option<CurrentModel> {
 /// whose entry the catalog lacks resolves nothing rather than another
 /// provider's same-id model.
 fn find_current_model_entry<'a>(
-    catalog: &'a [eukhe_types::ai::Model],
+    catalog: &'a [eukhe_types::ai::CatalogModel],
     provider: Option<&str>,
     model_id: &str,
-) -> Option<&'a eukhe_types::ai::Model> {
+) -> Option<&'a eukhe_types::ai::CatalogModel> {
     match provider {
         Some(provider) => catalog
             .iter()
-            .find(|model| model.provider == provider && model.id == model_id),
-        None => catalog.iter().find(|model| model.id == model_id),
+            .find(|entry| entry.model.provider == provider && entry.model.id == model_id),
+        None => catalog.iter().find(|entry| entry.model.id == model_id),
     }
 }
 
@@ -704,7 +710,7 @@ fn find_current_model_entry<'a>(
 mod tests {
     use super::*;
 
-    fn entry(provider: &str, id: &str) -> eukhe_types::ai::Model {
+    fn entry(provider: &str, id: &str) -> eukhe_types::ai::CatalogModel {
         serde_json::from_value(serde_json::json!({
             "id": id,
             "name": format!("{provider}/{id}"),
@@ -716,6 +722,8 @@ mod tests {
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
             "contextWindow": 128_000,
             "maxTokens": 4096,
+            "thinkingLevels": ["off"],
+            "serviceTiers": ["default"],
         }))
         .expect("mock model deserializes")
     }
@@ -733,7 +741,7 @@ mod tests {
         ];
         let resolved = find_current_model_entry(&catalog, Some("prime-inference"), "z-ai/glm-5.3");
         assert_eq!(
-            resolved.map(|model| model.provider.as_str()),
+            resolved.map(|entry| entry.model.provider.as_str()),
             Some("prime-inference"),
             "the session's own provider's entry wins, not the first same-id entry"
         );
@@ -762,7 +770,7 @@ mod tests {
         ];
         let resolved = find_current_model_entry(&catalog, None, "z-ai/glm-5.3");
         assert_eq!(
-            resolved.map(|model| model.provider.as_str()),
+            resolved.map(|entry| entry.model.provider.as_str()),
             Some("openrouter"),
             "without a provider the id-only fallback keeps resolving the first match"
         );

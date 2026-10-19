@@ -41,18 +41,20 @@ use eukhe_tui::interactive::{
     run_interactive, HeadlessPlan, HeadlessStep, InteractiveOptions, ModelSelection,
     SessionSelection, UiMode,
 };
-use eukhe_types::ai::Model;
+use eukhe_types::ai::CatalogModel;
 use serde_json::{json, Value};
 
 /// One catalog model: the id `z-ai/glm-5.3` under a provider, with a
-/// provider-distinct name so the picker's rows identify by name.
-fn duplicate_id_model(provider: &str, name: &str) -> Model {
+/// provider-distinct name so the picker's rows identify by name, and the
+/// levels and tiers the daemon serves for a non-reasoning model.
+fn duplicate_id_model(provider: &str, name: &str) -> CatalogModel {
     serde_json::from_value(json!({
         "id": "z-ai/glm-5.3", "name": name, "api": "openai-completions", "provider": provider,
         "baseUrl": "https://example.invalid/v1", "reasoning": false,
         "input": ["text"],
         "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
         "contextWindow": 128_000, "maxTokens": 4096,
+        "thinkingLevels": ["off"], "serviceTiers": ["default"],
     }))
     .expect("mock model deserializes")
 }
@@ -63,7 +65,7 @@ fn duplicate_id_model(provider: &str, name: &str) -> Model {
 /// are configured (the operator's real setup: the session runs
 /// prime-inference while openrouter carries the same id signed in too),
 /// so the resolution is not a sign-in artifact.
-fn duplicate_id_catalog() -> Vec<Model> {
+fn duplicate_id_catalog() -> Vec<CatalogModel> {
     vec![
         duplicate_id_model("openrouter", "GLM 5.3 Open"),
         duplicate_id_model("prime-inference", "GLM 5.3 Prime"),
@@ -77,11 +79,11 @@ fn duplicate_id_catalog() -> Vec<Model> {
 /// the startup snapshot and the `get_model_catalog` refresh.
 struct MockSupervisor {
     listener: UnixListener,
-    catalog: Vec<Model>,
+    catalog: Vec<CatalogModel>,
 }
 
 impl MockSupervisor {
-    fn bind(socket: &std::path::Path, catalog: Vec<Model>) -> Self {
+    fn bind(socket: &std::path::Path, catalog: Vec<CatalogModel>) -> Self {
         MockSupervisor {
             listener: UnixListener::bind(socket).expect("bind mock socket"),
             catalog,
@@ -259,7 +261,7 @@ fn write_json(writer: &mut UnixStream, value: &Value) {
     writer.flush().expect("flush mock frame");
 }
 
-fn options(socket: PathBuf, catalog: Vec<Model>) -> InteractiveOptions {
+fn options(socket: PathBuf, catalog: Vec<CatalogModel>) -> InteractiveOptions {
     // The startup snapshot mirrors the daemon's `get_model_catalog`
     // answer exactly (both duplicate-id models, both providers
     // configured): the background refresh can land before or after the

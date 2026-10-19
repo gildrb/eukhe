@@ -129,9 +129,10 @@ pub struct InteractiveOptions {
     pub cwd: PathBuf,
     /// The model catalog for the `/model` picker (a startup snapshot
     /// resolved by the composition root; eukhe-tui stays eukhe-types only, so
-    /// the registry itself lives above this crate). The daemon's
-    /// `get_model_catalog` refresh replaces it once it lands.
-    pub model_catalog: Vec<eukhe_types::ai::Model>,
+    /// the registry itself lives above this crate). Each entry carries the
+    /// levels and tiers the model offers, as the daemon serves them. The
+    /// daemon's `get_model_catalog` refresh replaces it once it lands.
+    pub model_catalog: Vec<eukhe_types::ai::CatalogModel>,
     /// Providers with configured auth for the picker's sign-in marking.
     pub model_configured_providers: std::collections::HashSet<String>,
     /// The settings recent-model list (`provider/id` keys, newest first).

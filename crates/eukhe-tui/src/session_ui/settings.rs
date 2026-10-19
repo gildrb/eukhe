@@ -723,12 +723,15 @@ impl SessionUi {
     /// `/fast` (TS `handleFastCommand`): toggle the priority service tier.
     /// The TS queue (`fastModeToggleQueue`) serializes toggles; here the
     /// dispatch is the only submission path and awaits to completion, so
-    /// toggles cannot interleave.
+    /// toggles cannot interleave. The model is eligible when the
+    /// connection state's `availableServiceTiers` lists `priority`.
     pub(super) async fn handle_fast_command(&mut self, view: &mut AgentView) {
         const UNAVAILABLE: &str = "Fast mode requires GPT-5.4, GPT-5.5, or GPT-5.6 with ChatGPT or OpenAI API key authentication";
-        let eligible = self
-            .current_model_entry(view)
-            .is_some_and(eukhe_types::ai::supports_fast_mode);
+        let Some(state) = self.connection_state(view).await else {
+            return;
+        };
+        let eligible = super::served_service_tiers(&state)
+            .contains(&eukhe_types::ai::ServiceTier::Priority.as_str());
         if !eligible {
             self.note(UNAVAILABLE, view);
             return;

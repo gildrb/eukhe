@@ -471,11 +471,18 @@ async fn tui_model_picker_applies_and_effort_reports() {
         std::sync::Arc::new(eukhe_core::auth::NoOAuth),
     );
     let registry = eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-    let catalog: Vec<eukhe_types::ai::Model> =
-        registry.get_available().into_iter().cloned().collect();
+    let catalog: Vec<eukhe_types::ai::CatalogModel> = registry
+        .get_available()
+        .into_iter()
+        .map(|model| eukhe_types::ai::CatalogModel {
+            thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
+            service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            model: model.clone(),
+        })
+        .collect();
     assert_eq!(catalog.len(), 1, "the models.json model resolves available");
     assert_eq!(
-        catalog[0].id, "mock-1",
+        catalog[0].model.id, "mock-1",
         "the one available model is the models.json mock"
     );
 
@@ -613,10 +620,17 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         std::sync::Arc::new(eukhe_core::auth::NoOAuth),
     );
     let registry = eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-    let catalog: Vec<eukhe_types::ai::Model> =
-        registry.get_available().into_iter().cloned().collect();
+    let catalog: Vec<eukhe_types::ai::CatalogModel> = registry
+        .get_available()
+        .into_iter()
+        .map(|model| eukhe_types::ai::CatalogModel {
+            thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
+            service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            model: model.clone(),
+        })
+        .collect();
     assert_eq!(catalog.len(), 1, "the models.json model resolves available");
-    assert_eq!(catalog[0].id, "chat-plus");
+    assert_eq!(catalog[0].model.id, "chat-plus");
 
     let options = eukhe_tui::interactive::InteractiveOptions {
         models: None,

@@ -524,12 +524,14 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
     // worker's auth-scoped catalog is empty while the bundled catalog
     // carries the flagged model. The picker catalog is a client-side
     // snapshot (the same seam the composition root injects).
-    let glm: eukhe_types::ai::Model = serde_json::from_value(serde_json::json!({
+    let glm: eukhe_types::ai::CatalogModel = serde_json::from_value(serde_json::json!({
         "id": "z-ai/glm-5.3", "name": "GLM 5.3", "api": "openai-completions",
         "provider": "prime-inference", "baseUrl": "https://inference.example/v1",
         "reasoning": true, "input": ["text"],
         "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-        "contextWindow": 128_000, "maxTokens": 8192
+        "contextWindow": 128_000, "maxTokens": 8192,
+        "thinkingLevels": ["off", "minimal", "low", "medium", "high"],
+        "serviceTiers": ["default"]
     }))
     .expect("catalog entry");
     let options = eukhe_tui::interactive::InteractiveOptions {
@@ -666,8 +668,15 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         std::sync::Arc::new(eukhe_core::auth::NoOAuth),
     );
     let registry = eukhe_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
-    let catalog: Vec<eukhe_types::ai::Model> =
-        registry.get_available().into_iter().cloned().collect();
+    let catalog: Vec<eukhe_types::ai::CatalogModel> = registry
+        .get_available()
+        .into_iter()
+        .map(|model| eukhe_types::ai::CatalogModel {
+            thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
+            service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            model: model.clone(),
+        })
+        .collect();
     assert_eq!(
         catalog.len(),
         2,

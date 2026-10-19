@@ -751,7 +751,9 @@ async fn uses_qwen_chat_template_thinking_kwargs() {
 
 #[tokio::test]
 async fn disables_qwen_template_thinking_for_custom_qwen_models_when_off() {
-    let model = local_model(&json!({ "id": "qwen3.8-27b", "name": "Qwen3.8 27B" }));
+    // A Qwen before 3.8: the rulebook ladder offers off and high, and off
+    // has no wire value, so the template toggle goes out.
+    let model = local_model(&json!({ "id": "qwen3-32b", "name": "Qwen3 32B" }));
 
     let off = capture_simple_params(&model, None).await;
     assert_eq!(
@@ -760,14 +762,15 @@ async fn disables_qwen_template_thinking_for_custom_qwen_models_when_off() {
     );
     assert!(off.get("reasoning_effort").is_none());
 
-    let high = capture_simple_params(&model, Some(ThinkingLevel::High)).await;
+    let low = capture_simple_params(&model, Some(ThinkingLevel::Low)).await;
     assert_eq!(
-        high["chat_template_kwargs"],
+        low["chat_template_kwargs"],
         json!({ "enable_thinking": true })
     );
-    assert_eq!(high["reasoning_effort"], json!("high"));
+    assert_eq!(low["reasoning_effort"], json!("high"));
 
-    // An explicit `off` mapping is the user's control and wins.
+    // An explicit map is the user's control and wins over the rulebook
+    // ladder; a level it does not name takes the default ladder.
     let mapped = local_model(&json!({
         "id": "qwen3.8-27b",
         "name": "Qwen3.8 27B",
@@ -776,6 +779,37 @@ async fn disables_qwen_template_thinking_for_custom_qwen_models_when_off() {
     let mapped_off = capture_simple_params(&mapped, None).await;
     assert!(mapped_off.get("chat_template_kwargs").is_none());
     assert_eq!(mapped_off["reasoning_effort"], json!("none"));
+    let mapped_high = capture_simple_params(&mapped, Some(ThinkingLevel::High)).await;
+    assert_eq!(mapped_high["reasoning_effort"], json!("high"));
+}
+
+/// A custom Qwen 3.8 model with no map sends the rulebook's 3.8 ladder:
+/// off as `none`, low, medium and xhigh; a level it does not offer clamps
+/// to the next offered level.
+#[tokio::test]
+async fn a_custom_qwen_3_8_model_sends_the_rulebook_ladder() {
+    let model = local_model(&json!({ "id": "qwen3.8-27b", "name": "Qwen3.8 27B" }));
+    let mut sent = Vec::new();
+    for reasoning in [
+        None,
+        Some(ThinkingLevel::Minimal),
+        Some(ThinkingLevel::Low),
+        Some(ThinkingLevel::Medium),
+        Some(ThinkingLevel::High),
+        Some(ThinkingLevel::Xhigh),
+    ] {
+        let params = capture_simple_params(&model, reasoning).await;
+        sent.push((
+            params.get("chat_template_kwargs").cloned(),
+            params.get("reasoning_effort").cloned(),
+        ));
+    }
+    assert_eq!(
+        sent,
+        ["none", "low", "low", "medium", "xhigh", "xhigh"]
+            .map(|effort| (None, Some(json!(effort))))
+            .to_vec()
+    );
 }
 
 #[tokio::test]

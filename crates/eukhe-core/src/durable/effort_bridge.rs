@@ -1,15 +1,20 @@
 //! The bridge between the reasoning-depth rules of `eukhe-ai`
 //! ([`get_supported_thinking_levels`], [`clamp_thinking_level`],
-//! [`cycle_thinking_level`]) and their Bend model (`bend/effort.bend`,
-//! whose laws `PROOF.bend` proves, section S10 of `docs/inference.md`):
-//! both run the same scenarios and must print the same transcript, byte
-//! for byte.
+//! [`cycle_thinking_level`]) and their Bend models (`bend/infer.bend`
+//! section 6, the ladder data; `bend/effort.bend`, the clamp and the
+//! cycle; their laws `PROOF.bend` proves, sections S6 and S10 of
+//! `docs/inference.md`): both run the same scenarios and must print the
+//! same transcript, byte for byte.
 //!
-//! A scenario is a list of models, one a line (`bend/bridge_effort.bend`
-//! documents the format): reasoning or not, no thinking-level map or a map
-//! whose entry for each ladder level is missing, `null` or a wire string.
-//! The scenarios hold the edge models (no reasoning, no map, an off-only
-//! ladder, an empty ladder, one level, explicit xhigh and max) and random
+//! A scenario starts with the rulebook's default ladders and then lists
+//! models, one a line (`bend/bridge_effort.bend` documents the format):
+//! reasoning or not, no thinking-level map or a map whose entry for each
+//! ladder level is missing, `null` or a wire string, and the rulebook's
+//! ladder for the model when one applies (a Qwen family on a custom
+//! provider; a built-in provider keeps its catalog ladder). The scenarios
+//! hold the edge models (no reasoning, no map, an off-only ladder, an
+//! empty ladder, one level, explicit xhigh and max, each rule ladder alone
+//! and under an explicit map, a Qwen on a built-in provider) and random
 //! ones. For each model the transcript prints the offered levels, the
 //! clamp of each ladder level, and a forward and a backward cycle step
 //! from each ladder level.
@@ -21,9 +26,10 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use eukhe_ai::models::{clamp_thinking_level, cycle_thinking_level, get_supported_thinking_levels};
+use eukhe_ai::quirks::{Quirks, Rulebook};
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 use eukhe_types::daemon::CycleDirection;
-use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
+use eukhe_types::pi_ai::{Model, ModelThinkingLevel, ThinkingLevelMap};
 use serde_json::Value;
 
 /// The ladder, in order.
@@ -48,12 +54,19 @@ enum Case {
     NullDropped,
     /// A wire entry below xhigh keeps its level.
     WireKept,
-    /// A missing entry below xhigh keeps its level.
+    /// A missing entry takes the default ladder, which lists the level.
     MissingKept,
-    /// A missing xhigh or max entry drops its level.
-    ExtMissingDropped,
+    /// A missing entry takes the default ladder, which does not list the
+    /// level.
+    MissingDropped,
     /// A wire xhigh or max entry keeps its level.
     ExtWireKept,
+    /// A reasoning model with no map takes the rulebook's ladder.
+    RuleLadder,
+    /// An explicit map wins over the rulebook's ladder.
+    ExplicitOverRule,
+    /// A Qwen on a built-in provider keeps the default ladder.
+    BuiltInDefault,
     /// A reasoning model offers off only.
     OffOnly,
     /// A reasoning model offers no level.
@@ -99,68 +112,118 @@ impl Entry {
     }
 }
 
+/// The family of a scenario model: none (`bridge`), a Qwen before 3.8
+/// (`qwen3-32b`), a Qwen 3.8 (`qwen3.8-27b`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Family {
+    None,
+    Qwen,
+    Qwen38,
+}
+
+/// The provider of a scenario model: a custom one, or a built-in one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Host {
+    Custom,
+    BuiltIn,
+}
+
 /// A model of the scenarios.
 #[derive(Clone, Copy, Debug)]
 struct Spec {
     reasoning: bool,
     /// The entry of each ladder level; `None`: the model has no map.
     map: Option<[Entry; 7]>,
+    family: Family,
+    host: Host,
+}
+
+/// The entries of a ladder, in ladder order.
+fn entries(ladder: &ThinkingLevelMap) -> [Entry; 7] {
+    LADDER.map(|level| match ladder.get(&level) {
+        None => Entry::Missing,
+        Some(None) => Entry::Null,
+        Some(Some(_)) => Entry::Wire,
+    })
+}
+
+/// The scenario line of the rulebook's default ladders: `d`, then for each
+/// ladder level `1` when the reasoning default lists it, else `0`, then
+/// the same for the plain default.
+fn defaults_line() -> String {
+    let defaults = Rulebook::shipped().thinking_defaults();
+    let mut line = "d".to_owned();
+    for list in [&defaults.reasoning, &defaults.plain] {
+        for level in LADDER {
+            write!(line, " {}", u8::from(list.contains(&level))).unwrap();
+        }
+    }
+    line
 }
 
 impl Spec {
+    /// A model of no family on a built-in provider.
+    const fn plain(reasoning: bool, map: Option<[Entry; 7]>) -> Self {
+        Self {
+            reasoning,
+            map,
+            family: Family::None,
+            host: Host::BuiltIn,
+        }
+    }
+
     /// The edge models: no reasoning, no map, an off-only ladder, an
-    /// empty ladder, one level, explicit xhigh and max.
+    /// empty ladder, one level, explicit xhigh and max; each rule ladder
+    /// alone and under an explicit map; a Qwen on a built-in provider.
     fn edges() -> Vec<Self> {
         use Entry::{Missing, Null, Wire};
+        let rule = |family, map| Self {
+            reasoning: true,
+            map,
+            family,
+            host: Host::Custom,
+        };
         vec![
+            Self::plain(false, None),
+            Self::plain(false, Some([Null; 7])),
+            Self::plain(true, None),
+            Self::plain(true, Some([Wire, Null, Null, Null, Null, Null, Null])),
+            Self::plain(true, Some([Null; 7])),
+            Self::plain(
+                true,
+                Some([Missing, Missing, Missing, Missing, Missing, Wire, Wire]),
+            ),
+            Self::plain(true, Some([Null, Null, Null, Null, Wire, Null, Null])),
+            Self::plain(true, Some([Null, Null, Wire, Wire, Wire, Wire, Wire])),
+            rule(Family::Qwen, None),
+            rule(Family::Qwen38, None),
+            rule(
+                Family::Qwen38,
+                Some([Missing, Missing, Null, Missing, Wire, Missing, Missing]),
+            ),
             Self {
-                reasoning: false,
+                reasoning: true,
                 map: None,
-            },
-            Self {
-                reasoning: false,
-                map: Some([Null; 7]),
-            },
-            Self {
-                reasoning: true,
-                map: None,
-            },
-            Self {
-                reasoning: true,
-                map: Some([Wire, Null, Null, Null, Null, Null, Null]),
-            },
-            Self {
-                reasoning: true,
-                map: Some([Null; 7]),
-            },
-            Self {
-                reasoning: true,
-                map: Some([Missing, Missing, Missing, Missing, Missing, Wire, Wire]),
-            },
-            Self {
-                reasoning: true,
-                map: Some([Null, Null, Null, Null, Wire, Null, Null]),
-            },
-            Self {
-                reasoning: true,
-                map: Some([Null, Null, Wire, Wire, Wire, Wire, Wire]),
+                family: Family::Qwen38,
+                host: Host::BuiltIn,
             },
         ]
     }
 
     /// A random model: mostly reasoning; no map, an all-null map, an
-    /// off-only map, a one-level map, or random entries.
+    /// off-only map, a one-level map, or random entries; any family on
+    /// any provider.
     fn random(rng: &mut Rng) -> Self {
         let any = [Entry::Missing, Entry::Null, Entry::Wire];
         let map = match rng.below(10) {
-            0 => None,
-            1 => Some([Entry::Null; 7]),
-            2 => {
+            0 | 1 => None,
+            2 => Some([Entry::Null; 7]),
+            3 => {
                 let mut entries = [Entry::Null; 7];
                 entries[0] = rng.pick(&[Entry::Missing, Entry::Wire]).unwrap();
                 Some(entries)
             }
-            3 => {
+            4 => {
                 let mut entries = [Entry::Null; 7];
                 entries[usize::try_from(rng.below(7)).unwrap()] = Entry::Wire;
                 Some(entries)
@@ -170,18 +233,40 @@ impl Spec {
         Self {
             reasoning: rng.chance(85),
             map,
+            family: rng
+                .pick(&[Family::None, Family::Qwen, Family::Qwen38])
+                .unwrap(),
+            host: rng.pick(&[Host::Custom, Host::BuiltIn]).unwrap(),
+        }
+    }
+
+    /// The rulebook's ladder for the model: a Qwen family on a custom
+    /// provider; a built-in provider keeps its catalog ladder.
+    fn rule(self) -> Option<[Entry; 7]> {
+        match (self.family, self.host) {
+            (Family::None | Family::Qwen | Family::Qwen38, Host::BuiltIn)
+            | (Family::None, Host::Custom) => None,
+            (Family::Qwen | Family::Qwen38, Host::Custom) => Some(entries(
+                Quirks::of(&self.model())
+                    .thinking_ladder()
+                    .expect("the rulebook has a ladder for the Qwen families"),
+            )),
         }
     }
 
     /// The model's scenario line.
     fn line(self) -> String {
-        let entries = self.map.unwrap_or([Entry::Missing; 7]);
         let mut line = format!(
             "{} {}",
             u8::from(self.reasoning),
             u8::from(self.map.is_some())
         );
-        for entry in entries {
+        for entry in self.map.unwrap_or([Entry::Missing; 7]) {
+            write!(line, " {}", entry.token()).unwrap();
+        }
+        let rule = self.rule();
+        write!(line, " {}", u8::from(rule.is_some())).unwrap();
+        for entry in rule.unwrap_or([Entry::Missing; 7]) {
             write!(line, " {}", entry.token()).unwrap();
         }
         line
@@ -189,9 +274,18 @@ impl Spec {
 
     /// The model as the catalog holds it.
     fn model(self) -> Model {
+        let id = match self.family {
+            Family::None => "bridge",
+            Family::Qwen => "qwen3-32b",
+            Family::Qwen38 => "qwen3.8-27b",
+        };
+        let provider = match self.host {
+            Host::Custom => "bridge-host",
+            Host::BuiltIn => "prime-inference",
+        };
         let mut json = serde_json::json!({
-            "id": "bridge", "name": "Bridge", "api": "openai-completions",
-            "provider": "prime-inference", "baseUrl": "https://example.invalid/v1",
+            "id": id, "name": "Bridge", "api": "openai-completions",
+            "provider": provider, "baseUrl": "https://example.invalid/v1",
             "reasoning": self.reasoning, "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
             "contextWindow": 128_000, "maxTokens": 4096,
@@ -225,18 +319,32 @@ impl Spec {
         } else if offered == [ModelThinkingLevel::Off] {
             reached.insert(Case::OffOnly);
         }
-        let Some(entries) = self.map else {
-            reached.insert(Case::NoMap);
-            return;
-        };
-        for (level, entry) in LADDER.iter().zip(entries) {
+        let rule = self.rule();
+        match (self.map, rule) {
+            (Some(_), Some(_)) => {
+                reached.insert(Case::ExplicitOverRule);
+            }
+            (None, Some(_)) => {
+                reached.insert(Case::RuleLadder);
+            }
+            (None, None) => {
+                reached.insert(match self.family {
+                    Family::None => Case::NoMap,
+                    Family::Qwen | Family::Qwen38 => Case::BuiltInDefault,
+                });
+            }
+            (Some(_), None) => {}
+        }
+        let defaults = &Rulebook::shipped().thinking_defaults().reasoning;
+        let chosen = self.map.or(rule).unwrap_or([Entry::Missing; 7]);
+        for (level, entry) in LADDER.iter().zip(chosen) {
             let ext = matches!(level, ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max);
             reached.insert(match (entry, ext) {
                 (Entry::Null, _) => Case::NullDropped,
                 (Entry::Wire, false) => Case::WireKept,
                 (Entry::Wire, true) => Case::ExtWireKept,
-                (Entry::Missing, false) => Case::MissingKept,
-                (Entry::Missing, true) => Case::ExtMissingDropped,
+                (Entry::Missing, _) if defaults.contains(level) => Case::MissingKept,
+                (Entry::Missing, _) => Case::MissingDropped,
             });
         }
     }
@@ -253,7 +361,8 @@ fn rung(level: ModelThinkingLevel) -> usize {
 /// One scenario's models as they run on the Rust code: their lines, for
 /// the model, and the transcript the Rust code printed.
 fn run(name: String, specs: &[Spec], reached: &mut Reached) -> Scenario {
-    let mut events = String::new();
+    let mut events = defaults_line();
+    events.push('\n');
     let mut transcript = String::new();
     for spec in specs {
         events.push_str(&spec.line());
@@ -332,8 +441,11 @@ fn the_rust_reasoning_depth_equals_the_bend_model() {
             Case::NullDropped,
             Case::WireKept,
             Case::MissingKept,
-            Case::ExtMissingDropped,
+            Case::MissingDropped,
             Case::ExtWireKept,
+            Case::RuleLadder,
+            Case::ExplicitOverRule,
+            Case::BuiltInDefault,
             Case::OffOnly,
             Case::EmptyLadder,
             Case::ClampKeeps,

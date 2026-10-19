@@ -47,9 +47,10 @@ struct MockSupervisor {
 }
 
 /// The `OpenRouter` catalog entry as the daemon's `get_model_catalog` answer
-/// carries it: completions API, so flex and priority are both eligible for
-/// the model. The same json seeds `InteractiveOptions::model_catalog` (the
-/// composition-root snapshot the picker serves before the fetch lands).
+/// carries it: the model plus the levels and tiers the daemon serves for
+/// it (flex and priority eligible). The same json seeds
+/// `InteractiveOptions::model_catalog` (the composition-root snapshot the
+/// picker serves before the fetch lands).
 fn openrouter_model_value() -> Value {
     json!({
         "id": "openai/gpt-5.5",
@@ -61,7 +62,9 @@ fn openrouter_model_value() -> Value {
         "input": ["text"],
         "cost": { "input": 5, "output": 30, "cacheRead": 0.5, "cacheWrite": 0 },
         "contextWindow": 272_000,
-        "maxTokens": 128_000
+        "maxTokens": 128_000,
+        "thinkingLevels": ["off", "minimal", "low", "medium", "high"],
+        "serviceTiers": ["default", "flex", "priority"]
     })
 }
 
@@ -171,6 +174,7 @@ impl MockSupervisor {
                                 "activeSessionId": "s1",
                                 "sessionId": "sess-1",
                                 "serviceTier": "flex",
+                                "availableServiceTiers": ["default", "flex", "priority"],
                                 "steeringMode": "one-at-a-time",
                                 "model": { "id": "openai/gpt-5.5", "provider": "openrouter" },
                                 "isStreaming": false,
@@ -214,7 +218,7 @@ fn write_json(writer: &mut UnixStream, value: &Value) {
 }
 
 /// The slim attach result: one session on an `OpenRouter` completions model
-/// (the catalog entry the eligibility predicate reads).
+/// (the catalog entry whose served tiers the completions read).
 fn attach_data(id: &str) -> Value {
     json!({
         "type": "response",
@@ -249,7 +253,7 @@ fn attach_data(id: &str) -> Value {
 }
 
 /// The composition-root catalog seed (the options snapshot).
-fn openrouter_catalog() -> Vec<eukhe_types::ai::Model> {
+fn openrouter_catalog() -> Vec<eukhe_types::ai::CatalogModel> {
     serde_json::from_value(openrouter_model_value())
         .map(|model| vec![model])
         .expect("catalog model")

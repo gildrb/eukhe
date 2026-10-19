@@ -287,8 +287,9 @@ fn mcp_child_options(socket: PathBuf) -> InteractiveOptions {
 
 /// The model-picker sign-in catalog: one model from a provider the client
 /// does not count as signed in (the operator's discovery path — the
-/// picker keeps the row visible, marked "require sign in").
-fn unauthenticated_catalog_model() -> eukhe_types::ai::Model {
+/// picker keeps the row visible, marked "require sign in"), with the
+/// levels and tiers the daemon serves for a non-reasoning model.
+fn unauthenticated_catalog_model() -> eukhe_types::ai::CatalogModel {
     serde_json::from_value(serde_json::json!({
         "id": "glm-5.3-fast", "name": "GLM 5.3 Fast",
         "api": "openai-completions", "provider": "zai",
@@ -296,6 +297,7 @@ fn unauthenticated_catalog_model() -> eukhe_types::ai::Model {
         "input": ["text"],
         "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
         "contextWindow": 128_000, "maxTokens": 4096,
+        "thinkingLevels": ["off"], "serviceTiers": ["default"],
     }))
     .expect("mock model deserializes")
 }

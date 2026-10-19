@@ -1,98 +1,5 @@
-//! The ai wire-type unit battery: the service tier eligibility, the
-//! round trips, and the serde shapes.
+//! The ai wire-type unit battery: the round trips and the serde shapes.
 use super::*;
-
-/// A minimal model for the tier-eligibility predicate (TS #2144's
-/// gating tests run the same provider/api/id combinations).
-fn tier_model(provider: &str, api: &str, id: &str) -> Model {
-    let zero_cost = || ModelCost {
-        input: JsNumber(0.0),
-        output: JsNumber(0.0),
-        cache_read: JsNumber(0.0),
-        cache_write: JsNumber(0.0),
-    };
-    Model {
-        id: id.to_string(),
-        name: id.to_string(),
-        api: api.to_string(),
-        provider: provider.to_string(),
-        base_url: "https://example.invalid/v1".to_string(),
-        reasoning: false,
-        thinking_level_map: None,
-        input: Vec::new(),
-        cost: zero_cost(),
-        context_window: 0,
-        max_tokens: 0,
-        max_tokens_explicit: false,
-        featured: None,
-        headers: None,
-        compat: None,
-    }
-}
-
-/// The offered tiers per model: every tier on an eligible `OpenAI`
-/// Responses model, `OpenRouter`'s two, and only `default` for a local
-/// OpenAI-compatible server (the dashboard then shows no tier control).
-#[test]
-fn supported_tiers_follow_the_eligibility_rule() {
-    use ServiceTier::{Auto, Default, Flex, Priority, Scale};
-    assert_eq!(
-        [
-            supported_service_tiers_fields("openai", "openai-responses", "gpt-5.5"),
-            supported_service_tiers_fields("openrouter", "openai-completions", "any/model"),
-            supported_service_tiers_fields("elpis-fast", "openai-completions", "qwen3.8-27b"),
-        ],
-        [
-            vec![Auto, Default, Flex, Scale, Priority],
-            vec![Default, Flex, Priority],
-            vec![Default],
-        ]
-    );
-}
-
-#[test]
-fn service_tier_eligibility_matches_ts() {
-    use ServiceTier::*;
-    // `default` is always accepted (it means no tier request at all).
-    for (provider, api, id) in [
-        ("anthropic", "anthropic-messages", "claude-fable-5"),
-        ("openrouter", "openai-completions", "openai/gpt-5.5"),
-        ("openai", "openai-responses", "gpt-5.5"),
-    ] {
-        let model = tier_model(provider, api, id);
-        assert!(supports_service_tier(&model, Default));
-    }
-    // OpenRouter accepts flex/priority for every completions model and
-    // nothing else.
-    let openrouter = tier_model("openrouter", "openai-completions", "openai/qwen-4.9");
-    assert!(supports_service_tier(&openrouter, Flex));
-    assert!(supports_service_tier(&openrouter, Priority));
-    assert!(!supports_service_tier(&openrouter, Auto));
-    assert!(!supports_service_tier(&openrouter, Scale));
-    // The Responses APIs take auto/scale everywhere, priority on the
-    // eligible ids (gpt-6-astra joined the list with #2144), and flex
-    // only on the API-key (openai) backend's eligible ids.
-    let codex = tier_model("openai-codex", "openai-codex-responses", "gpt-5.5");
-    assert!(supports_service_tier(&codex, Auto));
-    assert!(supports_service_tier(&codex, Scale));
-    assert!(supports_service_tier(&codex, Priority));
-    assert!(!supports_service_tier(&codex, Flex));
-    let codex_astra = tier_model("openai-codex", "openai-codex-responses", "gpt-6-astra");
-    assert!(supports_service_tier(&codex_astra, Priority));
-    let openai = tier_model("openai", "openai-responses", "gpt-5.4");
-    assert!(supports_service_tier(&openai, Flex));
-    let codex_ineligible = tier_model("openai-codex", "openai-codex-responses", "gpt-5.1");
-    assert!(!supports_service_tier(&codex_ineligible, Priority));
-    // Completions models outside OpenRouter never take a tier.
-    let direct = tier_model("openai", "openai-completions", "gpt-5.5");
-    assert!(!supports_service_tier(&direct, Priority));
-    // supportsFastMode is the priority question — and #2144 makes the
-    // OpenRouter completions models fast-mode-eligible too (their
-    // priority tier is accepted).
-    assert!(supports_fast_mode(&codex));
-    assert!(supports_fast_mode(&openrouter));
-    assert!(!supports_fast_mode(&codex_ineligible));
-}
 
 fn rt<T: serde::Serialize + for<'de> Deserialize<'de>>(json: &str) -> String {
     let parsed: T = serde_json::from_str(json).expect("deserialize");
@@ -104,6 +11,56 @@ fn assert_roundtrip<T: serde::Serialize + for<'de> Deserialize<'de>>(json: &str)
     let out = rt::<T>(json);
     let reparsed: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(original, reparsed, "round trip changed the value: {out}");
+}
+
+#[test]
+fn thinking_level_parse_reads_the_wire_vocabulary() {
+    let parsed: Vec<Option<ModelThinkingLevel>> = [
+        "off", "minimal", "low", "medium", "high", "xhigh", "max", "nope", "High",
+    ]
+    .into_iter()
+    .map(ModelThinkingLevel::parse)
+    .collect();
+    assert_eq!(
+        parsed,
+        vec![
+            Some(ModelThinkingLevel::Off),
+            Some(ModelThinkingLevel::Minimal),
+            Some(ModelThinkingLevel::Low),
+            Some(ModelThinkingLevel::Medium),
+            Some(ModelThinkingLevel::High),
+            Some(ModelThinkingLevel::Xhigh),
+            Some(ModelThinkingLevel::Max),
+            None,
+            None,
+        ]
+    );
+    for level in parsed.into_iter().flatten() {
+        assert_eq!(ModelThinkingLevel::parse(level.wire_name()), Some(level));
+    }
+}
+
+#[test]
+fn catalog_model_carries_the_served_lists_beside_the_model_keys() {
+    let json = r#"{"id":"m","name":"M","api":"openai-responses","provider":"openai","baseUrl":"https://api.openai.com/v1","reasoning":true,"thinkingLevelMap":{"xhigh":"xhigh"},"input":["text"],"cost":{"input":1.5,"output":2,"cacheRead":0,"cacheWrite":0},"contextWindow":128000,"maxTokens":8192,"thinkingLevels":["minimal","high","xhigh"],"serviceTiers":["default","priority"]}"#;
+    assert_roundtrip::<CatalogModel>(json);
+    let entry: CatalogModel = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        (
+            entry.model.id.as_str(),
+            entry.thinking_levels,
+            entry.service_tiers
+        ),
+        (
+            "m",
+            vec![
+                ModelThinkingLevel::Minimal,
+                ModelThinkingLevel::High,
+                ModelThinkingLevel::Xhigh,
+            ],
+            vec![ServiceTier::Default, ServiceTier::Priority],
+        )
+    );
 }
 
 #[test]

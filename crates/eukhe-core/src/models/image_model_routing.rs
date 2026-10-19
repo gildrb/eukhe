@@ -10,7 +10,9 @@
 //! invokes it once per dispatched batch and applies the result as the
 //! per-run model override.
 
-use eukhe_types::ai::{clamp_thinking_level, supports_fast_mode, ServiceTier};
+use eukhe_ai::models::registry_clamp_thinking_level;
+use eukhe_ai::quirks::supports_service_tier;
+use eukhe_types::ai::ServiceTier;
 
 use super::resolver::find_exact_model_reference_match;
 use eukhe_types::ai::{Model, ModelInput, ModelThinkingLevel};
@@ -103,9 +105,11 @@ pub fn resolve_image_model_override(
     }
     Ok(Some(ResolvedImageModel {
         model: image_model.clone(),
-        thinking_level: clamp_thinking_level(image_model, inputs.thinking_level),
+        thinking_level: registry_clamp_thinking_level(image_model, inputs.thinking_level),
         service_tier: match inputs.service_tier {
-            Some(ServiceTier::Priority) if !supports_fast_mode(image_model) => {
+            Some(ServiceTier::Priority)
+                if !supports_service_tier(image_model.into(), ServiceTier::Priority) =>
+            {
                 Some(ServiceTier::Default)
             }
             other => other,

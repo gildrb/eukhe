@@ -35,16 +35,27 @@ use crate::worker::{model_metadata, Worker};
 const QUEUE_MODES: &[&str] = &["all", "one-at-a-time"];
 
 /// TS `supportsServiceTier` over the shown model's wire metadata
-/// (provider, api, id) against the shared eukhe-types eligibility fields.
-/// A session without a resolved catalog model supports only the `default`
-/// tier, exactly like the TS `model == null` arm.
+/// (provider, api, id, name) against the quirks rulebook's service tiers
+/// (docs/inference.md S6.8). A session without a resolved catalog model
+/// supports only the `default` tier, exactly like the TS `model == null`
+/// arm.
 pub(crate) fn model_supports_service_tier(model: Option<&Value>, tier: ServiceTier) -> bool {
     model
         .and_then(|model| {
-            Some(eukhe_types::ai::supports_service_tier_fields(
-                model.get("provider")?.as_str()?,
-                model.get("api")?.as_str()?,
-                model.get("id")?.as_str()?,
+            Some(eukhe_ai::quirks::supports_service_tier(
+                eukhe_ai::quirks::ModelKey {
+                    provider: model.get("provider")?.as_str()?,
+                    api: model.get("api")?.as_str()?,
+                    id: model.get("id")?.as_str()?,
+                    name: model
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    base_url: model
+                        .get("baseUrl")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                },
                 tier,
             ))
         })

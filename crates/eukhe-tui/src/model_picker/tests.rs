@@ -10,37 +10,45 @@ fn kb() -> KeybindingsManager {
     KeybindingsManager::new()
 }
 
-/// One catalog model with explicit cost and an optional thinking map.
-fn model(provider: &str, id: &str, name: &str, reasoning: bool, map: Option<&str>) -> Model {
+/// One catalog model with explicit cost and the thinking levels the
+/// daemon serves for it; `None` serves "off" only (no thinking surface).
+fn model(
+    provider: &str,
+    id: &str,
+    name: &str,
+    reasoning: bool,
+    levels: Option<&[&str]>,
+) -> CatalogModel {
     serde_json::from_value(serde_json::json!({
         "id": id, "name": name, "api": "openai-completions", "provider": provider,
         "baseUrl": "https://example.invalid/v1", "reasoning": reasoning,
-        "thinkingLevelMap": map.map(|m| serde_json::from_str::<serde_json::Value>(m).unwrap()),
         "input": ["text"],
         "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
         "contextWindow": 128_000, "maxTokens": 4096,
+        "thinkingLevels": levels.unwrap_or(&["off"]),
+        "serviceTiers": ["default"],
     }))
     .expect("mock model deserializes")
 }
 
-/// The fable map: low..max on, off/minimal off.
-fn fable_map() -> &'static str {
-    r#"{"off": null, "minimal": null, "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}"#
+/// The fable ladder: low..max.
+fn fable_levels() -> &'static [&'static str] {
+    &["low", "medium", "high", "xhigh", "max"]
 }
 
 /// A reasoning model whose only on-level is high.
-fn high_only_map() -> &'static str {
-    r#"{"minimal": null, "low": null, "medium": null, "high": "high", "xhigh": null, "max": null}"#
+fn high_only_levels() -> &'static [&'static str] {
+    &["off", "high"]
 }
 
-/// The 4.6 map: low..max on except xhigh.
-fn opus_map() -> &'static str {
-    r#"{"minimal": null, "low": "low", "medium": "medium", "high": "high", "xhigh": null, "max": "max"}"#
+/// The 4.6 ladder: low..max except xhigh.
+fn opus_levels() -> &'static [&'static str] {
+    &["off", "low", "medium", "high", "max"]
 }
 
 /// A battery-shaped catalog: the mock-1 current model plus the featured
 /// Claude ladder.
-fn battery_catalog() -> Vec<Model> {
+fn battery_catalog() -> Vec<CatalogModel> {
     vec![
         model("prime-inference", "mock-1", "Mock 1", false, None),
         model(
@@ -48,49 +56,49 @@ fn battery_catalog() -> Vec<Model> {
             "anthropic/claude-fable-5",
             "Claude Fable 5",
             true,
-            Some(fable_map()),
+            Some(fable_levels()),
         ),
         model(
             "prime-inference",
             "anthropic/claude-haiku-4.5",
             "Claude Haiku 4.5",
             true,
-            Some(high_only_map()),
+            Some(high_only_levels()),
         ),
         model(
             "prime-inference",
             "anthropic/claude-opus-4.6",
             "Claude Opus 4.6",
             true,
-            Some(opus_map()),
+            Some(opus_levels()),
         ),
         model(
             "prime-inference",
             "anthropic/claude-opus-4.7",
             "Claude Opus 4.7",
             true,
-            Some(opus_map()),
+            Some(opus_levels()),
         ),
         model(
             "prime-inference",
             "anthropic/claude-opus-4.8",
             "Claude Opus 4.8",
             true,
-            Some(opus_map()),
+            Some(opus_levels()),
         ),
         model(
             "prime-inference",
             "anthropic/claude-sonnet-4.5",
             "Claude Sonnet 4.5",
             true,
-            Some(high_only_map()),
+            Some(high_only_levels()),
         ),
         model(
             "prime-inference",
             "anthropic/claude-sonnet-4.6",
             "Claude Sonnet 4.6",
             true,
-            Some(opus_map()),
+            Some(opus_levels()),
         ),
         model(
             "prime-inference",
@@ -113,7 +121,7 @@ fn configured() -> HashSet<String> {
     ["prime-inference".to_string()].into_iter().collect()
 }
 
-fn picker_options(catalog: Vec<Model>) -> ModelPickerOptions {
+fn picker_options(catalog: Vec<CatalogModel>) -> ModelPickerOptions {
     ModelPickerOptions {
         models: catalog,
         current: Some(current()),
@@ -150,8 +158,8 @@ fn scope_toggles_between_the_scoped_list_and_the_catalog() {
     options.scoped_models = [0, 3]
         .into_iter()
         .map(|index| {
-            let model = &options.models[index];
-            ModelPicker::model_key_provider(&model.provider, &model.id)
+            let entry = &options.models[index];
+            ModelPicker::model_key_provider(&entry.model.provider, &entry.model.id)
         })
         .collect();
     let mut picker = ModelPicker::new(options);
@@ -488,12 +496,28 @@ fn the_effort_seed_clamps_to_the_model_levels() {
             "anthropic/claude-haiku-4.5",
             "Claude Haiku 4.5",
             true,
-            Some(high_only_map()),
+            Some(high_only_levels()),
         ),
     ];
     let picker = ModelPicker::new(picker_options(catalog));
     let haiku = picker.model_at(1).expect("catalog").clone();
     // Medium clamps up to the only supported level.
+    assert_eq!(picker.effort_of(&haiku), Some(ModelThinkingLevel::High));
+}
+
+#[test]
+fn the_effort_seed_takes_the_next_lower_served_level_without_a_higher_one() {
+    let catalog = vec![model(
+        "prime-inference",
+        "anthropic/claude-haiku-4.5",
+        "Claude Haiku 4.5",
+        true,
+        Some(high_only_levels()),
+    )];
+    let mut options = picker_options(catalog);
+    options.thinking_level = Some(ModelThinkingLevel::Max);
+    let picker = ModelPicker::new(options);
+    let haiku = picker.model_at(0).expect("catalog").clone();
     assert_eq!(picker.effort_of(&haiku), Some(ModelThinkingLevel::High));
 }
 

@@ -171,7 +171,9 @@ pub(crate) struct SessionUi {
     /// The model catalog for the `/model` picker: a startup snapshot from
     /// the composition root (the bundled fallback), replaced by the
     /// daemon's `get_model_catalog` response once it lands.
-    model_catalog: Vec<eukhe_types::ai::Model>,
+    /// Each entry carries the levels and tiers the model offers, as the
+    /// daemon serves them.
+    model_catalog: Vec<eukhe_types::ai::CatalogModel>,
     /// Providers with configured auth (the daemon catalog's
     /// `configuredProviders`); the picker marks the rest "require sign in".
     model_configured_providers: std::collections::HashSet<String>,
@@ -704,51 +706,29 @@ impl SessionUi {
     /// fast-mode-eligible; TS `getArgumentCompletions` for `/tier` lists
     /// the tiers the current model supports with the current one marked):
     /// call after every point the model id or the session tier can move.
+    /// The tiers are the ones the daemon serves with the current model's
+    /// catalog entry (`["default"]` without an entry); the `/tier` and
+    /// `/fast` commands themselves read `availableServiceTiers` of the
+    /// connection state.
     fn update_model_eligibility_filters(&self, view: &mut AgentView) {
-        let eligible = self
+        let default_only = [eukhe_types::ai::ServiceTier::Default];
+        let tiers = self
             .current_model_entry(view)
-            .is_some_and(eukhe_types::ai::supports_fast_mode);
+            .map_or(default_only.as_slice(), |entry| {
+                entry.service_tiers.as_slice()
+            });
         let mut hidden = std::collections::HashSet::new();
-        if !eligible {
+        if !tiers.contains(&eukhe_types::ai::ServiceTier::Priority) {
             hidden.insert("fast".to_string());
         }
         view.editor.set_autocomplete_hidden_commands(hidden);
-        view.editor
-            .set_autocomplete_argument_completions("tier", self.tier_completion_items(view));
-    }
-
-    /// TS `getAvailableServiceTiers` (the `/tier` choices; `scale` is not
-    /// a user-facing choice): `default` plus the tiers the current model
-    /// supports, in the TS order.
-    fn available_service_tiers(&self, view: &AgentView) -> Vec<&'static str> {
-        let Some(model) = self.current_model_entry(view) else {
-            return vec!["default"];
-        };
-        let mut tiers = vec!["default"];
-        for tier in [
-            eukhe_types::ai::ServiceTier::Flex,
-            eukhe_types::ai::ServiceTier::Priority,
-            eukhe_types::ai::ServiceTier::Auto,
-        ] {
-            if eukhe_types::ai::supports_service_tier(model, tier) {
-                tiers.push(match tier {
-                    eukhe_types::ai::ServiceTier::Flex => "flex",
-                    eukhe_types::ai::ServiceTier::Priority => "priority",
-                    eukhe_types::ai::ServiceTier::Auto => "auto",
-                    _ => unreachable!("the loop names every choice"),
-                });
-            }
-        }
-        tiers
-    }
-
-    /// TS `getServiceTierCompletions`: the `/tier` argument items -- the
-    /// available tiers with their descriptions, the current one marked.
-    fn tier_completion_items(&self, view: &AgentView) -> Vec<crate::autocomplete::CompletionItem> {
+        // TS `getServiceTierCompletions`: the `/tier` argument items -- the
+        // available tiers with their descriptions, the current one marked.
         let current = self.service_tier.as_deref().unwrap_or("default");
-        self.available_service_tiers(view)
-            .into_iter()
+        let items = tiers
+            .iter()
             .map(|tier| {
+                let tier = tier.as_str();
                 // The one descriptions owner: the settings row's submenu
                 // exports the TS `SERVICE_TIER_OPTIONS` table.
                 let description = crate::settings_menu::service_tier_description(tier);
@@ -765,16 +745,22 @@ impl SessionUi {
                     source_tag: None,
                 }
             })
-            .collect()
+            .collect();
+        view.editor
+            .set_autocomplete_argument_completions("tier", items);
     }
 
     /// `/tier [tier]` (TS `handleTierCommand`): without an argument report
     /// the current tier and the available ones; a tier the model does not
     /// support errors with the available list; a supported one applies
     /// through the same daemon tier switch as `/fast` (TS
-    /// `enqueueServiceTierChange`) and reports the applied tier.
+    /// `enqueueServiceTierChange`) and reports the applied tier. The
+    /// available tiers are the connection state's `availableServiceTiers`.
     async fn handle_tier_command(&mut self, view: &mut AgentView, args: &str) {
-        let tiers = self.available_service_tiers(view);
+        let Some(state) = self.connection_state(view).await else {
+            return;
+        };
+        let tiers = served_service_tiers(&state);
         let requested = args.trim().to_lowercase();
         if requested.is_empty() {
             let current = self.service_tier.as_deref().unwrap_or("default");
@@ -874,6 +860,17 @@ impl SessionUi {
     pub(crate) fn prompt_submits_in_flight(&self) -> usize {
         self.prompt_in_flight
     }
+}
+
+/// The service tiers the current model honors, as the connection state
+/// serves them (`availableServiceTiers`, the daemon's quirks-rulebook
+/// answer); the TUI keeps no tier list of its own.
+fn served_service_tiers(state: &Value) -> Vec<&str> {
+    state
+        .get("availableServiceTiers")
+        .and_then(Value::as_array)
+        .map(|tiers| tiers.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default()
 }
 
 impl SessionUi {

@@ -178,6 +178,28 @@ fn daemon_serves_the_local_catalog() {
     assert_eq!(fable["name"], "Claude Fable 5");
     assert_eq!(fable["cost"]["input"], 10);
     assert_eq!(fable["contextWindow"], 1_000_000);
+    // Every model object carries the levels and tiers it offers, read from
+    // the eukhe-ai quirks rulebook (the `CatalogModel` shape).
+    for model in models {
+        let entry: eukhe_types::ai::CatalogModel =
+            serde_json::from_value(model.clone()).expect("a catalog model");
+        assert_eq!(
+            (entry.thinking_levels, entry.service_tiers),
+            (
+                eukhe_ai::models::registry_thinking_levels(&entry.model),
+                eukhe_ai::quirks::service_tiers((&entry.model).into()),
+            ),
+            "{}/{}",
+            entry.model.provider,
+            entry.model.id
+        );
+    }
+    // The non-reasoning models.json model offers "off" only.
+    let mock = models
+        .iter()
+        .find(|model| model["id"] == "mock-1" && model["provider"] == "prime-inference")
+        .expect("the models.json model");
+    assert_eq!(mock["thinkingLevels"], json!(["off"]));
     // The configured providers: prime-inference (the models.json key) and
     // nothing else — no ambient credentials authorize other providers.
     let providers: Vec<&str> = data["configuredProviders"]

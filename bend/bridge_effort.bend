@@ -1,24 +1,33 @@
-# bridge_effort: runs the reasoning-depth model (bend/effort.bend) on a
+# bridge_effort: runs the reasoning-depth model (bend/infer.bend section 6,
+# the ladder data; bend/effort.bend, the clamp and the cycle) on a
 # scenario file and prints what it did, line for line as the Rust bridge
 # test prints the Rust code (crates/eukhe-core/src/durable/effort_bridge.rs).
 # Build it with
 #
 #   bend bend/bridge_effort.bend -o <out>
 #
-# and run `<out> <scenario>`. Each line of the scenario is one model:
+# and run `<out> <scenario>`. The first line gives the rulebook's default
+# ladders:
 #
-#   R M E0 E1 E2 E3 E4 E5 E6
+#   d R0 .. R6 P0 .. P6
 #
-# R is `1` for a reasoning model, else `0`; M is `1` when the model has a
-# thinking-level map, else `0` (then every entry is `-`); Ei is the map's
-# entry for level i of the ladder (off, minimal, low, medium, high,
-# xhigh, max): `-` missing, `n` null, `w` a wire string. For each model
-# it prints four lines; each item has one space before it:
+# Ri is `1` when the reasoning default ladder lists level i of the ladder
+# (off, minimal, low, medium, high, xhigh, max), else `0`; Pi the same for
+# the plain default ladder. Each later line is one model:
 #
-#   offered L ..     the offered levels (`offered`)
-#   clamp C0 .. C6   the clamp of each ladder level (`clamp`)
+#   R M E0 E1 E2 E3 E4 E5 E6 L F0 F1 F2 F3 F4 F5 F6
+#
+# R is `1` for a reasoning model, else `0`; M is `1` when the model has an
+# explicit thinking-level map, else `0` (then every entry is `-`); Ei is
+# the map's entry for level i: `-` missing, `n` null, `w` a wire string. L
+# is `1` when the rulebook gives the model a ladder, else `0`; Fi is that
+# ladder's entry for level i. For each model it prints four lines; each
+# item has one space before it:
+#
+#   offered L ..     the offered levels (`lad.offered`)
+#   clamp C0 .. C6   the clamp of each ladder level (`clamp.in`)
 #   forward F0 .. F6 a forward cycle step from each ladder level
-#                    (`cycle`), `-` when it changes nothing
+#                    (`cycle.in`), `-` when it changes nothing
 #   backward B0 .. B6 a backward cycle step from each ladder level
 #
 # A level prints as its wire name: off, minimal, low, medium, high,
@@ -26,6 +35,7 @@
 
 import Base
 import ./effort.bend as Ef
+import ./infer.bend as If
 
 # Reading
 # -------
@@ -54,20 +64,33 @@ def ent.of(null: Bool, wire: Bool) -> Ef.Ent:
         case False{}:
           Ef.Missing{}
 
-# entry i of the map: the token at word 2 + i
+# the entry at word k
 def ent(+ws: List<&2, String>, k: Nat) -> Ef.Ent:
   +c = tok.head(tok.at(ws, k))
   ent.of(Char.is_eq(c, 'n'), Char.is_eq(c, 'w'))
 
-def map.of(has: Bool, +ws: List<&2, String>) -> Ef.LvMap:
+# the map whose entries start at word k, when has
+def map.of(has: Bool, +ws: List<&2, String>, +k: Nat) -> Maybe<&2, Ef.LvMap>:
   match has:
     case True{}:
-      Ef.LvMap{ent(ws, 2n), ent(ws, 3n), ent(ws, 4n), ent(ws, 5n), ent(ws, 6n), ent(ws, 7n), ent(ws, 8n)}
+      Some{Ef.LvMap{ent(ws, k), ent(ws, 1n+k), ent(ws, 2n+k), ent(ws, 3n+k), ent(ws, 4n+k), ent(ws, 5n+k), ent(ws, 6n+k)}}
     case False{}:
-      Ef.LvMap.none()
+      None{}
 
-def model(+ws: List<&2, String>) -> Ef.Mdl:
-  Ef.Mdl{flag(ws, 0n), map.of(flag(ws, 1n), ws)}
+# the levels of xs whose flag, from word k on, is `1`
+def flags(xs: List<&2, Ef.Lv>, +ws: List<&2, String>, +k: Nat) -> List<&2, Ef.Lv>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      Ef.cons_if(flag(ws, k), x, flags(rest, ws, 1n+k))
+
+def defaults.of(+ws: List<&2, String>) -> If.Defaults:
+  If.Defaults{flags(Ef.ladder(), ws, 1n), flags(Ef.ladder(), ws, 8n)}
+
+# the levels the model of a line offers
+def offered.of(+ws: List<&2, String>, d: If.Defaults) -> List<&2, Ef.Lv>:
+  If.lad.offered(flag(ws, 0n), map.of(flag(ws, 1n), ws, 2n), map.of(flag(ws, 9n), ws, 10n), d)
 
 # Printing
 # --------
@@ -103,43 +126,60 @@ def lvs.show(ls: List<&2, Ef.Lv>) -> String:
     case l <> rest:
       String.concat([" ", lv.show(l), lvs.show(rest)])
 
-def clamps.show(+m: Ef.Mdl, ls: List<&2, Ef.Lv>) -> String:
+def clamps.show(+lad: List<&2, Ef.Lv>, ls: List<&2, Ef.Lv>) -> String:
   match ls:
     case Nil{}:
       ""
     case l <> rest:
-      String.concat([" ", lv.show(Ef.clamp(m, l)), clamps.show(m, rest)])
+      String.concat([" ", lv.show(Ef.clamp.in(lad, l)), clamps.show(lad, rest)])
 
-def steps.show(+m: Ef.Mdl, +d: Ef.Dir, ls: List<&2, Ef.Lv>) -> String:
+def steps.show(+lad: List<&2, Ef.Lv>, +d: Ef.Dir, ls: List<&2, Ef.Lv>) -> String:
   match ls:
     case Nil{}:
       ""
     case l <> rest:
-      String.concat([" ", step.show(Ef.cycle(m, l, d)), steps.show(m, d, rest)])
+      String.concat([" ", step.show(Ef.cycle.in(lad, l, d)), steps.show(lad, d, rest)])
 
-def model.show(+m: Ef.Mdl) -> String:
-  String.concat(["offered", lvs.show(Ef.offered(m)), "\nclamp", clamps.show(m, Ef.ladder()), "\nforward", steps.show(m, Ef.Forward{}, Ef.ladder()), "\nbackward", steps.show(m, Ef.Backward{}, Ef.ladder()), "\n"])
+def lad.show(+lad: List<&2, Ef.Lv>) -> String:
+  String.concat(["offered", lvs.show(lad), "\nclamp", clamps.show(lad, Ef.ladder()), "\nforward", steps.show(lad, Ef.Forward{}, Ef.ladder()), "\nbackward", steps.show(lad, Ef.Backward{}, Ef.ladder()), "\n"])
 
 # Running
 # -------
 
-# a line that starts with no flag (the empty line after the last) prints
-# nothing
-def line(model_line: Bool, +ws: List<&2, String>) -> String:
-  match model_line:
-    case True{}:
-      model.show(model(ws))
-    case False{}:
-      ""
+# what one line did: the default ladders after it, and its output
+type Out is Data:
+  Out{d: If.Defaults, text: String}
 
-def run(ls: List<&2, String>) -> String:
+def Out.d(o: Out) -> If.Defaults:
+  match o:
+    case Out{d, t}:
+      d
+
+def Out.text(o: Out) -> String:
+  match o:
+    case Out{d, t}:
+      t
+
+# one line; isd and ism say whether its first word names the defaults or
+# a model; any other line (the empty line after the last) prints nothing
+def line(isd: Bool, ism: Bool, +ws: List<&2, String>, +d: If.Defaults) -> Out:
+  match isd ism:
+    case True{} ism:
+      Out{defaults.of(ws), ""}
+    case False{} True{}:
+      Out{d, lad.show(offered.of(ws, d))}
+    case False{} False{}:
+      Out{d, ""}
+
+def run(ls: List<&2, String>, +d: If.Defaults) -> String:
   match ls:
     case Nil{}:
       ""
     case l <> rest:
       +ws = String.split(l, ' ')
       +c = tok.head(tok.at(ws, 0n))
-      String.append(line(Bool.or(Char.is_eq(c, '0'), Char.is_eq(c, '1')), ws), run(rest))
+      +o = line(Char.is_eq(c, 'd'), Bool.or(Char.is_eq(c, '0'), Char.is_eq(c, '1')), ws, d)
+      String.append(Out.text(o), run(rest, Out.d(o)))
 
 def read.done(r: Result<&1, &1, U32 & String, String>) -> String:
   match r:
@@ -172,4 +212,4 @@ def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     text : String <- scenario(args)
-    IO.write(run(String.lines(text)))
+    IO.write(run(String.lines(text), If.Defaults{Nil{}, Nil{}}))

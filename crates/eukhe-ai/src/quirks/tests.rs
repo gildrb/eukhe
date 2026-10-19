@@ -652,3 +652,73 @@ fn the_shipped_family_and_api_rules_give_the_former_checks() {
         (Some(20), Some(false))
     );
 }
+
+/// The shipped Qwen families split at the revision 3.8 (omp's class
+/// `qwen`, `revision ">=3.8"`): the revision follows `qwen` in the bare
+/// name; a size (`8b`) is not a revision, and an id with no revision is
+/// below 3.8.
+#[test]
+fn the_shipped_qwen_families_split_at_the_revision_3_8() {
+    let book = Rulebook::shipped();
+    let ids = [
+        "qwen3.8-27b",
+        "Qwen/Qwen3.8-2.4T-A95B",
+        "workers-ai/@cf/qwen/qwen3.8-27b",
+        "qwen3-8b",
+        "qwen3.5-122b-a10b",
+        "qwq-32b",
+        "qwen-max",
+        "gpt-5.5",
+    ];
+    assert_eq!(
+        ids.map(|id| book.family(id, "")),
+        [
+            Ok(Some("qwen-3.8")),
+            Ok(Some("qwen-3.8")),
+            Ok(Some("qwen-3.8")),
+            Ok(Some("qwen")),
+            Ok(Some("qwen")),
+            Ok(Some("qwen")),
+            Ok(Some("qwen")),
+            Ok(Some("gpt-priority")),
+        ]
+    );
+}
+
+#[test]
+fn a_bad_revision_range_an_undefined_tier_family_and_a_bad_ladder_do_not_compile() {
+    let errors = Rulebook::from_json(
+        r#"{
+          "families": [
+            { "id": "a", "on": "id", "match": "^a", "revision": { "prefix": "a", "range": "3.8" } }
+          ],
+          "hosts": [],
+          "rules": [
+            { "layer": "model", "target": "m", "set": { "thinking_ladder": { "turbo": "x" } } }
+          ],
+          "service_tiers": [
+            { "provider": "p", "api": "q", "family": "b", "tiers": ["flex"] }
+          ]
+        }"#,
+    )
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        vec![
+            QuirksError::BadRevision {
+                family: "a".to_owned(),
+                reason: "`3.8` has no comparison".to_owned(),
+            },
+            QuirksError::BadValue {
+                layer: Layer::Model,
+                target: "m".to_owned(),
+                directive: "thinking_ladder".to_owned(),
+                value: json!({ "turbo": "x" }),
+                kind: ValueKind::ThinkingLadder,
+            },
+            QuirksError::UndefinedTierFamily {
+                family: "b".to_owned(),
+            },
+        ]
+    );
+}

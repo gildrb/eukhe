@@ -142,7 +142,7 @@ fn row_primary(
     if !layout.show_cluster {
         return vec![Span::raw(name)];
     }
-    let levels = ModelPicker::selectable_levels(model);
+    let levels = picker.selectable_levels(model);
     let Some(effort) = picker.effort_of(model) else {
         return vec![Span::raw(name)];
     };
@@ -160,7 +160,7 @@ fn row_primary(
     primary.push(Span::raw(" "));
     primary.extend(effort_square_spans(
         theme,
-        &levels,
+        levels,
         effort,
         layout.square_slots,
         selected,

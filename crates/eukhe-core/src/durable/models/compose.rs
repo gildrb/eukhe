@@ -37,7 +37,7 @@ pub(super) fn compose_providers(
     })
 }
 
-/// eukhe's thinking capability rule (#2858, `eukhe_types::ai::supports_thinking`):
+/// eukhe's thinking capability rule (#2858, `eukhe_ai::models::registry_thinking_levels`):
 /// a model whose thinking-level map addresses a level (maps it to a wire
 /// value) can think even when its coarse `reasoning` flag is false (the
 /// catalog ships `gpt-5.3-chat-latest` as `reasoning: false` with an

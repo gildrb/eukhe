@@ -186,7 +186,7 @@ impl Supervisor {
         // and thinking level.
         let requested_thinking = match config_object.and_then(|config| config.get("thinking")) {
             None => None,
-            Some(Value::String(level)) => match eukhe_types::ai::thinking_levels::thinking_level_from_str(level) {
+            Some(Value::String(level)) => match eukhe_types::ai::ModelThinkingLevel::parse(level) {
                 Some(level) => Some(level),
                 None => {
                     return Err(anyhow!(

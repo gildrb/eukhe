@@ -19,6 +19,7 @@ use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
 use crate::api::transform_messages::transform_messages;
+use crate::models::thinking_level_map;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
@@ -849,10 +850,7 @@ pub(crate) fn build_params(
                 );
             }
         } else if options.thinking_enabled == Some(false)
-            && model
-                .thinking_level_map
-                .as_ref()
-                .and_then(|map| map.get(&ModelThinkingLevel::Off))
+            && thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off))
                 != Some(&None)
         {
             params.insert("thinking".into(), json!({ "type": "disabled" }));

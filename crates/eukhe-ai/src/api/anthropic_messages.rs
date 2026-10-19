@@ -38,6 +38,7 @@ use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copi
 use crate::api::simple_options::{
     adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
 };
+use crate::models::thinking_level_map;
 use crate::types::{FetchFunction, ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -658,10 +659,8 @@ async fn run(
 
 /// TS `mapThinkingLevelToEffort`.
 fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> AnthropicEffort {
-    if let Some(Some(mapped)) = model
-        .thinking_level_map
-        .as_ref()
-        .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
+    if let Some(Some(mapped)) =
+        thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::from(level)))
     {
         return mapped.clone();
     }

@@ -17,7 +17,13 @@ what a request may ask of a provider.
    API applies its own default, and the explicit `model.compat` wins over
    both. The order of the rules changes no answer.
 2. A model names one target per layer. The family is the one family
-   whose pattern matches the model id (or the id and name). Two families
+   whose pattern matches the model id (or the id and name) and whose
+   revision range, when it has one, holds for the revision that the id
+   names (omp's taxonomy: the revision starts at the first digit after
+   the prefix in the bare name; a size such as `8b` is not a revision;
+   an id that names no revision has the revision 0). Thus `qwen3.8-27b`
+   is in the family `qwen-3.8` (`>=3.8`) and `qwen3-8b`, `qwq-32b` are in
+   `qwen` (`<3.8`). Two families
    that match one model are an error (`QuirksError::FamilyOverlap`). No
    family wins by its id or its order. The test of the shipped rulebook
    rejects two families that match one model of the compiled catalog.
@@ -136,8 +142,31 @@ what a request may ask of a provider.
    wants the estimate asks for it. `eukhe provider caps [<provider>]`
    shows the support and sends no request. `eukhe provider models
    <provider>` asks the provider for its model list.
+8. The service tiers that a provider honors are rulebook data
+   (`service_tiers`): each entry names a provider, a wire API, the tiers,
+   and optionally a family. A model honors `default`, and each tier of
+   each entry whose provider and API are the model's and whose family,
+   when the entry names one, is the model's family. The shipped table:
+   `openrouter` over `openai-completions` honors `flex` and `priority`
+   (OpenRouter routes to tier endpoints and bills the tier that served
+   the request); `openai` over `openai-responses` and `openai-codex` over
+   `openai-codex-responses` honor `auto` and `scale`; the family
+   `gpt-priority` adds `flex` and `priority` on `openai` and `priority`
+   on `openai-codex` (the ChatGPT backend has no flex tier). The
+   `/tier` and `/fast` commands, the connection state
+   (`availableServiceTiers`), the image route and the completions request
+   (`service_tier`) all read this table (`quirks::service_tiers`).
+9. The thinking ladder of a model is rulebook data (S10, the ladder 0).
+   The directive `thinking_ladder` gives a family its ladder as a
+   `thinkingLevelMap`. The shipped ladders: `qwen-3.8` offers `off` (wire
+   `none`), `low`, `medium` and `xhigh`; `qwen` offers `off` (the
+   template toggle) and `high` (omp's llama.cpp rules for the Qwen
+   templates). The default ladders (`thinking_defaults`) give the levels
+   where a ladder has no entry: `reasoning` lists `off` to `high`,
+   `plain` (a model without reasoning) lists `off`.
 
-Model: `bend/infer.bend`. Laws: `LAWS.bend` section (S6). Proofs:
+Model: `bend/infer.bend`. Laws: `LAWS.bend` section (S6) and
+`laws/ladder.bend` (S6.9). Proofs:
 `bend/proof_infer.bend`, `bend/proof_quirks.bend`. Every input is free:
 any rulebook, query and directive; any replies of the model; any provider
 support; any tools; any stream; any context sizes.
@@ -151,6 +180,12 @@ support; any tools; any stream; any context sizes.
 | `quirk_highest_wins` | In a rulebook that compiles, the rule of the highest layer that applies gives the answer (S6.1). |
 | `quirk_order_free` | In a rulebook that compiles, the order of two rules changes no answer (S6.1). |
 | `quirk_compile_order_free` | The order of two rules does not change whether the rulebook compiles (S6.1). |
+| `quirk_ladder_explicit_first` | The explicit thinking-level map is the chosen ladder, over the rulebook's ladder (S6.9). |
+| `quirk_ladder_rule_second` | With no explicit map, the rulebook's ladder is the chosen ladder (S6.9). |
+| `quirk_ladder_default_last` | With neither, the chosen ladder has no entry: the default ladder gives every level (S6.9). |
+| `quirk_ladder_offered_exact` | A reasoning model offers a level exactly when its chosen ladder gives it a wire string, or gives it no entry and the default ladder lists it (S6.9). |
+| `quirk_ladder_plain_exact` | A model without reasoning offers exactly the levels of the plain default ladder (S6.9). |
+| `quirk_ladder_shipped_is_s10` | With the shipped default ladders, the offered levels are the S10 ladder of the chosen map, so every S10 law holds for them (S6.9). |
 | `force_bounded` | A forced call makes at most `1 + retries` attempts (S6.3). |
 | `force_first_flag` | The first attempt sets the native flag only when it is supported and free (S6.3). |
 | `force_retry_flag` | Every retry sets the native flag when it is supported (S6.3). |
@@ -164,8 +199,11 @@ support; any tools; any stream; any context sizes.
 | `compact_starts_early` | When each turn grows the context by at most the margin, compaction starts before any turn over the limit (S6.6). |
 
 Code: `eukhe-ai/src/quirks/mod.rs` (`compile`, `Rules::lookup`,
-`Rulebook::query`, `Rulebook::check_catalog`, `Quirks`) and
-`quirks/rulebook.json` (the shipped
+`Rulebook::query`, `Rulebook::family`, `Rulebook::check_catalog`,
+`Quirks`, `ModelKey`, `ThinkingDefaults`), `quirks/revision.rs`,
+`quirks/tiers.rs` (`service_tiers`, `supports_service_tier`),
+`eukhe-ai/src/models/ladder.rs` (`thinking_level_map`, the ladder
+functions) and `quirks/rulebook.json` (the shipped
 rules); the resolvers that take the rulebook as their detected input:
 `api/openai_completions/compat.rs` `detect_compat`,
 `is_custom_qwen_template_model`; `api/anthropic_messages.rs`
@@ -205,7 +243,10 @@ Tie: the bridge tests
 (compile and lookup on generated rulebooks, each also with two rules
 swapped, against `bend/bridge_quirks.bend`; the directives are the first
 of each value type in `Directive::ALL`, and a query can name no family
-or no host) and
+or no host),
+`durable::effort_bridge::the_rust_reasoning_depth_equals_the_bend_model`
+(S10: the rulebook's default ladders and rule ladders against
+`bend/infer.bend` section 6) and
 `the_rust_inference_units_equal_the_bend_model` (the escalation, the
 strict budget, the guard on lines fed in random deltas: random chunks,
 cycles of 1 to 4 chunks, the same cycles with one chunk changed, and the
@@ -218,7 +259,15 @@ rulebook compiles and no two families match one catalog model;
 `families_that_overlap_on_a_catalog_model_are_rejected`;
 `a_model_two_shipped_families_match_names_no_family`; errors;
 precedence; order; host and family queries; the former hand-written
-checks), `openai_completions::tests::host_quirks`
+checks; `the_shipped_qwen_families_split_at_the_revision_3_8`),
+`quirks::revision::tests`, `quirks::tiers::tests`
+(`the_table_keeps_every_answer_of_the_former_predicate`: every model of
+the compiled catalog and every tier, against the former hardcoded
+predicate, kept only in the test),
+`models::ladder::tests`, `openai_completions::tests::tool_choice`
+(`a_custom_qwen_3_8_model_sends_the_rulebook_ladder`),
+`openai_completions::tests::service_tier`,
+`openai_completions::tests::host_quirks`
 (`a_custom_provider_at_openrouter_ai_sends_no_cache_marks`,
 `the_openrouter_provider_at_a_loopback_url_keeps_the_openrouter_settings`),
 `constrained_sampling::tests`
@@ -505,18 +554,28 @@ The reasoning depth (thinking level) of a session sets how much the
 model thinks before it answers. The levels, in ladder order, are `off`,
 `minimal`, `low`, `medium`, `high`, `xhigh` and `max`.
 
-The ladder of a model. A model offers some levels of the ladder, in
-ladder order:
+The ladder of a model. Every ladder and every wire value is rulebook
+data (S6.9); the code holds none. A model offers some levels of the
+ladder, in ladder order:
 
-1. A model without reasoning offers `off` only. Its thinking-level map
-   (`thinkingLevelMap`) has no effect.
-2. A reasoning model keeps each level by its entry in the map. A `null`
-   entry removes the level. A wire string keeps the level. A missing
-   entry keeps the level, but not `xhigh` or `max`: these two levels
-   need an explicit entry. A model with no map is a model with no
-   entries.
+0. The chosen ladder is the explicit `thinkingLevelMap` of the model
+   (`models.json`, the catalog); else, for a reasoning model of a custom
+   provider, the rulebook's ladder for its family; else no ladder.
+   Built-in providers keep the ladders of their catalog. Thus the custom
+   model `qwen3.8-27b` with no map offers `off`, `low`, `medium` and
+   `xhigh`.
+1. A model without reasoning offers the levels of the plain default
+   ladder (shipped: `off` only). Its map has no effect.
+2. A reasoning model keeps each level by its entry in the chosen ladder.
+   A `null` entry removes the level. A wire string keeps the level, and
+   the request sends that string. A missing entry takes the default
+   ladder (shipped: `off` to `high`, so `xhigh` and `max` need an
+   explicit entry); such a level goes out in the wire API's own form.
 3. Thus a reasoning model can offer `off` only (each other entry is
    `null`) or no level (each entry is `null`).
+4. The daemon serves the offered levels (`availableThinkingLevels`, and
+   each catalog model's levels to the model picker); clients compute no
+   ladder.
 
 The clamp. The clamp moves a level to a level that the model offers:
 
@@ -588,7 +647,9 @@ sets and cycle steps, in any order.
 | `effort_stored_is_sent` | After open and any actions, the session stores the level that it sends (session 1-3). |
 | `effort_shown_is_sent` | After open and any actions, the display shows the level that the session sends (session 4). |
 
-Code: `eukhe-ai/src/models.rs` `get_supported_thinking_levels`,
+Code: `eukhe-ai/src/models/ladder.rs` `thinking_level_map`,
+`get_supported_thinking_levels`, `registry_thinking_levels`,
+`registry_clamp_thinking_level`,
 `clamp_thinking_level`, `cycle_thinking_level`; the provider clamps in
 `eukhe-ai/src/api/`; `eukhe-core/src/durable/open.rs`
 `settle_main_agent`; `eukhe-daemon/src/model_switch.rs` (model switch,

@@ -10,9 +10,18 @@
 # (`pq.better_swap`: at one rank they agree on the value). In a rulebook
 # that compiles, before r the best is below r's rank or equal to r
 # (`pq.pre_ok`), and from r on it is r's rank and value (`pq.good`).
+# The thinking ladder: the chosen ladder is a plain case split
+# (reflexivity). A level is in the offer of a map exactly when the map
+# keeps it (`pq.lad_has_keep`, from the S10 filter lemmas), and the filled
+# map keeps a level exactly when the ladder rule does (`pq.lad_fill_keep`).
+# With the shipped default ladders the ladder rule keeps what the S10
+# rule keeps (`pq.lad_ship_e`), so the offers agree (`pq.lad_offer_fill`,
+# by induction on the list).
 
 import Base
 import ./infer.bend as If
+import ./effort.bend as Ef
+import ./proof_effort.bend as Pe
 
 # Logic
 # -----
@@ -728,3 +737,136 @@ def pq.quirk_highest_wins(+known: List<&2, Nat>, +pre: List<&2, If.Rule>, +r: If
   +am = pq.not_f(If.ambiguous(L), pq.and_r(If.known_all(L, known), Bool.not(If.ambiguous(L)), ok))
   +g = pq.pre_go(pre, r, post, q, None{}, If.use.at(L, q, D), {==}, {==}, top, am, hit)
   pq.good_ans(If.look.go(L, q, D, None{}, If.use.at(L, q, D)), r, g)
+
+# The thinking ladder
+# -------------------
+
+def pq.quirk_ladder_explicit_first(+e: Ef.LvMap, +rule: Maybe<&2, Ef.LvMap>) -> {If.lad.chosen(Some{e}, rule) == e : Ef.LvMap}:
+  {==}
+
+def pq.quirk_ladder_rule_second(+l: Ef.LvMap) -> {If.lad.chosen(None{}, Some{l}) == l : Ef.LvMap}:
+  {==}
+
+def pq.quirk_ladder_default_last() -> {If.lad.chosen(None{}, None{}) == Ef.LvMap.none() : Ef.LvMap}:
+  {==}
+
+def pq.lad_kb(+l: Ef.Lv, b: Bool) -> {Ef.keep.e(l, If.lad.ent(b)) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pq.lad_kf(+l: Ef.Lv, e: Ef.Ent, +dl: List<&2, Ef.Lv>) -> {Ef.keep.e(l, If.lad.fill.e(l, e, dl)) == If.lad.keep(l, e, dl) : Bool}:
+  match e:
+    case Ef.Missing{}:
+      pq.lad_kb(l, Ef.has(dl, l))
+    case Ef.Null{}:
+      {==}
+    case Ef.Wire{}:
+      {==}
+
+# the filled map keeps a level exactly when the ladder rule does
+def pq.lad_fill_keep(map: Ef.LvMap, +dl: List<&2, Ef.Lv>, l: Ef.Lv) -> {Ef.keep(If.lad.fill(map, dl), l) == If.lad.keep(l, Ef.entry(l, map), dl) : Bool}:
+  match map:
+    case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+      match l:
+        case Ef.Off{}:
+          pq.lad_kf(Ef.Off{}, o, dl)
+        case Ef.Minimal{}:
+          pq.lad_kf(Ef.Minimal{}, mi, dl)
+        case Ef.Low{}:
+          pq.lad_kf(Ef.Low{}, lo, dl)
+        case Ef.Medium{}:
+          pq.lad_kf(Ef.Medium{}, me, dl)
+        case Ef.High{}:
+          pq.lad_kf(Ef.High{}, hi, dl)
+        case Ef.Xhigh{}:
+          pq.lad_kf(Ef.Xhigh{}, xh, dl)
+        case Ef.Max{}:
+          pq.lad_kf(Ef.Max{}, mx, dl)
+
+def pq.lad_has_keep.at(+map: Ef.LvMap, +l: Ef.Lv, b: Bool, eb: {Ef.keep(map, l) == b : Bool}) -> {Ef.has(Ef.offer(map, Ef.ladder()), l) == b : Bool}:
+  match b:
+    case True{}:
+      Pe.pe.effort_offered_kept(map, l, eb)
+    case False{}:
+      Pe.pe.offer_out(map, Ef.ladder(), l, Pe.pe.kat(map, Ef.ladder()), {==}, Ef.at(Ef.ladder(), l), {==}, eb)
+
+# a level is in the offer of a map exactly when the map keeps it
+def pq.lad_has_keep(+map: Ef.LvMap, +l: Ef.Lv) -> {Ef.has(Ef.offer(map, Ef.ladder()), l) == Ef.keep(map, l) : Bool}:
+  pq.lad_has_keep.at(map, l, Ef.keep(map, l), {==})
+
+def pq.quirk_ladder_offered_exact(+explicit: Maybe<&2, Ef.LvMap>, +rule: Maybe<&2, Ef.LvMap>, +d: If.Defaults, +l: Ef.Lv) -> {Ef.has(If.lad.offered(True{}, explicit, rule, d), l) == If.lad.keep(l, Ef.entry(l, If.lad.chosen(explicit, rule)), If.Defaults.reasoning(d)) : Bool}:
+  +C = If.lad.chosen(explicit, rule)
+  +D = If.Defaults.reasoning(d)
+  +F = If.lad.fill(C, D)
+  Equal.trans(Bool, Ef.has(Ef.offer(F, Ef.ladder()), l), Ef.keep(F, l), If.lad.keep(l, Ef.entry(l, C), D), pq.lad_has_keep(F, l), pq.lad_fill_keep(C, D, l))
+
+# a map with no entry leaves every level to the default ladder
+def pq.lad_none(l: Ef.Lv, +dl: List<&2, Ef.Lv>) -> {If.lad.keep(l, Ef.entry(l, Ef.LvMap.none()), dl) == Ef.has(dl, l) : Bool}:
+  match l:
+    case Ef.Off{}:
+      {==}
+    case Ef.Minimal{}:
+      {==}
+    case Ef.Low{}:
+      {==}
+    case Ef.Medium{}:
+      {==}
+    case Ef.High{}:
+      {==}
+    case Ef.Xhigh{}:
+      {==}
+    case Ef.Max{}:
+      {==}
+
+def pq.quirk_ladder_plain_exact(+explicit: Maybe<&2, Ef.LvMap>, +rule: Maybe<&2, Ef.LvMap>, +d: If.Defaults, +l: Ef.Lv) -> {Ef.has(If.lad.offered(False{}, explicit, rule, d), l) == Ef.has(If.Defaults.plain(d), l) : Bool}:
+  +P = If.Defaults.plain(d)
+  +N = Ef.LvMap.none()
+  +F = If.lad.fill(N, P)
+  +k = Equal.trans(Bool, Ef.keep(F, l), If.lad.keep(l, Ef.entry(l, N), P), Ef.has(P, l), pq.lad_fill_keep(N, P, l), pq.lad_none(l, P))
+  Equal.trans(Bool, Ef.has(Ef.offer(F, Ef.ladder()), l), Ef.keep(F, l), Ef.has(P, l), pq.lad_has_keep(F, l), k)
+
+# with the shipped default ladder, the ladder rule keeps what S10 keeps
+def pq.lad_ship_e(e: Ef.Ent, l: Ef.Lv) -> {If.lad.keep(l, e, If.Defaults.reasoning(If.lad.shipped())) == Ef.keep.e(l, e) : Bool}:
+  match e l:
+    case Ef.Null{} _:
+      {==}
+    case Ef.Wire{} _:
+      {==}
+    case Ef.Missing{} Ef.Off{}:
+      {==}
+    case Ef.Missing{} Ef.Minimal{}:
+      {==}
+    case Ef.Missing{} Ef.Low{}:
+      {==}
+    case Ef.Missing{} Ef.Medium{}:
+      {==}
+    case Ef.Missing{} Ef.High{}:
+      {==}
+    case Ef.Missing{} Ef.Xhigh{}:
+      {==}
+    case Ef.Missing{} Ef.Max{}:
+      {==}
+
+def pq.lad_ks(+map: Ef.LvMap, +l: Ef.Lv) -> {Ef.keep(If.lad.fill(map, If.Defaults.reasoning(If.lad.shipped())), l) == Ef.keep(map, l) : Bool}:
+  +S = If.Defaults.reasoning(If.lad.shipped())
+  Equal.trans(Bool, Ef.keep(If.lad.fill(map, S), l), If.lad.keep(l, Ef.entry(l, map), S), Ef.keep(map, l), pq.lad_fill_keep(map, S, l), pq.lad_ship_e(Ef.entry(l, map), l))
+
+def pq.lad_offer_fill(+map: Ef.LvMap, xs: List<&2, Ef.Lv>) -> {Ef.offer(If.lad.fill(map, If.Defaults.reasoning(If.lad.shipped())), xs) == Ef.offer(map, xs) : List<&2, Ef.Lv>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      +F = If.lad.fill(map, If.Defaults.reasoning(If.lad.shipped()))
+      %pq.lad_ks(map, x) : {Ef.cons_if(Ef.keep(F, x), x, Ef.offer(F, rest)) == Ef.cons_if(_, x, Ef.offer(map, rest)) : List<&2, Ef.Lv>}
+      %pq.lad_offer_fill(map, rest) : {Ef.cons_if(Ef.keep(F, x), x, Ef.offer(F, rest)) == Ef.cons_if(Ef.keep(F, x), x, _) : List<&2, Ef.Lv>}
+      {==}
+
+def pq.quirk_ladder_shipped_is_s10(r: Bool, +map: Ef.LvMap) -> {If.lad.offered.of(r, map, If.lad.shipped()) == Ef.offered(Ef.Mdl{r, map}) : List<&2, Ef.Lv>}:
+  match r:
+    case True{}:
+      pq.lad_offer_fill(map, Ef.ladder())
+    case False{}:
+      {==}

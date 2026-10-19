@@ -13,6 +13,7 @@ use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::simple_options::{
     clamp_thinking_budget_to_answer_room, resolve_sampling_params, thinking_budget_for_level,
 };
+use crate::models::thinking_level_map;
 use crate::types::{
     AssistantContentBlock, CacheControlFormat, CacheRetention, ChatTemplateKwargValue,
     ChatTemplateVar, JsonObject, JsonValue, MaxTokensField, Message, Model, ModelThinkingLevel,
@@ -49,16 +50,13 @@ fn has_tool_history(messages: &[Message]) -> bool {
     })
 }
 
-/// `model.thinkingLevelMap?.[level]`: `None` when the key is missing,
-/// `Some(None)` for an explicit `null`.
+/// `thinkingLevelMap?.[level]` of the map the model uses
+/// ([`thinking_level_map`]): `None` when the key is missing, `Some(None)`
+/// for an explicit `null`.
 // Mirrors TS `undefined` (missing key) vs `null` (unsupported level) of `ThinkingLevelMap`.
 #[allow(clippy::option_option)]
 fn level_map(model: &Model, level: ModelThinkingLevel) -> Option<Option<&str>> {
-    model
-        .thinking_level_map
-        .as_ref()?
-        .get(&level)
-        .map(Option::as_deref)
+    thinking_level_map(model)?.get(&level).map(Option::as_deref)
 }
 
 /// `model.thinkingLevelMap?.[effort] ?? effort`.
@@ -220,12 +218,17 @@ pub(crate) fn build_params(
         insert(&mut params, field.as_str(), json!(budget));
     }
 
-    // eukhe addition: OpenAI and OpenRouter accept a top-level service_tier
-    // (OpenRouter: flex and priority for every model). Other
-    // OpenAI-compatible gateways may reject unknown fields, and Prime
-    // Inference ignores it, so only those two receive it.
+    // eukhe addition: a provider with a service tier table entry for this
+    // wire API (the quirks rulebook, docs/inference.md S6.8) gets the
+    // top-level service_tier when it honors the tier. Other
+    // OpenAI-compatible gateways may reject unknown fields, so they never
+    // receive it.
     if let Some(service_tier) = stream_options.service_tier {
-        if model.provider == "openai" || model.provider == "openrouter" {
+        let honored = crate::quirks::service_tiers(model.into());
+        let requested = eukhe_types::ai::ServiceTier::ALL
+            .into_iter()
+            .find(|tier| tier.as_str() == service_tier.as_str());
+        if honored.len() > 1 && requested.is_some_and(|tier| honored.contains(&tier)) {
             insert(&mut params, "service_tier", json!(service_tier.as_str()));
         }
     }

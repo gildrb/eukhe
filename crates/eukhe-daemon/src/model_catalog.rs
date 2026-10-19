@@ -1,8 +1,11 @@
 //! The `/model` picker's catalog surface (TS daemon-mode
 //! `get_model_catalog`): the full local catalog — bundled snapshot or
 //! compiled fallback, plus the user's models.json — and the providers with
-//! configured auth. The catalog is fully local, so the answer is computed
-//! on the request path with no network access.
+//! configured auth. Each model object also carries the thinking levels and
+//! service tiers it offers, read from the eukhe-ai quirks rulebook
+//! (`eukhe_types::ai::CatalogModel`), so clients compute no ladder or tier
+//! of their own. The catalog is fully local, so the answer is computed on
+//! the request path with no network access.
 
 use serde_json::{json, Value};
 
@@ -34,7 +37,8 @@ impl Worker {
 /// The wire payload of one catalog snapshot (TS `refreshModelCatalog`'s
 /// `{models, configuredProviders}`): the full catalog minus private Prime
 /// Inference models models.json does not declare, plus the sorted providers
-/// with configured auth.
+/// with configured auth. Each model object carries its `thinkingLevels`
+/// and `serviceTiers` (the `CatalogModel` shape).
 fn catalog_payload(
     registry: &eukhe_core::models::ModelRegistry,
     available: &[eukhe_types::ai::Model],
@@ -62,7 +66,20 @@ fn catalog_payload(
     entries.sort_by(|a, b| (&a.provider, &a.id).cmp(&(&b.provider, &b.id)));
     let models: Vec<Value> = entries
         .into_iter()
-        .map(|model| serde_json::to_value(model).unwrap_or(Value::Null))
+        .map(|model| {
+            let mut value = serde_json::to_value(model).unwrap_or(Value::Null);
+            if let Value::Object(object) = &mut value {
+                object.insert(
+                    "thinkingLevels".to_owned(),
+                    json!(eukhe_ai::models::registry_thinking_levels(model)),
+                );
+                object.insert(
+                    "serviceTiers".to_owned(),
+                    json!(eukhe_ai::quirks::service_tiers(model.into())),
+                );
+            }
+            value
+        })
         .collect();
     json!({
         "models": models,

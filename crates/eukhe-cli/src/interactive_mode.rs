@@ -399,14 +399,25 @@ fn build_tui_options(
     // off the snapshot until the daemon's `get_model_catalog` response
     // lands). models.json entries are part of
     // the available catalog, so configured custom models list in the
-    // picker; the picker itself owns the TS selector order.
+    // picker; the picker itself owns the TS selector order. Each entry
+    // carries the levels and tiers the eukhe-ai quirks rulebook gives the
+    // model, the same lists the daemon catalog serves.
     let auth = eukhe_core::auth::AuthStorage::create(&config.agent_dir);
     let registry =
         eukhe_core::models::ModelRegistry::create(auth, config.agent_dir.join("models.json"));
-    let catalog: Vec<eukhe_types::ai::Model> =
-        registry.get_available().into_iter().cloned().collect();
-    let configured_providers: std::collections::HashSet<String> =
-        catalog.iter().map(|model| model.provider.clone()).collect();
+    let catalog: Vec<eukhe_types::ai::CatalogModel> = registry
+        .get_available()
+        .into_iter()
+        .map(|model| eukhe_types::ai::CatalogModel {
+            thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
+            service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            model: model.clone(),
+        })
+        .collect();
+    let configured_providers: std::collections::HashSet<String> = catalog
+        .iter()
+        .map(|entry| entry.model.provider.clone())
+        .collect();
     let recent = settings.get_recent_models();
     let default_thinking_level = settings
         .get_default_thinking_level()

@@ -258,7 +258,7 @@ fn a_stored_xai_subscription_switches_its_models_onto_responses() {
     // The catalog's xai model is non-reasoning: "off" is the only
     // supported level whatever the subscription map nulls (the
     // helper answers the non-reasoning branch first).
-    let supported = eukhe_types::ai::thinking_levels::get_supported_thinking_levels(grok);
+    let supported = eukhe_ai::models::registry_thinking_levels(grok);
     assert_eq!(supported, vec![ModelThinkingLevel::Off]);
     // The compat is the shared-key-only object (TS
     // `supportsLongCacheRetention: false`); the responses provider

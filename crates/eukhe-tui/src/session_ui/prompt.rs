@@ -402,10 +402,13 @@ impl SessionUi {
     /// is the provider-aware current-model match: a same-id entry under
     /// another provider is a different model.
     pub(super) fn model_supports_images(&self, view: &AgentView) -> bool {
-        let Some(model) = self.current_model_entry(view) else {
+        let Some(entry) = self.current_model_entry(view) else {
             return true;
         };
-        model.input.contains(&eukhe_types::ai::ModelInput::Image)
+        entry
+            .model
+            .input
+            .contains(&eukhe_types::ai::ModelInput::Image)
     }
 
     /// Submit a prompt (the Enter path). The user message arrives back as a

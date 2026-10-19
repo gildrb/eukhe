@@ -28,7 +28,7 @@ use serde_json::json;
 use super::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictToolParameters,
 };
-use crate::models::clamp_thinking_level;
+use crate::models::{clamp_thinking_level, thinking_level_map};
 use crate::utils::diagnostics::{thrown, ErrorObject, Thrown};
 use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions};
 
@@ -114,9 +114,7 @@ pub fn resolve_google_thinking_level(
     level: ThinkingLevel,
 ) -> Result<ResolvedGoogleThinkingLevel, Thrown> {
     // `undefined` when the key is absent, `null` when mapped to null.
-    let mapped: Option<Option<&str>> = model
-        .thinking_level_map
-        .as_ref()
+    let mapped: Option<Option<&str>> = thinking_level_map(model)
         .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
         .map(Option::as_deref);
     let resolved = match mapped {

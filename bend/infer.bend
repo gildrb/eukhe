@@ -18,11 +18,19 @@
 #    with a period of at most k/4 (at least 1), is cut.
 # 5. Early compaction. Compaction starts when the context reaches the
 #    threshold, a margin below the limit.
+# 6. The thinking ladder. Every ladder is rulebook data. The chosen ladder
+#    of a model is its explicit map, else the ladder that the rulebook
+#    gives it, else no ladder (every entry missing). A reasoning model
+#    offers each level whose chosen entry is a wire string, and each
+#    level with no chosen entry that the default ladder lists; a null
+#    entry removes the level. A model without reasoning offers the levels
+#    that the plain default ladder lists.
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
 
 import Base
+import ./effort.bend as Ef
 
 def elem(xs: List<&2, Nat>, +x: Nat) -> Bool:
   match xs:
@@ -609,3 +617,87 @@ def m.lt(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Bool:
           True{}
         case Some{y}:
           Nat.is_lt(x, y)
+
+# 6. The thinking ladder
+# ----------------------
+
+# The default ladders of the rulebook: the levels a reasoning model and a
+# model without reasoning offer where the chosen ladder has no entry
+type Defaults is Data:
+  Defaults{reasoning: List<&2, Ef.Lv>, plain: List<&2, Ef.Lv>}
+
+def Defaults.reasoning(d: Defaults) -> List<&2, Ef.Lv>:
+  match d:
+    case Defaults{r, p}:
+      r
+
+def Defaults.plain(d: Defaults) -> List<&2, Ef.Lv>:
+  match d:
+    case Defaults{r, p}:
+      p
+
+# the shipped default ladders (rulebook.json `thinking_defaults`)
+def lad.shipped() -> Defaults:
+  Defaults{[Ef.Off{}, Ef.Minimal{}, Ef.Low{}, Ef.Medium{}, Ef.High{}], [Ef.Off{}]}
+
+# the chosen ladder: the explicit map, else the rulebook's ladder, else
+# no ladder
+def lad.chosen(explicit: Maybe<&2, Ef.LvMap>, rule: Maybe<&2, Ef.LvMap>) -> Ef.LvMap:
+  match explicit:
+    case Some{e}:
+      e
+    case None{}:
+      match rule:
+        case Some{r}:
+          r
+        case None{}:
+          Ef.LvMap.none()
+
+# whether a level with chosen entry e is offered, given the default ladder
+# dl: a wire string offers it, null does not, no entry offers it when dl
+# lists it
+def lad.keep(+l: Ef.Lv, e: Ef.Ent, +dl: List<&2, Ef.Lv>) -> Bool:
+  match e:
+    case Ef.Missing{}:
+      Ef.has(dl, l)
+    case Ef.Null{}:
+      False{}
+    case Ef.Wire{}:
+      True{}
+
+def lad.ent(b: Bool) -> Ef.Ent:
+  match b:
+    case True{}:
+      Ef.Wire{}
+    case False{}:
+      Ef.Null{}
+
+# entry e of level l with the default ladder dl filled in where e is
+# missing
+def lad.fill.e(+l: Ef.Lv, e: Ef.Ent, +dl: List<&2, Ef.Lv>) -> Ef.Ent:
+  match e:
+    case Ef.Missing{}:
+      lad.ent(Ef.has(dl, l))
+    case Ef.Null{}:
+      Ef.Null{}
+    case Ef.Wire{}:
+      Ef.Wire{}
+
+# the map with the default ladder dl filled in where it has no entry
+def lad.fill(map: Ef.LvMap, +dl: List<&2, Ef.Lv>) -> Ef.LvMap:
+  match map:
+    case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+      Ef.LvMap{lad.fill.e(Ef.Off{}, o, dl), lad.fill.e(Ef.Minimal{}, mi, dl), lad.fill.e(Ef.Low{}, lo, dl), lad.fill.e(Ef.Medium{}, me, dl), lad.fill.e(Ef.High{}, hi, dl), lad.fill.e(Ef.Xhigh{}, xh, dl), lad.fill.e(Ef.Max{}, mx, dl)}
+
+# the levels offered with the chosen ladder map and the default ladders d
+def lad.offered.of(r: Bool, map: Ef.LvMap, d: Defaults) -> List<&2, Ef.Lv>:
+  match r:
+    case True{}:
+      Ef.offer(lad.fill(map, Defaults.reasoning(d)), Ef.ladder())
+    case False{}:
+      Ef.offer(lad.fill(Ef.LvMap.none(), Defaults.plain(d)), Ef.ladder())
+
+# the levels a model offers: reasoning or not, its explicit map, the
+# rulebook's ladder for it, the default ladders
+def lad.offered(r: Bool, explicit: Maybe<&2, Ef.LvMap>, rule: Maybe<&2, Ef.LvMap>, d: Defaults) -> List<&2, Ef.Lv>:
+  lad.offered.of(r, lad.chosen(explicit, rule), d)

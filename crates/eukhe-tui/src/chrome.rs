@@ -420,7 +420,7 @@ pub(crate) fn tray_thinking_suffix(state: &Value) -> Option<String> {
     state
         .get("thinkingLevel")
         .and_then(Value::as_str)
-        .and_then(eukhe_types::ai::thinking_level_from_str)
+        .and_then(eukhe_types::ai::ModelThinkingLevel::parse)
         .map(|level| level.wire_name().to_string())
 }
 

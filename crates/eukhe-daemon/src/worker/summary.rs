@@ -113,15 +113,14 @@ pub(crate) fn available_thinking_levels(core: &SessionCore, session: &SessionSlo
     }
 }
 
-/// The service tiers the shown model honors (`["default"]` without one).
+/// The service tiers the shown model honors (`["default"]` without one),
+/// by the quirks rulebook (docs/inference.md S6.8).
 fn available_service_tiers(core: &SessionCore, session: &SessionSlot) -> Vec<String> {
     match shown_model(core, session) {
-        Some(model) => {
-            eukhe_types::ai::supported_service_tiers_fields(&model.provider, &model.api, &model.id)
-                .into_iter()
-                .map(|tier| tier.as_str().to_string())
-                .collect()
-        }
+        Some(model) => eukhe_ai::quirks::service_tiers((&model).into())
+            .into_iter()
+            .map(|tier| tier.as_str().to_string())
+            .collect(),
         None => vec![eukhe_types::ai::ServiceTier::Default.as_str().to_string()],
     }
 }

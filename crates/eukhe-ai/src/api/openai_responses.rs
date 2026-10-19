@@ -22,7 +22,7 @@ use super::openai_sdk::{
 use super::simple_options::{build_base_options, resolve_sampling_params};
 use super::ProviderStreams;
 use crate::api::lazy::lazy_stream;
-use crate::models::clamp_thinking_level;
+use crate::models::{clamp_thinking_level, thinking_level_map};
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheRetention, ErrorReason, JsonObject, JsonValue,
     Model, ModelThinkingLevel, ProviderEnv, ProviderHeaders, ProviderResponse,
@@ -460,9 +460,7 @@ pub(crate) fn insert_reasoning(
     params: &mut JsonObject,
 ) {
     let effort = match api.reasoning_effort {
-        Some(requested) => model
-            .thinking_level_map
-            .as_ref()
+        Some(requested) => thinking_level_map(model)
             .and_then(|map| map.get(&ModelThinkingLevel::from(requested)))
             .and_then(Clone::clone)
             .unwrap_or_else(|| requested.as_str().to_owned()),
@@ -483,10 +481,7 @@ pub(crate) fn insert_reasoning(
 /// The `reasoning` of a request without a reasoning effort: the model's
 /// `off` level (default `"none"`), unless the map marks `off` unsupported.
 pub(crate) fn insert_reasoning_off(model: &Model, params: &mut JsonObject) {
-    let off = model
-        .thinking_level_map
-        .as_ref()
-        .and_then(|map| map.get(&ModelThinkingLevel::Off));
+    let off = thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off));
     match off {
         Some(None) => {}
         Some(Some(value)) => {

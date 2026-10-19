@@ -13,8 +13,10 @@ fn options_with_tier(service_tier: ServiceTier) -> OpenAICompletionsOptions {
     options
 }
 
+/// The rulebook lists no service tier for `openai` over this wire API
+/// (only over `openai-responses`), so the request sends none.
 #[tokio::test]
-async fn forwards_service_tier_for_openai() {
+async fn does_not_forward_service_tier_the_rulebook_does_not_list() {
     let payload = capture_payload(
         &test_model(json!({ "provider": "openai" })),
         &user_context("hi"),
@@ -22,22 +24,22 @@ async fn forwards_service_tier_for_openai() {
     )
     .await;
 
-    assert_eq!(payload.get("service_tier"), Some(&json!("flex")));
+    assert_eq!(payload.get("service_tier"), None);
 }
 
 #[tokio::test]
 async fn forwards_service_tier_for_openrouter() {
-    let payload = capture_payload(
-        &test_model(json!({
-            "provider": "openrouter",
-            "baseUrl": "https://openrouter.ai/api/v1",
-        })),
-        &user_context("hi"),
-        options_with_tier(ServiceTier::Priority),
-    )
-    .await;
+    let model = test_model(json!({
+        "provider": "openrouter",
+        "baseUrl": "https://openrouter.ai/api/v1",
+    }));
+    let mut sent = Vec::new();
+    for tier in [ServiceTier::Priority, ServiceTier::Scale] {
+        let payload = capture_payload(&model, &user_context("hi"), options_with_tier(tier)).await;
+        sent.push(payload.get("service_tier").cloned());
+    }
 
-    assert_eq!(payload.get("service_tier"), Some(&json!("priority")));
+    assert_eq!(sent, vec![Some(json!("priority")), None]);
 }
 
 #[tokio::test]

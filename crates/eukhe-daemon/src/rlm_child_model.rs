@@ -6,8 +6,9 @@
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
+use eukhe_ai::models::registry_thinking_levels;
 use eukhe_core::kernel::rlm_runtime::{find_rlm_model_matches, RlmModelInfo};
-use eukhe_types::ai::thinking_levels::{get_supported_thinking_levels, thinking_level_from_str};
+use eukhe_types::ai::ModelThinkingLevel;
 
 /// Close matches listed in model-resolution errors (TS suggestion limit).
 const MODEL_ERROR_SUGGESTION_LIMIT: usize = 3;
@@ -188,8 +189,8 @@ pub fn assert_thinking_supported(
     else {
         return Ok(());
     };
-    let supported = get_supported_thinking_levels(model);
-    let Some(requested) = thinking_level_from_str(level) else {
+    let supported = registry_thinking_levels(model);
+    let Some(requested) = ModelThinkingLevel::parse(level) else {
         return Ok(());
     };
     if supported.contains(&requested) {

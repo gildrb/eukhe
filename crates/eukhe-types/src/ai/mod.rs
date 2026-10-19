@@ -3,13 +3,6 @@
 //! Field names and JSON shapes match the TypeScript wire format exactly
 //! (camelCase keys, `type`-tagged content blocks, `role`-tagged messages).
 
-pub mod thinking_levels;
-
-pub use thinking_levels::{
-    clamp_thinking_level, get_supported_thinking_levels, supports_thinking,
-    thinking_level_from_str, EXTENDED_THINKING_LEVELS,
-};
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -62,6 +55,15 @@ impl ModelThinkingLevel {
             ModelThinkingLevel::Xhigh => "xhigh",
             ModelThinkingLevel::Max => "max",
         }
+    }
+
+    /// Parse a level from its wire name ([`Self::wire_name`]); `None` for a
+    /// name outside the vocabulary. This reads the vocabulary only: which
+    /// levels a model supports comes from the eukhe-ai quirks rulebook.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(name))
+            .ok()
     }
 }
 
@@ -631,83 +633,19 @@ pub struct Model {
     pub compat: Option<ModelCompat>,
 }
 
-/// TS `supportsServiceTier` over the eligibility fields: whether a
-/// provider accepts (and honors) a requested service tier. The
-/// Model-typed [`supports_service_tier`] delegates here so the surfaces
-/// that only hold the connection-state model metadata (provider, api, id)
-/// share one predicate.
-#[must_use]
-pub fn supports_service_tier_fields(
-    provider: &str,
-    api: &str,
-    model_id: &str,
-    tier: ServiceTier,
-) -> bool {
-    if tier == ServiceTier::Default {
-        return true;
-    }
-    // OpenRouter accepts top-level service_tier (flex|priority) for every
-    // model, routes to matching tier endpoints where they exist, and bills
-    // by the tier that actually served the request:
-    // https://openrouter.ai/docs/guides/features/service-tiers
-    if provider == "openrouter" && api == "openai-completions" {
-        return matches!(tier, ServiceTier::Flex | ServiceTier::Priority);
-    }
-    let openai_responses = provider == "openai" && api == "openai-responses";
-    let codex_responses = provider == "openai-codex" && api == "openai-codex-responses";
-    if !openai_responses && !codex_responses {
-        return false;
-    }
-    // "auto" defers the tier choice to OpenAI and is valid for every model
-    // there; "scale" is entitlement-gated, so pass it through for callers
-    // that have it.
-    if matches!(tier, ServiceTier::Auto | ServiceTier::Scale) {
-        return true;
-    }
-    let eligible_id = model_id == "gpt-5.4"
-        || model_id == "gpt-5.5"
-        || model_id == "gpt-5.6"
-        || model_id == "gpt-6-astra"
-        || model_id.starts_with("gpt-5.6-");
-    if tier == ServiceTier::Priority {
-        return eligible_id;
-    }
-    // Flex processing is an API-key feature; the ChatGPT (Codex OAuth)
-    // backend has no flex tier.
-    tier == ServiceTier::Flex && eligible_id && openai_responses
-}
-
-/// TS `supportsServiceTier`: whether a model's provider accepts (and
-/// honors) a requested service tier. The single eligibility predicate
-/// behind the `/tier` command, the settings row, and the `/fast` toggle
-/// (the TS product keeps the same function in the shared AI package).
-#[must_use]
-pub fn supports_service_tier(model: &Model, tier: ServiceTier) -> bool {
-    supports_service_tier_fields(&model.provider, &model.api, &model.id, tier)
-}
-
-/// The tiers a provider honors for one model, by
-/// [`supports_service_tier_fields`]: what every client offers
-/// (`["default"]` alone for a model with no tiers).
-#[must_use]
-pub fn supported_service_tiers_fields(
-    provider: &str,
-    api: &str,
-    model_id: &str,
-) -> Vec<ServiceTier> {
-    ServiceTier::ALL
-        .into_iter()
-        .filter(|tier| supports_service_tier_fields(provider, api, model_id, *tier))
-        .collect()
-}
-
-/// TS `supportsFastMode` (now `supportsServiceTier(model, "priority")`):
-/// the fast-mode (priority) tier exists on the eligible ids served over
-/// the `OpenAI` Responses APIs. Shared by the surfaces that gate the
-/// `/fast` command on model eligibility.
-#[must_use]
-pub fn supports_fast_mode(model: &Model) -> bool {
-    supports_service_tier(model, ServiceTier::Priority)
+/// One entry of the daemon's `get_model_catalog` answer: the registry
+/// model plus the thinking levels and service tiers it offers. The daemon
+/// reads both lists from the eukhe-ai quirks rulebook; clients show them
+/// and compute no ladder or tier of their own. On the wire the lists ride
+/// the model object as `thinkingLevels` (wire names, ladder order) and
+/// `serviceTiers` (wire names, [`ServiceTier::ALL`] order).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogModel {
+    #[serde(flatten)]
+    pub model: Model,
+    pub thinking_levels: Vec<ModelThinkingLevel>,
+    pub service_tiers: Vec<ServiceTier>,
 }
 
 // The unit battery lives in the child module (ai::tests); its use-super

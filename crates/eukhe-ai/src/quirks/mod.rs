@@ -1,6 +1,6 @@
 //! The quirks rulebook (docs/inference.md S6.1; model `bend/infer.bend`
-//! section 1): which wire settings a model family, a model, and a host
-//! need, as data.
+//! section 1): which wire settings, thinking ladders and service tiers a
+//! model family, a model, and a host need, as data.
 //!
 //! A rule says: at a layer (a model family, a model, a host), for a target
 //! id of that layer, directive `d` has value `v`. [`compile`] rejects a rule
@@ -13,12 +13,15 @@
 //! does not depend on the order of the rules.
 //!
 //! A model's query names one target per layer ([`Rulebook::query`]):
-//! - family: the one family whose pattern matches the model. A model that
-//!   two families match is the error [`FamilyOverlap`], never
-//!   a choice between them: the shipped rulebook is checked against every
-//!   model of the compiled catalog ([`Rulebook::check_catalog`]), and a
-//!   model outside it that two families match names no family (each
-//!   family directive is then Unknown), reported once per model id;
+//! - family: the one family whose pattern matches the model, and whose
+//!   revision range (when it has one) holds for the revision that the
+//!   model id names ([`revision`]; an id that names no revision has the
+//!   revision 0). A model that two families match is the error
+//!   [`FamilyOverlap`], never a choice between them: the shipped rulebook
+//!   is checked against every model of the compiled catalog
+//!   ([`Rulebook::check_catalog`]), and a model outside it that two
+//!   families match names no family (each family directive is then
+//!   Unknown), reported once per model id;
 //! - model: the model id;
 //! - host: the host that names the model's wire API (an API that only one
 //!   host speaks), else the host that names its provider id, else the host
@@ -28,6 +31,10 @@
 //!   `capabilities` serves only capability lookups ([`Lookup`]): it may set
 //!   only capability directives, and a wire lookup skips it as if it named
 //!   nothing, so it never changes a request's wire settings.
+//!
+//! The rulebook also holds the service tiers ([`service_tiers`],
+//! docs/inference.md S6.8): a table of the tiers that a provider honors
+//! over one wire API, for every model or for the models of one family.
 //!
 //! The shipped rulebook is `rulebook.json`, compiled into the binary and
 //! compiled once on first use.
@@ -41,7 +48,15 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 use crate::capabilities::{Capability, Dialect};
-use crate::types::{MaxTokensField, Model, SessionAffinityFormat, ThinkingFormat};
+use crate::types::{
+    MaxTokensField, Model, ModelThinkingLevel, SessionAffinityFormat, ThinkingFormat,
+    ThinkingLevelMap,
+};
+
+mod revision;
+mod tiers;
+
+pub use tiers::{service_tiers, supports_service_tier};
 
 #[cfg(test)]
 mod tests;
@@ -126,6 +141,12 @@ pub enum Directive {
     /// host of scope `capabilities` may set it, and a capability lookup
     /// reads it.
     PromptProgress,
+    /// The thinking ladder of a model (docs/inference.md S10): the levels
+    /// it offers and their wire values, as a `thinkingLevelMap` (a level
+    /// with a string is offered with that wire value, a `null` level is
+    /// absent, a missing level keeps the default rule). A model's explicit
+    /// `thinkingLevelMap` wins over it (`models::thinking_level_map`).
+    ThinkingLadder,
     /// The endpoint dialect that serves a provider capability
     /// ([`Capability`]), or `false`: the host or model does not have it.
     Endpoint(Capability),
@@ -153,6 +174,7 @@ impl Directive {
         Self::ToolChoiceNative,
         Self::ToolChoiceFree,
         Self::PromptProgress,
+        Self::ThinkingLadder,
         Self::Endpoint(Capability::CountTokens),
         Self::Endpoint(Capability::ListModels),
         Self::Endpoint(Capability::Embed),
@@ -186,6 +208,7 @@ impl Directive {
             Self::ToolChoiceNative => "tool_choice_native",
             Self::ToolChoiceFree => "tool_choice_free",
             Self::PromptProgress => "prompt_progress",
+            Self::ThinkingLadder => "thinking_ladder",
             Self::Endpoint(capability) => capability.as_str(),
         }
     }
@@ -223,7 +246,8 @@ impl Directive {
             | Self::AdaptiveThinking
             | Self::ToolChoiceNative
             | Self::ToolChoiceFree
-            | Self::PromptProgress => None,
+            | Self::PromptProgress
+            | Self::ThinkingLadder => None,
         }
     }
 
@@ -251,6 +275,7 @@ impl Directive {
             Self::ThinkingFormat => ValueKind::ThinkingFormat,
             Self::SessionAffinityFormat => ValueKind::SessionAffinityFormat,
             Self::StrictCap => ValueKind::Count,
+            Self::ThinkingLadder => ValueKind::ThinkingLadder,
             Self::Endpoint(capability) => ValueKind::Endpoint(capability),
         }
     }
@@ -271,6 +296,9 @@ pub enum ValueKind {
     ThinkingFormat,
     /// A `SessionAffinityFormat` wire string.
     SessionAffinityFormat,
+    /// A `thinkingLevelMap`: an object from level names to a wire string
+    /// or `null`.
+    ThinkingLadder,
     /// A [`Dialect`] wire string that implements the capability, or `false`.
     Endpoint(Capability),
 }
@@ -303,6 +331,9 @@ impl ValueKind {
                 .as_str()
                 .and_then(SessionAffinityFormat::parse)
                 .map(Value::SessionAffinityFormat),
+            Self::ThinkingLadder => ThinkingLevelMap::deserialize(raw)
+                .ok()
+                .map(Value::ThinkingLadder),
             Self::Endpoint(capability) => match raw {
                 JsonValue::Bool(false) => Some(Value::Endpoint(None)),
                 JsonValue::String(name) => Dialect::parse(name)
@@ -327,6 +358,8 @@ pub enum Value {
     MaxTokensField(MaxTokensField),
     ThinkingFormat(ThinkingFormat),
     SessionAffinityFormat(SessionAffinityFormat),
+    /// A thinking ladder ([`Directive::ThinkingLadder`]).
+    ThinkingLadder(ThinkingLevelMap),
     /// The dialect of a capability endpoint; `None`: unsupported.
     Endpoint(Option<Dialect>),
 }
@@ -380,6 +413,8 @@ pub enum QuirksError {
     Format(String),
     #[error("family `{family}` has a bad pattern: {reason}")]
     BadPattern { family: String, reason: String },
+    #[error("family `{family}` has a bad revision range: {reason}")]
+    BadRevision { family: String, reason: String },
     #[error("two {layer} definitions have the id `{id}`")]
     DuplicateId { layer: Layer, id: String },
     #[error("`{key}` names two hosts: `{first}` and `{second}`")]
@@ -390,6 +425,8 @@ pub enum QuirksError {
     },
     #[error("a {layer} rule targets `{target}`, which no {layer} definition names")]
     UndefinedTarget { layer: Layer, target: String },
+    #[error("a service tier entry names the family `{family}`, which no family definition names")]
+    UndefinedTierFamily { family: String },
     #[error("host `{host}` serves capability lookups only, but its rule sets `{directive}`")]
     WireDirectiveOnCapabilityHost { host: String, directive: String },
     #[error(transparent)]
@@ -532,6 +569,54 @@ impl<'a> Query<'a> {
     }
 }
 
+/// The fields of a model that a rulebook query reads: the id and name
+/// (the family), the wire API, the provider and the base URL (the host).
+/// Both model types give one ([`Model`] and the registry's
+/// `eukhe_types::ai::Model`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelKey<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub api: &'a str,
+    pub provider: &'a str,
+    pub base_url: &'a str,
+}
+
+impl<'a> From<&'a Model> for ModelKey<'a> {
+    fn from(model: &'a Model) -> Self {
+        Self {
+            id: &model.id,
+            name: &model.name,
+            api: &model.api,
+            provider: &model.provider,
+            base_url: &model.base_url,
+        }
+    }
+}
+
+impl<'a> From<&'a eukhe_types::ai::Model> for ModelKey<'a> {
+    fn from(model: &'a eukhe_types::ai::Model) -> Self {
+        Self {
+            id: &model.id,
+            name: &model.name,
+            api: &model.api,
+            provider: &model.provider,
+            base_url: &model.base_url,
+        }
+    }
+}
+
+/// The default thinking ladders (docs/inference.md S10, the ladder 0):
+/// the levels a model offers where its ladder gives no entry, in the wire
+/// API's own form. `reasoning` serves a reasoning model, `plain` a model
+/// without reasoning (whose ladder has no effect).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThinkingDefaults {
+    pub reasoning: Vec<ModelThinkingLevel>,
+    pub plain: Vec<ModelThinkingLevel>,
+}
+
 /// What a family pattern is matched against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -543,6 +628,15 @@ enum MatchOn {
     Names,
 }
 
+/// A family's revision condition: the revision that the model id names
+/// after `prefix` ([`revision::of`]; none is 0) is in `range`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevisionEntry {
+    prefix: String,
+    range: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FamilyEntry {
@@ -550,6 +644,8 @@ struct FamilyEntry {
     on: MatchOn,
     #[serde(rename = "match")]
     pattern: String,
+    #[serde(default)]
+    revision: Option<RevisionEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -580,6 +676,10 @@ struct RulebookEntry {
     families: Vec<FamilyEntry>,
     hosts: Vec<HostEntry>,
     rules: Vec<RuleEntry>,
+    #[serde(default)]
+    service_tiers: Vec<tiers::TierEntry>,
+    #[serde(default)]
+    thinking_defaults: ThinkingDefaults,
 }
 
 #[derive(Debug)]
@@ -587,9 +687,12 @@ struct Family {
     id: String,
     on: MatchOn,
     pattern: Regex,
+    /// The revision prefix (lowercase) and the range the revision is in.
+    revision: Option<(String, revision::Range)>,
 }
 
-/// A rulebook: the families, the hosts, and the compiled rules.
+/// A rulebook: the families, the hosts, the compiled rules, the service
+/// tiers and the default thinking ladders.
 #[derive(Debug)]
 pub struct Rulebook {
     /// Sorted by id, so a [`QuirksError::FamilyOverlap`] names its two
@@ -602,6 +705,8 @@ pub struct Rulebook {
     /// The hosts of scope `capabilities`.
     capability_hosts: HashSet<String>,
     rules: Rules,
+    service_tiers: Vec<tiers::TierEntry>,
+    thinking_defaults: ThinkingDefaults,
 }
 
 /// `/[\s_.:]+/g`.
@@ -680,9 +785,10 @@ impl Rulebook {
     ///
     /// # Errors
     ///
-    /// When the text is not a rulebook, a pattern is not a regex, two
-    /// definitions share an id, two hosts share an API or a provider, a
-    /// family or host rule targets an undefined id, a host of scope
+    /// When the text is not a rulebook, a pattern is not a regex, a
+    /// revision range does not parse, two definitions share an id, two
+    /// hosts share an API or a provider, a family or host rule or a
+    /// service tier entry targets an undefined id, a host of scope
     /// `capabilities` gets a wire directive, or the rules do not
     /// [`compile`].
     #[allow(clippy::too_many_lines)] // one parse-and-check pass; each check is a short loop
@@ -699,11 +805,25 @@ impl Rulebook {
                 });
                 continue;
             }
+            let revision = match family.revision {
+                Some(RevisionEntry { prefix, range }) => match revision::Range::parse(&range) {
+                    Ok(range) => Some((prefix.to_lowercase(), range)),
+                    Err(reason) => {
+                        errors.push(QuirksError::BadRevision {
+                            family: family.id,
+                            reason,
+                        });
+                        continue;
+                    }
+                },
+                None => None,
+            };
             match Regex::new(&family.pattern) {
                 Ok(pattern) => families.push(Family {
                     id: family.id,
                     on: family.on,
                     pattern,
+                    revision,
                 }),
                 Err(error) => errors.push(QuirksError::BadPattern {
                     family: family.id,
@@ -788,6 +908,16 @@ impl Rulebook {
                 );
             }
         }
+        errors.extend(
+            entry
+                .service_tiers
+                .iter()
+                .filter_map(|tier| tier.family.as_ref())
+                .filter(|target| !families.iter().any(|family| &&family.id == target))
+                .map(|target| QuirksError::UndefinedTierFamily {
+                    family: target.clone(),
+                }),
+        );
         if errors.is_empty() {
             Ok(Self {
                 families,
@@ -796,6 +926,8 @@ impl Rulebook {
                 by_url,
                 capability_hosts,
                 rules,
+                service_tiers: entry.service_tiers,
+                thinking_defaults: entry.thinking_defaults,
             })
         } else {
             Err(errors)
@@ -812,42 +944,58 @@ impl Rulebook {
         model: &'a Model,
         lookup: Lookup,
     ) -> Result<Query<'a>, FamilyOverlap> {
-        let lower_id = model.id.to_lowercase();
+        Ok(Query {
+            family: self.family(&model.id, &model.name)?,
+            model: &model.id,
+            host: self.host(model.into(), lookup),
+        })
+    }
+
+    /// The one family that matches the model with id `id` and name `name`
+    /// (see the module docs); `None` when no family does.
+    ///
+    /// # Errors
+    ///
+    /// [`FamilyOverlap`] when two families match the model.
+    pub fn family(&self, id: &str, name: &str) -> Result<Option<&str>, FamilyOverlap> {
+        let lower_id = id.to_lowercase();
         let mut candidates: Option<Vec<String>> = None;
-        let mut matching = self.families.iter().filter(|family| match family.on {
-            MatchOn::Id => family.pattern.is_match(&lower_id),
-            MatchOn::Names => candidates
-                .get_or_insert_with(|| match_candidates(&model.id, &model.name))
-                .iter()
-                .any(|candidate| family.pattern.is_match(candidate)),
+        let mut matching = self.families.iter().filter(|family| {
+            let pattern = match family.on {
+                MatchOn::Id => family.pattern.is_match(&lower_id),
+                MatchOn::Names => candidates
+                    .get_or_insert_with(|| match_candidates(id, name))
+                    .iter()
+                    .any(|candidate| family.pattern.is_match(candidate)),
+            };
+            pattern
+                && family.revision.as_ref().is_none_or(|(prefix, range)| {
+                    range.holds(revision::of(id, prefix).unwrap_or_default())
+                })
         });
         let family = matching.next();
         if let (Some(first), Some(second)) = (family, matching.next()) {
             return Err(FamilyOverlap {
-                model: model.id.clone(),
+                model: id.to_owned(),
                 first: first.id.clone(),
                 second: second.id.clone(),
             });
         }
-        Ok(Query {
-            family: family.map(|family| family.id.as_str()),
-            model: &model.id,
-            host: self.host(model, lookup),
-        })
+        Ok(family.map(|family| family.id.as_str()))
     }
 
     /// The host `model` names for `lookup` (see the module docs): a host
     /// that does not serve `lookup` is skipped as if it named nothing.
-    fn host(&self, model: &Model, lookup: Lookup) -> Option<&str> {
+    fn host(&self, model: ModelKey<'_>, lookup: Lookup) -> Option<&str> {
         let serves = |host: &&String| match lookup {
             Lookup::Capabilities => true,
             Lookup::Wire => !self.capability_hosts.contains(host.as_str()),
         };
         let base_url = model.base_url.to_lowercase();
         self.by_api
-            .get(&model.api)
+            .get(model.api)
             .filter(serves)
-            .or_else(|| self.by_provider.get(&model.provider).filter(serves))
+            .or_else(|| self.by_provider.get(model.provider).filter(serves))
             .or_else(|| {
                 self.by_url
                     .iter()
@@ -890,6 +1038,30 @@ impl Rulebook {
     pub fn lookup(&self, query: &Query<'_>, directive: Directive) -> Answer<'_> {
         self.rules.lookup(query, directive)
     }
+
+    /// The default thinking ladders ([`ThinkingDefaults`]).
+    #[must_use]
+    pub const fn thinking_defaults(&self) -> &ThinkingDefaults {
+        &self.thinking_defaults
+    }
+}
+
+/// The shipped rulebook's family of the model with id `id` and name
+/// `name`. A model that two families match names no family: the overlap is
+/// logged as an error, once per model id.
+fn shipped_family(id: &str, name: &str) -> Option<&'static str> {
+    Rulebook::shipped()
+        .family(id, name)
+        .unwrap_or_else(|error| {
+            let first_report = REPORTED_OVERLAPS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(id.to_owned());
+            if first_report {
+                tracing::error!(%error, "quirks: the model names no family");
+            }
+            None
+        })
 }
 
 /// The shipped rulebook's answers for one model. Each getter is `None`
@@ -903,7 +1075,7 @@ impl<'a> Quirks<'a> {
     /// The shipped rulebook's wire query for `model`
     /// ([`Quirks::for_lookup`] with [`Lookup::Wire`]).
     #[must_use]
-    pub fn of(model: &'a Model) -> Self {
+    pub fn of(model: impl Into<ModelKey<'a>>) -> Self {
         Self::for_lookup(model, Lookup::Wire)
     }
 
@@ -911,23 +1083,15 @@ impl<'a> Quirks<'a> {
     /// two families match names no family: the overlap is logged as an
     /// error, once per model id.
     #[must_use]
-    pub fn for_lookup(model: &'a Model, lookup: Lookup) -> Self {
-        let book = Rulebook::shipped();
-        let query = book.query(model, lookup).unwrap_or_else(|error| {
-            let first_report = REPORTED_OVERLAPS
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(model.id.clone());
-            if first_report {
-                tracing::error!(%error, "quirks: the model names no family");
-            }
-            Query {
-                family: None,
-                model: &model.id,
-                host: book.host(model, lookup),
-            }
-        });
-        Self { query }
+    pub fn for_lookup(model: impl Into<ModelKey<'a>>, lookup: Lookup) -> Self {
+        let model = model.into();
+        Self {
+            query: Query {
+                family: shipped_family(model.id, model.name),
+                model: model.id,
+                host: Rulebook::shipped().host(model, lookup),
+            },
+        }
     }
 
     /// The targets this model names.
@@ -951,6 +1115,7 @@ impl<'a> Quirks<'a> {
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -963,6 +1128,7 @@ impl<'a> Quirks<'a> {
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1001,6 +1167,7 @@ impl<'a> Quirks<'a> {
             | Value::Prefixes(_)
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1021,6 +1188,7 @@ impl<'a> Quirks<'a> {
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
             | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1047,6 +1215,7 @@ impl<'a> Quirks<'a> {
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
+            | Value::ThinkingLadder(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1073,6 +1242,7 @@ impl<'a> Quirks<'a> {
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1090,7 +1260,8 @@ impl<'a> Quirks<'a> {
             | Value::Prefixes(_)
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
-            | Value::SessionAffinityFormat(_) => None,
+            | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_) => None,
         }
     }
 
@@ -1129,5 +1300,20 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn prompt_progress(&self) -> Option<bool> {
         self.flag(Directive::PromptProgress)
+    }
+
+    /// [`Directive::ThinkingLadder`].
+    #[must_use]
+    pub fn thinking_ladder(&self) -> Option<&'static ThinkingLevelMap> {
+        match self.known(Directive::ThinkingLadder)? {
+            Value::ThinkingLadder(ladder) => Some(ladder),
+            Value::Bool(_)
+            | Value::Count(_)
+            | Value::Prefixes(_)
+            | Value::MaxTokensField(_)
+            | Value::ThinkingFormat(_)
+            | Value::SessionAffinityFormat(_)
+            | Value::Endpoint(_) => None,
+        }
     }
 }

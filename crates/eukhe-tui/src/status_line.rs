@@ -152,7 +152,7 @@ fn model_segment(state: &ChromeState, theme: &Theme) -> Option<Line> {
 /// The bracketed thinking-level label (omp's ascii `thinking.*` symbols).
 fn thinking_label(level: &str) -> String {
     use eukhe_types::ai::ModelThinkingLevel;
-    let Some(parsed) = eukhe_types::ai::thinking_level_from_str(level) else {
+    let Some(parsed) = ModelThinkingLevel::parse(level) else {
         return format!("[{level}]");
     };
     match parsed {

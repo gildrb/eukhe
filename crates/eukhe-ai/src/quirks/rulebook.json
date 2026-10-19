@@ -2,7 +2,9 @@
   "families": [
     { "id": "claude-adaptive", "on": "names", "match": "opus-4-6|opus-4-7|opus-4-8|opus-5|sonnet-4-6|sonnet-5|haiku-5|fable-5" },
     { "id": "gemini-3-plus", "on": "id", "match": "^gemini(?:-live)?-0*(?:[3-9]|[1-9][0-9]+)" },
-    { "id": "qwen", "on": "id", "match": "(?:^|/)(?:qwen|qwq)[^/]*$" }
+    { "id": "gpt-priority", "on": "id", "match": "^(?:gpt-5\\.4|gpt-5\\.5|gpt-5\\.6|gpt-6-astra)$|^gpt-5\\.6-" },
+    { "id": "qwen", "on": "id", "match": "(?:^|/)(?:qwen|qwq)[^/]*$", "revision": { "prefix": "qwen", "range": "<3.8" } },
+    { "id": "qwen-3.8", "on": "id", "match": "(?:^|/)(?:qwen|qwq)[^/]*$", "revision": { "prefix": "qwen", "range": ">=3.8" } }
   ],
   "hosts": [
     { "id": "anthropic", "providers": ["anthropic"], "urls": ["api.anthropic.com"] },
@@ -32,7 +34,8 @@
   "rules": [
     { "layer": "family", "target": "claude-adaptive", "set": { "adaptive_thinking": true } },
     { "layer": "family", "target": "gemini-3-plus", "set": { "google_validated_tools": true } },
-    { "layer": "family", "target": "qwen", "set": { "qwen_chat_template": true } },
+    { "layer": "family", "target": "qwen", "set": { "qwen_chat_template": true, "thinking_ladder": { "minimal": null, "low": null, "medium": null, "high": "high", "xhigh": null, "max": null } } },
+    { "layer": "family", "target": "qwen-3.8", "set": { "qwen_chat_template": true, "thinking_ladder": { "off": "none", "minimal": null, "low": "low", "medium": "medium", "high": null, "xhigh": "xhigh", "max": null } } },
 
     { "layer": "host", "target": "anthropic", "set": { "strict_cap": 20, "tool_choice_free": false, "count_tokens": "anthropic", "list_models": "anthropic", "web_search": "anthropic" } },
     { "layer": "host", "target": "ant-ling", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "ant-ling", "long_cache_retention": false } },
@@ -57,5 +60,16 @@
     { "layer": "host", "target": "together", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "together", "long_cache_retention": false } },
     { "layer": "host", "target": "xai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "list_models": "openai", "tokenize": "xai", "generate_image": "openai" } },
     { "layer": "host", "target": "zai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "zai" } }
-  ]
+  ],
+  "service_tiers": [
+    { "provider": "openrouter", "api": "openai-completions", "tiers": ["flex", "priority"] },
+    { "provider": "openai", "api": "openai-responses", "tiers": ["auto", "scale"] },
+    { "provider": "openai", "api": "openai-responses", "family": "gpt-priority", "tiers": ["flex", "priority"] },
+    { "provider": "openai-codex", "api": "openai-codex-responses", "tiers": ["auto", "scale"] },
+    { "provider": "openai-codex", "api": "openai-codex-responses", "family": "gpt-priority", "tiers": ["priority"] }
+  ],
+  "thinking_defaults": {
+    "reasoning": ["off", "minimal", "low", "medium", "high"],
+    "plain": ["off"]
+  }
 }

@@ -30,6 +30,7 @@ import ./laws/auth_flight.bend as AuthFlight
 import ./laws/themes.bend as Themes
 import ./laws/dashboard_tokens.bend as DashTokens
 import ./laws/progress.bend as Prg
+import ./laws/ladder.bend as Ladder
 
 # (a) The view
 # ------------

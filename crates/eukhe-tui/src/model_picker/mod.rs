@@ -2,17 +2,15 @@
 //! panel -- a bordered "Search models" field over `>`-marker rows that carry
 //! effort squares and a right-aligned `current * provider` trailing, a
 //! price-detail block for the selection, and the model/effort key hint.
-//! The daemon supplies the catalog (bundled fallback); this module owns
-//! ordering, filtering, effort state, and the inline geometry.
+//! The daemon supplies the catalog (bundled fallback) with each model's
+//! offered thinking levels; this module owns ordering, filtering, effort
+//! state, and the inline geometry, and computes no ladder of its own.
 
 mod render;
 
 use std::collections::{HashMap, HashSet};
 
-use eukhe_types::ai::{
-    clamp_thinking_level, get_supported_thinking_levels, Model, ModelThinkingLevel,
-    PRIME_INFERENCE_PROVIDER_ID,
-};
+use eukhe_types::ai::{CatalogModel, Model, ModelThinkingLevel, PRIME_INFERENCE_PROVIDER_ID};
 
 use crate::keybindings::KeybindingsManager;
 use crate::search_input::SearchInput;
@@ -56,9 +54,9 @@ pub(crate) enum ModelCommandOutcome {
 /// `ModelSelectorOptions` inline subset).
 #[derive(Debug, Default)]
 pub struct ModelPickerOptions {
-    /// The full catalog (bundled or daemon-refreshed); the picker owns its
-    /// order.
-    pub models: Vec<Model>,
+    /// The full catalog (bundled or daemon-refreshed), each entry with the
+    /// levels the daemon serves for it; the picker owns its order.
+    pub models: Vec<CatalogModel>,
     /// The session's model, checked `current` and leading the list.
     pub current: Option<CurrentModel>,
     /// Providers with configured auth (the daemon catalog's
@@ -106,6 +104,10 @@ pub(crate) struct EffortLayout {
 pub struct ModelPicker {
     /// The sorted catalog (`sortModels` order).
     all_models: Vec<Model>,
+    /// The served thinking levels of each catalog model with a thinking
+    /// surface, keyed by `provider/id`; a model that offers "off" only
+    /// has no entry.
+    thinking_levels: HashMap<String, Vec<ModelThinkingLevel>>,
     current: Option<CurrentModel>,
     configured_providers: HashSet<String>,
     recent_rank: HashMap<String, usize>,
@@ -167,6 +169,7 @@ impl ModelPicker {
     ) -> Self {
         let mut picker = ModelPicker {
             all_models: Vec::new(),
+            thinking_levels: HashMap::new(),
             current: options.current,
             configured_providers: options.configured_providers,
             recent_rank: options
@@ -223,7 +226,7 @@ impl ModelPicker {
     pub fn update_state(
         &mut self,
         current: Option<CurrentModel>,
-        models: Vec<Model>,
+        models: Vec<CatalogModel>,
         configured_providers: HashSet<String>,
     ) {
         self.current = current;
@@ -435,9 +438,24 @@ impl ModelPicker {
     /// The provider-sorted catalog (TS `sortModels`): configured providers
     /// first, signed-in Prime Inference pinned, the current model leading,
     /// then the recent-use rank, the provider name, `featured`, and the
-    /// numeric id compare.
-    fn load_models(&mut self, models: Vec<Model>) {
-        let mut models = models;
+    /// numeric id compare. The served levels of each model go to
+    /// `thinking_levels`.
+    fn load_models(&mut self, entries: Vec<CatalogModel>) {
+        self.thinking_levels.clear();
+        let mut models = Vec::with_capacity(entries.len());
+        for entry in entries {
+            // TS `getSelectableLevels`: an off-only model has no thinking
+            // surface.
+            if !entry.thinking_levels.is_empty()
+                && entry.thinking_levels != [ModelThinkingLevel::Off]
+            {
+                self.thinking_levels.insert(
+                    Self::model_key_provider(&entry.model.provider, &entry.model.id),
+                    entry.thinking_levels,
+                );
+            }
+            models.push(entry.model);
+        }
         models.sort_by(|a, b| self.compare(a, b));
         self.all_models = models;
         self.version_keys = self
@@ -622,17 +640,18 @@ impl ModelPicker {
     }
 
     /// The selectable effort levels of a model (TS `getSelectableLevels`):
-    /// an off-only model has no thinking surface.
-    pub(crate) fn selectable_levels(model: &Model) -> Vec<ModelThinkingLevel> {
-        let levels = get_supported_thinking_levels(model);
-        if levels.len() == 1 && levels[0] == ModelThinkingLevel::Off {
-            return Vec::new();
-        }
-        levels
+    /// the levels the daemon serves for it; empty for a model without a
+    /// thinking surface.
+    pub(crate) fn selectable_levels(&self, model: &Model) -> &[ModelThinkingLevel] {
+        self.thinking_levels
+            .get(&Self::model_key_provider(&model.provider, &model.id))
+            .map_or(&[], Vec::as_slice)
     }
 
     /// Seed the default effort for every model with a thinking surface (TS
-    /// `getEffort`, resolved eagerly so rendering stays pure).
+    /// `getEffort`, resolved eagerly so rendering stays pure). The seed is
+    /// the initial level when the model offers it, else the nearest served
+    /// level: the next higher one, else the next lower one.
     fn resolve_effort_defaults(&mut self) {
         if !self.allow_effort_adjustment {
             return;
@@ -640,38 +659,34 @@ impl ModelPicker {
         let initial = self
             .initial_thinking_level
             .unwrap_or(ModelThinkingLevel::Off);
-        for model in &self.all_models {
-            let levels = Self::selectable_levels(model);
-            if levels.is_empty() {
+        for (key, levels) in &self.thinking_levels {
+            if self.effort_levels.contains_key(key) {
                 continue;
             }
-            let key = Self::model_key_provider(&model.provider, &model.id);
-            if self.effort_levels.contains_key(&key) {
-                continue;
-            }
-            let stored = self.effort_levels.get(&key).copied();
-            let level = match stored {
-                Some(level) if levels.contains(&level) => level,
-                _ => {
-                    let level = if levels.contains(&initial) {
-                        initial
-                    } else {
-                        clamp_thinking_level(model, initial)
-                    };
-                    if levels.contains(&level) {
-                        level
-                    } else {
-                        levels[0]
-                    }
-                }
+            let level = if levels.contains(&initial) {
+                initial
+            } else {
+                levels
+                    .iter()
+                    .copied()
+                    .filter(|level| *level > initial)
+                    .min()
+                    .or_else(|| {
+                        levels
+                            .iter()
+                            .copied()
+                            .filter(|level| *level < initial)
+                            .max()
+                    })
+                    .unwrap_or(ModelThinkingLevel::Off)
             };
-            self.effort_levels.insert(key, level);
+            self.effort_levels.insert(key.clone(), level);
         }
     }
 
     /// The resolved effort for a model (its seeded or user-edited level).
     pub(crate) fn effort_of(&self, model: &Model) -> Option<ModelThinkingLevel> {
-        if !self.allow_effort_adjustment || Self::selectable_levels(model).is_empty() {
+        if !self.allow_effort_adjustment || self.selectable_levels(model).is_empty() {
             return None;
         }
         self.effort_levels
@@ -682,7 +697,7 @@ impl ModelPicker {
     /// Move the model's effort one level (`direction` +/-1, wrapping; TS
     /// `adjustEffort`). Returns whether the effort changed.
     fn adjust_effort(&mut self, model: &Model, direction: isize) -> bool {
-        let levels = Self::selectable_levels(model);
+        let levels = self.selectable_levels(model);
         if levels.is_empty() {
             return false;
         }
@@ -757,7 +772,7 @@ impl ModelPicker {
                 let model_index = self.filtered.get(index).copied()?;
                 self.all_models.get(model_index)
             })
-            .filter(|model| !Self::selectable_levels(model).is_empty())
+            .filter(|model| !self.selectable_levels(model).is_empty())
             .collect();
         if reasoning.is_empty() {
             return empty;
@@ -790,7 +805,7 @@ impl ModelPicker {
         let square_slots = reasoning
             .iter()
             .map(|model| {
-                Self::selectable_levels(model)
+                self.selectable_levels(model)
                     .iter()
                     .filter(|level| **level != ModelThinkingLevel::Off)
                     .count()
@@ -802,7 +817,7 @@ impl ModelPicker {
         // changing the selected level never changes the cluster span.
         let label_width = reasoning
             .iter()
-            .flat_map(|model| Self::selectable_levels(model))
+            .flat_map(|model| self.selectable_levels(model))
             .map(|level| crate::width::str_width(level.wire_name()))
             .max()
             .unwrap_or(0);

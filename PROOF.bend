@@ -43,6 +43,7 @@ import ./bend/proof_tokens.bend as Tokens
 import ./laws/progress.bend as Prg
 import ./bend/proof_progress.bend as Progress
 import ./bend/proof_progress_report.bend as Reports
+import ./laws/ladder.bend as Ladder
 
 # (a) The view
 
@@ -824,3 +825,21 @@ def Prg.skill_failure_reported(cs, c, i):
 
 def Prg.skill_loaded_not_failed(cs, n, d):
   Reports.ppr.skill_loaded_not_failed(cs, n, d)
+
+def Ladder.quirk_ladder_explicit_first(e, rule):
+  Quirks.pq.quirk_ladder_explicit_first(e, rule)
+
+def Ladder.quirk_ladder_rule_second(l):
+  Quirks.pq.quirk_ladder_rule_second(l)
+
+def Ladder.quirk_ladder_default_last():
+  Quirks.pq.quirk_ladder_default_last()
+
+def Ladder.quirk_ladder_offered_exact(explicit, rule, d, l):
+  Quirks.pq.quirk_ladder_offered_exact(explicit, rule, d, l)
+
+def Ladder.quirk_ladder_plain_exact(explicit, rule, d, l):
+  Quirks.pq.quirk_ladder_plain_exact(explicit, rule, d, l)
+
+def Ladder.quirk_ladder_shipped_is_s10(r, map):
+  Quirks.pq.quirk_ladder_shipped_is_s10(r, map)

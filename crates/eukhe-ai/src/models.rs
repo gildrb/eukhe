@@ -9,15 +9,15 @@
 mod capabilities;
 mod collection;
 mod create_provider;
+mod ladder;
 mod provider;
 mod refresh;
 mod requests;
 
-use eukhe_types::daemon::CycleDirection;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
-    AnyModel, ClassifierModel, ImageModel, Model, ModelCost, ModelCostRates, ModelThinkingLevel,
-    ModelType, ProviderHeaders, Usage, UsageCost,
+    AnyModel, ClassifierModel, ImageModel, Model, ModelCost, ModelCostRates, ModelType,
+    ProviderHeaders, Usage, UsageCost,
 };
 
 pub use capabilities::ModelsCapabilityOptions;
@@ -25,6 +25,10 @@ pub use collection::{create_models, CreateModelsOptions, Models};
 pub(crate) use create_provider::build_provider;
 pub use create_provider::{
     create_provider, CreateProviderError, CreateProviderOptions, FetchModelsFn, ProviderApi,
+};
+pub use ladder::{
+    clamp_thinking_level, cycle_thinking_level, get_supported_thinking_levels,
+    registry_clamp_thinking_level, registry_thinking_levels, thinking_level_map,
 };
 pub use provider::{
     chat_models, FilterAllModelsFn, FilterModelsFn, GetModelsFn, ModelsPersistence,
@@ -197,89 +201,6 @@ pub fn calculate_cost<M: CatalogModel>(model: &M, usage: &mut Usage) -> UsageCos
     usage.cost.total =
         usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
     usage.cost
-}
-
-const EXTENDED_THINKING_LEVELS: [ModelThinkingLevel; 7] = [
-    ModelThinkingLevel::Off,
-    ModelThinkingLevel::Minimal,
-    ModelThinkingLevel::Low,
-    ModelThinkingLevel::Medium,
-    ModelThinkingLevel::High,
-    ModelThinkingLevel::Xhigh,
-    ModelThinkingLevel::Max,
-];
-
-/// Thinking levels the model supports: `off` only without reasoning; a
-/// `null` map entry removes a level; `xhigh`/`max` need an explicit entry.
-#[must_use]
-pub fn get_supported_thinking_levels(model: &Model) -> Vec<ModelThinkingLevel> {
-    if !model.reasoning {
-        return vec![ModelThinkingLevel::Off];
-    }
-    EXTENDED_THINKING_LEVELS
-        .into_iter()
-        .filter(|level| {
-            let mapped = model
-                .thinking_level_map
-                .as_ref()
-                .and_then(|map| map.get(level));
-            match mapped {
-                Some(None) => false,
-                Some(Some(_)) => true,
-                None => !matches!(level, ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max),
-            }
-        })
-        .collect()
-}
-
-/// The supported level closest to `level`: the requested one, else the next
-/// higher supported level, else the next lower one.
-#[must_use]
-pub fn clamp_thinking_level(model: &Model, level: ModelThinkingLevel) -> ModelThinkingLevel {
-    let available = get_supported_thinking_levels(model);
-    if available.contains(&level) {
-        return level;
-    }
-    let first = available
-        .first()
-        .copied()
-        .unwrap_or(ModelThinkingLevel::Off);
-    let Some(requested_index) = EXTENDED_THINKING_LEVELS
-        .iter()
-        .position(|candidate| *candidate == level)
-    else {
-        return first;
-    };
-    EXTENDED_THINKING_LEVELS[requested_index..]
-        .iter()
-        .chain(EXTENDED_THINKING_LEVELS[..requested_index].iter().rev())
-        .copied()
-        .find(|candidate| available.contains(candidate))
-        .unwrap_or(first)
-}
-
-/// The level one cycle step moves to (TS `cycleThinkingLevel`): from the
-/// level the model runs `current` at (its clamp), the next level of the
-/// supported ladder `Forward` or the previous one `Backward`, wrapping at
-/// the ends. `None` when the ladder offers fewer than two levels: no step
-/// changes anything.
-#[must_use]
-pub fn cycle_thinking_level(
-    model: &Model,
-    current: ModelThinkingLevel,
-    direction: CycleDirection,
-) -> Option<ModelThinkingLevel> {
-    let ladder = get_supported_thinking_levels(model);
-    if ladder.len() < 2 {
-        return None;
-    }
-    let shown = clamp_thinking_level(model, current);
-    let index = ladder.iter().position(|level| *level == shown)?;
-    let step = match direction {
-        CycleDirection::Forward => 1,
-        CycleDirection::Backward => ladder.len() - 1,
-    };
-    Some(ladder[(index + step) % ladder.len()])
 }
 
 /// Whether two models are equal by type, id, and provider. `false` when

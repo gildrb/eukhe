@@ -21,6 +21,7 @@ use crate::api::constrained_sampling::{
 };
 use crate::api::simple_options::clamp_reasoning;
 use crate::api::transform_messages::transform_messages;
+use crate::models::thinking_level_map;
 use crate::quirks::{match_candidates, Quirks};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::js::js_trim;
@@ -72,9 +73,7 @@ fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> String {
     if level == ThinkingLevel::Xhigh && supports_native_xhigh_effort(model) {
         return "xhigh".to_owned();
     }
-    let mapped = model
-        .thinking_level_map
-        .as_ref()
+    let mapped = thinking_level_map(model)
         .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
         .and_then(Option::as_ref);
     if let Some(mapped) = mapped {
@@ -665,9 +664,7 @@ fn build_openai_reasoning_fields(model: &Model, reasoning: ThinkingLevel) -> Opt
         .iter()
         .any(|candidate| candidate.contains("gpt-"))
     {
-        let mapped = model
-            .thinking_level_map
-            .as_ref()
+        let mapped = thinking_level_map(model)
             .and_then(|map| map.get(&ModelThinkingLevel::from(reasoning)))
             .and_then(Option::as_ref);
         // TS `OPENAI_GPT_EFFORT`.

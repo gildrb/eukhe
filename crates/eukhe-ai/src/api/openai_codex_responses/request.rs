@@ -17,6 +17,7 @@ use crate::api::openai_responses_shared::{
     convert_responses_messages, convert_responses_tools, ConvertResponsesMessagesOptions,
     ConvertResponsesToolsOptions,
 };
+use crate::models::thinking_level_map;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::js::js_to_string;
 use crate::utils::pi_user_agent::get_pi_user_agent;
@@ -139,10 +140,7 @@ pub(crate) fn build_request_body(
         );
     }
 
-    let off_mapping = model
-        .thinking_level_map
-        .as_ref()
-        .and_then(|map| map.get(&ModelThinkingLevel::Off));
+    let off_mapping = thinking_level_map(model).and_then(|map| map.get(&ModelThinkingLevel::Off));
     if let Some(reasoning_effort) = &options.reasoning_effort {
         let effort: JsonValue = if reasoning_effort.as_str() == Some("none") {
             match off_mapping {
@@ -156,14 +154,7 @@ pub(crate) fn build_request_body(
             reasoning_effort
                 .as_str()
                 .and_then(ModelThinkingLevel::parse)
-                .and_then(|level| {
-                    model
-                        .thinking_level_map
-                        .as_ref()?
-                        .get(&level)
-                        .cloned()
-                        .flatten()
-                })
+                .and_then(|level| thinking_level_map(model)?.get(&level).cloned().flatten())
                 .map_or_else(|| reasoning_effort.clone(), JsonValue::String)
         };
         if !effort.is_null() {

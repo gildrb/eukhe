@@ -24,7 +24,7 @@ use super::lazy::lazy_stream;
 use super::simple_options::build_base_options;
 use super::transform_messages::transform_messages;
 use super::ProviderStreams;
-use crate::models::clamp_thinking_level;
+use crate::models::{clamp_thinking_level, thinking_level_map};
 use crate::types::{ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown, ThrownValue};
 use crate::utils::error_body::{safe_json_stringify, truncate_error_text};
@@ -432,10 +432,7 @@ pub fn stream_simple(
     let reasoning = clamped_reasoning.filter(|level| *level != ModelThinkingLevel::Off);
     // Models with a thinking level map use `reasoning_effort`; other
     // reasoning models use `prompt_mode`.
-    let effort_map = model
-        .thinking_level_map
-        .as_ref()
-        .filter(|_| model.reasoning);
+    let effort_map = thinking_level_map(model).filter(|_| model.reasoning);
     let reasoning_effort = effort_map.and_then(|map| match reasoning {
         Some(level) => Some(
             map.get(&level)

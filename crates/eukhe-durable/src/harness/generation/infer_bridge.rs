@@ -11,7 +11,8 @@
 //!   (`unknown_<d>`), so the model's known list is `0 .. ALL.len()`. Value
 //!   `v` (0 or 1) is the `v`-th value of the directive's type (`false`,
 //!   `true`; the count `v`; the prefix list `["p<v>"]`; the `v`-th member
-//!   of an enum; for a capability endpoint `false`, then the first dialect
+//!   of an enum; the thinking ladder whose `high` level has the wire value
+//!   `w<v>`; for a capability endpoint `false`, then the first dialect
 //!   that implements it). Target `t` is the id `t<t>` at its layer. Rules name
 //!   targets 0 to 2; a query's family or host target 3 is no target
 //!   (`None`: a model that no family or no host matches), which the model
@@ -65,6 +66,7 @@ fn raw_value(d: usize, v: usize) -> JsonValue {
         ValueKind::MaxTokensField => json!(MaxTokensField::ALL[v].as_str()),
         ValueKind::ThinkingFormat => json!(ThinkingFormat::ALL[v].as_str()),
         ValueKind::SessionAffinityFormat => json!(SessionAffinityFormat::ALL[v].as_str()),
+        ValueKind::ThinkingLadder => json!({ "high": format!("w{v}") }),
         // 0 is `false` (no endpoint), 1 the first dialect with one.
         ValueKind::Endpoint(capability) => match v {
             0 => json!(false),
