@@ -17,7 +17,7 @@ use crate::types::{
 use crate::utils::diagnostics::{thrown, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::json_stringify;
-use crate::utils::json_parse::parse_streaming_json_object;
+use crate::utils::json_parse::{parse_streaming_json_object, parse_tool_call_arguments};
 
 /// `customInput` of a streaming custom (grammar) tool call.
 #[derive(Debug, Clone)]
@@ -656,7 +656,7 @@ impl<'a> StreamState<'a> {
                             .get(&index)
                             .and_then(|scratch| scratch.partial_args.clone());
                         self.tool_call(index).arguments =
-                            parse_streaming_json_object(partial_args.as_deref());
+                            parse_tool_call_arguments(partial_args.as_deref());
                     }
                     // Finalize in place and drop the scratch buffers so
                     // replay only carries parsed arguments.

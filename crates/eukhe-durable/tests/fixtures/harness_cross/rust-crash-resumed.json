@@ -626,9 +626,7 @@
 				"version": 1,
 				"input": {
 					"rounds": {
-						"count": 1,
-						"same": 1,
-						"hash": 4339292865717743
+						"count": 1
 					}
 				},
 				"background": false,

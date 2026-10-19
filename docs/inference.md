@@ -94,7 +94,10 @@ what a request may ask of a provider.
    and no tool call (for example only thinking, when the guard did not
    cut it) is no answer either: the harness fails it as a model error and
    retries it with a note that says that the reply gave no text
-   (docs/harness.md H4.7).
+   (docs/harness.md H4.7). A `length` stop with no answer gets a length
+   note (docs/harness.md H4.8). A noted retry (a cut stream, no answer)
+   spends a note of the generation's own budget (`MAX_NOTES`, 8), not a
+   retry of the retry policy, and goes out at once, with no backoff.
 6. Compaction starts on the background path when the context is more
    than the threshold: the limit (`contextWindow - reserveTokens`) less a
    margin (`BackgroundMargin`). The eukhe session sets the margin to 10%
@@ -164,6 +167,27 @@ what a request may ask of a provider.
    templates). The default ladders (`thinking_defaults`) give the levels
    where a ladder has no entry: `reasoning` lists `off` to `high`,
    `plain` (a model without reasoning) lists `off`.
+10. The harness reads the tool calls at the end of a stream, whatever
+    the stop reason. A reply with a tool call runs its calls: vLLM,
+    llama.cpp and Ollama send the stop reason `stop` with tool calls
+    (docs/harness.md H4.1). A reply that hit the output limit (stop
+    reason `length`) runs none of its calls: their arguments can be cut.
+    Each call gets a `truncated` result that tells the model to make the
+    call again with complete arguments, and to write large content as a
+    minimal version first, then extend it with edits. Some models write a
+    tool call as markup in the text, not in the tool-call channel. In a
+    reply with no tool call, the harness reads the markup of five
+    families (Hermes and Qwen JSON, Qwen3-Coder XML, the omp "qwen" form,
+    Kimi section tokens, DeepSeek DSML), but not in quoted code. When
+    every leaked call parses and names a tool that the request offered,
+    the harness rebuilds the calls: the markup leaves the text, the stop
+    reason becomes `toolUse`, and the calls run as tool calls. Else the
+    reply is retried with a leak note, at most `LEAK_NOTES` (2) in a row;
+    then it answers as text (docs/harness.md H4.8, laws
+    `run_calls_never_answer`, `rec_leak_rebuilt_is_calls`). Code:
+    `eukhe-durable/src/harness/generation/leak.rs` (`scan`),
+    `generation.rs` `classify`, `generation/round.rs`
+    `start_tool_round`.
 
 Model: `bend/infer.bend`. Laws: `LAWS.bend` section (S6) and
 `laws/ladder.bend` (S6.9). Proofs:
@@ -293,6 +317,51 @@ provider wire tests (`cargo test -p eukhe-ai --test providers`). Not
 modelled: the query map from a model to its targets (S6.2), the soft
 prompt and wire forms of a forced choice, and the split of deltas into
 chunks. Their tests tie them.
+
+#### S6 tool-call argument repair
+
+A model can send tool-call arguments that are not strict JSON, or that
+use another spelling of a declared type. The client repairs these
+arguments before validation. It does as omp does.
+
+1. The streaming preview of the arguments closes an incomplete text.
+   The final parse does not. It reads the full text with `JSON.parse`.
+   When that fails, it escapes raw control characters and invalid escapes
+   in strings, and tries again. When that fails too, it reads a relaxed
+   dialect: single quotes, unquoted keys, comments, `True`, `False` and
+   `None`, stray and trailing commas, `0x` and `0b` numbers, and an
+   unquoted value such as `src/main.rs`. The relaxed dialect rejects a
+   truncated text, characters after the value, a number that is not
+   finite, and an unquoted value that can hide the next field.
+2. When no parse reads the text, or the value is not an object, the
+   arguments become `{ __parseError, __rawJson }`. They keep the parse
+   error and the first 512 characters of the text. No key of the text
+   stays, so a half-formed call never runs. The tool result is an
+   `invalid_arguments` error. It gives the parse error and the raw text
+   to the model.
+3. A key in a JSON string (`"\"path\""`) becomes the plain key. This
+   does not occur when the plain key is also in the call.
+4. A value in another spelling of its declared type becomes that type:
+   a JSON string of a declared object or array, a single string for an
+   array of strings, and a number or boolean for a string. The string
+   spellings of a boolean or number become the value, as before.
+5. Each repair is an `argument_repaired` warning on the tool result. An
+   unknown key of a closed schema stays an error.
+6. A call of a tool that is not available gets a `tool_unavailable`
+   result. The message names at most three of the offered tools. First
+   come the names at a small edit distance, nearest first. Then come the
+   names that end with the last `_` or `__` segment of the called name.
+
+Code: `eukhe-ai/src/utils/json_parse.rs` (`parse_json_with_repair`,
+`parse_tool_call_arguments`), `json_parse/relaxed.rs`, the final parse
+of each wire API (`anthropic_messages/events.rs`,
+`bedrock_converse_stream/events.rs`, `mistral_conversations/consume.rs`,
+`openai_completions/streaming.rs`, `openai_responses_shared/stream.rs`);
+`eukhe-durable/src/harness/tool/arguments.rs` (`repair_arguments`,
+`ArgumentError::NotJson`); `tool/result.rs` (`tool_unavailable_message`).
+Regression tests: `utils::json_parse::tests`,
+`json_parse::relaxed::tests`, `tool::arguments::tests`, and
+`tool::result::tests`.
 
 ### S9. Local tiny models
 

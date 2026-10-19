@@ -8,6 +8,7 @@ use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{
     JsonValue as PiJsonValue, Message, TextContent, ToolCall, ToolResultMessage, UserContentBlock,
 };
+use eukhe_types::slash_commands::edit_distance;
 
 use crate::entries::{ToolResultData, TOOL_RESULT_ENTRY};
 use crate::harness::live::SlotProgress;
@@ -51,6 +52,69 @@ pub fn harness_error(code: &str, message: &str) -> ToolExecutionResult {
         is_error: Some(true),
         diagnostics: Some(vec![tool_diagnostic(code, message)]),
         ..ToolExecutionResult::default()
+    }
+}
+
+/// The shortest name segment a suggestion matches on; a shorter one (`id`,
+/// `to`) is noise (omp `MIN_TOOL_NAME_SUGGESTION_SEGMENT`).
+const MIN_SUGGESTION_SEGMENT: usize = 3;
+
+/// The most names one message suggests (omp `MAX_TOOL_NAME_SUGGESTIONS`).
+const MAX_SUGGESTIONS: usize = 3;
+
+/// The `tool_unavailable` message of a call of `name`, with the closest
+/// `offered` names (omp `agent-loop.ts:2918-2968`,
+/// `formatToolNotFoundMessage`). First come the names within the edit
+/// distance of a slash-command suggestion (case ignored), nearest first: a
+/// typo. Then come the names that end with the call's last `__` or `_`
+/// segment, longest segment first: a model that mistypes a long tool id
+/// keeps its verb (omp `suggestToolNames`). Ties are in name order.
+#[must_use]
+pub(crate) fn tool_unavailable_message<'a>(
+    name: &str,
+    offered: impl IntoIterator<Item = &'a str>,
+) -> String {
+    let mut candidates: Vec<&str> = offered
+        .into_iter()
+        .filter(|candidate| *candidate != name)
+        .collect();
+    candidates.sort_unstable();
+    candidates.dedup();
+    let length = name.chars().count();
+    let threshold = if length <= 3 { 1 } else { (length / 3).max(2) };
+    let lower = name.to_lowercase();
+    let mut near: Vec<(usize, &str)> = candidates
+        .iter()
+        .map(|&candidate| (edit_distance(&lower, &candidate.to_lowercase()), candidate))
+        .filter(|(distance, _)| *distance <= threshold)
+        .collect();
+    near.sort_unstable();
+    let mut suggestions: Vec<&str> = near.into_iter().map(|(_, candidate)| candidate).collect();
+    let mut segments: Vec<&str> = ["__", "_"]
+        .iter()
+        .filter_map(|boundary| name.rfind(boundary).map(|at| &name[at + boundary.len()..]))
+        .filter(|segment| segment.chars().count() >= MIN_SUGGESTION_SEGMENT)
+        .collect();
+    segments.dedup();
+    segments.sort_by_key(|segment| std::cmp::Reverse(segment.len()));
+    for segment in &segments {
+        for &candidate in &candidates {
+            let ends_with_segment = candidate
+                .strip_suffix(segment)
+                .is_some_and(|head| head.is_empty() || head.ends_with('_'));
+            if ends_with_segment && !suggestions.contains(&candidate) {
+                suggestions.push(candidate);
+            }
+        }
+    }
+    suggestions.truncate(MAX_SUGGESTIONS);
+    match suggestions.as_slice() {
+        [] => format!("Tool {name} is not available"),
+        [only] => format!("Tool {name} is not available. Did you mean {only}?"),
+        closest => format!(
+            "Tool {name} is not available. Closest available: {}",
+            closest.join(", ")
+        ),
     }
 }
 
@@ -277,5 +341,39 @@ pub(super) fn bound_content(
         content: result,
         dropped_bytes: bounded.dropped_bytes,
         dropped_lines: bounded.dropped_lines,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unavailable_tool_names_the_closest_offered_tools() {
+        let message =
+            |name: &str, offered: &[&str]| tool_unavailable_message(name, offered.iter().copied());
+        assert_eq!(
+            message("ghost", &["echo", "read"]),
+            "Tool ghost is not available"
+        );
+        assert_eq!(
+            message("Raed", &["grep", "read", "edit", "read"]),
+            "Tool Raed is not available. Did you mean read?"
+        );
+        assert_eq!(
+            message("server__read", &["mcp__server_x9__read", "grep", "mcp__other__read"]),
+            "Tool server__read is not available. Closest available: mcp__other__read, mcp__server_x9__read"
+        );
+        assert_eq!(
+            message(
+                "x_find",
+                &["d_find", "find_x", "c_find", "a_find", "b_find", "fnd"]
+            ),
+            "Tool x_find is not available. Closest available: a_find, b_find, c_find"
+        );
+        assert_eq!(
+            message("lsp_ref", &["lsp_refs", "ast_ref"]),
+            "Tool lsp_ref is not available. Closest available: lsp_refs, ast_ref"
+        );
     }
 }

@@ -26,7 +26,7 @@ use std::num::NonZeroU32;
 
 use super::decide::{
     after_compaction, after_reply, before_request, retry_note, Compacted, Compaction, Counts,
-    Ended, Failure, Limit, Limits, Prepared, Reply, RoundEnd, Rounds, Step, Threshold, LOOP_ROUNDS,
+    Ended, Failure, Limits, Prepared, Reply, RoundEnd, Rounds, Step, Threshold, MAX_NOTES,
     MAX_POLLS,
 };
 use super::note::{NoteCause, RetryNote};
@@ -65,13 +65,12 @@ enum Answer {
 /// in the run's phase. A phase reads its own part of a `Go`: preparation
 /// and a call the answer (at preparation an overflow with a cut is a
 /// context over the blocking threshold), a compaction `got`, a round
-/// `hash` and `fin`.
+/// `fin`.
 #[derive(Clone, Copy)]
 enum Input {
     Abort,
     Go {
         answer: Answer,
-        hash: u64,
         fin: Fin,
         got: Compacted,
     },
@@ -81,20 +80,13 @@ impl Input {
     fn answer(answer: Answer) -> Self {
         Self::Go {
             answer,
-            hash: 0,
             fin: Fin::Goes,
             got: Compacted::Entry,
         }
     }
 
     fn write(self, events: &mut String) {
-        let Self::Go {
-            answer,
-            hash,
-            fin,
-            got,
-        } = self
-        else {
+        let Self::Go { answer, fin, got } = self else {
             events.push_str("a\n");
             return;
         };
@@ -106,20 +98,10 @@ impl Input {
                 ('e', retryable, format!(" {}", u8::from(noted)))
             }
             Answer::Reply(Reply::Overflow { cut }) => ('o', cut, String::new()),
-            Answer::Ended(Ended {
-                tool_use,
-                text,
-                calls,
-                retrying,
-            }) => (
+            Answer::Ended(Ended { text, calls }) => (
                 'm',
-                retrying,
-                format!(
-                    " {} {} {}",
-                    u8::from(tool_use),
-                    u8::from(text),
-                    u8::from(calls)
-                ),
+                false,
+                format!(" {} {}", u8::from(text), u8::from(calls)),
             ),
         };
         let flag = u8::from(flag);
@@ -133,7 +115,7 @@ impl Input {
             Compacted::Nothing => 1,
             Compacted::Failed => 2,
         };
-        let _ = writeln!(events, "g {kind} {flag} {hash} {fin} {got}{held}");
+        let _ = writeln!(events, "g {kind} {flag} {fin} {got}{held}");
     }
 }
 
@@ -153,11 +135,24 @@ struct Run {
 /// A generation's first request.
 const FRESH: Counts = Counts {
     attempt: 1,
+    notes: 0,
     polls: 0,
     compacted: false,
 };
 
 impl Run {
+    fn new(limits: Limits) -> Self {
+        Self {
+            limits,
+            phase: Phase::Prepare,
+            at: FRESH,
+            rounds: Rounds::default(),
+            ctx: 0,
+            note: None,
+            out: String::new(),
+        }
+    }
+
     fn end(&mut self, how: &str) {
         self.phase = Phase::Ended;
         self.out.push_str(how);
@@ -175,13 +170,7 @@ impl Run {
         if self.phase == Phase::Ended {
             return;
         }
-        let Input::Go {
-            answer,
-            hash,
-            fin,
-            got,
-        } = input
-        else {
+        let Input::Go { answer, fin, got } = input else {
             return self.end("aborted");
         };
         // `classify`: a message that ends the model's turn makes its reply.
@@ -227,11 +216,13 @@ impl Run {
                     Step::Answer => return self.end("answered"),
                     Step::Tools => self.phase = Phase::Tools,
                     Step::Poll((), polls) => self.at.polls = polls,
-                    // The `retry` phase prepares the next attempt.
-                    Step::Retry => {
+                    // The `retry` phase prepares the next attempt, which
+                    // counts the noted retries that its note spent.
+                    Step::Retry | Step::Note => {
                         self.phase = Phase::Prepare;
-                        self.at.attempt = at.attempt + 1;
                         self.note = retry_note(at, cause, self.note.take());
+                        self.at.attempt = at.attempt + 1;
+                        self.at.notes = self.note.as_ref().map_or(0, |note| note.spent);
                     }
                     Step::Compact => {
                         self.phase = Phase::Compact(Compaction::Overflow);
@@ -258,13 +249,12 @@ impl Run {
             Phase::Tools => {
                 let end = match fin {
                     Fin::Stops => RoundEnd::Stop,
-                    Fin::Goes => self.rounds.finish(hash, &self.limits),
-                    Fin::Resets => self.rounds.finish(hash, &self.limits).reset(),
+                    Fin::Goes => self.rounds.finish(&self.limits),
+                    Fin::Resets => self.rounds.finish(&self.limits).reset(),
                 };
                 match end {
                     RoundEnd::Stop | RoundEnd::Reset => return self.end("answered"),
-                    RoundEnd::Fail(Limit::Loop) => return self.end("failed loop"),
-                    RoundEnd::Fail(Limit::Rounds) => return self.end("failed rounds"),
+                    RoundEnd::Capped => return self.end("failed rounds"),
                     RoundEnd::Next(next) => {
                         self.phase = Phase::Prepare;
                         self.rounds = next;
@@ -282,33 +272,43 @@ impl Run {
     fn show(&mut self) {
         let Counts {
             attempt,
+            notes,
             polls,
             compacted,
         } = self.at;
-        let retries = u64::from(self.limits.max_retries) + 1 - attempt;
+        let retries = u64::from(self.limits.max_retries) + 1 + u64::from(notes) - attempt;
+        let notes = self.limits.max_notes - notes;
         let polls = self.limits.max_polls - polls;
         let compactions = u8::from(!compacted);
         let rounds = self.limits.max_rounds.get() - 1 - self.rounds.count;
-        let same = self.rounds.same;
-        let counts = format!("a={retries} c={compactions} r={rounds} s={same}");
         let _ = match self.phase {
-            Phase::Prepare => writeln!(self.out, "prepare {counts}"),
+            Phase::Prepare => writeln!(
+                self.out,
+                "prepare a={retries} n={notes} c={compactions} r={rounds}"
+            ),
             Phase::Call => writeln!(
                 self.out,
-                "call a={retries} p={polls} c={compactions} r={rounds} s={same}"
+                "call a={retries} n={notes} p={polls} c={compactions} r={rounds}"
             ),
-            Phase::Compact(Compaction::Overflow) => writeln!(self.out, "compact overflow {counts}"),
-            Phase::Compact(Compaction::Threshold) => {
-                writeln!(self.out, "compact threshold {counts}")
-            }
-            Phase::Tools => writeln!(self.out, "tools {counts}"),
+            Phase::Compact(Compaction::Overflow) => writeln!(
+                self.out,
+                "compact overflow a={retries} n={notes} c={compactions} r={rounds}"
+            ),
+            Phase::Compact(Compaction::Threshold) => writeln!(
+                self.out,
+                "compact threshold a={retries} n={notes} c={compactions} r={rounds}"
+            ),
+            Phase::Tools => writeln!(
+                self.out,
+                "tools a={retries} n={notes} c={compactions} r={rounds}"
+            ),
             Phase::Ended => Ok(()),
         };
     }
 }
 
 /// An input the adversary may send in `phase`.
-fn pick(rng: &mut Rng, phase: Phase, last_hash: &mut u64) -> Input {
+fn pick(rng: &mut Rng, phase: Phase) -> Input {
     if rng.chance(3) {
         return Input::Abort;
     }
@@ -328,12 +328,10 @@ fn pick(rng: &mut Rng, phase: Phase, last_hash: &mut u64) -> Input {
                 retryable: rng.chance(70),
                 noted: rng.chance(50),
             }),
-            // Half of these hold no text and no tool call.
+            // About half of these hold no text and no tool call.
             70..85 => Answer::Ended(Ended {
-                tool_use: rng.chance(50),
                 text: rng.chance(30),
                 calls: rng.chance(30),
-                retrying: rng.chance(70),
             }),
             _ => Answer::Reply(Reply::Overflow {
                 cut: rng.chance(60),
@@ -341,7 +339,6 @@ fn pick(rng: &mut Rng, phase: Phase, last_hash: &mut u64) -> Input {
         }),
         Phase::Compact(_) => Input::Go {
             answer: Answer::Reply(Reply::Text),
-            hash: 0,
             fin: Fin::Goes,
             got: match rng.below(100) {
                 0..70 => Compacted::Entry,
@@ -349,43 +346,32 @@ fn pick(rng: &mut Rng, phase: Phase, last_hash: &mut u64) -> Input {
                 _ => Compacted::Failed,
             },
         },
-        Phase::Tools | Phase::Ended => {
-            if !rng.chance(60) {
-                *last_hash = rng.below(3);
-            }
-            Input::Go {
-                answer: Answer::Reply(Reply::Text),
-                hash: *last_hash,
-                fin: match rng.below(100) {
-                    0..5 => Fin::Stops,
-                    5..10 => Fin::Resets,
-                    _ => Fin::Goes,
-                },
-                got: Compacted::Entry,
-            }
-        }
+        Phase::Tools | Phase::Ended => Input::Go {
+            answer: Answer::Reply(Reply::Text),
+            fin: match rng.below(100) {
+                0..5 => Fin::Stops,
+                5..10 => Fin::Resets,
+                _ => Fin::Goes,
+            },
+            got: Compacted::Entry,
+        },
     }
+}
+
+fn write_limits(limits: &Limits, events: &mut String) {
+    let _ = writeln!(
+        events,
+        "9 {} {} {} {}",
+        limits.max_rounds, limits.max_polls, limits.max_retries, limits.max_notes
+    );
 }
 
 /// One scenario: its limits, then inputs until the run ends.
 fn scenario(rng: &mut Rng, limits: Limits, events: &mut String, transcript: &mut String) {
-    let _ = writeln!(
-        events,
-        "9 {} {} {} {}",
-        limits.max_rounds, limits.max_polls, limits.max_retries, limits.loop_rounds
-    );
-    let mut run = Run {
-        limits,
-        phase: Phase::Prepare,
-        at: FRESH,
-        rounds: Rounds::default(),
-        ctx: 0,
-        note: None,
-        out: String::new(),
-    };
-    let mut last_hash = 0;
+    write_limits(&limits, events);
+    let mut run = Run::new(limits);
     while run.phase != Phase::Ended {
-        let input = pick(rng, run.phase, &mut last_hash);
+        let input = pick(rng, run.phase);
         input.write(events);
         run.input(input);
     }
@@ -393,31 +379,14 @@ fn scenario(rng: &mut Rng, limits: Limits, events: &mut String, transcript: &mut
 }
 
 /// One scenario of cuts: after a round, every reply is `cut` (a noted
-/// error or a message with no answer) until the retries run out.
+/// error or a message with no answer) until the notes run out.
 fn repeated_cuts(limits: Limits, cut: Answer, events: &mut String, transcript: &mut String) {
-    let _ = writeln!(
-        events,
-        "9 {} {} {} {}",
-        limits.max_rounds, limits.max_polls, limits.max_retries, limits.loop_rounds
-    );
-    let mut run = Run {
-        limits,
-        phase: Phase::Prepare,
-        at: FRESH,
-        rounds: Rounds::default(),
-        ctx: 0,
-        note: None,
-        out: String::new(),
-    };
+    write_limits(&limits, events);
+    let mut run = Run::new(limits);
     let round = [
         Input::answer(Answer::Reply(Reply::Text)),
         Input::answer(Answer::Reply(Reply::Calls)),
-        Input::Go {
-            answer: Answer::Reply(Reply::Text),
-            hash: 1,
-            fin: Fin::Goes,
-            got: Compacted::Entry,
-        },
+        Input::answer(Answer::Reply(Reply::Text)),
     ];
     for input in round {
         input.write(events);
@@ -436,12 +405,12 @@ fn repeated_cuts(limits: Limits, cut: Answer, events: &mut String, transcript: &
     transcript.push_str(&run.out);
 }
 
-fn limits(max_rounds: u32, max_polls: u32, max_retries: u32, loop_rounds: u32) -> Limits {
+fn limits(max_rounds: u32, max_polls: u32, max_retries: u32, max_notes: u32) -> Limits {
     Limits {
         max_rounds: NonZeroU32::new(max_rounds).unwrap_or(NonZeroU32::MIN),
         max_polls,
         max_retries,
-        loop_rounds,
+        max_notes,
     }
 }
 
@@ -452,7 +421,7 @@ fn the_rust_decisions_equal_the_bend_model() {
     // The production limits, then small ones, so that every cap is reached.
     scenario(
         &mut rng,
-        limits(250, MAX_POLLS, 3, LOOP_ROUNDS),
+        limits(250, MAX_POLLS, 3, MAX_NOTES),
         &mut events,
         &mut transcript,
     );
@@ -461,28 +430,30 @@ fn the_rust_decisions_equal_the_bend_model() {
             u32::try_from(rng.below(8)).unwrap_or(0) + 1,
             u32::try_from(rng.below(5)).unwrap_or(0),
             u32::try_from(rng.below(4)).unwrap_or(0),
-            u32::try_from(rng.below(6)).unwrap_or(0),
+            u32::try_from(rng.below(4)).unwrap_or(0),
         );
         scenario(&mut rng, small, &mut events, &mut transcript);
     }
-    // Cut after cut until the retries run out: each retry sends a request
-    // with a new note.
+    // Cut after cut until the notes run out (MAX_NOTES, whatever the retry
+    // policy): each retry sends a request with a new note.
     for max_retries in 0..4 {
         let cuts = [
             Answer::Reply(Reply::Error {
                 retryable: true,
                 noted: true,
             }),
+            Answer::Reply(Reply::Error {
+                retryable: false,
+                noted: true,
+            }),
             Answer::Ended(Ended {
-                tool_use: false,
                 text: false,
                 calls: false,
-                retrying: true,
             }),
         ];
         for cut in cuts {
             repeated_cuts(
-                limits(3, 1, max_retries, LOOP_ROUNDS),
+                limits(3, 1, max_retries, MAX_NOTES),
                 cut,
                 &mut events,
                 &mut transcript,

@@ -1,14 +1,19 @@
 //! Charitable argument repair (omp ADR 0020): strict on a tool's contract,
 //! charitable on the model's dialect. Before validation, a call's arguments
-//! pass through the tool's declared [`ArgDialect`]: an alias key becomes its
-//! canonical name, a string spelling of a declared boolean or number becomes
-//! the value, and each repair is kept as a [`Repair`] that rides with the
-//! call as a warning. A key of another dialect, an unknown key of a closed
-//! schema, or two keys for one argument is a typed [`ArgumentError`] that
-//! names the valid arguments.
+//! pass through the tool's declared [`ArgDialect`]: a JSON-encoded key
+//! (`"\"path\""`) and an alias key become the canonical name, and a value in
+//! another spelling of its declared type becomes that type (a string of a
+//! boolean, number, object or array; a lone string for an array of strings;
+//! a number or boolean for a string). Each repair is kept as a [`Repair`]
+//! that rides with the call as a warning. Arguments that are not JSON, a key
+//! of another dialect, an unknown key of a closed schema, or two keys for one
+//! argument is a typed [`ArgumentError`] that names the fix.
 
 use std::fmt;
 
+use eukhe_ai::utils::json_parse::{
+    json_parse, parse_json_with_repair, PARSE_ERROR_KEY, RAW_JSON_KEY,
+};
 use eukhe_types::pi_ai::{JsonObject as PiJsonObject, JsonValue as PiJsonValue, ToolSchema};
 use serde::{Deserialize, Serialize};
 
@@ -61,13 +66,14 @@ impl ArgDialect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Repair {
-    /// `{ kind: "alias", from, to }`: a key read as its canonical name.
+    /// `{ kind: "alias", from, to }`: a key read as its canonical name (an
+    /// alias, or a key in a JSON string).
     Alias { from: String, to: String },
-    /// `{ kind: "coercion", key, from, to }`: a string read as the value
-    /// the schema declares.
+    /// `{ kind: "coercion", key, from, to }`: a value read as the value the
+    /// schema declares.
     Coercion {
         key: String,
-        from: String,
+        from: PiJsonValue,
         to: PiJsonValue,
     },
 }
@@ -77,7 +83,7 @@ impl fmt::Display for Repair {
         match self {
             Self::Alias { from, to } => write!(formatter, "Repaired argument: {from} read as {to}"),
             Self::Coercion { key, from, to } => {
-                write!(formatter, "Repaired argument: {key}={from:?} read as {to}")
+                write!(formatter, "Repaired argument: {key}={from} read as {to}")
             }
         }
     }
@@ -109,6 +115,15 @@ pub struct Repaired {
 /// retryable: the call changed nothing.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ArgumentError {
+    /// The provider's argument text did not parse (omp `validation.ts`
+    /// `__parseError`): the error and the text, bounded, so the model sees
+    /// what it sent.
+    #[error("{tool} got arguments that are not valid JSON. Send one JSON object.\nParse error: {error}\nRaw JSON:\n{raw}")]
+    NotJson {
+        tool: String,
+        error: String,
+        raw: String,
+    },
     #[error("{tool} does not take `{key}`: {hint}")]
     Refused {
         tool: String,
@@ -132,13 +147,22 @@ pub enum ArgumentError {
 const TRUE: [&str; 4] = ["true", "yes", "on", "1"];
 const FALSE: [&str; 4] = ["false", "no", "off", "0"];
 
-/// The JSON Schema `type` of a declared property, when it is one name.
-fn declared_type<'a>(properties: Option<&'a PiJsonObject>, key: &str) -> Option<&'a str> {
-    properties?.get(key)?.get("type")?.as_str()
-}
+/// Layers of JSON string encoding removed from one key (omp
+/// `MAX_KEY_DECODE_DEPTH`).
+const MAX_KEY_DECODE_DEPTH: usize = 3;
 
-/// `text` as the value of a declared `boolean`, `integer`, or `number`.
-fn coerce(kind: &str, text: &str) -> Option<PiJsonValue> {
+/// `value` as the value of the declared property `schema` when it is another
+/// spelling of the declared `type` (omp `validation.ts`
+/// `tryCoerceForExpectedTypes`, `coerceArgsFromIssues`).
+fn coerce(schema: &PiJsonValue, value: &PiJsonValue) -> Option<PiJsonValue> {
+    let kind = schema.get("type")?.as_str()?;
+    if let PiJsonValue::Number(_) | PiJsonValue::Bool(_) = value {
+        // A number or boolean for a declared string is its JSON text.
+        return (kind == "string").then(|| PiJsonValue::String(value.to_string()));
+    }
+    let PiJsonValue::String(text) = value else {
+        return None;
+    };
     let trimmed = text.trim();
     match kind {
         "boolean" => {
@@ -157,30 +181,86 @@ fn coerce(kind: &str, text: &str) -> Option<PiJsonValue> {
             .ok()
             .and_then(serde_json::Number::from_f64)
             .map(PiJsonValue::Number),
+        // A JSON string of the declared container.
+        "object" if trimmed.starts_with('{') => parse_json_with_repair(trimmed)
+            .ok()
+            .filter(PiJsonValue::is_object),
+        "array" if trimmed.starts_with('[') => parse_json_with_repair(trimmed)
+            .ok()
+            .filter(PiJsonValue::is_array),
+        // A lone string for a declared array of strings.
+        "array" => (schema
+            .get("items")
+            .and_then(|items| items.get("type"))
+            .and_then(PiJsonValue::as_str)
+            == Some("string"))
+        .then(|| PiJsonValue::Array(vec![value.clone()])),
         _ => None,
     }
 }
 
-/// `raw` in `tool`'s dialect: aliases renamed, declared scalars coerced from
-/// strings, each repair recorded. Keys outside a closed schema
-/// (`additionalProperties: false`) are rejected.
+/// `raw` in `tool`'s dialect: JSON-encoded keys decoded, aliases renamed,
+/// values in another spelling of their declared type coerced, each repair
+/// recorded. Keys outside a closed schema (`additionalProperties: false`)
+/// are rejected.
 ///
 /// # Errors
 ///
-/// [`ArgumentError`] for a refused, unknown, or doubled argument.
+/// [`ArgumentError`] for arguments that are not JSON (the
+/// `__parseError` object of `parse_tool_call_arguments`), and for a refused,
+/// unknown, or doubled argument.
 pub fn repair_arguments(
     tool: &str,
     parameters: &ToolSchema,
     dialect: &ArgDialect,
     raw: PiJsonObject,
 ) -> Result<Repaired, ArgumentError> {
+    if let Some(PiJsonValue::String(error)) = raw.get(PARSE_ERROR_KEY) {
+        let text = raw.get(RAW_JSON_KEY).and_then(PiJsonValue::as_str);
+        return Err(ArgumentError::NotJson {
+            tool: tool.to_owned(),
+            error: error.clone(),
+            raw: text.unwrap_or_default().to_owned(),
+        });
+    }
     let schema = parameters.json();
     let properties = schema.get("properties").and_then(PiJsonValue::as_object);
     let closed = schema.get("additionalProperties") == Some(&PiJsonValue::Bool(false));
+    // Keys sent in a JSON string (`"\"path\""`), decoded unless the decoded
+    // key is sent too (omp `validation.ts` `normalizeDoubleEncodedKeys`).
+    let decoded: Vec<(String, String)> = raw
+        .keys()
+        .filter_map(|key| {
+            let mut plain: Option<String> = None;
+            for _ in 0..MAX_KEY_DECODE_DEPTH {
+                let current = plain.as_deref().unwrap_or(key);
+                if current.len() < 2 || !current.starts_with('"') || !current.ends_with('"') {
+                    break;
+                }
+                let Ok(PiJsonValue::String(inner)) = json_parse(current) else {
+                    break;
+                };
+                plain = Some(inner);
+            }
+            plain
+                .filter(|plain| plain != key && !raw.contains_key(plain))
+                .map(|plain| (key.clone(), plain))
+        })
+        .collect();
     let mut repairs = Vec::new();
     let mut sent_as: Vec<(String, String)> = Vec::with_capacity(raw.len());
     let mut arguments = PiJsonObject::new();
-    for (key, value) in raw {
+    for (sent, value) in raw {
+        let key = match decoded.iter().find(|(encoded, _)| *encoded == sent) {
+            Some((_, plain)) => {
+                repairs.push(Repair::Alias {
+                    from: sent,
+                    to: plain.clone(),
+                });
+                plain.clone()
+            }
+            None => sent,
+        };
         if let Some(refused) = dialect.refused.iter().find(|refused| refused.key == key) {
             return Err(ArgumentError::Refused {
                 tool: tool.to_owned(),
@@ -217,19 +297,19 @@ pub fn repair_arguments(
                 to: canonical.clone(),
             });
         }
-        let value = match (&value, declared_type(properties, &canonical)) {
-            (PiJsonValue::String(text), Some(kind)) => match coerce(kind, text) {
-                Some(coerced) => {
-                    repairs.push(Repair::Coercion {
-                        key: canonical.clone(),
-                        from: text.clone(),
-                        to: coerced.clone(),
-                    });
-                    coerced
-                }
-                None => value,
-            },
-            _ => value,
+        let value = match properties
+            .and_then(|properties| properties.get(&canonical))
+            .and_then(|declared| coerce(declared, &value))
+        {
+            Some(coerced) => {
+                repairs.push(Repair::Coercion {
+                    key: canonical.clone(),
+                    from: value,
+                    to: coerced.clone(),
+                });
+                coerced
+            }
+            None => value,
         };
         sent_as.push((canonical.clone(), key));
         arguments.insert(canonical, value);
@@ -239,6 +319,7 @@ pub fn repair_arguments(
 
 #[cfg(test)]
 mod tests {
+    use eukhe_ai::utils::json_parse::parse_tool_call_arguments;
     use serde_json::json;
 
     use super::*;
@@ -340,5 +421,133 @@ mod tests {
         )
         .unwrap();
         assert_eq!(repaired.arguments, object(json!({ "text": "hi" })));
+    }
+
+    #[test]
+    fn reads_containers_lone_strings_and_scalars_as_their_declared_type_with_receipts() {
+        let schema = ToolSchema::from(json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" },
+                "paths": { "type": "array", "items": { "type": "string" } },
+                "edits": { "type": "array", "items": { "type": "object" } },
+                "options": { "type": "object" },
+                "lines": { "type": "array", "items": { "type": "integer" } },
+                "ranges": { "type": "array", "items": { "type": "integer" } },
+                "title": { "type": "string" },
+            },
+            "additionalProperties": false,
+        }));
+        let repaired = repair_arguments(
+            "edit",
+            &schema,
+            &ArgDialect::default(),
+            object(json!({
+                "path": 42,
+                "paths": "src/a.rs",
+                "edits": "[{\"line\": 1}]",
+                "options": " {'dry': True} ",
+                "lines": "[1,",
+                "ranges": "7",
+                "title": false,
+            })),
+        )
+        .unwrap();
+        let coercion = |key: &str, from: PiJsonValue, to: PiJsonValue| Repair::Coercion {
+            key: key.to_owned(),
+            from,
+            to,
+        };
+        assert_eq!(
+            repaired,
+            Repaired {
+                arguments: object(json!({
+                    "path": "42",
+                    "paths": ["src/a.rs"],
+                    "edits": [{ "line": 1 }],
+                    "options": { "dry": true },
+                    "lines": "[1,",
+                    "ranges": "7",
+                    "title": "false",
+                })),
+                repairs: vec![
+                    coercion("path", json!(42), json!("42")),
+                    coercion("paths", json!("src/a.rs"), json!(["src/a.rs"])),
+                    coercion("edits", json!("[{\"line\": 1}]"), json!([{ "line": 1 }])),
+                    coercion("options", json!(" {'dry': True} "), json!({ "dry": true })),
+                    coercion("title", json!(false), json!("false")),
+                ],
+            }
+        );
+        assert_eq!(
+            repaired.repairs[0].to_string(),
+            "Repaired argument: path=42 read as \"42\""
+        );
+    }
+
+    #[test]
+    fn decodes_json_encoded_keys_unless_the_plain_key_is_sent_too() {
+        let repaired = repair_arguments(
+            "grep",
+            &schema(),
+            &dialect(),
+            object(json!({ "\"\\\"file_path\\\"\"": "a.rs", "\"case\"": "yes" })),
+        )
+        .unwrap();
+        let alias = |from: &str, to: &str| Repair::Alias {
+            from: from.to_owned(),
+            to: to.to_owned(),
+        };
+        assert_eq!(
+            repaired,
+            Repaired {
+                arguments: object(json!({ "path": "a.rs", "case": true })),
+                repairs: vec![
+                    alias("\"\\\"file_path\\\"\"", "file_path"),
+                    alias("file_path", "path"),
+                    alias("\"case\"", "case"),
+                    Repair::Coercion {
+                        key: "case".to_owned(),
+                        from: json!("yes"),
+                        to: json!(true),
+                    },
+                ],
+            }
+        );
+        assert_eq!(
+            repair_arguments(
+                "grep",
+                &schema(),
+                &dialect(),
+                object(json!({ "\"path\"": "a", "path": "b" })),
+            ),
+            Err(ArgumentError::Unknown {
+                tool: "grep".to_owned(),
+                key: "\"path\"".to_owned(),
+                valid: vec!["path".to_owned(), "case".to_owned(), "skip".to_owned()],
+            })
+        );
+    }
+
+    #[test]
+    fn arguments_that_are_not_json_name_the_parse_error_and_the_raw_text() {
+        let raw = parse_tool_call_arguments(Some(r#"{"path": "a.rs""#));
+        let error = repair_arguments("grep", &schema(), &dialect(), raw).unwrap_err();
+        assert_eq!(
+            error,
+            ArgumentError::NotJson {
+                tool: "grep".to_owned(),
+                error: "Expected ',' or '}' after property value in JSON at position 15 (line 1 column 16)"
+                    .to_owned(),
+                raw: r#"{"path": "a.rs""#.to_owned(),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "grep got arguments that are not valid JSON. Send one JSON object.\n\
+             Parse error: Expected ',' or '}' after property value in JSON at position 15 (line 1 column 16)\n\
+             Raw JSON:\n\
+             {\"path\": \"a.rs\""
+        );
     }
 }

@@ -1,6 +1,8 @@
 //! docs/harness.md H4: every run ends. A model that keeps calling tools
-//! stops at the round cap; the same calls with the same results stop as a
-//! loop; an abort ends a run stuck in a `before_request` hook.
+//! stops at the round cap; the same calls whose results change keep
+//! running (the same calls with the same results get the repeat recovery
+//! of H4.8, `recoveries.rs`); an abort ends a run stuck in a
+//! `before_request` hook.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -28,7 +30,7 @@ use crate::storage::MemoryStorage;
 use crate::types::{SubmissionRecord, SubmissionStatus};
 
 /// A tool whose result is `text(n)` at its n-th call.
-fn tool(name: &str, text: fn(usize) -> String) -> Arc<ToolRegistration> {
+pub(super) fn tool(name: &str, text: fn(usize) -> String) -> Arc<ToolRegistration> {
     let calls = Arc::new(AtomicUsize::new(0));
     define_tool(ToolRegistration::new(
         name,
@@ -114,28 +116,11 @@ async fn a_run_that_keeps_calling_tools_fails_at_the_round_cap() {
     assert_eq!(setup.faux.state().call_count, 3);
 }
 
+/// Calls that poll a job that makes progress are no repeat (H4.8): eight
+/// rounds of the same call run, past the repeat cap, as their results
+/// change.
 #[tokio::test]
-async fn the_same_calls_with_the_same_results_end_the_run_as_a_loop() {
-    let setup = chat_setup(RegisterFauxProviderOptions::default());
-    add_tool(&setup.registry, tool("same", |_| "same".to_owned()), None).unwrap();
-    setup.faux.set_responses(calls("same", 10));
-    let settled = settle(&setup).await;
-    let detail = JsonValue::from(
-        "The run stopped in a loop: 6 tool rounds in a row made the same calls with the same results",
-    );
-    assert_eq!(
-        settlement(&settled),
-        (
-            SubmissionStatus::Unanswered,
-            Some("run_limit"),
-            Some(&detail)
-        )
-    );
-    assert_eq!(setup.faux.state().call_count, 6);
-}
-
-#[tokio::test]
-async fn the_same_calls_whose_results_change_are_no_loop() {
+async fn the_same_calls_whose_results_change_keep_running() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     add_tool(&setup.registry, tool("tick", |n| format!("tick {n}")), None).unwrap();
     let mut responses = calls("tick", 8);

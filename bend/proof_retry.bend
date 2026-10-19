@@ -306,11 +306,11 @@ def ok_go(pb: R.Ph, e: R.Ev, pa: R.Ph, +ctx: Nat, +n: Nat, +note: Nat, +log: Lis
   match pb e:
     case R.Prepare{} e:
       ok_prepared(pa, ctx, n, note, log, ok)
-    case R.Call{} R.Go{reply, h, fin, got}:
+    case R.Call{} R.Go{reply, fin, got}:
       ok_reply(reply, ctx, n, note, log, ok)
     case R.Call{} R.Abort{}:
       ok
-    case R.Compact{over} R.Go{reply, h, fin, got}:
+    case R.Compact{over} R.Go{reply, fin, got}:
       ok_compacted(got, ctx, n, note, log, ok)
     case R.Compact{over} R.Abort{}:
       ok
@@ -352,7 +352,7 @@ def retry_sends_a_new_request(+cfg: R.Cfg, +evs: List<&2, R.Ev>) -> {R.fresh(R.R
 
 # a noted reply cuts the request the run sent, and the retry's note names
 # the retry's attempt
-def cut_names_the_request(-retryable: Bool, -h: Nat, -fin: R.Fin, -got: R.Got, -pa: R.Ph, -ctx: Nat, -n: Nat, -note: Nat, -log: List<&2, R.Sent>) -> {R.Reqs.step(R.Call{}, R.Go{R.Error{retryable, True{}}, h, fin, got}, pa, R.Reqs{ctx, n, note, log}) == R.Reqs{ctx, 1n+n, 1n+n, R.Cut{R.Req{ctx, note}} <> log} : R.Reqs}:
+def cut_names_the_request(-retryable: Bool, -fin: R.Fin, -got: R.Got, -pa: R.Ph, -ctx: Nat, -n: Nat, -note: Nat, -log: List<&2, R.Sent>) -> {R.Reqs.step(R.Call{}, R.Go{R.Error{retryable, True{}}, fin, got}, pa, R.Reqs{ctx, n, note, log}) == R.Reqs{ctx, 1n+n, 1n+n, R.Cut{R.Req{ctx, note}} <> log} : R.Reqs}:
   {==}
 
 # a note changes what the model reads, never what the run logs

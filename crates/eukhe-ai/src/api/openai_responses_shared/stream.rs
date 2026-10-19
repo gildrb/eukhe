@@ -25,7 +25,9 @@ use crate::types::{
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::{js_to_string, json_stringify};
-use crate::utils::json_parse::{json_parse, parse_streaming_json_object};
+use crate::utils::json_parse::{
+    json_parse, parse_streaming_json_object, parse_tool_call_arguments,
+};
 
 /// TS `resolveServiceTier(responseServiceTier, requestServiceTier)`.
 pub type ResolveServiceTierFn =
@@ -637,7 +639,7 @@ impl Processor<'_> {
                     return Ok(());
                 };
                 let arguments_text = template(event.get("arguments"));
-                let arguments = parse_streaming_json_object(Some(&arguments_text));
+                let arguments = parse_tool_call_arguments(Some(&arguments_text));
                 let previous_partial_json = std::mem::replace(partial_json, arguments_text);
                 let rewritten = !partial_json.starts_with(previous_partial_json.as_str());
                 let delta = partial_json
@@ -814,7 +816,7 @@ impl Processor<'_> {
                         _ => "{}".to_owned(),
                     },
                 };
-                let arguments = parse_streaming_json_object(Some(&source));
+                let arguments = parse_tool_call_arguments(Some(&source));
                 let namespace = item.get("namespace").and_then(JsonValue::as_str);
                 // Finalize in place and strip the scratch buffer so replay
                 // only carries parsed arguments.

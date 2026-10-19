@@ -14,6 +14,7 @@ use eukhe_ai::providers::faux::{
 use eukhe_chord::json::JsonValue;
 use eukhe_types::pi_ai::{AssistantContentBlock, Message, StopReason, UserContent};
 
+use crate::harness::generation::decide::MAX_NOTES;
 use crate::harness::generation::note::{NoteCause, RetryNote};
 use crate::harness::tests::chat_support::{
     all_entries, chat_setup, open_chat, ChatSetup, OpenChat,
@@ -89,8 +90,18 @@ fn failed(error: &str) -> Logged {
     )
 }
 
+/// The note of `attempt`, the `attempt - 1`th noted retry of a generation.
 fn note(attempt: u64, cause: NoteCause) -> String {
-    format!("user:{}", RetryNote { attempt, cause }.text())
+    let spent = u32::try_from(attempt - 1).unwrap();
+    format!(
+        "user:{}",
+        RetryNote {
+            attempt,
+            cause,
+            spent
+        }
+        .text()
+    )
 }
 
 fn repeated() -> NoteCause {
@@ -237,15 +248,26 @@ async fn a_retry_after_no_answer_ends_its_request_with_a_note_and_answers() {
 
 /// A model that loops whatever the note: each retry names its own
 /// attempt, so no two requests are the same, and the run fails once the
-/// retries run out.
+/// notes (`MAX_NOTES`) run out. A noted retry spends a note, not a retry:
+/// the retry policy (2 retries) does not stop it.
 #[tokio::test]
-async fn every_retry_after_a_cut_sends_a_new_request_until_the_retries_run_out() {
+async fn every_retry_after_a_cut_sends_a_new_request_until_the_notes_run_out() {
     let setup = chat_setup(RegisterFauxProviderOptions::default());
     let seen = Seen::default();
-    setup
-        .faux
-        .set_responses((0..4).map(|_| greedy(&seen, looped(), looped())).collect());
+    let requests = MAX_NOTES + 1;
+    setup.faux.set_responses(
+        (0..=requests)
+            .map(|_| greedy(&seen, looped(), looped()))
+            .collect(),
+    );
     let settled = settle(&setup, 2).await;
+    let mut logged = vec![user(ASK)];
+    logged.extend((0..requests).map(|_| failed(CUT)));
+    let mut sent = vec![vec![format!("user:{ASK}")]];
+    sent.extend(
+        (2..=u64::from(requests))
+            .map(|attempt| vec![format!("user:{ASK}"), note(attempt, repeated())]),
+    );
     assert_eq!(
         (
             settled,
@@ -258,13 +280,9 @@ async fn every_retry_after_a_cut_sends_a_new_request_until_the_retries_run_out()
                     Some("model_error".to_owned()),
                     Some(JsonValue::from(CUT))
                 ),
-                vec![user(ASK), failed(CUT), failed(CUT), failed(CUT)]
+                logged
             ),
-            vec![
-                vec![format!("user:{ASK}")],
-                vec![format!("user:{ASK}"), note(2, repeated())],
-                vec![format!("user:{ASK}"), note(3, repeated())],
-            ]
+            sent
         )
     );
 }

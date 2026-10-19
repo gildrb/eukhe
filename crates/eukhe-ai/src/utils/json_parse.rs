@@ -1,8 +1,10 @@
-//! JSON parsing for provider streams: `JSON.parse` with string-literal repair,
-//! and best-effort parsing of incomplete streaming JSON.
+//! JSON parsing for provider streams: `JSON.parse` with string-literal repair
+//! and a relaxed dialect, best-effort parsing of incomplete streaming JSON,
+//! and the final parse of tool-call arguments.
 
 mod js_json;
 mod partial;
+mod relaxed;
 
 use std::borrow::Cow;
 
@@ -105,17 +107,76 @@ pub fn json_parse(text: &str) -> Result<JsonValue, JsonSyntaxError> {
     js_json::parse(text)
 }
 
-/// `JSON.parse(json)`, retried once on the repaired text when repair changes it.
+/// `JSON.parse(json)`, retried once on the repaired text when repair changes
+/// it, then read in the relaxed dialect of omp's `parseJsonWithRepair`
+/// (`packages/utils/src/json-parse.ts:296-302`): single quotes, unquoted
+/// keys, comments, Python literals, stray commas, barewords. Truncated input
+/// and trailing characters are rejected.
 ///
 /// # Errors
 ///
-/// The `SyntaxError` of the original text when repair changes nothing,
-/// otherwise the error of the repaired text.
+/// When the relaxed dialect rejects `json` too: the `SyntaxError` of the
+/// original text when repair changes nothing, otherwise the error of the
+/// repaired text.
 pub fn parse_json_with_repair(json: &str) -> Result<JsonValue, JsonSyntaxError> {
-    js_json::parse(json).or_else(|error| match repair_json(json) {
-        Cow::Borrowed(_) => Err(error),
-        Cow::Owned(repaired) => js_json::parse(&repaired),
-    })
+    js_json::parse(json)
+        .or_else(|error| match repair_json(json) {
+            Cow::Borrowed(_) => Err(error),
+            Cow::Owned(repaired) => js_json::parse(&repaired),
+        })
+        .or_else(|error| relaxed::parse(json).ok_or(error))
+}
+
+/// The key of the parse error in the arguments of a call whose final
+/// argument JSON does not parse (omp `tool-call-arguments.ts:44-49`).
+pub const PARSE_ERROR_KEY: &str = "__parseError";
+
+/// The key of the raw argument text, bounded, next to [`PARSE_ERROR_KEY`].
+pub const RAW_JSON_KEY: &str = "__rawJson";
+
+/// The most characters of raw argument text kept next to the parse error
+/// (omp `INVALID_ARGUMENTS_RAW_LIMIT`).
+pub const INVALID_ARGUMENTS_RAW_LIMIT: usize = 512;
+
+/// The final arguments of a tool call (omp `parseToolCallArguments`,
+/// `packages/ai/src/utils/tool-call-arguments.ts:5-13`). Empty text is `{}`
+/// (a call of a tool without arguments). Text that
+/// [`parse_json_with_repair`] cannot read, or that is not a JSON object,
+/// becomes `{ __parseError, __rawJson }`: the error and at most
+/// [`INVALID_ARGUMENTS_RAW_LIMIT`] characters of the text. No key of a
+/// truncated call is kept, so a half-formed call never runs; the harness
+/// shows the model the error and its own text instead. The streaming
+/// preview of the same text ([`parse_streaming_json_object`]) auto-closes
+/// it; a final parse must not.
+#[must_use]
+pub fn parse_tool_call_arguments(json: Option<&str>) -> JsonObject {
+    let Some(json) = json.filter(|json| !js_trim(json).is_empty()) else {
+        return JsonObject::new();
+    };
+    let error = match parse_json_with_repair(json) {
+        Ok(JsonValue::Object(object)) => return object,
+        Ok(
+            JsonValue::Array(_)
+            | JsonValue::String(_)
+            | JsonValue::Number(_)
+            | JsonValue::Bool(_)
+            | JsonValue::Null,
+        ) => "Tool call arguments are not a JSON object".to_owned(),
+        Err(error) => error.message,
+    };
+    // Bounded like omp's `boundRawToolArguments`.
+    let raw = match json.char_indices().nth(INVALID_ARGUMENTS_RAW_LIMIT) {
+        Some((cut, _)) => {
+            let (kept, dropped) = json.split_at(cut);
+            let dropped = dropped.chars().count();
+            format!("{kept}… [truncated {dropped} chars]")
+        }
+        None => json.to_owned(),
+    };
+    JsonObject::from_iter([
+        (PARSE_ERROR_KEY.to_owned(), JsonValue::String(error)),
+        (RAW_JSON_KEY.to_owned(), JsonValue::String(raw)),
+    ])
 }
 
 /// Whether `JSON.parse` could accept `json` (or its repair, which keeps the
@@ -201,5 +262,64 @@ mod tests {
         );
         assert_eq!(parse_streaming_json(Some("null")), JsonValue::Null);
         assert_eq!(parse_streaming_json_object(Some("[1]")), JsonObject::new());
+    }
+
+    #[test]
+    fn repairs_the_relaxed_dialect_after_the_strict_parses() {
+        assert_eq!(
+            parse_json_with_repair("{'path': 'a.rs', case: True, skip: None,}"),
+            Ok(json!({"path": "a.rs", "case": true, "skip": null}))
+        );
+        assert_eq!(
+            parse_json_with_repair(r#"{"a": 1"#),
+            Err(JsonSyntaxError {
+                message: "Expected ',' or '}' after property value in JSON at position 7 (line 1 column 8)"
+                    .to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn final_tool_call_arguments_keep_the_parse_error_and_the_raw_text() {
+        let invalid = |error: &str, raw: &str| {
+            JsonObject::from_iter([
+                (PARSE_ERROR_KEY.to_owned(), json!(error)),
+                (RAW_JSON_KEY.to_owned(), json!(raw)),
+            ])
+        };
+        assert_eq!(parse_tool_call_arguments(None), JsonObject::new());
+        assert_eq!(parse_tool_call_arguments(Some(" \n")), JsonObject::new());
+        assert_eq!(
+            parse_tool_call_arguments(Some("{path: 'a.rs'}")),
+            JsonObject::from_iter([("path".to_owned(), json!("a.rs"))])
+        );
+        // The streaming preview auto-closes a truncated call; the final
+        // parse keeps none of its keys.
+        assert_eq!(
+            parse_streaming_json_object(Some(r#"{"path": "a.rs", "text": "x"#)),
+            JsonObject::from_iter([
+                ("path".to_owned(), json!("a.rs")),
+                ("text".to_owned(), json!("x")),
+            ])
+        );
+        assert_eq!(
+            parse_tool_call_arguments(Some(r#"{"path": "a.rs", "text": "x"#)),
+            invalid(
+                "Unterminated string in JSON at position 27 (line 1 column 28)",
+                r#"{"path": "a.rs", "text": "x"#
+            )
+        );
+        assert_eq!(
+            parse_tool_call_arguments(Some("[1]")),
+            invalid("Tool call arguments are not a JSON object", "[1]")
+        );
+        let long = format!("{{\"text\": \"{}", "é".repeat(600));
+        assert_eq!(
+            parse_tool_call_arguments(Some(&long)),
+            invalid(
+                "Unterminated string in JSON at position 610 (line 1 column 611)",
+                &format!("{}… [truncated 98 chars]", &long[..long.len() - 196])
+            )
+        );
     }
 }

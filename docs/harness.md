@@ -254,18 +254,33 @@ fires) and the daemon's connection frames.
 A run is one user turn: model calls, tool rounds, retries, until it ends.
 
 1. A run ends in one of: answered, aborted, failed. No other end exists.
+   A reply with a tool call never answers: its calls go to a tool round,
+   whatever its text and its stop reason (vLLM, llama.cpp and Ollama send
+   the stop reason `stop` with tool calls). A reply that hit the output
+   limit (stop reason `length`) runs none of its calls: their arguments
+   can be cut. Each call gets a `truncated` result (`Tool X was not run:
+   the reply hit the N-token output limit, so its arguments may be cut.
+   Make the call again with complete arguments. For large content, write
+   a minimal version first, then extend it with edits.`), and the round
+   counts (item 2).
 2. A run makes at most `maxToolRounds` tool rounds (default 250; `0` takes
    the default). At the cap it ends as failed (`run_limit`), with a
    message that names the cap. A goal or autonomous continuation starts
    a new count: its own caps bound continuations.
-3. A run that makes the same tool calls (name and arguments) with the
-   same results `LOOP_ROUNDS` (6) rounds in a row ends as failed
-   (`run_limit`, a loop). A call whose result changes (a job that makes
-   progress) is not a loop.
+3. The loop guard is removed. It failed a run (`run_limit`, a loop) after
+   `LOOP_ROUNDS` (6) rounds in a row with the same tool calls and the
+   same results. The repeat recovery of H4.8 replaces it: calls that
+   would make `REPEAT_CALLS` (5) such rounds in a row do not run. The law
+   `run_loop_needs_repeats` is deleted; the law `rec_never_runs_a_repeat`
+   replaces it, and it is stronger: no row of the same calls with the
+   same results gets to 5 rounds.
 4. A provider that answers "deferred" is polled at most `MAX_POLLS`
    (17,280: a day at the default 5 s) times; then the run fails
    (`model_error`).
-5. Retries are bounded by `retry.maxRetries` (already true).
+5. A transient error (not noted, for example an overload or a dropped
+   connection) spends a retry: at most `retry.maxRetries`, only when the
+   retry policy is enabled, after the wait of the retry policy. A noted
+   retry spends a note, never a retry (item 7).
 6. An abort ends the run within one phase: the phase driver races every
    phase handler, so every `before_request` hook and every wait in it,
    against the invocation's cancel signal. A handler that honours the
@@ -274,25 +289,35 @@ A run is one user turn: model calls, tool rounds, retries, until it ends.
 7. A reply that ends the model's turn (stop reason `stop`, `length` or
    `toolUse`) with no text and no tool call is no answer: for example
    only thinking, or nothing. A text block with only white space is no
-   text. Such a reply never ends the run as answered. `classify` changes
+   text. Such a reply never ends the run as answered. A `length` stop with
+   no answer gets the length recovery of H4.8: its note is a length note.
+   `classify` changes
    it to a failed message before it appends it: the stop reason becomes
    `error` and the error message tells the user that the model gave no
    answer (`The model gave no answer: its reply (stop reason stop) has
    no text and no tool call, only N characters of thinking`). The reply
-   then goes the same way as a stalled or cut stream: when the retry
-   policy is enabled, it is retried while retries are left (item 5);
-   else, or when no retry is left, the run fails with `model_error` and
-   that text. A failed message is not in the context of the next
+   is then a noted reply, as a stream that the repetition guard cut: it
+   is retried with a note while notes are left, else the run fails with
+   `model_error` and that text. Noted retries have their own budget:
+   `MAX_NOTES` (8) for each generation, not `retry.maxRetries`. A noted
+   retry does not read the retry policy (enabled or not, and its
+   maximum), and it goes out at once, with no backoff: it is a new
+   request, not a transient error. Each note records the noted retries
+   of the generation, its own included (`spent`), thus a restart keeps
+   the count. A transient retry spends no note, and a noted retry spends
+   no retry. A failed message is not in the context of the next
    request. A model decodes the same request in the same way (a model
    that decodes greedily always does), so a retry must not send that
-   request again. After a noted reply (no answer, or a stream that the
-   repetition guard cut as repeating), the request of the retry ends
-   with a harness note: a user message that names the attempt of the
-   retry and the problem, for example `Harness note, attempt 2: your
-   previous reply repeated the line "- r/Bitcoin" until it was cut.
-   Give the answer again; never list the same item twice.` For a cycle
+   request again. After a noted reply (no answer, a stream that the
+   repetition guard cut as repeating, or a recovery of H4.8), the request
+   of the retry ends with a harness note: a user message that names the
+   attempt of the retry and the problem, for example `Harness note,
+   attempt 2: your previous reply repeated the line "- r/Bitcoin" until
+   it was cut. Give the answer again; never list the same item twice.`
+   For a cycle
    of lines, the note gives the length of the cycle and its last line.
-   For no answer, it says that the reply gave no text and no tool call.
+   For no answer, it says that the reply gave no text and no tool call;
+   for a recovery, H4.8 gives its note.
    Each note names its own attempt, thus the request of each retry is
    different from all the requests that the run sent before. After a
    different error (for example an overload or a dropped connection),
@@ -306,42 +331,49 @@ A run is one user turn: model calls, tool rounds, retries, until it ends.
    a partial assistant message before a user message is not a valid
    message order for all providers. Under a forced
    tool call, such a reply is a failed reply, not an answer that missed
-   the call. The retry policy alone makes it retryable: the reply is not
+   the call. Its note alone makes it retried: the reply is not
    a provider stream failure, so no `StreamFailureKind` applies (a
    `stream_drop` diagnostic is not retryable by its kind, and
    `malformed_response` is never retryable), and the stream of the
    reply does not change for other callers. The memory compactor
    counts a thinking-only reply as a try (H1.4), and the compaction
    summary has its own check for empty text.
+8. A stuck model gets a recovery, each with a cap: a `length` stop with
+   no answer, tool calls leaked as text, the same tool calls with the
+   same results round after round (H4.8).
 
-Changed from the first draft: the round count and the loop guard travel
-in each generation's input (durable, so a restart keeps them), not in a
-separate live-run field; a continuation resets them (item 2).
+Changed from the first draft: the round count travels in each
+generation's input (durable, so a restart keeps it), not in a separate
+live-run field; a continuation resets it (item 2).
 
 A deliberate difference from TS pi-durable: TS's `pi.generation` input
-is always `{}`; eukhe's carries `{"rounds": {"count", "same", "hash"}}`
-from the second generation of a run on. The cross-implementation
+is always `{}`; eukhe's carries `{"rounds": {"count"}}` from the second
+generation of a run on (the input of an earlier version also has `same`
+and `hash`, the counts of the removed loop guard; a read ignores them).
+The cross-implementation
 fixtures (`eukhe-durable/tests/fixtures/harness_cross/*-resumed*`) were
 edited to that one field after TS wrote them; nothing else in them
 changed.
 
 Model: `bend/run.bend`. Its live phases are prepare, call (a request or
 a poll), compact (an overflow's or a blocking threshold compaction) and
-tools; its limits count down (rounds, compactions, retries, polls left).
-Each step is one Rust decision: prepare `before_request`, a compaction's
+tools; its limits count down (rounds, compactions, retries, notes, polls
+left). Each step is one Rust decision: prepare `before_request`, a compaction's
 end `after_compaction` (an overflow's needs its entry; a threshold one
 fails the run only when it failed, not when it found nothing), a reply
 `after_reply` (a message that ends the model's turn first goes through
-`Ended::reply`, the model's `Ended.reply`), a round's end
+`Ended::reply`, the model's `Ended.reply`: its calls when it has calls,
+whatever its stop reason, else its text, else a noted error; a noted
+error spends a note, a transient one a retry), a round's end
 `Rounds::finish` then `RoundEnd::reset` (a control stops the run
 uncounted; a queued reset ends it only after the round counted, so the
-cap and the loop guard come first). Proofs:
+cap comes first). Proofs:
 `bend/proof_run.bend`. The measure `M` orders a run lexicographically
-(rounds left, then compactions, retries and polls left in the
-generation, then the phase) and writes that order as one mixed-radix
-number: every input to a live run lowers it by at least one, and at the
-start it is `bound(cfg)`. Every law is universal (any limits, any
-inputs).
+(rounds left, then compactions, then the retries and notes left in the
+generation as one budget, then the polls left, then the phase) and
+writes that order as one mixed-radix number: every input to a live run
+lowers it by at least one, and at the start it is `bound(cfg)`. Every
+law is universal (any limits, any inputs).
 
 The requests of a run (`Reqs`, H4.7) go next to its phases. A request is
 the version of its logged context and the attempt that its note names
@@ -356,39 +388,45 @@ attempt and a different note.
 
 | Law | Says |
 | --- | --- |
-| `run_ends` | After `bound(cfg) = max(cap, 1)·(2 + (retries + 2)·(polls + 2))` inputs, whatever follows, the run has ended (H4.1, H4.4, H4.5). |
+| `run_ends` | After `bound(cfg) = max(cap, 1)·(2 + (retries + notes + 2)·(polls + 2))` inputs, whatever follows, the run has ended (H4.1, H4.4, H4.5, H4.7). |
 | `run_end_stays` | An ended run never changes (H4.1). |
 | `run_abort_ends_now` | An abort ends a live run as aborted at the next step (H4.6). |
 | `run_rounds_capped` | A run that has made `max(cap, 1)` rounds has failed (H4.2). |
 | `run_rounds_fail_at_cap` | The round cap fails a run only once it has made exactly `max(cap, 1)` rounds (H4.2). |
-| `run_loop_needs_repeats` | A loop fails a run only when its last `loop` rounds had the same calls and results (H4.3). |
 | `run_polls_need_defers` | The poll cap fails a run only after `polls + 1` deferred replies in a row: the request's and each of its `polls` polls' (H4.4). |
-| `run_no_answer_is_an_error` | A message that ends the model's turn with no text and no tool call never answers: its step is a model error's, a retry while retries are left and the retry policy is on, else the run fails on the model (H4.7). |
-| `run_retry_sends_a_new_request` | No request that the run sends is equal to a request that it sent before and had cut: a retry after a cut sends a new request, cut after cut until the retries run out (H4.7). |
+| `run_no_answer_is_an_error` | A message that ends the model's turn with no text and no tool call never answers: its step is a noted error's, a retry with a note while notes are left, else the run fails on the model (H4.7). |
+| `run_calls_never_answer` | A message that ends the model's turn with a tool call never answers: its calls go to the tools phase, whatever its text and its stop reason (H4.1). |
+| `run_note_spends_no_retry` | A noted error spends a note, not a retry: retryable or not, it is retried with a note while notes are left, and the retries left stay (H4.5, H4.7). |
+| `run_retry_spends_no_note` | A retryable error that is not noted spends a retry, not a note: the notes left stay (H4.5, H4.7). |
+| `run_retry_sends_a_new_request` | No request that the run sends is equal to a request that it sent before and had cut: a retry after a cut sends a new request, cut after cut until the notes run out (H4.7). |
 | `run_cut_names_the_request` | A noted reply cuts the request that the run sent, and the next request has the note of the next attempt (H4.7). |
 | `run_note_is_never_logged` | A note changes what the model reads, never what the run logs: a request logs the same lines as its context with no note (H4.7). |
 
 Each of these breaks fails a proof: no poll cap, no round cap, a cap
 that fails a run early, a poll count that a non-deferred reply does not
-reset, a loop count that ignores the hash, an ignored abort in the tools
-phase, a retry that does not spend a retry, a reply with no text and no
-tool call that answers, a retry after a cut that keeps the note of the
-cut request.
+reset, an ignored abort in the tools phase, a retry that spends neither
+a retry nor a note, a noted retry that spends a retry, a transient
+retry that spends a note, a reply with no text and no tool call that
+answers, a reply with a tool call that answers, a retry after a cut
+that keeps the note of the cut request.
 
 Code: `eukhe-durable/src/harness/generation/decide.rs` (`before_request`,
-`after_compaction`, `after_reply`, `retry_note`, `Ended::reply`,
-`Rounds::finish`, `RoundEnd::reset`, `MAX_POLLS`, `LOOP_ROUNDS`);
-`generation/note.rs` (`RetryNote`, its text); `generation.rs` `prepare`
-(both decisions, `compaction_end`, `threshold_compaction`), `classify`
-(the reply; a reply that is no answer becomes a failed message; a reply
-that is no answer or a stream cut as repeating is noted; then the step
-and the note of a retry),
+`after_compaction`, `after_reply`, `Step::Note`, `retry_note`,
+`Ended::reply`, `Rounds::finish`, `RoundEnd::reset`, `MAX_POLLS`,
+`MAX_NOTES`, `Counts::notes`); `generation/note.rs` (`RetryNote`, its
+`spent` and its text); `generation.rs` `prepare` (both decisions,
+`compaction_end`, `threshold_compaction`), `classify` (the reply; a
+reply with calls goes to the tools phase whatever its stop reason; a
+reply that is no answer becomes a failed message; a reply that is no
+answer or a stream cut as repeating is noted; then the step and the
+note of a retry; a noted retry is due at once, a transient one after
+`retry_wait_ms`),
 `GenerationInput.rounds`, `GenerationCheckpoint::Poll.polls`, the
 `note` of each checkpoint but `Tools`,
 `request` (a failed hook fails the run; the note is the last user
 message before the soft prompt of a forced call), `abort` (every
-checkpoint ends aborted); `generation/round.rs` `finish_tool_round`,
-`round_hash` (SHA-256 of the calls and results, 53 bits);
+checkpoint ends aborted); `generation/round.rs` `start_tool_round` (a
+`length` reply's calls get `truncated` results), `finish_tool_round`;
 `scheduler/execution.rs` `Inner::run` (the race, `ABORT_GRACE`);
 `harness/agent.rs` `DEFAULT_MAX_TOOL_ROUNDS`; `eukhe-core/src/settings`
 `maxToolRounds`; `eukhe-ai/src/utils/retry.rs` `repeated_lines` (the
@@ -399,34 +437,158 @@ calls, at each phase, the production decision that phase calls
 (`before_request`, `after_compaction`, `Ended::reply`, `after_reply`,
 `retry_note`, `Rounds::finish`, `RoundEnd::reset`), keeps the counters
 and the note the checkpoints carry, and runs `bend/bridge_run.bend` on
-409 scenarios: 401 generated ones (the production limits and random
-small ones; every reply, noted errors and errors that are not noted,
-every message that ends the model's turn with or without text, tool
-calls and tool use and with the retry policy on or off, threshold,
-compaction result, round hash and end, and abort) and 8 with a cut
-after each request until the retries run out (0 to 3 retries; a noted
-error or a message with no answer). After each input it compares the
-request sent or cut (its context version and the attempt of its note),
-then the phase and the counts left, byte for byte. Not in the bridge:
-the abort itself (the `abort` handler has one outcome; H4.6's race is
+413 scenarios: 401 generated ones (1 with the production limits, 400
+with random small ones, notes included; every reply, noted errors and errors
+that are not noted, every message that ends the model's turn with or
+without text and with or without tool calls, threshold, compaction
+result, round end, and abort) and 12 with a cut after each request
+until the notes run out (a noted error or a message with no answer).
+After each input it compares the request sent or cut (its context
+version and the attempt of its note), then the phase and the counts
+left (retries, notes, polls, compactions, rounds), byte for byte. Not in
+the bridge: the abort itself (the `abort` handler has one outcome; H4.6's race is
 `Inner::run`), the run's other failures (no model, a failed request
 hook), which only end it, and the retry of a forced call (`bend/infer.bend`
 §2), whose kept answer grows the context. Regression tests
 (`harness::generation::tests`):
 `run_bounds::a_run_that_keeps_calling_tools_fails_at_the_round_cap`,
-`the_same_calls_with_the_same_results_end_the_run_as_a_loop`,
-`the_same_calls_whose_results_change_are_no_loop`,
 `an_abort_ends_a_run_stuck_in_a_request_hook`,
 `recovery::keeps_the_rounds_a_run_made_across_reopen`,
 `fails_a_response_still_deferred_after_its_last_poll`,
 `no_answer::a_reply_of_only_thinking_is_retried_and_then_answers`,
-`replies_of_only_thinking_past_the_retries_fail_the_run_with_model_error`,
-`a_reply_of_only_thinking_fails_without_retrying_when_the_retry_policy_is_disabled`,
 `retry_note::a_retry_after_a_repeating_stream_ends_its_request_with_a_note_and_answers`
 (a greedy faux model that sends `- r/Bitcoin` 200 times to a request
 without a note: the run answers at the first retry),
 `a_retry_after_no_answer_ends_its_request_with_a_note_and_answers`,
-`every_retry_after_a_cut_sends_a_new_request_until_the_retries_run_out`.
+`every_retry_after_a_cut_sends_a_new_request_until_the_notes_run_out`
+(`MAX_NOTES` noted retries, with `retry.maxRetries` at 2),
+`no_answer::replies_of_only_thinking_past_the_notes_fail_the_run_with_model_error`,
+`a_reply_of_only_thinking_is_retried_with_a_note_when_the_retry_policy_is_disabled`,
+`recoveries::a_noted_retry_is_sent_at_once_and_spends_no_retry`,
+`a_reply_with_stop_reason_stop_runs_its_tool_calls`,
+`no_call_of_a_reply_cut_at_the_output_limit_runs` (H4.1).
+
+#### H4.8. A stuck model gets a recovery, each with a cap
+
+A weaker model can get stuck. It reasons until it hits the output limit,
+again and again. It writes its tool calls as text (markup), not as tool
+calls. It makes the same tool calls with the same results, round after
+round. The harness does not only watch such a model: each of these
+replies gets a recovery, as in omp. A recovery runs the calls, retries
+with a note that tells the model what to do, keeps the reply as the
+answer, or ends the run. Each recovery has a cap: the number of its notes
+in a row.
+
+1. The note of a request counts the notes of its recovery in a row
+   (`row`). A note of a different cause, an answer, and calls that run
+   start a new row (after a tool round, a new generation starts with no
+   note). A transient retry sends the note again: it does not change the
+   row.
+2. A recovery's retry is a noted retry (H4.7): it spends a note of
+   `MAX_NOTES`, it does not read the retry policy, and it goes out at
+   once. Its request ends with the note of the next attempt, thus it
+   never sends the request again. The stuck reply stays in the
+   transcript as a failed message with an error text that tells the user
+   what went wrong; it is not in the context of the next request.
+3. A reply with no tool call has each text block scanned for tool-call
+   markup of five families: Hermes and Qwen JSON (`<tool_call>{...}`),
+   Qwen3-Coder XML (`<function=x><parameter=k>`), the omp "qwen" form
+   (`<tool_calls><x k="v"/>`), the Kimi section tokens, and DeepSeek
+   DSML. Markup in quoted code (a fence or an inline code span) is not a
+   leak: the model shows the markup in its answer. When every leaked call
+   parses and names a tool that the request offered, the harness rebuilds
+   the calls: the markup leaves the text, the calls become tool calls,
+   and the stop reason becomes `toolUse`. The run then reads them as the
+   same calls made as tool calls (the repeat recovery included). Else
+   (a section that does not parse, or a call that names no offered tool)
+   the leak recovery starts.
+4. The rounds in a row of a reply's calls come from the request's
+   context, thus a restart keeps them and a failed reply (not in the
+   context) never adds to them. Two rounds are the same when they have
+   the same calls and the same results. Calls are the same when they
+   have the same names and the same canonical arguments (object keys in
+   order at every depth, the top-level intent `i` left out), in any
+   order. Results are the same when each result has the same content and
+   error flag. A round whose results change (a poll of a job that makes
+   progress) starts a new row. A user message (a steer, the user's next
+   turn) ends the row: the user changed the context. A system message
+   does not end it.
+
+| Recovery | Detection | Cap | At the cap | Note | Laws |
+| --- | --- | --- | --- | --- | --- |
+| Length | A reply with stop reason `length`, no text and no tool call: the model still reasoned when it hit the output limit. | `LENGTH_NOTES` (3) length notes in a row (omp `INCOMPLETE_RECOVERY_MAX_RETRIES`). | The run fails (`model_error`): `The model gave no answer: its reply (stop reason length) has no text and no tool call, only N characters of thinking. The model hit the output limit while it was still reasoning after 3 length notes in a row: use a different model or raise the model's max output tokens`. | `Harness note, attempt {attempt}: your previous reply hit {limit} while it was still reasoning. It gave no text and no tool call, so the harness discarded it with every tool call that it planned. If you plan the whole task again in your reasoning, you hit the same limit. Reason only about the next step, then call its tool. For a large answer (a file, a document, a long text), write a minimal working version first, then extend it with more edits in later turns. Length note {row} of 3.` `{limit}` is `the {tokens}-token output limit`, or `the output limit` when the provider gave no count. | `rec_length_retries_with_a_note`, `rec_length_gives_up` |
+| Leak | A reply with no tool call whose text has tool-call markup that the harness cannot rebuild (rule 3). | `LEAK_NOTES` (2) leak notes in a row (omp `MAX_DSML_LEAK_NUDGES`). | The reply answers as text, as it is. | `Harness note, attempt {attempt}: your previous reply wrote a tool call as {markup} markup in its text, and the harness could not read it ({reason}). No tool ran. Make the call again through the tool-calling interface, with its arguments as one JSON object that agrees with the schema of the tool. Do not write a tool call as text. If you need no tool, give the answer as plain text. Leak note {row} of 2.` `{markup}` is `hermes`, `qwen3`, `qwen-xml`, `kimi` or `dsml`. | `rec_leak_rebuilt_is_calls`, `rec_leak_retries_with_a_note`, `rec_leak_stands` |
+| Repeat | Tool calls (made or rebuilt, whatever the stop reason) that would make `REPEAT_CALLS` (5) rounds in a row with the same calls and the same results (rule 4; omp `toolCallLoopGuard.threshold`). Such calls do not run. | `REDIRECT_NOTES` (2) redirect notes in a row. | The run fails (`model_error`): `The model made the same tool calls ({names}) with the same results {rounds} times in a row, after 2 redirect notes; the harness did not run them again`. | `Harness note, attempt {attempt}: you made the same tool calls {rounds} times in a row, and they gave the same results each time: {listed}. The harness did not run them again. Do not make these calls with these arguments again in this turn. Use different arguments, use a different tool, or give your answer with what you found. Redirect note {row} of 2.` `{listed}` gives each call as its tool and its canonical arguments, cut to 400 characters (`ARGUMENTS_SHOWN`, omp `ARGUMENT_SUMMARY_LIMIT`). | `rec_calls_run`, `rec_repeat_never_runs`, `rec_repeat_redirects`, `rec_repeat_gives_up`, `rec_user_breaks_the_row` |
+
+The repeat recovery replaces the loop guard of H4.3, and it stops a row
+earlier: at most 4 rounds with the same calls and the same results run in
+a row, where the loop guard failed a run only after 6. Calls below its cap
+always run: the recoveries never stop a call that is not a repeat.
+
+Model: `bend/run.bend`, section Recoveries, with the caps
+`RCfg{long, leak, redirect, repeat}` (in production 3, 2, 2 and 5):
+`Rec.step` reads one reply
+(`Out`: a length stop, leaked calls, calls that ran, another noted
+reply, a user message, an answer, any other reply) and gives an act
+(`Pass`, `Exec`, `Redo`, `Stand`, `Quit`) and the recoveries after it.
+`Act.reply` turns the act into a reply that the H4 steps read: `Redo` is
+a noted error, `Exec` calls, `Stand` text, `Quit` an error that is not
+noted. Thus every H4 law holds for a run with the recoveries: those laws
+hold for every reply. Laws: `laws/recover.bend`. Proofs:
+`bend/proof_recover.bend`. Every law is universal (any caps, any
+replies, any recovery state).
+
+| Law | Says |
+| --- | --- |
+| `rec_length_retries_with_a_note` | A length stop with no answer, under the cap, is retried with the next length note (H4.8 Length). |
+| `rec_length_gives_up` | After `long` length notes in a row, a length stop fails the run (H4.8 Length). |
+| `rec_leak_rebuilt_is_calls` | Leaked calls that all parse and name an offered tool are rebuilt: the run reads them as the same calls made as tool calls (H4.8.3). |
+| `rec_leak_retries_with_a_note` | Leaked calls that were not rebuilt, under the cap, are retried with the next leak note (H4.8 Leak). |
+| `rec_leak_stands` | After `leak` leak notes in a row, the reply answers as text (H4.8 Leak). |
+| `rec_calls_run` | Tool calls that make fewer than `repeat` rounds in a row run; when their results change, a new row of 1 starts (H4.8.4). |
+| `rec_repeat_never_runs` | Tool calls that would make `repeat` rounds in a row with the same results never run (H4.8 Repeat). |
+| `rec_repeat_redirects` | Such a repeat, under the cap, is retried with the next redirect note (H4.8 Repeat). |
+| `rec_repeat_gives_up` | After `redirect` redirect notes in a row, a repeat fails the run (H4.8 Repeat). |
+| `rec_user_breaks_the_row` | A user message ends the row: after it, no call is a repeat of a call before it (H4.8.4). |
+| `rec_notes_capped` | After any replies, the notes of a recovery in a row are at most its cap (H4.8.1). |
+| `rec_never_runs_a_repeat` | After any replies, the run has not run the same calls with the same results `max(repeat, 1)` rounds in a row. It replaces `run_loop_needs_repeats` (H4.3). |
+| `rec_stuck_gets_help` | A stuck reply (a length stop with no answer, leaked calls, tool calls) always gets an act that does something: its calls run, a retry with a note, an answer, or the end of the run. It never goes on as it is (H4.8). |
+| `rec_redo_is_noted` | A recovery's retry is a noted error: its request has the note of the next attempt, so it never sends the request again (H4.8.2, H4.7). |
+| `rec_quit_fails` | A recovery at its cap fails the run on the model, at once (H4.8). |
+
+Code: `eukhe-durable/src/harness/generation/decide.rs` (`recover`,
+`Stuck`, `Act`, `Caps`, `CAPS`, `LENGTH_NOTES`, `LEAK_NOTES`,
+`REDIRECT_NOTES`, `REPEAT_CALLS`, `MAX_NOTES`); `generation/note.rs`
+(`NoteCause::Length`, `NoteCause::Leaked`, `NoteCause::Redirect`,
+`NoteCause::row`, `Recovery`, `RepeatedCall`, `ARGUMENTS_SHOWN`,
+`RetryNote::text`); `generation/repeat.rs` (`canonical_arguments`,
+`rounds_in_a_row`); `generation/leak.rs` (`scan`, `Leak`, `Markup`);
+`generation.rs` `classify` (the scan of the text, the rebuild of the
+leaked calls, the stuck reply, `recover`, the cause of the note and the
+error text); `generation/round.rs` `start_tool_round` (the `truncated`
+results of a `length` reply, H4.1).
+
+Tie: the bridge test
+`harness::generation::recover_bridge::the_rust_recoveries_equal_the_bend_model`
+drives `recover`, `rounds_in_a_row` and `retry_note` as `classify` does,
+keeps the note of the next request and the context of the run (each
+round that ran is a tool-use reply and its results, each answer a text
+reply, each user message a user message), changes the intent and the key
+order of each call at random (they are no part of a call's identity),
+and runs `bend/bridge_recover.bend` on the same 302 scenarios of replies. After each reply
+it compares the act, the recovery and row of the next note, and the
+rounds in a row that the run ran with the last calls, byte for byte.
+Regression tests (`harness::generation`):
+`tests::recoveries::a_length_stop_while_reasoning_is_retried_with_a_length_note_and_answers`,
+`length_stops_while_reasoning_fail_the_run_after_three_length_notes`,
+`the_same_call_with_the_same_results_is_redirected_on_the_fifth_round_and_then_fails`,
+`a_hermes_tool_call_leaked_as_text_is_rebuilt_and_runs`,
+`a_broken_leaked_tool_call_is_noted_and_then_stands_as_text_after_two_notes`,
+`tests::run_bounds::the_same_calls_whose_results_change_keep_running`,
+`repeat::tests::counts_the_rounds_with_the_same_calls_and_the_same_results`
+(a user message ends the row),
+`canonical_arguments_ignore_the_intent_and_the_key_order`, and the
+`leak::tests` (`broken_hermes_calls` and the others).
 
 ### H5. Every subagent reports back exactly once
 

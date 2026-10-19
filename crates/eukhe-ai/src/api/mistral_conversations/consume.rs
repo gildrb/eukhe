@@ -14,7 +14,7 @@ use crate::types::OnProviderStreamEvent;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::{js_to_string, json_stringify};
-use crate::utils::json_parse::parse_streaming_json_object;
+use crate::utils::json_parse::{parse_streaming_json_object, parse_tool_call_arguments};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 
 /// The open text or thinking block (always the last content block).
@@ -437,7 +437,7 @@ impl ChatStreamState<'_> {
             else {
                 continue;
             };
-            call.arguments = parse_streaming_json_object(Some(&partial_args));
+            call.arguments = parse_tool_call_arguments(Some(&partial_args));
             let tool_call = call.clone();
             self.emit(|partial| AssistantMessageEvent::ToolCallEnd {
                 content_index,

@@ -12,7 +12,7 @@ use eukhe_types::pi_ai::{
 use crate::models::calculate_cost;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::js_to_string;
-use crate::utils::json_parse::parse_streaming_json_object;
+use crate::utils::json_parse::{parse_streaming_json_object, parse_tool_call_arguments};
 
 /// Matches the placeholder the Anthropic API path uses for redacted thinking.
 pub(crate) const REDACTED_THINKING_PLACEHOLDER: &str = "[Reasoning redacted]";
@@ -354,7 +354,7 @@ impl StreamBlocks {
                 // Finalize in place and strip the scratch buffer so replay only
                 // carries parsed arguments.
                 let partial_json = self.scratch[content_index].partial_json.take();
-                let arguments = parse_streaming_json_object(partial_json.as_deref());
+                let arguments = parse_tool_call_arguments(partial_json.as_deref());
                 let AssistantContentBlock::ToolCall(block) = &mut output.content[content_index]
                 else {
                     return;

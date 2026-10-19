@@ -229,7 +229,7 @@ pub fn parse_slash_command(text: &str) -> Option<(String, String)> {
 pub fn find_slash_command_suggestion<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
     let mut closest: Option<(&str, usize)> = None;
     for &candidate in candidates {
-        let distance = slash_command_edit_distance(input, candidate);
+        let distance = edit_distance(input, candidate);
         if closest.is_none() || distance < closest.unwrap().1 {
             closest = Some((candidate, distance));
         }
@@ -245,8 +245,9 @@ pub fn find_slash_command_suggestion<'a>(input: &str, candidates: &[&'a str]) ->
     }
 }
 
-/// Levenshtein edit distance (`slashCommandEditDistance`).
-fn slash_command_edit_distance(left: &str, right: &str) -> usize {
+/// Levenshtein edit distance, in characters (`slashCommandEditDistance`).
+#[must_use]
+pub fn edit_distance(left: &str, right: &str) -> usize {
     let left: Vec<char> = left.chars().collect();
     let right: Vec<char> = right.chars().collect();
     let mut previous: Vec<usize> = (0..=right.len()).collect();
@@ -344,8 +345,8 @@ mod tests {
 
     #[test]
     fn edit_distance_counts_substitutions() {
-        assert_eq!(slash_command_edit_distance("abc", "abc"), 0);
-        assert_eq!(slash_command_edit_distance("ab", "ac"), 1);
-        assert_eq!(slash_command_edit_distance("", "abc"), 3);
+        assert_eq!(edit_distance("abc", "abc"), 0);
+        assert_eq!(edit_distance("ab", "ac"), 1);
+        assert_eq!(edit_distance("", "abc"), 3);
     }
 }

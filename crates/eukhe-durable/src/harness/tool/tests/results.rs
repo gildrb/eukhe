@@ -320,23 +320,17 @@ async fn validates_arguments_before_and_after_before_tool_and_applies_blocks_and
                     })),
                     "throw" => Err(SessionError::error("hook failed")),
                     "bad" => Ok(Some(BeforeToolDecision {
-                        arguments: Some(
-                            serde_json::json!({ "text": { "not": "a string" } })
-                                .as_object()
-                                .unwrap()
-                                .clone(),
-                        ),
+                        arguments: serde_json::json!({ "text": { "not": "a string" } })
+                            .as_object()
+                            .cloned(),
                         ..BeforeToolDecision::default()
                     })),
                     _ => {
                         let text = call.arguments["text"].as_str().unwrap_or("undefined");
                         Ok(Some(BeforeToolDecision {
-                            arguments: Some(
-                                serde_json::json!({ "text": format!("{text}!") })
-                                    .as_object()
-                                    .unwrap()
-                                    .clone(),
-                            ),
+                            arguments: serde_json::json!({ "text": format!("{text}!") })
+                                .as_object()
+                                .cloned(),
                             ..BeforeToolDecision::default()
                         }))
                     }
@@ -391,8 +385,15 @@ async fn validates_arguments_before_and_after_before_tool_and_applies_blocks_and
     assert_eq!(by_id["ok"], (false, String::new()));
     assert!(by_id["invalid"].0);
     assert!(by_id["invalid"].1.contains("Validation failed"));
-    // pi-ai coerces a number to a string before the first validation.
-    assert_eq!(by_id["coerced"], (false, String::new()));
+    // The dialect repair reads a number as the declared string, with a
+    // warning, before the first validation.
+    assert_eq!(
+        by_id["coerced"],
+        (
+            false,
+            "<harness>\n[warn] Repaired argument: text=1 read as \"1\"\n</harness>".to_owned()
+        )
+    );
     let mut seen = locked(&seen);
     seen.sort_by_key(ToString::to_string);
     assert_eq!(
@@ -428,7 +429,9 @@ async fn repairs_arguments_with_prepare_arguments_before_validation_and_a_throwi
                     if text == "throw" {
                         return Err(SessionError::error("cannot repair"));
                     }
-                    Ok(match text.as_f64() {
+                    // An object is no spelling of the declared string, so
+                    // the dialect repair leaves it to this repair.
+                    Ok(match text["n"].as_f64() {
                         Some(number) => serde_json::json!({ "text": format!("#{number}") }),
                         None => args,
                     })
@@ -442,7 +445,7 @@ async fn repairs_arguments_with_prepare_arguments_before_validation_and_a_throwi
         &setup,
         vec![
             calls(&[
-                ("echo", serde_json::json!({ "text": 7 }), "fixed"),
+                ("echo", serde_json::json!({ "text": { "n": 7 } }), "fixed"),
                 ("echo", serde_json::json!({ "text": "throw" }), "broken"),
             ])
             .into(),
@@ -467,7 +470,7 @@ async fn repairs_arguments_with_prepare_arguments_before_validation_and_a_throwi
     });
     assert_eq!(
         call.map(|call| serde_json::Value::Object(call.arguments.clone())),
-        Some(serde_json::json!({ "text": 7 }))
+        Some(serde_json::json!({ "text": { "n": 7 } }))
     );
     ran.harness.close(context()).await.unwrap();
 }

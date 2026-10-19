@@ -32,6 +32,7 @@ use self::invocation::run;
 pub(crate) use self::nested::nested_call_task;
 use self::nested::{json_equal, nested_result, summary_of, NestedCalls, NESTED_CALLS_DOC};
 pub use self::nested::{NestedResultState, NESTED_RESULT_DOC};
+pub(crate) use self::result::tool_unavailable_message;
 pub use self::result::{append_tool_result, harness_error, ToolResultMeta};
 use self::result::{from_slot, ToolEnding};
 use super::live::{
@@ -209,9 +210,14 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
     let input = task.input;
     let call = read_call(&runtime, &input, &cx).await?;
     let Some(tool) = resolve_tool(&runtime, &input, &call.name, &cx).await? else {
+        let agent = runtime.agent(&cx).await?;
+        let offered = match &input {
+            ToolTaskInput::Model { .. } => &agent.tools,
+            ToolTaskInput::Nested { .. } => &agent.callable,
+        };
         let error = harness_error(
             "tool_unavailable",
-            &format!("Tool {} is not available", call.name),
+            &tool_unavailable_message(&call.name, offered.iter().map(|tool| tool.name.as_str())),
         );
         return complete(&runtime, &input, &call, error, &cx).await;
     };

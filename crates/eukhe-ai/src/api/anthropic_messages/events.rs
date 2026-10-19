@@ -18,7 +18,9 @@ use super::{model_compat, AnthropicOptions, StreamFailure};
 use crate::models::calculate_cost;
 use crate::utils::diagnostics::{append_assistant_message_diagnostic, ErrorObject, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
-use crate::utils::json_parse::{parse_json_with_repair, parse_streaming_json_object};
+use crate::utils::json_parse::{
+    parse_json_with_repair, parse_streaming_json_object, parse_tool_call_arguments,
+};
 use crate::utils::now_ms;
 use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions};
 use crate::utils::stream_failure::{
@@ -504,7 +506,7 @@ pub(crate) async fn consume(
                 scratch.index[position] = None;
                 if let AssistantContentBlock::ToolCall(block) = &mut output.content[position] {
                     let partial_json = std::mem::take(&mut scratch.partial_json[position]);
-                    block.arguments = parse_streaming_json_object(Some(&partial_json));
+                    block.arguments = parse_tool_call_arguments(Some(&partial_json));
                 }
                 stream.push_partial(output, |partial| match &output.content[position] {
                     AssistantContentBlock::Text(block) => AssistantMessageEvent::TextEnd {

@@ -33,6 +33,7 @@ import ./laws/progress.bend as Prg
 import ./laws/ladder.bend as Ladder
 import ./laws/kernel_local.bend as KernelLocal
 import ./laws/storage.bend as Storage
+import ./laws/recover.bend as Rec
 
 # (a) The view
 # ------------
@@ -493,121 +494,6 @@ law child_delivered_once:
   for +m: Nat
   for waits: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}
   {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}
-
-# (H4) Every run ends
-# -------------------
-# docs/harness.md H4, the model in bend/run.bend: one run (one user turn)
-# through prepare, call (a request or a deferred poll), compact (an
-# overflow's or a blocking threshold one) and tools. Every input is free:
-# any model reply, any round hash and end, any compaction result, an
-# abort, in any order.
-
-# LAW: every run has ended (answered, aborted or failed) after bound(cfg)
-# inputs, whatever they are and whatever follows them; bound(cfg) =
-# max(cap, 1)·(2 + (retries + 2)·(polls + 2)), from maxToolRounds,
-# MAX_POLLS, retry.maxRetries and one compaction a generation
-law run_ends:
-  for +cfg: Rn.Cfg
-  for +evs: List<&2, Rn.Ev>
-  for long: {List.length(&2, Rn.Ev, evs) == Rn.bound(cfg) : Nat}
-  for +more: List<&2, Rn.Ev>
-  {Rn.done(Rn.run(cfg, List.append(&2, Rn.Ev, evs, more))) == True{} : Bool}
-
-# LAW: an ended run stays as it ended
-law run_end_stays:
-  for +cfg: Rn.Cfg
-  for +s: Rn.St
-  for ended: {Rn.done(s) == True{} : Bool}
-  for +e: Rn.Ev
-  {Rn.step(cfg, s, e) == s : Rn.St}
-
-# LAW: an abort ends a live run as aborted, at the next step
-law run_abort_ends_now:
-  for +cfg: Rn.Cfg
-  for +s: Rn.St
-  for live: {Rn.done(s) == False{} : Bool}
-  {Rn.St.ph(Rn.step(cfg, s, Rn.Abort{})) == Rn.Aborted{} : Rn.Ph}
-
-# LAW: a run that has made max(cap, 1) tool rounds has failed
-law run_rounds_capped:
-  for +cfg: Rn.Cfg
-  for +evs: List<&2, Rn.Ev>
-  Or({Rn.failed(Rn.run(cfg, evs)) == True{} : Bool}, {Nat.is_lt(List.length(&2, Nat, Rn.hist(cfg, evs)), Nat.max(Rn.Cfg.cap(cfg), 1n)) == True{} : Bool})
-
-# LAW: the loop guard fails a run only when its last `loop` rounds made the
-# same calls with the same results: a run whose results change is no loop
-law run_loop_needs_repeats:
-  for +cfg: Rn.Cfg
-  for +evs: List<&2, Rn.Ev>
-  Or({Rn.looped(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.rep(Rn.Cfg.loop(cfg), Rn.hist(cfg, evs)) == True{} : Bool})
-
-# LAW: the round cap fails a run only at its max(cap, 1)th round, never
-# earlier
-law run_rounds_fail_at_cap:
-  for +cfg: Rn.Cfg
-  for +evs: List<&2, Rn.Ev>
-  Or({Rn.capped(Rn.run(cfg, evs)) == False{} : Bool}, {List.length(&2, Nat, Rn.hist(cfg, evs)) == Nat.max(Rn.Cfg.cap(cfg), 1n) : Nat})
-
-# LAW: the poll cap fails a run only when its request's reply and each of
-# its `polls` polls were deferred, polls + 1 deferred replies in a row
-law run_polls_need_defers:
-  for +cfg: Rn.Cfg
-  for +evs: List<&2, Rn.Ev>
-  Or({Rn.polled(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.defers(cfg, evs) == 1n+Rn.Cfg.polls(cfg) : Nat})
-
-# LAW: a message that ends the model's turn (stop, length or tool use)
-# with no text and no tool call never answers the run (H4.7): the model
-# gave no answer, so the step is a model error's, a retry while retries
-# are left and the retry policy is on, else the run fails on the model
-law run_no_answer_is_an_error:
-  for +cfg: Rn.Cfg
-  for tool: Bool
-  for +retrying: Bool
-  for +r: Nat
-  for +c: Nat
-  for +a: Nat
-  for +p: Nat
-  for +same: Nat
-  for +last: Nat
-  {Rn.call(cfg, Rn.Ended.reply(Rn.Ended{tool, False{}, False{}, retrying}), r, c, a, p, same, last) == Rn.retry(cfg, retrying, r, c, a, p, same, last) : Rn.St}
-
-# (H4.7) A retry never resends a request it cut
-# ---------------------------------------------
-# docs/harness.md H4.7, the requests of bend/run.bend: a model decodes
-# the same request the same way (a greedy one always does), so a retry
-# after a noted reply (the stream repeated itself until the guard cut it,
-# or the reply gave no answer) ends its request with a harness note that
-# names the retry's attempt. A request is the version of its logged
-# context and the attempt its note names.
-
-# LAW: no request the run sends is equal to a request it sent before and
-# had cut: a retry after a cut sends neither the request it cut nor any
-# other one the run cut, whatever the inputs, cut after cut until the
-# retries run out
-law run_retry_sends_a_new_request:
-  for +cfg: Rn.Cfg
-  for +evs: List<&2, Rn.Ev>
-  {Rn.fresh(Rn.Reqs.log(Rn.reqs(cfg, evs))) == True{} : Bool}
-
-# LAW: a noted reply cuts the request the run sent, and the next request
-# carries the note of the next attempt
-law run_cut_names_the_request:
-  for -retryable: Bool
-  for -h: Nat
-  for -fin: Rn.Fin
-  for -got: Rn.Got
-  for -pa: Rn.Ph
-  for -ctx: Nat
-  for -n: Nat
-  for -note: Nat
-  for -log: List<&2, Rn.Sent>
-  {Rn.Reqs.step(Rn.Call{}, Rn.Go{Rn.Error{retryable, True{}}, h, fin, got}, pa, Rn.Reqs{ctx, n, note, log}) == Rn.Reqs{ctx, 1n+n, 1n+n, Rn.Cut{Rn.Req{ctx, note}} <> log} : Rn.Reqs}
-
-# LAW: the note changes what the model reads, never what the run logs:
-# a request logs the same lines as its context with no note
-law run_note_is_never_logged:
-  for q: Rn.Req
-  {Rn.logged(Rn.Req.lines(q)) == Rn.logged(Rn.Req.lines(Rn.Req{Rn.Req.ctx(q), 0n})) : List<&2, Rn.Line>}
 
 # (H3) A user's request never waits behind background work
 # ---------------------------------------------------------
@@ -1738,3 +1624,151 @@ law effort_shown_is_sent:
   for +dflt: Ef.Lv
   for +acts: List<&2, Ef.Act>
   {Ef.shown(Ef.run(acts, Ef.open(s, dflt))) == Ef.Level{Ef.sent(Ef.run(acts, Ef.open(s, dflt)))} : Ef.Shown}
+
+# (H4) Every run ends
+# -------------------
+# docs/harness.md H4, the model in bend/run.bend: one run (one user turn)
+# through prepare, call (a request or a deferred poll), compact (an
+# overflow's or a blocking threshold one) and tools. Every input is free:
+# any model reply, any round end, any compaction result, an abort, in any
+# order.
+
+# LAW: every run has ended (answered, aborted or failed) after bound(cfg)
+# inputs, whatever they are and whatever follows them; bound(cfg) =
+# max(cap, 1)·(2 + (retries + notes + 2)·(polls + 2)), from
+# maxToolRounds, MAX_POLLS, retry.maxRetries, MAX_NOTES and one
+# compaction a generation. Notes have their own budget: a noted retry
+# spends a note, never a retry
+law run_ends:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  for long: {List.length(&2, Rn.Ev, evs) == Rn.bound(cfg) : Nat}
+  for +more: List<&2, Rn.Ev>
+  {Rn.done(Rn.run(cfg, List.append(&2, Rn.Ev, evs, more))) == True{} : Bool}
+
+# LAW: an ended run stays as it ended
+law run_end_stays:
+  for +cfg: Rn.Cfg
+  for +s: Rn.St
+  for ended: {Rn.done(s) == True{} : Bool}
+  for +e: Rn.Ev
+  {Rn.step(cfg, s, e) == s : Rn.St}
+
+# LAW: an abort ends a live run as aborted, at the next step
+law run_abort_ends_now:
+  for +cfg: Rn.Cfg
+  for +s: Rn.St
+  for live: {Rn.done(s) == False{} : Bool}
+  {Rn.St.ph(Rn.step(cfg, s, Rn.Abort{})) == Rn.Aborted{} : Rn.Ph}
+
+# LAW: a run that has made max(cap, 1) tool rounds has failed
+law run_rounds_capped:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  Or({Rn.failed(Rn.run(cfg, evs)) == True{} : Bool}, {Nat.is_lt(Rn.rounds(cfg, evs), Nat.max(Rn.Cfg.cap(cfg), 1n)) == True{} : Bool})
+
+# The loop guard of H4.3 (run_loop_needs_repeats) is gone. The law
+# `rec_never_runs_a_repeat` (H4.8) replaces it, and it is stronger: no
+# row of the same calls with the same results ever gets to REPEAT_CALLS
+# (5) rounds. The loop guard failed a run only after 6 such rounds.
+
+# LAW: the round cap fails a run only at its max(cap, 1)th round, never
+# earlier
+law run_rounds_fail_at_cap:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  Or({Rn.capped(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.rounds(cfg, evs) == Nat.max(Rn.Cfg.cap(cfg), 1n) : Nat})
+
+# LAW: the poll cap fails a run only when its request's reply and each of
+# its `polls` polls were deferred, polls + 1 deferred replies in a row
+law run_polls_need_defers:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  Or({Rn.polled(Rn.run(cfg, evs)) == False{} : Bool}, {Rn.defers(cfg, evs) == 1n+Rn.Cfg.polls(cfg) : Nat})
+
+# LAW: a message that ends the model's turn (any stop reason) with no
+# text and no tool call never answers the run (H4.7): the model gave no
+# answer, so the step is a noted error's: a retry with a note while
+# notes are left, else the run fails on the model
+law run_no_answer_is_an_error:
+  for +cfg: Rn.Cfg
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  {Rn.call(cfg, Rn.Ended.reply(Rn.Ended{False{}, False{}}), r, c, a, n, p) == Rn.note(cfg, r, c, a, n, p) : Rn.St}
+
+# LAW: a message that ends the model's turn with a tool call never
+# answers the run: its calls go to the tools phase, whatever its text and
+# its stop reason. vLLM, llama.cpp and Ollama send the stop reason stop
+# with tool calls
+law run_calls_never_answer:
+  for +cfg: Rn.Cfg
+  for text: Bool
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  {Rn.call(cfg, Rn.Ended.reply(Rn.Ended{text, True{}}), r, c, a, n, p) == Rn.St{Rn.Tools{}, r, c, a, n, p} : Rn.St}
+
+# LAW: a noted error spends a note, not a retry: retryable or not, it is
+# retried with a note while notes are left, and the retries left stay
+law run_note_spends_no_retry:
+  for +cfg: Rn.Cfg
+  for retryable: Bool
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +m: Nat
+  for +p: Nat
+  {Rn.call(cfg, Rn.Error{retryable, True{}}, r, c, a, 1n+m, p) == Rn.St{Rn.Prepare{}, r, c, a, m, Rn.Cfg.polls(cfg)} : Rn.St}
+
+# LAW: a retryable error that is not noted spends a retry, not a note:
+# the notes left stay
+law run_retry_spends_no_note:
+  for +cfg: Rn.Cfg
+  for +r: Nat
+  for +c: Nat
+  for +b: Nat
+  for +n: Nat
+  for +p: Nat
+  {Rn.call(cfg, Rn.Error{True{}, False{}}, r, c, 1n+b, n, p) == Rn.St{Rn.Prepare{}, r, c, b, n, Rn.Cfg.polls(cfg)} : Rn.St}
+
+# (H4.7) A retry never resends a request it cut
+# ---------------------------------------------
+# docs/harness.md H4.7, the requests of bend/run.bend: a model decodes
+# the same request the same way (a greedy one always does), so a retry
+# after a noted reply (the stream repeated itself until the guard cut it,
+# or the reply gave no answer) ends its request with a harness note that
+# names the retry's attempt. A request is the version of its logged
+# context and the attempt its note names.
+
+# LAW: no request the run sends is equal to a request it sent before and
+# had cut: a retry after a cut sends neither the request it cut nor any
+# other one the run cut, whatever the inputs, cut after cut until the
+# notes run out
+law run_retry_sends_a_new_request:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  {Rn.fresh(Rn.Reqs.log(Rn.reqs(cfg, evs))) == True{} : Bool}
+
+# LAW: a noted reply cuts the request the run sent, and the next request
+# carries the note of the next attempt
+law run_cut_names_the_request:
+  for -retryable: Bool
+  for -fin: Rn.Fin
+  for -got: Rn.Got
+  for -pa: Rn.Ph
+  for -ctx: Nat
+  for -n: Nat
+  for -note: Nat
+  for -log: List<&2, Rn.Sent>
+  {Rn.Reqs.step(Rn.Call{}, Rn.Go{Rn.Error{retryable, True{}}, fin, got}, pa, Rn.Reqs{ctx, n, note, log}) == Rn.Reqs{ctx, 1n+n, 1n+n, Rn.Cut{Rn.Req{ctx, note}} <> log} : Rn.Reqs}
+
+# LAW: the note changes what the model reads, never what the run logs:
+# a request logs the same lines as its context with no note
+law run_note_is_never_logged:
+  for q: Rn.Req
+  {Rn.logged(Rn.Req.lines(q)) == Rn.logged(Rn.Req.lines(Rn.Req{Rn.Req.ctx(q), 0n})) : List<&2, Rn.Line>}

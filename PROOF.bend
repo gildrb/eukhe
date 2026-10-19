@@ -49,6 +49,8 @@ import ./bend/proof_kernel_local.bend as KernelLocals
 import ./laws/storage.bend as Storage
 import ./bend/proof_log.bend as Logs
 import ./bend/proof_staging.bend as Stagings
+import ./laws/recover.bend as Rec
+import ./bend/proof_recover.bend as Recover
 
 # (a) The view
 
@@ -221,43 +223,6 @@ def Laws.child_resubmits_per_abort(cfg, evs):
 
 def Laws.child_delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits):
   Children.pc.delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits)
-
-# (H4) Every run ends
-
-def Laws.run_ends(cfg, evs, long, more):
-  Runs.run_ends(cfg, evs, long, more)
-
-def Laws.run_end_stays(cfg, s, ended, e):
-  Runs.end_stays(cfg, s, e, ended)
-
-def Laws.run_abort_ends_now(cfg, s, live):
-  Runs.abort_now(cfg, s, live)
-
-def Laws.run_rounds_capped(cfg, evs):
-  Runs.rounds_capped(cfg, evs)
-
-def Laws.run_loop_needs_repeats(cfg, evs):
-  Runs.loop_needs_repeats(cfg, evs)
-
-def Laws.run_rounds_fail_at_cap(cfg, evs):
-  Runs.rounds_fail_at_cap(cfg, evs)
-
-def Laws.run_polls_need_defers(cfg, evs):
-  Runs.polls_need_defers(cfg, evs)
-
-def Laws.run_no_answer_is_an_error(cfg, tool, retrying, r, c, a, p, same, last):
-  Runs.no_answer(cfg, tool, retrying, r, c, a, p, same, last)
-
-# (H4.7) A retry never resends a request it cut
-
-def Laws.run_retry_sends_a_new_request(cfg, evs):
-  Retries.retry_sends_a_new_request(cfg, evs)
-
-def Laws.run_cut_names_the_request(retryable, h, fin, got, pa, ctx, n, note, log):
-  Retries.cut_names_the_request(retryable, h, fin, got, pa, ctx, n, note, log)
-
-def Laws.run_note_is_never_logged(q):
-  Retries.note_is_never_logged(q)
 
 # (H3) A user's request never waits behind background work
 
@@ -918,3 +883,93 @@ def Storage.list_import_lists_storage(es, s):
 
 def Storage.list_import_keeps_others(es, s, n, ne):
   Stagings.pg.import_keeps(es, s, n, ne)
+
+# (H4) Every run ends
+
+def Laws.run_ends(cfg, evs, long, more):
+  Runs.run_ends(cfg, evs, long, more)
+
+def Laws.run_end_stays(cfg, s, ended, e):
+  Runs.end_stays(cfg, s, e, ended)
+
+def Laws.run_abort_ends_now(cfg, s, live):
+  Runs.abort_now(cfg, s, live)
+
+def Laws.run_rounds_capped(cfg, evs):
+  Runs.rounds_capped(cfg, evs)
+
+def Laws.run_rounds_fail_at_cap(cfg, evs):
+  Runs.rounds_fail_at_cap(cfg, evs)
+
+def Laws.run_polls_need_defers(cfg, evs):
+  Runs.polls_need_defers(cfg, evs)
+
+def Laws.run_no_answer_is_an_error(cfg, r, c, a, n, p):
+  Runs.no_answer(cfg, r, c, a, n, p)
+
+def Laws.run_calls_never_answer(cfg, text, r, c, a, n, p):
+  Runs.calls_never_answer(cfg, text, r, c, a, n, p)
+
+def Laws.run_note_spends_no_retry(cfg, retryable, r, c, a, m, p):
+  Runs.note_spends_no_retry(cfg, retryable, r, c, a, m, p)
+
+def Laws.run_retry_spends_no_note(cfg, r, c, b, n, p):
+  Runs.retry_spends_no_note(cfg, r, c, b, n, p)
+
+# (H4.7) A retry never resends a request it cut
+
+def Laws.run_retry_sends_a_new_request(cfg, evs):
+  Retries.retry_sends_a_new_request(cfg, evs)
+
+def Laws.run_cut_names_the_request(retryable, fin, got, pa, ctx, n, note, log):
+  Retries.cut_names_the_request(retryable, fin, got, pa, ctx, n, note, log)
+
+def Laws.run_note_is_never_logged(q):
+  Retries.note_is_never_logged(q)
+
+# (H4.8) A stuck model gets a recovery, each with a cap
+
+def Rec.rec_length_retries_with_a_note(rc, k, row, same, last, under):
+  Recover.length_retries_with_a_note(rc, k, row, same, last, under)
+
+def Rec.rec_length_gives_up(rc, k, row, same, last, over):
+  Recover.length_gives_up(rc, k, row, same, last, over)
+
+def Rec.rec_leak_rebuilt_is_calls(rc, h, kept, r):
+  Recover.leak_rebuilt_is_calls(rc, h, kept, r)
+
+def Rec.rec_leak_retries_with_a_note(rc, h, kept, k, row, same, last, under):
+  Recover.leak_retries_with_a_note(rc, h, kept, k, row, same, last, under)
+
+def Rec.rec_leak_stands(rc, h, kept, k, row, same, last, over):
+  Recover.leak_stands(rc, h, kept, k, row, same, last, over)
+
+def Rec.rec_calls_run(rc, h, kept, k, row, same, last, fresh):
+  Recover.calls_run(rc, h, kept, k, row, same, last, fresh)
+
+def Rec.rec_repeat_never_runs(rc, h, kept, k, row, same, last, rep):
+  Recover.repeat_never_runs(rc, h, kept, k, row, same, last, rep)
+
+def Rec.rec_repeat_redirects(rc, h, kept, k, row, same, last, rep, under):
+  Recover.repeat_redirects(rc, h, kept, k, row, same, last, rep, under)
+
+def Rec.rec_repeat_gives_up(rc, h, kept, k, row, same, last, rep, over):
+  Recover.repeat_gives_up(rc, h, kept, k, row, same, last, rep, over)
+
+def Rec.rec_user_breaks_the_row(rc, k, row, same, last):
+  Recover.user_breaks_the_row(rc, k, row, same, last)
+
+def Rec.rec_notes_capped(rc, os):
+  Recover.notes_capped(rc, os)
+
+def Rec.rec_never_runs_a_repeat(rc, os):
+  Recover.never_runs_a_repeat(rc, os)
+
+def Rec.rec_stuck_gets_help(rc, o, r):
+  Recover.stuck_gets_help(rc, o, r)
+
+def Rec.rec_redo_is_noted(pass):
+  Recover.redo_is_noted(pass)
+
+def Rec.rec_quit_fails(cfg, pass, r, c, a, n, p):
+  Recover.quit_fails(cfg, pass, r, c, a, n, p)

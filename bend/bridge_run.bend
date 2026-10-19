@@ -7,16 +7,15 @@
 #
 # and run `<out> <scenario>`. A scenario has one input per line:
 #
-#   9 cap polls retries loop      the limits (first line)
+#   9 cap polls retries notes     the limits (first line)
 #   a                             an abort
-#   g kind flag hash fin got      a Go: kind t text, c calls, d deferred,
-#     [tool text calls | noted]   e error (flag: retryable; noted: the
-#                                 reply was cut), o overflow (flag: a cut
-#                                 exists), m a message that ends the
-#                                 model's turn, which R.Ended.reply reads
-#                                 (flag: the retry policy is on; tool: its
-#                                 stop reason is tool use, text: it has
-#                                 text, calls: it has a tool call); fin 0
+#   g kind flag fin got [extra]   a Go: kind t text, c calls, d deferred,
+#                                 e error (flag: retryable; extra: noted
+#                                 0/1, the reply was cut), o overflow
+#                                 (flag: a cut exists), m a message that
+#                                 ends the model's turn, which
+#                                 R.Ended.reply reads (flag unused, 0;
+#                                 extra: text 0/1, then calls 0/1); fin 0
 #                                 goes on, 1 stops, 2 resets; got 0
 #                                 built, 1 kept, 2 broke
 #
@@ -26,11 +25,11 @@
 #
 #   sent <ctx>.<note>             the run sent this request
 #   cut <ctx>.<note>              the reply to this request was noted
-#   prepare a=<retries> c=<compactions> r=<rounds> s=<same>
-#   call a=<retries> p=<polls> c=<compactions> r=<rounds> s=<same>
-#   compact overflow|threshold a=<retries> c=<compactions> r=<rounds> s=<same>
-#   tools a=<retries> c=<compactions> r=<rounds> s=<same>
-#   answered | aborted | failed model|polls|rounds|loop
+#   prepare a=<retries> n=<notes> c=<compactions> r=<rounds>
+#   call a=<retries> n=<notes> p=<polls> c=<compactions> r=<rounds>
+#   compact overflow|threshold a=<retries> n=<notes> c=<compactions> r=<rounds>
+#   tools a=<retries> n=<notes> c=<compactions> r=<rounds>
+#   answered | aborted | failed model|polls|rounds
 
 import Base
 import ./run.bend as R
@@ -57,7 +56,7 @@ def tok.head(s: String) -> Char:
 def reply.pick(m: Bool, t: Bool, c: Bool, d: Bool, e: Bool, flag: Bool, +ws: List<&2, String>) -> R.Reply:
   match m t c d e:
     case True{} t c d e:
-      R.Ended.reply(R.Ended{tok.bool(tok.at(ws, 6n)), tok.bool(tok.at(ws, 7n)), tok.bool(tok.at(ws, 8n)), flag})
+      R.Ended.reply(R.Ended{tok.bool(tok.at(ws, 5n)), tok.bool(tok.at(ws, 6n))})
     case False{} True{} c d e:
       R.Text{}
     case False{} False{} True{} d e:
@@ -65,7 +64,7 @@ def reply.pick(m: Bool, t: Bool, c: Bool, d: Bool, e: Bool, flag: Bool, +ws: Lis
     case False{} False{} False{} True{} e:
       R.Deferred{}
     case False{} False{} False{} False{} True{}:
-      R.Error{flag, tok.bool(tok.at(ws, 6n))}
+      R.Error{flag, tok.bool(tok.at(ws, 5n))}
     case False{} False{} False{} False{} False{}:
       R.Overflow{flag}
 
@@ -99,7 +98,7 @@ def ev.pick(abort: Bool, +ws: List<&2, String>) -> R.Ev:
     case True{}:
       R.Abort{}
     case False{}:
-      R.Go{reply.of(tok.head(tok.at(ws, 1n)), tok.bool(tok.at(ws, 2n)), ws), tok.nat(tok.at(ws, 3n)), fin.of(tok.nat(tok.at(ws, 4n))), got.of(tok.nat(tok.at(ws, 5n)))}
+      R.Go{reply.of(tok.head(tok.at(ws, 1n)), tok.bool(tok.at(ws, 2n)), ws), fin.of(tok.nat(tok.at(ws, 3n))), got.of(tok.nat(tok.at(ws, 4n)))}
 
 def ev.of(+ws: List<&2, String>) -> R.Ev:
   ev.pick(Char.is_eq(tok.head(tok.at(ws, 0n)), 'a'), ws)
@@ -118,8 +117,6 @@ def show.why(w: R.Why) -> String:
       "polls"
     case R.Rounds{}:
       "rounds"
-    case R.Loop{}:
-      "loop"
 
 def show.over(over: Bool) -> String:
   match over:
@@ -128,16 +125,16 @@ def show.over(over: Bool) -> String:
     case False{}:
       " threshold"
 
-# a=<retries> c=<compactions> r=<rounds> s=<same>, all left
+# a=<retries> n=<notes> c=<compactions> r=<rounds>, all left
 def show.counts(+s: R.St) -> String:
-  String.concat([" a=", Nat.show(R.St.a(s)), " c=", Nat.show(R.St.c(s)), " r=", Nat.show(R.St.r(s)), " s=", Nat.show(R.St.same(s))])
+  String.concat([" a=", Nat.show(R.St.a(s)), " n=", Nat.show(R.St.n(s)), " c=", Nat.show(R.St.c(s)), " r=", Nat.show(R.St.r(s))])
 
 def show.ph(ph: R.Ph, +s: R.St) -> String:
   match ph:
     case R.Prepare{}:
       String.concat(["prepare", show.counts(s), "\n"])
     case R.Call{}:
-      String.concat(["call a=", Nat.show(R.St.a(s)), " p=", Nat.show(R.St.p(s)), " c=", Nat.show(R.St.c(s)), " r=", Nat.show(R.St.r(s)), " s=", Nat.show(R.St.same(s)), "\n"])
+      String.concat(["call a=", Nat.show(R.St.a(s)), " n=", Nat.show(R.St.n(s)), " p=", Nat.show(R.St.p(s)), " c=", Nat.show(R.St.c(s)), " r=", Nat.show(R.St.r(s)), "\n"])
     case R.Compact{over}:
       String.concat(["compact", show.over(over), show.counts(s), "\n"])
     case R.Tools{}:

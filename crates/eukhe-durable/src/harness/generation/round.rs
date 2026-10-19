@@ -10,15 +10,15 @@ use eukhe_chord::context::Context;
 use eukhe_chord::delta::DraftItem;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, Message, ToolCall, UserContent, UserMessage,
+    AssistantContentBlock, AssistantMessage, Message, StopReason, ToolCall, UserContent,
+    UserMessage,
 };
-use sha2::{Digest, Sha256};
 
-use super::decide::{Limit, RoundEnd, Rounds};
+use super::decide::{RoundEnd, Rounds};
 use super::{
     failed, limits, GenerationCheckpoint, GenerationInput, GenerationResult, Next, Request, Runtime,
 };
-use crate::entries::{UserData, ASSISTANT_ENTRY, RESET_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
+use crate::entries::{UserData, ASSISTANT_ENTRY, RESET_ENTRY, USER_ENTRY};
 use crate::harness::agent::add_tools;
 use crate::harness::inbox::{apply_boundary, prepare_boundary, BoundaryAt, QueueModes};
 use crate::harness::live::run::{
@@ -32,7 +32,7 @@ use crate::harness::tool::{
 use crate::harness::types::{
     ContextOptions, GenerationHooks, ToolControl, ToolExecutionMode, YieldContinuation,
 };
-use crate::session::{SessionError, SessionResult, Tx};
+use crate::session::{SessionResult, Tx};
 use crate::tasks::AnyTask;
 use crate::types::{
     DocumentReaderExt, EntryHead, EntryId, JoinPolicy, SubmissionSettlement, TaskId, TaskOptions,
@@ -278,9 +278,16 @@ pub(super) async fn answer(
 
 /// Append the tool-calling answer and start its tool round in one commit
 /// (spec §8.3). A call to a tool the request did not offer gets its
-/// `tool_unavailable` result here; every other call gets a tool task owned
-/// by the generation, only the first one now when the round is sequential.
-/// The generation then waits for them in its `tools` phase, keeping the run.
+/// `tool_unavailable` result here, and so does each call of a reply that
+/// hit the output limit: its arguments may be cut, so it never runs and
+/// its `truncated` result asks for it again (H4.1); every other call gets
+/// a tool task owned by the generation, only the first one now when the
+/// round is sequential. The generation then waits for them in its `tools`
+/// phase, keeping the run.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one commit: the answer, each call's refusal or tool task, the slots"
+)]
 pub(super) async fn start_tool_round(
     runtime: &Runtime,
     request: Request,
@@ -321,6 +328,11 @@ pub(super) async fn start_tool_round(
         });
     let generation = runtime.task_id().erase();
     let tool = runtime.registry().builtins().tool.clone();
+    let truncated =
+        (message.stop_reason == StopReason::Length).then(|| match message.usage.output {
+            0 => "the output limit".to_owned(),
+            tokens => format!("the {tokens}-token output limit"),
+        });
     let commit_runtime = runtime.clone();
     runtime
         .commit(
@@ -332,18 +344,35 @@ pub(super) async fn start_tool_round(
                 let mut tools: Vec<TaskId> = Vec::new();
                 let mut pending: Vec<String> = Vec::new();
                 for call in &calls {
-                    if !offered.contains(&call.name) {
-                        let unavailable = harness_error(
+                    let refused = if let Some(limit) = &truncated {
+                        Some(harness_error(
+                            "truncated",
+                            &format!(
+                                "Tool {} was not run: the reply hit {limit}, so its arguments \
+                                 may be cut. Make the call again with complete arguments. For \
+                                 large content, write a minimal version first, then extend it \
+                                 with edits.",
+                                call.name
+                            ),
+                        ))
+                    } else if offered.contains(&call.name) {
+                        None
+                    } else {
+                        Some(harness_error(
                             "tool_unavailable",
-                            &format!("Tool {} is not available", call.name),
-                        );
+                            &crate::harness::tool::tool_unavailable_message(
+                                &call.name,
+                                offered.iter().map(String::as_str),
+                            ),
+                        ))
+                    };
+                    if let Some(refused) = refused {
                         let meta = ToolResultMeta {
                             timestamp: runtime.now()?,
                             duration_ms: None,
                         };
                         let result =
-                            append_tool_result(&tx, conversation_id, call, &unavailable, meta)
-                                .await?;
+                            append_tool_result(&tx, conversation_id, call, &refused, meta).await?;
                         slots.push(slot(call, None, ToolSlotStatus::Done, Some(result.id)));
                         continue;
                     }
@@ -475,13 +504,12 @@ pub(super) async fn finish_tool_round(
         .iter()
         .rev()
         .find_map(|(_, control)| control.as_ref().and_then(|control| control.handoff.clone()));
-    // A round that no control ends counts toward the cap and the loop guard.
+    // A round that no control ends counts toward the cap.
     let limits = limits(&runtime.settings());
     let end = if terminate || handoff.is_some() {
         RoundEnd::Stop
     } else {
-        let hash = round_hash(runtime, assistant, &slots, cx).await?;
-        rounds.finish(hash, &limits)
+        rounds.finish(&limits)
     };
     let task_id = runtime.task_id().erase();
     let generation = runtime.registry().builtins().generation.clone();
@@ -557,17 +585,11 @@ pub(super) async fn finish_tool_round(
                         },
                         None,
                     ),
-                    RoundEnd::Fail(limit) => {
-                        let text = match limit {
-                            Limit::Rounds => format!(
-                                "The run stopped at its tool round cap: {} rounds (maxToolRounds)",
-                                limits.max_rounds
-                            ),
-                            Limit::Loop => format!(
-                                "The run stopped in a loop: {} tool rounds in a row made the same calls with the same results",
-                                limits.loop_rounds
-                            ),
-                        };
+                    RoundEnd::Capped => {
+                        let text = format!(
+                            "The run stopped at its tool round cap: {} rounds (maxToolRounds)",
+                            limits.max_rounds
+                        );
                         let settlement = SubmissionSettlement::Unanswered {
                             reason: "run_limit".to_owned(),
                             detail: Some(to_json(&text)?),
@@ -587,54 +609,4 @@ pub(super) async fn finish_tool_round(
             cx,
         )
         .await
-}
-
-/// Low 53 bits: a JSON number holds them exactly.
-const HASH_BITS: u64 = (1 << 53) - 1;
-
-/// A hash of a round's calls (name and arguments, in call order) and
-/// results (content and error flag, in call order): the same for two rounds
-/// that are byte for byte the same, whatever their call ids and times.
-async fn round_hash(
-    runtime: &Runtime,
-    assistant: EntryId,
-    slots: &[ToolSlot],
-    cx: &Context,
-) -> SessionResult<u64> {
-    let mut hasher = Sha256::new();
-    let entry = runtime.typed_entry(&ASSISTANT_ENTRY, assistant, cx).await?;
-    if let Some(Message::Assistant(message)) = entry
-        .as_ref()
-        .and_then(|entry| entry.model.as_ref())
-        .and_then(|model| model.first())
-    {
-        for content in &message.content {
-            match content {
-                AssistantContentBlock::ToolCall(call) => {
-                    serde_json::to_writer(&mut hasher, &(&call.name, &call.arguments))
-                        .map_err(SessionError::other)?;
-                }
-                AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => {}
-            }
-        }
-    }
-    for slot in slots {
-        let Some(id) = slot.entry else {
-            serde_json::to_writer(&mut hasher, &slot.status).map_err(SessionError::other)?;
-            continue;
-        };
-        let entry = runtime.typed_entry(&TOOL_RESULT_ENTRY, id, cx).await?;
-        if let Some(Message::ToolResult(result)) = entry
-            .as_ref()
-            .and_then(|entry| entry.model.as_ref())
-            .and_then(|model| model.first())
-        {
-            serde_json::to_writer(&mut hasher, &(&result.content, result.is_error))
-                .map_err(SessionError::other)?;
-        }
-    }
-    let digest = hasher.finalize();
-    let mut low = [0; 8];
-    low.copy_from_slice(&digest[..8]);
-    Ok(u64::from_le_bytes(low) & HASH_BITS)
 }

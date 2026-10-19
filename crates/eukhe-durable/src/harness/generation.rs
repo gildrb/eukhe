@@ -13,12 +13,17 @@ mod decide;
 mod force;
 #[cfg(test)]
 mod infer_bridge;
+mod leak;
 mod note;
+#[cfg(test)]
+mod recover_bridge;
+mod repeat;
 mod round;
 mod stream;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::capabilities::CapabilityOptions;
@@ -29,6 +34,7 @@ use eukhe_ai::utils::retry::{
     is_retryable_assistant_error, repeated_lines, retry_wait_ms, RetryDelay,
 };
 use eukhe_ai::utils::stream_failure::RepeatedLines;
+use eukhe_ai::utils::transcript::get_current_tools;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
@@ -38,12 +44,14 @@ use eukhe_types::pi_ai::{
 use serde::{Deserialize, Serialize};
 
 use self::decide::{
-    after_compaction, after_reply, before_request, retry_note, threshold_for, Compacted,
-    Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Threshold,
-    LOOP_ROUNDS, MAX_POLLS,
+    after_compaction, after_reply, before_request, recover, retry_note, threshold_for, Act,
+    Compacted, Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck,
+    Threshold, CAPS, LENGTH_NOTES, MAX_NOTES, MAX_POLLS, REDIRECT_NOTES,
 };
 use self::force::{soft_prompt, ForceReply, ForceStep, Forcing};
-use self::note::{NoteCause, RetryNote};
+use self::leak::{scan, Leak};
+use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
+use self::repeat::{canonical_arguments, rounds_in_a_row};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
@@ -357,6 +365,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let entries = plan_system_entries(&view, &desired, &tools, timestamp(runtime.now()?)?);
     let at = Counts {
         attempt,
+        notes: note.as_ref().map_or(0, |note| note.spent),
         polls: 0,
         compacted: compacted.is_some(),
     };
@@ -940,7 +949,7 @@ fn limits(settings: &Settings) -> Limits {
         max_rounds: settings.max_tool_rounds,
         max_polls: MAX_POLLS,
         max_retries: settings.retry.max_retries,
-        loop_rounds: LOOP_ROUNDS,
+        max_notes: MAX_NOTES,
     }
 }
 
@@ -952,7 +961,7 @@ fn limits(settings: &Settings) -> Limits {
 )]
 async fn classify(
     runtime: &Runtime,
-    request: Request,
+    mut request: Request,
     mut message: AssistantMessage,
     cx: &Context,
 ) -> SessionResult<()> {
@@ -981,7 +990,7 @@ async fn classify(
             )
             .await?;
     }
-    let calls: Vec<ToolCall> = message
+    let mut calls: Vec<ToolCall> = message
         .content
         .iter()
         .filter_map(|content| match content {
@@ -998,42 +1007,224 @@ async fn classify(
         message.stop_reason,
         StopReason::Stop | StopReason::Length | StopReason::ToolUse
     ) {
+        // Tool calls leaked as text (H4.8): a reply with no tool call has
+        // each text block scanned for tool-call markup.
+        let mut leaked = Vec::new();
+        let mut broken = None;
+        if calls.is_empty() {
+            for (index, content) in message.content.iter().enumerate() {
+                match content {
+                    AssistantContentBlock::Text(text) => match scan(&text.text) {
+                        Leak::None => {}
+                        Leak::Calls {
+                            markup,
+                            calls,
+                            text,
+                        } => leaked.push((index, markup, calls, text)),
+                        Leak::Broken { markup, reason } => {
+                            broken = broken.or(Some((markup, reason)));
+                        }
+                    },
+                    AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => {}
+                }
+            }
+        }
+        // The leak and the calls read the request's context: the tools it
+        // offered, the rounds before.
+        if (!calls.is_empty() || !leaked.is_empty()) && request.messages.is_none() {
+            let context = ContextOptions {
+                at: Some(request.cutoff),
+            };
+            request.messages = Some(
+                runtime
+                    .context(conversation_id, cx, context)
+                    .await?
+                    .messages,
+            );
+        }
+        let context = request.messages.as_deref().unwrap_or_default();
+        if broken.is_none() && !leaked.is_empty() {
+            let offered: HashSet<String> = get_current_tools(context)
+                .into_iter()
+                .map(|tool| tool.name)
+                .collect();
+            let unknown = leaked.iter().find_map(|(_, markup, calls, _)| {
+                calls
+                    .iter()
+                    .find(|call| !offered.contains(&call.name))
+                    .map(|call| (*markup, format!("it names no offered tool {:?}", call.name)))
+            });
+            if unknown.is_some() {
+                broken = unknown;
+            } else {
+                // Every leaked call parsed and names an offered tool: the
+                // calls are rebuilt, and the markup leaves the text.
+                for (index, _, leaked_calls, text) in leaked {
+                    if let Some(AssistantContentBlock::Text(block)) = message.content.get_mut(index)
+                    {
+                        block.text = text;
+                    }
+                    for call in leaked_calls {
+                        calls.push(ToolCall {
+                            id: format!("leak_{}_{attempt}_{}", request.cutoff, calls.len()),
+                            name: call.name,
+                            arguments: call.arguments,
+                            thought_signature: None,
+                            namespace: None,
+                        });
+                    }
+                }
+                message.content.retain(|content| match content {
+                    AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
+                    AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => true,
+                });
+                message
+                    .content
+                    .extend(calls.iter().cloned().map(AssistantContentBlock::ToolCall));
+                message.stop_reason = StopReason::ToolUse;
+            }
+        }
         let reply = Ended {
-            tool_use: message.stop_reason == StopReason::ToolUse,
             text: message.content.iter().any(|content| match content {
                 AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
                 AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => false,
             }),
             calls: !calls.is_empty(),
-            retrying: settings.retry.enabled,
         }
         .reply();
-        let noted = matches!(reply, Reply::Error { .. });
-        if noted {
-            // The model gave no answer (H4.7). The message fails before it is
-            // appended: the user sees why, and a retry leaves it out of the
-            // next request's context and ends that request with a note.
-            let thinking: usize = message
-                .content
-                .iter()
-                .map(|content| match content {
-                    AssistantContentBlock::Thinking(thinking) => thinking.thinking.chars().count(),
-                    AssistantContentBlock::Text(_) | AssistantContentBlock::ToolCall(_) => 0,
-                })
-                .sum();
-            let only = if thinking > 0 {
-                format!(", only {thinking} characters of thinking")
-            } else {
-                String::new()
-            };
-            message.error_message = Some(format!(
-                "The model gave no answer: its reply (stop reason {}) has no text and no tool \
-                 call{only}",
-                message.stop_reason.as_str()
-            ));
+        // A stuck reply gets its recovery (H4.8): the note of the request
+        // counts the notes of each recovery in a row.
+        let stuck = match reply {
+            Reply::Calls => Some(Stuck::Calls {
+                rounds: rounds_in_a_row(context, &calls),
+            }),
+            Reply::Error { .. } if message.stop_reason == StopReason::Length => Some(Stuck::Length),
+            Reply::Text => broken.is_some().then_some(Stuck::Leak),
+            Reply::Error { .. } | Reply::Deferred(_) | Reply::Overflow { .. } => None,
+        };
+        let thinking: usize = message
+            .content
+            .iter()
+            .map(|content| match content {
+                AssistantContentBlock::Thinking(thinking) => thinking.thinking.chars().count(),
+                AssistantContentBlock::Text(_) | AssistantContentBlock::ToolCall(_) => 0,
+            })
+            .sum();
+        let only = if thinking > 0 {
+            format!(", only {thinking} characters of thinking")
+        } else {
+            String::new()
+        };
+        let no_answer = format!(
+            "The model gave no answer: its reply (stop reason {}) has no text and no tool call{only}",
+            message.stop_reason.as_str()
+        );
+        // A failed reply fails before it is appended: the user sees why,
+        // and a retry leaves it out of the next request's context and ends
+        // that request with a note (H4.7).
+        let (reply, cause, error) = match stuck {
+            None => match reply {
+                Reply::Error { .. } => (reply, Some(NoteCause::NoAnswer), Some(no_answer)),
+                Reply::Text | Reply::Calls | Reply::Deferred(_) | Reply::Overflow { .. } => {
+                    (reply, None, None)
+                }
+            },
+            Some(stuck) => {
+                let note = request.note.as_ref().map(|note| &note.cause);
+                let redo = Reply::Error {
+                    retryable: false,
+                    noted: true,
+                };
+                let quit = Reply::Error {
+                    retryable: false,
+                    noted: false,
+                };
+                let names = calls
+                    .iter()
+                    .map(|call| call.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                match (stuck, recover(stuck, note, &CAPS)) {
+                    (Stuck::Calls { .. }, Act::Run) => (Reply::Calls, None, None),
+                    (Stuck::Calls { rounds }, Act::Redo { row }) => {
+                        let repeated = calls
+                            .iter()
+                            .map(|call| {
+                                let mut arguments = canonical_arguments(&call.arguments);
+                                if let Some((cut, _)) =
+                                    arguments.char_indices().nth(ARGUMENTS_SHOWN)
+                                {
+                                    arguments.truncate(cut);
+                                    arguments.push('…');
+                                }
+                                RepeatedCall {
+                                    tool: call.name.clone(),
+                                    arguments,
+                                }
+                            })
+                            .collect();
+                        let error = format!(
+                            "The model made the same tool calls ({names}) with the same results \
+                             {rounds} times in a row; the harness did not run them again"
+                        );
+                        let cause = NoteCause::Redirect {
+                            calls: repeated,
+                            rounds,
+                            row,
+                        };
+                        (redo, Some(cause), Some(error))
+                    }
+                    (Stuck::Calls { rounds }, Act::Quit) => {
+                        let error = format!(
+                            "The model made the same tool calls ({names}) with the same results \
+                             {rounds} times in a row, after {REDIRECT_NOTES} redirect notes; the \
+                             harness did not run them again"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    (Stuck::Length, Act::Redo { row }) => {
+                        let cause = NoteCause::Length {
+                            tokens: message.usage.output,
+                            row,
+                        };
+                        (redo, Some(cause), Some(no_answer))
+                    }
+                    (Stuck::Length, Act::Quit) => {
+                        let error = format!(
+                            "{no_answer}. The model hit the output limit while it was still \
+                             reasoning after {LENGTH_NOTES} length notes in a row: use a \
+                             different model or raise the model's max output tokens"
+                        );
+                        (quit, None, Some(error))
+                    }
+                    (Stuck::Leak, Act::Redo { row }) => match broken {
+                        Some((markup, reason)) => {
+                            let error = format!(
+                                "The model wrote a tool call as {} markup in its text, and the \
+                                 harness could not read it ({reason})",
+                                markup.as_str()
+                            );
+                            let cause = NoteCause::Leaked {
+                                markup: markup.as_str().to_owned(),
+                                reason,
+                                row,
+                            };
+                            (redo, Some(cause), Some(error))
+                        }
+                        None => (reply, None, None),
+                    },
+                    // At its cap, a leak answers as text.
+                    (Stuck::Leak, Act::Stand | Act::Quit) => (Reply::Text, None, None),
+                    (Stuck::Length | Stuck::Leak, Act::Run)
+                    | (Stuck::Length | Stuck::Calls { .. }, Act::Stand) => (reply, None, None),
+                }
+            }
+        };
+        if let Some(error) = error {
+            message.error_message = Some(error);
             message.stop_reason = StopReason::Error;
         }
-        (reply, noted.then_some(NoteCause::NoAnswer))
+        (reply, cause)
     } else if message.stop_reason == StopReason::Error && is_context_overflow(&message, None) {
         // An overflow is never retried: only a compaction can make the next
         // request fit.
@@ -1073,6 +1264,7 @@ async fn classify(
     };
     let at = Counts {
         attempt,
+        notes: request.note.as_ref().map_or(0, |note| note.spent),
         polls: request.polls,
         compacted: compacted.is_some(),
     };
@@ -1240,22 +1432,31 @@ async fn classify(
                 )
                 .await
         }
-        step @ (Step::Retry | Step::Fail(Failure::Model)) => {
-            let retry = matches!(step, Step::Retry);
+        step @ (Step::Retry | Step::Note | Step::Fail(Failure::Model)) => {
             let policy = settings.retry;
             let note = retry_note(at, cause, request.note);
-            // The wait is drawn once and committed with the retry checkpoint,
-            // so a replay resumes at the same instant: full jitter under the
-            // policy's step, never before the server's Retry-After.
-            let until = if retry {
-                let delay = RetryDelay {
-                    base_delay_ms: policy.base_delay_ms,
-                    max_agent_delay_ms: policy.max_agent_delay_ms,
-                };
-                runtime.now()?
-                    + retry_wait_ms(delay, u32::try_from(attempt).unwrap_or(u32::MAX), &message)
-            } else {
-                0.0
+            // A noted retry is a new request, due at once (R2): nothing is
+            // overloaded. A transient retry's wait is drawn once and
+            // committed with the retry checkpoint, so a replay resumes at
+            // the same instant: full jitter under the policy's step, never
+            // before the server's Retry-After.
+            let (retry, until) = match step {
+                Step::Retry => {
+                    let delay = RetryDelay {
+                        base_delay_ms: policy.base_delay_ms,
+                        max_agent_delay_ms: policy.max_agent_delay_ms,
+                    };
+                    let retries = attempt.saturating_sub(u64::from(at.notes));
+                    let retries = u32::try_from(retries).unwrap_or(u32::MAX);
+                    (
+                        true,
+                        runtime.now()? + retry_wait_ms(delay, retries, &message),
+                    )
+                }
+                Step::Note => (true, runtime.now()?),
+                Step::Answer | Step::Tools | Step::Poll(..) | Step::Compact | Step::Fail(_) => {
+                    (false, 0.0)
+                }
             };
             runtime
                 .commit(
