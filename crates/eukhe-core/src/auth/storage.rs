@@ -4,10 +4,11 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
 use anyhow::Result;
 
+use super::flight::RefreshFlights;
 use super::types::AuthStorageData;
 
 /// Locked read/modify/write over the auth document. `update` returns
@@ -47,6 +48,11 @@ pub trait AuthStorageBackend: Send + Sync {
         &self,
         update: &mut dyn FnMut(Option<String>) -> Result<((), Option<String>)>,
     ) -> Result<()>;
+
+    /// The OAuth refresh flights of this document. Every backend over one
+    /// document answers the same flights, so the callers in this process
+    /// that refresh one provider's credential share one token fetch.
+    fn flights(&self) -> Arc<RefreshFlights>;
 }
 
 use crate::platform::lock_dir::LockDir as LockGuard;
@@ -270,11 +276,26 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         drop(guard);
         Ok(())
     }
+
+    /// One per document path, kept for the process, as the process-lock
+    /// registry ([`process_lock`]) keeps its mutexes.
+    fn flights(&self) -> Arc<RefreshFlights> {
+        static FLIGHTS: LazyLock<Mutex<HashMap<PathBuf, Arc<RefreshFlights>>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
+        Arc::clone(
+            FLIGHTS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .entry(self.auth_path.clone())
+                .or_default(),
+        )
+    }
 }
 
 #[derive(Default)]
 pub struct InMemoryAuthStorageBackend {
     value: Mutex<Option<String>>,
+    flights: Arc<RefreshFlights>,
 }
 
 impl AuthStorageBackend for InMemoryAuthStorageBackend {
@@ -288,6 +309,10 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
             *guard = Some(next);
         }
         Ok(())
+    }
+
+    fn flights(&self) -> Arc<RefreshFlights> {
+        Arc::clone(&self.flights)
     }
 }
 
@@ -313,6 +338,24 @@ pub fn parse_storage_data(content: Option<&str>) -> Result<AuthStorageData> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_backends_over_one_document_share_its_refresh_flights() {
+        // `AuthStorage::create` builds a backend per call: the callers
+        // still share one flight per provider only when every backend
+        // over the document answers the same flights.
+        let dir = tempfile::tempdir().unwrap();
+        let first = FileAuthStorageBackend::new(dir.path().join("auth.json"));
+        let second = FileAuthStorageBackend::new(dir.path().join("auth.json"));
+        let other = FileAuthStorageBackend::new(dir.path().join("other.json"));
+        assert_eq!(
+            (
+                Arc::ptr_eq(&first.flights(), &second.flights()),
+                Arc::ptr_eq(&first.flights(), &other.flights())
+            ),
+            (true, false)
+        );
+    }
 
     #[test]
     fn file_backend_round_trip_and_modes() {

@@ -66,27 +66,6 @@ fn now_epoch_ms() -> i64 {
         .map_or(i64::MAX, |d| d.as_millis() as i64)
 }
 
-/// One OAuth refresh in flight per provider: the token fetch in
-/// [`AuthStorage::refresh_oauth`] runs outside every lock, so the
-/// in-process single-flight that TS gets from its single-threaded runtime
-/// needs its own gate. The registry mirrors the storage backend's
-/// process-lock registry (created once, lives for the process, recovered
-/// on poisoning).
-fn refresh_flight(provider: &str) -> std::sync::MutexGuard<'static, ()> {
-    static FLIGHTS: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, &'static std::sync::Mutex<()>>>,
-    > = std::sync::OnceLock::new();
-    let registry = FLIGHTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-    let lock = {
-        let mut registry = registry.lock().expect("auth refresh-flight registry");
-        *registry
-            .entry(provider.to_string())
-            .or_insert_with(|| Box::leak(Box::new(std::sync::Mutex::new(()))))
-    };
-    lock.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 /// One candidate credential source.
 #[derive(Clone)]
 struct AuthSourceCandidate {

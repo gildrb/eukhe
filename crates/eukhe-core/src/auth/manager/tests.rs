@@ -438,7 +438,10 @@ fn prime_inference_team_selection_rebinds_only_the_stored_key() {
 
 /// A backend that serves reads but fails every write (the locked
 /// write erroring before the reload, storage.rs's failure arm).
-struct WriteFailingBackend(std::sync::Mutex<Option<String>>);
+struct WriteFailingBackend(
+    std::sync::Mutex<Option<String>>,
+    Arc<crate::auth::RefreshFlights>,
+);
 
 impl AuthStorageBackend for WriteFailingBackend {
     fn with_lock(
@@ -452,6 +455,10 @@ impl AuthStorageBackend for WriteFailingBackend {
             None => Ok(()),
         }
     }
+
+    fn flights(&self) -> Arc<crate::auth::RefreshFlights> {
+        Arc::clone(&self.1)
+    }
 }
 
 #[test]
@@ -460,9 +467,12 @@ fn a_failed_prime_inference_key_write_keeps_the_stale_marking() {
     // `clearStaleAuthSource`, so a failed replacement never re-enables
     // the server-rejected credential.
     let mut auth = AuthStorage::from_storage(
-        Arc::new(WriteFailingBackend(std::sync::Mutex::new(Some(
-            r#"{"prime-inference": {"type": "api_key", "key": "sk-rejected"}}"#.to_string(),
-        )))),
+        Arc::new(WriteFailingBackend(
+            std::sync::Mutex::new(Some(
+                r#"{"prime-inference": {"type": "api_key", "key": "sk-rejected"}}"#.to_string(),
+            )),
+            Arc::default(),
+        )),
         Arc::new(NoOAuth),
     );
     // The scripted empty env keeps the stored credential the active
@@ -633,7 +643,7 @@ fn expired_oauth(access: &str) -> AuthCredential {
 }
 
 fn storage_over_backend_with(
-    oauth: Arc<CountingOAuth>,
+    oauth: Arc<dyn OAuthIntegration>,
     provider: &str,
     credential: &AuthCredential,
 ) -> (AuthStorage, Arc<dyn AuthStorageBackend>) {
@@ -732,34 +742,131 @@ fn the_token_fetch_holds_no_document_lock_and_a_peer_write_keeps_its_fresher_cre
     );
 }
 
-#[test]
-fn a_second_refresh_joins_the_first_flight_instead_of_fetching_again() {
-    // Two resolutions of the same expired provider race: the flight
-    // gate serializes them, and the second serves the first's fresh
-    // credential without spending its own token fetch.
-    let oauth = Arc::new(CountingOAuth {
+/// A scripted OAuth integration whose token fetch reports that it started
+/// and then blocks until the test answers it: a test keeps a flight in
+/// flight for as long as it needs. With the answer channel closed, a fetch
+/// fails at once.
+struct GatedOAuth {
+    calls: std::sync::atomic::AtomicUsize,
+    started: std::sync::Mutex<std::sync::mpsc::Sender<()>>,
+    answers: std::sync::Mutex<std::sync::mpsc::Receiver<GateAnswer>>,
+}
+
+/// How a gated token fetch ends.
+enum GateAnswer {
+    Credential,
+    Panic,
+}
+
+impl OAuthIntegration for GatedOAuth {
+    fn api_key_for(&self, _provider: &str, credential: &AuthCredential) -> Option<String> {
+        match credential {
+            AuthCredential::Oauth { access, .. } => Some(access.clone()),
+            _ => None,
+        }
+    }
+
+    fn refresh(
+        &self,
+        _provider: &str,
+        _credentials: &AuthStorageData,
+    ) -> Result<AuthCredential, String> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.started
+            .lock()
+            .unwrap()
+            .send(())
+            .map_err(|_| "the test stopped listening".to_string())?;
+        let answer = self.answers.lock().unwrap().recv();
+        match answer {
+            Ok(GateAnswer::Credential) => Ok(CountingOAuth::fetched_credential()),
+            Ok(GateAnswer::Panic) => panic!("the token endpoint client panicked"),
+            Err(_) => Err("the test answers no more fetches".to_string()),
+        }
+    }
+}
+
+/// A gated integration over an expired `x-flight` credential, its backend,
+/// and the test's ends of the gate.
+fn gated_flight() -> (
+    Arc<GatedOAuth>,
+    Arc<dyn AuthStorageBackend>,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<GateAnswer>,
+) {
+    let (started, started_rx) = std::sync::mpsc::channel();
+    let (answer_tx, answers) = std::sync::mpsc::channel();
+    let oauth = Arc::new(GatedOAuth {
         calls: std::sync::atomic::AtomicUsize::new(0),
-        delay_ms: 80,
+        started: std::sync::Mutex::new(started),
+        answers: std::sync::Mutex::new(answers),
     });
     let (_, backend) =
         storage_over_backend_with(oauth.clone(), "x-flight", &expired_oauth("old-access"));
-    let barrier = Arc::new(std::sync::Barrier::new(2));
-    let mut handles = Vec::new();
-    for _ in 0..2 {
-        let oauth = Arc::clone(&oauth);
-        let backend = Arc::clone(&backend);
-        let barrier = Arc::clone(&barrier);
-        handles.push(std::thread::spawn(move || {
-            let mut auth = AuthStorage::from_storage(backend, oauth);
-            barrier.wait();
-            auth.get_api_key("x-flight")
-        }));
-    }
-    let keys: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-    assert!(keys.iter().all(|k| k.as_deref() == Some("fetched-access")));
+    (oauth, backend, started_rx, answer_tx)
+}
+
+/// A caller that resolves `x-flight` on its own thread, as a session does.
+fn resolve_on_thread(
+    oauth: &Arc<GatedOAuth>,
+    backend: &Arc<dyn AuthStorageBackend>,
+) -> std::thread::JoinHandle<AuthApiKeyResult> {
+    let oauth: Arc<dyn OAuthIntegration> = oauth.clone();
+    let backend = Arc::clone(backend);
+    std::thread::spawn(move || {
+        AuthStorage::from_storage(backend, oauth)
+            .get_api_key_with_source_token("x-flight", /*include_fallback*/ true)
+    })
+}
+
+#[test]
+fn a_second_refresh_joins_the_first_flight_instead_of_fetching_again() {
+    // The first caller's fetch is in flight when the second caller
+    // arrives: the second joins the flight and serves its credential
+    // without a fetch of its own.
+    let (oauth, backend, started, answers) = gated_flight();
+    let leader = resolve_on_thread(&oauth, &backend);
+    started.recv().expect("the leader's fetch started");
+    let joiner = resolve_on_thread(&oauth, &backend);
+    backend.flights().wait_for_joiners("x-flight", 1);
+    answers.send(GateAnswer::Credential).unwrap();
+    drop(answers);
+    let keys = [leader.join().unwrap(), joiner.join().unwrap()].map(|result| result.api_key);
     assert_eq!(
-        oauth.calls.load(std::sync::atomic::Ordering::SeqCst),
-        1,
+        (keys, oauth.calls.load(std::sync::atomic::Ordering::SeqCst)),
+        (
+            [
+                Some("fetched-access".to_string()),
+                Some("fetched-access".to_string())
+            ],
+            1
+        ),
         "one flight per provider: the second caller served the first's fresh credential"
+    );
+}
+
+#[test]
+fn a_leader_that_panics_lands_its_flight_with_a_failure() {
+    // The leader's fetch panics while a second caller waits for the
+    // flight: the flight lands with a failure, and the waiting caller
+    // gets it instead of waiting forever.
+    let (oauth, backend, started, answers) = gated_flight();
+    let leader = resolve_on_thread(&oauth, &backend);
+    started.recv().expect("the leader's fetch started");
+    let joiner = resolve_on_thread(&oauth, &backend);
+    backend.flights().wait_for_joiners("x-flight", 1);
+    answers.send(GateAnswer::Panic).unwrap();
+    assert!(leader.join().is_err(), "the leader's fetch panicked");
+    let served = joiner.join().unwrap();
+    assert_eq!(
+        (served.api_key, served.refresh_error),
+        (
+            None,
+            Some(
+                "OAuth token refresh failed for \"x-flight\": the token refresh of x-flight \
+                 ended without an outcome"
+                    .to_string()
+            )
+        )
     );
 }

@@ -1,14 +1,15 @@
 //! The API-key lookup + OAuth refresh arm (moved with its concern): the
 //! resolution walk over the candidate sources (runtime override, prime
 //! inference env-before-stored, stored, environment, fallback) with the
-//! staleness gate, the OAuth expiry refresh under the per-provider
-//! single-flight, and the passthrough `get_api_key` (TS getApiKey).
+//! staleness gate, the OAuth expiry refresh through the document's
+//! refresh flights, and the passthrough `get_api_key` (TS getApiKey).
 
 use super::{
-    now_epoch_ms, parse_storage_data, refresh_flight, resolve_config_value,
-    resolve_config_value_uncached, AuthApiKeyResult, AuthCredential, AuthStorage,
-    PRIME_INFERENCE_PROVIDER_ID,
+    now_epoch_ms, parse_storage_data, resolve_config_value, resolve_config_value_uncached,
+    AuthApiKeyResult, AuthCredential, AuthStorage, AuthStorageBackend, AuthStorageData,
+    OAuthIntegration, PRIME_INFERENCE_PROVIDER_ID,
 };
+use crate::auth::flight::RefreshIo;
 
 impl AuthStorage {
     pub fn get_api_key_with_source_token(
@@ -179,98 +180,122 @@ impl AuthStorage {
     /// success and why the refresh failed otherwise (the caller reloads,
     /// serves a peer's fresh credential, or surfaces the reason).
     ///
-    /// Load-then-lock shape: the token fetch is a network round trip and
-    /// never runs under the document lock. The TS product runs the same
-    /// refresh inside its `withLockAsync` (its single-threaded runtime
-    /// pays nothing for holding the lock across the `await`); this engine
-    /// is threaded, and the port's [`FileAuthStorageBackend::with_lock`]
-    /// spans the whole critical section, so a fetch under the lock stalls
-    /// every other same-process auth read and write for the round trip.
-    /// The phases:
+    /// The token fetch is a network round trip and never runs under the
+    /// document lock. The TS product runs the same refresh inside its
+    /// `withLockAsync` (its single-threaded runtime pays nothing for
+    /// holding the lock across the `await`); this engine is threaded, and
+    /// the port's [`FileAuthStorageBackend::with_lock`] spans the whole
+    /// critical section, so a fetch under the lock stalls every other
+    /// same-process auth read and write for the round trip. The refresh
+    /// runs as the document's flights (`auth::flight`) order it:
     ///
     /// 1. LOAD: the current document through the consolidated read arm
-    ///    (no document lock; a cache miss pays the read arm's one short
-    ///    locked read).
-    /// 2. FETCH: the OAuth integration's token call outside every lock,
-    ///    behind [`refresh_flight`]'s per-provider single-flight gate. The
-    ///    expiry is re-checked under the gate: the first flight may have
-    ///    just written a fresh credential, and a second fetch would waste
-    ///    a single-use refresh token. In-process callers therefore join
-    ///    one flight per provider — the same serialization TS's
-    ///    single-threaded runtime gives its locked refresh.
-    /// 3. WRITE: the same locked read-modify-write the TS product runs,
-    ///    now holding the lock only for the re-read, the insert, and the
-    ///    atomic write. A peer that refreshed while this fetch ran keeps
-    ///    its fresher credential: this attempt writes nothing and serves
-    ///    the peer's.
+    ///    (no document lock). A fresh credential serves.
+    /// 2. BOARD: the caller joins the provider's flight in flight and gets
+    ///    its outcome, or starts a flight and leads it. In-process callers
+    ///    therefore spend one token fetch per provider: the same
+    ///    serialization TS's single-threaded runtime gives its refresh.
+    /// 3. CHECK: the leader reads the document again. A flight that landed
+    ///    after this caller's load stored a fresh credential, and a second
+    ///    fetch would waste a single-use refresh token.
+    /// 4. FETCH: the OAuth integration's token call, outside every lock.
+    /// 5. STORE: the same locked read-modify-write the TS product runs,
+    ///    holding the lock only for the re-read, the insert and the atomic
+    ///    write. A peer that refreshed while this fetch ran keeps its
+    ///    fresher credential: this attempt writes nothing and serves the
+    ///    peer's.
+    /// 6. LAND: the flight ends, after the store, so a caller that loads
+    ///    after the end reads the stored credential.
     fn refresh_oauth(&mut self, provider_id: &str) -> Result<AuthCredential, String> {
-        // LOAD: no document lock.
+        let outcome = self.storage.flights().refresh(
+            provider_id,
+            &mut DocumentRefresh {
+                storage: self.storage.as_ref(),
+                oauth: self.oauth.as_ref(),
+                provider: provider_id,
+                loaded: AuthStorageData::default(),
+            },
+        );
+        if outcome.is_ok() {
+            // The in-memory snapshot must not serve the pre-refresh
+            // credential to a later read (a rotated refresh token is
+            // single-use).
+            self.reload();
+        }
+        outcome
+    }
+}
+
+/// An OAuth credential that has not expired.
+fn fresh(credential: &AuthCredential) -> bool {
+    matches!(credential, AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires)
+}
+
+/// The reads, the fetch and the write of one OAuth refresh: the auth
+/// document and the OAuth integration.
+struct DocumentRefresh<'a> {
+    storage: &'a dyn AuthStorageBackend,
+    oauth: &'a dyn OAuthIntegration,
+    provider: &'a str,
+    /// The document the load read: the token fetch takes the refresh
+    /// token from it.
+    loaded: AuthStorageData,
+}
+
+impl RefreshIo for DocumentRefresh<'_> {
+    fn load(&mut self) -> Result<Option<AuthCredential>, String> {
         let content = self
             .storage
             .read()
             .map_err(|error| format!("could not read the auth file: {error:#}"))?;
         let data = parse_storage_data(content.as_deref())
             .map_err(|error| format!("could not parse the auth file: {error:#}"))?;
-        let Some(credential) = data.credential(provider_id) else {
-            return Err(format!("no stored credential for {provider_id}"));
+        let Some(credential) = data.credential(self.provider) else {
+            return Err(format!("no stored credential for {}", self.provider));
         };
-        let AuthCredential::Oauth { expires, .. } = &credential else {
+        if !matches!(credential, AuthCredential::Oauth { .. }) {
             return Err(format!(
-                "the stored credential for {provider_id} is not OAuth"
+                "the stored credential for {} is not OAuth",
+                self.provider
             ));
-        };
-        if now_epoch_ms() < *expires {
-            self.reload();
-            return Ok(credential);
         }
-        // FETCH: outside every lock, one flight per provider.
-        let new_credential = {
-            let _flight = refresh_flight(provider_id);
-            // The gate may have just released a flight that wrote a fresh
-            // credential; re-check before spending a refresh token. An
-            // unreadable document here fetches from the loaded one.
-            let content = self.storage.read().unwrap_or_default();
-            if let Some(credential) = parse_storage_data(content.as_deref())
-                .ok()
-                .and_then(|data| data.credential(provider_id))
-                .filter(|credential| {
-                    matches!(
-                        credential,
-                        AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
-                    )
-                })
-            {
-                self.reload();
-                return Ok(credential);
-            }
-            self.oauth.refresh(provider_id, &data)?
-        };
-        // WRITE: the locked read-modify-write, holding the document lock
-        // only for the re-read, insert, and atomic write.
-        let mut refreshed = new_credential.clone();
+        if fresh(&credential) {
+            return Ok(Some(credential));
+        }
+        self.loaded = data;
+        Ok(None)
+    }
+
+    fn check(&mut self) -> Option<AuthCredential> {
+        // An unreadable document here fetches from the loaded one.
+        let content = self.storage.read().unwrap_or_default();
+        parse_storage_data(content.as_deref())
+            .ok()
+            .and_then(|data| data.credential(self.provider))
+            .filter(fresh)
+    }
+
+    fn fetch(&mut self) -> Result<AuthCredential, String> {
+        self.oauth.refresh(self.provider, &self.loaded)
+    }
+
+    fn store(&mut self, credential: AuthCredential) -> Result<AuthCredential, String> {
+        let provider = self.provider;
+        let mut stored = credential.clone();
         self.storage
             .with_lock(&mut |current| {
                 let mut data = parse_storage_data(current.as_deref())?;
-                if let Some(credential) = data.credential(provider_id).filter(|credential| {
-                    matches!(
-                        credential,
-                        AuthCredential::Oauth { expires, .. } if now_epoch_ms() < *expires
-                    )
-                }) {
+                if let Some(peer) = data.credential(provider).filter(fresh) {
                     // A peer refreshed while this fetch ran: its fresher
                     // credential stands and this attempt writes nothing.
-                    refreshed = credential;
+                    stored = peer;
                     return Ok(((), None));
                 }
-                data.insert(provider_id, &new_credential);
+                data.insert(provider, &credential);
                 let content = serde_json::to_string_pretty(&data.0)?;
                 Ok(((), Some(content)))
             })
             .map_err(|error| format!("could not save the refreshed credential: {error:#}"))?;
-        // Reload from what we wrote: the in-memory snapshot must not
-        // serve the pre-refresh credential to a later read (a rotated
-        // refresh token is single-use).
-        self.reload();
-        Ok(refreshed)
+        Ok(stored)
     }
 }

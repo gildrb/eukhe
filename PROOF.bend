@@ -34,6 +34,8 @@ import ./bend/proof_tiny.bend as Tiny
 import ./bend/proof_effort.bend as Effort
 import ./laws/release.bend as Release
 import ./bend/proof_semver.bend as Semver
+import ./laws/auth_flight.bend as AuthFlight
+import ./bend/proof_auth_flight.bend as AuthFlights
 
 # (a) The view
 
@@ -711,3 +713,23 @@ def Release.semver_release_newest(c, xs, t, ys, r, rel, v, parsed):
 
 def Release.semver_release_progress(c, a, b, tags, parsed, only):
   Semver.ps.progress(c, a, b, tags, parsed, only)
+
+# (A1) One refresh flight per provider
+
+def AuthFlight.flight_one_fetch(evs):
+  AuthFlights.pf.flight_one_fetch(evs)
+
+def AuthFlight.flight_board_joins(evs, j, lj, f, leads, flight, k, ok, boards):
+  AuthFlights.pf.flight_board_joins(evs, j, lj, f, leads, flight, k, ok, boards)
+
+def AuthFlight.flight_callers_get_its_outcome(evs, k, f, o, served):
+  AuthFlights.pf.flight_callers_get_its_outcome(evs, k, f, o, served)
+
+def AuthFlight.flight_landed_serves(s, k, f, o, ok, waits, landed):
+  AuthFlights.pf.flight_landed_serves(s, k, f, o, ok, waits, landed)
+
+def AuthFlight.flight_after_end_stored(evs, k, f, c, lands, ok):
+  AuthFlights.pf.flight_after_end_stored(evs, k, f, c, lands, ok)
+
+def AuthFlight.flight_after_end_served(evs, k, f, c, lands, ok, ok2, fresh):
+  AuthFlights.pf.flight_after_end_served(evs, k, f, c, lands, ok, ok2, fresh)
