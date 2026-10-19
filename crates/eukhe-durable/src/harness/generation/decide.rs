@@ -1,18 +1,21 @@
 //! The run's decisions (docs/harness.md H4), one per phase transition:
 //! what preparation does before its request ([`before_request`]), whether
 //! it goes on after the compaction it waited for ([`after_compaction`]),
-//! what follows a model reply ([`after_reply`]), and how a finished tool
-//! round ends the run or hands it to a new generation ([`Rounds::finish`],
-//! [`RoundEnd`]). Pure functions of the counters that bound a run; the
-//! phases in `generation.rs` and `round.rs` call them and act on what they
-//! return. The Bend model `bend/run.bend` makes the same decisions;
-//! `LAWS.bend` (H4) proves that every run ends under them, and the bridge
-//! test (`bridge.rs`) runs both on the same scenarios.
+//! what follows a model reply ([`after_reply`]) and which note a retry's
+//! request carries ([`retry_note`]), and how a finished tool round ends the
+//! run or hands it to a new generation ([`Rounds::finish`], [`RoundEnd`]).
+//! Pure functions of the counters that bound a run; the phases in
+//! `generation.rs` and `round.rs` call them and act on what they return.
+//! The Bend model `bend/run.bend` makes the same decisions; `LAWS.bend`
+//! (H4) proves that every run ends under them and that a retry never
+//! resends a request it cut, and the bridge test (`bridge.rs`) runs both
+//! on the same scenarios.
 
 use std::num::NonZeroU32;
 
 use serde::{Deserialize, Serialize};
 
+use super::note::{NoteCause, RetryNote};
 use crate::harness::types::CompactionPolicy;
 
 /// Deferred fetches of one request before the run fails (H4.4): a day of
@@ -58,8 +61,10 @@ pub(crate) enum Reply<D> {
     /// Deferred, with its handle.
     Deferred(D),
     /// Any other end, or an end with no text and no tool call (the model
-    /// gave no answer, H4.7); retryable under the retry policy.
-    Error { retryable: bool },
+    /// gave no answer, H4.7); retryable under the retry policy. `noted`:
+    /// the reply was cut (the repetition guard cut its stream, or it gave
+    /// no answer), so its retry carries a note ([`retry_note`]).
+    Error { retryable: bool, noted: bool },
     /// A context overflow; `cut`: compaction is on and finds a cut.
     Overflow { cut: bool },
 }
@@ -86,8 +91,8 @@ impl Ended {
     /// The reply the message makes (H4.7): its calls when the stop reason
     /// is tool use and it has calls; else an answer when it has text or a
     /// call. With no text and no call, the model gave no answer: the reply
-    /// is a model error, retryable when the retry policy is enabled, so it
-    /// never ends the run as answered.
+    /// is a noted model error, retryable when the retry policy is enabled,
+    /// so it never ends the run as answered.
     pub(crate) fn reply<D>(self) -> Reply<D> {
         if self.tool_use && self.calls {
             Reply::Calls
@@ -96,6 +101,7 @@ impl Ended {
         } else {
             Reply::Error {
                 retryable: self.retrying,
+                noted: true,
             }
         }
     }
@@ -130,11 +136,30 @@ pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> St
         Reply::Calls => Step::Tools,
         Reply::Deferred(handle) if at.polls < limits.max_polls => Step::Poll(handle, at.polls + 1),
         Reply::Deferred(_) => Step::Fail(Failure::Polls),
-        Reply::Error { retryable: true } if at.attempt <= u64::from(limits.max_retries) => {
-            Step::Retry
-        }
+        Reply::Error {
+            retryable: true, ..
+        } if at.attempt <= u64::from(limits.max_retries) => Step::Retry,
         Reply::Overflow { cut: true } if !at.compacted => Step::Compact,
         Reply::Error { .. } | Reply::Overflow { .. } => Step::Fail(Failure::Model),
+    }
+}
+
+/// The note the retry of the request counted by `at` ends with (H4.7): after
+/// a noted reply (`cause`), a new note that names the retry's attempt and
+/// the cause, so the retry never sends the request that was cut; after any
+/// other error, the note of that request (`note`), so the retry sends it
+/// again.
+pub(crate) fn retry_note(
+    at: Counts,
+    cause: Option<NoteCause>,
+    note: Option<RetryNote>,
+) -> Option<RetryNote> {
+    match cause {
+        Some(cause) => Some(RetryNote {
+            attempt: at.attempt + 1,
+            cause,
+        }),
+        None => note,
     }
 }
 

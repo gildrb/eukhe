@@ -13,6 +13,7 @@ mod decide;
 mod force;
 #[cfg(test)]
 mod infer_bridge;
+mod note;
 mod round;
 mod stream;
 #[cfg(test)]
@@ -24,7 +25,10 @@ use eukhe_ai::capabilities::CapabilityOptions;
 use eukhe_ai::models::ModelsCapabilityOptions;
 use eukhe_ai::types::{DeferredCancelOptions, DeferredFetchOptions, ProviderRequestOptions};
 use eukhe_ai::utils::overflow::is_context_overflow;
-use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait_ms, RetryDelay};
+use eukhe_ai::utils::retry::{
+    is_retryable_assistant_error, repeated_lines, retry_wait_ms, RetryDelay,
+};
+use eukhe_ai::utils::stream_failure::RepeatedLines;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::to_json;
 use eukhe_types::pi_ai::{
@@ -34,10 +38,12 @@ use eukhe_types::pi_ai::{
 use serde::{Deserialize, Serialize};
 
 use self::decide::{
-    after_compaction, after_reply, before_request, threshold_for, Compacted, Compaction, Counts,
-    Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Threshold, LOOP_ROUNDS, MAX_POLLS,
+    after_compaction, after_reply, before_request, retry_note, threshold_for, Compacted,
+    Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Threshold,
+    LOOP_ROUNDS, MAX_POLLS,
 };
 use self::force::{soft_prompt, ForceReply, ForceStep, Forcing};
+use self::note::{NoteCause, RetryNote};
 use self::round::{answer, finish_tool_round, read_calls, start_next_call, start_tool_round};
 use self::stream::{request_context, stream_response};
 use crate::entries::SYSTEM_ENTRY;
@@ -94,6 +100,9 @@ pub enum GenerationCheckpoint {
         /// without the call ([`ConversationStreamOptions::force_tool`]).
         #[serde(default, skip_serializing_if = "is_zero")]
         forced: u32,
+        /// The note the request ends with (H4.7), after a noted reply.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<RetryNote>,
     },
     #[serde(rename_all = "camelCase")]
     Request {
@@ -109,6 +118,8 @@ pub enum GenerationCheckpoint {
         cutoff: EntryId,
         #[serde(default, skip_serializing_if = "is_zero")]
         forced: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<RetryNote>,
     },
     #[serde(rename_all = "camelCase")]
     Retry {
@@ -118,6 +129,9 @@ pub enum GenerationCheckpoint {
         until: f64,
         #[serde(default, skip_serializing_if = "is_zero")]
         forced: u32,
+        /// The note the retry's request ends with ([`retry_note`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<RetryNote>,
     },
     #[serde(rename_all = "camelCase")]
     Poll {
@@ -137,6 +151,9 @@ pub enum GenerationCheckpoint {
         /// escalation, pinned with it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         force: Option<Forcing>,
+        /// The note of the request this polls for, pinned with it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<RetryNote>,
     },
     /// Waiting on the round's tool tasks, which the generation owns (spec
     /// §8.5).
@@ -196,6 +213,8 @@ pub(crate) struct Request {
     forced: u32,
     /// The request's forced tool call, when it forces one.
     force: Option<Forcing>,
+    /// The note the request ended with.
+    note: Option<RetryNote>,
 }
 
 const DEFAULT_POLL_AFTER_MS: f64 = 5000.0;
@@ -215,6 +234,7 @@ pub static GENERATION_TASK: LazyLock<GenerationTask> = LazyLock::new(|| {
                     overflow: None,
                     threshold: false,
                     forced: 0,
+                    note: None,
                 })
             },
             abort,
@@ -273,6 +293,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         overflow,
         threshold: blocked,
         forced,
+        note,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("prepare"));
@@ -379,6 +400,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         overflow: None,
                         threshold: true,
                         forced,
+                        note,
                     };
                     Ok(Some(Next::Waiting {
                         checkpoint,
@@ -451,6 +473,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         stream_options,
                         cutoff,
                         forced,
+                        note,
                     },
                 }))
             },
@@ -459,6 +482,10 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         .await
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one TS phase, kept whole to read against it"
+)]
 async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let GenerationCheckpoint::Request {
         attempt,
@@ -468,6 +495,7 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         stream_options,
         cutoff,
         forced,
+        note,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("request"));
@@ -537,17 +565,22 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     options.stream.request.signal = Some(runtime.signal());
     options.stream.session_id = Some(ensure_provider_session_id(&runtime, &cx).await?);
     options.reasoning = reasoning(thinking_level);
-    // A forced call: the soft prompt ends every request; the native flag
-    // follows the escalation. Neither is committed to the transcript.
+    // The note of a retry after a noted reply (H4.7), then a forced call's
+    // soft prompt, end the request; the native flag follows the
+    // escalation. None of them is committed to the transcript.
     let force = force_tool.map(|option| Forcing::of(option, &model, options.reasoning));
-    if let Some(force) = &force {
+    let ends = note.iter().map(RetryNote::text);
+    for text in ends.chain(force.iter().map(|force| soft_prompt(&force.forced.tool))) {
         messages.push(Message::User(UserMessage {
-            content: UserContent::Text(soft_prompt(&force.forced.tool)),
+            content: UserContent::Text(text),
             timestamp: timestamp(runtime.now()?)?,
         }));
-        if force.escalation.flag(forced + 1) {
-            options.tool_choice = Some(ToolChoice::Tool(force.forced.tool.clone()));
-        }
+    }
+    if let Some(force) = force
+        .as_ref()
+        .filter(|force| force.escalation.flag(forced + 1))
+    {
+        options.tool_choice = Some(ToolChoice::Tool(force.forced.tool.clone()));
     }
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
@@ -560,6 +593,7 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         polls: 0,
         forced,
         force,
+        note,
     };
     classify(&runtime, request, message, &cx).await
 }
@@ -570,6 +604,7 @@ async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
         compacted,
         until,
         forced,
+        note,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("retry"));
@@ -588,6 +623,7 @@ async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
                         overflow: None,
                         threshold: false,
                         forced,
+                        note,
                     },
                 }))
             },
@@ -607,6 +643,7 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         polls,
         forced,
         force,
+        note,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("poll"));
@@ -640,6 +677,7 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         polls,
         forced,
         force,
+        note,
     };
     classify(&runtime, request, message, &cx).await
 }
@@ -954,8 +992,8 @@ async fn classify(
     // The retry and compaction policies govern the next attempt, so they are
     // read now rather than pinned at preparation.
     let settings = runtime.settings();
-    let reply = if let Some(handle) = deferred {
-        Reply::Deferred(handle)
+    let (reply, cause) = if let Some(handle) = deferred {
+        (Reply::Deferred(handle), None)
     } else if matches!(
         message.stop_reason,
         StopReason::Stop | StopReason::Length | StopReason::ToolUse
@@ -970,10 +1008,11 @@ async fn classify(
             retrying: settings.retry.enabled,
         }
         .reply();
-        if matches!(reply, Reply::Error { .. }) {
+        let noted = matches!(reply, Reply::Error { .. });
+        if noted {
             // The model gave no answer (H4.7). The message fails before it is
             // appended: the user sees why, and a retry leaves it out of the
-            // next request's context, so it sends the same request again.
+            // next request's context and ends that request with a note.
             let thinking: usize = message
                 .content
                 .iter()
@@ -994,7 +1033,7 @@ async fn classify(
             ));
             message.stop_reason = StopReason::Error;
         }
-        reply
+        (reply, noted.then_some(NoteCause::NoAnswer))
     } else if message.stop_reason == StopReason::Error && is_context_overflow(&message, None) {
         // An overflow is never retried: only a compaction can make the next
         // request fit.
@@ -1018,13 +1057,19 @@ async fn classify(
                 ),
             )
             .is_some();
-        Reply::Overflow { cut }
+        (Reply::Overflow { cut }, None)
     } else {
-        Reply::Error {
+        // A stream the repetition guard cut is noted (H4.7): its retry
+        // names the repeated line in its note.
+        let cause = repeated_lines(&message)
+            .map(|RepeatedLines { period, line }| NoteCause::Repeated { period, line });
+        let reply = Reply::Error {
             retryable: message.stop_reason == StopReason::Error
                 && is_retryable_assistant_error(&message)
                 && settings.retry.enabled,
-        }
+            noted: cause.is_some(),
+        };
+        (reply, cause)
     };
     let at = Counts {
         attempt,
@@ -1088,6 +1133,9 @@ async fn classify(
                                         overflow: None,
                                         threshold: false,
                                         forced: tries,
+                                        // The kept answer grows the context:
+                                        // the next request is a new one.
+                                        note: None,
                                     },
                                 }));
                             };
@@ -1115,6 +1163,7 @@ async fn classify(
             let model = request.model;
             let cutoff = request.cutoff;
             let force = request.force;
+            let note = request.note;
             runtime
                 .commit(
                     move |tx, _current| async move {
@@ -1135,6 +1184,7 @@ async fn classify(
                                 polls,
                                 forced,
                                 force,
+                                note,
                             },
                         }))
                     },
@@ -1155,6 +1205,7 @@ async fn classify(
                 .clone()
                 .unwrap_or_else(|| "Context overflow".to_owned());
             let compaction = runtime.registry().builtins().compaction.clone();
+            let note = request.note;
             runtime
                 .commit(
                     move |tx, _current| async move {
@@ -1179,6 +1230,7 @@ async fn classify(
                                 overflow: Some(text),
                                 threshold: false,
                                 forced,
+                                note,
                             },
                             on: vec![child.erase()],
                             policy: JoinPolicy::AllSettled,
@@ -1191,6 +1243,7 @@ async fn classify(
         step @ (Step::Retry | Step::Fail(Failure::Model)) => {
             let retry = matches!(step, Step::Retry);
             let policy = settings.retry;
+            let note = retry_note(at, cause, request.note);
             // The wait is drawn once and committed with the retry checkpoint,
             // so a replay resumes at the same instant: full jitter under the
             // policy's step, never before the server's Retry-After.
@@ -1226,6 +1279,7 @@ async fn classify(
                                     compacted,
                                     until,
                                     forced,
+                                    note,
                                 },
                             }));
                         }

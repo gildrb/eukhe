@@ -10,19 +10,22 @@
 #   9 cap polls retries loop      the limits (first line)
 #   a                             an abort
 #   g kind flag hash fin got      a Go: kind t text, c calls, d deferred,
-#     [tool text calls]           e error (flag: retryable), o overflow
-#                                 (flag: a cut exists), m a message that
-#                                 ends the model's turn, which
-#                                 R.Ended.reply reads (flag: the retry
-#                                 policy is on; tool: its stop reason is
-#                                 tool use, text: it has text, calls: it
-#                                 has a tool call); fin 0 goes on, 1
-#                                 stops, 2 resets; got 0 built, 1 kept,
-#                                 2 broke
+#     [tool text calls | noted]   e error (flag: retryable; noted: the
+#                                 reply was cut), o overflow (flag: a cut
+#                                 exists), m a message that ends the
+#                                 model's turn, which R.Ended.reply reads
+#                                 (flag: the retry policy is on; tool: its
+#                                 stop reason is tool use, text: it has
+#                                 text, calls: it has a tool call); fin 0
+#                                 goes on, 1 stops, 2 resets; got 0
+#                                 built, 1 kept, 2 broke
 #
-# After each input it prints the run with the counts left, as the model
-# keeps them (the Rust side subtracts its counts from the limits):
+# After each input it prints what the input did to the requests (R.Reqs),
+# then the run with the counts left, as the model keeps them (the Rust
+# side subtracts its counts from the limits):
 #
+#   sent <ctx>.<note>             the run sent this request
+#   cut <ctx>.<note>              the reply to this request was noted
 #   prepare a=<retries> c=<compactions> r=<rounds> s=<same>
 #   call a=<retries> p=<polls> c=<compactions> r=<rounds> s=<same>
 #   compact overflow|threshold a=<retries> c=<compactions> r=<rounds> s=<same>
@@ -62,7 +65,7 @@ def reply.pick(m: Bool, t: Bool, c: Bool, d: Bool, e: Bool, flag: Bool, +ws: Lis
     case False{} False{} False{} True{} e:
       R.Deferred{}
     case False{} False{} False{} False{} True{}:
-      R.Error{flag}
+      R.Error{flag, tok.bool(tok.at(ws, 6n))}
     case False{} False{} False{} False{} False{}:
       R.Overflow{flag}
 
@@ -149,49 +152,80 @@ def show.ph(ph: R.Ph, +s: R.St) -> String:
 def show.st(+s: R.St) -> String:
   show.ph(R.St.ph(s), s)
 
+def show.req(q: R.Req) -> String:
+  match q:
+    case R.Req{ctx, note}:
+      String.concat([Nat.show(ctx), ".", Nat.show(note), "\n"])
+
+def show.sent(x: R.Sent) -> String:
+  match x:
+    case R.Sent{q}:
+      String.append("sent ", show.req(q))
+    case R.Cut{q}:
+      String.append("cut ", show.req(q))
+
+# the request the input sent or cut: the newest of the log, when it grew
+def show.new(same: Bool, log: List<&2, R.Sent>) -> String:
+  match same log:
+    case True{} log:
+      ""
+    case False{} Nil{}:
+      ""
+    case False{} x <> t:
+      show.sent(x)
+
 # Running
 # -------
 
-# what one line did: the limits and the run after it, and its output
+# what one line did: the limits, the run and its requests after it, and
+# its output
 type Out is Data:
-  Out{cfg: R.Cfg, s: R.St, text: String}
+  Out{cfg: R.Cfg, s: R.St, t: R.Reqs, text: String}
 
 def Out.cfg(o: Out) -> R.Cfg:
   match o:
-    case Out{c, s, t}:
+    case Out{c, s, t, x}:
       c
 
 def Out.s(o: Out) -> R.St:
   match o:
-    case Out{c, s, t}:
+    case Out{c, s, t, x}:
       s
+
+def Out.t(o: Out) -> R.Reqs:
+  match o:
+    case Out{c, s, t, x}:
+      t
 
 def Out.text(o: Out) -> String:
   match o:
-    case Out{c, s, t}:
-      t
+    case Out{c, s, t, x}:
+      x
 
 # a line: the limits (`9 ...`), nothing (a blank line), or an input
-def line(config: Bool, blank: Bool, +ws: List<&2, String>, +cfg: R.Cfg, +s: R.St) -> Out:
+def line(config: Bool, blank: Bool, +ws: List<&2, String>, +cfg: R.Cfg, +s: R.St, +t: R.Reqs) -> Out:
   match config blank:
     case True{} blank:
       +c = limits.of(ws)
-      Out{c, R.init(c), ""}
+      Out{c, R.init(c), R.Reqs.init(), ""}
     case False{} True{}:
-      Out{cfg, s, ""}
+      Out{cfg, s, t, ""}
     case False{} False{}:
-      +t = R.step(cfg, s, ev.of(ws))
-      Out{cfg, t, show.st(t)}
+      +e = ev.of(ws)
+      +s2 = R.step(cfg, s, e)
+      +t2 = R.Reqs.step(R.St.ph(s), e, R.St.ph(s2), t)
+      +same = Nat.is_eq(List.length(&2, R.Sent, R.Reqs.log(t)), List.length(&2, R.Sent, R.Reqs.log(t2)))
+      Out{cfg, s2, t2, String.append(show.new(same, R.Reqs.log(t2)), show.st(s2))}
 
-def go(ls: List<&2, String>, +cfg: R.Cfg, +s: R.St) -> String:
+def go(ls: List<&2, String>, +cfg: R.Cfg, +s: R.St, +t: R.Reqs) -> String:
   match ls:
     case Nil{}:
       ""
     case l <> rest:
       +ws = String.split(l, ' ')
       +k = tok.head(tok.at(ws, 0n))
-      +o = line(Char.is_eq(k, '9'), Char.is_eq(k, ' '), ws, cfg, s)
-      String.append(Out.text(o), go(rest, Out.cfg(o), Out.s(o)))
+      +o = line(Char.is_eq(k, '9'), Char.is_eq(k, ' '), ws, cfg, s, t)
+      String.append(Out.text(o), go(rest, Out.cfg(o), Out.s(o), Out.t(o)))
 
 def read.done(r: Result<&1, &1, U32 & String, String>) -> String:
   match r:
@@ -224,4 +258,4 @@ def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     text : String <- scenario(args)
-    IO.write(go(String.lines(text), R.Cfg{0n, 0n, 0n, 0n}, R.init(R.Cfg{0n, 0n, 0n, 0n})))
+    IO.write(go(String.lines(text), R.Cfg{0n, 0n, 0n, 0n}, R.init(R.Cfg{0n, 0n, 0n, 0n}), R.Reqs.init()))

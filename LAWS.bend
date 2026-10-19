@@ -563,6 +563,44 @@ law run_no_answer_is_an_error:
   for +last: Nat
   {Rn.call(cfg, Rn.Ended.reply(Rn.Ended{tool, False{}, False{}, retrying}), r, c, a, p, same, last) == Rn.retry(cfg, retrying, r, c, a, p, same, last) : Rn.St}
 
+# (H4.7) A retry never resends a request it cut
+# ---------------------------------------------
+# docs/harness.md H4.7, the requests of bend/run.bend: a model decodes
+# the same request the same way (a greedy one always does), so a retry
+# after a noted reply (the stream repeated itself until the guard cut it,
+# or the reply gave no answer) ends its request with a harness note that
+# names the retry's attempt. A request is the version of its logged
+# context and the attempt its note names.
+
+# LAW: no request the run sends is equal to a request it sent before and
+# had cut: a retry after a cut sends neither the request it cut nor any
+# other one the run cut, whatever the inputs, cut after cut until the
+# retries run out
+law run_retry_sends_a_new_request:
+  for +cfg: Rn.Cfg
+  for +evs: List<&2, Rn.Ev>
+  {Rn.fresh(Rn.Reqs.log(Rn.reqs(cfg, evs))) == True{} : Bool}
+
+# LAW: a noted reply cuts the request the run sent, and the next request
+# carries the note of the next attempt
+law run_cut_names_the_request:
+  for -retryable: Bool
+  for -h: Nat
+  for -fin: Rn.Fin
+  for -got: Rn.Got
+  for -pa: Rn.Ph
+  for -ctx: Nat
+  for -n: Nat
+  for -note: Nat
+  for -log: List<&2, Rn.Sent>
+  {Rn.Reqs.step(Rn.Call{}, Rn.Go{Rn.Error{retryable, True{}}, h, fin, got}, pa, Rn.Reqs{ctx, n, note, log}) == Rn.Reqs{ctx, 1n+n, 1n+n, Rn.Cut{Rn.Req{ctx, note}} <> log} : Rn.Reqs}
+
+# LAW: the note changes what the model reads, never what the run logs:
+# a request logs the same lines as its context with no note
+law run_note_is_never_logged:
+  for q: Rn.Req
+  {Rn.logged(Rn.Req.lines(q)) == Rn.logged(Rn.Req.lines(Rn.Req{Rn.Req.ctx(q), 0n})) : List<&2, Rn.Line>}
+
 # (H3) A user's request never waits behind background work
 # ---------------------------------------------------------
 # docs/harness.md H3, the model in bend/admission.bend: one provider's

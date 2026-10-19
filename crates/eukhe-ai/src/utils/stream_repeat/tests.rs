@@ -12,7 +12,8 @@ use crate::providers::faux::{
     RegisterFauxProviderOptions,
 };
 use crate::types::SimpleStreamOptions;
-use crate::utils::retry::is_retryable_assistant_error;
+use crate::utils::retry::{is_retryable_assistant_error, repeated_lines};
+use crate::utils::stream_failure::RepeatedLines;
 
 fn cut(chunks: u64, period: u32, line: &str) -> RepetitionCut {
     RepetitionCut {
@@ -294,6 +295,13 @@ async fn a_looping_stream_is_cut_with_a_retryable_repeating_failure() {
     assert_eq!(diagnostics[0]["type"], "provider_stream_failure");
     assert_eq!(diagnostics[0]["details"]["kind"], "stream_repeating");
     assert!(is_retryable_assistant_error(&message));
+    assert_eq!(
+        repeated_lines(&message),
+        Some(RepeatedLines {
+            period: 1,
+            line: "step".to_owned()
+        })
+    );
 }
 
 /// The observed thinking loop, streamed with the default settings, ends
@@ -316,7 +324,8 @@ async fn the_observed_thinking_loop_fails_as_repeating_by_default() {
         (
             message.stop_reason,
             message.error_message.as_deref(),
-            is_retryable_assistant_error(&message)
+            is_retryable_assistant_error(&message),
+            repeated_lines(&message)
         ),
         (
             StopReason::Error,
@@ -324,7 +333,11 @@ async fn the_observed_thinking_loop_fails_as_repeating_by_default() {
                 "Provider stream repeating: a cycle of 7 lines repeated over the last 64 \
                  lines, ending with \"   - @GossiTheDog\""
             ),
-            true
+            true,
+            Some(RepeatedLines {
+                period: 7,
+                line: "   - @GossiTheDog".to_owned()
+            })
         )
     );
 }

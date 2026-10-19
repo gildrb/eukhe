@@ -11,6 +11,7 @@ use eukhe_types::pi_ai::{AssistantMessage, StopReason};
 
 use super::diagnostics::Thrown;
 use super::sleep::timer_duration;
+use super::stream_failure::RepeatedLines;
 use eukhe_types::pi_ai::StreamFailureKind;
 
 fn build_provider_error_pattern(patterns: &[&str]) -> Regex {
@@ -348,6 +349,30 @@ where
     }
 }
 
+/// The details of the newest `provider_stream_failure` diagnostic of
+/// `message` (the [`StreamFailureInfo`](super::stream_failure::StreamFailureInfo)
+/// its stream failed with).
+fn newest_stream_failure(
+    message: &AssistantMessage,
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
+    message
+        .diagnostics
+        .iter()
+        .flatten()
+        .rev()
+        .find(|diagnostic| diagnostic.kind == "provider_stream_failure")?
+        .details
+        .as_ref()
+}
+
+/// What the stream of `message` repeated, when its newest stream failure
+/// is the repetition guard's cut (`stream_repeating`).
+#[must_use]
+pub fn repeated_lines(message: &AssistantMessage) -> Option<RepeatedLines> {
+    let repeated = newest_stream_failure(message)?.get("repeated")?;
+    serde_json::from_value(repeated.clone()).ok()
+}
+
 /// Whether a failed assistant message looks like a transient provider or
 /// transport error. A stalled or repeating stream (the newest
 /// `provider_stream_failure` diagnostic records kind `stream_stalled` or
@@ -360,13 +385,8 @@ pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
     if message.stop_reason != StopReason::Error {
         return false;
     }
-    let newest_failure_kind = message
-        .diagnostics
-        .iter()
-        .flatten()
-        .rev()
-        .find(|diagnostic| diagnostic.kind == "provider_stream_failure")
-        .and_then(|diagnostic| diagnostic.details.as_ref()?.get("kind")?.as_str());
+    let newest_failure_kind =
+        newest_stream_failure(message).and_then(|details| details.get("kind")?.as_str());
     if newest_failure_kind == Some(StreamFailureKind::StreamStalled.as_str())
         || newest_failure_kind == Some(StreamFailureKind::StreamRepeating.as_str())
     {

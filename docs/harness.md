@@ -283,7 +283,28 @@ A run is one user turn: model calls, tool rounds, retries, until it ends.
    policy is enabled, it is retried while retries are left (item 5);
    else, or when no retry is left, the run fails with `model_error` and
    that text. A failed message is not in the context of the next
-   request, so the retry sends the same request again. Under a forced
+   request. A model decodes the same request in the same way (a model
+   that decodes greedily always does), so a retry must not send that
+   request again. After a noted reply (no answer, or a stream that the
+   repetition guard cut as repeating), the request of the retry ends
+   with a harness note: a user message that names the attempt of the
+   retry and the problem, for example `Harness note, attempt 2: your
+   previous reply repeated the line "- r/Bitcoin" until it was cut.
+   Give the answer again; never list the same item twice.` For a cycle
+   of lines, the note gives the length of the cycle and its last line.
+   For no answer, it says that the reply gave no text and no tool call.
+   Each note names its own attempt, thus the request of each retry is
+   different from all the requests that the run sent before. After a
+   different error (for example an overload or a dropped connection),
+   the retry sends the request again, with the note that it had. A
+   compaction keeps the note; a new generation and a retry of a forced
+   call start without a note. The run sends the note with the request
+   only. It does not write the note to the transcript, thus the chat
+   does not show the note or keep it as the words of the user. The
+   retry does not send the text of the cut reply: that text is the
+   loop, and a greedy model that reads its own loop continues it. Also,
+   a partial assistant message before a user message is not a valid
+   message order for all providers. Under a forced
    tool call, such a reply is a failed reply, not an answer that missed
    the call. The retry policy alone makes it retryable: the reply is not
    a provider stream failure, so no `StreamFailureKind` applies (a
@@ -322,6 +343,17 @@ number: every input to a live run lowers it by at least one, and at the
 start it is `bound(cfg)`. Every law is universal (any limits, any
 inputs).
 
+The requests of a run (`Reqs`, H4.7) go next to its phases. A request is
+the version of its logged context and the attempt that its note names
+(0: no note). The logged context only grows (a counted round adds its
+calls and results, a compaction adds its entry), thus a version names
+one context. A request goes out when preparation ends in a call. A
+noted reply (`Error{retryable, noted}` with `noted`) cuts the request
+and moves the note to the next attempt; a different error keeps the
+note. Proofs: `bend/proof_retry.bend`, by an invariant: each cut
+request is from an older context, or from this context with an earlier
+attempt and a different note.
+
 | Law | Says |
 | --- | --- |
 | `run_ends` | After `bound(cfg) = max(cap, 1)·(2 + (retries + 2)·(polls + 2))` inputs, whatever follows, the run has ended (H4.1, H4.4, H4.5). |
@@ -332,39 +364,55 @@ inputs).
 | `run_loop_needs_repeats` | A loop fails a run only when its last `loop` rounds had the same calls and results (H4.3). |
 | `run_polls_need_defers` | The poll cap fails a run only after `polls + 1` deferred replies in a row: the request's and each of its `polls` polls' (H4.4). |
 | `run_no_answer_is_an_error` | A message that ends the model's turn with no text and no tool call never answers: its step is a model error's, a retry while retries are left and the retry policy is on, else the run fails on the model (H4.7). |
+| `run_retry_sends_a_new_request` | No request that the run sends is equal to a request that it sent before and had cut: a retry after a cut sends a new request, cut after cut until the retries run out (H4.7). |
+| `run_cut_names_the_request` | A noted reply cuts the request that the run sent, and the next request has the note of the next attempt (H4.7). |
+| `run_note_is_never_logged` | A note changes what the model reads, never what the run logs: a request logs the same lines as its context with no note (H4.7). |
 
 Each of these breaks fails a proof: no poll cap, no round cap, a cap
 that fails a run early, a poll count that a non-deferred reply does not
 reset, a loop count that ignores the hash, an ignored abort in the tools
 phase, a retry that does not spend a retry, a reply with no text and no
-tool call that answers.
+tool call that answers, a retry after a cut that keeps the note of the
+cut request.
 
 Code: `eukhe-durable/src/harness/generation/decide.rs` (`before_request`,
-`after_compaction`, `after_reply`, `Ended::reply`, `Rounds::finish`,
-`RoundEnd::reset`, `MAX_POLLS`, `LOOP_ROUNDS`); `generation.rs` `prepare`
+`after_compaction`, `after_reply`, `retry_note`, `Ended::reply`,
+`Rounds::finish`, `RoundEnd::reset`, `MAX_POLLS`, `LOOP_ROUNDS`);
+`generation/note.rs` (`RetryNote`, its text); `generation.rs` `prepare`
 (both decisions, `compaction_end`, `threshold_compaction`), `classify`
-(the reply; a reply that is no answer becomes a failed message; then the
-step),
-`GenerationInput.rounds`, `GenerationCheckpoint::Poll.polls`,
-`request` (a failed hook fails the run), `abort` (every checkpoint ends
-aborted); `generation/round.rs` `finish_tool_round`, `round_hash`
-(SHA-256 of the calls and results, 53 bits); `scheduler/execution.rs`
-`Inner::run` (the race, `ABORT_GRACE`); `harness/agent.rs`
-`DEFAULT_MAX_TOOL_ROUNDS`; `eukhe-core/src/settings` `maxToolRounds`.
+(the reply; a reply that is no answer becomes a failed message; a reply
+that is no answer or a stream cut as repeating is noted; then the step
+and the note of a retry),
+`GenerationInput.rounds`, `GenerationCheckpoint::Poll.polls`, the
+`note` of each checkpoint but `Tools`,
+`request` (a failed hook fails the run; the note is the last user
+message before the soft prompt of a forced call), `abort` (every
+checkpoint ends aborted); `generation/round.rs` `finish_tool_round`,
+`round_hash` (SHA-256 of the calls and results, 53 bits);
+`scheduler/execution.rs` `Inner::run` (the race, `ABORT_GRACE`);
+`harness/agent.rs` `DEFAULT_MAX_TOOL_ROUNDS`; `eukhe-core/src/settings`
+`maxToolRounds`; `eukhe-ai/src/utils/retry.rs` `repeated_lines` (the
+period and the line that `stream_repeating_failure` records).
 
 Tie: the bridge test `harness::generation::bridge::the_rust_decisions_equal_the_bend_model`
 calls, at each phase, the production decision that phase calls
 (`before_request`, `after_compaction`, `Ended::reply`, `after_reply`,
-`Rounds::finish`, `RoundEnd::reset`), keeps the counters the checkpoints
-carry, and runs `bend/bridge_run.bend` on 401 generated scenarios (the
-production limits and random small ones; every reply, every message that
-ends the model's turn with or without text, tool calls and tool use and
-with the retry policy on or off, threshold, compaction result, round
-hash and end, and abort), comparing the phase and the counts left after
-each input, byte for byte. Not in the bridge: the abort itself (the
-`abort` handler has one outcome; H4.6's race is `Inner::run`), and the
-run's other failures (no model, a failed request hook), which only end
-it. Regression tests (`harness::generation::tests`):
+`retry_note`, `Rounds::finish`, `RoundEnd::reset`), keeps the counters
+and the note the checkpoints carry, and runs `bend/bridge_run.bend` on
+409 scenarios: 401 generated ones (the production limits and random
+small ones; every reply, noted errors and errors that are not noted,
+every message that ends the model's turn with or without text, tool
+calls and tool use and with the retry policy on or off, threshold,
+compaction result, round hash and end, and abort) and 8 with a cut
+after each request until the retries run out (0 to 3 retries; a noted
+error or a message with no answer). After each input it compares the
+request sent or cut (its context version and the attempt of its note),
+then the phase and the counts left, byte for byte. Not in the bridge:
+the abort itself (the `abort` handler has one outcome; H4.6's race is
+`Inner::run`), the run's other failures (no model, a failed request
+hook), which only end it, and the retry of a forced call (`bend/infer.bend`
+§2), whose kept answer grows the context. Regression tests
+(`harness::generation::tests`):
 `run_bounds::a_run_that_keeps_calling_tools_fails_at_the_round_cap`,
 `the_same_calls_with_the_same_results_end_the_run_as_a_loop`,
 `the_same_calls_whose_results_change_are_no_loop`,
@@ -373,7 +421,12 @@ it. Regression tests (`harness::generation::tests`):
 `fails_a_response_still_deferred_after_its_last_poll`,
 `no_answer::a_reply_of_only_thinking_is_retried_and_then_answers`,
 `replies_of_only_thinking_past_the_retries_fail_the_run_with_model_error`,
-`a_reply_of_only_thinking_fails_without_retrying_when_the_retry_policy_is_disabled`.
+`a_reply_of_only_thinking_fails_without_retrying_when_the_retry_policy_is_disabled`,
+`retry_note::a_retry_after_a_repeating_stream_ends_its_request_with_a_note_and_answers`
+(a greedy faux model that sends `- r/Bitcoin` 200 times to a request
+without a note: the run answers at the first retry),
+`a_retry_after_no_answer_ends_its_request_with_a_note_and_answers`,
+`every_retry_after_a_cut_sends_a_new_request_until_the_retries_run_out`.
 
 ### H5. Every subagent reports back exactly once
 

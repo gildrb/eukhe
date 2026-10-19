@@ -251,7 +251,7 @@ def K.prepare(+P: Nat, reply: R.Reply, c: Nat) -> Nat:
       0n
     case R.Deferred{}:
       0n
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       0n
 
 def dec_prepare(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, reply: R.Reply, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +same: Nat, +last: Nat) -> Fall(R.Cfg{cap, P, A, L}, R.St{R.Prepare{}, r, c, a, p, same, last}, K.prepare(P, reply, c), R.prepare(R.Cfg{cap, P, A, L}, reply, r, c, a, same, last)):
@@ -264,7 +264,7 @@ def dec_prepare(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, reply: R.Reply, +r: Nat, +
       lift(0n, gen(P, R.Prepare{}, c, a, p), gen(P, R.Call{}, c, a, P), X(P, A, r), {==})
     case R.Deferred{}:
       lift(0n, gen(P, R.Prepare{}, c, a, p), gen(P, R.Call{}, c, a, P), X(P, A, r), {==})
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       lift(0n, gen(P, R.Prepare{}, c, a, p), gen(P, R.Call{}, c, a, P), X(P, A, r), {==})
 
 # the k of a call that ends the run
@@ -332,7 +332,7 @@ def K.call(+P: Nat, +A: Nat, reply: R.Reply, +r: Nat, +c: Nat, +a: Nat, +p: Nat)
       Nat.add(p, B(P, c, a))
     case R.Deferred{}:
       K.deferred(P, A, r, c, a, p)
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       K.retry(P, A, retryable, r, c, a, p)
     case R.Overflow{cut}:
       K.overflow(P, A, cut, r, c, a, p)
@@ -345,7 +345,7 @@ def dec_call(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, reply: R.Reply, +r: Nat, +c: 
       lift(Nat.add(p, B(P, c, a)), gen(P, R.Call{}, c, a, p), 0n, X(P, A, r), call_tools(Nat.add(p, B(P, c, a))))
     case R.Deferred{}:
       dec_deferred(cap, P, A, L, r, c, a, p, same, last)
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       dec_retry(cap, P, A, L, retryable, r, c, a, p, same, last)
     case R.Overflow{cut}:
       dec_overflow(cap, P, A, L, cut, r, c, a, p, same, last)
@@ -737,7 +737,7 @@ def inv_prepare(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, reply: R.Reply, +r: Nat, +
       (rep, {==}, Inl{{==}}, Inr{capv})
     case R.Deferred{}:
       (rep, {==}, Inl{{==}}, Inr{capv})
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       (rep, {==}, Inl{{==}}, Inr{capv})
 
 def inv_retry(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, retryable: Bool, +r: Nat, +c: Nat, a: Nat, +p: Nat, +same: Nat, +last: Nat, +hs: List<&2, Nat>, rep: {R.all_eq(same, last, hs) == True{} : Bool}, capv: {Nat.add(List.length(&2, Nat, hs), 1n+r) == Nat.max(cap, 1n) : Nat}) -> InvS(R.Cfg{cap, P, A, L}, R.retry(R.Cfg{cap, P, A, L}, retryable, r, c, a, p, same, last), hs):
@@ -770,7 +770,7 @@ def inv_call(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, reply: R.Reply, +r: Nat, +c: 
           (rep, {==}, Inl{{==}}, Inl{{==}})
         case 1n+q:
           (rep, {==}, Inl{{==}}, Inr{capv})
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       inv_retry(cap, P, A, L, retryable, r, c, a, p, same, last, hs, rep, capv)
     case R.Overflow{cut}:
       inv_overflow(cap, P, A, L, cut, r, c, a, p, same, last, hs, rep, capv)
@@ -961,7 +961,7 @@ def pinv_prepare(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, reply: R.Reply, +r: Nat, 
       {==}
     case R.Deferred{}:
       {==}
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       {==}
 
 def pinv_retry(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, retryable: Bool, +r: Nat, +c: Nat, a: Nat, +p: Nat, +same: Nat, +last: Nat) -> PInv(R.Cfg{cap, P, A, L}, R.retry(R.Cfg{cap, P, A, L}, retryable, r, c, a, p, same, last), 0n):
@@ -1001,7 +1001,7 @@ def pinv_call(+cap: Nat, +P: Nat, +A: Nat, +L: Nat, reply: R.Reply, +r: Nat, +c:
         case 1n+q:
           %i : {1n+Nat.add(k, q) == _ : Nat}
           add_succ_r(k, q)
-    case R.Error{retryable}:
+    case R.Error{retryable, noted}:
       pinv_retry(cap, P, A, L, retryable, r, c, a, p, same, last)
     case R.Overflow{cut}:
       pinv_overflow(cap, P, A, L, cut, r, c, a, p, same, last)

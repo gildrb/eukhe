@@ -18,6 +18,7 @@ import ./bend/proof_wait.bend as Waits
 import ./bend/proof_lease.bend as Leases
 import ./bend/proof_child.bend as Children
 import ./bend/proof_run.bend as Runs
+import ./bend/proof_retry.bend as Retries
 import ./bend/proof_admission.bend as Admission
 import ./bend/proof_admission_wait.bend as AdmissionWait
 import ./bend/proof_tree.bend as Trees
@@ -229,6 +230,17 @@ def Laws.run_polls_need_defers(cfg, evs):
 
 def Laws.run_no_answer_is_an_error(cfg, tool, retrying, r, c, a, p, same, last):
   Runs.no_answer(cfg, tool, retrying, r, c, a, p, same, last)
+
+# (H4.7) A retry never resends a request it cut
+
+def Laws.run_retry_sends_a_new_request(cfg, evs):
+  Retries.retry_sends_a_new_request(cfg, evs)
+
+def Laws.run_cut_names_the_request(retryable, h, fin, got, pa, ctx, n, note, log):
+  Retries.cut_names_the_request(retryable, h, fin, got, pa, ctx, n, note, log)
+
+def Laws.run_note_is_never_logged(q):
+  Retries.note_is_never_logged(q)
 
 # (H3) A user's request never waits behind background work
 

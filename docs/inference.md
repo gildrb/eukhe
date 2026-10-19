@@ -66,9 +66,16 @@ what a request may ask of a provider.
    the guard aborts the request. Thus a cycle must come at least four
    times. Period 1 is one chunk `k` times in a row. With the default, a
    block of up to 16 lines that comes four times is cut. The stream then
-   ends with the retryable `stream_repeating` failure, which the harness
-   treats like a stall. The failure message gives the period and the last
-   line. A stream with no periodic window of `k` chunks is not cut. For
+   ends with the retryable `stream_repeating` failure. The failure message
+   gives the period and the last line, and the failure info records them
+   (`RepeatedLines`, read by `repeated_lines`). The harness retries the
+   cut stream, but not with the same request: a model decodes the same
+   request in the same way, and a model that decodes greedily (for
+   example `elpis-fast`, which refuses a temperature other than 0) loops
+   on it again. The retry's request ends with a harness note that gives
+   the attempt, the period and the last line (docs/harness.md H4.7). The
+   run does not log the note. A stream with no periodic window of `k`
+   chunks is not cut. For
    each period `p`, the guard keeps a counter: the number of chunks in a
    row, up to the newest, that are equal to the chunk `p` before them. The
    window is periodic with period `p` when this counter is `k - p` or
@@ -80,7 +87,8 @@ what a request may ask of a provider.
    cut it. This guard cuts it at line 77. A reply that ends with no text
    and no tool call (for example only thinking, when the guard did not
    cut it) is no answer either: the harness fails it as a model error and
-   retries it like a stall (docs/harness.md H4.7).
+   retries it with a note that says that the reply gave no text
+   (docs/harness.md H4.7).
 6. Compaction starts on the background path when the context is more
    than the threshold: the limit (`contextWindow - reserveTokens`) less a
    margin (`BackgroundMargin`). The eukhe session sets the margin to 10%

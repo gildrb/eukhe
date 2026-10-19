@@ -733,6 +733,7 @@ fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
         overflow: None,
         threshold: true,
         forced: 0,
+        note: None,
     };
     assert_eq!(
         to_json(&blocking).unwrap().to_string(),
@@ -749,6 +750,7 @@ fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
             overflow: None,
             threshold: false,
             forced: 0,
+            note: None,
         }
     );
 }

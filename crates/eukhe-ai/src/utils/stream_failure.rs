@@ -10,11 +10,21 @@ use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo, StopReason,
     StreamFailureKind,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::utils::diagnostics::append_assistant_message_diagnostic;
 use crate::utils::js::{utf16_len, utf16_prefix};
 use crate::utils::now_ms;
+
+/// What a stream the repetition guard cut repeated
+/// ([`stream_repeating_failure`]): the length of its cycle in lines (1:
+/// one line over and over) and its newest line, shortened as the failure's
+/// message shows it. The harness names both in the note of its retry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepeatedLines {
+    pub period: u32,
+    pub line: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StreamFailureInfo {
@@ -40,6 +50,9 @@ pub struct StreamFailureInfo {
     /// Truncated raw provider payload for post-mortems.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
+    /// What the stream repeated, for a stream the repetition guard cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeated: Option<RepeatedLines>,
 }
 
 impl StreamFailureInfo {
@@ -52,6 +65,7 @@ impl StreamFailureInfo {
             request_id: None,
             retry_after_ms: None,
             raw: None,
+            repeated: None,
         }
     }
 }
@@ -636,6 +650,7 @@ pub fn stream_failure_from_stop_reason(
         status: None,
         retry_after_ms: None,
         raw: None,
+        repeated: None,
     };
     if info.kind == StreamFailureKind::Unknown
         && raw_stop_reason.is_some_and(|reason| reason.to_lowercase().contains("malformed"))
@@ -687,6 +702,7 @@ pub fn stream_drop_failure(open_block: OpenStreamBlock) -> StreamFailureError {
         request_id: None,
         retry_after_ms: None,
         raw: None,
+        repeated: None,
     };
     StreamFailureError {
         message: stream_failure_message(&info, Some(detail)),
@@ -706,6 +722,7 @@ pub fn stream_stalled_failure(idle_timeout_ms: f64) -> StreamFailureError {
         request_id: None,
         retry_after_ms: None,
         raw: None,
+        repeated: None,
     };
     let detail = format!(
         "no stream event for {}ms",
@@ -724,17 +741,10 @@ const REPEATED_LINE_SHOWN_CHARS: usize = 80;
 /// Failure for a stream the repetition guard cut: its last `limit` output
 /// lines repeat with a period of `period` lines (1: the same line `limit`
 /// times in a row); `line` is the newest (the repetition guard of
-/// `Models`). Retryable by kind, like a stall.
+/// `Models`). Retryable by kind, like a stall. Its info records the
+/// period and the line as the message shows them ([`RepeatedLines`]).
 #[must_use]
 pub fn stream_repeating_failure(limit: u32, period: u32, line: &str) -> StreamFailureError {
-    let info = StreamFailureInfo {
-        kind: StreamFailureKind::StreamRepeating,
-        provider_error_type: None,
-        status: None,
-        request_id: None,
-        retry_after_ms: None,
-        raw: None,
-    };
     let shown = match line.char_indices().nth(REPEATED_LINE_SHOWN_CHARS) {
         Some((end, _)) => format!("{}…", &line[..end]),
         None => line.to_owned(),
@@ -744,6 +754,18 @@ pub fn stream_repeating_failure(limit: u32, period: u32, line: &str) -> StreamFa
         _ => format!(
             "a cycle of {period} lines repeated over the last {limit} lines, ending with {shown:?}"
         ),
+    };
+    let info = StreamFailureInfo {
+        kind: StreamFailureKind::StreamRepeating,
+        provider_error_type: None,
+        status: None,
+        request_id: None,
+        retry_after_ms: None,
+        raw: None,
+        repeated: Some(RepeatedLines {
+            period: period.max(1),
+            line: shown,
+        }),
     };
     StreamFailureError {
         message: stream_failure_message(&info, Some(&detail)),
@@ -843,6 +865,7 @@ fn extract_parts_from_http(error: &ProviderHttpError) -> ExtractedParts {
             request_id,
             retry_after_ms,
             raw: None,
+            repeated: None,
         },
         detail: body_message,
     }

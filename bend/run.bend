@@ -14,7 +14,8 @@
 # bridge prints both as counts left (bend/bridge_run.bend).
 #
 # LAWS.bend (H4) states what must hold; PROOF.bend proves it through
-# bend/proof_run.bend. The Rust side is
+# bend/proof_run.bend, and the laws of the requests a run sends (H4.7,
+# Reqs at the end) through bend/proof_retry.bend. The Rust side is
 # crates/eukhe-durable/src/harness/generation/decide.rs: every step below
 # is one of its decisions (named at each step).
 
@@ -65,12 +66,15 @@ type Ph is Data:
 
 # how a model call ended. At prepare, an overflow is a context over the
 # threshold; cut: compaction finds a cut. A message that ends the model's
-# turn makes Text, Calls or Error through Ended.reply
+# turn makes Text, Calls or Error through Ended.reply. noted: the reply
+# was cut, so its retry must not send the request again (H4.7): the
+# stream repeated itself until the guard cut it, or the reply gave no
+# answer
 type Reply is Data:
   Text{}
   Calls{}
   Deferred{}
-  Error{retryable: Bool}
+  Error{retryable: Bool, noted: Bool}
   Overflow{cut: Bool}
 
 # what a message that ends the model's turn (stop reason stop, length or
@@ -88,12 +92,12 @@ def Ended.pick(calls: Bool, text: Bool, tool: Bool, retrying: Bool) -> Reply:
     case False{} True{} tool:
       Text{}
     case False{} False{} tool:
-      Error{retrying}
+      Error{retrying, True{}}
 
 # the reply such a message makes (Ended::reply, docs/harness.md H4.7): its
 # calls when the stop reason is tool use and it has calls, else an answer
 # when it has text or a call. With no text and no call the model gave no
-# answer: a model error, retryable when the retry policy is on
+# answer: a noted model error, retryable when the retry policy is on
 def Ended.reply(m: Ended) -> Reply:
   match m:
     case Ended{tool, text, calls, retrying}:
@@ -322,7 +326,7 @@ def prepare(+cfg: Cfg, reply: Reply, r: Nat, c: Nat, a: Nat, same: Nat, last: Na
       St{Call{}, r, c, a, Cfg.polls(cfg), same, last}
     case Deferred{}:
       St{Call{}, r, c, a, Cfg.polls(cfg), same, last}
-    case Error{retryable}:
+    case Error{retryable, noted}:
       St{Call{}, r, c, a, Cfg.polls(cfg), same, last}
 
 # a retryable error (after_reply) retries while retries are left
@@ -358,7 +362,7 @@ def call(+cfg: Cfg, reply: Reply, r: Nat, c: Nat, a: Nat, p: Nat, same: Nat, las
           St{Failed{Polls{}}, r, c, a, 0n, same, last}
         case 1n+q:
           St{Call{}, r, c, a, q, same, last}
-    case Error{retryable}:
+    case Error{retryable, noted}:
       retry(cfg, retryable, r, c, a, p, same, last)
     case Overflow{cut}:
       overflow(cut, r, c, a, p, same, last)
@@ -518,7 +522,7 @@ def defers.reply(reply: Reply, k: Nat) -> Nat:
       0n
     case Calls{}:
       0n
-    case Error{retryable}:
+    case Error{retryable, noted}:
       0n
     case Overflow{cut}:
       0n
@@ -579,3 +583,235 @@ def rep(k: Nat, xs: List<&2, Nat>) -> Bool:
 # reply and its polls), the compaction and the round's end
 def bound(+cfg: Cfg) -> Nat:
   Nat.mul(Nat.max(Cfg.cap(cfg), 1n), 2n+Nat.mul(2n+Cfg.retries(cfg), 2n+Cfg.polls(cfg)))
+
+# The requests
+# ------------
+# docs/harness.md H4.7. The model decodes the same request the same way
+# (a greedy model always does), so a retry after a noted reply (a stream
+# cut as repeating, a reply with no answer) must not send that request
+# again. Its request ends with a harness note that names the retry's
+# attempt and what went wrong; a retry after any other error sends the
+# request it retries, note and all. The note goes out with the request
+# only: the run never logs it (generation.rs, `request`).
+#
+# A request is its logged context and its note. The logged context only
+# grows (a counted round adds its calls and results, a compaction its
+# entry), so a version number names it: two contexts of one run are the
+# same exactly when their versions are.
+
+# ctx: the version of the logged context the request sends; note: the
+# attempt its note names, 0 for no note
+type Req is Data:
+  Req{ctx: Nat, note: Nat}
+
+def Req.ctx(q: Req) -> Nat:
+  match q:
+    case Req{ctx, note}:
+      ctx
+
+def Req.note(q: Req) -> Nat:
+  match q:
+    case Req{ctx, note}:
+      note
+
+# a and b are the same request
+def Req.is(a: Req, b: Req) -> Bool:
+  match a b:
+    case Req{c, m} Req{d, k}:
+      Bool.and(Nat.is_eq(c, d), Nat.is_eq(m, k))
+
+# what the run did with a request: it sent it, or the reply to it was
+# noted (the request was cut)
+type Sent is Data:
+  Sent{q: Req}
+  Cut{q: Req}
+
+# the requests of a run: the version of its logged context, the attempt
+# of its generation (1 for the first request, as Counts::attempt), the
+# note its next request carries, and what it sent and cut, newest first
+type Reqs is Data:
+  Reqs{ctx: Nat, n: Nat, note: Nat, log: List<&2, Sent>}
+
+def Reqs.ctx(t: Reqs) -> Nat:
+  match t:
+    case Reqs{ctx, n, note, log}:
+      ctx
+
+def Reqs.n(t: Reqs) -> Nat:
+  match t:
+    case Reqs{ctx, n, note, log}:
+      n
+
+def Reqs.note(t: Reqs) -> Nat:
+  match t:
+    case Reqs{ctx, n, note, log}:
+      note
+
+def Reqs.log(t: Reqs) -> List<&2, Sent>:
+  match t:
+    case Reqs{ctx, n, note, log}:
+      log
+
+# a run starts with context 0, at attempt 1, with no note
+def Reqs.init() -> Reqs:
+  Reqs{0n, 1n, 0n, Nil{}}
+
+# preparation that ends in a call sends the request
+def Reqs.prepared(pa: Ph, +ctx: Nat, n: Nat, +note: Nat, log: List<&2, Sent>) -> Reqs:
+  match pa:
+    case Call{}:
+      Reqs{ctx, n, note, Sent{Req{ctx, note}} <> log}
+    case Prepare{}:
+      Reqs{ctx, n, note, log}
+    case Compact{over}:
+      Reqs{ctx, n, note, log}
+    case Tools{}:
+      Reqs{ctx, n, note, log}
+    case Answered{}:
+      Reqs{ctx, n, note, log}
+    case Aborted{}:
+      Reqs{ctx, n, note, log}
+    case Failed{why}:
+      Reqs{ctx, n, note, log}
+
+# an error counts an attempt (retry_note): a noted one cuts the request,
+# and the retry's note names the retry's attempt; any other leaves the
+# note as it is, so the retry sends the request it retries
+def Reqs.error(noted: Bool, +ctx: Nat, +n: Nat, note: Nat, log: List<&2, Sent>) -> Reqs:
+  match noted:
+    case True{}:
+      Reqs{ctx, 1n+n, 1n+n, Cut{Req{ctx, note}} <> log}
+    case False{}:
+      Reqs{ctx, 1n+n, note, log}
+
+def Reqs.reply(reply: Reply, +ctx: Nat, +n: Nat, note: Nat, log: List<&2, Sent>) -> Reqs:
+  match reply:
+    case Error{retryable, noted}:
+      Reqs.error(noted, ctx, n, note, log)
+    case Text{}:
+      Reqs{ctx, n, note, log}
+    case Calls{}:
+      Reqs{ctx, n, note, log}
+    case Deferred{}:
+      Reqs{ctx, n, note, log}
+    case Overflow{cut}:
+      Reqs{ctx, n, note, log}
+
+# a compaction that appended its entry grows the context
+def Reqs.compacted(got: Got, ctx: Nat, n: Nat, note: Nat, log: List<&2, Sent>) -> Reqs:
+  match got:
+    case Built{}:
+      Reqs{1n+ctx, n, note, log}
+    case Kept{}:
+      Reqs{ctx, n, note, log}
+    case Broke{}:
+      Reqs{ctx, n, note, log}
+
+# a round that goes on to the next generation grows the context; that
+# generation starts at attempt 1, with no note
+def Reqs.rounded(pa: Ph, ctx: Nat, n: Nat, note: Nat, log: List<&2, Sent>) -> Reqs:
+  match pa:
+    case Prepare{}:
+      Reqs{1n+ctx, 1n, 0n, log}
+    case Call{}:
+      Reqs{ctx, n, note, log}
+    case Compact{over}:
+      Reqs{ctx, n, note, log}
+    case Tools{}:
+      Reqs{ctx, n, note, log}
+    case Answered{}:
+      Reqs{ctx, n, note, log}
+    case Aborted{}:
+      Reqs{ctx, n, note, log}
+    case Failed{why}:
+      Reqs{ctx, n, note, log}
+
+def Reqs.go(pb: Ph, e: Ev, pa: Ph, +ctx: Nat, +n: Nat, +note: Nat, log: List<&2, Sent>) -> Reqs:
+  match pb e:
+    case Prepare{} e:
+      Reqs.prepared(pa, ctx, n, note, log)
+    case Call{} Go{reply, h, fin, got}:
+      Reqs.reply(reply, ctx, n, note, log)
+    case Call{} Abort{}:
+      Reqs{ctx, n, note, log}
+    case Compact{over} Go{reply, h, fin, got}:
+      Reqs.compacted(got, ctx, n, note, log)
+    case Compact{over} Abort{}:
+      Reqs{ctx, n, note, log}
+    case Tools{} e:
+      Reqs.rounded(pa, ctx, n, note, log)
+    case Answered{} e:
+      Reqs{ctx, n, note, log}
+    case Aborted{} e:
+      Reqs{ctx, n, note, log}
+    case Failed{why} e:
+      Reqs{ctx, n, note, log}
+
+# the requests after input e takes the run from phase pb to phase pa
+def Reqs.step(pb: Ph, e: Ev, pa: Ph, t: Reqs) -> Reqs:
+  match t:
+    case Reqs{ctx, n, note, log}:
+      Reqs.go(pb, e, pa, ctx, n, note, log)
+
+def reqs.go(evs: List<&2, Ev>, +cfg: Cfg, +s: St, t: Reqs) -> Reqs:
+  match evs:
+    case Nil{}:
+      t
+    case +e <> rest:
+      +s2 = step(cfg, s, e)
+      reqs.go(rest, cfg, s2, Reqs.step(St.ph(s), e, St.ph(s2), t))
+
+# the requests of the run after evs
+def reqs(+cfg: Cfg, evs: List<&2, Ev>) -> Reqs:
+  reqs.go(evs, cfg, init(cfg), Reqs.init())
+
+# a request of xs was cut and is q
+def cut_in(+q: Req, xs: List<&2, Sent>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Sent{p} <> t:
+      cut_in(q, t)
+    case Cut{p} <> t:
+      Bool.or(Req.is(p, q), cut_in(q, t))
+
+# no request of xs (newest first) was sent after a request equal to it
+# was cut
+def fresh(+xs: List<&2, Sent>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Sent{q} <> t:
+      Bool.and(Bool.not(cut_in(q, t)), fresh(t))
+    case Cut{q} <> t:
+      fresh(t)
+
+# a line the model reads in a request: its logged context, or the
+# harness note that names an attempt
+type Line is Data:
+  Context{ctx: Nat}
+  Note{attempt: Nat}
+
+def note.lines(note: Nat) -> List<&2, Line>:
+  match note:
+    case 0n:
+      Nil{}
+    case 1n+k:
+      Note{1n+k} <> Nil{}
+
+# what the model reads of a request: its context, then its note
+def Req.lines(q: Req) -> List<&2, Line>:
+  match q:
+    case Req{ctx, note}:
+      Context{ctx} <> note.lines(note)
+
+# what the run logs of the lines it sends: their context. It commits the
+# context's entries and the replies, never a line it adds to a request
+def logged(ls: List<&2, Line>) -> List<&2, Line>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Context{c} <> t:
+      Context{c} <> logged(t)
+    case Note{a} <> t:
+      logged(t)
