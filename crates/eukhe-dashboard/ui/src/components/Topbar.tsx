@@ -29,7 +29,7 @@ import {
 } from "../lib/actions.ts";
 import { reconnect } from "../lib/link.ts";
 import { useStore } from "../lib/store.ts";
-import { colors, media, radius, size, space, type } from "../tokens.stylex.ts";
+import { colors, layer, media, radius, size, space, type, weight } from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
 import { Button, IconButton, Status, TextButton, TextField } from "./controls.tsx";
 import { dialog } from "./dialog.ts";
@@ -118,8 +118,8 @@ function ChatMenu() {
         <Menu.Portal>
           <Menu.Content
             align="start"
-            sideOffset={4}
-            collisionPadding={8}
+            sideOffset={parseFloat(space.x1)}
+            collisionPadding={parseFloat(space.x2)}
             loop
             {...stylex.props(ui.menu, styles.menu)}
           >
@@ -309,7 +309,7 @@ function DeleteDialog({
 const styles = stylex.create({
   bar: {
     position: "relative",
-    zIndex: 10,
+    zIndex: layer.topbar,
     display: "flex",
     alignItems: "center",
     columnGap: space.x1,
@@ -323,12 +323,12 @@ const styles = stylex.create({
     alignItems: "center",
     columnGap: space.x1,
     minWidth: 0,
-    maxWidth: "min(560px, 100%)",
+    maxWidth: size.titleMax,
     height: { default: size.row, [media.touch]: size.touch },
     paddingInline: space.x3,
     borderRadius: radius.control,
     fontSize: { default: type.title, [media.phone]: type.text },
-    fontWeight: 500,
+    fontWeight: weight.medium,
     color: colors.primary,
     backgroundColor: {
       default: "transparent",
@@ -338,7 +338,7 @@ const styles = stylex.create({
     cursor: { default: "pointer", ":disabled": "default" },
   },
   titleOpen: { backgroundColor: colors.hover },
-  menu: { minWidth: "240px" },
+  menu: { minWidth: size.titleMenu },
   end: {
     display: "flex",
     alignItems: "center",

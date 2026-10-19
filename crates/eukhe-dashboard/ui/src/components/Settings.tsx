@@ -8,7 +8,19 @@ import * as stylex from "@stylexjs/stylex";
 import { ArrowLeft, ChevronRight, X } from "lucide-preact";
 import type { ComponentType } from "preact";
 import { chatHref, navigate } from "../lib/router.ts";
-import { colors, media, radius, shadows, size, space, type } from "../tokens.stylex.ts";
+import {
+  colors,
+  layer,
+  media,
+  motion,
+  radius,
+  shadows,
+  size,
+  space,
+  stroke,
+  type,
+  weight,
+} from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
 import { IconButton } from "./controls.tsx";
 import {
@@ -157,7 +169,7 @@ const rise = stylex.keyframes({
   to: { opacity: 1, transform: "translate(-50%, -50%) scale(1)" },
 });
 const slideIn = stylex.keyframes({
-  from: { transform: "translateX(24px)", opacity: 0 },
+  from: { transform: `translateX(${space.x6})`, opacity: 0 },
   to: { transform: "none", opacity: 1 },
 });
 
@@ -165,21 +177,21 @@ const styles = stylex.create({
   overlay: {
     position: "fixed",
     inset: 0,
-    zIndex: 40,
+    zIndex: layer.overlay,
     backgroundColor: colors.scrim,
     animationName: { default: null, [media.motion]: fadeIn },
-    animationDuration: "150ms",
+    animationDuration: motion.fast,
   },
   dialog: {
     position: "fixed",
     top: "50%",
     left: "50%",
-    zIndex: 40,
+    zIndex: layer.overlay,
     display: "flex",
-    width: "min(800px, 92vw)",
-    height: "min(600px, 86dvh)",
+    width: size.dialog,
+    height: size.dialogHeight,
     borderRadius: radius.bubble,
-    borderWidth: "1px",
+    borderWidth: stroke.hairline,
     borderStyle: "solid",
     borderColor: colors.hairline,
     backgroundColor: colors.raised,
@@ -189,13 +201,13 @@ const styles = stylex.create({
     overflow: "hidden",
     outline: "none",
     animationName: { default: null, [media.motion]: rise },
-    animationDuration: "180ms",
-    animationTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
+    animationDuration: motion.rise,
+    animationTimingFunction: motion.emphasized,
   },
   sheet: {
     position: "fixed",
     inset: 0,
-    zIndex: 40,
+    zIndex: layer.overlay,
     display: "flex",
     flexDirection: "column",
     paddingTop: "env(safe-area-inset-top, 0px)",
@@ -204,8 +216,8 @@ const styles = stylex.create({
     color: colors.primary,
     outline: "none",
     animationName: { default: null, [media.motion]: slideIn },
-    animationDuration: "200ms",
-    animationTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
+    animationDuration: motion.fade,
+    animationTimingFunction: motion.emphasized,
   },
   head: {
     display: "flex",
@@ -230,8 +242,8 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: "52px",
-    borderBottomWidth: "1px",
+    minHeight: size.listRow,
+    borderBottomWidth: stroke.hairline,
     borderBottomStyle: "solid",
     borderBottomColor: colors.hairline,
     color: colors.primary,
@@ -244,15 +256,15 @@ const styles = stylex.create({
     flexDirection: "column",
     rowGap: space.x2,
     flexShrink: 0,
-    width: "200px",
+    width: size.rail,
     padding: space.x3,
     backgroundColor: colors.sidebar,
-    borderInlineEndWidth: "1px",
+    borderInlineEndWidth: stroke.hairline,
     borderInlineEndStyle: "solid",
     borderInlineEndColor: colors.hairline,
   },
   railTitle: { margin: 0, paddingInline: space.x3, paddingBlock: space.x2 },
-  tabList: { display: "flex", flexDirection: "column", rowGap: "2px" },
+  tabList: { display: "flex", flexDirection: "column", rowGap: space.x05 },
   tab: {
     display: "flex",
     alignItems: "center",
@@ -262,7 +274,7 @@ const styles = stylex.create({
     color: { default: colors.secondary, ":hover": { [media.hover]: colors.primary } },
     backgroundColor: { default: "transparent", ":hover": { [media.hover]: colors.hover } },
   },
-  tabOn: { backgroundColor: colors.hover, color: colors.primary, fontWeight: 500 },
+  tabOn: { backgroundColor: colors.hover, color: colors.primary, fontWeight: weight.medium },
   pane: { display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0, minHeight: 0 },
   paneHead: {
     display: "flex",

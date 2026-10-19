@@ -28,6 +28,7 @@ import ./bend/effort.bend as Ef
 import ./laws/release.bend as Release
 import ./laws/auth_flight.bend as AuthFlight
 import ./laws/themes.bend as Themes
+import ./laws/dashboard_tokens.bend as DashTokens
 
 # (a) The view
 # ------------

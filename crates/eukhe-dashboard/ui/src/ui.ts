@@ -1,5 +1,18 @@
 import * as stylex from "@stylexjs/stylex";
-import { colors, fonts, media, radius, shadows, size, space, type } from "./tokens.stylex.ts";
+import {
+  colors,
+  fonts,
+  layer,
+  media,
+  motion,
+  radius,
+  shadows,
+  size,
+  space,
+  stroke,
+  type,
+  weight,
+} from "./tokens.stylex.ts";
 
 const appear = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
 
@@ -19,13 +32,13 @@ export const ui = stylex.create({
     backgroundClip: "text",
     WebkitBackgroundClip: "text",
     animationName: { default: null, [media.motion]: sweep },
-    animationDuration: "2s",
+    animationDuration: motion.sweep,
     animationTimingFunction: "linear",
     animationIterationCount: "infinite",
   },
   focusRing: {
-    outline: { default: "none", ":focus-visible": `1px solid ${colors.primary}` },
-    outlineOffset: "2px",
+    outline: { default: "none", ":focus-visible": `${stroke.hairline} solid ${colors.primary}` },
+    outlineOffset: stroke.offset,
   },
   reset: {
     appearance: "none",
@@ -50,28 +63,28 @@ export const ui = stylex.create({
   title: {
     fontSize: type.title,
     lineHeight: type.textLine,
-    fontWeight: 500,
-    letterSpacing: "-0.01em",
+    fontWeight: weight.medium,
+    letterSpacing: type.titleTracking,
   },
   mono: { fontFamily: fonts.mono, fontFeatureSettings: "normal" },
   figures: { fontVariantNumeric: "tabular-nums" },
   secondary: { color: colors.secondary },
   tertiary: { color: colors.tertiary },
-  strong: { fontWeight: 500 },
+  strong: { fontWeight: weight.medium },
   ellipsis: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
   srOnly: {
     position: "absolute",
-    width: "1px",
-    height: "1px",
+    width: stroke.hairline,
+    height: stroke.hairline,
     padding: 0,
-    margin: "-1px",
+    margin: `-${stroke.hairline}`,
     overflow: "hidden",
     clip: "rect(0, 0, 0, 0)",
     whiteSpace: "nowrap",
     borderWidth: 0,
   },
-  icon: { display: "block", flexShrink: 0, width: "18px", height: "18px" },
-  iconSmall: { display: "block", flexShrink: 0, width: "16px", height: "16px" },
+  icon: { display: "block", flexShrink: 0, width: size.icon, height: size.icon },
+  iconSmall: { display: "block", flexShrink: 0, width: size.iconSmall, height: size.iconSmall },
 
   /**
    * A menu or popover: the page's raised ground, a hairline edge, a soft
@@ -79,15 +92,14 @@ export const ui = stylex.create({
    * (as introspectum.si's logo menu); it fades in.
    */
   menu: {
-    zIndex: 50,
+    zIndex: layer.popover,
     boxSizing: "border-box",
-    minWidth: "220px",
-    maxWidth: "calc(100vw - 16px)",
-    maxHeight:
-      "var(--radix-dropdown-menu-content-available-height, var(--radix-popover-content-available-height, 80dvh))",
+    minWidth: size.menu,
+    maxWidth: `calc(100vw - ${space.x4})`,
+    maxHeight: `var(--radix-dropdown-menu-content-available-height, var(--radix-popover-content-available-height, ${size.menuHeight}))`,
     overflowY: "auto",
-    padding: "6px",
-    borderWidth: "1px",
+    padding: space.x15,
+    borderWidth: stroke.hairline,
     borderStyle: "solid",
     borderColor: colors.hairline,
     borderRadius: radius.menu,
@@ -96,7 +108,7 @@ export const ui = stylex.create({
     color: colors.primary,
     outline: "none",
     animationName: { default: null, [media.motion]: appear },
-    animationDuration: "120ms",
+    animationDuration: motion.appear,
     animationTimingFunction: "ease-out",
   },
   /** One choice: the whole row answers the pointer and the arrow keys, on a shade of its own. */
@@ -124,9 +136,9 @@ export const ui = stylex.create({
   },
   menuDanger: { color: colors.danger },
   menuSeparator: {
-    height: "1px",
-    marginBlock: "6px",
-    marginInline: "-6px",
+    height: stroke.hairline,
+    marginBlock: space.x15,
+    marginInline: `-${space.x15}`,
     backgroundColor: colors.hairline,
   },
   menuLabel: {

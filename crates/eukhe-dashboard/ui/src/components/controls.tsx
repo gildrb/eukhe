@@ -10,22 +10,21 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import * as stylex from "@stylexjs/stylex";
 import { Check, ChevronDown } from "lucide-preact";
 import type { ButtonHTMLAttributes, ComponentChildren, JSX } from "preact";
-import { forwardRef, useEffect, useState } from "react";
-import { colors, media, radius, size, space, type } from "../tokens.stylex.ts";
+import { forwardRef } from "react";
+import { useMedia } from "../lib/media.ts";
+import {
+  colors,
+  layer,
+  media,
+  opacity,
+  radius,
+  size,
+  space,
+  stroke,
+  type,
+  weight,
+} from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
-
-/** True while `query` matches. */
-export function useMedia(query: string): boolean {
-  const [matches, setMatches] = useState(() => matchMedia(query).matches);
-  useEffect(() => {
-    const list = matchMedia(query);
-    const sync = () => setMatches(list.matches);
-    sync();
-    list.addEventListener("change", sync);
-    return () => list.removeEventListener("change", sync);
-  }, [query]);
-  return matches;
-}
 
 type ButtonProps = Omit<ButtonHTMLAttributes, "label" | "size"> & {
   label: string;
@@ -42,7 +41,7 @@ export const IconButton = forwardRef<HTMLButtonElement, ButtonProps>(function Ic
   { label, keys, children, side = "bottom", xstyle, ...rest },
   ref,
 ) {
-  const hover = useMedia("(hover: hover)");
+  const hover = useMedia(media.hover);
   const button = (
     <button
       type="button"
@@ -59,7 +58,11 @@ export const IconButton = forwardRef<HTMLButtonElement, ButtonProps>(function Ic
     <Tooltip.Root>
       <Tooltip.Trigger asChild>{button}</Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Content side={side} sideOffset={6} {...stylex.props(styles.tooltip)}>
+        <Tooltip.Content
+          side={side}
+          sideOffset={parseFloat(space.x15)}
+          {...stylex.props(styles.tooltip)}
+        >
           {label}
           {keys ? <span {...stylex.props(styles.tooltipKeys)}>{keys}</span> : null}
         </Tooltip.Content>
@@ -182,7 +185,12 @@ export function MenuSelect({
         </button>
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Content align="start" sideOffset={4} collisionPadding={8} {...stylex.props(ui.menu)}>
+        <Menu.Content
+          align="start"
+          sideOffset={parseFloat(space.x1)}
+          collisionPadding={parseFloat(space.x2)}
+          {...stylex.props(ui.menu)}
+        >
           <Menu.RadioGroup value={value ?? ""} onValueChange={onChange}>
             {options.map((option) => (
               <Menu.RadioItem
@@ -224,7 +232,11 @@ export function CheckRow({
       >
         <span {...stylex.props(styles.checkboxBox, checked && styles.checkboxOn)}>
           <Checkbox.Indicator {...stylex.props(styles.checkboxMark)}>
-            <Check aria-hidden="true" strokeWidth={2.5} {...stylex.props(ui.iconSmall)} />
+            <Check
+              aria-hidden="true"
+              strokeWidth={stroke.checkMark}
+              {...stylex.props(ui.iconSmall)}
+            />
           </Checkbox.Indicator>
         </span>
       </Checkbox.Root>
@@ -287,7 +299,7 @@ const styles = stylex.create({
     },
   },
   tooltip: {
-    zIndex: 60,
+    zIndex: layer.tooltip,
     display: "flex",
     alignItems: "center",
     columnGap: space.x2,
@@ -298,15 +310,15 @@ const styles = stylex.create({
     color: colors.bg,
     fontSize: type.small,
     lineHeight: type.smallLine,
-    fontWeight: 500,
+    fontWeight: weight.medium,
     userSelect: "none",
   },
-  tooltipKeys: { opacity: 0.6, fontWeight: 400 },
+  tooltipKeys: { opacity: opacity.dim, fontWeight: weight.regular },
   textButton: {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: { default: "28px", [media.touch]: size.touch },
+    minHeight: { default: size.control, [media.touch]: size.touch },
     minWidth: { default: null, [media.touch]: size.touch },
     paddingInline: space.x1,
     marginInline: `calc(-1 * ${space.x1})`,
@@ -315,7 +327,7 @@ const styles = stylex.create({
     lineHeight: type.smallLine,
     color: { default: colors.secondary, ":hover": { [media.hover]: colors.primary } },
   },
-  textStrong: { color: colors.primary, fontWeight: 500 },
+  textStrong: { color: colors.primary, fontWeight: weight.medium },
   button: {
     display: "inline-flex",
     alignItems: "center",
@@ -325,14 +337,14 @@ const styles = stylex.create({
     height: { default: size.row, [media.touch]: size.touch },
     paddingInline: space.x4,
     borderRadius: radius.control,
-    borderWidth: "1px",
+    borderWidth: stroke.hairline,
     borderStyle: "solid",
     borderColor: colors.hairline,
     backgroundColor: { default: "transparent", ":hover": { [media.hover]: colors.hover } },
     color: colors.primary,
-    fontWeight: 500,
+    fontWeight: weight.medium,
     whiteSpace: "nowrap",
-    opacity: { default: 1, ":disabled": 0.5 },
+    opacity: { default: 1, ":disabled": opacity.disabled },
     cursor: { default: "pointer", ":disabled": "default" },
   },
   primary: {
@@ -353,13 +365,13 @@ const styles = stylex.create({
     backgroundColor: colors.surface,
     overflowX: "auto",
   },
-  trackCompact: { padding: { default: "2px", [media.touch]: 0 } },
+  trackCompact: { padding: { default: space.x05, [media.touch]: 0 } },
   segment: {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    height: { default: "28px", [media.touch]: size.touch },
+    height: { default: size.control, [media.touch]: size.touch },
     minWidth: { default: null, [media.touch]: size.touch },
     paddingInline: space.x3,
     borderRadius: { default: radius.code, [media.touch]: radius.control },
@@ -371,9 +383,9 @@ const styles = stylex.create({
   },
   segmentOn: {
     color: colors.primary,
-    fontWeight: 500,
+    fontWeight: weight.medium,
     backgroundColor: colors.bg,
-    boxShadow: `inset 0 0 0 1px ${colors.hairline}`,
+    boxShadow: `inset 0 0 0 ${stroke.hairline} ${colors.hairline}`,
   },
   segmentCompact: { paddingInline: space.x2 },
   selectTrigger: {
@@ -381,12 +393,12 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "space-between",
     columnGap: space.x2,
-    minWidth: "180px",
+    minWidth: size.select,
     maxWidth: "100%",
     height: { default: size.row, [media.touch]: size.touch },
     paddingInline: space.x3,
     borderRadius: radius.control,
-    borderWidth: "1px",
+    borderWidth: stroke.hairline,
     borderStyle: "solid",
     borderColor: colors.hairline,
     backgroundColor: { default: "transparent", ":hover": { [media.hover]: colors.hover } },
@@ -404,19 +416,19 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    width: { default: "28px", [media.touch]: size.touch },
-    height: { default: "28px", [media.touch]: size.touch },
-    marginInline: { default: "-4px", [media.touch]: "-12px" },
+    width: { default: size.control, [media.touch]: size.touch },
+    height: { default: size.control, [media.touch]: size.touch },
+    marginInline: { default: `-${space.x1}`, [media.touch]: `-${space.x3}` },
     borderRadius: radius.control,
   },
   checkboxBox: {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    width: "20px",
-    height: "20px",
+    width: size.checkbox,
+    height: size.checkbox,
     borderRadius: radius.code,
-    borderWidth: "1px",
+    borderWidth: stroke.hairline,
     borderStyle: "solid",
     borderColor: colors.tertiary,
     color: colors.bg,
@@ -431,7 +443,7 @@ const styles = stylex.create({
     height: { default: size.row, [media.touch]: size.touch },
     paddingInline: space.x3,
     borderRadius: radius.control,
-    borderWidth: "1px",
+    borderWidth: stroke.hairline,
     borderStyle: "solid",
     borderColor: { default: colors.hairline, ":focus": colors.tertiary },
     backgroundColor: "transparent",
@@ -446,6 +458,6 @@ const styles = stylex.create({
     alignItems: "flex-start",
     rowGap: space.x2,
   },
-  label: { fontWeight: 500 },
+  label: { fontWeight: weight.medium },
   statusError: { color: colors.danger },
 });

@@ -161,6 +161,7 @@ jobs:
   # The dashboard's web app is built from crates/eukhe-dashboard/ui by Vite+
   # into crates/eukhe-dashboard/web, which is committed (cargo and Nix build
   # without Node). Rebuild it and fail when the committed output differs.
+  # `vp test` runs the token bridge to bend/tokens.bend, so Bend is installed.
   dashboard-ui:
     name: dashboard UI (vp check + build, web/ up to date)
     runs-on: ubuntu-24.04
@@ -173,7 +174,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
+      - name: Install Bend (the token bridge runs bend/bridge_tokens.bend)
+        uses: ./.github/actions/setup-bend
       - run: make dashboard-ui
+        env:
+          EUKHE_REQUIRE_BEND: "1"
       - run: git diff --exit-code --stat -- crates/eukhe-dashboard/web
       - run: test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
 

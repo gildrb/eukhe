@@ -3,7 +3,9 @@
 // success sentence or rejects with an Error whose message shows inline.
 
 import { fmt } from "./format.ts";
+import { darkPalette, lightPalette, media } from "../tokens.stylex.ts";
 import { linkOpen, request, run, supports } from "./link.ts";
+import { mediaQuery } from "./media.ts";
 import { chatHref, navigate } from "./router.ts";
 import { bind, createSession, refreshSessions } from "./session.ts";
 import { store, type Prefs } from "./store.ts";
@@ -290,7 +292,7 @@ export async function unqueue(
 
 // ---------------------------------------------------------------- prefs --
 
-const systemDark = matchMedia("(prefers-color-scheme: dark)");
+const systemDark = matchMedia(mediaQuery(media.dark));
 
 /** Apply the theme: `color-scheme` on the root drives every `light-dark()` color. */
 export function applyTheme(theme: Prefs["theme"]): void {
@@ -298,7 +300,7 @@ export function applyTheme(theme: Prefs["theme"]): void {
   root.style.colorScheme = theme === "system" ? "light dark" : theme;
   const dark = theme === "dark" || (theme === "system" && systemDark.matches);
   for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
-    meta.setAttribute("content", dark ? "#212121" : "#ffffff");
+    meta.setAttribute("content", dark ? darkPalette.bg : lightPalette.bg);
   }
   try {
     if (theme === "system") localStorage.removeItem("theme");

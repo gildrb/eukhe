@@ -1,5 +1,17 @@
 import * as stylex from "@stylexjs/stylex";
-import { colors, media, radius, shadows, space, type } from "../tokens.stylex.ts";
+import {
+  colors,
+  layer,
+  media,
+  motion,
+  radius,
+  shadows,
+  size,
+  space,
+  stroke,
+  type,
+  weight,
+} from "../tokens.stylex.ts";
 
 const fadeIn = stylex.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
 const rise = stylex.keyframes({
@@ -12,24 +24,24 @@ export const dialog = stylex.create({
   overlay: {
     position: "fixed",
     inset: 0,
-    zIndex: 40,
+    zIndex: layer.overlay,
     backgroundColor: colors.scrim,
     animationName: { default: null, [media.motion]: fadeIn },
-    animationDuration: "150ms",
+    animationDuration: motion.fast,
     animationTimingFunction: "ease-out",
   },
   small: {
     position: "fixed",
     top: "50%",
     left: "50%",
-    zIndex: 40,
+    zIndex: layer.overlay,
     display: "flex",
     flexDirection: "column",
     rowGap: space.x4,
-    width: "min(420px, calc(100vw - 32px))",
+    width: size.alert,
     padding: space.x6,
     borderRadius: radius.bubble,
-    borderWidth: "1px",
+    borderWidth: stroke.hairline,
     borderStyle: "solid",
     borderColor: colors.hairline,
     backgroundColor: colors.raised,
@@ -38,10 +50,10 @@ export const dialog = stylex.create({
     transform: "translate(-50%, -50%)",
     outline: "none",
     animationName: { default: null, [media.motion]: rise },
-    animationDuration: "180ms",
-    animationTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
+    animationDuration: motion.rise,
+    animationTimingFunction: motion.emphasized,
   },
-  title: { fontSize: type.title, lineHeight: type.textLine, fontWeight: 500, margin: 0 },
+  title: { fontSize: type.title, lineHeight: type.textLine, fontWeight: weight.medium, margin: 0 },
   body: { color: colors.secondary, margin: 0 },
   form: { display: "flex", flexDirection: "column", rowGap: space.x4 },
   buttons: {

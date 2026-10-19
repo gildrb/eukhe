@@ -23,7 +23,7 @@ import { request, run } from "../lib/link.ts";
 import { useStore, type Frame } from "../lib/store.ts";
 import { messageSpeed, modelName } from "../lib/turn.ts";
 import type { Model } from "../lib/types.ts";
-import { colors, media, radius, size, space, type } from "../tokens.stylex.ts";
+import { colors, media, radius, size, space, stroke, type, weight } from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
 import {
   Button,
@@ -916,7 +916,7 @@ const styles = stylex.create({
     borderRadius: radius.control,
     backgroundColor: { default: "transparent", ":hover": { [media.hover]: colors.hover } },
   },
-  rowOn: { backgroundColor: colors.hover, fontWeight: 500 },
+  rowOn: { backgroundColor: colors.hover, fontWeight: weight.medium },
   grow: { flexGrow: 1 },
   checks: { display: "flex", flexDirection: "column", alignSelf: "stretch" },
   inline: { display: "flex", columnGap: space.x2, alignSelf: "stretch" },
@@ -925,7 +925,7 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     columnGap: space.x1,
-    minHeight: { default: "28px", [media.touch]: size.touch },
+    minHeight: { default: size.control, [media.touch]: size.touch },
     color: colors.secondary,
     fontSize: type.small,
   },
@@ -941,7 +941,7 @@ const styles = stylex.create({
     width: "100%",
     paddingBlock: space.x3,
     paddingInline: space.x2,
-    borderTopWidth: "1px",
+    borderTopWidth: stroke.hairline,
     borderTopStyle: "solid",
     borderTopColor: colors.hairline,
     backgroundColor: { default: "transparent", ":hover": { [media.hover]: colors.hover } },
@@ -960,7 +960,7 @@ const styles = stylex.create({
   barBlock: { display: "flex", flexDirection: "column", rowGap: space.x2 },
   bar: {
     position: "relative",
-    height: "2px",
+    height: stroke.bar,
     backgroundColor: colors.hairline,
     overflow: "hidden",
   },
@@ -980,19 +980,19 @@ const styles = stylex.create({
   cell: {
     paddingBlock: space.x2,
     paddingInlineEnd: space.x4,
-    borderBottomWidth: "1px",
+    borderBottomWidth: stroke.hairline,
     borderBottomStyle: "solid",
     borderBottomColor: colors.hairline,
     textAlign: "start",
     whiteSpace: "nowrap",
   },
-  th: { fontWeight: 500, color: colors.tertiary },
+  th: { fontWeight: weight.medium, color: colors.tertiary },
   valueList: {
     listStyle: "none",
     margin: 0,
     padding: 0,
     alignSelf: "stretch",
-    maxHeight: "320px",
+    maxHeight: size.pane,
     overflowY: "auto",
   },
   valueRow: {
@@ -1001,7 +1001,7 @@ const styles = stylex.create({
     columnGap: space.x4,
     alignItems: "center",
     width: "100%",
-    minHeight: { default: "32px", [media.touch]: size.touch },
+    minHeight: { default: size.item, [media.touch]: size.touch },
     paddingInline: space.x2,
     borderRadius: radius.control,
     fontSize: type.small,
@@ -1015,7 +1015,7 @@ const styles = stylex.create({
     columnGap: space.x3,
     alignItems: "center",
     width: "100%",
-    minHeight: { default: "32px", [media.touch]: size.touch },
+    minHeight: { default: size.item, [media.touch]: size.touch },
     paddingInline: space.x2,
     borderRadius: radius.control,
     backgroundColor: { default: "transparent", ":hover": { [media.hover]: colors.hover } },
@@ -1024,11 +1024,11 @@ const styles = stylex.create({
     margin: 0,
     marginBlock: space.x2,
     padding: space.x3,
-    maxHeight: "320px",
+    maxHeight: size.pane,
     overflow: "auto",
     borderRadius: radius.control,
     backgroundColor: colors.surface,
-    fontSize: "13px",
-    lineHeight: "20px",
+    fontSize: type.tiny,
+    lineHeight: type.smallLine,
   },
 });

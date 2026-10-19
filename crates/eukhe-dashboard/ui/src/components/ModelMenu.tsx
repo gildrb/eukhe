@@ -101,8 +101,8 @@ export function ReasoningMenu({ defaultOpen = false }: { defaultOpen?: boolean }
         <Menu.Content
           side="top"
           align="start"
-          sideOffset={8}
-          collisionPadding={8}
+          sideOffset={parseFloat(space.x2)}
+          collisionPadding={parseFloat(space.x2)}
           loop
           aria-label="Reasoning"
           {...stylex.props(ui.menu, styles.small)}
@@ -169,8 +169,8 @@ export function ModelMenu({ defaultOpen = false }: { defaultOpen?: boolean }) {
         <Menu.Content
           side="top"
           align="start"
-          sideOffset={8}
-          collisionPadding={8}
+          sideOffset={parseFloat(space.x2)}
+          collisionPadding={parseFloat(space.x2)}
           loop
           aria-label="Model"
           {...stylex.props(ui.menu, styles.wide)}
@@ -248,11 +248,14 @@ const styles = stylex.create({
     backgroundColor: { default: "transparent", ":hover": { [media.hover]: colors.hover } },
     cursor: { default: "pointer", ":disabled": "default" },
   },
-  model: { flexShrink: 1, maxWidth: { default: "200px", [media.phone]: "132px" } },
-  reasoning: { flexShrink: 0, maxWidth: "120px" },
-  wide: { width: "320px" },
-  small: { minWidth: "180px" },
+  model: {
+    flexShrink: 1,
+    maxWidth: { default: size.modelTrigger, [media.phone]: size.modelTriggerPhone },
+  },
+  reasoning: { flexShrink: 0, maxWidth: size.reasoningTrigger },
+  wide: { width: size.pane },
+  small: { minWidth: size.select },
   name: { flexGrow: 1, minWidth: 0 },
-  checkSlot: { display: "flex", width: "16px", flexShrink: 0, justifyContent: "center" },
+  checkSlot: { display: "flex", width: size.iconSmall, flexShrink: 0, justifyContent: "center" },
   quiet: { color: colors.secondary },
 });

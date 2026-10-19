@@ -11,9 +11,10 @@ import { chatHref } from "../lib/router.ts";
 import { useStore } from "../lib/store.ts";
 import { derivePhase } from "../lib/turn.ts";
 import type { SessionRow } from "../lib/types.ts";
-import { colors, media, radius, size, space, type } from "../tokens.stylex.ts";
+import { useMedia } from "../lib/media.ts";
+import { colors, media, radius, size, space, stroke, type, weight } from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
-import { IconButton, useMedia } from "./controls.tsx";
+import { IconButton } from "./controls.tsx";
 
 const DAY = 86_400_000;
 export const NEW_CHAT_KEYS = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⇧O" : "Ctrl+Shift+O";
@@ -80,7 +81,7 @@ export function Sidebar({
     return groupRows(rows, Date.now());
   }, [sessions.rows, query]);
 
-  const systemDark = useMedia("(prefers-color-scheme: dark)");
+  const systemDark = useMedia(media.dark);
   const dark = theme === "dark" || (theme === "system" && systemDark);
 
   let empty = "";
@@ -267,7 +268,7 @@ const styles = stylex.create({
     borderRadius: radius.control,
     backgroundColor: colors.surface,
     cursor: "text",
-    outline: { default: "none", ":focus-within": `1px solid ${colors.tertiary}` },
+    outline: { default: "none", ":focus-within": `${stroke.hairline} solid ${colors.tertiary}` },
   },
   searchInput: {
     flexGrow: 1,
@@ -292,18 +293,18 @@ const styles = stylex.create({
   },
   empty: { paddingInline: space.x3, paddingBlock: space.x2 },
   group: { paddingTop: space.x4 },
-  groupLabel: { paddingInline: space.x3, paddingBottom: space.x1, fontWeight: 500 },
+  groupLabel: { paddingInline: space.x3, paddingBottom: space.x1, fontWeight: weight.medium },
   rows: { listStyle: "none", margin: 0, padding: 0 },
   chat: { color: colors.primary },
-  current: { backgroundColor: colors.hover, fontWeight: 500 },
-  needsYou: { color: colors.primary, fontWeight: 500 },
+  current: { backgroundColor: colors.hover, fontWeight: weight.medium },
+  needsYou: { color: colors.primary, fontWeight: weight.medium },
   foot: {
     display: "flex",
     alignItems: "center",
     columnGap: space.x1,
     flexShrink: 0,
     padding: space.x2,
-    borderTopWidth: "1px",
+    borderTopWidth: stroke.hairline,
     borderTopStyle: "solid",
     borderTopColor: colors.hairline,
   },

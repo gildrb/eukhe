@@ -5,26 +5,33 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as stylex from "@stylexjs/stylex";
-import { animate } from "motion/mini";
 import { useEffect, useRef, useState } from "react";
 import { newChat } from "../lib/actions.ts";
+import { mediaQuery, useMedia } from "../lib/media.ts";
 import { chatHref, navigate, useRoute } from "../lib/router.ts";
 import { store, useStore } from "../lib/store.ts";
-import { colors, media, motion, size } from "../tokens.stylex.ts";
+import {
+  colors,
+  layer,
+  media,
+  motion,
+  radius,
+  shadows,
+  size,
+  space,
+  stroke,
+} from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
 import { Composer, composerField } from "./Composer.tsx";
 import { Conversation, stopTurn } from "./Conversation.tsx";
-import { useMedia } from "./controls.tsx";
 import { Settings } from "./Settings.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { Topbar } from "./Topbar.tsx";
 
-const SPRING_MS = 330;
-
 export function App() {
   const route = useRoute();
-  const compact = useMedia("(max-width: 1023px)");
-  const phone = useMedia("(max-width: 767px)");
+  const compact = useMedia(media.compact);
+  const phone = useMedia(media.phone);
   const session = useStore((state) => state.session);
   const [drawer, setDrawer] = useState(false);
   const pushed = useRef(false);
@@ -69,11 +76,10 @@ export function App() {
   }, [compact]);
   // gildrb's spring on the drawer itself (transform only).
   useEffect(() => {
-    if (drawer && panel.current && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      void animate(
-        panel.current,
+    if (drawer && panel.current && matchMedia(mediaQuery(media.motion)).matches) {
+      panel.current.animate(
         { transform: ["translateX(-100%)", "translateX(0)"] },
-        { duration: SPRING_MS / 1000, ease: [0.2, 0.9, 0.3, 1] },
+        { duration: motion.springMs, easing: motion.springEase },
       );
     }
   }, [drawer]);
@@ -123,7 +129,10 @@ export function App() {
   );
 
   return (
-    <Tooltip.Provider delayDuration={500} skipDelayDuration={300}>
+    <Tooltip.Provider
+      delayDuration={motion.tooltipDelay}
+      skipDelayDuration={motion.tooltipSkipDelay}
+    >
       <a href="#composer-input" {...stylex.props(styles.skip)}>
         Skip to the message field
       </a>
@@ -178,7 +187,7 @@ const styles = stylex.create({
     flexShrink: 0,
     width: size.sidebar,
     height: "100%",
-    borderInlineEndWidth: "1px",
+    borderInlineEndWidth: stroke.hairline,
     borderInlineEndStyle: "solid",
     borderInlineEndColor: colors.hairline,
   },
@@ -195,30 +204,30 @@ const styles = stylex.create({
   scrim: {
     position: "fixed",
     inset: 0,
-    zIndex: 40,
+    zIndex: layer.overlay,
     backgroundColor: colors.scrim,
     animationName: { default: null, [media.motion]: fadeIn },
-    animationDuration: "200ms",
+    animationDuration: motion.fade,
   },
   drawer: {
     position: "fixed",
     top: 0,
     bottom: 0,
     left: 0,
-    zIndex: 40,
-    width: "min(85vw, 320px)",
+    zIndex: layer.overlay,
+    width: size.drawer,
     outline: "none",
-    boxShadow: "0 0 24px rgb(0 0 0 / 0.2)",
+    boxShadow: shadows.drawer,
     transitionTimingFunction: motion.spring,
   },
   skip: {
     position: "fixed",
-    top: "8px",
-    left: "8px",
-    zIndex: 70,
-    paddingBlock: "8px",
-    paddingInline: "12px",
-    borderRadius: "8px",
+    top: space.x2,
+    left: space.x2,
+    zIndex: layer.skip,
+    paddingBlock: space.x2,
+    paddingInline: space.x3,
+    borderRadius: radius.control,
     backgroundColor: colors.primary,
     color: colors.bg,
     transform: { default: "translateY(-200%)", ":focus": "none" },

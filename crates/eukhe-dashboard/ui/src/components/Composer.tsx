@@ -10,13 +10,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { admissionId, send, setPref, unqueue } from "../lib/actions.ts";
 import { store, useStore } from "../lib/store.ts";
 import type { Pending } from "../lib/turn.ts";
-import { colors, media, radius, size, space, type } from "../tokens.stylex.ts";
+import { colors, media, radius, size, space, stroke, type } from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
 import { stopTurn } from "./Conversation.tsx";
 import { IconButton, Segmented } from "./controls.tsx";
 import { ModelMenu, ReasoningMenu } from "./ModelMenu.tsx";
 
-const LINE = 24;
+/** The field's line height in px, for the height a script sets where `field-sizing` is missing. */
+const LINE = parseFloat(type.textLine);
 const MAX_LINES = 8;
 const DRAFT_DEBOUNCE_MS = 300;
 const nativeSizing = CSS.supports("field-sizing", "content");
@@ -296,7 +297,11 @@ export function Composer() {
               {mode === "stop" ? (
                 <Square aria-hidden="true" fill="currentColor" {...stylex.props(ui.iconSmall)} />
               ) : (
-                <ArrowUp aria-hidden="true" strokeWidth={2.25} {...stylex.props(ui.icon)} />
+                <ArrowUp
+                  aria-hidden="true"
+                  strokeWidth={stroke.sendArrow}
+                  {...stylex.props(ui.icon)}
+                />
               )}
             </IconButton>
           </div>
@@ -341,15 +346,15 @@ const styles = stylex.create({
     paddingBottom: space.x2,
     borderRadius: radius.composer,
     backgroundColor: colors.surface,
-    boxShadow: `inset 0 0 0 1px ${colors.hairline}`,
+    boxShadow: `inset 0 0 0 ${stroke.hairline} ${colors.hairline}`,
   },
-  dragging: { boxShadow: `inset 0 0 0 1px ${colors.tertiary}` },
+  dragging: { boxShadow: `inset 0 0 0 ${stroke.hairline} ${colors.tertiary}` },
   images: { display: "flex", flexWrap: "wrap", gap: space.x2 },
   image: { position: "relative", display: "flex", alignItems: "flex-start", columnGap: space.x1 },
   thumb: {
     display: "block",
-    width: "56px",
-    height: "56px",
+    width: size.thumb,
+    height: size.thumb,
     objectFit: "cover",
     borderRadius: radius.control,
   },
@@ -357,15 +362,15 @@ const styles = stylex.create({
   field: {
     display: "block",
     width: "100%",
-    minHeight: `${LINE}px`,
-    maxHeight: `${LINE * MAX_LINES}px`,
+    minHeight: type.textLine,
+    maxHeight: `calc(${type.textLine} * ${MAX_LINES})`,
     margin: 0,
     padding: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
     color: colors.primary,
     fontSize: type.text,
-    lineHeight: `${LINE}px`,
+    lineHeight: type.textLine,
     resize: "none",
     outline: "none",
     overflowY: "auto",
@@ -381,7 +386,7 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
     overflowWrap: "break-word",
     fontSize: type.text,
-    lineHeight: `${LINE}px`,
+    lineHeight: type.textLine,
   },
   row: {
     display: "flex",

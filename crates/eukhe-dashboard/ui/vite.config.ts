@@ -17,6 +17,8 @@ export default defineConfig({
   lint: {
     ignorePatterns: ["public/**"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
+    // eukhe/token-literals: a presentation value outside src/tokens.stylex.ts fails the check.
+    jsPlugins: ["./lint/tokens.mjs"],
     categories: { correctness: "error", suspicious: "error" },
     rules: {
       "typescript/no-explicit-any": "error",
@@ -32,6 +34,7 @@ export default defineConfig({
       // daemon value at runtime would duplicate the daemon's own schema.
       "typescript/no-unsafe-type-assertion": "off",
     },
+    overrides: [{ files: ["src/**"], rules: { "eukhe/token-literals": "error" } }],
     options: { typeAware: true, typeCheck: true },
   },
   plugins: [

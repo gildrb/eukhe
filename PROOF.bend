@@ -38,6 +38,8 @@ import ./laws/auth_flight.bend as AuthFlight
 import ./bend/proof_auth_flight.bend as AuthFlights
 import ./laws/themes.bend as Themes
 import ./bend/proof_themes.bend as ThemeProofs
+import ./laws/dashboard_tokens.bend as DashTokens
+import ./bend/proof_tokens.bend as Tokens
 
 # (a) The view
 
@@ -767,3 +769,20 @@ def Themes.theme_shipped_legible(s):
 
 def Themes.theme_shipped_status_distinct(s):
   ThemeProofs.theme_shipped_status_distinct(s)
+
+# (T2) Dashboard tokens
+
+def DashTokens.tokens_paired(t, m):
+  Tokens.tokens_paired(t, m)
+
+def DashTokens.tokens_legible(m, pre, p, post, split):
+  Tokens.tokens_legible(m, pre, p, post, split)
+
+def DashTokens.tokens_layers_ordered():
+  Tokens.tokens_layers_ordered()
+
+def DashTokens.tokens_space_ascends():
+  Tokens.tokens_space_ascends()
+
+def DashTokens.tokens_type_ascends():
+  Tokens.tokens_type_ascends()

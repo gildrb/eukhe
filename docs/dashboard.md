@@ -26,13 +26,46 @@ file there, so cargo and Nix builds need no Node.
 1. Edit the source under `ui/src` (files that are copied as they are, such
    as fonts and icons, are under `ui/public`).
 2. Run `make dashboard-ui`. It installs the locked packages, runs
-   `vp check` (format, lint, types) and `vp build`.
+   `vp check` (format, lint, types), `vp test run` and `vp build`.
 3. Commit `ui/` and `web/` together. CI rebuilds the app and fails when
    `web/` differs from the build.
 
 To see changes without a Rust build, run `npx vp dev` in `ui/` with
 `EUKHE_DASHBOARD=127.0.0.1:<port>` naming a running dashboard: the dev
 server proxies `api/ws` to it.
+
+### Tokens
+
+Each presentation value has one source: `ui/src/tokens.stylex.ts`. This
+includes colors, lengths, radii, type, weights, opacities, layers and
+motion.
+
+- Each color has one value in `lightPalette` and one in `darkPalette`.
+  `colors`, `shadows` and `page` pair them with `light-dark()`. The root's
+  `color-scheme` selects the value.
+- Other files use the tokens. Do not write a value again. The lint rule
+  `eukhe/token-literals` (`ui/lint/tokens.mjs`) fails `vp check` when a
+  file under `ui/src` contains one of these literals: a color, a length that
+  is not zero, a duration, an easing, or a number for a z-index, a font
+  weight, an opacity, a line height or a Radix offset. The message gives
+  the file and the line.
+- `global.css` styles the document root, the selection and the scroll bars.
+  It uses the `page` variables (`--page-*`). `src/tokens.test.ts` fails when
+  `global.css` contains a literal.
+- `index.html`, `public/manifest.webmanifest` and `public/theme.js` cannot
+  read CSS. They contain the theme color again. `src/tokens.test.ts` makes
+  sure that this color is the palette's `bg`.
+- `bend/tokens.bend` holds the same tables. `laws/dashboard_tokens.bend`
+  (T2) states the rules for them:
+  - each color token has a light value and a dark value;
+  - in both modes, each text color and the ground under it have a minimum
+    contrast (4.5:1 for text, 3:1 for captions on fills);
+  - the layers are in a strict order;
+  - the spacing scale, the type sizes and the line heights go up.
+
+  `src/tokens.test.ts` runs `bend/bridge_tokens.bend` and makes sure that
+  its tables are the same as `tokens.stylex.ts`. When `bend` is not
+  installed, the test is skipped, unless `EUKHE_REQUIRE_BEND` is set.
 
 ## Run
 

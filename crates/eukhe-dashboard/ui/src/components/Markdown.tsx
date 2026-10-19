@@ -6,7 +6,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { Markdown, RuleType, type MarkdownToJSX } from "markdown-to-jsx/react";
 import { createElement, memo } from "react";
-import { colors, fonts, radius, space, type } from "../tokens.stylex.ts";
+import { colors, fonts, radius, size, space, stroke, type, weight } from "../tokens.stylex.ts";
 import { ui } from "../ui.ts";
 import { CopyButton } from "./CopyButton.tsx";
 
@@ -116,7 +116,7 @@ const md = stylex.create({
     lineHeight: type.proseLine,
     color: colors.primary,
     overflowWrap: "anywhere",
-    fontFeatureSettings: '"liga" 1, "calt" 1',
+    fontFeatureSettings: fonts.prose,
   },
   p: { margin: 0 },
   heading: {
@@ -124,13 +124,13 @@ const md = stylex.create({
     marginTop: space.x2,
     fontSize: type.text,
     lineHeight: type.proseLine,
-    fontWeight: 600,
+    fontWeight: weight.semibold,
   },
   link: {
     color: colors.primary,
     textDecorationLine: "underline",
-    textDecorationThickness: "1px",
-    textUnderlineOffset: "0.2em",
+    textDecorationThickness: stroke.hairline,
+    textUnderlineOffset: type.underlineOffset,
     textDecorationColor: colors.tertiary,
   },
   list: {
@@ -145,24 +145,24 @@ const md = stylex.create({
   quote: {
     margin: 0,
     paddingInlineStart: space.x4,
-    borderInlineStartWidth: "2px",
+    borderInlineStartWidth: stroke.bar,
     borderInlineStartStyle: "solid",
     borderInlineStartColor: colors.hairline,
     color: colors.secondary,
   },
   rule: {
     width: "100%",
-    height: "1px",
+    height: stroke.hairline,
     margin: 0,
     borderWidth: 0,
     backgroundColor: colors.hairline,
   },
   inline: {
-    paddingInline: "4px",
-    paddingBlock: "1px",
+    paddingInline: space.x1,
+    paddingBlock: space.x025,
     borderRadius: radius.code,
     backgroundColor: colors.surface,
-    fontSize: "0.875em",
+    fontSize: type.inlineCode,
   },
   code: {
     margin: 0,
@@ -177,7 +177,7 @@ const md = stylex.create({
     justifyContent: "space-between",
     paddingInlineStart: space.x4,
     paddingInlineEnd: space.x3,
-    minHeight: "36px",
+    minHeight: size.row,
     fontSize: type.small,
     lineHeight: type.smallLine,
     color: colors.tertiary,
@@ -189,7 +189,7 @@ const md = stylex.create({
     paddingBottom: space.x4,
     overflowX: "auto",
     fontSize: type.small,
-    lineHeight: "22px",
+    lineHeight: type.blockLine,
     whiteSpace: "pre",
     outline: "none",
   },
@@ -203,17 +203,17 @@ const md = stylex.create({
   cell: {
     paddingBlock: space.x2,
     paddingInlineEnd: space.x4,
-    borderBottomWidth: "1px",
+    borderBottomWidth: stroke.hairline,
     borderBottomStyle: "solid",
     borderBottomColor: colors.hairline,
     textAlign: "start",
     verticalAlign: "top",
   },
-  head: { fontWeight: 500, color: colors.secondary },
+  head: { fontWeight: weight.medium, color: colors.secondary },
   task: {
     margin: 0,
     marginInlineEnd: space.x2,
     accentColor: colors.primary,
-    verticalAlign: "-2px",
+    verticalAlign: `-${space.x05}`,
   },
 });
