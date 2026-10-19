@@ -224,6 +224,67 @@ async fn a_second_compaction_summarizes_in_update_mode_over_the_previous_summary
     session.close(cx()).await.unwrap();
 }
 
+/// A set `auxiliaryModel` that the compaction cannot use falls back to the
+/// session model, and the session shows why in a display row, once for
+/// that cause (before, a stderr line of the worker was all).
+#[tokio::test]
+async fn an_unused_auxiliary_model_shows_a_notice_once() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        r#"{"compaction":{"keepRecentTokens":1},"auxiliaryModel":"faux/missing"}"#,
+    )
+    .expect("settings file");
+    let session = fixture.open().await;
+    for round in ["one", "two"] {
+        fixture.turn(&session, round, "an answer").await;
+        fixture.reply("a summary");
+        session.root().compact(None, cx()).await.unwrap();
+        session.root().wait_for_idle(cx()).await.unwrap();
+    }
+    let mut notices: Vec<crate::durable::entries::CustomEntryData> = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = session
+            .root()
+            .entries(ConversationEntryQuery::default(), 64, cursor, cx())
+            .await
+            .unwrap();
+        notices.extend(
+            page.items
+                .into_iter()
+                .filter_map(|entry| {
+                    crate::durable::entries::CUSTOM_ENTRY
+                        .narrow(entry)
+                        .expect("custom data")
+                })
+                .map(|entry| entry.data().clone())
+                .filter(|data| {
+                    data.custom_type == super::auxiliary_model::AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE
+                }),
+        );
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(
+        notices,
+        vec![crate::durable::entries::CustomEntryData {
+            custom_type: super::auxiliary_model::AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE.to_owned(),
+            content: Some(UserContent::Text(
+                "The auxiliaryModel setting \"faux/missing\" was not used for the compaction summary: no model with a configured key has this name. The session model faux/faux-1 ran it."
+                    .to_owned()
+            )),
+            display: true,
+            details: None,
+            input: false,
+            origin: None,
+        }]
+    );
+    session.close(cx()).await.unwrap();
+}
+
 /// The observer keeps no per-task dedup state (it once kept every serviced
 /// task id for the life of the session): it relies on the Session
 /// publishing each task's terminal record exactly once. Two compactions

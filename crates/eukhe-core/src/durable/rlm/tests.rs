@@ -550,7 +550,7 @@ async fn a_crash_mid_cell_answers_interrupted_and_the_reopened_kernel_revives_it
     // interrupted answer holds only what is durable.
     assert_eq!(
         result_text(&results[1]),
-        "<harness>\n[error] Tool ipython was interrupted and may have partially run\n</harness>"
+        "<harness>\n[error] Tool ipython was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
     );
     assert_eq!(results[2].tool_call_id, "c3");
     assert_eq!(result_text(&results[2]), "42\n");

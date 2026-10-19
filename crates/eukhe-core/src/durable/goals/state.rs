@@ -247,3 +247,39 @@ pub(crate) fn mint(state: &GoalState) -> Option<GoalState> {
         ..state.clone()
     })
 }
+
+/// Whether the session did new work since the goal's last continuation
+/// (its [`crate::durable::children::WorkLedger::count`] grew).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Work {
+    Grew,
+    Same,
+}
+
+/// The progress check's verdict at one goal continuation: the count of
+/// continuations in a row that did no new work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stall {
+    /// The goal continues.
+    Go { stalls: u64 },
+    /// The count reached the cap: the goal pauses.
+    Stop { stalls: u64 },
+}
+
+/// The progress check (`check` in `bend/progress.bend`): new work clears
+/// the count of continuations in a row with no new work; else the count
+/// grows by one, and at `cap` the goal stops.
+#[must_use]
+pub(crate) fn stall_check(cap: u64, stalls: u64, work: Work) -> Stall {
+    match work {
+        Work::Grew => Stall::Go { stalls: 0 },
+        Work::Same => {
+            let stalls = stalls.saturating_add(1);
+            if cap <= stalls {
+                Stall::Stop { stalls }
+            } else {
+                Stall::Go { stalls }
+            }
+        }
+    }
+}

@@ -252,7 +252,7 @@ async fn answers_an_unsafe_tool_interrupted_after_intent_with_what_is_durable_on
     assert_eq!(result.unwrap().details, None);
     assert_eq!(
         text(result),
-        "<harness>\n[error] Tool work was interrupted and may have partially run\n</harness>"
+        "<harness>\n[error] Tool work was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
     );
     assert_eq!(
         live(&opened.harness, &opened).await,

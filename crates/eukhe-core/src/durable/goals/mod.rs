@@ -79,6 +79,7 @@ pub(crate) fn goals_extension(
         harness,
         gates,
         limits,
+        work: Arc::default(),
     };
     register_host_requests(&host, host_requests);
     define_extension(Extension {

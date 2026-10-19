@@ -34,6 +34,7 @@ use std::sync::{Mutex, PoisonError};
 
 use eukhe_chord::context::{AbortController, Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::branch_summary::collect_entries_for_branch_summary;
+use eukhe_core::durable::compaction::auxiliary_model::show_auxiliary_notice;
 use eukhe_core::durable::jobs::{stop_orphans, Orphans};
 use eukhe_core::durable::rlm::{release_settled_kernel, transfer_kernel};
 use eukhe_core::durable::{
@@ -470,6 +471,9 @@ impl Worker {
         // The abandoned-branch summary (TS `generateBranchSummary` over
         // `collectEntriesForBranchSummary`).
         let mut branch_summary = None;
+        // The auxiliary-model notice of the summary run, shown in the
+        // conversation the user sees once the move settles.
+        let mut summary_notice = None;
         if request.summarize {
             let old_leaf = tree.leaf().map(|id| id.to_string());
             let collected = collect_entries_for_branch_summary(
@@ -479,7 +483,7 @@ impl Worker {
             );
             if !collected.entries.is_empty() {
                 let (run, controller) = self.tree_navigation.begin_summary();
-                let outcome = summary::generate(
+                let summarized = summary::generate(
                     hosted.deps(),
                     &main,
                     SummaryRequest {
@@ -492,13 +496,22 @@ impl Worker {
                 )
                 .await;
                 self.tree_navigation.end_summary(run);
-                match outcome {
-                    SummaryOutcome::Complete(summary) => branch_summary = Some(*summary),
+                match summarized.outcome {
+                    SummaryOutcome::Complete(summary) => {
+                        branch_summary = Some(*summary);
+                        summary_notice = summarized.notice;
+                    }
                     SummaryOutcome::Aborted => {
+                        if let Some(notice) = summarized.notice {
+                            show_auxiliary_notice(&main, notice, cx).await;
+                        }
                         resubmit(&main, withdrawn, cx).await.map_err(text)?;
                         return Ok(json!({ "cancelled": true, "aborted": true }));
                     }
                     SummaryOutcome::Failed(error) => {
+                        if let Some(notice) = summarized.notice {
+                            show_auxiliary_notice(&main, notice, cx).await;
+                        }
                         resubmit(&main, withdrawn, cx).await.map_err(text)?;
                         return Err(error);
                     }
@@ -521,6 +534,9 @@ impl Worker {
             ),
             None => None,
         };
+        if let Some(notice) = summary_notice {
+            show_auxiliary_notice(&moved, notice, cx).await;
+        }
         // A created summary takes the label; a plain move labels the target.
         if let Some(label) = &request.label {
             let labeled = summary_entry.unwrap_or(target.id).to_string();

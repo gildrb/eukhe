@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use super::diagnostics::ResourceDiagnostic;
 use super::frontmatter::parse_frontmatter;
 use super::{create_synthetic_source_info, skill_markdown_name, SourceInfo, SourceScope};
 pub use eukhe_types::slash_commands::parse_slash_command;
@@ -144,11 +145,28 @@ impl SaturatingSub1OrZero for usize {
     }
 }
 
-fn load_template_from_file(file_path: &Path, source_info: SourceInfo) -> Option<PromptTemplate> {
-    let raw_content = std::fs::read_to_string(file_path).ok()?;
-    let (frontmatter, body) = parse_frontmatter(&raw_content);
+/// Load one template file.
+///
+/// # Errors
+///
+/// The file is not read, or its frontmatter is not valid YAML: the
+/// diagnostic carries the file's path and the error text.
+fn load_template_from_file(
+    file_path: &Path,
+    source_info: SourceInfo,
+) -> Result<PromptTemplate, Box<ResourceDiagnostic>> {
+    let failed = |message: String| {
+        Box::new(ResourceDiagnostic::Warning {
+            message,
+            path: Some(file_path.display().to_string()),
+        })
+    };
+    let raw_content = std::fs::read_to_string(file_path)
+        .map_err(|error| failed(format!("prompt template not read: {error}")))?;
+    let (frontmatter, body) = parse_frontmatter(&raw_content).map_err(failed)?;
     let name = file_path
-        .file_name()?
+        .file_name()
+        .ok_or_else(|| failed("prompt template path has no file name".to_owned()))?
         .to_string_lossy()
         .trim_end_matches(".md")
         .to_string();
@@ -174,7 +192,7 @@ fn load_template_from_file(file_path: &Path, source_info: SourceInfo) -> Option<
         .get("argument-hint")
         .and_then(|value| value.as_str())
         .map(str::to_string);
-    Some(PromptTemplate {
+    Ok(PromptTemplate {
         name,
         description,
         argument_hint,
@@ -184,28 +202,63 @@ fn load_template_from_file(file_path: &Path, source_info: SourceInfo) -> Option<
     })
 }
 
+/// Load the templates of `dir` into `result`. A missing directory holds
+/// none; every other failure is a diagnostic.
 fn load_templates_from_dir(
     dir: &Path,
     get_source_info: &dyn Fn(&Path) -> SourceInfo,
-) -> Vec<PromptTemplate> {
-    let mut templates = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return templates;
+    result: &mut LoadPromptTemplatesResult,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => {
+            result.diagnostics.push(ResourceDiagnostic::Warning {
+                message: format!("prompt template directory not read: {error}"),
+                path: Some(dir.display().to_string()),
+            });
+            return;
+        }
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                result.diagnostics.push(ResourceDiagnostic::Warning {
+                    message: format!("prompt template directory entry not read: {error}"),
+                    path: Some(dir.display().to_string()),
+                });
+                continue;
+            }
+        };
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         if !skill_markdown_name(&name) {
             continue;
         }
-        if !std::fs::metadata(&path).is_ok_and(|meta| meta.is_file()) {
-            continue;
-        }
-        if let Some(template) = load_template_from_file(&path, get_source_info(&path)) {
-            templates.push(template);
+        match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => {
+                match load_template_from_file(&path, get_source_info(&path)) {
+                    Ok(template) => result.templates.push(template),
+                    Err(diagnostic) => result.diagnostics.push(*diagnostic),
+                }
+            }
+            // A directory named `*.md` is no template file.
+            Ok(_) => {}
+            Err(error) => result.diagnostics.push(ResourceDiagnostic::Warning {
+                message: format!("prompt template not read: {error}"),
+                path: Some(path.display().to_string()),
+            }),
         }
     }
-    templates
+}
+
+/// The templates a load found, and a diagnostic for each file or path that
+/// failed (with its path and the error text).
+#[derive(Debug, Default, PartialEq)]
+pub struct LoadPromptTemplatesResult {
+    pub templates: Vec<PromptTemplate>,
+    pub diagnostics: Vec<ResourceDiagnostic>,
 }
 
 #[derive(Debug, Default)]
@@ -242,9 +295,11 @@ fn resolve_prompt_path(path: &str, cwd: &Path) -> PathBuf {
 
 /// Load templates from agentDir/prompts/, `cwd/{CONFIG_DIR_NAME}/prompts/`, and
 /// explicit paths (later entries win nothing: templates append in order).
+/// Every template file or explicit path that fails is a diagnostic with its
+/// path and the error text.
 #[must_use]
-pub fn load_prompt_templates(options: &LoadPromptTemplatesOptions) -> Vec<PromptTemplate> {
-    let mut templates = Vec::new();
+pub fn load_prompt_templates(options: &LoadPromptTemplatesOptions) -> LoadPromptTemplatesResult {
+    let mut result = LoadPromptTemplatesResult::default();
     let global_prompts_dir = options.agent_dir.join("prompts");
     let project_prompts_dir = options
         .cwd
@@ -288,29 +343,44 @@ pub fn load_prompt_templates(options: &LoadPromptTemplatesOptions) -> Vec<Prompt
     };
 
     if options.include_defaults {
-        templates.extend(load_templates_from_dir(
-            &global_prompts_dir,
-            &get_source_info,
-        ));
-        templates.extend(load_templates_from_dir(
-            &project_prompts_dir,
-            &get_source_info,
-        ));
+        load_templates_from_dir(&global_prompts_dir, &get_source_info, &mut result);
+        load_templates_from_dir(&project_prompts_dir, &get_source_info, &mut result);
     }
     for raw_path in &options.prompt_paths {
         let resolved = resolve_prompt_path(raw_path, &options.cwd);
-        if !resolved.exists() {
-            continue;
-        }
-        if resolved.is_dir() {
-            templates.extend(load_templates_from_dir(&resolved, &get_source_info));
-        } else if resolved.is_file() && resolved.to_string_lossy().ends_with(".md") {
-            if let Some(template) = load_template_from_file(&resolved, get_source_info(&resolved)) {
-                templates.push(template);
+        let failed = |message: String| ResourceDiagnostic::Warning {
+            message,
+            path: Some(resolved.display().to_string()),
+        };
+        let metadata = match std::fs::metadata(&resolved) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                result
+                    .diagnostics
+                    .push(failed("prompt template path does not exist".to_owned()));
+                continue;
             }
+            Err(error) => {
+                result
+                    .diagnostics
+                    .push(failed(format!("prompt template path not read: {error}")));
+                continue;
+            }
+        };
+        if metadata.is_dir() {
+            load_templates_from_dir(&resolved, &get_source_info, &mut result);
+        } else if metadata.is_file() && resolved.to_string_lossy().ends_with(".md") {
+            match load_template_from_file(&resolved, get_source_info(&resolved)) {
+                Ok(template) => result.templates.push(template),
+                Err(diagnostic) => result.diagnostics.push(*diagnostic),
+            }
+        } else {
+            result.diagnostics.push(failed(
+                "prompt template path is not a markdown file".to_owned(),
+            ));
         }
     }
-    templates
+    result
 }
 
 /// Expand `/name args...` into the matching template, else return the text.
@@ -408,12 +478,14 @@ mod tests {
             "---\ndescription: A local one\n---\nBody here",
         )
         .unwrap();
-        let templates = load_prompt_templates(&LoadPromptTemplatesOptions {
+        let loaded = load_prompt_templates(&LoadPromptTemplatesOptions {
             cwd: project,
             agent_dir,
             prompt_paths: vec![],
             include_defaults: true,
         });
+        assert_eq!(loaded.diagnostics, Vec::new());
+        let templates = loaded.templates;
         let names: Vec<&str> = templates.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"global"));
         assert!(names.contains(&"local"));
@@ -423,5 +495,65 @@ mod tests {
         // Description falls back to the first body line, truncated at 60.
         let global = templates.iter().find(|t| t.name == "global").unwrap();
         assert_eq!(global.description, "Global prompt body");
+    }
+
+    /// Every template file or path that fails is a diagnostic with its path
+    /// and the error text: an unreadable file, invalid frontmatter, a
+    /// dangling link, a missing path, and a path that is no markdown file.
+    /// Before, each one was dropped without a word.
+    #[cfg(unix)]
+    #[test]
+    fn reports_each_template_that_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prompts = tmp.path().join("prompts");
+        std::fs::create_dir_all(&prompts).unwrap();
+        std::fs::write(prompts.join("good.md"), "---\ndescription: Good\n---\nBody").unwrap();
+        std::fs::write(prompts.join("binary.md"), [0xff, 0xfe, 0x00]).unwrap();
+        let malformed = "---\ndescription: [x\n---\nBody";
+        std::fs::write(prompts.join("malformed.md"), malformed).unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("gone.md"), prompts.join("dangling.md"))
+            .unwrap();
+        let text = tmp.path().join("notes.txt");
+        std::fs::write(&text, "not a template").unwrap();
+        let missing = tmp.path().join("missing.md");
+        let loaded = load_prompt_templates(&LoadPromptTemplatesOptions {
+            cwd: tmp.path().to_path_buf(),
+            agent_dir: tmp.path().join("agent"),
+            prompt_paths: vec![
+                prompts.display().to_string(),
+                missing.display().to_string(),
+                text.display().to_string(),
+            ],
+            include_defaults: true,
+        });
+        let names: Vec<&str> = loaded.templates.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["good"]);
+        let warning = |path: &std::path::Path, message: String| ResourceDiagnostic::Warning {
+            message,
+            path: Some(path.display().to_string()),
+        };
+        let mut diagnostics = loaded.diagnostics;
+        diagnostics.sort_by_key(|diagnostic| format!("{diagnostic:?}"));
+        let mut expected = vec![
+            warning(
+                &prompts.join("binary.md"),
+                "prompt template not read: stream did not contain valid UTF-8".to_owned(),
+            ),
+            warning(
+                &prompts.join("malformed.md"),
+                parse_frontmatter(malformed).unwrap_err(),
+            ),
+            warning(
+                &prompts.join("dangling.md"),
+                "prompt template not read: No such file or directory (os error 2)".to_owned(),
+            ),
+            warning(&missing, "prompt template path does not exist".to_owned()),
+            warning(
+                &text,
+                "prompt template path is not a markdown file".to_owned(),
+            ),
+        ];
+        expected.sort_by_key(|diagnostic| format!("{diagnostic:?}"));
+        assert_eq!(diagnostics, expected);
     }
 }

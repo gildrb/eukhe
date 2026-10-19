@@ -26,7 +26,11 @@
 //!   the JSONL files after TS resumed a copy of `rust-crash/`.
 //! - In both `-resumed` fixtures, the second generation's input carries
 //!   eukhe's `rounds` (docs/harness.md H4), edited in after TS wrote them;
-//!   TS's input is `{}`.
+//!   TS's input is `{}`. The interrupted call's result text ends with
+//!   eukhe's next step ("Check the state it changes (files, processes,
+//!   jobs) before you run it again.", docs/harness.md H7), edited in the
+//!   same way, with the token counts of the answer that follows it; TS's
+//!   text ends at "may have partially run".
 //!
 //! The final state is `{ toolRuns, context, storage }`: how often `probe` ran
 //! during the resume (TS does not rerun an `unsafe` call: 0), the root's

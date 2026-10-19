@@ -117,12 +117,14 @@ pub struct RlmChildObservation {
 }
 
 /// A child's `get_run_outcome` reply: its run state and its progress
-/// token. The token changes whenever the child or one of its unsettled
-/// descendants does something (an event of its session: a streamed
-/// delta, a tool update, an entry; or output a job of its kernel wrote);
-/// the parent's watch reports a child whose token stays the same for
-/// `subagentStallMs` as stalled. A worker started by an older binary sends
-/// no token (`None`).
+/// token. The token changes when the child or one of its unsettled
+/// descendants does new work (a tool call with a result it did not have
+/// before, or an accepted progress note: [`super::WorkLedger`]; or output
+/// a job of its kernel wrote). Events alone (streamed deltas, retries,
+/// answers, a repeat of the same calls with the same results) do not
+/// change it: the parent's watch reports a child whose token stays the
+/// same for `subagentStallMs` as stalled. A worker started by an older
+/// binary sends no token (`None`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RlmChildOutcome {
     #[serde(flatten)]

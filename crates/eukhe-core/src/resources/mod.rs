@@ -84,6 +84,9 @@ use crate::settings::SettingsManager;
 pub struct LoadedResources {
     pub skills: Vec<Skill>,
     pub skill_diagnostics: Vec<ResourceDiagnostic>,
+    /// Prompt templates that failed to load or lost a name collision, each
+    /// with its path.
+    pub prompt_diagnostics: Vec<ResourceDiagnostic>,
     pub prompts: Vec<PromptTemplate>,
     pub agents_files: Vec<ContextFile>,
     pub system_prompt: Option<String>,
@@ -200,9 +203,11 @@ pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResour
         }
     }
 
-    // Prompt templates: CLI paths + resolved paths, then additional paths.
-    let all_prompts = if options.no_prompt_templates && resolution.prompt_paths.is_empty() {
-        Vec::new()
+    // Prompt templates: CLI paths + resolved paths, then additional paths
+    // (the resolution merged them in). The loader reports each path or file
+    // that fails, a missing path included.
+    let loaded_prompts = if options.no_prompt_templates && resolution.prompt_paths.is_empty() {
+        crate::skills::LoadPromptTemplatesResult::default()
     } else {
         load_prompt_templates(&LoadPromptTemplatesOptions {
             cwd: options.cwd.clone(),
@@ -211,7 +216,8 @@ pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResour
             include_defaults: false,
         })
     };
-    resources.prompts = dedupe_prompts(all_prompts)
+    resources.prompt_diagnostics = loaded_prompts.diagnostics;
+    resources.prompts = dedupe_prompts(loaded_prompts.templates, &mut resources.prompt_diagnostics)
         .into_iter()
         .map(|mut prompt| {
             if let Some(source_info) =
@@ -222,14 +228,6 @@ pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResour
             prompt
         })
         .collect();
-    for path in &options.additional_prompt_paths {
-        if is_local_path(path) && !Path::new(path).exists() {
-            resources.skill_diagnostics.push(ResourceDiagnostic::Error {
-                message: "Prompt template path does not exist".to_string(),
-                path: Some(path.clone()),
-            });
-        }
-    }
 
     // Agents files (project context).
     if !options.no_context_files {
@@ -285,13 +283,32 @@ fn is_local_path(path: &str) -> bool {
         || trimmed.starts_with("https://"))
 }
 
-/// Later same-name templates win? No: TS dedupe keeps the FIRST of each name.
-fn dedupe_prompts(prompts: Vec<PromptTemplate>) -> Vec<PromptTemplate> {
-    let mut seen = HashSet::new();
+/// TS dedupe keeps the FIRST template of each name; each later one from
+/// another file is a collision diagnostic with its path (the same file
+/// reached twice is one template).
+fn dedupe_prompts(
+    prompts: Vec<PromptTemplate>,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Vec<PromptTemplate> {
+    let mut winners: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut out = Vec::new();
     for prompt in prompts {
-        if seen.insert(prompt.name.clone()) {
-            out.push(prompt);
+        match winners.get(&prompt.name) {
+            Some(winner_path) if *winner_path == prompt.file_path => {}
+            Some(winner_path) => diagnostics.push(ResourceDiagnostic::Collision {
+                message: format!("name \"/{}\" collision", prompt.name),
+                path: prompt.file_path.clone(),
+                collision: crate::skills::ResourceCollision {
+                    resource_type: "prompt",
+                    name: prompt.name.clone(),
+                    winner_path: winner_path.clone(),
+                    loser_path: prompt.file_path.clone(),
+                },
+            }),
+            None => {
+                winners.insert(prompt.name.clone(), prompt.file_path.clone());
+                out.push(prompt);
+            }
         }
     }
     out

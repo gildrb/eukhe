@@ -44,7 +44,7 @@ use super::{
 use crate::autonomous::{
     AgentAutonomousConfig, AgentAutonomousGateConfig, ChildProcessResult, GateCommandRunner,
 };
-use crate::durable::directors::DirectorLimits;
+use crate::durable::directors::{DirectorLimits, DIRECTOR_NOTICE_CUSTOM_TYPE};
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::{GoalContextKind, GoalState, GoalStatus};
@@ -412,6 +412,73 @@ async fn a_goal_continues_with_its_context_until_completed() {
         .await
         .expect_err("a non-string objective fails");
     assert_eq!(error.to_string(), "goal.create objective must be a string");
+    harness.close(cx()).await.expect("close");
+}
+
+/// Regression (audit H6): an active goal whose model only answered (no
+/// tool call with a new result) got a continuation at every answer, up to
+/// `directors.maxSteps` (200). Now the progress check counts the
+/// continuations in a row with no new work: the model reads the count,
+/// and at `directors.stallSteps` the goal pauses with the reason and a
+/// display row tells the user why.
+#[tokio::test]
+async fn a_goal_without_progress_pauses_at_the_stall_cap() {
+    let setup = setup();
+    *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = DirectorLimits {
+        stall_steps: 2,
+        ..DirectorLimits::default()
+    };
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    setup
+        .host_request("goal.create", json!({ "objective": "ship it" }))
+        .await
+        .expect("goal.create succeeds");
+    setup
+        .faux
+        .set_responses((0..8).map(|_| answer("Waiting for the build.")).collect());
+
+    submit(&root, "work").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    // The first answer starts the count, the second is 1 continuation
+    // with no new work, the third reaches the cap of 2.
+    assert_eq!(setup.faux.get_pending_response_count(), 5);
+    let entries = entries(&root).await;
+    let texts = user_texts(&entries);
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    assert!(!texts[1].contains("[goal: no progress]"), "{}", texts[1]);
+    assert!(texts[2].ends_with(
+        "\n\n[goal: no progress] 1 goal continuations in a row made no tool call with a new result. Take one concrete step that changes something now. If something blocks you, say what it is and stop: after 2 continuations with no progress the goal pauses."
+    ));
+    let reason = "No progress: 2 goal continuations in a row made no tool call with a new result";
+    let goal = stored_goal(&harness, &root).await;
+    assert_eq!(
+        (
+            goal.status,
+            goal.last_reason.clone(),
+            goal.continuations_used
+        ),
+        (GoalStatus::Paused, Some(reason.to_owned()), 2)
+    );
+    let notices: Vec<CustomEntryData> = entries
+        .into_iter()
+        .filter_map(|entry| CUSTOM_ENTRY.narrow(entry).expect("eukhe.custom data"))
+        .map(|entry| entry.data().clone())
+        .filter(|data| data.custom_type == DIRECTOR_NOTICE_CUSTOM_TYPE)
+        .collect();
+    assert_eq!(
+        notices,
+        vec![CustomEntryData {
+            custom_type: DIRECTOR_NOTICE_CUSTOM_TYPE.to_owned(),
+            content: Some(UserContent::Text(format!(
+                "The goal paused. {reason}. Change the plan or remove the blocker, then resume the goal."
+            ))),
+            display: true,
+            details: Some(json!({ "goalId": goal.goal_id, "stalls": 2 })),
+            input: false,
+            origin: None,
+        }]
+    );
     harness.close(cx()).await.expect("close");
 }
 

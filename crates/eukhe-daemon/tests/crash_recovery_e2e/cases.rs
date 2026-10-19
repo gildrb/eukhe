@@ -243,7 +243,7 @@ fn run_case(phase: Phase, target: Target) {
                 .collect();
             let expected = match target {
                 Target::Worker | Target::Both => {
-                    "Tool ipython was interrupted and may have partially run"
+                    "Tool ipython was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again."
                 }
                 Target::Supervisor => "tool finished",
             };

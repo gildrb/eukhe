@@ -1,5 +1,7 @@
 //! Skill discovery, validation, and prompt formatting. Port of core/skills.ts.
 
+#[cfg(all(test, unix))]
+mod bridge;
 pub mod diagnostics;
 pub mod discovery;
 pub mod frontmatter;
@@ -21,7 +23,7 @@ pub use eukhe_types::slash_commands::parse_slash_command;
 pub use loader::{load_skills, LoadSkillsOptions, LoadSkillsResult};
 pub use prompt_templates::{
     expand_prompt_template, load_prompt_templates, parse_command_args, substitute_args,
-    LoadPromptTemplatesOptions, PromptTemplate,
+    LoadPromptTemplatesOptions, LoadPromptTemplatesResult, PromptTemplate,
 };
 
 /// Source provenance for a resource (port of source-info.ts, synthetic form).

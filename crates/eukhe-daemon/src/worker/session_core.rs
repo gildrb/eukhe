@@ -84,6 +84,10 @@ pub(crate) struct SessionCore {
     /// The session's latest accepted `rlm.progress.note` (a roster `note`
     /// candidate); set by the session's progress-note sink.
     pub(crate) progress_note: Option<super::summary::TimedNote>,
+    /// The distinct acts of the shown conversation and the accepted
+    /// progress notes: the progress token `get_run_outcome` reports to a
+    /// parent (rule H5) counts them, so a looping session shows none.
+    pub(crate) work_ledger: eukhe_core::durable::children::WorkLedger,
     /// Where the session's model requests stand against their provider's
     /// admission limit (summary `admission`); set by the session's
     /// admission sink.
@@ -126,6 +130,7 @@ impl SessionCore {
             scoped_models: Vec::new(),
             prompt: eukhe_core::durable::PromptConfig::default(),
             progress_note: None,
+            work_ledger: eukhe_core::durable::children::WorkLedger::default(),
             model_admission: None,
         }
     }

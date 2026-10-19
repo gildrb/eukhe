@@ -28,7 +28,7 @@
 //! rerun after a crash repeats the decision instead of charging the goal
 //! twice.
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
@@ -40,7 +40,7 @@ use eukhe_durable::harness::{
     Conversation, ConversationEntryQuery, ForcedToolError, GENERATION_TASK, LIVE_DOC,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_durable::types::{EntryDraft, EntryRecord, SubmissionId, TaskId};
+use eukhe_durable::types::{EntryDraft, EntryRecord, ScanOrder, SubmissionId, TaskId};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent,
@@ -49,16 +49,17 @@ use futures::FutureExt;
 
 use super::autonomous::{decide, AutonomousDocState, AutonomousYield};
 use super::docs::{
-    open_doc, read_doc, write_doc, YieldOutcome, YieldRecord, AUTONOMOUS_DOC, GOAL_DOC, LOOP_DOC,
+    open_doc, read_doc, write_doc, GoalProgress, YieldOutcome, YieldRecord, AUTONOMOUS_DOC,
+    GOAL_DOC, LOOP_DOC,
 };
 use super::host::GoalsHost;
 use super::ops::{goal_context, submit_goal_context, user_input_queued};
 use super::state::{
-    accounted, failed, mint, owns_continuation_wakeup, served, spends_budget, stamp,
-    terminal_provider_failure, UsageOutcome,
+    accounted, failed, mint, owns_continuation_wakeup, paused, served, spends_budget, stall_check,
+    stamp, terminal_provider_failure, Stall, UsageOutcome, Work,
 };
 use crate::autonomous::{now_millis, AutonomousRuntimeState};
-use crate::durable::children::has_unsettled_children;
+use crate::durable::children::{has_unsettled_children, WorkLedger};
 use crate::durable::directors::{
     DirectorLimits, DirectorState, End, Layer, LayerKind, Loop, RunLoop, Verdict, DIRECTORS_DOC,
     DIRECTOR_NOTICE_CUSTOM_TYPE,
@@ -66,8 +67,14 @@ use crate::durable::directors::{
 use crate::durable::entries::custom_entry_draft;
 use crate::goals::{GoalContextKind, GoalState, GoalStatus};
 
+#[cfg(test)]
+mod bridge;
+
 /// How many of the newest entries the failed-run check reads.
 const RECENT_ENTRIES: usize = 16;
+
+/// How many entries one read of the goal's progress check takes.
+const WORK_PAGE: usize = 256;
 
 /// The goal extension's hook registration on `pi.generation`.
 pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
@@ -289,9 +296,11 @@ impl GoalsHost {
     ) -> SessionResult<Option<(String, InputOrigin)>> {
         let conversation_id = api.conversation_id();
         let task_id = api.task_id();
-        let recorded = read_doc(api, &LOOP_DOC, conversation_id, cx)
+        let loop_state = read_doc(api, &LOOP_DOC, conversation_id, cx)
             .await?
-            .and_then(|state| state.yield_record)
+            .unwrap_or_default();
+        let recorded = loop_state
+            .yield_record
             .filter(|record| record.task_id == task_id);
         if let Some(record) = recorded {
             return Ok(match record.outcome {
@@ -310,6 +319,41 @@ impl GoalsHost {
             .await?
             .and_then(|live| live.run)
             .and_then(|run| run.inputs.first().copied());
+        // The work the session did so far, for the goal's progress check:
+        // the cache reads the entries it did not read yet.
+        let conversation = self.conversation(conversation_id, cx).await?;
+        let read = self
+            .work
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&conversation_id)
+            .and_then(WorkLedger::last);
+        let mut cursor = None;
+        let work = loop {
+            let page = conversation
+                .entries(
+                    ConversationEntryQuery {
+                        min_entry_id: read,
+                        max_entry_id: None,
+                        order: Some(ScanOrder::Ascending),
+                    },
+                    WORK_PAGE,
+                    cursor,
+                    cx,
+                )
+                .await?;
+            let mut cache = self.work.lock().unwrap_or_else(PoisonError::into_inner);
+            let ledger = cache.entry(conversation_id).or_default();
+            for entry in &page.items {
+                if ledger.last().is_none_or(|last| entry.id > last) {
+                    ledger.read_entry(entry);
+                }
+            }
+            match page.next {
+                Some(next) => cursor = Some(next),
+                None => break ledger.count(),
+            }
+        };
         let mut decided = None;
         loop {
             let limits = (self.limits)();
@@ -333,8 +377,15 @@ impl GoalsHost {
             if decided.is_none() {
                 // The gates run outside the commit, when the step reaches
                 // the autonomous run.
+                let check = goal_check(
+                    loop_state.progress.as_ref(),
+                    input,
+                    &goal,
+                    work,
+                    limits.stall_steps,
+                );
                 if let Judged::NeedAutonomous =
-                    judge(&state.stack, &goal, &autonomous, None, now_millis())?
+                    judge(&state.stack, &goal, &autonomous, None, check, now_millis())?
                 {
                     let mut runtime = autonomous.to_runtime();
                     let decision =
@@ -346,7 +397,6 @@ impl GoalsHost {
                     });
                 }
             }
-            let conversation = self.conversation(conversation_id, cx).await?;
             match commit_step(
                 &conversation,
                 StepInput {
@@ -355,6 +405,7 @@ impl GoalsHost {
                     seen,
                     decided: decided.clone(),
                     limits,
+                    work,
                 },
                 cx,
             )
@@ -494,6 +545,46 @@ struct Pass {
     autonomous_stopped: Option<AutonomousDocState>,
     /// The forced call whose layer aborted.
     abort: Option<ForcedToolError>,
+    /// Written whatever the loop does: the verdict of the goal's progress
+    /// check, when the active goal judged.
+    goal_stall: Option<Stall>,
+    /// Written whatever the loop does: the goal the progress check paused,
+    /// and the notice row that tells the user why.
+    goal_paused: Option<(GoalState, EntryDraft)>,
+}
+
+/// The goal's progress check at a step: its verdict, and the count of
+/// continuations in a row with no new work that pauses the goal
+/// (`directors.stallSteps`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GoalCheck {
+    stall: Stall,
+    cap: u64,
+}
+
+/// The goal's progress check at a continuation of the run whose first
+/// input is `input`, the session's work being `work` now. The first check
+/// of a run or of a goal has nothing to compare with: it starts the count.
+fn goal_check(
+    prior: Option<&GoalProgress>,
+    input: Option<SubmissionId>,
+    goal: &GoalState,
+    work: u64,
+    cap: u64,
+) -> GoalCheck {
+    let stall = match prior.filter(|prior| prior.input == input && prior.goal_id == goal.goal_id) {
+        None => Stall::Go { stalls: 0 },
+        Some(prior) => stall_check(
+            cap,
+            prior.stalls,
+            if work > prior.work {
+                Work::Grew
+            } else {
+                Work::Same
+            },
+        ),
+    };
+    GoalCheck { stall, cap }
 }
 
 /// The judgment of a step.
@@ -564,8 +655,9 @@ fn begin(
 /// The verdict of each layer of `stack` (bottom first), top first, down to
 /// the first one that decides (not Defer, not Leave), from the session
 /// state:
-/// - Goal: an active goal mints a continuation (Again); a paused,
-///   budget-limited, complete or failed goal yields; a cleared goal leaves.
+/// - Goal: an active goal mints a continuation (Again), or yields when its
+///   progress check stops it (the goal pauses); a paused, budget-limited,
+///   complete or failed goal yields; a cleared goal leaves.
 /// - Autonomous: defers to a goal that drives continuations; leaves when
 ///   disabled; else its gates and limits continue (Again) or stop (Yield).
 /// - Reminder: its text leads the continuation, and it leaves; when no
@@ -578,16 +670,50 @@ fn judge(
     goal: &GoalState,
     autonomous: &AutonomousDocState,
     decided: Option<&AutonomousDecided>,
+    check: GoalCheck,
     now: u64,
 ) -> SessionResult<Judged> {
     let mut pass = Pass::default();
     for layer in stack.iter().rev() {
         let verdict = match &layer.kind {
             LayerKind::Goal => match goal.status {
-                GoalStatus::Active => match mint(goal) {
-                    Some(state) => {
+                GoalStatus::Active => match (check.stall, mint(goal)) {
+                    // An active goal without an objective drives nothing.
+                    (_, None) => Verdict::Leave,
+                    (Stall::Stop { stalls }, Some(_)) => {
+                        let reason = format!(
+                            "No progress: {stalls} goal continuations in a row made no tool call with a new result"
+                        );
+                        if let Some(state) = paused(goal, &reason) {
+                            let row = custom_entry_draft(
+                                DIRECTOR_NOTICE_CUSTOM_TYPE,
+                                UserContent::Text(format!(
+                                    "The goal paused. {reason}. Change the plan or remove the blocker, then resume the goal."
+                                )),
+                                true,
+                                Some(serde_json::json!({
+                                    "goalId": goal.goal_id,
+                                    "stalls": stalls,
+                                })),
+                                now,
+                            )?;
+                            pass.goal_paused = Some((stamp(state, now), row));
+                        }
+                        pass.goal_stall = Some(check.stall);
+                        Verdict::Yield
+                    }
+                    (Stall::Go { stalls }, Some(state)) => {
                         let written = stamp(state, now);
                         let (text, row) = goal_context(&written, GoalContextKind::Continuation)?;
+                        // The model reads why the next continuations count.
+                        let text = if stalls == 0 {
+                            text
+                        } else {
+                            format!(
+                                "{text}\n\n[goal: no progress] {stalls} goal continuations in a row made no tool call with a new result. Take one concrete step that changes something now. If something blocks you, say what it is and stop: after {} continuations with no progress the goal pauses.",
+                                check.cap
+                            )
+                        };
                         pass.continuation = Some((
                             text,
                             InputOrigin::Goal {
@@ -595,10 +721,9 @@ fn judge(
                             },
                         ));
                         pass.goal_slot = Some((written, row));
+                        pass.goal_stall = Some(check.stall);
                         Verdict::Again
                     }
-                    // An active goal without an objective drives nothing.
-                    None => Verdict::Leave,
                 },
                 GoalStatus::Paused
                 | GoalStatus::BudgetLimited
@@ -687,6 +812,8 @@ struct StepInput {
     seen: Seen,
     decided: Option<AutonomousDecided>,
     limits: DirectorLimits,
+    /// The session's work now ([`WorkLedger::count`]).
+    work: u64,
 }
 
 /// What a step's commit did.
@@ -704,7 +831,8 @@ enum Step {
 
 /// One step of the loop in one commit: judge the stack on the committed
 /// state, tick the loop, and write the stack, the goal and autonomous
-/// changes, the goal's context row, and the decision for `task_id` (a rerun
+/// changes, the goal's context row, the goal's progress check (and the
+/// notice of a goal it paused), and the decision for `task_id` (a rerun
 /// repeats it).
 #[tracing::instrument(skip_all)]
 async fn commit_step(
@@ -722,6 +850,7 @@ async fn commit_step(
                     seen,
                     decided,
                     limits,
+                    work,
                 } = step;
                 let now = now_millis();
                 let (loop_draft, mut loop_state) =
@@ -744,11 +873,19 @@ async fn commit_step(
                     .as_ref()
                     .map_or_else(AutonomousDocState::initial, |(_, state)| state.clone());
                 begin(&mut state, input, &goal_state, &autonomous_state, limits);
+                let check = goal_check(
+                    loop_state.progress.as_ref(),
+                    input,
+                    &goal_state,
+                    work,
+                    limits.stall_steps,
+                );
                 let judged = judge(
                     &state.stack,
                     &goal_state,
                     &autonomous_state,
                     decided.as_ref(),
+                    check,
                     now,
                 )?;
                 let mut pass = match judged {
@@ -784,6 +921,21 @@ async fn commit_step(
                 if let (Some(stopped), Some((draft, _))) = (pass.autonomous_stopped, &autonomous) {
                     write_doc(draft, &stopped)?;
                 }
+                if let Some(stall) = pass.goal_stall {
+                    loop_state.progress = Some(GoalProgress {
+                        input,
+                        goal_id: goal_state.goal_id.clone(),
+                        work,
+                        stalls: match stall {
+                            Stall::Go { stalls } | Stall::Stop { stalls } => stalls,
+                        },
+                    });
+                }
+                let mut notice = None;
+                if let (Some((paused, row)), Some((draft, _))) = (pass.goal_paused, &goal) {
+                    write_doc(draft, &paused)?;
+                    notice = Some(row);
+                }
                 let mut row = None;
                 let outcome = match (ticked.end, pass.continuation) {
                     (None, Some((text, origin))) => {
@@ -813,6 +965,9 @@ async fn commit_step(
                 write_doc(&loop_draft, &loop_state)?;
                 if let Some(row) = row {
                     tx.append_entry(conversation_id, row).await?;
+                }
+                if let Some(notice) = notice {
+                    tx.append_entry(conversation_id, notice).await?;
                 }
                 let abort = pass.abort.filter(|_| ticked.end == Some(End::Failed));
                 if let Some(error) = &abort {
@@ -867,6 +1022,10 @@ mod tests {
             &GoalState::default(),
             &AutonomousDocState::initial(),
             None,
+            GoalCheck {
+                stall: Stall::Go { stalls: 0 },
+                cap: crate::durable::directors::DEFAULT_STALL_STEPS,
+            },
             0,
         )
         .expect("judge")

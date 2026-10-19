@@ -47,6 +47,15 @@ pub const DIRECTOR_NOTICE_CUSTOM_TYPE: &str = "eukhe.director";
 /// `directors.maxSteps` setting is unset or `0`.
 pub const DEFAULT_MAX_STEPS: u64 = 200;
 
+/// The goal continuations in a row with no new work before the goal pauses
+/// when the `directors.stallSteps` setting is unset or `0`
+/// (`crate::durable::goals`). The first continuation can be an answer that
+/// only states a plan; the second carries the no-progress note that asks
+/// for one concrete step; the third shows that the model did not act on
+/// that note. Each one is a request with the full context, and a model
+/// that ignored an explicit note does not start to act with more of them.
+pub const DEFAULT_STALL_STEPS: u64 = 3;
+
 /// The Director stack of one conversation.
 pub static DIRECTORS_DOC: RewindableConversationDoc<DirectorState> =
     match RewindableConversationDoc::define(
@@ -111,12 +120,14 @@ impl DirectorState {
     }
 }
 
-/// The cap of the pushed layers and the global budget of a loop.
+/// The cap of the pushed layers, the global budget of a loop, and the
+/// goal continuations in a row with no new work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirectorLimits {
     /// The reminders and forced calls the stack may hold.
     pub stack_cap: usize,
     pub max_steps: u64,
+    pub stall_steps: u64,
 }
 
 impl Default for DirectorLimits {
@@ -124,6 +135,7 @@ impl Default for DirectorLimits {
         Self {
             stack_cap: DEFAULT_STACK_CAP,
             max_steps: DEFAULT_MAX_STEPS,
+            stall_steps: DEFAULT_STALL_STEPS,
         }
     }
 }
@@ -153,6 +165,10 @@ impl DirectorLimits {
                 .and_then(|directors| directors.max_steps)
                 .filter(|steps| *steps > 0)
                 .unwrap_or(DEFAULT_MAX_STEPS),
+            stall_steps: directors
+                .and_then(|directors| directors.stall_steps)
+                .filter(|steps| *steps > 0)
+                .unwrap_or(DEFAULT_STALL_STEPS),
         }
     }
 }

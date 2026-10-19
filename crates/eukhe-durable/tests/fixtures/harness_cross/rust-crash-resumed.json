@@ -97,7 +97,7 @@
 							},
 							{
 								"type": "text",
-								"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run\n</harness>"
+								"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
 							}
 						],
 						"details": {
@@ -118,7 +118,7 @@
 						{
 							"severity": "error",
 							"code": "interrupted",
-							"message": "Tool probe was interrupted and may have partially run"
+							"message": "Tool probe was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again."
 						}
 					]
 				},
@@ -141,11 +141,11 @@
 						"provider": "faux",
 						"model": "faux-1",
 						"usage": {
-							"input": 91,
+							"input": 110,
 							"output": 7,
 							"cacheRead": 0,
-							"cacheWrite": 91,
-							"totalTokens": 189,
+							"cacheWrite": 110,
+							"totalTokens": 227,
 							"cost": {
 								"input": 0,
 								"output": 0,
@@ -242,7 +242,7 @@
 						},
 						{
 							"type": "text",
-							"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run\n</harness>"
+							"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
 						}
 					],
 					"details": {
@@ -266,11 +266,11 @@
 					"provider": "faux",
 					"model": "faux-1",
 					"usage": {
-						"input": 91,
+						"input": 110,
 						"output": 7,
 						"cacheRead": 0,
-						"cacheWrite": 91,
-						"totalTokens": 189,
+						"cacheWrite": 110,
+						"totalTokens": 227,
 						"cost": {
 							"input": 0,
 							"output": 0,
@@ -355,7 +355,7 @@
 					},
 					{
 						"type": "text",
-						"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run\n</harness>"
+						"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
 					}
 				],
 				"details": {
@@ -377,11 +377,11 @@
 				"provider": "faux",
 				"model": "faux-1",
 				"usage": {
-					"input": 91,
+					"input": 110,
 					"output": 7,
 					"cacheRead": 0,
-					"cacheWrite": 91,
-					"totalTokens": 189,
+					"cacheWrite": 110,
+					"totalTokens": 227,
 					"cost": {
 						"input": 0,
 						"output": 0,
@@ -500,7 +500,7 @@
 									},
 									{
 										"type": "text",
-										"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run\n</harness>"
+										"text": "<harness>\n[info] probe started\n[error] Tool probe was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again.\n</harness>"
 									}
 								],
 								"details": {
@@ -521,7 +521,7 @@
 								{
 									"severity": "error",
 									"code": "interrupted",
-									"message": "Tool probe was interrupted and may have partially run"
+									"message": "Tool probe was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again."
 								}
 							]
 						},
@@ -544,11 +544,11 @@
 								"provider": "faux",
 								"model": "faux-1",
 								"usage": {
-									"input": 91,
+									"input": 110,
 									"output": 7,
 									"cacheRead": 0,
-									"cacheWrite": 91,
-									"totalTokens": 189,
+									"cacheWrite": 110,
+									"totalTokens": 227,
 									"cost": {
 										"input": 0,
 										"output": 0,
@@ -608,7 +608,7 @@
 					"outcome": {
 						"status": "failed",
 						"error": {
-							"message": "Tool probe was interrupted and may have partially run"
+							"message": "Tool probe was interrupted and may have partially run. Check the state it changes (files, processes, jobs) before you run it again."
 						},
 						"result": {
 							"kind": "model",
@@ -628,7 +628,7 @@
 					"rounds": {
 						"count": 1,
 						"same": 1,
-						"hash": 7435172998516768
+						"hash": 4339292865717743
 					}
 				},
 				"background": false,
@@ -707,11 +707,11 @@
 				"value": {
 					"models": {
 						"faux/faux-1": {
-							"input": 139,
+							"input": 158,
 							"output": 13,
 							"cacheRead": 0,
-							"cacheWrite": 139,
-							"totalTokens": 291,
+							"cacheWrite": 158,
+							"totalTokens": 329,
 							"cost": {
 								"input": 0,
 								"output": 0,

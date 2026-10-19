@@ -53,6 +53,13 @@ use crate::types::{
     DocumentReaderExt, EntryId, TaskAbortReason, TaskId, TaskOutcome, TaskOutcomeError,
 };
 
+/// The next step an interrupted call's result gives the model: the call may
+/// have changed state before it stopped, so the model checks that state
+/// instead of running the call again blindly (eukhe addition; TS ends the
+/// text at "may have partially run").
+const INTERRUPTED_NEXT_STEP: &str =
+    "Check the state it changes (files, processes, jobs) before you run it again.";
+
 /// A model-issued call, read from its assistant entry, or a nested call a
 /// running tool made through `execute_tool()`, whose call the input carries
 /// because no entry holds it.
@@ -309,7 +316,7 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
         return run(&runtime, &input, &call, &tool, arguments, repairs, &cx).await;
     }
     let message = format!(
-        "Tool {} was interrupted and may have partially run",
+        "Tool {} was interrupted and may have partially run. {INTERRUPTED_NEXT_STEP}",
         call.name
     );
     // `failed` records cancellation intent, so the call's owned conversations, left unsupervised, are aborted.
@@ -339,7 +346,7 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
         (
             "interrupted",
             format!(
-                "Tool {} was interrupted by a restart and may have partially run",
+                "Tool {} was interrupted by a restart and may have partially run. {INTERRUPTED_NEXT_STEP}",
                 call.name
             ),
         )

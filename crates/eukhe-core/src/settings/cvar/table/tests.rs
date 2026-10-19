@@ -110,6 +110,7 @@ fn populated() -> Settings {
         directors: Some(DirectorSettings {
             stack_cap: Some(1),
             max_steps: Some(1),
+            stall_steps: Some(1),
         }),
         shell_path: Some("s".into()),
         quiet_startup: Some(true),

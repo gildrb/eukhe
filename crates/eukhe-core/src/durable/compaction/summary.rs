@@ -32,7 +32,9 @@ use serde_json::json;
 
 use crate::durable::observe::compaction_trace::trace;
 
-use super::auxiliary_model::{resolve_auxiliary_model, AuxiliaryModelContext};
+use super::auxiliary_model::{
+    resolve_auxiliary_model, show_auxiliary_notice, AuxiliaryModelContext, AuxiliaryResolution,
+};
 use super::head;
 use super::summary_request::{
     build_summarization_request, estimate_summary_request_tokens, history_summary_completion_budget,
@@ -118,7 +120,8 @@ async fn decide(
     let file_block = format_file_operations(&read_files, &modified_files);
 
     // The model: the conversation's agent model, routed through
-    // `auxiliaryModel` when that is set and usable (TS #2411).
+    // `auxiliaryModel` when that is set and usable (TS #2411). A set
+    // selector that is not used shows the session why.
     let agent = conversation.agent(cx).await?;
     let model_ref = agent.model.clone();
     let session_model = model_ref.as_ref().and_then(|reference| {
@@ -131,7 +134,7 @@ async fn decide(
         return Ok(None);
     };
     let reserve = compaction_reserve_tokens(deps);
-    let (mut model, options_extra) = route_auxiliary(
+    let routed = route_auxiliary(
         deps,
         &model,
         &history,
@@ -140,6 +143,10 @@ async fn decide(
         request.instructions.as_deref(),
         reserve,
     );
+    if let Some(text) = routed.notice {
+        show_auxiliary_notice(&conversation, text, cx).await;
+    }
+    let mut model = routed.model;
     // The completion budget (TS `generateSummary`: floor(0.8 * reserve)),
     // clamped by the model's own limit like the harness's pin.
     let mut max_tokens = history_summary_completion_budget(reserve);
@@ -179,11 +186,16 @@ async fn decide(
         ..SimpleStreamOptions::default()
     }
     .into();
-    if let Some(api_key) = options_extra.api_key {
+    if let Some(api_key) = routed.api_key {
         options.options.stream.request.api_key = Some(api_key);
     }
-    if let Some(headers) = options_extra.headers {
-        options.options.stream.request.headers = Some(headers);
+    if let Some(headers) = routed.headers {
+        options.options.stream.request.headers = Some(
+            headers
+                .into_iter()
+                .map(|(name, value)| (name, Some(value)))
+                .collect(),
+        );
     }
     // `abort_compaction` (a task abort) cancels the in-flight summarizer,
     // like pi-durable's own summarize phase.
@@ -318,16 +330,10 @@ fn compaction_reserve_tokens(deps: &super::HostDeps) -> u64 {
     deps.settings.manager().get_compaction_reserve_tokens()
 }
 
-/// Extra request options the auxiliary-model routing resolved.
-struct RoutedExtras {
-    api_key: Option<String>,
-    headers: Option<eukhe_types::pi_ai::ProviderHeaders>,
-}
-
 /// Route the summarizer through `auxiliaryModel` when it is set, usable,
 /// and its known window fits the exact request this compaction issues (TS
 /// #2411 `_resolveAuxiliaryModel`); otherwise the session model with no
-/// extras (the session's [`Models`] already carry its auth).
+/// key of its own (the session's [`Models`] already carry its auth).
 fn route_auxiliary(
     deps: &super::HostDeps,
     session_model: &eukhe_types::pi_ai::Model,
@@ -336,12 +342,11 @@ fn route_auxiliary(
     anchor: Option<&str>,
     custom_instructions: Option<&str>,
     reserve: u64,
-) -> (eukhe_types::pi_ai::Model, RoutedExtras) {
+) -> AuxiliaryResolution {
     let context = AuxiliaryModelContext {
         cwd: deps.cwd.clone(),
         agent_dir: deps.agent_dir.clone(),
     };
-    let legacy = crate::durable::rlm::refine::legacy_model(session_model);
     let required = estimate_summary_request_tokens(
         history,
         &[],
@@ -351,30 +356,14 @@ fn route_auxiliary(
         custom_instructions,
         reserve,
     );
-    let routed = resolve_auxiliary_model(
+    resolve_auxiliary_model(
         &context,
+        &deps.models,
+        &deps.auxiliary_notices,
         "compaction summary",
-        &legacy,
-        None,
+        session_model,
         Some(required),
-    );
-    let extras = RoutedExtras {
-        api_key: routed.api_key,
-        headers: routed.headers.map(|headers| {
-            headers
-                .into_iter()
-                .map(|(name, value)| (name, Some(value)))
-                .collect()
-        }),
-    };
-    // The routed model rides the session's collection when it is known
-    // there (the collection owns provider overrides); an unknown model
-    // keeps the session model rather than calling blind.
-    let model = deps
-        .models
-        .get_model(&routed.model.provider, &routed.model.id)
-        .unwrap_or_else(|| session_model.clone());
-    (model, extras)
+    )
 }
 
 /// The session's summary delta sink (a fresh clone for a 'static call).

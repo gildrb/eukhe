@@ -34,31 +34,33 @@ fn extract_frontmatter(content: &str) -> (Option<String>, String) {
 }
 
 /// Parse `---` YAML frontmatter into a JSON object plus the body.
-#[must_use]
-pub fn parse_frontmatter(content: &str) -> (Value, String) {
+///
+/// # Errors
+///
+/// The frontmatter block is not valid YAML: the message of the YAML
+/// parser (TS `yaml.parse` throws, and the skill loader reports it).
+pub fn parse_frontmatter(content: &str) -> Result<(Value, String), String> {
     let (yaml_string, body) = extract_frontmatter(content);
     let Some(yaml_string) = yaml_string else {
-        return (serde_json::Map::new().into(), body);
+        return Ok((serde_json::Map::new().into(), body));
     };
     // YAML 1.2 booleans only, as the TS `yaml` package: `off`/`yes` stay
     // strings.
     let options = serde_saphyr::options! { strict_booleans: true };
-    let converted: Value = match serde_saphyr::from_str_with_options(&yaml_string, options) {
-        Ok(parsed) => parsed,
-        Err(_) => return (serde_json::Map::new().into(), body),
-    };
+    let converted: Value = serde_saphyr::from_str_with_options(&yaml_string, options)
+        .map_err(|error| format!("invalid frontmatter: {error}"))?;
     let frontmatter = if converted.is_null() {
         serde_json::Map::new().into()
     } else {
         converted
     };
-    (frontmatter, body)
+    Ok((frontmatter, body))
 }
 
-/// The body with frontmatter stripped.
+/// The body with frontmatter stripped (the YAML block is not parsed).
 #[must_use]
 pub fn strip_frontmatter(content: &str) -> String {
-    parse_frontmatter(content).1
+    extract_frontmatter(content).1
 }
 
 #[cfg(test)]
@@ -68,7 +70,8 @@ mod tests {
     #[test]
     fn parses_simple_frontmatter() {
         let (frontmatter, body) =
-            parse_frontmatter("---\nname: my-skill\ndescription: A skill\n---\nUse it well.");
+            parse_frontmatter("---\nname: my-skill\ndescription: A skill\n---\nUse it well.")
+                .unwrap();
         assert_eq!(frontmatter["name"], "my-skill");
         assert_eq!(frontmatter["description"], "A skill");
         assert_eq!(body, "Use it well.");
@@ -76,14 +79,14 @@ mod tests {
 
     #[test]
     fn no_frontmatter_returns_body() {
-        let (frontmatter, body) = parse_frontmatter("Just text");
+        let (frontmatter, body) = parse_frontmatter("Just text").unwrap();
         assert!(frontmatter.as_object().unwrap().is_empty());
         assert_eq!(body, "Just text");
     }
 
     #[test]
     fn unterminated_frontmatter_returns_body() {
-        let (frontmatter, body) = parse_frontmatter("---\nname: x\nno end");
+        let (frontmatter, body) = parse_frontmatter("---\nname: x\nno end").unwrap();
         assert!(frontmatter.as_object().unwrap().is_empty());
         assert_eq!(body, "---\nname: x\nno end");
     }
@@ -94,7 +97,7 @@ mod tests {
         // document is the body (the slice bounds are inverted, which
         // previously panicked).
         for text in ["---\n---\nbody", "---\n---", "---\n----\nbody"] {
-            let (frontmatter, body) = parse_frontmatter(text);
+            let (frontmatter, body) = parse_frontmatter(text).unwrap();
             assert!(frontmatter.as_object().unwrap().is_empty(), "{text}");
             assert_eq!(body, text, "{text} is the body verbatim");
         }
@@ -103,14 +106,14 @@ mod tests {
     #[test]
     fn an_empty_first_line_between_delimiters_is_no_frontmatter() {
         // `---x\n---\nbody`: TS slice(4, 4) = "" -> falsy -> no frontmatter.
-        let (frontmatter, body) = parse_frontmatter("---x\n---\nbody");
+        let (frontmatter, body) = parse_frontmatter("---x\n---\nbody").unwrap();
         assert!(frontmatter.as_object().unwrap().is_empty());
         assert_eq!(body, "---x\n---\nbody");
     }
 
     #[test]
     fn crlf_and_bom_normalized() {
-        let (frontmatter, _) = parse_frontmatter("\u{feff}---\r\nname: x\r\n---\r\nbody");
+        let (frontmatter, _) = parse_frontmatter("\u{feff}---\r\nname: x\r\n---\r\nbody").unwrap();
         assert_eq!(frontmatter["name"], "x");
     }
 
@@ -120,7 +123,8 @@ mod tests {
         // scalar keeps its final line break at the close.
         let (frontmatter, _) = parse_frontmatter(
             "---\nname: x\nsignals: [off, yes, n, true]\ndescription: |\n  a\n  b\n---\nbody",
-        );
+        )
+        .unwrap();
         assert_eq!(
             frontmatter,
             serde_json::json!({
@@ -128,6 +132,19 @@ mod tests {
                 "signals": ["off", "yes", "n", true],
                 "description": "a\nb\n",
             })
+        );
+    }
+
+    /// Invalid YAML is an error with the parser's message, not an empty
+    /// frontmatter (the loaders report it with the file's path).
+    #[test]
+    fn invalid_yaml_is_an_error() {
+        let error = parse_frontmatter("---\nname: [x\n---\nbody").unwrap_err();
+        assert!(error.starts_with("invalid frontmatter: "), "{error}");
+        assert_eq!(
+            strip_frontmatter("---\nname: [x\n---\nbody"),
+            "body",
+            "the body does not need the YAML"
         );
     }
 }

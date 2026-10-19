@@ -20,6 +20,7 @@ mod requests;
 mod task;
 mod watch;
 mod wire;
+mod work;
 
 #[cfg(test)]
 mod tests;
@@ -51,6 +52,7 @@ pub(crate) use registry::{tx_put_row, ChildRow, ChildStatus};
 pub use wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };
+pub use work::WorkLedger;
 
 use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, SessionClosing};
 use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;

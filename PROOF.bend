@@ -40,6 +40,9 @@ import ./laws/themes.bend as Themes
 import ./bend/proof_themes.bend as ThemeProofs
 import ./laws/dashboard_tokens.bend as DashTokens
 import ./bend/proof_tokens.bend as Tokens
+import ./laws/progress.bend as Prg
+import ./bend/proof_progress.bend as Progress
+import ./bend/proof_progress_report.bend as Reports
 
 # (a) The view
 
@@ -786,3 +789,38 @@ def DashTokens.tokens_space_ascends():
 
 def DashTokens.tokens_type_ascends():
   Tokens.tokens_type_ascends()
+
+# (H6, H7, M5, L5) Progress is new work; what the harness changes or drops is reported
+
+def Prg.child_repeat_is_no_work(seen, loop, within):
+  Progress.pp.repeat(seen, loop, within)
+
+def Prg.child_loop_is_a_stall(cfg, w, hist, p, ps, loops, tok, long):
+  Progress.pp.loop_stalls(cfg, w, hist, p, ps, loops, tok, long)
+
+def Prg.child_new_work_is_progress(cfg, w, e, seen, seg, x, fresh, news, tok):
+  Progress.pp.new_work_moves(cfg, w, e, seen, seg, x, fresh, news, tok)
+
+def Prg.goal_stops_without_progress(cap, s, hist, seg, segs, repeats, long):
+  Progress.pp.goal_stops(cap, s, hist, seg, segs, repeats, long)
+
+def Prg.goal_progress_continues(cap, s, hist, seg, x, fresh, news):
+  Progress.pp.grew_yes(cap, s, hist, seg, x, fresh, news)
+
+def Prg.fallback_is_reported(ps, k, h):
+  Reports.ppr.fallback_is_reported(ps, k, h)
+
+def Prg.fallback_quiet_when_routed(ps, k, h):
+  Reports.ppr.fallback_quiet_when_routed(ps, k, h)
+
+def Prg.fallback_quiet_when_unset(p, ok, look, need):
+  Reports.ppr.fallback_quiet_when_unset(p, ok, look, need)
+
+def Prg.fallback_quiet_when_same(p, ok, look, need):
+  Reports.ppr.fallback_quiet_when_same(p, ok, look, need)
+
+def Prg.skill_failure_reported(cs, c, i):
+  Reports.ppr.skill_failure_reported(cs, c, i)
+
+def Prg.skill_loaded_not_failed(cs, n, d):
+  Reports.ppr.skill_loaded_not_failed(cs, n, d)

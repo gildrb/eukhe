@@ -111,7 +111,7 @@ pub(crate) fn resource_snapshot(
         "themes": [],
         "diagnostics": {
             "skills": resources.skill_diagnostics,
-            "prompts": [],
+            "prompts": resources.prompt_diagnostics,
             "themes": [],
         },
     })

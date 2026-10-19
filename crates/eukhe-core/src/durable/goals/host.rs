@@ -2,7 +2,8 @@
 //! `goal.get` / `goal.create` / `goal.complete` / `directors.push` kernel
 //! host requests.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::harness::Conversation;
@@ -14,18 +15,22 @@ use serde_json::Value;
 use super::ops::{conversation_of, goal_state, update_goal};
 use super::state::{completed, new_goal};
 use crate::autonomous::GateCommandRunner;
+use crate::durable::children::WorkLedger;
 use crate::durable::directors::{push_director, DirectorLimits, Layer};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::{goal_host_response, GoalStatus};
 
 /// The services of the goal extension: the session's Harness, the runner
-/// of autonomous quality gates, and the Director stack's limits (read at
-/// each step: the settings can change).
+/// of autonomous quality gates, the Director stack's limits (read at each
+/// step: the settings can change), and the work of each conversation the
+/// goal's progress check counts (a cache of what the transcript shows: a
+/// new process reads the transcript again).
 #[derive(Clone)]
 pub(crate) struct GoalsHost {
     pub(crate) harness: HarnessCell,
     pub(crate) gates: Arc<dyn GateCommandRunner>,
     pub(crate) limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
+    pub(crate) work: Arc<Mutex<HashMap<ConversationId, WorkLedger>>>,
 }
 
 impl GoalsHost {

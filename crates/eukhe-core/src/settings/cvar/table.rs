@@ -686,6 +686,16 @@ pub const DIRECTORS_MAX_STEPS: Decl = Decl {
     init: Init::Nat(200),
 };
 
+/// `0` takes the default.
+pub const DIRECTORS_STALL_STEPS: Decl = Decl {
+    id: "directors.stallSteps",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(3),
+};
+
 pub const SHELL_PATH: Decl = Decl {
     id: "shellPath",
     ty: CvarType::Text,
@@ -1274,6 +1284,7 @@ pub const DECLS: &[Decl] = &[
     AUTONOMOUS_TIMEOUT_MS,
     DIRECTORS_STACK_CAP,
     DIRECTORS_MAX_STEPS,
+    DIRECTORS_STALL_STEPS,
     SHELL_PATH,
     QUIET_STARTUP,
     SHELL_COMMAND_PREFIX,

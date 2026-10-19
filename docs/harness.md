@@ -436,14 +436,21 @@ without a note: the run answers at the first retry),
    cancelled it (the cancel's result is its answer).
 2. A child that makes no progress for `subagentStallMs` (default 600 000;
    `0` or unset takes the default) is stopped (its run is aborted) and
-   reported as stalled. Progress is the child's token: its session's event
-   sequence plus the tokens of its own unsettled children plus the output
-   its kernel's jobs wrote (the stdout/stderr bytes of its cells and the
-   output bytes of its running `bash()` handles), so a child that
-   streams, runs tools, waits on a busy child of its own, or waits on a
-   background job that writes output (a long build) is never stalled. A
-   job that writes nothing for `subagentStallMs` ends as a stall: jobs
-   have no time bound of their own.
+   reported as stalled. Progress is new work, not events. The child's
+   token is its work (the number of its distinct acts: a tool call with
+   its result, by tool name, arguments, result text and error flag; or
+   an accepted progress note), plus the tokens of its own unsettled
+   children, plus the output its kernel's jobs wrote (the stdout/stderr
+   bytes of its cells and the output bytes of its running `bash()`
+   handles). So a child that does new work, waits on a busy child of its
+   own, or waits on a background job that writes output (a long build) is
+   never stalled. A child that loops is stalled: the same calls with the
+   same results, retries, answers, streamed text or thinking do not move
+   the token (fixed: the token was the session's event sequence, so every
+   streamed delta and retry event counted as progress and a looping child
+   ran to its own round caps). A job that writes nothing for
+   `subagentStallMs` ends as a stall: jobs have no time bound of their
+   own.
 3. `CHILD_POLL_FAILURES` (5) failed polls in a row, while the child's
    worker lives or restarts, report the child as unreachable. Each failed
    poll doubles the pause before the next (2 s, 4 s, ... 32 s), so they
@@ -492,6 +499,9 @@ Every law is universal.
 | `child_unreachable_in_time` | Failed polls in a row, as many as the tries left, end the watch (H5.3). |
 | `child_clock_bounded` | The clock never grows past full, so the two bounds are at most `subagentStallMs` ms and `CHILD_POLL_FAILURES` polls (H5.2, H5.3). |
 | `child_progress_is_not_a_stall` | A poll with a new token continues the watch with a full clock (H5.2). |
+| `child_repeat_is_no_work` (`laws/progress.bend`) | Acts the child did before add no work: a repeat keeps the token (H5.2). |
+| `child_loop_is_a_stall` (`laws/progress.bend`) | Polls of a child whose acts are all acts it did before, at least as many as the ms left, end the watch (H5.2). |
+| `child_new_work_is_progress` (`laws/progress.bend`) | A poll after an act the child never did before continues the watch with a full clock (H5.2). |
 | `child_one_live` | After any events, at most one submission of the report is live (queued or placed) (H5.4). |
 | `child_report_once` | After any events, at most one submission of the report is placed: the transcript holds it at most once (H5.4). |
 | `child_resubmits_per_abort` | The report's submissions are at most 1 + the parent's aborts, closes and withdrawals (H5.4). |
@@ -510,9 +520,12 @@ Rust (paths from `crates/`):
   its submission's `Fate`; `abort` hands the report `owed_on_abort` picks
   (`cut.ph`) to a new task (`ChildTaskInput.owed`, the row's `reporter`,
   which the quiescence barrier waits on).
+- `eukhe-core/src/durable/children/work.rs`: `WorkLedger`, the work
+  (`work` in `bend/progress.bend`).
 - `eukhe-daemon/src/worker/run_outcome.rs`: the progress token in the
-  `get_run_outcome` reply (`RlmChildOutcome`), with the kernel's job
-  output (`ReplKernelManager::job_output_progress`).
+  `get_run_outcome` reply (`RlmChildOutcome`): the session's work
+  (`work_progress`), with the kernel's job output
+  (`ReplKernelManager::job_output_progress`).
 - `eukhe-daemon/src/rlm_children/durable_host.rs` `wait_settled`: a failed
   probe of a live or restarting worker is a failed poll (it answered
   `Running` before, forever); `stop` is the plain kill.
@@ -526,7 +539,11 @@ Tie: the bridge tests
 any id, aborts, closes, reopens, cancels and deletes, against `step`
 through `bend/bridge_report.bend`; it drives `watched_next`,
 `report_step` and `owed_on_abort` over an inbox kept as the harness
-keeps it). Regression
+keeps it), and
+`durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model`
+(40 scenarios of 60 goal continuations, `bend/bridge_progress.bend`: the
+work ledger over transcripts with call ids, words and thinking that are no
+work). Regression
 tests: `durable::children::tests::watch::a_hung_child_is_stopped_and_reported_stalled`,
 `failing_polls_report_the_child_unreachable`,
 `a_progressing_child_outlives_the_stall_budget` (a guard: progress is
@@ -536,7 +553,8 @@ never a stall), `tests::report_delivery::a_report_withdrawn_as_its_task_aborts_i
 `stopping_a_child_kills_its_worker_once_and_keeps_its_session`, core
 `kernel_lifecycle::background_bash_output_moves_the_job_progress` and
 `kernel::manager::events::tests::stream_output_moves_the_job_progress`
-(a child idle on a long job that writes output is not stalled).
+(a child idle on a long job that writes output is not stalled), daemon
+`worker::run_outcome::tests::a_looping_child_keeps_its_progress_token`.
 
 ### H6. Every other wait has an exit
 
@@ -615,6 +633,66 @@ catch-all, so a new request takes a side). Regression tests:
 `durable::optchat::tests::a_failed_transform_fails_the_turn_and_sends_nothing`.
 Not modelled: how long the owner's own work takes (the reply deadline
 bounds the wait, not the work), and the turn file between owners.
+
+### H7. A failure the harness sees is shown, with its cause
+
+When the harness can tell that something did not work, it tells the user
+or the model what and why. It never drops the cause.
+
+1. A summarizer pass (a compaction summary, a branch summary) runs on the
+   model of the `auxiliaryModel` setting. When that setting is unset or
+   names the session model, the pass runs on the session model and
+   nothing is shown. When the setting names another model that the pass
+   cannot use, the session model runs the pass, and the session shows a
+   row with the selector, the purpose and the reason. The reasons, in the
+   order of the checks: `allowedModels` does not include it; the list of
+   available models could not be read; no model with a configured key has
+   this name; its API key could not be found; the session's model list
+   does not include it; its context window is too small for the request.
+   The row never holds auth details: they can hold credentials.
+2. The row shows once per session for each purpose, selector and reason.
+   A selector that cannot be used would otherwise add the same row at each
+   compaction. A new selector, purpose or reason is new information, so
+   it shows. A reopened session shows it again once. A branch summary's
+   row goes to the conversation the user sees after the move (or stays in
+   the main conversation when the summary fails or is cancelled).
+3. The skill and prompt template loaders report each candidate file that
+   does not load: a file or entry that cannot be read, frontmatter that is
+   not valid YAML, a skill without a description, an ignore file that
+   cannot be read, an ignore rule that is not a glob, a template path that
+   does not exist or is no markdown file, and a template that loses a name
+   collision. Each diagnostic has the path and the error text. The
+   resource snapshot (`get_resource_snapshot`) carries them in
+   `diagnostics.skills` and `diagnostics.prompts`.
+4. A tool call that a crash or a restart interrupted is not run again
+   (unless it is replay-safe). Its result tells the model what happened
+   and what to do next: "Tool X was interrupted and may have partially
+   run. Check the state it changes (files, processes, jobs) before you run
+   it again." (the restart text says "interrupted by a restart").
+
+Laws (`laws/progress.bend`): `fallback_is_reported` (every key the session
+model was put in place of is noticed), `fallback_quiet_when_routed` (a
+notice only comes with a substitution), `fallback_quiet_when_unset`,
+`fallback_quiet_when_same`; `skill_failure_reported` (every candidate
+file is loaded or named by a diagnostic), `skill_loaded_not_failed` (with
+distinct paths, no path is both).
+
+Code: `eukhe-core/src/durable/compaction/auxiliary_model.rs`
+(`decide_auxiliary_route`, `AuxiliaryNotices`, `show_auxiliary_notice`),
+`eukhe-daemon/src/branch_navigation/summary.rs`,
+`eukhe-core/src/skills/` (`discovery.rs`, `prompt_templates.rs`,
+`frontmatter.rs`), `eukhe-durable/src/harness/tool.rs`
+(`INTERRUPTED_NEXT_STEP`).
+
+Tie: the bridge `durable::compaction::auxiliary_model::tests::bridge` runs
+the real decision and notices against `bend/bridge_aux_fallback.bend` on
+40 sessions of 60 passes; the bridge `skills::bridge` runs the real
+loaders over a temp dir of good, unreadable, malformed and incomplete
+files against `bend/bridge_skill_load.bend` on 30 scenarios. Regression
+tests: `durable::compaction::tests::an_unused_auxiliary_model_shows_a_notice_once`,
+`skills::discovery::tests::reports_each_skill_file_and_ignore_rule_that_fails`,
+`skills::prompt_templates::tests::reports_each_template_that_fails`,
+`harness::tool::tests::recovery::answers_an_unsafe_tool_interrupted_after_intent_with_what_is_durable_only`.
 
 ## Phase sections
 

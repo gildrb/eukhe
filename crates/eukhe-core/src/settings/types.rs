@@ -302,6 +302,11 @@ pub struct DirectorSettings {
     /// The continuations one run may make, whatever its Directors say
     /// (default 200; `0` or unset takes the default).
     pub max_steps: Option<u64>,
+    /// The goal continuations in a row that may do no new work (no tool
+    /// call with a result the session did not have before) before the
+    /// goal pauses with the reason (default 3; `0` or unset takes the
+    /// default).
+    pub stall_steps: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

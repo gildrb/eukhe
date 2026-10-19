@@ -1,7 +1,8 @@
 //! The abandoned-branch summary of a tree move (TS `generateBranchSummary`
 //! over `collectEntriesForBranchSummary`): the summarizer call runs on the
 //! session's models with the `auxiliaryModel` setting's model (TS #2411),
-//! falling back to the main conversation's model, and the summary lands in
+//! falling back to the main conversation's model (a set selector that is
+//! not used yields a notice for the session), and the summary lands in
 //! the moved-to conversation as an `eukhe.branch-summary` entry written
 //! through a write submission, with the call's spend added to that
 //! conversation's `pi.usage` under the serving model.
@@ -14,6 +15,9 @@ use eukhe_core::durable::branch_summary::{
     build_branch_summary_request, estimate_branch_summary_request_tokens, finalize_branch_summary,
     BranchSummaryDetails,
 };
+use eukhe_core::durable::compaction::auxiliary_model::{
+    decide_auxiliary_route, AuxiliaryRoute, AuxiliarySelector, FallbackReason, Found,
+};
 use eukhe_core::durable::compaction::utils::SUMMARIZATION_SYSTEM_PROMPT;
 use eukhe_core::durable::messages::{BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX};
 use eukhe_core::durable::{BranchSummaryData, HostDeps, BRANCH_SUMMARY_ENTRY};
@@ -23,7 +27,7 @@ use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryId, TypedEntryDraft};
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, Context as PiContext, Message, Model, StopReason, TextContent, Usage,
+    AssistantContentBlock, Context as PiContext, Message, StopReason, TextContent, Usage,
     UserContent, UserContentBlock, UserMessage,
 };
 use eukhe_types::session::FileEntry;
@@ -52,6 +56,13 @@ pub(crate) enum SummaryOutcome {
     Failed(String),
 }
 
+/// A summary run: how it ended, and the notice to show when the
+/// `auxiliaryModel` setting was set but not used.
+pub(crate) struct SummaryRun {
+    pub(crate) outcome: SummaryOutcome,
+    pub(crate) notice: Option<String>,
+}
+
 /// What to summarize and how.
 pub(crate) struct SummaryRequest<'a> {
     /// The abandoned branch, oldest first.
@@ -68,19 +79,23 @@ pub(crate) async fn generate(
     request: SummaryRequest<'_>,
     signal: AbortSignal,
     cx: &Context,
-) -> SummaryOutcome {
+) -> SummaryRun {
+    let failed = |error: String| SummaryRun {
+        outcome: SummaryOutcome::Failed(error),
+        notice: None,
+    };
     let model_ref = match main.agent(cx).await {
         Ok(agent) => agent.model,
-        Err(error) => return SummaryOutcome::Failed(error.to_string()),
+        Err(error) => return failed(error.to_string()),
     };
     let Some(model_ref) = model_ref else {
-        return SummaryOutcome::Failed("No model selected for the branch summary".to_owned());
+        return failed("No model selected for the branch summary".to_owned());
     };
     let Some(session_model) = deps
         .models
         .get_model(&model_ref.provider, &model_ref.model_id)
     else {
-        return SummaryOutcome::Failed(format!(
+        return failed(format!(
             "Model {}/{} not found",
             model_ref.provider, model_ref.model_id
         ));
@@ -97,148 +112,137 @@ pub(crate) async fn generate(
         request.custom_instructions,
         request.replace_instructions,
     );
-    let model = resolve_auxiliary_model(
-        deps,
+    // TS #2411's `_resolveAuxiliaryModel` over the session's model
+    // collection, with the decision the compaction summary uses: a set
+    // selector that is not used falls back to the session model with a
+    // notice. The list of available models is read only for another model.
+    let selector = AuxiliarySelector::of(
         settings.get_auxiliary_model().as_deref(),
-        settings.get_allowed_models().as_deref(),
-        session_model,
-        required,
-    )
-    .await;
-    let window = if model.context_window > 0 {
-        model.context_window
-    } else {
-        DEFAULT_CONTEXT_WINDOW
-    };
-    let (messages, preparation) = build_branch_summary_request(
-        request.entries,
-        window.saturating_sub(reserve),
-        request.custom_instructions,
-        request.replace_instructions,
+        &session_model.provider,
+        &session_model.id,
     );
-    let prompt = messages.iter().find_map(|message| match message {
-        eukhe_types::session::AgentMessage::User(user) => match &user.content {
-            eukhe_types::ai::UserContent::Text(text) => Some(text.clone()),
-            eukhe_types::ai::UserContent::Blocks(_) => None,
-        },
-        _ => None,
-    });
-    // Nothing model-visible remains after filtering (TS answers the fixed
-    // text without a request).
-    let Some(prompt) = prompt else {
-        let finalized = finalize_branch_summary("", &preparation);
-        return SummaryOutcome::Complete(Box::new(BranchSummary {
-            summary: "No content to summarize".to_owned(),
-            details: details_value(finalized.read_files, finalized.modified_files),
-            usage: None,
-        }));
-    };
-    let options = SimpleStreamOptions {
-        stream: StreamOptions {
-            request: ProviderRequestOptions {
-                signal: Some(signal.clone()),
-                ..ProviderRequestOptions::default()
-            },
-            max_tokens: Some(BRANCH_SUMMARY_MAX_TOKENS),
-            ..StreamOptions::default()
-        },
-        ..SimpleStreamOptions::default()
-    };
-    let context = PiContext {
-        system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
-        messages: vec![Message::User(UserMessage {
-            content: UserContent::Text(prompt),
-            timestamp: crate::util::now_ms(),
-        })],
-        tools: None,
-    };
-    let reply = deps
-        .models
-        .complete_simple(&model, context, ModelsSimpleStreamOptions::from(options))
-        .await;
-    if signal.aborted() || reply.stop_reason == StopReason::Aborted {
-        return SummaryOutcome::Aborted;
-    }
-    match reply.stop_reason {
-        StopReason::Error => {
-            return SummaryOutcome::Failed(
-                reply
-                    .error_message
-                    .unwrap_or_else(|| "Branch summary failed".to_owned()),
-            )
+    let available = match &selector {
+        AuxiliarySelector::Other(_) => {
+            deps.models
+                .get_available(None, AuthOperationOptions::default())
+                .await
         }
-        StopReason::Pending | StopReason::Deferred => {
-            return SummaryOutcome::Failed("Branch summary did not complete".to_owned())
-        }
-        StopReason::Stop | StopReason::Length | StopReason::ToolUse | StopReason::Aborted => {}
-    }
-    let text: String = reply
-        .content
-        .iter()
-        .filter_map(|block| match block {
-            AssistantContentBlock::Text(text) => Some(text.text.as_str()),
-            AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => None,
-        })
-        .collect();
-    let finalized = finalize_branch_summary(&text, &preparation);
-    SummaryOutcome::Complete(Box::new(BranchSummary {
-        summary: finalized
-            .summary
-            .unwrap_or_else(|| "No summary generated".to_owned()),
-        details: details_value(finalized.read_files, finalized.modified_files),
-        usage: Some((format!("{}/{}", reply.provider, reply.model), reply.usage)),
-    }))
-}
-
-/// TS #2411's `_resolveAuxiliaryModel` over the session's model
-/// collection (the durable twin of
-/// `eukhe_core::durable::compaction::auxiliary_model::resolve_auxiliary_model`):
-/// an unset, blank, or session-equal selector keeps the session model; a
-/// selector outside `allowedModels`, missing from the authenticated
-/// catalog, or whose known window is smaller than the request falls back
-/// to the session model with the warning.
-async fn resolve_auxiliary_model(
-    deps: &HostDeps,
-    selector: Option<&str>,
-    allowlist: Option<&[String]>,
-    session_model: Model,
-    required_context_tokens: u64,
-) -> Model {
-    let Some(selector) = selector
-        .map(|selector| selector.trim().to_lowercase())
-        .filter(|selector| !selector.is_empty())
-    else {
-        return session_model;
+        AuxiliarySelector::Unset | AuxiliarySelector::SessionModel => Ok(Vec::new()),
     };
-    if format!("{}/{}", session_model.provider, session_model.id).to_lowercase() == selector {
-        return session_model;
-    }
-    let fallback = |model: Model| {
-        // The selector is logged, never auth details (TS `CodeQL`
-        // `js/clear-text-logging`).
-        eprintln!(
-            "Warning: auxiliaryModel \"{selector}\" unusable for branch summary; using the session model."
+    let route = decide_auxiliary_route(
+        selector,
+        settings.get_allowed_models().as_deref(),
+        Some(required),
+        |selector| {
+            // The error itself stays out of the notice: an auth error can
+            // hold credential material.
+            available
+                .map_err(|_| FallbackReason::ModelListFailed)?
+                .into_iter()
+                .find(|model| format!("{}/{}", model.provider, model.id).to_lowercase() == selector)
+                .map(|model| Found {
+                    context_window: model.context_window,
+                    model,
+                })
+                .ok_or(FallbackReason::NotFound)
+        },
+    );
+    let notice = deps.auxiliary_notices.take(
+        "branch summary",
+        &route,
+        &format!("{}/{}", session_model.provider, session_model.id),
+    );
+    let model = match route {
+        AuxiliaryRoute::Routed(model) => model,
+        AuxiliaryRoute::Session | AuxiliaryRoute::Fallback { .. } => session_model,
+    };
+    let outcome = async {
+        let window = if model.context_window > 0 {
+            model.context_window
+        } else {
+            DEFAULT_CONTEXT_WINDOW
+        };
+        let (messages, preparation) = build_branch_summary_request(
+            request.entries,
+            window.saturating_sub(reserve),
+            request.custom_instructions,
+            request.replace_instructions,
         );
-        model
-    };
-    if allowlist.is_some_and(|allowlist| !eukhe_core::models::model_allowed(&selector, allowlist)) {
-        return fallback(session_model);
+        let prompt = messages.iter().find_map(|message| match message {
+            eukhe_types::session::AgentMessage::User(user) => match &user.content {
+                eukhe_types::ai::UserContent::Text(text) => Some(text.clone()),
+                eukhe_types::ai::UserContent::Blocks(_) => None,
+            },
+            _ => None,
+        });
+        // Nothing model-visible remains after filtering (TS answers the
+        // fixed text without a request).
+        let Some(prompt) = prompt else {
+            let finalized = finalize_branch_summary("", &preparation);
+            return SummaryOutcome::Complete(Box::new(BranchSummary {
+                summary: "No content to summarize".to_owned(),
+                details: details_value(finalized.read_files, finalized.modified_files),
+                usage: None,
+            }));
+        };
+        let options = SimpleStreamOptions {
+            stream: StreamOptions {
+                request: ProviderRequestOptions {
+                    signal: Some(signal.clone()),
+                    ..ProviderRequestOptions::default()
+                },
+                max_tokens: Some(BRANCH_SUMMARY_MAX_TOKENS),
+                ..StreamOptions::default()
+            },
+            ..SimpleStreamOptions::default()
+        };
+        let context = PiContext {
+            system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_owned()),
+            messages: vec![Message::User(UserMessage {
+                content: UserContent::Text(prompt),
+                timestamp: crate::util::now_ms(),
+            })],
+            tools: None,
+        };
+        let reply = deps
+            .models
+            .complete_simple(&model, context, ModelsSimpleStreamOptions::from(options))
+            .await;
+        if signal.aborted() || reply.stop_reason == StopReason::Aborted {
+            return SummaryOutcome::Aborted;
+        }
+        match reply.stop_reason {
+            StopReason::Error => {
+                return SummaryOutcome::Failed(
+                    reply
+                        .error_message
+                        .unwrap_or_else(|| "Branch summary failed".to_owned()),
+                )
+            }
+            StopReason::Pending | StopReason::Deferred => {
+                return SummaryOutcome::Failed("Branch summary did not complete".to_owned())
+            }
+            StopReason::Stop | StopReason::Length | StopReason::ToolUse | StopReason::Aborted => {}
+        }
+        let text: String = reply
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+                AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => None,
+            })
+            .collect();
+        let finalized = finalize_branch_summary(&text, &preparation);
+        SummaryOutcome::Complete(Box::new(BranchSummary {
+            summary: finalized
+                .summary
+                .unwrap_or_else(|| "No summary generated".to_owned()),
+            details: details_value(finalized.read_files, finalized.modified_files),
+            usage: Some((format!("{}/{}", reply.provider, reply.model), reply.usage)),
+        }))
     }
-    let available = deps
-        .models
-        .get_available(None, AuthOperationOptions::default())
-        .await
-        .unwrap_or_default();
-    let Some(model) = available
-        .into_iter()
-        .find(|model| format!("{}/{}", model.provider, model.id).to_lowercase() == selector)
-    else {
-        return fallback(session_model);
-    };
-    if model.context_window > 0 && model.context_window < required_context_tokens {
-        return fallback(session_model);
-    }
-    model
+    .await;
+    SummaryRun { outcome, notice }
 }
 
 fn details_value(read_files: Vec<String>, modified_files: Vec<String>) -> Value {

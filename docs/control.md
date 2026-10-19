@@ -188,11 +188,11 @@ the autonomous run, a reminder, and a forced tool call.
 3. The loop of one run has a global budget of steps. Each continuation
    costs 1 step. When no step is left, a continuation yields.
 4. The verdict of each kind comes from the session state:
-   - Goal: an active goal mints a continuation (`Again`). A paused,
-     budget-limited, complete, or failed goal yields. A cleared goal
-     leaves. An empty reply never gets to the goal: the harness fails it
-     as a model error ([harness.md](harness.md) H4.7), and the goal fails
-     with that error.
+   - Goal: an active goal mints a continuation (`Again`), unless its
+     progress check stops it (8). A paused, budget-limited, complete, or
+     failed goal yields. A cleared goal leaves. An empty reply never gets
+     to the goal: the harness fails it as a model error
+     ([harness.md](harness.md) H4.7), and the goal fails with that error.
    - Autonomous: it defers while a goal drives continuations, so the goal
      keeps its priority. A disabled run leaves. Else its gates and limits
      continue the run (`Again`) or stop it (`Yield`).
@@ -289,3 +289,53 @@ stack after a reopen and in a fork); `durable::session_commands::tests`
 the verdicts (S5.4), `begin` (S5.6), the reminder that defers when no
 continuation follows, and the kind data of a layer (the model keeps a
 number for the kind). Their tests tie them.
+
+#### S5.8. A goal without progress stops
+
+8. At each continuation of an active goal, the progress check looks at
+   the work of the session: the number of its distinct acts (a tool call
+   with its result, by tool name, arguments, result text and error flag;
+   or an accepted progress note). Call ids, timestamps, and the text and
+   thinking around a call are no work. The check compares the work with
+   the work at the last continuation of the same run and goal:
+   - The work grew: the count of continuations in a row with no new work
+     goes back to 0, and the goal continues.
+   - The work did not grow: the count grows by 1. Under the cap, the goal
+     continues, and its continuation tells the model how many
+     continuations in a row did no new work and that the goal pauses at
+     the cap. At the cap (`directors.stallSteps`, default 3; `0` takes
+     the default), the goal pauses with the reason (`No progress: <n>
+     goal continuations in a row made no tool call with a new result`),
+     the run yields, and a display row (`eukhe.director`, not in the
+     model context) tells the user why and how to go on.
+   - The first continuation of a run, or of a new goal, starts the
+     count: a new user input or a resume gives the goal the full cap
+     again.
+
+   Before this check, an active goal with no token budget got up to
+   `directors.maxSteps` (200) continuations when the model only answered
+   (for example "waiting for the build"), each a request with the full
+   context. The default 3: the first continuation can be an answer that
+   only states a plan, the second carries the note that asks for one
+   concrete step, and the third shows that the model did not act on it.
+   (An earlier strike counted replies with no text and no tool call. Such
+   a reply is now a model error, H4.7, so that strike was removed. This
+   check counts work, not replies.)
+
+Model: `bend/progress.bend` (`work`, `check`, `goal`). Laws
+(`laws/progress.bend`): `goal_stops_without_progress` (continuations in a
+row whose acts the session did before, at least as many as the cap, stop
+the goal from any count) and `goal_progress_continues` (a continuation
+with an act the session never did before clears the count). Proofs:
+`bend/proof_progress.bend`.
+
+Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`),
+`durable/goals/state.rs` (`stall_check`), `durable/goals/hooks.rs`
+(`goal_check`, the work read in `on_yield`, the pause and its row in
+`commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
+
+Tie: the bridge test
+`durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model`
+runs the ledger over real transcripts and `goal_check` against
+`bend/bridge_progress.bend`. Regression test:
+`durable::goals::tests::a_goal_without_progress_pauses_at_the_stall_cap`.

@@ -19,7 +19,7 @@ use serde_json::json;
 
 use super::{
     director_state, push_director, DirectorLimits, DirectorState, End, Layer, LayerKind, RunLoop,
-    DIRECTOR_NOTICE_CUSTOM_TYPE,
+    DEFAULT_STALL_STEPS, DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::autonomous::AgentAutonomousConfig;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
@@ -106,6 +106,7 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
     *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = DirectorLimits {
         stack_cap: 8,
         max_steps: 1,
+        stall_steps: DEFAULT_STALL_STEPS,
     };
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     set_autonomous(
@@ -449,6 +450,7 @@ async fn the_goal_keeps_its_place_on_a_full_stack() {
     let limits = DirectorLimits {
         stack_cap: 1,
         max_steps: 8,
+        stall_steps: DEFAULT_STALL_STEPS,
     };
     *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;

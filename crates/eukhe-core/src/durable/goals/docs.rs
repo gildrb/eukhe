@@ -6,7 +6,8 @@
 //!   goal as of its fork entry (the old "goal state follows the branch cut").
 //! - `eukhe.goal.loop`: continuation bookkeeping that makes the hooks
 //!   idempotent across a crash rerun (the last accounted generation and the
-//!   last `on_yield` decision, both keyed by the generation task).
+//!   last `on_yield` decision, both keyed by the generation task), and the
+//!   goal's progress check.
 //! - `eukhe.autonomous`: the autonomous run state (see `autonomous.rs`).
 
 use std::sync::Arc;
@@ -21,7 +22,8 @@ use eukhe_durable::documents::{
 use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
-    ConversationId, DocumentReader, DocumentReaderExt, LatestFork, RewindableFork, TaskId,
+    ConversationId, DocumentReader, DocumentReaderExt, LatestFork, RewindableFork, SubmissionId,
+    TaskId,
 };
 use eukhe_types::input_origin::InputOrigin;
 use serde::{Deserialize, Serialize};
@@ -103,6 +105,25 @@ pub(crate) struct GoalLoopState {
     /// The last `on_yield` decision.
     #[serde(default, rename = "yield", skip_serializing_if = "Option::is_none")]
     pub yield_record: Option<YieldRecord>,
+    /// The goal's progress check at its last continuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<GoalProgress>,
+}
+
+/// The goal's progress check at its last continuation: whose it is (the
+/// run's first input and the goal), the work the session had done then
+/// (`crate::durable::children::WorkLedger::count`), and the continuations
+/// in a row that did no new work. A new run (a new user input, a resume)
+/// or a new goal starts the count again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GoalProgress {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<SubmissionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+    pub work: u64,
+    pub stalls: u64,
 }
 
 /// One `on_yield` decision of generation `task_id`.
@@ -205,6 +226,7 @@ mod tests {
             GoalLoopState {
                 accounted: Some(TaskId::from_number(7)),
                 yield_record: None,
+                progress: None,
             }
         );
     }
@@ -223,6 +245,7 @@ mod tests {
                     },
                 },
             }),
+            progress: None,
         };
         let text = serde_json::to_string(&state).expect("encode");
         assert_eq!(migrated(&text, 2), state);

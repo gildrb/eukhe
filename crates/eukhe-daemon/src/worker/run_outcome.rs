@@ -11,11 +11,16 @@
 //! running background bash handles, its own unsettled children) still
 //! run, since their settlement wakes it into another run; else `Answered`.
 //!
-//! The reply carries the session's progress token (rule H5): its event
-//! sequence plus its unsettled children's tokens plus its kernel jobs'
-//! output progress, so a parent sees this child progress while it
-//! streams, runs tools, waits on a busy child of its own, or waits on a
-//! background job that writes output (a long build or test run).
+//! The reply carries the session's progress token (rule H5): its distinct
+//! acts (tool calls with their results, and accepted progress notes:
+//! [`eukhe_core::durable::children::WorkLedger`]), plus its unsettled
+//! children's tokens, plus its kernel
+//! jobs' output progress. So a parent sees this child progress while it
+//! does new work, waits on a busy child of its own, or waits on a
+//! background job that writes output (a long build or test run). Events
+//! are not progress: a child that streams, retries, or repeats the same
+//! calls with the same results keeps its token, and its parent reports it
+//! stalled after `subagentStallMs`.
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::children::{unsettled_children, RlmChildOutcome, RlmChildRunState};
@@ -26,6 +31,7 @@ use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, Message, StopReason, StreamFailureKind,
 };
 
+use super::session_core::SessionCore;
 use super::summary::queued_inputs;
 use super::{response_failure, response_success, Worker};
 use crate::protocol::DaemonResponse;
@@ -54,11 +60,12 @@ impl Worker {
         let pending_jobs = children.count + kernel_background_jobs(hosted.deps(), main.id());
         let job_progress = kernel_job_progress(hosted.deps(), main.id()).await;
         let state = {
-            let core = self
+            let mut core = self
                 .core
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let busy = core.is_busy() || core.is_compacting() || queued_inputs(&core) > 0;
+            let work = work_progress(&mut core);
             let last = core.view.as_ref().and_then(|view| {
                 view.translator
                     .mirror()
@@ -82,8 +89,7 @@ impl Worker {
                     last.as_ref(),
                 ),
                 progress: Some(
-                    core.last_event_sequence
-                        .wrapping_add(children.progress)
+                    work.wrapping_add(children.progress)
                         .wrapping_add(job_progress),
                 ),
             }
@@ -93,6 +99,20 @@ impl Worker {
             Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
     }
+}
+
+/// The session's own work ([`eukhe_core::durable::children::WorkLedger`]):
+/// the ledger reads the entries of the shown conversation it did not read
+/// yet and the latest accepted progress note.
+fn work_progress(core: &mut SessionCore) -> u64 {
+    if let Some(view) = &core.view {
+        core.work_ledger
+            .read_entries(&view.translator.mirror().entries);
+    }
+    if let Some(note) = &core.progress_note {
+        core.work_ledger.read_note(&note.text);
+    }
+    core.work_ledger.count()
 }
 
 /// The run outcome of a session `busy` or not, owning `pending_jobs`
@@ -258,5 +278,76 @@ mod tests {
                 error: "The child's run failed (aborted)".to_owned(),
             }
         );
+    }
+
+    /// The core showing a conversation with `entries`, as a new snapshot
+    /// installs it (the ledger reads a replaced view again).
+    fn show(core: &mut SessionCore, entries: &[serde_json::Value]) {
+        let snapshot = serde_json::from_value(json!({
+            "entries": entries, "tools": [], "nestedTools": [], "compactions": [], "inbox": [],
+            "agent": {}, "usage": { "models": {}, "tools": {} },
+        }))
+        .expect("snapshot");
+        core.view = Some(crate::worker::durable_host::ShownView {
+            epoch: 1,
+            translator: crate::worker::durable_host::translator::EventTranslator::new(
+                &snapshot,
+                crate::worker::durable_host::translator::CoalesceMode::Immediate,
+            ),
+            inbox: Vec::new(),
+            active: None,
+            goal: serde_json::Value::Null,
+        });
+    }
+
+    /// One round: the call `read {"path": path}` with id `id`, its result
+    /// `text`, and some words around the call.
+    fn round(entries: &mut Vec<serde_json::Value>, id: &str, path: &str, text: &str) {
+        let mut call = serde_json::to_value(assistant("toolUse", json!({}))).expect("json");
+        call["content"] = json!([
+            { "type": "thinking", "thinking": format!("thinking about {id}") },
+            { "type": "text", "text": format!("Let me check again ({id}).") },
+            { "type": "toolCall", "id": id, "name": "read", "arguments": { "path": path } },
+        ]);
+        let result = json!({
+            "role": "toolResult", "toolCallId": id, "toolName": "read",
+            "content": [{ "type": "text", "text": text }], "isError": false, "timestamp": 2,
+        });
+        for (kind, message) in [("pi.assistant", call), ("pi.toolResult", result)] {
+            let id = entries.len() + 1;
+            entries
+                .push(json!({ "model": [message], "kind": kind, "id": id, "conversationId": 1 }));
+        }
+    }
+
+    /// Regression (audit H7): the progress token was the session's event
+    /// sequence, so a child that loops (the same call with the same result,
+    /// new words and thinking each time, streamed events) moved it at every
+    /// poll and was never stalled. The token is the session's work now:
+    /// a repeat keeps it, a new result or a new progress note moves it.
+    #[test]
+    fn a_looping_child_keeps_its_progress_token() {
+        let mut core = SessionCore::test_core("/tmp".to_owned());
+        let mut entries = Vec::new();
+        let mut tokens = Vec::new();
+        round(&mut entries, "c1", "a.rs", "fn a() {}");
+        show(&mut core, &entries);
+        tokens.push(work_progress(&mut core));
+        for id in ["c2", "c3", "c4"] {
+            core.last_event_sequence += 50;
+            round(&mut entries, id, "a.rs", "fn a() {}");
+            show(&mut core, &entries);
+            tokens.push(work_progress(&mut core));
+        }
+        round(&mut entries, "c5", "a.rs", "fn a() { b() }");
+        show(&mut core, &entries);
+        tokens.push(work_progress(&mut core));
+        core.progress_note = Some(crate::worker::summary::TimedNote {
+            text: "editing a.rs".to_owned(),
+            at_ms: 1,
+        });
+        tokens.push(work_progress(&mut core));
+        tokens.push(work_progress(&mut core));
+        assert_eq!(tokens, vec![1, 1, 1, 1, 2, 3, 3]);
     }
 }

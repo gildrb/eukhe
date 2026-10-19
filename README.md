@@ -180,6 +180,7 @@ Settings in `~/.eukhe/settings.json`:
 |`retry.provider.streamRepeatLimit`|`64`|A stream whose last this many lines repeat one line, or a block of up to a quarter of them, stops and retries; `0` takes the default|
 |`directors.stackCap`|`8`|Reminders and forced calls that the Director stack holds; `0` takes the default|
 |`directors.maxSteps`|`200`|Continuations that one run may make; a new user input resets the count; `0` takes the default|
+|`directors.stallSteps`|`3`|Goal continuations in a row that may make no tool call with a new result; at the cap the goal pauses and the transcript tells you why; a new user input or a resume resets the count; `0` takes the default|
 
 The daemon applies the provider limits to all sessions together. The roster
 shows a waiting request as `queued` and a running one as `generating`.

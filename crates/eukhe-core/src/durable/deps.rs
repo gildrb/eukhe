@@ -511,6 +511,9 @@ pub struct HostDeps {
     /// The session's dynamic tools, reached through `dyn` (docs/tools.md
     /// S7): a host tool that comes after the roster was fixed joins here.
     pub tool_surface: super::tool_surface::ToolSurface,
+    /// The auxiliary-model fallbacks this session has shown
+    /// (`auxiliaryModel`; each cause shows once per session).
+    pub auxiliary_notices: super::compaction::auxiliary_model::AuxiliaryNotices,
 }
 
 /// A barrier through a commit observer's queue.
@@ -566,6 +569,7 @@ impl HostDeps {
             jobs: super::jobs::JobTable::default(),
             state_tree: OnceLock::new(),
             tool_surface: super::tool_surface::ToolSurface::default(),
+            auxiliary_notices: super::compaction::auxiliary_model::AuxiliaryNotices::default(),
             semantic_edges: services.semantic_edges,
         }
     }
