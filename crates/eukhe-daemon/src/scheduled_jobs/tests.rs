@@ -44,6 +44,7 @@ fn job_for(
         last_skipped_at: None,
         last_error: None,
         run_count: 0,
+        failure_streak: 0,
     }
 }
 

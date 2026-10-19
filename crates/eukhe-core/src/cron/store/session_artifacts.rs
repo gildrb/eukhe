@@ -1,16 +1,17 @@
 //! Session-artifact partitioning: registration of per-session scheduled-jobs
 //! artifact files, recovery of a session's jobs from its artifact partition,
 //! and the partitioned merge-write that keeps each artifact file holding only
-//! its session's jobs and dispatches.
+//! its session's jobs and dispatches. Records a file holds that this build
+//! cannot read, and dispatches of no known job, stay in their file.
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::state::{merge_fresh_jobs, read_jobs_state, with_state_locks, write_jobs_state};
-use super::{
-    AgentCronDispatchRecord, AgentCronJobStore, CronJobsState, SESSION_SCHEDULED_JOBS_FILENAME,
+use super::state::{
+    load_jobs_state, merge_fresh_jobs, read_jobs_state, with_state_locks, write_jobs_state,
 };
+use super::{AgentCronJobStore, CronJobsState, SESSION_SCHEDULED_JOBS_FILENAME};
 use crate::cron::AgentCronJob;
 
 impl AgentCronJobStore {
@@ -61,8 +62,8 @@ impl AgentCronJobStore {
         let with_locks = with_state_locks(&paths, || -> anyhow::Result<()> {
             let current_by_session_id: HashMap<String, CronJobsState> = artifact_files
                 .iter()
-                .map(|(session_id, path)| (session_id.clone(), read_jobs_state(path)))
-                .collect();
+                .map(|(session_id, path)| Ok((session_id.clone(), load_jobs_state(path)?)))
+                .collect::<anyhow::Result<_>>()?;
             let incoming_by_id: HashMap<&str, &AgentCronJob> =
                 jobs.iter().map(|job| (job.id.as_str(), job)).collect();
             let mut merged_by_session_id: HashMap<String, Vec<AgentCronJob>> = HashMap::new();
@@ -93,29 +94,36 @@ impl AgentCronJobStore {
                         .map(move |job| (job.id.clone(), session_id.clone()))
                 })
                 .collect();
-            let all_dispatches: Vec<AgentCronDispatchRecord> = current_by_session_id
-                .values()
-                .flat_map(|state| state.dispatches.clone())
-                .collect();
+            let session_id_by_job_id = &session_id_by_job_id;
             for (session_id, path) in &artifact_files {
-                let current = current_by_session_id
-                    .get(session_id)
+                let Some(current) = current_by_session_id.get(session_id) else {
+                    continue;
+                };
+                // A dispatch goes to the file of its job's session; a
+                // dispatch of no known job stays in its own file.
+                let dispatches = current_by_session_id
+                    .iter()
+                    .flat_map(|(from, state)| {
+                        state.dispatches.iter().filter(move |dispatch| {
+                            match session_id_by_job_id.get(&dispatch.job_id) {
+                                Some(to) => to == session_id,
+                                None => from == session_id,
+                            }
+                        })
+                    })
                     .cloned()
-                    .unwrap_or_default();
+                    .collect();
                 let next_state = CronJobsState {
                     jobs: merged_by_session_id
                         .get(session_id)
                         .cloned()
                         .unwrap_or_default(),
-                    dispatches: all_dispatches
-                        .iter()
-                        .filter(|dispatch| {
-                            session_id_by_job_id.get(&dispatch.job_id) == Some(session_id)
-                        })
-                        .cloned()
-                        .collect(),
+                    dispatches,
+                    unread_jobs: current.unread_jobs.clone(),
+                    unread_dispatches: current.unread_dispatches.clone(),
+                    other_keys: current.other_keys.clone(),
                 };
-                if serde_json::to_string(&current).unwrap_or_default()
+                if serde_json::to_string(current).unwrap_or_default()
                     != serde_json::to_string(&next_state).unwrap_or_default()
                 {
                     write_jobs_state(path, &next_state)?;

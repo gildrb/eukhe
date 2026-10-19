@@ -4,25 +4,35 @@
 //!
 //! Split across submodules: construction, the public input types, and the
 //! heartbeat catalog signature live here; state save/load in [`state`],
-//! generic job and dispatch operations in [`jobs`], `/heartbeat` job
-//! management in [`heartbeat`], RLM heartbeat operations in
-//! [`rlm_heartbeat`], and per-session artifact partitioning in
-//! [`session_artifacts`].
+//! generic job and dispatch operations in [`jobs`], the owners of dispatch
+//! claims in [`owner`], `/heartbeat` job management in [`heartbeat`], RLM
+//! heartbeat operations in [`rlm_heartbeat`], and per-session artifact
+//! partitioning in [`session_artifacts`].
 
 use crate::cron::JobSource;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use eukhe_types::platform::process::ProcessIdentity;
+use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Serialize};
 
 use super::{is_heartbeat_cron_job, AgentCronJob, AgentCronSchedule, DeliveryMode, JobStatus};
 
+#[cfg(test)]
+mod bridge;
 mod heartbeat;
 mod jobs;
+mod owner;
 mod rlm_heartbeat;
 mod session_artifacts;
 mod state;
 
+#[cfg(test)]
+pub(crate) use jobs::failure_backoff_ms;
+pub use jobs::FAILURE_STOP_AFTER;
+pub use owner::RunningDispatch;
 pub use session_artifacts::read_scheduled_jobs_artifact;
 
 pub const SESSION_SCHEDULED_JOBS_FILENAME: &str = "scheduled-jobs.json";
@@ -34,6 +44,7 @@ pub struct AgentCronDispatch {
     pub job: AgentCronJob,
 }
 
+/// One claim on record: a dispatch of a job and the process that runs it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentCronDispatchRecord {
@@ -41,12 +52,50 @@ pub(crate) struct AgentCronDispatchRecord {
     pub job_id: String,
     pub claimed_at: String,
     pub scheduled_for: String,
+    pub owner: ProcessIdentity,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+/// One jobs file. Records this build cannot read (a newer writer's, or a
+/// claim of an older build without an owner) and top-level keys it does not
+/// know are kept as they are and written back unchanged.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct CronJobsState {
     pub(crate) jobs: Vec<AgentCronJob>,
     pub(crate) dispatches: Vec<AgentCronDispatchRecord>,
+    pub(crate) unread_jobs: Vec<serde_json::Value>,
+    pub(crate) unread_dispatches: Vec<serde_json::Value>,
+    pub(crate) other_keys: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The read jobs come first and the unread ones after them, in their order.
+struct Records<'a, T>(&'a [T], &'a [serde_json::Value]);
+
+impl<T: Serialize> Serialize for Records<'_, T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.0.len() + self.1.len()))?;
+        for record in self.0 {
+            seq.serialize_element(record)?;
+        }
+        for record in self.1 {
+            seq.serialize_element(record)?;
+        }
+        seq.end()
+    }
+}
+
+impl Serialize for CronJobsState {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(2 + self.other_keys.len()))?;
+        map.serialize_entry("jobs", &Records(&self.jobs, &self.unread_jobs))?;
+        map.serialize_entry(
+            "dispatches",
+            &Records(&self.dispatches, &self.unread_dispatches),
+        )?;
+        for (key, value) in &self.other_keys {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
 }
 
 /// The file-backed job store.
@@ -58,6 +107,8 @@ pub struct AgentCronJobStore {
     /// artifact partition as sessions bind.
     session_artifact_files: std::sync::Mutex<HashMap<String, PathBuf>>,
     heartbeat_change_listeners: Vec<Box<dyn Fn() + Send + Sync>>,
+    /// The owner of the claims this store makes: this process.
+    owner: Arc<owner::ClaimOwner>,
 }
 
 pub(crate) fn now_millis() -> u64 {
@@ -83,11 +134,17 @@ impl AgentCronJobStore {
     /// Store backed by a single file.
     #[must_use]
     pub fn new(file_path: PathBuf) -> Self {
+        Self::with_owner(file_path, owner::ClaimOwner::this_process())
+    }
+
+    /// Store backed by a single file whose claims belong to `owner`.
+    pub(crate) fn with_owner(file_path: PathBuf, owner: Arc<owner::ClaimOwner>) -> Self {
         Self {
             file_path: Some(file_path),
             session_artifact_mode: false,
             session_artifact_files: std::sync::Mutex::new(HashMap::new()),
             heartbeat_change_listeners: Vec::new(),
+            owner,
         }
     }
 
@@ -99,6 +156,7 @@ impl AgentCronJobStore {
             session_artifact_mode: true,
             session_artifact_files: std::sync::Mutex::new(HashMap::new()),
             heartbeat_change_listeners: Vec::new(),
+            owner: owner::ClaimOwner::this_process(),
         }
     }
 
@@ -199,16 +257,18 @@ pub struct RlmHeartbeatUpdate {
     pub now: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct RecordRunOptions {
-    pub now: Option<u64>,
-    pub error: Option<String>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchOutcome {
+    /// The job ran (with or without an error).
+    Ran,
+    /// The job did not run (busy session, deferral).
+    Skipped,
 }
 
 #[derive(Debug, Clone)]
 pub struct DispatchResultOptions {
     pub now: Option<u64>,
-    pub outcome: &'static str, // "ran" | "skipped"
+    pub outcome: DispatchOutcome,
     pub error: Option<String>,
 }
 

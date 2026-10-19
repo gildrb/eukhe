@@ -35,6 +35,7 @@ import ./laws/kernel_local.bend as KernelLocal
 import ./laws/storage.bend as Storage
 import ./laws/recover.bend as Rec
 import ./laws/catalog_union.bend as CatalogUnion
+import ./laws/cron.bend as Cronl
 
 # (a) The view
 # ------------

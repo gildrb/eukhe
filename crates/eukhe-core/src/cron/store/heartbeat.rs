@@ -92,6 +92,7 @@ impl AgentCronJobStore {
             last_skipped_at: None,
             last_error: None,
             run_count: 0,
+            failure_streak: 0,
         };
         let mut jobs = existing;
         jobs.push(job.clone());
@@ -163,6 +164,7 @@ impl AgentCronJobStore {
                     status: JobStatus::Active,
                     next_run_at: Some(iso_from_millis(next_run_at)),
                     updated_at: now_iso.clone(),
+                    failure_streak: 0,
                     ..job
                 };
                 resumed = Some(resumed_job.clone());
@@ -253,6 +255,7 @@ impl AgentCronJobStore {
                     HeartbeatManagementAction::Resume => AgentCronJob {
                         status: JobStatus::Active,
                         updated_at: now_iso.clone(),
+                        failure_streak: 0,
                         ..job
                     },
                 };

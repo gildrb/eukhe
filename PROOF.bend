@@ -53,6 +53,8 @@ import ./laws/recover.bend as Rec
 import ./bend/proof_recover.bend as Recover
 import ./laws/catalog_union.bend as CatalogUnion
 import ./bend/proof_catalog_union.bend as CatalogUnions
+import ./laws/cron.bend as Cronl
+import ./bend/proof_cron_step.bend as Crons
 
 # (a) The view
 
@@ -1001,3 +1003,20 @@ def CatalogUnion.union_both_other_api(bs, cs, k, b, c, hb, hc, hn, ha):
 
 def CatalogUnion.union_order_free(k, xs, xs2, ys, ys2, sx, sy):
   CatalogUnions.pcu.order_free(k, xs, xs2, ys, ys2, sx, sy)
+
+# Cron
+
+def Cronl.cron_fires_once(evs):
+  Crons.pc.cron_fires_once(evs)
+
+def Cronl.cron_once_finished_after_end(evs):
+  Crons.pc.cron_once_finished_after_end(evs)
+
+def Cronl.cron_never_drops(s, e, t, i):
+  Crons.pc.cron_never_drops(s, e, t, i)
+
+def Cronl.cron_claim_owned(s, e, i, x, o):
+  Crons.pc.cron_claim_owned(s, e, i, x, o)
+
+def Cronl.cron_backoff_bounded(evs, s, e, i, k, c, nx):
+  Crons.pc.cron_backoff_bounded(evs, s, e, i, k, c, nx)

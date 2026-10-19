@@ -204,3 +204,48 @@ generated sessions directories with imports). Regression tests:
 `durable::staging::tests::publish_never_replaces_an_entry_at_the_target`,
 `a_held_staging_dir_is_never_swept`,
 `sweeps_leftovers_at_every_depth_it_owns`.
+
+#### The cron store
+
+The cron jobs file (`cron-jobs.json`, or a session's
+`scheduled-jobs.json`) is shared by all processes of an agent directory.
+`AgentCronJobStore` (crates/eukhe-core/src/cron/store/) keeps these rules:
+
+1. A claim belongs to its owner. Each dispatch record names the process
+   that claimed it (pid and start identity, `ProcessIdentity`). A
+   recovery clears a claim only when it is the claim of this process and
+   its run is no longer live (the pass unwound), or when its owner is
+   dead. The live claim of another process stays.
+2. A one-shot job is completed only by the finish step of its run, or
+   by the recovery of a claim whose run ended. A claim never completes it.
+3. Nothing is dropped. A job record or a claim record that does not parse
+   stays in the file as it is, and so do top-level keys the store does
+   not know. A file that exists but cannot be read or parsed is never
+   written over: the next update moves it aside as
+   `<name>.corrupt-<ms>-<id>` and starts from an empty file. Only a
+   missing file reads as empty.
+4. A failing job stops. Each failed run pushes the next run out by
+   2, 4, 8, 16, 32 minutes, then 60 minutes (never earlier than the
+   schedule). The pause never gets shorter in a streak. After
+   `FAILURE_STOP_AFTER` (8) failures in a row the job is paused with its
+   error, and the cron list shows `paused`, `failures=8` and the error.
+   Only a user action starts it again (a resume sets the count to 0). A
+   good run sets the count to 0. The eighth failure comes about three
+   hours after the first, and the last two pauses are one hour each: a
+   cause that lasts this long is not a short outage.
+
+Laws: `laws/cron.bend` (`cron_fires_once`, `cron_once_finished_after_end`,
+`cron_never_drops`, `cron_claim_owned`, `cron_backoff_bounded`) about the
+model `bend/cron.bend`, proved in `bend/proof_cron.bend` and
+`bend/proof_cron_step.bend`. Tie: the bridge test
+`cron::store::bridge::the_rust_cron_store_equals_the_bend_model` runs
+three simulated processes (each with its own store and owner identity,
+a liveness seam and a fake clock) on one file, and compares its
+transcript with `bend/bridge_cron.bend` byte for byte. Not modelled: cron
+expressions (the model has one-shot and interval schedules), and the
+freshness merge of whole-list writes (the bridge runs one step at a time).
+Regression tests in `cron::store::jobs::tests`:
+`a_pass_of_another_process_keeps_a_live_claim`,
+`a_one_shot_is_not_completed_while_it_runs`,
+`an_unread_job_survives_a_create`, `a_corrupt_file_is_moved_aside`,
+`a_failing_job_stops_after_the_cap`.

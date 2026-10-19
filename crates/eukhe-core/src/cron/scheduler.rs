@@ -1,13 +1,20 @@
 //! The cron scheduler: wake-timer loop, claim-due dispatch, per-session
 //! dispatch lanes. Port of the `AgentCronScheduler` half of core/cron-jobs.ts.
 //!
-//! Deviation from TS, documented: a failing job backs off. TS re-fires a job
-//! at its full cadence no matter how many consecutive fires fail (a dead
-//! model route re-fires every tick until the job is cancelled); this port
-//! stretches the next run past the schedule on consecutive failures (see
-//! [`FAILURE_BACKOFF_BASE_MS`]) and resets the stretch after a good run. A
-//! skipped fire (busy session, deferral) neither extends nor resets the
-//! streak.
+//! Deviation from TS, documented: a failing job backs off and then stops.
+//! TS re-fires a job at its full cadence no matter how many consecutive
+//! fires fail (a dead model route re-fires every tick until the job is
+//! cancelled). Here the store's finish step
+//! ([`AgentCronJobStore::record_dispatch_result`]) counts the failures in
+//! a row on the job, stretches the next run past the schedule (2m, 4m, up
+//! to 1h), and pauses the job after
+//! [`FAILURE_STOP_AFTER`](super::store::FAILURE_STOP_AFTER) of them. A good
+//! run resets the count. A skipped fire (busy session, deferral) neither
+//! extends nor resets it.
+//!
+//! Every pass first recovers interrupted claims: its own claims whose run
+//! is no longer live, and the claims of dead processes. The live claim of
+//! another process sharing the jobs file is never cleared.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -16,29 +23,14 @@ use std::sync::Arc;
 
 use tokio::sync::{Mutex, Notify};
 
-use super::store::{AgentCronDispatch, AgentCronJobStore, DispatchResultOptions};
+use super::store::{
+    AgentCronDispatch, AgentCronJobStore, DispatchOutcome, DispatchResultOptions, RunningDispatch,
+};
 
 const MAX_TIMEOUT_MS: u64 = 2_147_483_647;
 
-/// The first consecutive-failure pause: 2 minutes.
-const FAILURE_BACKOFF_BASE_MS: u64 = 120_000;
-
-/// The backoff ceiling: a failing job still gets one fire per hour, so a
-/// recovered route (or a fixed session) is picked back up without a
-/// manual wake.
-const FAILURE_BACKOFF_CAP_MS: u64 = 3_600_000;
-
-/// The pause after `consecutive_failures` failed fires: `base * 2^(n-1)`
-/// capped at [`FAILURE_BACKOFF_CAP_MS`]. The first failure pauses 2m, the
-/// second 4m, then 8m, 16m, 32m, 1h.
-pub(crate) fn failure_backoff_ms(consecutive_failures: u32) -> u64 {
-    FAILURE_BACKOFF_BASE_MS
-        .saturating_mul(2u64.saturating_pow(consecutive_failures.saturating_sub(1)))
-        .min(FAILURE_BACKOFF_CAP_MS)
-}
-
 /// A claimed dispatch paired with its optional settle callback.
-type PendingDispatch = (AgentCronDispatch, Option<Box<dyn FnOnce() + Send>>);
+type PendingDispatch = (RunningDispatch, Option<Box<dyn FnOnce() + Send>>);
 
 /// Scheduler hooks: how claimed jobs actually run.
 pub trait AgentCronSchedulerHooks: Send + Sync {
@@ -74,9 +66,6 @@ pub struct SchedulerCore<H: AgentCronSchedulerHooks> {
     stopped: AtomicBool,
     has_started: AtomicBool,
     dispatch_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
-    /// Consecutive failed fires per job id (the backoff streaks). A good
-    /// run clears its entry; a daemon restart starts every streak fresh.
-    failure_streaks: std::sync::Mutex<HashMap<String, u32>>,
     wake: Notify,
 }
 
@@ -90,7 +79,6 @@ impl<H: AgentCronSchedulerHooks + 'static> AgentCronScheduler<H> {
                 stopped: AtomicBool::new(true),
                 has_started: AtomicBool::new(false),
                 dispatch_lanes: Mutex::new(HashMap::new()),
-                failure_streaks: std::sync::Mutex::new(HashMap::new()),
                 wake: Notify::new(),
             }),
             timer: Mutex::new(None),
@@ -171,18 +159,17 @@ impl<H: AgentCronSchedulerHooks + 'static> SchedulerCore<H> {
         // pass while the timer keeps spinning. The guard resets it on
         // the way out however the pass ends.
         let _running = RunningGuard(&self.running);
-        // Recover interrupted dispatches before claiming: a claimed
-        // dispatch left on record by an unwound pass is released here,
-        // so its job's next occurrence claims and fires. The atomic
-        // claim above serializes passes, so this never touches another
-        // live pass's dispatch.
+        // Recover interrupted dispatches before claiming: a claim this
+        // process left on record (an unwound pass dropped its running
+        // dispatch) or a dead process's claim is released here, so its
+        // job's next occurrence claims and fires. A live claim stays.
         self.store.recover_interrupted_dispatches(now)?;
         let claimed = self.store.claim_due(now, self.hooks.now())?;
         let dispatches: Vec<PendingDispatch> = claimed
             .into_iter()
-            .map(|dispatch| {
-                let end_dispatch = self.hooks.begin_dispatch(&dispatch);
-                (dispatch, end_dispatch)
+            .map(|running| {
+                let end_dispatch = self.hooks.begin_dispatch(running.dispatch());
+                (running, end_dispatch)
             })
             .collect();
         let ran = self.dispatch_all(dispatches).await;
@@ -203,10 +190,10 @@ impl<H: AgentCronSchedulerHooks + 'static> SchedulerCore<H> {
 
     async fn queue_dispatch(
         &self,
-        dispatch: AgentCronDispatch,
+        running: RunningDispatch,
         end_dispatch: Option<Box<dyn FnOnce() + Send>>,
     ) -> Option<&'static str> {
-        let lane_key = dispatch.job.active_session_id.clone();
+        let lane_key = running.dispatch().job.active_session_id.clone();
         let lane = {
             let mut lanes = self.dispatch_lanes.lock().await;
             lanes
@@ -217,24 +204,27 @@ impl<H: AgentCronSchedulerHooks + 'static> SchedulerCore<H> {
         // Serialize per-session dispatches: the lane lock queues this run
         // behind any in-flight work for the same session.
         let _guard = lane.lock().await;
-        let result = self.run_dispatch(dispatch, end_dispatch).await;
+        let result = self.run_dispatch(running, end_dispatch).await;
         let mut lanes = self.dispatch_lanes.lock().await;
         lanes.remove(&lane_key);
         result
     }
 
+    /// Run one claimed dispatch and record its result. The running dispatch
+    /// drops at the end, after the result is on record.
     async fn run_dispatch(
         &self,
-        dispatch: AgentCronDispatch,
+        running: RunningDispatch,
         end_dispatch: Option<Box<dyn FnOnce() + Send>>,
     ) -> Option<&'static str> {
+        let dispatch: &AgentCronDispatch = running.dispatch();
         let outcome = async {
             let Some(job) = self.store.get_claimed_job(&dispatch.job.id) else {
                 if let Err(error) = self.store.record_dispatch_result(
                     &dispatch.id,
                     &DispatchResultOptions {
                         now: Some(self.hooks.now()),
-                        outcome: "skipped",
+                        outcome: DispatchOutcome::Skipped,
                         error: None,
                     },
                 ) {
@@ -253,11 +243,10 @@ impl<H: AgentCronSchedulerHooks + 'static> SchedulerCore<H> {
                 }
             };
             let outcome = if run_result == Some("skipped") && run_error.is_none() {
-                "skipped"
+                DispatchOutcome::Skipped
             } else {
-                "ran"
+                DispatchOutcome::Ran
             };
-            let failed = run_error.is_some();
             if let Err(error) = self.store.record_dispatch_result(
                 &dispatch.id,
                 &DispatchResultOptions {
@@ -268,49 +257,14 @@ impl<H: AgentCronSchedulerHooks + 'static> SchedulerCore<H> {
             ) {
                 tracing::warn!(%error, "cron dispatch result not saved");
             }
-            // Backoff bookkeeping: a failed fire (recorded above as a run
-            // with an error) stretches the job's next run past its
-            // schedule; a good run clears the streak.
-            if failed {
-                let now = self.hooks.now();
-                let streak = self.note_run_failure(&dispatch.job.id);
-                if let Err(error) = self
-                    .store
-                    .defer_next_run(&dispatch.job.id, now + failure_backoff_ms(streak))
-                {
-                    tracing::warn!(%error, "cron failure backoff not saved");
-                }
-            } else if outcome == "ran" {
-                self.clear_run_failure(&dispatch.job.id);
-            }
             run_result
         }
         .await;
+        drop(running);
         if let Some(end) = end_dispatch {
             end();
         }
         outcome
-    }
-
-    /// Count one more failed fire; returns the streak length.
-    fn note_run_failure(&self, job_id: &str) -> u32 {
-        let mut streaks = self
-            .failure_streaks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let count = streaks.entry(job_id.to_string()).or_insert(0);
-        *count = count.saturating_add(1);
-        *count
-    }
-
-    /// A fire ran without error: the job's next run goes back to its
-    /// schedule.
-    fn clear_run_failure(&self, job_id: &str) {
-        let mut streaks = self
-            .failure_streaks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        streaks.remove(job_id);
     }
 }
 
@@ -378,7 +332,7 @@ impl<H: AgentCronSchedulerHooks + 'static> AgentCronScheduler<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cron::store::CreateAgentCronJobInput;
+    use crate::cron::store::{failure_backoff_ms, CreateAgentCronJobInput};
     use crate::cron::{AgentCronJob, ScheduleKind};
     use std::sync::atomic::AtomicUsize;
 
@@ -464,8 +418,7 @@ mod tests {
             fn run_job(
                 &self,
                 _job: &AgentCronJob,
-            ) -> impl std::future::Future<Output = anyhow::Result<Option<&'static str>>>
-            {
+            ) -> impl Future<Output = anyhow::Result<Option<&'static str>>> {
                 self.runs.fetch_add(1, Ordering::SeqCst);
                 assert!(
                     !self.panic_first.swap(false, Ordering::SeqCst),
@@ -727,16 +680,6 @@ mod tests {
         assert_eq!(job.schedule.kind, ScheduleKind::Interval);
     }
 
-    #[test]
-    fn failure_backoff_doubles_then_caps() {
-        assert_eq!(failure_backoff_ms(1), 120_000);
-        assert_eq!(failure_backoff_ms(2), 240_000);
-        assert_eq!(failure_backoff_ms(3), 480_000);
-        assert_eq!(failure_backoff_ms(5), 1_920_000);
-        assert_eq!(failure_backoff_ms(6), 3_600_000);
-        assert_eq!(failure_backoff_ms(60), 3_600_000);
-    }
-
     /// The failure backoff: consecutive failed fires stretch the job's
     /// next run past its schedule (2m, 4m, ... capped at 1h) and record
     /// the error; one good run resets the stretch. Without it, a dead
@@ -831,7 +774,7 @@ mod tests {
         fn run_job(
             &self,
             _job: &AgentCronJob,
-        ) -> impl std::future::Future<Output = anyhow::Result<Option<&'static str>>> {
+        ) -> impl Future<Output = anyhow::Result<Option<&'static str>>> {
             self.runs.fetch_add(1, Ordering::SeqCst);
             let error = self.error.lock().unwrap().clone();
             std::future::ready(match error {

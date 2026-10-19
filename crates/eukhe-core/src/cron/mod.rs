@@ -111,6 +111,16 @@ pub struct AgentCronJob {
     pub last_error: Option<String>,
     #[serde(rename = "runCount", default)]
     pub run_count: u64,
+    /// Failed runs in a row since the last good run or resume. At
+    /// [`store::FAILURE_STOP_AFTER`] the job pauses until a user resumes it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub failure_streak: u32,
+}
+
+// serde's `skip_serializing_if` passes the field by reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// Parsed `/heartbeat` command.
@@ -633,6 +643,11 @@ pub fn format_agent_cron_job(job: &AgentCronJob) -> String {
         .as_ref()
         .map(|error| format!(" error={error}"))
         .unwrap_or_default();
+    let failures = if job.failure_streak > 0 {
+        format!(" failures={}", job.failure_streak)
+    } else {
+        String::new()
+    };
     let label = job
         .label
         .as_ref()
@@ -650,7 +665,7 @@ pub fn format_agent_cron_job(job: &AgentCronJob) -> String {
         JobStatus::Cancelled => "cancelled",
     };
     format!(
-        "{} {status}{} next={next} last={last}{skipped} runs={} schedule=\"{}\" prompt=\"{preview}\"{error}",
+        "{} {status}{} next={next} last={last}{skipped} runs={}{failures} schedule=\"{}\" prompt=\"{preview}\"{error}",
         job.id, label, job.run_count, job.schedule.expression
     )
 }
@@ -1112,6 +1127,7 @@ mod tests {
             run_count: 0,
             prompt: "ping".to_string(),
             last_error: None,
+            failure_streak: 0,
         };
         let idle = HeartbeatSessionActivity::default();
         let streaming = HeartbeatSessionActivity {
@@ -1183,6 +1199,7 @@ mod tests {
             run_count: 3,
             prompt: "keep   working".to_string(),
             last_error: Some("boom".to_string()),
+            failure_streak: 0,
         };
         assert!(is_due_job(&job, 946_684_800_001));
         assert!(!is_due_job(&job, 946_684_799_999));

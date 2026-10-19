@@ -88,6 +88,7 @@ impl AgentCronJobStore {
             last_skipped_at: None,
             last_error: None,
             run_count: 0,
+            failure_streak: 0,
         };
         let mut jobs = self.read_jobs();
         jobs.push(job.clone());
@@ -162,6 +163,7 @@ impl AgentCronJobStore {
                     }
                     Some(RlmHeartbeatStatusUpdate::Resume) => {
                         next.status = JobStatus::Active;
+                        next.failure_streak = 0;
                         next.next_run_at = next_run_at_for_schedule(&next.schedule, now)
                             .ok()
                             .flatten()

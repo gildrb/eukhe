@@ -2,15 +2,22 @@
 //! (lockfile with stale takeover), state read/write/merge helpers, and the
 //! in-state due-claim / interrupted-dispatch recovery transitions.
 //! Section of the port of the `AgentCronJobStore` half of core/cron-jobs.ts.
+//!
+//! A file that exists but cannot be read or parsed is never overwritten:
+//! an update moves it aside (`<name>.corrupt-<ms>-<id>`) and starts from an
+//! empty state. Only a missing file reads as empty. A record that does not
+//! parse is kept as it is and written back unchanged.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use serde_json::Value;
 use uuid::Uuid;
 
+use super::owner::ClaimOwner;
 use super::{
-    iso_from_millis, AgentCronDispatch, AgentCronDispatchRecord, AgentCronJob, AgentCronJobStore,
-    CronJobsState,
+    iso_from_millis, now_millis, AgentCronDispatch, AgentCronDispatchRecord, AgentCronJob,
+    AgentCronJobStore, CronJobsState,
 };
 use crate::cron::{
     is_due_job, next_run_at_for_schedule, parse_iso_millis, JobStatus, ScheduleKind,
@@ -56,7 +63,7 @@ impl AgentCronJobStore {
         let dispatches = with_state_locks(&paths, || {
             let mut dispatches = Vec::new();
             for path in &paths {
-                let mut state = read_jobs_state(path);
+                let mut state = load_jobs_state(path)?;
                 let before = serde_json::to_string(&state).unwrap_or_default();
                 dispatches.extend(mutator(&mut state));
                 if serde_json::to_string(&state).unwrap_or_default() != before {
@@ -79,10 +86,8 @@ impl AgentCronJobStore {
             self.write_jobs_session_artifacts(jobs)?;
         } else {
             let path = self.require_file_path();
-            with_state_locks(std::slice::from_ref(&path), || {
-                write_jobs_file(&path, jobs, true)
-            })
-            .ok_or_else(|| anyhow::anyhow!("cron jobs state lock not acquired; skipped"))??;
+            with_state_locks(std::slice::from_ref(&path), || write_jobs_file(&path, jobs))
+                .ok_or_else(|| anyhow::anyhow!("cron jobs state lock not acquired; skipped"))??;
         }
         if Self::heartbeat_catalog_signature(&self.read_jobs()) != previous_heartbeats {
             self.notify_heartbeat_change();
@@ -150,10 +155,14 @@ fn is_at_least_as_fresh(candidate: &AgentCronJob, current: &AgentCronJob) -> boo
     candidate_time >= current_time
 }
 
+/// Claim the due jobs that have no claim on record: each new claim names
+/// `owner` and counts as a live run of it. A due job with a claim on
+/// record only rolls its next run.
 pub(crate) fn claim_due_in_state(
     state: &mut CronJobsState,
     due_at: u64,
     claimed_at: u64,
+    owner: &ClaimOwner,
 ) -> Vec<AgentCronDispatch> {
     let claimed_iso = iso_from_millis(claimed_at);
     let claimed_job_ids: std::collections::HashSet<String> = state
@@ -162,23 +171,18 @@ pub(crate) fn claim_due_in_state(
         .map(|dispatch| dispatch.job_id.clone())
         .collect();
     let mut dispatches = Vec::new();
-    let jobs = std::mem::take(&mut state.jobs);
-    let mut new_jobs = Vec::with_capacity(jobs.len());
-    for mut job in jobs {
-        if !is_due_job(&job, due_at) {
-            new_jobs.push(job);
+    for job in &mut state.jobs {
+        if !is_due_job(job, due_at) {
             continue;
         }
         let scheduled_for = job.next_run_at.clone().unwrap_or_default();
-        let next_run_at = next_run_at_for_schedule(&job.schedule, claimed_at)
+        job.next_run_at = next_run_at_for_schedule(&job.schedule, claimed_at)
             .ok()
             .flatten()
             .map(iso_from_millis);
-        job.next_run_at = next_run_at;
         job.updated_at.clone_from(&claimed_iso);
         if claimed_job_ids.contains(&job.id) {
             job.last_skipped_at = Some(claimed_iso.clone());
-            new_jobs.push(job);
             continue;
         }
         let dispatch = AgentCronDispatchRecord {
@@ -186,65 +190,47 @@ pub(crate) fn claim_due_in_state(
             job_id: job.id.clone(),
             claimed_at: claimed_iso.clone(),
             scheduled_for,
+            owner: owner.identity().clone(),
         };
-        state.dispatches.push(dispatch.clone());
+        owner.start_running(&dispatch.id);
         dispatches.push(AgentCronDispatch {
-            id: dispatch.id,
+            id: dispatch.id.clone(),
             job: job.clone(),
         });
-        new_jobs.push(job);
+        state.dispatches.push(dispatch);
     }
-    state.jobs = new_jobs;
     dispatches
 }
 
+/// Clear the claims `owner` may clear (its own with no live run, or a
+/// dead owner's). An active job whose claim is cleared records the
+/// interruption; a one-shot is then completed, as its one run ended.
 pub(crate) fn recover_interrupted_in_state(
     state: &mut CronJobsState,
     now: u64,
     recovered: &mut Vec<AgentCronJob>,
-    dispatch_ids: Option<&std::collections::HashSet<String>>,
+    owner: &ClaimOwner,
 ) {
-    let interrupted: Vec<AgentCronDispatchRecord> = match dispatch_ids {
-        Some(ids) => state
-            .dispatches
-            .iter()
-            .filter(|dispatch| ids.contains(&dispatch.id))
-            .cloned()
-            .collect(),
-        None => state.dispatches.clone(),
-    };
-    if interrupted.is_empty() {
-        return;
+    let mut interrupted_job_ids = std::collections::HashSet::new();
+    state.dispatches.retain(|dispatch| {
+        let clear = owner.may_clear(&dispatch.owner, &dispatch.id);
+        if clear {
+            interrupted_job_ids.insert(dispatch.job_id.clone());
+        }
+        !clear
+    });
+    for job in &mut state.jobs {
+        if !interrupted_job_ids.contains(&job.id) || job.status != JobStatus::Active {
+            continue;
+        }
+        if job.schedule.kind == ScheduleKind::Once {
+            job.status = JobStatus::Completed;
+            job.next_run_at = None;
+        }
+        job.last_error = Some("Interrupted before scheduled operation completion".to_string());
+        job.updated_at = iso_from_millis(now);
+        recovered.push(job.clone());
     }
-    let interrupted_ids: std::collections::HashSet<String> = interrupted
-        .iter()
-        .map(|dispatch| dispatch.job_id.clone())
-        .collect();
-    match dispatch_ids {
-        Some(ids) => state
-            .dispatches
-            .retain(|dispatch| !ids.contains(&dispatch.id)),
-        None => state.dispatches.clear(),
-    }
-    state.jobs = state
-        .jobs
-        .clone()
-        .into_iter()
-        .map(|mut job| {
-            if !interrupted_ids.contains(&job.id) || job.status != JobStatus::Active {
-                return job;
-            }
-            job.status = if job.schedule.kind == ScheduleKind::Once {
-                JobStatus::Completed
-            } else {
-                job.status
-            };
-            job.last_error = Some("Interrupted before scheduled operation completion".to_string());
-            job.updated_at = iso_from_millis(now);
-            recovered.push(job.clone());
-            job
-        })
-        .collect();
 }
 
 /// Cross-process state locks: lockfile with stale takeover, sorted by path.
@@ -282,52 +268,128 @@ pub(crate) fn with_state_locks<T>(paths: &[PathBuf], action: impl FnOnce() -> T)
     Some(result)
 }
 
-pub(crate) fn read_jobs_state(path: &Path) -> CronJobsState {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return CronJobsState::default();
-    };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return CronJobsState::default();
-    };
-    CronJobsState {
-        jobs: parsed
-            .get("jobs")
-            .and_then(|jobs| jobs.as_array())
-            .map(|jobs| {
-                jobs.iter()
-                    .filter_map(|job| serde_json::from_value::<AgentCronJob>(job.clone()).ok())
-                    .collect()
-            })
-            .unwrap_or_default(),
-        dispatches: parsed
-            .get("dispatches")
-            .and_then(|dispatches| dispatches.as_array())
-            .map(|dispatches| {
-                dispatches
-                    .iter()
-                    .filter_map(|dispatch| {
-                        serde_json::from_value::<AgentCronDispatchRecord>(dispatch.clone()).ok()
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+/// What a jobs file holds.
+enum StateFile {
+    Missing,
+    Read(CronJobsState),
+    /// The file exists but cannot be read or parsed: the reason.
+    Corrupt(String),
+}
+
+/// The records of one list of the file: `None` when the value is not a list.
+fn record_list(value: Option<Value>) -> Option<Vec<Value>> {
+    match value {
+        None => Some(Vec::new()),
+        Some(Value::Array(records)) => Some(records),
+        Some(
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Object(_),
+        ) => None,
     }
 }
 
-fn write_jobs_file(path: &Path, jobs: &[AgentCronJob], merge_current: bool) -> anyhow::Result<()> {
-    let current = read_jobs_state(path);
-    let jobs = if merge_current {
-        merge_fresh_jobs(current.jobs, jobs.to_vec())
-    } else {
-        jobs.to_vec()
+/// Split records into those this build reads and those it keeps as they are.
+fn split_records<T: serde::de::DeserializeOwned>(records: Vec<Value>) -> (Vec<T>, Vec<Value>) {
+    let mut read = Vec::new();
+    let mut unread = Vec::new();
+    for record in records {
+        match T::deserialize(&record) {
+            Ok(parsed) => read.push(parsed),
+            Err(_) => unread.push(record),
+        }
+    }
+    (read, unread)
+}
+
+fn read_state_file(path: &Path) -> StateFile {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return StateFile::Missing,
+        Err(error) => return StateFile::Corrupt(format!("cannot be read: {error}")),
     };
-    write_jobs_state(
-        path,
-        &CronJobsState {
-            jobs,
-            dispatches: current.dispatches,
-        },
-    )
+    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(&raw) else {
+        return StateFile::Corrupt("is not a JSON object".to_string());
+    };
+    let (Some(jobs), Some(dispatches)) = (
+        record_list(object.shift_remove("jobs")),
+        record_list(object.shift_remove("dispatches")),
+    ) else {
+        return StateFile::Corrupt("has jobs or dispatches that are not a list".to_string());
+    };
+    let (jobs, unread_jobs) = split_records(jobs);
+    let (dispatches, unread_dispatches) = split_records(dispatches);
+    StateFile::Read(CronJobsState {
+        jobs,
+        dispatches,
+        unread_jobs,
+        unread_dispatches,
+        other_keys: object,
+    })
+}
+
+/// Read a jobs file without changing it. A corrupt file reads as no jobs
+/// and is reported; the next update moves it aside.
+pub(crate) fn read_jobs_state(path: &Path) -> CronJobsState {
+    match read_state_file(path) {
+        StateFile::Missing => CronJobsState::default(),
+        StateFile::Read(state) => state,
+        StateFile::Corrupt(reason) => {
+            tracing::warn!(path = %path.display(), %reason, "cron jobs file is corrupt; read as no jobs");
+            CronJobsState::default()
+        }
+    }
+}
+
+/// Read a jobs file for an update, under its lock. A corrupt file is moved
+/// aside and reported, and the update starts from an empty state.
+///
+/// # Errors
+///
+/// Returns an error when a corrupt file cannot be moved aside.
+pub(crate) fn load_jobs_state(path: &Path) -> anyhow::Result<CronJobsState> {
+    match read_state_file(path) {
+        StateFile::Missing => Ok(CronJobsState::default()),
+        StateFile::Read(state) => {
+            let unread = state.unread_jobs.len() + state.unread_dispatches.len();
+            if unread > 0 {
+                tracing::warn!(
+                    path = %path.display(),
+                    unread,
+                    "cron jobs file holds records this build cannot read; they are kept unchanged"
+                );
+            }
+            Ok(state)
+        }
+        StateFile::Corrupt(reason) => {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let aside = path.with_file_name(format!(
+                "{name}.corrupt-{}-{}",
+                now_millis(),
+                Uuid::new_v4().simple()
+            ));
+            std::fs::rename(path, &aside).map_err(|error| {
+                anyhow::anyhow!(
+                    "cron jobs file {} {reason} and cannot be moved aside: {error}",
+                    path.display()
+                )
+            })?;
+            tracing::warn!(
+                path = %path.display(),
+                aside = %aside.display(),
+                %reason,
+                "cron jobs file is corrupt; moved aside"
+            );
+            Ok(CronJobsState::default())
+        }
+    }
+}
+
+fn write_jobs_file(path: &Path, jobs: &[AgentCronJob]) -> anyhow::Result<()> {
+    let mut state = load_jobs_state(path)?;
+    state.jobs = merge_fresh_jobs(std::mem::take(&mut state.jobs), jobs.to_vec());
+    write_jobs_state(path, &state)
 }
 
 pub(crate) fn write_jobs_state(path: &Path, state: &CronJobsState) -> anyhow::Result<()> {

@@ -612,6 +612,7 @@ mod tests {
             last_skipped_at: None,
             last_error: None,
             run_count: 0,
+            failure_streak: 0,
         };
         let message = create_heartbeat_prompt_message(&job, 1_000);
         assert_eq!(message.custom_type, "heartbeat_prompt");

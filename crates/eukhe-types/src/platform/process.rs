@@ -285,6 +285,47 @@ pub fn is_process_alive(pid: u32) -> anyhow::Result<bool> {
     Ok(!zombie)
 }
 
+/// A process named by its pid and, where the platform exposes one, its
+/// start identity ([`process_start_id`]). Session leases and cron dispatch
+/// claims record their owner with it, so a recycled pid never passes for
+/// the owner.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_start_id: Option<String>,
+}
+
+impl ProcessIdentity {
+    /// The identity of the calling process.
+    #[must_use]
+    pub fn current() -> Self {
+        let pid = std::process::id();
+        Self {
+            pid,
+            process_start_id: process_start_id(pid),
+        }
+    }
+
+    /// Whether this process still runs: its pid is alive and, when a start
+    /// identity was recorded, the pid still has that identity. A provably
+    /// dead pid or a changed identity is dead. A liveness probe that cannot
+    /// answer, or an identity the platform does not show, counts as alive:
+    /// to take over the claim of a live owner is worse than to wait.
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        match is_process_alive(self.pid) {
+            Ok(true) | Err(_) => {}
+            Ok(false) => return false,
+        }
+        match self.process_start_id.as_deref() {
+            None => true,
+            Some(expected) => process_start_id(self.pid).is_none_or(|current| current == expected),
+        }
+    }
+}
+
 /// Liveness answers on every unix, /proc or not: the probe families are
 /// both reachable on Linux (a pid without a /proc entry takes the
 /// kill(0) fallback), so the fallback is testable without /proc.
