@@ -61,8 +61,9 @@ pub(crate) const CONNECT_ATTEMPTS: u32 = 3;
 /// The first retry's backoff; each further attempt doubles it.
 const CONNECT_RETRY_BACKOFF_MS: u64 = 1_000;
 /// The product version this client build expects its daemon to run: the
-/// workspace version the supervisor reports as its hello `appVersion`.
-const CLIENT_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// build's version (eukhe-build-info) the supervisor reports as its hello
+/// `appVersion`.
+const CLIENT_APP_VERSION: &str = eukhe_build_info::VERSION;
 
 /// The one-line notice a client shows when it keeps using a daemon that
 /// runs another eukhe version or build (the daemon had active work, so the

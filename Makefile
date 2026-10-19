@@ -12,9 +12,9 @@ check:
 runtime-test:
 	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.11 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
-# The chat memory's laws (LAWS.bend, proven in PROOF.bend; docs/memory.md):
-# the local mirror of the ci.yml laws job. --verdict needs Lean 4.34.0
-# (scripts/install_bend.sh --lean installs both pinned releases in CI).
+# The laws (LAWS.bend, proven in PROOF.bend; docs/memory.md): the local
+# mirror of the ci.yml laws job. --verdict needs Lean 4.34.0 (CI installs
+# both pinned releases with .github/actions/setup-bend).
 laws:
 	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend 2.0.37: https://bend-lang.com/install.sh)"; exit 1; }
 	bend PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
@@ -29,8 +29,8 @@ deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed (cargo install cargo-deny --locked)"; exit 1; }
 	cargo deny --all-features --workspace check advisories bans licenses sources
 
-# Lints every workflow file (.github/workflows/ is the one home for
-# workflow files).
+# Lints every workflow file (.github/workflows/); actionlint checks the
+# local action (.github/actions/setup-bend) through the steps that use it.
 actionlint:
 	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint not installed (see rhysd/actionlint releases)"; exit 1; }
 	actionlint .github/workflows/ci.yml .github/workflows/eukhe-release.yml
@@ -61,8 +61,10 @@ glibc-gate:
 # release build against the committed lockfile, deterministic tarball assembly,
 # then end-to-end verification of the host-target artifact. The vendored
 # eukhe-runtime/ at the repo root is the default runtime sidecar
-# (kernel-packaging lane); pass RUNTIME_DIR to re-anchor it.
-VERSION := $(shell sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+# (kernel-packaging lane); pass RUNTIME_DIR to re-anchor it. A local build
+# reports <workspace version>-dev (eukhe-build-info; only the release
+# workflow names a release), so the dry runs package that version.
+VERSION := $(shell sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)-dev
 TARGET := $(shell rustc -vV | sed -n 's/^host: //p')
 RUNTIME_DIR ?=
 RUNTIME_FLAG = $(if $(RUNTIME_DIR),--runtime-dir $(RUNTIME_DIR),)
@@ -156,11 +158,15 @@ package:
 # offline fixture passes the full packer validation, the packer hard-fails
 # on missing/invalid assets, network mode is verified against a local HTTP
 # server (including the pinned-sha256 check), and the assets land in the
-# tarball layout the binary expects. test_stamp_version.py covers the
-# rolling-version Cargo.toml/Cargo.lock stamp.
+# tarball layout the binary expects.
 catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
-	python3 scripts/release/test_stamp_version.py
+
+# The release-version rule (scripts/release/next_version.py) and its bridge
+# to the Bend model bend/semver.bend (needs bend; CI's laws job runs it
+# with EUKHE_REQUIRE_BEND=1).
+release-version-gates:
+	python3 scripts/release/test_next_version.py
 
 # The CI shard tooling's contract battery (ci.yml's PR smoke): the stable
 # crc32 assignment under the narrowed selection, the scope-aware summary
@@ -193,4 +199,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates shard-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates shard-gates runtime-lock runtime-lock-check dashboard-ui

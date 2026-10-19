@@ -10,8 +10,11 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   If a commit fails for a missing identity, report it. Allowed: `*_DATE` variables
   (the golden corpus pins them) and throwaway repos created by tests.
 - Never add `Co-authored-by` trailers.
-- CI: `.github/workflows/ci.yml` on pushes and PRs; `eukhe-release.yml` on
-  `eukhe-v*` tags writes `nix/release.json`.
+- CI: `.github/workflows/ci.yml` on pushes and PRs; Bend comes from
+  `.github/actions/setup-bend`. After each green `ci.yml` run of a push to main,
+  `eukhe-release.yml` releases that commit as `eukhe-v<X.Y.P>` (title
+  `Eukhe v<X.Y.P>`, the next patch of the `Cargo.toml` series `X.Y.0`) and writes
+  `nix/release.json`.
 - Prime Intellect stays as a third-party service: provider `prime-inference`,
   `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`,
   the model catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Everything that
@@ -61,6 +64,9 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Run tests with a clean environment. Inherited `EUKHE_*` variables make test daemons
   write into real `~/.eukhe`:
   `env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspace`.
+- Laws are the first tests. A law section is a file `laws/<area>.bend` that
+  `LAWS.bend` imports; `PROOF.bend` proves each law as `def <Alias>.<law>`, with
+  models and lemmas in `bend/`. A law about Rust code has a Rust-vs-Bend bridge test.
 
 ## Lints
 
@@ -81,9 +87,14 @@ background bookkeeping.
   signal-cli the user installed), plus the pinned model files that
   `eukhe tiny-models download` fetches from Hugging Face when the user runs
   it (each file checked against its pinned sha256 before install), plus
+  the uv-managed Python and the hash-locked kernel packages that
+  `eukhe kernel install` fetches when the user runs it (uv checks each
+  file against its hash; a session never downloads them), plus
   read-only `ssh://` reads to the hosts the user lists in `ssh.hosts`
-  (through the user's own `ssh` and `~/.ssh/config`). No telemetry, no
-  catalog fetches, no uploads, no automatic model downloads.
+  (through the user's own `ssh` and `~/.ssh/config`), plus the npm and git
+  traffic of `eukhe package install` and `eukhe package update` when the
+  user runs them. No telemetry, no catalog fetches, no uploads, no automatic
+  model downloads, no automatic package installs or fetches.
 - Startup work never delays the first paint; slow bookkeeping runs on a
   background worker. Changes to the launch path keep the first frame unblocked.
 
@@ -103,7 +114,7 @@ background bookkeeping.
 |Crate|Purpose|Direct workspace dependencies|
 |---|---|---|
 |`eukhe-types`|Shared wire and domain types|none|
-|`eukhe-build-info`|This build's identity (version + source commit, `build.rs`)|none|
+|`eukhe-build-info`|This build's identity (`build.rs`): version (the release, or `<series>-dev`) and source (commit, `.dirty.<hash>`, or `src.<hash>`)|none|
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
 |`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
 |`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
@@ -135,7 +146,11 @@ background bookkeeping.
   the storage and its legacy file.
 - A worker whose supervisor stays unreachable for the lost-exit window
   (default 5 minutes) exits. Work in flight defers the exit by one more window
-  at most; the session resumes on a later supervisor.
+  at most. An idle worker closes its session; a worker with work records it
+  busy and exits without an abort or a close, so the next supervisor resumes
+  the run from storage. A busy worker refreshes its busy record every
+  5 minutes, so a long run still revives. An attached client relaunches a
+  lost supervisor within 60 seconds.
 - The daemon hello reports `eukhe-build-info::DAEMON_BUILD_ID`. A client
   treats a daemon of another build as stale and replaces it on an idle start.
 - No stubs, no `todo!()`, no swallowed errors.

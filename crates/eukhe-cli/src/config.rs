@@ -65,9 +65,10 @@ pub fn expand_tilde_path_os(value: &std::ffi::OsStr) -> PathBuf {
 /// `EUKHE_CODING_AGENT_SESSION_DIR`: legacy session-dir override.
 pub const ENV_LEGACY_SESSION_DIR: &str = "EUKHE_CODING_AGENT_SESSION_DIR";
 
-/// The version compiled into this build, used when no packaged manifest
-/// overrides it (dev checkouts, cargo target dirs).
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The version compiled into this build (eukhe-build-info: the release a
+/// release build names, else `<workspace version>-dev`), used when no
+/// packaged manifest overrides it (dev checkouts, cargo target dirs).
+pub const VERSION: &str = eukhe_build_info::VERSION;
 
 /// The product version: the packaged `package.json` manifest next to the
 /// executable wins (TS `VERSION` reads `getPackageJsonPath()` at runtime, so

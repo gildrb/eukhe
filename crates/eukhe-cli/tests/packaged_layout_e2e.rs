@@ -85,7 +85,7 @@ fn stage_packaged_layout(dir: &Path, with_runtime: bool) {
         dir.join("package.json"),
         format!(
             r#"{{"name":"eukhe","version":"{}"}}"#,
-            env!("CARGO_PKG_VERSION")
+            eukhe_build_info::VERSION
         ),
     )
     .expect("version manifest");
@@ -636,9 +636,10 @@ fn packaging_dry_run_produces_artifact() {
     std::fs::write(tree.path().join("README.md"), "# readme\n").unwrap();
     std::fs::write(tree.path().join("LICENSE"), "Apache-2.0\n").unwrap();
     // The fixture repo's version must be the workspace version: the packer
-    // derives the decoder name and runs the two-sided version pin against
-    // the fixture tree, while the staged decoder answers with the compiled-in
-    // version - a hardcoded version here breaks on every workspace bump.
+    // derives the local build's version from it (`<workspace>-dev`, the
+    // decoder name and the two-sided version pin), while the staged decoder
+    // answers with the compiled-in version - a hardcoded version here breaks
+    // on every workspace bump.
     std::fs::write(
         tree.path().join("Cargo.toml"),
         format!(
@@ -685,7 +686,7 @@ fn packaging_dry_run_produces_artifact() {
     ) = if std::env::consts::OS == "linux" {
         let Some(fixture) = split_paired_fixture(
             python,
-            env!("CARGO_PKG_VERSION"),
+            eukhe_build_info::VERSION,
             "x86_64-unknown-linux-gnu",
             "linux-x64",
         ) else {
@@ -729,7 +730,7 @@ fn packaging_dry_run_produces_artifact() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let version = env!("CARGO_PKG_VERSION");
+    let version = eukhe_build_info::VERSION;
     let stage = out.path().join(format!("eukhe-{version}-{host_platform}"));
     assert!(
         stage.join(PACKAGED_BINARY_NAME).is_file(),

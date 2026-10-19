@@ -24,7 +24,7 @@ pub const DAEMON_COMMAND_ENVELOPE_MIN_PROTOCOL_VERSION: u64 = DAEMON_PROTOCOL_VE
 /// CLI's `doctor`/`status` "current" classification compares against the same
 /// value, so this must stay the bare product version (the build identity
 /// marker lives in `runtime.buildId`).
-pub const DAEMON_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const DAEMON_APP_VERSION: &str = eukhe_build_info::VERSION;
 
 /// Command types the daemon recognizes (TS `DAEMON_COMMAND_TYPES`, the 106
 /// client command types in TS declared order, followed by the Rust-native

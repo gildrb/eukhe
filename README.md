@@ -17,8 +17,9 @@ Upstream remote: `upstream`. See [Attribution](#attribution).
 - Name: binary `eukhe`, crates `eukhe-*`, env vars `EUKHE_*`, state in
   `~/.eukhe`. eukhe and Prime Agent can run on one machine. They do not share
   state.
-- Install: Nix flake and Home Manager module. No install scripts.
-- Update: through Nix. `eukhe update` does not download.
+- Install: Nix flake and Home Manager module, or a GitHub release (mise).
+  No install scripts.
+- Update: through Nix or mise. `eukhe update` does not download.
 - Prompt cache: breakpoints on text blocks.
 
 ## Install
@@ -48,11 +49,39 @@ Home Manager:
 `programs.eukhe.settings` is copied to `~/.eukhe/settings.json` at each
 activation. `programs.eukhe.files` links files into `~/.eukhe`.
 
+mise (the newest GitHub release; eukhe tags are `eukhe-v<version>`, the
+repository also holds the upstream `v*` tags):
+
+```toml
+[tools]
+"github:gildrb/eukhe" = { version = "latest", version_prefix = "eukhe-v" }
+```
+
 Build from source:
 
 ```sh
 cargo build --release --locked -p eukhe-cli
 ```
+
+A source build reports `<series>-dev` (`eukhe --version`, for example
+`0.10.0-dev`); only a release reports a release version.
+
+### Releases
+
+Every commit of `main` that passes CI (`.github/workflows/ci.yml`: the
+laws, the tests, the deny gate) is released once, by
+`.github/workflows/eukhe-release.yml`. The version is the next patch of
+the series in `Cargo.toml` (`[workspace.package] version = "X.Y.0"`): 1 +
+the highest patch among the tags `eukhe-vX.Y.P`, or 0 for the first
+release of a series. The release is tagged `eukhe-v<version>`, titled
+`Eukhe v<version>`, marked latest, and pinned for the flake in
+`nix/release.json`. To start a new series, set the workspace version to
+the next `X.Y.0` (for example `0.11.0` or `1.0.0`). A workspace version
+that is no `X.Y.0`, or a tag of a newer series, stops the release.
+`scripts/release/next_version.py` computes the version; its rule is the
+model `bend/semver.bend`, whose laws (`laws/release.bend`, section R1)
+`PROOF.bend` proves, and `scripts/release/test_next_version.py` runs the
+script and the model on the same cases.
 
 ## Usage
 
@@ -75,11 +104,14 @@ eukhe doctor [--fix]       # check or repair the daemon
 eukhe shutdown [--force]   # stop all agents and the daemon
 ```
 
-Each daemon reports its build: `<version>+<commit>`, with `.dirty` for a
-modified tree. After an upgrade or a rebuild, the next `eukhe` start replaces
-an idle daemon of another build, or a pre-rename `prime-agent` daemon on the
-socket. A daemon with active work keeps running until the next idle start;
-`eukhe shutdown` restarts it sooner. Sessions persist and reattach.
+Each daemon reports its build: `<version>+<commit>`, plus `.dirty.<hash>`
+(a hash of the changes) when the sources differ from the commit, or
+`<version>+src.<hash>` (a hash of the sources) when no commit is known, so
+two builds of other sources never share a build. After an upgrade or a
+rebuild, the next `eukhe` start replaces an idle daemon of another build,
+or a pre-rename `prime-agent` daemon on the socket. A daemon with active
+work keeps running until the next idle start; `eukhe shutdown` restarts it
+sooner. Sessions persist and reattach.
 
 > [!WARNING]
 > eukhe runs model-generated Python and shell commands with your user

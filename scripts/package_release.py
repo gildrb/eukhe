@@ -109,7 +109,7 @@ TREE_ASSETS = ("eukhe-runtime", "skills")
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--version", help="release version (default: workspace Cargo.toml)")
+    parser.add_argument("--version", help="release version (default: the local build's, <workspace version>-dev)")
     parser.add_argument("--binary", type=Path, help="stage this binary instead of building")
     parser.add_argument("--decoder", type=Path, help="separate Linux decoder for --binary")
     parser.add_argument("--skip-build", action="store_true",
@@ -126,15 +126,17 @@ def parse_args(argv):
     return args
 
 
-def workspace_version(root):
-    """The [workspace.package] version from Cargo.toml."""
+def local_version(root):
+    """The version a local build reports: the [workspace.package] version
+    from Cargo.toml plus `-dev` (eukhe-build-info: only a release build,
+    given EUKHE_RELEASE_VERSION, names a release)."""
     in_workspace = False
     for line in (root / "Cargo.toml").read_text().splitlines():
         if line.startswith("["):
             in_workspace = line.strip() == "[workspace.package]"
             continue
         if in_workspace and line.strip().startswith("version"):
-            return line.split("=", 1)[1].strip().strip('"')
+            return line.split("=", 1)[1].strip().strip('"') + "-dev"
     raise SystemExit("error: could not read the workspace version from Cargo.toml")
 
 
@@ -325,7 +327,7 @@ def write_tar(stage_dir, output):
 def main(argv=None):
     args = parse_args(argv)
     root = args.root.resolve()
-    version = args.version or workspace_version(root)
+    version = args.version or local_version(root)
     tag = args.platform or release_platform()
     binary_name = "eukhe"
     out_dir = (args.out_dir or root / "target" / "release-package").resolve()

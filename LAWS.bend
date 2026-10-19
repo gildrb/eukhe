@@ -25,6 +25,7 @@ import ./bend/tools.bend as Tl
 import ./bend/screen.bend as Sc
 import ./bend/tiny.bend as Tn
 import ./bend/effort.bend as Ef
+import ./laws/release.bend as Release
 
 # (a) The view
 # ------------

@@ -32,6 +32,8 @@ import ./bend/proof_tools.bend as Tools
 import ./bend/proof_screen.bend as Screen
 import ./bend/proof_tiny.bend as Tiny
 import ./bend/proof_effort.bend as Effort
+import ./laws/release.bend as Release
+import ./bend/proof_semver.bend as Semver
 
 # (a) The view
 
@@ -665,3 +667,47 @@ def Laws.effort_stored_is_sent(s, dflt, acts):
 
 def Laws.effort_shown_is_sent(s, dflt, acts):
   Effort.pe.effort_shown_is_sent(s, dflt, acts)
+
+# (R1) Release versions
+
+def Release.semver_roundtrip(v):
+  Semver.ps.roundtrip(v)
+
+def Release.semver_le_refl(v):
+  Semver.ps.le_refl(v)
+
+def Release.semver_le_antisym(u, v, uv, vu):
+  Semver.ps.le_anti(u, v, uv, vu)
+
+def Release.semver_le_trans(u, v, w, uv, vw):
+  Semver.ps.le_trans(u, v, w, uv, vw)
+
+def Release.semver_le_total(u, v):
+  Semver.ps.le_total(u, v)
+
+def Release.semver_next_newer(s, xs, t, ys, v, parsed, ins):
+  Semver.ps.next_newer(s, xs, t, ys, v, parsed, ins)
+
+def Release.semver_next_not_tagged(s, xs, t, ys, v, parsed):
+  Semver.ps.next_ne(s, xs, t, ys, v, parsed)
+
+def Release.semver_next_tag_new(s, xs, t, ys):
+  Semver.ps.tag_new(s, xs, t, ys)
+
+def Release.semver_fresh_series(a, b, c, tags, none):
+  Semver.ps.fresh(a, b, c, tags, none)
+
+def Release.semver_other_series(s, xs, t, ys, other):
+  Semver.ps.other(s, xs, t, ys, other)
+
+def Release.semver_title(v):
+  {==}
+
+def Release.semver_tag_roundtrip(v):
+  Semver.ps.roundtrip(v)
+
+def Release.semver_release_newest(c, xs, t, ys, r, rel, v, parsed):
+  Semver.ps.release_newest_of(c, xs, t, ys, r, rel, v, parsed)
+
+def Release.semver_release_progress(c, a, b, tags, parsed, only):
+  Semver.ps.progress(c, a, b, tags, parsed, only)

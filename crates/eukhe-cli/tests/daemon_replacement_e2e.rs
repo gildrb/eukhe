@@ -237,7 +237,7 @@ fn identity(hello: &Value) -> Value {
 }
 
 fn current_identity() -> Value {
-    json!({ "protocol": "eukhe.daemon", "appVersion": env!("CARGO_PKG_VERSION") })
+    json!({ "protocol": "eukhe.daemon", "appVersion": eukhe_build_info::VERSION })
 }
 
 /// Cleanup for a supervisor the launcher spawned detached: force-shutdown
@@ -507,7 +507,7 @@ fn a_daemon_of_this_build_is_current_and_kept_by_the_next_client_start() {
         json!({
             "socketPath": socket.display().to_string(),
             "pid": supervisor_pid,
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": eukhe_build_info::VERSION,
             "protocolVersion": eukhe_types::daemon::DAEMON_PROTOCOL_VERSION,
             "schemaId": eukhe_types::daemon::DAEMON_SCHEMA_ID,
             "buildId": eukhe_build_info::DAEMON_BUILD_ID,

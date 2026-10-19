@@ -430,7 +430,7 @@ fn a_turn_settling_with_the_shutdown_does_not_stall_the_recovery() {
     let attach_requests = Arc::new(Mutex::new(Vec::new()));
     let recorder = Arc::clone(&attach_requests);
     let successor_socket = socket.clone();
-    let successor_version = env!("CARGO_PKG_VERSION").to_string();
+    let successor_version = eukhe_build_info::VERSION.to_string();
     let handle = std::thread::spawn(move || {
         // The first daemon's lifetime, then the successor's — the
         // stop-and-restart the operator performs.
@@ -477,7 +477,7 @@ fn a_turn_settling_with_the_shutdown_does_not_stall_the_recovery() {
     // The recovered window reports the restart version-honestly.
     let equal_banner = format!(
         "Daemon restarted (v{}) - reconnected",
-        env!("CARGO_PKG_VERSION")
+        eukhe_build_info::VERSION
     );
     assert!(
         all.contains(&equal_banner),

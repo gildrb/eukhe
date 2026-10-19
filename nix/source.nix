@@ -1,7 +1,10 @@
 # eukhe built from source, in the same layout as the prebuilt release (see
 # package.nix): the binary, its Python runtime, the bundled skills, and the
-# catalog snapshot kept in the repository (the build has no network; the
-# binary refreshes the catalog at runtime).
+# catalog snapshot kept in the repository as the bundled catalog (the build
+# has no network; eukhe reads only the bundled catalog and its compiled-in
+# fallback, and never fetches one). A source build is no release: it
+# reports <workspace version>-dev (eukhe-build-info), and so does its
+# package version.
 {
   lib,
   rustPlatform,
@@ -18,7 +21,7 @@
 }:
 rustPlatform.buildRustPackage {
   pname = "eukhe";
-  version = (lib.importTOML (src + "/Cargo.toml")).workspace.package.version;
+  version = (lib.importTOML (src + "/Cargo.toml")).workspace.package.version + "-dev";
   inherit src;
   env = lib.optionalAttrs (commit != null) { EUKHE_BUILD_COMMIT = commit; };
 
