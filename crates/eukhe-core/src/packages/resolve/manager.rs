@@ -1,13 +1,14 @@
 //! The `resolve()` methods on the package manager: configured-source
-//! resolution (including missing-source install policy and temporary-git
-//! refresh), settings top-level arrays, and package resource collection
-//! (manifest, convention directories, and filter patterns).
+//! resolution against what is installed (missing npm and git sources are
+//! reported, never installed or fetched), settings top-level arrays, and
+//! package resource collection (manifest, convention directories, and
+//! filter patterns).
 
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use super::super::source::{parse_source, GitSource, NpmSource, ParsedSource, SourceScope};
+use super::super::source::{parse_source, NpmSource, ParsedSource, SourceScope, UserOrProject};
 use super::super::PackageManager;
 use super::super::{git, npm};
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ use super::discovery::collect_resource_files;
 use super::patterns::{apply_patterns, split_patterns};
 use super::{
     settings_array, to_resolved_paths, top_level_metadata, ConfiguredSource, MetadataSource,
-    MissingSourceAction, PackageFilter, PathMetadata, ResolvedPaths, ResourceAccumulator,
+    MissingPackage, PackageFilter, PathMetadata, ResolvedPaths, ResourceAccumulator,
     ResourceOrigin, ResourceType, RESOURCE_TYPES,
 };
 
@@ -47,7 +48,7 @@ fn parse_package_filter(entry: &serde_json::Value) -> Option<PackageFilter> {
 /// entry (project wins).
 fn dedupe_configured_sources(
     manager: &PackageManager,
-    all_packages: Vec<(serde_json::Value, SourceScope)>,
+    all_packages: Vec<(serde_json::Value, UserOrProject)>,
 ) -> Vec<ConfiguredSource> {
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut deduped: Vec<ConfiguredSource> = Vec::new();
@@ -60,7 +61,7 @@ fn dedupe_configured_sources(
                 format!("git:{}/{}", git_source.host, git_source.path)
             }
             Ok(ParsedSource::Local(local)) => {
-                let base_dir = manager.base_dir_for_scope(scope);
+                let base_dir = manager.base_dir_for_scope(scope.into());
                 let resolved = PackageManager::resolve_path_from_base(&local.path, &base_dir);
                 format!("local:{}", resolved.display())
             }
@@ -76,7 +77,7 @@ fn dedupe_configured_sources(
                 });
             }
             Some(existing_index) => {
-                if scope == SourceScope::Project {
+                if scope == UserOrProject::Project {
                     deduped[*existing_index] = ConfiguredSource {
                         source,
                         scope,
@@ -121,44 +122,33 @@ fn installed_npm_matches_pinned_version(source: &NpmSource, installed_path: &Pat
 }
 
 impl PackageManager {
-    /// Resolve every session resource path, installing missing configured
-    /// package sources when not offline-skipped.
+    /// Resolve every session resource path from what is installed.
+    /// Configured npm and git sources that are not installed (or an npm
+    /// source not at its pinned version) are left out and listed in
+    /// [`ResolvedPaths::missing_packages`]. Resolution never installs,
+    /// clones, or fetches: only `eukhe package install` and
+    /// `eukhe package update` do.
     ///
     /// # Errors
     ///
-    /// Returns an error when a configured package source cannot be parsed,
-    /// installed, or refreshed (npm/git failures, missing local paths).
-    pub fn resolve(&mut self) -> Result<ResolvedPaths> {
-        self.resolve_with_on_missing(None)
-    }
-
-    /// [`PackageManager::resolve`] with a missing-source policy callback
-    /// (`None` installs missing sources directly, the resource-loader path).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a configured package source cannot be parsed,
-    /// installed, or refreshed (npm/git failures, missing local paths), or
-    /// when the missing-source policy chooses to error.
-    pub fn resolve_with_on_missing(
-        &mut self,
-        on_missing: Option<&mut dyn FnMut(&str) -> MissingSourceAction>,
-    ) -> Result<ResolvedPaths> {
+    /// Returns an error when a configured package source cannot be parsed
+    /// or its git install path escapes the install root.
+    pub fn resolve(&self) -> Result<ResolvedPaths> {
         let global = self.settings().global_settings().clone();
         let project = self.settings().project_settings().clone();
         let mut accumulator = ResourceAccumulator::default();
 
         // Project entries precede user entries; the dedupe keeps the project
         // entry when the same package identity appears in both scopes.
-        let mut all_packages: Vec<(serde_json::Value, SourceScope)> = Vec::new();
+        let mut all_packages: Vec<(serde_json::Value, UserOrProject)> = Vec::new();
         for entry in project.packages.iter().flatten() {
-            all_packages.push((entry.clone(), SourceScope::Project));
+            all_packages.push((entry.clone(), UserOrProject::Project));
         }
         for entry in global.packages.iter().flatten() {
-            all_packages.push((entry.clone(), SourceScope::User));
+            all_packages.push((entry.clone(), UserOrProject::User));
         }
         let package_sources = dedupe_configured_sources(self, all_packages);
-        self.resolve_package_sources(package_sources, &mut accumulator, on_missing)?;
+        self.resolve_package_sources(package_sources, &mut accumulator)?;
 
         let global_base_dir = self.agent_dir().to_path_buf();
         let project_base_dir = self.cwd().join(super::super::CONFIG_DIR_NAME);
@@ -194,22 +184,21 @@ impl PackageManager {
     }
 
     fn resolve_package_sources(
-        &mut self,
+        &self,
         sources: Vec<ConfiguredSource>,
         accumulator: &mut ResourceAccumulator,
-        mut on_missing: Option<&mut dyn FnMut(&str) -> MissingSourceAction>,
     ) -> Result<()> {
         for configured in sources {
             let parsed = parse_source(&configured.source)?;
             let mut metadata = PathMetadata {
                 source: MetadataSource::Package(configured.source.clone()),
-                scope: configured.scope,
+                scope: configured.scope.into(),
                 origin: ResourceOrigin::Package,
                 base_dir: None,
             };
-            match &parsed {
+            let installed_path = match &parsed {
                 ParsedSource::Local(local) => {
-                    let base_dir = self.base_dir_for_scope(configured.scope);
+                    let base_dir = self.base_dir_for_scope(configured.scope.into());
                     Self::resolve_local_source(
                         &local.path,
                         accumulator,
@@ -217,94 +206,41 @@ impl PackageManager {
                         &mut metadata,
                         &base_dir,
                     );
+                    continue;
                 }
                 ParsedSource::Npm(npm_source) => {
-                    let installed_path =
-                        self.npm_install_path_for_scope(npm_source, configured.scope);
-                    let needs_install = !installed_path.exists()
-                        || (npm_source.pinned
-                            && !installed_npm_matches_pinned_version(npm_source, &installed_path));
-                    if needs_install
-                        && !self.install_missing(
-                            &configured.source,
-                            configured.scope,
-                            &mut on_missing,
-                        )?
-                    {
-                        continue;
-                    }
-                    metadata.base_dir = Some(installed_path.clone());
-                    PackageManager::collect_package_resources(
-                        &installed_path,
-                        accumulator,
-                        configured.filter.as_ref(),
-                        &metadata,
-                    );
+                    let installed_path = self.npm_install_path(npm_source, configured.scope);
+                    let installed = installed_path.exists()
+                        && (!npm_source.pinned
+                            || installed_npm_matches_pinned_version(npm_source, &installed_path));
+                    installed.then_some(installed_path)
                 }
                 ParsedSource::Git(git_source) => {
                     let installed_path = git::git_install_path(
                         git_source,
-                        configured.scope,
+                        configured.scope.into(),
                         self.cwd(),
                         self.agent_dir(),
                     )?;
-                    if !installed_path.exists() {
-                        if !self.install_missing(
-                            &configured.source,
-                            configured.scope,
-                            &mut on_missing,
-                        )? {
-                            continue;
-                        }
-                    } else if configured.scope == SourceScope::Temporary
-                        && !git_source.pinned
-                        && !super::super::is_offline_mode_enabled()
-                    {
-                        self.refresh_temporary_git_source(git_source, &configured.source);
-                    }
-                    metadata.base_dir = Some(installed_path.clone());
-                    PackageManager::collect_package_resources(
-                        &installed_path,
-                        accumulator,
-                        configured.filter.as_ref(),
-                        &metadata,
-                    );
+                    installed_path.exists().then_some(installed_path)
                 }
-            }
+            };
+            let Some(installed_path) = installed_path else {
+                accumulator.missing_packages.push(MissingPackage {
+                    source: configured.source,
+                    scope: configured.scope,
+                });
+                continue;
+            };
+            metadata.base_dir = Some(installed_path.clone());
+            PackageManager::collect_package_resources(
+                &installed_path,
+                accumulator,
+                configured.filter.as_ref(),
+                &metadata,
+            );
         }
         Ok(())
-    }
-
-    /// Install a missing configured source. False skips it (offline or the
-    /// `skip` action); `error` actions fail resolution.
-    fn install_missing(
-        &mut self,
-        source: &str,
-        scope: SourceScope,
-        on_missing: &mut Option<&mut dyn FnMut(&str) -> MissingSourceAction>,
-    ) -> Result<bool> {
-        if super::super::is_offline_mode_enabled() {
-            return Ok(false);
-        }
-        if let Some(callback) = on_missing {
-            match callback(source) {
-                MissingSourceAction::Skip => return Ok(false),
-                MissingSourceAction::Error => anyhow::bail!("Missing source: {source}"),
-                MissingSourceAction::Install => {}
-            }
-        }
-        let parsed = parse_source(source)?;
-        match &parsed {
-            ParsedSource::Npm(npm_source) => {
-                let temporary = scope == SourceScope::Temporary;
-                self.install_npm(npm_source, scope, temporary)?;
-            }
-            ParsedSource::Git(git_source) => {
-                self.install_git_source(git_source, scope)?;
-            }
-            ParsedSource::Local(_) => {}
-        }
-        Ok(true)
     }
 
     /// Resolve one configured local package source: a directory's
@@ -355,34 +291,5 @@ impl PackageManager {
                 .map(resource_type)
                 .add(&file, metadata.clone(), enabled);
         }
-    }
-
-    pub(super) fn npm_install_path_for_scope(
-        &self,
-        source: &NpmSource,
-        scope: SourceScope,
-    ) -> PathBuf {
-        let global_root = self.global_npm_root().unwrap_or_default();
-        npm::npm_install_path(source, scope, self.cwd(), &global_root)
-    }
-
-    /// Refresh an unpinned temporary git source (the cached checkout is kept
-    /// when the refresh fails).
-    fn refresh_temporary_git_source(&mut self, source: &GitSource, source_str: &str) {
-        let npm_command = self.settings_npm_command();
-        let _ = self.with_progress(
-            super::super::ProgressAction::Pull,
-            source_str,
-            &format!("Refreshing {source_str}..."),
-            |manager| {
-                git::update_git(
-                    source,
-                    SourceScope::Temporary,
-                    manager.cwd(),
-                    manager.agent_dir(),
-                    npm_command.as_ref(),
-                )
-            },
-        );
     }
 }

@@ -422,6 +422,20 @@ way a local model gets installed.",
     )
     .examples(&["tiny-models", "tiny-models download lfm2.5-230m"]),
     CommandSpec::new(
+        &["kernel"],
+        "kernel install [--check]",
+        "Install the Python kernel once, or check it",
+    )
+    .description(
+        "Installs the environment of the Python kernel (the ipython tool): a Python from uv and \
+the hash-locked kernel packages (eukhe-runtime/requirements-kernel.txt), each checked against its \
+hash before install. Nothing downloads on its own: this command is the only way the kernel gets \
+installed. A session uses the installed kernel and never downloads; without it, the ipython tool \
+names this command and the other tools work. A second run keeps an installed kernel. --check \
+shows the state and makes no network request.",
+    )
+    .examples(&["kernel install", "kernel install --check"]),
+    CommandSpec::new(
         &["translate"],
         "translate <lang> <text...>",
         "Translate text with the translate role's model",

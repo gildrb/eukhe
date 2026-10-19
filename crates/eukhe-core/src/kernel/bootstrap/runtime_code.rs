@@ -54,7 +54,7 @@ except Exception as _eukhe_rlm_error:
         def _raise_missing(self):
             raise RuntimeError(
                 "eukhe-runtime is not installed in this kernel. "
-                "Remove ~/.eukhe/kernel-venv so eukhe can rebuild it, or set "
+                "Run `eukhe kernel install` to install it again, or set "
                 "EUKHE_KERNEL_PYTHON to a kernel environment with eukhe-runtime installed. "
                 f"Import error: {_EUKHE_RLM_IMPORT_ERROR}"
             )

@@ -1,6 +1,12 @@
 //! Cross-process bootstrap lock for the kernel venv, ported from
 //! `utils/dir-lock.ts`: a `link(2)`-published lock file whose owner is a
 //! live pid; stale locks are renamed aside, verified, then reclaimed.
+//!
+//! An attempt's candidate file (`<lock>.candidate-<pid>-<uuid>`) never
+//! outlives the attempt: a guard removes it on every return path, and the
+//! next acquire sweeps the candidates (and renamed-aside stale locks) of
+//! processes that died inside an attempt. The model is the lock part of
+//! `bend/kernel_local.bend`.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -8,6 +14,11 @@ use std::path::{Path, PathBuf};
 use super::venv::{
     BOOTSTRAP_LOCK_NAME, BOOTSTRAP_LOCK_RETRY_MS, BOOTSTRAP_LOCK_STALE_WITHOUT_PID_MS,
 };
+
+/// The infix of an attempt's candidate file name.
+const CANDIDATE_INFIX: &str = ".candidate-";
+/// The infix of a stale lock renamed aside.
+const STALE_INFIX: &str = ".stale-";
 
 fn is_process_alive(pid: u32) -> bool {
     crate::platform::process::pid_exists(pid)
@@ -31,31 +42,88 @@ fn strict_pid(raw: Option<&str>) -> Option<u32> {
     (parsed > 0).then_some(parsed)
 }
 
-fn try_acquire_dir_lock(lock_path: &Path) -> anyhow::Result<DirLockAttempt> {
+/// An attempt's candidate file: removed when the attempt ends, on every
+/// path (a failed write, a lost link race, an error).
+struct Candidate(PathBuf);
+
+impl Drop for Candidate {
+    fn drop(&mut self) {
+        match std::fs::remove_file(&self.0) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(%error, path = %self.0.display(), "kernel lock candidate not removed");
+            }
+        }
+    }
+}
+
+/// Remove the leftovers of attempts whose process is gone: an attempt's
+/// candidate (`<lock>.candidate-<pid>-<uuid>`) or a stale lock it renamed
+/// aside (`<lock>.stale-<pid>-<uuid>`), left by a process that died inside
+/// the attempt. A live owner's leftover stays: its attempt still runs.
+pub(crate) fn sweep_leftovers(lock_path: &Path) {
+    let (Some(dir), Some(lock_name)) = (
+        lock_path.parent(),
+        lock_path.file_name().and_then(|name| name.to_str()),
+    ) else {
+        return;
+    };
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(%error, dir = %dir.display(), "kernel lock leftovers not swept");
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(token) = file_name
+            .to_str()
+            .and_then(|name| name.strip_prefix(lock_name))
+            .and_then(|rest| {
+                rest.strip_prefix(CANDIDATE_INFIX)
+                    .or_else(|| rest.strip_prefix(STALE_INFIX))
+            })
+        else {
+            continue;
+        };
+        match strict_pid(token.split_once('-').map(|(pid, _)| pid)) {
+            Some(owner) if !is_process_alive(owner) => {}
+            Some(_) | None => continue,
+        }
+        match std::fs::remove_file(entry.path()) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(%error, path = %entry.path().display(), "kernel lock leftover not removed");
+            }
+        }
+    }
+}
+
+pub(crate) fn try_acquire_dir_lock(lock_path: &Path) -> anyhow::Result<DirLockAttempt> {
     std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new("/")))?;
     let token = format!("{}-{}", std::process::id(), uuid::Uuid::new_v4());
-    let temp_path = lock_path.with_file_name(format!(
-        "{}.candidate-{}",
+    let candidate = Candidate(lock_path.with_file_name(format!(
+        "{}{CANDIDATE_INFIX}{token}",
         lock_path.file_name().unwrap_or_default().to_string_lossy(),
-        token
-    ));
+    )));
     {
         let mut options = std::fs::OpenOptions::new();
         options.create(true).write(true).truncate(true);
         crate::platform::perms::set_private_mode(&mut options);
-        let mut file = options.open(&temp_path)?;
+        let mut file = options.open(&candidate.0)?;
         writeln!(file, "{}", std::process::id())?;
     }
     // The primary signal: link() publishing the candidate under the lock path.
-    if std::fs::hard_link(&temp_path, lock_path).is_ok() {
-        let _ = std::fs::remove_file(&temp_path);
+    if std::fs::hard_link(&candidate.0, lock_path).is_ok() {
         return Ok(DirLockAttempt::Acquired);
     }
     // Judge the incumbent: dead owner (or no owner readable) means stale.
     let judge = match std::fs::read_to_string(lock_path) {
         Ok(raw) => strict_pid(Some(&raw)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let _ = std::fs::remove_file(&temp_path);
             return Ok(DirLockAttempt::Reclaimed);
         }
         Err(error) if error.kind() == std::io::ErrorKind::IsADirectory => {
@@ -74,9 +142,8 @@ fn try_acquire_dir_lock(lock_path: &Path) -> anyhow::Result<DirLockAttempt> {
     };
     let result = if stale {
         let aside_path = lock_path.with_file_name(format!(
-            "{}.stale-{}",
+            "{}{STALE_INFIX}{token}",
             lock_path.file_name().unwrap_or_default().to_string_lossy(),
-            token
         ));
         match std::fs::rename(lock_path, &aside_path) {
             Ok(()) => {
@@ -92,7 +159,6 @@ fn try_acquire_dir_lock(lock_path: &Path) -> anyhow::Result<DirLockAttempt> {
     } else {
         DirLockAttempt::Held
     };
-    let _ = std::fs::remove_file(&temp_path);
     Ok(result)
 }
 
@@ -116,6 +182,7 @@ pub(crate) async fn acquire_bootstrap_lock(venv: &Path) -> anyhow::Result<impl D
         BOOTSTRAP_LOCK_NAME
     ));
     std::fs::create_dir_all(lock_dir.parent().unwrap_or(Path::new("/")))?;
+    sweep_leftovers(&lock_dir);
     loop {
         match try_acquire_dir_lock(&lock_dir)? {
             DirLockAttempt::Acquired => {

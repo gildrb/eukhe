@@ -20,7 +20,7 @@ pub(crate) mod tests;
 
 use std::path::PathBuf;
 
-use super::SourceScope;
+use super::{SourceScope, UserOrProject};
 
 /// The session resource kinds a package can provide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -83,21 +83,48 @@ pub struct ResolvedResource {
     pub metadata: PathMetadata,
 }
 
-/// The `resolve()` output: ranked resources per kind plus diagnostics.
+/// The `resolve()` output: ranked resources per kind, diagnostics, and the
+/// configured package sources that are not installed.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResolvedPaths {
     pub skills: Vec<ResolvedResource>,
     pub prompts: Vec<ResolvedResource>,
     pub themes: Vec<ResolvedResource>,
     pub diagnostics: Vec<crate::skills::diagnostics::ResourceDiagnostic>,
+    pub missing_packages: Vec<MissingPackage>,
 }
 
-/// Response to a missing configured package source during resolution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MissingSourceAction {
-    Install,
-    Skip,
-    Error,
+/// A configured npm or git package source that is not installed (or not
+/// installed at its pinned version). Resolution does not use it and does
+/// not install it: only `eukhe package install` installs packages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingPackage {
+    /// The source as the settings entry gives it.
+    pub source: String,
+    pub scope: UserOrProject,
+}
+
+impl MissingPackage {
+    /// The command that installs the package into its settings scope.
+    #[must_use]
+    pub fn install_command(&self) -> String {
+        match self.scope {
+            UserOrProject::User => format!("eukhe package install {}", self.source),
+            UserOrProject::Project => format!("eukhe package install {} --local", self.source),
+        }
+    }
+}
+
+impl std::fmt::Display for MissingPackage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "package {} ({} settings) is not installed; run `{}`",
+            self.source,
+            self.scope.as_str(),
+            self.install_command()
+        )
+    }
 }
 
 /// Lower rank = higher precedence: project settings (0), project auto (1),
@@ -135,7 +162,7 @@ impl PackageFilter {
 /// One configured package source plus its scope and filter patterns.
 pub(crate) struct ConfiguredSource {
     pub source: String,
-    pub scope: SourceScope,
+    pub scope: UserOrProject,
     pub filter: Option<PackageFilter>,
 }
 
@@ -181,14 +208,15 @@ impl ResourceMap {
     }
 }
 
-/// Per-kind accumulators plus diagnostics, assembled into
-/// [`ResolvedPaths`] at the end of resolution.
+/// Per-kind accumulators plus diagnostics and missing packages, assembled
+/// into [`ResolvedPaths`] at the end of resolution.
 #[derive(Default)]
 pub(crate) struct ResourceAccumulator {
     pub skills: ResourceMap,
     pub prompts: ResourceMap,
     pub themes: ResourceMap,
     pub diagnostics: Vec<crate::skills::diagnostics::ResourceDiagnostic>,
+    pub missing_packages: Vec<MissingPackage>,
 }
 
 impl ResourceAccumulator {
@@ -228,6 +256,7 @@ pub(crate) fn to_resolved_paths(accumulator: ResourceAccumulator) -> ResolvedPat
         prompts: map_to_resolved(accumulator.prompts),
         themes: map_to_resolved(accumulator.themes),
         diagnostics: accumulator.diagnostics,
+        missing_packages: accumulator.missing_packages,
     }
 }
 

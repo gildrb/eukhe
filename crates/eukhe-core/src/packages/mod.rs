@@ -3,7 +3,10 @@
 //! configured-npm/git child-process flows.
 //!
 //! Session resource resolution lives here as well: `PackageManager::resolve`
-//! produces the ranked skill/prompt/theme paths sessions consume.
+//! produces the ranked skill/prompt/theme paths sessions consume. Resolution
+//! uses only installed packages and reports the missing ones; it never
+//! installs, clones, or fetches. Only the explicit `eukhe package` commands
+//! install, update, or remove packages.
 //!
 //! Non-goals: loading/executing session-resource code and Eukhe
 //! self-updates.
@@ -25,8 +28,8 @@ pub use manager::{
     ProgressAction, ProgressEvent, ProgressEventKind, UserOrProject,
 };
 pub use resolve::{
-    MetadataSource, MissingSourceAction, PathMetadata, ResolvedPaths, ResolvedResource,
-    ResourceOrigin, ResourceType,
+    MetadataSource, MissingPackage, PathMetadata, ResolvedPaths, ResolvedResource, ResourceOrigin,
+    ResourceType,
 };
 pub use source::{
     parse_git_url, GitSource, LocalSource, NpmSource, ParsedSource, SourceDefect, SourceParseError,

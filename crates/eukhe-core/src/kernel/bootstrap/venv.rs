@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use anyhow::{anyhow, Context};
 use sha2::Digest;
 
+use super::setup::Fetch;
 use super::{EnsureKernelPythonOptions, KernelPythonSkill, DEFAULT_RLM_EXTRA_PACKAGES};
 
 // The concern children (cut with their concerns; the flows + the shared
@@ -55,9 +56,17 @@ use version::{recorded_skills_cover, BOOTSTRAP_SCHEMA};
 const PYTHON_VERSION: &str = "3.11";
 /// Flags for every install of a local package (the runtime, the skills):
 /// its requirements must already be satisfied by the hash-locked venv, no
-/// index is ever consulted, and its build backend (hatchling) comes from
-/// the lock instead of an isolated build env resolved from an index.
-const LOCAL_INSTALL_FLAGS: [&str; 3] = ["--no-deps", "--no-index", "--no-build-isolation"];
+/// index is ever consulted, its build backend (hatchling) comes from the
+/// lock instead of an isolated build env resolved from an index, and uv
+/// makes no network request.
+const LOCAL_INSTALL_FLAGS: [&str; 4] = [
+    "--no-deps",
+    "--no-index",
+    "--no-build-isolation",
+    "--offline",
+];
+/// uv's flag that keeps a command to the local cache and Python installs.
+const OFFLINE_FLAG: &str = "--offline";
 pub(crate) const BOOTSTRAP_LOCK_NAME: &str = ".bootstrap.lock";
 pub(crate) const BOOTSTRAP_LOCK_RETRY_MS: u64 = 100;
 pub(crate) const BOOTSTRAP_LOCK_STALE_WITHOUT_PID_MS: u64 = 30_000;
@@ -158,8 +167,23 @@ async fn uv_pip_check(uv: &str, python: &str) -> anyhow::Result<Option<String>> 
 /// requirements (exact pins, `--require-hashes`, wheels only, so no sdist
 /// build script ever runs), then the runtime itself from its local
 /// directory with [`LOCAL_INSTALL_FLAGS`]. Nothing here names a package an
-/// index could resolve to unreviewed code.
-fn venv_build_commands(venv: &Path, python: &str, runtime_source: &Path) -> Vec<Vec<String>> {
+/// index could resolve to unreviewed code. With [`Fetch::Offline`] every
+/// command has `--offline`; with [`Fetch::Download`] only the Python
+/// install (uv checks the download against its pinned sha256) and the
+/// hash-locked requirements may download.
+pub(super) fn venv_build_commands(
+    venv: &Path,
+    python: &str,
+    runtime_source: &Path,
+    fetch: Fetch,
+) -> Vec<Vec<String>> {
+    let fetching = |mut args: Vec<String>| {
+        match fetch {
+            Fetch::Offline => args.push(OFFLINE_FLAG.to_string()),
+            Fetch::Download => {}
+        }
+        args
+    };
     let mut requirements = uv_pip_args("install", python);
     requirements.extend(
         ["--require-hashes", "--only-binary", ":all:", "-r"]
@@ -176,18 +200,21 @@ fn venv_build_commands(venv: &Path, python: &str, runtime_source: &Path) -> Vec<
     runtime.extend(LOCAL_INSTALL_FLAGS.into_iter().map(String::from));
     runtime.push(runtime_source.to_string_lossy().into_owned());
     vec![
-        ["python", "install", "--no-config", PYTHON_VERSION]
-            .into_iter()
-            .map(String::from)
-            .collect(),
+        fetching(
+            ["python", "install", "--no-config", PYTHON_VERSION]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        ),
         vec![
             "venv".to_string(),
             "--no-config".to_string(),
+            OFFLINE_FLAG.to_string(),
             venv.to_string_lossy().into_owned(),
             "--python".to_string(),
             PYTHON_VERSION.to_string(),
         ],
-        requirements,
+        fetching(requirements),
         runtime,
     ]
 }
@@ -196,6 +223,7 @@ pub(crate) async fn bootstrap_venv(
     venv: &Path,
     python_skills: &[BootstrapPythonSkill],
     options: &EnsureKernelPythonOptions,
+    fetch: Fetch,
 ) -> anyhow::Result<()> {
     // The runtime source first: a broken install reports its root cause,
     // not a missing uv.
@@ -205,7 +233,7 @@ pub(crate) async fn bootstrap_venv(
     let uv = ensure_uv()?;
     let python = kernel_venv_python(venv);
     let python_str = python.to_string_lossy().to_string();
-    for command in venv_build_commands(venv, &python_str, &source_dir) {
+    for command in venv_build_commands(venv, &python_str, &source_dir, fetch) {
         run_async(&uv, &command).await?;
     }
     if let Some(report) = uv_pip_check(&uv, &python_str).await? {
@@ -228,7 +256,7 @@ pub(crate) async fn bootstrap_venv(
 /// One editable install of `skills` with [`LOCAL_INSTALL_FLAGS`]: a skill's
 /// declared dependencies are never resolved, only checked afterwards
 /// against the hash-locked venv.
-fn skill_install_args(python: &str, skills: &[&BootstrapPythonSkill]) -> Vec<String> {
+pub(super) fn skill_install_args(python: &str, skills: &[&BootstrapPythonSkill]) -> Vec<String> {
     let mut args = uv_pip_args("install", python);
     args.extend(LOCAL_INSTALL_FLAGS.into_iter().map(String::from));
     for skill in skills {

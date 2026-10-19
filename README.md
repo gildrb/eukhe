@@ -100,9 +100,18 @@ eukhe state [agent]        # show the session state tree
 eukhe provider caps        # list provider capabilities; no network
 eukhe provider models <p>  # list the models of provider <p>
 eukhe tiny-models          # list or download local models
+eukhe config               # show and set the installed resources; no network
+eukhe package install <s>  # install an npm or git package; add it to settings
+eukhe package update [s]   # update the installed packages
 eukhe doctor [--fix]       # check or repair the daemon
 eukhe shutdown [--force]   # stop all agents and the daemon
 ```
+
+Only `eukhe package install` and `eukhe package update` download packages
+(npm or git). Sessions and `eukhe config` use the installed packages only.
+They do not install or fetch a package. For each configured package that
+is not installed, they show a warning with the `eukhe package install`
+command for it.
 
 Each daemon reports its build: `<version>+<commit>`, plus `.dirty.<hash>`
 (a hash of the changes) when the sources differ from the commit, or

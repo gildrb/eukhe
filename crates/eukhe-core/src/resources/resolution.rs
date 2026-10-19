@@ -13,8 +13,7 @@ use crate::settings::SettingsManager;
 
 use crate::packages::PathMetadata;
 use crate::packages::{
-    MetadataSource, MissingSourceAction, PackageManager, PackageManagerOptions, ResolvedPaths,
-    ResolvedResource,
+    MetadataSource, PackageManager, PackageManagerOptions, ResolvedPaths, ResolvedResource,
 };
 use crate::skills::{
     SourceInfo as SkillSourceInfo, SourceOrigin as SkillSourceOrigin,
@@ -173,7 +172,7 @@ pub(crate) fn resolve_session_resources(
     options: &ResourceLoaderOptions,
     settings: SettingsManager,
 ) -> Result<ResolutionOutput> {
-    let mut manager = PackageManager::with_options(PackageManagerOptions {
+    let manager = PackageManager::with_options(PackageManagerOptions {
         cwd: options.cwd.clone(),
         agent_dir: options.agent_dir.clone(),
         settings,
@@ -229,20 +228,20 @@ pub(crate) fn resolve_session_resources(
 /// # Errors
 ///
 /// Returns an error when a configured package source fails to resolve (an
-/// unparseable source, a missing local path). Missing remote sources are
-/// skipped, never installed: the client mounts its first frame on this.
+/// unparseable source). Missing npm and git sources are left out, never
+/// installed: the client mounts its first frame on this.
 pub fn resolve_theme_paths(options: &super::ThemePathOptions) -> Result<Vec<PathBuf>> {
     let enabled = if options.no_themes {
         Vec::new()
     } else {
-        let mut manager = PackageManager::with_options(PackageManagerOptions {
+        let manager = PackageManager::with_options(PackageManagerOptions {
             cwd: options.cwd.clone(),
             agent_dir: options.agent_dir.clone(),
             settings: SettingsManager::create(&options.cwd, &options.agent_dir),
             bundled_skills_dir: crate::packages::BundledSkillsDir::default(),
             extra_builtin_skill_overrides: Vec::new(),
         });
-        let resolved = manager.resolve_with_on_missing(Some(&mut |_| MissingSourceAction::Skip))?;
+        let resolved = manager.resolve()?;
         as_strings(&enabled_paths(&resolved.themes))
     };
     let additional = as_strings(&options.additional_theme_paths);

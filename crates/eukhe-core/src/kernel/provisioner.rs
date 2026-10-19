@@ -888,11 +888,12 @@ fn resolve_startup_budget_ms() -> u64 {
 /// bootstrap) never auto-retry — each needs either user action or a fresh
 /// attempt initiated by the caller.
 fn startup_failure_is_retryable(error: &anyhow::Error) -> bool {
-    const FATAL_MARKERS: [&str; 9] = [
+    const FATAL_MARKERS: [&str; 10] = [
         "provisioner disposed",
         "provisioner killed",
         "aborted",
-        "Failed to set up the Python kernel runtime",
+        crate::kernel::bootstrap::KERNEL_NOT_INSTALLED,
+        crate::kernel::bootstrap::KERNEL_INSTALL_FAILED,
         "EUKHE_KERNEL_PYTHON points to a Python",
         "Failed to initialize rlm runtime",
         "Update eukhe-runtime in the kernel Python",

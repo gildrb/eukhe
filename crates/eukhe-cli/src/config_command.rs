@@ -1,6 +1,8 @@
 //! `eukhe config`: the resource-configuration view (TS
-//! `handleConfigCommand`): resolve session resources, report settings
-//! errors, then open the interactive selector until Esc.
+//! `handleConfigCommand`): resolve session resources from the installed
+//! packages, report settings errors and packages that are not installed,
+//! then open the interactive selector until Esc. This command never
+//! installs or fetches packages; `eukhe package install` does.
 
 use std::path::PathBuf;
 
@@ -22,7 +24,7 @@ pub fn run() -> i32 {
     let screen_mode = eukhe_tui::screen_mode::ScreenMode::from_fullscreen_setting(
         resolve_settings.get_fullscreen(),
     );
-    let mut manager = PackageManager::new(cwd.clone(), agent_dir.clone(), resolve_settings);
+    let manager = PackageManager::new(cwd.clone(), agent_dir.clone(), resolve_settings);
     let resolved = match manager.resolve() {
         Ok(resolved) => resolved,
         Err(error) => {
@@ -30,6 +32,11 @@ pub fn run() -> i32 {
             return 1;
         }
     };
+    // The selector has no chat: packages that are not installed print
+    // before it mounts, each with the command that installs it.
+    for missing in &resolved.missing_packages {
+        eprintln!("Warning: {missing}");
+    }
     let groups = resource_config::build_groups(&resolved);
     let (rows, items) = selector_rows(&groups);
     let selector = ConfigSelector::new(rows);

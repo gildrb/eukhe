@@ -44,6 +44,8 @@ import ./laws/progress.bend as Prg
 import ./bend/proof_progress.bend as Progress
 import ./bend/proof_progress_report.bend as Reports
 import ./laws/ladder.bend as Ladder
+import ./laws/kernel_local.bend as KernelLocal
+import ./bend/proof_kernel_local.bend as KernelLocals
 
 # (a) The view
 
@@ -843,3 +845,35 @@ def Ladder.quirk_ladder_plain_exact(explicit, rule, d, l):
 
 def Ladder.quirk_ladder_shipped_is_s10(r, map):
   Quirks.pq.quirk_ladder_shipped_is_s10(r, map)
+
+# (K1) The kernel environment is local
+
+def KernelLocal.kernel_session_never_downloads(f):
+  KernelLocals.pk.session_never_downloads(f)
+
+def KernelLocal.kernel_download_only_on_install(f, s, fetches):
+  KernelLocals.pk.download_only_on_install(f, s, fetches)
+
+def KernelLocal.kernel_fetch_verified_before_use(f, s):
+  KernelLocals.pk.fetch_verified_before_use(f, s)
+
+def KernelLocal.kernel_setup_runs(f, s):
+  KernelLocals.pk.setup_runs(f, s)
+
+def KernelLocal.kernel_install_fetches():
+  {==}
+
+def KernelLocal.kernel_missing_spares_tools(n, f, ok):
+  KernelLocals.pk.missing_spares_tools(n, f, ok)
+
+def KernelLocal.kernel_missing_names_install(f, failed):
+  KernelLocals.pk.missing_names_install(f, failed)
+
+def KernelLocal.kernel_lock_attempt_leaves_none(l):
+  KernelLocals.pk.attempt_leaves_none(l)
+
+def KernelLocal.kernel_lock_sweep_removes_dead(ls):
+  KernelLocals.pk.sweep_removes_dead(ls)
+
+def KernelLocal.kernel_lock_sweep_keeps_live(ls):
+  KernelLocals.pk.sweep_keeps_live(ls)

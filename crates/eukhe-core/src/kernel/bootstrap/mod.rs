@@ -1,14 +1,20 @@
-//! Kernel Python environment bootstrap: the public entry point
-//! [`ensure_kernel_python`] resolves (and on first run builds) the venv that
-//! runs `python -m rlm.repl`, deduplicating concurrent bootstraps; the venv
-//! and version-file machinery lives in [`venv`], the runtime bootstrap code
-//! injected into each kernel in [`runtime_code`].
+//! Kernel Python environment bootstrap: the public entry points
+//! [`ensure_kernel_python`] (a session: the installed venv, or one built
+//! from local files only) and [`install_kernel_python`] (`eukhe kernel
+//! install`: the only path that downloads) resolve the venv that runs
+//! `python -m rlm.repl`, deduplicating concurrent bootstraps; the setup
+//! decision lives in [`setup`], the venv and version-file machinery in
+//! [`venv`], the runtime bootstrap code injected into each kernel in
+//! [`runtime_code`].
 //!
 //! Ported from `core/kernel/bootstrap.ts`.
 
+#[cfg(test)]
+mod bridge;
 pub(crate) mod dir_lock;
 mod disk_memo;
 mod runtime_code;
+mod setup;
 pub(crate) mod venv;
 
 use std::path::PathBuf;
@@ -30,6 +36,21 @@ pub use venv::{
     invalidate_runtime_probe_cache, kernel_venv_dir, kernel_venv_python, resolve_runtime_identity,
 };
 use venv::{kernel_base_ready, kernel_ready};
+
+use setup::{setup_step, Fetch, Found, KernelSetup, SetupStep};
+
+/// The command that installs the kernel environment.
+pub const KERNEL_INSTALL_COMMAND: &str = "eukhe kernel install";
+/// The start of a session's setup failure: the kernel is missing or out of
+/// date, and local files cannot set it up.
+pub(crate) const KERNEL_NOT_INSTALLED: &str = "The Python kernel is not installed";
+/// The start of a failed `eukhe kernel install`.
+pub(crate) const KERNEL_INSTALL_FAILED: &str = "Failed to install the Python kernel";
+
+/// Tests that set the kernel env variables (`EUKHE_KERNEL_PYTHON`,
+/// `EUKHE_KERNEL_VENV`, `HOME`) hold this lock: the process env is global.
+#[cfg(test)]
+pub(crate) static KERNEL_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// One Python skill the kernel should import at bootstrap.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,13 +108,22 @@ impl EnsureKernelPythonOptions {
     }
 }
 
-fn format_bootstrap_failure(error: &anyhow::Error) -> anyhow::Error {
-    anyhow!(
-        "Failed to set up the Python kernel runtime. {error:#}\n\
-         First-time setup needs internet to download Python and the kernel's hash-locked packages (eukhe-runtime/requirements-kernel.txt); once set up, eukhe runs offline. \
-         An interrupted runtime upgrade needs network once more, so re-run this while online. \
-         Set EUKHE_KERNEL_PYTHON to a Python with a current eukhe-runtime and default Python packages installed to skip auto-bootstrap."
-    )
+fn format_setup_failure(error: &anyhow::Error, setup: KernelSetup) -> anyhow::Error {
+    match setup {
+        KernelSetup::Local => anyhow!(
+            "{KERNEL_NOT_INSTALLED}: run `{KERNEL_INSTALL_COMMAND}` once. \
+             It downloads Python and the kernel's hash-locked packages (eukhe-runtime/requirements-kernel.txt); after that, eukhe sets up the kernel from local files only. \
+             The other tools work without the kernel. \
+             To use your own Python, set EUKHE_KERNEL_PYTHON to a Python with a current eukhe-runtime and the default Python packages. \
+             Cause: {error:#}"
+        ),
+        KernelSetup::Install => anyhow!(
+            "{KERNEL_INSTALL_FAILED}. {error:#}\n\
+             The install downloads Python and the kernel's hash-locked packages (eukhe-runtime/requirements-kernel.txt), so it needs internet. \
+             Run `{KERNEL_INSTALL_COMMAND}` again when you are online. \
+             To use your own Python, set EUKHE_KERNEL_PYTHON to a Python with a current eukhe-runtime and the default Python packages."
+        ),
+    }
 }
 
 /// One in-flight bootstrap per unique options set, joined by concurrent callers.
@@ -104,22 +134,87 @@ type InFlightBootstrap = Option<(
 
 static IN_FLIGHT: Mutex<InFlightBootstrap> = Mutex::new(None);
 
-/// Resolve the Python interpreter for the kernel: the `EUKHE_KERNEL_PYTHON`
-/// override when valid, else the auto-bootstrapped venv python.
+/// Resolve the Python interpreter for a session's kernel: the
+/// `EUKHE_KERNEL_PYTHON` override when valid, else the kernel venv python.
+/// This makes no network request: a missing or out-of-date venv is built
+/// again from local files only (the uv cache and Python installs that
+/// [`install_kernel_python`] left), and when that is not possible the
+/// error tells the user to run `eukhe kernel install`.
 ///
 /// # Errors
 ///
 /// Returns an error when the `EUKHE_KERNEL_PYTHON` override points to
 /// a Python missing the kernel runtime or default packages, when a writable
-/// venv directory cannot be resolved, or when the kernel venv bootstrap or
-/// its skill sync fails (the failure is formatted with remediation hints,
-/// including a missing packaged runtime directory).
+/// venv directory cannot be resolved, or when the kernel venv cannot be set
+/// up from local files (the error names `eukhe kernel install`).
+pub async fn ensure_kernel_python(options: EnsureKernelPythonOptions) -> anyhow::Result<PathBuf> {
+    resolve_kernel_python(options, KernelSetup::Local).await
+}
+
+/// `eukhe kernel install`: make the kernel venv current, downloading
+/// Python and the hash-locked kernel packages when the venv is missing or
+/// out of date (uv checks each file against its hash before install). A
+/// current venv is used as it is, so a second run downloads nothing.
+///
+/// # Errors
+///
+/// Returns an error when the `EUKHE_KERNEL_PYTHON` override points to a
+/// Python missing the kernel runtime or default packages, when a writable
+/// venv directory cannot be resolved, or when the install fails (the
+/// failure is formatted with remediation hints).
+pub async fn install_kernel_python(options: EnsureKernelPythonOptions) -> anyhow::Result<PathBuf> {
+    resolve_kernel_python(options, KernelSetup::Install).await
+}
+
+/// The kernel environment as `eukhe kernel install --check` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KernelInstallState {
+    /// `EUKHE_KERNEL_PYTHON` names the interpreter: eukhe installs nothing.
+    Override(PathBuf),
+    /// The kernel venv is current; the path is its interpreter.
+    Installed(PathBuf),
+    /// The kernel venv exists, but its runtime is not this build's; the
+    /// path is the venv.
+    OutOfDate(PathBuf),
+    /// No kernel venv; the path is where it goes.
+    Missing(PathBuf),
+}
+
+/// The state of the kernel environment. Makes no network request: it
+/// reads the venv and runs its interpreter's readiness probe.
+///
+/// # Errors
+///
+/// Returns an error when no writable venv directory can be resolved or the
+/// runtime source of this build cannot be read.
+pub fn kernel_install_state() -> anyhow::Result<KernelInstallState> {
+    if let Ok(override_python) = std::env::var("EUKHE_KERNEL_PYTHON") {
+        if !override_python.is_empty() {
+            return Ok(KernelInstallState::Override(expand_home(&override_python)));
+        }
+    }
+    let venv = resolve_writable_kernel_venv_dir()?;
+    let python = kernel_venv_python(&venv);
+    let runtime_identity = resolve_runtime_identity()?;
+    if kernel_base_ready(&python.to_string_lossy(), &venv, &runtime_identity) {
+        return Ok(KernelInstallState::Installed(python));
+    }
+    if venv.exists() {
+        return Ok(KernelInstallState::OutOfDate(venv));
+    }
+    Ok(KernelInstallState::Missing(venv))
+}
+
+/// The shared flow of [`ensure_kernel_python`] and [`install_kernel_python`].
 ///
 /// # Panics
 ///
 /// The in-flight promise stores its outcome under the same lock that takes
 /// it, so the internal `expect` on the stored outcome is unreachable.
-pub async fn ensure_kernel_python(options: EnsureKernelPythonOptions) -> anyhow::Result<PathBuf> {
+async fn resolve_kernel_python(
+    options: EnsureKernelPythonOptions,
+    setup: KernelSetup,
+) -> anyhow::Result<PathBuf> {
     let python_skills = normalize_python_skills(&options.python_skills);
     let key = [
         std::env::var("EUKHE_KERNEL_PYTHON").unwrap_or_default(),
@@ -127,6 +222,7 @@ pub async fn ensure_kernel_python(options: EnsureKernelPythonOptions) -> anyhow:
         std::env::var("HOME").unwrap_or_default(),
         std::env::var("XDG_DATA_HOME").unwrap_or_default(),
         serde_json::to_string(&python_skills).unwrap_or_default(),
+        format!("{setup:?}"),
     ]
     .join("\u{0}");
 
@@ -145,7 +241,7 @@ pub async fn ensure_kernel_python(options: EnsureKernelPythonOptions) -> anyhow:
     };
     let mut guard = shared.lock().await;
     if guard.is_none() {
-        *guard = Some(ensure_kernel_python_uncached(&options, &python_skills).await);
+        *guard = Some(ensure_kernel_python_uncached(&options, &python_skills, setup).await);
     }
     let outcome = guard.take().expect("outcome was just stored");
     // Drop the registry entry so a later call re-validates instead of reusing
@@ -162,6 +258,7 @@ pub async fn ensure_kernel_python(options: EnsureKernelPythonOptions) -> anyhow:
 async fn ensure_kernel_python_uncached(
     options: &EnsureKernelPythonOptions,
     python_skills: &[BootstrapPythonSkill],
+    setup: KernelSetup,
 ) -> anyhow::Result<PathBuf> {
     if let Ok(override_python) = std::env::var("EUKHE_KERNEL_PYTHON") {
         if !override_python.is_empty() {
@@ -207,45 +304,57 @@ async fn ensure_kernel_python_uncached(
     let python = kernel_venv_python(&venv);
     let python_str = python.to_string_lossy().to_string();
     let runtime_identity =
-        resolve_runtime_identity().map_err(|error| format_bootstrap_failure(&error))?;
+        resolve_runtime_identity().map_err(|error| format_setup_failure(&error, setup))?;
     if kernel_ready(&python_str, &venv, &runtime_identity, python_skills) {
         return Ok(python);
     }
 
-    let release_lock = acquire_bootstrap_lock(&venv).await;
+    let release_lock = acquire_bootstrap_lock(&venv)
+        .await
+        .map_err(|error| format_setup_failure(&error, setup))?;
     let result = async {
-        if kernel_ready(&python_str, &venv, &runtime_identity, python_skills) {
-            return Ok(python);
+        let found = if kernel_ready(&python_str, &venv, &runtime_identity, python_skills) {
+            Found::Ready
+        } else if kernel_base_ready(&python_str, &venv, &runtime_identity) {
+            Found::SkillsStale
+        } else {
+            Found::Stale
+        };
+        match setup_step(found, setup) {
+            SetupStep::Use => {}
+            SetupStep::SyncSkills => {
+                let uv = ensure_uv()?;
+                sync_python_skills(
+                    &uv,
+                    &venv,
+                    &python,
+                    &runtime_identity,
+                    python_skills,
+                    options,
+                )
+                .await?;
+            }
+            SetupStep::Build(fetch) => {
+                options.report(match fetch {
+                    Fetch::Offline => "> setting up python kernel from local files...",
+                    Fetch::Download => {
+                        "> installing python kernel (downloads Python and the hash-locked packages)..."
+                    }
+                });
+                if venv.exists() {
+                    options.report("rebuilding kernel venv");
+                    std::fs::remove_dir_all(&venv)
+                        .with_context(|| format!("removing {}", venv.display()))?;
+                }
+                bootstrap_venv(&venv, python_skills, options, fetch).await?;
+                options.report("ok ready");
+            }
         }
-        if kernel_base_ready(&python_str, &venv, &runtime_identity) {
-            let uv = ensure_uv()?;
-            sync_python_skills(
-                &uv,
-                &venv,
-                &python,
-                &runtime_identity,
-                python_skills,
-                options,
-            )
-            .await?;
-            return Ok(python);
-        }
-        let had_venv = venv.exists();
-        options.report("> setting up python kernel (one-time, ~30s)...");
-        if had_venv {
-            options.report("rebuilding kernel venv");
-            std::fs::remove_dir_all(&venv)
-                .with_context(|| format!("removing {}", venv.display()))?;
-        }
-        bootstrap_venv(&venv, python_skills, options).await?;
         Ok(python)
     }
     .await;
     drop(release_lock);
-    if result.is_ok() {
-        options.report("ok ready");
-    }
-    result.map_err(|error| format_bootstrap_failure(&error))
+    result.map_err(|error| format_setup_failure(&error, setup))
 }
 
 // ---------------------------------------------------------------------------

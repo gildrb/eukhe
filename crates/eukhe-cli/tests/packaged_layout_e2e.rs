@@ -308,9 +308,9 @@ fn packaged_binary_reports_manifest_version() {
     );
 }
 
-/// A missing sidecar (broken install) surfaces the actionable bootstrap
-/// failure: the TS-matching base text plus the missing
-/// eukhe-runtime hint, not a raw uv/pip error.
+/// A missing sidecar (broken install) surfaces the actionable install
+/// failure: the base text plus the missing eukhe-runtime hint, not a raw
+/// uv/pip error.
 #[test]
 fn missing_sidecar_reports_actionable_bootstrap_error() {
     let _guard = serial_lock();
@@ -320,7 +320,7 @@ fn missing_sidecar_reports_actionable_bootstrap_error() {
     let box_ = sandbox();
     let output = box_
         .command(staged)
-        .arg("--eukhe-bootstrap")
+        .args(["kernel", "install"])
         // No uv anywhere the bootstrap looks (PATH and ~/.local/bin under
         // the sandboxed HOME), so the failure is the resolution error, not
         // an install attempt against the network.
@@ -330,8 +330,8 @@ fn missing_sidecar_reports_actionable_bootstrap_error() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Failed to set up the Python kernel runtime"),
-        "TS bootstrap failure text missing: {stderr}"
+        stderr.contains("Failed to install the Python kernel"),
+        "install failure text missing: {stderr}"
     );
     assert!(
         stderr.contains("the eukhe-runtime kernel runtime directory was not found"),
@@ -356,7 +356,7 @@ fn invalid_kernel_python_override_reports_ts_error() {
     let bogus = box_.home.path().join("not-a-kernel-python");
     let output = box_
         .command(staged)
-        .arg("--eukhe-bootstrap")
+        .args(["kernel", "install"])
         .env("EUKHE_KERNEL_PYTHON", &bogus)
         .output()
         .expect("run packaged binary");
@@ -403,20 +403,20 @@ fn hostile_child_assertions(staged: &Path) {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // The missing-sidecar bootstrap failure stays the actionable one:
+    // The missing-sidecar install failure stays the actionable one:
     // exit 1 with the hint naming the STAGED dir — never the hostile
     // kernel-python override error and never the decoy package dir.
     let output = box_
         .command(staged)
-        .arg("--eukhe-bootstrap")
+        .args(["kernel", "install"])
         .env("PATH", "/usr/bin:/bin")
         .output()
         .expect("run packaged binary");
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Failed to set up the Python kernel runtime"),
-        "TS bootstrap failure text missing: {stderr}"
+        stderr.contains("Failed to install the Python kernel"),
+        "install failure text missing: {stderr}"
     );
     assert!(
         stderr.contains("the eukhe-runtime kernel runtime directory was not found"),
@@ -979,40 +979,36 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     digest
 }
 
-/// Heavy (network + uv): the packaged sidecar bootstraps a fresh kernel venv
+/// Heavy (network + uv): the packaged sidecar installs a fresh kernel venv
 /// with no `EUKHE_KERNEL_PYTHON` and no `EUKHE_PACKAGE_DIR` (both scrubbed
 /// by the hermetic sandbox command, so a gate host exporting them cannot
 /// steer this run), then boots a session on it. Run explicitly:
 /// `cargo test -p eukhe-cli --test packaged_layout_e2e -- --ignored`
 #[test]
-#[ignore = "network + uv bootstrap (~minutes); the lane verifier runs it explicitly"]
-fn bootstrap_kernel_venv_from_packaged_sidecar() {
+#[ignore = "network + uv install (~minutes); the lane verifier runs it explicitly"]
+fn install_kernel_venv_from_packaged_sidecar() {
     let dir = tempfile::TempDir::new().expect("stage dir");
     let staged = dir.path();
     stage_packaged_layout(staged, true);
     let box_ = sandbox();
     let venv = box_.home.path().join("kernel-venv");
 
-    // --eukhe-bootstrap (the installer handoff) builds the venv from
-    // the exe-adjacent sidecar.
+    // `eukhe kernel install` builds the venv from the exe-adjacent sidecar.
     let output = box_
         .command(staged)
-        .arg("--eukhe-bootstrap")
+        .args(["kernel", "install"])
         .env("EUKHE_KERNEL_VENV", &venv)
         .output()
         .expect("run packaged binary");
     assert_eq!(
         output.status.code(),
         Some(0),
-        "bootstrap failed: {}",
+        "install failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("kernel python:"),
-        "bootstrap stdout: {stdout}"
-    );
-    // The venv layout the product's bootstrap creates.
+    assert!(stdout.contains("installed:"), "install stdout: {stdout}");
+    // The venv layout the product's install creates.
     let venv_python = venv.join("bin").join("python");
     assert!(venv_python.exists(), "kernel venv python missing");
 

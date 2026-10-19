@@ -141,12 +141,14 @@ pub use resolution::{resolve_theme_paths, theme_sources};
 
 /// Load all session resources: package-manager resolution (configured
 /// packages, settings arrays, auto-discovery, bundled skills) feeds the
-/// enabled skill and prompt paths.
+/// enabled skill and prompt paths. Configured packages that are not
+/// installed are not installed here: each one becomes a warning diagnostic
+/// that gives the `eukhe package install` command.
 ///
 /// # Errors
 ///
 /// Returns an error when the session resource resolution fails (a
-/// configured package source cannot be parsed, installed, or refreshed).
+/// configured package source cannot be parsed).
 pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResources> {
     let settings = options
         .settings
@@ -184,10 +186,19 @@ pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResour
         })
         .collect();
     resources.skill_diagnostics = skills_result.diagnostics;
-    // Resolution-time warnings (e.g. missing bundled skills directory).
+    // Resolution-time warnings (e.g. missing bundled skills directory), then
+    // one warning per configured package that is not installed.
     resources
         .skill_diagnostics
         .extend(resolution.resolved.diagnostics.clone());
+    resources
+        .skill_diagnostics
+        .extend(resolution.resolved.missing_packages.iter().map(|missing| {
+            ResourceDiagnostic::Warning {
+                message: missing.to_string(),
+                path: None,
+            }
+        }));
     for path in &options.additional_skill_paths {
         if is_local_path(path)
             && !Path::new(path).exists()

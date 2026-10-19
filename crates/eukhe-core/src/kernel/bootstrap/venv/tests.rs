@@ -543,16 +543,12 @@ fn disk_memo_late_write_after_invalidate_is_benign() {
     assert!(!super::super::disk_memo::disk_memo_path(&venv).exists());
 }
 
-/// Env-mutating tests serialize on this lock: the process env is
-/// global (same pattern as the request-timing env lock).
-static EUKHE_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 /// The d14 boundary pinned at the observable-facts level: a
 /// caller-owned `EUKHE_KERNEL_PYTHON` override resolves through
 /// the DIRECT probe and never reads or writes any memo file.
 #[tokio::test]
 async fn custom_override_never_touches_the_disk_memo() {
-    let _guard = EUKHE_ENV_LOCK.lock().await;
+    let _guard = crate::kernel::bootstrap::KERNEL_ENV_LOCK.lock().await;
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
@@ -979,7 +975,7 @@ async fn skill_sync_batches_missing_installs_into_one_uv_call() {
         calls,
         vec![
             format!(
-                "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --editable {}",
+                "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --offline --editable {}",
                 python.display(),
                 dir.path().join("skills/goal").display()
             ),
@@ -1034,7 +1030,7 @@ async fn skill_sync_falls_back_to_per_skill_installs_on_batch_failure() {
     let python = dir.path().join("python");
     let install = |paths: &str| {
         format!(
-            "pip install --no-config --python {} --no-deps --no-index --no-build-isolation {paths}",
+            "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --offline {paths}",
             python.display()
         )
     };
@@ -1072,29 +1068,35 @@ fn venv_builds_only_from_the_hash_locked_runtime_source() {
     let source = Path::new("/opt/eukhe/eukhe-runtime");
     let python = "/state/kernel-venv/bin/python";
     let strings = |args: &[&str]| args.iter().map(ToString::to_string).collect::<Vec<_>>();
-    assert_eq!(
-        venv_build_commands(venv, python, source),
+    let commands = |offline: &[&str]| {
         vec![
-            strings(&["python", "install", "--no-config", "3.11"]),
+            strings(&[&["python", "install", "--no-config", "3.11"][..], offline].concat()),
             strings(&[
                 "venv",
                 "--no-config",
+                "--offline",
                 "/state/kernel-venv",
                 "--python",
-                "3.11"
+                "3.11",
             ]),
-            strings(&[
-                "pip",
-                "install",
-                "--no-config",
-                "--python",
-                python,
-                "--require-hashes",
-                "--only-binary",
-                ":all:",
-                "-r",
-                "/opt/eukhe/eukhe-runtime/requirements-kernel.txt",
-            ]),
+            strings(
+                &[
+                    &[
+                        "pip",
+                        "install",
+                        "--no-config",
+                        "--python",
+                        python,
+                        "--require-hashes",
+                        "--only-binary",
+                        ":all:",
+                        "-r",
+                        "/opt/eukhe/eukhe-runtime/requirements-kernel.txt",
+                    ][..],
+                    offline,
+                ]
+                .concat(),
+            ),
             strings(&[
                 "pip",
                 "install",
@@ -1104,9 +1106,19 @@ fn venv_builds_only_from_the_hash_locked_runtime_source() {
                 "--no-deps",
                 "--no-index",
                 "--no-build-isolation",
+                "--offline",
                 "/opt/eukhe/eukhe-runtime",
             ]),
         ]
+    };
+    // Regression: a session's build downloaded Python and the locked
+    // packages; every command of a session's build is offline now.
+    assert_eq!(
+        (
+            venv_build_commands(venv, python, source, Fetch::Download),
+            venv_build_commands(venv, python, source, Fetch::Offline),
+        ),
+        (commands(&[]), commands(&["--offline"]))
     );
 }
 
@@ -1191,7 +1203,7 @@ async fn skill_with_unlocked_dependencies_is_uninstalled_and_reported() {
         uv_invocations(dir.path()),
         vec![
             format!(
-                "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --editable {} --editable {}",
+                "pip install --no-config --python {} --no-deps --no-index --no-build-isolation --offline --editable {} --editable {}",
                 python.display(),
                 edit.display(),
                 lookup.display()

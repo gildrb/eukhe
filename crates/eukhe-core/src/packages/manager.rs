@@ -13,7 +13,7 @@ use anyhow::{bail, Result};
 use super::git;
 use super::npm;
 pub use super::source::UserOrProject;
-use super::source::{parse_source, GitSource, NpmSource, ParsedSource, SourceScope};
+use super::source::{parse_source, NpmSource, ParsedSource, SourceScope};
 use crate::settings::SettingsManager;
 
 /// Progress actions reported to the callback.
@@ -23,7 +23,6 @@ pub enum ProgressAction {
     Remove,
     Update,
     Clone,
-    Pull,
 }
 
 /// Progress event kinds (`start`/`complete`/`error` in the TS surface).
@@ -249,11 +248,15 @@ impl PackageManager {
             &format!("Installing {source}..."),
             |manager| match &parsed {
                 ParsedSource::Npm(npm_source) => {
-                    manager.install_npm(npm_source, SourceScope::from(scope), false)
+                    manager.install_npm(npm_source, SourceScope::from(scope))
                 }
-                ParsedSource::Git(git_source) => {
-                    manager.install_git_source(git_source, SourceScope::from(scope))
-                }
+                ParsedSource::Git(git_source) => git::install_git(
+                    git_source,
+                    SourceScope::from(scope),
+                    &manager.cwd,
+                    &manager.agent_dir,
+                    manager.settings.get_npm_command().as_ref(),
+                ),
                 ParsedSource::Local(local) => {
                     let resolved = manager.resolve_path(&local.path);
                     if !resolved.exists() {
@@ -513,13 +516,8 @@ impl PackageManager {
         Ok(root)
     }
 
-    pub(super) fn install_npm(
-        &mut self,
-        source: &NpmSource,
-        scope: SourceScope,
-        temporary: bool,
-    ) -> Result<()> {
-        if scope == SourceScope::User && !temporary {
+    fn install_npm(&mut self, source: &NpmSource, scope: SourceScope) -> Result<()> {
+        if scope == SourceScope::User {
             self.run_npm_command(&["install", "-g", &source.spec], None)?;
             return Ok(());
         }
@@ -602,21 +600,6 @@ impl PackageManager {
             &program,
             &full_args.iter().map(String::as_str).collect::<Vec<_>>(),
             cwd,
-        )
-    }
-
-    pub(super) fn install_git_source(
-        &mut self,
-        source: &GitSource,
-        scope: SourceScope,
-    ) -> Result<()> {
-        let npm_command = self.settings.get_npm_command();
-        git::install_git(
-            source,
-            scope,
-            &self.cwd,
-            &self.agent_dir,
-            npm_command.as_ref(),
         )
     }
 }

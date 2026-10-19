@@ -477,3 +477,72 @@ model's frames have distinct ids, and the bridge's streams too),
 directories and symlinks in the hand-back (the model's
 paths are flat files), the transport and `@remote` (the tests above tie
 them).
+
+### The kernel environment: install once, no downloads in a session
+
+The kernel runs on a venv (`~/.eukhe/kernel-venv`, or
+`EUKHE_KERNEL_VENV`): a Python from uv and the packages that
+`eukhe-runtime/requirements-kernel.txt` locks with hashes. A session
+never downloads them. The user installs them once:
+
+```sh
+eukhe kernel install          # download and install the kernel venv
+eukhe kernel install --check  # show its state; no network request
+```
+
+1. `eukhe kernel install` is the only command that downloads for the
+   kernel. It runs `uv python install` (uv checks the Python download
+   against the sha256 that it pins) and `uv pip install
+   --require-hashes --only-binary :all:` on the lock (uv checks each
+   wheel against its hash before it installs it). Then it installs the
+   runtime from its local directory with `--offline` and checks the venv
+   with `uv pip check`. The kernel starts only on a checked venv. A
+   second run keeps an installed venv and downloads nothing.
+2. A session uses the installed venv. When the venv is not for this
+   build (after an update), the session sets it up again from local
+   files only: every uv command has `--offline`, so uv uses only its
+   cache and the Python installs of the last install. The Python skills
+   install from their directories, also with `--offline`.
+3. When local files are not sufficient, the `ipython` tool answers with
+   the error `The Python kernel is not installed: run `eukhe kernel
+   install` once`. The session opens and the other tools work.
+4. `EUKHE_KERNEL_PYTHON` names a Python of the user. Then eukhe installs
+   nothing, and `--check` shows that Python.
+5. One process at a time sets up a venv: it holds the bootstrap lock
+   (`kernel-venv.bootstrap.lock`, a file published with `link(2)`). An
+   attempt writes a candidate file
+   (`kernel-venv.bootstrap.lock.candidate-<pid>-<uuid>`) and removes it
+   on every path. When a process stops inside an attempt, the next
+   acquire removes the candidates and the stale locks set aside
+   (`.stale-<pid>-<uuid>`) of each process that is gone. A file of a
+   live process stays.
+
+The Bend model is `bend/kernel_local.bend` and the laws are in
+`laws/kernel_local.bend`: `kernel_session_never_downloads`,
+`kernel_download_only_on_install`, `kernel_fetch_verified_before_use`,
+`kernel_setup_runs`, `kernel_install_fetches`,
+`kernel_missing_spares_tools`, `kernel_missing_names_install`,
+`kernel_lock_attempt_leaves_none`, `kernel_lock_sweep_removes_dead` and
+`kernel_lock_sweep_keeps_live`. `PROOF.bend` proves them with
+`bend/proof_kernel_local.bend`.
+
+Code: `eukhe-core/src/kernel/bootstrap/setup.rs` (`setup_step`: the
+venv found and the setup give the step), `venv.rs`
+(`venv_build_commands`, `skill_install_args`), `mod.rs`
+(`ensure_kernel_python` for a session, `install_kernel_python` for the
+command, `format_setup_failure`), `dir_lock.rs` (`try_acquire_dir_lock`,
+`sweep_leftovers`), and `eukhe-cli/src/kernel_command.rs`.
+
+Bridge: `kernel::bootstrap::bridge` (eukhe-core) runs the real code
+against `bend/bridge_kernel_local.bend`.
+`the_rust_setup_equals_the_bend_model` checks each venv found, each
+setup and each result: the uv commands (a fetch unless `--offline`;
+hashed with `--require-hashes` or for `uv python install`), the check,
+and the kernel. `the_rust_lock_equals_the_bend_model` makes 40 lock dirs
+(a free lock, a lock of a live or a dead owner, candidates and stale
+locks of live and dead processes, and other files), then sweeps and
+makes one attempt. `a_missing_kernel_answers_as_its_model` opens
+sessions whose venv cannot be set up and calls `ipython` and `bash`.
+Not modelled: that uv keeps `--offline` and checks the hashes is uv's
+contract; a process that stops inside an attempt is the model's
+`Crash`, which no test makes.

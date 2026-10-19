@@ -172,6 +172,7 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "chat" => handled_with_exit(crate::chat_command::run_chat_command(&rest)),
         "gateway" => handled_with_exit(crate::gateway_command::run_gateway_command(&rest)),
         "dashboard" => handled_with_exit(crate::dashboard_command::run_dashboard_command(&rest)),
+        "kernel" => handled_with_exit(crate::kernel_command::run_kernel_command(&rest)),
         "tiny-models" => {
             handled_with_exit(crate::tiny_models_command::run_tiny_models_command(&rest))
         }

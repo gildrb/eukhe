@@ -1,14 +1,14 @@
 //! Ported TS resolve test cases (package-manager.test.ts): settings entries,
 //! auto-discovery (settings-base dirs, `.agents/skills` ancestors, ignore
 //! files, symlinks), pattern filtering (top-level arrays, pi manifest,
-//! package filters, `+`/`-` force forms), package dedupe, and the
-//! offline/missing-source policies.
+//! package filters, `+`/`-` force forms), package dedupe, and the report of
+//! missing package sources.
 
 use std::path::{Path, PathBuf};
 
-use super::{MetadataSource, ResolvedResource, ResourceOrigin};
+use super::{MetadataSource, MissingPackage, ResolvedResource, ResourceOrigin};
 use crate::packages::manager::BundledSkillsDir;
-use crate::packages::source::SourceScope;
+use crate::packages::source::{SourceScope, UserOrProject};
 use crate::packages::{PackageManager, PackageManagerOptions};
 use crate::settings::SettingsManager;
 
@@ -139,7 +139,7 @@ fn has_path(resources: &[ResolvedResource], suffix: &str) -> bool {
 
 #[test]
 fn resolve_without_configured_sources_returns_only_auto_resources() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     let result = fixture.manager.resolve().unwrap();
     assert!(result.prompts.is_empty());
     assert!(result.themes.is_empty());
@@ -167,7 +167,7 @@ fn resolve_skill_paths_from_settings() {
 
 #[test]
 fn auto_discovers_root_markdown_skills() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     let skill_file = fixture.agent_dir.join("skills").join("single-file.md");
     write(
         &skill_file,
@@ -231,7 +231,7 @@ fn resolves_symlinked_user_and_project_resources_once() {
     use std::os::unix::fs::symlink;
     let _guard = ENV_MUTEX.lock().unwrap();
     let previous_home = std::env::var("HOME").ok();
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     std::env::set_var("HOME", &fixture.temp_dir);
 
     let shared = fixture.temp_dir.join("shared-resources");
@@ -288,7 +288,7 @@ fn agents_skills_scan_stops_at_git_repo_root() {
         "nested",
     );
 
-    let mut nested_manager = Fixture::with_cwd(fixture.root, nested_cwd, fixture.agent_dir);
+    let nested_manager = Fixture::with_cwd(fixture.root, nested_cwd, fixture.agent_dir);
     let result = nested_manager.manager.resolve().unwrap();
     assert!(result
         .skills
@@ -316,7 +316,7 @@ fn agents_skills_scan_goes_to_fs_root_without_a_repo() {
         "middle",
     );
 
-    let mut nested_manager = Fixture::with_cwd(fixture.root, nested_cwd, fixture.agent_dir);
+    let nested_manager = Fixture::with_cwd(fixture.root, nested_cwd, fixture.agent_dir);
     let result = nested_manager.manager.resolve().unwrap();
     assert!(result
         .skills
@@ -330,7 +330,7 @@ fn agents_skills_scan_goes_to_fs_root_without_a_repo() {
 
 #[test]
 fn agents_skills_ignores_root_markdown_files() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     let agents_skills = fixture.temp_dir.join(".agents").join("skills");
     let root_file = agents_skills.join("root-file.md");
     write(
@@ -356,7 +356,7 @@ fn home_agents_skills_stays_user_scoped_when_cwd_is_under_home() {
         "home-skill",
         "home",
     );
-    let mut manager = PackageManager::new(
+    let manager = PackageManager::new(
         fixture.temp_dir.join("scratch").join("nested"),
         fixture.temp_dir.join(".eukhe"),
         SettingsManager::create(
@@ -387,7 +387,7 @@ fn user_skill_entries_dedupe_when_agent_skills_symlinks_agents_skills() {
     use std::os::unix::fs::symlink;
     let _guard = ENV_MUTEX.lock().unwrap();
     let previous_home = std::env::var("HOME").ok();
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     std::env::set_var("HOME", &fixture.temp_dir);
 
     let agents_skills = fixture.temp_dir.join(".agents").join("skills");
@@ -429,7 +429,7 @@ fn skill_directories_respect_gitignore() {
 
 #[test]
 fn parent_gitignore_does_not_apply_to_auto_discovery() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     write(&fixture.temp_dir.join(".gitignore"), ".eukhe\n");
 
     let project_dir = fixture.manager.cwd().join(crate::settings::CONFIG_DIR_NAME);
@@ -848,71 +848,39 @@ fn different_packages_in_both_scopes_both_resolve() {
         .any(|r| r.path.to_string_lossy().contains("pkg2")));
 }
 
-// -- offline / missing-source policies -------------------------------------------
+// -- missing sources ------------------------------------------------------------
 
 #[test]
-fn offline_mode_skips_installing_missing_sources() {
+fn missing_sources_are_reported_project_first_and_left_out() {
     let _guard = ENV_MUTEX.lock().unwrap();
-    let previous = std::env::var("EUKHE_OFFLINE").ok();
-    std::env::set_var("EUKHE_OFFLINE", "1");
     let mut fixture = Fixture::new();
     fixture.set_user_packages(serde_json::json!(["npm:missing-package"]));
     fixture.trust_project();
-    let project_dir = fixture.manager.cwd().join(crate::settings::CONFIG_DIR_NAME);
-    std::fs::create_dir_all(&project_dir).unwrap();
-    std::fs::write(
-        project_dir.join("settings.json"),
-        serde_json::json!({"packages": ["git:github.com/example/missing-repo"]}).to_string(),
-    )
-    .unwrap();
-    fixture.reload();
+    fixture.set_project_array(
+        "packages",
+        serde_json::json!(["git:github.com/example/missing-repo"]),
+    );
 
     let result = fixture.manager.resolve().unwrap();
+    assert_eq!(
+        result.missing_packages,
+        vec![
+            MissingPackage {
+                source: "git:github.com/example/missing-repo".to_string(),
+                scope: UserOrProject::Project,
+            },
+            MissingPackage {
+                source: "npm:missing-package".to_string(),
+                scope: UserOrProject::User,
+            },
+        ]
+    );
     assert!(!result
         .skills
         .iter()
         .chain(&result.prompts)
         .chain(&result.themes)
         .any(|r| r.metadata.origin == ResourceOrigin::Package));
-
-    match previous {
-        Some(value) => std::env::set_var("EUKHE_OFFLINE", value),
-        None => std::env::remove_var("EUKHE_OFFLINE"),
-    }
-}
-
-#[test]
-fn on_missing_error_fails_resolution() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    let mut fixture = Fixture::new();
-    fixture.set_user_packages(serde_json::json!(["npm:missing-package"]));
-
-    let error = fixture
-        .manager
-        .resolve_with_on_missing(Some(&mut |source| {
-            assert_eq!(source, "npm:missing-package");
-            crate::packages::MissingSourceAction::Error
-        }))
-        .unwrap_err();
-    assert_eq!(error.to_string(), "Missing source: npm:missing-package");
-}
-
-#[test]
-fn on_missing_skip_leaves_the_source_out() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    let mut fixture = Fixture::new();
-    fixture.set_user_packages(serde_json::json!(["npm:missing-package"]));
-
-    let result = fixture
-        .manager
-        .resolve_with_on_missing(Some(&mut |_| crate::packages::MissingSourceAction::Skip))
-        .unwrap();
-    assert!(result
-        .skills
-        .iter()
-        .chain(&result.prompts)
-        .chain(&result.themes)
-        .all(|r| r.metadata.origin != ResourceOrigin::Package));
 }
 
 // -- bundled skills -------------------------------------------------------------
@@ -923,7 +891,7 @@ fn bundled_skills_collect_with_the_extra_overrides_applied() {
     let bundled = fixture.temp_dir.join("bundled-skills");
     skill_md(&bundled, "first-skill", "First");
     skill_md(&bundled, "other-skill", "Other");
-    let mut manager = PackageManager::with_options(PackageManagerOptions {
+    let manager = PackageManager::with_options(PackageManagerOptions {
         cwd: fixture.manager.cwd().to_path_buf(),
         agent_dir: fixture.agent_dir.clone(),
         settings: SettingsManager::create(fixture.manager.cwd(), &fixture.agent_dir),
@@ -950,7 +918,7 @@ fn bundled_skills_collect_with_the_extra_overrides_applied() {
 fn empty_bundled_skills_dir_warns() {
     let fixture = Fixture::new();
     let settings = SettingsManager::create(fixture.manager.cwd(), &fixture.agent_dir);
-    let mut manager = PackageManager::with_options(PackageManagerOptions {
+    let manager = PackageManager::with_options(PackageManagerOptions {
         cwd: fixture.manager.cwd().to_path_buf(),
         agent_dir: fixture.agent_dir.clone(),
         settings,
@@ -980,7 +948,7 @@ fn disabled_builtin_skills_are_not_collected() {
     )
     .unwrap();
     let settings = SettingsManager::create(fixture.manager.cwd(), &fixture.agent_dir);
-    let mut manager = PackageManager::with_options(PackageManagerOptions {
+    let manager = PackageManager::with_options(PackageManagerOptions {
         cwd: fixture.manager.cwd().to_path_buf(),
         agent_dir: fixture.agent_dir.clone(),
         settings,

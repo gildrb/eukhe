@@ -22,8 +22,9 @@ pub mod state_snapshot;
 pub mod transport;
 
 pub use bootstrap::{
-    build_rlm_bootstrap_code, ensure_kernel_python, kernel_venv_dir, EnsureKernelPythonOptions,
-    KernelBootstrapProgressHandler, KernelPythonSkill, PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER,
+    build_rlm_bootstrap_code, ensure_kernel_python, install_kernel_python, kernel_install_state,
+    kernel_venv_dir, EnsureKernelPythonOptions, KernelBootstrapProgressHandler, KernelInstallState,
+    KernelPythonSkill, KERNEL_INSTALL_COMMAND, PYTHON_SKILL_IMPORT_ERROR_REPORT_MARKER,
 };
 pub use cancellation::AbortSignal;
 pub use manager::ReplKernelManager;

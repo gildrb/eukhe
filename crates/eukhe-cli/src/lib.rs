@@ -45,6 +45,7 @@ pub(crate) mod headless_terminal;
 pub(crate) mod incident;
 pub(crate) mod initial_message;
 pub(crate) mod interactive_mode;
+pub(crate) mod kernel_command;
 pub(crate) mod list_models;
 pub(crate) mod mcp_command;
 pub(crate) mod mcp_login;
@@ -97,13 +98,6 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
         );
     if offline_mode {
         std::env::set_var(crate::config::ENV_OFFLINE, "1");
-    }
-
-    // Kernel preparation ahead of the first session (TS cli-main.ts):
-    // `eukhe --eukhe-bootstrap` builds the venv from the exe-adjacent
-    // runtime.
-    if args.len() == 1 && args[0] == "--eukhe-bootstrap" {
-        return run_runtime_bootstrap();
     }
 
     // The shared tiny-model worker the tiny client spawns (hidden: never a
@@ -329,26 +323,6 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     match runtime.run(&options) {
         Ok(exit_code) => Ok(exit_code),
         Err(missing) => Err(missing.error_message()),
-    }
-}
-
-/// Prepare the kernel runtime at install time (TS `runtime-bootstrap.ts`):
-/// resolve or bootstrap the kernel Python and print its path. Failures print
-/// the bootstrap error text and exit 1 (the installer surfaces them and the
-/// retry happens on first Python use).
-fn run_runtime_bootstrap() -> Result<i32, String> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
-    match runtime.block_on(eukhe_core::kernel::ensure_kernel_python(
-        eukhe_core::kernel::EnsureKernelPythonOptions::default(),
-    )) {
-        Ok(python) => {
-            println!("kernel python: {}", python.display());
-            Ok(0)
-        }
-        Err(error) => Err(format!("{error:#}")),
     }
 }
 

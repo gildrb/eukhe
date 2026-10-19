@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::packages::source::{GitSource, SourceScope, UserOrProject};
-use crate::packages::PackageManager;
+use crate::packages::{BundledSkillsDir, MissingPackage, PackageManager};
+use crate::resources::{load_resources, ResourceLoaderOptions};
 use crate::settings::SettingsManager;
+use crate::skills::ResourceDiagnostic;
 
 /// Minimal npm replacement: bash script with the fixture paths embedded, so
 /// parallel tests never share state. Logs every call to `<root>/npm.log`.
@@ -140,9 +142,96 @@ impl Sandbox {
         PackageManager::new(&self.cwd, &self.agent_dir, settings)
     }
 
+    /// Rewrite the user settings with the shim npm command and `packages`.
+    fn set_user_packages(&self, packages: &[&str]) {
+        std::fs::write(
+            self.agent_dir.join("settings.json"),
+            serde_json::json!({
+                "npmCommand": [self.npm_shim.display().to_string()],
+                "packages": packages,
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    /// Session resource loading (the session path) for this sandbox, and
+    /// its diagnostics without a path: the package warnings. Diagnostics of
+    /// skill files (in the user's `~/.agents/skills` too) have a path.
+    fn session_package_warnings(&self) -> Vec<ResourceDiagnostic> {
+        load_resources(ResourceLoaderOptions {
+            bundled_skills_dir: BundledSkillsDir::Disabled,
+            no_context_files: true,
+            ..ResourceLoaderOptions::new(&self.cwd, &self.agent_dir)
+        })
+        .unwrap()
+        .skill_diagnostics
+        .into_iter()
+        .filter(|diagnostic| matches!(diagnostic, ResourceDiagnostic::Warning { path: None, .. }))
+        .collect()
+    }
+
     fn log(&self) -> String {
         std::fs::read_to_string(self.npm_shim.with_file_name("npm.log")).unwrap_or_default()
     }
+}
+
+/// A git source that is never installed: a clone attempt would go to a
+/// closed loopback port, so the tests never reach a real host.
+const MISSING_GIT_SOURCE: &str = "https://127.0.0.1:1/eukhe/missing-repo";
+
+/// Regression (`eukhe config` path): resolution installed missing configured
+/// packages with `npm install` and `git clone`. Now it reports them and
+/// spawns no install (`npm root -g` only finds the global install path).
+#[test]
+fn resolve_reports_missing_sources_without_installing() {
+    let _guard = super::test_support::ENV_MUTEX.lock().unwrap();
+    let sandbox = Sandbox::new("resolve-missing");
+    sandbox.set_user_packages(&["npm:fake-pkg", MISSING_GIT_SOURCE]);
+
+    let resolved = sandbox.manager().resolve().unwrap();
+
+    assert_eq!(
+        resolved.missing_packages,
+        ["npm:fake-pkg", MISSING_GIT_SOURCE].map(|source| MissingPackage {
+            source: source.to_string(),
+            scope: UserOrProject::User,
+        })
+    );
+    assert_eq!(sandbox.log(), "npm root -g\n");
+    assert!(!sandbox.agent_dir.join("git").exists());
+}
+
+/// Regression (session path): session resource loading installed missing
+/// configured packages. Now each one is a warning with the install command.
+#[test]
+fn session_resources_report_missing_sources_without_installing() {
+    let _guard = super::test_support::ENV_MUTEX.lock().unwrap();
+    let sandbox = Sandbox::new("session-missing");
+    sandbox.set_user_packages(&["npm:fake-pkg", MISSING_GIT_SOURCE]);
+
+    let warnings = sandbox.session_package_warnings();
+
+    assert_eq!(
+        warnings,
+        vec![
+            ResourceDiagnostic::Warning {
+                message: "package npm:fake-pkg (user settings) is not installed; \
+                          run `eukhe package install npm:fake-pkg`"
+                    .to_string(),
+                path: None,
+            },
+            ResourceDiagnostic::Warning {
+                message: format!(
+                    "package {MISSING_GIT_SOURCE} (user settings) is not installed; \
+                     run `eukhe package install {MISSING_GIT_SOURCE}`"
+                ),
+                path: None,
+            },
+        ]
+    );
+    assert_eq!(sandbox.log(), "npm root -g\n");
+    assert!(!sandbox.agent_dir.join("git").exists());
 }
 
 #[test]
