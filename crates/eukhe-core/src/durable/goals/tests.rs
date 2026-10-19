@@ -834,9 +834,10 @@ async fn autonomous_gates_continue_on_failure_and_stop_on_pass() {
 }
 
 /// An empty reply is no answer (docs/harness.md H4.7): the harness retries
-/// it like a stall (three retries by default) and then fails the run with
-/// the model error, which fails the goal; it never reaches the goal's
-/// continuation mint.
+/// it with a harness note while notes are left (`MAX_NOTES` of
+/// eukhe-durable's `generation::decide`, 8: the first request and 8 noted
+/// retries) and then fails the run with the model error, which fails the
+/// goal; it never reaches the goal's continuation mint.
 #[tokio::test(start_paused = true)]
 async fn empty_replies_are_retried_and_then_fail_the_goal() {
     let setup = setup();
@@ -850,14 +851,13 @@ async fn empty_replies_are_retried_and_then_fail_the_goal() {
         .await
         .updated_at
         .expect("goal stamped");
-    setup.faux.set_responses(vec![
-        answer_at("", updated_at + 1_000),
-        answer_at("", updated_at + 2_000),
-        answer_at("", updated_at + 3_000),
-        answer_at("", updated_at + 4_000),
-        answer("recovered"),
-        answer("unused"),
-    ]);
+    // Every request of the run gives no answer, so the run fails at its
+    // last note; a run that answered would mint a goal continuation.
+    let mut responses: Vec<FauxResponseStep> = (1..=9)
+        .map(|request| answer_at("", updated_at + request * 1_000))
+        .collect();
+    responses.extend([answer("recovered"), answer("unused")]);
+    setup.faux.set_responses(responses);
 
     submit(&root, "work").await;
     harness.wait_for_idle(cx()).await.expect("idle");

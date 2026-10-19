@@ -145,22 +145,6 @@ impl Client {
         }
     }
 
-    /// The responses for every id in `ids`, in whatever order they arrive,
-    /// collecting every session event on the way.
-    fn responses(&mut self, ids: &[&str]) -> Vec<(String, Value)> {
-        let deadline = Instant::now() + Duration::from_mins(5);
-        let mut answered = Vec::new();
-        while answered.len() < ids.len() {
-            assert!(Instant::now() < deadline, "no responses for {ids:?}");
-            let line = self.read_line();
-            match line.get("id").and_then(Value::as_str) {
-                Some(id) if ids.contains(&id) => answered.push((id.to_string(), line)),
-                _ => self.collect_event(&line),
-            }
-        }
-        answered
-    }
-
     fn collect_event(&mut self, line: &Value) {
         if line.get("type").and_then(Value::as_str) == Some("session_event") {
             self.events.push(line["event"].clone());
@@ -206,7 +190,9 @@ struct Harness {
     session_id: String,
 }
 
-fn setup(name: &str) -> Harness {
+/// A session over a faux script of `depth` replies (`scripted reply 0`
+/// .. `scripted reply {depth - 1}`), attached.
+fn setup(name: &str, depth: usize) -> Harness {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
@@ -222,7 +208,7 @@ fn setup(name: &str) -> Harness {
         .to_string(),
     )
     .expect("write settings");
-    let responses: Vec<Value> = (0..16)
+    let responses: Vec<Value> = (0..depth)
         .map(|index| json!({ "text": format!("scripted reply {index}") }))
         .collect();
     let script = dir.path().join("faux.json");
@@ -231,15 +217,16 @@ fn setup(name: &str) -> Harness {
         json!({
             "engine": "faux",
             // The goal-continuation loop mints one continuation turn per
-            // natural turn end while the goal is ACTIVE — unbounded churn,
-            // so a finite script can run dry mid-flow (the registered red
-            // red-goal-recovery-faux-exhaustion-20260926-1: under CI load
-            // the pause raced ~14 churn cycles, the queue emptied before
-            // the seeding prompts, and s2 failed with "No more faux
-            // responses queued"). The repeat-last knob opts this harness
-            // out of the exhaustion contract: once the queue runs dry the
-            // provider re-serves the last reply, so no prompt of this
-            // flow can ever fail on the script budget.
+            // natural turn end while the goal is ACTIVE, until the goal's
+            // progress check pauses it (`directors.stallSteps`, default 3,
+            // continuations in a row with no tool call: these replies make
+            // none). So a short script can run dry mid-flow (the registered
+            // red red-goal-recovery-faux-exhaustion-20260926-1: the queue
+            // emptied before the seeding prompts, and s2 failed with "No
+            // more faux responses queued"). The repeat-last knob opts this
+            // harness out of the exhaustion contract: once the queue runs
+            // dry the provider re-serves the last reply, so no prompt of
+            // this flow can ever fail on the script budget.
             "repeatLastResponse": true,
             "responses": responses,
         })
@@ -429,7 +416,7 @@ impl Harness {
 /// between the phases runs against a quiet (paused) goal driver.
 #[test]
 fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
-    let mut harness = setup("goal-recovery");
+    let mut harness = setup("goal-recovery", 16);
 
     // A started goal persists: the store carries the `eukhe.goal`
     // document (TS one-store durability). The start turn's natural end
@@ -710,67 +697,83 @@ fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
 /// 4/4: `prompt s2 failed: {"success":false,"error":"No more faux
 /// responses queued"}` at `goal_recovery_e2e.rs:300`). The
 /// goal-continuation loop mints one scripted model turn per natural turn
-/// end while the goal is ACTIVE — unbounded churn, quieted only by a
-/// pause — so a finite harness script can run dry mid-flow; on the
-/// registered failure the churn emptied the 16-deep queue before the
-/// seeding prompts reached it.
+/// end while the goal is ACTIVE, so a finite harness script can run dry
+/// mid-flow.
 ///
-/// The proof is deterministic on both sides of the fix. The goal is never
-/// paused, so the churn consumes the script front to back while this test
-/// only watches; the last scripted reply's `message_end` is the witness —
-/// once it is observed, the queue is empty and every further provider call
-/// errors with the registered string (the base is red at exactly the CI
-/// failure site) or re-serves the last reply (the repeat-last knob is
-/// green). The next prompt then MUST succeed.
+/// The proof is deterministic. The script holds 2 replies; the goal's
+/// start turn takes the first and its first continuation the second (the
+/// last). The replies make no tool call, so the goal's progress check
+/// pauses the goal after `directors.stallSteps` (default 3) continuations
+/// in a row with no new work: its second and third continuations ask a
+/// dry queue. They error with the registered string without the
+/// repeat-last knob (the base is red at exactly the CI failure site), or
+/// are served the last reply again with it. The goal's own no-progress
+/// pause ends the churn, and the next prompt MUST then succeed.
 #[test]
 fn repeat_last_script_stays_answerable_once_the_goal_churn_empties_it() {
-    let mut harness = setup("goal-recovery-exhaustion");
+    let mut harness = setup("goal-recovery-exhaustion", 2);
 
     harness.prompt_racing_the_loop("g1", &format!("/goal {OBJECTIVE}"));
-    harness.wait_for_event("the last scripted reply", |event| {
-        event.get("type").and_then(Value::as_str) == Some("message_end")
-            && serde_json::to_string(event)
-                .unwrap_or_default()
-                .contains("scripted reply 15")
-    });
+    let stopped = |event: &Value| {
+        event.get("type").and_then(Value::as_str) == Some("goal_update")
+            && event["goal"]["status"] == "paused"
+    };
+    if !harness.client.events.iter().any(stopped) {
+        harness.wait_for_event("the goal's no-progress pause", stopped);
+    }
+    let paused = harness
+        .client
+        .events
+        .iter()
+        .rfind(|event| stopped(event))
+        .expect("the pause")["goal"]
+        .clone();
+    assert_eq!(
+        paused["lastReason"],
+        "No progress: 3 goal continuations in a row made no tool call with a new result",
+        "the goal paused for another reason: {paused}"
+    );
+    // The queue ran dry: the last scripted reply was served again.
+    let last_replies = harness
+        .client
+        .events
+        .iter()
+        .filter(|event| {
+            event.get("type").and_then(Value::as_str) == Some("message_end")
+                && event["message"]["role"] == "assistant"
+                && serde_json::to_string(&event["message"])
+                    .unwrap_or_default()
+                    .contains("scripted reply 1")
+        })
+        .count();
+    assert!(
+        last_replies >= 2,
+        "the churn never asked the dry queue: {:?}",
+        harness.client.events
+    );
 
-    // The queue is dry from here on: the next prompt must still be served.
-    // The durable goal loop continues in-run (`on_yield`), and pi-durable
-    // settles a run's input with the run's final answer, so a prompt sent
-    // while the goal is active settles only once the goal stops minting:
-    // observe the served reply first, then pause, then take both answers.
-    let prompt = "keep working past the scripted depth";
+    // The goal stopped on its own: the next prompt is served and settles.
+    harness.client.drain_events(Duration::from_secs(1));
     harness.client.send_command(
         "x1",
         &json!({
             "type": "prompt_and_wait",
             "activeSessionId": harness.session_id,
-            "message": prompt,
+            "message": "keep working past the scripted depth",
         }),
     );
-    harness.wait_for_event("the prompt's user message", |event| {
-        event.get("type").and_then(Value::as_str) == Some("message_end")
-            && event["message"]["role"] == "user"
-            && event["message"]["content"][0]["text"] == prompt
-    });
-    harness.wait_for_event("the prompt's reply", |event| {
-        event.get("type").and_then(Value::as_str) == Some("message_end")
-            && event["message"]["role"] == "assistant"
-    });
-    let reply = harness.client.events.last().expect("the reply")["message"].clone();
-    assert_ne!(reply["stopReason"], "error", "the reply failed: {reply}");
-    // A quiet teardown: the pause stops the minting, so the run ends at its
-    // next final answer and settles the prompt.
-    harness.client.send_command(
-        "x2",
-        &json!({
-            "type": "prompt_and_wait",
-            "activeSessionId": harness.session_id,
-            "message": "/goal pause",
-        }),
-    );
-    for (id, done) in harness.client.responses(&["x1", "x2"]) {
-        assert_eq!(done["success"], true, "prompt {id} failed: {done}");
-    }
+    let done = harness.client.request("x1");
+    assert_eq!(done["success"], true, "prompt x1 failed: {done}");
     harness.client.drain_events(Duration::from_secs(1));
+    let reply = harness
+        .client
+        .events
+        .iter()
+        .rfind(|event| {
+            event.get("type").and_then(Value::as_str) == Some("message_end")
+                && event["message"]["role"] == "assistant"
+        })
+        .expect("the reply")["message"]
+        .clone();
+    assert_ne!(reply["stopReason"], "error", "the reply failed: {reply}");
 }
