@@ -247,10 +247,12 @@ pub(super) fn already_running_warning(
 }
 
 /// TS `formatResumeHint` (resume-hint.ts): the post-exit hint names how to
-/// resume the session just left. Ephemeral (no session file) and unflushed
-/// empty sessions are omitted -- neither can be resumed. Persistence is
-/// lazy: a file that does not exist on disk cannot be resumed either.
-pub(crate) fn resume_hint_from_stats(stats: &Value) -> Option<String> {
+/// resume the session just left, as one SGR line in the `theme`'s dim
+/// color (the composition root prints it as it is). Ephemeral (no session
+/// file) and unflushed empty sessions are omitted -- neither can be
+/// resumed. Persistence is lazy: a file that does not exist on disk
+/// cannot be resumed either.
+pub(crate) fn resume_hint_from_stats(stats: &Value, theme: &crate::theme::Theme) -> Option<String> {
     let session_id = stats.get("sessionId").and_then(Value::as_str)?;
     let session_file = stats.get("sessionFile").and_then(Value::as_str)?;
     let user_messages = stats
@@ -261,9 +263,10 @@ pub(crate) fn resume_hint_from_stats(stats: &Value) -> Option<String> {
     {
         return None;
     }
-    Some(format!(
-        "Resume this session with: eukhe --resume {session_id}"
-    ))
+    Some(crate::ansi::line_to_ansi(&[theme.fg(
+        crate::theme::ThemeColor::Dim,
+        format!("Resume this session with: eukhe --resume {session_id}"),
+    )]))
 }
 
 #[cfg(test)]

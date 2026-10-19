@@ -61,6 +61,8 @@ import ./bend/proof_replace.bend as Replacing
 import ./bend/proof_notice.bend as Notices
 import ./laws/gateway_width.bend as GatewayWidth
 import ./bend/proof_gateway_width.bend as GatewayWidths
+import ./laws/tui_color.bend as TuiColor
+import ./bend/proof_tui_color.bend as TuiColors
 
 # (a) The view
 
@@ -1069,3 +1071,32 @@ def GatewayWidth.table_aligned(pre, row, post):
 
 def GatewayWidth.ascii_unchanged(rows, ones):
   GatewayWidths.ascii_unchanged(rows, ones)
+
+# (T3) Terminal colors
+
+def TuiColor.tui_effort_ramp_length(lo, hi, n):
+  TuiColors.tui_effort_ramp_length(lo, hi, n)
+
+def TuiColor.tui_effort_ramp_ordered(lo, hi, n):
+  TuiColors.tui_effort_ramp_ordered(lo, hi, n)
+
+def TuiColor.tui_effort_ramp_distinct(lo, hi, n, fits):
+  TuiColors.tui_effort_ramp_distinct(lo, hi, n, fits)
+
+def TuiColor.tui_effort_shipped_distinct(s, n, fits):
+  TuiColors.tui_effort_shipped_distinct(s, n, fits)
+
+def TuiColor.tui_usage_bands_ascend():
+  TuiColors.tui_usage_bands_ascend()
+
+def TuiColor.tui_usage_band_monotone(t, e, w):
+  TuiColors.tui_usage_band_monotone(t, e, w)
+
+def TuiColor.tui_usage_band_fraction(k, t, w):
+  TuiColors.tui_usage_band_fraction(k, t, w)
+
+def TuiColor.tui_roles_resolve(f, v):
+  TuiColors.tui_roles_resolve(f, v)
+
+def TuiColor.tui_roles_shipped(s):
+  TuiColors.tui_roles_shipped(s)

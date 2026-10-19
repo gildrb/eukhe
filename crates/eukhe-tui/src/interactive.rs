@@ -306,8 +306,9 @@ impl InteractiveOptions {
 pub struct InteractiveOutcome {
     pub active_session_id: String,
     pub session_id: String,
-    /// The TS `formatResumeHint` line (a resumable, flushed session), for
-    /// the composition root to print after the terminal is restored.
+    /// The TS `formatResumeHint` line (a resumable, flushed session) in the
+    /// theme's dim color (SGR), for the composition root to print as it is
+    /// after the terminal is restored.
     pub resume_hint: Option<String>,
     pub last_assistant_text: Option<String>,
     pub frames: Vec<String>,

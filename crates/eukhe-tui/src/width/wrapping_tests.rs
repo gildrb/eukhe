@@ -1,5 +1,5 @@
 use super::*;
-use crate::style::{Color, Style};
+use crate::theme::{ColorMode, Theme, ThemeColor};
 
 #[test]
 fn shared_wrap_matches_original_output_and_counts() {
@@ -19,6 +19,7 @@ fn shared_wrap_matches_original_output_and_counts() {
         "\x1b[broken",
         "longunbreakabletoken",
     ];
+    let error = Theme::builtin("eukhe", ColorMode::TrueColor).fg_style(ThemeColor::Error);
     for text in corpus {
         for width in 0..20 {
             let mut variants = vec![vec![Span::raw(text)], Vec::new()];
@@ -29,7 +30,7 @@ fn shared_wrap_matches_original_output_and_counts() {
             {
                 variants.push(vec![
                     Span::raw(&text[..boundary]),
-                    Span::styled(&text[boundary..], Style::default().fg(Color::Indexed(1))),
+                    Span::styled(&text[boundary..], error),
                 ]);
             }
             for line in variants {

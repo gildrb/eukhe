@@ -80,12 +80,11 @@
 		"syntaxType": "warning",
 		"syntaxOperator": "neutral",
 		"syntaxPunctuation": "neutral",
-		"thinkingOff": "fg",
-		"thinkingMinimal": "muted",
-		"thinkingLow": "info",
-		"thinkingMedium": "primarySoft",
-		"thinkingHigh": "primary",
-		"thinkingXhigh": "primary",
+		"effortLow": "primary",
+		"effortHigh": "#a78bfa",
+		"contextHigh": "primary",
+		"liftLight": "#ffffff",
+		"liftDark": "#000000",
 		"bashMode": "success"
 	},
 	"export": {

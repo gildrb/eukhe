@@ -73,12 +73,11 @@
     "syntaxType": "type",
     "syntaxOperator": "operator",
     "syntaxPunctuation": "punct",
-    "thinkingOff": "gutter",
-    "thinkingMinimal": "comment",
-    "thinkingLow": "info",
-    "thinkingMedium": "ok",
-    "thinkingHigh": "warn",
-    "thinkingXhigh": "accent",
+    "effortLow": "gutter",
+    "effortHigh": "accent",
+    "contextHigh": "keyword",
+    "liftLight": "paper",
+    "liftDark": "ink",
     "bashMode": "warn"
   },
   "export": {

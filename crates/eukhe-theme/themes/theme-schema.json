@@ -72,12 +72,11 @@
 				"syntaxType",
 				"syntaxOperator",
 				"syntaxPunctuation",
-				"thinkingOff",
-				"thinkingMinimal",
-				"thinkingLow",
-				"thinkingMedium",
-				"thinkingHigh",
-				"thinkingXhigh",
+				"effortLow",
+				"effortHigh",
+				"contextHigh",
+				"liftLight",
+				"liftDark",
 				"bashMode"
 			],
 			"properties": {
@@ -293,29 +292,25 @@
 					"$ref": "#/$defs/colorValue",
 					"description": "Syntax highlighting: punctuation"
 				},
-				"thinkingOff": {
+				"effortLow": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Thinking level border: off"
+					"description": "Effort ramp: the start, one step below the lowest effort level the model offers"
 				},
-				"thinkingMinimal": {
+				"effortHigh": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Thinking level border: minimal"
+					"description": "Effort ramp: the highest effort level the model offers"
 				},
-				"thinkingLow": {
+				"contextHigh": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Thinking level border: low"
+					"description": "Context usage between the warning band and the error band"
 				},
-				"thinkingMedium": {
+				"liftLight": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Thinking level border: medium"
+					"description": "The color a selection band moves toward to read lighter than its surface"
 				},
-				"thinkingHigh": {
+				"liftDark": {
 					"$ref": "#/$defs/colorValue",
-					"description": "Thinking level border: high"
-				},
-				"thinkingXhigh": {
-					"$ref": "#/$defs/colorValue",
-					"description": "Thinking level border: xhigh"
+					"description": "The color a selection band moves toward to read darker than its surface"
 				},
 				"bashMode": {
 					"$ref": "#/$defs/colorValue",

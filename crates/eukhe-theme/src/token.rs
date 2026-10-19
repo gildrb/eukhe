@@ -45,12 +45,11 @@ pub enum Token {
     SyntaxType,
     SyntaxOperator,
     SyntaxPunctuation,
-    ThinkingOff,
-    ThinkingMinimal,
-    ThinkingLow,
-    ThinkingMedium,
-    ThinkingHigh,
-    ThinkingXhigh,
+    EffortLow,
+    EffortHigh,
+    ContextHigh,
+    LiftLight,
+    LiftDark,
     BashMode,
     SelectedBg,
     UserMessageBg,
@@ -83,7 +82,7 @@ pub enum Presence {
 
 impl Token {
     /// Every token, in declaration order: `ALL[token as usize] == token`.
-    pub const ALL: [Token; 60] = [
+    pub const ALL: [Token; 59] = [
         Token::Accent,
         Token::Border,
         Token::BorderAccent,
@@ -126,12 +125,11 @@ impl Token {
         Token::SyntaxType,
         Token::SyntaxOperator,
         Token::SyntaxPunctuation,
-        Token::ThinkingOff,
-        Token::ThinkingMinimal,
-        Token::ThinkingLow,
-        Token::ThinkingMedium,
-        Token::ThinkingHigh,
-        Token::ThinkingXhigh,
+        Token::EffortLow,
+        Token::EffortHigh,
+        Token::ContextHigh,
+        Token::LiftLight,
+        Token::LiftDark,
         Token::BashMode,
         Token::SelectedBg,
         Token::UserMessageBg,
@@ -193,12 +191,11 @@ impl Token {
             Token::SyntaxType => "syntaxType",
             Token::SyntaxOperator => "syntaxOperator",
             Token::SyntaxPunctuation => "syntaxPunctuation",
-            Token::ThinkingOff => "thinkingOff",
-            Token::ThinkingMinimal => "thinkingMinimal",
-            Token::ThinkingLow => "thinkingLow",
-            Token::ThinkingMedium => "thinkingMedium",
-            Token::ThinkingHigh => "thinkingHigh",
-            Token::ThinkingXhigh => "thinkingXhigh",
+            Token::EffortLow => "effortLow",
+            Token::EffortHigh => "effortHigh",
+            Token::ContextHigh => "contextHigh",
+            Token::LiftLight => "liftLight",
+            Token::LiftDark => "liftDark",
             Token::BashMode => "bashMode",
             Token::SelectedBg => "selectedBg",
             Token::UserMessageBg => "userMessageBg",
@@ -275,12 +272,11 @@ impl Token {
             | Token::SyntaxType
             | Token::SyntaxOperator
             | Token::SyntaxPunctuation
-            | Token::ThinkingOff
-            | Token::ThinkingMinimal
-            | Token::ThinkingLow
-            | Token::ThinkingMedium
-            | Token::ThinkingHigh
-            | Token::ThinkingXhigh
+            | Token::EffortLow
+            | Token::EffortHigh
+            | Token::ContextHigh
+            | Token::LiftLight
+            | Token::LiftDark
             | Token::BashMode
             | Token::Foreground => Layer::Ink,
         }
@@ -333,12 +329,11 @@ impl Token {
             | Token::SyntaxType
             | Token::SyntaxOperator
             | Token::SyntaxPunctuation
-            | Token::ThinkingOff
-            | Token::ThinkingMinimal
-            | Token::ThinkingLow
-            | Token::ThinkingMedium
-            | Token::ThinkingHigh
-            | Token::ThinkingXhigh
+            | Token::EffortLow
+            | Token::EffortHigh
+            | Token::ContextHigh
+            | Token::LiftLight
+            | Token::LiftDark
             | Token::BashMode
             | Token::SelectedBg
             | Token::UserMessageBg

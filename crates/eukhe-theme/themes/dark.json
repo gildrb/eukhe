@@ -78,12 +78,11 @@
 		"syntaxOperator": "#D4D4D4",
 		"syntaxPunctuation": "#D4D4D4",
 
-		"thinkingOff": "darkGray",
-		"thinkingMinimal": "#6e6e6e",
-		"thinkingLow": "#5f87af",
-		"thinkingMedium": "#81a2be",
-		"thinkingHigh": "#b294bb",
-		"thinkingXhigh": "#d183e8",
+		"effortLow": "#b294bb",
+		"effortHigh": "#d183e8",
+		"contextHigh": "#b294bb",
+		"liftLight": "#ffffff",
+		"liftDark": "#000000",
 
 		"bashMode": "green"
 	},

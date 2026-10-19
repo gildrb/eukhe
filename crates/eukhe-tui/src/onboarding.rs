@@ -15,7 +15,7 @@ use crate::keybindings::KeybindingsManager;
 use crate::keys::KeyId;
 use crate::onboarding_choice::{OnboardingChoice, OnboardingChoiceOption, OnboardingChoiceOptions};
 use crate::onboarding_flow::{welcome_action_row, welcome_rows, OnboardingPanel};
-use crate::style::{Color, Modifier, Style};
+use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 
@@ -61,9 +61,6 @@ pub(crate) fn team_question_config() -> OnboardingChoiceOptions {
         row_width: None,
     }
 }
-
-/// How far a selected row lifts off the canvas (TS `HIGHLIGHT_LIFT`).
-const HIGHLIGHT_LIFT: f64 = 0.08;
 
 /// The outcome of one onboarding key press.
 pub enum OnboardingDecision {
@@ -294,55 +291,6 @@ impl OnboardingScreen {
     }
 }
 
-/// The selected-row wash (TS `onboardingHighlightBackground`): the canvas
-/// lifted a few percent toward the text colour. The canvas is the theme
-/// record's parseable `background` (TS `parseHexColor(colors.background)`),
-/// else the hardcoded dark/light canvas by the text luma -- "on dark" follows
-/// TS `isLightColor` (luma > 128) with the terminal-default text counting
-/// as light. The built-in themes carry no `background` key, so they keep
-/// the hardcoded canvases.
-pub(crate) fn highlight_wash(theme: &Theme) -> Color {
-    let text = theme.fg_style(ThemeColor::Text).fg;
-    // TS: `onDark = !text || isLightColor(text)` -- undefined (empty theme
-    // value) or a light colour both mean light text over a dark canvas.
-    let on_dark = match text {
-        Some(Color::Rgb(r, g, b)) => {
-            0.299 * f64::from(r) + 0.587 * f64::from(g) + 0.114 * f64::from(b) > 128.0
-        }
-        None | Some(Color::Reset | Color::Indexed(_)) => true,
-    };
-    let lift = if on_dark {
-        (255u16, 255, 255)
-    } else {
-        (0u16, 0, 0)
-    };
-    // TS: `canvas = parseHexColor(colors.background) ?? (onDark ?
-    // DARK_CANVAS : LIGHT_CANVAS)`.
-    let canvas = theme.background_rgb().map_or(
-        if on_dark {
-            (16u16, 16, 16)
-        } else {
-            (255u16, 255, 255)
-        },
-        |(r, g, b)| (u16::from(r), u16::from(g), u16::from(b)),
-    );
-    let blend = |lift: u16, canvas: u16| -> u8 {
-        let value = f64::from(lift) * HIGHLIGHT_LIFT + f64::from(canvas) * (1.0 - HIGHLIGHT_LIFT);
-        value.round().clamp(0.0, 255.0) as u8
-    };
-    let washed = (
-        blend(lift.0, canvas.0),
-        blend(lift.1, canvas.1),
-        blend(lift.2, canvas.2),
-    );
-    match theme.mode {
-        crate::theme::ColorMode::Color256 => Color::Indexed(eukhe_theme::rgb_to_256(
-            eukhe_theme::Rgb::new(washed.0, washed.1, washed.2),
-        )),
-        crate::theme::ColorMode::TrueColor => Color::Rgb(washed.0, washed.1, washed.2),
-    }
-}
-
 /// Greedy word wrap at `width` columns.
 pub(crate) fn wrap_words(text: &str, width: usize) -> Vec<String> {
     let mut rows = Vec::new();
@@ -379,52 +327,7 @@ mod tests {
     }
 
     use super::*;
-    use crate::theme::{theme_with_colors, ColorMode, Theme};
-    use serde_json::json;
-
-    #[test]
-    fn wash_blends_against_the_theme_background() {
-        let theme = theme_with_colors(
-            &json!({ "text": "#f4f4f5", "background": "#050506" }),
-            ColorMode::TrueColor,
-        );
-        // Light text lifts white over the canvas (TS `HIGHLIGHT_LIFT` 0.08):
-        // blend(255, 5) = 25, blend(255, 6) = 26.
-        assert_eq!(highlight_wash(&theme), Color::Rgb(25, 25, 26));
-        let theme = theme_with_colors(
-            &json!({ "text": "#f4f4f5", "background": "#050506" }),
-            ColorMode::Color256,
-        );
-        // The 256-color mode quantizes the washed colour, not the canvas.
-        assert_eq!(
-            highlight_wash(&theme),
-            Color::Indexed(eukhe_theme::rgb_to_256(eukhe_theme::Rgb::new(25, 25, 26)))
-        );
-
-        let theme = theme_with_colors(
-            &json!({ "text": "#000000", "background": "#f0f0f0" }),
-            ColorMode::TrueColor,
-        );
-        // Dark text lifts black over the light canvas: blend(0, 240) = 221.
-        assert_eq!(highlight_wash(&theme), Color::Rgb(221, 221, 221));
-    }
-
-    #[test]
-    fn wash_falls_back_to_the_hardcoded_canvas() {
-        // The built-in themes carry no background key: dark canvas (16,16,16)
-        // lifted toward white -- blend(255, 16) = 35.
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-        assert_eq!(highlight_wash(&theme), Color::Rgb(35, 35, 35));
-        let theme = Theme::builtin("eukhe", ColorMode::Color256);
-        assert_eq!(
-            highlight_wash(&theme),
-            Color::Indexed(eukhe_theme::rgb_to_256(eukhe_theme::Rgb::new(35, 35, 35)))
-        );
-        // Dark text without a background washes over the light canvas:
-        // blend(0, 255) = 235.
-        let theme = theme_with_colors(&json!({ "text": "#000000" }), ColorMode::TrueColor);
-        assert_eq!(highlight_wash(&theme), Color::Rgb(235, 235, 235));
-    }
+    use crate::theme::{ColorMode, Theme};
 
     /// TS `runPrimeInferenceLogin`'s guarded arm: the `onProgress`
     /// callback's step chatter never renders on the onboarding block

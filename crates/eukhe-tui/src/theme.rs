@@ -3,11 +3,83 @@
 //! name resolution live in `eukhe-theme` (the resolver the HTML export
 //! shares; [`crate::theme_catalog`] mounts it). Colors render as truecolor
 //! or 256-color ANSI depending on `COLORTERM`/`TERM`.
+//!
+//! This module is the only place that makes a [`Color`]: its value is
+//! private, so the compiler refuses a color literal in any other module.
+//! Every color a frame paints is a theme token or a value computed here
+//! from the tokens (docs/interface.md, T3).
 
-use crate::style::{Color, Modifier, Style};
-use eukhe_theme::{ColorValue, Palette, Rgb, Token};
+use crate::style::{Modifier, Style};
+use eukhe_theme::{ColorValue, Mode, Palette, Rgb, Token};
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(test)]
+mod bridge;
+
+/// A terminal color. Only the theme module makes one (the value is
+/// private): other code gets colors from a [`Theme`] and cannot write
+/// one. The SGR encoding reads it through [`Color::fg_sgr`] and
+/// [`Color::bg_sgr`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Color(Paint);
+
+/// What a [`Color`] paints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Paint {
+    /// The terminal's default color (SGR 39 / 49).
+    Reset,
+    /// A 256-color palette index (SGR 38;5 / 48;5).
+    Indexed(u8),
+    /// A 24-bit color (SGR 38;2 / 48;2).
+    Rgb(u8, u8, u8),
+}
+
+impl Color {
+    const RESET: Color = Color(Paint::Reset);
+
+    const fn rgb(rgb: Rgb) -> Color {
+        Color(Paint::Rgb(rgb.r, rgb.g, rgb.b))
+    }
+
+    /// The SGR parameters that paint this color as the foreground.
+    pub(crate) fn fg_sgr(self) -> String {
+        match self.0 {
+            Paint::Reset => "39".to_string(),
+            Paint::Indexed(index) => format!("38;5;{index}"),
+            Paint::Rgb(r, g, b) => format!("38;2;{r};{g};{b}"),
+        }
+    }
+
+    /// The SGR parameters that paint this color as the background.
+    pub(crate) fn bg_sgr(self) -> String {
+        match self.0 {
+            Paint::Reset => "49".to_string(),
+            Paint::Indexed(index) => format!("48;5;{index}"),
+            Paint::Rgb(r, g, b) => format!("48;2;{r};{g};{b}"),
+        }
+    }
+
+    /// The RGB this color paints where the terminal does not decide it:
+    /// none for the terminal default and the base ANSI slots (0-15).
+    fn known_rgb(self) -> Option<Rgb> {
+        match self.0 {
+            Paint::Rgb(r, g, b) => Some(Rgb::new(r, g, b)),
+            Paint::Indexed(index) => {
+                (!eukhe_theme::is_terminal_defined(index)).then(|| eukhe_theme::ansi256(index))
+            }
+            Paint::Reset => None,
+        }
+    }
+}
+
+/// The variant form, `Rgb(1, 2, 3)`, which the [`Style`] builder chain
+/// prints after `Color::`.
+impl fmt::Debug for Color {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThemeColor {
     Accent,
@@ -52,18 +124,13 @@ pub enum ThemeColor {
     SyntaxType,
     SyntaxOperator,
     SyntaxPunctuation,
-    ThinkingOff,
-    ThinkingMinimal,
-    ThinkingLow,
-    ThinkingMedium,
-    ThinkingHigh,
-    ThinkingXhigh,
+    ContextHigh,
     BashMode,
 }
 
 impl ThemeColor {
     /// Every slot, in declaration order: `ALL[color as usize] == color`.
-    const ALL: [ThemeColor; 49] = [
+    const ALL: [ThemeColor; 44] = [
         ThemeColor::Accent,
         ThemeColor::Border,
         ThemeColor::BorderAccent,
@@ -106,12 +173,7 @@ impl ThemeColor {
         ThemeColor::SyntaxType,
         ThemeColor::SyntaxOperator,
         ThemeColor::SyntaxPunctuation,
-        ThemeColor::ThinkingOff,
-        ThemeColor::ThinkingMinimal,
-        ThemeColor::ThinkingLow,
-        ThemeColor::ThinkingMedium,
-        ThemeColor::ThinkingHigh,
-        ThemeColor::ThinkingXhigh,
+        ThemeColor::ContextHigh,
         ThemeColor::BashMode,
     ];
 
@@ -159,12 +221,7 @@ impl ThemeColor {
             ThemeColor::SyntaxType => Token::SyntaxType,
             ThemeColor::SyntaxOperator => Token::SyntaxOperator,
             ThemeColor::SyntaxPunctuation => Token::SyntaxPunctuation,
-            ThemeColor::ThinkingOff => Token::ThinkingOff,
-            ThemeColor::ThinkingMinimal => Token::ThinkingMinimal,
-            ThemeColor::ThinkingLow => Token::ThinkingLow,
-            ThemeColor::ThinkingMedium => Token::ThinkingMedium,
-            ThemeColor::ThinkingHigh => Token::ThinkingHigh,
-            ThemeColor::ThinkingXhigh => Token::ThinkingXhigh,
+            ThemeColor::ContextHigh => Token::ContextHigh,
             ThemeColor::BashMode => Token::BashMode,
         }
     }
@@ -212,6 +269,40 @@ impl ThemeBg {
     }
 }
 
+/// The theme colors the terminal UI computes with instead of painting
+/// them as they are: the effort ramp's two ends, the two ends a selection
+/// band lifts toward, and the canvas (the theme's background) that the
+/// onboarding wash lifts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ThemeRgb {
+    EffortLow,
+    EffortHigh,
+    LiftLight,
+    LiftDark,
+    Canvas,
+}
+
+impl ThemeRgb {
+    /// Every slot, in declaration order: `ALL[slot as usize] == slot`.
+    const ALL: [ThemeRgb; 5] = [
+        ThemeRgb::EffortLow,
+        ThemeRgb::EffortHigh,
+        ThemeRgb::LiftLight,
+        ThemeRgb::LiftDark,
+        ThemeRgb::Canvas,
+    ];
+
+    fn token(self) -> Token {
+        match self {
+            ThemeRgb::EffortLow => Token::EffortLow,
+            ThemeRgb::EffortHigh => Token::EffortHigh,
+            ThemeRgb::LiftLight => Token::LiftLight,
+            ThemeRgb::LiftDark => Token::LiftDark,
+            ThemeRgb::Canvas => Token::Background,
+        }
+    }
+}
+
 // The slot tables index by discriminant: each `ALL` lists its enum in
 // declaration order.
 const _: () = {
@@ -223,6 +314,11 @@ const _: () = {
     let mut index = 0;
     while index < ThemeBg::ALL.len() {
         assert!(ThemeBg::ALL[index] as usize == index);
+        index += 1;
+    }
+    let mut index = 0;
+    while index < ThemeRgb::ALL.len() {
+        assert!(ThemeRgb::ALL[index] as usize == index);
         index += 1;
     }
 };
@@ -262,12 +358,36 @@ pub fn detect_color_mode() -> ColorMode {
 }
 
 fn to_terminal_color(color: Color, mode: ColorMode) -> Color {
-    match (color, mode) {
-        (Color::Rgb(r, g, b), ColorMode::Color256) => {
-            Color::Indexed(eukhe_theme::rgb_to_256(Rgb::new(r, g, b)))
+    match (color.0, mode) {
+        (Paint::Rgb(r, g, b), ColorMode::Color256) => {
+            Color(Paint::Indexed(eukhe_theme::rgb_to_256(Rgb::new(r, g, b))))
         }
-        (c, _) => c,
+        (Paint::Rgb(..) | Paint::Indexed(_) | Paint::Reset, ColorMode::TrueColor)
+        | (Paint::Indexed(_) | Paint::Reset, ColorMode::Color256) => color,
     }
+}
+
+/// Rung `rung` (1 to `rungs`) of the ramp from `low` to `high`: each
+/// channel is its lower end plus `floor(d * w / rungs)`, with `d` the
+/// channel distance and `w` the rung when the channel rises, `rungs -
+/// rung` when it falls. So the last rung is `high` and the ramp starts
+/// one step above `low`. `bend/tui_color.bend` models it (`ramp`), and
+/// the T3 laws hold that the rungs move toward `high` in every channel
+/// and are distinct when no channel distance is below `rungs`.
+fn ramp_rung(low: Rgb, high: Rgb, rung: usize, rungs: usize) -> Rgb {
+    let channel = |low: u8, high: u8| -> u8 {
+        let (rung, rungs) = (rung as u64, rungs as u64);
+        if low <= high {
+            low + (rung * u64::from(high - low) / rungs) as u8
+        } else {
+            high + ((rungs - rung) * u64::from(low - high) / rungs) as u8
+        }
+    };
+    Rgb::new(
+        channel(low.r, high.r),
+        channel(low.g, high.g),
+        channel(low.b, high.b),
+    )
 }
 
 /// How far a selection wash must stand off the surface it renders on:
@@ -287,31 +407,34 @@ const SELECTION_BLEND_STEP: f32 = 0.05;
 
 /// The perceived-lightness blend TS weighs every color decision with
 /// (TS `luminance`).
-fn luminance(rgb: (u16, u16, u16)) -> f64 {
-    0.299 * f64::from(rgb.0) + 0.587 * f64::from(rgb.1) + 0.114 * f64::from(rgb.2)
-}
-
-/// The xterm-256 palette slot's RGB: the 6x6x6 cube and the gray ramp.
-/// The base ANSI slots (0-15) are terminal-defined, so their rendered
-/// color is unknown.
-fn indexed_to_rgb(index: u8) -> Option<(u16, u16, u16)> {
-    if eukhe_theme::is_terminal_defined(index) {
-        return None;
-    }
-    let rgb = eukhe_theme::ansi256(index);
-    Some((u16::from(rgb.r), u16::from(rgb.g), u16::from(rgb.b)))
+fn luminance(rgb: Rgb) -> f64 {
+    0.299 * f64::from(rgb.r) + 0.587 * f64::from(rgb.g) + 0.114 * f64::from(rgb.b)
 }
 
 /// The luminance of what actually renders: a 256-color terminal paints the
 /// palette slot, not the configured RGB (the quantized candidate evaluates
 /// through this; base ANSI slots stay unknown).
 pub(crate) fn quantized_luminance(color: Color) -> Option<f64> {
-    match color {
-        Color::Rgb(r, g, b) => Some(luminance((u16::from(r), u16::from(g), u16::from(b)))),
-        Color::Indexed(index) => indexed_to_rgb(index).map(luminance),
-        Color::Reset => None,
-    }
+    color.known_rgb().map(luminance)
 }
+
+/// `alpha` of `top` over `1 - alpha` of `bottom`, per channel.
+fn blend(top: Rgb, bottom: Rgb, alpha: f64) -> Rgb {
+    let channel = |top: u8, bottom: u8| {
+        (f64::from(top) * alpha + f64::from(bottom) * (1.0 - alpha))
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    Rgb::new(
+        channel(top.r, bottom.r),
+        channel(top.g, bottom.g),
+        channel(top.b, bottom.b),
+    )
+}
+
+/// How far the onboarding wash lifts the canvas toward the lift end (TS
+/// `HIGHLIGHT_LIFT`).
+const HIGHLIGHT_LIFT: f64 = 0.08;
 
 /// Source of [`Theme::generation`]: every resolved theme gets a fresh one.
 static NEXT_THEME_GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -323,10 +446,12 @@ pub struct Theme {
     pub name: String,
     fg: [Style; ThemeColor::ALL.len()],
     bg: [Option<Color>; ThemeBg::ALL.len()],
-    /// The theme record's parseable `background` key, raw RGB: blends that
-    /// use it (TS `onboardingHighlightBackground`) mix against the true
-    /// colour and quantize their result per [`Theme::mode`], not this.
-    background: Option<(u8, u8, u8)>,
+    /// The colors the theme computes with ([`ThemeRgb`]), as the palette
+    /// paints them (`Palette::rgb`): blends mix the true colors and
+    /// quantize their result per [`Theme::mode`].
+    rgb: [Rgb; ThemeRgb::ALL.len()],
+    /// Light or dark, by the background's luminance (never the name).
+    canvas_mode: Mode,
     pub mode: ColorMode,
     /// Identity of this resolution: clones share it, so equal generations
     /// mean equal themes without comparing the tables.
@@ -339,22 +464,23 @@ impl PartialEq for Theme {
             || (self.name == other.name
                 && self.fg == other.fg
                 && self.bg == other.bg
-                && self.background == other.background
+                && self.rgb == other.rgb
+                && self.canvas_mode == other.canvas_mode
                 && self.mode == other.mode)
     }
 }
 
 impl Theme {
     /// Render a resolved palette for a terminal of `mode`: the terminal
-    /// default (`""`) is [`Color::Reset`], an index stays an index, and a
-    /// `#rrggbb` value quantizes in a 256-color terminal.
+    /// default (`""`) is the terminal's own color, an index stays an
+    /// index, and a `#rrggbb` value quantizes in a 256-color terminal.
     #[must_use]
     pub fn from_palette(palette: &Palette, mode: ColorMode) -> Theme {
         let color = |token: Token| {
             let color = match palette.value(token) {
-                ColorValue::Default => Color::Reset,
-                ColorValue::Indexed(index) => Color::Indexed(index),
-                ColorValue::Rgb(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
+                ColorValue::Default => Color::RESET,
+                ColorValue::Indexed(index) => Color(Paint::Indexed(index)),
+                ColorValue::Rgb(rgb) => Color::rgb(rgb),
             };
             to_terminal_color(color, mode)
         };
@@ -362,9 +488,8 @@ impl Theme {
             name: palette.name().to_string(),
             fg: ThemeColor::ALL.map(|slot| Style::default().fg(color(slot.token()))),
             bg: ThemeBg::ALL.map(|slot| Some(color(slot.token()))),
-            background: palette
-                .declared_background()
-                .map(|rgb| (rgb.r, rgb.g, rgb.b)),
+            rgb: ThemeRgb::ALL.map(|slot| palette.rgb(slot.token())),
+            canvas_mode: palette.mode(),
             mode,
             generation: NEXT_THEME_GENERATION.fetch_add(1, Ordering::Relaxed),
         }
@@ -405,13 +530,6 @@ impl Theme {
     /// it to skip re-checking an unchanged theme.
     pub(crate) fn generation(&self) -> u64 {
         self.generation
-    }
-
-    /// The theme record's parseable `background` (strict 6-hex shape after
-    /// var resolution, TS `parseHexColor`), raw RGB; `None` when the theme
-    /// carries no such value, so callers fall back to their own canvases.
-    pub(crate) fn background_rgb(&self) -> Option<(u8, u8, u8)> {
-        self.background
     }
 
     /// `theme.fg("muted", text)` equivalent.
@@ -456,15 +574,39 @@ impl Theme {
             .collect()
     }
 
-    /// Filled effort squares: a pastel purple that reads softer than the
-    /// theme accent (TS `getEffortSquareColor`). The TS theme picks a light
-    /// pastel on light terminal backgrounds; the Rust theme does not yet
-    /// detect the terminal background kind, so the dark pastel is the
-    /// default-terminal match.
-    #[must_use]
-    pub fn effort_square_style(&self) -> Style {
-        const EFFORT_SQUARE_DARK_COLOR: Color = Color::Rgb(0xa7, 0x8b, 0xfa);
-        Style::default().fg(to_terminal_color(EFFORT_SQUARE_DARK_COLOR, self.mode))
+    /// The effort ramp for a ladder of `rungs` levels (any length): the
+    /// style of each rung, lowest first, interpolated from the theme's
+    /// `effortLow` to its `effortHigh` ([`ramp_rung`]). The last rung is
+    /// `effortHigh`.
+    pub fn effort_ramp(&self, rungs: usize) -> impl Iterator<Item = Style> + '_ {
+        let (low, high) = (
+            self.rgb[ThemeRgb::EffortLow as usize],
+            self.rgb[ThemeRgb::EffortHigh as usize],
+        );
+        (1..=rungs).map(move |rung| {
+            Style::default().fg(to_terminal_color(
+                Color::rgb(ramp_rung(low, high, rung, rungs)),
+                self.mode,
+            ))
+        })
+    }
+
+    /// The selected-row wash (TS `onboardingHighlightBackground`): the
+    /// canvas (the theme's background, `Palette::rgb`) lifted a few
+    /// percent toward `liftLight` on a dark theme and `liftDark` on a
+    /// light one (the mode comes from the background, never the name),
+    /// quantized per [`Theme::mode`].
+    pub(crate) fn highlight_wash(&self) -> Color {
+        let lift = match self.canvas_mode {
+            Mode::Dark => ThemeRgb::LiftLight,
+            Mode::Light => ThemeRgb::LiftDark,
+        };
+        let washed = blend(
+            self.rgb[lift as usize],
+            self.rgb[ThemeRgb::Canvas as usize],
+            HIGHLIGHT_LIFT,
+        );
+        to_terminal_color(Color::rgb(washed), self.mode)
     }
 
     /// Row-selection highlight for menu rows (TS
@@ -480,8 +622,9 @@ impl Theme {
     /// selected (the operator's 2026-09-26 directive: the panel redesign's
     /// selection must be unmistakable). When the blend cannot clear
     /// [`SELECTION_MIN_LUMINANCE_DELTA`] over the surface, the wash steps
-    /// toward the contrast endpoint -- white when the selection reads
-    /// lighter than the surface, black when it reads darker -- until it
+    /// toward the theme's lift end -- `liftLight` when the selection
+    /// reads lighter than the surface, `liftDark` when it reads darker --
+    /// until it
     /// clears the bar (TS `getSelectionBackgroundColor`'s endpoint ladder,
     /// anchored to the editor surface because the TUI cannot query the
     /// terminal's own background the way TS's `getDefaultTerminalColors`
@@ -492,46 +635,27 @@ impl Theme {
     /// actually separates from the surface.
     #[must_use]
     pub fn soft_selection_style(&self) -> Style {
-        let blend = |top: (u16, u16, u16), bottom: (u16, u16, u16), alpha: f32| {
-            Color::Rgb(
-                (f32::from(top.0) * alpha + f32::from(bottom.0) * (1.0 - alpha)).round() as u8,
-                (f32::from(top.1) * alpha + f32::from(bottom.1) * (1.0 - alpha)).round() as u8,
-                (f32::from(top.2) * alpha + f32::from(bottom.2) * (1.0 - alpha)).round() as u8,
-            )
-        };
         // The blend needs real RGB. A truecolor theme carries its
         // configured RGB directly; a 256-color theme stores the
         // quantized slot, whose palette RGB is what the terminal
         // actually renders there. The base ANSI slots (0-15) are
         // terminal-defined, so those keep the plain selection (TS's
         // ANSI guard: no reliable blend base exists).
-        let slot_rgb = |color: Option<Color>| -> Option<(u16, u16, u16)> {
-            match color? {
-                Color::Rgb(r, g, b) => Some((u16::from(r), u16::from(g), u16::from(b))),
-                Color::Indexed(index) => indexed_to_rgb(index),
-                Color::Reset => None,
-            }
-        };
         let (Some(selection), Some(editor_surface)) = (
-            slot_rgb(self.bg_color(ThemeBg::SelectedBg)),
-            slot_rgb(self.bg_color(ThemeBg::UserMessageBg)),
+            self.bg_color(ThemeBg::SelectedBg)
+                .and_then(Color::known_rgb),
+            self.bg_color(ThemeBg::UserMessageBg)
+                .and_then(Color::known_rgb),
         ) else {
             return self.bg_style(ThemeBg::SelectedBg);
         };
-        let surface_color = Color::Rgb(
-            editor_surface.0 as u8,
-            editor_surface.1 as u8,
-            editor_surface.2 as u8,
-        );
-        let surface_ansi = to_terminal_color(surface_color, self.mode);
+        let surface_ansi = to_terminal_color(Color::rgb(editor_surface), self.mode);
         // The selection also evaluates through the palette: a 256-color
         // terminal paints the quantized slot, so the ladder aims from
         // what actually renders (TS's `renderedSelection`).
-        let selection_render_luminance = quantized_luminance(to_terminal_color(
-            Color::Rgb(selection.0 as u8, selection.1 as u8, selection.2 as u8),
-            self.mode,
-        ))
-        .unwrap_or(luminance(selection));
+        let selection_render_luminance =
+            quantized_luminance(to_terminal_color(Color::rgb(selection), self.mode))
+                .unwrap_or(luminance(selection));
         let surface_render_luminance =
             quantized_luminance(surface_ansi).unwrap_or(luminance(editor_surface));
         // The wash reads when its rendered color clears the visibility bar
@@ -548,24 +672,31 @@ impl Theme {
         // Half contrast by default; strengthen the blend only when the
         // quantized wash still separates from the editor surface AND reads.
         for alpha in [0.5, 0.75, 1.0] {
-            let adjusted = to_terminal_color(blend(selection, editor_surface, alpha), self.mode);
+            let adjusted = to_terminal_color(
+                Color::rgb(blend(selection, editor_surface, alpha)),
+                self.mode,
+            );
             if adjusted != surface_ansi && reads(adjusted) {
                 return Style::default().bg(adjusted);
             }
         }
         // The blend reads too close to the surface (every built-in
-        // theme): step the wash toward the contrast endpoint -- the one on
-        // the selection's side of the surface first, the opposite one
+        // theme): step the wash toward a lift end -- the one on the
+        // selection's side of the surface first, the opposite one
         // (crossing the surface) second -- until the quantized candidate
         // clears the bar. The strongest step is tracked across BOTH
-        // endpoints like TS: the first candidate to clear the bar wins,
+        // ends like TS: the first candidate to clear the bar wins,
         // and when nothing clears it a step replaces the selection only
         // if it improved on the selection's own delta.
         let delta = (selection_render_luminance - surface_render_luminance).abs();
+        let (light, dark) = (
+            self.rgb[ThemeRgb::LiftLight as usize],
+            self.rgb[ThemeRgb::LiftDark as usize],
+        );
         let endpoints = if selection_render_luminance >= surface_render_luminance {
-            [(255u16, 255, 255), (0, 0, 0)]
+            [light, dark]
         } else {
-            [(0u16, 0, 0), (255, 255, 255)]
+            [dark, light]
         };
         let mut best: Option<Color> = None;
         let mut best_delta = delta;
@@ -588,7 +719,10 @@ impl Theme {
             }
             alphas.push(SELECTION_MAX_BLEND_ALPHA);
             for alpha in alphas {
-                let candidate = to_terminal_color(blend(endpoint, selection, alpha), self.mode);
+                let candidate = to_terminal_color(
+                    Color::rgb(blend(endpoint, selection, f64::from(alpha))),
+                    self.mode,
+                );
                 let Some(candidate_luminance) = quantized_luminance(candidate) else {
                     continue;
                 };
@@ -625,7 +759,7 @@ impl Theme {
     /// own foreground colors; the style patches only the background,
     /// with no extra modifiers. A theme whose slots resolve to no band
     /// (a `selectedBg` that is missing or explicitly empty resolves to
-    /// `Color::Reset`, which paints nothing) falls through to the
+    /// the terminal default, which paints nothing) falls through to the
     /// onboarding wash, so a selected row always reads as selected
     /// (Macroscope PR #2908's contract).
     #[must_use]
@@ -633,8 +767,8 @@ impl Theme {
         let band = self
             .soft_selection_style()
             .bg
-            .filter(|color| *color != Color::Reset)
-            .unwrap_or_else(|| crate::onboarding::highlight_wash(self));
+            .filter(|color| *color != Color::RESET)
+            .unwrap_or_else(|| self.highlight_wash());
         Style::default().bg(band)
     }
 
@@ -686,47 +820,100 @@ mod tests {
     #[test]
     fn prime_theme_resolves() {
         let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-        let accent = theme.fg_style(ThemeColor::Accent);
-        match accent.fg {
-            Some(Color::Rgb(0x7c, 0x6f, 0xaf)) => {}
-            other => panic!("unexpected accent {other:?}"),
-        }
-        let panel = theme.bg_style(ThemeBg::ToolPanelBg);
-        assert!(matches!(panel.bg, Some(Color::Rgb(0x0d, 0x0d, 0x10))));
+        assert_eq!(
+            [
+                theme.fg_style(ThemeColor::Accent).fg,
+                theme.bg_style(ThemeBg::ToolPanelBg).bg,
+            ],
+            [
+                Some(Color(Paint::Rgb(0x7c, 0x6f, 0xaf))),
+                Some(Color(Paint::Rgb(0x0d, 0x0d, 0x10))),
+            ]
+        );
     }
 
     #[test]
     fn var_reference_resolves() {
         let theme = Theme::builtin("eukhe", ColorMode::Color256);
         let accent = theme.fg_style(ThemeColor::Accent);
-        assert!(matches!(accent.fg, Some(Color::Indexed(_))));
+        assert!(matches!(accent.fg, Some(Color(Paint::Indexed(_)))));
     }
 
-    /// The file's own `#rrggbb` `background` is the onboarding canvas; an
-    /// empty one or an index leaves the canvas to the wash's fallback.
+    /// The effort ramp comes from the theme and the ladder's length: the
+    /// light theme's three rungs run from one step above its `effortLow`
+    /// (#875f87) to its `effortHigh` (#8b008b), not a fixed violet.
     #[test]
-    fn background_is_the_declared_six_hex() {
-        let theme = |background: serde_json::Value| {
-            theme_with_colors(
-                &serde_json::json!({ "background": background, "text": "#f4f4f5" }),
-                ColorMode::TrueColor,
-            )
-            .background_rgb()
+    fn the_effort_ramp_follows_the_theme_and_the_ladder() {
+        let light = Theme::builtin("light", ColorMode::TrueColor);
+        assert_eq!(
+            light.effort_ramp(3).collect::<Vec<Style>>(),
+            [(136, 63, 136), (137, 31, 137), (139, 0, 139)]
+                .map(|(r, g, b)| Style::default().fg(Color(Paint::Rgb(r, g, b))))
+        );
+        let eukhe = Theme::builtin("eukhe", ColorMode::TrueColor);
+        assert_eq!(
+            eukhe.effort_ramp(1).collect::<Vec<Style>>(),
+            [Style::default().fg(Color(Paint::Rgb(0xa7, 0x8b, 0xfa)))]
+        );
+    }
+
+    /// The wash lifts the theme's background toward its lift end: the
+    /// `liftLight` end on a dark background, the `liftDark` end on a
+    /// light one. The builtin themes lift their own background (eukhe:
+    /// #050506), never a canvas written in code.
+    #[test]
+    fn the_wash_lifts_the_canvas_toward_the_lift_end() {
+        let wash = |colors: serde_json::Value, mode: ColorMode| {
+            theme_with_colors(&colors, mode).highlight_wash()
         };
+        let tinted = serde_json::json!({ "background": "#050506", "liftLight": "#ff0000", "liftDark": "#00ff00" });
+        let light = serde_json::json!({ "background": "#f0f0f0", "liftLight": "#ffffff", "liftDark": "#000000" });
         assert_eq!(
             [
-                theme(serde_json::json!("#0A0B0C")),
-                theme(serde_json::json!("")),
-                theme(serde_json::json!(17)),
+                wash(tinted.clone(), ColorMode::TrueColor),
+                wash(tinted, ColorMode::Color256),
+                wash(light, ColorMode::TrueColor),
+                Theme::builtin("eukhe", ColorMode::TrueColor).highlight_wash(),
             ],
-            [Some((0x0a, 0x0b, 0x0c)), None, None]
+            [
+                Color(Paint::Rgb(25, 5, 6)),
+                Color(Paint::Indexed(eukhe_theme::rgb_to_256(Rgb::new(25, 5, 6)))),
+                Color(Paint::Rgb(221, 221, 221)),
+                Color(Paint::Rgb(25, 25, 26)),
+            ]
+        );
+    }
+
+    /// The contrast ladder steps toward the theme's lift ends: a red
+    /// `liftLight` gives a red-tinted band where a white one gives gray.
+    #[test]
+    fn the_selection_ladder_steps_toward_the_lift_end() {
+        let band = |lift: &str| {
+            theme_with_colors(
+                &serde_json::json!({
+                    "selectedBg": "#222226",
+                    "userMessageBg": "#1a1a1f",
+                    "liftLight": lift,
+                    "liftDark": "#000000",
+                }),
+                ColorMode::TrueColor,
+            )
+            .soft_selection_style()
+            .bg
+        };
+        assert_eq!(
+            [band("#ff0000"), band("#ffffff")],
+            [
+                Some(Color(Paint::Rgb(140, 18, 20))),
+                Some(Color(Paint::Rgb(54, 54, 58)))
+            ]
         );
     }
 
     /// The ONE selection style paints the soft wash in every theme,
     /// never the accent, never a bold modifier. A theme whose slots
     /// resolve to no band (a `selectedBg` that is missing or
-    /// explicitly empty resolves to `Color::Reset`, which paints
+    /// explicitly empty resolves to the terminal default, which paints
     /// nothing) falls through to the onboarding wash (Macroscope
     /// 2026-09-28: an unresolvable slot must fall through, not strand
     /// the selection without a band).
@@ -758,10 +945,10 @@ mod tests {
             &serde_json::json!({ "text": "#f4f4f5", "selectedBg": "" }),
             ColorMode::TrueColor,
         );
-        assert_eq!(empty_slot.bg_color(ThemeBg::SelectedBg), Some(Color::Reset));
+        assert_eq!(empty_slot.bg_color(ThemeBg::SelectedBg), Some(Color::RESET));
         assert_eq!(
             empty_slot.selection_row_style().bg,
-            Some(crate::onboarding::highlight_wash(&empty_slot)),
+            Some(empty_slot.highlight_wash()),
             "an empty selectedBg never paints Reset"
         );
     }
@@ -798,33 +985,40 @@ mod tests {
 
     /// The ladder's pinned values: the wash clears the bar by stepping
     /// from the selection toward the endpoint on its side of the surface
-    /// (white for the dark themes, black for the light one), and the
+    /// (the white `liftLight` for the dark themes, the black `liftDark`
+    /// for the light one), and the
     /// 256-color palette keeps a slot the surface's slot separates from.
     #[test]
     fn soft_selection_pins_the_contrast_ladder_values() {
         let prime = Theme::builtin("eukhe", ColorMode::TrueColor);
         assert_eq!(
             prime.soft_selection_style().bg,
-            Some(Color::Rgb(54, 54, 58))
+            Some(Color(Paint::Rgb(54, 54, 58)))
         );
         let prime256 = Theme::builtin("eukhe", ColorMode::Color256);
         assert_eq!(
             prime256.soft_selection_style().bg,
-            Some(Color::Indexed(237))
+            Some(Color(Paint::Indexed(237)))
         );
         let dark = Theme::builtin("dark", ColorMode::TrueColor);
-        assert_eq!(dark.soft_selection_style().bg, Some(Color::Rgb(80, 80, 95)));
+        assert_eq!(
+            dark.soft_selection_style().bg,
+            Some(Color(Paint::Rgb(80, 80, 95)))
+        );
         let dark256 = Theme::builtin("dark", ColorMode::Color256);
-        assert_eq!(dark256.soft_selection_style().bg, Some(Color::Indexed(244)));
+        assert_eq!(
+            dark256.soft_selection_style().bg,
+            Some(Color(Paint::Indexed(244)))
+        );
         let light = Theme::builtin("light", ColorMode::TrueColor);
         assert_eq!(
             light.soft_selection_style().bg,
-            Some(Color::Rgb(202, 202, 218))
+            Some(Color(Paint::Rgb(202, 202, 218)))
         );
         let light256 = Theme::builtin("light", ColorMode::Color256);
         assert_eq!(
             light256.soft_selection_style().bg,
-            Some(Color::Indexed(251))
+            Some(Color(Paint::Indexed(251)))
         );
     }
 

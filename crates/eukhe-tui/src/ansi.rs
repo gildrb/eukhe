@@ -1,7 +1,7 @@
 //! ANSI encoding of styled lines (used by debug output and tests) and the
 //! general-purpose ANSI stripper (TS `stripAnsi` in utils.ts).
 
-use crate::style::{Color, Modifier};
+use crate::style::Modifier;
 use crate::Span;
 use std::fmt::Write;
 
@@ -73,22 +73,6 @@ pub fn strip_ansi(text: &str) -> String {
     result
 }
 
-fn fg_code(color: Color) -> String {
-    match color {
-        Color::Reset => "39".to_string(),
-        Color::Indexed(n) => format!("38;5;{n}"),
-        Color::Rgb(r, g, b) => format!("38;2;{r};{g};{b}"),
-    }
-}
-
-fn bg_code(color: Color) -> String {
-    match color {
-        Color::Reset => "49".to_string(),
-        Color::Indexed(n) => format!("48;5;{n}"),
-        Color::Rgb(r, g, b) => format!("48;2;{r};{g};{b}"),
-    }
-}
-
 /// Encode a line as an ANSI string with SGR sequences. A style change
 /// resets the previous span's attributes first, so a plain span after a
 /// bold one is not painted bold.
@@ -139,10 +123,10 @@ fn sgr_codes(span: &Span) -> Option<String> {
             parts.push("2".into());
         }
         if let Some(fg) = span.style.fg {
-            parts.push(fg_code(fg));
+            parts.push(fg.fg_sgr());
         }
         if let Some(bg) = span.style.bg {
-            parts.push(bg_code(bg));
+            parts.push(bg.bg_sgr());
         }
     }
     if parts.is_empty() {
@@ -160,7 +144,8 @@ pub fn raw_span(s: &str) -> Span {
 #[cfg(test)]
 mod tests {
     use super::{line_to_ansi, strip_ansi};
-    use crate::style::{Color, Modifier, Style};
+    use crate::style::{Modifier, Style};
+    use crate::theme::{theme_with_colors, ColorMode, ThemeColor};
     use crate::Span;
 
     /// Each span paints with its own attributes only: a style change
@@ -168,11 +153,13 @@ mod tests {
     #[test]
     fn styles_reset_between_spans() {
         let bold = Style::new().add_modifier(Modifier::BOLD);
+        let green = theme_with_colors(&serde_json::json!({ "success": 2 }), ColorMode::TrueColor)
+            .fg_style(ThemeColor::Success);
         let line = vec![
             Span::styled("a", bold),
             Span::raw("b"),
-            Span::styled("c", Style::new().fg(Color::Indexed(2))),
-            Span::styled("d", Style::new().fg(Color::Indexed(2))),
+            Span::styled("c", green),
+            Span::styled("d", green),
             Span::styled("e", bold),
         ];
         assert_eq!(

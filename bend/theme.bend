@@ -13,10 +13,10 @@
 #   24 mdCodeBlockBorder 25 mdQuote 26 mdQuoteBorder 27 mdHr 28 mdListBullet 29 toolDiffAdded
 #   30 toolDiffRemoved 31 toolDiffText 32 toolDiffContext 33 syntaxComment 34 syntaxKeyword 35 syntaxFunction
 #   36 syntaxVariable 37 syntaxString 38 syntaxNumber 39 syntaxType 40 syntaxOperator 41 syntaxPunctuation
-#   42 thinkingOff 43 thinkingMinimal 44 thinkingLow 45 thinkingMedium 46 thinkingHigh 47 thinkingXhigh
-#   48 bashMode 49 selectedBg 50 userMessageBg 51 customMessageBg 52 toolPendingBg 53 toolSuccessBg
-#   54 toolErrorBg 55 toolDiffAddedBg 56 toolDiffRemovedBg 57 toolPanelBg 58 background 59 foreground
-# 49..58 are surfaces (the terminal default there is the background); the
+#   42 effortLow 43 effortHigh 44 contextHigh 45 liftLight 46 liftDark
+#   47 bashMode 48 selectedBg 49 userMessageBg 50 customMessageBg 51 toolPendingBg 52 toolSuccessBg
+#   53 toolErrorBg 54 toolDiffAddedBg 55 toolDiffRemovedBg 56 toolPanelBg 57 background 58 foreground
+# 48..57 are surfaces (the terminal default there is the background); the
 # others are ink (the terminal default there is the foreground).
 
 import Base
@@ -122,7 +122,7 @@ type Role is Data:
   Background{}
   Foreground{}
 
-def kind.pick(t14: Bool, t15: Bool, t18: Bool, t58: Bool, t59: Bool) -> Role:
+def kind.pick(t14: Bool, t15: Bool, t18: Bool, t57: Bool, t58: Bool) -> Role:
   match t14:
     case True{}:
       RefHeader{}
@@ -135,25 +135,25 @@ def kind.pick(t14: Bool, t15: Bool, t18: Bool, t58: Bool, t59: Bool) -> Role:
             case True{}:
               MdBody{}
             case False{}:
-              match t58:
+              match t57:
                 case True{}:
                   Background{}
                 case False{}:
-                  match t59:
+                  match t58:
                     case True{}:
                       Foreground{}
                     case False{}:
                       Req{}
 
 def kind(+t: U32) -> Role:
-  kind.pick(U32.is_eq(t, 14), U32.is_eq(t, 15), U32.is_eq(t, 18), U32.is_eq(t, 58), U32.is_eq(t, 59))
+  kind.pick(U32.is_eq(t, 14), U32.is_eq(t, 15), U32.is_eq(t, 18), U32.is_eq(t, 57), U32.is_eq(t, 58))
 
-# a surface token (49..58): the terminal default there is the background
+# a surface token (48..57): the terminal default there is the background
 def surface(+t: U32) -> Bool:
-  Bool.and(U32.is_ge(t, 49), U32.is_le(t, 58))
+  Bool.and(U32.is_ge(t, 48), U32.is_le(t, 57))
 
 def toks() -> List<&2, U32>:
-  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]
 
 def get.pick(hit: Bool, v: Val, other: Maybe<&2, Val>) -> Maybe<&2, Val>:
   match hit:
@@ -293,16 +293,16 @@ def table.eukhe() -> List<&2, Co.Rgb>:
   Co.Rgb{161, 161, 170}, Co.Rgb{63, 185, 80}, Co.Rgb{248, 81, 73}, Co.Rgb{154, 160, 166},
   Co.Rgb{161, 161, 170}, Co.Rgb{161, 161, 170}, Co.Rgb{56, 189, 248}, Co.Rgb{56, 189, 248},
   Co.Rgb{212, 212, 216}, Co.Rgb{139, 168, 136}, Co.Rgb{245, 158, 11}, Co.Rgb{245, 158, 11},
-  Co.Rgb{212, 212, 216}, Co.Rgb{212, 212, 216}, Co.Rgb{244, 244, 245}, Co.Rgb{161, 161, 170},
-  Co.Rgb{56, 189, 248}, Co.Rgb{141, 127, 192}, Co.Rgb{124, 111, 175}, Co.Rgb{124, 111, 175},
-  Co.Rgb{125, 168, 118}, Co.Rgb{34, 34, 38}, Co.Rgb{26, 26, 31}, Co.Rgb{21, 21, 24},
-  Co.Rgb{16, 16, 21}, Co.Rgb{14, 21, 16}, Co.Rgb{26, 13, 18}, Co.Rgb{1, 95, 0},
-  Co.Rgb{94, 0, 0}, Co.Rgb{13, 13, 16}, Co.Rgb{5, 5, 6}, Co.Rgb{229, 229, 231}]
+  Co.Rgb{212, 212, 216}, Co.Rgb{212, 212, 216}, Co.Rgb{124, 111, 175}, Co.Rgb{167, 139, 250},
+  Co.Rgb{124, 111, 175}, Co.Rgb{255, 255, 255}, Co.Rgb{0, 0, 0}, Co.Rgb{125, 168, 118},
+  Co.Rgb{34, 34, 38}, Co.Rgb{26, 26, 31}, Co.Rgb{21, 21, 24}, Co.Rgb{16, 16, 21},
+  Co.Rgb{14, 21, 16}, Co.Rgb{26, 13, 18}, Co.Rgb{1, 95, 0}, Co.Rgb{94, 0, 0},
+  Co.Rgb{13, 13, 16}, Co.Rgb{5, 5, 6}, Co.Rgb{229, 229, 231}]
 
 # the background: the file's own, else its export page, else its
-# user-message surface (50), else the default theme's background
+# user-message surface (49), else the default theme's background
 def background(+cols: List<&2, Ent>, page: Maybe<&2, Co.Rgb>) -> Co.Rgb:
-  or_else(Co.Rgb, or(Co.Rgb, concrete.of(get(cols, 58)), or(Co.Rgb, page, concrete.of(get(cols, 50)))), at(table.eukhe(), 58n))
+  or_else(Co.Rgb, or(Co.Rgb, concrete.of(get(cols, 57)), or(Co.Rgb, page, concrete.of(get(cols, 49)))), at(table.eukhe(), 57n))
 
 def table.light() -> List<&2, Co.Rgb>:
   [Co.Rgb{85, 120, 120}, Co.Rgb{79, 117, 157}, Co.Rgb{85, 120, 120}, Co.Rgb{144, 144, 144},
@@ -315,11 +315,11 @@ def table.light() -> List<&2, Co.Rgb>:
   Co.Rgb{83, 124, 83}, Co.Rgb{83, 124, 83}, Co.Rgb{170, 85, 85}, Co.Rgb{87, 96, 106},
   Co.Rgb{108, 108, 108}, Co.Rgb{0, 128, 0}, Co.Rgb{0, 0, 255}, Co.Rgb{121, 94, 38},
   Co.Rgb{0, 16, 128}, Co.Rgb{163, 21, 21}, Co.Rgb{9, 131, 86}, Co.Rgb{37, 123, 149},
-  Co.Rgb{0, 0, 0}, Co.Rgb{0, 0, 0}, Co.Rgb{144, 144, 144}, Co.Rgb{118, 118, 118},
-  Co.Rgb{79, 117, 157}, Co.Rgb{85, 120, 120}, Co.Rgb{135, 95, 135}, Co.Rgb{139, 0, 139},
-  Co.Rgb{83, 124, 83}, Co.Rgb{208, 208, 224}, Co.Rgb{232, 232, 232}, Co.Rgb{237, 231, 246},
-  Co.Rgb{232, 232, 240}, Co.Rgb{232, 240, 232}, Co.Rgb{240, 232, 232}, Co.Rgb{218, 251, 225},
-  Co.Rgb{255, 235, 233}, Co.Rgb{237, 237, 242}, Co.Rgb{248, 248, 248}, Co.Rgb{0, 0, 0}]
+  Co.Rgb{0, 0, 0}, Co.Rgb{0, 0, 0}, Co.Rgb{135, 95, 135}, Co.Rgb{139, 0, 139},
+  Co.Rgb{135, 95, 135}, Co.Rgb{255, 255, 255}, Co.Rgb{0, 0, 0}, Co.Rgb{83, 124, 83},
+  Co.Rgb{208, 208, 224}, Co.Rgb{232, 232, 232}, Co.Rgb{237, 231, 246}, Co.Rgb{232, 232, 240},
+  Co.Rgb{232, 240, 232}, Co.Rgb{240, 232, 232}, Co.Rgb{218, 251, 225}, Co.Rgb{255, 235, 233},
+  Co.Rgb{237, 237, 242}, Co.Rgb{248, 248, 248}, Co.Rgb{0, 0, 0}]
 
 # the builtin whose values fill a file's optional tokens: the default
 # theme (eukhe) for a dark background, light for a light one
@@ -344,7 +344,7 @@ def fill.k(k: Role, +cols: List<&2, Ent>, +bg: Co.Rgb, +t: U32) -> Maybe<&2, Val
     case Background{}:
       Some{Hex{bg}}
     case Foreground{}:
-      Some{Hex{or_else(Co.Rgb, concrete.of(get(cols, t)), at(defaults(Co.light(bg)), 59n))}}
+      Some{Hex{or_else(Co.Rgb, concrete.of(get(cols, t)), at(defaults(Co.light(bg)), 58n))}}
 
 def fill(+cols: List<&2, Ent>, +bg: Co.Rgb, +t: U32) -> Maybe<&2, Val>:
   fill.k(kind(t), cols, bg, t)
@@ -391,9 +391,9 @@ def rename(f: Th, n: String) -> Th:
 def paint.canvas.at(surface: Bool) -> Nat:
   match surface:
     case True{}:
-      58n
+      57n
     case False{}:
-      59n
+      58n
 
 def paint.hex(v: Val) -> Co.Rgb:
   match v:
@@ -415,7 +415,7 @@ def paint.val(+p: List<&2, Maybe<&2, Val>>, +t: U32, v: Val) -> Co.Rgb:
       c
 
 # the color token t paints: the terminal default is the background on a
-# surface and the foreground (59) elsewhere
+# surface and the foreground (58) elsewhere
 def paint(+p: List<&2, Maybe<&2, Val>>, +t: U32) -> Co.Rgb:
   paint.val(p, t, or_else(Val, or_else(Maybe<&2, Val>, List.get(&2, Maybe<&2, Val>, p, U32.to_nat(t)), None{}), Dflt{}))
 
@@ -440,11 +440,11 @@ def table.dark() -> List<&2, Co.Rgb>:
   Co.Rgb{138, 190, 183}, Co.Rgb{63, 185, 80}, Co.Rgb{248, 81, 73}, Co.Rgb{154, 160, 166},
   Co.Rgb{150, 150, 150}, Co.Rgb{106, 153, 85}, Co.Rgb{86, 156, 214}, Co.Rgb{220, 220, 170},
   Co.Rgb{156, 220, 254}, Co.Rgb{206, 145, 120}, Co.Rgb{181, 206, 168}, Co.Rgb{78, 201, 176},
-  Co.Rgb{212, 212, 212}, Co.Rgb{212, 212, 212}, Co.Rgb{101, 101, 101}, Co.Rgb{110, 110, 110},
-  Co.Rgb{95, 135, 175}, Co.Rgb{129, 162, 190}, Co.Rgb{178, 148, 187}, Co.Rgb{209, 131, 232},
-  Co.Rgb{181, 189, 104}, Co.Rgb{58, 58, 74}, Co.Rgb{52, 53, 65}, Co.Rgb{45, 40, 56},
-  Co.Rgb{40, 40, 50}, Co.Rgb{40, 50, 40}, Co.Rgb{60, 40, 40}, Co.Rgb{1, 95, 0},
-  Co.Rgb{94, 0, 0}, Co.Rgb{38, 38, 48}, Co.Rgb{24, 24, 30}, Co.Rgb{229, 229, 231}]
+  Co.Rgb{212, 212, 212}, Co.Rgb{212, 212, 212}, Co.Rgb{178, 148, 187}, Co.Rgb{209, 131, 232},
+  Co.Rgb{178, 148, 187}, Co.Rgb{255, 255, 255}, Co.Rgb{0, 0, 0}, Co.Rgb{181, 189, 104},
+  Co.Rgb{58, 58, 74}, Co.Rgb{52, 53, 65}, Co.Rgb{45, 40, 56}, Co.Rgb{40, 40, 50},
+  Co.Rgb{40, 50, 40}, Co.Rgb{60, 40, 40}, Co.Rgb{1, 95, 0}, Co.Rgb{94, 0, 0},
+  Co.Rgb{38, 38, 48}, Co.Rgb{24, 24, 30}, Co.Rgb{229, 229, 231}]
 
 def table(s: Shipped) -> List<&2, Co.Rgb>:
   match s:
@@ -460,23 +460,23 @@ def table(s: Shipped) -> List<&2, Co.Rgb>:
 type Duo is Data:
   Duo{fg: Nat, bg: Nat, num: U32, den: U32}
 
-# every ink token: the text ones on the background (58) at 9/2, the user
-# and custom message text (11, 12) on their own surfaces (50, 51) at 9/2,
-# the non-text ones on the background at 3/1
+# every ink token: the text ones on the background (57) at 9/2, the user
+# and custom message text (11, 12) on their own surfaces (49, 50) at 9/2,
+# the non-text ones (the effort ramp ends among them) on the background
+# at 3/1. The lift ends paint no ink: a selection band moves toward them.
 def pairs() -> List<&2, Duo>:
-  [Duo{9n, 58n, 9, 2}, Duo{59n, 58n, 9, 2}, Duo{18n, 58n, 9, 2}, Duo{7n, 58n, 9, 2},
-  Duo{8n, 58n, 9, 2}, Duo{10n, 58n, 9, 2}, Duo{16n, 58n, 9, 2}, Duo{17n, 58n, 9, 2},
-  Duo{19n, 58n, 9, 2}, Duo{20n, 58n, 9, 2}, Duo{21n, 58n, 9, 2}, Duo{22n, 58n, 9, 2},
-  Duo{23n, 58n, 9, 2}, Duo{25n, 58n, 9, 2}, Duo{28n, 58n, 9, 2}, Duo{4n, 58n, 9, 2},
-  Duo{5n, 58n, 9, 2}, Duo{6n, 58n, 9, 2}, Duo{0n, 58n, 9, 2}, Duo{13n, 58n, 9, 2},
-  Duo{14n, 58n, 9, 2}, Duo{15n, 58n, 9, 2}, Duo{29n, 58n, 9, 2}, Duo{30n, 58n, 9, 2},
-  Duo{31n, 58n, 9, 2}, Duo{32n, 58n, 9, 2}, Duo{33n, 58n, 9, 2}, Duo{34n, 58n, 9, 2},
-  Duo{35n, 58n, 9, 2}, Duo{36n, 58n, 9, 2}, Duo{37n, 58n, 9, 2}, Duo{38n, 58n, 9, 2},
-  Duo{39n, 58n, 9, 2}, Duo{40n, 58n, 9, 2}, Duo{41n, 58n, 9, 2}, Duo{11n, 50n, 9, 2},
-  Duo{12n, 51n, 9, 2}, Duo{1n, 58n, 3, 1}, Duo{2n, 58n, 3, 1}, Duo{3n, 58n, 3, 1},
-  Duo{24n, 58n, 3, 1}, Duo{26n, 58n, 3, 1}, Duo{27n, 58n, 3, 1}, Duo{42n, 58n, 3, 1},
-  Duo{43n, 58n, 3, 1}, Duo{44n, 58n, 3, 1}, Duo{45n, 58n, 3, 1}, Duo{46n, 58n, 3, 1},
-  Duo{47n, 58n, 3, 1}, Duo{48n, 58n, 3, 1}]
+  [Duo{9n, 57n, 9, 2}, Duo{58n, 57n, 9, 2}, Duo{18n, 57n, 9, 2}, Duo{7n, 57n, 9, 2},
+  Duo{8n, 57n, 9, 2}, Duo{10n, 57n, 9, 2}, Duo{16n, 57n, 9, 2}, Duo{17n, 57n, 9, 2},
+  Duo{19n, 57n, 9, 2}, Duo{20n, 57n, 9, 2}, Duo{21n, 57n, 9, 2}, Duo{22n, 57n, 9, 2},
+  Duo{23n, 57n, 9, 2}, Duo{25n, 57n, 9, 2}, Duo{28n, 57n, 9, 2}, Duo{4n, 57n, 9, 2},
+  Duo{5n, 57n, 9, 2}, Duo{6n, 57n, 9, 2}, Duo{0n, 57n, 9, 2}, Duo{13n, 57n, 9, 2},
+  Duo{14n, 57n, 9, 2}, Duo{15n, 57n, 9, 2}, Duo{29n, 57n, 9, 2}, Duo{30n, 57n, 9, 2},
+  Duo{31n, 57n, 9, 2}, Duo{32n, 57n, 9, 2}, Duo{33n, 57n, 9, 2}, Duo{34n, 57n, 9, 2},
+  Duo{35n, 57n, 9, 2}, Duo{36n, 57n, 9, 2}, Duo{37n, 57n, 9, 2}, Duo{38n, 57n, 9, 2},
+  Duo{39n, 57n, 9, 2}, Duo{40n, 57n, 9, 2}, Duo{41n, 57n, 9, 2}, Duo{44n, 57n, 9, 2},
+  Duo{11n, 49n, 9, 2}, Duo{12n, 50n, 9, 2}, Duo{1n, 57n, 3, 1}, Duo{2n, 57n, 3, 1},
+  Duo{3n, 57n, 3, 1}, Duo{24n, 57n, 3, 1}, Duo{26n, 57n, 3, 1}, Duo{27n, 57n, 3, 1},
+  Duo{42n, 57n, 3, 1}, Duo{43n, 57n, 3, 1}, Duo{47n, 57n, 3, 1}]
 
 def meets(+xs: List<&2, Co.Rgb>, p: Duo) -> Bool:
   match p:

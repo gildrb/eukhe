@@ -850,9 +850,10 @@ impl SessionUi {
 
     /// Fetch the exit resume hint (TS `shutdown` fetches `getSessionStats`
     /// while the connection is alive, then prints `formatResumeHint` after
-    /// teardown). Bounded best-effort: a wedged worker or a dead connection
-    /// yields no hint instead of holding the exit open.
-    pub(crate) async fn exit_resume_hint(&self) -> Option<String> {
+    /// teardown), in the `theme`'s dim color. Bounded best-effort: a
+    /// wedged worker or a dead connection yields no hint instead of
+    /// holding the exit open.
+    pub(crate) async fn exit_resume_hint(&self, theme: &crate::theme::Theme) -> Option<String> {
         let stats = tokio::time::timeout(
             Duration::from_millis(EXIT_STATS_TIMEOUT_MS),
             self.client.request_ok(DaemonCommand::GetSessionStats {
@@ -862,6 +863,6 @@ impl SessionUi {
             }),
         )
         .await;
-        resume_hint_from_stats(&stats.ok()?.ok()?)
+        resume_hint_from_stats(&stats.ok()?.ok()?, theme)
     }
 }

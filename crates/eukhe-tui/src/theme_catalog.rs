@@ -45,7 +45,6 @@ pub fn load_client_theme(settings: Option<&dyn ClientSettings>, name: &str) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::Color;
     use crate::theme::ThemeColor;
 
     const DUSK_APPLE: &str = include_str!("../../eukhe-theme/tests/fixtures/dusk-apple-theme.json");
@@ -67,22 +66,26 @@ mod tests {
             MODE,
         );
         assert_eq!(resolved.warnings, Vec::<String>::new());
-        let fg = |color| resolved.theme.fg_style(color).fg;
+        // The same colors written as hex in a theme file of their own.
+        let written = crate::theme::theme_with_colors(
+            &serde_json::json!({
+                "muted": "#d9d0c6",
+                "dim": "#9b9690",
+                "text": "#e9e4de",
+                "refinementHeader": "#9575cd",
+            }),
+            MODE,
+        );
+        let slots = [
+            ThemeColor::Muted,
+            ThemeColor::Dim,
+            ThemeColor::Text,
+            ThemeColor::MdBody,
+            ThemeColor::RefinementHeader,
+        ];
         assert_eq!(
-            [
-                fg(ThemeColor::Muted),
-                fg(ThemeColor::Dim),
-                fg(ThemeColor::Text),
-                fg(ThemeColor::MdBody),
-                fg(ThemeColor::RefinementHeader),
-            ],
-            [
-                Some(Color::Rgb(0xd9, 0xd0, 0xc6)),
-                Some(Color::Rgb(0x9b, 0x96, 0x90)),
-                Some(Color::Rgb(0xe9, 0xe4, 0xde)),
-                Some(Color::Rgb(0xe9, 0xe4, 0xde)),
-                Some(Color::Rgb(0x95, 0x75, 0xcd)),
-            ]
+            slots.map(|slot| resolved.theme.fg_style(slot).fg),
+            slots.map(|slot| written.fg_style(slot).fg)
         );
     }
 

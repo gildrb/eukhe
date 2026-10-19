@@ -1,19 +1,11 @@
 //! Cell styles: a foreground, a background, and text modifiers. The SGR
-//! encoding lives in [`crate::ansi::line_to_ansi`].
+//! encoding lives in [`crate::ansi::line_to_ansi`]; the colors come from
+//! the theme ([`crate::theme::Color`]), the one module that makes them.
 
 use std::fmt;
 use std::ops::{BitOr, BitOrAssign};
 
-/// A terminal color.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Color {
-    /// The terminal's default color (SGR 39 / 49).
-    Reset,
-    /// A 256-color palette index (SGR 38;5 / 48;5).
-    Indexed(u8),
-    /// A 24-bit color (SGR 38;2 / 48;2).
-    Rgb(u8, u8, u8),
-}
+use crate::theme::Color;
 
 /// A set of text modifiers.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -157,19 +149,33 @@ impl fmt::Debug for Style {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{theme_with_colors, ColorMode, ThemeColor};
+
+    /// Three colors from a theme: index 1, `#010203` and the terminal
+    /// default.
+    fn colors() -> (Color, Color, Color) {
+        let theme = theme_with_colors(
+            &serde_json::json!({ "error": 1, "success": "#010203" }),
+            ColorMode::TrueColor,
+        );
+        let fg = |slot: ThemeColor| theme.fg_style(slot).fg.expect("a color");
+        (
+            fg(ThemeColor::Error),
+            fg(ThemeColor::Success),
+            fg(ThemeColor::Text),
+        )
+    }
 
     #[test]
     fn patch_layers_colors_and_adds_modifiers() {
-        let base = Style::new()
-            .fg(Color::Indexed(1))
-            .bg(Color::Rgb(1, 2, 3))
-            .add_modifier(Modifier::BOLD);
-        let over = Style::new().fg(Color::Reset).add_modifier(Modifier::ITALIC);
+        let (index, rgb, default) = colors();
+        let base = Style::new().fg(index).bg(rgb).add_modifier(Modifier::BOLD);
+        let over = Style::new().fg(default).add_modifier(Modifier::ITALIC);
         assert_eq!(
             base.patch(over),
             Style {
-                fg: Some(Color::Reset),
-                bg: Some(Color::Rgb(1, 2, 3)),
+                fg: Some(default),
+                bg: Some(rgb),
                 add_modifier: Modifier::BOLD | Modifier::ITALIC,
             }
         );
@@ -177,13 +183,20 @@ mod tests {
 
     #[test]
     fn debug_prints_the_builder_chain() {
+        let (index, rgb, default) = colors();
         let style = Style::new()
-            .fg(Color::Rgb(161, 161, 170))
-            .bg(Color::Indexed(5))
+            .fg(rgb)
+            .bg(index)
             .add_modifier(Modifier::CROSSED_OUT | Modifier::BOLD);
         assert_eq!(
-            format!("{style:?}"),
-            "Style::new().fg(Color::Rgb(161, 161, 170)).bg(Color::Indexed(5)).bold().crossed_out()"
+            [
+                format!("{style:?}"),
+                format!("{:?}", Style::new().fg(default))
+            ],
+            [
+                "Style::new().fg(Color::Rgb(1, 2, 3)).bg(Color::Indexed(1)).bold().crossed_out()",
+                "Style::new().fg(Color::Reset)"
+            ]
         );
     }
 }

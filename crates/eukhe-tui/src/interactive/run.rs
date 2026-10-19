@@ -1934,7 +1934,7 @@ async fn run_interactive_surface(
     let resume_hint = if session.open_agents_view {
         None
     } else {
-        session.exit_resume_hint().await
+        session.exit_resume_hint(&view.theme).await
     };
     // Detach explicitly so the session's attached-client count stays honest;
     // the supervisor also detaches this connection when the socket closes.

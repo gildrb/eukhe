@@ -1577,13 +1577,15 @@ mod tests {
         }
     }
 
-    /// A styled transcript row 80 to 120 cells wide.
-    fn styled_row(n: usize) -> Line {
-        use crate::style::{Color, Modifier, Style};
+    /// A styled transcript row 80 to 120 cells wide, in the colors of
+    /// `theme`.
+    fn styled_row(theme: &crate::theme::Theme, n: usize) -> Line {
+        use crate::style::Modifier;
+        use crate::theme::ThemeColor;
         const PROSE: &str = "the quick brown fox jumps over the lazy dog while the agent streams ";
         let width = 80 + n * 7 % 41;
         vec![
-            Span::styled("│ ", Style::new().fg(Color::Indexed(8))),
+            theme.fg(ThemeColor::BorderMuted, "│ "),
             Span::raw(
                 PROSE
                     .chars()
@@ -1594,11 +1596,11 @@ mod tests {
             ),
             Span::styled(
                 format!(" `fn row_{:05}()` ", n % 100_000),
-                Style::new()
-                    .fg(Color::Rgb(161, 161, 170))
+                theme
+                    .fg_style(ThemeColor::Muted)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("→ ok", Style::new().fg(Color::Indexed(2))),
+            theme.fg(ThemeColor::Success, "→ ok"),
         ]
     }
 
@@ -1612,9 +1614,10 @@ mod tests {
         let _global = live_area_lock();
         let mut term = InlineTerminal::new(120, 50);
         let mut sink = Vec::new();
-        let history: Vec<Line> = (0..5_000).map(styled_row).collect();
+        let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+        let history: Vec<Line> = (0..5_000).map(|n| styled_row(&theme, n)).collect();
         let live_at = |frame: usize| -> Vec<Line> {
-            let mut live: Vec<Line> = (0..37).map(|n| styled_row(10_000 + n)).collect();
+            let mut live: Vec<Line> = (0..37).map(|n| styled_row(&theme, 10_000 + n)).collect();
             for (offset, row) in live[34..].iter_mut().enumerate() {
                 row.push(Span::raw(format!(" {}", frame * 3 + offset)));
             }

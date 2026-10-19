@@ -179,15 +179,19 @@ fn context_counts_and_tones_follow_omp() {
     .collect();
     assert_eq!(counts, ["999", "1.5K", "10K", "128K", "1M", "2.5M", "1B"]);
     let tones = [
-        context_color(0.0, 128_000),
-        context_color(49.9, 128_000),
-        context_color(50.0, 128_000),
-        context_color(70.0, 128_000),
-        context_color(90.0, 128_000),
-        // A 1M window reaches the levels at their token counts first.
-        context_color(15.0, 1_000_000),
-        context_color(27.0, 1_000_000),
-        context_color(50.0, 1_000_000),
+        context_color(0, 128_000),
+        context_color(63_999, 128_000),
+        context_color(64_000, 128_000),
+        context_color(89_600, 128_000),
+        context_color(115_200, 128_000),
+        // A 1M window turns at the same shares: 16% of it (160K tokens,
+        // above the old absolute 150K level) is still dim.
+        context_color(160_000, 1_000_000),
+        context_color(500_000, 1_000_000),
+        context_color(700_000, 1_000_000),
+        context_color(900_000, 1_000_000),
+        // An unknown window reaches no band.
+        context_color(2_000, 0),
     ];
     assert_eq!(
         tones,
@@ -195,11 +199,13 @@ fn context_counts_and_tones_follow_omp() {
             ThemeColor::Dim,
             ThemeColor::Dim,
             ThemeColor::Warning,
-            ThemeColor::ThinkingHigh,
+            ThemeColor::ContextHigh,
             ThemeColor::Error,
+            ThemeColor::Dim,
             ThemeColor::Warning,
-            ThemeColor::ThinkingHigh,
+            ThemeColor::ContextHigh,
             ThemeColor::Error,
+            ThemeColor::Dim,
         ]
     );
     let unknown_window = ContextUsage {

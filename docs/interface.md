@@ -321,8 +321,8 @@ and `bend/color.bend`. `bend/proof_themes.bend` proves them:
 - The mode follows the background. The name changes neither the palette
   nor the mode.
 - In each shipped theme, every text token meets 4.5:1 against its
-  background and every non-text token (borders, rules, level marks)
-  meets 3:1. The user and custom message texts are measured on their
+  background and every non-text token (borders, rules, the effort ramp
+  ends) meets 3:1. The user and custom message texts are measured on their
   own surfaces. The contrast is an exact integer comparison.
 - In each shipped theme, the status colors (accent, success, warning,
   error) stay distinct in a 256-color terminal.
@@ -331,3 +331,62 @@ The bridge test `crates/eukhe-core/src/export_html/theme_bridge.rs` runs
 the Rust code and the model on the same scenarios. It checks that the
 model's tables equal the theme files, and that resolution, validation,
 luminance, contrast and the 256-color mapping agree.
+
+### T3. Terminal colors
+
+The terminal UI paints only theme colors. The crate `eukhe-tui` has one
+module that can make a color: `src/theme.rs`. The value of
+`theme::Color` is private to it, so the compiler refuses a color literal
+in any other module, tests included. Other code gets each color from a
+`Theme`: a token of the theme file, or a value that `theme.rs` computes
+from the tokens. The exit resume hint that `eukhe-cli` prints comes
+from the TUI in the theme's `dim` color.
+
+#### The tokens
+
+- `effortLow` and `effortHigh`: the ends of the effort ramp. A model
+  offers a ladder of n effort levels, of any length. Rung k (1 to n) of
+  the ramp takes, in each channel, the lower end of the channel plus
+  floor(d * w / n). d is the channel distance. w is k when the channel
+  rises from `effortLow` to `effortHigh`, and n - k when it falls. So
+  rung n is `effortHigh`, and the ramp starts one step above
+  `effortLow`. In the `/model` picker, each filled effort square of the
+  selected row has its rung.
+- `contextHigh`: the context usage tone between `warning` and `error`.
+- `liftLight` and `liftDark`: the colors that a selection band moves
+  toward when it is too near its surface: `liftLight` when the
+  selection is lighter than the surface, `liftDark` when it is darker.
+  The onboarding wash lifts the theme's background 8% toward
+  `liftLight` on a dark theme and toward `liftDark` on a light theme.
+
+#### The usage bands
+
+The status line shows the context usage of the window that the daemon
+serves (`contextUsage.contextWindow`). Its tone is `dim` below half the
+window, `warning` from 1/2, `contextHigh` from 7/10 and `error` from
+9/10. A band is reached when window * num <= tokens * den, exactly. An
+unknown window (0) reaches no band. No band is a token count, so every
+window turns at the same share of its size.
+
+#### Laws
+
+`laws/tui_color.bend` (T3) states the laws on the model in
+`bend/tui_color.bend`, with the theme tables of `bend/theme.bend`.
+`bend/proof_tui_color.bend` proves them:
+
+- The effort ramp has one rung for each level. For any ladder length,
+  each channel moves from `effortLow` toward `effortHigh`, never back.
+  For any ladder length up to the widest channel distance of the ends,
+  no two rungs have the same color. In each shipped theme, no two rungs
+  have the same color for any ladder of the level vocabulary.
+- Each usage band is a fraction of the window above 0 and at most 1,
+  above the band before it. More tokens in the same window never give a
+  lower band. The band depends only on the fraction of the window in
+  use: the same fraction of a window k times as large gives the same
+  band.
+- Every color role of the terminal UI resolves in the palette of every
+  valid theme file, and paints a color in every shipped theme.
+
+The bridge test `crates/eukhe-tui/src/theme/bridge.rs` runs the Rust
+ramp, the shipped ramps, the bands and the roles against
+`bend/bridge_tui_color.bend`.

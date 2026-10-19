@@ -722,14 +722,14 @@ mod tests {
         );
         assert_eq!(
             theme.soft_selection_style().bg,
-            Some(crate::style::Color::Reset),
+            theme.bg_color(crate::theme::ThemeBg::SelectedBg),
             "the theme computes no selection"
         );
         // The ONE shared selection style keeps the same contract: with
         // no band color resolvable, it falls back to the onboarding
         // wash, so a selected heartbeat/shell row never reads as
         // unselected.
-        let fallback = crate::onboarding::highlight_wash(&theme);
+        let fallback = theme.highlight_wash();
         assert_eq!(theme.selection_row_style().bg, Some(fallback));
         for washed in [
             fill_row(

@@ -182,7 +182,9 @@ fn row_primary(
 }
 
 /// The effort squares (TS `renderEffortSquares`): one slot per on-level,
-/// filled up to the current effort, padded to the row's slot count.
+/// filled up to the current effort, padded to the row's slot count. On
+/// the selected row each filled square paints its rung of the theme's
+/// effort ramp over the model's ladder ([`Theme::effort_ramp`]).
 fn effort_square_spans(
     theme: &Theme,
     levels: &[ModelThinkingLevel],
@@ -207,13 +209,12 @@ fn effort_square_spans(
             .map_or(0, |position| position + 1)
     };
     let mut spans: Line = Vec::with_capacity(on_levels.len() + 1);
-    for (index, _) in on_levels.iter().enumerate() {
+    for (index, rung) in theme.effort_ramp(on_levels.len()).enumerate() {
         if index < filled {
-            // Filled squares: the effort pastel on the selected row, muted
+            // Filled squares: the effort ramp on the selected row, muted
             // elsewhere.
             if selected {
-                let style = theme.effort_square_style();
-                spans.push(Span::styled(crate::glyphs::METER_ON.to_string(), style));
+                spans.push(Span::styled(crate::glyphs::METER_ON.to_string(), rung));
             } else {
                 spans.push(theme.fg_span(ThemeColor::Muted, crate::glyphs::METER_ON));
             }
@@ -382,4 +383,33 @@ fn truncate_pad(text: &str, width: usize, ellipsis: &str) -> String {
     }
     out.push_str(ellipsis);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::ColorMode;
+
+    /// On the selected row, the filled squares of a three-level ladder at
+    /// medium paint the first two rungs of the theme's three-rung effort
+    /// ramp (the light theme's own colors, not a fixed violet).
+    #[test]
+    fn filled_squares_paint_the_theme_effort_ramp() {
+        let theme = Theme::builtin("light", ColorMode::TrueColor);
+        let ramp: Vec<crate::style::Style> = theme.effort_ramp(3).collect();
+        let levels = [
+            ModelThinkingLevel::Off,
+            ModelThinkingLevel::Low,
+            ModelThinkingLevel::Medium,
+            ModelThinkingLevel::High,
+        ];
+        assert_eq!(
+            effort_square_spans(&theme, &levels, ModelThinkingLevel::Medium, 3, true),
+            vec![
+                Span::styled(crate::glyphs::METER_ON, ramp[0]),
+                Span::styled(crate::glyphs::METER_ON, ramp[1]),
+                theme.fg_span(ThemeColor::Dim, crate::glyphs::METER_OFF),
+            ]
+        );
+    }
 }

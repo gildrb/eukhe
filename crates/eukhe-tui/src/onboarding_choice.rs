@@ -4,7 +4,7 @@
 //! footnote. The onboarding splash mounts one per question and drives
 //! the cursor with the selection keys.
 
-use crate::onboarding::{highlight_wash, wrap_words};
+use crate::onboarding::wrap_words;
 use crate::style::{Modifier, Style};
 use crate::theme::{Theme, ThemeColor};
 use crate::width::str_width;
@@ -155,7 +155,7 @@ impl OnboardingChoice {
             )
             .min(safe_width)
             .max(1);
-        let wash = highlight_wash(theme);
+        let wash = theme.highlight_wash();
         let mut rows: Vec<Line> = Vec::with_capacity(self.options.len());
         for (index, option) in self.options.iter().enumerate() {
             let selected = index == self.selected;
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn detail_renders_as_a_dim_subtitle_and_counts_toward_the_row_width() {
         let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
-        let wash = highlight_wash(&theme);
+        let wash = theme.highlight_wash();
         let choice = OnboardingChoice::new(
             vec![
                 option("Personal account", None),

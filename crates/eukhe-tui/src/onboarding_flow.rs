@@ -10,7 +10,7 @@
 use crate::auth_panel::PrimeTeamPick;
 use crate::keybindings::KeybindingsManager;
 use crate::menu_panel::search_field_plain_row;
-use crate::onboarding::{highlight_wash, wrap_words, OnboardingDecision};
+use crate::onboarding::{wrap_words, OnboardingDecision};
 use crate::onboarding_choice::OnboardingChoice;
 use crate::search_input::SearchInput;
 use crate::style::Modifier;
@@ -287,7 +287,7 @@ impl ProviderPicker {
             row_width
                 .saturating_sub(crate::width::str_width(&name) + crate::width::str_width(mark)),
         );
-        let wash = highlight_wash(theme);
+        let wash = theme.highlight_wash();
         let mut line: Line = vec![Span::raw(" ")];
         // The menu rule: an unavailable row's label stays dim even when
         // selected (the missing flow is stated inline, not lifted).
@@ -517,7 +517,7 @@ pub(crate) fn welcome_action_row(theme: &Theme, width: usize) -> Line {
             .fg_style(ThemeColor::Text)
             .add_modifier(Modifier::BOLD),
     );
-    washed.style = washed.style.bg(highlight_wash(theme));
+    washed.style = washed.style.bg(theme.highlight_wash());
     // A pane narrower than the label truncates the row to the pane width
     // (the picker rows run through the same `truncate_line`), so the
     // action never spills the frame.

@@ -168,8 +168,11 @@ fn create_config_binds_a_new_child_to_its_parent() {
     );
 }
 
+/// The hint is one line in the theme's dim color (eukhe: #76767f), not a
+/// raw SGR attribute written by the composition root.
 #[test]
 fn resume_hint_names_a_flushed_session() {
+    let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
     let dir = std::env::temp_dir().join("eukhe-tui-resume-hint-test");
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("session.jsonl");
@@ -180,25 +183,33 @@ fn resume_hint_names_a_flushed_session() {
         "userMessages": 1
     });
     assert_eq!(
-        crate::session_ui::resume_hint_from_stats(&stats),
-        Some("Resume this session with: eukhe --resume s1".to_string())
+        crate::session_ui::resume_hint_from_stats(&stats, &theme),
+        Some(
+            "\x1b[38;2;118;118;127mResume this session with: eukhe --resume s1\x1b[0m".to_string()
+        )
     );
     // An unflushed empty session and a missing session file are both
     // unresumable (TS omits the hint for either).
     assert_eq!(
-        crate::session_ui::resume_hint_from_stats(&json!({
-            "sessionId": "s1",
-            "sessionFile": file.display().to_string(),
-            "userMessages": 0
-        })),
+        crate::session_ui::resume_hint_from_stats(
+            &json!({
+                "sessionId": "s1",
+                "sessionFile": file.display().to_string(),
+                "userMessages": 0
+            }),
+            &theme
+        ),
         None
     );
     assert_eq!(
-        crate::session_ui::resume_hint_from_stats(&json!({
-            "sessionId": "s1",
-            "sessionFile": dir.join("missing.jsonl").display().to_string(),
-            "userMessages": 3
-        })),
+        crate::session_ui::resume_hint_from_stats(
+            &json!({
+                "sessionId": "s1",
+                "sessionFile": dir.join("missing.jsonl").display().to_string(),
+                "userMessages": 3
+            }),
+            &theme
+        ),
         None
     );
 }
