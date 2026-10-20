@@ -81,6 +81,8 @@ import ./laws/model_facts.bend as ModelFacts
 import ./bend/proof_facts.bend as Facts
 import ./laws/dashboard_auth.bend as DashAuth
 import ./bend/proof_dashboard_auth.bend as DashPairing
+import ./laws/documents.bend as Docs
+import ./bend/proof_documents_laws.bend as DocumentsLaws
 
 # (a) The view
 
