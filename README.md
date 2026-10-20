@@ -41,11 +41,10 @@ version with `sh -s -- 0.10.41`; move the install with
 `EUKHE_INSTALL_ROOT` and `EUKHE_INSTALL_BIN_DIR`. Uninstall:
 `eukhe shutdown`, then remove those two paths.
 
-`https://eukhe.com/install` serves the `install.sh` that the newest release
-attaches, so the installer that runs is the one CI passed with that release,
-never an untested edit on `main`. The endpoint is the Cloudflare Worker in
-`site/eukhe.com/` (deploy: `npx wrangler deploy` in that folder). HTTP
-requests get a 301 to HTTPS.
+`https://eukhe.com/install` is a Cloudflare Redirect Rule (302) to
+`releases/latest/download/install.sh`, so the installer that runs is the one
+CI passed with the newest release, never an untested edit on `main`.
+`curl -L` follows the redirect.
 
 The kernel needs `uv`, and the chat memory needs `git`; the installer
 warns when either is missing. The Nix package supplies both.
