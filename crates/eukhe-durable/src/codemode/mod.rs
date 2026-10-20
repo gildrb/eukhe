@@ -73,8 +73,8 @@ pub use models::{
 };
 pub use output::DEFAULT_MAX_OUTPUT_TOKENS;
 pub use tool::{
-    create_codemode_extension, create_codemode_tool, CodemodeGlobal, CodemodeGlobalExecute,
-    CodemodeToolOptions, CODEMODE_MODULE_VERSION, CODEMODE_TOOL_NAME,
+    create_codemode_extension, create_codemode_tool, run_codemode_source, CodemodeGlobal,
+    CodemodeGlobalExecute, CodemodeToolOptions, CODEMODE_MODULE_VERSION, CODEMODE_TOOL_NAME,
 };
 pub use types::{
     CodemodeCallStatus, CodemodeCallTarget, CodemodeDeclaredGlobal, CodemodeDeclaredTool,

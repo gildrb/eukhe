@@ -116,6 +116,7 @@ pub mod util;
 pub(crate) mod work_gate;
 pub mod worker;
 pub(crate) mod worker_stderr;
+pub(crate) mod workflow_activity;
 
 #[cfg(test)]
 pub(crate) mod durable_test_support;

@@ -136,6 +136,8 @@ impl Worker {
             "mutate_queued_message" => self.handle_mutate_queued_message(payload).await,
             "resume_queue" => self.handle_resume_queue().await,
             "factory_activity" => self.handle_factory_activity(payload).await,
+            "workflow_activity" => self.handle_workflow_activity().await,
+            "workflow_cancel" => self.handle_workflow_cancel(payload).await,
             "execute_bash" => self.handle_execute_bash(payload),
             "execute_bash_and_wait" => self.handle_execute_bash_and_wait(payload).await,
             "abort_bash" => self.handle_abort_bash(),

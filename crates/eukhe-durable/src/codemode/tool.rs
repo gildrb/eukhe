@@ -115,6 +115,25 @@ impl CodemodeToolOptions {
     }
 }
 
+/// Run `source` (code mode source: an optional options line, then an
+/// async function body) as the code mode call of `api`, with `options`'s
+/// sandbox and globals: the body of the code mode tool, for a tool that
+/// prepares its own script (eukhe's `workflow` tool). The call's replay
+/// state lives under `api`'s task, so the calling tool must be
+/// [`ToolReplay::Safe`] and pass the same source on a rerun.
+///
+/// # Errors
+///
+/// Invalid source, and the commits of the call's replay state.
+pub async fn run_codemode_source(
+    options: Arc<CodemodeToolOptions>,
+    api: Arc<dyn ToolExecutionApi>,
+    cx: Context,
+    source: &str,
+) -> SessionResult<crate::harness::types::ToolExecutionResult> {
+    execute(options, api, cx, source).await
+}
+
 /// The code mode tool. Scripts call the conversation's callable tools as
 /// `tools.<name>(args)`.
 #[must_use]

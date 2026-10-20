@@ -47,6 +47,7 @@ mod staging;
 mod state_tree;
 mod tool_contract;
 pub mod tool_surface;
+pub mod workflow;
 
 pub use admission_gate::AdmissionStateSink;
 pub use deps::{

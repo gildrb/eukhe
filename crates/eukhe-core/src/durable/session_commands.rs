@@ -1,5 +1,5 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/goal`, `/autonomous`, `/remind`, and `/force`, including the
+//! `/goal`, `/autonomous`, `/remind`, `/force`, and `/dynamic-workflow`, including the
 //! `/refine` and `/force` argument parsing.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //!
@@ -27,6 +27,8 @@ use super::messages::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
 };
 use super::rlm::{refine_now, RefineRequest};
+use super::workflow::command::parse_dynamic_workflow_args;
+use super::workflow::effective_limits;
 use super::EukheSession;
 use crate::autonomous::{now_millis, AgentAutonomousStatus, AUTONOMOUS_STATUS_CUSTOM_TYPE};
 use crate::goals::{GoalState, GoalStatus};
@@ -34,6 +36,9 @@ use crate::slash_command_args::{
     format_autonomous_status, parse_autonomous_command, parse_goal_command, AutonomousCommand,
     GoalCommand,
 };
+use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
+use eukhe_types::input_origin::InputOrigin;
+use eukhe_types::workflow::WorkflowSize;
 
 #[cfg(test)]
 mod tests;
@@ -98,6 +103,7 @@ pub enum SessionCommandName {
     Autonomous,
     Remind,
     Force,
+    DynamicWorkflow,
 }
 
 impl SessionCommandName {
@@ -112,6 +118,7 @@ impl SessionCommandName {
             Self::Autonomous => "autonomous",
             Self::Remind => "remind",
             Self::Force => "force",
+            Self::DynamicWorkflow => "dynamic-workflow",
         }
     }
 
@@ -125,6 +132,7 @@ impl SessionCommandName {
             "autonomous" => Some(Self::Autonomous),
             "remind" => Some(Self::Remind),
             "force" => Some(Self::Force),
+            "dynamic-workflow" => Some(Self::DynamicWorkflow),
             _ => None,
         }
     }
@@ -151,6 +159,8 @@ pub struct SessionCommandOutcome {
     pub goal: Option<GoalState>,
     /// `/autonomous`: the resulting status.
     pub autonomous: Option<AgentAutonomousStatus>,
+    /// `/dynamic-workflow`: the size of the workflow it asked for.
+    pub dynamic_workflow: Option<WorkflowSize>,
     /// `/refine`: the refinement run's own failure (TS `refine_failed`;
     /// a usage error never ran a refinement and leaves it `None`).
     pub refinement_failed: Option<String>,
@@ -213,6 +223,9 @@ pub async fn execute_session_command(
             }
             Err(usage) => Err(usage),
         },
+        SessionCommandName::DynamicWorkflow => {
+            execute_dynamic_workflow(session, conversation, command, &mut outcome, cx).await
+        }
     };
     if let Err(message) = result {
         let committed = append_rows(conversation, vec![failure_row(command, &message)], cx).await;
@@ -536,6 +549,45 @@ fn parse_force_command(args: &str) -> Result<(String, u32), String> {
         _ => return Err(USAGE.to_owned()),
     };
     Ok((tool.to_owned(), tries))
+}
+
+/// `/dynamic-workflow [--size <size>] <request>`: submit the request as a
+/// user turn that asks for one `workflow` tool call of the chosen size
+/// (the `workflow.size` setting when no `--size` is given).
+async fn execute_dynamic_workflow(
+    session: &EukheSession,
+    conversation: &Conversation,
+    command: &SessionCommand,
+    outcome: &mut SessionCommandOutcome,
+    cx: &Context,
+) -> Result<(), String> {
+    let parsed = parse_dynamic_workflow_args(&command.args)?;
+    let manager = session.deps().settings.manager();
+    let size = parsed.size.unwrap_or_else(|| manager.get_workflow_size());
+    let limits = effective_limits(size, manager.get_subagent_max_concurrency());
+    let request_json = serde_json::Value::String(parsed.request.clone());
+    let text = format!(
+        "Run this request as a dynamic workflow: author one orchestration script and run it with one `workflow` tool call, with `size: \"{size}\"` and `args: {request_json}`. Size {size}: at most {concurrency} agents at once and {max_agents} in total; plan the work to fit. Give each agent a short `label`, use `meta.phases` and `phase()` for the stages, and summarize the result for me when the call returns.\n\nRequest: {request}",
+        size = size.as_str(),
+        concurrency = limits.concurrency,
+        max_agents = limits.max_agents,
+        request = parsed.request,
+    );
+    conversation
+        .submit(
+            InputSubmissionDraft {
+                request_id: None,
+                content: UserContent::Text(text),
+                when_busy: Some(WhenBusy::FollowUp),
+                origin: InputOrigin::User,
+                entry: None,
+            },
+            cx,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    outcome.dynamic_workflow = Some(size);
+    Ok(())
 }
 
 /// `/remind` and `/force`: put `layer` on the Director stack of the

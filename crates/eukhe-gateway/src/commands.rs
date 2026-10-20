@@ -100,6 +100,11 @@ pub(crate) fn parse(text: &str) -> Parsed {
         return Parsed::Prompt;
     }
     let name = name.to_ascii_lowercase();
+    // Session commands (`/dynamic-workflow`, `/compact`, ...) run in the
+    // session: the text goes through as a prompt.
+    if eukhe_types::slash_commands::is_session_slash_command_name(&name) {
+        return Parsed::Prompt;
+    }
     let command = match (name.as_str(), args) {
         ("help", []) => PhoneCommand::Help,
         ("sessions", []) => PhoneCommand::Sessions,
@@ -153,5 +158,23 @@ fn suggest(name: &str) -> String {
             "No command /{name}. Did you mean /{closest}?\nNot sent to the agent. Send / for all commands."
         ),
         None => format!("No command /{name}. Not sent to the agent.\n{}", help()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_command_goes_to_the_session_as_a_prompt() {
+        assert!(matches!(
+            parse("/dynamic-workflow --size large review the repo"),
+            Parsed::Prompt
+        ));
+        assert!(matches!(parse("/compact"), Parsed::Prompt));
+        assert!(matches!(
+            parse("/help"),
+            Parsed::Command(PhoneCommand::Help)
+        ));
     }
 }
