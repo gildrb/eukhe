@@ -151,6 +151,9 @@ fn populated() -> Settings {
             code_block_indent: Some(" ".into()),
             mermaid: Some(MermaidRenderingMode::Off),
         }),
+        workflow: Some(crate::settings::types::WorkflowSettings {
+            size: Some(eukhe_types::workflow::WorkflowSize::Large),
+        }),
         warnings: Some(WarningSettings {
             anthropic_extra_usage: Some(true),
         }),
@@ -259,6 +262,7 @@ fn every_choice_option_is_a_value_of_its_enum() {
         options_parse::<ThinkingLevelSetting>(&DEFAULT_THINKING_LEVEL),
         options_parse::<eukhe_types::ai::ServiceTier>(&DEFAULT_SERVICE_TIER),
         options_parse::<MermaidRenderingMode>(&MARKDOWN_MERMAID),
+        options_parse::<eukhe_types::workflow::WorkflowSize>(&WORKFLOW_SIZE),
     ];
     let failed: Vec<&str> = checked
         .iter()

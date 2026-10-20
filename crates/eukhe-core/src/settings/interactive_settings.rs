@@ -274,6 +274,27 @@ impl SettingsManager {
         self.set_global_cvar(&table::MARKDOWN_MERMAID, &serde_json::to_value(parsed)?)
     }
 
+    /// `workflow.size`: the default size of a `/dynamic-workflow` run.
+    #[must_use]
+    pub fn get_workflow_size(&self) -> eukhe_types::workflow::WorkflowSize {
+        let decl = &table::WORKFLOW_SIZE;
+        eukhe_types::workflow::WorkflowSize::parse(&self.cvars().text(decl))
+            .or_else(|| eukhe_types::workflow::WorkflowSize::parse(default_text(decl)))
+            .unwrap_or(eukhe_types::workflow::WorkflowSize::Medium)
+    }
+
+    /// `workflow.size` setter (`small`, `medium`, or `large`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown size, or when the global settings
+    /// scope cannot be saved.
+    pub fn set_workflow_size(&mut self, size: &str) -> Result<Persisted> {
+        let parsed = eukhe_types::workflow::WorkflowSize::parse(size)
+            .ok_or_else(|| anyhow!("Unknown workflow size: {size}"))?;
+        self.set_global_cvar(&table::WORKFLOW_SIZE, &serde_json::to_value(parsed)?)
+    }
+
     /// `warnings.anthropicExtraUsage`.
     #[must_use]
     pub fn get_warnings_anthropic_extra_usage(&self) -> bool {

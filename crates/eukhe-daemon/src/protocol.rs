@@ -245,6 +245,7 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
                 "kernel_bash_activity",
                 "shell_approval",
                 "factory_activity",
+                "workflow_activity",
                 "session_input_admission",
                 "prompt_admission_cancellation",
                 "owned_prompt_cancellation",
@@ -682,6 +683,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::FactoryActivity {
             active_session_id, ..
         }
+        | DaemonCommand::WorkflowActivity {
+            active_session_id, ..
+        }
+        | DaemonCommand::WorkflowCancel {
+            active_session_id, ..
+        }
         | DaemonCommand::DeleteRlmSubagent {
             active_session_id, ..
         }
@@ -1015,6 +1022,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::RelayShellApproval { .. } => "relay_shell_approval",
         DaemonCommand::CancelRlmChild { .. } => "cancel_rlm_child",
         DaemonCommand::FactoryActivity { .. } => "factory_activity",
+        DaemonCommand::WorkflowActivity { .. } => "workflow_activity",
+        DaemonCommand::WorkflowCancel { .. } => "workflow_cancel",
         DaemonCommand::DeleteRlmSubagent { .. } => "delete_rlm_subagent",
         DaemonCommand::WaitForIdle { .. } => "wait_for_idle",
         DaemonCommand::WaitForHeadlessCompletion { .. } => "wait_for_headless_completion",

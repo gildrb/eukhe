@@ -331,6 +331,13 @@ pub struct MarkdownSettings {
     pub mermaid: Option<MermaidRenderingMode>,
 }
 
+/// `workflow`: dynamic workflow defaults.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowSettings {
+    pub size: Option<eukhe_types::workflow::WorkflowSize>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WarningSettings {
@@ -497,6 +504,7 @@ pub struct Settings {
     pub autocomplete_max_visible: Option<u64>,
     pub show_hardware_cursor: Option<bool>,
     pub markdown: Option<MarkdownSettings>,
+    pub workflow: Option<WorkflowSettings>,
     pub warnings: Option<WarningSettings>,
     pub session_dir: Option<String>,
     /// Log per-request provider timing phases to the diagnostic log (TS

@@ -81,7 +81,8 @@ pub(crate) fn verdict(command: &DaemonCommand) -> Verdict {
         | DaemonCommand::GetMemory { .. }
         | DaemonCommand::GetMemoryTree { .. }
         | DaemonCommand::GetStateTree { .. }
-        | DaemonCommand::GetToolDefinition { .. } => Verdict::Bound,
+        | DaemonCommand::GetToolDefinition { .. }
+        | DaemonCommand::WorkflowActivity { .. } => Verdict::Bound,
         DaemonCommand::ExportHtml { .. }
         | DaemonCommand::ExportJsonl { .. }
         | DaemonCommand::DeleteSavedSession { .. }
@@ -159,6 +160,8 @@ pub(crate) fn verdict(command: &DaemonCommand) -> Verdict {
         | DaemonCommand::RetryWorker { .. }
         | DaemonCommand::Restart { .. }
         | DaemonCommand::Shutdown { .. }
-        | DaemonCommand::WorkerRegister { .. } => Verdict::Refused,
+        | DaemonCommand::WorkerRegister { .. }
+        // The dashboard reads workflow runs; it does not cancel them yet.
+        | DaemonCommand::WorkflowCancel { .. } => Verdict::Refused,
     }
 }

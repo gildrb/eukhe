@@ -678,6 +678,26 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// The `/workflows` view's lane: the session's dynamic workflow runs
+    /// (`Vec<WorkflowRunSnapshot>`), newest first. Advertised by the
+    /// `workflow_activity` capability.
+    WorkflowActivity {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Cancel one dynamic workflow run: its live agents stop and the run
+    /// ends cancelled.
+    WorkflowCancel {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        run_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     CancelRlmChild {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

@@ -51,6 +51,7 @@ pub(crate) const TREE_FILTER_MODES: &[&str] =
     &["default", "no-tools", "user-only", "labeled-only", "all"];
 pub(crate) const CHAT_DETAILS: &[&str] = &["overview", "details", "all"];
 pub(crate) const MERMAID_MODES: &[&str] = &["off", "final", "streaming"];
+pub(crate) const WORKFLOW_SIZES: &[&str] = &["small", "medium", "large"];
 
 pub const ONBOARDING_SHOWN: Decl = Decl {
     id: "onboardingShown",
@@ -968,6 +969,17 @@ pub const MARKDOWN_MERMAID: Decl = Decl {
     init: Init::Text("streaming"),
 };
 
+/// The default size of a `/dynamic-workflow` run: how many agents it may
+/// run at once and in total.
+pub const WORKFLOW_SIZE: Decl = Decl {
+    id: "workflow.size",
+    ty: CvarType::Choice(WORKFLOW_SIZES),
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::Text("medium"),
+};
+
 pub const WARNINGS_ANTHROPIC_EXTRA_USAGE: Decl = Decl {
     id: "warnings.anthropicExtraUsage",
     ty: CvarType::Bool,
@@ -1277,6 +1289,7 @@ pub const DECLS: &[Decl] = &[
     SHOW_HARDWARE_CURSOR,
     MARKDOWN_CODE_BLOCK_INDENT,
     MARKDOWN_MERMAID,
+    WORKFLOW_SIZE,
     WARNINGS_ANTHROPIC_EXTRA_USAGE,
     SESSION_DIR,
     REQUEST_TIMING,
