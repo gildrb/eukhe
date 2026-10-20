@@ -114,8 +114,6 @@ pub struct ModelPicker {
     /// The effort a fresh selection starts from; `None` mirrors TS
     /// `undefined` (resolved to "off" per model).
     initial_thinking_level: Option<ModelThinkingLevel>,
-    /// Whether this selector edits per-model thinking effort.
-    allow_effort_adjustment: bool,
     /// The viewport row budget (TS `getRows`).
     viewport_rows: usize,
     search: SearchInput,
@@ -160,13 +158,6 @@ impl ModelPicker {
     /// defaults, then show everything unfiltered.
     #[must_use]
     pub fn new(options: ModelPickerOptions) -> Self {
-        Self::new_with_effort_adjustment(options, true)
-    }
-
-    fn new_with_effort_adjustment(
-        options: ModelPickerOptions,
-        allow_effort_adjustment: bool,
-    ) -> Self {
         let mut picker = ModelPicker {
             all_models: Vec::new(),
             thinking_levels: HashMap::new(),
@@ -179,7 +170,6 @@ impl ModelPicker {
                 .map(|(index, key)| (key.clone(), index))
                 .collect(),
             initial_thinking_level: options.thinking_level,
-            allow_effort_adjustment,
             viewport_rows: options.viewport_rows,
             search: SearchInput::new(),
             filtered: Vec::new(),
@@ -281,9 +271,7 @@ impl ModelPicker {
         }
         // Keep arrows available for editing a filter; an empty filter or an
         // explicit move into the list controls effort.
-        if self.allow_effort_adjustment
-            && (self.search.value().is_empty() || self.navigated_into_list)
-        {
+        if self.search.value().is_empty() || self.navigated_into_list {
             for (binding, direction) in
                 [("tui.editor.cursorLeft", -1), ("tui.editor.cursorRight", 1)]
             {
@@ -620,15 +608,11 @@ impl ModelPicker {
         let Some(model) = self.selected_model() else {
             return ModelPickerAction::None;
         };
-        let effort = if self.allow_effort_adjustment {
-            let key = Self::model_key_provider(&model.provider, &model.id);
-            if self.edited_effort.contains(&key) {
-                self.effort_levels
-                    .get(&key)
-                    .map(|level| level.wire_name().to_string())
-            } else {
-                None
-            }
+        let key = Self::model_key_provider(&model.provider, &model.id);
+        let effort = if self.edited_effort.contains(&key) {
+            self.effort_levels
+                .get(&key)
+                .map(|level| level.wire_name().to_string())
         } else {
             None
         };
@@ -653,9 +637,6 @@ impl ModelPicker {
     /// the initial level when the model offers it, else the nearest served
     /// level: the next higher one, else the next lower one.
     fn resolve_effort_defaults(&mut self) {
-        if !self.allow_effort_adjustment {
-            return;
-        }
         let initial = self
             .initial_thinking_level
             .unwrap_or(ModelThinkingLevel::Off);
@@ -686,7 +667,7 @@ impl ModelPicker {
 
     /// The resolved effort for a model (its seeded or user-edited level).
     pub(crate) fn effort_of(&self, model: &Model) -> Option<ModelThinkingLevel> {
-        if !self.allow_effort_adjustment || self.selectable_levels(model).is_empty() {
+        if self.selectable_levels(model).is_empty() {
             return None;
         }
         self.effort_levels
@@ -745,9 +726,6 @@ impl ModelPicker {
     pub(crate) fn search_cursor(&self) -> usize {
         self.search.cursor()
     }
-    pub(crate) fn effort_adjustment_enabled(&self) -> bool {
-        self.allow_effort_adjustment
-    }
 
     pub(crate) fn effort_layout(&self, start: usize, end: usize) -> EffortLayout {
         /// TS constant: wide detail columns must fit "Cached input".
@@ -764,9 +742,6 @@ impl ModelPicker {
             show_label: false,
             show_cluster: false,
         };
-        if !self.allow_effort_adjustment {
-            return empty;
-        }
         let reasoning: Vec<&Model> = (start..end)
             .filter_map(|index| {
                 let model_index = self.filtered.get(index).copied()?;
@@ -878,23 +853,7 @@ impl ModelPicker {
     /// prefilled. TS `handleModelCommand` always opens the menu -- an empty
     /// catalog renders the empty panel (the no-match row), never a note.
     pub(crate) fn open(options: ModelPickerOptions, search: &str) -> ModelCommandOutcome {
-        Self::open_with_effort_adjustment(options, search, true)
-    }
-
-    /// Open the memory compaction model selector without chat-model effort controls.
-    pub(crate) fn open_for_memory_model(
-        options: ModelPickerOptions,
-        search: &str,
-    ) -> ModelCommandOutcome {
-        Self::open_with_effort_adjustment(options, search, false)
-    }
-
-    fn open_with_effort_adjustment(
-        options: ModelPickerOptions,
-        search: &str,
-        allow_effort_adjustment: bool,
-    ) -> ModelCommandOutcome {
-        let mut picker = ModelPicker::new_with_effort_adjustment(options, allow_effort_adjustment);
+        let mut picker = ModelPicker::new(options);
         let search = search.trim();
         if !search.is_empty() {
             picker.set_query(search);

@@ -4,7 +4,7 @@
 use super::{
     key_event_to_id, streaming_tray_hint, AgentView, ChatEntry, CurrentModel, CycleDirection,
     DaemonCommand, Duration, KeyEvent, Map, ModelPicker, ModelPickerAction, ModelPickerOptions,
-    Result, SessionUi, SetModelOutcome, StatusKind, UI_REQUEST_TIMEOUT_MS,
+    ModelSelectionApplied, Result, SessionUi, SetModelOutcome, StatusKind, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::glyphs::WARN;
 use serde_json::Value;
@@ -82,18 +82,22 @@ impl SessionUi {
                 .and_then(|selector| current_model_from_selector(&selector)),
         };
         self.model_picker_target = Some(target);
-        // The memory picker always shows the full catalog and has a
-        // separate `memory.thinking` setting, so it needs neither the
-        // session's scope nor its thinking state.
+        // The memory picker always shows the full catalog and seeds its
+        // effort from `memory.thinking`, so it needs neither the session's
+        // scope nor its thinking state.
         let state = if target == ModelPickerTarget::ChatModel {
             self.connection_state(view).await
         } else {
             None
         };
-        let thinking_level = if target == ModelPickerTarget::ChatModel {
-            self.picker_initial_thinking_level(current.as_ref(), state.as_ref())
-        } else {
-            None
+        let thinking_level = match target {
+            ModelPickerTarget::ChatModel => {
+                self.picker_initial_thinking_level(current.as_ref(), state.as_ref())
+            }
+            ModelPickerTarget::MemoryModel => self
+                .client_settings
+                .as_ref()
+                .and_then(|settings| settings.memory_thinking()),
         };
         // TS `getScopedModelState`: the session's scoped list as `provider/id` keys;
         // the picker resolves them against its loaded catalog.
@@ -129,10 +133,7 @@ impl SessionUi {
         };
         // TS `handleModelCommand` always opens the menu (an empty catalog
         // renders the empty panel).
-        let outcome = match target {
-            ModelPickerTarget::ChatModel => ModelPicker::open(options, search),
-            ModelPickerTarget::MemoryModel => ModelPicker::open_for_memory_model(options, search),
-        };
+        let outcome = ModelPicker::open(options, search);
         let crate::model_picker::ModelCommandOutcome::Open(picker) = outcome;
         view.model_picker = Some(*picker);
         // TS `refreshModels(initialModelSearch !== undefined)`.
@@ -209,24 +210,7 @@ impl SessionUi {
                 }
                 match target {
                     ModelPickerTarget::MemoryModel => {
-                        let result = self
-                            .client_settings
-                            .as_ref()
-                            .ok_or_else(|| anyhow::anyhow!("Settings are unavailable"))
-                            .and_then(|settings| {
-                                settings.set_memory_model(&applied.provider, &applied.model_id)
-                            });
-                        match result {
-                            Ok(()) => self.note(
-                                &format!(
-                                    "Memory model set to {}/{}",
-                                    applied.provider, applied.model_id
-                                ),
-                                view,
-                            ),
-                            Err(error) => self
-                                .error_row(&format!("Could not save memory model: {error}"), view),
-                        }
+                        self.apply_memory_model(&applied, view);
                     }
                     ModelPickerTarget::ChatModel => {
                         // The daemon is the source of truth: the switch
@@ -252,6 +236,52 @@ impl SessionUi {
         }
         self.update_model_eligibility_filters(view);
         Ok(())
+    }
+
+    /// Save a picked memory model (`memory.model`) and, when the user moved
+    /// its effort, that effort (`memory.thinking`) in the same write; an
+    /// untouched effort keeps the saved one.
+    fn apply_memory_model(&mut self, applied: &ModelSelectionApplied, view: &mut AgentView) {
+        let Some(settings) = self.client_settings.clone() else {
+            self.error_row(
+                "Could not save memory model: Settings are unavailable",
+                view,
+            );
+            return;
+        };
+        let effort = match applied.effort.as_deref() {
+            None => None,
+            Some(name) => {
+                let Some(level) = eukhe_types::ai::ModelThinkingLevel::parse(name) else {
+                    self.error_row(
+                        &format!("Could not save memory model: unknown effort {name}"),
+                        view,
+                    );
+                    return;
+                };
+                Some(level)
+            }
+        };
+        let (provider, model_id) = (&applied.provider, &applied.model_id);
+        let saved = match effort {
+            Some(level) => settings.set_memory_model_with_thinking(provider, model_id, level),
+            None => settings.set_memory_model(provider, model_id),
+        };
+        match (saved, effort) {
+            (Err(error), _) => {
+                self.error_row(&format!("Could not save memory model: {error}"), view);
+            }
+            (Ok(()), Some(level)) => self.note(
+                &format!(
+                    "Memory model set to {provider}/{model_id} ({} effort)",
+                    level.wire_name()
+                ),
+                view,
+            ),
+            (Ok(()), None) => {
+                self.note(&format!("Memory model set to {provider}/{model_id}"), view);
+            }
+        }
     }
 
     /// The session's current model, resolved against the picker catalog

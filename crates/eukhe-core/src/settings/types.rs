@@ -42,6 +42,22 @@ impl ThinkingLevelSetting {
             ThinkingLevelSetting::Max => eukhe_types::ai::ModelThinkingLevel::Max,
         }
     }
+
+    /// The setting for a level of the shared model vocabulary (the inverse
+    /// of [`Self::model_level`]): a client picks a level, the settings
+    /// store it.
+    #[must_use]
+    pub fn from_model_level(level: eukhe_types::ai::ModelThinkingLevel) -> Self {
+        match level {
+            eukhe_types::ai::ModelThinkingLevel::Off => ThinkingLevelSetting::Off,
+            eukhe_types::ai::ModelThinkingLevel::Minimal => ThinkingLevelSetting::Minimal,
+            eukhe_types::ai::ModelThinkingLevel::Low => ThinkingLevelSetting::Low,
+            eukhe_types::ai::ModelThinkingLevel::Medium => ThinkingLevelSetting::Medium,
+            eukhe_types::ai::ModelThinkingLevel::High => ThinkingLevelSetting::High,
+            eukhe_types::ai::ModelThinkingLevel::Xhigh => ThinkingLevelSetting::Xhigh,
+            eukhe_types::ai::ModelThinkingLevel::Max => ThinkingLevelSetting::Max,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -192,6 +192,25 @@ impl ClientSettings for CliClientSettings {
             .set_memory_model(provider, model_id)?
             .applied()
     }
+
+    fn memory_thinking(&self) -> Option<eukhe_types::ai::ModelThinkingLevel> {
+        Some(self.manager().get_memory_thinking().model_level())
+    }
+
+    fn set_memory_model_with_thinking(
+        &self,
+        provider: &str,
+        model_id: &str,
+        thinking: eukhe_types::ai::ModelThinkingLevel,
+    ) -> Result<()> {
+        self.manager()
+            .set_memory_model_with_thinking(
+                provider,
+                model_id,
+                eukhe_core::settings::ThinkingLevelSetting::from_model_level(thinking),
+            )?
+            .applied()
+    }
     setting!(
         enable_skill_commands,
         set_enable_skill_commands,

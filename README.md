@@ -177,7 +177,7 @@ of 16 KB to 32 KB.
 |---|---|
 |`/memory`|Show the status and every view line|
 |`/memory zoom <id> <n>`|Show the messages or summaries of node `<id>+<n>`|
-|`/memory-model`|Select the compaction model|
+|`/memory-model`|Select the compaction model and its reasoning effort (←/→ on a reasoning model; saved as `memory.model` and `memory.thinking`, default `medium`)|
 
 The status bar shows the view size as `mem N/128K`. Each compactor change
 shows as a `memory:` row. The summary text shows at full detail only.

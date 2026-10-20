@@ -102,6 +102,26 @@ pub trait ClientSettings: Send + Sync {
     fn set_memory_model(&self, _provider: &str, _model_id: &str) -> Result<()> {
         anyhow::bail!("Memory model settings are unavailable")
     }
+    /// `memory.thinking`: the compactor's reasoning effort as the settings
+    /// resolve it (their default when unset); `None` without a settings
+    /// store.
+    fn memory_thinking(&self) -> Option<eukhe_types::ai::ModelThinkingLevel> {
+        None
+    }
+    /// Persists the compaction model and its reasoning effort globally in
+    /// one write.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when opening or persisting the settings store fails.
+    fn set_memory_model_with_thinking(
+        &self,
+        _provider: &str,
+        _model_id: &str,
+        _thinking: eukhe_types::ai::ModelThinkingLevel,
+    ) -> Result<()> {
+        anyhow::bail!("Memory model settings are unavailable")
+    }
     /// `enableSkillCommands` (TS default true).
     fn enable_skill_commands(&self) -> bool;
     /// Persists `enableSkillCommands` to the global scope.

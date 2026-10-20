@@ -619,6 +619,36 @@ impl SettingsManager {
         )
     }
 
+    /// Persist `memory.model` and `memory.thinking` (the compactor's
+    /// reasoning effort) globally in one write; the compactor's other
+    /// memory settings stay.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_memory_model_with_thinking(
+        &mut self,
+        provider: &str,
+        model_id: &str,
+        thinking: ThinkingLevelSetting,
+    ) -> Result<Persisted> {
+        let model = Value::from(format!("{provider}/{model_id}"));
+        let thinking = Value::from(thinking.model_level().wire_name());
+        self.write_scope(SettingsScope::Global, &mut |document| {
+            edit_path(document, &["memory", "model"], KeyEdit::Set(model.clone()))?;
+            edit_path(
+                document,
+                &["memory", "thinking"],
+                KeyEdit::Set(thinking.clone()),
+            )?;
+            Ok(true)
+        })?;
+        Ok(self.persisted(&[
+            (&table::MEMORY_MODEL, &model),
+            (&table::MEMORY_THINKING, &thinking),
+        ]))
+    }
+
     /// `steeringMode` setter.
     ///
     /// # Errors
