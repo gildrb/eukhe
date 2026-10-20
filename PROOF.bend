@@ -726,6 +726,18 @@ def Release.semver_release_newest(c, xs, t, ys, r, rel, v, parsed):
 def Release.semver_release_progress(c, a, b, tags, parsed, only):
   Semver.ps.progress(c, a, b, tags, parsed, only)
 
+def Release.semver_release_refuses_patch_workspace(c, a, b, z, tags, parsed):
+  Semver.ps.refuse_patch(c, a, b, z, tags, parsed)
+
+def Release.semver_release_refuses_unparsed_workspace(c, tags, unparsed):
+  Semver.ps.refuse_unparsed(c, tags, unparsed)
+
+def Release.semver_parse_patch_example():
+  {==}
+
+def Release.semver_parse_two_fields_example():
+  {==}
+
 # (A1) One refresh flight per provider
 
 def AuthFlight.flight_one_fetch(evs):

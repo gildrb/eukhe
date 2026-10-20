@@ -619,3 +619,13 @@ def ps.progress(c: String, +a: Nat, +b: Nat, +tags: List<&2, String>, parsed: {S
   %Equal.sym(Maybe<&2, Sv.Ver>, Sv.Ver.parse(c), Some{Sv.Ver{a, b, 0n}}, parsed) : {Sv.Rel.release.of(_, tags) == Some{Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)} : Maybe<&2, Sv.Ver>}
   %ps.newest_only(tags, Sv.Ver{a, b, 0n}, Nil{}, only) : {Sv.Rel.guard(_, Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)) == Some{Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)} : Maybe<&2, Sv.Ver>}
   {==}
+
+# a workspace version X.Y.(1+z) releases nothing
+def ps.refuse_patch(c: String, +a: Nat, +b: Nat, +z: Nat, +tags: List<&2, String>, parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 1n+z}} : Maybe<&2, Sv.Ver>}) -> {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}:
+  %Equal.sym(Maybe<&2, Sv.Ver>, Sv.Ver.parse(c), Some{Sv.Ver{a, b, 1n+z}}, parsed) : {Sv.Rel.release.of(_, tags) == None{} : Maybe<&2, Sv.Ver>}
+  {==}
+
+# a workspace version that is no version releases nothing
+def ps.refuse_unparsed(c: String, +tags: List<&2, String>, unparsed: {Sv.Ver.parse(c) == None{} : Maybe<&2, Sv.Ver>}) -> {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}:
+  %Equal.sym(Maybe<&2, Sv.Ver>, Sv.Ver.parse(c), None{}, unparsed) : {Sv.Rel.release.of(_, tags) == None{} : Maybe<&2, Sv.Ver>}
+  {==}

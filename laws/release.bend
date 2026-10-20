@@ -126,3 +126,41 @@ law semver_release_progress:
   for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 0n}} : Maybe<&2, Sv.Ver>}
   for only: {Sv.Rel.only(Sv.Ver{a, b, 0n}, tags) == True{} : Bool}
   {Sv.Rel.release(c, tags) == Some{Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)} : Maybe<&2, Sv.Ver>}
+
+# LAW: a workspace version X.Y.(1+z) gives no release, with any tags
+# EXCLUDES: a workspace version that is no series start (0.10.3 instead of
+# 0.10.0) releases anyway; a release whose number ignores the workspace
+# version's patch
+# LEAVES FREE: the error the script prints
+law semver_release_refuses_patch_workspace:
+  for c: String
+  for +a: Nat
+  for +b: Nat
+  for +z: Nat
+  for +tags: List<&2, String>
+  for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 1n+z}} : Maybe<&2, Sv.Ver>}
+  {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}
+
+# LAW: a workspace version that is no version gives no release, with any
+# tags
+# EXCLUDES: a broken Cargo.toml version ("0.10", "0.10.0-dev", "") falls
+# back to a default series and releases
+# LEAVES FREE: the error the script prints
+law semver_release_refuses_unparsed_workspace:
+  for c: String
+  for +tags: List<&2, String>
+  for unparsed: {Sv.Ver.parse(c) == None{} : Maybe<&2, Sv.Ver>}
+  {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}
+
+# LAW: the premise of semver_release_refuses_patch_workspace holds for a
+# real text: "0.10.1" reads as 0.10.1
+# EXCLUDES: a refusal law that holds only because no text ever parses to
+# a patch above 0
+law semver_parse_patch_example:
+  {Sv.Ver.parse("0.10.1") == Some{Sv.Ver{0n, 10n, 1n}} : Maybe<&2, Sv.Ver>}
+
+# LAW: the premise of semver_release_refuses_unparsed_workspace holds for
+# a real text: "0.10" is no version
+# EXCLUDES: a refusal law that holds only because every text parses
+law semver_parse_two_fields_example:
+  {Sv.Ver.parse("0.10") == None{} : Maybe<&2, Sv.Ver>}
