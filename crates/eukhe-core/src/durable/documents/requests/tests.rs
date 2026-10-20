@@ -241,6 +241,38 @@ async fn edit_grep_and_glob_share_the_read_anchors() {
     );
 }
 
+/// The kernel's `glob` takes `skip`, and the continuation it returns gets
+/// the next paths.
+#[tokio::test]
+async fn glob_skip_continues_past_the_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["a.rs", "b.rs", "c.rs"] {
+        std::fs::write(dir.path().join(name), "").unwrap();
+    }
+    let registry = registry(dir.path());
+    let first = call(
+        &registry,
+        "fs.glob",
+        dir.path(),
+        json!({"path": "*.rs", "limit": 2}),
+    )
+    .await;
+    let next = call(
+        &registry,
+        "fs.glob",
+        dir.path(),
+        json!({"path": "*.rs", "limit": 2, "skip": first["next_skip"]}),
+    )
+    .await;
+    let mut paths: Vec<Value> = first["paths"].as_array().unwrap().clone();
+    paths.extend(next["paths"].as_array().unwrap().iter().cloned());
+    paths.sort_by_key(ToString::to_string);
+    assert_eq!(
+        (&first["next_skip"], &next["next_skip"], json!(paths)),
+        (&json!(2), &json!(null), json!(["a.rs", "b.rs", "c.rs"]))
+    );
+}
+
 #[tokio::test]
 async fn file_urls_read_under_their_root() {
     let dir = tempfile::tempdir().unwrap();

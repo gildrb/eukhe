@@ -6,6 +6,8 @@
 //! the other way round. `read` also serves the internal URLs (`urls`), and
 //! `ssh://` through the user's own `ssh` program (`ssh`).
 
+#[cfg(test)]
+mod bridge;
 mod contract;
 mod requests;
 mod ssh;

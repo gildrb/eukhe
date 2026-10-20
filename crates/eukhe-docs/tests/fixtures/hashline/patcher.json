@@ -93,7 +93,7 @@
    "files": {"a.txt": "a\n", "b.txt": "b\n"},
    "snapshots": [{"path": "a.txt"}, {"path": "b.txt"}],
    "args": {"input": "[a.txt#{{tag:a.txt}}]\nPUT 1.=1:\n+A\n[b.txt#FFFF]\nPUT 1.=1:\n+B"},
-   "expect": {"error": "not from this session", "files": {"a.txt": "a\n", "b.txt": "b\n"}, "writes": 0}
+   "expect": {"error": "is not among the versions of this file that this worker holds", "files": {"a.txt": "a\n", "b.txt": "b\n"}, "writes": 0}
   },
   {
    "name": "rejects duplicate canonical targets before writing stale section results",

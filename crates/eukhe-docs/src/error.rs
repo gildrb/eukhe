@@ -28,10 +28,13 @@ pub enum EditError {
     /// The host's gate refused a write (the path policy, or the user).
     #[error("{0}")]
     Refused(String),
-    /// Filesystem failure reading a target.
-    #[error("{source}")]
+    /// Filesystem failure reading or writing a target; the message names
+    /// the path, so a payload of many files shows which one failed.
+    #[error("{display}: {source}")]
     Io {
-        /// Path.
+        /// The path as the model wrote it.
+        display: String,
+        /// The absolute path.
         path: PathBuf,
         #[source]
         /// Source.

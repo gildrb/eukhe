@@ -91,6 +91,17 @@ pub(crate) enum FileOp {
     Move { dest: String },
 }
 
+/// Whether an apply made a new change, or found the change on disk already.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Landing {
+    /// The text is the result of this apply.
+    #[default]
+    Fresh,
+    /// The section was applied before (a retry with the old tag): the text
+    /// is the live text, unchanged.
+    Already,
+}
+
 /// Result of applying parsed edits to a text body.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ApplyResult {
@@ -98,4 +109,8 @@ pub(crate) struct ApplyResult {
     /// 1-indexed first changed line; `None` for a no-op apply.
     pub(crate) first_changed_line: Option<u32>,
     pub(crate) warnings: Vec<String>,
+    /// For each line of `text` (split on `\n`): the 0-based index of the
+    /// input line it came from, or `None` for a new or replaced line.
+    pub(crate) origins: Vec<Option<usize>>,
+    pub(crate) landing: Landing,
 }

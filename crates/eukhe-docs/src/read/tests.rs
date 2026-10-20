@@ -38,17 +38,99 @@ fn numbered_file(lines: usize) -> String {
 }
 
 #[test]
-fn whole_small_file_has_header_and_rows_and_records_seen_lines() {
-    let (dir, store) = setup("\u{FEFF}one\r\ntwo\r\n");
+fn whole_small_file_has_header_and_rows_and_records_no_seen_lines() {
+    let raw = "\u{FEFF}one\r\ntwo\r\n";
+    let (dir, store) = setup(raw);
     let view = read(&store, dir.path(), None, "a.rs").unwrap();
     let tag = crate::file_hash("one\ntwo\n");
     assert_eq!(view.rendered, format!("[a.rs#{tag}]\n1:one\n2:two"));
     let key = eukhe_types::path_policy::real_path(&dir.path().join("a.rs"));
     let snapshot = store.by_hash(&key, &tag).unwrap();
     assert_eq!(
-        snapshot.seen_lines.unwrap().into_iter().collect::<Vec<_>>(),
-        [1, 2]
+        (
+            snapshot.seen_lines,
+            store.has_seen_bytes(&key, raw.as_bytes())
+        ),
+        (None, true)
     );
+}
+
+/// Each row's `at` is the index of its line in `rendered`: the header is
+/// line 0, and the ellipsis between spans takes a line.
+#[test]
+fn rows_point_at_their_rendered_lines() {
+    let (dir, store) = setup(&numbered_file(20));
+    let view = read(&store, dir.path(), None, "a.rs:2-2,5-6").unwrap();
+    let ReadContent::File(file) = &view.content else {
+        panic!("a file view");
+    };
+    let rendered: Vec<&str> = view.rendered.lines().collect();
+    let shown: Vec<(u32, &str)> = file
+        .rows
+        .iter()
+        .map(|row| (row.line, rendered[row.at]))
+        .collect();
+    assert_eq!(shown, [(2, "2:l2"), (5, "5:l5"), (6, "6:l6")]);
+    let raw = read(&store, dir.path(), None, "a.rs:raw").unwrap();
+    let ReadContent::File(raw) = raw.content else {
+        panic!("a file view");
+    };
+    assert_eq!(raw.rows, []);
+}
+
+/// A file over the size limit reads without a tag, and a notice says why
+/// and how to change it; its bytes count as seen for `write`.
+#[test]
+fn file_over_the_size_limit_reads_with_a_not_editable_notice() {
+    let mut text = "first\n".repeat(10);
+    text.push_str(&"x".repeat(usize::try_from(MAX_SNAPSHOT_FILE_BYTES).unwrap()));
+    let (dir, store) = setup(&text);
+    let view = read(&store, dir.path(), None, "a.rs:1-2").unwrap();
+    let ReadContent::File(file) = &view.content else {
+        panic!("a file view");
+    };
+    assert_eq!(
+        (&file.tag, &view.diags[1..]),
+        (
+            &None,
+            &[Notice {
+                continuation: Some(":1-2000".to_owned()),
+                ..Notice::warn(
+                    NoticeKind::NotEditable,
+                    "a.rs is 4.0MB, over the 4.0MB limit: it has no tag, so `edit` cannot change it. Read it in ranges; change it with `write` (whole file) or `bash`.".to_owned()
+                )
+            }][..]
+        )
+    );
+    assert!(view.rendered.starts_with("1:first\n"));
+    let key = eukhe_types::path_policy::real_path(&dir.path().join("a.rs"));
+    assert!(store.has_seen_bytes(&key, text.as_bytes()));
+}
+
+/// A NUL-free file that is not UTF-8 is named with its encoding, not
+/// called binary; `:raw` shows it lossy, with no tag, and records its bytes.
+#[test]
+fn non_utf8_file_is_named_with_its_encoding() {
+    let (dir, store) = setup("x");
+    std::fs::write(dir.path().join("latin.txt"), b"caf\xE9\n").unwrap();
+    std::fs::write(dir.path().join("wide.txt"), b"\xFF\xFEa\0b\0").unwrap();
+    assert_eq!(
+        [
+            read(&store, dir.path(), None, "latin.txt").unwrap_err().to_string(),
+            read(&store, dir.path(), None, "wide.txt").unwrap_err().to_string(),
+        ],
+        [
+            "[latin.txt is not UTF-8: `edit` works on UTF-8 only. ':raw' shows it (characters that are not UTF-8 become U+FFFD); `write` replaces it as UTF-8.]",
+            "[wide.txt is UTF-16 (little endian): `edit` works on UTF-8 only. ':raw' shows it (characters that are not UTF-8 become U+FFFD); `write` replaces it as UTF-8.]",
+        ]
+    );
+    let raw = read(&store, dir.path(), None, "latin.txt:raw").unwrap();
+    let ReadContent::File(file) = &raw.content else {
+        panic!("a file view");
+    };
+    assert_eq!((raw.rendered.as_str(), &file.tag), ("caf\u{FFFD}\n", &None));
+    let key = eukhe_types::path_policy::real_path(&dir.path().join("latin.txt"));
+    assert!(store.has_seen_bytes(&key, b"caf\xE9\n"));
 }
 
 #[test]
@@ -68,6 +150,12 @@ fn selectorless_read_shows_the_whole_file_without_pagination() {
                 start_line: 1,
                 end_line: lines
             }],
+            rows: (1..=lines)
+                .map(|line| Row {
+                    line: u32::try_from(line).unwrap(),
+                    at: line,
+                })
+                .collect(),
         })
     );
 }
@@ -117,7 +205,7 @@ fn errors_teach_the_fix() {
         ],
         [
             "Path 'missing.rs' not found",
-            "[Cannot read binary file 'b.bin' (2B); not valid UTF-8 text. Use ':raw' to read bytes verbatim.]",
+            "[Cannot read binary file 'b.bin' (2B): it has a NUL byte. Use ':raw' to read bytes verbatim.]",
             "Line selector 0 is invalid; lines are 1-indexed. Use :1.",
         ]
     );

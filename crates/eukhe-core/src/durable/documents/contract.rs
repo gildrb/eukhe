@@ -35,12 +35,12 @@ Sources:
 const GREP_DESCRIPTION: &str = "Regex: Rust syntax. `path`: `;`-separated file/dir/glob; default `.`. Default case-sensitive, gitignore respected; `skip` paginates files.
 File-only selector: `src/foo.ts:50-100`. Literal `\\n`/`\\\\n` enables cross-line.
 Bare glob `*.ts` matches any depth; `dir/*.ts` only `dir`'s direct children (`dir/**/*.ts` recurses).
-Hits print as `[path#TAG]` groups of `*N:TEXT` (match) and ` N:TEXT` (context) rows; every printed line is an `edit` anchor.";
+Hits print as `[path#TAG]` groups of `*N:TEXT` (match) and ` N:TEXT` (context) rows; the rows of a file with a tag are `edit` anchors. A notice names each file that has no tag, and each file or match that was skipped or cut.";
 
 const GLOB_DESCRIPTION: &str = "Glob files/dirs: `;`-separated paths; default `.`.
-`gitignore` and `hidden` default true; ignored dotfiles need `gitignore: false`. Newest-first by directory; dirs end `/`.";
+`gitignore` and `hidden` default true; ignored dotfiles need `gitignore: false`. Newest-first by directory; dirs end `/`; `skip` pages past the first `limit` paths.";
 
-const WRITE_DESCRIPTION: &str = "Create or overwrite a file atomically. Parent directories are created; a replaced file keeps its BOM, line endings, and mode. Prefer `edit` for changes to an existing file.";
+const WRITE_DESCRIPTION: &str = "Create or overwrite a file atomically. Parent directories are created; a replaced file keeps its BOM, line endings, and mode. An existing file is replaced only if you read it (or wrote it) and nobody changed it since: read it first. Prefer `edit` for changes to an existing file.";
 
 const EXACT_STRING_HINT: &str = "edit takes a hashline patch, not old/new strings. read or grep the file, then send '[path#TAG]\\nPUT 12.=14:\\n+new line' with the header and line numbers they printed.";
 
@@ -163,6 +163,13 @@ impl Function {
                 ("hidden", optional_boolean("include hidden files (default true)")),
                 ("gitignore", optional_boolean("respect gitignore (default true)")),
                 ("limit", optional_integer("max results", 1)),
+                (
+                    "skip",
+                    optional_integer(
+                        "ranked paths to skip before collecting results — use the `skip` of the prior call's continuation to get the next paths",
+                        0,
+                    ),
+                ),
             ],
         };
         crate::durable::tool_contract::parameters(1, own)
@@ -265,6 +272,7 @@ pub(super) struct GlobArgs {
     hidden: Option<bool>,
     gitignore: Option<bool>,
     limit: Option<NonZeroUsize>,
+    skip: Option<u64>,
 }
 
 impl GlobArgs {
@@ -274,6 +282,7 @@ impl GlobArgs {
             hidden: self.hidden.unwrap_or(true),
             gitignore: self.gitignore.unwrap_or(true),
             limit: self.limit,
+            skip: self.skip.unwrap_or(0),
         }
     }
 }

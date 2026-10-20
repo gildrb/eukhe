@@ -241,7 +241,7 @@ fn render_entry(
         size: if node.entry.is_dir {
             None
         } else {
-            Some(super::format_bytes(node.entry.size.unwrap_or(0)))
+            Some(crate::text::format_bytes(node.entry.size.unwrap_or(0)))
         },
         age: format_age(now_ms.saturating_sub(node.entry.modified_ms.unwrap_or(0)) / 1_000),
     });

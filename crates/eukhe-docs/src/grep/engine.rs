@@ -11,6 +11,7 @@ use std::{
     io::{self, Read},
     iter,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex, PoisonError},
     time::Instant,
 };
 
@@ -21,11 +22,10 @@ use grep_searcher::{
 };
 
 use super::{ContextLine, GrepError, GrepMatch};
-
-/// Maximum number of bytes searched from any one file.
-pub(super) const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
-
-const FILE_CLASSIFICATION_READ_BYTES: u64 = MAX_FILE_BYTES + 1;
+use crate::{
+    notice::Tally,
+    scope::{is_eukhe_temp, workspace_relative},
+};
 
 /// Regex options of one search.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -277,18 +277,39 @@ pub(super) fn compile_walk_glob(glob: &str) -> Result<GlobMatcher, GrepError> {
         })
 }
 
+/// What a directory walk found: the files to search, and the entries it
+/// did not give, one [`Tally`] per reason.
+#[derive(Default)]
+pub(super) struct Walk {
+    /// Regular files in path order.
+    pub(super) files: Vec<PathBuf>,
+    /// `.git` and `node_modules` entries the walk did not enter.
+    pub(super) excluded: Tally,
+    /// Symbolic links; the walk does not follow them.
+    pub(super) symlinks: Tally,
+    /// Entries the walk could not read (no permission, vanished, a bad
+    /// ignore file, and other errors).
+    pub(super) errors: Tally,
+}
+
 /// Regular files under `root` in path order, filtered by every glob in
 /// `globs` (matched against the `/`-separated path relative to `root`).
-/// `.git` is never entered; `node_modules` only when a glob names it.
+/// `.git` is never entered; `node_modules` only when a glob names it;
+/// eukhe temporary files are hidden. Examples in the tallies are shown
+/// relative to `shown_root`.
 pub(super) fn walk_files(
     root: &Path,
+    shown_root: &Path,
     globs: &[(String, GlobMatcher)],
     gitignore: bool,
     deadline: Instant,
-) -> Result<Vec<PathBuf>, GrepError> {
+) -> Result<Walk, GrepError> {
     let mentions_node_modules = globs
         .iter()
         .any(|(source, _)| source.contains("node_modules"));
+    let excluded = Arc::new(Mutex::new(Tally::default()));
+    let excluded_sink = Arc::clone(&excluded);
+    let filter_root = shown_root.to_owned();
     let mut builder = ignore::WalkBuilder::new(root);
     builder
         .hidden(false)
@@ -302,92 +323,91 @@ pub(super) fn walk_files(
         .sort_by_file_name(Ord::cmp)
         .filter_entry(move |entry| {
             let name = entry.file_name();
-            name != ".git" && (mentions_node_modules || name != "node_modules")
+            if is_eukhe_temp(name) {
+                return false;
+            }
+            let keep = name != ".git" && (mentions_node_modules || name != "node_modules");
+            if !keep {
+                excluded_sink
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .add(|| shown(&filter_root, entry.path()));
+            }
+            keep
         });
-    let mut files = Vec::new();
+    let mut walk = Walk::default();
     for entry in builder.build() {
         if Instant::now() >= deadline {
             return Err(GrepError::TimedOut);
         }
         let entry = match entry {
             Ok(entry) => entry,
-            Err(error) if error.io_error().is_some_and(is_skippable_io) => continue,
             Err(error) => {
-                return Err(GrepError::Workspace {
-                    message: error.to_string(),
-                })
+                walk.errors.add(|| error.to_string());
+                continue;
             }
         };
-        if entry.depth() == 0 || !entry.file_type().is_some_and(|kind| kind.is_file()) {
+        let Some(kind) = entry.file_type() else {
+            continue;
+        };
+        if entry.depth() == 0 || !(kind.is_file() || kind.is_symlink()) {
             continue;
         }
         let Ok(relative) = entry.path().strip_prefix(root) else {
             continue;
         };
         let relative = relative.to_string_lossy().replace('\\', "/");
-        if globs.iter().all(|(_, glob)| glob.is_match(&relative)) {
-            files.push(entry.into_path());
+        if !globs.iter().all(|(_, glob)| glob.is_match(&relative)) {
+            continue;
+        }
+        if kind.is_symlink() {
+            walk.symlinks.add(|| shown(shown_root, entry.path()));
+        } else {
+            walk.files.push(entry.into_path());
         }
     }
-    Ok(files)
+    walk.excluded = std::mem::take(&mut *excluded.lock().unwrap_or_else(PoisonError::into_inner));
+    Ok(walk)
 }
 
-fn is_skippable_io(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
-    )
+/// `path` as a notice names it: relative to `root` when inside it.
+fn shown(root: &Path, path: &Path) -> String {
+    workspace_relative(root, path).unwrap_or_else(|_| path.display().to_string())
 }
 
-/// How one file read ended.
+/// How much of a file [`read_file`] put in the buffer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FileRead {
-    /// The whole file, or its leading 4 MiB window, is in the buffer.
-    Read,
-    /// The file is larger than the window and its prefix could not be read.
-    OversizedUnreadable,
-    /// The file vanished or is not readable.
-    Skipped,
+    /// The whole file.
+    Whole,
+    /// The file is larger than the size limit: only its first bytes.
+    Partial,
 }
 
-/// Reads `path` into `buffer`; a file above [`MAX_FILE_BYTES`] keeps only its
-/// leading window.
-pub(super) fn read_file(path: &Path, buffer: &mut Vec<u8>) -> io::Result<FileRead> {
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if is_skippable_io(&error) => return Ok(FileRead::Skipped),
-        Err(error) => return Err(error),
-    };
+/// Reads `path` into `buffer`: the whole file, or its first `max_bytes`
+/// bytes when it is larger.
+///
+/// # Errors
+/// The file cannot be opened or read, or it is not a regular file.
+pub(super) fn read_file(path: &Path, buffer: &mut Vec<u8>, max_bytes: u64) -> io::Result<FileRead> {
+    let file = File::open(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
-        return Ok(FileRead::Skipped);
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
     }
-    let size = metadata.len();
-    if size <= MAX_FILE_BYTES {
-        read_owned_prefix(file, FILE_CLASSIFICATION_READ_BYTES, size, buffer)?;
-        if u64::try_from(buffer.len()).map_or(true, |length| length <= MAX_FILE_BYTES) {
-            return Ok(FileRead::Read);
-        }
-    }
-    let Ok(file) = File::open(path) else {
-        return Ok(FileRead::OversizedUnreadable);
-    };
-    let window = size.min(MAX_FILE_BYTES);
-    match read_owned_prefix(file, window, window, buffer) {
-        Ok(()) => Ok(FileRead::Read),
-        Err(_) => Ok(FileRead::OversizedUnreadable),
-    }
-}
-
-fn read_owned_prefix(
-    mut file: File,
-    limit: u64,
-    capacity_hint: u64,
-    buffer: &mut Vec<u8>,
-) -> io::Result<()> {
     buffer.clear();
-    buffer.reserve(usize::try_from(capacity_hint.min(limit)).unwrap_or(0));
-    file.by_ref().take(limit).read_to_end(buffer)?;
-    Ok(())
+    buffer.reserve(usize::try_from(metadata.len().min(max_bytes)).unwrap_or(0));
+    file.take(max_bytes.saturating_add(1)).read_to_end(buffer)?;
+    let limit = usize::try_from(max_bytes).unwrap_or(usize::MAX);
+    if buffer.len() > limit {
+        buffer.truncate(limit);
+        Ok(FileRead::Partial)
+    } else {
+        Ok(FileRead::Whole)
+    }
 }
 
 /// Per-file search configuration shared by every file of one request.
@@ -465,7 +485,7 @@ impl Sink for Collector {
         }
         let first = line_number(matched.line_number())?;
         for (offset, bytes) in (0_u64..).zip(matched.lines()) {
-            let (line, truncated) = truncate_line(bytes_to_trimmed(bytes), self.max_columns);
+            let (line, truncated) = row_text(bytes, self.max_columns);
             self.matches.push(GrepMatch {
                 line_number: clamp_u32(first.saturating_add(offset)),
                 line,
@@ -486,7 +506,7 @@ impl Sink for Collector {
     }
 
     fn context(&mut self, _searcher: &Searcher, context: &SinkContext<'_>) -> io::Result<bool> {
-        let (line, _) = truncate_line(bytes_to_trimmed(context.bytes()), self.max_columns);
+        let (line, _) = row_text(context.bytes(), self.max_columns);
         let line = ContextLine {
             line_number: clamp_u32(line_number(context.line_number())?),
             line,
@@ -508,19 +528,27 @@ fn line_number(number: Option<u64>) -> io::Result<u64> {
     number.ok_or_else(|| io::Error::other("the searcher reported a line without its number"))
 }
 
-fn truncate_line(line: String, max_columns: usize) -> (String, bool) {
+/// The text of one line without its terminator (`\n` or `\r\n`; other
+/// trailing characters stay), and whether it was cut. A line longer than
+/// `max_columns` bytes keeps its first `max_columns` bytes (at a character
+/// boundary) and ends with [`super::CUT_MARKER`] and the count of bytes cut,
+/// so a cut row cannot look like the whole line.
+fn row_text(bytes: &[u8], max_columns: usize) -> (String, bool) {
+    let body = match bytes.strip_suffix(b"\n") {
+        Some(line) => line.strip_suffix(b"\r").unwrap_or(line),
+        None => bytes,
+    };
+    let line = String::from_utf8_lossy(body);
     if line.len() <= max_columns {
-        return (line, false);
+        return (line.into_owned(), false);
     }
-    let mut boundary = max_columns.saturating_sub(3).min(line.len());
+    let mut boundary = max_columns;
     while !line.is_char_boundary(boundary) {
         boundary -= 1;
     }
-    (format!("{}...", &line[..boundary]), true)
-}
-
-fn bytes_to_trimmed(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).trim_end().to_owned()
+    let cut = line.len() - boundary;
+    let marker = super::CUT_MARKER;
+    (format!("{}{marker}{cut} bytes⟩", &line[..boundary]), true)
 }
 
 pub(super) fn clamp_u32(value: u64) -> u32 {

@@ -1,9 +1,9 @@
-use std::{collections::BTreeSet, fs, num::NonZeroUsize, path::Path};
+use std::{fs, num::NonZeroUsize, path::Path};
 
 use tempfile::TempDir;
 
 use super::*;
-use crate::{file_hash, gate::Open, notice::Severity};
+use crate::{file_hash, gate::Open};
 
 fn request(pattern: &str, path: &str) -> GrepRequest {
     GrepRequest {
@@ -31,14 +31,6 @@ fn fixture(files: &[(&str, &str)]) -> TempDir {
 
 fn run(directory: &TempDir, request: &GrepRequest) -> GrepOutput {
     grep(&EditStore::new(), directory.path(), request, &Open).expect("grep succeeds")
-}
-
-fn kinds(output: &GrepOutput) -> Vec<(Severity, NoticeKind)> {
-    output
-        .notices
-        .iter()
-        .map(|notice| (notice.severity, notice.kind))
-        .collect()
 }
 
 #[test]
@@ -206,7 +198,7 @@ fn bad_line_selectors_are_rejected() {
 }
 
 #[test]
-fn shown_rows_are_recorded_as_seen_lines_of_the_tagged_snapshot() {
+fn shown_rows_are_typed_and_the_snapshot_has_no_seen_lines() {
     let content = "1\nneedle\n3\n4\n5\n";
     let directory = fixture(&[("f.rs", content)]);
     let store = EditStore::new();
@@ -225,8 +217,16 @@ fn shown_rows_are_recorded_as_seen_lines_of_the_tagged_snapshot() {
     let head = store.head(absolute).expect("snapshot recorded");
     assert_eq!(
         (head.hash, head.seen_lines, &*head.text),
-        (file_hash(content), Some(BTreeSet::from([1, 2, 3])), content)
+        (file_hash(content), None, content)
     );
+    let rendered = output.render();
+    let rendered: Vec<&str> = rendered.lines().collect();
+    let rows: Vec<(u32, &str)> = output.files[0]
+        .rows
+        .iter()
+        .map(|row| (row.line, rendered[row.at]))
+        .collect();
+    assert_eq!(rows, [(1, " 1:1"), (2, "*2:needle"), (3, " 3:3")]);
 }
 
 #[test]
@@ -381,7 +381,7 @@ fn directory_results_follow_path_order() {
 }
 
 #[test]
-fn per_file_cap_keeps_twenty_matches_in_multi_file_scope() {
+fn per_file_cap_keeps_twenty_matches_and_says_how_to_see_more() {
     let directory = fixture(&[
         ("hot.txt", &"needle\n".repeat(30)),
         ("cold.txt", "needle\n"),
@@ -394,6 +394,23 @@ fn per_file_cap_keeps_twenty_matches_in_multi_file_scope() {
         .collect();
     assert_eq!(counts, [("cold.txt", 1), ("hot.txt", 20)]);
     assert!(output.per_file_limit_reached);
+    assert_eq!(
+        output.notices,
+        [Notice {
+            continuation: Some("path=hot.txt:21-".to_owned()),
+            ..Notice::warn(
+                NoticeKind::LimitReached,
+                "hot.txt: 20 of 21+ matches shown; search hot.txt alone, or hot.txt:21-".to_owned()
+            )
+        }]
+    );
+    let next = run(&directory, &request("needle", "hot.txt:21-"));
+    let lines: Vec<u32> = next.files[0]
+        .matches
+        .iter()
+        .map(|matched| matched.line_number)
+        .collect();
+    assert_eq!(lines, (21..=30).collect::<Vec<_>>());
 }
 
 #[test]
@@ -486,21 +503,44 @@ fn limit_takes_matches_round_robin_and_reports_the_cut() {
 #[test]
 fn explicit_oversized_file_is_partially_scanned_and_untagged() {
     let mut large = b"needle in prefix\n".to_vec();
-    large.resize(usize::try_from(MAX_FILE_BYTES).expect("fits") + 1, b'x');
+    large.resize(
+        usize::try_from(MAX_SNAPSHOT_FILE_BYTES).expect("fits") + 1,
+        b'x',
+    );
     let directory = tempfile::tempdir().expect("temp directory");
     fs::write(directory.path().join("large.log"), large).expect("large file");
     let output = run(&directory, &request("needle", "large.log"));
     assert_eq!(output.text, "*1:needle in prefix");
     assert_eq!(output.files[0].tag, None);
-    assert_eq!(kinds(&output), [(Severity::Warn, NoticeKind::PartialScan)]);
+    assert_eq!(
+        output.notices,
+        [
+            Notice::warn(
+                NoticeKind::PartialScan,
+                "1 files over 4.0MB: only their first 4.0MB was searched: large.log".to_owned()
+            ),
+            Notice::warn(
+                NoticeKind::NotEditable,
+                "1 shown files have no tag, so `edit` cannot change them: large.log (over 4.0MB: `edit` cannot change it; read it in ranges, then change it with `write` (whole file) or `bash`)".to_owned()
+            ),
+        ]
+    );
 }
 
 #[test]
-fn binary_files_are_skipped() {
+fn binary_files_are_skipped_with_a_notice() {
     let directory = fixture(&[("bin.dat", "needle\0needle\n"), ("text.txt", "needle\n")]);
     let output = run(&directory, &request("needle", "."));
     let paths: Vec<_> = output.files.iter().map(|file| file.path.as_str()).collect();
     assert_eq!(paths, ["text.txt"]);
+    let named = run(&directory, &request("needle", "bin.dat"));
+    assert_eq!(
+        (named.render(), named.account.binary),
+        (
+            "No matches found\n<diag severity=\"warn\" kind=\"skipped\">1 binary files (a NUL byte) not searched: bin.dat</diag>".to_owned(),
+            1
+        )
+    );
 }
 
 #[test]
@@ -529,18 +569,17 @@ fn literal_backslash_n_matches_across_lines_and_shows_every_line() {
 }
 
 #[test]
-fn long_lines_are_cut_at_512_bytes() {
+fn long_lines_are_cut_after_512_bytes_with_a_marker() {
     let line = format!("needle {}", "x".repeat(600));
     let directory = fixture(&[("f.txt", &line)]);
     let output = run(&directory, &request("needle", "f.txt"));
     let matched = &output.files[0].matches[0];
     assert_eq!(
+        (matched.line.as_str(), matched.truncated),
         (
-            matched.line.len(),
-            matched.truncated,
-            matched.line.ends_with("...")
-        ),
-        (512, true, true)
+            format!("needle {}…⟨+95 bytes⟩", "x".repeat(505)).as_str(),
+            true
+        )
     );
 }
 
@@ -601,4 +640,254 @@ fn display_paths_outside_the_working_directory_stay_absolute() {
     )
     .expect("grep succeeds");
     assert_eq!(Path::new(&output.files[0].path), external.as_path());
+}
+
+/// The tag names the text the rows were cut from, even when the file
+/// changes between the search and the record.
+#[test]
+fn tag_names_the_searched_text_when_the_file_changes_before_the_record() {
+    let searched = "\u{FEFF}one\r\nneedle\r\n";
+    let directory = fixture(&[("f.rs", searched)]);
+    let path = directory.path().join("f.rs");
+    let store = EditStore::new();
+    let rewrite = || fs::write(&path, "changed\nneedle\nmore\n").expect("rewrite");
+    let output = grep_with(
+        &store,
+        directory.path(),
+        &request("needle", "f.rs"),
+        &Open,
+        GrepLimits::DEFAULT,
+        &rewrite,
+    )
+    .expect("grep succeeds");
+    let absolute = &output.files[0].absolute;
+    assert_eq!(
+        (
+            output.files[0].tag.clone(),
+            store.head(absolute).map(|head| head.text.to_string()),
+            store.has_seen_bytes(absolute, searched.as_bytes()),
+        ),
+        (
+            Some(file_hash("one\nneedle\n")),
+            Some("one\nneedle\n".to_owned()),
+            true
+        )
+    );
+}
+
+/// Rows strip only the line terminator: a trailing NBSP stays, `\r\n`
+/// goes, and a BOM is not part of row 1.
+#[test]
+fn rows_keep_trailing_characters_other_than_the_terminator() {
+    let directory = fixture(&[("f.txt", "\u{FEFF}needle\u{A0}\r\nneedle \nneedle\r")]);
+    let output = run(&directory, &request("needle", "f.txt"));
+    let lines: Vec<&str> = output.files[0]
+        .matches
+        .iter()
+        .map(|matched| matched.line.as_str())
+        .collect();
+    assert_eq!(lines, ["needle\u{A0}", "needle ", "needle\r"]);
+}
+
+/// When the total match cap stops the search, the files after it are not
+/// searched, a notice says so, and the file count is a lower bound.
+#[test]
+fn total_cap_marks_the_file_count_as_a_lower_bound() {
+    let files: Vec<(String, &str)> = (1..=22)
+        .map(|index| (format!("f{index:02}.txt"), "needle\n"))
+        .collect();
+    let borrowed: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, content)| (path.as_str(), *content))
+        .collect();
+    let directory = fixture(&borrowed);
+    let output = grep_with(
+        &EditStore::new(),
+        directory.path(),
+        &request("needle", "."),
+        &Open,
+        GrepLimits {
+            total_matches: 21,
+            ..GrepLimits::DEFAULT
+        },
+        &|| {},
+    )
+    .expect("grep succeeds");
+    assert_eq!(
+        (
+            output.total_files,
+            output.total_files_lower_bound,
+            output.account.not_searched
+        ),
+        (21, true, 1)
+    );
+    assert_eq!(
+        output.notices,
+        [
+            Notice::warn(
+                NoticeKind::LimitReached,
+                "1 files not searched: the 21-match total was reached; narrow the path or the pattern"
+                    .to_owned()
+            ),
+            Notice {
+                continuation: Some("skip=20".to_owned()),
+                omitted: Some(Omitted {
+                    count: 1,
+                    unit: Unit::Files,
+                }),
+                ..Notice::info(NoticeKind::Pagination, "files 1-20 of 21+".to_owned())
+            },
+        ]
+    );
+}
+
+/// Excluded directories, symlinks, and eukhe temporary files: the first
+/// two get notices and are counted; temporary files are hidden.
+#[test]
+fn walk_skips_are_counted_and_temporary_files_are_hidden() {
+    let directory = fixture(&[
+        ("a.txt", "needle\n"),
+        ("node_modules/m.txt", "needle\n"),
+        (".git/config", "needle\n"),
+        (".eukhe-tmp-0123456789abcdef-1-0", "needle\n"),
+    ]);
+    std::os::unix::fs::symlink(
+        directory.path().join("a.txt"),
+        directory.path().join("link.txt"),
+    )
+    .expect("symlink");
+    let output = run(
+        &directory,
+        &GrepRequest {
+            gitignore: false,
+            ..request("needle", ".")
+        },
+    );
+    let paths: Vec<_> = output.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["a.txt"]);
+    assert_eq!(
+        output.notices,
+        [
+            Notice::warn(
+                NoticeKind::Skipped,
+                "2 excluded directories not searched (`.git` always; `node_modules` unless the path or glob names it): .git, node_modules".to_owned()
+            ),
+            Notice::warn(
+                NoticeKind::Skipped,
+                "1 symlinks not followed (name the target path to search it): link.txt".to_owned()
+            ),
+        ]
+    );
+    assert_eq!(
+        output.account,
+        GrepAccount {
+            shown: 1,
+            excluded: 2,
+            symlink: 1,
+            ..GrepAccount::default()
+        }
+    );
+}
+
+/// Whether this process can read a file that has no permissions (root
+/// can, so the permission tests have nothing to check).
+fn reads_without_permission(path: &Path) -> bool {
+    fs::read_dir(path).is_ok() || fs::read(path).is_ok()
+}
+
+/// An unreadable file and an unreadable directory are counted with a
+/// notice each, and the search goes on.
+#[test]
+fn unreadable_files_and_walk_errors_get_notices() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let directory = fixture(&[
+        ("a.txt", "needle\n"),
+        ("locked.txt", "needle\n"),
+        ("closed/b.txt", "needle\n"),
+    ]);
+    let locked = directory.path().join("locked.txt");
+    let closed = directory.path().join("closed");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+    fs::set_permissions(&closed, fs::Permissions::from_mode(0o000)).expect("chmod");
+    if reads_without_permission(&locked) || reads_without_permission(&closed) {
+        return;
+    }
+    let output = run(&directory, &request("needle", "."));
+    fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).expect("chmod back");
+    let kinds_and_starts: Vec<(NoticeKind, String)> = output
+        .notices
+        .iter()
+        .map(|notice| {
+            (
+                notice.kind,
+                notice.text.split(':').next().unwrap_or("").to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        kinds_and_starts,
+        [
+            (
+                NoticeKind::Skipped,
+                "1 unreadable files not searched".to_owned()
+            ),
+            (
+                NoticeKind::Skipped,
+                "1 walk errors (these entries were not searched)".to_owned()
+            ),
+        ]
+    );
+    assert_eq!(
+        output.account,
+        GrepAccount {
+            shown: 1,
+            unreadable: 1,
+            walk_error: 1,
+            ..GrepAccount::default()
+        }
+    );
+}
+
+/// A shown file that is not UTF-8 has no tag, and a notice says why.
+#[test]
+fn shown_non_utf8_file_says_it_is_not_editable() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    fs::write(directory.path().join("latin.txt"), b"needle caf\xE9\n").expect("file");
+    let output = run(&directory, &request("needle", "latin.txt"));
+    assert_eq!(
+        (output.files[0].tag.clone(), output.notices),
+        (
+            None,
+            vec![Notice::warn(
+                NoticeKind::NotEditable,
+                "1 shown files have no tag, so `edit` cannot change them: latin.txt (not UTF-8: `edit` works on UTF-8 only; `write` replaces it as UTF-8)".to_owned()
+            )]
+        )
+    );
+}
+
+/// Every walked entry lands in exactly one class of the account.
+#[test]
+fn account_partitions_the_walked_files() {
+    let mut files: Vec<(String, String)> = (1..=23)
+        .map(|index| (format!("m{index:02}.txt"), "needle\n".to_owned()))
+        .collect();
+    files.push(("none.txt".to_owned(), "other\n".to_owned()));
+    files.push(("bin.dat".to_owned(), "needle\0\n".to_owned()));
+    let borrowed: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, content)| (path.as_str(), content.as_str()))
+        .collect();
+    let directory = fixture(&borrowed);
+    let output = run(&directory, &request("needle", "."));
+    assert_eq!(
+        output.account,
+        GrepAccount {
+            no_match: 1,
+            shown: 20,
+            paged_out: 3,
+            binary: 1,
+            ..GrepAccount::default()
+        }
+    );
 }

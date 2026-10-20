@@ -41,6 +41,8 @@ pub enum NoticeKind {
     Skipped,
     /// Only a prefix of the input was examined.
     PartialScan,
+    /// A shown file has no tag, so `edit` cannot change it.
+    NotEditable,
 }
 
 impl NoticeKind {
@@ -53,6 +55,7 @@ impl NoticeKind {
             Self::MissingPaths => "missing_paths",
             Self::Skipped => "skipped",
             Self::PartialScan => "partial_scan",
+            Self::NotEditable => "not_editable",
         }
     }
 }
@@ -121,6 +124,51 @@ impl Notice {
             severity: Severity::Warn,
             ..Self::info(kind, text)
         }
+    }
+}
+
+/// Examples a notice names for one class of skipped inputs.
+pub(crate) const NOTICE_EXAMPLES: usize = 3;
+
+/// One class of skipped or cut inputs: how many there were and the first
+/// few of them, for one notice.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Tally {
+    /// Inputs in the class.
+    pub(crate) count: u64,
+    /// The first [`NOTICE_EXAMPLES`] of them, in the order found.
+    pub(crate) examples: Vec<String>,
+}
+
+impl Tally {
+    /// Count one more input; `example` names it while there is room.
+    pub(crate) fn add(&mut self, example: impl FnOnce() -> String) {
+        self.count = self.count.saturating_add(1);
+        if self.examples.len() < NOTICE_EXAMPLES {
+            self.examples.push(example());
+        }
+    }
+
+    /// Add every input of `other` to this class.
+    pub(crate) fn absorb(&mut self, other: Self) {
+        self.count = self.count.saturating_add(other.count);
+        let room = NOTICE_EXAMPLES.saturating_sub(self.examples.len());
+        self.examples.extend(other.examples.into_iter().take(room));
+    }
+
+    /// `{count} {what}: a, b, c` (with `, ...` when more were counted than
+    /// named); `None` when the class is empty.
+    pub(crate) fn describe(&self, what: &str) -> Option<String> {
+        if self.count == 0 {
+            return None;
+        }
+        let named = u64::try_from(self.examples.len()).unwrap_or(u64::MAX);
+        let more = if self.count > named { ", ..." } else { "" };
+        Some(format!(
+            "{} {what}: {}{more}",
+            self.count,
+            self.examples.join(", ")
+        ))
     }
 }
 

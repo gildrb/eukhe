@@ -24,7 +24,7 @@ use std::{
 
 use eukhe_docs::{
     apply_hashline, text::normalize_to_lf, EditError, EditStore, EditWriter, HashlineOptions,
-    HashlineOutcome, WriteOp, WriteRequest, WriteResponse,
+    HashlineOutcome, Published, WriteOp, WriteRequest,
 };
 use serde_json::Value;
 
@@ -53,15 +53,16 @@ impl DiskWriter {
 
 fn io_error(path: &Path, source: std::io::Error) -> EditError {
     EditError::Io {
+        display: path.display().to_string(),
         path: path.to_path_buf(),
         source,
     }
 }
 
-impl EditWriter for DiskWriter {
-    fn write(&self, request: &WriteRequest<'_>) -> Result<WriteResponse, EditError> {
+impl DiskWriter {
+    /// Record and perform one request; the text that landed.
+    fn write(&self, request: &WriteRequest<'_>) -> Result<String, EditError> {
         let (op, before_raw, target, content) = match request.op {
-            WriteOp::Create { content } => ("create", None, request.absolute, Some(content)),
             WriteOp::Update {
                 before_raw,
                 content,
@@ -71,6 +72,7 @@ impl EditWriter for DiskWriter {
                 before_raw,
                 destination,
                 content,
+                ..
             } => ("move", Some(before_raw), destination, Some(content)),
         };
         self.requests
@@ -83,9 +85,7 @@ impl EditWriter for DiskWriter {
             });
         let Some(content) = content else {
             std::fs::remove_file(request.absolute).map_err(|e| io_error(request.absolute, e))?;
-            return Ok(WriteResponse {
-                written: String::new(),
-            });
+            return Ok(String::new());
         };
         let written = self.rewrite.clone().unwrap_or_else(|| content.to_owned());
         if let Some(parent) = target.parent() {
@@ -95,7 +95,26 @@ impl EditWriter for DiskWriter {
         if target != request.absolute {
             std::fs::remove_file(request.absolute).map_err(|e| io_error(request.absolute, e))?;
         }
-        Ok(WriteResponse { written })
+        Ok(written)
+    }
+}
+
+impl EditWriter for DiskWriter {
+    fn write_all(&self, requests: &[WriteRequest<'_>]) -> Result<Vec<Published>, EditError> {
+        let mut published = Vec::with_capacity(requests.len());
+        for request in requests {
+            match self.write(request) {
+                Ok(written) => published.push(Published::Landed {
+                    written,
+                    warning: None,
+                }),
+                Err(error) => {
+                    published.push(Published::Failed(error));
+                    break;
+                }
+            }
+        }
+        Ok(published)
     }
 }
 

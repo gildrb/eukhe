@@ -675,3 +675,106 @@ gateway message). Not modelled: the supervisor's routing of
 the command (a parent whose worker is not resident is not asked; the
 question is then unanswered), a client attaching while a question waits
 above it. The dashboard shows a subagent's question without its name.
+
+### S8. The documents tools
+
+The documents tools are `read`, `edit`, `grep` and `glob`, and the kernel
+functions `read()`, `write()`, `edit()`, `grep()` and `glob()` (crate
+`eukhe-docs`). They share one edit store per session.
+
+1. An `edit` of many files is all or nothing for conflicts. The writer
+   locks every path of the call, in one order. Then it checks each file:
+   its bytes must be the bytes the edit was applied to, and an `MV`
+   destination must not exist. If one check fails, no file is written.
+   Then the writer writes the files in order, and stops at the first
+   failure. The reply tells which files landed (with their new tags) and
+   which did not: "Applied to a; NOT applied to b, c". It never says that
+   nothing was written when a file landed. A rename that landed but whose
+   directory sync failed, and a move whose source stays, are landed writes
+   with a warning.
+2. A retry of a start or end insert with the old tag, after the insert
+   landed, does not insert it again: the result says that the edit is
+   already in the file.
+3. `write()` replaces an existing file only when its bytes on disk are a
+   version that this session saw: a read, a grep, or its own write or
+   edit. Else it writes nothing and tells the model to read the file
+   first. A new file is created. A replaced file keeps its BOM, line
+   endings and mode; a warning tells when the content had other line
+   endings, or when the old file was not UTF-8.
+4. `MV` never replaces a file. The destination gets the bytes through a
+   hard link, which fails on a name that exists.
+5. A temporary file is `.eukhe-tmp-<hash of the name>-<pid>-<n>`, so a long
+   name still fits. Its writer locks it. Each write of a target removes
+   the temporary files of that target that no writer locks (a crash left
+   them). `grep` and `glob` do not show these names.
+6. A line ends at `\n`. A `\r` before `\n` is part of the CRLF ending of
+   that line; a lone `\r` is text. `read`, `grep` and `edit` use this one
+   line model. An edit keeps every byte outside its lines. A new or
+   changed line gets the ending of the line before it (at the start of
+   the file: the first ending of the file, else LF).
+7. The tag of a grep result is the hash of the bytes that grep searched,
+   not of a second read of the file.
+8. A line is seen only when its row reached the model, after the output
+   bound cut the middle of a long result. An edit anchor on a line that
+   is not seen is rejected; the rejection shows the line and marks it
+   seen, so the same edit applies on a retry. After an edit lands, the
+   lines that were seen before and the lines that the edit wrote stay
+   seen.
+9. `grep` and `glob` tell each file that they skip or cut, with the
+   reason and the count: binary, unreadable, searched only in part,
+   excluded directories, symlinks, walk errors, the match caps. A
+   continuation (`skip=N`, a line range) gives the next results.
+10. One size limit (`MAX_SNAPSHOT_FILE_BYTES`, 4 MiB) applies everywhere. A
+    larger file has no tag; the message tells the model to read it in
+    ranges and to change it with `write()` or `bash`. A file that is not
+    UTF-8 gets a message with its path and its encoding.
+
+Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
+`bend/doc_lines.bend`, `bend/doc_tags.bend`, `bend/doc_search.bend`. Laws:
+`laws/documents.bend`. Proofs: `bend/proof_documents.bend`,
+`bend/proof_doc_lines.bend`.
+
+| Law | Says |
+| --- | --- |
+| `edit_reports_what_landed` | The reply calls a file applied exactly when its new content is on disk (S8.1). |
+| `edit_all_or_nothing_on_conflict` | When one file changed since the edit staged it, no file lands (S8.1). |
+| `edit_lands_every_file` | With no changed file and no failed write, every file lands (S8.1). |
+| `write_never_loses_unseen` | A write over a version the session did not see is refused and changes nothing (S8.3). |
+| `write_writes_seen` | A write over no file or a seen version writes it (S8.3). |
+| `move_never_overwrites` | A move to a name that exists is refused and changes nothing (S8.4). |
+| `move_moves` | A move to a free name moves the content (S8.4). |
+| `temp_sweep_never_held` | A sweep never removes a temporary file a live writer locks (S8.5). |
+| `temp_sweep_only_own` | A sweep removes only temporary files of its target (S8.5). |
+| `temp_sweep_removes_free` | A sweep removes every temporary file of its target that no writer locks (S8.5). |
+| `load_persist_roundtrip` | A file loaded and written with no edit is the same bytes (S8.6). |
+| `edit_keeps_untouched_bytes` | An edit keeps every byte outside its lines (S8.6). |
+| `grep_line_is_read_line` | `grep` and `read` show the same line text at the same number (S8.6). |
+| `tag_names_shown_text` | The tag of a result names the text that its rows come from (S8.7). |
+| `edit_only_seen_lines` | An edit applies only when every anchor is a seen line (S8.8). |
+| `edit_seen_applies` | An edit whose anchors are all seen applies (S8.8). |
+| `reveal_then_retry` | A rejected edit applies on a straight retry (S8.8). |
+| `grep_accounts_every_file` | Each walked entry is in exactly one class, and the classes add up to the walk (S8.9). |
+| `grep_notes_every_gap` | A class of skipped, cut or not-searched entries has its notice exactly when it is not empty (S8.9). |
+| `grep_notes_every_cut` | A shown file whose matches were cut has its own notice (S8.9). |
+| `continuation_progresses` | A continuation gives a page that is not empty (S8.9). |
+| `continuation_contiguous` | A page and the page of its continuation are the next part of the list: nothing left out, nothing twice (S8.9). |
+| `continuation_disjoint` | A page and the page of its continuation have no item in common (S8.9). |
+
+Code: `eukhe-docs/src/write.rs` (`LockedWriter::write_all`, `publish`,
+`write_file`, the sweep), `hashline/mod.rs` (`apply_hashline`, `commit`),
+`hashline/patcher.rs` and `hashline/apply.rs` (the line origins, `persist`,
+the seen guard), `text.rs`, `read/mod.rs`, `grep/`, `glob.rs`, `store.rs`
+(`saw_bytes`); `eukhe-core/src/durable/documents/tool.rs` (`bounded`) and
+`requests.rs` (`Cut`, `Done::mark_seen`).
+
+Tie: the bridge tests `write::bridge` (an edit of many files with injected
+faults and conflicts, the write tool with writes by another program, the
+move, the sweep with live locks), `hashline::bridge` (random bytes with
+`\r`, `\n`, `\r\n` and a BOM through a real read and edit), `grep::bridge`
+(the rows of read and grep, and a grep whose file changes between the
+search and the record), `grep::bridge_accounts` and `glob::bridge`
+(generated trees, every continuation followed once), and
+`durable::documents::bridge` (a long read cut by the output bound, then
+edits at anchors in and around the cut). Not modelled: the bytes of the
+notice texts, and the line model of the rebase of a stale edit (it maps
+lines through a line diff).

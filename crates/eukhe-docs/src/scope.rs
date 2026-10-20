@@ -71,6 +71,13 @@ pub(crate) fn is_missing(error: &io::Error) -> bool {
     )
 }
 
+/// Whether `name` is a temporary file of a document write: grep and glob
+/// hide these names.
+pub(crate) fn is_eukhe_temp(name: &std::ffi::OsStr) -> bool {
+    name.as_encoded_bytes()
+        .starts_with(crate::write::TEMP_PREFIX.as_bytes())
+}
+
 /// `path` relative to `root` with `/` separators; a path outside `root` stays
 /// absolute.
 pub(crate) fn workspace_relative(root: &Path, path: &Path) -> io::Result<String> {

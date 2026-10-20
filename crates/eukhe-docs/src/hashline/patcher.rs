@@ -8,17 +8,18 @@ use std::{
 };
 
 use super::{
-    apply::apply_edits,
+    apply::{apply_edits, diff_origins},
     block::reject_block_edits,
     clipboard::validate_clipboard_sequence,
     input::PatchSection,
     messages::{
-        missing_snapshot_tag_message, path_recovered_from_tag_message, unseen_lines_message,
-        RevealedLine, UnseenLinesReveal, HEADTAIL_DRIFT_WARNING, RECOVERY_REBASE_WARNING,
+        already_landed_message, anchored_context_lines, missing_snapshot_tag_message,
+        path_recovered_from_tag_message, unseen_lines_message, RevealedLine, UnseenLinesReveal,
+        HEADTAIL_DRIFT_WARNING, RECOVERY_REBASE_WARNING,
     },
     mismatch::{mismatch_error, MismatchDetails},
     recovery::try_recover,
-    types::{ApplyResult, Cursor, Edit, FileOp, PasteTarget},
+    types::{ApplyResult, Cursor, Edit, FileOp, Landing, PasteTarget},
 };
 use crate::{
     diff_string::generate_diff_string,
@@ -26,7 +27,7 @@ use crate::{
     path::lexical_normalize,
     rebase::rebase_content,
     store::{file_hash, payload_hash, Clipboard, EditStore},
-    text::{detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom, LineEnding},
+    text::{encoding_name, line_endings, normalize_to_lf, strip_bom, LineEnding},
 };
 
 const SEEN_LINE_REVEAL_CAP: usize = 40;
@@ -75,50 +76,81 @@ fn unwrap_hashline_header_path(target: &str) -> &str {
 }
 
 /// One target file as read from disk plus its editable form.
-struct FileRead {
+pub(crate) struct FileRead {
     /// Snapshot-store key.
-    canonical: PathBuf,
+    pub(crate) canonical: PathBuf,
     /// Text as read: BOM and line endings intact.
-    raw: String,
+    pub(crate) raw: String,
     bom: &'static str,
-    ending: LineEnding,
-    /// LF-normalized, BOM-stripped editable text.
-    text: String,
+    /// The ending of each line that has one: one item for each `\n` of `text`.
+    endings: Vec<LineEnding>,
+    /// BOM-stripped editable text with each CRLF made LF.
+    pub(crate) text: String,
 }
 
 impl FileRead {
-    /// Read `absolute`; `None` when it does not exist.
-    fn load(absolute: &Path) -> Result<Option<Self>, EditError> {
-        let raw = match std::fs::read_to_string(absolute) {
-            Ok(raw) => raw,
+    /// Read `absolute`; `None` when it does not exist. `display` names the
+    /// file in errors.
+    pub(crate) fn load(absolute: &Path, display: &str) -> Result<Option<Self>, EditError> {
+        let bytes = match std::fs::read(absolute) {
+            Ok(bytes) => bytes,
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(source) => {
                 return Err(EditError::Io {
+                    display: display.to_owned(),
                     path: absolute.to_path_buf(),
                     source,
                 })
             }
         };
+        let raw = String::from_utf8(bytes).map_err(|error| {
+            EditError::apply(format!(
+                "{display} is {}; `edit` changes UTF-8 text only. To see it, `read` it with \
+                 `:raw`. To change it, `write` the whole file (it is then saved as UTF-8).",
+                encoding_name(error.as_bytes())
+            ))
+        })?;
         let (bom, body) = strip_bom(&raw);
-        let ending = detect_line_ending(body);
+        let endings = line_endings(body);
         let text = normalize_to_lf(body).into_owned();
         Ok(Some(Self {
             canonical: eukhe_types::path_policy::real_path(absolute),
-            raw,
             bom,
-            ending,
+            endings,
             text,
+            raw,
         }))
     }
 
-    /// Encode LF post-edit text back to the bytes this file persists with:
-    /// BOM and line endings restored.
-    fn persist(&self, after_lf: &str) -> String {
-        format!(
-            "{}{}",
-            self.bom,
-            restore_line_endings(after_lf, self.ending)
-        )
+    /// Encode post-edit text back to the bytes this file persists with: the
+    /// BOM, then each line with its ending. `origins[j]` is the index of
+    /// the original line that line `j` of `after` came from. A line from
+    /// the file keeps its own ending; a new line takes the ending written
+    /// before it (at the start: the file's first ending, else LF).
+    pub(crate) fn persist(&self, after: &str, origins: &[Option<usize>]) -> String {
+        let mut out = String::with_capacity(after.len() + self.bom.len() + origins.len());
+        out.push_str(self.bom);
+        let mut carry = self.endings.first().copied().unwrap_or(LineEnding::Lf);
+        let mut pieces = after.split('\n').enumerate().peekable();
+        while let Some((index, piece)) = pieces.next() {
+            out.push_str(piece);
+            if pieces.peek().is_none() {
+                break;
+            }
+            if let Some(&ending) = origins
+                .get(index)
+                .copied()
+                .flatten()
+                .and_then(|origin| self.endings.get(origin))
+            {
+                carry = ending;
+            }
+            out.push_str(match carry {
+                LineEnding::Lf => "\n",
+                LineEnding::CrLf => "\r\n",
+            });
+        }
+        out
     }
 }
 
@@ -151,6 +183,8 @@ pub(crate) struct StagedFile {
     /// Numbered diff (`+N|`, `-N|`, ` N|` rows).
     pub(crate) diff: String,
     pub(crate) first_changed_line: Option<u32>,
+    /// [`Landing::Already`] when the section was found on disk already.
+    pub(crate) landing: Landing,
     pub(crate) warnings: Vec<String>,
     /// Clipboard to publish once this file's write lands.
     pub(crate) clipboard_after: Clipboard,
@@ -228,7 +262,8 @@ fn collect_anchor_lines(edits: &[Edit]) -> Vec<u32> {
 }
 
 /// Reject a section whose tag does not name the live text. Records the
-/// live text so a later tag from it is recognized.
+/// live text so a later tag from it is recognized; the lines the error
+/// prints are recorded as seen.
 fn mismatch(
     display: &str,
     anchor_lines: Vec<u32>,
@@ -237,19 +272,28 @@ fn mismatch(
     expected: &str,
     store: &EditStore,
 ) -> EditError {
-    let actual = store.record(canonical, normalized, None);
+    let file_lines = normalized
+        .split('\n')
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let shown = anchored_context_lines(&anchor_lines, file_lines.len())
+        .into_iter()
+        .collect::<Vec<_>>();
+    let hash_recognized = store.by_hash(canonical, expected).is_some();
+    let actual = store.record(canonical, normalized, Some(&shown));
     mismatch_error(&MismatchDetails {
         path: display.to_owned(),
         expected_file_hash: expected.to_owned(),
         actual_file_hash: actual,
-        file_lines: normalized.split('\n').map(str::to_owned).collect(),
+        file_lines,
         anchor_lines,
-        hash_recognized: store.by_hash(canonical, expected).is_some(),
+        hash_recognized,
     })
 }
 
 /// Reject anchors on lines the tagged read never displayed, revealing their
-/// content so a straight retry can succeed.
+/// content so a straight retry can succeed. With no snapshot of `text`, or
+/// one with no seen lines, no line counts as seen.
 fn assert_seen_lines(
     display: &str,
     anchor_lines: &[u32],
@@ -258,15 +302,11 @@ fn assert_seen_lines(
     store: &EditStore,
     text: &str,
 ) -> Result<(), EditError> {
-    let Some(snapshot) = store.by_content(canonical, text) else {
-        return Ok(());
-    };
-    let Some(seen) = snapshot.seen_lines else {
-        return Ok(());
-    };
-    if seen.is_empty() {
-        return Ok(());
-    }
+    let snapshot = store.by_content(canonical, text);
+    let held = snapshot.is_some();
+    let seen = snapshot
+        .and_then(|snapshot| snapshot.seen_lines)
+        .unwrap_or_default();
     let unseen = anchor_lines
         .iter()
         .copied()
@@ -275,7 +315,7 @@ fn assert_seen_lines(
     if unseen.is_empty() {
         return Ok(());
     }
-    let source = snapshot.text.split('\n').collect::<Vec<_>>();
+    let source = text.split('\n').collect::<Vec<_>>();
     let mut revealed = Vec::new();
     let mut column_truncated = false;
     for &line in unseen.iter().take(SEEN_LINE_REVEAL_CAP) {
@@ -305,11 +345,12 @@ fn assert_seen_lines(
     }
     let truncated = unseen.len() > revealed.len() || column_truncated;
     if !truncated {
-        store.record_seen_lines(
-            canonical,
-            expected,
-            &revealed.iter().map(|item| item.line).collect::<Vec<_>>(),
-        );
+        let lines = revealed.iter().map(|item| item.line).collect::<Vec<_>>();
+        if held {
+            store.record_seen_lines(canonical, expected, &lines);
+        } else {
+            store.record(canonical, text, Some(&lines));
+        }
     }
     Err(EditError::matched(unseen_lines_message(
         display,
@@ -408,9 +449,11 @@ fn rebase_stale(
     let mut warnings = vec![RECOVERY_REBASE_WARNING.to_owned()];
     warnings.extend(ours.warnings);
     Ok(Some(ApplyResult {
+        origins: diff_origins(live, &text),
         text,
         first_changed_line,
         warnings,
+        landing: Landing::Fresh,
     }))
 }
 
@@ -449,6 +492,20 @@ fn apply_with_recovery(
         return apply_edits(normalized, edits, clipboard);
     }
     if !has_anchor_scoped_edit(edits) {
+        // A retry of a head/tail insert that already landed: the edits
+        // applied to the tagged snapshot give the live text.
+        if let Some(base) = store.by_hash(canonical, tag) {
+            let landed = apply_edits(&base.text, edits, &mut clipboard.fork())
+                .is_ok_and(|ours| ours.text == normalized && ours.text != *base.text);
+            if landed {
+                return Ok(ApplyResult {
+                    text: normalized.to_owned(),
+                    origins: (0..normalized.split('\n').count()).map(Some).collect(),
+                    landing: Landing::Already,
+                    ..ApplyResult::default()
+                });
+            }
+        }
         let mut result = apply_edits(normalized, edits, clipboard)?;
         let mut warnings = vec![HEADTAIL_DRIFT_WARNING.to_owned()];
         warnings.append(&mut result.warnings);
@@ -532,13 +589,17 @@ pub(crate) fn stage_patch(
     for original in sections {
         let parsed = original.parse()?;
         let Some(tag) = original.file_hash.as_deref() else {
+            let size = std::fs::metadata(workspace.resolve(&original.path).absolute)
+                .ok()
+                .map(|metadata| metadata.len());
             return Err(EditError::apply(missing_snapshot_tag_message(
                 &original.path,
+                size,
             )));
         };
         let initial = workspace.resolve(&original.path);
         let (section, resolved) = recover_target(original, initial, workspace, store);
-        let read = FileRead::load(&resolved.absolute)?.ok_or_else(|| {
+        let read = FileRead::load(&resolved.absolute, &section.path)?.ok_or_else(|| {
             EditError::apply(format!(
                 "File not found: {}. Use the write tool to create new files.",
                 section.path
@@ -590,16 +651,21 @@ pub(crate) fn stage_patch(
         }
         warnings.extend(apply.warnings);
         let diff = generate_diff_string(&read.text, &apply.text);
-        let op = match parsed.file_op {
-            Some(FileOp::Rem) => StagedOp::Delete,
-            None if apply.text == read.text => StagedOp::Noop {
+        let op = match (parsed.file_op, apply.landing) {
+            (Some(FileOp::Rem), Landing::Fresh | Landing::Already) => StagedOp::Delete,
+            (None, Landing::Already) => StagedOp::Noop {
+                diagnostic: already_landed_message(&original.path),
+            },
+            (None, Landing::Fresh) if apply.text == read.text => StagedOp::Noop {
                 diagnostic: no_change_diagnostic(&original.path),
             },
-            Some(FileOp::Move { .. }) | None => StagedOp::Update {
-                persisted: read.persist(&apply.text),
+            (Some(FileOp::Move { .. }), Landing::Fresh | Landing::Already)
+            | (None, Landing::Fresh) => StagedOp::Update {
+                persisted: read.persist(&apply.text, &apply.origins),
             },
         };
-        if matches!(op, StagedOp::Noop { .. }) && sections.len() == 1 {
+        let repeated_noop = matches!(op, StagedOp::Noop { .. }) && apply.landing == Landing::Fresh;
+        if repeated_noop && sections.len() == 1 {
             let (count, escalate) = store.record_noop(&read.canonical, payload_hash(raw_input));
             if escalate {
                 return Err(EditError::apply(no_change_loop_diagnostic(
@@ -618,6 +684,7 @@ pub(crate) fn stage_patch(
             after: apply.text,
             diff: diff.diff,
             first_changed_line: apply.first_changed_line.or(diff.first_changed_line),
+            landing: apply.landing,
             warnings,
             clipboard_after: clipboard.fork(),
         });
@@ -625,7 +692,7 @@ pub(crate) fn stage_patch(
     if staged.len() > 1 {
         if let Some(item) = staged
             .iter()
-            .find(|item| matches!(item.op, StagedOp::Noop { .. }))
+            .find(|item| matches!(item.op, StagedOp::Noop { .. }) && item.landing == Landing::Fresh)
         {
             let (count, escalate) = store.record_noop(&item.canonical, payload_hash(raw_input));
             return Err(EditError::apply(if escalate {

@@ -39,6 +39,14 @@ impl Documents {
         &self.store
     }
 
+    /// Record `lines` of the version tagged `tag` of `absolute` as seen:
+    /// the rows of a read or grep result that reached the model, after its
+    /// output was bounded. Only seen lines are edit anchors.
+    pub fn mark_seen(&self, absolute: &Path, tag: &str, lines: &[u32]) {
+        self.store
+            .record_seen_lines(&eukhe_types::path_policy::real_path(absolute), tag, lines);
+    }
+
     /// Read `path` (with an optional `:selector`) relative to `cwd`.
     ///
     /// # Errors
@@ -73,11 +81,14 @@ impl Documents {
         read::read_under(&self.store, cwd, self.home.as_deref(), url, locate, gate)
     }
 
-    /// Create or overwrite `path` relative to `cwd`.
+    /// Create `path` relative to `cwd`, or overwrite it when its bytes on
+    /// disk are a version this session saw (a read, a grep, or its own
+    /// write or edit).
     ///
     /// # Errors
     ///
-    /// See [`WriteError`].
+    /// [`WriteError::Unseen`] when the file holds bytes this session never
+    /// saw (nothing is written); otherwise see [`WriteError`].
     pub fn write(
         &self,
         cwd: &Path,
@@ -94,7 +105,7 @@ impl Documents {
             &absolute,
             &display,
             content,
-            write::Base::Any,
+            write::Base::Seen,
         )
     }
 
@@ -130,14 +141,15 @@ impl Documents {
     }
 
     /// Apply a hashline payload (`[path#TAG]` sections) relative to `cwd`.
-    /// The seen-line guard is off, matching omp's `edit.enforceSeenLines`
-    /// default; every write is compared against the bytes the edit was
-    /// applied to under the path lock.
+    /// The seen-line guard is on: an anchor on a line no read or grep
+    /// showed is rejected with that line revealed, so a straight retry
+    /// works. The writes of one call are all checked against the bytes the
+    /// edit was applied to, under their path locks, before any is written.
     ///
     /// # Errors
     ///
-    /// The model-facing parse, anchor, stale-tag, no-op loop, or write
-    /// error; see [`apply_hashline`].
+    /// The model-facing parse, anchor, stale-tag, seen-line, no-op loop, or
+    /// write error; see [`apply_hashline`].
     pub fn edit(
         &self,
         cwd: &Path,
@@ -147,11 +159,12 @@ impl Documents {
         let options = HashlineOptions {
             cwd,
             home: self.home.as_deref(),
-            enforce_seen_lines: false,
+            enforce_seen_lines: true,
         };
         let writer = LockedWriter {
             lock_dir: &self.lock_dir,
             gate,
+            faults: &write::NoFaults,
         };
         apply_hashline(input, &options, &self.store, &writer)
     }
@@ -191,6 +204,7 @@ mod tests {
 
     use super::*;
     use crate::gate::Open;
+    use crate::write::WriteDisposition;
 
     fn session(dir: &Path) -> Documents {
         Documents::new(dir.join("locks"), None)
@@ -205,6 +219,7 @@ mod tests {
         let (first, second) = (session(dir.path()), session(dir.path()));
         let header = |docs: &Documents| {
             let view = docs.read(&cwd, "a.txt", &Open).unwrap();
+            show(docs, &view);
             view.rendered.lines().next().unwrap().to_owned()
         };
         let (h1, h2) = (header(&first), header(&second));
@@ -220,10 +235,19 @@ mod tests {
         );
     }
 
-    /// omp's `edit.enforceSeenLines` defaults to off: an anchor outside the
-    /// read's displayed range still applies.
+    /// The rows a read showed, marked seen as the documents tools do once
+    /// the output reached the model.
+    fn show(docs: &Documents, view: &ReadView) {
+        if let crate::read::ReadContent::File(file) = &view.content {
+            let lines: Vec<u32> = file.rows.iter().map(|row| row.line).collect();
+            docs.mark_seen(&view.absolute, file.tag.as_deref().unwrap(), &lines);
+        }
+    }
+
+    /// The seen-line guard is on: an anchor outside the rows a read showed
+    /// is refused with the line revealed, and the same edit then applies.
     #[test]
-    fn edits_outside_a_partial_read_apply_by_default() {
+    fn an_edit_outside_the_shown_rows_is_refused_then_applies() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().join("w");
         std::fs::create_dir(&cwd).unwrap();
@@ -231,13 +255,58 @@ mod tests {
         std::fs::write(cwd.join("a.txt"), &source).unwrap();
         let docs = session(dir.path());
         let view = docs.read(&cwd, "a.txt:1-1", &Open).unwrap();
-        assert!(!view.rendered.contains("9:9"));
+        show(&docs, &view);
         let header = view.rendered.lines().next().unwrap().to_owned();
-        docs.edit(&cwd, &format!("{header}\nPUT 9.=9:\n+NINE"), &Open)
-            .unwrap();
+        let payload = format!("{header}\nPUT 9.=9:\n+NINE");
+        let refused = docs.edit(&cwd, &payload, &Open).unwrap_err().to_string();
+        let applied = docs
+            .edit(&cwd, &payload, &Open)
+            .map(|outcome| outcome.files.len());
         assert_eq!(
-            std::fs::read_to_string(cwd.join("a.txt")).unwrap(),
-            source.replace("9\n", "NINE\n")
+            (
+                refused.contains("9:9"),
+                applied.unwrap(),
+                std::fs::read_to_string(cwd.join("a.txt")).unwrap()
+            ),
+            (true, 1, source.replace("9\n", "NINE\n"))
+        );
+    }
+
+    /// After an edit lands, the lines the model saw before it (and the
+    /// lines it wrote) stay seen under the new tag; the others do not.
+    #[test]
+    fn seen_lines_carry_across_a_landed_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().join("w");
+        std::fs::create_dir(&cwd).unwrap();
+        let source = (1..=10).map(|n| n.to_string() + "\n").collect::<String>();
+        std::fs::write(cwd.join("a.txt"), &source).unwrap();
+        let docs = session(dir.path());
+        let view = docs.read(&cwd, "a.txt:1-3", &Open).unwrap();
+        show(&docs, &view);
+        let header = view.rendered.lines().next().unwrap().to_owned();
+        let first = docs
+            .edit(
+                &cwd,
+                &format!("{header}\nPUT 2.=2:\n+TWO\n+TWO AND A HALF"),
+                &Open,
+            )
+            .unwrap();
+        let header = format!("[a.txt#{}]", first.files[0].tag.clone().unwrap());
+        let kept = docs
+            .edit(&cwd, &format!("{header}\nPUT 4.=4:\n+THREE"), &Open)
+            .unwrap();
+        let header = format!("[a.txt#{}]", kept.files[0].tag.clone().unwrap());
+        let unseen = docs.edit(&cwd, &format!("{header}\nPUT 9.=9:\n+EIGHT"), &Open);
+        assert_eq!(
+            (
+                unseen.is_err(),
+                std::fs::read_to_string(cwd.join("a.txt")).unwrap()
+            ),
+            (
+                true,
+                source.replacen("2\n3\n", "TWO\nTWO AND A HALF\nTHREE\n", 1)
+            )
         );
     }
 
@@ -249,25 +318,85 @@ mod tests {
         let writer = LockedWriter {
             lock_dir: &dir.path().join("locks"),
             gate: &Open,
+            faults: &write::NoFaults,
         };
-        let error = crate::hashline::EditWriter::write(
+        let error = crate::hashline::EditWriter::write_all(
             &writer,
-            &crate::hashline::WriteRequest {
+            &[crate::hashline::WriteRequest {
                 absolute: &path,
                 display: "a.txt",
                 op: crate::hashline::WriteOp::Update {
                     before_raw: "staged from\n",
                     content: "mine\n",
                 },
-            },
+            }],
         )
         .unwrap_err();
         assert_eq!(
-            error.to_string(),
-            "Edit rejected for a.txt: the file changed on disk while the edit was being applied. \
-             Nothing was written. Re-read the file and retry."
+            (error.to_string(), std::fs::read_to_string(&path).unwrap()),
+            (
+                "Edit rejected for a.txt: the file changed on disk while the edit was being \
+                 applied. Nothing was written. Re-read the file and retry."
+                    .to_owned(),
+                "other writer\n".to_owned()
+            )
         );
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "other writer\n");
+    }
+
+    /// The write tool replaces a file only from a version this session saw:
+    /// a file it never read, or one another program changed after its read,
+    /// is refused; after a read, or for a new file, the write lands.
+    #[test]
+    fn write_replaces_only_a_version_this_session_saw() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().join("w");
+        std::fs::create_dir(&cwd).unwrap();
+        let docs = session(dir.path());
+        let path = cwd.join("a.txt");
+        std::fs::write(&path, "theirs\n").unwrap();
+        let never_read = docs
+            .write(&cwd, "a.txt", "mine\n", &Open)
+            .unwrap_err()
+            .to_string();
+        docs.read(&cwd, "a.txt", &Open).unwrap();
+        std::fs::write(&path, "theirs again\n").unwrap();
+        let changed_after_read = docs
+            .write(&cwd, "a.txt", "mine\n", &Open)
+            .unwrap_err()
+            .to_string();
+        let kept = std::fs::read_to_string(&path).unwrap();
+        docs.read(&cwd, "a.txt", &Open).unwrap();
+        let after_read = docs
+            .write(&cwd, "a.txt", "mine\n", &Open)
+            .map(|outcome| outcome.disposition);
+        let again = docs
+            .write(&cwd, "a.txt", "mine 2\n", &Open)
+            .map(|outcome| outcome.disposition);
+        let created = docs
+            .write(&cwd, "b.txt", "new\n", &Open)
+            .map(|outcome| outcome.disposition);
+        let refusal = "Cannot write a.txt: it changed since you last read it, or you never read \
+                       it. Nothing was written; read it, then write again.";
+        assert_eq!(
+            (
+                never_read.as_str(),
+                changed_after_read.as_str(),
+                kept.as_str(),
+                after_read.unwrap(),
+                again.unwrap(),
+                created.unwrap(),
+                std::fs::read_to_string(&path).unwrap()
+            ),
+            (
+                refusal,
+                refusal,
+                "theirs again\n",
+                WriteDisposition::Overwrote,
+                WriteDisposition::Overwrote,
+                WriteDisposition::Created,
+                "mine 2\n".to_owned()
+            )
+        );
     }
 
     /// Sessions editing one file at once never lose an update: a write
@@ -290,6 +419,7 @@ mod tests {
                     let docs = session(locks);
                     loop {
                         let view = docs.read(cwd, "a.txt", &Open).unwrap();
+                        show(&docs, &view);
                         let header = view.rendered.lines().next().unwrap().to_owned();
                         let payload = format!("{header}\nPUT {n}.={n}:\n+LINE {n}");
                         match docs.edit(cwd, &payload, &Open) {

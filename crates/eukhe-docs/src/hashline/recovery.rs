@@ -260,8 +260,7 @@ pub(crate) fn try_recover(
     }];
     warnings.extend(applied.warnings);
     Some(ApplyResult {
-        text: applied.text,
-        first_changed_line: applied.first_changed_line,
         warnings,
+        ..applied
     })
 }

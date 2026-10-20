@@ -15,6 +15,7 @@ fn request(path: &str) -> GlobRequest {
         hidden: true,
         gitignore: true,
         limit: None,
+        skip: 0,
     }
 }
 
@@ -43,7 +44,7 @@ fn run(directory: &TempDir, request: &GlobRequest) -> GlobOutput {
 }
 
 #[test]
-fn matches_are_newest_first_grouped_and_hard_limited() {
+fn matches_are_newest_first_grouped_and_skip_returns_the_next_paths() {
     let directory = fixture(&[
         ("src/old.rs", 10),
         ("src/new.rs", 30),
@@ -62,14 +63,98 @@ fn matches_are_newest_first_grouped_and_hard_limited() {
     assert_eq!(
         output.notices,
         [Notice {
-            continuation: Some("limit=4".to_owned()),
+            continuation: Some("skip=2".to_owned()),
             ..Notice::info(
-                NoticeKind::LimitReached,
-                "2 result limit reached".to_owned()
+                NoticeKind::Pagination,
+                "paths 1-2 shown; more follow (newest first)".to_owned()
             )
         }]
     );
-    assert!(output.truncated);
+    assert_eq!((output.truncated, output.next_skip), (true, Some(2)));
+    let next = run(
+        &directory,
+        &GlobRequest {
+            limit: NonZeroUsize::new(2),
+            skip: 2,
+            ..request("src/*.rs")
+        },
+    );
+    assert_eq!(
+        (paths(&next), next.notices.as_slice(), next.next_skip),
+        (vec!["src/old.rs"], &[][..], None)
+    );
+}
+
+#[test]
+fn skip_past_the_end_says_so() {
+    let directory = fixture(&[("a.rs", 1)]);
+    let output = run(
+        &directory,
+        &GlobRequest {
+            skip: 5,
+            ..request("*.rs")
+        },
+    );
+    assert_eq!(
+        output.notices,
+        [Notice::warn(
+            NoticeKind::RangeOutOfBounds,
+            "skip=5 is past the end of 1 paths".to_owned()
+        )]
+    );
+}
+
+/// Excluded directories get a notice; eukhe temporary files are hidden.
+#[test]
+fn excluded_directories_are_noticed_and_temporary_files_hidden() {
+    let directory = fixture(&[
+        ("a.rs", 1),
+        ("node_modules/m.rs", 1),
+        (".eukhe-tmp-0123456789abcdef-1-0", 1),
+    ]);
+    let output = run(
+        &directory,
+        &GlobRequest {
+            gitignore: false,
+            ..request(".")
+        },
+    );
+    assert_eq!(paths(&output), ["a.rs"]);
+    assert_eq!(
+        output.notices,
+        [Notice::warn(
+            NoticeKind::Skipped,
+            "1 excluded directories not listed (`.git` always; `node_modules` unless the pattern names it): node_modules".to_owned()
+        )]
+    );
+}
+
+/// A directory the walk cannot read is skipped with a notice; the walk
+/// goes on.
+#[test]
+fn unreadable_directory_is_skipped_with_a_notice() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let directory = fixture(&[("a.rs", 1), ("closed/b.rs", 1)]);
+    let closed = directory.path().join("closed");
+    fs::set_permissions(&closed, fs::Permissions::from_mode(0o000)).expect("chmod");
+    if fs::read_dir(&closed).is_ok() {
+        return;
+    }
+    let output = run(&directory, &request("**/*.rs"));
+    fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).expect("chmod back");
+    assert_eq!(paths(&output), ["a.rs"]);
+    let notices: Vec<(NoticeKind, &str)> = output
+        .notices
+        .iter()
+        .map(|notice| (notice.kind, notice.text.split(':').next().unwrap_or("")))
+        .collect();
+    assert_eq!(
+        notices,
+        [(
+            NoticeKind::Skipped,
+            "1 entries skipped (the walk could not read them)"
+        )]
+    );
 }
 
 #[test]

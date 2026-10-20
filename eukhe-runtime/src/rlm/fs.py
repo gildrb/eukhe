@@ -238,7 +238,9 @@ def write(*args: Any, **kwargs: Any) -> WriteResult:
     (``write@1``).
 
     Parent directories are created. A replaced file keeps its BOM, line
-    endings, and mode. Prefer ``edit`` for changes to an existing file.
+    endings, and mode. An existing file is replaced only when this session
+    read (or wrote) it and nobody changed it since: ``read`` it first.
+    Prefer ``edit`` for changes to an existing file.
     """
     reply = _call("write", ("path", "content"), args, kwargs)
     return WriteResult(

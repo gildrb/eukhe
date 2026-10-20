@@ -19,9 +19,33 @@ use super::{
         textual_boundary_echo_warning, BoundarySide, REPLACEMENT_INDENT_AUTO_SHIFT_WARNING,
         UNRESOLVED_BLOCK_INTERNAL, UNRESOLVED_CLIPBOARD_INTERNAL,
     },
-    types::{Anchor, ApplyResult, Cursor, Edit},
+    types::{Anchor, ApplyResult, Cursor, Edit, Landing},
 };
-use crate::{error::EditError, store::Clipboard};
+use crate::{diff::line_runs, error::EditError, store::Clipboard};
+
+/// The origin of each line of `new` (split on `\n`) in `old`, from the
+/// equal runs of a line diff; `None` for a line only in `new`.
+pub(crate) fn diff_origins(old: &str, new: &str) -> Vec<Option<usize>> {
+    let mut origins = vec![None; new.split('\n').count()];
+    let (mut old_at, mut new_at) = (0_usize, 0_usize);
+    for run in line_runs(old, new) {
+        let count = run.count as usize;
+        match (run.added, run.removed) {
+            (true, _) => new_at += count,
+            (false, true) => old_at += count,
+            (false, false) => {
+                for step in 0..count {
+                    if let Some(origin) = origins.get_mut(new_at + step) {
+                        *origin = Some(old_at + step);
+                    }
+                }
+                old_at += count;
+                new_at += count;
+            }
+        }
+    }
+    origins
+}
 
 /// A line containing only closing delimiters and an optional trailing
 /// separator.
@@ -465,8 +489,14 @@ fn repair_landings(edits: &[Edit], lines: &[String]) -> (Vec<Edit>, Vec<String>)
     (out, warnings)
 }
 
-fn materialize(original: &[String], edits: &[Edit]) -> (String, Option<u32>) {
-    let mut lines = original.to_vec();
+/// The result text, its first changed line, and the origin of each result
+/// line (see [`ApplyResult::origins`]).
+fn materialize(original: &[String], edits: &[Edit]) -> (String, Option<u32>, Vec<Option<usize>>) {
+    let mut lines: Vec<(String, Option<usize>)> = original
+        .iter()
+        .enumerate()
+        .map(|(index, line)| (line.clone(), Some(index)))
+        .collect();
     let mut first = None;
     let mut bof = Vec::new();
     let mut eof = Vec::new();
@@ -477,12 +507,12 @@ fn materialize(original: &[String], edits: &[Edit]) -> (String, Option<u32>) {
                 cursor: Cursor::Bof,
                 text,
                 ..
-            } => bof.push(text.clone()),
+            } => bof.push((text.clone(), None)),
             Edit::Insert {
                 cursor: Cursor::Eof,
                 text,
                 ..
-            } => eof.push(text.clone()),
+            } => eof.push((text.clone(), None)),
             Edit::Insert {
                 cursor: Cursor::BeforeAnchor(anchor) | Cursor::AfterAnchor(anchor),
                 ..
@@ -508,13 +538,13 @@ fn materialize(original: &[String], edits: &[Edit]) -> (String, Option<u32>) {
                     cursor: Cursor::AfterAnchor(_),
                     text,
                     ..
-                } => after.push(text),
+                } => after.push((text, None)),
                 Edit::Insert {
                     text,
                     replacement: true,
                     ..
-                } => replacements.push(text),
-                Edit::Insert { text, .. } => before.push(text),
+                } => replacements.push((text, None)),
+                Edit::Insert { text, .. } => before.push((text, None)),
                 Edit::Delete { .. } => delete = true,
                 Edit::Cut { .. } | Edit::Paste { .. } | Edit::Block { .. } => {}
             }
@@ -532,7 +562,7 @@ fn materialize(original: &[String], edits: &[Edit]) -> (String, Option<u32>) {
         first = Some(first.map_or(line, |old: u32| old.min(line)));
     }
     if !bof.is_empty() {
-        if lines.len() == 1 && lines[0].is_empty() {
+        if lines.len() == 1 && lines[0].0.is_empty() {
             lines = bof;
         } else {
             lines.splice(0..0, bof);
@@ -540,11 +570,11 @@ fn materialize(original: &[String], edits: &[Edit]) -> (String, Option<u32>) {
         first = Some(1);
     }
     if !eof.is_empty() {
-        let at = if lines.len() == 1 && lines[0].is_empty() {
+        let at = if lines.len() == 1 && lines[0].0.is_empty() {
             lines = eof;
             1
         } else {
-            let index = if lines.last().is_some_and(String::is_empty) {
+            let index = if lines.last().is_some_and(|line| line.0.is_empty()) {
                 lines.len() - 1
             } else {
                 lines.len()
@@ -554,7 +584,13 @@ fn materialize(original: &[String], edits: &[Edit]) -> (String, Option<u32>) {
         };
         first = Some(first.map_or(at as u32, |old| old.min(at as u32)));
     }
-    (lines.join("\n"), first)
+    let origins = lines.iter().map(|line| line.1).collect();
+    let text = lines
+        .into_iter()
+        .map(|line| line.0)
+        .collect::<Vec<_>>()
+        .join("\n");
+    (text, first, origins)
 }
 
 /// Apply parsed edits to LF-normalized text. Clipboard ops read and write
@@ -567,6 +603,7 @@ pub(crate) fn apply_edits(
     if edits.is_empty() {
         return Ok(ApplyResult {
             text: text.to_owned(),
+            origins: (0..text.split('\n').count()).map(Some).collect(),
             ..ApplyResult::default()
         });
     }
@@ -608,10 +645,12 @@ pub(crate) fn apply_edits(
             ambiguity.count,
         )));
     }
-    let (text, first_changed_line) = materialize(&lines, &normalized);
+    let (text, first_changed_line, origins) = materialize(&lines, &normalized);
     Ok(ApplyResult {
         text,
         first_changed_line,
         warnings,
+        origins,
+        landing: Landing::Fresh,
     })
 }

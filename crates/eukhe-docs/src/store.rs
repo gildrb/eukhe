@@ -17,7 +17,9 @@ pub const DEFAULT_MAX_PATHS: usize = 256;
 pub const DEFAULT_MAX_VERSIONS_PER_PATH: usize = 4;
 /// Global ceiling on retained snapshot text, measured in UTF-16 code units.
 pub const DEFAULT_MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
-/// Files larger than this are never snapshotted from disk.
+/// The one size limit of the documents tools: a larger file gets no tag
+/// (so `edit` cannot change it) and grep searches only its first this many
+/// bytes. Every message that names the limit formats it from here.
 pub const MAX_SNAPSHOT_FILE_BYTES: u64 = 4 * 1024 * 1024;
 /// Consecutive identical no-ops before the guard escalates.
 pub const NOOP_HARD_LIMIT: u32 = 3;
@@ -122,7 +124,27 @@ pub fn seen_lines_from_body(body: &str) -> Vec<u32> {
 
 struct PathHistory {
     versions: Vec<Snapshot>,
+    /// Digests of the raw bytes the session saw of this path, newest
+    /// first: what `write` may replace.
+    seen_bytes: Vec<u64>,
     touched: u64,
+}
+
+impl PathHistory {
+    fn new(touched: u64) -> Self {
+        Self {
+            versions: Vec::new(),
+            seen_bytes: Vec::new(),
+            touched,
+        }
+    }
+}
+
+/// Raw-byte digests kept per path: the versions `write` may replace.
+const SEEN_BYTES_PER_PATH: usize = 8;
+
+fn bytes_digest(bytes: &[u8]) -> u64 {
+    twox_hash::XxHash64::oneshot(0, bytes)
 }
 
 struct StoreState {
@@ -190,10 +212,7 @@ impl EditStore {
         let history = state
             .histories
             .entry(path.to_owned())
-            .or_insert_with(|| PathHistory {
-                versions: Vec::new(),
-                touched,
-            });
+            .or_insert_with(|| PathHistory::new(touched));
         history.touched = touched;
         if let Some(index) = history
             .versions
@@ -218,20 +237,36 @@ impl EditStore {
         hash
     }
 
-    /// Read, normalize, and record a file if it is readable and at most 4 MiB.
+    /// Record that the session saw `bytes`, the raw content of the file at
+    /// canonical `path` (a read, a search, or its own write): `write` may
+    /// replace that version.
+    pub fn saw_bytes(&self, path: &Path, bytes: &[u8]) {
+        let digest = bytes_digest(bytes);
+        let mut state = self.inner.lock();
+        state.clock = state.clock.wrapping_add(1);
+        let touched = state.clock;
+        let history = state
+            .histories
+            .entry(path.to_owned())
+            .or_insert_with(|| PathHistory::new(touched));
+        history.touched = touched;
+        history.seen_bytes.retain(|seen| *seen != digest);
+        history.seen_bytes.insert(0, digest);
+        history.seen_bytes.truncate(SEEN_BYTES_PER_PATH);
+        evict(&mut state);
+    }
+
+    /// Whether the session saw `bytes` as the content of `path` (see
+    /// [`EditStore::saw_bytes`]).
     #[must_use]
-    pub fn record_file(&self, absolute: &Path, seen_lines: Option<&[u32]>) -> Option<String> {
-        if std::fs::metadata(absolute).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
-            return None;
-        }
-        let raw = std::fs::read_to_string(absolute).ok()?;
-        if raw.len() as u64 > MAX_SNAPSHOT_FILE_BYTES {
-            return None;
-        }
-        let (_, without_bom) = crate::text::strip_bom(&raw);
-        let normalized = crate::text::normalize_to_lf(without_bom);
-        let key = eukhe_types::path_policy::real_path(absolute);
-        Some(self.record(&key, &normalized, seen_lines))
+    pub fn has_seen_bytes(&self, path: &Path, bytes: &[u8]) -> bool {
+        let digest = bytes_digest(bytes);
+        let mut state = self.inner.lock();
+        touch(&mut state, path);
+        state
+            .histories
+            .get(path)
+            .is_some_and(|history| history.seen_bytes.contains(&digest))
     }
 
     /// Union displayed lines into the most recent version matching a tag.
@@ -320,13 +355,9 @@ impl EditStore {
         let mut hashes = BTreeSet::new();
         merged.retain(|version| hashes.insert(version.hash.clone()));
         merged.truncate(max_versions);
-        state.histories.insert(
-            to.to_owned(),
-            PathHistory {
-                versions: merged,
-                touched,
-            },
-        );
+        let mut history = PathHistory::new(touched);
+        history.versions = merged;
+        state.histories.insert(to.to_owned(), history);
         evict(&mut state);
     }
 
@@ -515,14 +546,5 @@ mod tests {
         );
         store.reset_noop(path);
         assert_eq!(store.record_noop(path, hash), (1, false));
-    }
-
-    #[test]
-    fn oversized_file_is_not_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("large");
-        let file = std::fs::File::create(&path).unwrap();
-        file.set_len(MAX_SNAPSHOT_FILE_BYTES + 1).unwrap();
-        assert!(EditStore::new().record_file(&path, None).is_none());
     }
 }

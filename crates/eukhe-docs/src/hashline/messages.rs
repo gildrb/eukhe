@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeSet, HashSet};
 
+use crate::{store::MAX_SNAPSHOT_FILE_BYTES, text::format_bytes};
+
 /// Number of hexadecimal characters in a snapshot tag.
 pub(crate) const HL_FILE_HASH_LENGTH: usize = 4;
 /// Representative snapshot tags used in diagnostics.
@@ -53,6 +55,21 @@ pub(crate) fn json_quote(s: &str) -> String {
 /// Lines of context shown either side of a hash mismatch.
 const MISMATCH_CONTEXT: u32 = 2;
 
+/// The 1-based line numbers [`format_anchored_context`] prints for
+/// `anchor_lines` in a file of `line_count` lines.
+pub(crate) fn anchored_context_lines(anchor_lines: &[u32], line_count: usize) -> BTreeSet<u32> {
+    let mut display_lines = BTreeSet::new();
+    for &line in anchor_lines {
+        if line < 1 || (line as usize) > line_count {
+            continue;
+        }
+        let lo = line.saturating_sub(MISMATCH_CONTEXT).max(1);
+        let hi = (line + MISMATCH_CONTEXT).min(u32::try_from(line_count).unwrap_or(u32::MAX));
+        display_lines.extend(lo..=hi);
+    }
+    display_lines
+}
+
 /// Numbered `LINE:TEXT` rows around `anchor_lines` (±[`MISMATCH_CONTEXT`]),
 /// `*`-marking anchors, `...` between non-adjacent runs. Out-of-range anchors
 /// contribute no rows.
@@ -60,17 +77,7 @@ pub(crate) fn format_anchored_context<S: AsRef<str>>(
     anchor_lines: &[u32],
     file_lines: &[S],
 ) -> Vec<String> {
-    let mut display_lines = BTreeSet::new();
-    for &line in anchor_lines {
-        if line < 1 || (line as usize) > file_lines.len() {
-            continue;
-        }
-        let lo = line.saturating_sub(MISMATCH_CONTEXT).max(1);
-        let hi = (line + MISMATCH_CONTEXT).min(file_lines.len() as u32);
-        for line_num in lo..=hi {
-            display_lines.insert(line_num);
-        }
-    }
+    let display_lines = anchored_context_lines(anchor_lines, file_lines.len());
     let anchor_set: HashSet<u32> = anchor_lines.iter().copied().collect();
     let mut rows = Vec::new();
     let mut previous: Option<u32> = None;
@@ -533,11 +540,33 @@ pub(crate) fn write_drift_warning(path: &str) -> String {
 
 /// Section omitted the mandatory snapshot tag. Shared by the apply
 /// (`Patcher.prepare`) and preview/diff paths so both stay in lockstep.
-pub(crate) fn missing_snapshot_tag_message(section_path: &str) -> String {
+/// `size` is the file's byte count when known: a file over
+/// [`MAX_SNAPSHOT_FILE_BYTES`] never gets a tag, so the message gives the
+/// other ways to change it.
+pub(crate) fn missing_snapshot_tag_message(section_path: &str, size: Option<u64>) -> String {
+    match size {
+        Some(size) if size > MAX_SNAPSHOT_FILE_BYTES => format!(
+            "{section_path} is {} (over {}), so it has no tag and `edit` cannot change it. Read \
+             it in ranges (`{section_path}:1-2000`). To change it, use `write` (the whole file) \
+             or `bash`.",
+            format_bytes(size),
+            format_bytes(MAX_SNAPSHOT_FILE_BYTES)
+        ),
+        Some(_) | None => format!(
+            "Missing hashline snapshot tag for {section_path}; use \
+             `{HL_FILE_PREFIX}{section_path}{HL_FILE_HASH_SEP}tag{HL_FILE_SUFFIX}` from your latest \
+             read/search output. To create a new file, use the write tool."
+        ),
+    }
+}
+
+/// A retry of a section that already changed the file: the live text is
+/// what the section makes of its tagged snapshot, so nothing is written.
+pub(crate) fn already_landed_message(path: &str) -> String {
     format!(
-        "Missing hashline snapshot tag for {section_path}; use \
-         `{HL_FILE_PREFIX}{section_path}{HL_FILE_HASH_SEP}tag{HL_FILE_SUFFIX}` from your latest \
-         read/search output. To create a new file, use the write tool."
+        "Edits to {path} are already in the file: applying them to the snapshot of your tag gives \
+         the current text, so nothing was written. Do not send them again. For a new edit, use the \
+         tag from the response of the edit that landed, or `read` the file again."
     )
 }
 

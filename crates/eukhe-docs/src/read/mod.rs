@@ -1,8 +1,9 @@
-//! The read projection: a file becomes `[path#TAG]` plus `N:TEXT` rows, the
-//! shown lines are recorded as seen in the session store, and selectors
-//! bound what is shown (port of omp `read/format.rs` for text files, without
-//! syntax-aware block context). A read without a selector shows the whole
-//! file, as in omp; output is bounded once, by the caller.
+//! The read projection: a file becomes `[path#TAG]` plus `N:TEXT` rows, and
+//! selectors bound what is shown (port of omp `read/format.rs` for text
+//! files, without syntax-aware block context). A read records the file's
+//! snapshot but not its seen lines: the caller records the [`Row`]s that
+//! reach the model. A read without a selector shows the whole file, as in
+//! omp; output is bounded once, by the caller.
 
 mod listing;
 pub(crate) mod selector;
@@ -15,7 +16,7 @@ use eukhe_types::path_policy::{resolve, RealPath};
 use crate::gate::{Access, AccessGate};
 use crate::notice::{Notice, NoticeKind, Omitted, Unit};
 use crate::store::{EditStore, MAX_SNAPSHOT_FILE_BYTES};
-use crate::text::{normalize_to_lf, strip_bom};
+use crate::text::{encoding_name, format_bytes, normalize_to_lf, strip_bom};
 use crate::url::{Located, Url, UrlError};
 
 pub use listing::DirEntry;
@@ -28,8 +29,10 @@ const RANGE_LEADING_CONTEXT_LINES: usize = 1;
 const RANGE_TRAILING_CONTEXT_LINES: usize = 3;
 /// Marker between non-contiguous spans.
 const ELLIPSIS: &str = "…";
-/// Bytes sniffed for a NUL or invalid UTF-8.
+/// Bytes sniffed for a NUL.
 const BINARY_SNIFF_BYTES: usize = 8192;
+/// Lines in the range a notice gives for a file too large to edit.
+const LARGE_FILE_RANGE_LINES: usize = 2000;
 
 /// Why a read failed; the message is model-facing.
 #[derive(Debug, thiserror::Error)]
@@ -39,9 +42,16 @@ pub enum ReadError {
     #[error(transparent)]
     Selector(#[from] SelectorError),
     #[error(
-        "[Cannot read binary file '{display}' ({size}); not valid UTF-8 text. Use ':raw' to read bytes verbatim.]"
+        "[Cannot read binary file '{display}' ({size}): it has a NUL byte. Use ':raw' to read bytes verbatim.]"
     )]
     Binary { display: String, size: String },
+    #[error(
+        "[{display} is {encoding}: `edit` works on UTF-8 only. ':raw' shows it (characters that are not UTF-8 become U+FFFD); `write` replaces it as UTF-8.]"
+    )]
+    NotUtf8 {
+        display: String,
+        encoding: &'static str,
+    },
     #[error("{display}: {source}")]
     Io {
         display: String,
@@ -59,6 +69,16 @@ pub enum ReadError {
 pub struct LineSpan {
     pub start_line: usize,
     pub end_line: usize,
+}
+
+/// One shown row of a read or grep result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Row {
+    /// The one-based source line the row shows.
+    pub line: u32,
+    /// The 0-based index of the row's line in the rendered text
+    /// ([`ReadView::rendered`], `GrepOutput::render()`).
+    pub at: usize,
 }
 
 /// A read result.
@@ -82,7 +102,8 @@ pub enum ReadContent {
 /// A read file.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileView {
-    /// The file tag; `None` when the file is too large to snapshot.
+    /// The file tag; `None` when the file is over the size limit or not
+    /// UTF-8 (a lossy `:raw` read).
     pub tag: Option<String>,
     /// The whole text, LF-normalized, without BOM.
     pub text: String,
@@ -90,6 +111,9 @@ pub struct FileView {
     pub total_lines: usize,
     /// Source spans the projection shows (context lines included).
     pub shown: Vec<LineSpan>,
+    /// The numbered rows shown, with their place in `rendered`; empty for a
+    /// `:raw` read.
+    pub rows: Vec<Row>,
 }
 
 /// Read `authored` (which may carry a `:selector`) relative to `cwd`.
@@ -184,7 +208,14 @@ pub(crate) fn read_under(
 /// Project the file or directory at `absolute`, opened at `real` (its
 /// resolved path), after `gate` let the read (a list, for a directory) of
 /// `real`; `authored` names it in a not-found message.
-#[allow(clippy::too_many_arguments)] // Each argument is one part of the read; a struct would only rename them.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each argument is one part of the read; a struct would only rename them"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one read: directory or file, classify the bytes, project, tag"
+)]
 fn project_path(
     store: &EditStore,
     cwd: &Path,
@@ -245,31 +276,60 @@ fn project_path(
         display: display.clone(),
         source,
     })?;
-    let raw_text = match String::from_utf8(bytes) {
-        Ok(text) if !text.as_bytes()[..text.len().min(BINARY_SNIFF_BYTES)].contains(&0) => text,
-        Ok(text) if selector.is_raw() => text,
-        Err(error) if selector.is_raw() => String::from_utf8_lossy(error.as_bytes()).into_owned(),
-        Ok(_) | Err(_) => {
+    let sniffed_nul = bytes[..bytes.len().min(BINARY_SNIFF_BYTES)].contains(&0);
+    let utf8 = std::str::from_utf8(&bytes).is_ok();
+    let utf16 = matches!(bytes.as_slice(), [0xFF, 0xFE, ..] | [0xFE, 0xFF, ..]);
+    if !selector.is_raw() {
+        if !utf8 && (utf16 || !sniffed_nul) {
+            return Err(ReadError::NotUtf8 {
+                display,
+                encoding: encoding_name(&bytes),
+            });
+        }
+        if sniffed_nul {
             return Err(ReadError::Binary {
                 display,
                 size: format_bytes(metadata.len()),
-            })
+            });
         }
+    }
+    let key = open.to_path_buf();
+    store.saw_bytes(&key, &bytes);
+    let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let raw_text = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
     };
     let text = normalize_to_lf(strip_bom(&raw_text).1).into_owned();
-    let projection = project(&text, &selector, &display);
-    let tag = (metadata.len() <= MAX_SNAPSHOT_FILE_BYTES).then(|| {
-        let seen: Vec<u32> = projection
-            .shown
-            .iter()
-            .flat_map(|span| span.start_line..=span.end_line)
-            .map(|line| u32::try_from(line).unwrap_or(u32::MAX))
-            .collect();
-        store.record(open, &text, Some(&seen))
-    });
-    let rendered = match (&tag, selector.is_raw()) {
-        (Some(tag), false) => format!("[{display}#{tag}]\n{}", projection.text),
-        (Some(_) | None, true) | (None, false) => projection.text,
+    let mut projection = project(&text, &selector, &display);
+    let tag = (utf8 && size <= MAX_SNAPSHOT_FILE_BYTES).then(|| store.record(&key, &text, None));
+    if size > MAX_SNAPSHOT_FILE_BYTES {
+        projection.diags.push(Notice {
+            continuation: Some(format!(":1-{LARGE_FILE_RANGE_LINES}")),
+            ..Notice::warn(
+                NoticeKind::NotEditable,
+                format!(
+                    "{display} is {}, over the {} limit: it has no tag, so `edit` cannot change it. Read it in ranges; change it with `write` (whole file) or `bash`.",
+                    format_bytes(size),
+                    format_bytes(MAX_SNAPSHOT_FILE_BYTES)
+                ),
+            )
+        });
+    }
+    let (rendered, rows) = match (&tag, selector.is_raw()) {
+        (Some(tag), false) => {
+            let rows = projection
+                .rows
+                .iter()
+                .map(|row| Row {
+                    line: row.line,
+                    at: row.at + 1,
+                })
+                .collect();
+            (format!("[{display}#{tag}]\n{}", projection.text), rows)
+        }
+        (None, false) => (projection.text, projection.rows),
+        (Some(_) | None, true) => (projection.text, Vec::new()),
     };
     let rendered = with_notices(rendered, &projection.diags);
     Ok(ReadView {
@@ -280,6 +340,7 @@ fn project_path(
             total_lines: projection.total_lines,
             shown: projection.shown,
             text,
+            rows,
         }),
         rendered,
         diags: projection.diags,
@@ -318,28 +379,13 @@ pub fn display_path(path: &Path, cwd: &Path, home: Option<&Path>) -> String {
     path.to_string_lossy().into_owned()
 }
 
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "a one-decimal size label tolerates rounding"
-)]
-fn format_bytes(bytes: u64) -> String {
-    const KIB: u64 = 1024;
-    if bytes < KIB {
-        format!("{bytes}B")
-    } else if bytes < KIB * KIB {
-        format!("{:.1}KB", bytes as f64 / KIB as f64)
-    } else if bytes < KIB * KIB * KIB {
-        format!("{:.1}MB", bytes as f64 / (KIB * KIB) as f64)
-    } else {
-        format!("{:.1}GB", bytes as f64 / (KIB * KIB * KIB) as f64)
-    }
-}
-
 struct Projection {
     text: String,
     diags: Vec<Notice>,
     total_lines: usize,
     shown: Vec<LineSpan>,
+    /// Numbered rows, with `at` counted in `text`.
+    rows: Vec<Row>,
 }
 
 /// Lines a hashline anchor can address: a final newline adds no line.
@@ -375,6 +421,7 @@ fn project(text: &str, selector: &Selector, label: &str) -> Projection {
             diags: Vec::new(),
             total_lines: total,
             shown: span_of(1, total).into_iter().collect(),
+            rows: Vec::new(),
         },
         Selector::Whole => project_window(&lines, None, false, label),
     }
@@ -387,12 +434,20 @@ fn span_of(start_line: usize, end_line: usize) -> Option<LineSpan> {
     })
 }
 
-fn numbered(lines: &[&str], span: LineSpan, out: &mut String) {
+/// Write the `N:TEXT` rows of `span` to `out` and record each in `rows`.
+fn numbered(lines: &[&str], span: LineSpan, out: &mut String, rows: &mut Vec<Row>) {
+    let mut at = out.bytes().filter(|byte| *byte == b'\n').count();
     for (offset, line) in lines[span.start_line - 1..span.end_line].iter().enumerate() {
         if !out.is_empty() {
             out.push('\n');
+            at += 1;
         }
-        let _infallible = write!(out, "{}:{line}", span.start_line + offset);
+        let number = span.start_line + offset;
+        rows.push(Row {
+            line: u32::try_from(number).unwrap_or(u32::MAX),
+            at,
+        });
+        let _infallible = write!(out, "{number}:{line}");
     }
 }
 
@@ -417,6 +472,7 @@ fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &s
             diags: vec![diag],
             total_lines: total,
             shown: Vec::new(),
+            rows: Vec::new(),
         };
     }
     let limit = range.and_then(|range| {
@@ -442,12 +498,13 @@ fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &s
         requested_end
     };
     let shown: Vec<LineSpan> = span_of(start + 1, end).into_iter().collect();
+    let mut rows = Vec::new();
     let text = if raw {
         lines[start..end].join("\n")
     } else {
         let mut out = String::new();
         for span in &shown {
-            numbered(lines, *span, &mut out);
+            numbered(lines, *span, &mut out, &mut rows);
         }
         out
     };
@@ -471,6 +528,7 @@ fn project_window(lines: &[&str], range: Option<LineRange>, raw: bool, label: &s
         diags,
         total_lines: total,
         shown,
+        rows,
     }
 }
 
@@ -498,6 +556,7 @@ fn project_ranges(lines: &[&str], ranges: &[LineRange], raw: bool, label: &str) 
         });
     }
     let mut text = String::new();
+    let mut rows = Vec::new();
     for (index, span) in shown.iter().enumerate() {
         if raw {
             if index > 0 {
@@ -509,7 +568,7 @@ fn project_ranges(lines: &[&str], ranges: &[LineRange], raw: bool, label: &str) 
                 text.push('\n');
                 text.push_str(ELLIPSIS);
             }
-            numbered(lines, *span, &mut text);
+            numbered(lines, *span, &mut text, &mut rows);
         }
     }
     Projection {
@@ -517,6 +576,7 @@ fn project_ranges(lines: &[&str], ranges: &[LineRange], raw: bool, label: &str) 
         diags,
         total_lines: total,
         shown,
+        rows,
     }
 }
 

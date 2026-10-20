@@ -11,6 +11,7 @@ use std::{
     fs,
     num::NonZeroUsize,
     path::{Component, Path, PathBuf},
+    sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
@@ -18,10 +19,10 @@ use globset::GlobBuilder;
 
 use crate::{
     gate::{Access, AccessGate},
-    notice::{Notice, NoticeKind},
+    notice::{Notice, NoticeKind, Tally},
     path_tree::format_grouped_paths,
     scope::{
-        has_glob_chars, is_missing, normalize_path_input, resolve_input_path,
+        has_glob_chars, is_eukhe_temp, is_missing, normalize_path_input, resolve_input_path,
         split_top_level_semicolons, workspace_relative,
     },
 };
@@ -44,6 +45,8 @@ pub struct GlobRequest {
     pub gitignore: bool,
     /// Paths returned, at most [`MAX_GLOB_LIMIT`] (the default).
     pub limit: Option<NonZeroUsize>,
+    /// Ranked paths to skip before the returned ones; pages a long result.
+    pub skip: u64,
 }
 
 /// A failed `glob`. `Display` is the model-facing message.
@@ -120,7 +123,11 @@ pub struct GlobOutput {
     pub timed_out: bool,
     /// Whether matches were left out (deadline or limit).
     pub truncated: bool,
-    /// Timeout, limit, and missing-path notices.
+    /// Ranked paths skipped before `matches`.
+    pub skip: u64,
+    /// The `skip` that returns the next paths, when more follow.
+    pub next_skip: Option<u64>,
+    /// Timeout, paging, skipped-entry, and missing-path notices.
     pub notices: Vec<Notice>,
     /// Model-facing listing: `# dir/` headings and bare file names.
     pub text: String,
@@ -163,6 +170,10 @@ struct Target {
     visible_root: Option<PathBuf>,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one listing in order: resolve each target, gate it, walk, page, render"
+)]
 fn glob_until(
     cwd: &Path,
     request: &GlobRequest,
@@ -247,9 +258,13 @@ fn glob_until(
     }
 
     let deadline = Instant::now() + timeout;
+    let skip = usize::try_from(request.skip).unwrap_or(usize::MAX);
+    let keep = skip.saturating_add(limit);
     let mut matches = Vec::new();
     let mut truncated = false;
     let mut timed_out = false;
+    let mut excluded = Tally::default();
+    let mut unreadable = Tally::default();
     for target in targets {
         if Instant::now() >= deadline {
             timed_out = true;
@@ -270,9 +285,11 @@ fn glob_until(
             continue;
         }
         let pattern = target.pattern.as_deref().unwrap_or("**/*");
-        let outcome = walk_target(&root, &target, pattern, request, limit, deadline)?;
+        let outcome = walk_target(&root, &target, pattern, request, keep, deadline)?;
         matches.extend(outcome.matches);
         truncated |= outcome.truncated;
+        excluded.absorb(outcome.excluded);
+        unreadable.absorb(outcome.unreadable);
         if outcome.timed_out {
             timed_out = true;
             break;
@@ -282,10 +299,19 @@ fn glob_until(
     matches.sort_by(|left, right| compare_rank(right, left));
     let mut seen = HashSet::with_capacity(matches.len());
     matches.retain(|entry| seen.insert(entry.path.clone()));
+    let ranked = matches.len();
+    let past_end = skip > 0 && skip >= ranked && ranked > 0;
+    matches.drain(..skip.min(ranked));
     if matches.len() > limit {
         truncated = true;
         matches.truncate(limit);
     }
+    // A walk that kept only its best `skip + limit` paths also had more.
+    let next_skip = truncated.then(|| {
+        request
+            .skip
+            .saturating_add(u64::try_from(limit).unwrap_or(u64::MAX))
+    });
 
     let mut notices = Vec::new();
     if timed_out {
@@ -303,14 +329,31 @@ fn glob_until(
             ),
         ));
     }
-    if truncated {
+    if past_end {
+        notices.push(Notice::warn(
+            NoticeKind::RangeOutOfBounds,
+            format!("skip={skip} is past the end of {ranked} paths"),
+        ));
+    }
+    if let Some(next_skip) = next_skip {
         notices.push(Notice {
-            continuation: Some(format!("limit={}", limit.saturating_mul(2))),
+            continuation: Some(format!("skip={next_skip}")),
             ..Notice::info(
-                NoticeKind::LimitReached,
-                format!("{limit} result limit reached"),
+                NoticeKind::Pagination,
+                format!(
+                    "paths {}-{next_skip} shown; more follow (newest first)",
+                    request.skip.saturating_add(1)
+                ),
             )
         });
+    }
+    if let Some(text) = excluded.describe(
+        "excluded directories not listed (`.git` always; `node_modules` unless the pattern names it)",
+    ) {
+        notices.push(Notice::warn(NoticeKind::Skipped, text));
+    }
+    if let Some(text) = unreadable.describe("entries skipped (the walk could not read them)") {
+        notices.push(Notice::warn(NoticeKind::Skipped, text));
     }
     if !missing_paths.is_empty() {
         notices.push(Notice::warn(
@@ -333,6 +376,8 @@ fn glob_until(
         missing_paths,
         timed_out,
         truncated: truncated || timed_out,
+        skip: request.skip,
+        next_skip,
         notices,
         text,
     })
@@ -388,14 +433,22 @@ struct WalkOutcome {
     matches: Vec<GlobMatch>,
     truncated: bool,
     timed_out: bool,
+    /// `.git` and `node_modules` entries the walk did not enter.
+    excluded: Tally,
+    /// Entries the walk could not read.
+    unreadable: Tally,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one walk: build, filter, rank, and count the skipped entries"
+)]
 fn walk_target(
     root: &Path,
     target: &Target,
     pattern: &str,
     request: &GlobRequest,
-    limit: usize,
+    keep: usize,
     deadline: Instant,
 ) -> Result<WalkOutcome, GlobError> {
     let pattern_matcher = GlobBuilder::new(pattern)
@@ -418,6 +471,9 @@ fn walk_target(
                 .max(1),
         )
     };
+    let excluded = Arc::new(Mutex::new(Tally::default()));
+    let excluded_sink = Arc::clone(&excluded);
+    let filter_root = root.to_owned();
     let mut builder = ignore::WalkBuilder::new(&target.canonical);
     builder
         .hidden(!request.hidden)
@@ -431,11 +487,24 @@ fn walk_target(
         .max_depth(max_depth)
         .filter_entry(move |entry| {
             let name = entry.file_name();
-            name != ".git" && (mentions_node_modules || name != "node_modules")
+            if is_eukhe_temp(name) {
+                return false;
+            }
+            let kept = name != ".git" && (mentions_node_modules || name != "node_modules");
+            if !kept {
+                excluded_sink
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .add(|| {
+                        workspace_relative(&filter_root, entry.path())
+                            .unwrap_or_else(|_| entry.path().display().to_string())
+                    });
+            }
+            kept
         });
-    let keep = limit;
     let mut matches = Vec::with_capacity(keep.saturating_add(1));
     let mut timed_out = false;
+    let mut unreadable = Tally::default();
     for entry in builder.build() {
         if Instant::now() >= deadline {
             timed_out = true;
@@ -443,17 +512,10 @@ fn walk_target(
         }
         let entry = match entry {
             Ok(entry) => entry,
-            Err(error)
-                if error.io_error().is_some_and(|error| {
-                    matches!(
-                        error.kind(),
-                        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
-                    )
-                }) =>
-            {
-                continue
+            Err(error) => {
+                unreadable.add(|| error.to_string());
+                continue;
             }
-            Err(error) => return Err(workspace_error(error)),
         };
         if entry.depth() == 0 {
             continue;
@@ -491,10 +553,13 @@ fn walk_target(
     matches.sort_by(|left, right| compare_rank(right, left));
     let truncated = matches.len() > keep;
     matches.truncate(keep);
+    let excluded = std::mem::take(&mut *excluded.lock().unwrap_or_else(PoisonError::into_inner));
     Ok(WalkOutcome {
         matches,
         truncated,
         timed_out,
+        excluded,
+        unreadable,
     })
 }
 
@@ -580,5 +645,7 @@ fn workspace_error(error: impl std::fmt::Display) -> GlobError {
     }
 }
 
+#[cfg(test)]
+mod bridge;
 #[cfg(test)]
 mod tests;

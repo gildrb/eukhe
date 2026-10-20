@@ -561,7 +561,11 @@ fn mismatch_messages_distinguish_stale_and_unrecognized_hashes() {
         hash_recognized: false,
         ..stale
     };
-    let message = mismatch_error(&unknown).to_string();
-    assert!(message.contains("hash #1A2B is not from this session"));
-    assert!(message.contains("never invent the tag"));
+    assert_eq!(
+        mismatch_error(&unknown).to_string(),
+        "Edit rejected for a.ts: tag #1A2B is not among the versions of this file that this \
+         worker holds (an older read, or one from before a restart).\nThe current file hashes to \
+         #3C4D. Re-read the file with `read` and use the [path#tag] header it gives. Do not \
+         invent a tag.\n\n 1:one\n*2:two\n 3:three"
+    );
 }

@@ -454,3 +454,145 @@ fn writer_receives_the_read_bytes_for_compare_and_swap() {
     );
     assert_eq!(ws.read("b.txt").as_deref(), Some("\u{feff}ONE\r\n"));
 }
+
+/// Apply `edit` to `rel` written as `bytes`, tagged from its own text, and
+/// return the file after the edit.
+fn edit_bytes(rel: &str, bytes: &str, edit: &str) -> String {
+    let ws = Workspace::new();
+    ws.write(rel, bytes);
+    let tag = ws.snapshot(rel, bytes, None);
+    ws.apply(&format!("[{rel}#{tag}]\n{edit}"), &DiskWriter::default())
+        .expect("apply");
+    ws.read(rel).expect("edited file")
+}
+
+#[test]
+fn edit_keeps_a_lone_cr_and_every_untouched_byte() {
+    assert_eq!(
+        edit_bytes("a.txt", "one\nt\rwo\nthree\r\n", "PUT 1.=1:\n+ONE"),
+        "ONE\nt\rwo\nthree\r\n"
+    );
+}
+
+#[test]
+fn edit_keeps_the_endings_of_untouched_lines_in_a_mixed_file() {
+    assert_eq!(
+        edit_bytes("a.txt", "a\nb\r\nc\n", "PUT 1.=1:\n+A"),
+        "A\nb\r\nc\n"
+    );
+}
+
+#[test]
+fn insert_at_the_start_of_a_crlf_file_gets_crlf() {
+    assert_eq!(
+        edit_bytes("a.txt", "a\r\nb\r\n", "PUT <1:\n+X"),
+        "X\r\na\r\nb\r\n"
+    );
+}
+
+#[test]
+fn non_utf8_target_names_the_path_and_the_next_step() {
+    let ws = Workspace::new();
+    std::fs::write(ws.cwd.join("a.txt"), [0xFF, 0xFE, b'a', 0]).expect("write");
+    let error = ws
+        .apply("[a.txt#0000]\nPUT 1.=1:\n+x", &DiskWriter::default())
+        .expect_err("not UTF-8");
+    assert_eq!(
+        error.to_string(),
+        "a.txt is UTF-16 (little endian); `edit` changes UTF-8 text only. To see it, `read` it \
+         with `:raw`. To change it, `write` the whole file (it is then saved as UTF-8)."
+    );
+}
+
+#[test]
+fn io_error_names_its_path() {
+    let ws = Workspace::new();
+    std::fs::create_dir(ws.cwd.join("d")).expect("mkdir");
+    let error = ws
+        .apply("[d#0000]\nPUT 1.=1:\n+x", &DiskWriter::default())
+        .expect_err("a directory");
+    assert_eq!(error.to_string(), "d: Is a directory (os error 21)");
+}
+
+#[test]
+fn eof_append_retried_with_the_old_tag_is_not_applied_again() {
+    let ws = Workspace::new();
+    let path = ws.write("a.txt", "a\n");
+    let tag = ws.snapshot("a.txt", "a\n", None);
+    let input = format!("[a.txt#{tag}]\nPUT >$:\n+b");
+    ws.apply(&input, &DiskWriter::default()).expect("first");
+    let retry = ws.apply(&input, &DiskWriter::default()).expect("retry");
+    assert_eq!(ws.read("a.txt").as_deref(), Some("a\nb\n"));
+    let text = "Edits to a.txt are already in the file: applying them to the snapshot of your tag \
+                gives the current text, so nothing was written. Do not send them again. For a \
+                new edit, use the tag from the response of the edit that landed, or `read` the \
+                file again.";
+    assert_eq!(
+        retry,
+        HashlineOutcome {
+            text: text.into(),
+            files: vec![FileOutcome {
+                display: "a.txt".into(),
+                absolute: path,
+                change: FileChange::Unchanged,
+                diff: String::new(),
+                first_changed_line: None,
+                warnings: Vec::new(),
+                tag: Some(file_hash("a\nb\n")),
+                text: text.into(),
+            }],
+        }
+    );
+}
+
+#[test]
+fn eof_append_already_landed_does_not_fail_a_multi_file_payload() {
+    let ws = Workspace::new();
+    ws.write("a.txt", "a\n");
+    ws.write("b.txt", "b\n");
+    let a_tag = ws.snapshot("a.txt", "a\n", None);
+    let b_tag = ws.snapshot("b.txt", "b\n", None);
+    ws.apply(
+        &format!("[a.txt#{a_tag}]\nPUT >$:\n+x"),
+        &DiskWriter::default(),
+    )
+    .expect("first");
+    ws.apply(
+        &format!("[a.txt#{a_tag}]\nPUT >$:\n+x\n[b.txt#{b_tag}]\nPUT 1.=1:\n+B"),
+        &DiskWriter::default(),
+    )
+    .expect("retry with a second file");
+    assert_eq!(
+        (ws.read("a.txt"), ws.read("b.txt")),
+        (Some("a\nx\n".into()), Some("B\n".into()))
+    );
+}
+
+#[test]
+fn mismatch_records_the_printed_lines_as_seen() {
+    let ws = Workspace::new();
+    let live = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    let path = ws.write("a.txt", live);
+    ws.apply("[a.txt#0000]\nPUT 5.=5:\n+x", &DiskWriter::default())
+        .expect_err("unknown tag");
+    let seen = ws
+        .store
+        .by_content(&eukhe_types::path_policy::real_path(&path), live)
+        .and_then(|snapshot| snapshot.seen_lines);
+    assert_eq!(seen, Some((3..=7).collect()));
+}
+
+#[test]
+fn missing_tag_on_a_big_file_gives_the_ways_to_change_it() {
+    let ws = Workspace::new();
+    let size = eukhe_docs::MAX_SNAPSHOT_FILE_BYTES + 1;
+    ws.write("big.txt", &"x".repeat(usize::try_from(size).expect("size")));
+    let error = ws
+        .apply("[big.txt]\nPUT 1.=1:\n+y", &DiskWriter::default())
+        .expect_err("no tag");
+    assert_eq!(
+        error.to_string(),
+        "big.txt is 4.0MB (over 4.0MB), so it has no tag and `edit` cannot change it. Read it \
+         in ranges (`big.txt:1-2000`). To change it, use `write` (the whole file) or `bash`."
+    );
+}

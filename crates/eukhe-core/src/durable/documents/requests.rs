@@ -14,10 +14,10 @@ use anyhow::Context as _;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_docs::{
     AccessGate, Documents, EditError, FileChange, GlobError, GlobOutput, GrepError, GrepOutput,
-    HashlineOutcome, Notice, ReadContent, ReadError, ReadView, Url, UrlError, WriteDisposition,
-    WriteError, WriteOutcome,
+    HashlineOutcome, Notice, ReadContent, ReadError, ReadView, Row, Url, UrlError,
+    WriteDisposition, WriteError, WriteOutcome,
 };
-use eukhe_durable::harness::types::ToolExecutionApi;
+use eukhe_durable::harness::types::{OmittedAt, OmittedOutput, ToolExecutionApi};
 use eukhe_types::pi_ai::{ImageContent, JsonObject};
 use futures::FutureExt;
 use serde::de::DeserializeOwned;
@@ -97,6 +97,110 @@ impl Done {
             Self::Glob(reply) => &reply.rendered,
         }
     }
+
+    /// Mark seen the rows of a read or grep result that reached the model:
+    /// those whose line of [`Done::rendered`] is not in `cut` (the lines an
+    /// output bound left out). Only seen lines are edit anchors.
+    pub(super) fn mark_seen(&self, documents: &Documents, cut: &Cut) {
+        let kept = |rows: &[Row]| -> Vec<u32> {
+            rows.iter()
+                .filter(|row| cut.keeps(row.at))
+                .map(|row| row.line)
+                .collect()
+        };
+        match self {
+            Self::Read(reply) => {
+                if let (Some(absolute), ReadReplyContent::File { tag: Some(tag), .. }) =
+                    (&reply.absolute, &reply.content)
+                {
+                    documents.mark_seen(absolute, tag, &kept(&reply.rows));
+                }
+            }
+            Self::Grep(reply) => {
+                for file in &reply.files {
+                    if let Some(tag) = &file.tag {
+                        documents.mark_seen(&file.absolute, tag, &kept(&file.rows));
+                    }
+                }
+            }
+            Self::Write(_) | Self::Edit(_) | Self::Glob(_) => {}
+        }
+    }
+}
+
+/// The lines of a rendered result that an output bound left out.
+pub(super) enum Cut {
+    /// The whole result reached the model.
+    Whole,
+    /// The 0-based lines `first..=last` of the rendered result were cut,
+    /// each whole or in part.
+    Lines { first: usize, last: usize },
+}
+
+impl Cut {
+    /// The lines of `rendered` that are not whole in `kept`, which is
+    /// `rendered` less `omitted.bytes` contiguous bytes (an output bound
+    /// keeps a head and a tail). The bound cuts after line
+    /// `omitted.at`; when the bytes do not agree with that, the cut covers
+    /// every place it could lie.
+    pub(super) fn of(rendered: &str, kept: &str, omitted: &OmittedOutput) -> Self {
+        let count = usize::try_from(omitted.bytes).unwrap_or(usize::MAX);
+        if count == 0 || kept.len() >= rendered.len() {
+            return Self::Whole;
+        }
+        let (rendered, kept) = (rendered.as_bytes(), kept.as_bytes());
+        let line_of = |byte: usize| rendered[..byte].split(|&b| b == b'\n').count() - 1;
+        let lines = |start: usize| Self::Lines {
+            first: line_of(start),
+            last: line_of(start.saturating_add(count).min(rendered.len()) - 1),
+        };
+        if let OmittedAt::AfterLine(after) = omitted.at {
+            let after = usize::try_from(after).unwrap_or(usize::MAX);
+            let start = if after == 0 {
+                Some(0)
+            } else {
+                rendered
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &byte)| byte == b'\n')
+                    .nth(after - 1)
+                    .map(|(index, _)| index + 1)
+            };
+            if let Some(start) = start.filter(|&start| {
+                start.saturating_add(count) <= rendered.len()
+                    && start <= kept.len()
+                    && rendered[..start] == kept[..start]
+                    && rendered[start + count..] == kept[start..]
+            }) {
+                return lines(start);
+            }
+        }
+        let prefix = rendered
+            .iter()
+            .zip(kept)
+            .take_while(|(a, b)| a == b)
+            .count();
+        let suffix = rendered
+            .iter()
+            .rev()
+            .zip(kept.iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        // The cut starts at some byte in `earliest..=latest`.
+        let latest = prefix.min(kept.len());
+        let earliest = kept.len().saturating_sub(suffix).min(latest);
+        Self::Lines {
+            first: line_of(earliest),
+            last: line_of(latest.saturating_add(count).min(rendered.len()) - 1),
+        }
+    }
+
+    fn keeps(&self, at: usize) -> bool {
+        match self {
+            Self::Whole => true,
+            Self::Lines { first, last } => at < *first || at > *last,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -109,6 +213,9 @@ pub(super) struct ReadReply {
     diags: Vec<String>,
     #[serde(flatten)]
     content: ReadReplyContent,
+    /// The shown rows and their lines in `rendered`.
+    #[serde(skip)]
+    rows: Vec<Row>,
 }
 
 impl ReadReply {
@@ -121,6 +228,7 @@ impl ReadReply {
             rendered: text.clone(),
             diags: Vec::new(),
             content: ReadReplyContent::Text { text },
+            rows: Vec::new(),
         }
     }
 }
@@ -177,6 +285,8 @@ struct EditFileReply {
     absolute: PathBuf,
     change: &'static str,
     destination: Option<PathBuf>,
+    /// Why the file was not written (`change` is `not_written`).
+    reason: Option<String>,
     diff: String,
     first_changed_line: Option<u32>,
     warnings: Vec<String>,
@@ -199,6 +309,9 @@ struct GrepFileReply {
     tag: Option<String>,
     /// `[line, text]` of each matching line.
     matches: Vec<(u32, String)>,
+    /// The shown rows and their lines in `rendered`.
+    #[serde(skip)]
+    rows: Vec<Row>,
 }
 
 #[derive(Serialize)]
@@ -207,6 +320,10 @@ pub(super) struct GlobReply {
     rendered: String,
     paths: Vec<String>,
     truncated: bool,
+    /// Ranked paths skipped before `paths`.
+    skip: u64,
+    /// The `skip` that returns the next paths, when more follow.
+    next_skip: Option<u64>,
 }
 
 fn notice_lines(notices: &[Notice]) -> Vec<String> {
@@ -214,28 +331,34 @@ fn notice_lines(notices: &[Notice]) -> Vec<String> {
 }
 
 pub(super) fn read_reply(view: ReadView) -> ReadReply {
-    let content = match view.content {
-        ReadContent::File(file) => ReadReplyContent::File {
-            tag: file.tag,
-            text: file.text,
-            total_lines: file.total_lines,
-            shown: file
-                .shown
-                .iter()
-                .map(|span| [span.start_line, span.end_line])
-                .collect(),
-        },
-        ReadContent::Directory(entries) => ReadReplyContent::Directory {
-            entries: entries
-                .into_iter()
-                .map(|entry| DirEntryReply {
-                    path: entry.relative_path,
-                    is_dir: entry.is_dir,
-                    size: entry.size,
-                    modified_ms: entry.modified_ms,
-                })
-                .collect(),
-        },
+    let (content, rows) = match view.content {
+        ReadContent::File(file) => (
+            ReadReplyContent::File {
+                tag: file.tag,
+                text: file.text,
+                total_lines: file.total_lines,
+                shown: file
+                    .shown
+                    .iter()
+                    .map(|span| [span.start_line, span.end_line])
+                    .collect(),
+            },
+            file.rows,
+        ),
+        ReadContent::Directory(entries) => (
+            ReadReplyContent::Directory {
+                entries: entries
+                    .into_iter()
+                    .map(|entry| DirEntryReply {
+                        path: entry.relative_path,
+                        is_dir: entry.is_dir,
+                        size: entry.size,
+                        modified_ms: entry.modified_ms,
+                    })
+                    .collect(),
+            },
+            Vec::new(),
+        ),
     };
     ReadReply {
         version: Function::Read.version(),
@@ -244,6 +367,7 @@ pub(super) fn read_reply(view: ReadView) -> ReadReply {
         absolute: Some(view.absolute),
         rendered: view.rendered,
         content,
+        rows,
     }
 }
 
@@ -252,6 +376,7 @@ pub(super) fn read_rejection(error: &ReadError) -> &'static str {
         ReadError::NotFound(_) => "not_found",
         ReadError::Selector(_) => "selector",
         ReadError::Binary { .. } => "binary",
+        ReadError::NotUtf8 { .. } => "encoding",
         ReadError::Io { .. } => "io",
         ReadError::Url(error) => url_rejection(error),
         ReadError::Refused { .. } => "refused",
@@ -286,6 +411,7 @@ fn write_rejection(error: &WriteError) -> &'static str {
     match error {
         WriteError::IsDirectory { .. } => "is_directory",
         WriteError::Changed { .. } => "changed",
+        WriteError::Unseen { .. } => "unseen",
         WriteError::Io { .. } => "io",
         WriteError::Refused { .. } => "refused",
     }
@@ -299,17 +425,19 @@ fn edit_reply(outcome: HashlineOutcome) -> EditReply {
             .files
             .into_iter()
             .map(|file| {
-                let (change, destination) = match file.change {
-                    FileChange::Updated => ("updated", None),
-                    FileChange::Moved { destination } => ("moved", Some(destination)),
-                    FileChange::Deleted => ("deleted", None),
-                    FileChange::Unchanged => ("unchanged", None),
+                let (change, destination, reason) = match file.change {
+                    FileChange::Updated => ("updated", None, None),
+                    FileChange::Moved { destination } => ("moved", Some(destination), None),
+                    FileChange::Deleted => ("deleted", None, None),
+                    FileChange::Unchanged => ("unchanged", None, None),
+                    FileChange::NotWritten { reason } => ("not_written", None, Some(reason)),
                 };
                 EditFileReply {
                     path: file.display,
                     absolute: file.absolute,
                     change,
                     destination,
+                    reason,
                     diff: file.diff,
                     first_changed_line: file.first_changed_line,
                     warnings: file.warnings,
@@ -349,6 +477,7 @@ fn grep_reply(output: GrepOutput) -> GrepReply {
                     .into_iter()
                     .map(|hit| (hit.line_number, hit.line))
                     .collect(),
+                rows: file.rows,
             })
             .collect(),
     }
@@ -370,6 +499,8 @@ fn glob_reply(output: GlobOutput) -> GlobReply {
         version: Function::Glob.version(),
         rendered: output.render(),
         truncated: output.truncated,
+        skip: output.skip,
+        next_skip: output.next_skip,
         paths: output.matches.into_iter().map(|hit| hit.path).collect(),
     }
 }
@@ -519,10 +650,14 @@ async fn handle(
         )
         .await?
         {
-            Ok(performed) => Reply::Done {
-                done: performed.done,
-                warnings: repaired.repairs.iter().map(ToString::to_string).collect(),
-            },
+            Ok(performed) => {
+                // The kernel gets the whole result.
+                performed.done.mark_seen(&host.documents, &Cut::Whole);
+                Reply::Done {
+                    done: performed.done,
+                    warnings: repaired.repairs.iter().map(ToString::to_string).collect(),
+                }
+            }
             Err(rejection) => Reply::Rejected(rejection),
         },
     };

@@ -6,8 +6,8 @@
 //! - [`AccessGate`]: the host's check of each path a tool reads or writes
 //!   (the path policy and the user's approval), on the real path.
 //! - [`Documents`]: the session's authority: reads project `[path#TAG]` plus
-//!   `N:TEXT` rows and record seen lines; writes take an OS path lock and
-//!   replace files atomically.
+//!   `N:TEXT` rows (the caller marks the rows that reach the model seen);
+//!   writes take an OS path lock and replace files atomically.
 //! - [`text`]: line endings and the BOM, stripped for editing and restored on
 //!   write.
 //! - [`grep`]: regex search rendered as `[path#TAG]` / `N:TEXT` rows that
@@ -49,16 +49,18 @@ pub use error::{EditError, EditResult};
 pub use gate::{Access, AccessGate};
 pub use glob::{GlobError, GlobMatch, GlobOutput, GlobRequest, MAX_GLOB_LIMIT};
 pub use grep::{
-    ContextLine, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest, DEFAULT_FILE_LIMIT,
+    ContextLine, GrepAccount, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest,
+    DEFAULT_FILE_LIMIT,
 };
 pub use hashline::{
     apply_hashline, section_paths, EditWriter, FileChange, FileOutcome, HashlineOptions,
-    HashlineOutcome, WriteOp, WriteRequest, WriteResponse, HASHLINE_DESCRIPTION,
+    HashlineOutcome, Published, WriteOp, WriteRequest, HASHLINE_DESCRIPTION,
 };
 pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
 pub use path::{lexical_normalize, resolve};
 pub use read::{
-    display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, SelectorError,
+    display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, Row,
+    SelectorError,
 };
 pub use rebase::{
     apply_edits, canonical_edits, rebase_content, rebase_edits, validate_edits, AppliedEdits,

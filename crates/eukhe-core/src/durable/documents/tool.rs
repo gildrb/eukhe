@@ -12,16 +12,37 @@ use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::harness::define::define_tool;
 use eukhe_durable::harness::types::{
-    ToolExecutionApi, ToolExecutionMode, ToolExecutionResult, ToolRegistration, ToolReplay,
+    ToolDiagnostic, ToolExecutionApi, ToolExecutionMode, ToolExecutionResult, ToolRegistration,
+    ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
 
 use super::contract::Function;
-use super::requests::{perform, Performed};
+use super::requests::{perform, Cut, Done, Performed};
 use super::DocumentsHost;
 use crate::durable::bounded_output::BoundedOutput;
 use crate::durable::HostDeps;
+
+/// The text the model gets of `done`, bounded by `output`; the rows of a
+/// read or grep that survive the bound become seen, and only those.
+pub(super) fn bounded(
+    documents: &eukhe_docs::Documents,
+    done: &Done,
+    mut output: BoundedOutput,
+) -> (String, Option<ToolDiagnostic>) {
+    output.push(done.rendered());
+    let (text, diagnostic) = output.finish();
+    let cut = match diagnostic
+        .as_ref()
+        .and_then(|diagnostic| diagnostic.omitted.as_ref())
+    {
+        Some(omitted) => Cut::of(done.rendered(), &text, omitted),
+        None => Cut::Whole,
+    };
+    done.mark_seen(documents, &cut);
+    (text, diagnostic)
+}
 
 /// The registration of `function`. `edit` runs sequentially with the kernel
 /// cell that may also edit and never replays (a write may have landed
@@ -107,13 +128,12 @@ async fn execute(
     .map_err(|error| SessionError::error(format!("{} worker failed: {error}", function.name())))?;
     match performed {
         Ok(Performed { done, images }) => {
-            let mut output = BoundedOutput::in_session(
+            let output = BoundedOutput::in_session(
                 deps.storage_dir.as_deref(),
                 &api.task_id().to_string(),
                 api.truncation(),
             );
-            output.push(done.rendered());
-            let (text, bounded) = output.finish();
+            let (text, bounded) = bounded(&host.documents, &done, output);
             let details = serde_json::to_value(&done).map_err(SessionError::other)?;
             Ok(ToolExecutionResult {
                 diagnostics: bounded.map(|diagnostic| vec![diagnostic]),
