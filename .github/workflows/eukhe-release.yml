@@ -135,7 +135,11 @@ jobs:
           for suite in jammy jammy-updates jammy-security; do
             echo "deb https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT} ${suite} main universe"
           done > /etc/apt/sources.list
-          apt-get update
+          # The snapshot server answers 5xx in bursts: each fetch retries
+          # with backoff, and an index that still fails stops the update
+          # here instead of as "Unable to locate package" below.
+          echo 'Acquire::Retries "10";' > /etc/apt/apt.conf.d/80-retries
+          apt-get update --error-on=any
           apt-get install -y --no-install-recommends build-essential python3 git binutils
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
