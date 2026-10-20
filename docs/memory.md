@@ -16,6 +16,33 @@ test that secures it.
 - The bridge test runs the Rust planner and the Bend model on the same
   scenarios. The two must print the same output, byte for byte.
 
+## Use
+
+The chat lives in `~/.eukhe/chat/`. It is one append-only log. Each message
+has a kind: `user`, `talk`, `tool`, `echo`, or `work` (a subagent or
+background report). The compactor writes one-line summaries into a binary
+tree over the log. A summary has a 512-byte target; a longer one is tried
+again while it gets shorter, up to 5 times, and the shortest is cut to 512
+bytes. A failed summary is tried again at the next message, and every 10 s
+while a turn waits for it; its third failure keeps its message cut to 512
+bytes as the line. An idle chat makes no model call. A turn waits for the
+view's summaries at most `memory.settleTimeoutMs`.
+
+The view is the context each root turn starts from. When the view passes
+128 KB, one batch merges it down to 64 KB. The view is saved to `view.json`
+on each change, so the prompt cache stays valid across restarts. A cache mark
+sits on the last whole block of 4 lines. Compaction calls use their own view
+of 16 KB to 32 KB.
+
+|Command|Effect|
+|---|---|
+|`/memory`|Show the status and every view line|
+|`/memory zoom <id> <n>`|Show the messages or summaries of node `<id>+<n>`|
+|`/memory-model`|Select the compaction model and its reasoning effort (←/→ on a reasoning model; saved as `memory.model` and `memory.thinking`, default `medium`)|
+
+The status bar shows the view size as `mem N/128K`. Each compactor change
+shows as a `memory:` row. The summary text shows at full detail only.
+
 ## Check it
 
 ```nu
