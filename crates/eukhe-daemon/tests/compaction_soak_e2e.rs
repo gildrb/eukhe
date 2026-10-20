@@ -76,8 +76,9 @@ fn answer_for(prompt: &str) -> String {
 
 /// The script: a summary for the summarizer; for a turn, a quick `ipython`
 /// call first when tagged [`TOOL`], an answer held on the turn's own gate
-/// when tagged [`BUSY`], one overflow error for the first request of the
-/// turn tagged [`OVERFLOW`], else the answer. The call after a tool
+/// when tagged [`BUSY`], one overflow error for the first request of a
+/// turn tagged [`OVERFLOW`] that still carries an earlier answer, else the
+/// answer. The call after a tool
 /// answers the prompt its call id names: a compaction between the call
 /// and that request may have folded the prompt into the summary.
 fn script(request: &mock_llm::Request, overflowed: &AtomicBool) -> Reply {
@@ -91,7 +92,10 @@ fn script(request: &mock_llm::Request, overflowed: &AtomicBool) -> Reply {
             if request.after_tool {
                 let call = request.tool_results.last().expect("a tool result");
                 Reply::text(answer_for(call.strip_prefix("call-").unwrap_or(call)))
-            } else if prompt.contains(OVERFLOW) && !overflowed.swap(true, Ordering::SeqCst) {
+            } else if prompt.contains(OVERFLOW)
+                && carries_an_earlier_answer(&request.body)
+                && !overflowed.swap(true, Ordering::SeqCst)
+            {
                 Reply::overflow()
             } else if prompt.contains(TOOL) {
                 Reply::tool_call(
@@ -106,6 +110,18 @@ fn script(request: &mock_llm::Request, overflowed: &AtomicBool) -> Reply {
             }
         }
     }
+}
+
+/// Whether a turn request still carries an answer from an earlier turn: an
+/// overflow compaction can then cut it. Right after a threshold compaction a
+/// request holds only the summary and the new prompt, which nothing can
+/// shrink, so an overflow injected there could never recover.
+fn carries_an_earlier_answer(body: &Value) -> bool {
+    body["messages"].as_array().is_some_and(|messages| {
+        messages.iter().any(|message| {
+            message["role"] == "assistant" && message["content"].to_string().contains("answer to ")
+        })
+    })
 }
 
 fn padded(tag: &str, marks: &[&str]) -> String {
@@ -278,7 +294,9 @@ fn compaction_soak_300_turns() {
             prompts.extend([message, steer, follow]);
             continue;
         }
-        let marks: &[&str] = if turn == TURNS / 2 {
+        // From the middle on, turns carry the overflow tag until one
+        // request takes the injected overflow.
+        let marks: &[&str] = if turn >= TURNS / 2 && !overflowed.load(Ordering::SeqCst) {
             &[OVERFLOW]
         } else if turn % 7 == 0 {
             &[TOOL]
