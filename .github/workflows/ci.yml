@@ -12,10 +12,6 @@
 #   merge_group — full workspace tests on the queued merge candidate,
 #   not the PR's narrowed selection.
 #
-#   workflow_dispatch — the full gate set on a branch: catalog-pin.yml
-#   starts it on the pull request it opens (a pull request the workflow
-#   token opens starts no pull_request run).
-#
 # THE PR SMOKE MODEL (the touched-crate path filter): the PR wave narrows
 # the TEST phase to touched crates and their reverse dependents' units
 # (the `changes` job maps the PR's changed files to crates; any path
@@ -60,7 +56,6 @@ on:
     branches: [main]
   merge_group:
     types: [checks_requested]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -354,6 +349,10 @@ jobs:
           persist-credentials: false
       - name: Install Bend (pinned release, sha256-checked)
         uses: ./.github/actions/setup-bend
+      # A law file that LAWS.bend does not import, or a law with no fill in
+      # the PROOF.bend import closure, is a law bend never checks.
+      - name: Every law file is imported and every law is filled
+        run: python3 scripts/check_laws_wired.py .
       - name: Check the proofs
         run: |
           set -euo pipefail
