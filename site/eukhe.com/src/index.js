@@ -49,25 +49,39 @@ async function installer(method) {
   });
 }
 
+// Browsers keep to HTTPS for a year once they have seen eukhe.com.
+const HSTS = "max-age=31536000; includeSubDomains";
+
+function route(request) {
+  const url = new URL(request.url);
+  // One canonical origin: http:// and www.eukhe.com go to https://eukhe.com.
+  if (url.protocol === "http:" || url.hostname !== "eukhe.com") {
+    url.protocol = "https:";
+    url.hostname = "eukhe.com";
+    return Response.redirect(url.toString(), 301);
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("method not allowed\n", { status: 405, headers: { allow: "GET, HEAD" } });
+  }
+  switch (url.pathname) {
+    case "/install":
+    case "/install.sh":
+      return installer(request.method);
+    case "/":
+      return Response.redirect(REPO, 302);
+    default:
+      return new Response("not found\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+  }
+}
+
 export default {
   async fetch(request) {
-    const url = new URL(request.url);
-    if (url.protocol === "http:") {
-      url.protocol = "https:";
-      return Response.redirect(url.toString(), 301);
+    const reply = await route(request);
+    // Redirect responses have immutable headers: copy before adding HSTS.
+    const out = new Response(reply.body, reply);
+    if (new URL(request.url).protocol === "https:") {
+      out.headers.set("strict-transport-security", HSTS);
     }
-    const { pathname } = url;
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("method not allowed\n", { status: 405, headers: { allow: "GET, HEAD" } });
-    }
-    switch (pathname) {
-      case "/install":
-      case "/install.sh":
-        return installer(request.method);
-      case "/":
-        return Response.redirect(REPO, 302);
-      default:
-        return new Response("not found\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
-    }
+    return out;
   },
 };

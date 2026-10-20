@@ -9,4 +9,5 @@ account_id = "87b6add2ec2f23c7fdebebb2af63d833"
 
 routes = [
   { pattern = "eukhe.com/*", zone_name = "eukhe.com" },
+  { pattern = "www.eukhe.com/*", zone_name = "eukhe.com" },
 ]
