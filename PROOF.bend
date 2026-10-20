@@ -75,6 +75,8 @@ import ./laws/runners.bend as Ru
 import ./bend/proof_runners.bend as Runners
 import ./laws/approvals.bend as Ap
 import ./bend/proof_approvals.bend as Approvals
+import ./laws/retry.bend as Rt
+import ./bend/proof_retry_policy.bend as RetryPolicy
 
 # (a) The view
 
@@ -1293,3 +1295,65 @@ def Ap.outside_runs_only_by_the_gateway(auto, es, outside, not_protected, not_se
 
 def Ap.guarded_refused_from_the_phone(auto, es, guarded, above):
   Approvals.pa.guarded_from_phone(auto, es, guarded, above)
+
+# (R) Retries
+
+def Rt.retry_never_parked(limit, status, kind, text):
+  RetryPolicy.never_parked(limit, status, kind, text)
+
+def Rt.retry_never_limit(parked, status, kind, text):
+  RetryPolicy.never_limit(parked, status, kind, text)
+
+def Rt.retry_never_client_error(parked, limit, kind, text, s, below, not408, not409, not429):
+  RetryPolicy.never_client_error(parked, limit, kind, text, s, below, not408, not409, not429)
+
+def Rt.retry_only_retryable(parked, limit, kind, text, s, retried):
+  RetryPolicy.only_retryable(parked, limit, kind, text, s, retried)
+
+def Rt.retry_status_first(parked, limit, s, k1, t1, k2, t2):
+  RetryPolicy.status_first(parked, limit, s, k1, t1, k2, t2)
+
+def Rt.retry_kind_before_text(parked, limit, k, known, t1, t2):
+  RetryPolicy.kind_before_text(parked, limit, k, known, t1, t2)
+
+def Rt.retry_server_errors(kind, text, s, server):
+  RetryPolicy.server_errors(kind, text, s, server)
+
+def Rt.retry_after_respected(jitter, s, cap):
+  RetryPolicy.after_respected(jitter, s, cap)
+
+def Rt.retry_refuses_past_cap(jitter, s, cap, capped, over):
+  RetryPolicy.refuses_past_cap(jitter, s, cap, capped, over)
+
+def Rt.failover_visits_once(len, ts, p):
+  RetryPolicy.visits_once(len, ts, p)
+
+def Rt.failover_never_twice_in_a_row(len, ts, p):
+  RetryPolicy.never_twice_in_a_row(len, ts, p)
+
+def Rt.failover_return_waits(len, ts, p):
+  RetryPolicy.return_waits(len, ts, p)
+
+def Rt.failover_delay_capped(len, ts, p):
+  RetryPolicy.delay_capped(len, ts, p)
+
+def Rt.failover_bounded(len, ts, p):
+  RetryPolicy.bounded(len, ts, p)
+
+def Rt.deferred_pays_once(fails, budget, gots):
+  RetryPolicy.pays_once(fails, budget, gots)
+
+def Rt.deferred_bounded_in_time(fails, budget, gots):
+  RetryPolicy.bounded_in_time(fails, budget, gots)
+
+def Rt.deferred_failed_poll_repolls(fails, budget, failed, left, gap, below, live):
+  RetryPolicy.failed_poll_repolls(fails, budget, failed, left, gap, below, live)
+
+def Rt.stall_retry_extends(idle, positive):
+  RetryPolicy.stall_extends(idle, positive)
+
+def Rt.stall_detection_bounded(gs, d):
+  RetryPolicy.detection_bounded(gs, d)
+
+def Rt.stall_silent_ends_at_deadline(d):
+  RetryPolicy.silent_at_deadline(d)

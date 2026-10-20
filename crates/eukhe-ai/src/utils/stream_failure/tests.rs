@@ -85,6 +85,7 @@ fn builds_user_facing_messages() {
         retry_after_ms: None,
         raw: None,
         repeated: None,
+        idle_timeout_ms: None,
     };
     assert_eq!(
         stream_failure_message(&info, Some("slow down")),
@@ -105,6 +106,7 @@ fn classified_message_with_parenthesized_status() {
         retry_after_ms: None,
         raw: None,
         repeated: None,
+        idle_timeout_ms: None,
     };
     assert_eq!(
         stream_failure_message(&status_only, Some("bad request")),

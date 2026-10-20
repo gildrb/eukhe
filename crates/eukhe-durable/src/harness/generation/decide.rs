@@ -19,10 +19,6 @@ use serde::{Deserialize, Serialize};
 use super::note::{NoteCause, Recovery, RetryNote};
 use crate::harness::types::CompactionPolicy;
 
-/// Deferred fetches of one request before the run fails (H4.4): a day of
-/// polls at the default 5 s interval.
-pub(crate) const MAX_POLLS: u32 = 17_280;
-
 /// Noted retries of one generation before a noted reply fails the run
 /// (H4.7, H4.8): their own budget, apart from `retry.maxRetries`. It
 /// bounds every row of notes together: each recovery caps its own row,
@@ -141,8 +137,9 @@ pub(crate) fn recover(stuck: Stuck, note: Option<&NoteCause>, caps: &Caps) -> Ac
 pub(crate) struct Limits {
     /// `maxToolRounds`.
     pub(crate) max_rounds: NonZeroU32,
-    /// [`MAX_POLLS`].
-    pub(crate) max_polls: u32,
+    /// The ms the request's deferred job may run (H4.4): its provider's
+    /// expiry, else the requested window, else the longest window.
+    pub(crate) max_wait: u64,
     /// `retry.maxRetries`.
     pub(crate) max_retries: u32,
     /// [`MAX_NOTES`].
@@ -157,8 +154,8 @@ pub(crate) struct Counts {
     /// The noted retries of the generation so far (each spends a note,
     /// not a retry).
     pub(crate) notes: u32,
-    /// The deferred fetch that gave the reply: 0 for the request itself.
-    pub(crate) polls: u32,
+    /// The ms since the request was sent, at this reply.
+    pub(crate) waited: u64,
     /// The generation compacted; it compacts at most once.
     pub(crate) compacted: bool,
 }
@@ -219,8 +216,8 @@ impl Ended {
 pub(crate) enum Step<D> {
     Answer,
     Tools,
-    /// Poll with the handle; the number is this fetch's, counted from 1.
-    Poll(D, u32),
+    /// Poll the same deferred job with the handle.
+    Poll(D),
     /// A transient retry, after the retry policy's wait.
     Retry,
     /// A noted retry: a new request, sent at once.
@@ -235,7 +232,8 @@ pub(crate) enum Failure {
     /// The model failed: an error not retried, a noted reply past
     /// [`Limits::max_notes`], or an overflow that cannot compact.
     Model,
-    /// The reply was still deferred after [`Limits::max_polls`] fetches.
+    /// The reply was still deferred at the job's deadline
+    /// ([`Limits::max_wait`]).
     Polls,
 }
 
@@ -247,7 +245,7 @@ pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> St
     match reply {
         Reply::Text => Step::Answer,
         Reply::Calls => Step::Tools,
-        Reply::Deferred(handle) if at.polls < limits.max_polls => Step::Poll(handle, at.polls + 1),
+        Reply::Deferred(handle) if at.waited < limits.max_wait => Step::Poll(handle),
         Reply::Deferred(_) => Step::Fail(Failure::Polls),
         Reply::Error { noted: true, .. } if at.notes < limits.max_notes => Step::Note,
         Reply::Error {

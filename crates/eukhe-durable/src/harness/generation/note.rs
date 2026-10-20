@@ -4,10 +4,10 @@
 //!
 //! A model decodes the same request the same way, and a greedy one always
 //! does. After a noted reply (the repetition guard cut the stream, the
-//! reply had no text and no tool call, or a recovery of H4.8 stopped it),
-//! the retry must not send the request again: its request ends with a note
-//! that names the retry's attempt and what went wrong
-//! ([`retry_note`](super::decide::retry_note)). The note goes out with the
+//! stream stalled, the reply had no text and no tool call, or a recovery
+//! of H4.8 stopped it), the retry must not send the request again: its
+//! request ends with a note that names the retry's attempt and what went
+//! wrong ([`retry_note`](super::decide::retry_note)). The note goes out with the
 //! request only, as the soft prompt of a forced call does: the run never
 //! commits it, so the transcript never logs it as the user's words.
 
@@ -43,6 +43,10 @@ pub enum NoteCause {
         rounds: u32,
         row: u32,
     },
+    /// The stream sent no event for `idle_ms` (its idle deadline), so the
+    /// harness cut it (M3). The retry has twice that deadline
+    /// ([`idle_after_stall`](super::deferred::idle_after_stall)).
+    Stalled { idle_ms: u64 },
 }
 
 /// One call of a repeated round: its tool and its arguments (their
@@ -77,18 +81,24 @@ impl NoteCause {
                 Self::Repeated { .. }
                 | Self::NoAnswer
                 | Self::Leaked { .. }
-                | Self::Redirect { .. },
+                | Self::Redirect { .. }
+                | Self::Stalled { .. },
                 Recovery::Length,
             )
             | (
                 Self::Repeated { .. }
                 | Self::NoAnswer
                 | Self::Length { .. }
-                | Self::Redirect { .. },
+                | Self::Redirect { .. }
+                | Self::Stalled { .. },
                 Recovery::Leak,
             )
             | (
-                Self::Repeated { .. } | Self::NoAnswer | Self::Length { .. } | Self::Leaked { .. },
+                Self::Repeated { .. }
+                | Self::NoAnswer
+                | Self::Length { .. }
+                | Self::Leaked { .. }
+                | Self::Stalled { .. },
                 Recovery::Redirect,
             ) => 0,
         }
@@ -169,6 +179,12 @@ impl RetryNote {
                      {REDIRECT_NOTES}."
                 )
             }
+            NoteCause::Stalled { idle_ms } => format!(
+                "Harness note, attempt {attempt}: your previous reply produced no output for {} \
+                 s, so the harness cut it. Reason briefly, then act: give the answer or call \
+                 the tool of the next step.",
+                idle_ms / 1000
+            ),
         }
     }
 }

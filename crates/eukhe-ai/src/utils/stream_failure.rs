@@ -53,6 +53,14 @@ pub struct StreamFailureInfo {
     /// What the stream repeated, for a stream the repetition guard cut.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeated: Option<RepeatedLines>,
+    /// The idle deadline (ms) a stalled stream went silent for: the
+    /// retry of a stall reads it to give its own stream a longer one.
+    #[serde(
+        rename = "idleTimeoutMs",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub idle_timeout_ms: Option<u64>,
 }
 
 impl StreamFailureInfo {
@@ -66,6 +74,7 @@ impl StreamFailureInfo {
             retry_after_ms: None,
             raw: None,
             repeated: None,
+            idle_timeout_ms: None,
         }
     }
 }
@@ -651,6 +660,7 @@ pub fn stream_failure_from_stop_reason(
         retry_after_ms: None,
         raw: None,
         repeated: None,
+        idle_timeout_ms: None,
     };
     if info.kind == StreamFailureKind::Unknown
         && raw_stop_reason.is_some_and(|reason| reason.to_lowercase().contains("malformed"))
@@ -703,6 +713,7 @@ pub fn stream_drop_failure(open_block: OpenStreamBlock) -> StreamFailureError {
         retry_after_ms: None,
         raw: None,
         repeated: None,
+        idle_timeout_ms: None,
     };
     StreamFailureError {
         message: stream_failure_message(&info, Some(detail)),
@@ -712,9 +723,15 @@ pub fn stream_drop_failure(open_block: OpenStreamBlock) -> StreamFailureError {
 
 /// Failure for a stream that went silent: no provider event for
 /// `idle_timeout_ms` (the stream-idle deadline of `Models`). Retryable by
-/// kind, whatever its text.
+/// kind, whatever its text; its info records the deadline.
 #[must_use]
 pub fn stream_stalled_failure(idle_timeout_ms: f64) -> StreamFailureError {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "an idle deadline is a whole, positive number of ms"
+    )]
+    let recorded = idle_timeout_ms.max(0.0).round() as u64;
     let info = StreamFailureInfo {
         kind: StreamFailureKind::StreamStalled,
         provider_error_type: None,
@@ -723,6 +740,7 @@ pub fn stream_stalled_failure(idle_timeout_ms: f64) -> StreamFailureError {
         retry_after_ms: None,
         raw: None,
         repeated: None,
+        idle_timeout_ms: Some(recorded),
     };
     let detail = format!(
         "no stream event for {}ms",
@@ -766,6 +784,7 @@ pub fn stream_repeating_failure(limit: u32, period: u32, line: &str) -> StreamFa
             period: period.max(1),
             line: shown,
         }),
+        idle_timeout_ms: None,
     };
     StreamFailureError {
         message: stream_failure_message(&info, Some(&detail)),
@@ -866,6 +885,7 @@ fn extract_parts_from_http(error: &ProviderHttpError) -> ExtractedParts {
             retry_after_ms,
             raw: None,
             repeated: None,
+            idle_timeout_ms: None,
         },
         detail: body_message,
     }

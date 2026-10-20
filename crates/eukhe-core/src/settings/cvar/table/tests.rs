@@ -81,11 +81,6 @@ fn populated() -> Settings {
                 stream_idle_timeout_ms: Some(1),
                 stream_repeat_limit: Some(1),
                 wait_for_usage: Some(ProviderWaitSettings {
-                    enabled: Some(true),
-                    base_delay_ms: Some(1),
-                    max_delay_ms: Some(1),
-                    max_attempts: Some(1),
-                    max_wait_ms: Some(1),
                     pause_until_reset: Some(true),
                     max_pause_ms: Some(1),
                     max_parks: Some(1),

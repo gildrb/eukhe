@@ -462,8 +462,7 @@ pub const RETRY_FAILOVER_ENABLED: Decl = Decl {
     init: Init::Bool(true),
 };
 
-/// `durable::models::failover::MAX_TOTAL_PROVIDER_RETRIES` (also the
-/// ceiling the reader clamps to).
+/// Provider switches one request may make (`durable::models::failover`).
 pub const RETRY_FAILOVER_MAX_RETRIES: Decl = Decl {
     id: "retry.failover.maxRetries",
     ty: CvarType::Nat,
@@ -473,6 +472,8 @@ pub const RETRY_FAILOVER_MAX_RETRIES: Decl = Decl {
     init: Init::Nat(8),
 };
 
+/// The wait before a request's first return to a provider it left; it
+/// doubles each return (`durable::models::failover::next_switch`).
 pub const RETRY_FAILOVER_BASE_DELAY_MS: Decl = Decl {
     id: "retry.failover.baseDelayMs",
     ty: CvarType::Nat,
@@ -482,6 +483,8 @@ pub const RETRY_FAILOVER_BASE_DELAY_MS: Decl = Decl {
     init: Init::Nat(1_000),
 };
 
+/// The longest wait before a return to a provider; a provider whose server
+/// asks for longer is not returned to.
 pub const RETRY_FAILOVER_MAX_DELAY_MS: Decl = Decl {
     id: "retry.failover.maxDelayMs",
     ty: CvarType::Nat,
@@ -526,51 +529,6 @@ pub const RETRY_PROVIDER_STREAM_IDLE_TIMEOUT_MS: Decl = Decl {
 /// default.
 pub const RETRY_PROVIDER_STREAM_REPEAT_LIMIT: Decl = Decl {
     id: "retry.provider.streamRepeatLimit",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-pub const RETRY_WAIT_ENABLED: Decl = Decl {
-    id: "retry.provider.waitForUsage.enabled",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-pub const RETRY_WAIT_BASE_DELAY_MS: Decl = Decl {
-    id: "retry.provider.waitForUsage.baseDelayMs",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-pub const RETRY_WAIT_MAX_DELAY_MS: Decl = Decl {
-    id: "retry.provider.waitForUsage.maxDelayMs",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-pub const RETRY_WAIT_MAX_ATTEMPTS: Decl = Decl {
-    id: "retry.provider.waitForUsage.maxAttempts",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-pub const RETRY_WAIT_MAX_WAIT_MS: Decl = Decl {
-    id: "retry.provider.waitForUsage.maxWaitMs",
     ty: CvarType::Json,
     scope: CvarScope::Local,
     persist: true,
@@ -1271,11 +1229,6 @@ pub const DECLS: &[Decl] = &[
     RETRY_PROVIDER_MAX_RETRY_DELAY_MS,
     RETRY_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
     RETRY_PROVIDER_STREAM_REPEAT_LIMIT,
-    RETRY_WAIT_ENABLED,
-    RETRY_WAIT_BASE_DELAY_MS,
-    RETRY_WAIT_MAX_DELAY_MS,
-    RETRY_WAIT_MAX_ATTEMPTS,
-    RETRY_WAIT_MAX_WAIT_MS,
     RETRY_WAIT_PAUSE_UNTIL_RESET,
     RETRY_WAIT_MAX_PAUSE_MS,
     RETRY_WAIT_MAX_PARKS,

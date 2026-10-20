@@ -274,13 +274,28 @@ A run is one user turn: model calls, tool rounds, retries, until it ends.
    `run_loop_needs_repeats` is deleted; the law `rec_never_runs_a_repeat`
    replaces it, and it is stronger: no row of the same calls with the
    same results gets to 5 rounds.
-4. A provider that answers "deferred" is polled at most `MAX_POLLS`
-   (17,280: a day at the default 5 s) times; then the run fails
-   (`model_error`).
+4. A provider that answers "deferred" starts a job, and the run polls
+   that job until its deadline: the provider's expiry of the job, else
+   the window that the request asked for (`15m`, `1h` or `24h`), else 24
+   hours (the longest window). At the deadline the run cancels the job,
+   then fails (`model_error`, `The model's deferred response was not
+   ready by its deadline, N s after the request`). A failed poll does not
+   send the request again while the job can run: a retryable failure
+   polls the same job again, after the wait of the retry policy and never
+   before the server's wait, while the failures in a row are below
+   `retry.maxRetries`; any other failure cancels the job, then fails the
+   run. A reply that is still deferred sets the failures in a row to 0.
+   The checkpoint of a poll keeps the time the request went out, the
+   deadline and the failures in a row, so a restart keeps them.
 5. A transient error (not noted, for example an overload or a dropped
    connection) spends a retry: at most `retry.maxRetries`, only when the
    retry policy is enabled, after the wait of the retry policy. A noted
-   retry spends a note, never a retry (item 7).
+   retry spends a note, never a retry (item 7). A stream that stalled
+   (no event within `retry.provider.streamIdleTimeoutMs`) is noted: its
+   retry goes out at once with a note (`your previous reply produced no
+   output for N s ... Reason briefly, then act`) and with two times the
+   idle deadline that the stream stalled under, so the same request does
+   not stall the same way again.
 6. An abort ends the run within one phase: the phase driver races every
    phase handler, so every `before_request` hook and every wait in it,
    against the invocation's cancel signal. A handler that honours the
@@ -370,7 +385,8 @@ uncounted; a queued reset ends it only after the round counted, so the
 cap comes first). Proofs:
 `bend/proof_run.bend`. The measure `M` orders a run lexicographically
 (rounds left, then compactions, then the retries and notes left in the
-generation as one budget, then the polls left, then the phase) and
+generation as one budget, then the ms left of the deferred job (a poll
+spends 1 ms), then the phase) and
 writes that order as one mixed-radix number: every input to a live run
 lowers it by at least one, and at the start it is `bound(cfg)`. Every
 law is universal (any limits, any inputs).
@@ -412,17 +428,19 @@ that keeps the note of the cut request.
 
 Code: `eukhe-durable/src/harness/generation/decide.rs` (`before_request`,
 `after_compaction`, `after_reply`, `Step::Note`, `retry_note`,
-`Ended::reply`, `Rounds::finish`, `RoundEnd::reset`, `MAX_POLLS`,
-`MAX_NOTES`, `Counts::notes`); `generation/note.rs` (`RetryNote`, its
+`Ended::reply`, `Rounds::finish`, `RoundEnd::reset`, `Limits::max_wait`,
+`Counts::waited`, `MAX_NOTES`, `Counts::notes`); `generation/note.rs`
+(`RetryNote`, its
 `spent` and its text); `generation.rs` `prepare` (both decisions,
 `compaction_end`, `threshold_compaction`), `classify` (the reply; a
 reply with calls goes to the tools phase whatever its stop reason; a
 reply that is no answer becomes a failed message; a reply that is no
-answer or a stream cut as repeating is noted; then the step and the
-note of a retry; a noted retry is due at once, a transient one after
-`retry_wait_ms`),
-`GenerationInput.rounds`, `GenerationCheckpoint::Poll.polls`, the
-`note` of each checkpoint but `Tools`,
+answer, a stream cut as repeating or a stream that stalled is noted;
+then the step and the note of a retry; a noted retry is due at once, a
+transient one after `retry_wait`; a failed poll polls the same job
+again or cancels it, `generation/deferred.rs` `PollFailure::next`),
+`GenerationInput.rounds`, `GenerationCheckpoint::Poll` (`sentAt`,
+`deadline`, `failures`), the `note` of each checkpoint but `Tools`,
 `request` (a failed hook fails the run; the note is the last user
 message before the soft prompt of a forced call), `abort` (every
 checkpoint ends aborted); `generation/round.rs` `start_tool_round` (a

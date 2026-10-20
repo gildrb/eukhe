@@ -14,7 +14,7 @@ mod tests;
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait_ms, RetryDelay};
+use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait, RetryDelay, RetryWait};
 use eukhe_chord::context::Context;
 use eukhe_chord::delta::Draft;
 use eukhe_chord::json::to_json;
@@ -363,31 +363,36 @@ async fn summarize(task: Current, runtime: Runtime, cx: Context) -> SessionResul
 async fn classify(
     runtime: Runtime,
     request: SummaryRequest,
-    message: AssistantMessage,
+    mut message: AssistantMessage,
     cx: &Context,
 ) -> SessionResult<()> {
     let conversation_id = runtime.conversation_id();
     let summary = summary_text(&message);
     let policy = runtime.settings().retry;
-    let retry = message.stop_reason == StopReason::Error
+    let retryable = message.stop_reason == StopReason::Error
         && is_retryable_assistant_error(&message)
         && policy.enabled
         && request.attempt <= u64::from(policy.max_retries);
-    let until = if retry {
+    // Full jitter under the policy's step, never before the server's
+    // Retry-After (committed with the checkpoint, like generation); a
+    // server wait above the cap sends no retry and fails with the
+    // server's time (H5).
+    let wait = retryable.then(|| {
         let attempt = u32::try_from(request.attempt).unwrap_or(u32::MAX);
-        // Full jitter under the policy's step, never before the server's
-        // Retry-After (committed with the checkpoint, like generation).
-        runtime.now()?
-            + retry_wait_ms(
-                RetryDelay {
-                    base_delay_ms: policy.base_delay_ms,
-                    max_agent_delay_ms: policy.max_agent_delay_ms,
-                },
-                attempt,
-                &message,
-            )
-    } else {
-        0.0
+        let delay = RetryDelay {
+            base_delay_ms: policy.base_delay_ms,
+            max_agent_delay_ms: policy.max_agent_delay_ms,
+        };
+        retry_wait(delay, attempt, &message)
+    });
+    let (retry, until) = match wait {
+        Some(RetryWait::After(wait)) => (true, runtime.now()? + wait),
+        Some(RetryWait::Refused { server_ms, cap_ms }) => {
+            let error = message.error_message.as_deref().unwrap_or_default();
+            message.error_message = Some(RetryWait::refusal(server_ms, cap_ms, error));
+            (false, 0.0)
+        }
+        None => (false, 0.0),
     };
     let commit_runtime = runtime.clone();
     runtime

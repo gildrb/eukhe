@@ -66,6 +66,35 @@ fn a_limit_of_at_most_one_cuts_at_the_first_chunk() {
     }
 }
 
+/// Regression (audit H3): a failover's sibling attempt opens with its own
+/// `start`, and the guard counted the failed attempt's lines with the
+/// sibling's, so a preamble both attempts wrote read as a loop.
+#[test]
+fn a_new_attempt_restarts_the_guard() {
+    use crate::types::ProviderRequestOptions;
+    use eukhe_types::pi_ai::AssistantMessageEvent;
+
+    let mut request: ProviderRequestOptions = ProviderRequestOptions {
+        stream_repeat_limit: Some(3),
+        ..ProviderRequestOptions::default()
+    };
+    let mut repeat = super::StreamRepeat::arm(&mut request);
+    let message = faux_assistant_message("", FauxAssistantMessageOptions::default());
+    let start = AssistantMessageEvent::Start {
+        partial: message.clone().into(),
+    };
+    let line = AssistantMessageEvent::TextDelta {
+        content_index: 0,
+        delta: "Reading the files first.\n".to_owned(),
+        partial: message.into(),
+    };
+    let cuts: Vec<bool> = [&start, &line, &line, &start, &line, &line]
+        .into_iter()
+        .map(|event| repeat.watch(event).is_some())
+        .collect();
+    assert_eq!(cuts, [false; 6]);
+}
+
 /// A block of lines that comes four times in a row fills a window of four
 /// times its length: a period of a quarter of the window.
 #[test]

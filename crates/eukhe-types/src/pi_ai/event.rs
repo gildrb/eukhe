@@ -14,6 +14,9 @@ use super::usage::{DoneReason, ErrorReason};
 /// `done`. A stream may terminate directly with `error` when request setup
 /// fails before generation starts; after `start`, failures also terminate
 /// with `error`. Updates and `done` never appear before `start`.
+/// Another `start` before the terminal event begins a new attempt (a
+/// provider failover hands the request to a sibling provider): its
+/// `partial` replaces the failed attempt's, whose content is dropped.
 /// `prompt_progress` (llama.cpp `llama-server`) comes between `start` and
 /// the first content event: how far the server got through the prompt.
 ///

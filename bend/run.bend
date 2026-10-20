@@ -9,10 +9,11 @@
 # round ends, how a compaction ended, or an abort, in any order, at any
 # step. A phase reads the part of a Go it needs.
 #
-# The limits count down: c compactions, a retries, n notes and p polls
-# left in the generation, r rounds left in the run. A retry spends a
-# retry; a retry after a noted reply spends a note. The Rust code counts
-# them up; the bridge prints both as counts left (bend/bridge_run.bend).
+# The limits count down: c compactions, a retries and n notes left in the
+# generation, p ms left of the deferred job's time (a poll spends 1 ms),
+# r rounds left in the run. A retry spends a retry; a retry after a
+# noted reply spends a note. The Rust code counts them up; the bridge
+# prints both as counts left (bend/bridge_run.bend).
 # A row of the same calls with the same results gets a recovery
 # (Recoveries, H4.8), so the run has no loop guard.
 #
@@ -24,7 +25,8 @@
 
 import Base
 
-# cap: maxToolRounds; polls: MAX_POLLS; retries: retry.maxRetries;
+# cap: maxToolRounds; polls: the ms a deferred job may run
+# (`Limits::max_wait`); retries: retry.maxRetries;
 # notes: MAX_NOTES (the noted retries of a generation)
 type Cfg is Data:
   Cfg{cap: Nat, polls: Nat, retries: Nat, notes: Nat}
@@ -50,8 +52,8 @@ def Cfg.notes(c: Cfg) -> Nat:
       notes
 
 # why a run failed: the model (an error, a noted reply past MAX_NOTES, or
-# an overflow it cannot compact), a deferred reply past MAX_POLLS, the
-# round cap
+# an overflow it cannot compact), a deferred reply at its job's deadline,
+# the round cap
 type Why is Data:
   Model{}
   Polls{}
@@ -261,7 +263,7 @@ def Ph.polled(ph: Ph) -> Bool:
     case Failed{why}:
       Why.polled(why)
 
-# the poll cap failed the run
+# the job's deadline failed the run
 def polled(s: St) -> Bool:
   Ph.polled(St.ph(s))
 

@@ -1,9 +1,4 @@
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
-
-use eukhe_chord::context::AbortController;
-use eukhe_types::pi_ai::{AssistantContentBlock, TextContent};
+use eukhe_types::pi_ai::AssistantMessageDiagnostic;
 
 use super::*;
 use crate::utils::test_support::{faux_stop_message, faux_text_message};
@@ -18,9 +13,24 @@ const OPENAI_RESPONSES_EARLY_EOF_MESSAGE: &str =
 const WRAPPED_DNS_LOOKUP_ERROR: &str =
     "The pending stream has been canceled (caused by: getaddrinfo ENOTFOUND bedrock-runtime.us-east-1.amazonaws.com)";
 const AZURE_PEAK_LOAD_ERROR: &str = "The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throughput.";
+/// Anthropic's 400 for an image over its size limit (audit H2): the byte
+/// count `5242880` holds the digits `524`.
+const ANTHROPIC_IMAGE_TOO_LARGE: &str = "Provider rejected the request (invalid_request_error, 400): messages.0.content.1.image.source.base64: image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes";
 
 fn retryable(error_message: &str) -> bool {
     is_retryable_assistant_error(&faux_stop_message(StopReason::Error, Some(error_message)))
+}
+
+/// A failed message whose newest stream failure recorded `details`.
+fn failure(error_message: &str, details: &serde_json::Value) -> AssistantMessage {
+    let mut message = faux_stop_message(StopReason::Error, Some(error_message));
+    message.diagnostics = Some(vec![AssistantMessageDiagnostic {
+        kind: "provider_stream_failure".to_owned(),
+        timestamp: 0,
+        error: None,
+        details: details.as_object().cloned(),
+    }]);
+    message
 }
 
 #[test]
@@ -72,39 +82,123 @@ fn a_full_admission_queue_is_never_retried() {
     ));
 }
 
-/// A failed message whose provider-failure diagnostic carries the
-/// server's requested wait.
-fn failure_with_retry_after(retry_after_ms: u64) -> AssistantMessage {
-    let mut message = faux_stop_message(StopReason::Error, Some("429 Too Many Requests"));
-    let details = serde_json::json!({ "kind": "rate_limit", "retryAfterMs": retry_after_ms });
-    message.diagnostics = Some(vec![eukhe_types::pi_ai::AssistantMessageDiagnostic {
-        kind: "provider_stream_failure".to_owned(),
-        timestamp: 0,
-        error: None,
-        details: details.as_object().cloned(),
-    }]);
-    message
-}
-
-/// [`retry_wait_ms`] as a [`Duration`], so the assertions compare exact
-/// time values instead of raw floats.
-fn retry_wait(policy: RetryDelay, attempt: u32, message: &AssistantMessage) -> Duration {
-    Duration::from_secs_f64(retry_wait_ms(policy, attempt, message) / 1_000.0)
-}
-
+/// Regression (audit H2): a status code inside a longer number is no
+/// status, and a recorded 400 is never retried, whatever its text says.
 #[test]
-fn the_retry_wait_honors_the_servers_retry_after_up_to_the_cap() {
+fn a_client_error_is_never_retried_by_its_text() {
+    let recorded = failure(
+        ANTHROPIC_IMAGE_TOO_LARGE,
+        &serde_json::json!({ "kind": "invalid_request", "status": 400 }),
+    );
+    let timeout_400 = failure(
+        "invalid timeout parameter: 524 is out of range",
+        &serde_json::json!({ "kind": "unknown", "status": 400 }),
+    );
+    assert_eq!(
+        [
+            retryable(ANTHROPIC_IMAGE_TOO_LARGE),
+            is_retryable_assistant_error(&recorded),
+            is_retryable_assistant_error(&timeout_400),
+        ],
+        [false, false, false]
+    );
+}
+
+/// The recorded status decides before the text, and the typed kind
+/// before the text when no status was recorded.
+#[test]
+fn the_status_then_the_kind_decide() {
+    let cases = [
+        failure("bad request", &serde_json::json!({ "status": 503 })),
+        failure("terminated", &serde_json::json!({ "status": 404 })),
+        failure("bad gateway", &serde_json::json!({ "status": 408 })),
+        failure("anything", &serde_json::json!({ "kind": "overloaded" })),
+        failure("terminated", &serde_json::json!({ "kind": "auth" })),
+        failure("terminated", &serde_json::json!({ "kind": "unknown" })),
+    ];
+    let verdicts: Vec<bool> = cases.iter().map(is_retryable_assistant_error).collect();
+    assert_eq!(verdicts, [true, false, true, true, false, true]);
+}
+
+/// Regression (audit H4): a failure the quota park ended is never
+/// retried, whatever its status and text.
+#[test]
+fn a_parked_failure_is_never_retried() {
+    let mut parked = failure(
+        "Session parked until 2026-10-20T00:00:00.000Z and will resume automatically: 429 Too Many Requests",
+        &serde_json::json!({ "kind": "rate_limit", "status": 429, "retryAfterMs": 3_600_000 }),
+    );
+    if let Some(diagnostics) = parked.diagnostics.as_mut() {
+        diagnostics.push(AssistantMessageDiagnostic {
+            kind: QUOTA_PARK_DIAGNOSTIC.to_owned(),
+            timestamp: 0,
+            error: None,
+            details: None,
+        });
+    }
+    assert_eq!(
+        FailureFacts::of(&parked),
+        Some(FailureFacts {
+            parked: true,
+            limit: false,
+            status: Some(429),
+            kind: Some(StreamFailureKind::RateLimit),
+            transient_text: true,
+        })
+    );
+    assert!(!is_retryable_assistant_error(&parked));
+}
+
+/// The HTTP layer's refusal of a long server wait is never retried
+/// (audit H5).
+#[test]
+fn a_refused_server_wait_is_never_retried() {
+    assert!(!retryable(&RetryWait::refusal(
+        300_000.0,
+        60_000.0,
+        "429 Too Many Requests"
+    )));
+}
+
+/// Regression (audit H5): a server wait above the cap refuses the retry
+/// with the server's time; a wait under it is never cut short.
+#[test]
+fn the_retry_wait_never_goes_before_the_server() {
     let policy = RetryDelay {
         base_delay_ms: 100.0,
         max_agent_delay_ms: Some(4_000.0),
     };
-    let waits = [
-        retry_wait(policy, 1, &failure_with_retry_after(1_500)),
-        retry_wait(policy, 1, &failure_with_retry_after(60_000)),
-    ];
+    let wait = |retry_after_ms: u64| {
+        retry_wait(
+            policy,
+            1,
+            &failure(
+                "429 Too Many Requests",
+                &serde_json::json!({ "kind": "rate_limit", "retryAfterMs": retry_after_ms }),
+            ),
+        )
+    };
     assert_eq!(
-        waits,
-        [Duration::from_millis(1_500), Duration::from_millis(4_000)]
+        [wait(1_500), wait(60_000)],
+        [
+            RetryWait::After(1_500.0),
+            RetryWait::Refused {
+                server_ms: 60_000.0,
+                cap_ms: 4_000.0,
+            },
+        ]
+    );
+    assert_eq!(
+        RetryWait::refusal(60_000.0, 4_000.0, "429 Too Many Requests"),
+        "Server requested 60s retry delay (max: 4s). 429 Too Many Requests"
+    );
+}
+
+#[test]
+fn a_zero_cap_never_refuses_a_server_wait() {
+    assert_eq!(
+        RetryWait::of(10.0, Some(300_000.0), 0.0),
+        RetryWait::After(300_000.0)
     );
 }
 
@@ -115,16 +209,48 @@ fn the_retry_wait_is_a_full_jitter_draw_under_the_step() {
         max_agent_delay_ms: None,
     };
     let message = faux_stop_message(StopReason::Error, Some("503 Service Unavailable"));
-    let waits: Vec<Duration> = (0..200).map(|_| retry_wait(policy, 3, &message)).collect();
+    let waits: Vec<f64> = (0..200)
+        .map(|_| match retry_wait(policy, 3, &message) {
+            RetryWait::After(ms) => ms,
+            RetryWait::Refused { server_ms, .. } => -server_ms,
+        })
+        .collect();
     // Attempt 3's step is 4 s: every draw lands in [0, 4 s], and the
     // draws spread (a fixed ladder would repeat one value).
     assert!(
-        waits
-            .iter()
-            .all(|wait| (Duration::ZERO..=Duration::from_millis(4_000)).contains(wait)),
+        waits.iter().all(|wait| (0.0..=4_000.0).contains(wait)),
         "{waits:?}"
     );
-    assert!(waits.iter().any(|wait| *wait != waits[0]), "{waits:?}");
+    assert!(
+        waits.iter().any(|wait| wait.total_cmp(&waits[0]).is_ne()),
+        "{waits:?}"
+    );
+}
+
+#[test]
+fn the_step_is_capped() {
+    let policy = RetryDelay {
+        base_delay_ms: 2_000.0,
+        max_agent_delay_ms: Some(0.0),
+    };
+    let message = faux_stop_message(StopReason::Error, Some("503 Service Unavailable"));
+    assert_eq!(retry_wait(policy, 5, &message), RetryWait::After(0.0));
+}
+
+#[test]
+fn reads_the_idle_deadline_of_a_stall() {
+    let stalled = failure(
+        "stalled",
+        &serde_json::json!({ "kind": "stream_stalled", "idleTimeoutMs": 300_000 }),
+    );
+    let dropped = failure(
+        "dropped",
+        &serde_json::json!({ "kind": "stream_drop", "idleTimeoutMs": 300_000 }),
+    );
+    assert_eq!(
+        [stalled_idle_ms(&stalled), stalled_idle_ms(&dropped)],
+        [Some(300_000), None]
+    );
 }
 
 #[test]
@@ -167,370 +293,4 @@ fn classifies_assistant_error_messages() {
     assert!(!is_retryable_assistant_error(&faux_text_message(
         "not an error"
     )));
-}
-
-#[test]
-fn caps_agent_retry_delay() {
-    let delay = |base_delay_ms, max_agent_delay_ms, attempt| {
-        retry_delay_ms(
-            RetryDelay {
-                base_delay_ms,
-                max_agent_delay_ms,
-            },
-            attempt,
-        )
-    };
-    assert!((delay(2000.0, None, 6) - 60_000.0).abs() < f64::EPSILON);
-    assert!((delay(2000.0, Some(5000.0), 5) - 5000.0).abs() < f64::EPSILON);
-    assert!(delay(2000.0, Some(0.0), 5).abs() < f64::EPSILON);
-}
-
-const DISABLED: RetryPolicy = RetryPolicy {
-    enabled: false,
-    max_retries: 3,
-    base_delay_ms: 0.0,
-    max_agent_delay_ms: None,
-};
-const ENABLED: RetryPolicy = RetryPolicy {
-    enabled: true,
-    max_retries: 3,
-    base_delay_ms: 0.0,
-    max_agent_delay_ms: None,
-};
-
-/// Records callback invocations in order.
-#[derive(Clone, Default)]
-struct Recorder {
-    events: Arc<Mutex<Vec<String>>>,
-}
-
-impl Recorder {
-    fn push(&self, event: String) {
-        self.events
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(event);
-    }
-
-    fn events(&self) -> Vec<String> {
-        self.events
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-
-    fn callbacks(&self) -> RetryCallbacks {
-        let scheduled = self.clone();
-        let started = self.clone();
-        let finished = self.clone();
-        RetryCallbacks {
-            on_retry_scheduled: Some(Arc::new(move |attempt, max, delay, message| {
-                scheduled.push(format!("scheduled:{attempt}:{max}:{delay}:{message}"));
-                Box::pin(async { Ok(()) })
-            })),
-            on_retry_attempt_start: Some(Arc::new(move || {
-                started.push("attempt-start".to_owned());
-                Box::pin(async { Ok(()) })
-            })),
-            on_retry_finished: Some(Arc::new(move |success, attempt, error| {
-                finished.push(format!("finished:{success}:{attempt}:{error:?}"));
-                Box::pin(async { Ok(()) })
-            })),
-        }
-    }
-
-    fn count(&self, prefix: &str) -> usize {
-        self.events()
-            .iter()
-            .filter(|event| event.starts_with(prefix))
-            .count()
-    }
-}
-
-/// A `produce` closure that returns `responses[n]` (the last one repeats) and counts calls.
-fn producer(
-    responses: Vec<AssistantMessage>,
-    calls: Arc<AtomicU32>,
-    recorder: Option<Recorder>,
-) -> impl FnMut() -> std::future::Ready<Result<AssistantMessage, Thrown>> {
-    move || {
-        let index = calls.fetch_add(1, Ordering::SeqCst) as usize;
-        if let Some(recorder) = &recorder {
-            recorder.push(format!("produce:{index}"));
-        }
-        std::future::ready(Ok(responses[index.min(responses.len() - 1)].clone()))
-    }
-}
-
-fn terminated() -> AssistantMessage {
-    faux_stop_message(StopReason::Error, Some("terminated"))
-}
-
-#[tokio::test]
-async fn returns_a_successful_response_immediately_without_retrying() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let result = retry_assistant_call(
-        producer(vec![faux_text_message("ok")], calls.clone(), None),
-        Some(&ENABLED),
-        None,
-        None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        result.content,
-        vec![AssistantContentBlock::Text(TextContent::new("ok"))]
-    );
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn does_not_retry_an_aborted_message() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let result = retry_assistant_call(
-        producer(
-            vec![faux_stop_message(StopReason::Aborted, None)],
-            calls.clone(),
-            None,
-        ),
-        Some(&ENABLED),
-        None,
-        Some(&recorder.callbacks()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.stop_reason, StopReason::Aborted);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(recorder.count("scheduled"), 0);
-}
-
-#[tokio::test]
-async fn does_not_retry_a_non_retryable_error() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let result = retry_assistant_call(
-        producer(
-            vec![faux_stop_message(
-                StopReason::Error,
-                Some("insufficient_quota"),
-            )],
-            calls.clone(),
-            None,
-        ),
-        Some(&ENABLED),
-        None,
-        Some(&recorder.callbacks()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(recorder.events(), Vec::<String>::new());
-}
-
-#[tokio::test]
-async fn retries_a_transient_error_up_to_max_retries_then_returns_the_final_error() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let result = retry_assistant_call(
-        producer(vec![terminated()], calls.clone(), None),
-        Some(&ENABLED),
-        None,
-        Some(&recorder.callbacks()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(calls.load(Ordering::SeqCst), 4);
-    assert_eq!(recorder.count("scheduled"), 3);
-    assert!(recorder
-        .events()
-        .contains(&"finished:false:3:Some(\"terminated\")".to_owned()));
-}
-
-#[tokio::test]
-async fn reports_capped_retry_delays() {
-    let policy = RetryPolicy {
-        enabled: true,
-        max_retries: 4,
-        base_delay_ms: 10.0,
-        max_agent_delay_ms: Some(15.0),
-    };
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let responses = vec![
-        terminated(),
-        terminated(),
-        terminated(),
-        terminated(),
-        faux_text_message("recovered"),
-    ];
-    retry_assistant_call(
-        producer(responses, calls, None),
-        Some(&policy),
-        None,
-        Some(&recorder.callbacks()),
-    )
-    .await
-    .unwrap();
-    let delays: Vec<String> = recorder
-        .events()
-        .iter()
-        .filter_map(|event| event.strip_prefix("scheduled:"))
-        .map(|event| event.split(':').nth(2).unwrap().to_owned())
-        .collect();
-    assert_eq!(delays, ["10", "15", "15", "15"]);
-}
-
-#[tokio::test]
-async fn stops_retrying_once_a_call_succeeds() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let responses = vec![terminated(), terminated(), faux_text_message("recovered")];
-    let result = retry_assistant_call(
-        producer(responses, calls.clone(), None),
-        Some(&ENABLED),
-        None,
-        Some(&recorder.callbacks()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        result.content,
-        vec![AssistantContentBlock::Text(TextContent::new("recovered"))]
-    );
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
-    assert!(recorder
-        .events()
-        .contains(&"finished:true:2:None".to_owned()));
-}
-
-#[tokio::test]
-async fn reports_an_aborted_retried_call_as_unsuccessful() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let responses = vec![terminated(), faux_stop_message(StopReason::Aborted, None)];
-    let result = retry_assistant_call(
-        producer(responses, calls.clone(), None),
-        Some(&ENABLED),
-        None,
-        Some(&recorder.callbacks()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.stop_reason, StopReason::Aborted);
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
-    assert!(recorder
-        .events()
-        .contains(&"finished:false:1:None".to_owned()));
-}
-
-#[tokio::test]
-async fn does_not_retry_when_policy_is_disabled() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let result = retry_assistant_call(
-        producer(vec![terminated()], calls.clone(), None),
-        Some(&DISABLED),
-        None,
-        Some(&recorder.callbacks()),
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(recorder.events(), Vec::<String>::new());
-}
-
-#[tokio::test]
-async fn emits_on_retry_attempt_start_after_backoff_before_each_retried_call() {
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let callbacks = RetryCallbacks {
-        on_retry_finished: None,
-        ..recorder.callbacks()
-    };
-    let responses = vec![terminated(), terminated(), faux_text_message("recovered")];
-    let result = retry_assistant_call(
-        producer(responses, calls, Some(recorder.clone())),
-        Some(&ENABLED),
-        None,
-        Some(&callbacks),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        result.content,
-        vec![AssistantContentBlock::Text(TextContent::new("recovered"))]
-    );
-    let events: Vec<String> = recorder
-        .events()
-        .into_iter()
-        .map(|event| match event.strip_prefix("scheduled:") {
-            Some(rest) => format!("retry:{}", rest.split(':').next().unwrap()),
-            None => event,
-        })
-        .collect();
-    assert_eq!(
-        events,
-        [
-            "produce:0",
-            "retry:1",
-            "attempt-start",
-            "produce:1",
-            "retry:2",
-            "attempt-start",
-            "produce:2"
-        ]
-    );
-}
-
-#[tokio::test]
-async fn aborts_backoff_sleep_via_signal_returns_an_aborted_message_and_emits_on_retry_finished_false(
-) {
-    let controller = AbortController::new();
-    let policy = RetryPolicy {
-        enabled: true,
-        max_retries: 5,
-        base_delay_ms: 10_000.0,
-        max_agent_delay_ms: None,
-    };
-    let calls = Arc::new(AtomicU32::new(0));
-    let recorder = Recorder::default();
-    let callbacks = recorder.callbacks();
-    let signal = controller.signal();
-    let (scheduled_tx, scheduled_rx) = tokio::sync::oneshot::channel::<()>();
-    let scheduled_tx = Arc::new(Mutex::new(Some(scheduled_tx)));
-    let callbacks = RetryCallbacks {
-        on_retry_scheduled: Some(Arc::new(move |_, _, _, _| {
-            if let Some(sender) = scheduled_tx
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take()
-            {
-                sender.send(()).unwrap();
-            }
-            Box::pin(async { Ok(()) })
-        })),
-        ..callbacks
-    };
-    let run = retry_assistant_call(
-        producer(vec![terminated()], calls.clone(), None),
-        Some(&policy),
-        Some(&signal),
-        Some(&callbacks),
-    );
-    let abort = async {
-        scheduled_rx.await.unwrap();
-        controller.abort(None);
-    };
-    let (result, ()) = tokio::join!(run, abort);
-    let result = result.unwrap();
-    assert_eq!(result.stop_reason, StopReason::Aborted);
-    assert_eq!(result.error_message, None);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert!(recorder
-        .events()
-        .contains(&"finished:false:1:Some(\"terminated\")".to_owned()));
 }

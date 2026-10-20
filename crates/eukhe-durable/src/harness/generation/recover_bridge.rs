@@ -107,7 +107,7 @@ impl Run {
         let at = Counts {
             attempt: self.attempt,
             notes: self.note.as_ref().map_or(0, |note| note.spent),
-            polls: 0,
+            waited: 0,
             compacted: false,
         };
         self.note = retry_note(at, cause, self.note.take());
@@ -234,7 +234,10 @@ impl Run {
             Some(Act::Quit) => "quit",
         };
         let (kind, row) = match self.note.as_ref().map(|note| &note.cause) {
-            None | Some(NoteCause::Repeated { .. } | NoteCause::NoAnswer) => ("free", 0),
+            None
+            | Some(NoteCause::Repeated { .. } | NoteCause::NoAnswer | NoteCause::Stalled { .. }) => {
+                ("free", 0)
+            }
             Some(cause @ NoteCause::Length { .. }) => ("longs", cause.row(Recovery::Length)),
             Some(cause @ NoteCause::Leaked { .. }) => ("leaks", cause.row(Recovery::Leak)),
             Some(cause @ NoteCause::Redirect { .. }) => ("loops", cause.row(Recovery::Redirect)),

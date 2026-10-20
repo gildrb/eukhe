@@ -15,7 +15,6 @@ use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopR
 use futures::FutureExt;
 
 use crate::harness::define::define_tool;
-use crate::harness::generation::decide::MAX_POLLS;
 use crate::harness::live::LIVE_DOC;
 use crate::harness::tests::chat_support::{
     all_entries, chat_setup, open_chat, text_of, unanswered, wait_for, ChatSetup, OpenChat,
@@ -756,8 +755,9 @@ fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
 }
 
 /// docs/harness.md H4.4: a provider that answers "deferred" forever is
-/// polled at most `MAX_POLLS` times. The reopened run has made every poll
-/// but its last one, which is still deferred: the run fails.
+/// polled until its job's deadline. The reopened run's job is at its
+/// deadline when its next poll is still deferred: the run cancels the job,
+/// then fails.
 #[tokio::test(flavor = "multi_thread")]
 async fn fails_a_response_still_deferred_after_its_last_poll() {
     let directory = temp();
@@ -796,7 +796,7 @@ async fn fails_a_response_still_deferred_after_its_last_poll() {
                 let record = tx.task(task_id).await?.expect("the generation");
                 let last = |checkpoint: &JsonValue| {
                     let mut checkpoint = serde_json::Value::from(checkpoint);
-                    checkpoint["polls"] = MAX_POLLS.into();
+                    checkpoint["deadline"] = 61_000.0.into();
                     to_json(&checkpoint)
                 };
                 let state = match &record.state {
@@ -826,9 +826,9 @@ async fn fails_a_response_still_deferred_after_its_last_poll() {
         .await
         .expect("the poll cap ends the run")
         .unwrap();
-    let detail = JsonValue::from(format!(
-        "The model's deferred response was not ready after {MAX_POLLS} polls"
-    ));
+    let detail = JsonValue::from(
+        "The model's deferred response was not ready by its deadline, 60 s after the request",
+    );
     assert_eq!(
         (
             settled.state.status(),
@@ -841,7 +841,11 @@ async fn fails_a_response_still_deferred_after_its_last_poll() {
             Some(&detail)
         )
     );
-    assert_eq!(setup.faux.state().deferred_fetch_count, 1);
+    let state = setup.faux.state();
+    assert_eq!(
+        (state.deferred_fetch_count, state.cancelled_deferred.len()),
+        (1, 1)
+    );
     opened.harness.close(context()).await.unwrap();
 }
 

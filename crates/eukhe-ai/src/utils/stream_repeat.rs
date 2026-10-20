@@ -203,7 +203,8 @@ impl StreamRepeat {
     }
 
     /// Read a stream event; on a cut, abort the request and return its
-    /// failure.
+    /// failure. A `start` begins an attempt (a failover's sibling sends
+    /// its own): the guard counts the lines of one attempt only.
     pub(crate) fn watch(&mut self, event: &AssistantMessageEvent) -> Option<ProviderError> {
         let cut = match event {
             AssistantMessageEvent::TextDelta {
@@ -216,8 +217,11 @@ impl StreamRepeat {
                 delta,
                 ..
             } => self.guard.push(*content_index, delta)?,
-            AssistantMessageEvent::Start { .. }
-            | AssistantMessageEvent::PromptProgress { .. }
+            AssistantMessageEvent::Start { .. } => {
+                self.guard = RepetitionGuard::new(self.guard.limit());
+                return None;
+            }
+            AssistantMessageEvent::PromptProgress { .. }
             | AssistantMessageEvent::TextStart { .. }
             | AssistantMessageEvent::TextEnd { .. }
             | AssistantMessageEvent::ThinkingStart { .. }

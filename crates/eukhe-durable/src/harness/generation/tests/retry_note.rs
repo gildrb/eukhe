@@ -12,7 +12,9 @@ use eukhe_ai::providers::faux::{
     FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_chord::json::JsonValue;
-use eukhe_types::pi_ai::{AssistantContentBlock, Message, StopReason, UserContent};
+use eukhe_types::pi_ai::{
+    AssistantContentBlock, AssistantMessageDiagnostic, Message, StopReason, UserContent,
+};
 
 use crate::harness::generation::decide::MAX_NOTES;
 use crate::harness::generation::note::{NoteCause, RetryNote};
@@ -20,7 +22,7 @@ use crate::harness::tests::chat_support::{
     all_entries, chat_setup, open_chat, ChatSetup, OpenChat,
 };
 use crate::harness::tests::support::{context, describe_message};
-use crate::harness::types::{InputSubmissionDraft, PartialRetryPolicy};
+use crate::harness::types::{ConversationStreamOptions, InputSubmissionDraft, PartialRetryPolicy};
 use crate::storage::MemoryStorage;
 use crate::types::SubmissionStatus;
 
@@ -33,6 +35,9 @@ const CUT: &str = "Provider stream repeating: the same line 64 times in a row: \
 
 /// Each request the model got, as its messages.
 type Seen = Arc<Mutex<Vec<Vec<String>>>>;
+
+/// Each request the model got, as its messages and its idle deadline.
+type SeenIdle = Arc<Mutex<Vec<(Vec<String>, Option<f64>)>>>;
 
 /// The line `- r/Bitcoin`, 200 times.
 fn looped() -> Vec<AssistantContentBlock> {
@@ -241,6 +246,87 @@ async fn a_retry_after_no_answer_ends_its_request_with_a_note_and_answers() {
             vec![
                 vec![format!("user:{ASK}")],
                 vec![format!("user:{ASK}"), note(2, NoteCause::NoAnswer)],
+            ]
+        )
+    );
+}
+
+/// docs/harness.md H4.5: a stream that stalled is noted (M3). Its retry
+/// is a new request: it ends with a note and has twice the idle deadline
+/// the stream stalled under, so it does not stall the same way again. A
+/// noted retry spends a note: with no transient retries left
+/// (`retry.maxRetries` 0) the run still answers.
+#[tokio::test]
+async fn a_retry_after_a_stall_has_a_note_and_twice_the_idle_deadline() {
+    let setup = chat_setup(RegisterFauxProviderOptions::default());
+    let stall = "Provider stream stalled: no stream event for 2000ms";
+    let seen = SeenIdle::default();
+    let step = |stalled: bool| {
+        let seen = Arc::clone(&seen);
+        FauxResponseStep::factory(move |request, options, _, _| {
+            let idle = options.and_then(|options| options.stream.request.stream_idle_timeout_ms);
+            let messages = request.messages().iter().map(describe_message).collect();
+            seen.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((messages, idle));
+            if !stalled {
+                return Ok(faux_assistant_message(
+                    answer(),
+                    FauxAssistantMessageOptions::default(),
+                ));
+            }
+            let mut message = faux_assistant_message(
+                Vec::<AssistantContentBlock>::new(),
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(StopReason::Error),
+                    error_message: Some(stall.to_owned()),
+                    ..FauxAssistantMessageOptions::default()
+                },
+            );
+            let mut details = serde_json::Map::new();
+            details.insert("kind".to_owned(), "stream_stalled".into());
+            details.insert("idleTimeoutMs".to_owned(), 2000.into());
+            message.diagnostics = Some(vec![AssistantMessageDiagnostic {
+                kind: "provider_stream_failure".to_owned(),
+                timestamp: 0,
+                error: None,
+                details: Some(details),
+            }]);
+            Ok(message)
+        })
+    };
+    setup.faux.set_responses(vec![step(true), step(false)]);
+    setup.settings.update(|settings| {
+        settings.stream = Some(ConversationStreamOptions {
+            stream_idle_timeout_ms: Some(2000.0),
+            ..ConversationStreamOptions::default()
+        });
+    });
+    let stalled = NoteCause::Stalled { idle_ms: 2000 };
+    assert_eq!(
+        note(2, stalled.clone()),
+        "user:Harness note, attempt 2: your previous reply produced no output for 2 s, so the \
+         harness cut it. Reason briefly, then act: give the answer or call the tool of the next \
+         step."
+    );
+    let settled = settle(&setup, 0).await;
+    assert_eq!(
+        (
+            settled,
+            seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        ),
+        (
+            (
+                (SubmissionStatus::Done, None, None),
+                vec![
+                    user(ASK),
+                    failed(stall),
+                    (format!("assistant:{ANSWER}"), Some(StopReason::Stop), None),
+                ]
+            ),
+            vec![
+                (vec![format!("user:{ASK}")], Some(2000.0)),
+                (vec![format!("user:{ASK}"), note(2, stalled)], Some(4000.0)),
             ]
         )
     );

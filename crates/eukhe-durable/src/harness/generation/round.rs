@@ -504,8 +504,9 @@ pub(super) async fn finish_tool_round(
         .iter()
         .rev()
         .find_map(|(_, control)| control.as_ref().and_then(|control| control.handoff.clone()));
-    // A round that no control ends counts toward the cap.
-    let limits = limits(&runtime.settings());
+    // A round that no control ends counts toward the cap. A round has no
+    // deferred job: no time to wait.
+    let limits = limits(&runtime.settings(), 0);
     let end = if terminate || handoff.is_some() {
         RoundEnd::Stop
     } else {

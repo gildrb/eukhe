@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::SimpleStreamOptions;
-use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms, RetryDelay};
+use eukhe_ai::utils::retry::{is_retryable_assistant_error, retry_wait, RetryDelay, RetryWait};
 use eukhe_chord::context::{AbortController, AbortSignal, Context, BACKGROUND_CONTEXT};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Message, ModelThinkingLevel,
@@ -567,17 +567,30 @@ async fn run_side_question(
                     && is_retryable_assistant_error(&message) =>
             {
                 // Drop the failed assistant turn and re-run (the old
-                // engine's recovery), after the policy's backoff; a
-                // cancel that raced the failure aborts the run.
-                messages.pop();
-                turn_texts.pop();
-                let delay = retry_delay_ms(
+                // engine's recovery), after the policy's backoff, never
+                // before the server's wait; a server wait above the cap
+                // fails at once with the server's time. A cancel that
+                // raced the failure aborts the run.
+                let wait = retry_wait(
                     RetryDelay {
                         base_delay_ms: retry.base_delay_ms,
                         max_agent_delay_ms: retry.max_agent_delay_ms,
                     },
                     u32::try_from(retries + 1).unwrap_or(u32::MAX),
+                    &message,
                 );
+                let delay = match wait {
+                    RetryWait::After(delay) => delay,
+                    RetryWait::Refused { server_ms, cap_ms } => {
+                        let error = message.error_message.as_deref().unwrap_or_default();
+                        return SideQuestionOutcome::Failed {
+                            answer,
+                            error: RetryWait::refusal(server_ms, cap_ms, error),
+                        };
+                    }
+                };
+                messages.pop();
+                turn_texts.pop();
                 let cancelled = signal.cancellation_token();
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay as u64)) => {}

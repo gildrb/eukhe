@@ -45,6 +45,7 @@ import ./laws/child_env.bend as Ce
 import ./laws/shell_classification.bend as Sg
 import ./laws/runners.bend as Ru
 import ./laws/approvals.bend as Ap
+import ./laws/retry.bend as Rt
 
 # (a) The view
 # ------------
@@ -1647,7 +1648,6 @@ law effort_shown_is_sent:
 # LAW: every run has ended (answered, aborted or failed) after bound(cfg)
 # inputs, whatever they are and whatever follows them; bound(cfg) =
 # max(cap, 1)·(2 + (retries + notes + 2)·(polls + 2)), from
-# maxToolRounds, MAX_POLLS, retry.maxRetries, MAX_NOTES and one
 # compaction a generation. Notes have their own budget: a noted retry
 # spends a note, never a retry
 law run_ends:
@@ -1783,3 +1783,6 @@ law run_cut_names_the_request:
 law run_note_is_never_logged:
   for q: Rn.Req
   {Rn.logged(Rn.Req.lines(q)) == Rn.logged(Rn.Req.lines(Rn.Req{Rn.Req.ctx(q), 0n})) : List<&2, Rn.Line>}
+
+# maxToolRounds, the ms a deferred job may run (a poll spends 1 ms),
+# retry.maxRetries, MAX_NOTES and one

@@ -185,7 +185,11 @@ Settings in `~/.eukhe/settings.json`:
 |`rlmMaxDepth`|`2`|Maximum subagent depth (global only)|
 |`providerMaxInFlight`|none|`{"<provider>": n}`: model requests at one time per provider; `0` is no limit (global only)|
 |`providerMaxQueued`|`64`|Requests that wait per provider; the next one fails (global only)|
-|`retry.provider.streamIdleTimeoutMs`|`300000`|A model stream with no event for this long fails as stalled and retries; `0` is no limit|
+|`retry.provider.streamIdleTimeoutMs`|`300000`|A model stream with no event for this long fails as stalled; its retry has a note and twice the deadline; `0` is no limit|
+|`retry.provider.maxRetryDelayMs`|`60000`|The longest server-requested wait (`Retry-After`) a retry waits out; a longer one fails the request at once and names the server's time (a quota failure parks the session instead)|
+|`retry.failover.maxRetries`|`8`|Provider switches one request may make to other configured providers of the same model; each provider is tried once before the request returns to one|
+|`retry.failover.baseDelayMs`|`1000`|Wait before a request returns to a provider it left; it doubles with each return and is never shorter than that provider's server wait|
+|`retry.failover.maxDelayMs`|`30000`|Longest wait before such a return; a provider whose server asks for longer is not tried again in that request|
 |`memory.settleTimeoutMs`|`20000`|How long a turn waits for the memory's summaries; then a line not summarized yet shows its message cut to 512 bytes; `0` takes the default|
 |`maxToolRounds`|`250`|Tool rounds one turn may make; at the cap the turn ends as failed; `0` takes the default|
 |`compaction.keepRecentTokens`|`40000`|Tokens of recent context that compaction keeps; capped per model at half the size where compaction starts|

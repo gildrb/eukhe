@@ -1,5 +1,6 @@
 //! Generation test suites.
 
+mod deferred;
 mod forced;
 mod generation;
 mod live_deltas;

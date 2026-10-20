@@ -1,7 +1,8 @@
 //! A provider stream that goes silent after its response headers: the
 //! stream-idle deadline fails the attempt as a retryable `stream_stalled`
-//! error, the generation's retry policy re-issues the request, and the turn
-//! answers instead of holding the run until someone aborts it.
+//! error, the generation retries the request (a noted retry, with twice
+//! the deadline), and the turn answers instead of holding the run until
+//! someone aborts it. Every wait of the test is bounded.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,17 +53,36 @@ async fn write_chunk(socket: &mut TcpStream, data: &str) {
     socket.write_all(chunk.as_bytes()).await.expect("chunk");
 }
 
+/// The idle deadline of the test. It counts from the request's start, so
+/// it also covers the setup (auth, request build, connect): far above what
+/// setup takes on a loaded machine.
+const IDLE_MS: u64 = 5_000;
+
+/// The bound of each wait of the test: past the deadline of the stalled
+/// attempt and of its retry (twice the deadline), with room for a loaded
+/// machine.
+const BOUND: Duration = Duration::from_millis(6 * IDLE_MS);
+
+/// The receivers of [`sse_server`]: the indexes of the exchanges whose
+/// response head it wrote, and of the stalled exchanges whose connection
+/// the client closed.
+struct Served {
+    heads: mpsc::UnboundedReceiver<usize>,
+    closed: mpsc::UnboundedReceiver<usize>,
+}
+
 /// A local Anthropic-messages endpoint serving `exchanges` in order, one
-/// per connection. Returns its base URL and a receiver of the indexes of
-/// stalled exchanges whose connection the client closed.
-async fn sse_server(exchanges: Vec<Exchange>) -> (String, mpsc::UnboundedReceiver<usize>) {
+/// per connection. Returns its base URL and what it served.
+async fn sse_server(exchanges: Vec<Exchange>) -> (String, Served) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let base_url = format!("http://{}", listener.local_addr().expect("address"));
     let (closed_sender, closed) = mpsc::unbounded_channel();
+    let (head_sender, heads) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         for (index, exchange) in exchanges.into_iter().enumerate() {
             let (mut socket, _) = listener.accept().await.expect("accept");
             let closed_sender = closed_sender.clone();
+            let head_sender = head_sender.clone();
             tokio::spawn(async move {
                 read_request_head(&mut socket).await;
                 socket
@@ -71,6 +91,8 @@ async fn sse_server(exchanges: Vec<Exchange>) -> (String, mpsc::UnboundedReceive
                     )
                     .await
                     .expect("response head");
+                // The test may have ended already.
+                let _ = head_sender.send(index);
                 let (events, stall) = match exchange {
                     Exchange::Stall(events) => (events, true),
                     Exchange::Answer(events) => (events, false),
@@ -83,14 +105,23 @@ async fn sse_server(exchanges: Vec<Exchange>) -> (String, mpsc::UnboundedReceive
                     // Silent until the client gives up on the connection.
                     let mut rest = [0_u8; 1024];
                     while socket.read(&mut rest).await.is_ok_and(|read| read > 0) {}
-                    closed_sender.send(index).expect("test receiver");
+                    let _ = closed_sender.send(index);
                 } else {
                     socket.write_all(b"0\r\n\r\n").await.expect("last chunk");
                 }
             });
         }
     });
-    (base_url, closed)
+    (base_url, Served { heads, closed })
+}
+
+/// [`IDLE_MS`] as the setting's number.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the deadline is far below 2^53 ms, where the cast is exact"
+)]
+fn idle_ms() -> f64 {
+    IDLE_MS as f64
 }
 
 fn message_start() -> serde_json::Value {
@@ -182,13 +213,13 @@ fn assistant(message: &Message) -> &AssistantMessage {
 async fn a_stream_that_stalls_after_its_headers_is_retried_instead_of_holding_the_turn() {
     let mut stalled = vec![message_start()];
     stalled.extend(text_events("half an ans"));
-    let (base_url, mut closed) =
+    let (base_url, mut served) =
         sse_server(vec![Exchange::Stall(stalled), answer("recovered")]).await;
     let setup = chat_setup(RegisterFauxProviderOptions::default())
         .with_models(anthropic_models_at(&base_url));
     setup.settings.update(|settings| {
         settings.stream = Some(ConversationStreamOptions {
-            stream_idle_timeout_ms: Some(200.0),
+            stream_idle_timeout_ms: Some(idle_ms()),
             ..ConversationStreamOptions::default()
         });
         settings.retry = Some(PartialRetryPolicy {
@@ -202,16 +233,24 @@ async fn a_stream_that_stalls_after_its_headers_is_retried_instead_of_holding_th
         .await
         .unwrap();
     harness.resume().unwrap();
-    let submission = root
-        .submit(InputSubmissionDraft::new("hi"), context())
-        .await
-        .unwrap();
+    let submission = tokio::time::timeout(
+        BOUND,
+        root.submit(InputSubmissionDraft::new("hi"), context()),
+    )
+    .await
+    .expect("the input is submitted")
+    .unwrap();
     // Without the deadline the first attempt never ends; the guard turns
     // that hang into a failure.
-    let settled = tokio::time::timeout(Duration::from_secs(60), submission.wait(context()))
+    let settled = tokio::time::timeout(BOUND, submission.wait(context()))
         .await
         .expect("the stalled attempt ends and the turn settles")
         .unwrap();
+    assert_eq!(
+        served.heads.try_recv(),
+        Ok(0),
+        "the stall fired before the response headers: setup took longer than the deadline"
+    );
     assert!(
         matches!(
             settled.state,
@@ -220,7 +259,10 @@ async fn a_stream_that_stalls_after_its_headers_is_retried_instead_of_holding_th
         "{:?}",
         settled.state
     );
-    let entries = all_entries(&root, context()).await.unwrap();
+    let entries = tokio::time::timeout(BOUND, all_entries(&root, context()))
+        .await
+        .expect("the transcript is read")
+        .unwrap();
     let assistants: Vec<&AssistantMessage> = entries
         .iter()
         .filter(|entry| entry.kind == "pi.assistant")
@@ -232,7 +274,7 @@ async fn a_stream_that_stalls_after_its_headers_is_retried_instead_of_holding_th
     assert_eq!(stalled.stop_reason, StopReason::Error);
     assert_eq!(
         stalled.error_message.as_deref(),
-        Some("Provider stream stalled: no stream event for 200ms")
+        Some(format!("Provider stream stalled: no stream event for {IDLE_MS}ms").as_str())
     );
     let failure = serde_json::to_value(stalled.diagnostics.as_ref().expect("diagnostics"))
         .expect("diagnostics JSON");
@@ -245,6 +287,14 @@ async fn a_stream_that_stalls_after_its_headers_is_retried_instead_of_holding_th
         Some("recovered")
     );
     // The stalled request was aborted: its connection is gone.
-    assert_eq!(closed.recv().await, Some(0));
-    harness.close(context()).await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(BOUND, served.closed.recv())
+            .await
+            .expect("the stalled request's connection stays open"),
+        Some(0)
+    );
+    tokio::time::timeout(BOUND, harness.close(context()))
+        .await
+        .expect("the harness closes")
+        .unwrap();
 }

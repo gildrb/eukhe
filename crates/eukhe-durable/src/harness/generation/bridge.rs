@@ -16,7 +16,8 @@
 //! cut, as the model's requests (`R.Reqs`) name it: the version of the
 //! logged context (one more for each compaction entry and each round that
 //! goes on) and the attempt its note names, 0 for none. Then they print
-//! the phase and the counts left.
+//! the phase and the counts left. The model counts a deferred job's time
+//! in polls: each poll spends 1 ms of [`Limits::max_wait`].
 //!
 //! [`compare`] runs it (and skips without `bend`, unless
 //! `EUKHE_REQUIRE_BEND` is set).
@@ -27,7 +28,6 @@ use std::num::NonZeroU32;
 use super::decide::{
     after_compaction, after_reply, before_request, retry_note, Compacted, Compaction, Counts,
     Ended, Failure, Limits, Prepared, Reply, RoundEnd, Rounds, Step, Threshold, MAX_NOTES,
-    MAX_POLLS,
 };
 use super::note::{NoteCause, RetryNote};
 use crate::testing::bridge::{compare, Rng, Scenario};
@@ -136,7 +136,7 @@ struct Run {
 const FRESH: Counts = Counts {
     attempt: 1,
     notes: 0,
-    polls: 0,
+    waited: 0,
     compacted: false,
 };
 
@@ -190,10 +190,10 @@ impl Run {
                         self.phase = Phase::Compact(Compaction::Threshold);
                         self.at.compacted = true;
                     }
-                    // `request` sends it, its reply counted as fetch 0.
+                    // `request` sends it, its reply 0 ms after it.
                     Prepared::Request { .. } => {
                         self.phase = Phase::Call;
-                        self.at.polls = 0;
+                        self.at.waited = 0;
                         self.request("sent");
                     }
                 }
@@ -215,7 +215,7 @@ impl Run {
                 match after_reply(at, reply, &self.limits) {
                     Step::Answer => return self.end("answered"),
                     Step::Tools => self.phase = Phase::Tools,
-                    Step::Poll((), polls) => self.at.polls = polls,
+                    Step::Poll(()) => self.at.waited += 1,
                     // The `retry` phase prepares the next attempt, which
                     // counts the noted retries that its note spent.
                     Step::Retry | Step::Note => {
@@ -273,12 +273,12 @@ impl Run {
         let Counts {
             attempt,
             notes,
-            polls,
+            waited,
             compacted,
         } = self.at;
         let retries = u64::from(self.limits.max_retries) + 1 + u64::from(notes) - attempt;
         let notes = self.limits.max_notes - notes;
-        let polls = self.limits.max_polls - polls;
+        let polls = self.limits.max_wait - waited;
         let compactions = u8::from(!compacted);
         let rounds = self.limits.max_rounds.get() - 1 - self.rounds.count;
         let _ = match self.phase {
@@ -362,7 +362,7 @@ fn write_limits(limits: &Limits, events: &mut String) {
     let _ = writeln!(
         events,
         "9 {} {} {} {}",
-        limits.max_rounds, limits.max_polls, limits.max_retries, limits.max_notes
+        limits.max_rounds, limits.max_wait, limits.max_retries, limits.max_notes
     );
 }
 
@@ -405,10 +405,14 @@ fn repeated_cuts(limits: Limits, cut: Answer, events: &mut String, transcript: &
     transcript.push_str(&run.out);
 }
 
-fn limits(max_rounds: u32, max_polls: u32, max_retries: u32, max_notes: u32) -> Limits {
+/// The ms a deferred job with no expiry and no requested window may run
+/// in production: the longest window, 24 h.
+const PRODUCTION_WAIT: u64 = 24 * 60 * 60 * 1000;
+
+fn limits(max_rounds: u32, max_wait: u64, max_retries: u32, max_notes: u32) -> Limits {
     Limits {
         max_rounds: NonZeroU32::new(max_rounds).unwrap_or(NonZeroU32::MIN),
-        max_polls,
+        max_wait,
         max_retries,
         max_notes,
     }
@@ -421,14 +425,14 @@ fn the_rust_decisions_equal_the_bend_model() {
     // The production limits, then small ones, so that every cap is reached.
     scenario(
         &mut rng,
-        limits(250, MAX_POLLS, 3, MAX_NOTES),
+        limits(250, PRODUCTION_WAIT, 3, MAX_NOTES),
         &mut events,
         &mut transcript,
     );
     for _ in 0..400 {
         let small = limits(
             u32::try_from(rng.below(8)).unwrap_or(0) + 1,
-            u32::try_from(rng.below(5)).unwrap_or(0),
+            rng.below(5),
             u32::try_from(rng.below(4)).unwrap_or(0),
             u32::try_from(rng.below(4)).unwrap_or(0),
         );

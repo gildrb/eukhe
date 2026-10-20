@@ -10,6 +10,7 @@
 #[cfg(test)]
 mod bridge;
 mod decide;
+mod deferred;
 mod force;
 #[cfg(test)]
 mod infer_bridge;
@@ -18,6 +19,8 @@ mod note;
 #[cfg(test)]
 mod recover_bridge;
 mod repeat;
+#[cfg(test)]
+mod retry_bridge;
 mod round;
 mod stream;
 #[cfg(test)]
@@ -28,10 +31,14 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use eukhe_ai::capabilities::CapabilityOptions;
 use eukhe_ai::models::ModelsCapabilityOptions;
-use eukhe_ai::types::{DeferredCancelOptions, DeferredFetchOptions, ProviderRequestOptions};
+use eukhe_ai::types::{
+    DeferredCancelOptions, DeferredFetchOptions, DeferredRequest, DeferredWindow,
+    ProviderRequestOptions,
+};
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_ai::utils::retry::{
-    is_retryable_assistant_error, repeated_lines, retry_wait_ms, RetryDelay,
+    is_retryable_assistant_error, repeated_lines, retry_wait, stalled_idle_ms, RetryDelay,
+    RetryWait,
 };
 use eukhe_ai::utils::stream_failure::RepeatedLines;
 use eukhe_ai::utils::transcript::get_current_tools;
@@ -46,8 +53,9 @@ use serde::{Deserialize, Serialize};
 use self::decide::{
     after_compaction, after_reply, before_request, recover, retry_note, threshold_for, Act,
     Compacted, Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck,
-    Threshold, CAPS, LENGTH_NOTES, MAX_NOTES, MAX_POLLS, REDIRECT_NOTES,
+    Threshold, CAPS, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
 };
+use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
 use self::force::{soft_prompt, ForceReply, ForceStep, Forcing};
 use self::leak::{scan, Leak};
 use self::note::{NoteCause, RepeatedCall, RetryNote, ARGUMENTS_SHOWN};
@@ -150,9 +158,16 @@ pub enum GenerationCheckpoint {
         cutoff: EntryId,
         handle: DeferredHandle,
         poll_at: f64,
-        /// This poll's fetch, counted from 1 (H4.4).
-        #[serde(default)]
-        polls: u32,
+        /// When the request this polls for went out (the harness clock,
+        /// ms).
+        sent_at: f64,
+        /// When the request's deferred job's time ends (H4.4): its
+        /// provider's expiry, else the end of its window.
+        deadline: f64,
+        /// The fetches of the job that failed in a row (H4.4); a reply
+        /// that is still deferred sets it to 0.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        failures: u32,
         #[serde(default, skip_serializing_if = "is_zero")]
         forced: u32,
         /// The forced tool call of the request this polls for and its
@@ -212,17 +227,31 @@ pub(crate) struct Request {
     /// Committed model context through `cutoff`, when the phase already
     /// derived it.
     pub(crate) messages: Option<Vec<Message>>,
-    /// Set when the message came from polling, so a still deferred result
-    /// polls strictly later.
-    poll_at: Option<f64>,
-    /// The deferred fetch that gave the message: 0 for the request.
-    polls: u32,
+    /// When the request went out (the harness clock, ms).
+    sent_at: f64,
+    /// When the request's deferred job's time ends (H4.4): the end of the
+    /// requested window, until the job's handle gives the provider's
+    /// expiry.
+    deadline: f64,
+    /// The poll that gave the message; none for the request itself.
+    poll: Option<Polled>,
     /// Earlier requests of the forced call that went without it.
     forced: u32,
     /// The request's forced tool call, when it forces one.
     force: Option<Forcing>,
     /// The note the request ended with.
     note: Option<RetryNote>,
+}
+
+/// The poll of a deferred job that gave a message.
+struct Polled {
+    /// When it was due, so a job that is still deferred polls strictly
+    /// later.
+    at: f64,
+    /// The job's handle.
+    handle: DeferredHandle,
+    /// The fetches of the job that failed in a row before this one.
+    failures: u32,
 }
 
 const DEFAULT_POLL_AFTER_MS: f64 = 5000.0;
@@ -366,7 +395,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let at = Counts {
         attempt,
         notes: note.as_ref().map_or(0, |note| note.spent),
-        polls: 0,
+        waited: 0,
         compacted: compacted.is_some(),
     };
     let policy = &settings.compaction;
@@ -591,6 +620,30 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     {
         options.tool_choice = Some(ToolChoice::Tool(force.forced.tool.clone()));
     }
+    // The retry after a stall (M3) has twice the idle deadline it stalled
+    // under: the same deadline would stall the same request again.
+    if let Some(RetryNote {
+        cause: NoteCause::Stalled { idle_ms },
+        ..
+    }) = &note
+    {
+        options.stream.request.stream_idle_timeout_ms = Some(ms_f64(idle_after_stall(*idle_ms)));
+    }
+    // The time a deferred job of the request may run (H4.4), until its
+    // handle gives the provider's expiry: the requested window, else the
+    // longest window of the API.
+    let window = match stream_options.deferred {
+        Some(DeferredRequest::Window(Some(window))) => window,
+        Some(DeferredRequest::Window(None) | DeferredRequest::Flag(_)) | None => {
+            DeferredWindow::Hours24
+        }
+    };
+    let window_ms = match window {
+        DeferredWindow::Minutes15 => 15.0 * 60_000.0,
+        DeferredWindow::Hours1 => 60.0 * 60_000.0,
+        DeferredWindow::Hours24 => 24.0 * 60.0 * 60_000.0,
+    };
+    let sent_at = runtime.now()?;
     let message = stream_response(&runtime, &model, messages, options, attempt, &cx).await?;
     let request = Request {
         attempt,
@@ -598,8 +651,9 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         model: reference,
         cutoff,
         messages: Some(view.messages),
-        poll_at: None,
-        polls: 0,
+        sent_at,
+        deadline: sent_at + window_ms,
+        poll: None,
         forced,
         force,
         note,
@@ -649,7 +703,9 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         cutoff,
         handle,
         poll_at,
-        polls,
+        sent_at,
+        deadline,
+        failures,
         forced,
         force,
         note,
@@ -682,13 +738,45 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         model: reference,
         cutoff,
         messages: None,
-        poll_at: Some(poll_at),
-        polls,
+        sent_at,
+        deadline,
+        poll: Some(Polled {
+            at: poll_at,
+            handle,
+            failures,
+        }),
         forced,
         force,
         note,
     };
     classify(&runtime, request, message, &cx).await
+}
+
+/// Cancel the deferred job of `handle` at its provider. A failed
+/// cancellation is reported, not raised: the run ends either way.
+async fn cancel_job(
+    runtime: &Runtime,
+    reference: &ModelRef,
+    handle: &DeferredHandle,
+) -> SessionResult<()> {
+    let Some(model) = runtime
+        .models()
+        .get_model(&reference.provider, &reference.model_id)
+    else {
+        return Ok(());
+    };
+    let options = DeferredCancelOptions {
+        signal: Some(runtime.signal()),
+        ..DeferredCancelOptions::default()
+    };
+    if let Err(error) = runtime
+        .models()
+        .cancel_deferred(&model, handle, options.into())
+        .await
+    {
+        runtime.report(SessionError::other(error))?;
+    }
+    Ok(())
 }
 
 async fn tools(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()> {
@@ -711,19 +799,7 @@ async fn tools(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
 async fn abort(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let checkpoint = task.checkpoint;
     if let GenerationCheckpoint::Poll { model, handle, .. } = &checkpoint {
-        if let Some(model) = runtime.models().get_model(&model.provider, &model.model_id) {
-            let options = DeferredCancelOptions {
-                signal: Some(runtime.signal()),
-                ..DeferredCancelOptions::default()
-            };
-            if let Err(error) = runtime
-                .models()
-                .cancel_deferred(&model, handle, options.into())
-                .await
-            {
-                runtime.report(SessionError::other(error))?;
-            }
-        }
+        cancel_job(&runtime, model, handle).await?;
     }
     let conversation_id = runtime.conversation_id();
     // Runs after the round's tool tasks are terminal; calls never started get
@@ -943,14 +1019,34 @@ async fn fail_no_model(
         .await
 }
 
-/// The limits of the run's decisions, read when they are decided.
-fn limits(settings: &Settings) -> Limits {
+/// The limits of the run's decisions, read when they are decided:
+/// `max_wait` is the ms the request's deferred job may run.
+fn limits(settings: &Settings, max_wait: u64) -> Limits {
     Limits {
         max_rounds: settings.max_tool_rounds,
-        max_polls: MAX_POLLS,
+        max_wait,
         max_retries: settings.retry.max_retries,
         max_notes: MAX_NOTES,
     }
+}
+
+/// A span of the harness clock as whole ms; a negative span is 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the cast saturates: a negative span is 0, a span past u64::MAX is u64::MAX"
+)]
+fn ms_u64(span: f64) -> u64 {
+    span as u64
+}
+
+/// Whole ms as a time or span of the harness clock.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a time or deadline in ms, far below 2^53, where the cast is exact"
+)]
+fn ms_f64(ms: u64) -> f64 {
+    ms as f64
 }
 
 /// Classify a terminal provider message and commit the step it leads to
@@ -1001,8 +1097,56 @@ async fn classify(
     // The retry and compaction policies govern the next attempt, so they are
     // read now rather than pinned at preparation.
     let settings = runtime.settings();
-    let (reply, cause) = if let Some(handle) = deferred {
+    let polled = request.poll.take();
+    // A failed fetch of a deferred job (H10): the job can still run, so a
+    // new request would pay for the work two times. A retryable failure
+    // below `retry.maxRetries` failures in a row polls the same job again,
+    // after the retry policy's wait (never before the server's wait); any
+    // other failure cancels the job, then fails the run.
+    let mut repoll_wait = None;
+    let mut cancelled = false;
+    let deferred = match polled
+        .as_ref()
+        .filter(|_| message.stop_reason == StopReason::Error)
+    {
+        None => deferred,
+        Some(poll) => {
+            let failure = PollFailure {
+                retryable: settings.retry.enabled && is_retryable_assistant_error(&message),
+                failures: poll.failures,
+            };
+            let delay = RetryDelay {
+                base_delay_ms: settings.retry.base_delay_ms,
+                max_agent_delay_ms: settings.retry.max_agent_delay_ms,
+            };
+            repoll_wait = match failure.next(settings.retry.max_retries) {
+                FailedPoll::Repoll => match retry_wait(delay, poll.failures + 1, &message) {
+                    RetryWait::After(wait) => Some(wait),
+                    RetryWait::Refused { server_ms, cap_ms } => {
+                        let error = message.error_message.as_deref().unwrap_or_default();
+                        message.error_message = Some(RetryWait::refusal(server_ms, cap_ms, error));
+                        None
+                    }
+                },
+                FailedPoll::Cancel => None,
+            };
+            if repoll_wait.is_none() {
+                cancel_job(runtime, &request.model, &poll.handle).await?;
+                cancelled = true;
+            }
+            repoll_wait.map(|_| poll.handle.clone())
+        }
+    };
+    let (reply, cause) = if let Some(handle) = &deferred {
         (Reply::Deferred(handle), None)
+    } else if cancelled {
+        (
+            Reply::Error {
+                retryable: false,
+                noted: false,
+            },
+            None,
+        )
     } else if matches!(
         message.stop_reason,
         StopReason::Stop | StopReason::Length | StopReason::ToolUse
@@ -1251,9 +1395,12 @@ async fn classify(
         (Reply::Overflow { cut }, None)
     } else {
         // A stream the repetition guard cut is noted (H4.7): its retry
-        // names the repeated line in its note.
+        // names the repeated line in its note. So is a stream that stalled
+        // (M3): its retry, sent at once, has a note and twice the idle
+        // deadline.
         let cause = repeated_lines(&message)
-            .map(|RepeatedLines { period, line }| NoteCause::Repeated { period, line });
+            .map(|RepeatedLines { period, line }| NoteCause::Repeated { period, line })
+            .or_else(|| stalled_idle_ms(&message).map(|idle_ms| NoteCause::Stalled { idle_ms }));
         let reply = Reply::Error {
             retryable: message.stop_reason == StopReason::Error
                 && is_retryable_assistant_error(&message)
@@ -1262,10 +1409,17 @@ async fn classify(
         };
         (reply, cause)
     };
+    // A provider that gives the job's expiry with its handle sets the
+    // job's deadline (H4.4).
+    let deadline = deferred
+        .as_ref()
+        .and_then(|handle| handle.expires_at)
+        .map_or(request.deadline, ms_f64);
+    let sent_at = request.sent_at;
     let at = Counts {
         attempt,
         notes: request.note.as_ref().map_or(0, |note| note.spent),
-        polls: request.polls,
+        waited: ms_u64(runtime.now()? - sent_at),
         compacted: compacted.is_some(),
     };
     // A forced call judges each answer: one without the call is kept in the
@@ -1348,10 +1502,22 @@ async fn classify(
             }
         }
     }
-    match after_reply(at, reply, &limits(&settings)) {
-        Step::Poll(handle, polls) => {
-            let after = runtime.now()? + handle.poll_after_ms.unwrap_or(DEFAULT_POLL_AFTER_MS);
-            let poll_at = after.max(request.poll_at.map_or(f64::NEG_INFINITY, |at| at + 1.0));
+    match after_reply(at, reply, &limits(&settings, ms_u64(deadline - sent_at))) {
+        Step::Poll(handle) => {
+            let handle = handle.clone();
+            let wait = repoll_wait
+                .unwrap_or_else(|| handle.poll_after_ms.unwrap_or(DEFAULT_POLL_AFTER_MS));
+            let after = runtime.now()? + wait;
+            let poll_at = after.max(
+                polled
+                    .as_ref()
+                    .map_or(f64::NEG_INFINITY, |poll| poll.at + 1.0),
+            );
+            // A retried fetch counts one more failure in a row; a reply
+            // that is still deferred sets the count to 0.
+            let failures = repoll_wait
+                .and(polled.as_ref())
+                .map_or(0, |poll| poll.failures + 1);
             let model = request.model;
             let cutoff = request.cutoff;
             let force = request.force;
@@ -1373,7 +1539,9 @@ async fn classify(
                                 cutoff,
                                 handle,
                                 poll_at,
-                                polls,
+                                sent_at,
+                                deadline,
+                                failures,
                                 forced,
                                 force,
                                 note,
@@ -1385,8 +1553,15 @@ async fn classify(
                 .await
         }
         Step::Fail(Failure::Polls) => {
-            let text =
-                format!("The model's deferred response was not ready after {MAX_POLLS} polls");
+            // The job may still run: cancel it before the run fails.
+            if let Some(handle) = &deferred {
+                cancel_job(runtime, &request.model, handle).await?;
+            }
+            let text = format!(
+                "The model's deferred response was not ready by its deadline, {} s after the \
+                 request",
+                ms_u64(deadline - sent_at) / 1000
+            );
             fail_model_error(runtime, text, cx).await
         }
         Step::Tools => start_tool_round(runtime, request, message, calls, cx).await,
@@ -1439,7 +1614,9 @@ async fn classify(
             // overloaded. A transient retry's wait is drawn once and
             // committed with the retry checkpoint, so a replay resumes at
             // the same instant: full jitter under the policy's step, never
-            // before the server's Retry-After.
+            // before the server's Retry-After. A server wait above the cap
+            // (H5) sends no retry: a retry before the server's time cannot
+            // succeed, so the run fails at once with the server's time.
             let (retry, until) = match step {
                 Step::Retry => {
                     let delay = RetryDelay {
@@ -1448,10 +1625,15 @@ async fn classify(
                     };
                     let retries = attempt.saturating_sub(u64::from(at.notes));
                     let retries = u32::try_from(retries).unwrap_or(u32::MAX);
-                    (
-                        true,
-                        runtime.now()? + retry_wait_ms(delay, retries, &message),
-                    )
+                    match retry_wait(delay, retries, &message) {
+                        RetryWait::After(wait) => (true, runtime.now()? + wait),
+                        RetryWait::Refused { server_ms, cap_ms } => {
+                            let error = message.error_message.as_deref().unwrap_or_default();
+                            message.error_message =
+                                Some(RetryWait::refusal(server_ms, cap_ms, error));
+                            (false, 0.0)
+                        }
+                    }
                 }
                 Step::Note => (true, runtime.now()?),
                 Step::Answer | Step::Tools | Step::Poll(..) | Step::Compact | Step::Fail(_) => {

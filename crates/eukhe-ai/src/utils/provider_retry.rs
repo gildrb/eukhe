@@ -9,8 +9,9 @@ use eukhe_chord::context::AbortSignal;
 use reqwest::header::HeaderMap;
 
 use super::diagnostics::{ErrorObject, Thrown};
-use super::js::{js_parse_float, number_to_js_string};
+use super::js::js_parse_float;
 use super::now_ms;
+use super::retry::RetryWait;
 use super::sleep::timer_duration;
 
 const DEFAULT_MAX_RETRY_DELAY_MS: f64 = 60_000.0;
@@ -89,10 +90,10 @@ fn validate_server_retry_delay_ms(
 ) -> Result<f64, Thrown> {
     let max_delay_ms = max_retry_delay_ms.unwrap_or(DEFAULT_MAX_RETRY_DELAY_MS);
     if max_delay_ms > 0.0 && delay_ms > max_delay_ms {
-        return Err(ErrorObject::new(format!(
-            "Server requested {}s retry delay (max: {}s). {provider_error_message}",
-            number_to_js_string((delay_ms / 1000.0).ceil()),
-            number_to_js_string((max_delay_ms / 1000.0).ceil()),
+        return Err(ErrorObject::new(RetryWait::refusal(
+            delay_ms,
+            max_delay_ms,
+            provider_error_message,
         ))
         .thrown());
     }

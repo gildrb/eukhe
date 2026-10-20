@@ -42,7 +42,9 @@ use eukhe_ai::types::{
 use eukhe_ai::utils::event_stream::{
     create_assistant_message_event_stream, AssistantMessageEventStream,
 };
-use eukhe_ai::utils::retry::is_retryable_assistant_error;
+use eukhe_ai::utils::retry::{
+    is_retryable_assistant_error, server_retry_after_ms, QUOTA_PARK_DIAGNOSTIC,
+};
 use eukhe_ai::utils::stream_idle::StreamClock;
 use eukhe_chord::context::AbortSignal;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
@@ -54,16 +56,18 @@ use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, TypedEntryDraft};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, Message, Model,
-    PromptProgress, StopReason, TranscriptContext, Usage, UserContent, UserContentBlock,
+    AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent, DoneReason, ErrorReason,
+    Message, Model, PromptProgress, StopReason, TranscriptContext, Usage, UserContent,
+    UserContentBlock,
 };
 use futures::{FutureExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::broadcast;
 
 use super::failover::{
-    failover_candidates, model_reference, ProviderFailoverPolicy, MAX_TOTAL_PROVIDER_RETRIES,
+    failover_candidates, model_reference, next_switch, ProviderFailoverPolicy, Switch, Tried,
 };
 use super::image_route::{self, ImageRoute};
 use super::park::{
@@ -81,8 +85,6 @@ use crate::durable::entries::{CustomStateData, CUSTOM_STATE_ENTRY};
 use crate::durable::rlm::now_millis;
 use crate::durable::HostDeps;
 use crate::settings::SettingsManager;
-
-const SWITCH_BUDGET: u32 = MAX_TOTAL_PROVIDER_RETRIES;
 
 /// The provider runtime's wire events the durable Harness does not emit
 /// (the backup-switch `auto_retry_*` vocabulary and the serving server's
@@ -315,9 +317,18 @@ async fn run_request(
     }
     let primary = serving.clone();
     let failover = failover_policy(&settings);
+    let primary_dispatch = Arc::clone(&original);
     let mut dispatch = original;
+    // The request's chain (the primary, then its failover candidates),
+    // built at its first retryable failure, and its failed attempts,
+    // oldest first (H3): the walk never sends the request back at once
+    // to a provider it left.
+    let mut chain: Vec<Model> = Vec::new();
+    let mut tried: Vec<Tried> = Vec::new();
     let mut switches = 0u32;
     loop {
+        // Each attempt opens with its own `start`, which drops the failed
+        // attempt's partial downstream (the event protocol).
         let mut events = dispatch(&serving, &context).events();
         let mut terminal: Option<AssistantMessage> = None;
         while let Some(event) = events.next().await {
@@ -337,7 +348,16 @@ async fn run_request(
                         .send(ProviderWireEvent::PromptProgress(*progress));
                     out.push(event);
                 }
-                _ => out.push(event),
+                AssistantMessageEvent::Start { .. }
+                | AssistantMessageEvent::TextStart { .. }
+                | AssistantMessageEvent::TextDelta { .. }
+                | AssistantMessageEvent::TextEnd { .. }
+                | AssistantMessageEvent::ThinkingStart { .. }
+                | AssistantMessageEvent::ThinkingDelta { .. }
+                | AssistantMessageEvent::ThinkingEnd { .. }
+                | AssistantMessageEvent::ToolCallStart { .. }
+                | AssistantMessageEvent::ToolCallDelta { .. }
+                | AssistantMessageEvent::ToolCallEnd { .. } => out.push(event),
             }
         }
         let Some(message) = terminal else {
@@ -349,11 +369,26 @@ async fn run_request(
         let retryable =
             message.stop_reason == StopReason::Error && is_retryable_assistant_error(&message);
         let next = if retryable && failover.enabled {
-            next_candidate(&inner, &serving, &settings, switches, &failover)
+            if chain.is_empty() {
+                chain = failover_chain(&inner, &primary, &settings);
+            }
+            let at = chain
+                .iter()
+                .position(|model| model.provider == serving.provider)
+                .unwrap_or(0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a server wait is a whole, positive number of ms"
+            )]
+            let server_wait_ms =
+                server_retry_after_ms(&message).map(|ms| ms.max(0.0).ceil() as u64);
+            tried.push(Tried { at, server_wait_ms });
+            next_switch(chain.len(), &tried, &failover)
         } else {
             None
         };
-        let Some(candidate) = next else {
+        let Some(Switch { to, delay_ms }) = next else {
             if switches > 0
                 && !matches!(message.stop_reason, StopReason::Error | StopReason::Aborted)
             {
@@ -389,19 +424,49 @@ async fn run_request(
             out.end(None);
             return;
         };
+        let candidate = chain[to].clone();
         switches += 1;
         let _ = inner.events.send(ProviderWireEvent::AutoRetryStart {
             attempt: switches,
             max_attempts: failover.max_switches,
-            delay_ms: 0,
+            delay_ms,
             error_message: final_error_of(&message),
             backup_model: model_reference(&candidate),
         });
-        // The re-routed request dispatches through the sibling provider's
-        // original stream function (never its wrapper).
-        let sibling = original_dispatch(&inner, &candidate, carried.clone(), simple);
+        // A return to a provider the request left waits its backoff; an
+        // abort during the wait ends the request.
+        if delay_ms > 0 {
+            let cancelled = carried.signal.as_ref().map(AbortSignal::cancellation_token);
+            let aborted = if let Some(cancelled) = cancelled {
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(delay_ms)) => false,
+                    () = cancelled.cancelled() => true,
+                }
+            } else {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                false
+            };
+            if aborted {
+                out.push(AssistantMessageEvent::Error {
+                    reason: ErrorReason::Aborted,
+                    error: AssistantMessage {
+                        stop_reason: StopReason::Aborted,
+                        ..message
+                    },
+                });
+                out.end(None);
+                return;
+            }
+        }
+        // The primary keeps the caller's own request options; a sibling
+        // dispatches through its provider's original stream function
+        // (never its wrapper).
+        dispatch = if to == 0 {
+            Arc::clone(&primary_dispatch)
+        } else {
+            original_dispatch(&inner, &candidate, carried.clone(), simple)
+        };
         serving = candidate;
-        dispatch = sibling;
     }
 }
 
@@ -479,7 +544,9 @@ fn original_dispatch(
     })
 }
 
-/// Terminal failure: the quota-park seam, then the failure surfaces.
+/// Terminal failure: the quota-park seam, then the failure surfaces. A
+/// parked failure keeps its diagnostics (the server's wait) and gains the
+/// park's own (H4), so no retry resends it to the blocked provider.
 async fn finish_failure(
     inner: Arc<Inner>,
     out: AssistantMessageEventStream,
@@ -490,9 +557,18 @@ async fn finish_failure(
     if let Some(clock) = timing_clock.as_mut() {
         clock.failed(&message);
     }
-    if let Some(status) = park_for_quota_reset(&inner, &message, settings).await {
+    if let Some((status, resume_at_ms)) = park_for_quota_reset(&inner, &message, settings).await {
         message.error_message = Some(status);
-        message.diagnostics = None;
+        let details = serde_json::json!({ "resumeAtMs": resume_at_ms });
+        message
+            .diagnostics
+            .get_or_insert_with(Vec::new)
+            .push(AssistantMessageDiagnostic {
+                kind: QUOTA_PARK_DIAGNOSTIC.to_owned(),
+                timestamp: now_millis(),
+                error: None,
+                details: details.as_object().cloned(),
+            });
     }
     out.push(AssistantMessageEvent::Error {
         reason: error_reason_of(&message),
@@ -538,14 +614,14 @@ fn request_timing_flag(settings: &SettingsManager) -> bool {
 }
 
 /// The failover policy from the settings (`retry.failover`): the old
-/// per-provider retry budget maps to the Harness's durable retries, so only
-/// the enabled flag and the (ceiling-clamped) switch budget apply.
+/// per-provider retry budget maps to the Harness's durable retries; the
+/// switch budget and the return backoff are the request's own.
 fn failover_policy(settings: &SettingsManager) -> ProviderFailoverPolicy {
     ProviderFailoverPolicy {
         enabled: settings.get_failover_enabled(),
-        max_switches: u32::try_from(settings.get_failover_max_retries())
-            .unwrap_or(SWITCH_BUDGET)
-            .min(SWITCH_BUDGET),
+        max_switches: u32::try_from(settings.get_failover_max_retries()).unwrap_or(u32::MAX),
+        base_delay_ms: settings.get_failover_base_delay_ms(),
+        max_delay_ms: settings.get_failover_max_delay_ms(),
     }
 }
 
@@ -607,29 +683,23 @@ fn refuted_message(model: &Model, text: &str) -> AssistantMessage {
     }
 }
 
-/// The next failover candidate, when the switch budget allows one: the
-/// candidate chain of the serving model over the configured catalog
-/// (credential-configured providers only), allowlisted like every other
-/// model resolution.
-fn next_candidate(
-    inner: &Inner,
-    serving: &Model,
-    settings: &SettingsManager,
-    switches: u32,
-    policy: &ProviderFailoverPolicy,
-) -> Option<Model> {
-    if switches >= policy.max_switches {
-        return None;
-    }
+/// The failover chain of a request to `primary`: the primary, then its
+/// candidates over the configured catalog (credential-configured
+/// providers only), allowlisted like every other model resolution.
+fn failover_chain(inner: &Inner, primary: &Model, settings: &SettingsManager) -> Vec<Model> {
     let available = inner
         .models
         .get_models(None)
         .into_iter()
         .filter(|model| catalog_available(inner, model))
         .collect::<Vec<_>>();
-    failover_candidates(serving, &available)
-        .into_iter()
-        .find(|candidate| allowlist_allows(settings, candidate))
+    std::iter::once(primary.clone())
+        .chain(
+            failover_candidates(primary, &available)
+                .into_iter()
+                .filter(|candidate| allowlist_allows(settings, candidate)),
+        )
+        .collect()
 }
 
 /// A provider with no configured auth never receives a failover switch (the
@@ -744,12 +814,13 @@ fn write_park_doc(draft: &Draft, value: &ParkDocState) -> SessionResult<()> {
 /// The park seam at the chain's give-up: a quota failure whose
 /// provider-reported reset exceeds the bounded wait parks the session until
 /// the reset (durable document + wake job + transcript row) and returns the
-/// parked status for the surfaced message; `None` keeps the give-up.
+/// parked status for the surfaced message with the park's wake time (epoch
+/// ms); `None` keeps the give-up.
 async fn park_for_quota_reset(
     inner: &Arc<Inner>,
     message: &AssistantMessage,
     settings: &SettingsManager,
-) -> Option<String> {
+) -> Option<(String, u64)> {
     if !is_quota_block_failure(message) {
         return None;
     }
@@ -774,7 +845,10 @@ async fn park_for_quota_reset(
                 .as_deref()
                 .is_some_and(|job_id| wake_job_active(inner, job_id))
             {
-                return Some(quota_already_parked_final_error(park.resume_at_ms, &error));
+                return Some((
+                    quota_already_parked_final_error(park.resume_at_ms, &error),
+                    park.resume_at_ms,
+                ));
             }
             let rebuilt = create_wake_job(inner, park.resume_at_ms).await?;
             let state = ParkDocState {
@@ -794,7 +868,10 @@ async fn park_for_quota_reset(
                 tracing::warn!(error = %write_error, "quota park wake-rebuild write failed");
             }
             *inner.park.lock().unwrap_or_else(poisoned) = Some(state);
-            return Some(quota_already_parked_final_error(park.resume_at_ms, &error));
+            return Some((
+                quota_already_parked_final_error(park.resume_at_ms, &error),
+                park.resume_at_ms,
+            ));
         }
     }
     let parks_used = existing.as_ref().map_or(0, |park| park.park_count);
@@ -857,7 +934,10 @@ async fn park_for_quota_reset(
         "Provider requested a {}s wait before retrying (above retry.provider.maxRetryDelayMs={cap}ms)",
         reset_ms.unwrap_or_default().div_ceil(1000),
     );
-    Some(quota_parked_final_error(&abort, resume_at_ms, &error))
+    Some((
+        quota_parked_final_error(&abort, resume_at_ms, &error),
+        resume_at_ms,
+    ))
 }
 
 /// A parked session completed a model call: the quota is back. Clear the
@@ -1066,11 +1146,22 @@ mod tests {
     /// same id makes it a failover sibling). `text_only` pins the serving
     /// model's input to text (image routing).
     fn fixture_with(text_only: bool, second_model_id: &str) -> Fixture {
+        fixture_set(text_only, second_model_id, &serde_json::json!({}))
+    }
+
+    /// [`fixture_with`] whose global `settings.json` holds `settings`.
+    fn fixture_set(
+        text_only: bool,
+        second_model_id: &str,
+        settings: &serde_json::Value,
+    ) -> Fixture {
         let dir = tempfile::tempdir().expect("tempdir");
         let agent_dir = dir.path().join("agent");
         let cwd = dir.path().join("cwd");
         std::fs::create_dir_all(&agent_dir).expect("agent dir");
         std::fs::create_dir_all(&cwd).expect("cwd");
+        std::fs::write(agent_dir.join("settings.json"), settings.to_string())
+            .expect("settings.json");
         let mut definition = FauxModelDefinition::new("shared-1");
         if text_only {
             definition.input = Some(vec![Modality::Text]);
@@ -1283,6 +1374,100 @@ mod tests {
         assert!(!fixture.runtime.is_quota_parked());
     }
 
+    /// The switches a request made: each sibling's reference and wait.
+    fn switches(events: &mut broadcast::Receiver<ProviderWireEvent>) -> Vec<(String, u64)> {
+        let mut seen = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            match event {
+                ProviderWireEvent::AutoRetryStart {
+                    backup_model,
+                    delay_ms,
+                    ..
+                } => seen.push((backup_model, delay_ms)),
+                ProviderWireEvent::AutoRetryEnd { .. } | ProviderWireEvent::PromptProgress(_) => {}
+            }
+        }
+        seen
+    }
+
+    /// Regression (audit H3): two failing providers ping-ponged eight
+    /// times with no wait and the failover delay settings were never read.
+    /// Each provider is now tried once at once; a return waits the
+    /// backoff (`retry.failover.baseDelayMs`, doubled, capped at
+    /// `maxDelayMs`), and the switches stop at `maxRetries`.
+    #[tokio::test]
+    async fn failover_returns_to_a_provider_only_after_its_backoff() {
+        let settings = serde_json::json!({
+            "retry": { "failover": { "maxRetries": 6, "baseDelayMs": 1, "maxDelayMs": 4 } }
+        });
+        let fixture = fixture_set(/*text_only*/ false, "shared-1", &settings);
+        let model = fixture.faux_a.get_model();
+        let outage = || {
+            (0..8)
+                .map(|_| error_step("503 Service Unavailable"))
+                .collect()
+        };
+        fixture.faux_a.set_responses(outage());
+        fixture.faux_b.set_responses(outage());
+        let mut events = fixture.runtime.subscribe();
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        assert_eq!(message.stop_reason, StopReason::Error);
+        let (a, b) = ("faux-a/shared-1".to_owned(), "faux-b/shared-1".to_owned());
+        assert_eq!(
+            switches(&mut events),
+            [
+                (b.clone(), 0),
+                (a.clone(), 1),
+                (b.clone(), 2),
+                (a.clone(), 4),
+                (b, 4),
+                (a, 4),
+            ]
+        );
+    }
+
+    /// With no return backoff, a request that tried every provider of its
+    /// chain gives up instead of sending it again at once (audit H3).
+    #[tokio::test]
+    async fn failover_never_returns_at_once() {
+        let settings = serde_json::json!({ "retry": { "failover": { "baseDelayMs": 0 } } });
+        let fixture = fixture_set(/*text_only*/ false, "shared-1", &settings);
+        let model = fixture.faux_a.get_model();
+        let outage = || {
+            (0..8)
+                .map(|_| error_step("503 Service Unavailable"))
+                .collect()
+        };
+        fixture.faux_a.set_responses(outage());
+        fixture.faux_b.set_responses(outage());
+        let mut events = fixture.runtime.subscribe();
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        assert_eq!(
+            (
+                message.stop_reason,
+                switches(&mut events),
+                fixture.faux_a.get_pending_response_count(),
+                fixture.faux_b.get_pending_response_count(),
+            ),
+            (
+                StopReason::Error,
+                vec![("faux-b/shared-1".to_owned(), 0)],
+                7,
+                7
+            )
+        );
+    }
+
     /// A quota failure (the stream-failure diagnostic's `rate_limit` kind)
     /// with a provider-reported reset beyond the bounded wait.
     fn quota_step(reset_ms: u64) -> FauxResponseStep {
@@ -1335,6 +1520,28 @@ mod tests {
         assert_eq!(wakes.len(), 1, "{:?}", store.list());
         assert_eq!(wakes[0].status, JobStatus::Active);
         assert_eq!(wakes[0].prompt, QUOTA_RESUME_MARKER_TEXT);
+        // Regression (audit H4): the park dropped the failure's diagnostics,
+        // so its text ("429 rate limit") read as retryable and the harness
+        // resent the request to the blocked provider. The server's wait
+        // survives, the park adds its own, and no retry follows.
+        let kinds: Vec<&str> = message
+            .diagnostics
+            .iter()
+            .flatten()
+            .map(|diagnostic| diagnostic.kind.as_str())
+            .collect();
+        assert_eq!(
+            (
+                kinds,
+                eukhe_ai::utils::retry::server_retry_after_ms(&message),
+                is_retryable_assistant_error(&message),
+            ),
+            (
+                vec!["provider_stream_failure", QUOTA_PARK_DIAGNOSTIC],
+                Some(3_600_000.0),
+                false
+            )
+        );
     }
 
     #[tokio::test]

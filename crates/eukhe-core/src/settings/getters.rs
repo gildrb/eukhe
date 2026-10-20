@@ -503,11 +503,25 @@ impl SettingsManager {
         self.cvars().bool(&table::RETRY_FAILOVER_ENABLED)
     }
 
-    /// `retry.failover.maxRetries`: provider switches before the final
-    /// failure.
+    /// `retry.failover.maxRetries`: provider switches one request may make
+    /// before the final failure.
     #[must_use]
     pub fn get_failover_max_retries(&self) -> u64 {
         self.cvars().nat(&table::RETRY_FAILOVER_MAX_RETRIES)
+    }
+
+    /// `retry.failover.baseDelayMs`: the wait before a request's first
+    /// return to a provider it left; it doubles each return.
+    #[must_use]
+    pub fn get_failover_base_delay_ms(&self) -> u64 {
+        self.cvars().nat(&table::RETRY_FAILOVER_BASE_DELAY_MS)
+    }
+
+    /// `retry.failover.maxDelayMs`: the longest wait before a return to a
+    /// provider; a provider whose server asks for longer is not returned to.
+    #[must_use]
+    pub fn get_failover_max_delay_ms(&self) -> u64 {
+        self.cvars().nat(&table::RETRY_FAILOVER_MAX_DELAY_MS)
     }
 
     /// `retry.provider.waitForUsage.pauseUntilReset`.

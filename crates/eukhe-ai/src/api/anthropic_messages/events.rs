@@ -143,6 +143,7 @@ fn sse_error_diagnostic(data: &str, request_id: Option<&str>) -> ProviderError {
         retry_after_ms: None,
         raw: Some(truncate_raw_payload(data)),
         repeated: None,
+        idle_timeout_ms: None,
     };
     let message = stream_failure_message(&info, detail.as_deref());
     ProviderError::StreamFailure(StreamFailureError { message, info })

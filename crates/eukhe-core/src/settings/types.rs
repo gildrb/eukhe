@@ -111,14 +111,12 @@ pub struct AutoRefineSettings {
     pub cooldown_ms: Option<u64>,
 }
 
+/// The quota park of `retry.provider.waitForUsage`: a quota failure whose
+/// provider-reported reset is past `retry.provider.maxRetryDelayMs` parks
+/// the session until the reset.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderWaitSettings {
-    pub enabled: Option<bool>,
-    pub base_delay_ms: Option<u64>,
-    pub max_delay_ms: Option<u64>,
-    pub max_attempts: Option<u64>,
-    pub max_wait_ms: Option<u64>,
     /// Park sessions for provider-reported resets beyond the bounded
     /// wait (TS #2375 `pauseUntilReset`; default true).
     pub pause_until_reset: Option<bool>,
@@ -151,11 +149,12 @@ pub struct ProviderRetrySettings {
 #[serde(rename_all = "camelCase")]
 pub struct RetryFailoverSettings {
     pub enabled: Option<bool>,
-    /// Retries per provider before switching (default 5).
+    /// Provider switches one request may make (default 8).
     pub max_retries: Option<u64>,
-    /// First backoff delay, doubling each retry (default 1000ms).
+    /// The wait before the first return to a provider the request left,
+    /// doubling each return (default 1000ms).
     pub base_delay_ms: Option<u64>,
-    /// Backoff ceiling per retry (default 30000ms).
+    /// The longest wait before a return (default 30000ms).
     pub max_delay_ms: Option<u64>,
 }
 
