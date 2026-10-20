@@ -1,188 +1,415 @@
-//! Lenient settings loading: wrong-typed fields load as `None` (TS
-//! access-time typecheck semantics), never a load error.
+//! The load of one settings document: each leaf applies or is named by a
+//! diagnostic (`laws/config.bend` `leaf_applied_or_reported`,
+//! `leaf_not_both`).
+//!
+//! A leaf is a value that is not an object, or the whole value of a cvar.
+//! The load keeps a leaf when the typed `Settings` holds it and its cvar
+//! (if it has one) admits it. It drops and names:
+//!
+//! - a top-level key that `Settings` does not declare ([`CvarError::Undeclared`];
+//!   the key stays in `extra`, so a write never removes it);
+//! - a nested key that the typed setting does not hold (`Undeclared`);
+//! - a value that the typed setting or its cvar does not admit
+//!   ([`CvarError::BadValue`]).
+//!
+//! The known top-level keys come from the `Settings` type itself (the keys
+//! of its serialized default), not from a hand list.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
+use super::cvar::{registry, value_text, CvarError, CvarType, Registry};
 use super::types::Settings;
 
-/// Known settings keys (the TS Settings interface, camelCase wire form).
-/// Wrong-typed values for these load as unset; unknown keys are preserved.
-const KNOWN_FIELDS: &[&str] = &[
-    "onboardingShown",
-    "onboardingCompleted",
-    "defaultProvider",
-    "defaultModel",
-    "subagentDefaultModel",
-    "recentModels",
-    "auxiliaryModel",
-    "defaultThinkingLevel",
-    "defaultServiceTier",
-    "rlmMaxDepth",
-    "providerMaxInFlight",
-    "providerMaxQueued",
-    "subagentMaxConcurrency",
-    "subagentStallMs",
-    "maxToolRounds",
-    "idleEvictionMinutes",
-    "transport",
-    "steeringMode",
-    "followUpMode",
-    "theme",
-    "compaction",
-    "memory",
-    "autoRefine",
-    "factory",
-    "branchSummary",
-    "retry",
-    "providerBackupModel",
-    "imageModel",
-    "autonomous",
-    "directors",
-    "shellPath",
-    "quietStartup",
-    "shellCommandPrefix",
-    "npmCommand",
-    "mcpServers",
-    "packages",
-    "skills",
-    "prompts",
-    "themes",
-    "enableSkillCommands",
-    "enableBuiltinSkills",
-    "terminal",
-    "images",
-    "enabledModels",
-    "allowedModels",
-    "treeFilterMode",
-    "chatDetail",
-    "thinkingBudgets",
-    "editorPaddingX",
-    "autocompleteMaxVisible",
-    "showHardwareCursor",
-    "markdown",
-    "warnings",
-    "sessionDir",
-    "requestTiming",
-    "trustedProjects",
-    "gateway",
-    "kernelTransport",
-    "shell",
-    "ssh",
-    "modelRoles",
-    "providers",
-    "titles",
-    "tts",
-    "stt",
-];
+/// One loaded settings document: what applies and what was dropped.
+#[derive(Debug, Clone)]
+pub(crate) struct Loaded {
+    pub(crate) settings: Settings,
+    pub(crate) rejected: Vec<CvarError>,
+}
 
-/// Extract each known field independently; ignore fields whose JSON type does
-/// not match the Rust schema (the TS getters do the same check at access
-/// time). Unknown keys land in `extra`.
-pub fn from_value_lenient(value: &Value) -> Settings {
-    // Fast path: a clean strict parse.
-    if let Ok(settings) = serde_json::from_value::<Settings>(value.clone()) {
-        return settings;
+/// The text a diagnostic shows for a value the typed setting cannot hold
+/// when no cvar names the type.
+const SETTINGS_TYPE: &str = "the type of this setting";
+
+/// Load `document` (a migrated settings object) leaf by leaf.
+pub(crate) fn load_document(document: &Map<String, Value>) -> Loaded {
+    let registry = registry();
+    let known = known_fields();
+    let mut rejected = Vec::new();
+    let mut kept = Map::new();
+    for (key, value) in document {
+        if value.is_null() {
+            continue;
+        }
+        if !known.contains(key) {
+            rejected.push(CvarError::Undeclared { id: key.clone() });
+            kept.insert(key.clone(), value.clone());
+            continue;
+        }
+        if let Some(value) = typed_part(registry, key, value, &mut rejected) {
+            kept.insert(key.clone(), value);
+        }
     }
-    let Some(obj) = value.as_object() else {
-        return Settings::default();
-    };
-    let mut map = serde_json::Map::new();
-    for (key, field) in obj {
-        // Re-parse per field: a bad-typed field drops out instead of failing
-        // the document.
-        let mut single = serde_json::Map::new();
-        single.insert(key.clone(), field.clone());
-        let document = Value::Object(single);
-        if let Ok(partial) = serde_json::from_value::<Settings>(document) {
-            // A wrong-typed known field survives as a raw value in `extra`
-            // (serde flatten falls back to the catch-all). Such a field must
-            // be dropped entirely: it behaves as unset. Genuine unknown keys
-            // keep flowing through `extra`.
-            if KNOWN_FIELDS.contains(&key.as_str()) && partial.extra.contains_key(key) {
-                continue;
+    let mut settings = parse(&kept);
+    let mut round = serde_json::to_value(&settings).unwrap_or(Value::Null);
+    let mut refused = Vec::new();
+    for decl in registry.decls() {
+        let path: Vec<&str> = decl.id.split('.').collect();
+        if let Some(value) = lookup(&round, &path).filter(|value| !value.is_null()) {
+            if !decl.ty.admits(value) {
+                rejected.push(CvarError::BadValue {
+                    id: decl.id.to_string(),
+                    value: value_text(value),
+                    expected: decl.ty.name(),
+                });
+                refused.push(path);
             }
-            let merged = serde_json::to_value(partial).unwrap_or_default();
-            if let Some(merged_obj) = merged.as_object() {
-                for (k, v) in merged_obj {
-                    // Partial serializations emit explicit nulls for every
-                    // unset field; a null must not erase a value collected
-                    // from an earlier partial.
-                    if v.is_null() {
-                        continue;
-                    }
-                    map.insert(k.clone(), v.clone());
+        }
+    }
+    if !refused.is_empty() {
+        for path in &refused {
+            remove(&mut round, path);
+        }
+        settings = parse(round.as_object().unwrap_or(&Map::new()));
+        round = serde_json::to_value(&settings).unwrap_or(Value::Null);
+    }
+    for (key, value) in &kept {
+        if known.contains(key) {
+            undeclared_leaves(registry, key, value, &round, &refused, &mut rejected);
+        }
+    }
+    Loaded { settings, rejected }
+}
+
+/// The top-level keys `Settings` declares: its default serializes every
+/// field (`None` as `null`) except the flattened `extra`.
+fn known_fields() -> Vec<String> {
+    match serde_json::to_value(Settings::default()) {
+        Ok(Value::Object(fields)) => fields.into_iter().map(|(key, _)| key).collect(),
+        Ok(
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
+        )
+        | Err(_) => Vec::new(),
+    }
+}
+
+/// `Settings` from an object whose every field parses on its own.
+fn parse(object: &Map<String, Value>) -> Settings {
+    match serde_json::from_value::<Settings>(Value::Object(object.clone())) {
+        Ok(settings) => settings,
+        // Each field parsed alone (`typed_part`), so the whole parses; a
+        // failure here is a serde invariant break, not user input.
+        Err(error) => panic!("settings fields that parse alone do not parse together: {error}"),
+    }
+}
+
+/// The document `{path: value}`.
+fn nested(path: &[&str], value: Value) -> Value {
+    path.iter().rev().fold(value, |value, key| {
+        let mut object = Map::new();
+        object.insert((*key).to_string(), value);
+        Value::Object(object)
+    })
+}
+
+/// `Settings` holds `value` at `path` on its own: the document
+/// `{path: value}` parses and serializes back with a value at `path`.
+fn holds(path: &[&str], value: &Value) -> bool {
+    serde_json::from_value::<Settings>(nested(path, value.clone()))
+        .ok()
+        .and_then(|settings| serde_json::to_value(settings).ok())
+        .is_some_and(|round| lookup(&round, path).is_some_and(|found| !found.is_null()))
+}
+
+/// The part of top-level `value` at `key` that the typed setting holds:
+/// the whole value when it parses, else (for an object that is not a
+/// cvar's value) each child that parses alone, else nothing. Each dropped
+/// value is named.
+fn typed_part(
+    registry: &Registry,
+    key: &str,
+    value: &Value,
+    rejected: &mut Vec<CvarError>,
+) -> Option<Value> {
+    let mut path = vec![key];
+    keep_typed(registry, &mut path, value, rejected)
+}
+
+fn keep_typed<'a>(
+    registry: &Registry,
+    path: &mut Vec<&'a str>,
+    value: &'a Value,
+    rejected: &mut Vec<CvarError>,
+) -> Option<Value> {
+    if holds(path, value) {
+        return Some(value.clone());
+    }
+    // The whole value of a cvar is one leaf: a map setting (such as
+    // `providerMaxInFlight`) with one bad entry is dropped whole, never
+    // kept without that entry.
+    let leaf = registry.find(&path.join(".")).is_some();
+    match value {
+        Value::Object(children) if !children.is_empty() && !leaf => {
+            let mut kept = Map::new();
+            for (child, child_value) in children {
+                if child_value.is_null() {
+                    continue;
+                }
+                path.push(child);
+                if let Some(part) = keep_typed(registry, path, child_value, rejected) {
+                    kept.insert(child.clone(), part);
+                }
+                path.pop();
+            }
+            (!kept.is_empty() && holds(path, &Value::Object(kept.clone())))
+                .then_some(Value::Object(kept))
+        }
+        Value::Object(_)
+        | Value::Null
+        | Value::Bool(_)
+        | Value::Number(_)
+        | Value::String(_)
+        | Value::Array(_) => {
+            let id = path.join(".");
+            // A Json cvar admits any value; the typed setting names the
+            // type then.
+            let expected = registry
+                .find(&id)
+                .filter(|decl| !matches!(decl.ty, CvarType::Json))
+                .map_or_else(|| SETTINGS_TYPE.to_string(), |decl| decl.ty.name());
+            rejected.push(CvarError::BadValue {
+                id,
+                value: value_text(value),
+                expected,
+            });
+            None
+        }
+    }
+}
+
+/// Name every leaf of `value` (at top-level `key`) that the typed round
+/// trip `round` does not hold: a nested key the setting does not declare.
+/// A cvar's whole value is one leaf; a path the cvar check refused is
+/// named already.
+fn undeclared_leaves(
+    registry: &Registry,
+    key: &str,
+    value: &Value,
+    round: &Value,
+    refused: &[Vec<&str>],
+    rejected: &mut Vec<CvarError>,
+) {
+    let mut stack: Vec<(Vec<String>, &Value)> = vec![(vec![key.to_string()], value)];
+    while let Some((path, value)) = stack.pop() {
+        let id = path.join(".");
+        let steps: Vec<&str> = path.iter().map(String::as_str).collect();
+        if refused.contains(&steps) {
+            continue;
+        }
+        if lookup(round, &steps).is_none_or(Value::is_null) {
+            if !rejected.iter().any(|error| names(error, &id)) {
+                rejected.push(CvarError::Undeclared { id });
+            }
+            continue;
+        }
+        if registry.find(&id).is_some() {
+            continue;
+        }
+        if let Value::Object(children) = value {
+            for (child, child_value) in children {
+                if !child_value.is_null() {
+                    let mut next = path.clone();
+                    next.push(child.clone());
+                    stack.push((next, child_value));
                 }
             }
         }
     }
-    serde_json::from_value::<Settings>(Value::Object(map)).unwrap_or_default()
+}
+
+/// `error` names `id` or a key above it.
+fn names(error: &CvarError, id: &str) -> bool {
+    match error {
+        CvarError::Undeclared { id: named } | CvarError::BadValue { id: named, .. } => {
+            id == named || id.starts_with(&format!("{named}."))
+        }
+        CvarError::Parse(_)
+        | CvarError::Expand(_)
+        | CvarError::Global { .. }
+        | CvarError::NotBool { .. }
+        | CvarError::Action { .. } => false,
+    }
+}
+
+/// The value at `path` in `value`.
+fn lookup<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter().try_fold(value, |node, key| node.get(key))
+}
+
+/// Remove the value at `path` from `value`.
+fn remove(value: &mut Value, path: &[&str]) {
+    let Some((last, parents)) = path.split_last() else {
+        return;
+    };
+    let parent = parents
+        .iter()
+        .try_fold(value, |node, key| node.get_mut(*key));
+    if let Some(Value::Object(object)) = parent {
+        object.remove(*last);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::types::{CompactionSettings, QueueModeSetting, ShellSettings};
+    use serde_json::json;
+
+    fn load(value: &Value) -> Loaded {
+        load_document(value.as_object().expect("an object"))
+    }
 
     #[test]
-    fn wrong_typed_fields_load_as_none() {
-        let value: Value = serde_json::json!({
+    fn wrong_typed_fields_are_dropped_and_named() {
+        let loaded = load(&json!({
             "defaultProvider": 42,
             "steeringMode": "all",
             "recentModels": "not-an-array",
             "unknownKey": { "kept": true }
-        });
-        let settings = from_value_lenient(&value);
-        assert_eq!(settings.default_provider, None);
+        }));
+        assert_eq!(loaded.settings.default_provider, None);
+        assert_eq!(loaded.settings.steering_mode, Some(QueueModeSetting::All));
+        assert_eq!(loaded.settings.recent_models, None);
         assert_eq!(
-            settings.steering_mode,
-            Some(super::super::types::QueueModeSetting::All)
+            loaded.settings.extra.get("unknownKey"),
+            Some(&json!({ "kept": true }))
         );
-        assert_eq!(settings.recent_models, None);
         assert_eq!(
-            settings.extra.get("unknownKey"),
-            Some(&serde_json::json!({ "kept": true }))
+            loaded.rejected,
+            vec![
+                CvarError::BadValue {
+                    id: "defaultProvider".into(),
+                    value: "42".into(),
+                    expected: "a text".into()
+                },
+                CvarError::BadValue {
+                    id: "recentModels".into(),
+                    value: "not-an-array".into(),
+                    expected: "a list".into()
+                },
+                CvarError::Undeclared {
+                    id: "unknownKey".into()
+                },
+            ]
         );
     }
 
     #[test]
-    fn clean_document_strict_parses() {
-        let value: Value = serde_json::json!({ "theme": "eukhe", "rlmMaxDepth": 4 });
-        let settings = from_value_lenient(&value);
-        assert_eq!(settings.theme.as_deref(), Some("eukhe"));
-        assert_eq!(settings.rlm_max_depth, Some(4));
+    fn clean_document_loads_with_no_diagnostic() {
+        let loaded = load(&json!({ "theme": "eukhe", "rlmMaxDepth": 4 }));
+        assert_eq!(loaded.settings.theme.as_deref(), Some("eukhe"));
+        assert_eq!(loaded.settings.rlm_max_depth, Some(4));
+        assert_eq!(loaded.rejected, Vec::new());
     }
 
-    /// A config that still carries the removed `extensions` resource key
-    /// (the dead TS-extension setting) loads without error: the key is no
-    /// longer part of the schema, so it survives in `extra` and nothing
-    /// consumes it - an upgrading user's settings file never fails.
+    /// Regression (audit H3): one bad leaf dropped its whole object
+    /// (`compaction`) in silence. Now only the leaf goes, and it is named.
     #[test]
-    fn removed_extensions_key_loads_gracefully() {
-        let value: Value = serde_json::json!({
-            "extensions": ["~/my-ext/index.ts"],
-            "skills": ["~/my-skill"]
-        });
-        let settings = from_value_lenient(&value);
-        assert_eq!(settings.skills, Some(vec!["~/my-skill".to_string()]));
+    fn a_bad_leaf_drops_only_itself_and_is_named() {
+        let loaded = load(&json!({
+            "compaction": { "enabled": false, "reserveTokens": "16k" }
+        }));
+        let compaction = serde_json::to_value(loaded.settings.compaction).unwrap();
+        let expected = serde_json::to_value(Some(CompactionSettings {
+            enabled: Some(false),
+            ..CompactionSettings::default()
+        }))
+        .unwrap();
+        assert_eq!(compaction, expected);
         assert_eq!(
-            settings.extra.get("extensions"),
-            Some(&serde_json::json!(["~/my-ext/index.ts"])),
-            "the dead key is preserved untouched in extra, never parsed"
+            loaded.rejected,
+            vec![CvarError::BadValue {
+                id: "compaction.reserveTokens".into(),
+                value: "16k".into(),
+                expected: "a whole number".into()
+            }]
         );
     }
 
-    /// TS #2462: a wrong-typed `requestTiming` behaves as unset (the
-    /// known-field registry entry), never a surviving raw value.
+    /// Regression (audit H3): a value the typed setting holds but its cvar
+    /// does not admit was skipped in silence.
     #[test]
-    fn wrong_typed_request_timing_loads_as_none() {
-        let value: Value = serde_json::json!({ "requestTiming": "yes" });
-        let settings = from_value_lenient(&value);
-        assert_eq!(settings.request_timing, None);
-        assert!(
-            settings.extra.get("requestTiming").is_none(),
-            "the wrong-typed known field drops out entirely: {:?}",
-            settings.extra
+    fn a_value_its_cvar_refuses_is_named() {
+        let loaded = load(&json!({ "shell": { "autoEffects": ["read", "wirte"] } }));
+        assert_eq!(
+            serde_json::to_value(loaded.settings.shell).unwrap(),
+            serde_json::to_value(Some(ShellSettings::default())).unwrap()
         );
-        let settings = from_value_lenient(&serde_json::json!({ "requestTiming": true }));
-        assert_eq!(settings.request_timing, Some(true));
+        assert_eq!(
+            loaded.rejected,
+            vec![CvarError::BadValue {
+                id: "shell.autoEffects".into(),
+                value: "[\"read\",\"wirte\"]".into(),
+                expected: "a list of read, write, exec, net".into()
+            }]
+        );
+    }
+
+    /// A nested key no setting declares is named; the rest applies.
+    #[test]
+    fn an_undeclared_nested_key_is_named() {
+        let loaded = load(&json!({ "compaction": { "enabled": true, "bogus": 1 } }));
+        assert_eq!(
+            loaded.rejected,
+            vec![CvarError::Undeclared {
+                id: "compaction.bogus".into()
+            }]
+        );
+        assert_eq!(
+            loaded.settings.compaction.and_then(|c| c.enabled),
+            Some(true)
+        );
+    }
+
+    /// Regression (audit H3): a map setting with one bad entry was kept
+    /// without it, so the provider of that entry had no limit. A cvar's
+    /// value is one leaf: the map is dropped whole and named, and the
+    /// admission limits read it as written (failing closed).
+    #[test]
+    fn a_map_setting_with_a_bad_entry_is_one_bad_leaf() {
+        let loaded = load(&json!({ "providerMaxInFlight": { "a": 1, "b": "4" } }));
+        assert_eq!(loaded.settings.provider_max_in_flight, None);
+        assert_eq!(
+            loaded.rejected,
+            vec![CvarError::BadValue {
+                id: "providerMaxInFlight".into(),
+                value: "{\"a\":1,\"b\":\"4\"}".into(),
+                expected: SETTINGS_TYPE.into()
+            }]
+        );
+    }
+
+    /// The keys that the hand list missed (`toolBlockingBudgetMs` and the
+    /// others) are known: a wrong-typed value is dropped, not kept in
+    /// `extra`.
+    #[test]
+    fn known_fields_come_from_the_settings_type() {
+        let loaded = load(&json!({ "toolBlockingBudgetMs": "soon", "mcpCatalogSources": 3 }));
+        assert_eq!(loaded.settings.extra, Map::new());
+        assert_eq!(
+            loaded.rejected,
+            vec![
+                CvarError::BadValue {
+                    id: "toolBlockingBudgetMs".into(),
+                    value: "soon".into(),
+                    expected: "a whole number".into()
+                },
+                CvarError::BadValue {
+                    id: "mcpCatalogSources".into(),
+                    value: "3".into(),
+                    expected: "a list".into()
+                },
+            ]
+        );
     }
 }

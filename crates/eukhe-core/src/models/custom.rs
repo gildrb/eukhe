@@ -76,115 +76,151 @@ pub(crate) struct ProviderConfig {
 }
 
 /// The parsed and validated models.json document.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ModelsConfig {
     pub providers: BTreeMap<String, ProviderConfig>,
 }
 
-/// `error` naming the models.json file, unless it already names it (TS
-/// load failure format).
-pub(crate) fn in_file(error: String, path: &Path) -> String {
-    if error.contains("models.json") {
-        error
-    } else {
-        format!("{error}\n\nFile: {}", path.display())
+/// What one read of models.json gives: every good `providers.<id>` entry,
+/// and one diagnostic for each bad entry. A bad entry drops only that
+/// provider. A file that cannot be read or parsed is one diagnostic and
+/// no providers. A missing file is the empty document.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ModelsJsonLoad {
+    pub config: ModelsConfig,
+    pub diagnostics: Vec<String>,
+}
+
+impl ModelsJsonLoad {
+    /// The load of a file that gives no providers, for `diagnostic`.
+    fn failed(diagnostic: String) -> Self {
+        Self {
+            config: ModelsConfig::default(),
+            diagnostics: vec![diagnostic],
+        }
     }
 }
 
+/// The diagnostic of the bad models.json entry `providers.<id>`.
+pub(crate) fn provider_diagnostic(id: &str, error: &str) -> String {
+    format!("models.json providers.{id}: {error}")
+}
+
 impl ModelsConfig {
-    /// Read, parse, and validate `path`; a missing file is the empty
-    /// document. `is_built_in` answers whether a provider id has built-in
-    /// models (those providers may add models without `baseUrl`/`apiKey`).
-    ///
-    /// # Errors
-    ///
-    /// The read, parse, or validation failure, naming the file.
-    pub(crate) fn load(path: &Path, is_built_in: &dyn Fn(&str) -> bool) -> Result<Self, String> {
-        let content = match std::fs::read_to_string(path) {
-            Ok(content) => content,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default())
-            }
+    /// Read, parse, and validate `path`, one provider entry at a time.
+    /// `is_built_in` answers whether a provider id has built-in models
+    /// (those providers may add models without `baseUrl`/`apiKey`).
+    pub(crate) fn load(path: &Path, is_built_in: &dyn Fn(&str) -> bool) -> ModelsJsonLoad {
+        match std::fs::read_to_string(path) {
+            Ok(content) => Self::parse(&content, is_built_in),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => ModelsJsonLoad::default(),
+            Err(error) => ModelsJsonLoad::failed(format!(
+                "models.json could not be read ({}): {error}",
+                path.display()
+            )),
+        }
+    }
+
+    /// [`Self::load`] of the file text `content`.
+    fn parse(content: &str, is_built_in: &dyn Fn(&str) -> bool) -> ModelsJsonLoad {
+        let document: Value = match serde_json::from_str(&strip_json_comments(content)) {
+            Ok(document) => document,
             Err(error) => {
-                return Err(format!(
-                    "Failed to load models.json: {error}\n\nFile: {}",
-                    path.display()
-                ))
+                return ModelsJsonLoad::failed(format!("models.json is not valid JSON: {error}"))
             }
         };
-        let config = Self::parse(&content)?;
-        config
-            .validate(is_built_in)
-            .map_err(|error| in_file(error, path))?;
-        Ok(config)
-    }
-
-    fn parse(content: &str) -> Result<Self, String> {
-        serde_json::from_str(&strip_json_comments(content))
-            .map_err(|error| format!("Invalid models.json: {error}"))
-    }
-
-    /// TS `validateConfig`: semantic checks beyond the schema.
-    fn validate(&self, is_built_in: &dyn Fn(&str) -> bool) -> Result<(), String> {
-        for (provider_name, provider_config) in &self.providers {
-            let is_built_in = is_built_in(provider_name);
-            let models = provider_config.models.as_deref().unwrap_or_default();
-            let has_model_overrides = provider_config
-                .model_overrides
-                .as_ref()
-                .is_some_and(|overrides| !overrides.is_empty());
-            if models.is_empty() {
-                if provider_config.base_url.is_none()
-                    && provider_config.headers.is_none()
-                    && provider_config.compat.is_none()
-                    && !has_model_overrides
-                {
-                    return Err(format!(
-                        "Provider {provider_name}: must specify \"baseUrl\", \"headers\", \"compat\", \"modelOverrides\", or \"models\"."
-                    ));
-                }
-            } else if !is_built_in {
-                if provider_config.base_url.is_none() {
-                    return Err(format!(
-                        "Provider {provider_name}: \"baseUrl\" is required when defining custom models."
-                    ));
-                }
-                if provider_config.api_key.is_none() {
-                    return Err(format!(
-                        "Provider {provider_name}: \"apiKey\" is required when defining custom models."
-                    ));
-                }
+        let Value::Object(mut document) = document else {
+            return ModelsJsonLoad::failed("models.json is not a JSON object".to_owned());
+        };
+        let entries = match document.remove("providers") {
+            None => return ModelsJsonLoad::default(),
+            Some(Value::Object(entries)) => entries,
+            Some(_) => {
+                return ModelsJsonLoad::failed(
+                    "models.json \"providers\" is not a JSON object".to_owned(),
+                )
             }
-            for model in models {
-                if provider_config.api.is_none() && model.api.is_none() && !is_built_in {
-                    return Err(format!(
-                        "Provider {provider_name}, model {}: no \"api\" specified. Set at provider or model level.",
-                        model.id
-                    ));
+        };
+        let mut load = ModelsJsonLoad::default();
+        for (id, entry) in entries {
+            let origin = if is_built_in(&id) {
+                ProviderOrigin::BuiltIn
+            } else {
+                ProviderOrigin::Custom
+            };
+            let checked = serde_json::from_value::<ProviderConfig>(entry)
+                .map_err(|error| error.to_string())
+                .and_then(|provider| {
+                    provider.validate(origin)?;
+                    Ok(provider)
+                });
+            match checked {
+                Ok(provider) => {
+                    load.config.providers.insert(id, provider);
                 }
-                if model.id.is_empty() {
-                    return Err(format!("Provider {provider_name}: model missing \"id\""));
-                }
-                if model.context_window == Some(0) {
-                    return Err(format!(
-                        "Provider {provider_name}, model {}: invalid contextWindow",
-                        model.id
-                    ));
-                }
-                if model.max_tokens == Some(0) {
-                    return Err(format!(
-                        "Provider {provider_name}, model {}: invalid maxTokens",
-                        model.id
-                    ));
-                }
+                Err(error) => load.diagnostics.push(provider_diagnostic(&id, &error)),
+            }
+        }
+        load
+    }
+}
+
+/// Whether a provider id has built-in models: a provider with built-in
+/// models may add models without `baseUrl` and `apiKey`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderOrigin {
+    BuiltIn,
+    Custom,
+}
+
+impl ProviderConfig {
+    /// TS `validateConfig` for one provider entry: the semantic checks
+    /// beyond the schema.
+    fn validate(&self, origin: ProviderOrigin) -> Result<(), String> {
+        let models = self.models.as_deref().unwrap_or_default();
+        let has_model_overrides = self
+            .model_overrides
+            .as_ref()
+            .is_some_and(|overrides| !overrides.is_empty());
+        if models.is_empty() {
+            if self.base_url.is_none()
+                && self.headers.is_none()
+                && self.compat.is_none()
+                && !has_model_overrides
+            {
+                return Err(
+                    "must specify \"baseUrl\", \"headers\", \"compat\", \"modelOverrides\", or \"models\"."
+                        .to_owned(),
+                );
+            }
+        } else if origin == ProviderOrigin::Custom {
+            if self.base_url.is_none() {
+                return Err("\"baseUrl\" is required when defining custom models.".to_owned());
+            }
+            if self.api_key.is_none() {
+                return Err("\"apiKey\" is required when defining custom models.".to_owned());
+            }
+        }
+        for model in models {
+            if self.api.is_none() && model.api.is_none() && origin == ProviderOrigin::Custom {
+                return Err(format!(
+                    "model {}: no \"api\" specified. Set at provider or model level.",
+                    model.id
+                ));
+            }
+            if model.id.is_empty() {
+                return Err("model missing \"id\"".to_owned());
+            }
+            if model.context_window == Some(0) {
+                return Err(format!("model {}: invalid contextWindow", model.id));
+            }
+            if model.max_tokens == Some(0) {
+                return Err(format!("model {}: invalid maxTokens", model.id));
             }
         }
         Ok(())
     }
-}
 
-impl ProviderConfig {
     /// Whether [`Self::rewrite_built_in`] changes the built-in model
     /// `model_id`.
     pub(crate) fn rewrites(&self, model_id: &str) -> bool {
@@ -534,9 +570,17 @@ mod tests {
     use super::*;
 
     fn provider(document: &str) -> ProviderConfig {
-        let config = ModelsConfig::parse(document).unwrap();
-        config.validate(&|_| false).unwrap();
-        config.providers.into_values().next().unwrap()
+        let load = ModelsConfig::parse(document, &|_| false);
+        assert_eq!(load.diagnostics, Vec::<String>::new());
+        load.config.providers.into_values().next().unwrap()
+    }
+
+    /// The provider ids a load keeps, and its diagnostics.
+    fn kept(load: ModelsJsonLoad) -> (Vec<String>, Vec<String>) {
+        (
+            load.config.providers.into_keys().collect(),
+            load.diagnostics,
+        )
     }
 
     #[test]
@@ -553,15 +597,66 @@ mod tests {
 
     #[test]
     fn validates_custom_provider_requirements() {
-        let config = ModelsConfig::parse(
-            r#"{ "providers": { "custom": { "baseUrl": "http://x", "models": [ { "id": "m" } ] } } }"#,
-        )
-        .unwrap();
+        let document = r#"{ "providers": { "custom": { "baseUrl": "http://x", "models": [ { "id": "m" } ] } } }"#;
         // Custom provider without apiKey fails.
-        let error = config.validate(&|_| false).unwrap_err();
-        assert!(error.contains("apiKey"));
+        assert_eq!(
+            kept(ModelsConfig::parse(document, &|_| false)),
+            (
+                Vec::new(),
+                vec![
+                    "models.json providers.custom: \"apiKey\" is required when defining custom models."
+                        .to_owned()
+                ]
+            )
+        );
         // Built-in providers are exempt.
-        assert!(config.validate(&|p| p == "custom").is_ok());
+        assert_eq!(
+            kept(ModelsConfig::parse(document, &|p| p == "custom")),
+            (vec!["custom".to_owned()], Vec::new())
+        );
+    }
+
+    /// Regression (audit M1): one bad provider entry dropped every custom
+    /// model. Now a bad entry drops only its provider, and a diagnostic
+    /// names it; the good provider stays.
+    #[test]
+    fn a_bad_provider_entry_drops_only_that_provider() {
+        let load = ModelsConfig::parse(
+            r#"{ "providers": {
+                "bad": { "baseUrl": "http://x", "models": [ { "id": "m" } ] },
+                "good": { "baseUrl": "http://y", "apiKey": "k", "api": "openai-completions",
+                          "models": [ { "id": "g" } ] },
+                "typed": { "models": "not a list" },
+            } }"#,
+            &|_| false,
+        );
+        assert_eq!(
+            kept(load),
+            (
+                vec!["good".to_owned()],
+                vec![
+                    "models.json providers.bad: \"apiKey\" is required when defining custom models."
+                        .to_owned(),
+                    "models.json providers.typed: invalid type: string \"not a list\", expected a sequence"
+                        .to_owned(),
+                ]
+            )
+        );
+    }
+
+    /// A file that does not parse is one diagnostic and no providers.
+    #[test]
+    fn a_file_that_does_not_parse_is_one_diagnostic() {
+        assert_eq!(
+            kept(ModelsConfig::parse("{ not json", &|_| false)),
+            (
+                Vec::new(),
+                vec![
+                    "models.json is not valid JSON: key must be a string at line 1 column 3"
+                        .to_owned()
+                ]
+            )
+        );
     }
 
     #[test]

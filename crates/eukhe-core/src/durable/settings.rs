@@ -303,6 +303,27 @@ impl EukheSettings {
         Arc::clone(&self.unshown_ready)
     }
 
+    /// Queue `errors` for the session's settings-error row: each distinct
+    /// error once, like the errors of a load. Use it for a problem that a
+    /// settings consumer finds after the load (a setting that cannot be
+    /// saved, an entry of a settings file that cannot be used).
+    pub fn report(&self, errors: impl IntoIterator<Item = SettingsError>) {
+        let mut guard = self.lock();
+        let before = guard.notices.unshown.len();
+        for error in errors {
+            if guard
+                .notices
+                .queued
+                .insert((error.scope, error.message.clone()))
+            {
+                guard.notices.unshown.push(error);
+            }
+        }
+        if guard.notices.unshown.len() > before {
+            self.unshown_ready.notify_one();
+        }
+    }
+
     /// Install `loaded`, queueing its new errors.
     fn install(&self, state: &mut State, loaded: Loaded) {
         if state.notices.note(&loaded.manager) {

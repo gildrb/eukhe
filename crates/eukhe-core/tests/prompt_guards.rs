@@ -107,7 +107,10 @@ fn cached_prefix_is_stable_across_sessions() {
     options.generic_mcp_servers = vec!["slack".into(), "github".into()];
     options.context_files = vec![("AGENTS.md".into(), "Never commit main.".into())];
     options.prompt_guidelines = Some(vec!["prefer tabs".into()]);
-    options.append_system_prompt = Some("And one more thing.".into());
+    options.append_system_prompt = vec![eukhe_core::prompts::SourcedPrompt {
+        origin: eukhe_core::prompts::PromptOrigin::Flag("--append-system-prompt"),
+        text: "And one more thing.".into(),
+    }];
     let second = system_prompt_breakdown(&options);
 
     // The cacheable prefix is byte-identical and exactly the layered static

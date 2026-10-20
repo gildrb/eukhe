@@ -404,6 +404,30 @@ fn unreadable_binds_cfg_and_failed_import_are_warnings() {
     );
 }
 
+/// Every `binds.cfg` line binds, defines an alias, or is named by a
+/// warning; the good binds still apply.
+#[test]
+fn binds_cfg_lines_that_do_not_apply_are_warnings() {
+    let (_dir, kb) = with_binds_cfg(
+        "bind ctrl+e \"action app.tools.expand\"\n\
+         bind ctrl+x \"action app.tools.expand\n\
+         bind ctrl+ \"action app.tools.expand\"\n\
+         bind ctrl+y \"action app.nope\"\n\
+         set theme dark\n\
+         alias go \"action app.tools.expand\"\n",
+    );
+    assert!(kb.matches("ctrl+e", "app.tools.expand"));
+    assert_eq!(
+        kb.warnings(),
+        [
+            "binds.cfg line 2: a quote is not closed: the line is ignored",
+            "binds.cfg line 3: key `ctrl+` does not parse: the bind is ignored",
+            "binds.cfg line 4: action `app.nope` is unknown",
+            "binds.cfg line 5: `set theme dark` is ignored (only `bind` and `alias` apply)",
+        ]
+    );
+}
+
 /// `/reload` re-reads `binds.cfg`.
 #[test]
 fn reload_picks_up_binds_cfg_changes() {

@@ -27,8 +27,8 @@ use eukhe_ai::providers::faux_script::{
 use eukhe_ai::types::{Model, SimpleStreamOptions};
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{
-    compose_models_json, open_session, EukheSession, HostDeps, ModelRequest, ModelsError,
-    OpenError, SessionConfig, SessionStorage,
+    compose_models_json, open_session, EukheSession, HostDeps, ModelRequest, OpenError,
+    SessionConfig, SessionStorage,
 };
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -44,8 +44,6 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) enum HostError {
     #[error(transparent)]
     Lease(anyhow::Error),
-    #[error(transparent)]
-    Models(#[from] ModelsError),
     #[error(transparent)]
     Open(#[from] OpenError),
     #[error(transparent)]
@@ -223,10 +221,11 @@ impl HostedSession {
             }
             None => None,
         };
+        let mut models_json_diagnostics = Vec::new();
         if let Some(scripted) = scripted {
             // The agent dir's `models.json` composes over the script (its
             // models list and switch like the old registry's).
-            compose_models_json(&scripted.models, agent_dir)?;
+            models_json_diagnostics = compose_models_json(&scripted.models, agent_dir);
             if scripted.overrides(config.model.as_ref()) {
                 config.model = Some(scripted.model);
             }
@@ -234,6 +233,16 @@ impl HostedSession {
         }
         let session_id = config.session_id.clone();
         let session = open_session(config, cx).await?;
+        // Each bad models.json entry shows on the settings-error row.
+        session
+            .deps()
+            .settings
+            .report(models_json_diagnostics.into_iter().map(|message| {
+                eukhe_core::settings::SettingsError {
+                    scope: eukhe_core::settings::SettingsScope::Global,
+                    message,
+                }
+            }));
         Ok(Self {
             session_id,
             storage_dir,

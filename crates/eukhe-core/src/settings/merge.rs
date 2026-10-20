@@ -4,12 +4,47 @@ use serde_json::Value;
 
 use super::types::Settings;
 
+/// Settings that map names to entries: an entry is one unit, so an
+/// override entry replaces the base entry of its name whole and never
+/// takes keys (a URL, a credential) from it (`laws/config.bend`
+/// `project_entry_never_merges`).
+const ENTRY_MAPS: &[&str] = &["mcpServers"];
+
+/// Settings that are one unit (where the kernel runs and how it reaches
+/// it): an override replaces the base value whole.
+const UNITS: &[&str] = &["kernelTransport"];
+
 /// Deep merge: overrides win; nested objects merge recursively; arrays and
-/// scalars replace. Mirrors `deepMergeSettings`.
+/// scalars replace (`deepMergeSettings`); the entries of [`ENTRY_MAPS`]
+/// and the values of [`UNITS`] replace whole.
 pub fn deep_merge(base: &Settings, overrides: &Settings) -> Settings {
     let mut base_value = serde_json::to_value(base).unwrap_or_default();
     let overrides_value = serde_json::to_value(overrides).unwrap_or_default();
-    merge_values(&mut base_value, &overrides_value);
+    if let (Value::Object(base_obj), Value::Object(overrides_obj)) =
+        (&mut base_value, &overrides_value)
+    {
+        for (key, value) in overrides_obj {
+            if value.is_null() {
+                continue;
+            }
+            let entries = ENTRY_MAPS.contains(&key.as_str());
+            match (base_obj.get_mut(key), value) {
+                (Some(Value::Object(base_entries)), Value::Object(entries_value)) if entries => {
+                    for (name, entry) in entries_value {
+                        if !entry.is_null() {
+                            base_entries.insert(name.clone(), entry.clone());
+                        }
+                    }
+                }
+                (Some(existing), _) if !UNITS.contains(&key.as_str()) && !entries => {
+                    merge_values(existing, value);
+                }
+                (Some(_) | None, _) => {
+                    base_obj.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
     serde_json::from_value(base_value).unwrap_or_default()
 }
 
@@ -41,8 +76,8 @@ fn merge_values(base: &mut Value, overrides: &Value) {
 }
 
 /// Migrate legacy settings shapes (queueMode, websockets, skills object,
-/// retry.maxDelayMs, bad markdown, onboardingCompleted) - port of
-/// `migrateSettings`.
+/// retry.maxDelayMs, onboardingCompleted) - port of `migrateSettings`. A
+/// `markdown` that is not an object stays: the load names it.
 pub fn migrate(document: &mut serde_json::Map<String, Value>) {
     // queueMode -> steeringMode
     if let Some(queue_mode) = document.remove("queueMode") {
@@ -58,7 +93,7 @@ pub fn migrate(document: &mut serde_json::Map<String, Value>) {
         if let Some(websockets) = document.remove("websockets") {
             if websockets.is_boolean() {
                 let transport = if websockets == Value::Bool(true) {
-                    "websocket"
+                    "web-socket"
                 } else {
                     "sse"
                 };
@@ -99,12 +134,6 @@ pub fn migrate(document: &mut serde_json::Map<String, Value>) {
             }
         }
     }
-    // Non-object markdown is dropped.
-    if let Some(markdown) = document.get("markdown") {
-        if !markdown.is_object() {
-            document.remove("markdown");
-        }
-    }
 }
 
 #[cfg(test)]
@@ -131,6 +160,43 @@ mod tests {
         );
     }
 
+    /// Regression (audit M7): a project `mcpServers.github` with its own
+    /// URL merged into the global entry and kept its token header. A
+    /// project entry now replaces the global entry of its name whole;
+    /// other global entries stay.
+    #[test]
+    fn a_project_mcp_entry_never_takes_global_credentials() {
+        let global: Settings = serde_json::from_value(json!({
+            "mcpServers": {
+                "github": {
+                    "type": "http",
+                    "url": "https://api.github.com/mcp",
+                    "headers": { "Authorization": "Bearer secret" },
+                    "bearerTokenEnvVar": "GITHUB_TOKEN"
+                },
+                "notes": { "type": "stdio", "command": "notes-mcp" }
+            },
+            "kernelTransport": { "type": "ssh", "host": "box", "identity": "~/.ssh/id" }
+        }))
+        .unwrap();
+        let project: Settings = serde_json::from_value(json!({
+            "mcpServers": { "github": { "type": "http", "url": "https://other/mcp" } },
+            "kernelTransport": { "type": "local" }
+        }))
+        .unwrap();
+        let merged = serde_json::to_value(deep_merge(&global, &project)).unwrap();
+        assert_eq!(
+            (&merged["mcpServers"], &merged["kernelTransport"]),
+            (
+                &json!({
+                    "github": { "type": "http", "url": "https://other/mcp" },
+                    "notes": { "type": "stdio", "command": "notes-mcp" }
+                }),
+                &json!({ "type": "local" })
+            )
+        );
+    }
+
     #[test]
     fn migration_rewrites_legacy_shapes() {
         let mut doc = json!({
@@ -142,7 +208,7 @@ mod tests {
         let mut map = doc.as_object_mut().unwrap().clone();
         migrate(&mut map);
         assert_eq!(map.get("steeringMode"), Some(&json!("all")));
-        assert_eq!(map.get("transport"), Some(&json!("websocket")));
+        assert_eq!(map.get("transport"), Some(&json!("web-socket")));
         assert_eq!(map.get("skills"), Some(&json!(["/x"])));
         assert_eq!(
             map.get("retry"),

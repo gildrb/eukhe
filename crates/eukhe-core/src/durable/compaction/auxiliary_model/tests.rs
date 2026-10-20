@@ -42,7 +42,7 @@ impl Setup {
         )
         .unwrap();
         std::fs::write(dir.path().join("models.json"), MODELS_JSON).unwrap();
-        let models = crate::durable::create_models(dir.path()).unwrap();
+        let models = crate::durable::create_models(dir.path()).models;
         let context = AuxiliaryModelContext {
             cwd: dir.path().to_path_buf(),
             agent_dir: dir.path().to_path_buf(),

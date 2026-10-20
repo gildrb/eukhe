@@ -74,10 +74,11 @@ pub fn load_project_context_files(cwd: &Path, agent_dir: &Path) -> Vec<ContextFi
 // loader below.
 pub(crate) mod resolution;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::packages::BundledSkillsDir;
-use crate::settings::SettingsManager;
+use crate::prompts::{PromptOrigin, SourcedPrompt};
+use crate::settings::{SettingsManager, TrustLevel};
 
 /// Loaded resources for a session.
 #[derive(Debug, Default)]
@@ -85,12 +86,29 @@ pub struct LoadedResources {
     pub skills: Vec<Skill>,
     pub skill_diagnostics: Vec<ResourceDiagnostic>,
     /// Prompt templates that failed to load or lost a name collision, each
-    /// with its path.
+    /// with its path, then the system prompt files that did not load.
     pub prompt_diagnostics: Vec<ResourceDiagnostic>,
     pub prompts: Vec<PromptTemplate>,
     pub agents_files: Vec<ContextFile>,
-    pub system_prompt: Option<String>,
-    pub append_system_prompt: Vec<String>,
+    /// The replacement system prompt: the explicit input, else the
+    /// discovered `SYSTEM.md`.
+    pub system_prompt: Option<SourcedPrompt>,
+    /// The appended system prompts: the explicit inputs, else the
+    /// discovered `APPEND_SYSTEM.md`.
+    pub append_system_prompt: Vec<SourcedPrompt>,
+}
+
+/// One system prompt input from a caller. Its type is explicit: text is
+/// always prompt text, and a file is always a file to read. On the wire, a
+/// JSON string is text and `{"file": "<path>"}` is a file.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum SystemPromptInput {
+    /// The prompt text.
+    Text(String),
+    /// A file that holds the prompt text. A relative path starts at the
+    /// session cwd.
+    File { file: PathBuf },
 }
 
 /// Resource loading options (the TS `DefaultResourceLoaderOptions` surface,
@@ -110,8 +128,12 @@ pub struct ResourceLoaderOptions {
     pub no_skills: bool,
     pub no_prompt_templates: bool,
     pub no_context_files: bool,
-    pub system_prompt: Option<String>,
-    pub append_system_prompt: Vec<String>,
+    /// `--system-prompt` or `--system-prompt-file`. It overrides the
+    /// discovered `SYSTEM.md`.
+    pub system_prompt: Option<SystemPromptInput>,
+    /// `--append-system-prompt` and `--append-system-prompt-file`, in
+    /// order. They override the discovered `APPEND_SYSTEM.md`.
+    pub append_system_prompt: Vec<SystemPromptInput>,
 }
 
 impl ResourceLoaderOptions {
@@ -148,12 +170,14 @@ pub use resolution::{resolve_theme_paths, theme_sources};
 /// # Errors
 ///
 /// Returns an error when the session resource resolution fails (a
-/// configured package source cannot be parsed).
+/// configured package source cannot be parsed), or when an explicit system
+/// prompt file cannot be read.
 pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResources> {
     let settings = options
         .settings
         .take()
         .unwrap_or_else(|| SettingsManager::create(&options.cwd, &options.agent_dir));
+    let trust = settings.project_trust().level;
     let resolution = resolution::resolve_session_resources(&options, settings)?;
 
     let mut resources = LoadedResources::default();
@@ -245,26 +269,19 @@ pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResour
         resources.agents_files = load_project_context_files(&options.cwd, &options.agent_dir);
     }
 
-    // System prompt: explicit source or discovered file content.
-    let system_source = options.system_prompt.clone().or_else(|| {
-        discover_system_prompt_file(&options.cwd, &options.agent_dir)
-            .map(|p| p.to_string_lossy().to_string())
-    });
-    resources.system_prompt = system_source.and_then(|source| resolve_prompt_input(&source));
-
-    // Append system prompt: explicit sources or discovered file.
-    let append_sources: Vec<String> = if options.append_system_prompt.is_empty() {
-        discover_append_system_prompt_file(&options.cwd, &options.agent_dir)
-            .map(|path| path.to_string_lossy().to_string())
-            .into_iter()
-            .collect()
-    } else {
-        options.append_system_prompt.clone()
-    };
-    resources.append_system_prompt = append_sources
-        .iter()
-        .filter_map(|source| resolve_prompt_input(source))
-        .collect();
+    // System prompts: the explicit inputs, else the discovered files.
+    let system_prompts = load_system_prompts(&SystemPromptRequest {
+        cwd: &options.cwd,
+        agent_dir: &options.agent_dir,
+        trust,
+        system: options.system_prompt.as_ref(),
+        append: &options.append_system_prompt,
+    })?;
+    resources.system_prompt = system_prompts.system;
+    resources.append_system_prompt = system_prompts.append;
+    resources
+        .prompt_diagnostics
+        .extend(system_prompts.diagnostics);
 
     Ok(resources)
 }
@@ -278,12 +295,205 @@ fn diagnostics_path(diagnostic: &ResourceDiagnostic) -> Option<String> {
     }
 }
 
-fn resolve_prompt_input(input: &str) -> Option<String> {
-    let path = Path::new(input);
-    if path.exists() {
-        return std::fs::read_to_string(path).ok();
+/// The inputs of [`load_system_prompts`].
+pub(crate) struct SystemPromptRequest<'a> {
+    /// The session cwd. The project files are in `<cwd>/.eukhe/`.
+    pub(crate) cwd: &'a Path,
+    /// The agent dir. The global files are in it.
+    pub(crate) agent_dir: &'a Path,
+    /// The trust of the project at `cwd`. The project `SYSTEM.md` and
+    /// `APPEND_SYSTEM.md` load only for a trusted project.
+    pub(crate) trust: TrustLevel,
+    /// The explicit replacement prompt. It overrides the discovered
+    /// `SYSTEM.md`.
+    pub(crate) system: Option<&'a SystemPromptInput>,
+    /// The explicit appended prompts, in order. They override the
+    /// discovered `APPEND_SYSTEM.md`.
+    pub(crate) append: &'a [SystemPromptInput],
+}
+
+/// The system prompt texts that apply, and the problems with the
+/// discovered files.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct SystemPrompts {
+    pub(crate) system: Option<SourcedPrompt>,
+    pub(crate) append: Vec<SourcedPrompt>,
+    pub(crate) diagnostics: Vec<ResourceDiagnostic>,
+}
+
+/// Resolve the system prompt inputs of a session. An explicit input wins
+/// over the discovered file of its slot. A discovered file is the project
+/// file when the project is trusted, else the global file. An untrusted
+/// project file does not load: one warning names all of them. A discovered
+/// file that cannot be read is an error diagnostic.
+///
+/// # Errors
+///
+/// Returns an error when an explicit file input cannot be read.
+pub(crate) fn load_system_prompts(request: &SystemPromptRequest<'_>) -> Result<SystemPrompts> {
+    let mut diagnostics = Vec::new();
+    let mut withheld = Vec::new();
+    let system = match request.system {
+        Some(input) => Some(read_explicit_prompt(
+            request.cwd,
+            input,
+            PromptSlot::System,
+        )?),
+        None => discover_prompt_file(request, PromptSlot::System, &mut withheld, &mut diagnostics)
+            .and_then(|path| read_discovered_prompt(path, &mut diagnostics)),
+    };
+    let append = if request.append.is_empty() {
+        discover_prompt_file(request, PromptSlot::Append, &mut withheld, &mut diagnostics)
+            .and_then(|path| read_discovered_prompt(path, &mut diagnostics))
+            .into_iter()
+            .collect()
+    } else {
+        request
+            .append
+            .iter()
+            .map(|input| read_explicit_prompt(request.cwd, input, PromptSlot::Append))
+            .collect::<Result<Vec<_>>>()?
+    };
+    if !withheld.is_empty() {
+        let files = withheld
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        diagnostics.push(ResourceDiagnostic::Warning {
+            message: format!(
+                "Project is not trusted: did not load project system prompt files {files}. To allow them, add {} to trustedProjects in {}.",
+                request.cwd.display(),
+                request.agent_dir.join("settings.json").display()
+            ),
+            path: None,
+        });
     }
-    Some(input.to_string())
+    Ok(SystemPrompts {
+        system,
+        append,
+        diagnostics,
+    })
+}
+
+/// The two system prompt slots.
+#[derive(Debug, Clone, Copy)]
+enum PromptSlot {
+    /// The replacement prompt.
+    System,
+    /// The appended prompts.
+    Append,
+}
+
+impl PromptSlot {
+    fn text_flag(self) -> &'static str {
+        match self {
+            PromptSlot::System => "--system-prompt",
+            PromptSlot::Append => "--append-system-prompt",
+        }
+    }
+
+    fn file_flag(self) -> &'static str {
+        match self {
+            PromptSlot::System => "--system-prompt-file",
+            PromptSlot::Append => "--append-system-prompt-file",
+        }
+    }
+
+    fn file_name(self) -> &'static str {
+        match self {
+            PromptSlot::System => "SYSTEM.md",
+            PromptSlot::Append => "APPEND_SYSTEM.md",
+        }
+    }
+}
+
+/// The text of an explicit input. Text stays text. A file that cannot be
+/// read is an error.
+fn read_explicit_prompt(
+    cwd: &Path,
+    input: &SystemPromptInput,
+    slot: PromptSlot,
+) -> Result<SourcedPrompt> {
+    match input {
+        SystemPromptInput::Text(text) => Ok(SourcedPrompt {
+            origin: PromptOrigin::Flag(slot.text_flag()),
+            text: text.clone(),
+        }),
+        SystemPromptInput::File { file } => {
+            let path = cwd.join(file);
+            let text = std::fs::read_to_string(&path).with_context(|| {
+                format!(
+                    "{} {}: cannot read the file",
+                    slot.file_flag(),
+                    path.display()
+                )
+            })?;
+            Ok(SourcedPrompt {
+                origin: PromptOrigin::File(path),
+                text,
+            })
+        }
+    }
+}
+
+/// The discovered file of `slot`: `<cwd>/.eukhe/<name>` when the project is
+/// trusted, else `<agentDir>/<name>`. An untrusted project file goes into
+/// `withheld`. A file whose presence cannot be checked is an error
+/// diagnostic.
+fn discover_prompt_file(
+    request: &SystemPromptRequest<'_>,
+    slot: PromptSlot,
+    withheld: &mut Vec<PathBuf>,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Option<PathBuf> {
+    let mut exists = |path: &Path| match path.try_exists() {
+        Ok(found) => found,
+        Err(error) => {
+            diagnostics.push(ResourceDiagnostic::Error {
+                message: format!(
+                    "Cannot check the system prompt file: {error}. It is not in the system prompt."
+                ),
+                path: Some(path.display().to_string()),
+            });
+            false
+        }
+    };
+    let project = request
+        .cwd
+        .join(crate::settings::CONFIG_DIR_NAME)
+        .join(slot.file_name());
+    if exists(&project) {
+        match request.trust {
+            TrustLevel::Trusted => return Some(project),
+            TrustLevel::Untrusted => withheld.push(project),
+        }
+    }
+    let global = request.agent_dir.join(slot.file_name());
+    exists(&global).then_some(global)
+}
+
+/// The text of a discovered file. A file that cannot be read is an error
+/// diagnostic.
+fn read_discovered_prompt(
+    path: PathBuf,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Option<SourcedPrompt> {
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Some(SourcedPrompt {
+            origin: PromptOrigin::File(path),
+            text,
+        }),
+        Err(error) => {
+            diagnostics.push(ResourceDiagnostic::Error {
+                message: format!(
+                    "Cannot read the system prompt file: {error}. It is not in the system prompt."
+                ),
+                path: Some(path.display().to_string()),
+            });
+            None
+        }
+    }
 }
 
 fn is_local_path(path: &str) -> bool {
@@ -325,36 +535,6 @@ fn dedupe_prompts(
     out
 }
 
-/// `cwd/{CONFIG_DIR_NAME}/SYSTEM.md` then agentDir/SYSTEM.md.
-#[must_use]
-pub fn discover_system_prompt_file(cwd: &Path, agent_dir: &Path) -> Option<PathBuf> {
-    let project = cwd.join(crate::settings::CONFIG_DIR_NAME).join("SYSTEM.md");
-    if project.exists() {
-        return Some(project);
-    }
-    let global = agent_dir.join("SYSTEM.md");
-    if global.exists() {
-        return Some(global);
-    }
-    None
-}
-
-/// `cwd/{CONFIG_DIR_NAME}/APPEND_SYSTEM.md` then `agentDir/APPEND_SYSTEM.md`.
-#[must_use]
-pub fn discover_append_system_prompt_file(cwd: &Path, agent_dir: &Path) -> Option<PathBuf> {
-    let project = cwd
-        .join(crate::settings::CONFIG_DIR_NAME)
-        .join("APPEND_SYSTEM.md");
-    if project.exists() {
-        return Some(project);
-    }
-    let global = agent_dir.join("APPEND_SYSTEM.md");
-    if global.exists() {
-        return Some(global);
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,21 +555,225 @@ mod tests {
         assert_eq!(contents, vec!["global", "level-a", "deep"]);
     }
 
+    /// Write `<cwd>/.eukhe/SYSTEM.md` and `<cwd>/.eukhe/APPEND_SYSTEM.md`.
+    fn project_prompt_files(cwd: &Path) -> (PathBuf, PathBuf) {
+        let config_dir = cwd.join(".eukhe");
+        fs::create_dir_all(&config_dir).unwrap();
+        let system = config_dir.join("SYSTEM.md");
+        let append = config_dir.join("APPEND_SYSTEM.md");
+        fs::write(&system, "project system").unwrap();
+        fs::write(&append, "project append").unwrap();
+        (system, append)
+    }
+
+    fn untrusted_warning(cwd: &Path, agent_dir: &Path, files: [&Path; 2]) -> ResourceDiagnostic {
+        ResourceDiagnostic::Warning {
+            message: format!(
+                "Project is not trusted: did not load project system prompt files {}, {}. To allow them, add {} to trustedProjects in {}.",
+                files[0].display(),
+                files[1].display(),
+                cwd.display(),
+                agent_dir.join("settings.json").display()
+            ),
+            path: None,
+        }
+    }
+
+    /// An untrusted project neither replaces nor extends the system
+    /// prompt. One warning names both files.
     #[test]
-    fn system_prompt_discovery_prefers_project() {
+    fn untrusted_project_prompt_files_do_not_load() {
         let tmp = tempfile::tempdir().unwrap();
         let agent_dir = tmp.path().join("agent");
-        let project = tmp.path().join("proj");
-        fs::create_dir_all(agent_dir.join(".eukhe")).unwrap();
-        fs::create_dir_all(project.join(".eukhe")).unwrap();
-        fs::write(agent_dir.join(".eukhe").join("SYSTEM.md"), "global system").unwrap();
-        fs::write(project.join(".eukhe").join("SYSTEM.md"), "project system").unwrap();
-        let found = discover_system_prompt_file(&project, &agent_dir).unwrap();
-        assert!(found.to_string_lossy().contains("proj"));
-        // Content resolution reads the file.
+        let cwd = tmp.path().join("proj");
+        fs::create_dir_all(&agent_dir).unwrap();
+        let (system, append) = project_prompt_files(&cwd);
+        let resources = load_resources(ResourceLoaderOptions {
+            bundled_skills_dir: BundledSkillsDir::Disabled,
+            no_context_files: true,
+            ..ResourceLoaderOptions::new(&cwd, &agent_dir)
+        })
+        .unwrap();
+        let prompt =
+            crate::prompts::build_system_prompt(&crate::prompts::BuildSystemPromptOptions {
+                custom_prompt: resources.system_prompt.clone(),
+                append_system_prompt: resources.append_system_prompt.clone(),
+                ..Default::default()
+            });
+        assert!(!prompt.contains("project system"), "{prompt}");
+        assert!(!prompt.contains("project append"), "{prompt}");
+        let warning = untrusted_warning(&cwd, &agent_dir, [system.as_path(), append.as_path()]);
+        assert!(
+            resources.prompt_diagnostics.contains(&warning),
+            "{:?}",
+            resources.prompt_diagnostics
+        );
         assert_eq!(
-            resolve_prompt_input(&found.to_string_lossy()),
-            Some("project system".to_string())
+            (resources.system_prompt, resources.append_system_prompt),
+            (None, Vec::new())
+        );
+    }
+
+    /// The global files load for an untrusted project; the project files
+    /// do not.
+    #[test]
+    fn an_untrusted_project_keeps_the_global_prompt_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().join("agent");
+        let cwd = tmp.path().join("proj");
+        fs::create_dir_all(&agent_dir).unwrap();
+        let global = agent_dir.join("SYSTEM.md");
+        fs::write(&global, "global system").unwrap();
+        let (system, append) = project_prompt_files(&cwd);
+        let prompts = load_system_prompts(&SystemPromptRequest {
+            cwd: &cwd,
+            agent_dir: &agent_dir,
+            trust: TrustLevel::Untrusted,
+            system: None,
+            append: &[],
+        })
+        .unwrap();
+        assert_eq!(
+            prompts,
+            SystemPrompts {
+                system: Some(SourcedPrompt {
+                    origin: PromptOrigin::File(global),
+                    text: "global system".to_string(),
+                }),
+                append: Vec::new(),
+                diagnostics: vec![untrusted_warning(
+                    &cwd,
+                    &agent_dir,
+                    [system.as_path(), append.as_path()],
+                )],
+            }
+        );
+    }
+
+    /// A trusted project's files replace and extend the system prompt.
+    #[test]
+    fn trusted_project_prompt_files_apply() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().join("agent");
+        let cwd = tmp.path().join("proj");
+        fs::create_dir_all(&agent_dir).unwrap();
+        let (system, append) = project_prompt_files(&cwd);
+        fs::write(
+            agent_dir.join("settings.json"),
+            serde_json::json!({ "trustedProjects": [cwd.display().to_string()] }).to_string(),
+        )
+        .unwrap();
+        let resources = load_resources(ResourceLoaderOptions {
+            bundled_skills_dir: BundledSkillsDir::Disabled,
+            no_context_files: true,
+            ..ResourceLoaderOptions::new(&cwd, &agent_dir)
+        })
+        .unwrap();
+        assert_eq!(
+            (resources.system_prompt, resources.append_system_prompt),
+            (
+                Some(SourcedPrompt {
+                    origin: PromptOrigin::File(system),
+                    text: "project system".to_string(),
+                }),
+                vec![SourcedPrompt {
+                    origin: PromptOrigin::File(append),
+                    text: "project append".to_string(),
+                }],
+            )
+        );
+    }
+
+    /// `--system-prompt-file ./missing.md` is an error, never the path as
+    /// prompt text.
+    #[test]
+    fn a_missing_explicit_prompt_file_is_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let input = SystemPromptInput::File {
+            file: PathBuf::from("./missing.md"),
+        };
+        let error = load_system_prompts(&SystemPromptRequest {
+            cwd: tmp.path(),
+            agent_dir: &tmp.path().join("agent"),
+            trust: TrustLevel::Trusted,
+            system: Some(&input),
+            append: &[],
+        })
+        .unwrap_err();
+        let path = tmp.path().join("./missing.md");
+        let io_error = fs::read_to_string(&path).unwrap_err();
+        assert_eq!(
+            format!("{error:#}"),
+            format!(
+                "--system-prompt-file {}: cannot read the file: {io_error}",
+                path.display()
+            )
+        );
+    }
+
+    /// A text input is the prompt text, also when it names a file.
+    #[test]
+    fn a_text_input_stays_text_when_it_names_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("real.md");
+        fs::write(&file, "file text").unwrap();
+        let input = SystemPromptInput::Text(file.display().to_string());
+        let prompts = load_system_prompts(&SystemPromptRequest {
+            cwd: tmp.path(),
+            agent_dir: &tmp.path().join("agent"),
+            trust: TrustLevel::Trusted,
+            system: Some(&input),
+            append: &[],
+        })
+        .unwrap();
+        assert_eq!(
+            prompts,
+            SystemPrompts {
+                system: Some(SourcedPrompt {
+                    origin: PromptOrigin::Flag("--system-prompt"),
+                    text: file.display().to_string(),
+                }),
+                append: Vec::new(),
+                diagnostics: Vec::new(),
+            }
+        );
+    }
+
+    /// A discovered `SYSTEM.md` that cannot be read is a diagnostic.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_discovered_system_prompt_is_a_diagnostic() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().join("agent");
+        fs::create_dir_all(&agent_dir).unwrap();
+        let system = agent_dir.join("SYSTEM.md");
+        fs::write(&system, "global system").unwrap();
+        fs::set_permissions(&system, fs::Permissions::from_mode(0o000)).unwrap();
+        let Err(io_error) = fs::read_to_string(&system) else {
+            // Root reads the file anyway: nothing to check.
+            return;
+        };
+        let prompts = load_system_prompts(&SystemPromptRequest {
+            cwd: &tmp.path().join("proj"),
+            agent_dir: &agent_dir,
+            trust: TrustLevel::Untrusted,
+            system: None,
+            append: &[],
+        })
+        .unwrap();
+        assert_eq!(
+            prompts,
+            SystemPrompts {
+                system: None,
+                append: Vec::new(),
+                diagnostics: vec![ResourceDiagnostic::Error {
+                    message: format!(
+                        "Cannot read the system prompt file: {io_error}. It is not in the system prompt."
+                    ),
+                    path: Some(system.display().to_string()),
+                }],
+            }
         );
     }
 
@@ -408,7 +792,6 @@ mod tests {
         .unwrap();
         fs::write(cwd.join(".eukhe").join("prompts").join("fix.md"), "Fix $1").unwrap();
         fs::write(cwd.join("AGENTS.md"), "Project rules").unwrap();
-        fs::write(cwd.join(".eukhe").join("SYSTEM.md"), "custom system").unwrap();
         let resources = load_resources(ResourceLoaderOptions {
             cwd,
             agent_dir,
@@ -419,8 +802,6 @@ mod tests {
         assert!(resources.prompts.iter().any(|p| p.name == "fix"));
         assert_eq!(resources.agents_files.len(), 1);
         assert_eq!(resources.agents_files[0].content, "Project rules");
-        assert_eq!(resources.system_prompt.as_deref(), Some("custom system"));
-        assert!(resources.append_system_prompt.is_empty());
     }
 
     #[test]

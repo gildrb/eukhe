@@ -171,23 +171,27 @@ async fn the_anthropic_subscription_warning_matches_the_active_credential() {
 
     // A plain API key: no warning (an API key avoids the risk).
     let mut storage = eukhe_core::auth::AuthStorage::create(&agent);
-    storage.set(
-        "anthropic",
-        AuthCredential::ApiKey {
-            key: "sk-ant-api03-plain".to_string(),
-            prime_team: None,
-        },
-    );
+    storage
+        .set(
+            "anthropic",
+            AuthCredential::ApiKey {
+                key: "sk-ant-api03-plain".to_string(),
+                prime_team: None,
+            },
+        )
+        .unwrap();
     assert_eq!(auth.anthropic_subscription_warning().await, None);
 
     // A subscription token key (TS `isAnthropicSubscriptionAuthKey`).
-    storage.set(
-        "anthropic",
-        AuthCredential::ApiKey {
-            key: "sk-ant-oat-subscription".to_string(),
-            prime_team: None,
-        },
-    );
+    storage
+        .set(
+            "anthropic",
+            AuthCredential::ApiKey {
+                key: "sk-ant-oat-subscription".to_string(),
+                prime_team: None,
+            },
+        )
+        .unwrap();
     let warning = auth
         .anthropic_subscription_warning()
         .await
@@ -197,25 +201,27 @@ async fn the_anthropic_subscription_warning_matches_the_active_credential() {
     assert!(warning.contains("An Anthropic API key avoids the risk"));
 
     // A stored OAuth login is the subscription too.
-    storage.set(
-        "anthropic",
-        AuthCredential::Oauth {
-            access: "a".to_string(),
-            refresh: None,
-            expires: i64::MAX,
-            endpoint: None,
-            token_endpoint: None,
-            client_id: None,
-            resource: None,
-            issuer: None,
-            account_id: None,
-            enterprise_url: None,
-        },
-    );
+    storage
+        .set(
+            "anthropic",
+            AuthCredential::Oauth {
+                access: "a".to_string(),
+                refresh: None,
+                expires: i64::MAX,
+                endpoint: None,
+                token_endpoint: None,
+                client_id: None,
+                resource: None,
+                issuer: None,
+                account_id: None,
+                enterprise_url: None,
+            },
+        )
+        .unwrap();
     assert!(auth.anthropic_subscription_warning().await.is_some());
 
     // An env subscription key resolves active with no stored credential.
-    storage.remove("anthropic");
+    storage.remove("anthropic").unwrap();
     std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-oat-env");
     assert!(auth.anthropic_subscription_warning().await.is_some());
     std::env::remove_var("ANTHROPIC_API_KEY");

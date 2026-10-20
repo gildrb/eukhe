@@ -21,6 +21,6 @@ pub use prime_inference::{
 pub use resolver::{
     build_fallback_model, failover_candidates, find_exact_model_reference_match,
     find_initial_model, find_preferred_default_model, initial_model_unavailable_message,
-    resolve_cli_model, resolve_model_scope_from_models, InitialModelOptions, ResolveCliModelResult,
-    ScopedModel,
+    resolve_cli_model, resolve_model_scope_from_models, saved_default_miss, DefaultMiss,
+    InitialModelOptions, ResolveCliModelResult, ScopedModel,
 };

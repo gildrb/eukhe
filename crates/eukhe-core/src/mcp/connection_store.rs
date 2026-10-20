@@ -83,6 +83,19 @@ struct ConnectionsFile {
 pub struct McpConnectionStore {
     path: PathBuf,
     records: HashMap<String, McpConnectionRecord>,
+    /// Why the last load could not use the file. The store then serves no
+    /// records and refuses every write until the file is good again.
+    load_error: Option<String>,
+}
+
+/// The result of one read of the connections file.
+enum DiskRead {
+    /// The file does not exist.
+    Missing,
+    /// The file holds a good document of the current version.
+    Parsed(HashMap<String, McpConnectionRecord>),
+    /// The file exists but this build cannot use it. Nothing may write it.
+    Broken(String),
 }
 
 fn now_ms() -> u64 {
@@ -92,8 +105,7 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-/// Keep only structurally valid records on load: a corrupt or partial entry
-/// is dropped, never served (matching the TS `sanitizeRecord`).
+/// A structurally valid record (matching the TS `sanitizeRecord` checks).
 fn record_valid(record: &McpConnectionRecord) -> bool {
     !record.connection_id.is_empty()
         && !record.service_id.is_empty()
@@ -105,11 +117,13 @@ fn record_valid(record: &McpConnectionRecord) -> bool {
 
 impl McpConnectionStore {
     /// Open the store at `<agent-dir>/mcp-connections.json` and load the
-    /// latest records from disk. A missing file is an empty store.
+    /// latest records from disk. A missing file is an empty store. A file
+    /// that cannot be used sets [`Self::load_error`].
     pub fn open(path: impl Into<PathBuf>) -> Self {
         let mut store = Self {
             path: path.into(),
             records: HashMap::new(),
+            load_error: None,
         };
         store.load();
         store
@@ -120,15 +134,37 @@ impl McpConnectionStore {
         Self {
             path: PathBuf::new(),
             records: HashMap::new(),
+            load_error: None,
         }
     }
 
     /// Re-read the latest on-disk state (another process may have written).
+    /// A file that cannot be used clears the records and sets
+    /// [`Self::load_error`].
     pub fn load(&mut self) {
         if self.path.as_os_str().is_empty() {
             return;
         }
-        self.records = read_records(&self.path);
+        match read_records(&self.path) {
+            DiskRead::Missing => {
+                self.records = HashMap::new();
+                self.load_error = None;
+            }
+            DiskRead::Parsed(records) => {
+                self.records = records;
+                self.load_error = None;
+            }
+            DiskRead::Broken(reason) => {
+                self.records = HashMap::new();
+                self.load_error = Some(reason);
+            }
+        }
+    }
+
+    /// Why the last read of the file could not use it, if it could not.
+    /// The records are empty then.
+    pub fn load_error(&self) -> Option<&str> {
+        self.load_error.as_deref()
     }
 
     /// All records, sorted by connectionId (deterministic order).
@@ -191,7 +227,8 @@ impl McpConnectionStore {
     }
 
     /// Locked read-modify-write: reload the disk state, apply the change,
-    /// write back atomically. In-memory stores just mutate.
+    /// write back atomically. In-memory stores just mutate. A file that
+    /// cannot be used is an error, and nothing is written.
     fn with_disk_state(
         &mut self,
         change: impl FnOnce(&mut HashMap<String, McpConnectionRecord>),
@@ -205,33 +242,59 @@ impl McpConnectionStore {
             std::time::Duration::from_secs(10),
         )
         .map_err(|error| anyhow::anyhow!("connection store lock: {error}"))?;
-        let mut records = read_records(&self.path);
+        let mut records = match read_records(&self.path) {
+            DiskRead::Missing => HashMap::new(),
+            DiskRead::Parsed(records) => records,
+            DiskRead::Broken(reason) => {
+                drop(lock);
+                self.records = HashMap::new();
+                self.load_error = Some(reason.clone());
+                anyhow::bail!("{reason}");
+            }
+        };
         change(&mut records);
         write_records(&self.path, &records)?;
         drop(lock);
         self.records = records;
+        self.load_error = None;
         Ok(())
     }
 }
 
-/// Read and sanitize the file's records (missing file = empty).
-fn read_records(path: &Path) -> HashMap<String, McpConnectionRecord> {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return HashMap::new();
+/// Read the file's records. Only a file that does not exist is
+/// [`DiskRead::Missing`]. A file that cannot be read, is not JSON, has the
+/// wrong shape, has a version other than [`FILE_VERSION`], or holds a
+/// record that is not valid is [`DiskRead::Broken`].
+fn read_records(path: &Path) -> DiskRead {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return DiskRead::Missing,
+        Err(error) => {
+            return DiskRead::Broken(format!("cannot read {}: {error}", path.display()));
+        }
     };
-    let Ok(file) = serde_json::from_str::<ConnectionsFile>(&content) else {
-        return HashMap::new();
+    let file = match serde_json::from_str::<ConnectionsFile>(&content) {
+        Ok(file) => file,
+        Err(error) => {
+            return DiskRead::Broken(format!("cannot parse {}: {error}", path.display()));
+        }
     };
     if file.version != FILE_VERSION {
-        return HashMap::new();
+        return DiskRead::Broken(format!(
+            "{} has version {}; this build reads only version {FILE_VERSION}",
+            path.display(),
+            file.version
+        ));
     }
-    let mut records = HashMap::new();
-    for (id, record) in file.connections {
-        if id == record.connection_id && record_valid(&record) {
-            records.insert(id, record);
+    for (id, record) in &file.connections {
+        if *id != record.connection_id || !record_valid(record) {
+            return DiskRead::Broken(format!(
+                "{} holds a connection record that is not valid: {id}",
+                path.display()
+            ));
         }
     }
-    records
+    DiskRead::Parsed(file.connections)
 }
 
 /// Write the file atomically (temp + rename, mode 0600).
@@ -316,5 +379,81 @@ mod tests {
             "the registry write must flush the temp file before the rename"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    }
+
+    fn record(connection_id: &str) -> McpConnectionRecord {
+        McpConnectionRecord {
+            connection_id: connection_id.to_string(),
+            service_id: "acme".to_string(),
+            endpoint: "https://acme.example/mcp".to_string(),
+            label: "Acme".to_string(),
+            status: McpConnectionStatus::Connected,
+            created_at: 1,
+            updated_at: 1,
+            verified_at: None,
+            tool_count: None,
+            last_error: None,
+            attempt_id: None,
+        }
+    }
+
+    /// A file of another version (a newer build wrote it) is refused: the
+    /// read-only open reports it, and `remove` fails and writes nothing.
+    #[test]
+    fn another_version_is_refused_and_never_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp-connections.json");
+        let content = serde_json::to_string_pretty(&serde_json::json!({
+            "version": 2,
+            "connections": { "a": record("a"), "b": record("b") },
+        }))
+        .unwrap();
+        std::fs::write(&path, &content).unwrap();
+        let reason = format!(
+            "{} has version 2; this build reads only version 1",
+            path.display()
+        );
+
+        let mut store = McpConnectionStore::open(&path);
+        assert_eq!(
+            (store.records(), store.load_error()),
+            (Vec::new(), Some(reason.as_str()))
+        );
+        let error = store.remove("a").unwrap_err().to_string();
+        assert_eq!(error, reason);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+    }
+
+    /// A file that is not JSON is refused: `upsert` fails and writes
+    /// nothing.
+    #[test]
+    fn a_corrupt_file_is_refused_and_never_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp-connections.json");
+        let content = "{\"version\": 1, \"connections\": {";
+        std::fs::write(&path, content).unwrap();
+
+        let mut store = McpConnectionStore::open(&path);
+        assert!(store.load_error().is_some());
+        assert!(store.upsert(&record("c")).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+    }
+
+    /// A good file: `remove` changes only its own record.
+    #[test]
+    fn remove_keeps_every_other_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp-connections.json");
+        let mut store = McpConnectionStore::open(&path);
+        store.upsert(&record("a")).unwrap();
+        store.upsert(&record("b")).unwrap();
+
+        let mut other = McpConnectionStore::open(&path);
+        other.remove("a").unwrap();
+        store.load();
+        assert_eq!(
+            (store.records(), store.load_error()),
+            (vec![record("b")], None)
+        );
     }
 }

@@ -399,6 +399,7 @@ pub fn convert_to_llm(messages: &[AgentMessage]) -> Vec<AgentMessage> {
                         | crate::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE
                         | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE
                         | crate::durable::compaction::auxiliary_model::AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE
+                        | crate::durable::models::DEFAULT_MODEL_NOTICE_CUSTOM_TYPE
                 ) {
                     continue;
                 }

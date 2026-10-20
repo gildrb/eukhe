@@ -91,7 +91,8 @@ async fn apply_model_selection(
         .map_err(|error| error.to_string())?;
     settings_for(session)
         .set_default_model_and_provider(&model.provider, &model.id)
-        .map_err(|error| error.to_string())
+        .and_then(eukhe_core::settings::Persisted::applied)
+        .map_err(|error| format!("{error:#}"))
 }
 
 /// `cycle_model` (TS `session.cycleModel`, forward only on this wire):
@@ -204,7 +205,8 @@ async fn apply_thinking_level(
     if model.as_ref().is_some_and(|model| model.reasoning) || clamped != ModelThinkingLevel::Off {
         settings_for(session)
             .set_default_thinking_level(thinking_level_setting(clamped))
-            .map_err(|error| error.to_string())?;
+            .and_then(eukhe_core::settings::Persisted::applied)
+            .map_err(|error| format!("{error:#}"))?;
     }
     state.session.outputs().write(json!({
         "type": "thinking_level_changed",

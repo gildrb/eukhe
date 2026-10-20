@@ -240,16 +240,17 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
     }
 
     let agent_dir = crate::config::get_agent_dir();
-    let session_dir = parsed
-        .session_dir
-        .as_deref()
-        .map(crate::config::expand_tilde_path)
-        .or_else(crate::config::get_session_dir_env_override)
-        // main.ts sessionDir resolution: the cwd-scoped settings manager is
-        // consulted after the flag and env overrides, before the default.
-        .or_else(|| {
-            eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir).get_session_dir()
-        });
+    // The one sessionDir precedence (flag, environment, the cwd-scoped
+    // setting, default); the default stays `None` here, the agent dir's
+    // `sessions`.
+    let session_dir = eukhe_core::settings::resolve_session_dir(
+        parsed.session_dir.as_deref().map(std::path::Path::new),
+        &eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir),
+        &agent_dir,
+    )
+    .map_err(|error| format!("{error:#}"))?;
+    let session_dir = (session_dir.source != eukhe_core::settings::SessionDirSource::Default)
+        .then_some(session_dir.path);
 
     let mut cli_messages = parsed.messages.clone();
     // TS main's startup branches read piped stdin for every mode but the
@@ -298,7 +299,7 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String
             agent_dir,
             session_dir.clone(),
             app_mode,
-        ),
+        )?,
         session: mode::SessionOptions {
             continue_recent: parsed.continue_,
             resume_bare: parsed.resume_bare,

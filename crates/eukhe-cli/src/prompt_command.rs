@@ -91,15 +91,8 @@ fn assemble_breakdown(
     let settings = SettingsManager::create(cwd, &agent_dir);
     // MCP gating: auth-gated built-in integrations drop their skills;
     // enabled persistent generic servers add the prompt MCP guidance.
-    let user_servers = settings
-        .get_mcp_servers()
-        .into_iter()
-        .filter_map(|(server, config)| {
-            serde_json::from_value(config)
-                .ok()
-                .map(|parsed| (server, parsed))
-        })
-        .collect::<std::collections::HashMap<String, eukhe_core::mcp::McpServerConfig>>();
+    let (user_servers, mcp_diagnostics) =
+        eukhe_core::mcp::parse_user_servers(&settings.get_mcp_servers());
     let (skill_overrides, generic_servers, _manager) =
         eukhe_core::mcp::McpManager::prompt_gating(user_servers, &agent_dir);
     let resources = load_resources(ResourceLoaderOptions {
@@ -113,6 +106,7 @@ fn assemble_breakdown(
             messages_path: Some(chat_log),
             model_prompt_extras: model_prompts.extras.as_deref(),
             custom_prompt: resources.system_prompt.clone(),
+            append_system_prompt: resources.append_system_prompt.clone(),
             context_files: resources
                 .agents_files
                 .iter()
@@ -131,7 +125,9 @@ fn assemble_breakdown(
             ..Default::default()
         },
     );
-    Ok((breakdown, model_prompts.errors))
+    let mut errors = model_prompts.errors;
+    errors.extend(mcp_diagnostics.iter().map(ToString::to_string));
+    Ok((breakdown, errors))
 }
 
 fn print_text(breakdown: &eukhe_core::prompts::SystemPromptBreakdown) {

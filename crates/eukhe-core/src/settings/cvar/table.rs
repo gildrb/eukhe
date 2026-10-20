@@ -203,31 +203,33 @@ pub const MAX_TOOL_ROUNDS: Decl = Decl {
     init: Init::Nat(250),
 };
 
-/// `number | "off" | "none"`; anything else reads as the default.
+/// A whole number of minutes, or `off`/`none`; the load names any other
+/// value.
 pub const IDLE_EVICTION_MINUTES: Decl = Decl {
     id: "idleEvictionMinutes",
-    ty: CvarType::Json,
+    ty: CvarType::NatOrOff,
     scope: CvarScope::Global,
     persist: false,
     replicate: true,
     init: Init::Nat(90),
 };
 
-/// `number | "off" | "none"`; anything else reads as the default.
+/// A whole number of days, or `off`/`none`; the load names any other
+/// value.
 pub const SESSION_ARCHIVE_MAX_AGE_DAYS: Decl = Decl {
     id: "sessionArchiveMaxAgeDays",
-    ty: CvarType::Json,
+    ty: CvarType::NatOrOff,
     scope: CvarScope::Global,
     persist: false,
     replicate: false,
     init: Init::Nat(30),
 };
 
-/// `number | "off" | "none"` (`0` is off); anything else reads as the
-/// default.
+/// A whole number of sessions (`0` is off), or `off`/`none`; the load
+/// names any other value.
 pub const SESSION_ARCHIVE_MAX_SESSIONS: Decl = Decl {
     id: "sessionArchiveMaxSessions",
-    ty: CvarType::Json,
+    ty: CvarType::NatOrOff,
     scope: CvarScope::Global,
     persist: false,
     replicate: false,

@@ -1,9 +1,11 @@
 //! Project trust: a project's `<cwd>/.eukhe/settings.json` comes from
 //! whatever repository the user opened, so the keys that can run code,
-//! redirect credentials or data, or move where code and kernel state load
-//! from apply only when the global `trustedProjects` list covers the
-//! project directory. `trustedProjects`, `gateway` and `ssh` are read from
-//! the global scope only.
+//! redirect credentials or data, move where code and kernel state load
+//! from, or raise a limit apply only when the global `trustedProjects`
+//! list covers the project directory (`laws/config.bend`
+//! `untrusted_changes_nothing_guarded`). `trustedProjects` is read from
+//! the global layer only (the global `settings.json`, then the global
+//! `config.cfg`), like `gateway` and `ssh`.
 
 use std::path::{Path, PathBuf};
 
@@ -79,18 +81,18 @@ impl ProjectTrust {
     }
 }
 
-/// Decide the project's trust from the global `trustedProjects` list and
-/// derive the effective project scope from the project document.
-/// Non-absolute entries are recorded as global-scope errors and never
-/// match.
+/// Decide the project's trust from the global `trustedProjects` list (the
+/// value of the global layer, `trusted`) and derive the effective project
+/// scope from the project document. Non-absolute entries are recorded as
+/// global-scope errors and never match.
 pub(super) fn apply_project_trust(
     storage: &dyn SettingsStorage,
-    global: &Settings,
+    trusted: &[String],
     project_document: &Settings,
     errors: &mut Vec<SettingsError>,
 ) -> (Settings, ProjectTrust) {
     let mut trusted_roots = Vec::new();
-    for entry in global.trusted_projects.iter().flatten() {
+    for entry in trusted {
         let path = Path::new(entry);
         if !path.is_absolute() {
             errors.push(SettingsError {
@@ -171,11 +173,15 @@ pub(super) fn effective_project(document: &Settings, level: TrustLevel) -> (Sett
 /// `Settings` field does not compile until it is classified here.
 /// Withheld: anything that names a program, command, shell, or library
 /// (`providers.tinyRuntimeLibrary`); installs or spawns code (packages,
-/// MCP servers and catalogs, skill paths); moves where sessions and
+/// MCP servers and catalogs, skill paths); holds or routes credentials
+/// (MCP servers, `kernelTransport`, `providers`); moves where sessions and
 /// kernel snapshots live; toggles execution gates (factory, the model
-/// allowlist); hides startup output (and so this warning); the
-/// global-only `trustedProjects`, `gateway` and `ssh`; and unknown keys.
-/// Everything else is a UI, model, or limit preference.
+/// allowlist); hides startup output (and so this warning); a limit on
+/// spend, time, rounds or concurrency (the tool rounds, the subagent
+/// cap and stall, the tool blocking budget, the autonomous and Director
+/// caps, the retry counts, the thinking budgets: an untrusted project
+/// could raise them); the global-only `trustedProjects`, `gateway` and
+/// `ssh`; and unknown keys. Everything else is a UI or model preference.
 fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
     let Settings {
         onboarding_shown,
@@ -249,7 +255,23 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         stt,
         extra,
     } = document;
+    let mut retry_limits = Vec::new();
+    let retry = retry.map(|mut retry| {
+        if retry.max_retries.take().is_some() {
+            retry_limits.push("retry.maxRetries".to_string());
+        }
+        if let Some(failover) = retry.failover.as_mut() {
+            if failover.max_retries.take().is_some() {
+                retry_limits.push("retry.failover.maxRetries".to_string());
+            }
+        }
+        retry
+    });
     let withheld = [
+        ("subagentMaxConcurrency", subagent_max_concurrency.is_some()),
+        ("subagentStallMs", subagent_stall_ms.is_some()),
+        ("toolBlockingBudgetMs", tool_blocking_budget_ms.is_some()),
+        ("maxToolRounds", max_tool_rounds.is_some()),
         ("factory", factory.is_some()),
         ("shellPath", shell_path.is_some()),
         ("quietStartup", quiet_startup.is_some()),
@@ -264,6 +286,9 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         ("trustedProjects", trusted_projects.is_some()),
         ("gateway", gateway.is_some()),
         ("kernelTransport", kernel_transport.is_some()),
+        ("autonomous", autonomous.is_some()),
+        ("directors", directors.is_some()),
+        ("thinkingBudgets", thinking_budgets.is_some()),
         ("shell", shell.is_some()),
         ("ssh", ssh.is_some()),
         ("providers", providers.is_some()),
@@ -272,6 +297,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         .into_iter()
         .filter(|(_, present)| *present)
         .map(|(key, _)| key.to_string())
+        .chain(retry_limits)
         .chain(extra.into_iter().map(|(key, _)| key))
         .collect();
     let kept = Settings {
@@ -287,10 +313,10 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         rlm_max_depth,
         provider_max_in_flight,
         provider_max_queued,
-        subagent_max_concurrency,
-        subagent_stall_ms,
-        tool_blocking_budget_ms,
-        max_tool_rounds,
+        subagent_max_concurrency: None,
+        subagent_stall_ms: None,
+        tool_blocking_budget_ms: None,
+        max_tool_rounds: None,
         idle_eviction_minutes,
         session_archive_max_age_days,
         session_archive_max_sessions,
@@ -306,8 +332,8 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         retry,
         provider_backup_model,
         image_model,
-        autonomous,
-        directors,
+        autonomous: None,
+        directors: None,
         shell_path: None,
         quiet_startup: None,
         shell_command_prefix: None,
@@ -326,7 +352,7 @@ fn untrusted_project_scope(document: Settings) -> (Settings, Vec<String>) {
         allowed_models: None,
         tree_filter_mode,
         chat_detail,
-        thinking_budgets,
+        thinking_budgets: None,
         editor_padding_x,
         autocomplete_max_visible,
         show_hardware_cursor,
@@ -460,16 +486,22 @@ mod tests {
         );
         assert_eq!(
             errors(&fresh),
-            vec![(
-                SettingsScope::Project,
-                format!(
-                    "Project is not trusted: ignored project settings shellPath, \
+            vec![
+                (
+                    SettingsScope::Project,
+                    "settings.json: no cvar `unknownKey`".to_string()
+                ),
+                (
+                    SettingsScope::Project,
+                    format!(
+                        "Project is not trusted: ignored project settings shellPath, \
                      shellCommandPrefix, npmCommand, mcpServers, packages, skills, sessionDir, \
                      unknownKey. To allow them, add {} to trustedProjects in {}.",
-                    project_dir.display(),
-                    global_path.display()
+                        project_dir.display(),
+                        global_path.display()
+                    )
                 )
-            )]
+            ]
         );
         // Project-scope edits still see the whole document.
         assert_eq!(
@@ -477,7 +509,12 @@ mod tests {
             Some(vec![json!("npm:evil")])
         );
         // Nothing project-controlled reaches the session root.
-        assert_eq!(fresh.get_session_dir(), None);
+        assert_eq!(
+            fresh
+                .cvars()
+                .text(&crate::settings::cvar::table::SESSION_DIR),
+            ""
+        );
     }
 
     #[test]
@@ -493,7 +530,14 @@ mod tests {
         let expected: Settings = serde_json::from_value(expected).unwrap();
         assert_eq!(effective(&manager), serde_json::to_value(expected).unwrap());
         assert_eq!(manager.project_trust().level, TrustLevel::Trusted);
-        assert_eq!(errors(&manager), Vec::new());
+        // A key no setting declares is named, and stays in the document.
+        assert_eq!(
+            errors(&manager),
+            vec![(
+                SettingsScope::Project,
+                "settings.json: no cvar `unknownKey`".to_string()
+            )]
+        );
     }
 
     #[test]

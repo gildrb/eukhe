@@ -57,6 +57,8 @@ impl PackageManager {
             .into_iter()
             .filter(|dir| *dir != user_agents_skills_dir)
             .collect::<Vec<PathBuf>>();
+        // Broken ignore rules found by the scans below.
+        let mut diagnostics: Vec<ResourceDiagnostic> = Vec::new();
 
         let add_resources = |accumulator: &mut ResourceAccumulator,
                              resource_type: ResourceType,
@@ -76,10 +78,12 @@ impl PackageManager {
             accumulator,
             ResourceType::Skills,
             [
-                collect_skill_entries(&project_dirs[0], SkillDiscoveryMode::Pi),
+                collect_skill_entries(&project_dirs[0], SkillDiscoveryMode::Pi, &mut diagnostics),
                 project_agents_skill_dirs
                     .iter()
-                    .flat_map(|dir| collect_skill_entries(dir, SkillDiscoveryMode::Agents))
+                    .flat_map(|dir| {
+                        collect_skill_entries(dir, SkillDiscoveryMode::Agents, &mut diagnostics)
+                    })
                     .collect(),
             ]
             .concat(),
@@ -90,7 +94,7 @@ impl PackageManager {
         add_resources(
             accumulator,
             ResourceType::Prompts,
-            collect_auto_prompt_entries(&project_dirs[1]),
+            collect_auto_prompt_entries(&project_dirs[1], &mut diagnostics),
             &project_metadata,
             &project_overrides[1],
             project_base_dir,
@@ -98,7 +102,7 @@ impl PackageManager {
         add_resources(
             accumulator,
             ResourceType::Themes,
-            collect_auto_theme_entries(&project_dirs[2]),
+            collect_auto_theme_entries(&project_dirs[2], &mut diagnostics),
             &project_metadata,
             &project_overrides[2],
             project_base_dir,
@@ -108,8 +112,12 @@ impl PackageManager {
             accumulator,
             ResourceType::Skills,
             [
-                collect_skill_entries(&user_dirs[0], SkillDiscoveryMode::Pi),
-                collect_skill_entries(&user_agents_skills_dir, SkillDiscoveryMode::Agents),
+                collect_skill_entries(&user_dirs[0], SkillDiscoveryMode::Pi, &mut diagnostics),
+                collect_skill_entries(
+                    &user_agents_skills_dir,
+                    SkillDiscoveryMode::Agents,
+                    &mut diagnostics,
+                ),
             ]
             .concat(),
             &user_metadata,
@@ -125,11 +133,12 @@ impl PackageManager {
                     origin: ResourceOrigin::TopLevel,
                     base_dir: Some(bundled_dir.clone()),
                 };
-                let builtin_entries = collect_skill_entries(bundled_dir, SkillDiscoveryMode::Pi);
+                let builtin_entries =
+                    collect_skill_entries(bundled_dir, SkillDiscoveryMode::Pi, &mut diagnostics);
                 // Bundled skills must ship with the package; warn instead of
                 // silently exposing none.
                 if builtin_entries.is_empty() {
-                    accumulator.diagnostics.push(ResourceDiagnostic::Warning {
+                    diagnostics.push(ResourceDiagnostic::Warning {
                         message: if bundled_dir.exists() {
                             "built-in skills directory contains no skills; this build may be packaged incorrectly"
                                 .to_string()
@@ -157,7 +166,7 @@ impl PackageManager {
         add_resources(
             accumulator,
             ResourceType::Prompts,
-            collect_auto_prompt_entries(&user_dirs[1]),
+            collect_auto_prompt_entries(&user_dirs[1], &mut diagnostics),
             &user_metadata,
             &user_overrides[1],
             global_base_dir,
@@ -165,10 +174,11 @@ impl PackageManager {
         add_resources(
             accumulator,
             ResourceType::Themes,
-            collect_auto_theme_entries(&user_dirs[2]),
+            collect_auto_theme_entries(&user_dirs[2], &mut diagnostics),
             &user_metadata,
             &user_overrides[2],
             global_base_dir,
         );
+        accumulator.diagnostics.append(&mut diagnostics);
     }
 }

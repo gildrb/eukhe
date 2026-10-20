@@ -20,6 +20,7 @@ use super::{
     MissingPackage, PackageFilter, PathMetadata, ResolvedPaths, ResourceAccumulator,
     ResourceOrigin, ResourceType, RESOURCE_TYPES,
 };
+use crate::skills::diagnostics::ResourceDiagnostic;
 
 /// Parse the object (filter) form of a `packages` settings entry.
 fn parse_package_filter(entry: &serde_json::Value) -> Option<PackageFilter> {
@@ -92,9 +93,11 @@ fn dedupe_configured_sources(
 
 /// Files or directory trees behind a list of paths: files pass through,
 /// directories are collected per resource kind; missing paths are skipped.
+/// Broken ignore rules in the directories go into `diagnostics`.
 pub(crate) fn collect_files_from_paths(
     paths: &[PathBuf],
     resource_type: ResourceType,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
 ) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for path in paths {
@@ -104,7 +107,7 @@ pub(crate) fn collect_files_from_paths(
         if stats.is_file() {
             files.push(path.clone());
         } else if stats.is_dir() {
-            files.extend(collect_resource_files(path, resource_type));
+            files.extend(collect_resource_files(path, resource_type, diagnostics));
         }
     }
     files
@@ -283,7 +286,8 @@ impl PackageManager {
             .iter()
             .map(|path| PackageManager::resolve_path_from_base(path, base_dir))
             .collect();
-        let all_files = collect_files_from_paths(&resolved_plain, resource_type);
+        let all_files =
+            collect_files_from_paths(&resolved_plain, resource_type, &mut accumulator.diagnostics);
         let enabled_paths = apply_patterns(&all_files, &pattern_entries, base_dir);
         for file in all_files {
             let enabled = enabled_paths.contains(&file);

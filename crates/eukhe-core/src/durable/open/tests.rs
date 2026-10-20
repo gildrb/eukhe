@@ -464,6 +464,128 @@ async fn a_new_root_takes_the_settings_default_model() {
     session.close(cx()).await.expect("close");
 }
 
+/// Regression (audit H4): a saved default model missing from the catalog
+/// was replaced by the next startup default with only a log line. The
+/// session now opens on the next model and shows one row that names the
+/// saved default and the reason.
+#[tokio::test]
+async fn a_saved_default_missing_from_the_catalog_shows_a_notice_row() {
+    let fixture = fixture();
+    let model = fixture.model();
+    std::fs::write(
+        fixture.agent_dir.join("settings.json"),
+        serde_json::json!({
+            "defaultProvider": model.provider,
+            "defaultModel": "gone",
+        })
+        .to_string(),
+    )
+    .expect("settings");
+    let session = open_session(fixture.config(SessionStorage::Memory), cx())
+        .await
+        .expect("open");
+    let agent = session.root().agent(cx()).await.expect("agent");
+    assert_eq!(agent.model, Some(model.clone()));
+    let rows: Vec<crate::durable::entries::CustomEntryData> = session
+        .main()
+        .entries(ConversationEntryQuery::default(), 1000, None, cx())
+        .await
+        .expect("entries")
+        .items
+        .into_iter()
+        .filter_map(|entry| {
+            crate::durable::entries::CUSTOM_ENTRY
+                .narrow(entry)
+                .expect("custom data")
+        })
+        .map(|entry| entry.data().clone())
+        .filter(|data| data.custom_type == DEFAULT_MODEL_NOTICE_CUSTOM_TYPE)
+        .collect();
+    assert_eq!(
+        rows,
+        vec![crate::durable::entries::CustomEntryData {
+            custom_type: DEFAULT_MODEL_NOTICE_CUSTOM_TYPE.to_owned(),
+            content: Some(UserContent::Text(format!(
+                "The saved default model {provider}/gone did not run: the model catalog does not have it. The session runs on {provider}/{id}.",
+                provider = model.provider,
+                id = model.model_id
+            ))),
+            display: true,
+            details: None,
+            input: false,
+            origin: None,
+        }]
+    );
+    session.close(cx()).await.expect("close");
+}
+
+/// Regression (audit M1): a bad models.json entry failed the session open
+/// as a whole. Now the session opens on the good providers, and the bad
+/// entry shows on its settings-error row.
+#[tokio::test]
+async fn a_bad_models_json_entry_shows_on_the_settings_error_row() {
+    let fixture = fixture();
+    std::fs::write(
+        fixture.agent_dir.join("models.json"),
+        serde_json::json!({ "providers": {
+            "custom": { "models": [{ "id": "x" }] },
+            "battery": {
+                "baseUrl": "http://127.0.0.1:9/v1", "apiKey": "battery-key",
+                "api": "openai-completions", "models": [{ "id": "mock" }]
+            }
+        } })
+        .to_string(),
+    )
+    .expect("models.json");
+    let mut config = fixture.config(SessionStorage::Memory);
+    config.models = None;
+    config.model = Some(crate::durable::deps::ModelRequest {
+        provider: Some("battery".to_owned()),
+        pattern: "mock".to_owned(),
+    });
+    let session = open_session(config, cx()).await.expect("open");
+    let main = session.main();
+    let mut rows = Vec::new();
+    // The settings service submits the row from its own task.
+    for _ in 0..500 {
+        rows = main
+            .entries(ConversationEntryQuery::default(), 1000, None, cx())
+            .await
+            .expect("entries")
+            .items
+            .into_iter()
+            .filter_map(|entry| {
+                crate::durable::entries::CUSTOM_ENTRY
+                    .narrow(entry)
+                    .expect("custom data")
+            })
+            .map(|entry| entry.data().clone())
+            .filter(|data| data.custom_type == crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE)
+            .map(|data| data.content)
+            .collect::<Vec<_>>();
+        if !rows.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        rows,
+        vec![Some(UserContent::Text(
+            "Settings errors (the rest of the settings apply):\n- global: models.json providers.custom: \"baseUrl\" is required when defining custom models."
+                .to_owned()
+        ))]
+    );
+    let agent = session.root().agent(cx()).await.expect("agent");
+    assert_eq!(
+        agent.model,
+        Some(ModelRef {
+            provider: "battery".to_owned(),
+            model_id: "mock".to_owned(),
+        })
+    );
+    session.close(cx()).await.expect("close");
+}
+
 /// Regression: a main conversation with a model and no stored thinking
 /// level (a legacy import) ran at `off`'s wire value, or at the server's
 /// own default, while the session showed `off`. Open settles it on the
@@ -643,7 +765,9 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
     let mut config = fixture.config(fixture.jsonl());
     config.model = Some(fixture.model().into());
     config.prompt = PromptConfig {
-        append_system_prompt: Some("Appended.".to_owned()),
+        append_system_prompt: vec![crate::resources::SystemPromptInput::Text(
+            "Appended.".to_owned(),
+        )],
         guidelines: vec!["Be brief.".to_owned(), "Be brief.".to_owned()],
         generic_mcp_servers: vec!["docs".to_owned()],
         allow_recursion: Some(false),
@@ -665,7 +789,7 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
         vision_capable: Some(model.input.contains(&Modality::Image)),
         selected_tools: Some(tools.iter().map(String::as_str).collect()),
         prompt_guidelines: Some(deps.prompt.guidelines.clone()),
-        append_system_prompt: deps.prompt.append_system_prompt.clone(),
+        append_system_prompt: deps.resources.append_system_prompt.clone(),
         cwd: fixture.cwd.display().to_string(),
         messages_path: deps
             .storage_dir
@@ -711,14 +835,21 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
 fn section_keys_follow_the_breakdown_order() {
     let skills = Vec::new();
     for memory in [None, Some(MemoryRole::Root), Some(MemoryRole::Subagent)] {
-        for custom_prompt in [None, Some("Custom.".to_owned())] {
+        let custom = crate::prompts::SourcedPrompt {
+            origin: crate::prompts::PromptOrigin::Flag("--system-prompt"),
+            text: "Custom.".to_owned(),
+        };
+        for custom_prompt in [None, Some(custom)] {
             let breakdown = system_prompt_breakdown(&BuildSystemPromptOptions {
                 custom_prompt,
                 model_prompt_extras: Some("Model guidance."),
                 vision_capable: Some(true),
                 selected_tools: Some(vec!["ipython"]),
                 prompt_guidelines: Some(vec!["Guide.".to_owned()]),
-                append_system_prompt: Some("Appended.".to_owned()),
+                append_system_prompt: vec![crate::prompts::SourcedPrompt {
+                    origin: crate::prompts::PromptOrigin::Flag("--append-system-prompt"),
+                    text: "Appended.".to_owned(),
+                }],
                 cwd: "/work".to_owned(),
                 messages_path: Some("/log".to_owned()),
                 context_files: vec![("/work/AGENTS.md".to_owned(), "Context.".to_owned())],

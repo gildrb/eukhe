@@ -253,7 +253,9 @@ fn npm_install_list_remove_flow() {
     assert!(installed.join("package.json").exists());
 
     // Duplicate install is a settings no-op.
-    assert!(!manager.add_source_to_settings("npm:fake-pkg@2.0.0", UserOrProject::User));
+    assert!(!manager
+        .add_source_to_settings("npm:fake-pkg@2.0.0", UserOrProject::User)
+        .unwrap());
     assert_eq!(manager.list_configured_packages().len(), 1);
 
     assert!(manager

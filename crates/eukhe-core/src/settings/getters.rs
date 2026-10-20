@@ -45,12 +45,12 @@ pub(super) fn default_text(decl: &Decl) -> &'static str {
     }
 }
 
-/// A `number | "off" | "none"` setting as written.
+/// A [`CvarType::NatOrOff`](super::cvar::CvarType::NatOrOff) value.
 enum OffOrNumber {
     Off,
-    /// A number; one that is not whole reads as `0`.
     Number(u64),
-    /// Anything else (the reader takes the default).
+    /// Unset (the reader takes the default); the load names a malformed
+    /// value and drops it, so it reads as unset too.
     Malformed,
 }
 
@@ -384,13 +384,20 @@ impl SettingsManager {
 
     /// The provider admission limits (`providerMaxInFlight`,
     /// `providerMaxQueued`, Global: shared by every session of the agent
-    /// dir). A malformed in-flight map is no limit.
+    /// dir). A malformed in-flight limit is never "no limit"
+    /// ([`AdmissionLimits::from_setting`](crate::admission::AdmissionLimits::from_setting)):
+    /// when the load dropped the value from `settings.json` (it named it),
+    /// the value as written still caps.
     #[must_use]
     pub fn get_admission_limits(&self) -> crate::admission::AdmissionLimits {
-        let in_flight: Option<std::collections::BTreeMap<String, u32>> =
-            serde_json::from_value(self.cvars().value(&table::PROVIDER_MAX_IN_FLIGHT)).ok();
-        crate::admission::AdmissionLimits::new(
-            in_flight.as_ref(),
+        let decl = &table::PROVIDER_MAX_IN_FLIGHT;
+        let in_flight = self
+            .cvars()
+            .layered(decl)
+            .or_else(|| self.global_raw().and_then(|raw| raw.get(decl.id)).cloned())
+            .unwrap_or(Value::Null);
+        crate::admission::AdmissionLimits::from_setting(
+            &in_flight,
             Some(saturating_u32(
                 self.cvars().nat(&table::PROVIDER_MAX_QUEUED),
             )),
@@ -449,19 +456,6 @@ impl SettingsManager {
         self.cvars()
             .layered(&table::TRANSPORT)
             .map(|_| self.get_transport())
-    }
-
-    #[must_use]
-    pub fn get_session_dir(&self) -> Option<std::path::PathBuf> {
-        let session_dir = self.raw_text(&table::SESSION_DIR)?;
-        let home = eukhe_types::platform::home_dir()?;
-        Some(if session_dir == "~" {
-            home
-        } else if let Some(rest) = session_dir.strip_prefix("~/") {
-            home.join(rest)
-        } else {
-            session_dir.into()
-        })
     }
 
     /// `retry.enabled`: the auto-retry toggle.
@@ -630,4 +624,75 @@ impl SettingsManager {
     pub fn get_ssh_hosts(&self) -> Vec<String> {
         self.cvars().list(&table::SSH_HOSTS)
     }
+}
+
+/// Where sessions live and which input decided it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionDir {
+    pub path: std::path::PathBuf,
+    pub source: SessionDirSource,
+}
+
+/// The input that decided [`SessionDir::path`], highest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionDirSource {
+    /// The `--session-dir` flag.
+    Flag,
+    /// The `EUKHE_SESSION_DIR` environment variable (or the legacy
+    /// `EUKHE_CODING_AGENT_SESSION_DIR`).
+    Environment,
+    /// The `sessionDir` setting.
+    Setting,
+    /// `<agent dir>/sessions`.
+    Default,
+}
+
+/// The environment variable that sets the sessions directory.
+pub const SESSION_DIR_ENV: &str = "EUKHE_SESSION_DIR";
+
+/// The legacy name of [`SESSION_DIR_ENV`].
+pub const LEGACY_SESSION_DIR_ENV: &str = "EUKHE_CODING_AGENT_SESSION_DIR";
+
+/// The one precedence of the sessions directory, for every reader (the
+/// CLI, the dashboard, the gateway, the daemon): the `--session-dir` flag (`flag`), then the
+/// `EUKHE_SESSION_DIR` environment variable (then the legacy
+/// `EUKHE_CODING_AGENT_SESSION_DIR`), then the `sessionDir` setting of
+/// `settings`, then `<agent_dir>/sessions`. A leading `~` is the home
+/// directory.
+///
+/// # Errors
+///
+/// A value starts with `~` and the home directory is not known.
+pub fn resolve_session_dir(
+    flag: Option<&std::path::Path>,
+    settings: &SettingsManager,
+    agent_dir: &std::path::Path,
+) -> anyhow::Result<SessionDir> {
+    let environment = [SESSION_DIR_ENV, LEGACY_SESSION_DIR_ENV]
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()));
+    let setting = settings.raw_text(&table::SESSION_DIR);
+    let (text, source) = match (flag, environment, setting) {
+        (Some(flag), _, _) => (flag.to_string_lossy().into_owned(), SessionDirSource::Flag),
+        (None, Some(value), _) => (value, SessionDirSource::Environment),
+        (None, None, Some(value)) => (value, SessionDirSource::Setting),
+        (None, None, None) => {
+            return Ok(SessionDir {
+                path: agent_dir.join("sessions"),
+                source: SessionDirSource::Default,
+            })
+        }
+    };
+    let home = || {
+        eukhe_types::platform::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("`{text}` names the home directory, which is not set"))
+    };
+    let path = if text == "~" {
+        home()?
+    } else if let Some(rest) = text.strip_prefix("~/") {
+        home()?.join(rest)
+    } else {
+        std::path::PathBuf::from(&text)
+    };
+    Ok(SessionDir { path, source })
 }

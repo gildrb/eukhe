@@ -601,4 +601,44 @@ mod tests {
             "{error}"
         );
     }
+
+    #[test]
+    fn update_document_refuses_an_unreadable_or_invalid_document() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let backend = FileAuthStorageBackend::new(&path);
+        let add_b = |document: &mut Map<String, Value>| {
+            document.insert("b".to_owned(), json!({ "type": "api_key", "key": "kb" }));
+            Ok((true, ()))
+        };
+        // Invalid JSON: refused, the file is unchanged.
+        let broken = r#"{ "a": { "type": "api_key", "key": "ka" },"#;
+        std::fs::write(&path, broken).unwrap();
+        assert_eq!(
+            (
+                update_document(&backend, add_b).is_err(),
+                std::fs::read_to_string(&path).unwrap()
+            ),
+            (true, broken.to_owned())
+        );
+        // An unreadable file: refused with the read error, the file is
+        // unchanged.
+        let document = r#"{ "a": { "type": "api_key", "key": "ka" } }"#;
+        std::fs::write(&path, document).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let Err(read_error) = std::fs::read(&path) else {
+            eprintln!("skipped: this user (root) can read a 000 file");
+            return;
+        };
+        let result = update_document(&backend, add_b);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            (result, std::fs::read_to_string(&path).unwrap()),
+            (
+                Err(format!("Failed to read {}: {read_error}", path.display())),
+                document.to_owned()
+            )
+        );
+    }
 }

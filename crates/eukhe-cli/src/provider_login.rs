@@ -502,14 +502,13 @@ fn login_blocking(
         ));
     };
     let mut auth = eukhe_core::auth::AuthStorage::create(agent_dir);
-    auth.set(
+    if let Err(error) = auth.set(
         &provider_row.id,
         AuthCredential::ApiKey {
             key: api_key,
             prime_team: None,
         },
-    );
-    if let Some(error) = auth.drain_errors().pop() {
+    ) {
         return ProviderAuthOutcome::Error(format!("could not save the API key: {error}"));
     }
     ProviderAuthOutcome::Status(format!(
@@ -622,11 +621,16 @@ fn login_blocking_on_panel(
 /// workers).
 fn logout_blocking(provider_row: &ProviderRow, agent_dir: &Path) -> ProviderAuthOutcome {
     let mut auth = eukhe_core::auth::AuthStorage::create(agent_dir);
+    if let Some(error) = auth.load_error() {
+        return ProviderAuthOutcome::Error(format!(
+            "Logout failed: {} could not be loaded: {error}",
+            agent_dir.join("auth.json").display()
+        ));
+    }
     if auth.get_all().get(&provider_row.id).is_none() {
         return ProviderAuthOutcome::Status(format!("{} is not configured.", provider_row.name));
     }
-    auth.logout(&provider_row.id);
-    if let Some(error) = auth.drain_errors().pop() {
+    if let Err(error) = auth.logout(&provider_row.id) {
         return ProviderAuthOutcome::Error(format!("Logout failed: {error}"));
     }
     match provider_row.auth_type {

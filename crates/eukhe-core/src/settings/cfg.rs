@@ -15,9 +15,9 @@ use eukhe_types::cvar::{parse_script, render_list, Aliases, Binds, Command};
 use serde_json::Value;
 
 use super::cvar::{
-    document_sets, registry, value_text, CvarError, CvarScope, Cvars, Set, Sets, Target,
+    document_sets, registry, value_text, CvarError, CvarScope, Cvars, Decl, Set, Sets, Target,
 };
-use super::load::from_value_lenient;
+use super::load::load_document;
 use super::manager::SettingsError;
 use super::storage::{SettingsScope, SettingsStorage};
 use super::trust::{effective_project, TrustLevel};
@@ -29,6 +29,18 @@ mod tests;
 /// The config layer's cfg file.
 pub(super) const CONFIG_CFG: &str = "config.cfg";
 
+/// The settings document of a scope, as diagnostics name it.
+pub(super) const SETTINGS_JSON: &str = "settings.json";
+
+/// Where the sets of a config layer come from: `[0, document)` from the
+/// `settings.json` documents, `[document, global_cfg)` from the global
+/// `config.cfg`, the rest from the project `config.cfg`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ConfigBounds {
+    pub(super) document: usize,
+    pub(super) global_cfg: usize,
+}
+
 /// The config layer of one load: the cvars over `settings.json` and the
 /// config cfg files, their aliases, and what did not apply.
 pub(super) struct ConfigLayer {
@@ -37,6 +49,8 @@ pub(super) struct ConfigLayer {
     pub(super) errors: Vec<SettingsError>,
     /// Keys of the project `config.cfg` the project's trust withheld.
     pub(super) withheld: Vec<String>,
+    /// Where the sets of `cvars.config()` come from.
+    pub(super) bounds: ConfigBounds,
 }
 
 /// A failed command of cfg file `name` as a settings error.
@@ -70,6 +84,41 @@ pub(super) fn run_script(
         .collect()
 }
 
+/// The list value of cvar `decl` in the global layer alone: the global
+/// `settings.json`, then the global `config.cfg` (the `trustedProjects`
+/// reader: trust must be known before the project layers). The cfg's
+/// errors are recorded by [`config_layer`].
+pub(super) fn global_list(
+    storage: &dyn SettingsStorage,
+    global: &Settings,
+    decl: &Decl,
+) -> Result<Vec<String>, SettingsError> {
+    let registry = registry();
+    let global_value = serde_json::to_value(global).unwrap_or(Value::Null);
+    let mut cvars = Cvars::new(
+        registry,
+        document_sets(registry, &global_value, &global_value),
+    );
+    let text = storage
+        .read_cfg(SettingsScope::Global, CONFIG_CFG)
+        .map_err(|error| SettingsError {
+            scope: SettingsScope::Global,
+            message: format!("{CONFIG_CFG}: {error:#}"),
+        })?;
+    if let Some(text) = text {
+        // Recorded by `config_layer`, which runs the same file.
+        let _recorded_by_config_layer = run_script(
+            &mut cvars,
+            Target::Config,
+            &text,
+            &mut Aliases::default(),
+            SettingsScope::Global,
+            CONFIG_CFG,
+        );
+    }
+    Ok(cvars.list(decl))
+}
+
 /// The config layer: `settings.json` (`merged` for Local cvars, `global`
 /// for Global ones), then the global `config.cfg`, then the sets of the
 /// project `config.cfg` that are Local and that the project's trust lets
@@ -88,6 +137,7 @@ pub(super) fn config_layer(
         registry,
         document_sets(registry, &merged_value, &global_value),
     );
+    let document = cvars.config().0.len();
     let mut aliases = Aliases::default();
     let mut errors = Vec::new();
     let mut withheld = Vec::new();
@@ -112,6 +162,10 @@ pub(super) fn config_layer(
             CONFIG_CFG,
         ));
     }
+    let bounds = ConfigBounds {
+        document,
+        global_cfg: cvars.config().0.len(),
+    };
     if let Some(text) = read(SettingsScope::Project, &mut errors) {
         let mut scratch = cvars.clone();
         let mut project_aliases = aliases.clone();
@@ -164,6 +218,7 @@ pub(super) fn config_layer(
         aliases,
         errors,
         withheld,
+        bounds,
     }
 }
 
@@ -195,7 +250,13 @@ fn project_set(set: &Set, trust: TrustLevel) -> ProjectSet {
         object.insert(key.to_string(), value);
         Value::Object(object)
     });
-    let (kept, ignored) = effective_project(&from_value_lenient(&document), trust);
+    let loaded = match &document {
+        Value::Object(object) => load_document(object).settings,
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => {
+            return ProjectSet::Unfit
+        }
+    };
+    let (kept, ignored) = effective_project(&loaded, trust);
     if let Some(key) = ignored.into_iter().next() {
         return ProjectSet::Withheld(key);
     }

@@ -256,7 +256,8 @@ fn installed_connections_are_endpoint_pinned_across_catalog_url_changes() {
                 issuer: None,
                 enterprise_url: None,
             },
-        );
+        )
+        .unwrap();
     }
     // Re-resolve at endpoint A: the integration serves A.
     manager.refresh();

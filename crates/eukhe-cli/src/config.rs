@@ -19,9 +19,6 @@ pub const CONFIG_DIR_NAME: &str = ".eukhe";
 /// `EUKHE_CODING_AGENT_DIR`: overrides the agent state directory.
 pub const ENV_AGENT_DIR: &str = "EUKHE_CODING_AGENT_DIR";
 
-/// `EUKHE_SESSION_DIR`: overrides the session directory.
-pub const ENV_SESSION_DIR: &str = "EUKHE_SESSION_DIR";
-
 /// `EUKHE_DAEMON_SOCKET`: overrides the daemon socket path when no
 /// explicit `--daemon-socket` flag is given.
 pub const ENV_DAEMON_SOCKET: &str = "EUKHE_DAEMON_SOCKET";
@@ -61,9 +58,6 @@ pub fn expand_tilde_path_os(value: &std::ffi::OsStr) -> PathBuf {
     }
     PathBuf::from(value)
 }
-
-/// `EUKHE_CODING_AGENT_SESSION_DIR`: legacy session-dir override.
-pub const ENV_LEGACY_SESSION_DIR: &str = "EUKHE_CODING_AGENT_SESSION_DIR";
 
 /// The version compiled into this build (eukhe-build-info: the release a
 /// release build names, else `<workspace version>-dev`), used when no
@@ -132,15 +126,6 @@ pub fn get_agent_dir() -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("."))
             .join(eukhe_types::platform::dirs::AGENT_DIR_NAME),
     }
-}
-
-/// The session directory override from the environment, if any.
-pub fn get_session_dir_env_override() -> Option<PathBuf> {
-    std::env::var(ENV_SESSION_DIR)
-        .ok()
-        .or_else(|| std::env::var(ENV_LEGACY_SESSION_DIR).ok())
-        .filter(|value| !value.is_empty())
-        .map(|value| expand_tilde_path(&value))
 }
 
 /// Truthy environment flag check, matching `isTruthyEnvFlag` in main.ts:

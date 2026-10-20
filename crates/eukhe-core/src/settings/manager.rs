@@ -1,28 +1,31 @@
 //! `SettingsManager`: loads global + project settings, merges them, builds
 //! the cvar layers over them (`settings::cvar`, `settings::cfg`), and
-//! writes back only what this session changed.
+//! writes back only what a setter changes (`settings::persist`).
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use eukhe_types::cvar::{Aliases, Binds, Command};
+use serde_json::{Map, Value};
 
-use super::cfg::{config_layer, replace_sets, run_script, CONFIG_CFG};
+use super::cfg::{
+    cfg_error, config_layer, global_list, replace_sets, run_script, ConfigBounds, CONFIG_CFG,
+    SETTINGS_JSON,
+};
 use super::cvar::{
-    document_sets, registry, value_text, AgentLayer, CvarError, CvarWriteError, Cvars, LayerKind,
-    Sets, Target,
+    document_sets, registry, table, value_text, AgentLayer, CvarError, CvarWriteError, Cvars, Decl,
+    LayerKind, Sets, Target,
 };
-use super::load::from_value_lenient;
+use super::load::load_document;
 use super::merge::{deep_merge, migrate};
-use super::storage::{SettingsScope, SettingsStorage};
+use super::persist::{edit_path, read_document, DocRead, KeyEdit, Persisted, Shadow};
+use super::storage::{SettingsScope, SettingsStorage, CONFIG_DIR_NAME};
 use super::trust::{apply_project_trust, effective_project, ProjectTrust};
-use super::types::{
-    MemorySettings, QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting,
-};
+use super::types::{QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting};
 
 pub const RECENT_MODELS_LIMIT: usize = 20;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsError {
     pub scope: SettingsScope,
     pub message: String,
@@ -43,19 +46,32 @@ pub struct SettingsManager {
     /// The values every getter reads: the config layer (`settings.json`,
     /// then `config.cfg`) and the agent family [`Self::set_family`] gave.
     cvars: Cvars,
+    /// Where each part of the config layer comes from.
+    bounds: ConfigBounds,
     /// The aliases of the config cfg files.
     aliases: Aliases,
     errors: Vec<SettingsError>,
-    /// The raw global document (the parsed JSON before the lenient field
-    /// load). The daemon model allowlist distinguishes an ABSENT
-    /// `allowedModels` key (unrestricted) from a PRESENT-but-malformed one
-    /// (the security gate fails closed) — the typed `Settings` drops both
-    /// to `None`, so the raw value is the only witness.
-    global_raw: Option<serde_json::Value>,
-    /// Load failures per scope; a scope whose file failed to parse is never
-    /// written back (the TS `save` guard against clobbering bad settings).
+    /// The raw global document (the parsed JSON before the field load).
+    /// A reader that must tell an ABSENT key from a PRESENT-but-malformed
+    /// one (the model allowlist, the admission limits) reads it: the typed
+    /// `Settings` drops both to `None`.
+    global_raw: Option<Value>,
+    /// The global document's read or parse failure, if any.
     global_load_error: Option<String>,
-    project_load_error: Option<String>,
+}
+
+/// A change of a settings document: it returns whether it changed the
+/// document, or why it cannot apply.
+type DocumentEdit<'a> = dyn FnMut(&mut Map<String, Value>) -> Result<bool, String> + 'a;
+
+/// One loaded scope.
+struct ScopeLoad {
+    /// The typed settings: every leaf that applies.
+    settings: Settings,
+    /// The migrated document; `None` when absent or broken.
+    raw: Option<Value>,
+    /// Why the document could not be read or parsed.
+    error: Option<String>,
 }
 
 impl SettingsManager {
@@ -73,14 +89,22 @@ impl SettingsManager {
         mut errors: Vec<SettingsError>,
         family: Vec<AgentLayer>,
     ) -> Self {
-        let (global, global_raw, global_load_error) =
-            load_scope(storage.as_ref(), SettingsScope::Global, &mut errors);
-        let (project_document, _, project_load_error) =
-            load_scope(storage.as_ref(), SettingsScope::Project, &mut errors);
+        let global = load_scope(storage.as_ref(), SettingsScope::Global, &mut errors);
+        let project_document =
+            load_scope(storage.as_ref(), SettingsScope::Project, &mut errors).settings;
+        // An unreadable global config.cfg trusts nothing; config_layer
+        // records its error.
+        let trusted = global_list(storage.as_ref(), &global.settings, &table::TRUSTED_PROJECTS)
+            .unwrap_or_default();
         let (project, mut project_trust) =
-            apply_project_trust(storage.as_ref(), &global, &project_document, &mut errors);
-        let merged = deep_merge(&global, &project);
-        let layer = config_layer(storage.as_ref(), &global, &merged, project_trust.level);
+            apply_project_trust(storage.as_ref(), &trusted, &project_document, &mut errors);
+        let merged = deep_merge(&global.settings, &project);
+        let layer = config_layer(
+            storage.as_ref(),
+            &global.settings,
+            &merged,
+            project_trust.level,
+        );
         errors.extend(layer.errors);
         for key in layer.withheld {
             if !project_trust.ignored_keys.contains(&key) {
@@ -97,17 +121,17 @@ impl SettingsManager {
         cvars.set_family(family);
         Self {
             storage,
-            global,
+            global: global.settings,
             project_document,
             project,
             project_trust,
             merged,
             cvars,
+            bounds: layer.bounds,
             aliases: layer.aliases,
             errors,
-            global_raw,
-            global_load_error,
-            project_load_error,
+            global_raw: global.raw,
+            global_load_error: global.error,
         }
     }
 
@@ -124,17 +148,18 @@ impl SettingsManager {
     }
 
     /// In-memory manager (tests, embedded hosts).
+    ///
+    /// # Panics
+    ///
+    /// When `initial` does not serialize (a `Settings` always does).
     #[must_use]
     pub fn in_memory(initial: &Settings) -> Self {
         let storage: Arc<dyn SettingsStorage> =
             Arc::new(super::storage::InMemorySettingsStorage::default());
-        let content = serde_json::to_string_pretty(&initial).unwrap_or_default();
+        let content = serde_json::to_string_pretty(&initial).expect("settings serialize");
         storage
-            .with_lock(SettingsScope::Global, &mut |current| {
-                let _ = current;
-                Some(content.clone())
-            })
-            .ok();
+            .with_lock(SettingsScope::Global, &mut |_| Some(content.clone()))
+            .expect("the in-memory storage never fails");
         Self::from_storage(storage)
     }
 
@@ -149,11 +174,11 @@ impl SettingsManager {
         &self.global
     }
 
-    /// The raw global document (post-migration, pre-lenient-load value);
+    /// The raw global document (post-migration, pre-field-load value);
     /// `None` when the scope has no document or it failed to parse (the
     /// load error covers the latter).
     #[must_use]
-    pub fn global_raw(&self) -> Option<&serde_json::Value> {
+    pub fn global_raw(&self) -> Option<&Value> {
         self.global_raw.as_ref()
     }
 
@@ -360,223 +385,8 @@ impl SettingsManager {
         let family = self.cvars.family().to_vec();
         self.cvars = layer.cvars;
         self.cvars.set_family(family);
+        self.bounds = layer.bounds;
         self.aliases = layer.aliases;
-    }
-
-    /// Mutable global settings for the setters in sibling modules (the
-    /// TS setters mutate `globalSettings` then save).
-    pub(crate) fn global_mut(&mut self) -> &mut Settings {
-        &mut self.global
-    }
-
-    /// Persist the global scope (sibling-module setters share this).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub(crate) fn save_global_scope(&mut self) -> Result<()> {
-        self.save_global()
-    }
-
-    // -- persisted setters --------------------------------------------------
-
-    /// `defaultModel` + `defaultProvider` setter (the model switch's
-    /// combined write).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_default_model_and_provider(&mut self, provider: &str, model: &str) -> Result<()> {
-        self.global.default_provider = Some(provider.to_string());
-        self.global.default_model = Some(model.to_string());
-        self.record_model_use(provider, model);
-        self.save_global()
-    }
-
-    /// Persist `memory.model` globally as an exact `provider/model-id`
-    /// selector without replacing the compactor's other memory settings.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_memory_model(&mut self, provider: &str, model_id: &str) -> Result<()> {
-        self.global
-            .memory
-            .get_or_insert_with(MemorySettings::default)
-            .model = Some(format!("{provider}/{model_id}"));
-        self.save_global()
-    }
-    /// Record a model use at the front of `recentModels` (capped at 20).
-    pub fn record_model_use(&mut self, provider: &str, model: &str) {
-        let key = format!("{provider}/{model}");
-        let mut recent: Vec<String> = vec![key];
-        for existing in self.global.recent_models.iter().flatten() {
-            if existing != &recent[0] {
-                recent.push(existing.clone());
-            }
-        }
-        recent.truncate(RECENT_MODELS_LIMIT);
-        self.global.recent_models = Some(recent);
-    }
-
-    /// `steeringMode` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_steering_mode(&mut self, mode: QueueModeSetting) -> Result<()> {
-        self.global.steering_mode = Some(mode);
-        self.save_global()
-    }
-
-    /// `followUpMode` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_follow_up_mode(&mut self, mode: QueueModeSetting) -> Result<()> {
-        self.global.follow_up_mode = Some(mode);
-        self.save_global()
-    }
-
-    /// `theme` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_theme(&mut self, theme: String) -> Result<()> {
-        self.global.theme = Some(theme);
-        self.save_global()
-    }
-
-    /// `defaultThinkingLevel` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_default_thinking_level(&mut self, level: ThinkingLevelSetting) -> Result<()> {
-        self.global.default_thinking_level = Some(level);
-        self.save_global()
-    }
-
-    /// TS `setRetryEnabled`: the auto-retry toggle the provider retry
-    /// policy reads (`retry.enabled`).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_retry_enabled(&mut self, enabled: bool) -> Result<()> {
-        self.global
-            .retry
-            .get_or_insert_with(Default::default)
-            .enabled = Some(enabled);
-        self.save_global()
-    }
-
-    /// TS `setCompactionEnabled`: the auto-compaction toggle
-    /// (`compaction.enabled` in the global settings file). The connection
-    /// state's `autoCompactionEnabled` is this value in TS, so a daemon
-    /// restart re-seeds the flag from the persisted setting.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_compaction_enabled(&mut self, enabled: bool) -> Result<()> {
-        self.global
-            .compaction
-            .get_or_insert_with(Default::default)
-            .enabled = Some(enabled);
-        self.save_global()
-    }
-
-    /// `transport` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_transport(&mut self, transport: TransportSetting) -> Result<()> {
-        self.global.transport = Some(transport);
-        self.save_global()
-    }
-
-    /// `rlmMaxDepth` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_rlm_max_depth(&mut self, depth: u64) -> Result<()> {
-        self.global.rlm_max_depth = Some(depth);
-        self.save_global()
-    }
-
-    /// `onboardingShown` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_onboarding_shown(&mut self, shown: bool) -> Result<()> {
-        self.global.onboarding_shown = Some(shown);
-        self.save_global()
-    }
-
-    /// Replace the `packages` array in the global settings file.
-    pub fn set_packages(&mut self, packages: Vec<serde_json::Value>) {
-        self.global.packages = Some(packages.clone());
-        self.persist_scope_field(
-            SettingsScope::Global,
-            "packages",
-            &serde_json::Value::Array(packages),
-        );
-        self.rebuild_cvars();
-    }
-
-    /// Replace the `packages` array in the project settings file.
-    pub fn set_project_packages(&mut self, packages: Vec<serde_json::Value>) {
-        self.project_document.packages = Some(packages.clone());
-        self.persist_scope_field(
-            SettingsScope::Project,
-            "packages",
-            &serde_json::Value::Array(packages),
-        );
-        self.refresh_project_scope();
-    }
-
-    /// Replace one resource-path array (`skills`/`prompts`/`themes`) in the
-    /// global settings file (TS `setSkillPaths` & friends).
-    pub fn set_global_resource_array(&mut self, field: &str, values: Vec<String>) {
-        let array: Vec<serde_json::Value> =
-            values.into_iter().map(serde_json::Value::String).collect();
-        match field {
-            "skills" => self.global.skills = Some(strings(&array)),
-            "prompts" => self.global.prompts = Some(strings(&array)),
-            "themes" => self.global.themes = Some(strings(&array)),
-            _ => return,
-        }
-        self.persist_scope_field(
-            SettingsScope::Global,
-            field,
-            &serde_json::Value::Array(array),
-        );
-        self.rebuild_cvars();
-    }
-
-    /// Replace one resource-path array in the project settings file (TS
-    /// `setProjectSkillPaths` & friends).
-    pub fn set_project_resource_array(&mut self, field: &str, values: Vec<String>) {
-        let array: Vec<serde_json::Value> =
-            values.into_iter().map(serde_json::Value::String).collect();
-        match field {
-            "skills" => self.project_document.skills = Some(strings(&array)),
-            "prompts" => self.project_document.prompts = Some(strings(&array)),
-            "themes" => self.project_document.themes = Some(strings(&array)),
-            _ => return,
-        }
-        self.persist_scope_field(
-            SettingsScope::Project,
-            field,
-            &serde_json::Value::Array(array),
-        );
-        self.refresh_project_scope();
     }
 
     /// Re-derive the applying project scope and the merge after a project
@@ -586,52 +396,376 @@ impl SettingsManager {
         self.rebuild_cvars();
     }
 
-    /// Write one field into a scope's file, merging with the current on-disk
-    /// document so concurrently-added fields survive. Settings failures are
-    /// recorded as warnings, never thrown (the TS save contract).
-    fn persist_scope_field(
+    // -- persistence ---------------------------------------------------------
+
+    /// The read/modify/write of one scope's `settings.json` under its lock:
+    /// read the document on disk now, apply `edit` (which returns whether
+    /// it changed the document), write the result, and load it. A document
+    /// that cannot be read or parsed is never written. Every key that
+    /// `edit` does not touch keeps its value, a key that failed to load
+    /// included.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be locked, read, parsed or written, or `edit`
+    /// refuses (a parent on its path is not an object).
+    fn write_scope(&mut self, scope: SettingsScope, edit: &mut DocumentEdit<'_>) -> Result<()> {
+        let label = match scope {
+            SettingsScope::Global => "Global",
+            SettingsScope::Project => "Project",
+        };
+        let mut failure: Option<String> = None;
+        let mut written: Option<Map<String, Value>> = None;
+        self.storage
+            .with_lock(scope, &mut |current| {
+                failure = None;
+                written = None;
+                let mut document = match read_document(current.as_deref()) {
+                    DocRead::Missing => Map::new(),
+                    DocRead::Parsed(document) => document,
+                    DocRead::Broken(reason) => {
+                        failure = Some(format!("the settings file does not parse: {reason}"));
+                        return None;
+                    }
+                };
+                match edit(&mut document) {
+                    Ok(true) => {}
+                    Ok(false) => return None,
+                    Err(reason) => {
+                        failure = Some(reason);
+                        return None;
+                    }
+                }
+                match serde_json::to_string_pretty(&document) {
+                    Ok(text) => {
+                        written = Some(document);
+                        Some(text)
+                    }
+                    Err(error) => {
+                        failure = Some(error.to_string());
+                        None
+                    }
+                }
+            })
+            .map_err(|error| anyhow!("{label} settings not saved: {error:#}"))?;
+        if let Some(reason) = failure {
+            return Err(anyhow!("{label} settings not saved: {reason}"));
+        }
+        if let Some(document) = written {
+            self.install_scope(scope, document);
+        }
+        Ok(())
+    }
+
+    /// Load `document`, just written to `scope`, as that scope; its leaf
+    /// diagnostics not recorded before are recorded.
+    fn install_scope(&mut self, scope: SettingsScope, mut document: Map<String, Value>) {
+        migrate(&mut document);
+        let loaded = load_document(&document);
+        for error in &loaded.rejected {
+            let error = cfg_error(scope, SETTINGS_JSON, error);
+            if !self.errors.contains(&error) {
+                self.errors.push(error);
+            }
+        }
+        match scope {
+            SettingsScope::Global => {
+                self.global = loaded.settings;
+                self.global_raw = Some(Value::Object(document));
+                self.global_load_error = None;
+                self.rebuild_cvars();
+            }
+            SettingsScope::Project => {
+                self.project_document = loaded.settings;
+                self.refresh_project_scope();
+            }
+        }
+    }
+
+    /// Write `value` at the key path of cvar `decl` in `scope`'s
+    /// `settings.json` and say whether it applies.
+    ///
+    /// # Errors
+    ///
+    /// `value` is not a value the setting holds (nothing is written), or
+    /// the write fails ([`Self::write_scope`]).
+    pub(crate) fn set_scope_cvar(
+        &mut self,
+        scope: SettingsScope,
+        decl: &Decl,
+        value: &Value,
+    ) -> Result<Persisted> {
+        let path: Vec<&str> = decl.id.split('.').collect();
+        let mut probe = Map::new();
+        edit_path(&mut probe, &path, KeyEdit::Set(value.clone()))
+            .map_err(|error| anyhow!(error))?;
+        if let Some(error) = load_document(&probe).rejected.into_iter().next() {
+            return Err(anyhow!(error));
+        }
+        self.write_scope(scope, &mut |document| {
+            edit_path(document, &path, KeyEdit::Set(value.clone())).map(|_| true)
+        })?;
+        Ok(self.persisted(&[(decl, value)]))
+    }
+
+    /// [`Self::set_scope_cvar`] in the global scope (every interactive
+    /// setter).
+    pub(crate) fn set_global_cvar(&mut self, decl: &Decl, value: &Value) -> Result<Persisted> {
+        self.set_scope_cvar(SettingsScope::Global, decl, value)
+    }
+
+    /// Whether each written `(decl, value)` is the value that applies: the
+    /// last set of the config layer for the cvar (the agent family is the
+    /// session's own and does not count). Another value means a higher
+    /// layer sets it.
+    fn persisted(&self, written: &[(&Decl, &Value)]) -> Persisted {
+        let sets = &self.cvars.config().0;
+        let shadows: Vec<Shadow> = written
+            .iter()
+            .filter_map(|(decl, value)| {
+                let at = sets.iter().rposition(|set| set.id == decl.id)?;
+                (sets[at].value != **value).then(|| Shadow {
+                    id: decl.id.to_string(),
+                    file: self.layer_file(at),
+                })
+            })
+            .collect();
+        if shadows.is_empty() {
+            Persisted::Applies
+        } else {
+            Persisted::Shadowed(shadows)
+        }
+    }
+
+    /// The file that set config set `at`.
+    fn layer_file(&self, at: usize) -> String {
+        let project = self
+            .storage
+            .project_dir()
+            .map(|dir| dir.join(CONFIG_DIR_NAME));
+        let global = self
+            .storage
+            .global_location()
+            .and_then(std::path::Path::parent);
+        let (dir, name, fallback) = if at < self.bounds.document {
+            (project, SETTINGS_JSON, "the project settings.json")
+        } else if at < self.bounds.global_cfg {
+            (
+                global.map(std::path::Path::to_path_buf),
+                CONFIG_CFG,
+                "the global config.cfg",
+            )
+        } else {
+            (project, CONFIG_CFG, "the project config.cfg")
+        };
+        dir.map_or_else(
+            || fallback.to_string(),
+            |dir| dir.join(name).display().to_string(),
+        )
+    }
+
+    // -- persisted setters --------------------------------------------------
+
+    /// `defaultModel` + `defaultProvider` setter (the model switch's
+    /// combined write); the model goes to the front of `recentModels`
+    /// (as the file holds it now, capped at 20).
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_default_model_and_provider(
+        &mut self,
+        provider: &str,
+        model: &str,
+    ) -> Result<Persisted> {
+        let key = format!("{provider}/{model}");
+        self.write_scope(SettingsScope::Global, &mut |document| {
+            let mut recent = vec![key.clone()];
+            if let Some(Value::Array(items)) = document.get("recentModels") {
+                recent.extend(
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter(|item| *item != key)
+                        .map(str::to_string),
+                );
+            }
+            recent.truncate(RECENT_MODELS_LIMIT);
+            edit_path(
+                document,
+                &["defaultProvider"],
+                KeyEdit::Set(provider.into()),
+            )?;
+            edit_path(document, &["defaultModel"], KeyEdit::Set(model.into()))?;
+            edit_path(document, &["recentModels"], KeyEdit::Set(recent.into()))?;
+            Ok(true)
+        })?;
+        Ok(self.persisted(&[
+            (&table::DEFAULT_PROVIDER, &Value::from(provider)),
+            (&table::DEFAULT_MODEL, &Value::from(model)),
+        ]))
+    }
+
+    /// Persist `memory.model` globally as an exact `provider/model-id`
+    /// selector; the compactor's other memory settings stay.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_memory_model(&mut self, provider: &str, model_id: &str) -> Result<Persisted> {
+        self.set_global_cvar(
+            &table::MEMORY_MODEL,
+            &Value::from(format!("{provider}/{model_id}")),
+        )
+    }
+
+    /// `steeringMode` setter.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_steering_mode(&mut self, mode: QueueModeSetting) -> Result<Persisted> {
+        self.set_global_cvar(&table::STEERING_MODE, &serde_json::to_value(mode)?)
+    }
+
+    /// `followUpMode` setter.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_follow_up_mode(&mut self, mode: QueueModeSetting) -> Result<Persisted> {
+        self.set_global_cvar(&table::FOLLOW_UP_MODE, &serde_json::to_value(mode)?)
+    }
+
+    /// `theme` setter.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_theme(&mut self, theme: String) -> Result<Persisted> {
+        self.set_global_cvar(&table::THEME, &Value::String(theme))
+    }
+
+    /// `defaultThinkingLevel` setter.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_default_thinking_level(&mut self, level: ThinkingLevelSetting) -> Result<Persisted> {
+        self.set_global_cvar(
+            &table::DEFAULT_THINKING_LEVEL,
+            &serde_json::to_value(level)?,
+        )
+    }
+
+    /// TS `setRetryEnabled`: the auto-retry toggle the provider retry
+    /// policy reads (`retry.enabled`).
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_retry_enabled(&mut self, enabled: bool) -> Result<Persisted> {
+        self.set_global_cvar(&table::RETRY_ENABLED, &Value::Bool(enabled))
+    }
+
+    /// TS `setCompactionEnabled`: the auto-compaction toggle
+    /// (`compaction.enabled` in the global settings file). The connection
+    /// state's `autoCompactionEnabled` is this value in TS, so a daemon
+    /// restart re-seeds the flag from the persisted setting.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_compaction_enabled(&mut self, enabled: bool) -> Result<Persisted> {
+        self.set_global_cvar(&table::COMPACTION_ENABLED, &Value::Bool(enabled))
+    }
+
+    /// `transport` setter.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_transport(&mut self, transport: TransportSetting) -> Result<Persisted> {
+        self.set_global_cvar(&table::TRANSPORT, &serde_json::to_value(transport)?)
+    }
+
+    /// `rlmMaxDepth` setter.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_rlm_max_depth(&mut self, depth: u64) -> Result<Persisted> {
+        self.set_global_cvar(&table::RLM_MAX_DEPTH, &Value::from(depth))
+    }
+
+    /// `onboardingShown` setter.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_onboarding_shown(&mut self, shown: bool) -> Result<Persisted> {
+        self.set_global_cvar(&table::ONBOARDING_SHOWN, &Value::Bool(shown))
+    }
+
+    /// Replace the `packages` array of `scope`'s settings file.
+    ///
+    /// # Errors
+    ///
+    /// The settings file cannot be read, parsed or written.
+    pub fn set_scope_packages(
+        &mut self,
+        scope: SettingsScope,
+        packages: Vec<Value>,
+    ) -> Result<Persisted> {
+        self.set_scope_cvar(scope, &table::PACKAGES, &Value::Array(packages))
+    }
+
+    /// Replace one resource-path array (`skills`/`prompts`/`themes`) of
+    /// `scope`'s settings file (TS `setSkillPaths` & friends).
+    ///
+    /// # Errors
+    ///
+    /// `field` is not one of the three arrays, or the settings file cannot
+    /// be read, parsed or written.
+    pub fn set_scope_resource_array(
         &mut self,
         scope: SettingsScope,
         field: &str,
-        value: &serde_json::Value,
-    ) {
-        let load_error = match scope {
-            SettingsScope::Global => self.global_load_error.clone(),
-            SettingsScope::Project => self.project_load_error.clone(),
+        values: Vec<String>,
+    ) -> Result<Persisted> {
+        let decl = match field {
+            "skills" => &table::SKILLS,
+            "prompts" => &table::PROMPTS,
+            "themes" => &table::THEMES,
+            other => return Err(anyhow!("`{other}` is not a resource array")),
         };
-        if let Some(message) = load_error {
-            let label = match scope {
-                SettingsScope::Global => "Global",
-                SettingsScope::Project => "Project",
-            };
-            self.errors.push(SettingsError {
-                scope,
-                message: format!(
-                    "{label} settings not saved: settings file failed to parse: {message}"
-                ),
-            });
-            return;
-        }
-        let result = self.storage.with_lock(scope, &mut |current| {
-            let mut map: serde_json::Map<String, serde_json::Value> = current
-                .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-                .and_then(|value| match value {
-                    serde_json::Value::Object(mut map) => {
-                        super::merge::migrate(&mut map);
-                        Some(map)
-                    }
-                    _ => None,
-                })
-                .unwrap_or_default();
-            map.insert(field.to_string(), value.clone());
-            serde_json::to_string_pretty(&serde_json::Value::Object(map)).ok()
-        });
-        if let Err(error) = result {
-            self.errors.push(SettingsError {
-                scope,
-                message: error.to_string(),
-            });
-        }
+        self.set_scope_cvar(scope, decl, &Value::from(values))
+    }
+
+    /// Set global `mcpServers.<name>` to `entry`: only that key changes.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written, or its
+    /// `mcpServers` is not an object.
+    pub fn set_global_mcp_server(&mut self, name: &str, entry: &Value) -> Result<()> {
+        self.write_scope(SettingsScope::Global, &mut |document| {
+            edit_path(document, &["mcpServers", name], KeyEdit::Set(entry.clone())).map(|_| true)
+        })
+    }
+
+    /// Remove global `mcpServers.<name>`; `true` when it was there.
+    ///
+    /// # Errors
+    ///
+    /// The global settings file cannot be read, parsed or written.
+    pub fn remove_global_mcp_server(&mut self, name: &str) -> Result<bool> {
+        let mut removed = false;
+        self.write_scope(SettingsScope::Global, &mut |document| {
+            removed = edit_path(document, &["mcpServers", name], KeyEdit::Remove)?.is_some();
+            Ok(removed)
+        })?;
+        Ok(removed)
     }
 
     /// TS `setDefaultServiceTier`: the persisted default a fresh session
@@ -640,8 +774,11 @@ impl SettingsManager {
     ///
     /// # Errors
     ///
-    /// Returns an error when the global settings file cannot be written.
-    pub fn set_default_service_tier(&mut self, tier: eukhe_types::ai::ServiceTier) -> Result<()> {
+    /// The global settings file cannot be read, parsed or written.
+    pub fn set_default_service_tier(
+        &mut self,
+        tier: eukhe_types::ai::ServiceTier,
+    ) -> Result<Persisted> {
         use eukhe_types::ai::ServiceTier;
         let name = match tier {
             ServiceTier::Auto => "auto",
@@ -650,34 +787,7 @@ impl SettingsManager {
             ServiceTier::Scale => "scale",
             ServiceTier::Priority => "priority",
         };
-        self.global.default_service_tier = Some(name.to_string());
-        self.save_global()
-    }
-
-    // -- persistence ---------------------------------------------------------
-
-    /// Write the global scope back (project scope is host-written, not
-    /// user-set in this port), then re-derive the effective settings. A
-    /// global document that failed to parse is never written: the setter
-    /// fails and the file stays as the user left it.
-    fn save_global(&mut self) -> Result<()> {
-        if let Some(message) = self.global_load_error.clone() {
-            let message =
-                format!("Global settings not saved: settings file failed to parse: {message}");
-            self.errors.push(SettingsError {
-                scope: SettingsScope::Global,
-                message: message.clone(),
-            });
-            return Err(anyhow::anyhow!(message));
-        }
-        let content = serde_json::to_string_pretty(&self.global)?;
-        self.storage
-            .with_lock(SettingsScope::Global, &mut |current| {
-                let _ = current;
-                Some(content.clone())
-            })?;
-        self.rebuild_cvars();
-        Ok(())
+        self.set_global_cvar(&table::DEFAULT_SERVICE_TIER, &Value::from(name))
     }
 }
 
@@ -697,64 +807,54 @@ pub struct SessionArchivePolicy {
     pub max_sessions: Option<usize>,
 }
 
-fn strings(array: &[serde_json::Value]) -> Vec<String> {
-    array
-        .iter()
-        .filter_map(|value| value.as_str().map(str::to_string))
-        .collect()
-}
-
-/// One loaded scope: the leniently-parsed settings, the migrated raw
-/// document (the value before the lenient field load — the only witness
-/// for a PRESENT-but-malformed known field, which the lenient load drops),
-/// and the load error (`Some` when the scope's document exists but could
-/// not be read or parsed).
-#[allow(clippy::type_complexity)]
+/// Load one scope: its document, migrated, through the leaf load. A
+/// document that cannot be read or parsed is a load error (the scope
+/// applies nothing); each leaf that does not apply is a settings error.
 fn load_scope(
     storage: &dyn SettingsStorage,
     scope: SettingsScope,
     errors: &mut Vec<SettingsError>,
-) -> (Settings, Option<serde_json::Value>, Option<String>) {
-    let mut load_error: Option<String> = None;
+) -> ScopeLoad {
     // The pure-read arm: a locked protocol read on any cache miss, the
     // process-cached copy on a hit (see `SettingsStorage::read`).
-    let content = match storage.read(scope) {
-        Ok(content) => content,
-        Err(error) => {
-            let message = error.to_string();
+    let read = match storage.read(scope) {
+        Ok(content) => read_document(content.as_deref()),
+        Err(error) => DocRead::Broken(format!("{error:#}")),
+    };
+    let mut document = match read {
+        DocRead::Missing => {
+            return ScopeLoad {
+                settings: Settings::default(),
+                raw: None,
+                error: None,
+            }
+        }
+        DocRead::Parsed(document) => document,
+        DocRead::Broken(message) => {
             errors.push(SettingsError {
                 scope,
                 message: message.clone(),
             });
-            return (Settings::default(), None, Some(message));
+            return ScopeLoad {
+                settings: Settings::default(),
+                raw: None,
+                error: Some(message),
+            };
         }
     };
-    let Some(content) = content else {
-        return (Settings::default(), None, None);
-    };
-    let value: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(value) => value,
-        Err(error) => {
-            load_error = Some(error.to_string());
-            serde_json::Value::Null
-        }
-    };
-    if let Some(message) = load_error {
-        errors.push(SettingsError {
-            scope,
-            message: message.clone(),
-        });
-        return (Settings::default(), None, Some(message));
+    migrate(&mut document);
+    let loaded = load_document(&document);
+    errors.extend(
+        loaded
+            .rejected
+            .iter()
+            .map(|error| cfg_error(scope, SETTINGS_JSON, error)),
+    );
+    ScopeLoad {
+        settings: loaded.settings,
+        raw: Some(Value::Object(document)),
+        error: None,
     }
-    // Migrate the raw document, then load leniently.
-    let migrated = match value {
-        serde_json::Value::Object(mut map) => {
-            migrate(&mut map);
-            serde_json::Value::Object(map)
-        }
-        other => other,
-    };
-    (from_value_lenient(&migrated), Some(migrated), None)
 }
 
 #[cfg(test)]
@@ -767,7 +867,9 @@ mod tests {
         let mut manager = SettingsManager::in_memory(&Settings::default());
         manager
             .set_default_model_and_provider("prime-inference", "z-ai/glm-5.3")
-            .unwrap();
+            .unwrap()
+            .applied()
+            .expect("the value applies");
         assert_eq!(
             manager.get_default_provider().as_deref(),
             Some("prime-inference")
@@ -810,7 +912,9 @@ mod tests {
 
         manager
             .set_factory_enabled(true)
-            .expect("set factory enabled");
+            .expect("set factory enabled")
+            .applied()
+            .expect("the value applies");
         assert!(manager.get_factory_enabled());
         let content =
             std::fs::read_to_string(agent_dir.join("settings.json")).expect("global file");
@@ -821,7 +925,9 @@ mod tests {
 
         manager
             .set_factory_enabled(false)
-            .expect("set factory disabled");
+            .expect("set factory disabled")
+            .applied()
+            .expect("the value applies");
         assert!(!manager.get_factory_enabled());
     }
 
@@ -842,12 +948,60 @@ mod tests {
 
         let mut manager = SettingsManager::create(&cwd, &agent_dir);
         assert!(manager.get_fullscreen());
-        manager.set_theme("dark".to_string()).expect("set theme");
+        manager
+            .set_theme("dark".to_string())
+            .expect("set theme")
+            .applied()
+            .expect("the value applies");
         assert_eq!(read()["terminal"]["fullscreen"], serde_json::json!(true));
 
-        manager.set_fullscreen(false).expect("set fullscreen");
+        manager
+            .set_fullscreen(false)
+            .expect("set fullscreen")
+            .applied()
+            .expect("the value applies");
         assert!(!SettingsManager::create(&cwd, &agent_dir).get_fullscreen());
         assert_eq!(read()["terminal"]["fullscreen"], serde_json::json!(false));
+    }
+
+    /// Regression (audit H2): a setter wrote the typed copy loaded at
+    /// startup, so a field that failed to load (`compaction`, one bad
+    /// leaf) and a key another writer added since were deleted from
+    /// disk. A setter now changes only its key of the document on disk.
+    #[test]
+    fn a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().join("cwd");
+        let agent_dir = dir.path().join("agent");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        let path = agent_dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"compaction":{"enabled":false,"reserveTokens":"16k"},"theme":"x"}"#,
+        )
+        .unwrap();
+        let mut manager = SettingsManager::create(&cwd, &agent_dir);
+        // Another writer adds a key after the load.
+        std::fs::write(
+            &path,
+            r#"{"compaction":{"enabled":false,"reserveTokens":"16k"},"theme":"x","defaultModel":"m"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            manager.set_theme("y".to_string()).unwrap(),
+            Persisted::Applies
+        );
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "compaction": { "enabled": false, "reserveTokens": "16k" },
+                "theme": "y",
+                "defaultModel": "m"
+            })
+        );
     }
 
     #[test]
@@ -925,7 +1079,11 @@ mod tests {
     fn chat_detail_persists_the_chosen_level_with_the_startup_fallback() {
         let mut manager = SettingsManager::in_memory(&Settings::default());
         assert_eq!(manager.get_chat_detail(), "overview");
-        manager.set_chat_detail("all").unwrap();
+        manager
+            .set_chat_detail("all")
+            .unwrap()
+            .applied()
+            .expect("the value applies");
         assert_eq!(manager.get_chat_detail(), "all");
         manager.reload().unwrap();
         assert_eq!(
@@ -933,18 +1091,27 @@ mod tests {
             "all",
             "the saved level survives a reload (a later chat re-reads it)"
         );
-        manager.set_chat_detail("details").unwrap();
+        manager
+            .set_chat_detail("details")
+            .unwrap()
+            .applied()
+            .expect("the value applies");
         assert_eq!(
             manager.get_chat_detail(),
             "details",
             "a saved details level reads back exactly (the Ctrl+O thinking reveal persists)"
         );
-        manager.set_chat_detail("verbose").unwrap();
         assert_eq!(
-            manager.get_chat_detail(),
-            "overview",
-            "an invalid value falls back to the startup default"
+            manager
+                .set_chat_detail("verbose")
+                .map_err(|error| error.to_string()),
+            Err(
+                "`verbose` is not a value of `chatDetail` (one of overview, details, all)"
+                    .to_string()
+            ),
+            "an invalid value is refused and never written"
         );
+        assert_eq!(manager.get_chat_detail(), "details");
     }
 
     /// The steering default is "all" (every queued steer co-delivers as
@@ -957,7 +1124,9 @@ mod tests {
         assert_eq!(manager.get_follow_up_mode(), QueueModeSetting::OneAtATime);
         manager
             .set_steering_mode(QueueModeSetting::OneAtATime)
-            .unwrap();
+            .unwrap()
+            .applied()
+            .expect("the value applies");
         assert_eq!(
             manager.get_steering_mode(),
             QueueModeSetting::OneAtATime,
@@ -1021,7 +1190,11 @@ mod tests {
         // re-seeds its flag from it).
         let mut manager = SettingsManager::in_memory(&Settings::default());
         assert!(manager.get_compaction_enabled());
-        manager.set_compaction_enabled(false).unwrap();
+        manager
+            .set_compaction_enabled(false)
+            .unwrap()
+            .applied()
+            .expect("the value applies");
         assert!(!manager.get_compaction_enabled());
         manager.reload().unwrap();
         assert!(!manager.get_compaction_enabled());

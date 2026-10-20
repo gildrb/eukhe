@@ -463,14 +463,68 @@ impl KeybindingsManager {
     }
 
     /// The binds of `<agentDir>/binds.cfg` (imported once from a legacy
-    /// `keybindings.json`), remembered for [`reload`](Self::reload); a
+    /// `keybindings.json`), remembered for [`reload`](Self::reload). A
     /// problem reading or importing the file is in
-    /// [`warnings`](Self::warnings).
+    /// [`warnings`](Self::warnings). Each line that does not parse is in
+    /// the warnings too. A `bind` whose key does not parse is in the
+    /// warnings. An `action` of a bind or alias body that is not a known
+    /// action is in the warnings. A `set`, `toggle`, `action` or alias
+    /// run at the top level of the file is in the warnings as ignored.
     #[must_use]
     pub fn create(agent_dir: &Path) -> Self {
-        let (text, warning) = read_binds_file(agent_dir);
-        let mut manager = Self::with_binds(&parse_script(&text).0, Some(agent_dir.to_path_buf()));
-        manager.warnings.extend(warning);
+        let (text, read_warning) = read_binds_file(agent_dir);
+        let mut script = Vec::new();
+        let mut warnings = Vec::new();
+        for (at, line) in text.lines().enumerate() {
+            let number = at + 1;
+            let (commands, errors) = parse_script(line);
+            for mut error in errors {
+                error.line = number;
+                warnings.push(format!("{BINDS_FILE} {error}: the line is ignored"));
+            }
+            for command in commands {
+                let body = match &command {
+                    Command::Bind { key, body } => {
+                        if canonical_key(key).is_none() {
+                            warnings.push(format!(
+                                "{BINDS_FILE} line {number}: key `{key}` does not parse: the bind is ignored"
+                            ));
+                        }
+                        Some(body)
+                    }
+                    Command::Alias { body, .. } => Some(body),
+                    Command::Set { .. }
+                    | Command::Toggle { .. }
+                    | Command::Action { .. }
+                    | Command::Run { .. } => {
+                        warnings.push(format!(
+                            "{BINDS_FILE} line {number}: `{command}` is ignored (only `bind` and `alias` apply)"
+                        ));
+                        None
+                    }
+                };
+                let mut pending: Vec<&Command> = body.into_iter().flatten().collect();
+                while let Some(inner) = pending.pop() {
+                    match inner {
+                        Command::Action { id } => {
+                            if !definitions().any(|(known, _)| *known == id.as_str()) {
+                                warnings.push(format!(
+                                    "{BINDS_FILE} line {number}: action `{id}` is unknown"
+                                ));
+                            }
+                        }
+                        Command::Bind { body, .. } | Command::Alias { body, .. } => {
+                            pending.extend(body);
+                        }
+                        Command::Set { .. } | Command::Toggle { .. } | Command::Run { .. } => {}
+                    }
+                }
+                script.push(command);
+            }
+        }
+        let mut manager = Self::with_binds(&script, Some(agent_dir.to_path_buf()));
+        manager.warnings.extend(read_warning);
+        manager.warnings.extend(warnings);
         manager
     }
 

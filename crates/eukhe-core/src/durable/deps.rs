@@ -89,11 +89,13 @@ pub enum SessionStorage {
 /// Inputs of the system prompt that are not derived from the conversation.
 #[derive(Clone, Debug, Default)]
 pub struct PromptConfig {
-    /// `--system-prompt`: replaces the layered static prefix (overrides the
-    /// discovered `SYSTEM.md`).
-    pub custom_system_prompt: Option<String>,
-    /// `--append-system-prompt`: appended after every other section.
-    pub append_system_prompt: Option<String>,
+    /// `--system-prompt` or `--system-prompt-file`: replaces the layered
+    /// static prefix (overrides the discovered `SYSTEM.md`).
+    pub custom_system_prompt: Option<crate::resources::SystemPromptInput>,
+    /// `--append-system-prompt` and `--append-system-prompt-file`, in
+    /// order: appended after every other section (override the discovered
+    /// `APPEND_SYSTEM.md`).
+    pub append_system_prompt: Vec<crate::resources::SystemPromptInput>,
     /// Additional guideline bullets.
     pub guidelines: Vec<String>,
     /// Enabled generic MCP servers (merged with the settings' persistent ones).

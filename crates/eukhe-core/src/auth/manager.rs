@@ -252,6 +252,23 @@ pub type FallbackResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Deferred value-fingerprint resolver (command keys).
 type ValueFingerprintResolver = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
+/// An auth document write that did not happen. Nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthWriteError {
+    /// The auth document: its file path, or a label for a backend without a file.
+    pub location: String,
+    /// Why the write did not happen.
+    pub cause: String,
+}
+
+impl std::fmt::Display for AuthWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Failed to write {}: {}", self.location, self.cause)
+    }
+}
+
+impl std::error::Error for AuthWriteError {}
+
 pub struct AuthStorage {
     storage: Arc<dyn AuthStorageBackend>,
     oauth: Arc<dyn OAuthIntegration>,
@@ -390,8 +407,9 @@ impl AuthStorage {
                 self.load_error = None;
             }
             Err(error) => {
-                self.load_error = Some(error.to_string());
-                self.errors.push(error.to_string());
+                let message = format!("{error:#}");
+                self.load_error = Some(message.clone());
+                self.errors.push(message);
             }
         }
     }
@@ -752,39 +770,68 @@ impl AuthStorage {
     }
 
     /// Store a credential for a provider.
-    pub fn set(&mut self, provider: &str, credential: AuthCredential) {
-        self.persist_provider_change(provider, Some(credential));
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the auth document failed to load, cannot be
+    /// read or parsed now, or cannot be written. Then nothing is written.
+    pub fn set(
+        &mut self,
+        provider: &str,
+        credential: AuthCredential,
+    ) -> Result<(), AuthWriteError> {
+        self.persist_provider_change(provider, Some(credential))
     }
 
     /// Remove a provider's stored credential.
-    pub fn remove(&mut self, provider: &str) {
-        self.persist_provider_change(provider, None);
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::set`].
+    pub fn remove(&mut self, provider: &str) -> Result<(), AuthWriteError> {
+        self.persist_provider_change(provider, None)
     }
 
-    pub fn logout(&mut self, provider: &str) {
-        self.remove(provider);
+    /// Remove a provider's stored credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::set`].
+    pub fn logout(&mut self, provider: &str) -> Result<(), AuthWriteError> {
+        self.remove(provider)
     }
 
-    fn persist_provider_change(&mut self, provider: &str, credential: Option<AuthCredential>) {
-        if self.load_error.is_some() {
-            return;
+    /// Write one provider's change into the document as it is on disk now.
+    /// The other credentials keep their values.
+    fn persist_provider_change(
+        &mut self,
+        provider: &str,
+        credential: Option<AuthCredential>,
+    ) -> Result<(), AuthWriteError> {
+        if let Some(load_error) = &self.load_error {
+            return Err(AuthWriteError {
+                location: self.storage.location(),
+                cause: format!("the document failed to load: {load_error}"),
+            });
         }
         let mut next_credential = credential;
-        let result = self.storage.with_lock(&mut |current| {
-            let mut data = parse_storage_data(current.as_deref())?;
-            match next_credential.take() {
-                Some(credential) => data.insert(provider, &credential),
-                None => data.remove(provider),
-            }
-            let content = serde_json::to_string_pretty(&data.0)?;
-            Ok(((), Some(content)))
-        });
-        if let Err(error) = result {
-            self.errors.push(error.to_string());
-            return;
-        }
+        self.storage
+            .with_lock(&mut |current| {
+                let mut data = parse_storage_data(current.as_deref())?;
+                match next_credential.take() {
+                    Some(credential) => data.insert(provider, &credential),
+                    None => data.remove(provider),
+                }
+                let content = serde_json::to_string_pretty(&data.0)?;
+                Ok(((), Some(content)))
+            })
+            .map_err(|error| AuthWriteError {
+                location: self.storage.location(),
+                cause: format!("{error:#}"),
+            })?;
         // Reload from what we wrote.
         self.reload();
+        Ok(())
     }
 
     /// API-key resolution: runtime > (prime-inference: env) > stored (`api_key`

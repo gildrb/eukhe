@@ -573,8 +573,16 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
                 "Replace the default system prompt",
             ),
             (
+                "--system-prompt-file <path>",
+                "Replace the default system prompt with this file",
+            ),
+            (
                 "--append-system-prompt <text>",
                 "Append to the system prompt (repeatable)",
+            ),
+            (
+                "--append-system-prompt-file <path>",
+                "Append this file to the system prompt (repeatable)",
             ),
             ("--", "Treat all following arguments as messages"),
         ],

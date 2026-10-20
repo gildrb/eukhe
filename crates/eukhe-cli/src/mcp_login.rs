@@ -14,9 +14,7 @@ use std::pin::Pin;
 use anyhow::{anyhow, Context, Result};
 
 use eukhe_core::auth::AuthStorage;
-use eukhe_core::mcp::{
-    McpLoginUi, McpManager, McpManagerOptions, McpServerConfig, OAuthHttp, ReqwestOAuthHttp,
-};
+use eukhe_core::mcp::{McpLoginUi, McpManager, McpManagerOptions, OAuthHttp, ReqwestOAuthHttp};
 use eukhe_tui::auth_panel::{PastePromptTone, PasteStyle};
 use eukhe_tui::client_auth::{AuthFuture, ClientAuthCommands};
 
@@ -41,17 +39,14 @@ pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path
         get_user_servers: Box::new(move || {
             let settings =
                 eukhe_core::settings::SettingsManager::create(&user_cwd, &user_agent_dir);
-            Some(
-                settings
-                    .get_mcp_servers()
-                    .into_iter()
-                    .filter_map(|(server, config)| {
-                        serde_json::from_value::<McpServerConfig>(config)
-                            .ok()
-                            .map(|parsed| (server, parsed))
-                    })
-                    .collect(),
-            )
+            let (servers, diagnostics) =
+                eukhe_core::mcp::parse_user_servers(&settings.get_mcp_servers());
+            // The session's settings error row shows these to the user; this
+            // manager has no row of its own, so it logs them.
+            for diagnostic in diagnostics {
+                tracing::warn!(%diagnostic, "MCP server entry not used");
+            }
+            Some(servers)
         }),
         begin_login: None,
         agent_dir: Some(agent_dir.to_path_buf()),
@@ -167,15 +162,16 @@ impl TerminalMcpAuth {
     fn logout_inner(&self, server: &str) -> Result<String> {
         let provider = format!("mcp:{server}");
         let mut auth = AuthStorage::create(&self.agent_dir);
+        if let Some(error) = auth.load_error() {
+            return Err(anyhow!("{error}")).context("could not load the stored credentials");
+        }
         // TS: `isAuthed` reads the store; a missing credential is a no-op
         // notice, not an error.
         if auth.get_all().get(&provider).is_none() {
             return Ok(format!("{server} is not connected."));
         }
-        auth.logout(&provider);
-        if let Some(error) = auth.drain_errors().pop() {
-            return Err(anyhow!(error)).context("could not remove the stored credential");
-        }
+        auth.logout(&provider)
+            .context("could not remove the stored credential")?;
         Ok(format!(
             "Disconnected {server}. Its skill deactivates in new sessions (/new)."
         ))
@@ -447,7 +443,7 @@ mod tests {
                 issuer: None,
                 enterprise_url: None,
             },
-        );
+        )?;
 
         let hook = TerminalMcpAuth::new(dir.path().to_path_buf(), agent_dir.clone());
         let status = hook.logout_inner("linear")?;

@@ -41,6 +41,9 @@ pub const DEFAULT_PROVIDER_MAX_QUEUED: u32 = 64;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdmissionLimits {
     max_in_flight: BTreeMap<String, NonZeroU32>,
+    /// The limit of every provider `max_in_flight` does not name; `None`
+    /// is unlimited.
+    other_providers: Option<NonZeroU32>,
     max_queued: u32,
 }
 
@@ -48,10 +51,15 @@ impl Default for AdmissionLimits {
     fn default() -> Self {
         Self {
             max_in_flight: BTreeMap::new(),
+            other_providers: None,
             max_queued: DEFAULT_PROVIDER_MAX_QUEUED,
         }
     }
 }
+
+/// The in-flight limit a malformed `providerMaxInFlight` entry gives its
+/// provider: the tightest one, never "no limit".
+pub const MALFORMED_IN_FLIGHT_LIMIT: NonZeroU32 = NonZeroU32::MIN;
 
 impl AdmissionLimits {
     /// Limits from the settings values: a provider mapped to `0` is
@@ -64,14 +72,50 @@ impl AdmissionLimits {
                 .flatten()
                 .filter_map(|(provider, limit)| Some((provider.clone(), NonZeroU32::new(*limit)?)))
                 .collect(),
+            other_providers: None,
             max_queued: max_queued.unwrap_or(DEFAULT_PROVIDER_MAX_QUEUED),
         }
+    }
+
+    /// Limits from the `providerMaxInFlight` value as written, read entry
+    /// by entry so that a malformed limit fails closed
+    /// (`laws/config.bend` `limit_malformed_fails_closed`): a whole number
+    /// is the provider's limit (`0` unlimited); any other entry caps its
+    /// provider at [`MALFORMED_IN_FLIGHT_LIMIT`]; a value that is neither
+    /// a map nor `null` (unset) caps every provider at it. The settings
+    /// load names each malformed value.
+    #[must_use]
+    pub fn from_setting(max_in_flight: &serde_json::Value, max_queued: Option<u32>) -> Self {
+        use serde_json::Value;
+        let mut limits = Self::new(None, max_queued);
+        match max_in_flight {
+            Value::Null => {}
+            Value::Object(entries) => {
+                for (provider, entry) in entries {
+                    let limit = match entry.as_u64().map(u32::try_from) {
+                        Some(Ok(limit)) => NonZeroU32::new(limit),
+                        Some(Err(_)) => NonZeroU32::new(u32::MAX),
+                        None => Some(MALFORMED_IN_FLIGHT_LIMIT),
+                    };
+                    if let Some(limit) = limit {
+                        limits.max_in_flight.insert(provider.clone(), limit);
+                    }
+                }
+            }
+            Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => {
+                limits.other_providers = Some(MALFORMED_IN_FLIGHT_LIMIT);
+            }
+        }
+        limits
     }
 
     /// The in-flight limit of `provider_id`; `None` is unlimited.
     #[must_use]
     pub fn max_in_flight(&self, provider_id: &str) -> Option<NonZeroU32> {
-        self.max_in_flight.get(provider_id).copied()
+        self.max_in_flight
+            .get(provider_id)
+            .copied()
+            .or(self.other_providers)
     }
 
     /// How many interactive requests may wait per provider.

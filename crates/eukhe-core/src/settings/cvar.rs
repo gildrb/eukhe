@@ -37,12 +37,19 @@ mod bridge;
 #[cfg(test)]
 mod tests;
 
+/// The words a [`CvarType::NatOrOff`] value turns its rule off with.
+pub(crate) const OFF_WORDS: &[&str] = &["off", "none"];
+
 /// The type of a cvar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CvarType {
     Bool,
     /// A whole number `>= 0`.
     Nat,
+    /// A whole number `>= 0`, or `off` (also written `none`): a rule that
+    /// may be turned off (`idleEvictionMinutes`, the session archive
+    /// rules).
+    NatOrOff,
     /// Any string (the empty string reads as unset where the setting is
     /// optional).
     Text,
@@ -63,6 +70,9 @@ impl CvarType {
         match self {
             CvarType::Bool => value.is_boolean(),
             CvarType::Nat => value.is_u64(),
+            CvarType::NatOrOff => {
+                value.is_u64() || value.as_str().is_some_and(|text| OFF_WORDS.contains(&text))
+            }
             CvarType::Text => value.is_string(),
             CvarType::Choice(options) => value.as_str().is_some_and(|text| options.contains(&text)),
             CvarType::List => value
@@ -91,6 +101,12 @@ impl CvarType {
                 _ => None,
             },
             CvarType::Nat => text.parse::<u64>().ok().map(Value::from),
+            CvarType::NatOrOff => match text.parse::<u64>() {
+                Ok(number) => Some(Value::from(number)),
+                Err(_) => OFF_WORDS
+                    .contains(&text)
+                    .then(|| Value::String(text.to_string())),
+            },
             CvarType::Text => Some(Value::String(text.to_string())),
             CvarType::Choice(options) => options
                 .contains(&text)
@@ -119,6 +135,7 @@ impl CvarType {
         match self {
             CvarType::Bool => "a bool".to_string(),
             CvarType::Nat => "a whole number".to_string(),
+            CvarType::NatOrOff => "a whole number, off or none".to_string(),
             CvarType::Text => "a text".to_string(),
             CvarType::Choice(options) => format!("one of {}", options.join(", ")),
             CvarType::List => "a list".to_string(),

@@ -24,6 +24,7 @@ use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
 
 use super::admission_gate::{wrap_models_with_admission, AdmissionGate};
+use super::compaction::auxiliary_model::show_notice_row;
 use super::cvar_agent::{load_agent_state, read_agent_state};
 use super::deps::{
     HostDeps, OpenedSession, ResolvedServices, ServiceStop, SessionConfig, SessionStorage,
@@ -32,7 +33,9 @@ use super::env::env_factory;
 use super::import::{import_legacy_session, ImportError};
 use super::main_conversation::{main_conversation, set_main_conversation};
 use super::models::provider::ProviderRuntime;
-use super::models::{create_models, resolve_session_model, ModelsError};
+use super::models::{
+    create_models, resolve_open_model, ModelsError, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
+};
 use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
 use super::registry::create_eukhe_registry;
@@ -41,7 +44,7 @@ use super::state_tree::LiveStateTree;
 use crate::admission::local_admission;
 use crate::kernel::python_skills::kernel_python_skills;
 use crate::resources::{load_resources, LoadedResources, ResourceLoaderOptions};
-use crate::settings::SettingsManager;
+use crate::settings::{SettingsError, SettingsManager, SettingsScope};
 
 /// Why a session could not open.
 #[derive(Debug, thiserror::Error)]
@@ -205,9 +208,16 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     // session wraps a session-local collection over its provider rows: the
     // rows' request state (the script queue) stays shared, while this
     // session's wrappers never reach another session's requests.
-    let models = match &config.models {
-        Some(models) => session_local_models(models),
-        None => create_models(&config.agent_dir)?,
+    let models = if let Some(models) = &config.models {
+        session_local_models(models)
+    } else {
+        let loaded = create_models(&config.agent_dir);
+        // Each bad models.json entry shows on the settings-error row.
+        settings.report(loaded.diagnostics.into_iter().map(|message| SettingsError {
+            scope: SettingsScope::Global,
+            message,
+        }));
+        loaded.models
     };
     // The session's semantic-edge recorder (the ACP request-id ledger) at
     // the TS locations (`semanticEdgeLedgerPath`): a spawned child's in its
@@ -233,7 +243,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
                 .and_then(|parent| parent.spawned_by_request_id.clone()),
         },
     ));
-    let loaded = load_session_resources(&config, &manager).await?;
+    let loaded = load_session_resources(&config, &settings, &manager).await?;
     let deps = Arc::new(HostDeps::new(
         &config,
         ResolvedServices {
@@ -305,13 +315,14 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     let _ = deps.state_tree.set(Arc::downgrade(&state_tree));
 
     let opened = async {
-        let root = open_root(&harness, &config, &models, &manager, cx).await?;
+        let (root, root_notice) = open_root(&harness, &config, &models, &manager, cx).await?;
         let main = main_conversation(&harness, cx).await?;
         settings.set_agent_state(read_agent_state(&harness, &main, cx).await?);
-        settle_main_agent(&harness, &main, &config, &models, &manager, cx).await?;
-        Ok::<_, OpenError>((root, main))
+        let main_notice =
+            settle_main_agent(&harness, &main, &config, &models, &manager, cx).await?;
+        Ok::<_, OpenError>((root, main, root_notice, main_notice))
     };
-    let (root, main) = match opened.await {
+    let (root, main, root_notice, main_notice) = match opened.await {
         Ok(opened) => opened,
         Err(error) => {
             close_after_failure(&harness, cx).await;
@@ -357,6 +368,23 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             tracing::warn!(error = %close_error, "closing a session that failed to resume");
         }
         return Err(error.into());
+    }
+    // The saved default model that did not run shows as one row of the
+    // main conversation (the root and the main conversation resolve the
+    // same default: one row).
+    let mut notices = root_notice
+        .into_iter()
+        .chain(main_notice)
+        .collect::<Vec<_>>();
+    notices.dedup();
+    for notice in notices {
+        show_notice_row(
+            &session.main(),
+            DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
+            notice,
+            cx,
+        )
+        .await;
     }
     Ok(session)
 }
@@ -466,17 +494,35 @@ struct SessionResources {
 /// engine's `create_session` loads them.
 async fn load_session_resources(
     config: &SessionConfig,
+    settings: &EukheSettings,
     manager: &SettingsManager,
 ) -> Result<SessionResources, OpenError> {
-    let user_servers = manager
-        .get_mcp_servers()
-        .into_iter()
-        .filter_map(|(server, value)| {
-            serde_json::from_value(value)
-                .ok()
-                .map(|parsed| (server, parsed))
-        })
-        .collect::<std::collections::HashMap<String, crate::mcp::McpServerConfig>>();
+    // Each `mcpServers` entry that does not parse goes on the session's
+    // settings error row, with the scope of the document that declares it:
+    // Project when only the project declares it, else Global (the global
+    // document alone, or both merged).
+    let (user_servers, mcp_diagnostics) =
+        crate::mcp::parse_user_servers(&manager.get_mcp_servers());
+    let declares = |document: &crate::settings::Settings, name: &str| {
+        document
+            .mcp_servers
+            .as_ref()
+            .is_some_and(|servers| servers.contains_key(name))
+    };
+    settings.report(
+        mcp_diagnostics
+            .into_iter()
+            .map(|diagnostic| crate::settings::SettingsError {
+                scope: if declares(manager.project_settings(), &diagnostic.name)
+                    && !declares(manager.global_settings(), &diagnostic.name)
+                {
+                    crate::settings::SettingsScope::Project
+                } else {
+                    crate::settings::SettingsScope::Global
+                },
+                message: diagnostic.to_string(),
+            }),
+    );
     let trust = manager.project_trust().clone();
     let cwd = config.cwd.clone();
     let agent_dir = config.agent_dir.clone();
@@ -502,6 +548,7 @@ async fn load_session_resources(
             additional_skill_paths: prompt.additional_skill_paths.clone(),
             additional_prompt_paths: prompt.additional_prompt_paths.clone(),
             system_prompt: prompt.custom_system_prompt.clone(),
+            append_system_prompt: prompt.append_system_prompt.clone(),
             ..ResourceLoaderOptions::default()
         })
         .map_err(OpenError::Resources)?;
@@ -543,42 +590,45 @@ async fn load_session_resources(
 /// imported without a `model_change`) takes the startup model, like the TS
 /// `createAgentSession` falls back to `findInitialModel` when the session
 /// restores none; its thinking level (the imported one, else the default)
-/// is kept, clamped to that model.
+/// is kept, clamped to that model. Also the notice text of a saved default
+/// model that did not run ([`super::models::OpenModel::notice`]).
 async fn open_root(
     harness: &Harness,
     config: &SessionConfig,
     models: &eukhe_ai::models::Models,
     manager: &SettingsManager,
     cx: &Context,
-) -> Result<Conversation, OpenError> {
+) -> Result<(Conversation, Option<String>), OpenError> {
     if let Some(root) = harness.conversation(ROOT_CONVERSATION_ID, cx).await? {
         let agent = root.agent(cx).await?;
-        if agent.model.is_none() {
-            let thinking = config.thinking.unwrap_or(agent.thinking_level);
-            let resolved =
-                resolve_session_model(models, manager, config.model.as_ref(), Some(thinking), cx)
-                    .await?;
-            if let Some(resolved) = resolved {
-                root.configure(
-                    AgentChange {
-                        model: FieldChange::Set(resolved.model),
-                        thinking_level: FieldChange::Set(resolved.thinking),
-                        ..AgentChange::default()
-                    },
-                    cx,
-                )
-                .await?;
-            }
+        if agent.model.is_some() {
+            return Ok((root, None));
         }
-        return Ok(root);
+        let thinking = config.thinking.unwrap_or(agent.thinking_level);
+        let opened =
+            resolve_open_model(models, manager, config.model.as_ref(), Some(thinking), cx).await?;
+        let notice = opened.notice();
+        if let Some(resolved) = opened.resolved {
+            root.configure(
+                AgentChange {
+                    model: FieldChange::Set(resolved.model),
+                    thinking_level: FieldChange::Set(resolved.thinking),
+                    ..AgentChange::default()
+                },
+                cx,
+            )
+            .await?;
+        }
+        return Ok((root, notice));
     }
-    let resolved =
-        resolve_session_model(models, manager, config.model.as_ref(), config.thinking, cx).await?;
+    let opened =
+        resolve_open_model(models, manager, config.model.as_ref(), config.thinking, cx).await?;
+    let notice = opened.notice();
     let mut agent = AgentChange {
         cwd: FieldChange::Set(config.cwd.to_string_lossy().into_owned()),
         ..AgentChange::default()
     };
-    match resolved {
+    match opened.resolved {
         Some(resolved) => {
             agent.model = FieldChange::Set(resolved.model);
             agent.thinking_level = FieldChange::Set(resolved.thinking);
@@ -589,7 +639,7 @@ async fn open_root(
             }
         }
     }
-    Ok(harness
+    let root = harness
         .root(
             RootOptions {
                 agent: Some(agent),
@@ -597,7 +647,8 @@ async fn open_root(
             },
             cx,
         )
-        .await?)
+        .await?;
+    Ok((root, notice))
 }
 
 /// Settle the main conversation's model and thinking level at open, so the
@@ -613,6 +664,9 @@ async fn open_root(
 /// map changed since the level was stored; without a catalog model it
 /// stays as it is.
 ///
+/// Returns the notice text of a saved default model that did not run
+/// ([`super::models::OpenModel::notice`]).
+///
 /// # Errors
 ///
 /// Reading or configuring the conversation's agent fails.
@@ -623,23 +677,29 @@ async fn settle_main_agent(
     models: &eukhe_ai::models::Models,
     manager: &SettingsManager,
     cx: &Context,
-) -> Result<(), OpenError> {
+) -> Result<Option<String>, OpenError> {
     let state: Option<AgentState> = match harness.snapshot(&AGENT_DOC, main.id(), cx).await? {
         Some(value) => Some(from_json(&JsonValue::Object(value)).map_err(SessionError::other)?),
         None => None,
     };
     let stored = state.as_ref().and_then(|state| state.thinking_level);
     let mut change = AgentChange::default();
+    let mut notice = None;
     let model = match state.and_then(|state| state.model) {
         Some(model) => models.get_model(&model.provider, &model.model_id),
-        None => match resolve_session_model(models, manager, config.model.as_ref(), None, cx).await
-        {
-            Ok(Some(resolved)) => {
-                let model = models.get_model(&resolved.model.provider, &resolved.model.model_id);
-                change.model = FieldChange::Set(resolved.model);
-                model
+        None => match resolve_open_model(models, manager, config.model.as_ref(), None, cx).await {
+            Ok(opened) => {
+                notice = opened.notice();
+                match opened.resolved {
+                    Some(resolved) => {
+                        let model =
+                            models.get_model(&resolved.model.provider, &resolved.model.model_id);
+                        change.model = FieldChange::Set(resolved.model);
+                        model
+                    }
+                    None => None,
+                }
             }
-            Ok(None) => None,
             Err(ModelsError::Cancelled) => return Err(ModelsError::Cancelled.into()),
             Err(error) => {
                 tracing::warn!(%error, "the session has no model and none resolves");
@@ -657,7 +717,7 @@ async fn settle_main_agent(
     if change.model != FieldChange::Keep || change.thinking_level != FieldChange::Keep {
         main.configure(change, cx).await?;
     }
-    Ok(())
+    Ok(notice)
 }
 
 async fn close_after_failure(harness: &Harness, cx: &Context) {

@@ -10,10 +10,12 @@
 //!
 //! The built-in catalog is their union ([`effective_catalog`]): every
 //! model of either source, the bundled entry winning the fields it states.
-//! Without a usable bundled snapshot it is the compiled catalog. A user
-//! always has models, and the catalog never touches the network. The
-//! bundled asset is part of the install, so its resolution is computed
-//! once per catalog instance and served from memory afterwards.
+//! Without a bundled snapshot it is the compiled catalog. With a damaged
+//! bundled snapshot it is also the compiled catalog, and the catalog keeps
+//! the reason ([`ModelCatalog::bundled_fallback`]). A user always has
+//! models, and the catalog never touches the network. The bundled asset is
+//! part of the install, so its resolution is computed once per catalog
+//! instance and served from memory afterwards.
 //!
 //! The user's local `models.json` takes PRECEDENCE over this catalog; the
 //! registry that owns models.json merges custom models over this list.
@@ -21,7 +23,9 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use crate::bundled::{load_bundled_models, BundledAssets};
+use crate::bundled::{
+    load_bundled_models, BundledAssets, BundledCatalogFallback, BundledModelsDefect,
+};
 use crate::effective::effective_catalog;
 use crate::pinning::PinnedTemplates;
 use crate::transports;
@@ -31,9 +35,18 @@ use crate::Model;
 /// compiled catalog.
 pub struct ModelCatalog {
     bundled: BundledAssets,
-    /// The union, resolved on first use (`None`: the install has no usable
-    /// bundled asset and the compiled catalog serves alone).
-    resolved: OnceLock<Option<Vec<Model>>>,
+    /// The resolution, computed on first use.
+    resolved: OnceLock<Resolution>,
+}
+
+/// Which models the catalog serves.
+enum Resolution {
+    /// The install has no bundled snapshot. The compiled catalog serves.
+    Compiled,
+    /// The union of the bundled snapshot and the compiled catalog.
+    Union(Vec<Model>),
+    /// The bundled snapshot is damaged. The compiled catalog serves.
+    Fallback(BundledCatalogFallback),
 }
 
 impl Default for ModelCatalog {
@@ -66,17 +79,43 @@ impl ModelCatalog {
     /// The built-in models: the bundled snapshot's union with the compiled
     /// catalog. Never fails; never touches the network.
     pub fn models(&self) -> &[Model] {
-        self.resolved
-            .get_or_init(|| {
-                self.bundled
-                    .read_models()
-                    .and_then(|asset| {
-                        load_bundled_models(&asset, &PinnedTemplates::from_compiled())
-                    })
-                    .map(|bundled| effective_catalog(bundled, transports::compiled_models()))
-            })
-            .as_deref()
-            .unwrap_or_else(|| transports::compiled_models())
+        match self.resolution() {
+            Resolution::Union(models) => models,
+            Resolution::Compiled | Resolution::Fallback(_) => transports::compiled_models(),
+        }
+    }
+
+    /// Why the compiled catalog serves in place of the install's bundled
+    /// snapshot. `None` when the snapshot is in use or the install has none.
+    #[must_use]
+    pub fn bundled_fallback(&self) -> Option<&BundledCatalogFallback> {
+        match self.resolution() {
+            Resolution::Fallback(fallback) => Some(fallback),
+            Resolution::Compiled | Resolution::Union(_) => None,
+        }
+    }
+
+    fn resolution(&self) -> &Resolution {
+        self.resolved.get_or_init(|| {
+            let loaded = match self.bundled.read_models() {
+                Ok(None) => return Resolution::Compiled,
+                Ok(Some(asset)) => load_bundled_models(&asset, &PinnedTemplates::from_compiled()),
+                Err(error) => Err(BundledModelsDefect::Unreadable(error.to_string())),
+            };
+            match loaded {
+                Ok(bundled) => {
+                    Resolution::Union(effective_catalog(bundled, transports::compiled_models()))
+                }
+                Err(defect) => {
+                    let fallback = BundledCatalogFallback {
+                        path: self.bundled.models_path(),
+                        defect,
+                    };
+                    tracing::warn!("{fallback}");
+                    Resolution::Fallback(fallback)
+                }
+            }
+        })
     }
 }
 
@@ -158,10 +197,39 @@ mod tests {
     }
 
     #[test]
-    fn damaged_bundled_asset_serves_the_compiled_catalog() {
+    fn damaged_bundled_asset_serves_the_compiled_catalog_and_keeps_the_reason() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("models.bundled.json"), "{broken").unwrap();
+        let path = dir.path().join("models.bundled.json");
+        std::fs::write(&path, "{broken").unwrap();
+        let json_error = serde_json::from_str::<serde_json::Value>("{broken").unwrap_err();
         let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
         assert_eq!(catalog.models(), transports::compiled_models());
+        assert_eq!(
+            catalog.bundled_fallback(),
+            Some(&BundledCatalogFallback {
+                path,
+                defect: BundledModelsDefect::InvalidJson(json_error.to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_missing_bundled_asset_has_no_fallback_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
+        assert_eq!(catalog.models(), transports::compiled_models());
+        assert_eq!(catalog.bundled_fallback(), None);
+    }
+
+    #[test]
+    fn a_usable_bundled_asset_has_no_fallback_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("models.bundled.json"),
+            models_json(&["bundled-a"]),
+        )
+        .unwrap();
+        let catalog = ModelCatalog::with_bundled_dir(dir.path().into());
+        assert_eq!(catalog.bundled_fallback(), None);
     }
 }

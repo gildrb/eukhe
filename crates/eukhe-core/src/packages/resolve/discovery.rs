@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use globset::GlobBuilder;
 
 use super::super::source::path_relative;
+use crate::skills::diagnostics::ResourceDiagnostic;
 
 /// Ignore-file names consulted during resource discovery.
 const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
@@ -56,26 +57,42 @@ fn is_node_modules(name: &str, skip_node_modules: bool) -> bool {
 }
 
 /// One parsed ignore-file rule.
-struct IgnoreRule {
-    glob: Option<globset::GlobMatcher>,
-    anchored: bool,
-    negated: bool,
-    dir_only: bool,
+enum IgnoreRule {
+    /// A rule with a valid glob.
+    Glob {
+        matcher: globset::GlobMatcher,
+        anchored: bool,
+        negated: bool,
+        dir_only: bool,
+    },
+    /// A rule that ignores every path under one directory. `prefix` is the
+    /// root-relative directory: empty for the root, else it ends in `/`. A
+    /// rule that is not a valid glob becomes this rule. An ignore file that
+    /// cannot be read also becomes this rule. Thus a broken rule can only
+    /// ignore more paths, never fewer.
+    Everything { prefix: String },
 }
 
 /// Ordered gitignore-style rule set, added incrementally as the walk enters
 /// nested directories (patterns from nested files are prefixed with their
-/// directory, so a single root-relative matcher stays correct).
+/// directory, so a single root-relative matcher stays correct). Broken
+/// rules and ignore files that cannot be read go into `diagnostics`.
 pub(crate) struct IgnoreMatcher {
     rules: Vec<IgnoreRule>,
+    diagnostics: Vec<ResourceDiagnostic>,
 }
 
 impl IgnoreMatcher {
     pub(crate) fn new() -> Self {
-        Self { rules: Vec::new() }
+        Self {
+            rules: Vec::new(),
+            diagnostics: Vec::new(),
+        }
     }
 
-    /// Add the ignore-file rules found in `dir` (relative to `root`).
+    /// Add the ignore-file rules found in `dir` (relative to `root`). A
+    /// missing ignore file adds nothing. An ignore file that cannot be read
+    /// is reported, and every path under `dir` is then ignored.
     pub(crate) fn add_rules(&mut self, dir: &Path, root: &Path) {
         let relative_dir = path_relative(root, dir);
         let prefix = if relative_dir.is_empty() {
@@ -84,39 +101,73 @@ impl IgnoreMatcher {
             format!("{relative_dir}/")
         };
         for filename in IGNORE_FILE_NAMES {
-            let Ok(content) = std::fs::read_to_string(dir.join(filename)) else {
-                continue;
+            let ignore_path = dir.join(filename);
+            let content = match std::fs::read_to_string(&ignore_path) {
+                Ok(content) => content,
+                Err(error) if is_missing(&ignore_path, &error) => continue,
+                Err(error) => {
+                    self.diagnostics.push(ResourceDiagnostic::Warning {
+                        message: format!(
+                            "ignore file not read, so every path under its directory is ignored: {error}"
+                        ),
+                        path: Some(ignore_path.display().to_string()),
+                    });
+                    self.rules.push(IgnoreRule::Everything {
+                        prefix: prefix.clone(),
+                    });
+                    continue;
+                }
             };
             for line in content.split('\n').flat_map(|line| line.split('\r')) {
                 if let Some(pattern) = prefix_ignore_pattern(line, &prefix) {
-                    self.add_pattern(&pattern);
+                    self.add_pattern(&pattern, line, &prefix, &ignore_path);
                 }
             }
         }
     }
 
-    fn add_pattern(&mut self, line: &str) {
-        let mut pattern = line;
-        let negated = pattern.starts_with('!');
+    /// Add one prefixed `pattern` (from `line` of `ignore_path`). A pattern
+    /// that is not a valid glob is reported. If it is a negated pattern, it
+    /// is not used, because it can only include paths again. Else every
+    /// path under `prefix` is ignored.
+    fn add_pattern(&mut self, pattern: &str, line: &str, prefix: &str, ignore_path: &Path) {
+        let mut glob = pattern;
+        let negated = glob.starts_with('!');
         if negated {
-            pattern = &pattern[1..];
+            glob = &glob[1..];
         }
-        let dir_only = pattern.ends_with('/');
+        let dir_only = glob.ends_with('/');
         if dir_only {
-            pattern = pattern.strip_suffix('/').unwrap_or(pattern);
+            glob = glob.strip_suffix('/').unwrap_or(glob);
         }
-        let anchored = pattern.contains('/');
-        let glob = GlobBuilder::new(pattern)
+        let anchored = glob.contains('/');
+        let error = match GlobBuilder::new(glob)
             .literal_separator(true)
             .backslash_escape(true)
             .build()
-            .map(|glob| glob.compile_matcher())
-            .ok();
-        self.rules.push(IgnoreRule {
-            glob,
-            anchored,
-            negated,
-            dir_only,
+        {
+            Ok(built) => {
+                self.rules.push(IgnoreRule::Glob {
+                    matcher: built.compile_matcher(),
+                    anchored,
+                    negated,
+                    dir_only,
+                });
+                return;
+            }
+            Err(error) => error,
+        };
+        let effect = if negated {
+            "it is not used"
+        } else {
+            self.rules.push(IgnoreRule::Everything {
+                prefix: prefix.to_string(),
+            });
+            "every path under its directory is ignored"
+        };
+        self.diagnostics.push(ResourceDiagnostic::Warning {
+            message: format!("ignore rule \"{line}\" is not a valid glob, so {effect}: {error}"),
+            path: Some(ignore_path.display().to_string()),
         });
     }
 
@@ -126,23 +177,34 @@ impl IgnoreMatcher {
         let path = rel_path.strip_suffix('/').unwrap_or(rel_path);
         let segments: Vec<&str> = path.split('/').collect();
         for rule in self.rules.iter().rev() {
-            let Some(matcher) = rule.glob.as_ref() else {
-                continue;
-            };
-            if rule.dir_only && !is_dir {
-                continue;
-            }
-            let path_matched = if rule.anchored {
-                matcher.is_match(path)
-            } else {
-                // Unanchored patterns match at any depth.
-                segments
-                    .iter()
-                    .enumerate()
-                    .any(|(index, _)| matcher.is_match(segments[index..].join("/")))
-            };
-            if path_matched {
-                return !rule.negated;
+            match rule {
+                IgnoreRule::Glob {
+                    matcher,
+                    anchored,
+                    negated,
+                    dir_only,
+                } => {
+                    if *dir_only && !is_dir {
+                        continue;
+                    }
+                    let path_matched = if *anchored {
+                        matcher.is_match(path)
+                    } else {
+                        // Unanchored patterns match at any depth.
+                        segments
+                            .iter()
+                            .enumerate()
+                            .any(|(index, _)| matcher.is_match(segments[index..].join("/")))
+                    };
+                    if path_matched {
+                        return !*negated;
+                    }
+                }
+                IgnoreRule::Everything { prefix } => {
+                    if path.starts_with(prefix.as_str()) {
+                        return true;
+                    }
+                }
             }
         }
         false
@@ -212,10 +274,17 @@ impl FileKind {
 }
 
 /// Collect all files of a kind under `dir`, honoring ignore rules and
-/// skipping dotfiles and `node_modules`.
-pub(crate) fn collect_files(dir: &Path, kind: FileKind) -> Vec<PathBuf> {
+/// skipping dotfiles and `node_modules`. Broken ignore rules go into
+/// `diagnostics`.
+pub(crate) fn collect_files(
+    dir: &Path,
+    kind: FileKind,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Vec<PathBuf> {
     let mut matcher = IgnoreMatcher::new();
-    collect_files_inner(dir, kind, true, &mut matcher, dir)
+    let files = collect_files_inner(dir, kind, true, &mut matcher, dir);
+    diagnostics.append(&mut matcher.diagnostics);
+    files
 }
 
 fn collect_files_inner(
@@ -258,10 +327,17 @@ fn collect_files_inner(
 }
 
 /// Scan one directory level for skill entries: a `SKILL.md` file present in
-/// the directory stops the scan there.
-pub(crate) fn collect_skill_entries(dir: &Path, mode: SkillDiscoveryMode) -> Vec<PathBuf> {
+/// the directory stops the scan there. Broken ignore rules go into
+/// `diagnostics`.
+pub(crate) fn collect_skill_entries(
+    dir: &Path,
+    mode: SkillDiscoveryMode,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Vec<PathBuf> {
     let mut matcher = IgnoreMatcher::new();
-    collect_skill_entries_inner(dir, mode, &mut matcher, dir)
+    let entries = collect_skill_entries_inner(dir, mode, &mut matcher, dir);
+    diagnostics.append(&mut matcher.diagnostics);
+    entries
 }
 
 fn collect_skill_entries_inner(
@@ -323,22 +399,33 @@ fn collect_skill_entries_inner(
 }
 
 /// Auto-discovery of top-level `.md` prompt files (no recursion).
-pub(crate) fn collect_auto_prompt_entries(dir: &Path) -> Vec<PathBuf> {
-    collect_top_level_files(dir, FileKind::Markdown)
+pub(crate) fn collect_auto_prompt_entries(
+    dir: &Path,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Vec<PathBuf> {
+    collect_top_level_files(dir, FileKind::Markdown, diagnostics)
 }
 
 /// Auto-discovery of top-level `.json` theme files (no recursion).
-pub(crate) fn collect_auto_theme_entries(dir: &Path) -> Vec<PathBuf> {
-    collect_top_level_files(dir, FileKind::Json)
+pub(crate) fn collect_auto_theme_entries(
+    dir: &Path,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Vec<PathBuf> {
+    collect_top_level_files(dir, FileKind::Json, diagnostics)
 }
 
-fn collect_top_level_files(dir: &Path, kind: FileKind) -> Vec<PathBuf> {
+fn collect_top_level_files(
+    dir: &Path,
+    kind: FileKind,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Vec<PathBuf> {
     let mut entries = Vec::new();
     if !dir.exists() {
         return entries;
     }
     let mut matcher = IgnoreMatcher::new();
     matcher.add_rules(dir, dir);
+    diagnostics.append(&mut matcher.diagnostics);
     for entry in read_entries_sorted(dir) {
         if entry.name.starts_with('.') || is_node_modules(&entry.name, true) {
             continue;
@@ -355,50 +442,92 @@ fn collect_top_level_files(dir: &Path, kind: FileKind) -> Vec<PathBuf> {
     entries
 }
 
-/// The `pi` manifest in a package's `package.json` (parse failures are no
-/// manifest, per the TS product).
-pub(crate) fn read_pi_manifest(package_root: &Path) -> Option<super::PiManifest> {
+/// True when `error` tells that nothing is at `path`. A symlink that points
+/// to nothing is not missing. It is a broken entry.
+fn is_missing(path: &Path, error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound && !path.is_symlink()
+}
+
+/// Read the `pi` manifest in the `package.json` of a package. `Ok(None)`
+/// tells that the package has no `package.json`, or that its `package.json`
+/// has no `pi` key. Then the convention directories apply.
+///
+/// # Errors
+///
+/// Returns a diagnostic for a `package.json` that cannot be read or parsed,
+/// or that has a `pi` value of the wrong shape. Then the package loads
+/// nothing.
+pub(crate) fn read_pi_manifest(
+    package_root: &Path,
+) -> Result<Option<super::PiManifest>, Box<ResourceDiagnostic>> {
     let package_json = package_root.join("package.json");
-    if !package_json.exists() {
-        return None;
-    }
-    read_pi_manifest_file(&package_json)
+    let broken = |reason: String| {
+        Box::new(ResourceDiagnostic::Error {
+            message: format!("package manifest not used, so the package loads nothing: {reason}"),
+            path: Some(package_json.display().to_string()),
+        })
+    };
+    let content = match std::fs::read_to_string(&package_json) {
+        Ok(content) => content,
+        Err(error) if is_missing(&package_json, &error) => return Ok(None),
+        Err(error) => return Err(broken(error.to_string())),
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|error| broken(error.to_string()))?;
+    let Some(package) = value.as_object() else {
+        return Err(broken("package.json is not a JSON object".to_string()));
+    };
+    let Some(pi) = package.get("pi") else {
+        return Ok(None);
+    };
+    let Some(pi) = pi.as_object() else {
+        return Err(broken("\"pi\" is not an object".to_string()));
+    };
+    Ok(Some(super::PiManifest {
+        skills: string_array(pi, "skills").map_err(&broken)?,
+        prompts: string_array(pi, "prompts").map_err(&broken)?,
+        themes: string_array(pi, "themes").map_err(&broken)?,
+    }))
 }
 
-fn read_pi_manifest_file(package_json: &Path) -> Option<super::PiManifest> {
-    let content = std::fs::read_to_string(package_json).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let pi = value.get("pi")?.as_object()?;
-    Some(super::PiManifest {
-        skills: string_array(pi.get("skills")),
-        prompts: string_array(pi.get("prompts")),
-        themes: string_array(pi.get("themes")),
-    })
-}
-
-fn string_array(value: Option<&serde_json::Value>) -> Option<Vec<String>> {
-    match value {
-        Some(serde_json::Value::Array(entries)) => Some(
-            entries
-                .iter()
-                .filter_map(serde_json::Value::as_str)
+/// The list of strings at `pi.<key>`. A missing key gives `None`. A value
+/// that is not a list of strings gives the reason as an error.
+fn string_array(
+    pi: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(value) = pi.get(key) else {
+        return Ok(None);
+    };
+    let serde_json::Value::Array(entries) = value else {
+        return Err(format!("\"pi.{key}\" is not a list"));
+    };
+    entries
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
                 .map(str::to_string)
-                .collect(),
-        ),
-        _ => None,
-    }
+                .ok_or_else(|| format!("\"pi.{key}\" has an entry that is not a string"))
+        })
+        .collect::<Result<Vec<String>, String>>()
+        .map(Some)
 }
 
 /// Collect resource files from a directory by kind: skills use the
-/// skill-entry scanner, others recursive file collection.
+/// skill-entry scanner, others recursive file collection. Broken ignore
+/// rules go into `diagnostics`.
 pub(crate) fn collect_resource_files(
     dir: &Path,
     resource_type: super::ResourceType,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
 ) -> Vec<PathBuf> {
     match resource_type {
-        super::ResourceType::Skills => collect_skill_entries(dir, SkillDiscoveryMode::Pi),
-        super::ResourceType::Prompts => collect_files(dir, FileKind::Markdown),
-        super::ResourceType::Themes => collect_files(dir, FileKind::Json),
+        super::ResourceType::Skills => {
+            collect_skill_entries(dir, SkillDiscoveryMode::Pi, diagnostics)
+        }
+        super::ResourceType::Prompts => collect_files(dir, FileKind::Markdown, diagnostics),
+        super::ResourceType::Themes => collect_files(dir, FileKind::Json, diagnostics),
     }
 }
 

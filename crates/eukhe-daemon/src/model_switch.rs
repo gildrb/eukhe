@@ -12,9 +12,11 @@ use std::path::Path;
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::clamp_thinking_level;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::durable::default_thinking_level;
+use eukhe_core::durable::{default_thinking_level, HostDeps};
 use eukhe_core::models::SetModelSelectionError;
-use eukhe_core::settings::{SettingsManager, ThinkingLevelSetting};
+use eukhe_core::settings::{
+    Persisted, SettingsError, SettingsManager, SettingsScope, ThinkingLevelSetting,
+};
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
 use eukhe_types::pi_ai::{Model, ModelThinkingLevel};
 use serde_json::Value;
@@ -262,11 +264,12 @@ pub(crate) async fn apply_model(
     .map_err(|error| error.to_string())?;
     // The tier re-clamp and the roster push read the mirror.
     hosted.events_delivered().await;
-    let mut settings = SettingsManager::create(&deps.cwd, &deps.agent_dir);
-    if let Err(error) = settings.set_default_model_and_provider(&model.provider, &model.id) {
-        // The switch itself landed; the default is best-effort like TS.
-        eprintln!("eukhe-daemon worker: persisting the default model failed: {error}");
-    }
+    // The switch itself landed; a default that is not saved, or that a
+    // higher layer shadows, is a row of the session.
+    let saved = SettingsManager::create(&deps.cwd, &deps.agent_dir)
+        .set_default_model_and_provider(&model.provider, &model.id)
+        .and_then(Persisted::applied);
+    report_unsaved(deps, "the default model", saved);
     Ok(level)
 }
 
@@ -304,12 +307,24 @@ pub(crate) async fn apply_thinking_level(
     .map_err(|error| error.to_string())?;
     hosted.events_delivered().await;
     if model.as_ref().is_some_and(|model| model.reasoning) || effective != ModelThinkingLevel::Off {
-        let mut settings = SettingsManager::create(&deps.cwd, &deps.agent_dir);
-        if let Err(error) = settings.set_default_thinking_level(thinking_level_setting(effective)) {
-            eprintln!("eukhe-daemon worker: persisting the default thinking level failed: {error}");
-        }
+        let saved = SettingsManager::create(&deps.cwd, &deps.agent_dir)
+            .set_default_thinking_level(thinking_level_setting(effective))
+            .and_then(Persisted::applied);
+        report_unsaved(deps, "the default thinking level", saved);
     }
     Ok(true)
+}
+
+/// Show a persist of `what` that failed or that a higher layer shadows as
+/// a settings-error row of the session (the client sees it; the worker's
+/// stderr reaches no one).
+fn report_unsaved(deps: &HostDeps, what: &str, saved: anyhow::Result<()>) {
+    if let Err(error) = saved {
+        deps.settings.report([SettingsError {
+            scope: SettingsScope::Global,
+            message: format!("{what} is not saved as the default: {error:#}"),
+        }]);
+    }
 }
 
 /// The settings vocabulary of a thinking level.

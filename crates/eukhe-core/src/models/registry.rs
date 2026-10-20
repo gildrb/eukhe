@@ -10,13 +10,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::LazyLock;
 
+use eukhe_models::bundled::BundledCatalogFallback;
 use eukhe_models::ModelCatalog;
 use eukhe_types::ai::{CompatKind, Model, ModelCompat, ModelThinkingLevel, OpenAiResponsesCompat};
 
 use crate::auth::manager::AuthStorage;
 use crate::auth::types::AuthCredential;
 
-use super::custom::{in_file, ModelsConfig, ProviderConfig};
+use super::custom::{provider_diagnostic, ModelsConfig, ModelsJsonLoad, ProviderConfig};
 use super::prime_inference::{is_private_prime_inference_model, private_prime_inference_models};
 
 /// The process-wide built-in catalog: the union of the packaged bundled
@@ -82,9 +83,10 @@ pub struct ModelRegistry {
     /// Built-in models stay borrowed from the process-wide catalog unless
     /// models.json or a stored subscription rewrites them.
     models: Vec<Cow<'static, Model>>,
-    /// The models.json document (empty when absent or failing to load).
+    /// The models.json document (its good providers only).
     config: ModelsConfig,
-    load_error: Option<String>,
+    /// The models.json diagnostics ([`ModelRegistry::diagnostics`]).
+    diagnostics: Vec<String>,
 }
 
 /// TS `getXaiSubscriptionModel`: the xAI provider's models switch onto
@@ -126,39 +128,50 @@ fn xai_subscription_model(model: &Model) -> Model {
 }
 
 impl ModelRegistry {
+    /// The built-in catalog with `models_json_path` composed over it. A bad
+    /// `providers.<id>` entry drops only that provider, and
+    /// [`Self::diagnostics`] names it.
     pub fn create(auth: AuthStorage, models_json_path: impl AsRef<Path>) -> Self {
-        let (config, models, load_error) = match compose(models_json_path.as_ref()) {
-            Ok((config, models)) => (config, models, None),
-            // Keep built-ins only; the error names the file.
-            Err(error) => (ModelsConfig::default(), built_in_models(), Some(error)),
-        };
-        Self::with_models(auth, config, models, load_error)
+        let (config, models, diagnostics) = compose(models_json_path.as_ref());
+        Self::with_models(auth, config, models, diagnostics)
     }
 
     #[cfg(test)]
     pub(crate) fn in_memory(auth: AuthStorage) -> Self {
-        Self::with_models(auth, ModelsConfig::default(), built_in_models(), None)
+        Self::with_models(auth, ModelsConfig::default(), built_in_models(), Vec::new())
     }
 
     fn with_models(
         auth: AuthStorage,
         config: ModelsConfig,
         models: Vec<Cow<'static, Model>>,
-        load_error: Option<String>,
+        diagnostics: Vec<String>,
     ) -> Self {
         let mut registry = Self {
             auth,
             models,
             config,
-            load_error,
+            diagnostics,
         };
         registry.apply_subscription_model_adaptations();
         registry
     }
 
-    /// Error from loading models.json, if any.
-    pub fn get_error(&self) -> Option<&str> {
-        self.load_error.as_deref()
+    /// The models.json diagnostics: one for each bad `providers.<id>`
+    /// entry (the registry drops that provider), or one for a file that
+    /// cannot be read or parsed (the registry has no custom models). Empty
+    /// when the file is good or absent.
+    #[must_use]
+    pub fn diagnostics(&self) -> &[String] {
+        &self.diagnostics
+    }
+
+    /// Why the built-in catalog serves the compiled models in place of the
+    /// install's damaged bundled snapshot. `None` when the snapshot is in
+    /// use or the install has none.
+    #[must_use]
+    pub fn built_in_catalog_fallback() -> Option<&'static BundledCatalogFallback> {
+        BUILT_IN_CATALOG.bundled_fallback()
     }
 
     /// Built-in + custom models (auth not filtered).
@@ -349,37 +362,65 @@ fn built_in_models() -> Vec<Cow<'static, Model>> {
         .collect()
 }
 
+/// One custom provider's layer over the catalog: the built-in slots it
+/// rewrites (by index) and the models it adds, or why it does not load.
+type ProviderLayer = Result<(Vec<(usize, Model)>, Vec<Model>), String>;
+
 /// `models_json` composed over [`built_in_models`] (TS `loadModels`): the
 /// provider and model overrides rewrite the catalog's built-in models, then
-/// the custom models land, winning on provider+id conflicts.
-fn compose(models_json: &Path) -> Result<(ModelsConfig, Vec<Cow<'static, Model>>), String> {
+/// the custom models land, winning on provider+id conflicts. A provider
+/// entry that does not load or compose is dropped (its built-in models
+/// stay as the catalog has them), and a diagnostic names it.
+fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<String>) {
     let compiled = eukhe_models::transports::compiled_models();
-    let config = ModelsConfig::load(models_json, &|provider| {
+    let ModelsJsonLoad {
+        mut config,
+        mut diagnostics,
+    } = ModelsConfig::load(models_json, &|provider| {
         compiled.iter().any(|model| model.provider == provider)
-    })?;
+    });
     let mut models = built_in_models();
     let built_in_count = BUILT_IN_CATALOG.models().len();
-    for slot in &mut models[..built_in_count] {
-        let Some(provider) =
-            (config.providers.get(&slot.provider)).filter(|provider| provider.rewrites(&slot.id))
-        else {
-            continue;
-        };
-        let rewritten = provider
-            .rewrite_built_in(slot.as_ref())
-            .and_then(|model| registry_view(&model, provider))
-            .map_err(|error| in_file(error, models_json))?;
-        *slot = Cow::Owned(rewritten);
-    }
+    let mut dropped = Vec::new();
     for (provider_id, provider) in &config.providers {
-        let defaults = (compiled.iter())
-            .find(|model| model.provider == *provider_id)
-            .map(|model| (model.api.as_str(), model.base_url.as_str()));
-        let custom = provider
-            .custom_models(provider_id, defaults)
-            .map_err(|error| in_file(error, models_json))?;
+        let layer: ProviderLayer = 'layer: {
+            let mut rewritten = Vec::new();
+            for (index, slot) in models[..built_in_count].iter().enumerate() {
+                if slot.provider == *provider_id && provider.rewrites(&slot.id) {
+                    match provider
+                        .rewrite_built_in(slot.as_ref())
+                        .and_then(|model| registry_view(&model, provider))
+                    {
+                        Ok(model) => rewritten.push((index, model)),
+                        Err(error) => break 'layer Err(error),
+                    }
+                }
+            }
+            let defaults = (compiled.iter())
+                .find(|model| model.provider == *provider_id)
+                .map(|model| (model.api.as_str(), model.base_url.as_str()));
+            provider
+                .custom_models(provider_id, defaults)
+                .and_then(|custom| {
+                    custom
+                        .iter()
+                        .map(|model| registry_view(model, provider))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .map(|custom| (rewritten, custom))
+        };
+        let (rewritten, custom) = match layer {
+            Ok(layer) => layer,
+            Err(error) => {
+                diagnostics.push(provider_diagnostic(provider_id, &error));
+                dropped.push(provider_id.clone());
+                continue;
+            }
+        };
+        for (index, model) in rewritten {
+            models[index] = Cow::Owned(model);
+        }
         for model in custom {
-            let model = registry_view(&model, provider).map_err(|e| in_file(e, models_json))?;
             let existing = (models.iter())
                 .position(|entry| entry.provider == model.provider && entry.id == model.id);
             match existing {
@@ -388,7 +429,10 @@ fn compose(models_json: &Path) -> Result<(ModelsConfig, Vec<Cow<'static, Model>>
             }
         }
     }
-    Ok((config, models))
+    for provider_id in dropped {
+        config.providers.remove(&provider_id);
+    }
+    (config, models, diagnostics)
 }
 
 /// The registry form of a composed pi-ai model; a `maxTokens` models.json

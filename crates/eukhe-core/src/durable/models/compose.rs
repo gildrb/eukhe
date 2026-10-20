@@ -18,23 +18,26 @@ use eukhe_types::pi_ai::{AnyModel, Model, ProviderHeaders};
 use futures::future::BoxFuture;
 
 use super::stores::{blocking, thrown};
-use super::ModelsError;
-use crate::models::custom::{in_file, ModelsConfig, ProviderConfig};
+use crate::models::custom::{provider_diagnostic, ModelsConfig, ModelsJsonLoad, ProviderConfig};
 
 /// The built-in providers with `models_json` composed over them, plus the
-/// custom providers it defines. A missing file leaves the built-ins as is.
-/// Every provider's models then follow eukhe's thinking capability rule
-/// ([`with_map_addressed_reasoning`]).
+/// custom providers it defines, and the models.json diagnostics. A missing
+/// file leaves the built-ins as is. A provider entry that does not load
+/// or compose is dropped (a built-in provider stays as it is), and a
+/// diagnostic names it. Every provider's models then follow eukhe's
+/// thinking capability rule ([`with_map_addressed_reasoning`]).
 pub(super) fn compose_providers(
     builtins: Vec<Provider>,
     models_json: &Path,
-) -> Result<Vec<Provider>, ModelsError> {
-    compose_layers(builtins, models_json).map(|providers| {
+) -> (Vec<Provider>, Vec<String>) {
+    let (providers, diagnostics) = compose_layers(builtins, models_json);
+    (
         providers
             .into_iter()
             .map(with_map_addressed_reasoning)
-            .collect()
-    })
+            .collect(),
+        diagnostics,
+    )
 }
 
 /// eukhe's thinking capability rule (#2858, `eukhe_ai::models::registry_thinking_levels`):
@@ -81,25 +84,29 @@ fn with_map_addressed_reasoning(mut provider: Provider) -> Provider {
 }
 
 /// [`compose_providers`] before the capability rule.
-fn compose_layers(
-    builtins: Vec<Provider>,
-    models_json: &Path,
-) -> Result<Vec<Provider>, ModelsError> {
+fn compose_layers(builtins: Vec<Provider>, models_json: &Path) -> (Vec<Provider>, Vec<String>) {
     let has_models = |provider: &Provider| (provider.get_models)().is_ok_and(|m| !m.is_empty());
-    let config = ModelsConfig::load(models_json, &|id| {
+    let ModelsJsonLoad {
+        config,
+        mut diagnostics,
+    } = ModelsConfig::load(models_json, &|id| {
         builtins
             .iter()
             .any(|provider| provider.id == id && has_models(provider))
-    })
-    .map_err(ModelsError::ModelsJson)?;
-    let error = |error: String| ModelsError::ModelsJson(in_file(error, models_json));
+    });
     let mut configs = config.providers;
     let mut providers = Vec::with_capacity(builtins.len() + configs.len());
     for base in builtins {
         match configs.remove(&base.id) {
             Some(provider_config) => {
                 let id = base.id.clone();
-                providers.push(compose_provider(&id, Some(base), provider_config).map_err(error)?);
+                match compose_provider(&id, Some(base.clone()), provider_config) {
+                    Ok(provider) => providers.push(provider),
+                    Err(error) => {
+                        diagnostics.push(provider_diagnostic(&id, &error));
+                        providers.push(base);
+                    }
+                }
             }
             None => providers.push(base),
         }
@@ -111,10 +118,13 @@ fn compose_layers(
             .as_ref()
             .is_some_and(|m| !m.is_empty())
         {
-            providers.push(compose_provider(&id, None, provider_config).map_err(error)?);
+            match compose_provider(&id, None, provider_config) {
+                Ok(provider) => providers.push(provider),
+                Err(error) => diagnostics.push(provider_diagnostic(&id, &error)),
+            }
         }
     }
-    Ok(providers)
+    (providers, diagnostics)
 }
 
 /// A built-in chat model under the provider's `models.json` rewrites.

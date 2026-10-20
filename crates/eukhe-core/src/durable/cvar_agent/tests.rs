@@ -358,3 +358,23 @@ async fn settings_errors_show_as_a_row_of_the_session() {
     );
     session.close(cx()).await.expect("close");
 }
+
+/// Regression: an `mcpServers` entry that did not parse was dropped from
+/// the session with no word. It shows on the settings error row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bad_mcp_server_shows_as_a_settings_error_row() {
+    let fixture = fixture();
+    write(
+        &fixture.agent_dir.join("settings.json"),
+        r#"{"mcpServers": {"bad": {"type": "http"}}}"#,
+    );
+    let session = open_session(fixture.config(), cx()).await.expect("open");
+    assert_eq!(
+        settings_error_rows(&session.main(), 1).await,
+        vec![json!([
+            "Settings errors (the rest of the settings apply):\n- global: mcpServers.bad: missing field `url`",
+            true
+        ])]
+    );
+    session.close(cx()).await.expect("close");
+}

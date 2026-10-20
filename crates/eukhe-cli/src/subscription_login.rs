@@ -359,8 +359,7 @@ pub(crate) async fn run_subscription_login(
         return ProviderAuthOutcome::Cancelled;
     }
     let mut auth = AuthStorage::create(agent_dir);
-    auth.set(provider_id, stored_oauth_credential(&credential));
-    if let Some(error) = auth.drain_errors().pop() {
+    if let Err(error) = auth.set(provider_id, stored_oauth_credential(&credential)) {
         return ProviderAuthOutcome::Error(format!(
             "Failed to login to {provider_name}: could not save the login: {error}"
         ));

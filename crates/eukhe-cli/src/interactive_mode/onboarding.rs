@@ -79,7 +79,7 @@ impl eukhe_tui::interactive::OnboardingSink for SettingsOnboardingSink {
     fn mark_onboarding_complete(&self) -> Result<()> {
         let mut settings =
             eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir);
-        settings.set_onboarding_shown(true)
+        settings.set_onboarding_shown(true)?.applied()
     }
 }
 

@@ -125,11 +125,22 @@ impl CreateParams {
                     .map_err(|error| format!("Invalid {key}: {error}")),
             }
         };
-        let append_system_prompt = strings("appendSystemPrompt")?;
+        // A string is prompt text; `{"file": "<path>"}` is a file to read.
+        let custom_system_prompt = match payload.get("systemPrompt") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                serde_json::from_value(value.clone())
+                    .map_err(|error| format!("Invalid systemPrompt: {error}"))?,
+            ),
+        };
+        let append_system_prompt = match payload.get("appendSystemPrompt") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(value) => serde_json::from_value(value.clone())
+                .map_err(|error| format!("Invalid appendSystemPrompt: {error}"))?,
+        };
         let prompt = PromptConfig {
-            custom_system_prompt: text(Some(payload), "systemPrompt"),
-            append_system_prompt: (!append_system_prompt.is_empty())
-                .then(|| append_system_prompt.join("\n\n")),
+            custom_system_prompt,
+            append_system_prompt,
             additional_skill_paths: strings("skills")?,
             additional_prompt_paths: strings("promptTemplates")?,
             ..PromptConfig::default()
@@ -980,4 +991,47 @@ fn create_payload_rlm_depth(payload: &Value) -> Result<(Option<u32>, Option<u32>
     let depth = parse(payload, "rlmDepth")?;
     let max_depth = parse(payload, "rlmMaxDepth")?;
     Ok((depth, max_depth))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eukhe_core::resources::SystemPromptInput;
+
+    /// A string is prompt text and `{"file": ...}` is a file, in the
+    /// order given; any other shape is an error, not a dropped input.
+    #[test]
+    fn create_payload_prompt_inputs_are_typed() {
+        let agent_dir = tempfile::tempdir().expect("tempdir");
+        // The worker refuses a cwd that does not exist.
+        let cwd = tempfile::tempdir().expect("cwd");
+        let payload = json!({
+            "cwd": cwd.path(),
+            "systemPrompt": { "file": "/work/SYSTEM.md" },
+            "appendSystemPrompt": ["One.", { "file": "/notes/extra.md" }],
+        });
+        let params = CreateParams::parse(&payload, agent_dir.path()).expect("parse");
+        assert_eq!(
+            (
+                params.prompt.custom_system_prompt,
+                params.prompt.append_system_prompt
+            ),
+            (
+                Some(SystemPromptInput::File {
+                    file: PathBuf::from("/work/SYSTEM.md"),
+                }),
+                vec![
+                    SystemPromptInput::Text("One.".to_string()),
+                    SystemPromptInput::File {
+                        file: PathBuf::from("/notes/extra.md"),
+                    },
+                ],
+            )
+        );
+        let bad = json!({ "cwd": cwd.path(), "systemPrompt": 5 });
+        let Err(error) = CreateParams::parse(&bad, agent_dir.path()) else {
+            panic!("a number is not a system prompt input");
+        };
+        assert!(error.starts_with("Invalid systemPrompt: "), "{error}");
+    }
 }

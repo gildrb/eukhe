@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context as _, Result};
 use sha2::{Digest, Sha256};
 
 pub const AGENT_DIR_ENV: &str = "EUKHE_CODING_AGENT_DIR";
-pub const SESSION_DIR_ENV: &str = "EUKHE_SESSION_DIR";
+pub use eukhe_core::settings::SESSION_DIR_ENV;
 /// The user's agent state directory name (shared with every crate through
 /// eukhe-types).
 pub const CONFIG_DIR_NAME: &str = eukhe_types::platform::dirs::AGENT_DIR_NAME;
@@ -57,17 +57,18 @@ pub fn agent_dir() -> Result<PathBuf> {
     }
 }
 
-/// The sessions root: the `EUKHE_SESSION_DIR` override when set
-/// (tilde expanded), else `<agent-dir>/sessions`.
+/// The sessions root by the one sessionDir precedence
+/// ([`eukhe_core::settings::resolve_session_dir`]): the environment
+/// override, then the global `sessionDir` setting, then
+/// `<agent-dir>/sessions`.
 ///
 /// # Errors
 ///
-/// Returns an error when the override cannot be tilde-expanded.
+/// Returns an error when a value names the home directory and it is not
+/// known.
 pub fn sessions_dir(agent_dir: &Path) -> Result<PathBuf> {
-    match std::env::var_os(SESSION_DIR_ENV) {
-        Some(dir) if !dir.is_empty() => expand_tilde(&dir.to_string_lossy()),
-        _ => Ok(agent_dir.join("sessions")),
-    }
+    let settings = eukhe_core::settings::SettingsManager::create(agent_dir, agent_dir);
+    Ok(eukhe_core::settings::resolve_session_dir(None, &settings, agent_dir)?.path)
 }
 
 #[must_use]

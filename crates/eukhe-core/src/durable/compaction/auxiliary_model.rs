@@ -200,14 +200,21 @@ impl AuxiliaryNotices {
 /// otherwise at its next boundary (nothing else may append to a busy
 /// conversation). A row that cannot be submitted is logged: it has no
 /// other place to go.
-#[tracing::instrument(skip_all)]
 pub async fn show_auxiliary_notice(conversation: &Conversation, text: String, cx: &Context) {
-    let notice = crate::durable::rlm::CustomNotice::new(
-        AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE,
-        text,
-        true,
-        None,
-    );
+    show_notice_row(conversation, AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE, text, cx).await;
+}
+
+/// Show the notice `text` as a display-only row of `custom_type` (one of
+/// [`crate::durable::entries::is_display_only_custom_type`]) on
+/// `conversation`, as [`show_auxiliary_notice`] does.
+#[tracing::instrument(skip_all, fields(custom_type = %custom_type))]
+pub(crate) async fn show_notice_row(
+    conversation: &Conversation,
+    custom_type: &str,
+    text: String,
+    cx: &Context,
+) {
+    let notice = crate::durable::rlm::CustomNotice::new(custom_type, text, true, None);
     let submitted = match notice.draft() {
         Ok(entry) => conversation
             .submit(
@@ -223,7 +230,7 @@ pub async fn show_auxiliary_notice(conversation: &Conversation, text: String, cx
         Err(error) => Err(anyhow::Error::from(error)),
     };
     if let Err(error) = submitted {
-        tracing::warn!(%error, "auxiliary model notice not delivered");
+        tracing::warn!(%error, custom_type, "notice row not delivered");
     }
 }
 

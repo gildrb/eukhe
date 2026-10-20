@@ -305,7 +305,10 @@ impl Worker {
             let deps = hosted.deps();
             let mut settings =
                 eukhe_core::settings::SettingsManager::create(&deps.cwd, &deps.agent_dir);
-            match settings.set_rlm_max_depth(u64::from(max_depth)) {
+            match settings
+                .set_rlm_max_depth(u64::from(max_depth))
+                .and_then(eukhe_core::settings::Persisted::applied)
+            {
                 Ok(()) => result["globalSaved"] = json!(true),
                 Err(error) => result["globalError"] = json!(format!("{error:#}")),
             }

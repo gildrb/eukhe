@@ -13,7 +13,7 @@ pub(crate) mod storage;
 pub(crate) mod types;
 
 pub use flight::RefreshFlights;
-pub use manager::{AuthApiKeyResult, AuthStorage, NoOAuth, OAuthIntegration};
+pub use manager::{AuthApiKeyResult, AuthStorage, AuthWriteError, NoOAuth, OAuthIntegration};
 pub use prime_browser_login::PrimeAuthInfo;
 pub use prime_inference::{
     check_prime_inference_access, default_prime_cli_config_path, fetch_prime_teams,

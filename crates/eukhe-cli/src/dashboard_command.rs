@@ -177,9 +177,7 @@ fn dashboard_config(
             agent_dir.join("settings.json").display()
         );
     }
-    let session_dir = crate::config::get_session_dir_env_override()
-        .or_else(|| settings.get_session_dir())
-        .unwrap_or_else(|| agent_dir.join("sessions"));
+    let session_dir = eukhe_core::settings::resolve_session_dir(None, &settings, &agent_dir)?.path;
     let mut create_config = serde_json::Map::new();
     // Verification seam: sessions run this scripted faux model. The
     // product never sets it.

@@ -164,6 +164,97 @@ or `settings.json`); `a_setter_never_clobbers_a_global_settings_file_that_failed
 `unreadable_binds_cfg_and_failed_import_are_warnings`; the
 `keybindings::tests` of the `binds.cfg` import and of the presses.
 
+### S4b. Config documents
+
+The config documents are `settings.json` (global and project),
+`mcp-connections.json` and `auth.json`. No input of these documents is
+lost in silence.
+
+1. A writer reads the document under its lock, applies its change, and
+   writes the result. When the read fails (the file cannot be read, it is
+   not valid JSON or not an object, or its version is not known), the
+   writer writes nothing and returns the error. Only a file that is not
+   there reads as empty. Each key that the change does not touch keeps
+   its value. This applies to `eukhe mcp add` and `eukhe mcp remove`, to
+   each settings setter, to the connection records and to `AuthStorage`
+   `set` and `remove`. `set` and `remove` return the error to the caller.
+2. A settings setter writes the document that is on disk when it writes,
+   not the copy that it loaded. A key that failed to load stays, and a
+   key that another writer added stays. The setter refuses a value that
+   its setting does not hold. When a higher layer sets the same setting
+   (the global `config.cfg`, the project `settings.json` or the project
+   `config.cfg`), the setter says which file sets it
+   (`Persisted::Shadowed`), and the client shows it. The daemon shows a
+   default model or thinking level that it could not save as a settings
+   error row.
+3. Each leaf of a `settings.json` applies or is named by a settings
+   error. A leaf is a value that is not an object, or the whole value of
+   a cvar. A value that its setting does not hold is `BadValue`; a key
+   that no setting declares is `Undeclared`. These are the same
+   `CvarError`s as for `config.cfg`, and they show in the same row. One
+   bad leaf drops only that leaf. The known top-level keys come from the
+   `Settings` type.
+4. A malformed limit fails closed. A `providerMaxInFlight` entry that is
+   not a whole number limits its provider to 1 request; a value that is
+   not a map limits each provider to 1. `idleEvictionMinutes` and the
+   session archive rules are a whole number, `off` or `none`
+   (`NatOrOff`); another value is a settings error.
+5. An untrusted project does not change a limit, a system prompt or a
+   credential: `maxToolRounds`, `subagentMaxConcurrency`,
+   `subagentStallMs`, `toolBlockingBudgetMs`, `autonomous`, `directors`,
+   `thinkingBudgets`, `retry.maxRetries` and `retry.failover.maxRetries`
+   are withheld with the keys that run code, and so are the project
+   `SYSTEM.md` and `APPEND_SYSTEM.md`. The trust warning names them.
+   `trustedProjects` comes from the global layer only (the global
+   `settings.json`, then the global `config.cfg`).
+6. An `mcpServers` entry is a unit: a project entry replaces the global
+   entry of its name, and it never takes a URL or a credential from it.
+   `kernelTransport` is a unit too.
+7. The sessions directory has one precedence for each reader (the CLI,
+   the dashboard, the gateway and the daemon,
+   `settings::resolve_session_dir`): the `--session-dir` flag, then
+   `EUKHE_SESSION_DIR` (or the legacy `EUKHE_CODING_AGENT_SESSION_DIR`),
+   then the `sessionDir` setting, then `<agent dir>/sessions`.
+
+Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs:
+`bend/proof_config.bend`.
+
+| Law | Says |
+| --- | --- |
+| `rmw_refuses_broken` | A document that could not be read or parsed is never written (S4b.1). |
+| `rmw_keeps_others` | A write keeps each key that the change does not touch (S4b.1). |
+| `rmw_applies_change` | The key that the change sets has the value that it sets. |
+| `settings_save_preserves` | A setter writes the document on disk with its key changed, whatever copy it loaded (S4b.2). |
+| `leaf_applied_or_reported` | Each leaf applies or is named by a diagnostic (S4b.3). |
+| `leaf_not_both` | No leaf both applies and is named. |
+| `limit_malformed_fails_closed` | A malformed in-flight limit limits to 1, never "no limit" (S4b.4). |
+| `limit_number_applies` | A whole-number entry is its provider's limit. |
+| `untrusted_changes_nothing_guarded` | An untrusted project changes no limit, prompt or credential (S4b.5). |
+| `trusted_project_applies` | A trusted project's item applies. |
+| `project_entry_never_merges` | A project MCP entry applies whole (S4b.6). |
+| `global_entry_kept` | A global entry that the project does not name stays whole. |
+
+The laws of the saved default model are in [inference.md](inference.md)
+("S6 models.json and the saved default model") and in
+`laws/config.bend`.
+
+Ties: the bridge test
+`settings::bridge::the_rust_config_code_equals_the_bend_model` compares
+transcripts with `bend/bridge_config.bend` byte for byte. It runs 360
+generated scenarios: each writer over a missing, valid, invalid,
+unreadable and other-version file; setters after another writer changed
+the file; documents with good, wrong-typed and undeclared leaves;
+`providerMaxInFlight` values; projects under each trust; and global and
+project `mcpServers` entries.
+
+Regression tests: `add_refuses_a_settings_file_that_does_not_parse`;
+`a_setter_keeps_a_field_that_failed_to_load_and_a_concurrent_edit`;
+`another_version_is_refused_and_never_rewritten`;
+`set_over_an_unreadable_auth_file_is_refused_and_writes_nothing`;
+`a_bad_leaf_drops_only_itself_and_is_named`;
+`a_setting_a_cfg_file_shadows_says_so`;
+`a_project_mcp_entry_never_takes_global_credentials`.
+
 ### S5. The Director stack
 
 After each final answer, the agent loop asks a stack of Directors what to

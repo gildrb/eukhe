@@ -166,8 +166,8 @@ pub(crate) struct ConfiguredSource {
     pub filter: Option<PackageFilter>,
 }
 
-/// The `pi` manifest in a package's `package.json` (parse failures are no
-/// manifest, per the TS product).
+/// The `pi` manifest in a package's `package.json`. A `package.json` that is
+/// broken gives no manifest and a diagnostic, and the package loads nothing.
 #[derive(Debug, Default)]
 pub(crate) struct PiManifest {
     pub skills: Option<Vec<String>>,
@@ -229,7 +229,8 @@ impl ResourceAccumulator {
     }
 }
 
-/// Rank, then dedupe by canonicalized path (first wins per rank tier).
+/// Rank, then dedupe by canonicalized path (first wins per rank tier). Equal
+/// diagnostics keep only the first: a directory scanned twice reports once.
 pub(crate) fn to_resolved_paths(accumulator: ResourceAccumulator) -> ResolvedPaths {
     let map_to_resolved = |map: ResourceMap| -> Vec<ResolvedResource> {
         let mut resolved: Vec<ResolvedResource> = map
@@ -251,11 +252,18 @@ pub(crate) fn to_resolved_paths(accumulator: ResourceAccumulator) -> ResolvedPat
             .collect()
     };
 
+    let mut diagnostics = Vec::with_capacity(accumulator.diagnostics.len());
+    for diagnostic in accumulator.diagnostics {
+        if !diagnostics.contains(&diagnostic) {
+            diagnostics.push(diagnostic);
+        }
+    }
+
     ResolvedPaths {
         skills: map_to_resolved(accumulator.skills),
         prompts: map_to_resolved(accumulator.prompts),
         themes: map_to_resolved(accumulator.themes),
-        diagnostics: accumulator.diagnostics,
+        diagnostics,
         missing_packages: accumulator.missing_packages,
     }
 }

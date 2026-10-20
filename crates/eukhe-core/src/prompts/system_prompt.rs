@@ -1,6 +1,9 @@
 //! Layered system-prompt assembly: static layer files first (cacheable),
 //! every session-specific value last. See the parent module docs.
 
+use std::borrow::Cow;
+use std::path::PathBuf;
+
 use crate::skills::{format_skills_for_prompt, Skill};
 
 use super::layers;
@@ -24,29 +27,65 @@ pub struct PromptSegment {
     /// Stable segment name (`core`, `usage`, `packages`, `environment`, ...).
     pub name: &'static str,
     pub kind: SegmentKind,
-    /// Provenance: the layer file, or what generated the segment.
-    pub source: &'static str,
+    /// Provenance: the layer file, or what generated the segment. A user
+    /// prompt names its flag or its file path.
+    pub source: Cow<'static, str>,
     pub text: String,
 }
 
 impl PromptSegment {
-    fn static_segment(name: &'static str, source: &'static str, text: String) -> Self {
+    fn static_segment(
+        name: &'static str,
+        source: impl Into<Cow<'static, str>>,
+        text: String,
+    ) -> Self {
         Self {
             name,
             kind: SegmentKind::Static,
-            source,
+            source: source.into(),
             text,
         }
     }
 
-    fn dynamic_segment(name: &'static str, source: &'static str, text: String) -> Self {
+    fn dynamic_segment(
+        name: &'static str,
+        source: impl Into<Cow<'static, str>>,
+        text: String,
+    ) -> Self {
         Self {
             name,
             kind: SegmentKind::Dynamic,
-            source,
+            source: source.into(),
             text,
         }
     }
+}
+
+/// The origin of system prompt text that the user gave.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromptOrigin {
+    /// Text in this flag (`--system-prompt` or `--append-system-prompt`).
+    Flag(&'static str),
+    /// Text from this file. The file is the argument of
+    /// `--system-prompt-file` or `--append-system-prompt-file`, or a
+    /// discovered `SYSTEM.md` or `APPEND_SYSTEM.md`.
+    File(PathBuf),
+}
+
+impl std::fmt::Display for PromptOrigin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PromptOrigin::Flag(flag) => f.write_str(flag),
+            PromptOrigin::File(path) => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+/// System prompt text that the user gave, with its origin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedPrompt {
+    pub origin: PromptOrigin,
+    pub text: String,
 }
 
 /// The assembled prompt plus its per-layer breakdown. `cached_prefix_len` is
@@ -66,8 +105,8 @@ pub struct SystemPromptBreakdown {
 #[derive(Debug, Default)]
 pub struct BuildSystemPromptOptions<'a> {
     /// Replaces the layered static prefix with user text. The dynamic tail
-    /// still applies.
-    pub custom_prompt: Option<String>,
+    /// still applies. The `custom` segment names its origin.
+    pub custom_prompt: Option<SourcedPrompt>,
     /// The per-model additions resolved for the session's model
     /// (`model_prompts::load_model_prompts`); the last cached segment.
     pub model_prompt_extras: Option<&'a str>,
@@ -77,8 +116,9 @@ pub struct BuildSystemPromptOptions<'a> {
     pub selected_tools: Option<Vec<&'a str>>,
     /// Additional guideline bullets appended to the dynamic tail.
     pub prompt_guidelines: Option<Vec<String>>,
-    /// Text appended to the end of the prompt.
-    pub append_system_prompt: Option<String>,
+    /// Texts appended to the end of the prompt, in order. The
+    /// `appended-prompt` segment names their origins.
+    pub append_system_prompt: Vec<SourcedPrompt>,
     /// Working directory.
     pub cwd: String,
     /// Conversation log path.
@@ -134,29 +174,30 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     }
     // The static prefix: the user's replacement prompt, or the layered
     // files rendered for the session's memory.
-    match options.custom_prompt.as_deref() {
-        Some(custom) if !custom.is_empty() => {
+    let custom = options
+        .custom_prompt
+        .as_ref()
+        .filter(|custom| !custom.text.is_empty());
+    if let Some(custom) = custom {
+        segments.push(PromptSegment::static_segment(
+            "custom",
+            custom.origin.to_string(),
+            custom.text.clone(),
+        ));
+    } else {
+        for (name, text) in layers::constant_layers(harness_memory) {
             segments.push(PromptSegment::static_segment(
-                "custom",
-                "--system-prompt",
-                custom.to_string(),
+                name,
+                layers::layer_source(name).unwrap_or_default(),
+                text,
             ));
         }
-        _ => {
-            for (name, text) in layers::constant_layers(harness_memory) {
-                segments.push(PromptSegment::static_segment(
-                    name,
-                    layers::layer_source(name).unwrap_or_default(),
-                    text,
-                ));
-            }
-            if let Some(extras) = options.model_prompt_extras {
-                segments.push(PromptSegment::static_segment(
-                    "model-prompts",
-                    layers::layer_source("model-prompts").unwrap_or_default(),
-                    extras.to_string(),
-                ));
-            }
+        if let Some(extras) = options.model_prompt_extras {
+            segments.push(PromptSegment::static_segment(
+                "model-prompts",
+                layers::layer_source("model-prompts").unwrap_or_default(),
+                extras.to_string(),
+            ));
         }
     }
     let cached_prefix_len = segments
@@ -246,14 +287,25 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         ));
     }
 
-    if let Some(extra) = options.append_system_prompt.as_deref() {
-        if !extra.is_empty() {
-            segments.push(PromptSegment::dynamic_segment(
-                "appended-prompt",
-                "--append-system-prompt",
-                extra.to_string(),
-            ));
-        }
+    let appended: Vec<&SourcedPrompt> = options
+        .append_system_prompt
+        .iter()
+        .filter(|extra| !extra.text.is_empty())
+        .collect();
+    if !appended.is_empty() {
+        segments.push(PromptSegment::dynamic_segment(
+            "appended-prompt",
+            appended
+                .iter()
+                .map(|extra| extra.origin.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            appended
+                .iter()
+                .map(|extra| extra.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        ));
     }
     segments.extend(context_last);
 
@@ -515,7 +567,10 @@ mod tests {
         let mut options = base_options();
         options.memory = Some(crate::memory::MemoryRole::Root);
         options.context_files = vec![("AGENTS.md".to_string(), "Rule one.".to_string())];
-        options.append_system_prompt = Some("Appended.".to_string());
+        options.append_system_prompt = vec![SourcedPrompt {
+            origin: PromptOrigin::Flag("--append-system-prompt"),
+            text: "Appended.".to_string(),
+        }];
         let breakdown = system_prompt_breakdown(&options);
         let names: Vec<&str> = breakdown
             .segments
@@ -579,7 +634,10 @@ mod tests {
     #[test]
     fn custom_prompt_replaces_layers_keeps_tail() {
         let mut options = base_options();
-        options.custom_prompt = Some("Be terse.".to_string());
+        options.custom_prompt = Some(SourcedPrompt {
+            origin: PromptOrigin::Flag("--system-prompt"),
+            text: "Be terse.".to_string(),
+        });
         options.model_prompt_extras = Some("Tier-2 guidance.");
         options.context_files = vec![("AGENTS.md".to_string(), "Rule one.".to_string())];
         let breakdown = system_prompt_breakdown(&options);
@@ -592,6 +650,50 @@ mod tests {
         // The layered defaults are gone.
         assert!(!prompt.contains("# eukhe harness"));
         assert!(!prompt.contains("Tier-2 guidance."));
+    }
+
+    /// The user prompt segments name their origin: the file path, or the
+    /// flag that held the text.
+    #[test]
+    fn user_prompt_segments_name_their_origin() {
+        let mut options = base_options();
+        options.custom_prompt = Some(SourcedPrompt {
+            origin: PromptOrigin::File(PathBuf::from("/p/.eukhe/SYSTEM.md")),
+            text: "Be terse.".to_string(),
+        });
+        options.append_system_prompt = vec![
+            SourcedPrompt {
+                origin: PromptOrigin::Flag("--append-system-prompt"),
+                text: "One.".to_string(),
+            },
+            SourcedPrompt {
+                origin: PromptOrigin::File(PathBuf::from("/notes/extra.md")),
+                text: "Two.".to_string(),
+            },
+        ];
+        let breakdown = system_prompt_breakdown(&options);
+        let user_segments: Vec<&PromptSegment> = breakdown
+            .segments
+            .iter()
+            .filter(|segment| matches!(segment.name, "custom" | "appended-prompt"))
+            .collect();
+        assert_eq!(
+            user_segments,
+            [
+                &PromptSegment {
+                    name: "custom",
+                    kind: SegmentKind::Static,
+                    source: Cow::Borrowed("/p/.eukhe/SYSTEM.md"),
+                    text: "Be terse.".to_string(),
+                },
+                &PromptSegment {
+                    name: "appended-prompt",
+                    kind: SegmentKind::Dynamic,
+                    source: Cow::Borrowed("--append-system-prompt, /notes/extra.md"),
+                    text: "One.\n\nTwo.".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]

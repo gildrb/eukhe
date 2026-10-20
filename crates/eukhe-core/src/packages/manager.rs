@@ -230,7 +230,7 @@ impl PackageManager {
     /// updated when it succeeds.
     pub fn install_and_persist(&mut self, source: &str, scope: UserOrProject) -> Result<()> {
         self.install(source, scope)?;
-        self.add_source_to_settings(source, scope);
+        self.add_source_to_settings(source, scope)?;
         Ok(())
     }
 
@@ -305,12 +305,17 @@ impl PackageManager {
     /// when it succeeds.
     pub fn remove_and_persist(&mut self, source: &str, scope: UserOrProject) -> Result<bool> {
         self.remove(source, scope)?;
-        Ok(self.remove_source_from_settings(source, scope))
+        self.remove_source_from_settings(source, scope)
     }
 
     /// Add a source to settings; false when an equivalent source is already
     /// configured.
-    pub fn add_source_to_settings(&mut self, source: &str, scope: UserOrProject) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// The settings file cannot be read, parsed or written, or a higher
+    /// layer sets `packages`.
+    pub fn add_source_to_settings(&mut self, source: &str, scope: UserOrProject) -> Result<bool> {
         let current: Vec<serde_json::Value> =
             self.document_packages_for_scope(scope).unwrap_or_default();
         let normalized = self.normalize_package_source_for_settings(source, scope);
@@ -318,16 +323,25 @@ impl PackageManager {
             .iter()
             .any(|existing| self.package_sources_match(existing, source, scope));
         if exists {
-            return false;
+            return Ok(false);
         }
         let mut next = current;
         next.push(serde_json::Value::String(normalized));
-        self.set_packages_for_scope(scope, next);
-        true
+        self.set_packages_for_scope(scope, next)?;
+        Ok(true)
     }
 
     /// Drop a source from settings; true when a matching entry was removed.
-    pub fn remove_source_from_settings(&mut self, source: &str, scope: UserOrProject) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// The settings file cannot be read, parsed or written, or a higher
+    /// layer sets `packages`.
+    pub fn remove_source_from_settings(
+        &mut self,
+        source: &str,
+        scope: UserOrProject,
+    ) -> Result<bool> {
         let current: Vec<serde_json::Value> =
             self.document_packages_for_scope(scope).unwrap_or_default();
         let next: Vec<serde_json::Value> = current
@@ -336,10 +350,10 @@ impl PackageManager {
             .cloned()
             .collect();
         if next.len() == current.len() {
-            return false;
+            return Ok(false);
         }
-        self.set_packages_for_scope(scope, next);
-        true
+        self.set_packages_for_scope(scope, next)?;
+        Ok(true)
     }
 
     /// Configured packages across both scopes (user first), as the
@@ -410,11 +424,16 @@ impl PackageManager {
         }
     }
 
-    fn set_packages_for_scope(&mut self, scope: UserOrProject, packages: Vec<serde_json::Value>) {
-        match scope {
-            UserOrProject::User => self.settings.set_packages(packages),
-            UserOrProject::Project => self.settings.set_project_packages(packages),
-        }
+    fn set_packages_for_scope(
+        &mut self,
+        scope: UserOrProject,
+        packages: Vec<serde_json::Value>,
+    ) -> Result<()> {
+        let scope = match scope {
+            UserOrProject::User => crate::settings::SettingsScope::Global,
+            UserOrProject::Project => crate::settings::SettingsScope::Project,
+        };
+        self.settings.set_scope_packages(scope, packages)?.applied()
     }
 
     pub(super) fn base_dir_for_scope(&self, scope: SourceScope) -> PathBuf {
@@ -799,10 +818,13 @@ mod tests {
         // Settings-local paths match by their settings-base resolution, not
         // the cwd resolution: the cwd form does not match (TS parity), the
         // absolute equivalent does.
-        assert!(!manager.remove_source_from_settings("./filtered-pkg", UserOrProject::User));
+        assert!(!manager
+            .remove_source_from_settings("./filtered-pkg", UserOrProject::User)
+            .unwrap());
         let agent_local = dir.path().join("agent").join("filtered-pkg");
         assert!(manager
-            .remove_source_from_settings(&agent_local.display().to_string(), UserOrProject::User));
+            .remove_source_from_settings(&agent_local.display().to_string(), UserOrProject::User)
+            .unwrap());
         assert!(manager.list_configured_packages().is_empty());
     }
 

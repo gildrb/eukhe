@@ -18,7 +18,8 @@ impl eukhe_tui::interactive::OnboardingSink for FreshHomeOnboardingSink {
 
     fn mark_onboarding_complete(&self) -> anyhow::Result<()> {
         eukhe_core::settings::SettingsManager::create(&self.cwd, &self.agent_dir)
-            .set_onboarding_shown(true)
+            .set_onboarding_shown(true)?
+            .applied()
     }
 }
 
@@ -170,16 +171,15 @@ impl eukhe_tui::provider_auth::ProviderAuthCommands for FullFlowProviderAuth {
         let key = api_key.map(str::to_string);
         Box::pin(async move {
             let mut auth = eukhe_core::auth::AuthStorage::create(&agent_dir);
-            auth.set(
+            if let Err(error) = auth.set(
                 &provider_id,
                 eukhe_core::auth::AuthCredential::ApiKey {
                     key: key.unwrap_or_default(),
                     prime_team: None,
                 },
-            );
-            if auth.drain_errors().pop().is_some() {
+            ) {
                 return eukhe_tui::provider_auth::ProviderAuthOutcome::Error(format!(
-                    "Failed to save API key for {provider_name}"
+                    "Failed to save API key for {provider_name}: {error}"
                 ));
             }
             eukhe_tui::provider_auth::ProviderAuthOutcome::Status(format!(
@@ -214,16 +214,15 @@ impl eukhe_tui::provider_auth::ProviderAuthCommands for FullFlowProviderAuth {
                 return eukhe_tui::provider_auth::ProviderAuthOutcome::Cancelled;
             };
             let mut auth = eukhe_core::auth::AuthStorage::create(&agent_dir);
-            auth.set(
+            if let Err(error) = auth.set(
                 &provider_id,
                 eukhe_core::auth::AuthCredential::ApiKey {
                     key: api_key,
                     prime_team: None,
                 },
-            );
-            if auth.drain_errors().pop().is_some() {
+            ) {
                 return eukhe_tui::provider_auth::ProviderAuthOutcome::Error(format!(
-                    "Failed to login to {provider_name}"
+                    "Failed to login to {provider_name}: {error}"
                 ));
             }
             eukhe_tui::provider_auth::ProviderAuthOutcome::Status(format!(

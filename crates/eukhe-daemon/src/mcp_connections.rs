@@ -156,10 +156,10 @@ impl Worker {
             manager.connection_handles()
         };
         match eukhe_core::mcp::remove_mcp_connection(&handles, server).await {
-            Ok(removed) => response_success(
+            Ok(()) => response_success(
                 None,
                 "remove_mcp_connection",
-                Some(json!({ "server": server, "removed": removed })),
+                Some(json!({ "server": server })),
             ),
             Err(message) => response_failure(None, "remove_mcp_connection", &message, None),
         }

@@ -6,11 +6,12 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{MetadataSource, MissingPackage, ResolvedResource, ResourceOrigin};
+use super::{MetadataSource, MissingPackage, ResolvedPaths, ResolvedResource, ResourceOrigin};
 use crate::packages::manager::BundledSkillsDir;
 use crate::packages::source::{SourceScope, UserOrProject};
 use crate::packages::{PackageManager, PackageManagerOptions};
 use crate::settings::SettingsManager;
+use crate::skills::diagnostics::ResourceDiagnostic;
 
 /// Environment mutations (HOME, `EUKHE_OFFLINE`) are process-wide: tests that
 /// touch them, and tests that read the env-sensitive update flows,
@@ -961,4 +962,192 @@ fn disabled_builtin_skills_are_not_collected() {
         .skills
         .iter()
         .any(|r| r.path.to_string_lossy().contains("some-skill")));
+}
+
+// -- broken manifests and ignore rules ------------------------------------------
+
+/// The paths that packages contribute, of every kind.
+fn package_paths(result: &ResolvedPaths) -> Vec<PathBuf> {
+    result
+        .skills
+        .iter()
+        .chain(&result.prompts)
+        .chain(&result.themes)
+        .filter(|r| r.metadata.origin == ResourceOrigin::Package)
+        .map(|r| r.path.clone())
+        .collect()
+}
+
+/// The diagnostics with a path under `dir`. The scans of the real home and
+/// of the ancestors of the fixture cannot add to them.
+fn diagnostics_under(result: &ResolvedPaths, dir: &Path) -> Vec<ResourceDiagnostic> {
+    result
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| match diagnostic {
+            ResourceDiagnostic::Warning { path, .. } | ResourceDiagnostic::Error { path, .. } => {
+                path.as_deref()
+                    .is_some_and(|path| Path::new(path).starts_with(dir))
+            }
+            ResourceDiagnostic::Collision { path, .. } => Path::new(path).starts_with(dir),
+        })
+        .cloned()
+        .collect()
+}
+
+fn broken_manifest(package_json: &Path, reason: &str) -> ResourceDiagnostic {
+    ResourceDiagnostic::Error {
+        message: format!("package manifest not used, so the package loads nothing: {reason}"),
+        path: Some(package_json.display().to_string()),
+    }
+}
+
+#[test]
+fn malformed_package_json_loads_nothing_and_is_reported() {
+    let mut fixture = Fixture::new();
+    let pkg_dir = fixture.temp_dir.join("broken-manifest-pkg");
+    let package_json = pkg_dir.join("package.json");
+    let content = r#"{"name":"broken-manifest-pkg","pi":{"skills":["skills"]"#;
+    write(&package_json, content);
+    skill_md(&pkg_dir.join("skills"), "convention-skill", "Convention");
+    write(&pkg_dir.join("prompts").join("convention.md"), "A prompt");
+    fixture.set_user_packages(serde_json::json!([pkg_dir.display().to_string()]));
+
+    let result = fixture.manager.resolve().unwrap();
+    let parse_error = serde_json::from_str::<serde_json::Value>(content).unwrap_err();
+    assert_eq!(
+        (
+            package_paths(&result),
+            diagnostics_under(&result, &fixture.temp_dir),
+        ),
+        (
+            Vec::<PathBuf>::new(),
+            vec![broken_manifest(&package_json, &parse_error.to_string())],
+        ),
+    );
+}
+
+#[test]
+fn malformed_package_json_of_a_filtered_package_loads_nothing() {
+    let mut fixture = Fixture::new();
+    let pkg_dir = fixture.temp_dir.join("broken-filtered-pkg");
+    let package_json = pkg_dir.join("package.json");
+    let content = "{not json";
+    write(&package_json, content);
+    write(&pkg_dir.join("prompts").join("convention.md"), "A prompt");
+    fixture.set_user_packages(serde_json::json!([{
+        "source": pkg_dir.display().to_string(),
+        "skills": [],
+    }]));
+
+    let result = fixture.manager.resolve().unwrap();
+    let parse_error = serde_json::from_str::<serde_json::Value>(content).unwrap_err();
+    assert_eq!(
+        (
+            package_paths(&result),
+            diagnostics_under(&result, &fixture.temp_dir),
+        ),
+        (
+            Vec::<PathBuf>::new(),
+            vec![broken_manifest(&package_json, &parse_error.to_string())],
+        ),
+    );
+}
+
+#[test]
+fn pi_list_of_wrong_shape_loads_nothing_and_is_reported() {
+    let mut fixture = Fixture::new();
+    let pkg_dir = fixture.temp_dir.join("wrong-shape-pkg");
+    let package_json = pkg_dir.join("package.json");
+    write(
+        &package_json,
+        r#"{"name":"wrong-shape-pkg","pi":{"skills":"skills"}}"#,
+    );
+    skill_md(&pkg_dir.join("skills"), "convention-skill", "Convention");
+    fixture.set_user_packages(serde_json::json!([pkg_dir.display().to_string()]));
+
+    let result = fixture.manager.resolve().unwrap();
+    assert_eq!(
+        (
+            package_paths(&result),
+            diagnostics_under(&result, &fixture.temp_dir),
+        ),
+        (
+            Vec::<PathBuf>::new(),
+            vec![broken_manifest(
+                &package_json,
+                "\"pi.skills\" is not a list"
+            )],
+        ),
+    );
+}
+
+#[test]
+fn invalid_ignore_rule_is_reported_and_ignores_its_whole_directory() {
+    let mut fixture = Fixture::new();
+    let pkg_dir = fixture.temp_dir.join("bad-ignore-pkg");
+    let skills_dir = pkg_dir.join("skills");
+    let good = skill_md(&skills_dir, "good-skill", "Good");
+    skill_md(&skills_dir.join("team"), "secret-skill", "Secret");
+    skill_md(&skills_dir.join("team"), "other-skill", "Other");
+    // The rule is meant to ignore `secret-skill`, but its class is not closed.
+    let ignore_file = skills_dir.join("team").join(".gitignore");
+    write(&ignore_file, "secret-skill[\n");
+    fixture.set_user_packages(serde_json::json!([pkg_dir.display().to_string()]));
+
+    let result = fixture.manager.resolve().unwrap();
+    let glob_error = globset::GlobBuilder::new("team/secret-skill[")
+        .literal_separator(true)
+        .backslash_escape(true)
+        .build()
+        .unwrap_err();
+    assert_eq!(
+        (
+            package_paths(&result),
+            diagnostics_under(&result, &fixture.temp_dir),
+        ),
+        (
+            vec![good],
+            vec![ResourceDiagnostic::Warning {
+                message: format!(
+                    "ignore rule \"secret-skill[\" is not a valid glob, so every path under \
+                     its directory is ignored: {glob_error}"
+                ),
+                path: Some(ignore_file.display().to_string()),
+            }],
+        ),
+    );
+}
+
+#[test]
+fn unreadable_ignore_file_is_reported_and_ignores_its_whole_directory() {
+    let mut fixture = Fixture::new();
+    let pkg_dir = fixture.temp_dir.join("unreadable-ignore-pkg");
+    let prompts_dir = pkg_dir.join("prompts");
+    let kept = prompts_dir.join("kept.md");
+    write(&kept, "A prompt");
+    write(&prompts_dir.join("team").join("hidden.md"), "A prompt");
+    // A directory in the place of an ignore file cannot be read as text.
+    let ignore_file = prompts_dir.join("team").join(".ignore");
+    std::fs::create_dir_all(&ignore_file).unwrap();
+    fixture.set_user_packages(serde_json::json!([pkg_dir.display().to_string()]));
+
+    let result = fixture.manager.resolve().unwrap();
+    let read_error = std::fs::read_to_string(&ignore_file).unwrap_err();
+    assert_eq!(
+        (
+            package_paths(&result),
+            diagnostics_under(&result, &fixture.temp_dir),
+        ),
+        (
+            vec![kept],
+            vec![ResourceDiagnostic::Warning {
+                message: format!(
+                    "ignore file not read, so every path under its directory is ignored: \
+                     {read_error}"
+                ),
+                path: Some(ignore_file.display().to_string()),
+            }],
+        ),
+    );
 }

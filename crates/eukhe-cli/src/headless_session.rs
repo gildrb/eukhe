@@ -410,8 +410,7 @@ async fn session_config(
     session.thinking = config.thinking.map(thinking_level);
     session.prompt = PromptConfig {
         custom_system_prompt: config.system_prompt.clone(),
-        append_system_prompt: (!config.append_system_prompt.is_empty())
-            .then(|| config.append_system_prompt.join("\n\n")),
+        append_system_prompt: config.append_system_prompt.clone(),
         additional_skill_paths: config
             .skills
             .iter()

@@ -196,8 +196,8 @@ pub fn build_groups(resolved: &ResolvedPaths) -> Vec<ResourceGroup> {
 ///
 /// # Errors
 ///
-/// Never fails: both delegated toggle paths write through infallible
-/// settings setters and always return `Ok`.
+/// The settings file cannot be read, parsed or written, or a higher
+/// layer sets the array, so the toggle does not apply.
 pub fn toggle_resource(
     settings: &mut SettingsManager,
     cwd: &Path,
@@ -206,8 +206,8 @@ pub fn toggle_resource(
     enabled: bool,
 ) -> Result<String> {
     match item.metadata.origin {
-        ResourceOrigin::TopLevel => Ok(toggle_top_level(settings, cwd, agent_dir, item, enabled)),
-        ResourceOrigin::Package => Ok(toggle_package_resource(settings, item, enabled)),
+        ResourceOrigin::TopLevel => toggle_top_level(settings, cwd, agent_dir, item, enabled),
+        ResourceOrigin::Package => toggle_package_resource(settings, item, enabled),
     }
 }
 
@@ -217,7 +217,7 @@ fn toggle_top_level(
     agent_dir: &Path,
     item: &ResourceItem,
     enabled: bool,
-) -> String {
+) -> Result<String> {
     let project = item.metadata.scope == SourceScope::Project;
     let pattern = top_level_pattern(cwd, agent_dir, item);
     let disable = format!("-{pattern}");
@@ -238,8 +238,8 @@ fn toggle_top_level(
         .collect();
     let written = if enabled { enable } else { disable };
     updated.push(written.clone());
-    write_resource_array(settings, project, item.resource_type, updated);
-    written
+    write_resource_array(settings, project, item.resource_type, updated)?;
+    Ok(written)
 }
 
 /// The settings-array pattern for a top-level resource: relative to the
@@ -264,7 +264,7 @@ fn toggle_package_resource(
     settings: &mut SettingsManager,
     item: &ResourceItem,
     enabled: bool,
-) -> String {
+) -> Result<String> {
     let project = item.metadata.scope == SourceScope::Project;
     let scope = if project {
         settings.project_document()
@@ -283,7 +283,7 @@ fn toggle_package_resource(
             )
     });
     let Some(index) = index else {
-        return String::new();
+        return Ok(String::new());
     };
     let mut entry = packages[index].clone();
     if entry.is_string() {
@@ -327,12 +327,10 @@ fn toggle_package_resource(
     }
     let mut updated_packages = packages;
     updated_packages[index] = entry;
-    if project {
-        settings.set_project_packages(updated_packages);
-    } else {
-        settings.set_packages(updated_packages);
-    }
-    written
+    settings
+        .set_scope_packages(settings_scope(project), updated_packages)?
+        .applied()?;
+    Ok(written)
 }
 
 fn resource_array(
@@ -360,12 +358,22 @@ fn write_resource_array(
     project: bool,
     resource_type: ResourceType,
     values: Vec<String>,
-) {
-    let field = resource_array_key(resource_type);
+) -> Result<()> {
+    settings
+        .set_scope_resource_array(
+            settings_scope(project),
+            resource_array_key(resource_type),
+            values,
+        )?
+        .applied()
+}
+
+/// The settings scope of a resource (`project`: the project scope).
+fn settings_scope(project: bool) -> crate::settings::SettingsScope {
     if project {
-        settings.set_project_resource_array(field, values);
+        crate::settings::SettingsScope::Project
     } else {
-        settings.set_global_resource_array(field, values);
+        crate::settings::SettingsScope::Global
     }
 }
 
@@ -633,7 +641,14 @@ mod tests {
         let (root, mut settings) = settings_fixture();
         let cwd = root.path().join("work");
         let agent_dir = root.path().join("agent");
-        settings.set_packages(vec![serde_json::json!("npm:foo/bar")]);
+        settings
+            .set_scope_packages(
+                crate::settings::SettingsScope::Global,
+                vec![serde_json::json!("npm:foo/bar")],
+            )
+            .unwrap()
+            .applied()
+            .unwrap();
         let item = ResourceItem {
             path: PathBuf::from("/installed/pkg/skills/pack-skill/SKILL.md"),
             enabled: true,

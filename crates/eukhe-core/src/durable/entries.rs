@@ -143,6 +143,7 @@ pub fn is_display_only_custom_type(custom_type: &str) -> bool {
             | crate::durable::directors::DIRECTOR_NOTICE_CUSTOM_TYPE
             | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE
             | crate::durable::compaction::auxiliary_model::AUXILIARY_MODEL_NOTICE_CUSTOM_TYPE
+            | crate::durable::models::DEFAULT_MODEL_NOTICE_CUSTOM_TYPE
     )
 }
 

@@ -128,9 +128,7 @@ fn gateway_config(
         .cwd
         .as_deref()
         .map_or_else(|| home.clone(), crate::config::expand_tilde_path);
-    let session_dir = crate::config::get_session_dir_env_override()
-        .or_else(|| settings.get_session_dir())
-        .unwrap_or_else(|| agent_dir.join("sessions"));
+    let session_dir = eukhe_core::settings::resolve_session_dir(None, &settings, &agent_dir)?.path;
     Ok(eukhe_gateway::GatewayConfig {
         socket_path: crate::config::resolve_daemon_socket_path(daemon_socket),
         session_dir,

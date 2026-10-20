@@ -264,6 +264,12 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
     let explicit = explicit_model(&settings);
     let auth = crate::auth::AuthStorage::create(agent_dir);
     let mut registry = crate::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
+    // A bad models.json entry drops its provider: a model the compactor
+    // cannot find may be one of them, so its error names them.
+    let models_json = match registry.diagnostics() {
+        [] => String::new(),
+        diagnostics => format!(" (models.json errors: {})", diagnostics.join("; ")),
+    };
     let (selector, model) = if let Some(selector) = explicit {
         let model = crate::models::resolver::find_exact_model_reference_match(
             &selector,
@@ -271,12 +277,16 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
         )
         .cloned()
         .ok_or_else(|| {
-            anyhow::anyhow!("the memory compactor model {selector} is not in the model catalog")
+            anyhow::anyhow!(
+                "the memory compactor model {selector} is not in the model catalog{models_json}"
+            )
         })?;
         (selector, model)
     } else {
         // The default model: the same chain that picks the agent's model
-        // when no flag or session pins one.
+        // when no flag or session pins one. A saved default that cannot
+        // run fails the call with its reason; the compactor never moves
+        // past it in silence.
         let all: Vec<Model> = registry.get_all().cloned().collect();
         let available: Vec<Model> = registry.get_available().into_iter().cloned().collect();
         let default_provider = settings.get_default_provider();
@@ -291,6 +301,13 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
             all_models: &all,
             available_models: &available,
         };
+        if let Some(reason) = crate::models::saved_default_miss(&options) {
+            anyhow::bail!(
+                "the saved default model {}/{} did not run the memory compactor: {reason}{models_json}. Fix the default, or set memory.model (provider/model-id) in settings.json.",
+                default_provider.as_deref().unwrap_or_default(),
+                default_model_id.as_deref().unwrap_or_default()
+            );
+        }
         let model = crate::models::find_initial_model(&options).ok_or_else(|| {
             anyhow::anyhow!(
                 "no model for the memory compactor: {} Or set memory.model (provider/model-id) in settings.json.",
@@ -313,14 +330,12 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
             resolved.error.as_deref().unwrap_or("run /login")
         );
     }
-    let models = crate::durable::create_models(agent_dir).map_err(|error| {
-        anyhow::anyhow!("the memory compactor model collection failed: {error}")
-    })?;
+    let models = crate::durable::create_models(agent_dir).models;
     let served = models
         .get_model(&model.provider, &model.id)
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "the memory compactor model {selector} is not served by the model collection"
+                "the memory compactor model {selector} is not served by the model collection{models_json}"
             )
         })?;
     Ok(Target {
@@ -747,6 +762,31 @@ mod tests {
                     last_error: None,
                 }
             )
+        );
+    }
+
+    /// Regression (audit H4): with no `memory.model`, a saved default
+    /// missing from the catalog moved the compactor to the next startup
+    /// default in silence. Now the call fails and names the saved default
+    /// and the reason.
+    #[test]
+    fn a_saved_default_missing_from_the_catalog_fails_the_compactor() {
+        let dir = TempDir::new().unwrap();
+        let settings = json!({"defaultProvider": "local", "defaultModel": "gone"});
+        std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
+        let models = json!({"providers": {"local": {
+            "baseUrl": "http://127.0.0.1:9/v1",
+            "apiKey": "local-key",
+            "api": "openai-completions",
+            "models": [{"id": "m"}]
+        }}});
+        std::fs::write(dir.path().join("models.json"), models.to_string()).unwrap();
+        let Err(error) = resolve(dir.path()) else {
+            panic!("the compactor ran on another model");
+        };
+        assert_eq!(
+            error.to_string(),
+            "the saved default model local/gone did not run the memory compactor: the model catalog does not have it. Fix the default, or set memory.model (provider/model-id) in settings.json."
         );
     }
 }

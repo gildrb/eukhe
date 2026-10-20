@@ -3,29 +3,44 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::skills::diagnostics::ResourceDiagnostic;
+
 use super::super::PackageManager;
 use super::discovery::{collect_resource_files, read_pi_manifest};
 use super::manager::collect_files_from_paths;
 use super::patterns::{apply_patterns, has_glob_pattern, is_override_pattern};
 use super::{
-    resource_type_dir_name, PackageFilter, PathMetadata, ResourceAccumulator, ResourceType,
-    RESOURCE_TYPES,
+    resource_type_dir_name, PackageFilter, PathMetadata, PiManifest, ResourceAccumulator,
+    ResourceType, RESOURCE_TYPES,
 };
 
 impl PackageManager {
     /// Collect a package's resources. True when the package contributes any
-    /// resources (filter patterns always count as contributing).
+    /// resources (filter patterns always count as contributing). A
+    /// `package.json` that is broken is reported, and the package then
+    /// contributes nothing.
     pub(super) fn collect_package_resources(
         package_root: &Path,
         accumulator: &mut ResourceAccumulator,
         filter: Option<&PackageFilter>,
         metadata: &PathMetadata,
     ) -> bool {
+        let manifest = match read_pi_manifest(package_root) {
+            Ok(manifest) => manifest,
+            Err(diagnostic) => {
+                accumulator.diagnostics.push(*diagnostic);
+                return false;
+            }
+        };
+
         if let Some(filter) = filter {
+            // Without a manifest, every kind uses its convention directory.
+            let manifest = manifest.unwrap_or_default();
             for resource_type in RESOURCE_TYPES {
                 match filter.get(resource_type) {
                     Some(patterns) => Self::apply_package_filter(
                         package_root,
+                        &manifest,
                         patterns,
                         resource_type,
                         accumulator,
@@ -33,6 +48,7 @@ impl PackageManager {
                     ),
                     None => Self::collect_default_resources(
                         package_root,
+                        &manifest,
                         resource_type,
                         accumulator,
                         metadata,
@@ -42,7 +58,6 @@ impl PackageManager {
             return true;
         }
 
-        let manifest = read_pi_manifest(package_root);
         if let Some(manifest) = manifest {
             for resource_type in RESOURCE_TYPES {
                 let entries = manifest.entries(resource_type);
@@ -61,7 +76,9 @@ impl PackageManager {
         for resource_type in RESOURCE_TYPES {
             let dir = package_root.join(resource_type_dir_name(resource_type));
             if dir.exists() {
-                for file in collect_resource_files(&dir, resource_type) {
+                let files =
+                    collect_resource_files(&dir, resource_type, &mut accumulator.diagnostics);
+                for file in files {
                     accumulator
                         .map(resource_type)
                         .add(&file, metadata.clone(), true);
@@ -76,12 +93,18 @@ impl PackageManager {
     /// top of the package's own manifest patterns.
     fn apply_package_filter(
         package_root: &Path,
+        manifest: &PiManifest,
         user_patterns: &[String],
         resource_type: ResourceType,
         accumulator: &mut ResourceAccumulator,
         metadata: &PathMetadata,
     ) {
-        let all_files = Self::collect_manifest_files(package_root, resource_type);
+        let all_files = Self::collect_manifest_files(
+            package_root,
+            manifest,
+            resource_type,
+            &mut accumulator.diagnostics,
+        );
         // An explicit empty list disables this resource type.
         if user_patterns.is_empty() {
             for file in &all_files {
@@ -102,15 +125,20 @@ impl PackageManager {
 
     /// All files a package offers for one kind: manifest entries (filtered by
     /// the manifest's own override patterns) or the convention directory.
-    fn collect_manifest_files(package_root: &Path, resource_type: ResourceType) -> Vec<PathBuf> {
-        let manifest = read_pi_manifest(package_root);
-        let entries = manifest
-            .as_ref()
-            .and_then(|manifest| manifest.entries(resource_type))
-            .unwrap_or_default();
+    fn collect_manifest_files(
+        package_root: &Path,
+        manifest: &PiManifest,
+        resource_type: ResourceType,
+        diagnostics: &mut Vec<ResourceDiagnostic>,
+    ) -> Vec<PathBuf> {
+        let entries = manifest.entries(resource_type).unwrap_or_default();
         if !entries.is_empty() {
-            let all_files =
-                Self::collect_files_from_manifest_entries(&entries, package_root, resource_type);
+            let all_files = Self::collect_files_from_manifest_entries(
+                &entries,
+                package_root,
+                resource_type,
+                diagnostics,
+            );
             let manifest_patterns: Vec<String> = entries
                 .iter()
                 .filter(|entry| is_override_pattern(entry))
@@ -128,7 +156,7 @@ impl PackageManager {
         if !convention_dir.exists() {
             return Vec::new();
         }
-        collect_resource_files(&convention_dir, resource_type)
+        collect_resource_files(&convention_dir, resource_type, diagnostics)
     }
 
     /// Manifest entries of one kind: non-override entries resolve to paths
@@ -143,7 +171,12 @@ impl PackageManager {
         let Some(entries) = entries else {
             return;
         };
-        let all_files = Self::collect_files_from_manifest_entries(entries, root, resource_type);
+        let all_files = Self::collect_files_from_manifest_entries(
+            entries,
+            root,
+            resource_type,
+            &mut accumulator.diagnostics,
+        );
         let patterns: Vec<String> = entries
             .iter()
             .filter(|entry| is_override_pattern(entry))
@@ -163,6 +196,7 @@ impl PackageManager {
         entries: &[String],
         root: &Path,
         resource_type: ResourceType,
+        diagnostics: &mut Vec<ResourceDiagnostic>,
     ) -> Vec<PathBuf> {
         let mut resolved: Vec<PathBuf> = Vec::new();
         for entry in entries.iter().filter(|entry| !is_override_pattern(entry)) {
@@ -172,21 +206,19 @@ impl PackageManager {
                 resolved.push(super::super::source::lexical_resolve(root, entry));
             }
         }
-        collect_files_from_paths(&resolved, resource_type)
+        collect_files_from_paths(&resolved, resource_type, diagnostics)
     }
 
-    /// Manifest-less default collection for one kind: manifest entries when
-    /// present, else the convention directory.
+    /// Default collection for one kind of a filtered package: manifest
+    /// entries when present, else the convention directory.
     fn collect_default_resources(
         package_root: &Path,
+        manifest: &PiManifest,
         resource_type: ResourceType,
         accumulator: &mut ResourceAccumulator,
         metadata: &PathMetadata,
     ) {
-        let manifest = read_pi_manifest(package_root);
-        let entries = manifest
-            .as_ref()
-            .and_then(|manifest| manifest.entries(resource_type));
+        let entries = manifest.entries(resource_type);
         if entries.is_some() {
             Self::add_manifest_entries(
                 entries.as_deref(),
@@ -199,7 +231,7 @@ impl PackageManager {
         }
         let dir = package_root.join(resource_type_dir_name(resource_type));
         if dir.exists() {
-            for file in collect_resource_files(&dir, resource_type) {
+            for file in collect_resource_files(&dir, resource_type, &mut accumulator.diagnostics) {
                 accumulator
                     .map(resource_type)
                     .add(&file, metadata.clone(), true);

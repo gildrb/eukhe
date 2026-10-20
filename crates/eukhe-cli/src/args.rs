@@ -3,6 +3,9 @@
 //! optionally consume the next token and diagnostics carry their own
 //! formatting, none of which a stock derive-based parser can express.
 
+use std::path::PathBuf;
+
+use eukhe_core::resources::SystemPromptInput;
 use eukhe_types::ai::ModelThinkingLevel;
 
 /// Supported reasoning-effort levels (`THINKING_LEVELS` in the TS product).
@@ -138,8 +141,12 @@ pub struct Args {
     pub model: Option<String>,
     pub api_key: Option<String>,
     pub cwd: Option<String>,
-    pub system_prompt: Option<String>,
-    pub append_system_prompt: Vec<String>,
+    /// `--system-prompt <text>` or `--system-prompt-file <path>` (the last
+    /// one wins).
+    pub system_prompt: Option<SystemPromptInput>,
+    /// `--append-system-prompt <text>` and `--append-system-prompt-file
+    /// <path>`, in order.
+    pub append_system_prompt: Vec<SystemPromptInput>,
     pub thinking: Option<ModelThinkingLevel>,
     pub continue_: bool,
     /// `true` when `--resume` was given without a selector.
@@ -295,10 +302,25 @@ pub fn parse_args(args: &[String]) -> Args {
             "--model" => result.model = Some(require_value!(arg)),
             "--api-key" => result.api_key = Some(require_value!(arg)),
             "--cwd" => result.cwd = Some(require_value!(arg)),
-            "--system-prompt" => result.system_prompt = Some(require_value!(arg)),
+            "--system-prompt" => {
+                result.system_prompt = Some(SystemPromptInput::Text(require_value!(arg)));
+            }
+            "--system-prompt-file" => {
+                result.system_prompt = Some(SystemPromptInput::File {
+                    file: PathBuf::from(require_value!(arg)),
+                });
+            }
             "--append-system-prompt" => {
                 let value = require_value!(arg);
-                result.append_system_prompt.push(value);
+                result
+                    .append_system_prompt
+                    .push(SystemPromptInput::Text(value));
+            }
+            "--append-system-prompt-file" => {
+                let value = require_value!(arg);
+                result.append_system_prompt.push(SystemPromptInput::File {
+                    file: PathBuf::from(value),
+                });
             }
             "--no-session" => result.no_session = true,
             "--fork" => result.fork = Some(require_value!(arg)),
@@ -565,6 +587,34 @@ mod tests {
     fn end_of_options_marker() {
         let parsed = parse(&["--", "-x", "--mode"]);
         assert_eq!(parsed.messages, vec!["-x", "--mode"]);
+    }
+
+    /// A text flag is always text and a file flag is always a file, in
+    /// the order given.
+    #[test]
+    fn prompt_flags_keep_their_input_type() {
+        let parsed = parse(&[
+            "--system-prompt-file",
+            "./SYSTEM.md",
+            "--append-system-prompt",
+            "./NOTES.md",
+            "--append-system-prompt-file",
+            "./extra.md",
+        ]);
+        assert_eq!(
+            (parsed.system_prompt, parsed.append_system_prompt),
+            (
+                Some(SystemPromptInput::File {
+                    file: PathBuf::from("./SYSTEM.md"),
+                }),
+                vec![
+                    SystemPromptInput::Text("./NOTES.md".to_string()),
+                    SystemPromptInput::File {
+                        file: PathBuf::from("./extra.md"),
+                    },
+                ],
+            )
+        );
     }
 
     #[test]

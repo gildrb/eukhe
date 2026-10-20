@@ -56,9 +56,25 @@
 //! model), model `headers` ride the model, provider `headers` and
 //! `authHeader` ride every request, and the provider `apiKey` (a config
 //! value) applies when neither a stored credential nor the provider's
-//! environment key resolves.
+//! environment key resolves. A bad `providers.<id>` entry drops only that
+//! provider; [`SessionModels::diagnostics`] names it, the same way the
+//! registry's diagnostics do (one loader serves both views).
+//!
+//! # The saved default model
+//!
+//! [`resolve_session_model`] never moves past the saved default
+//! (`defaultProvider`/`defaultModel`) in silence. A saved default that is
+//! not in the catalog, or not in the `enabledModels` scope, gives the next
+//! startup default with the [`Substitution`]. A saved default whose
+//! provider has no credentials is the typed error
+//! [`ModelsError::DefaultUnusable`]: the session never moves to another
+//! provider. A session opens on [`resolve_open_model`] and shows the
+//! notice row [`DEFAULT_MODEL_NOTICE_CUSTOM_TYPE`]. The Bend model is
+//! `bend/default_model.bend`.
 
 mod compose;
+#[cfg(test)]
+mod default_bridge;
 pub(crate) mod failover;
 pub(crate) mod image_route;
 pub(crate) mod park;
@@ -86,17 +102,18 @@ use serde_json::Value;
 use super::deps::ModelRequest;
 use crate::models::{
     find_initial_model, model_allowed, resolve_cli_model, resolve_model_scope_from_models,
-    InitialModelOptions, ModelAllowlistRefusal,
+    saved_default_miss, DefaultMiss, InitialModelOptions, ModelAllowlistRefusal,
 };
 use crate::settings::SettingsManager;
 
-/// Errors building the model collection or resolving a model.
+/// The custom type of the row that tells why a session did not open on the
+/// saved default model (display-only: the user sees it, the model does
+/// not).
+pub const DEFAULT_MODEL_NOTICE_CUSTOM_TYPE: &str = "eukhe.default_model";
+
+/// Errors resolving a model.
 #[derive(Debug, thiserror::Error)]
 pub enum ModelsError {
-    /// `models.json` could not be read, parsed, or validated, or a model it
-    /// defines is not a valid model. The message names the file.
-    #[error("{0}")]
-    ModelsJson(String),
     /// Reading the credentials or the model catalog failed.
     #[error("Failed to determine the available models: {0}")]
     Catalog(String),
@@ -118,9 +135,50 @@ pub enum ModelsError {
         "The daemon model allowlist could not be read ({reason}); refusing to resolve model \"{selector}\" -- the daemon fails closed instead of bypassing the configured allowedModels policy. Fix settings.json and retry."
     )]
     AllowlistUnreadable { reason: String, selector: String },
+    /// The saved default model cannot run and no model runs in its place:
+    /// its provider has no credentials (no other provider takes its
+    /// place), or no other model has credentials.
+    #[error("{}", .0.refusal())]
+    DefaultUnusable(Substitution),
     /// The caller's context was cancelled.
     #[error("Model resolution was cancelled")]
     Cancelled,
+}
+
+/// The saved default model a session does not run on, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Substitution {
+    /// The saved default (`defaultProvider`/`defaultModel`).
+    pub wanted: ModelRef,
+    pub reason: DefaultMiss,
+}
+
+impl Substitution {
+    /// The sentence that names the saved default and the reason.
+    fn missed(&self) -> String {
+        format!(
+            "The saved default model {}/{} did not run: {}.",
+            self.wanted.provider, self.wanted.model_id, self.reason
+        )
+    }
+
+    /// The text of [`ModelsError::DefaultUnusable`]: the saved default,
+    /// the reason, and what to do.
+    #[must_use]
+    pub fn refusal(&self) -> String {
+        let fix = match self.reason {
+            DefaultMiss::NoCredentials => {
+                "eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change defaultProvider/defaultModel."
+            }
+            DefaultMiss::NotInCatalog => {
+                "No other model has credentials. Run \"eukhe model list\", fix models.json, or change defaultProvider/defaultModel."
+            }
+            DefaultMiss::NotInScope => {
+                "No other model is in the scope. Change enabledModels or defaultProvider/defaultModel."
+            }
+        };
+        format!("{} {fix}", self.missed())
+    }
 }
 
 /// The model and thinking level of a new conversation.
@@ -128,26 +186,33 @@ pub enum ModelsError {
 pub struct ResolvedModel {
     pub model: ModelRef,
     pub thinking: ModelThinkingLevel,
+    /// The saved default this model runs in place of; `None` when the
+    /// model is the saved default, nothing is saved, or the caller
+    /// requested the model.
+    pub substituted: Option<Substitution>,
+}
+
+/// The model collection of a session and the models.json diagnostics.
+pub struct SessionModels {
+    pub models: Models,
+    /// One diagnostic for each bad `providers.<id>` entry (that provider
+    /// is dropped), or one for a file that cannot be read or parsed (no
+    /// custom models). Empty when the file is good or absent.
+    pub diagnostics: Vec<String>,
 }
 
 /// `eukhe_ai::models::Models` with every built-in pi-ai provider,
 /// credentials from eukhe's auth storage, custom providers/models from
 /// eukhe `models.json`, and Prime Inference through the pi-ai
 /// `prime-inference` provider's compiled catalog. See the module docs.
-///
-/// # Errors
-///
-/// [`ModelsError::ModelsJson`] when `models.json` is unreadable or invalid.
-pub fn create_models(agent_dir: &Path) -> Result<Models, ModelsError> {
+#[must_use]
+pub fn create_models(agent_dir: &Path) -> SessionModels {
     build_models(agent_dir, None)
 }
 
 /// [`create_models`] with an injectable auth context (`None`: the process
 /// environment and file system).
-fn build_models(
-    agent_dir: &Path,
-    auth_context: Option<Arc<dyn AuthContext>>,
-) -> Result<Models, ModelsError> {
+fn build_models(agent_dir: &Path, auth_context: Option<Arc<dyn AuthContext>>) -> SessionModels {
     let models = create_pi_models(CreateModelsOptions {
         credentials: Some(Arc::new(stores::AuthJsonCredentialStore::new(
             agent_dir.join(crate::auth::AUTH_FILE_NAME),
@@ -155,34 +220,37 @@ fn build_models(
         models_store: None,
         auth_context,
     });
-    for provider in compose::compose_providers(builtin_providers(), &agent_dir.join("models.json"))?
-    {
+    let (providers, diagnostics) =
+        compose::compose_providers(builtin_providers(), &agent_dir.join("models.json"));
+    for provider in providers {
         models.set_provider(provider);
     }
     // The installed tiny models as `local/<id>` classifiers (S9 `judge`).
     crate::tiny::judge::add_local_provider(&models, agent_dir);
-    Ok(models)
+    SessionModels {
+        models,
+        diagnostics,
+    }
 }
 
 /// `<agent_dir>/models.json` composed over the providers already in
 /// `models` (the scripted faux verification seam's collection), plus the
 /// custom providers it defines: a `models.json` faux-api model streams
 /// through the registered scripted provider, as it did through the old
-/// registry. A missing file changes nothing.
-///
-/// # Errors
-///
-/// [`ModelsError::ModelsJson`] when `models.json` is unreadable or invalid.
-pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Result<(), ModelsError> {
+/// registry. A missing file changes nothing. Returns the models.json
+/// diagnostics ([`SessionModels::diagnostics`]).
+#[must_use]
+pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Vec<String> {
     let base = models
         .get_providers()
         .iter()
         .map(|provider| eukhe_ai::models::Provider::clone(provider))
         .collect();
-    for provider in compose::compose_providers(base, &agent_dir.join("models.json"))? {
+    let (providers, diagnostics) = compose::compose_providers(base, &agent_dir.join("models.json"));
+    for provider in providers {
         models.set_provider(provider);
     }
-    Ok(())
+    diagnostics
 }
 
 /// Model + thinking of a new root conversation, as eukhe's daemon resolves
@@ -194,7 +262,10 @@ pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Result<(), Mode
 ///    (`find_initial_model`): the settings `enabledModels` scope (the saved
 ///    default when in scope, else the first scoped model), the settings
 ///    `defaultProvider`/`defaultModel`, the featured default, the first
-///    available model;
+///    available model. A saved default that is not in the catalog or not
+///    in the scope gives the next startup default with the
+///    [`Substitution`]; a saved default whose provider has no
+///    credentials is [`ModelsError::DefaultUnusable`];
 /// 3. the result must pass the settings `allowedModels` allowlist (no
 ///    fallback on refusal; an unreadable global settings document fails
 ///    closed);
@@ -202,14 +273,16 @@ pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Result<(), Mode
 ///    else the scoped entry's `:level`, else `defaultThinkingLevel`, else
 ///    `medium` — clamped to the model's supported levels.
 ///
-/// `Ok(None)` when nothing was requested and no model has credentials.
+/// `Ok(None)` when nothing was requested, nothing is saved, and no model
+/// has credentials.
 ///
 /// # Errors
 ///
 /// [`ModelsError::Requested`] / [`ModelsError::ModelNotFound`] for a
-/// requested model that does not resolve, the allowlist errors,
-/// [`ModelsError::Catalog`] when the credential checks fail, and
-/// [`ModelsError::Cancelled`] when `cx` is cancelled.
+/// requested model that does not resolve, [`ModelsError::DefaultUnusable`]
+/// for a saved default that cannot run with no model in its place, the
+/// allowlist errors, [`ModelsError::Catalog`] when the credential checks
+/// fail, and [`ModelsError::Cancelled`] when `cx` is cancelled.
 pub async fn resolve_session_model(
     models: &Models,
     settings: &SettingsManager,
@@ -232,7 +305,7 @@ pub async fn resolve_session_model(
     let all_legacy = legacy_models(&all)?;
     let available_legacy = legacy_models(&available)?;
 
-    let (model, pattern_thinking) = if let Some(requested) = requested {
+    let (model, pattern_thinking, substituted) = if let Some(requested) = requested {
         let result = resolve_cli_model(
             requested.provider.as_deref(),
             &requested.pattern,
@@ -250,7 +323,7 @@ pub async fn resolve_session_model(
             })));
         };
         let thinking = result.thinking_level;
-        (catalog_model(&all, &resolved)?, thinking)
+        (catalog_model(&all, &resolved)?, thinking, None)
     } else {
         let patterns = settings.get_enabled_models().unwrap_or_default();
         let scoped = if patterns.is_empty() {
@@ -270,27 +343,38 @@ pub async fn resolve_session_model(
             all_models: &all_legacy,
             available_models: &available_legacy,
         };
-        let mut picked = find_initial_model(&options);
-        if let Some(rebuilt) = picked.as_ref().filter(|model| !in_catalog(&all, model)) {
-            // eukhe rebuilds a saved default missing from the catalog on the
-            // provider's template; pi-ai `Models` serves registered models
-            // only, so the chain continues past the saved default.
-            tracing::warn!(
-                provider = %rebuilt.provider,
-                model = %rebuilt.id,
-                "the saved default model is not in the catalog; using the next startup default"
-            );
-            options.default_model_id = None;
-            picked = find_initial_model(&options);
+        let substituted = saved_default_miss(&options)
+            .zip(default_provider.as_deref().zip(default_model_id.as_deref()))
+            .map(|(reason, (provider, model_id))| Substitution {
+                wanted: ModelRef {
+                    provider: provider.to_owned(),
+                    model_id: model_id.to_owned(),
+                },
+                reason,
+            });
+        if let Some(substitution) = &substituted {
+            match substitution.reason {
+                // No move to another provider.
+                DefaultMiss::NoCredentials => {
+                    return Err(ModelsError::DefaultUnusable(substitution.clone()))
+                }
+                // The chain goes on past the saved default.
+                DefaultMiss::NotInCatalog | DefaultMiss::NotInScope => {
+                    options.default_model_id = None;
+                }
+            }
         }
-        let Some(picked) = picked else {
-            return Ok(None);
+        let Some(picked) = find_initial_model(&options) else {
+            return match substituted {
+                Some(substitution) => Err(ModelsError::DefaultUnusable(substitution)),
+                None => Ok(None),
+            };
         };
         let thinking = scoped
             .iter()
             .find(|scoped| scoped.model.provider == picked.provider && scoped.model.id == picked.id)
             .and_then(|scoped| scoped.thinking_level);
-        (catalog_model(&all, &picked)?, thinking)
+        (catalog_model(&all, &picked)?, thinking, substituted)
     };
 
     enforce_allowlist(settings, &format!("{}/{}", model.provider, model.id))?;
@@ -303,7 +387,70 @@ pub async fn resolve_session_model(
             provider: model.provider,
             model_id: model.id,
         },
+        substituted,
     }))
+}
+
+/// The model a session opens with ([`resolve_open_model`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenModel {
+    /// The model and thinking level; `None` when no model resolves.
+    pub(crate) resolved: Option<ResolvedModel>,
+    /// The saved default that cannot run when no model runs in its place
+    /// ([`ModelsError::DefaultUnusable`]).
+    pub(crate) refused: Option<Substitution>,
+}
+
+impl OpenModel {
+    /// The text of the session's notice row: the saved default, why it
+    /// did not run, and the model in its place (or none). `None` when
+    /// the session runs on the saved default, nothing is saved, or the
+    /// caller requested the model.
+    pub(crate) fn notice(&self) -> Option<String> {
+        match (&self.resolved, &self.refused) {
+            (Some(resolved), _) => resolved.substituted.as_ref().map(|substitution| {
+                format!(
+                    "{} The session runs on {}/{}.",
+                    substitution.missed(),
+                    resolved.model.provider,
+                    resolved.model.model_id
+                )
+            }),
+            (None, Some(substitution)) => Some(format!(
+                "{} The session has no model.",
+                substitution.refusal()
+            )),
+            (None, None) => None,
+        }
+    }
+}
+
+/// [`resolve_session_model`] for a session that opens: a saved default
+/// that cannot run ([`ModelsError::DefaultUnusable`]) opens the session
+/// with no model and the reason, so the user can sign in or change the
+/// default from the session.
+///
+/// # Errors
+///
+/// Every other error of [`resolve_session_model`].
+pub(crate) async fn resolve_open_model(
+    models: &Models,
+    settings: &SettingsManager,
+    requested: Option<&ModelRequest>,
+    requested_thinking: Option<ModelThinkingLevel>,
+    cx: &Context,
+) -> Result<OpenModel, ModelsError> {
+    match resolve_session_model(models, settings, requested, requested_thinking, cx).await {
+        Ok(resolved) => Ok(OpenModel {
+            resolved,
+            refused: None,
+        }),
+        Err(ModelsError::DefaultUnusable(substitution)) => Ok(OpenModel {
+            resolved: None,
+            refused: Some(substitution),
+        }),
+        Err(error) => Err(error),
+    }
 }
 
 /// The resolver's view of the pi-ai models (eukhe's resolver matches on
@@ -320,11 +467,6 @@ fn legacy_models(models: &[Model]) -> Result<Vec<eukhe_types::ai::Model>, Models
             })
         })
         .collect()
-}
-
-fn in_catalog(all: &[Model], model: &eukhe_types::ai::Model) -> bool {
-    all.iter()
-        .any(|entry| entry.provider == model.provider && entry.id == model.id)
 }
 
 fn catalog_model(all: &[Model], model: &eukhe_types::ai::Model) -> Result<Model, ModelsError> {
@@ -438,7 +580,7 @@ mod tests {
             Arc::new(crate::auth::NoOAuth),
         );
         let registry = ModelRegistry::create(auth, dir.path().join("models.json"));
-        assert_eq!(registry.get_error(), None);
+        assert_eq!(registry.diagnostics(), [] as [String; 0]);
 
         for provider in ["anthropic", compat_provider.as_str(), "battery"] {
             let mut listed: Vec<eukhe_types::ai::Model> = registry
@@ -528,16 +670,18 @@ mod tests {
         },
     }"#;
 
-    fn offline_models(agent_dir: &Path) -> Result<Models, ModelsError> {
+    pub(super) fn offline_models(agent_dir: &Path) -> SessionModels {
         build_models(agent_dir, Some(Arc::new(EmptyAuthContext)))
     }
 
     fn battery_models(agent_dir: &Path, models_json: &str) -> Models {
         std::fs::write(agent_dir.join("models.json"), models_json).unwrap();
-        offline_models(agent_dir).unwrap()
+        let loaded = offline_models(agent_dir);
+        assert_eq!(loaded.diagnostics, Vec::<String>::new());
+        loaded.models
     }
 
-    fn settings(value: Value) -> SettingsManager {
+    pub(super) fn settings(value: Value) -> SettingsManager {
         let settings: Settings = serde_json::from_value(value).unwrap();
         SettingsManager::in_memory(&settings)
     }
@@ -569,6 +713,17 @@ mod tests {
                 model_id: model_id.to_owned(),
             },
             thinking,
+            substituted: None,
+        }
+    }
+
+    fn substitution(provider: &str, model_id: &str, reason: DefaultMiss) -> Substitution {
+        Substitution {
+            wanted: ModelRef {
+                provider: provider.to_owned(),
+                model_id: model_id.to_owned(),
+            },
+            reason,
         }
     }
 
@@ -711,7 +866,10 @@ mod tests {
         .unwrap();
         let (models, provider) =
             eukhe_ai::providers::faux_script::create_faux_script_models(script);
-        compose_models_json(&models, dir.path()).unwrap();
+        assert_eq!(
+            compose_models_json(&models, dir.path()),
+            Vec::<String>::new()
+        );
         let mut ids: Vec<String> = models
             .get_models(Some("faux"))
             .into_iter()
@@ -747,22 +905,121 @@ mod tests {
         assert_eq!(base.max_tokens, Some(131_072));
     }
 
-    #[test]
-    fn an_invalid_models_json_fails_with_the_file_named() {
+    /// Regression (audit M1): a models.json with one bad provider entry
+    /// failed the session collection as a whole, while the registry kept
+    /// the built-ins only and stored an error most callers ignored. Now
+    /// both views keep the good provider, drop the bad one, and report the
+    /// same diagnostic naming `providers.<id>`.
+    #[tokio::test]
+    async fn a_bad_provider_entry_drops_only_that_provider_in_both_views() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("models.json"),
-            r#"{ "providers": { "custom": { "models": [{ "id": "x" }] } } }"#,
+            BATTERY_MODELS_JSON.replace(
+                "\"providers\": {",
+                r#""providers": { "custom": { "models": [{ "id": "x" }] },"#,
+            ),
         )
         .unwrap();
-        let Err(error) = offline_models(dir.path()) else {
-            panic!("an invalid models.json must fail");
-        };
+        let session = offline_models(dir.path());
+        let auth = crate::auth::AuthStorage::in_memory_without_env(
+            &crate::auth::AuthStorageData::default(),
+            Arc::new(crate::auth::NoOAuth),
+        );
+        let registry = ModelRegistry::create(auth, dir.path().join("models.json"));
+        let diagnostic =
+            "models.json providers.custom: \"baseUrl\" is required when defining custom models.";
         assert_eq!(
-            error.to_string(),
-            format!(
-                "Provider custom: \"baseUrl\" is required when defining custom models.\n\nFile: {}",
-                dir.path().join("models.json").display()
+            (registry.diagnostics().to_vec(), session.diagnostics.clone()),
+            (vec![diagnostic.to_owned()], vec![diagnostic.to_owned()])
+        );
+        let custom = |provider: &str| -> (Vec<String>, Vec<String>) {
+            let mut listed: Vec<String> = registry
+                .get_all()
+                .filter(|model| model.provider == provider)
+                .map(|model| model.id.clone())
+                .collect();
+            let mut served: Vec<String> = session
+                .models
+                .get_models(Some(provider))
+                .into_iter()
+                .map(|model| model.id)
+                .collect();
+            listed.sort();
+            served.sort();
+            (listed, served)
+        };
+        let battery = vec!["mock-plain".to_owned(), "mock-reason".to_owned()];
+        assert_eq!(custom("battery"), (battery.clone(), battery));
+        assert_eq!(custom("custom"), (Vec::new(), Vec::new()));
+    }
+
+    /// Regression (audit H4): a saved default missing from the catalog
+    /// was replaced by the next startup default with only a log line. Now
+    /// the resolution carries the substitution and its reason.
+    #[tokio::test]
+    async fn a_saved_default_missing_from_the_catalog_is_a_substitution() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = battery_models(dir.path(), BATTERY_MODELS_JSON);
+        let gone = settings(json!({
+            "defaultProvider": "battery", "defaultModel": "gone",
+            "enabledModels": ["battery/mock-plain"]
+        }));
+        assert_eq!(
+            resolve(&models, &gone, None, None).await.unwrap(),
+            Some(ResolvedModel {
+                substituted: Some(substitution("battery", "gone", DefaultMiss::NotInCatalog)),
+                ..resolved("battery", "mock-plain", ModelThinkingLevel::Off)
+            })
+        );
+        // A saved default outside the enabledModels scope.
+        let outside = settings(json!({
+            "defaultProvider": "battery", "defaultModel": "mock-reason",
+            "enabledModels": ["battery/mock-plain"]
+        }));
+        assert_eq!(
+            resolve(&models, &outside, None, None).await.unwrap(),
+            Some(ResolvedModel {
+                substituted: Some(substitution(
+                    "battery",
+                    "mock-reason",
+                    DefaultMiss::NotInScope
+                )),
+                ..resolved("battery", "mock-plain", ModelThinkingLevel::Off)
+            })
+        );
+    }
+
+    /// Regression (audit H4): a saved default whose provider has no
+    /// credentials moved the session to another provider in silence. Now
+    /// it is the typed error, and no other provider runs.
+    #[tokio::test]
+    async fn a_saved_default_without_credentials_never_moves_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let models = battery_models(dir.path(), BATTERY_MODELS_JSON);
+        let anthropic = get_builtin_models("anthropic").remove(0);
+        let unkeyed = settings(json!({
+            "defaultProvider": "anthropic", "defaultModel": anthropic.id
+        }));
+        let wanted = substitution("anthropic", &anthropic.id, DefaultMiss::NoCredentials);
+        match resolve(&models, &unkeyed, None, None).await {
+            Err(ModelsError::DefaultUnusable(refused)) => assert_eq!(refused, wanted),
+            other => panic!("expected the typed error, got {other:?}"),
+        }
+        let opened = resolve_open_model(&models, &unkeyed, None, None, &BACKGROUND_CONTEXT)
+            .await
+            .unwrap();
+        assert_eq!(
+            (opened.notice(), opened),
+            (
+                Some(format!(
+                    "The saved default model anthropic/{} did not run: its provider has no credentials. eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change defaultProvider/defaultModel. The session has no model.",
+                    anthropic.id
+                )),
+                OpenModel {
+                    resolved: None,
+                    refused: Some(wanted),
+                }
             )
         );
     }
@@ -881,7 +1138,7 @@ mod tests {
     #[tokio::test]
     async fn nothing_resolves_without_credentials() {
         let dir = tempfile::tempdir().unwrap();
-        let models = offline_models(dir.path()).unwrap();
+        let models = offline_models(dir.path()).models;
         assert!(!models.get_models(None).is_empty());
         assert_eq!(
             resolve(&models, &settings(json!({})), None, None)

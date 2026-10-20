@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 /// Global flags that consume the next argument as their value.
-pub const GLOBAL_VALUE_FLAGS: [&str; 22] = [
+pub const GLOBAL_VALUE_FLAGS: [&str; 24] = [
     "--mode",
     "--daemon-socket",
     "--provider",
@@ -14,6 +14,8 @@ pub const GLOBAL_VALUE_FLAGS: [&str; 22] = [
     "--cwd",
     "--system-prompt",
     "--append-system-prompt",
+    "--system-prompt-file",
+    "--append-system-prompt-file",
     "--fork",
     "--session-dir",
     "--models",
@@ -36,8 +38,14 @@ const FREEFORM_VALUE_FLAGS: [&str; 2] = ["--goal", "--autonomous-gate"];
 const PROMPT_VALUE_FLAGS: [&str; 2] = ["--system-prompt", "--append-system-prompt"];
 
 /// Flags that mark a one-shot prompt run; their positional is a message.
-pub const PROMPT_RUN_FLAGS: [&str; 4] =
-    ["--print", "-p", "--system-prompt", "--append-system-prompt"];
+pub const PROMPT_RUN_FLAGS: [&str; 6] = [
+    "--print",
+    "-p",
+    "--system-prompt",
+    "--append-system-prompt",
+    "--system-prompt-file",
+    "--append-system-prompt-file",
+];
 
 /// parseArgs-known long flags that take no separate value.
 const GLOBAL_BOOLEAN_FLAGS: [&str; 11] = [

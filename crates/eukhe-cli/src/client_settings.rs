@@ -57,7 +57,7 @@ macro_rules! setting {
         }
 
         fn $set(&self, value: $ty) -> Result<()> {
-            self.manager().$setter(value)
+            self.manager().$setter(value)?.applied()
         }
     };
 }
@@ -69,7 +69,7 @@ macro_rules! str_setting {
         }
 
         fn $set(&self, value: &str) -> Result<()> {
-            self.manager().$setter(value)
+            self.manager().$setter(value)?.applied()
         }
     };
 }
@@ -80,7 +80,7 @@ impl ClientSettings for CliClientSettings {
     }
 
     fn set_theme(&self, theme: &str) -> Result<()> {
-        self.manager().set_theme(theme.to_string())
+        self.manager().set_theme(theme.to_string())?.applied()
     }
 
     fn theme_sources(&self) -> ThemeSources {
@@ -121,7 +121,7 @@ impl ClientSettings for CliClientSettings {
         let parsed: eukhe_types::ai::ServiceTier =
             serde_json::from_value(serde_json::Value::String(tier.to_string()))
                 .map_err(|error| anyhow::anyhow!("Invalid service tier \"{tier}\": {error}"))?;
-        self.manager().set_default_service_tier(parsed)
+        self.manager().set_default_service_tier(parsed)?.applied()
     }
 
     fn stream_pace(&self) -> eukhe_tui::pace::PaceRate {
@@ -188,7 +188,9 @@ impl ClientSettings for CliClientSettings {
     }
 
     fn set_memory_model(&self, provider: &str, model_id: &str) -> Result<()> {
-        self.manager().set_memory_model(provider, model_id)
+        self.manager()
+            .set_memory_model(provider, model_id)?
+            .applied()
     }
     setting!(
         enable_skill_commands,
@@ -367,6 +369,31 @@ mod tests {
             std::fs::read_to_string(agent_dir.join("settings.json")).expect("settings file");
         let value: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(value["factory"]["enabled"], false);
+    }
+
+    /// Regression (audit M2): a theme pick that the global config.cfg
+    /// shadows was saved and then reverted at the next start with no
+    /// word. The setter now says which file sets it.
+    #[test]
+    fn a_setting_a_cfg_file_shadows_says_so() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let agent_dir = dir.path().join("agent");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::write(agent_dir.join("config.cfg"), "set theme light\n").expect("config.cfg");
+        let settings = CliClientSettings::new(
+            dir.path().to_path_buf(),
+            agent_dir.clone(),
+            CliThemeFlags::default(),
+        );
+        let error = settings.set_theme("dark").expect_err("shadowed");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "`theme` is saved, but {} also sets it, so that value applies",
+                agent_dir.join("config.cfg").display()
+            )
+        );
+        assert_eq!(settings.theme().as_deref(), Some("light"));
     }
 
     /// The registered themes are the resource system's (here an

@@ -493,6 +493,51 @@ Regression tests: `chain::tests::a_bundle_without_a_compiled_model_keeps_it`;
 snapshot as the bundle, an Anthropic login, and the daemon's catalog has
 Claude Haiku 5.5).
 
+#### S6 models.json and the saved default model
+
+One loader reads `models.json` for every view: the registry (`eukhe
+model list`, the `/model` menu, the daemon's `get_model_catalog`,
+onboarding, the auxiliary model, the memory compactor, RLM, usage) and
+the model collection of a session.
+
+1. Each `providers.<id>` entry loads alone. A bad entry (a wrong type, a
+   missing `baseUrl` or `apiKey`, a model that is not valid) drops only
+   that provider, and a diagnostic names `providers.<id>`. The other
+   providers stay.
+2. A file that eukhe cannot read or parse is one diagnostic and gives no
+   custom models.
+3. The diagnostics show in `eukhe model list` (stderr), in the
+   `modelsJsonErrors` list of the `get_model_catalog` reply, and in the
+   settings-error row of each session at open.
+
+A session that no request pins starts on the saved default
+(`defaultProvider`/`defaultModel`). eukhe never moves past it in
+silence:
+
+1. When the catalog does not have it, or a set `enabledModels` scope
+   does not include it, the session runs on the next startup default.
+   One `eukhe.default_model` row (display-only) names the saved default,
+   the reason and the model in its place.
+2. When its provider has no credentials, the resolution is the typed
+   error `DefaultUnusable` with the login hint. No other provider takes
+   its place: the session opens with no model and the row names the
+   saved default and the reason.
+3. When no other model can take its place, the session also opens with
+   no model and the row.
+4. The memory compactor (no `memory.model`) fails its call with the
+   saved default and the reason.
+
+Laws: `default_honoured_or_reported`, `default_quiet_when_honoured`,
+`default_quiet_when_unset`, `default_unkeyed_never_moves` (the model in
+`bend/default_model.bend`, the proofs in
+`bend/proof_default_model.bend`). Code: `eukhe-core/src/models/custom.rs`
+(`ModelsConfig::load`), `models/registry.rs` (`compose`),
+`durable/models/compose.rs`, `models/resolver.rs`
+(`saved_default_miss`), `durable/models.rs` (`resolve_session_model`,
+`resolve_open_model`). Bridge:
+`durable::models::default_bridge::the_rust_session_model_resolution_equals_the_bend_model`
+runs the resolution against `bend/bridge_default_model.bend`.
+
 ### S9. Local tiny models
 
 A local tiny model is a small model that runs on this machine. eukhe uses

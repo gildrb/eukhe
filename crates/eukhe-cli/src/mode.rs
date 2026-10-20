@@ -5,6 +5,8 @@
 
 use std::path::PathBuf;
 
+use eukhe_core::resources::SystemPromptInput;
+
 use crate::args::{Args, AutonomousConfig, Mode};
 
 /// The process-level execution mode, mirroring `AppMode` in main.ts.
@@ -70,8 +72,10 @@ pub struct RuntimeConfig {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub api_key: Option<String>,
-    pub system_prompt: Option<String>,
-    pub append_system_prompt: Vec<String>,
+    /// The replacement prompt input. A file path is absolute.
+    pub system_prompt: Option<SystemPromptInput>,
+    /// The appended prompt inputs, in order. A file path is absolute.
+    pub append_system_prompt: Vec<SystemPromptInput>,
     pub thinking: Option<eukhe_types::ai::ModelThinkingLevel>,
     pub models: Option<Vec<String>>,
     pub skills: Vec<PathBuf>,
@@ -192,13 +196,18 @@ impl Runtime for UnavailableRuntime {
 }
 
 /// Build the runtime config from parsed args, mirroring `runtimeConfigFromArgs`.
+///
+/// # Errors
+///
+/// Returns the message for a `--system-prompt-file` or
+/// `--append-system-prompt-file` that cannot be opened or is not a file.
 pub fn runtime_config_from_args(
     parsed: &Args,
     cwd: PathBuf,
     agent_dir: PathBuf,
     session_dir: Option<PathBuf>,
     app_mode: AppMode,
-) -> RuntimeConfig {
+) -> Result<RuntimeConfig, String> {
     // isLocalPath: only npm:/git:/github:/http(s):/ssh: sources are not local;
     // everything else resolves against the session cwd (utils/paths.ts).
     let is_local_path = |value: &str| {
@@ -229,15 +238,51 @@ pub fn runtime_config_from_args(
     let skills = resolve_cli_path(&parsed.skills);
     let prompt_templates = resolve_cli_path(&parsed.prompt_templates);
     let themes = resolve_cli_path(&parsed.themes);
-    RuntimeConfig {
+    // A prompt file resolves against the session cwd, like `--skill`. A file
+    // that cannot be opened stops the run here, before a session starts.
+    let resolve_prompt_input =
+        |input: &SystemPromptInput, file_flag: &str| -> Result<SystemPromptInput, String> {
+            match input {
+                SystemPromptInput::Text(text) => Ok(SystemPromptInput::Text(text.clone())),
+                SystemPromptInput::File { file } => {
+                    let path = cwd.join(file);
+                    match std::fs::File::open(&path).and_then(|opened| opened.metadata()) {
+                        Ok(metadata) if metadata.is_file() => {
+                            Ok(SystemPromptInput::File { file: path })
+                        }
+                        Ok(_) => Err(format!(
+                            "{file_flag} {}: {} is not a file",
+                            file.display(),
+                            path.display()
+                        )),
+                        Err(error) => Err(format!(
+                            "{file_flag} {}: cannot read {}: {error}",
+                            file.display(),
+                            path.display()
+                        )),
+                    }
+                }
+            }
+        };
+    let system_prompt = parsed
+        .system_prompt
+        .as_ref()
+        .map(|input| resolve_prompt_input(input, "--system-prompt-file"))
+        .transpose()?;
+    let append_system_prompt = parsed
+        .append_system_prompt
+        .iter()
+        .map(|input| resolve_prompt_input(input, "--append-system-prompt-file"))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RuntimeConfig {
         cwd,
         agent_dir,
         session_dir,
         provider: parsed.provider.clone(),
         model: parsed.model.clone(),
         api_key: parsed.api_key.clone(),
-        system_prompt: parsed.system_prompt.clone(),
-        append_system_prompt: parsed.append_system_prompt.clone(),
+        system_prompt,
+        append_system_prompt,
         thinking: parsed.thinking,
         models: parsed.models.clone(),
         skills,
@@ -254,5 +299,39 @@ pub fn runtime_config_from_args(
             objective: objective.clone(),
             token_budget: parsed.goal_token_budget,
         }),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--system-prompt-file ./missing.md` is an error, never the path as
+    /// prompt text.
+    #[test]
+    fn a_missing_system_prompt_file_is_an_error() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let parsed = crate::args::parse_args(&[
+            "--system-prompt-file".to_string(),
+            "./missing.md".to_string(),
+        ]);
+        let path = cwd.path().join("./missing.md");
+        let io_error = std::fs::File::open(&path).expect_err("the file is missing");
+        let Err(error) = runtime_config_from_args(
+            &parsed,
+            cwd.path().to_path_buf(),
+            cwd.path().join("agent"),
+            None,
+            AppMode::Print,
+        ) else {
+            panic!("a missing prompt file is an error");
+        };
+        assert_eq!(
+            error,
+            format!(
+                "--system-prompt-file ./missing.md: cannot read {}: {io_error}",
+                path.display()
+            )
+        );
     }
 }

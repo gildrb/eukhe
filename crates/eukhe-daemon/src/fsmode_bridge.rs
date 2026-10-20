@@ -243,13 +243,15 @@ async fn the_local_access_code_equals_the_bend_model() {
 
     // The auth store on a fresh agent dir.
     let auth_agent = home.path().join("auth-agent");
-    eukhe_core::auth::AuthStorage::create(&auth_agent).set(
-        "faux",
-        eukhe_core::auth::AuthCredential::ApiKey {
-            key: "sk-bridge".to_string(),
-            prime_team: None,
-        },
-    );
+    eukhe_core::auth::AuthStorage::create(&auth_agent)
+        .set(
+            "faux",
+            eukhe_core::auth::AuthCredential::ApiKey {
+                key: "sk-bridge".to_string(),
+                prime_team: None,
+            },
+        )
+        .expect("the auth store writes");
     scenarios.push(creation_scenario("auth store", &auth_agent));
 
     // A worker's session, then a legacy import and a fork into a fresh

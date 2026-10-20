@@ -170,13 +170,20 @@ fn translate(args: &[String]) -> Result<(), String> {
 }
 
 /// The model collection and the default provider model (the one a fresh
-/// session would use), when one has credentials.
+/// session would use), when one has credentials. The models.json errors
+/// and a saved default model that did not run go to stderr.
 #[tracing::instrument(skip_all)]
 async fn default_model(
     context: &RoleContext,
 ) -> Result<(eukhe_ai::models::Models, Option<Model>), String> {
-    let models = eukhe_core::durable::create_models(&context.agent_dir)
-        .map_err(|error| error.to_string())?;
+    let loaded = eukhe_core::durable::create_models(&context.agent_dir);
+    if !loaded.diagnostics.is_empty() {
+        eprintln!(
+            "Warning: errors loading models.json:\n{}",
+            loaded.diagnostics.join("\n")
+        );
+    }
+    let models = loaded.models;
     let resolved = eukhe_core::durable::resolve_session_model(
         &models,
         &context.settings,
@@ -186,6 +193,15 @@ async fn default_model(
     )
     .await
     .map_err(|error| error.to_string())?;
+    if let Some(substitution) = resolved
+        .as_ref()
+        .and_then(|resolved| resolved.substituted.as_ref())
+    {
+        eprintln!(
+            "Warning: the saved default model {}/{} did not run: {}.",
+            substitution.wanted.provider, substitution.wanted.model_id, substitution.reason
+        );
+    }
     let model = resolved
         .and_then(|resolved| models.get_model(&resolved.model.provider, &resolved.model.model_id));
     Ok((models, model))

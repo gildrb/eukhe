@@ -31,7 +31,7 @@ fn model(id: &str, provider: &str) -> Model {
 #[test]
 fn in_memory_loads_built_in_catalog() {
     let registry = ModelRegistry::in_memory(auth_with(&serde_json::json!({})));
-    assert!(registry.get_error().is_none());
+    assert_eq!(registry.diagnostics(), [] as [String; 0]);
     assert!(registry.get_all().next().is_some());
     // Bundled private model is present in the unfiltered catalog.
     assert!(registry.get_all().any(|m| m.id == "internal/glm-5.2-fast"));
@@ -110,7 +110,7 @@ fn models_json_custom_models_and_auth_header() {
     .unwrap();
     let auth = auth_with(&serde_json::json!({}));
     let mut registry = ModelRegistry::create(auth, &models_path);
-    assert!(registry.get_error().is_none());
+    assert_eq!(registry.diagnostics(), [] as [String; 0]);
     let custom = registry
         .get_all()
         .find(|m| m.provider == "custom" && m.id == "my-model")
@@ -134,7 +134,10 @@ fn models_json_error_keeps_built_ins() {
     let models_path = dir.path().join("models.json");
     std::fs::write(&models_path, "{ not json").unwrap();
     let registry = ModelRegistry::create(auth_with(&serde_json::json!({})), &models_path);
-    assert!(registry.get_error().is_some());
+    assert_eq!(
+        registry.diagnostics(),
+        ["models.json is not valid JSON: key must be a string at line 1 column 3".to_owned()]
+    );
     assert!(registry.get_all().next().is_some());
 }
 
@@ -229,7 +232,7 @@ fn registry_with_completions_grok(auth: AuthStorage, dir: &tempfile::TempDir) ->
     )
     .unwrap();
     let registry = ModelRegistry::create(auth, &models_path);
-    assert!(registry.get_error().is_none(), "{:?}", registry.get_error());
+    assert_eq!(registry.diagnostics(), [] as [String; 0]);
     registry
 }
 

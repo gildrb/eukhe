@@ -67,9 +67,16 @@ impl McpManager {
         let remote = self.remote_source.as_ref().and_then(|source| source());
         let catalog_available = remote.is_some();
         let remote_entries = remote.map(|catalog| catalog.entries);
-        let records = self.connection_store.lock().unwrap().records();
+        let (records, store_error) = {
+            let store = self.connection_store.lock().unwrap();
+            (store.records(), store.load_error().map(str::to_owned))
+        };
         self.service_catalog =
             resolve_mcp_service_catalog(&sources, remote_entries.as_deref(), &records);
+        // A connections file this build cannot use serves no records: say why.
+        if let Some(error) = store_error {
+            self.service_catalog.diagnostics.push(error);
+        }
         self.catalog_available = catalog_available;
     }
 
@@ -476,8 +483,8 @@ pub struct PasteInstallInputs {
 ///
 /// # Errors
 ///
-/// Returns a human-readable error when the pasted token is empty or the
-/// connection record cannot be written.
+/// Returns a human-readable error when the pasted token is empty, the
+/// credential cannot be saved, or the connection record cannot be written.
 ///
 /// # Panics
 ///
@@ -501,7 +508,8 @@ pub async fn install_static_token(
                 bearer: token.to_string(),
                 endpoint: Some(inputs.endpoint.clone()),
             },
-        );
+        )
+        .map_err(|error| format!("could not save the token: {error}"))?;
     }
     // Verify with a real handshake against the pinned endpoint.
     let outcome = inputs.probe.probe(&inputs.endpoint, token).await;
@@ -570,12 +578,13 @@ pub async fn install_static_token(
 
 /// Remove one connection: delete its credential and its connection record
 /// (the durable endpoint pin) in one step — the view's remove-account
-/// action. Returns whether the credential was removed.
+/// action.
 ///
 /// # Errors
 ///
-/// Returns a human-readable error when the connection record cannot be
-/// written.
+/// Returns a human-readable error when the credential cannot be removed
+/// (then the connection record stays) or when the connection record cannot
+/// be written.
 ///
 /// # Panics
 ///
@@ -583,18 +592,18 @@ pub async fn install_static_token(
 pub async fn remove_mcp_connection(
     handles: &McpConnectionHandles,
     server: &str,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     let provider_id = format!("mcp:{server}");
-    let credential_removed = {
-        let mut auth = handles.auth_storage.lock().await;
-        auth.remove(&provider_id);
-        auth.drain_errors().is_empty()
-    };
+    handles
+        .auth_storage
+        .lock()
+        .await
+        .remove(&provider_id)
+        .map_err(|error| format!("could not remove the credential: {error}"))?;
     let mut store = handles.store.lock().unwrap();
     store
         .remove(server)
-        .map_err(|error| format!("connection record write failed: {error}"))?;
-    Ok(credential_removed)
+        .map_err(|error| format!("connection record write failed: {error}"))
 }
 
 // The unit battery lives in the child module (manager_catalog::tests);

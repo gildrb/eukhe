@@ -8,7 +8,7 @@ mod catalog_plugin_views;
 mod catalog_schema;
 mod catalog_status_views;
 mod catalog_views;
-mod connection_store;
+pub(crate) mod connection_store;
 mod local_catalog;
 mod login;
 mod manager_catalog;
@@ -178,6 +178,44 @@ impl McpServerConfig {
 pub struct EnvRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<String>,
+}
+
+/// One `mcpServers` entry that does not parse as a [`McpServerConfig`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServerDiagnostic {
+    /// The server name: the key under `mcpServers`.
+    pub name: String,
+    /// The parse error of the entry.
+    pub error: String,
+}
+
+impl std::fmt::Display for McpServerDiagnostic {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "mcpServers.{}: {}", self.name, self.error)
+    }
+}
+
+/// Parse the user `mcpServers` map. Each entry that parses goes into the
+/// map. Each entry that does not parse gives one diagnostic. No entry is
+/// dropped without a diagnostic.
+#[must_use]
+pub fn parse_user_servers(
+    map: &serde_json::Map<String, Value>,
+) -> (HashMap<String, McpServerConfig>, Vec<McpServerDiagnostic>) {
+    let mut servers = HashMap::new();
+    let mut diagnostics = Vec::new();
+    for (name, entry) in map {
+        match McpServerConfig::deserialize(entry) {
+            Ok(config) => {
+                servers.insert(name.clone(), config);
+            }
+            Err(error) => diagnostics.push(McpServerDiagnostic {
+                name: name.clone(),
+                error: error.to_string(),
+            }),
+        }
+    }
+    (servers, diagnostics)
 }
 
 /// Session-scoped server supplied by the active ACP client. This is the
@@ -1025,6 +1063,42 @@ mod tests {
             remote_source: None,
             probe_override: None,
         })
+    }
+
+    /// One bad entry beside a good one: the good one parses and the bad
+    /// one gives one diagnostic that names it. No entry is lost.
+    #[test]
+    fn a_bad_user_server_gives_a_diagnostic_and_the_good_one_stays() {
+        let map = json!({
+            "good": { "type": "http", "url": "https://good.example/mcp" },
+            "bad": { "type": "http" },
+        });
+        let parsed = parse_user_servers(map.as_object().expect("the literal is an object"));
+        let expected = (
+            HashMap::from([(
+                "good".to_string(),
+                McpServerConfig::Http {
+                    url: "https://good.example/mcp".to_string(),
+                    headers: None,
+                    bearer_token_env_var: None,
+                    oauth: None,
+                    enabled: None,
+                    enabled_tools: None,
+                    disabled_tools: None,
+                    startup_timeout_ms: None,
+                    call_timeout_ms: None,
+                },
+            )]),
+            vec![McpServerDiagnostic {
+                name: "bad".to_string(),
+                error: "missing field `url`".to_string(),
+            }],
+        );
+        assert_eq!(parsed, expected);
+        assert_eq!(
+            parsed.1[0].to_string(),
+            "mcpServers.bad: missing field `url`"
+        );
     }
 
     fn http_config(url: &str, oauth: Option<bool>, env_var: Option<&str>) -> McpServerConfig {

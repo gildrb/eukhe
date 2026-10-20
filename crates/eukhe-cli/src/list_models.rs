@@ -12,8 +12,14 @@ pub fn run(options: &RunOptions) {
     let auth = eukhe_core::auth::AuthStorage::create(&config.agent_dir);
     let registry =
         eukhe_core::models::ModelRegistry::create(auth, config.agent_dir.join("models.json"));
-    if let Some(error) = registry.get_error() {
-        eprintln!("Warning: errors loading models.json:\n{error}");
+    if !registry.diagnostics().is_empty() {
+        eprintln!(
+            "Warning: errors loading models.json:\n{}",
+            registry.diagnostics().join("\n")
+        );
+    }
+    if let Some(fallback) = eukhe_core::models::ModelRegistry::built_in_catalog_fallback() {
+        eprintln!("Warning: {fallback}");
     }
     let models: Vec<eukhe_types::ai::Model> =
         registry.get_available().into_iter().cloned().collect();

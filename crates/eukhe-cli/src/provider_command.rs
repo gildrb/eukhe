@@ -109,13 +109,14 @@ pub fn run_provider_command(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let models = match eukhe_core::durable::create_models(&crate::config::get_agent_dir()) {
-        Ok(models) => models,
-        Err(error) => {
-            eprintln!("Error: {error}");
-            return 1;
-        }
-    };
+    let loaded = eukhe_core::durable::create_models(&crate::config::get_agent_dir());
+    if !loaded.diagnostics.is_empty() {
+        eprintln!(
+            "Warning: errors loading models.json:\n{}",
+            loaded.diagnostics.join("\n")
+        );
+    }
+    let models = loaded.models;
     match command {
         ProviderCommand::Caps { selection, output } => run_caps(&models, &selection, output),
         ProviderCommand::Models { provider, output } => run_models(&models, &provider, output),

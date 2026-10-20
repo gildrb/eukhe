@@ -634,6 +634,57 @@ pub fn find_initial_model(options: &InitialModelOptions<'_>) -> Option<Model> {
         .or_else(|| options.available_models.first().cloned())
 }
 
+/// Why the saved default model (settings `defaultProvider`/`defaultModel`)
+/// cannot be the startup model. The startup chain never moves past the
+/// saved default in silence: the caller reports the reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DefaultMiss {
+    /// The model catalog has no model with this provider and id.
+    NotInCatalog,
+    /// The provider of the model has no credentials.
+    NoCredentials,
+    /// The set `enabledModels` scope does not include the model.
+    NotInScope,
+}
+
+impl std::fmt::Display for DefaultMiss {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            DefaultMiss::NotInCatalog => "the model catalog does not have it",
+            DefaultMiss::NoCredentials => "its provider has no credentials",
+            DefaultMiss::NotInScope => "the enabledModels setting does not include it",
+        })
+    }
+}
+
+/// The first check the saved default of `options` fails, in this order:
+/// the full catalog, the catalog with credentials, the `--models` scope
+/// (when one is set and the session is not continuing). `None` when
+/// nothing is saved or the saved default passes every check. The CLI
+/// flags of `options` are not read: callers ask only when no flag picks
+/// the model.
+#[must_use]
+pub fn saved_default_miss(options: &InitialModelOptions<'_>) -> Option<DefaultMiss> {
+    let (provider, id) = options.default_provider.zip(options.default_model_id)?;
+    let is_saved = |model: &Model| model.provider == provider && model.id == id;
+    if !options.all_models.iter().any(is_saved) {
+        return Some(DefaultMiss::NotInCatalog);
+    }
+    if !options.available_models.iter().any(is_saved) {
+        return Some(DefaultMiss::NoCredentials);
+    }
+    let scoped = !options.scoped_models.is_empty() && !options.is_continuing;
+    if scoped
+        && !options
+            .scoped_models
+            .iter()
+            .any(|scoped| is_saved(&scoped.model))
+    {
+        return Some(DefaultMiss::NotInScope);
+    }
+    None
+}
+
 /// Why [`find_initial_model`] resolved nothing for `options`, naming the
 /// fix: an empty catalog, the flagged model's resolution error, an unknown
 /// `--provider`, or no model with credentials.

@@ -32,7 +32,7 @@ use crate::prompts::model_prompts::{
     load_model_prompts, model_prompt_error_text, MODEL_PROMPT_ERROR_CUSTOM_TYPE,
 };
 use crate::prompts::system_prompt::{
-    system_prompt_breakdown, today, BuildSystemPromptOptions, SystemPromptBreakdown,
+    system_prompt_breakdown, today, BuildSystemPromptOptions, SourcedPrompt, SystemPromptBreakdown,
 };
 use crate::skills::Skill;
 
@@ -72,11 +72,11 @@ pub fn section_keys(memory: Option<MemoryRole>) -> Vec<&'static str> {
 
 /// The prompt inputs fixed for the session.
 struct SessionPrompt {
-    custom_prompt: Option<String>,
+    custom_prompt: Option<SourcedPrompt>,
     context_files: Vec<(String, String)>,
     skills: Vec<Skill>,
     guidelines: Vec<String>,
-    append_system_prompt: Option<String>,
+    append_system_prompt: Vec<SourcedPrompt>,
     allow_recursion: Option<bool>,
     rlm_depth: u32,
     parent_agent: Option<String>,
@@ -210,7 +210,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
                 .collect(),
             skills: deps.resources.skills.clone(),
             guidelines: deps.prompt.guidelines.clone(),
-            append_system_prompt: deps.prompt.append_system_prompt.clone(),
+            append_system_prompt: deps.resources.append_system_prompt.clone(),
             allow_recursion: deps.prompt.allow_recursion,
             rlm_depth: deps.role.rlm_depth,
             parent_agent: deps

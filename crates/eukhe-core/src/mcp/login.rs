@@ -35,13 +35,8 @@ impl McpLoginContext {
         let provider_id = format!("mcp:{}", self.server);
         let credential = mcp_login(http, &self.config, ui).await?;
         let mut auth = self.auth_storage.lock().await;
-        if auth.load_error().is_some() {
-            return Err(anyhow!("auth storage failed to load; login was not saved"));
-        }
-        auth.set(&provider_id, credential.clone());
-        if let Some(error) = auth.drain_errors().pop() {
-            return Err(anyhow!(error)).context("could not save login credentials");
-        }
+        auth.set(&provider_id, credential.clone())
+            .context("could not save login credentials")?;
         Ok(credential)
     }
 }
@@ -586,7 +581,8 @@ mod tests {
                 issuer: None,
                 enterprise_url: None,
             },
-        );
+        )
+        .unwrap();
         let api_key = auth.get_api_key("mcp:fixture");
         assert_eq!(api_key.as_deref(), Some("fixture-access"));
         let api_key = api_key.unwrap();
@@ -625,21 +621,23 @@ mod tests {
         // The external write (a second store instance over the same
         // file): a fresh, endpoint-bound credential.
         let mut external = AuthStorage::create(agent.path());
-        external.set(
-            "mcp:fixture",
-            AuthCredential::Oauth {
-                access: "fixture-access".to_string(),
-                refresh: Some("fixture-refresh".to_string()),
-                expires: i64::MAX,
-                account_id: None,
-                endpoint: Some("https://fixture.example/mcp".to_string()),
-                token_endpoint: Some("https://fixture.example/token".to_string()),
-                client_id: Some("fixture-client".to_string()),
-                resource: None,
-                issuer: None,
-                enterprise_url: None,
-            },
-        );
+        external
+            .set(
+                "mcp:fixture",
+                AuthCredential::Oauth {
+                    access: "fixture-access".to_string(),
+                    refresh: Some("fixture-refresh".to_string()),
+                    expires: i64::MAX,
+                    account_id: None,
+                    endpoint: Some("https://fixture.example/mcp".to_string()),
+                    token_endpoint: Some("https://fixture.example/token".to_string()),
+                    client_id: Some("fixture-client".to_string()),
+                    resource: None,
+                    issuer: None,
+                    enterprise_url: None,
+                },
+            )
+            .unwrap();
 
         refresh(HostRequestPayload {
             data: json!({ "server": "fixture" }),

@@ -192,11 +192,14 @@ async fn daemon_acp_create(
     if let Some(thinking) = config.thinking {
         create_config["thinking"] = serde_json::json!(thinking.wire_name());
     }
+    // A string is prompt text; `{"file": "<path>"}` is a file to read.
     if let Some(system_prompt) = &config.system_prompt {
-        create_config["systemPrompt"] = serde_json::json!(system_prompt);
+        create_config["systemPrompt"] = serde_json::to_value(system_prompt)
+            .map_err(|error| format!("system prompt input: {error}"))?;
     }
     if !config.append_system_prompt.is_empty() {
-        create_config["appendSystemPrompt"] = serde_json::json!(config.append_system_prompt);
+        create_config["appendSystemPrompt"] = serde_json::to_value(&config.append_system_prompt)
+            .map_err(|error| format!("appended system prompt input: {error}"))?;
     }
     for (key, paths) in [
         ("skills", &config.skills),

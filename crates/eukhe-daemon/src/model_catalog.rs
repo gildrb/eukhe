@@ -38,7 +38,10 @@ impl Worker {
 /// `{models, configuredProviders}`): the full catalog minus private Prime
 /// Inference models models.json does not declare, plus the sorted providers
 /// with configured auth. Each model object carries its `thinkingLevels`
-/// and `serviceTiers` (the `CatalogModel` shape).
+/// and `serviceTiers` (the `CatalogModel` shape). `modelsJsonErrors` names
+/// each bad models.json entry (the catalog drops that provider), or the
+/// file when it cannot be read or parsed; it is empty when the file is
+/// good or absent.
 fn catalog_payload(
     registry: &eukhe_core::models::ModelRegistry,
     available: &[eukhe_types::ai::Model],
@@ -84,5 +87,33 @@ fn catalog_payload(
     json!({
         "models": models,
         "configuredProviders": providers,
+        "modelsJsonErrors": registry.diagnostics(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    /// Regression (audit M1): the catalog reply dropped the models.json
+    /// errors. Now it names each bad `providers.<id>` entry.
+    #[test]
+    fn the_catalog_reply_names_a_bad_models_json_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("models.json"),
+            r#"{ "providers": { "custom": { "models": [{ "id": "x" }] } } }"#,
+        )
+        .unwrap();
+        let registry = eukhe_core::models::ModelRegistry::create(
+            eukhe_core::auth::AuthStorage::create(dir.path()),
+            dir.path().join("models.json"),
+        );
+        assert_eq!(
+            super::catalog_payload(&registry, &[])["modelsJsonErrors"],
+            json!([
+                "models.json providers.custom: \"baseUrl\" is required when defining custom models."
+            ])
+        );
+    }
 }

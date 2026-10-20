@@ -30,8 +30,8 @@ pub trait AuthStorageBackend: Send + Sync {
     /// # Errors
     ///
     /// Returns an error when preparing or locking the document fails, as
-    /// `with_lock` would. An unreadable document is `Ok(None)`, not an
-    /// error, matching `with_lock`'s best-effort read.
+    /// `with_lock` would. Returns an error when the document exists but
+    /// cannot be read. Only a missing document is `Ok(None)`.
     fn read(&self) -> Result<Option<String>> {
         let mut content = None;
         self.with_lock(&mut |current| {
@@ -45,8 +45,9 @@ pub trait AuthStorageBackend: Send + Sync {
     ///
     /// Returns an error when the backend fails to acquire its lock, when
     /// the `update` callback fails, or when preparing or writing the auth
-    /// document fails. Reading the current document is best-effort: an
-    /// unreadable file reaches the callback as `None`, not an error.
+    /// document fails. Returns an error when the document exists but cannot
+    /// be read; then `update` does not run. Only a missing document reaches
+    /// `update` as `None`.
     fn with_lock(
         &self,
         update: &mut dyn FnMut(Option<String>) -> Result<((), Option<String>)>,
@@ -56,6 +57,10 @@ pub trait AuthStorageBackend: Send + Sync {
     /// document answers the same flights, so the callers in this process
     /// that refresh one provider's credential share one token fetch.
     fn flights(&self) -> Arc<RefreshFlights>;
+
+    /// The name of the document in messages: the file path, or a label for
+    /// a backend without a file.
+    fn location(&self) -> String;
 }
 
 use crate::platform::lock_dir::LockDir as LockGuard;
@@ -123,6 +128,17 @@ impl FileAuthStorageBackend {
             "Failed to acquire auth storage lock: {}",
             last_error.map_or_else(|| "busy".into(), |e| e.to_string())
         ))
+    }
+
+    /// Read the document under the lock. Only a missing file is `None`.
+    /// Any other read failure is an error.
+    fn read_current(&self) -> Result<Option<String>> {
+        match fs::read_to_string(&self.auth_path) {
+            Ok(content) => Ok(Some(content)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(anyhow::Error::new(error)
+                .context(format!("Failed to read {}", self.auth_path.display()))),
+        }
     }
 }
 
@@ -236,7 +252,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
             .ok()
             .map(|metadata| stat_identity(&metadata));
         let guard = self.acquire_lock()?;
-        let content = fs::read_to_string(&self.auth_path).ok();
+        let content = self.read_current()?;
         drop(guard);
         if let (Some(identity), Some(content)) = (now_identity, content.as_deref()) {
             read_cache()
@@ -261,7 +277,7 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         self.ensure_parent_dir()?;
         self.ensure_file_exists()?;
         let guard = self.acquire_lock()?;
-        let current = fs::read_to_string(&self.auth_path).ok();
+        let current = self.read_current()?;
         let ((), next) = update(current)?;
         if let Some(next) = next {
             // The replace lands on the symlink's target (TS
@@ -278,6 +294,10 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         }
         drop(guard);
         Ok(())
+    }
+
+    fn location(&self) -> String {
+        self.auth_path.display().to_string()
     }
 
     /// One per document path, kept for the process, as the process-lock
@@ -314,13 +334,18 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
         Ok(())
     }
 
+    fn location(&self) -> String {
+        "in-memory auth storage".to_owned()
+    }
+
     fn flights(&self) -> Arc<RefreshFlights> {
         Arc::clone(&self.flights)
     }
 }
 
 /// Parse an auth document; invalid JSON or a non-object root is a load error
-/// (the TS throws too).
+/// (the TS throws too). `None` is a missing document: it parses as the
+/// empty document. Do not pass `None` for a document that failed to read.
 ///
 /// # Errors
 ///

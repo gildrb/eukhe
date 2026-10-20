@@ -58,7 +58,7 @@ async fn a_local_model_titles_a_session_and_judges() {
         ),
     );
     let home = TinyHome::under(&agent_dir);
-    let models = crate::durable::create_models(&agent_dir).unwrap();
+    let models = crate::durable::create_models(&agent_dir).models;
     let client = client(&agent_dir, &cvars, worker);
 
     let title = generate_title(TitleRequest {

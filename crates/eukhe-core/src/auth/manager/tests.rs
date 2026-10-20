@@ -138,7 +138,8 @@ fn candidate_memos_supersede_exactly_when_material_changes() {
             key: "sk-new".into(),
             prime_team: None,
         },
-    );
+    )
+    .unwrap();
     assert!(
         auth.has_auth("anthropic"),
         "the replaced credential is not the stale-marked material"
@@ -154,7 +155,8 @@ fn set_and_remove_credentials() {
             key: "sk-ant".into(),
             prime_team: None,
         },
-    );
+    )
+    .unwrap();
     assert!(auth.has("anthropic"));
     assert!(auth.has_auth("anthropic"));
     assert_eq!(auth.get_api_key("anthropic").as_deref(), Some("sk-ant"));
@@ -167,7 +169,7 @@ fn set_and_remove_credentials() {
         .as_object()
         .unwrap()
         .contains_key("primeTeam"));
-    auth.logout("anthropic");
+    auth.logout("anthropic").unwrap();
     assert!(!auth.has("anthropic"));
     assert_eq!(auth.get_api_key("anthropic"), None);
 }
@@ -459,6 +461,10 @@ impl AuthStorageBackend for WriteFailingBackend {
     fn flights(&self) -> Arc<crate::auth::RefreshFlights> {
         Arc::clone(&self.1)
     }
+
+    fn location(&self) -> String {
+        "write-failing auth storage".to_owned()
+    }
 }
 
 #[test]
@@ -574,6 +580,138 @@ fn prime_inference_team_selection_reads_follow_the_ts_tri_state() {
     assert_eq!(
         auth.get_prime_inference_team_selection(),
         StoredPrimeTeam::Team(team("team-1", "Team 1"))
+    );
+}
+
+/// The bytes and the mode of a file: the two things a refused write must
+/// not change.
+fn file_state(path: &std::path::Path) -> (Vec<u8>, u32) {
+    use std::os::unix::fs::PermissionsExt;
+    // Read the mode with `metadata` and the bytes after a chmod to 0600,
+    // because a 000 file cannot be read. Put the mode back after.
+    let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    (bytes, mode)
+}
+
+fn api_key(key: &str) -> AuthCredential {
+    AuthCredential::ApiKey {
+        key: key.to_owned(),
+        prime_team: None,
+    }
+}
+
+#[test]
+fn set_over_an_unreadable_auth_file_is_refused_and_writes_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("auth.json");
+    let document = r#"{ "a": { "type": "api_key", "key": "ka" } }"#;
+    std::fs::write(&path, document).unwrap();
+    // The file is readable at load. It becomes unreadable after.
+    let mut auth = AuthStorage::create(dir.path());
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let Err(read_error) = std::fs::read(&path) else {
+        eprintln!("skipped: this user (root) can read a 000 file");
+        return;
+    };
+    let before = file_state(&path);
+    let result = auth.set("b", api_key("kb"));
+    assert_eq!(
+        (result, file_state(&path)),
+        (
+            Err(AuthWriteError {
+                location: path.display().to_string(),
+                cause: format!("Failed to read {}: {read_error}", path.display()),
+            }),
+            before,
+        )
+    );
+    // A storage that loads an unreadable file records a load error, and
+    // its write is refused too. A new path: the process read cache still
+    // holds the readable copy of the first one.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("auth.json");
+    std::fs::write(&path, document).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let before = file_state(&path);
+    let mut auth = AuthStorage::create(dir.path());
+    let load_error = format!("Failed to read {}: {read_error}", path.display());
+    assert_eq!(auth.load_error(), Some(load_error.as_str()));
+    assert_eq!(
+        (auth.remove("a"), file_state(&path)),
+        (
+            Err(AuthWriteError {
+                location: path.display().to_string(),
+                cause: format!("the document failed to load: {load_error}"),
+            }),
+            before,
+        )
+    );
+}
+
+#[test]
+fn set_over_an_invalid_auth_file_is_refused_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("auth.json");
+    let broken = r#"{ "a": { "type": "api_key", "key": "ka" },"#;
+    let parse_error = serde_json::from_str::<serde_json::Value>(broken)
+        .unwrap_err()
+        .to_string();
+    // The file breaks after the load (an editor mid-save).
+    let mut auth = AuthStorage::create(dir.path());
+    std::fs::write(&path, broken).unwrap();
+    let before = file_state(&path);
+    assert_eq!(
+        (auth.set("b", api_key("kb")), file_state(&path)),
+        (
+            Err(AuthWriteError {
+                location: path.display().to_string(),
+                cause: parse_error.clone(),
+            }),
+            before.clone(),
+        )
+    );
+    // The file is broken at load.
+    let mut auth = AuthStorage::create(dir.path());
+    assert_eq!(
+        (auth.set("b", api_key("kb")), file_state(&path)),
+        (
+            Err(AuthWriteError {
+                location: path.display().to_string(),
+                cause: format!("the document failed to load: {parse_error}"),
+            }),
+            before,
+        )
+    );
+}
+
+#[test]
+fn set_keeps_every_other_credential_as_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("auth.json");
+    let a = serde_json::json!({ "type": "api_key", "key": "ka", "note": "kept as is" });
+    let c = serde_json::json!({
+        "type": "oauth", "access": "ac", "refresh": "rc", "expires": 7, "extra": [1, 2]
+    });
+    std::fs::write(
+        &path,
+        serde_json::to_string(&serde_json::json!({ "a": a, "c": c })).unwrap(),
+    )
+    .unwrap();
+    let mut auth = AuthStorage::create(dir.path());
+    auth.set("b", api_key("kb")).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        written,
+        serde_json::json!({
+            "a": a,
+            "b": { "type": "api_key", "key": "kb" },
+            "c": c,
+        })
     );
 }
 
