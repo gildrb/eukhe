@@ -17,7 +17,7 @@ Upstream remote: `upstream`. See [Attribution](#attribution).
 - Name: binary `eukhe`, crates `eukhe-*`, env vars `EUKHE_*`, state in
   `~/.eukhe`. eukhe and Prime Agent can run on one machine. They do not share
   state.
-- Install: `curl -fsSL https://raw.githubusercontent.com/gildrb/eukhe/main/install.sh | sh`
+- Install: `curl -fsSL https://eukhe.com/install | sh`
   (macOS Apple Silicon, Linux x64/arm64), Nix flake and Home Manager module, or a
   GitHub release (mise).
 - Update: re-run the curl command, or through Nix or mise. `eukhe update` does not
@@ -29,7 +29,7 @@ Upstream remote: `upstream`. See [Attribution](#attribution).
 The curl installer (no root; macOS Apple Silicon, Linux x64 and arm64):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/gildrb/eukhe/main/install.sh | sh
+curl -fsSL https://eukhe.com/install | sh
 ```
 
 It installs the payload into `~/.local/share/eukhe/eukhe-<version>` and a
@@ -40,6 +40,10 @@ the previous payload for running daemons and prunes older ones. Pin a
 version with `sh -s -- 0.10.41`; move the install with
 `EUKHE_INSTALL_ROOT` and `EUKHE_INSTALL_BIN_DIR`. Uninstall:
 `eukhe shutdown`, then remove those two paths.
+
+`https://eukhe.com/install` redirects to the `install.sh` that the newest
+release attaches, so the installer that runs is the one CI passed with that
+release, never an untested edit on `main`.
 
 The kernel needs `uv`, and the chat memory needs `git`; the installer
 warns when either is missing. The Nix package supplies both.

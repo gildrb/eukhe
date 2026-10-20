@@ -2,16 +2,20 @@
 # eukhe installer: the newest GitHub release, checksum-verified, no root.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/gildrb/eukhe/main/install.sh | sh
+#   curl -fsSL https://eukhe.com/install | sh
 #   sh install.sh [version]
 #
 # Install (macOS Apple Silicon, Linux x64 and arm64):
 #
-#   curl -fsSL https://raw.githubusercontent.com/gildrb/eukhe/main/install.sh | sh
+#   curl -fsSL https://eukhe.com/install | sh
 #
 # Pin one release (0.10.41, v0.10.41 or eukhe-v0.10.41):
 #
-#   curl -fsSL https://raw.githubusercontent.com/gildrb/eukhe/main/install.sh | sh -s -- 0.10.41
+#   curl -fsSL https://eukhe.com/install | sh -s -- 0.10.41
+#
+# https://eukhe.com/install redirects to the copy of this script that each
+# release attaches (releases/latest/download/install.sh), so the script that
+# runs is the one CI passed with the newest release.
 #
 # The payload lands in ${EUKHE_INSTALL_ROOT:-~/.local/share/eukhe}/eukhe-<version>
 # and a launcher in ${EUKHE_INSTALL_BIN_DIR:-~/.local/bin}/eukhe. Re-running
@@ -174,8 +178,15 @@ tar -xzf "${work}/${tarball}" -C "${stage}" || die "extract failed"
 reported="$("${stage}/eukhe" --version)" || die "the downloaded binary does not run on this machine"
 [ "$reported" = "$version" ] || die "binary reports '${reported}', expected '${version}'"
 
-[ ! -d "$payload" ] || rm -rf "$payload"
-mv "${stage}" "${payload}"
+if [ -d "$payload" ] && [ "$("${payload}/eukhe" --version 2>/dev/null)" = "$version" ]; then
+  # Same release already installed: keep it in place (a running daemon
+  # still reads its files) and drop the fresh copy.
+  rm -rf "${stage}"
+  log "eukhe ${version} is already installed: kept ${payload}"
+else
+  [ ! -d "$payload" ] || rm -rf "$payload"
+  mv "${stage}" "${payload}"
+fi
 
 wrapper="${bin_dir}/eukhe"
 wrapper_tmp="${bin_dir}/.eukhe-installer.$$"
