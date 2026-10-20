@@ -47,6 +47,7 @@ import ./laws/runners.bend as Ru
 import ./laws/approvals.bend as Ap
 import ./laws/retry.bend as Rt
 import ./laws/model_facts.bend as ModelFacts
+import ./laws/dashboard_auth.bend as DashAuth
 
 # (a) The view
 # ------------

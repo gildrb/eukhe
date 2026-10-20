@@ -155,7 +155,13 @@ export type SessionEvent =
   | { type: "refine_failed"; error: string }
   | { type: "ipython_sent_agent_message" };
 
-export type ApprovalRequest = { requestId: string; step: number; command: string; effect: string };
+/** `effects`: every effect of the step, by name (read, write, exec, net, outside, protected, secret). */
+export type ApprovalRequest = {
+  requestId: string;
+  step: number;
+  command: string;
+  effects: string[];
+};
 
 export type ServerFrame =
   | { type: "hello"; protocol: number; build: string; ops: string[] }
@@ -164,7 +170,8 @@ export type ServerFrame =
   | { type: "event"; event: SessionEvent; cursor?: Cursor }
   | { type: "approval"; request: ApprovalRequest }
   | { type: "resync"; reason: string }
-  | { type: "unavailable"; error: string };
+  | { type: "unavailable"; error: string }
+  | { type: "unpaired"; error: string };
 
 export type Model = { provider: string; id: string; name?: string };
 

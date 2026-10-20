@@ -74,15 +74,51 @@ eukhe dashboard
 ```
 
 The command prints the URL and opens it in the browser. Stop it with Ctrl+C.
+The URL ends with `#token=<64 hex digits>`: this is the pairing token (see
+[Pairing](#pairing)).
 
 |Option|Effect|
 |---|---|
 |`--port <port>`|Listen on this port. Default: a free port|
 |`--no-open`|Print the URL. Do not open the browser|
 |`--allow-host <name>`|Also accept requests for this host name. You can give it more than one time|
+|`--rotate-token`|Make a new pairing token before the dashboard starts. All earlier links stop working|
 |`--daemon-socket <path>`|Use the daemon on this socket|
 
 If no daemon runs, the dashboard starts one.
+
+## Pairing
+
+A browser must have the pairing token before the dashboard does an action
+for it. Without the token, a page cannot send a message, approve a `bash`
+step, change a setting, or read a chat.
+
+- The token is 32 random bytes (256 bits), written as 64 hex digits. It is
+  in the file `dashboard-token` in the agent folder (`~/.eukhe`), with mode
+  `0600`. The token stays the same when you start the dashboard again, so a
+  bookmark of the link continues to work.
+- The URL that `eukhe dashboard` prints has the token in its fragment
+  (`#token=…`). A browser does not send the fragment to a server, so the
+  token is not in a request line, a forwarder log, or a `Referer` header.
+- The page reads the token, keeps it in the storage of the browser for
+  this site, and removes it from the address bar. The page does not show
+  the token.
+- To open the browser, the command writes a small page (mode `0600`) that
+  goes to the URL, and opens that page. The token is thus not in the
+  arguments of a process, which other users of the computer can see.
+- If a page has no token, or the dashboard refuses its token, the page
+  shows "Pairing needed". Open the link that `eukhe dashboard` prints, or
+  paste the link (or only the token) in the field and select **Pair**.
+
+To make a new token, for example after you lose a phone that has the link:
+
+```nu
+eukhe dashboard --rotate-token
+```
+
+All earlier tokens stop working at once, also in a dashboard that runs at
+that time: its open pages get `unpaired` at their next request and show
+"Pairing needed".
 
 ## Phone (tailscale serve)
 
@@ -97,6 +133,8 @@ connect.
    eukhe dashboard --no-open --port 8377 --allow-host box.tail1234.ts.net
    ```
 
+   It prints the link for that name too, with the token.
+
 2. Forward HTTPS to it:
 
    ```nu
@@ -107,8 +145,11 @@ connect.
    (`tailscale serve --bg --set-path /eukhe 8377`). The app uses relative
    URLs only, so it works under a path.
 
-3. On the phone, open `https://box.tail1234.ts.net/` (or `/eukhe/`). To
-   install it as an app, use "Add to Home Screen".
+3. On the phone, open `https://box.tail1234.ts.net/#token=…` (or
+   `/eukhe/#token=…`) with the token that the dashboard printed. To install
+   it as an app, use "Add to Home Screen". An app on the home screen can
+   have its own storage: if it shows "Pairing needed", paste the link in
+   its field.
 
 Use the name that `tailscale status` shows for this computer, without
 `https://` and without a port. Without `--allow-host`, the dashboard refuses
@@ -123,17 +164,30 @@ own HTTPS link on your tailnet. It needs no `--allow-host`:
 poros eukhe dashboard
 ```
 
-Open the `Poros URL` that it prints. poros sends each request to the
-dashboard with `Host` set to the local address, and it names the HTTPS link in
-`X-Forwarded-Host`.
+Open the `Poros URL` that it prints, and add the `#token=…` part of the
+dashboard's link to it. poros sends each request to the dashboard with
+`Host` set to the local address, and it names the HTTPS link in
+`X-Forwarded-Host`. The fragment stays in the browser, so poros does not
+see the token.
 
 ## Security
 
 > [!WARNING]
-> The dashboard has no login. A person who can open it can send messages to
-> the agent, and the agent runs tools on this computer with your user
-> permissions.
+> A person who has the pairing link can send messages to the agent, and
+> the agent runs tools on this computer with your user permissions. Keep
+> the link private. If you think that another person has it, run
+> `eukhe dashboard --rotate-token`.
 
+- Each WebSocket must pair first: its first frame must hold the current
+  token. A socket that sends another frame first, no token, or a token
+  that is not current gets `unpaired` and closes. The dashboard does not
+  start a daemon, connect to it, or run a command for that socket.
+- The dashboard examines the token again before each frame of a paired
+  socket. After a rotation, the next frame of an old socket gets
+  `unpaired`, and the socket closes.
+- The comparison takes the same time for each token of the correct length.
+  The token is not in a log line, an error, or the page.
+- The HTTP routes only send the files of the app. They do no actions.
 - The server listens on `127.0.0.1` only. Other computers cannot connect
   directly.
 - Each request must name a permitted host in its `Host` header:
@@ -157,6 +211,10 @@ dashboard with `Host` set to the local address, and it names the HTTPS link in
   public on the internet.
 - The socket refuses daemon commands that belong to the bridge or to the
   daemon itself (see [Protocol](#protocol)).
+- `laws/dashboard_auth.bend` states the rules of the pairing gate, and
+  `PROOF.bend` proves them on the model `bend/dash.bend`. The bridge test
+  `pairing::tests::the_gate_pairs_as_its_model` runs the real server and
+  the model on the same events and compares the results.
 
 ## Caching
 
@@ -168,19 +226,34 @@ dashboard with `Host` set to the local address, and it names the HTTPS link in
 ## Protocol
 
 The page and the server talk over one WebSocket (`api/ws`, relative to the
-page). Each frame is one JSON text message. This is protocol 2.
+page). Each frame is one JSON text message. This is protocol 3.
+
+### Pairing frames
+
+The first frame of the page must be `{op: "pair", token}`, with the token
+from the link. The server answers with one of these frames:
+
+|Frame|When|
+|---|---|
+|`hello {protocol: 3, build, ops}`|The token is current. Requests can follow|
+|`unpaired {error}`|The first frame is not a pairing, has no token, or has a token that is not current. The server closes the socket next. Nothing ran|
+
+The page has 10 seconds to send the pairing frame. Later, a frame of the
+page while its token is not current also gets `unpaired`, and the server
+closes the socket.
 
 ### Server frames
 
 |Frame|When|
 |---|---|
-|`hello {protocol: 2, build, ops}`|First frame on each socket. `build` changes with the eukhe build or a web file|
+|`hello {protocol: 3, build, ops}`|First frame after the pairing. `build` changes with the eukhe build or a web file|
 |`reply {id, data}`|A request succeeded|
 |`failure {id, error}`|A request failed. A frame that is not valid gets a failure too (`id` 0 when the frame has no `id`)|
 |`event {event, cursor?}`|One event of the bound session. `cursor` is `{generation, sequence}` when the daemon gives a sequence|
-|`approval {request}`|The `bash` tool of the bound session asks if one step can run. `request` is `{requestId, step, command, effect}`|
+|`approval {request}`|The `bash` tool of the bound session asks if one step can run. `request` is `{requestId, step, command, effects}`; `effects` is the list of the step's effects (`read`, `write`, `exec`, `net`, `outside`, `protected`, `secret`)|
 |`resync {reason}`|The bound session closed, moved to a new worker, or lost its worker link. Open it again|
 |`unavailable {error}`|The daemon is not available. The server closes the socket next|
+|`unpaired {error}`|The token of the socket is not current any more (a rotation). Nothing ran. The server closes the socket next|
 
 ### Requests
 

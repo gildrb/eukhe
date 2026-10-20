@@ -28,6 +28,7 @@ use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{self, Message};
 
 use crate::command_policy::{verdict, Verdict};
+use crate::pairing::PairingToken;
 use crate::protocol::{ClientFrame, EventCursor, ExportFormat, PromptMode, Request, ServerFrame};
 use crate::DashboardConfig;
 
@@ -175,9 +176,12 @@ impl Bridge {
         })
     }
 
-    /// Serve the tab until it closes or the daemon connection ends.
+    /// Serve the tab until it closes or the daemon connection ends. Each
+    /// frame of the tab runs only while `presented` (the token the tab
+    /// paired with) is still the current token; otherwise the tab hears
+    /// `unpaired` and its socket closes.
     #[tracing::instrument(skip_all)]
-    pub(crate) async fn run<S>(self, socket: S)
+    pub(crate) async fn run<S>(self, socket: S, presented: PairingToken)
     where
         S: Stream<Item = Result<Message, tungstenite::Error>>
             + Sink<Message, Error = tungstenite::Error>
@@ -206,6 +210,14 @@ impl Bridge {
             tokio::select! {
                 message = stream.next() => match message {
                     Some(Ok(Message::Text(text))) => {
+                        if let Err(refusal) = crate::pairing::admits(&tab.config.token_path, &presented).await {
+                            tracing::warn!(?refusal, "the tab's pairing token is not current; closing its socket");
+                            let unpaired = ServerFrame::Unpaired { error: refusal.error() }.to_text();
+                            if let Err(error) = sink.send(Message::text(unpaired)).await {
+                                tracing::debug!(%error, "telling the tab failed");
+                            }
+                            break;
+                        }
                         let tab = Arc::clone(&tab);
                         requests.spawn(async move { tab.answer(text.as_str()).await });
                     }
@@ -982,6 +994,7 @@ mod tests {
                 new_session_cwd: dir.path().to_path_buf(),
                 create_config: Map::new(),
                 allowed_hosts: Vec::new(),
+                token_path: dir.path().join("dashboard-token"),
             }),
             client,
             outgoing,

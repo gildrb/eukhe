@@ -880,13 +880,14 @@ export function About() {
     connecting: "Connecting",
     offline: "Offline",
     unavailable: "eukhe is not running",
+    unpaired: "Not paired",
   };
   return (
     <Figures
       pairs={[
         ["Build", link.hello?.build ?? "Unknown", true],
         ["Link to eukhe", words[link.status] ?? link.status],
-        ["Protocol", link.hello ? String(link.hello.protocol) : "1"],
+        ["Protocol", link.hello ? String(link.hello.protocol) : "Unknown"],
         ["Chat", session?.id, true],
         ["Folder", session?.state.cwd, true],
         ["Model", session ? modelName(session.state.model) : null],

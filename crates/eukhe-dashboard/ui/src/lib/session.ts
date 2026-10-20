@@ -152,7 +152,7 @@ export function addApproval(asked: ApprovalRequest): void {
           requestId: asked.requestId,
           step: asked.step ?? 0,
           command: asked.command || "",
-          effect: asked.effect || "exec",
+          effects: Array.isArray(asked.effects) ? asked.effects : [],
           status: "pending",
         },
       ],

@@ -5,18 +5,25 @@
 //! browses the chat memory's tree. A daemon-wire client like the TUI: it
 //! never links the session engine.
 //!
-//! It binds 127.0.0.1 only and has no login of its own: whoever reaches
-//! the loopback port is the owner. A request must name a loopback host or
-//! a host the user allowed (a forwarder such as `tailscale serve`), and a
-//! WebSocket upgrade must come from the app's own origin, so other web
-//! pages in the user's browser cannot drive it.
+//! It binds 127.0.0.1 only. A tab pairs first: the first frame of its
+//! socket must hold the pairing token (the fragment of the URL that
+//! `eukhe dashboard` prints), and each later frame runs only while that
+//! token is still the current one. A request must also name a loopback
+//! host or a host the user allowed (a forwarder such as `tailscale
+//! serve`), and a WebSocket upgrade must come from the app's own origin,
+//! so other web pages in the user's browser cannot drive it.
 
 mod access;
 mod assets;
 mod bridge;
 mod command_policy;
 mod http;
+mod pairing;
 mod protocol;
+#[cfg(test)]
+mod testing;
+
+pub use pairing::{opener_page, pairing_token, PairingToken, Rotation};
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -45,6 +52,9 @@ pub struct DashboardConfig {
     /// forwarder such as `tailscale serve` exposes it under), compared
     /// without the port and case-insensitively.
     pub allowed_hosts: Vec<String>,
+    /// The file of the pairing token (in the agent dir, mode 0600). Every
+    /// check reads it again, so a rotation takes effect at once.
+    pub token_path: PathBuf,
 }
 
 /// The port the dashboard listens on.

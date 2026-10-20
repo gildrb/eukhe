@@ -1,8 +1,10 @@
-//! The browser bridge's frames (protocol 2): JSON text messages on the
-//! tab's WebSocket. The server greets with `hello`; the tab sends numbered
-//! requests, which run concurrently, and the server answers each with a
-//! reply or a failure under the same number. The bound session's events,
-//! approval questions and resyncs are pushed as they come.
+//! The browser bridge's frames (protocol 3): JSON text messages on the
+//! tab's WebSocket. The tab's first frame pairs (`pair` with the token);
+//! the server answers `unpaired` and closes, or greets with `hello`. Then
+//! the tab sends numbered requests, which run concurrently, and the
+//! server answers each with a reply or a failure under the same number.
+//! The bound session's events, approval questions and resyncs are pushed
+//! as they come.
 
 use eukhe_types::daemon::{DaemonResumeCursor, MemoryZoom, SessionEvent};
 use eukhe_types::shell::ShellApprovalRequest;
@@ -10,12 +12,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 /// The protocol version `hello` announces.
-pub(crate) const PROTOCOL_VERSION: u32 = 2;
+pub(crate) const PROTOCOL_VERSION: u32 = 3;
 
 /// The ops a tab may send, as `hello` lists them.
 pub(crate) const OPS: [&str; 10] = [
     "sessions", "open", "new", "prompt", "abort", "memory", "run", "export", "delete", "rename",
 ];
+
+/// The tab's first frame: the pairing token from the page's URL
+/// fragment.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub(crate) enum Pairing {
+    Pair { token: String },
+}
 
 /// One request from the tab.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -155,6 +165,10 @@ pub(crate) enum ServerFrame<'a> {
     /// The daemon is not reachable: the server closes the socket next and
     /// the tab tries again.
     Unavailable { error: String },
+    /// The socket did not present the current pairing token: nothing ran,
+    /// and the server closes the socket next. The tab asks for the
+    /// pairing link.
+    Unpaired { error: &'a str },
 }
 
 impl ServerFrame<'_> {
@@ -345,7 +359,7 @@ mod tests {
             })
             .unwrap(),
             json!({
-                "type": "hello", "protocol": 2, "build": "b",
+                "type": "hello", "protocol": 3, "build": "b",
                 "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run", "export", "delete", "rename"],
             })
         );
@@ -363,6 +377,10 @@ mod tests {
                 "type": "approval",
                 "request": { "requestId": "r1", "step": 0, "command": "rm -rf build", "effects": ["write"] },
             })
+        );
+        assert_eq!(
+            serde_json::to_value(ServerFrame::Unpaired { error: "no" }).unwrap(),
+            json!({ "type": "unpaired", "error": "no" })
         );
     }
 }

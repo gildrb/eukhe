@@ -1,11 +1,14 @@
 //! The loopback HTTP/1.1 server: the app's files, and the WebSocket
-//! upgrade (`.../api/ws`) that starts one daemon bridge per tab. Every
-//! request passes the [`crate::access`] checks first.
+//! upgrade (`.../api/ws`) that starts one daemon bridge per tab once the
+//! tab pairs. Every request passes the [`crate::access`] checks first.
+//! The HTTP routes only serve the app's files: only a paired socket runs
+//! anything.
 
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
 
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{self, HeaderValue};
@@ -17,12 +20,16 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 use crate::bridge::Bridge;
-use crate::protocol::{ServerFrame, OPS, PROTOCOL_VERSION};
+use crate::pairing::{PairingToken, Refusal};
+use crate::protocol::{Pairing, ServerFrame, OPS, PROTOCOL_VERSION};
 use crate::DashboardConfig;
 use eukhe_tui::saved_sessions::DaemonLauncher;
 
 /// The path suffix of the bridge's WebSocket.
 const SOCKET_PATH: &str = "/api/ws";
+
+/// How long a new socket may take to send its pairing frame.
+const PAIR_WAIT: Duration = Duration::from_secs(10);
 
 /// The app's content policy: its own files, fonts, worker, manifest and
 /// socket only; images also from `data:` and `blob:` URLs (pasted images).
@@ -148,8 +155,9 @@ fn route<L: DaemonLauncher>(
     response
 }
 
-/// Upgrade the request to the bridge's WebSocket and start the bridge on
-/// the upgraded connection.
+/// Upgrade the request to the bridge's WebSocket and, once the socket
+/// pairs, start the bridge on the upgraded connection.
+#[allow(clippy::too_many_lines)] // The socket's whole life in order: handshake, pairing, greeting, bridge.
 fn upgrade<L: DaemonLauncher>(
     mut request: Request<Incoming>,
     config: Arc<DashboardConfig>,
@@ -183,6 +191,51 @@ fn upgrade<L: DaemonLauncher>(
         };
         let mut socket =
             WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, None).await;
+        // The first text frame must pair; nothing else runs before it.
+        let first = tokio::time::timeout(PAIR_WAIT, async {
+            loop {
+                match socket.next().await {
+                    Some(Ok(Message::Text(text))) => break Some(Some(text)),
+                    Some(Ok(Message::Binary(_))) => break Some(None),
+                    Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
+                    Some(Ok(Message::Close(_)) | Err(_)) | None => break None,
+                }
+            }
+        })
+        .await;
+        let presented = match first {
+            // The tab left before it paired.
+            Ok(None) => return,
+            Ok(Some(Some(text))) => match serde_json::from_str::<Pairing>(text.as_str()) {
+                Ok(Pairing::Pair { token }) => match PairingToken::parse(&token) {
+                    Some(presented) => crate::pairing::admits(&config.token_path, &presented)
+                        .await
+                        .map(|()| presented),
+                    None if token.is_empty() => Err(Refusal::Missing),
+                    None => Err(Refusal::Wrong),
+                },
+                Err(_) => Err(Refusal::Missing),
+            },
+            // A binary first frame, or none in time.
+            Ok(Some(None)) | Err(_) => Err(Refusal::Missing),
+        };
+        let presented = match presented {
+            Ok(presented) => presented,
+            Err(refusal) => {
+                tracing::warn!(
+                    ?refusal,
+                    "refused a socket that did not present the pairing token"
+                );
+                close_with(
+                    socket,
+                    &ServerFrame::Unpaired {
+                        error: refusal.error(),
+                    },
+                )
+                .await;
+                return;
+            }
+        };
         let build = format!(
             "{}+web.{}",
             eukhe_build_info::BUILD_ID,
@@ -199,10 +252,16 @@ fn upgrade<L: DaemonLauncher>(
             return;
         }
         match Bridge::connect(config, launcher.as_ref()).await {
-            Ok(bridge) => bridge.run(socket).await,
+            Ok(bridge) => bridge.run(socket, presented).await,
             Err(error) => {
                 tracing::warn!(error = %format!("{error:#}"), "the daemon is not reachable");
-                close_with_error(socket, &format!("{error:#}")).await;
+                close_with(
+                    socket,
+                    &ServerFrame::Unavailable {
+                        error: format!("{error:#}"),
+                    },
+                )
+                .await;
             }
         }
     });
@@ -220,17 +279,13 @@ fn upgrade<L: DaemonLauncher>(
     }
 }
 
-/// Close a tab's socket whose bridge could not start, with the reason
-/// (the tab shows it and retries).
-async fn close_with_error<S>(mut socket: WebSocketStream<S>, reason: &str)
+/// Send a tab the reason its socket ends (it shows it), then close the
+/// socket.
+async fn close_with<S>(mut socket: WebSocketStream<S>, frame: &ServerFrame<'_>)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let frame = ServerFrame::Unavailable {
-        error: reason.to_string(),
-    }
-    .to_text();
-    if let Err(error) = socket.send(Message::text(frame)).await {
+    if let Err(error) = socket.send(Message::text(frame.to_text())).await {
         tracing::debug!(%error, "telling the tab failed");
     }
     if let Err(error) = socket.close(None).await {

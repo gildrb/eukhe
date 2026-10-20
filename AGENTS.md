@@ -131,7 +131,7 @@ background bookkeeping.
 |`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`|
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`|
 |`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-tui`|
-|`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge (Host/Origin checks, protocol 2, allowed daemon commands), embedded web app (every file under `web/`, by `build.rs`; `web/` is built from `ui/` (Preact, Radix, StyleX) by Vite+ `vp build` with `make dashboard-ui`, and the output is committed), daemon-wire client|`eukhe-types`, `eukhe-build-info`, `eukhe-tui`|
+|`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge (pairing token, Host/Origin checks, protocol 3, allowed daemon commands), embedded web app (every file under `web/`, by `build.rs`; `web/` is built from `ui/` (Preact, Radix, StyleX) by Vite+ `vp build` with `make dashboard-ui`, and the output is committed), daemon-wire client|`eukhe-types`, `eukhe-build-info`, `eukhe-tui`|
 |`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 
 - Dependencies point from higher crates to lower crates only. No cycles.

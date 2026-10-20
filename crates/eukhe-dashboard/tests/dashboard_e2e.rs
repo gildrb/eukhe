@@ -1,7 +1,8 @@
 //! The dashboard end to end against a scripted daemon socket: the server
 //! answers the app's files and its WebSocket only to loopback (or allowed)
 //! hosts and to its own origin (or the public origin a forwarder such as
-//! poros declares); a tab's socket greets with `hello`, opens
+//! poros declares); a tab's socket pairs with the current token (else it
+//! hears `unpaired` and nothing runs), greets with `hello`, opens
 //! the newest root session (create + attach), resumes from a cursor, sends
 //! a message whose reply streams back as session events with cursors,
 //! runs daemon commands for the bound session, hears approvals and
@@ -43,7 +44,20 @@ impl DaemonLauncher for Down {
     }
 }
 
+/// The daemon is already up; counts the bridges that started.
+struct Counted(Arc<AtomicUsize>);
+
+impl DaemonLauncher for Counted {
+    fn ensure(&self) -> impl Future<Output = anyhow::Result<()>> + Send {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        std::future::ready(Ok(()))
+    }
+}
+
 const DEADLINE: Duration = Duration::from_secs(20);
+
+/// The pairing token [`config`] stores.
+const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 fn write_json(writer: &mut UnixStream, value: &Value) {
     let mut line = serde_json::to_string(value).expect("serialize");
@@ -384,15 +398,17 @@ async fn next_frame(socket: &mut Socket) -> Value {
     }
 }
 
-/// The `hello` greeting, as every socket's first frame.
-async fn expect_hello(socket: &mut Socket) {
+/// Pair with [`TOKEN`], then the `hello` greeting, as the first frame the
+/// server sends.
+async fn pair(socket: &mut Socket) {
+    send(socket, &json!({ "op": "pair", "token": TOKEN })).await;
     let hello = next_frame(socket).await;
     let build = hello["build"].as_str().unwrap_or_default().to_string();
     assert!(build.contains("+web."), "{hello}");
     assert_eq!(
         hello,
         json!({
-            "type": "hello", "protocol": 2, "build": build,
+            "type": "hello", "protocol": 3, "build": build,
             "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run", "export", "delete", "rename"],
         })
     );
@@ -427,13 +443,18 @@ async fn serve(config: DashboardConfig, launcher: impl DaemonLauncher) -> u16 {
     address.port()
 }
 
+/// The configuration of a dashboard in `dir`, whose pairing token is
+/// [`TOKEN`].
 fn config(dir: &Path, allowed_hosts: Vec<String>) -> DashboardConfig {
+    let token_path = dir.join("dashboard-token");
+    std::fs::write(&token_path, format!("{TOKEN}\n")).expect("store the token");
     DashboardConfig {
         socket_path: dir.join("daemon.sock"),
         session_dir: dir.join("sessions"),
         new_session_cwd: dir.to_path_buf(),
         create_config: serde_json::Map::from_iter([("script".to_string(), json!("/x.json"))]),
         allowed_hosts,
+        token_path,
     }
 }
 
@@ -441,7 +462,7 @@ fn config(dir: &Path, allowed_hosts: Vec<String>) -> DashboardConfig {
 /// are consumed.
 async fn bound_tab(port: u16, daemon: &ScriptedDaemon) -> Socket {
     let mut socket = open_tab(port).await;
-    expect_hello(&mut socket).await;
+    pair(&mut socket).await;
     let opened = request(&mut socket, json!({ "id": 1, "op": "open" })).await;
     assert_eq!(opened["type"], "reply", "{opened}");
     while daemon.seen.try_recv().is_ok() {}
@@ -522,7 +543,7 @@ fn refused(result: Result<Socket, tungstenite::Error>) -> u16 {
 /// An accepted socket of a dashboard without a daemon: `hello`, then why.
 async fn expect_accepted(result: Result<Socket, tungstenite::Error>) {
     let mut socket = result.expect("the page's own socket");
-    expect_hello(&mut socket).await;
+    pair(&mut socket).await;
     assert_eq!(
         next_frame(&mut socket).await,
         json!({
@@ -670,7 +691,7 @@ async fn a_tab_chats_and_browses_the_memory_through_the_daemon() {
     let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
     let port = serve(config(dir.path(), Vec::new()), Running).await;
     let mut socket = open_tab(port).await;
-    expect_hello(&mut socket).await;
+    pair(&mut socket).await;
 
     // Open: the newest root session, created resident and attached.
     let opened = request(&mut socket, json!({ "id": 1, "op": "open", "path": null })).await;
@@ -804,7 +825,7 @@ async fn run_reaches_the_daemon_for_the_bound_session_only_when_allowed() {
     let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
     let port = serve(config(dir.path(), Vec::new()), Running).await;
     let mut socket = open_tab(port).await;
-    expect_hello(&mut socket).await;
+    pair(&mut socket).await;
 
     let early = request(
         &mut socket,
@@ -1161,7 +1182,7 @@ async fn a_tab_resumes_from_its_cursor_and_hears_approvals() {
     let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
     let port = serve(config(dir.path(), Vec::new()), Running).await;
     let mut socket = open_tab(port).await;
-    expect_hello(&mut socket).await;
+    pair(&mut socket).await;
 
     // Nothing missed: no transcript, and of the two events in flight only
     // the one after the snapshot follows the reply.
@@ -1205,7 +1226,7 @@ async fn a_tab_resumes_from_its_cursor_and_hears_approvals() {
     let approval = |active_session_id: &str| {
         json!({
             "type": "shell_approval", "activeSessionId": active_session_id,
-            "request": { "requestId": active_session_id, "step": 0, "command": "rm -r build", "effect": "write" },
+            "request": { "requestId": active_session_id, "step": 0, "command": "rm -r build", "effects": ["write"] },
         })
     };
     daemon.write(&approval("s2"));
@@ -1214,7 +1235,7 @@ async fn a_tab_resumes_from_its_cursor_and_hears_approvals() {
         next_frame(&mut socket).await,
         json!({
             "type": "approval",
-            "request": { "requestId": "s1", "step": 0, "command": "rm -r build", "effect": "write" },
+            "request": { "requestId": "s1", "step": 0, "command": "rm -r build", "effects": ["write"] },
         })
     );
 
@@ -1298,9 +1319,118 @@ async fn a_tab_without_a_daemon_hears_why() {
     )
     .await;
     let mut socket = open_tab(port).await;
-    expect_hello(&mut socket).await;
+    pair(&mut socket).await;
     assert_eq!(
         next_frame(&mut socket).await,
         json!({ "type": "unavailable", "error": "start the eukhe daemon: no daemon here" })
+    );
+}
+
+/// Whether the server closed the socket next (a close frame, or the end).
+async fn closed(socket: &mut Socket) -> bool {
+    match tokio::time::timeout(DEADLINE, socket.next())
+        .await
+        .expect("the next message in time")
+    {
+        Some(Ok(Message::Close(_)) | Err(_)) | None => true,
+        Some(Ok(
+            Message::Text(_)
+            | Message::Binary(_)
+            | Message::Ping(_)
+            | Message::Pong(_)
+            | Message::Frame(_),
+        )) => false,
+    }
+}
+
+/// A socket runs nothing without the current pairing token: with no
+/// pairing first, an empty, other or malformed token, or a token a
+/// rotation replaced, it hears `unpaired` and closes; no bridge starts
+/// and no command reaches the daemon. The rotated token pairs.
+#[tokio::test]
+async fn a_socket_without_the_current_token_runs_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
+    let bridges = Arc::new(AtomicUsize::new(0));
+    let config = config(dir.path(), Vec::new());
+    let token_path = config.token_path.clone();
+    let port = serve(config, Counted(Arc::clone(&bridges))).await;
+    let unpaired = |error: &str| json!({ "type": "unpaired", "error": error });
+    let missing = "pairing needed: open the link that `eukhe dashboard` prints";
+    let wrong =
+        "this pairing link is not valid any more: open the link that `eukhe dashboard` prints";
+    let seen = |daemon: &ScriptedDaemon| -> Vec<Value> {
+        std::iter::from_fn(|| daemon.seen.try_recv().ok())
+            .map(|command| command["type"].clone())
+            .collect()
+    };
+
+    let mut heard = Vec::new();
+    for first in [
+        Message::text(json!({ "id": 1, "op": "sessions" }).to_string()),
+        Message::text(json!({ "op": "pair", "token": "" }).to_string()),
+        Message::text(json!({ "op": "pair", "token": TOKEN.replace('0', "f") }).to_string()),
+        Message::text(json!({ "op": "pair", "token": "secret" }).to_string()),
+        Message::binary(TOKEN.as_bytes().to_vec()),
+    ] {
+        let mut socket = open_tab(port).await;
+        socket.send(first).await.expect("send");
+        heard.push((next_frame(&mut socket).await, closed(&mut socket).await));
+    }
+    assert_eq!(
+        (heard, bridges.load(Ordering::SeqCst), seen(&daemon)),
+        (
+            vec![
+                (unpaired(missing), true),
+                (unpaired(missing), true),
+                (unpaired(wrong), true),
+                (unpaired(wrong), true),
+                (unpaired(missing), true),
+            ],
+            0,
+            Vec::new()
+        )
+    );
+
+    // A paired tab runs until a rotation; then its next frame runs
+    // nothing, the old token pairs no more, and the new one does.
+    let mut socket = open_tab(port).await;
+    pair(&mut socket).await;
+    let listed = request(&mut socket, json!({ "id": 1, "op": "sessions" })).await["type"].clone();
+    let ran = seen(&daemon);
+    let rotated = eukhe_dashboard::pairing_token(&token_path, eukhe_dashboard::Rotation::Rotate)
+        .expect("rotate");
+    send(&mut socket, &json!({ "id": 2, "op": "sessions" })).await;
+    let stale = (next_frame(&mut socket).await, closed(&mut socket).await);
+    let mut old = open_tab(port).await;
+    send(&mut old, &json!({ "op": "pair", "token": TOKEN })).await;
+    let old_pair = (next_frame(&mut old).await, closed(&mut old).await);
+    let after_rotation = seen(&daemon);
+    let mut fresh = open_tab(port).await;
+    send(
+        &mut fresh,
+        &json!({ "op": "pair", "token": rotated.secret_hex() }),
+    )
+    .await;
+    let greeted = next_frame(&mut fresh).await["type"].clone();
+    assert_eq!(
+        (
+            listed,
+            ran,
+            stale,
+            old_pair,
+            after_rotation,
+            greeted,
+            bridges.load(Ordering::SeqCst)
+        ),
+        (
+            json!("reply"),
+            vec![json!("list_saved_sessions")],
+            (unpaired(wrong), true),
+            (unpaired(wrong), true),
+            Vec::new(),
+            json!("hello"),
+            2
+        )
     );
 }

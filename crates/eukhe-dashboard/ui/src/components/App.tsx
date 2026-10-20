@@ -24,6 +24,7 @@ import {
 import { ui } from "../ui.ts";
 import { Composer, composerField } from "./Composer.tsx";
 import { Conversation, stopTurn } from "./Conversation.tsx";
+import { Pairing } from "./Pairing.tsx";
 import { Settings } from "./Settings.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { Topbar } from "./Topbar.tsx";
@@ -33,6 +34,7 @@ export function App() {
   const compact = useMedia(media.compact);
   const phone = useMedia(media.phone);
   const session = useStore((state) => state.session);
+  const unpaired = useStore((state) => state.link.status === "unpaired");
   const [drawer, setDrawer] = useState(false);
   const pushed = useRef(false);
   const panel = useRef<HTMLDivElement>(null);
@@ -128,6 +130,7 @@ export function App() {
     />
   );
 
+  if (unpaired) return <Pairing />;
   return (
     <Tooltip.Provider
       delayDuration={motion.tooltipDelay}

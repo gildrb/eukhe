@@ -1,8 +1,10 @@
 //! `dashboard`: serve the web dashboard on 127.0.0.1 and open it in the
 //! browser. The tab chats with the session the CLI uses, browses the chat
-//! memory, and controls the session. `--no-open` only prints the URL;
-//! `--allow-host` names a host a forwarder (`tailscale serve`) exposes
-//! the dashboard under. Runs in the foreground until Ctrl+C.
+//! memory, and controls the session. The URL's fragment holds the
+//! pairing token (kept in the agent dir; `--rotate-token` replaces it).
+//! `--no-open` only prints the URL; `--allow-host` names a host a
+//! forwarder (`tailscale serve`) exposes the dashboard under. Runs in the
+//! foreground until Ctrl+C.
 
 use anyhow::Context;
 
@@ -20,11 +22,13 @@ struct Args<'a> {
     browser: Browser,
     /// Host names besides loopback the dashboard answers to, lowercase.
     allowed_hosts: Vec<String>,
+    /// Whether the stored pairing token is replaced first.
+    rotation: eukhe_dashboard::Rotation,
 }
 
 fn usage() -> String {
     format!(
-        "Usage: {} dashboard [--port <port>] [--no-open] [--allow-host <name>]... [--daemon-socket <path>]",
+        "Usage: {} dashboard [--port <port>] [--no-open] [--allow-host <name>]... [--rotate-token] [--daemon-socket <path>]",
         crate::config::APP_NAME
     )
 }
@@ -35,11 +39,13 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
         port: eukhe_dashboard::Port::Free,
         browser: Browser::Open,
         allowed_hosts: Vec::new(),
+        rotation: eukhe_dashboard::Rotation::Keep,
     };
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--no-open" => parsed.browser = Browser::Skip,
+            "--rotate-token" => parsed.rotation = eukhe_dashboard::Rotation::Rotate,
             "--port" => {
                 let value = rest.next().ok_or("--port requires a value")?;
                 let port = value
@@ -115,16 +121,31 @@ pub fn run_dashboard_command(args: &[String]) -> i32 {
         socket_path: config.socket_path.clone(),
         spawn_cwd: config.new_session_cwd.clone(),
     };
+    let token = match eukhe_dashboard::pairing_token(&config.token_path, args.rotation) {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("Error: {error:#}");
+            return 1;
+        }
+    };
     let served = runtime.block_on(async move {
         let listener = eukhe_dashboard::bind(args.port).await?;
-        let url = format!("http://{}/", listener.local_addr()?);
+        let fragment = format!("#token={}", token.secret_hex());
+        let url = format!("http://{}/{fragment}", listener.local_addr()?);
         println!("eukhe dashboard: {url}");
         println!("Serving on loopback only. Press Ctrl+C to stop.");
+        println!(
+            "The {fragment} part pairs a browser: keep it private. Through a forwarder (poros, tailscale serve), add it to the forwarder's URL. `--rotate-token` replaces it."
+        );
         for host in &config.allowed_hosts {
-            println!("Also answering to {host} (through your forwarder).");
+            println!("Also answering to {host} (through your forwarder): https://{host}/{fragment}");
         }
         if args.browser == Browser::Open {
-            eukhe_core::platform::browser::open_in_browser(&url);
+            // The browser gets a private page that redirects to the URL:
+            // the token stays out of the opener's process arguments.
+            let opener = config.token_path.with_file_name("dashboard-open.html");
+            eukhe_dashboard::opener_page(&opener, &url)?;
+            eukhe_core::platform::browser::open_in_browser(&opener.display().to_string());
         }
         tokio::select! {
             served = eukhe_dashboard::serve(listener, config, launcher) => served,
@@ -174,6 +195,7 @@ fn dashboard_config(
         new_session_cwd: home,
         create_config,
         allowed_hosts,
+        token_path: agent_dir.join("dashboard-token"),
     })
 }
 
@@ -197,6 +219,7 @@ mod tests {
             "Box.Tail1234.ts.net",
             "--allow-host",
             "phone-proxy",
+            "--rotate-token",
         ]);
         let parsed = parse_args(&args).unwrap();
         assert_eq!(
@@ -204,13 +227,15 @@ mod tests {
                 parsed.browser,
                 parsed.port,
                 parsed.daemon_socket,
-                parsed.allowed_hosts
+                parsed.allowed_hosts,
+                parsed.rotation
             ),
             (
                 Browser::Skip,
                 eukhe_dashboard::Port::Fixed(8377),
                 Some("/tmp/d.sock"),
-                vec!["box.tail1234.ts.net".to_string(), "phone-proxy".to_string()]
+                vec!["box.tail1234.ts.net".to_string(), "phone-proxy".to_string()],
+                eukhe_dashboard::Rotation::Rotate
             )
         );
         let parsed = parse_args(&[]).unwrap();
@@ -219,9 +244,16 @@ mod tests {
                 parsed.browser,
                 parsed.port,
                 parsed.daemon_socket,
-                parsed.allowed_hosts
+                parsed.allowed_hosts,
+                parsed.rotation
             ),
-            (Browser::Open, eukhe_dashboard::Port::Free, None, Vec::new())
+            (
+                Browser::Open,
+                eukhe_dashboard::Port::Free,
+                None,
+                Vec::new(),
+                eukhe_dashboard::Rotation::Keep
+            )
         );
         let errors: Vec<String> = [
             strings(&["--port"]),

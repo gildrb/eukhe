@@ -32,6 +32,12 @@ uuid = { version = "1", features = ["v4"] }
 # An export's file bytes in the `export` reply. Already in the tree through
 # eukhe-ai, eukhe-core and eukhe-tui; MIT OR Apache-2.0.
 base64 = "0.22"
+# The pairing token's random bytes. Already in the tree through uuid;
+# MIT OR Apache-2.0.
+getrandom = "0.4"
+# The pairing token's constant-time comparison. Already in the tree
+# through rustls and digest; BSD-3-Clause.
+subtle = "2.6"
 
 [dev-dependencies]
 tempfile = "3"

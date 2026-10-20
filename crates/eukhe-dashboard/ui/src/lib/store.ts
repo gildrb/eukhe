@@ -11,7 +11,8 @@ export type Lane = "steer" | "followUp";
 
 export type Prefs = { theme: Theme; enterSendsOnTouch: boolean; notify: boolean; lane: Lane };
 
-export type LinkStatus = "connecting" | "open" | "offline" | "unavailable";
+/** `unpaired`: no pairing token, or the server refused it; the app asks for the link. */
+export type LinkStatus = "connecting" | "open" | "offline" | "unavailable" | "unpaired";
 
 export type Frame = {
   seq: number;

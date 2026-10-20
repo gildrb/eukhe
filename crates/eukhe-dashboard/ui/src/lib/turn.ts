@@ -121,7 +121,7 @@ export type Approval = {
   requestId: string;
   step: number;
   command: string;
-  effect: string;
+  effects: string[];
   status: "pending" | "answering" | "elsewhere";
 };
 
@@ -687,15 +687,20 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
 }
 
 const EFFECT_WORDS: Record<string, string> = {
-  read: "Reads files",
-  write: "Changes files",
-  exec: "Runs a program",
-  net: "Uses the network",
+  read: "reads files",
+  write: "changes files",
+  exec: "runs a program",
+  net: "uses the network",
+  outside: "acts outside the work folder",
+  protected: "changes eukhe's own settings or files",
+  secret: "reads secrets",
 };
 
-/** A shell effect as words. */
-export function effectWords(effect: string): string {
-  return EFFECT_WORDS[effect] ?? "Runs a command";
+/** A step's shell effects as one sentence ("Changes files, uses the network"). */
+export function effectWords(effects: string[]): string {
+  const words = effects.map((effect) => EFFECT_WORDS[effect] ?? `has the effect ${effect}`);
+  const sentence = words.length ? words.join(", ") : "runs a command";
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }
 
 /** One line naming what a tool call acts on (`cargo test`, `src/main.rs`). */

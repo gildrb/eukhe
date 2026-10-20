@@ -79,6 +79,8 @@ import ./laws/retry.bend as Rt
 import ./bend/proof_retry_policy.bend as RetryPolicy
 import ./laws/model_facts.bend as ModelFacts
 import ./bend/proof_facts.bend as Facts
+import ./laws/dashboard_auth.bend as DashAuth
+import ./bend/proof_dashboard_auth.bend as DashPairing
 
 # (a) The view
 
@@ -1419,3 +1421,32 @@ def ModelFacts.facts_tier_price_codex_oracle(m, t):
 
 def ModelFacts.facts_cache_write_1h_own_rate(input, write):
   Facts.pf.facts_cache_write_1h_own_rate(input, write)
+
+# (D1) The dashboard's pairing gate
+
+def DashAuth.dash_frame_runs_only_current(s, c, ran):
+  DashPairing.pa.frame_runs_only_current(s, c, ran)
+
+def DashAuth.dash_current_frame_runs(s, c, cur):
+  DashPairing.pa.current_frame_runs(s, c, cur)
+
+def DashAuth.dash_open_pairs_only_current(s, c, shown, paired):
+  DashPairing.pa.open_pairs_only_current(s, c, shown, paired)
+
+def DashAuth.dash_current_open_pairs(s, c):
+  DashPairing.pa.current_open_pairs(s, c)
+
+def DashAuth.dash_paired_holds_token(s, c):
+  DashPairing.pa.paired_holds_token(s, c)
+
+def DashAuth.dash_closed_runs_nothing(s, c, evs, closed, again):
+  DashPairing.pa.closed_runs_nothing(s, c, evs, closed, again)
+
+def DashAuth.dash_rejected_runs_nothing(s, c, shown, evs, rejected, again):
+  DashPairing.pa.rejected_runs_nothing(s, c, shown, evs, rejected, again)
+
+def DashAuth.dash_rotation_ends_connections(hist, c, evs, again):
+  DashPairing.pa.rotation_ends_connections(hist, c, evs, again)
+
+def DashAuth.dash_rotation_rejects_old_tokens(hist, more, c, t, old):
+  DashPairing.pa.rotation_rejects_old_tokens(hist, more, c, t, old)

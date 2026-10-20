@@ -1,13 +1,15 @@
-// The tab's WebSocket to the dashboard bridge (src/protocol.rs): numbered
+// The tab's WebSocket to the dashboard bridge (src/protocol.rs): the
+// pairing frame first (the kept token, lib/pairing.ts), then numbered
 // requests answered by `reply`/`failure`, and pushed frames (`hello`,
-// `event`, `approval`, `resync`, `unavailable`). Reconnects with backoff,
-// and at once when the tab comes back (iOS suspends hidden sockets).
+// `event`, `approval`, `resync`, `unavailable`, `unpaired`). Reconnects with
+// backoff, and at once when the tab comes back (iOS suspends hidden
+// sockets). With no token, or after `unpaired`, it waits for a new one.
 
+import { adoptToken, forgetToken, pairingToken, takeFromAddress } from "./pairing.ts";
 import { store, type State } from "./store.ts";
 import type { ServerFrame } from "./types.ts";
 
 const FRAME_RING = 2000;
-const HELLO_WAIT_MS = 400;
 const BACKOFF_START_MS = 500;
 const BACKOFF_MAX_MS = 5000;
 
@@ -19,7 +21,6 @@ let socket: WebSocket | null = null;
 let nextId = 1;
 let delay = BACKOFF_START_MS;
 let retryTimer = 0;
-let readyTimer = 0;
 let frameSeq = 0;
 const pending = new Map<number, Waiter>();
 const listeners = new Set<(frame: ServerFrame) => void>();
@@ -40,8 +41,6 @@ function record(dir: "in" | "out", frame: Record<string, unknown>) {
 }
 
 function ready() {
-  clearTimeout(readyTimer);
-  readyTimer = 0;
   for (const listener of readyListeners) listener();
 }
 
@@ -63,9 +62,13 @@ function receive(text: string) {
   }
   if (frame.type === "hello") {
     setLink({ hello: { protocol: frame.protocol, build: frame.build, ops: frame.ops ?? [] } });
-    if (readyTimer) ready();
+    ready();
   }
   if (frame.type === "unavailable") setLink({ status: "unavailable", error: frame.error });
+  if (frame.type === "unpaired") {
+    forgetToken();
+    setLink({ status: "unpaired", error: frame.error });
+  }
   for (const listener of listeners) listener(frame);
 }
 
@@ -84,6 +87,11 @@ export function connect(): void {
   )
     return;
   clearTimeout(retryTimer);
+  const token = pairingToken();
+  if (!token) {
+    setLink({ status: "unpaired", retryAt: 0 });
+    return;
+  }
   const url = new URL("api/ws", location.href);
   url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
   url.hash = "";
@@ -94,21 +102,21 @@ export function connect(): void {
   setLink({ status: unavailable ? "unavailable" : "connecting", retryAt: 0 });
   current.addEventListener("open", () => {
     if (socket !== current) return;
+    // The pairing frame stays out of the frame log: it holds the token.
+    current.send(JSON.stringify({ op: "pair", token }));
     setLink({ status: "open", everOpen: true, error: null, hello: null });
-    // A v2 bridge says `hello` first; an older one never does.
-    readyTimer = window.setTimeout(ready, HELLO_WAIT_MS);
   });
   current.addEventListener("message", (event: MessageEvent<string>) => receive(event.data));
   current.addEventListener("close", () => {
     if (socket !== current) return;
     socket = null;
-    clearTimeout(readyTimer);
-    readyTimer = 0;
     for (const { reject } of pending.values()) reject(new Error("The connection dropped."));
     pending.clear();
-    const keepUnavailable = store.get().link.status === "unavailable";
+    const { status } = store.get().link;
+    // Unpaired: wait for a new link instead of retrying with no token.
+    if (status === "unpaired") return;
     schedule();
-    if (keepUnavailable) setLink({ status: "unavailable" });
+    if (status === "unavailable") setLink({ status: "unavailable" });
   });
 }
 
@@ -116,6 +124,24 @@ export function connect(): void {
 export function reconnect(): void {
   delay = BACKOFF_START_MS;
   connect();
+}
+
+/** Drop the socket (it paired with another token or none) and pair again. */
+function repair() {
+  const old = socket;
+  socket = null;
+  old?.close();
+  for (const { reject } of pending.values()) reject(new Error("The connection dropped."));
+  pending.clear();
+  setLink({ status: "connecting", error: null });
+  reconnect();
+}
+
+/** Pair with the link or token in `text` and connect; false when it holds no token. */
+export function pair(text: string): boolean {
+  if (!adoptToken(text)) return false;
+  repair();
+  return true;
 }
 
 /**
@@ -160,7 +186,7 @@ export function onFrame<T extends FrameType>(
   return () => listeners.delete(hear);
 }
 
-/** Called each time a fresh socket is ready for requests (after `hello`, or its timeout). */
+/** Called each time a fresh socket is ready for requests (after `hello`). */
 export function onReady(listener: () => void): () => void {
   readyListeners.add(listener);
   return () => readyListeners.delete(listener);
@@ -171,11 +197,9 @@ export function linkOpen(): boolean {
   return socket?.readyState === WebSocket.OPEN;
 }
 
-/** True when the bridge advertised `op` (v2), or for the v1 ops on an older bridge. */
+/** True when the bridge advertised `op` in its `hello`. */
 export function supports(op: string): boolean {
-  const { hello } = store.get().link;
-  if (hello) return hello.ops.includes(op);
-  return ["sessions", "open", "new", "prompt", "abort", "memory"].includes(op);
+  return store.get().link.hello?.ops.includes(op) ?? false;
 }
 
 function wake() {
@@ -185,3 +209,8 @@ function wake() {
 document.addEventListener("visibilitychange", wake);
 window.addEventListener("pageshow", wake);
 window.addEventListener("online", wake);
+// A pairing link opened in this tab (only the fragment changes, so the page
+// does not load again).
+window.addEventListener("hashchange", () => {
+  if (takeFromAddress()) repair();
+});

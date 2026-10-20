@@ -651,12 +651,13 @@ function ApprovalCard({ item }: { item: Approval }) {
       role="group"
       tabIndex={-1}
       aria-label="Approve this command?"
-      aria-keyshortcuts="A D"
+      aria-keyshortcuts="A D Enter"
       onKeyDown={(event) => {
         if (busy || (event.target instanceof HTMLButtonElement && event.key === "Enter")) return;
         const key = event.key.toLowerCase();
         if (key === "a") void answerApproval(item.requestId, "approve");
-        else if (key === "d") void answerApproval(item.requestId, "deny");
+        // Deny is the default: Enter on the card denies.
+        else if (key === "d" || key === "enter") void answerApproval(item.requestId, "deny");
       }}
       {...stylex.props(ui.focusRing, styles.approval)}
     >
@@ -664,7 +665,7 @@ function ApprovalCard({ item }: { item: Approval }) {
       <pre translate={false} {...stylex.props(ui.mono, styles.approvalCommand)}>
         {item.command}
       </pre>
-      <p {...stylex.props(ui.small, styles.approvalEffect)}>{effectWords(item.effect)}</p>
+      <p {...stylex.props(ui.small, styles.approvalEffect)}>{effectWords(item.effects)}</p>
       <div {...stylex.props(styles.approvalButtons)}>
         <button
           type="button"
