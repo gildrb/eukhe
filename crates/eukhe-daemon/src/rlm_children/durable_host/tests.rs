@@ -131,6 +131,7 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
                     serde_json::to_value(RlmChildOutcome {
                         state,
                         progress: Some(7),
+                        answer: None,
                     })
                     .unwrap(),
                 ),

@@ -1206,6 +1206,8 @@ async fn the_read_tool_serves_internal_urls() {
         progress: None,
         reporter: None,
         handback: None,
+        phase: None,
+        answer: None,
     };
     let root = session.root().id();
     session

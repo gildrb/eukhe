@@ -85,6 +85,8 @@ impl Sim {
                 progress: None,
                 reporter: None,
                 handback: None,
+                phase: None,
+                answer: None,
             },
             open: true,
             inbox: Vec::new(),
@@ -138,7 +140,7 @@ impl Sim {
                         error: "the child's run failed".to_owned(),
                     },
                 };
-                match watched_next(watched, poll, 0.0, &mut self.row) {
+                match watched_next(watched, poll, 0.0, &mut self.row, super::ReportMode::Inbox) {
                     NextTaskState::Running { checkpoint } => Some(checkpoint),
                     NextTaskState::Waiting { .. } | NextTaskState::Terminal { .. } => None,
                 }

@@ -536,11 +536,12 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         Box::pin(async move {
             let selector = this.durable_selector(&request.session_id);
             let (this, request) = (&this, &request);
-            let observe = move |state, progress| async move {
+            let observe = move |state, progress, answer| async move {
                 durable::RlmChildObservation {
                     state,
                     usage: this.child_usage(&request.session_id).await,
                     progress,
+                    answer,
                 }
             };
             let seen_running = || {
@@ -585,7 +586,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         }
                         Ok(false) => {}
                         Err(error) if format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
-                            return Ok(observe(interrupted(), None).await);
+                            return Ok(observe(interrupted(), None, None).await);
                         }
                         Err(error) => return Err(error),
                     }
@@ -595,7 +596,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 let outcome = this.child_outcome(&selector).await?;
                 if outcome.state == durable::RlmChildRunState::Running {
                     seen_running();
-                    return Ok(observe(outcome.state, outcome.progress).await);
+                    return Ok(observe(outcome.state, outcome.progress, None).await);
                 }
                 // Stability re-check: a prompt admitted to an idle worker
                 // can read idle once before its run starts.
@@ -612,7 +613,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     }
                     state @ durable::RlmChildRunState::Failed { .. } => state,
                     durable::RlmChildRunState::Answered { .. } if unsettled_resume => {
-                        return Ok(observe(interrupted(), None).await);
+                        return Ok(observe(interrupted(), None, None).await);
                     }
                     state @ durable::RlmChildRunState::Answered { .. } => {
                         // The answered run completes the child's display
@@ -626,7 +627,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         state
                     }
                 };
-                Ok(observe(state, outcome.progress).await)
+                Ok(observe(state, outcome.progress, outcome.answer).await)
             }
             .await;
             let probe_error = match observed {
@@ -662,6 +663,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         failure: ChildFailure::WorkerExited,
                         error: WORKER_EXITED_ERROR.to_owned(),
                     },
+                    None,
                     None,
                 )
                 .await),

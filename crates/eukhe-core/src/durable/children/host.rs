@@ -114,6 +114,9 @@ pub struct RlmChildObservation {
     /// The child's progress token ([`RlmChildOutcome::progress`]); `None`
     /// when the observation did not read the child's outcome.
     pub progress: Option<u64>,
+    /// The full text of the child's final answer, once it answered
+    /// ([`RlmChildOutcome::answer`]).
+    pub answer: Option<String>,
 }
 
 /// A child's `get_run_outcome` reply: its run state and its progress
@@ -131,7 +134,15 @@ pub struct RlmChildOutcome {
     pub state: RlmChildRunState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<u64>,
+    /// The full text of the child's last assistant answer, capped at
+    /// [`RLM_CHILD_ANSWER_MAX_BYTES`]; `None` while it runs, after a
+    /// failure, and from a worker of an older binary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
 }
+
+/// The largest final answer a child's outcome carries, in bytes.
+pub const RLM_CHILD_ANSWER_MAX_BYTES: usize = 256 * 1024;
 
 /// Run state of a child's task, read from the child's own durable state:
 /// its run in flight, the terminal of its last run, and the background

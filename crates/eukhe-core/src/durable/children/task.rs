@@ -116,6 +116,31 @@ pub(crate) struct ChildTaskInput {
     /// abort does not reach.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) owed: Option<OwedReport>,
+    /// Whether the settled child reports to the parent's inbox (absent in
+    /// tasks admitted before it: the inbox).
+    #[serde(default, skip_serializing_if = "ReportMode::is_inbox")]
+    pub(crate) report: ReportMode,
+}
+
+/// Where a settled child's outcome goes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ReportMode {
+    /// A follow-up input to the parent (the `rlm.spawn` default).
+    #[default]
+    Inbox,
+    /// Only the registry row: the spawner reads the outcome itself (a
+    /// dynamic workflow's agents), and the row keeps the full answer.
+    Silent,
+}
+
+impl ReportMode {
+    fn is_inbox(&self) -> bool {
+        match self {
+            Self::Inbox => true,
+            Self::Silent => false,
+        }
+    }
 }
 
 /// A report an aborted child task hands on.
@@ -545,7 +570,19 @@ impl Watched {
 /// `now` and decided `watched` (`watched` in `bend/child.bend`): watch on,
 /// report, or end; `row` takes the child's end. A child that answered
 /// through an agent message owes no notice.
-fn watched_next(watched: Watched, poll: u64, now: f64, row: &mut ChildRow) -> Next {
+fn watched_next(
+    watched: Watched,
+    poll: u64,
+    now: f64,
+    row: &mut ChildRow,
+    report: ReportMode,
+) -> Next {
+    let settle_silently = |row: &mut ChildRow| {
+        row.settled = true;
+        NextTaskState::Terminal {
+            outcome: TaskOutcome::Completed { result: row.status },
+        }
+    };
     match watched {
         // Each failed poll in a row doubles the pause.
         Watched::Watch(vigil) => NextTaskState::Running {
@@ -558,7 +595,7 @@ fn watched_next(watched: Watched, poll: u64, now: f64, row: &mut ChildRow) -> Ne
         Watched::Answered { answer_preview } => {
             row.status = ChildStatus::Done;
             row.answer_preview.clone_from(&answer_preview);
-            if row.replied_since_task {
+            if row.replied_since_task || report == ReportMode::Silent {
                 row.settled = true;
                 NextTaskState::Terminal {
                     outcome: TaskOutcome::Completed {
@@ -576,12 +613,15 @@ fn watched_next(watched: Watched, poll: u64, now: f64, row: &mut ChildRow) -> Ne
         Watched::Failed { failure, error } | Watched::Stuck { failure, error } => {
             row.status = ChildStatus::Error;
             row.error = Some(error.clone());
-            report_next(ChildReport::Failed {
-                session_name: row.session_name.clone(),
-                failure: Some(failure),
-                error,
-                handback: row.handback.clone(),
-            })
+            match report {
+                ReportMode::Inbox => report_next(ChildReport::Failed {
+                    session_name: row.session_name.clone(),
+                    failure: Some(failure),
+                    error,
+                    handback: row.handback.clone(),
+                }),
+                ReportMode::Silent => settle_silently(row),
+            }
         }
     }
 }
@@ -668,12 +708,15 @@ async fn watch(
     };
     let stall = services.settings.manager().get_subagent_stall();
     let judge = |poll| vigil.judge(poll, (now - started).max(0.0), stall.as_secs_f64() * 1000.0);
+    let mut answer = None;
     let (usage, progress, watched) = match observed {
         Ok(RlmChildObservation {
             state,
             usage,
             progress,
+            answer: full,
         }) => {
+            answer = full;
             let watched = match state {
                 RlmChildRunState::Running | RlmChildRunState::Idle { .. } => {
                     Watched::of(judge(Poll::Unsettled { progress }), stall, None)
@@ -725,6 +768,7 @@ async fn watch(
             }
         }
     };
+    let report = task.input.report;
     let conversation_id = task.conversation_id;
     runtime
         .commit(
@@ -740,7 +784,10 @@ async fn watch(
                 }
                 row.progress = progress.or(row.progress);
                 row.handback = handback;
-                let next = watched_next(watched, poll, now, &mut row);
+                if report == ReportMode::Silent && matches!(watched, Watched::Answered { .. }) {
+                    row.answer = answer;
+                }
+                let next = watched_next(watched, poll, now, &mut row, report);
                 super::registry::tx_put_row(&tx, conversation_id, &row).await?;
                 Ok(Some(next))
             },
@@ -947,7 +994,10 @@ async fn abort(
     if let Some(outcome) = &handback {
         row.handback = Some(outcome.clone());
     }
-    let owed = owed_on_abort(&task.checkpoint, task_id, &row);
+    let owed = match task.input.report {
+        ReportMode::Inbox => owed_on_abort(&task.checkpoint, task_id, &row),
+        ReportMode::Silent => None,
+    };
     let reporter = match owed {
         Some(owed) => {
             let definition = runtime

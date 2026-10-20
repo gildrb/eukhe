@@ -128,6 +128,13 @@ pub(crate) struct ChildRow {
     /// child in the shared workspace or one not yet handed back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) handback: Option<HandbackOutcome>,
+    /// The workflow phase the child serves, when its spawner named one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) phase: Option<String>,
+    /// The child's full final answer; kept for silent children only
+    /// (their spawner reads it instead of a report).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) answer: Option<String>,
 }
 
 /// The persisted result of handing an isolated child's workspace back.

@@ -39,6 +39,7 @@ use futures::FutureExt;
 use serde_json::{json, Value};
 
 mod report_delivery;
+mod silent;
 mod watch;
 mod workspace;
 
@@ -101,6 +102,8 @@ struct FakeState {
     ticking: bool,
     /// The hand-back every child reports (`None`: the shared workspace).
     handback: Option<Handback>,
+    /// The full final answer each child reports once it settles.
+    answers: HashMap<String, String>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -205,6 +208,7 @@ impl RlmSubagentHost for FakeHost {
                                 state,
                                 usage: fake.usage.get(&request.session_id).copied(),
                                 progress,
+                                answer: fake.answers.get(&request.session_id).cloned(),
                             });
                         }
                     }
@@ -220,6 +224,7 @@ impl RlmSubagentHost for FakeHost {
                     state: RlmChildRunState::Running,
                     usage: None,
                     progress: None,
+                    answer: None,
                 }))
         })
     }
@@ -1813,6 +1818,7 @@ fn a_run_outcome_without_progress_decodes() {
         super::host::RlmChildOutcome {
             state: super::host::RlmChildRunState::Running,
             progress: None,
+            answer: None,
         }
     );
 }

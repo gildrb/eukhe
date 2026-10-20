@@ -1,7 +1,8 @@
 //! The `rlm.*` kernel host requests over the durable children registry:
 //! `rlm.run` (`rlm.spawn`),
 //! `rlm.create_session`, `rlm.find_models`, `rlm.list_subagents`,
-//! `rlm.delete_subagent`, `rlm.collect`, and `rlm.progress.note`
+//! `rlm.delete_subagent`, `rlm.collect`, `rlm.answer`, and
+//! `rlm.progress.note`
 //! (`rlm.rename` lives in [`super::rename`]).
 
 use std::future::Future;
@@ -33,7 +34,7 @@ use super::registry::{
     child_identity, read_children, resolve, tx_children, tx_put_row, tx_update_row, ChildDeletion,
     ChildRow, ChildStatus, HandbackOutcome, Resolved, CHILDREN_DOC,
 };
-use super::task::ChildTaskInput;
+use super::task::{ChildTaskInput, ReportMode};
 use super::wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };
@@ -70,6 +71,7 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
     handler!("rlm.collect", collect);
+    handler!("rlm.answer", answer);
     handler!("rlm.rename", super::rename::rename);
 }
 
@@ -214,6 +216,11 @@ struct SpawnKwargs {
     thinking: Option<String>,
     /// `None` when the caller did not choose (the shared workspace).
     workspace: Option<WorkspaceMode>,
+    /// The roster label; `None`: derived from the prompt.
+    label: Option<String>,
+    /// The workflow phase the child serves.
+    phase: Option<String>,
+    report: ReportMode,
 }
 
 /// Unsupported keys are rejected with the sorted key list; name, model, and
@@ -224,7 +231,15 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
     reject_unsupported_kwargs(
         &kwargs,
         OPERATION,
-        &["name", "model", "thinking", "workspace"],
+        &[
+            "name",
+            "model",
+            "thinking",
+            "workspace",
+            "label",
+            "phase",
+            "report",
+        ],
     )?;
     let name = optional_string_kwarg(&kwargs, "name", OPERATION)?;
     let name = normalize_requested_rlm_subagent_session_name(name, OPERATION)?;
@@ -242,11 +257,27 @@ fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
         Some("isolated") => Some(WorkspaceMode::Isolated),
         Some(_) => bail!("{OPERATION} workspace must be \"shared\" or \"isolated\""),
     };
+    let text = |key: &str| -> anyhow::Result<Option<String>> {
+        Ok(optional_string_kwarg(&kwargs, key, OPERATION)?
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned))
+    };
+    let label = text("label")?;
+    let phase = text("phase")?;
+    let report = match optional_string_kwarg(&kwargs, "report", OPERATION)? {
+        None | Some("inbox") => ReportMode::Inbox,
+        Some("silent") => ReportMode::Silent,
+        Some(_) => bail!("{OPERATION} report must be \"inbox\" or \"silent\""),
+    };
     Ok(SpawnKwargs {
         name,
         model,
         thinking,
         workspace,
+        label,
+        phase,
+        report,
     })
 }
 
@@ -355,11 +386,18 @@ async fn admit_spawns(
         .as_ref()
         .and_then(|recorder| recorder.last_turn_request_id())
         .or_else(|| Some(api.call_id().to_owned()));
-    let admitted: Vec<(Option<String>, ChildTaskInput)> = specs
+    let admitted: Vec<(
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        ChildTaskInput,
+    )> = specs
         .into_iter()
         .map(|spec| {
             (
                 spec.kwargs.name,
+                spec.kwargs.label,
+                spec.kwargs.phase,
                 ChildTaskInput {
                     prompt: spec.prompt,
                     model: spec.kwargs.model,
@@ -368,6 +406,7 @@ async fn admit_spawns(
                     max_depth: Some(max_depth),
                     workspace: spec.kwargs.workspace,
                     owed: None,
+                    report: spec.kwargs.report,
                 },
             )
         })
@@ -400,7 +439,7 @@ async fn admit_spawns(
                     }
                 }
                 let mut batch_names: Vec<&str> = Vec::new();
-                for name in admitted.iter().filter_map(|(name, _)| name.as_deref()) {
+                for name in admitted.iter().filter_map(|(name, ..)| name.as_deref()) {
                     let taken = batch_names.contains(&name)
                         || state
                             .children
@@ -412,7 +451,7 @@ async fn admit_spawns(
                     batch_names.push(name);
                 }
                 let mut task_ids = Vec::with_capacity(admitted.len());
-                for (name, input) in admitted {
+                for (name, label, phase, input) in admitted {
                     let task_id = tx
                         .create_task(
                             task.clone(),
@@ -437,7 +476,7 @@ async fn admit_spawns(
                         rlm_child_id: identity.rlm_child_id,
                         session_id: identity.session_id,
                         session_name,
-                        label: rlm_child_label(&input.prompt),
+                        label: label.unwrap_or_else(|| rlm_child_label(&input.prompt)),
                         started_at,
                         status: ChildStatus::Spawning,
                         active_session_id: None,
@@ -452,6 +491,8 @@ async fn admit_spawns(
                         progress: None,
                         reporter: None,
                         handback: None,
+                        phase,
+                        answer: None,
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
                     task_ids.push(task_id);
@@ -965,6 +1006,33 @@ async fn wait_for_verdicts(
         watch.stop().await;
     }
     outcome
+}
+
+/// `rlm.answer`: the settled-or-not state of the one live child `target`
+/// selects, with its full final answer when it kept one (a silent
+/// child's): `{status, settled, sessionId, answer?, error?}`.
+async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
+    let Some(target) = call
+        .data
+        .get("target")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+    else {
+        bail!("rlm.answer target must be a non-empty string");
+    };
+    let harness = children.harness.require().map_err(session_error)?;
+    let state = read_children(&harness, conversation_of(&call), &cx())
+        .await
+        .map_err(session_error)?;
+    let row = resolve_live(state.children.values(), target, "child")?;
+    Ok(json!({
+        "status": row.status.collect_status(),
+        "settled": row.status.is_terminal(),
+        "sessionId": row.session_id,
+        "answer": row.answer.clone().or_else(|| row.answer_preview.clone()),
+        "error": row.error,
+    }))
 }
 
 // ---------------------------------------------------------------------------

@@ -23,7 +23,9 @@
 //! stalled after `subagentStallMs`.
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::durable::children::{unsettled_children, RlmChildOutcome, RlmChildRunState};
+use eukhe_core::durable::children::{
+    unsettled_children, RlmChildOutcome, RlmChildRunState, RLM_CHILD_ANSWER_MAX_BYTES,
+};
 use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_job_progress};
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_types::input_origin::ChildFailure;
@@ -82,16 +84,24 @@ impl Worker {
                             .cloned()
                     })
             });
+            let state = run_outcome(
+                busy,
+                u32::try_from(pending_jobs).unwrap_or(u32::MAX),
+                last.as_ref(),
+            );
+            let answer = match &state {
+                RlmChildRunState::Answered { .. } => last.as_ref().and_then(full_answer),
+                RlmChildRunState::Running
+                | RlmChildRunState::Idle { .. }
+                | RlmChildRunState::Failed { .. } => None,
+            };
             RlmChildOutcome {
-                state: run_outcome(
-                    busy,
-                    u32::try_from(pending_jobs).unwrap_or(u32::MAX),
-                    last.as_ref(),
-                ),
+                state,
                 progress: Some(
                     work.wrapping_add(children.progress)
                         .wrapping_add(job_progress),
                 ),
+                answer,
             }
         };
         match serde_json::to_value(&state) {
@@ -113,6 +123,32 @@ fn work_progress(core: &mut SessionCore) -> u64 {
         core.work_ledger.read_note(&note.text);
     }
     core.work_ledger.count()
+}
+
+/// The text blocks of `message` joined by blank lines, capped at
+/// [`RLM_CHILD_ANSWER_MAX_BYTES`] on a char boundary; `None` when it has
+/// no text.
+fn full_answer(message: &AssistantMessage) -> Option<String> {
+    let text = message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+            AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if text.trim().is_empty() {
+        return None;
+    }
+    if text.len() <= RLM_CHILD_ANSWER_MAX_BYTES {
+        return Some(text);
+    }
+    let mut end = RLM_CHILD_ANSWER_MAX_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(text[..end].to_owned())
 }
 
 /// The run outcome of a session `busy` or not, owning `pending_jobs`
