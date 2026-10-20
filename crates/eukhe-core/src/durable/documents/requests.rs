@@ -13,7 +13,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_docs::{
-    Documents, EditError, FileChange, GlobError, GlobOutput, GrepError, GrepOutput,
+    AccessGate, Documents, EditError, FileChange, GlobError, GlobOutput, GrepError, GrepOutput,
     HashlineOutcome, Notice, ReadContent, ReadError, ReadView, Url, UrlError, WriteDisposition,
     WriteError, WriteOutcome,
 };
@@ -161,7 +161,6 @@ pub(super) struct WriteReply {
     created: bool,
     bytes: usize,
     tag: Option<String>,
-    made_executable: bool,
     rendered: String,
 }
 
@@ -255,6 +254,7 @@ pub(super) fn read_rejection(error: &ReadError) -> &'static str {
         ReadError::Binary { .. } => "binary",
         ReadError::Io { .. } => "io",
         ReadError::Url(error) => url_rejection(error),
+        ReadError::Refused { .. } => "refused",
     }
 }
 
@@ -278,7 +278,6 @@ fn write_reply(outcome: WriteOutcome) -> WriteReply {
         },
         bytes: outcome.bytes,
         tag: outcome.tag,
-        made_executable: outcome.made_executable,
         rendered: outcome.rendered,
     }
 }
@@ -288,6 +287,7 @@ fn write_rejection(error: &WriteError) -> &'static str {
         WriteError::IsDirectory { .. } => "is_directory",
         WriteError::Changed { .. } => "changed",
         WriteError::Io { .. } => "io",
+        WriteError::Refused { .. } => "refused",
     }
 }
 
@@ -327,6 +327,7 @@ fn edit_rejection(error: &EditError) -> &'static str {
         EditError::Apply(_) => "apply",
         EditError::Match(_) => "anchor",
         EditError::Io { .. } => "io",
+        EditError::Refused(_) => "refused",
     }
 }
 
@@ -360,6 +361,7 @@ fn grep_rejection(error: &GrepError) -> &'static str {
         GrepError::TimedOut => "timeout",
         GrepError::AllPathsMissing { .. } => "not_found",
         GrepError::Workspace { .. } => "io",
+        GrepError::Refused { .. } => "refused",
     }
 }
 
@@ -381,6 +383,7 @@ fn glob_rejection(error: &GlobError) -> &'static str {
         GlobError::PathNotDirectory { .. } => "not_directory",
         GlobError::InvalidPattern { .. } => "pattern",
         GlobError::Workspace { .. } => "io",
+        GlobError::Refused { .. } => "refused",
     }
 }
 
@@ -396,47 +399,49 @@ fn decode<T: DeserializeOwned>(function: Function, args: JsonObject) -> Result<T
     })
 }
 
-/// Run one call on `documents`, resolving relative paths against `cwd`.
-/// Blocking: file I/O.
+/// Run one call on `documents`, resolving relative paths against `cwd`,
+/// each path access through `gate`. Blocking: file I/O, and the gate may
+/// wait for the user.
 fn perform_blocking(
     documents: &Documents,
     function: Function,
     cwd: &Path,
     args: JsonObject,
+    gate: &dyn AccessGate,
 ) -> Result<Done, Rejection> {
     match function {
         Function::Read => {
             let args: ReadArgs = decode(function, args)?;
             documents
-                .read(cwd, &args.path)
+                .read(cwd, &args.path, gate)
                 .map(|view| Done::Read(read_reply(view)))
                 .map_err(|error| Rejection::new(function, read_rejection(&error), &error))
         }
         Function::Write => {
             let args: WriteArgs = decode(function, args)?;
             documents
-                .write(cwd, &args.path, &args.content)
+                .write(cwd, &args.path, &args.content, gate)
                 .map(|outcome| Done::Write(write_reply(outcome)))
                 .map_err(|error| Rejection::new(function, write_rejection(&error), &error))
         }
         Function::Edit => {
             let args: EditArgs = decode(function, args)?;
             documents
-                .edit(cwd, &args.input)
+                .edit(cwd, &args.input, gate)
                 .map(|outcome| Done::Edit(edit_reply(outcome)))
                 .map_err(|error| Rejection::new(function, edit_rejection(&error), &error))
         }
         Function::Grep => {
             let args: GrepArgs = decode(function, args)?;
             documents
-                .grep(cwd, &args.into_request())
+                .grep(cwd, &args.into_request(), gate)
                 .map(|output| Done::Grep(grep_reply(output)))
                 .map_err(|error| Rejection::new(function, grep_rejection(&error), &error))
         }
         Function::Glob => {
             let args: GlobArgs = decode(function, args)?;
             documents
-                .glob(cwd, &args.into_request())
+                .glob(cwd, &args.into_request(), gate)
                 .map(|output| Done::Glob(glob_reply(output)))
                 .map_err(|error| Rejection::new(function, glob_rejection(&error), &error))
         }
@@ -446,16 +451,20 @@ fn perform_blocking(
 /// Run one call whose arguments are already in the function's dialect,
 /// resolving relative paths against `cwd`: a `read` of an internal URL
 /// through [`urls::read`] (`api` is the tool call it runs in), the rest on
-/// a blocking thread. The outer error is a failed worker.
+/// a blocking thread. Every path access passes the gate of the session's
+/// path policy over `workspace` (the call's agent cwd: never a cwd the
+/// model can change). The outer error is a failed worker.
 #[tracing::instrument(name = "documents.perform", skip_all, fields(function = function.name()))]
 pub(super) async fn perform(
     host: &Arc<DocumentsHost>,
     function: Function,
     cwd: PathBuf,
+    workspace: &Path,
     args: JsonObject,
     api: Option<Arc<dyn ToolExecutionApi>>,
     cx: &Context,
 ) -> Result<Result<Performed, Rejection>, JoinError> {
+    let gate = host.gate(workspace, api.as_deref());
     let url = match function {
         Function::Read => args
             .get("path")
@@ -464,14 +473,16 @@ pub(super) async fn perform(
         Function::Write | Function::Edit | Function::Grep | Function::Glob => None,
     };
     match url {
-        Some(Ok(url)) => urls::read(host, api, cwd, url, cx).await,
+        Some(Ok(url)) => urls::read(host, api, cwd, url, gate, cx).await,
         Some(Err(error)) => Ok(Err(urls::url_error(&error))),
         None => {
             let host = Arc::clone(host);
             tokio::task::spawn_blocking(move || {
-                perform_blocking(&host.documents, function, &cwd, args).map(|done| Performed {
-                    done,
-                    images: Vec::new(),
+                perform_blocking(&host.documents, function, &cwd, args, &gate).map(|done| {
+                    Performed {
+                        done,
+                        images: Vec::new(),
+                    }
                 })
             })
             .await
@@ -501,6 +512,7 @@ async fn handle(
             &host,
             function,
             request.cwd,
+            &host.workspace,
             repaired.arguments,
             call.call,
             &BACKGROUND_CONTEXT,

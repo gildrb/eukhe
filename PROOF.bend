@@ -65,6 +65,8 @@ import ./laws/tui_color.bend as TuiColor
 import ./bend/proof_tui_color.bend as TuiColors
 import ./laws/fsmode.bend as Fm
 import ./bend/proof_fsmode.bend as FileModes
+import ./laws/path_policy.bend as Pg
+import ./bend/proof_path_policy.bend as PathPolicy
 
 # (a) The view
 
@@ -1140,3 +1142,32 @@ def Fm.cwd_file_refused(p):
 
 def Fm.cwd_dir_opens(p):
   {==}
+
+# (G1) Path policy
+
+def Pg.path_real_has_no_link(ls, segs):
+  PathPolicy.pp.path_real_has_no_link(ls, segs)
+
+def Pg.path_secret_wins(pol, ls, segs, hit):
+  PathPolicy.pp.path_secret_wins(pol, ls, segs, hit)
+
+def Pg.path_inside_is_safe(pol, ls, segs, inside):
+  PathPolicy.pp.path_inside_is_safe(pol, ls, segs, inside)
+
+def Pg.path_ancestor_guarded(pol, ls, segs, anc):
+  PathPolicy.pp.path_ancestor_guarded(pol, ls, segs, anc)
+
+def Pg.gate_write_auto_only_inside(c, auto, ans, ran, no):
+  PathPolicy.pp.gate_write_auto_only_inside(c, auto, ans, ran, no)
+
+def Pg.gate_secret_read_needs_yes(c, a, auto, ans, s, ran):
+  PathPolicy.pp.gate_secret_read_needs_yes(c, a, auto, ans, s, ran)
+
+def Pg.gate_yes_runs(c, a, auto):
+  PathPolicy.pp.gate_yes_runs(c, a, auto)
+
+def Pg.gate_inside_write_runs(auto, ans, w):
+  PathPolicy.pp.gate_inside_write_runs(auto, ans, w)
+
+def Pg.config_needs_yes(es, pol, ls, auto, cs, no):
+  PathPolicy.pp.config_needs_yes(es, pol, ls, auto, cs, no)

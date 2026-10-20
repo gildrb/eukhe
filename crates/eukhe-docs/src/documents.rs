@@ -1,9 +1,11 @@
 //! The session's document authority: one [`EditStore`] and the lock
-//! directory every write takes its path lock in.
+//! directory every write takes its path lock in. Every call takes the
+//! host's [`AccessGate`]: each path access happens only after it let it.
 
 use std::path::{Path, PathBuf};
 
 use crate::error::EditError;
+use crate::gate::AccessGate;
 use crate::glob::{GlobError, GlobOutput, GlobRequest};
 use crate::grep::{GrepError, GrepOutput, GrepRequest};
 use crate::hashline::{apply_hashline, HashlineOptions, HashlineOutcome};
@@ -42,8 +44,13 @@ impl Documents {
     /// # Errors
     ///
     /// See [`ReadError`].
-    pub fn read(&self, cwd: &Path, path: &str) -> Result<ReadView, ReadError> {
-        read::read(&self.store, cwd, self.home.as_deref(), path)
+    pub fn read(
+        &self,
+        cwd: &Path,
+        path: &str,
+        gate: &dyn AccessGate,
+    ) -> Result<ReadView, ReadError> {
+        read::read(&self.store, cwd, self.home.as_deref(), path, gate)
     }
 
     /// Read the file-backed internal URL `url` (`repo://`, `skill://`;
@@ -61,8 +68,9 @@ impl Documents {
         cwd: &Path,
         url: Url<'_>,
         locate: impl Fn(&[&str]) -> Option<Located>,
+        gate: &dyn AccessGate,
     ) -> Result<ReadView, ReadError> {
-        read::read_under(&self.store, cwd, self.home.as_deref(), url, locate)
+        read::read_under(&self.store, cwd, self.home.as_deref(), url, locate, gate)
     }
 
     /// Create or overwrite `path` relative to `cwd`.
@@ -70,12 +78,19 @@ impl Documents {
     /// # Errors
     ///
     /// See [`WriteError`].
-    pub fn write(&self, cwd: &Path, path: &str, content: &str) -> Result<WriteOutcome, WriteError> {
+    pub fn write(
+        &self,
+        cwd: &Path,
+        path: &str,
+        content: &str,
+        gate: &dyn AccessGate,
+    ) -> Result<WriteOutcome, WriteError> {
         let absolute = crate::path::resolve(cwd, self.home.as_deref(), path);
         let display = read::display_path(&absolute, cwd, self.home.as_deref());
         write::write_file(
             &self.store,
             &self.lock_dir,
+            gate,
             &absolute,
             &display,
             content,
@@ -99,12 +114,14 @@ impl Documents {
         path: &str,
         expected: &[u8],
         content: &str,
+        gate: &dyn AccessGate,
     ) -> Result<WriteOutcome, WriteError> {
         let absolute = crate::path::resolve(cwd, self.home.as_deref(), path);
         let display = read::display_path(&absolute, cwd, self.home.as_deref());
         write::write_file(
             &self.store,
             &self.lock_dir,
+            gate,
             &absolute,
             &display,
             content,
@@ -121,7 +138,12 @@ impl Documents {
     ///
     /// The model-facing parse, anchor, stale-tag, no-op loop, or write
     /// error; see [`apply_hashline`].
-    pub fn edit(&self, cwd: &Path, input: &str) -> Result<HashlineOutcome, EditError> {
+    pub fn edit(
+        &self,
+        cwd: &Path,
+        input: &str,
+        gate: &dyn AccessGate,
+    ) -> Result<HashlineOutcome, EditError> {
         let options = HashlineOptions {
             cwd,
             home: self.home.as_deref(),
@@ -129,6 +151,7 @@ impl Documents {
         };
         let writer = LockedWriter {
             lock_dir: &self.lock_dir,
+            gate,
         };
         apply_hashline(input, &options, &self.store, &writer)
     }
@@ -138,8 +161,13 @@ impl Documents {
     /// # Errors
     ///
     /// See [`GrepError`].
-    pub fn grep(&self, cwd: &Path, request: &GrepRequest) -> Result<GrepOutput, GrepError> {
-        crate::grep::grep(&self.store, cwd, request)
+    pub fn grep(
+        &self,
+        cwd: &Path,
+        request: &GrepRequest,
+        gate: &dyn AccessGate,
+    ) -> Result<GrepOutput, GrepError> {
+        crate::grep::grep(&self.store, cwd, request, gate)
     }
 
     /// Match paths under `cwd`, newest first.
@@ -147,8 +175,13 @@ impl Documents {
     /// # Errors
     ///
     /// See [`GlobError`].
-    pub fn glob(&self, cwd: &Path, request: &GlobRequest) -> Result<GlobOutput, GlobError> {
-        crate::glob::glob(cwd, request)
+    pub fn glob(
+        &self,
+        cwd: &Path,
+        request: &GlobRequest,
+        gate: &dyn AccessGate,
+    ) -> Result<GlobOutput, GlobError> {
+        crate::glob::glob(cwd, request, gate)
     }
 }
 
@@ -157,6 +190,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::gate::Open;
 
     fn session(dir: &Path) -> Documents {
         Documents::new(dir.join("locks"), None)
@@ -170,13 +204,15 @@ mod tests {
         std::fs::write(cwd.join("a.txt"), "one\ntwo\nthree\n").unwrap();
         let (first, second) = (session(dir.path()), session(dir.path()));
         let header = |docs: &Documents| {
-            let view = docs.read(&cwd, "a.txt").unwrap();
+            let view = docs.read(&cwd, "a.txt", &Open).unwrap();
             view.rendered.lines().next().unwrap().to_owned()
         };
         let (h1, h2) = (header(&first), header(&second));
-        first.edit(&cwd, &format!("{h1}\nPUT 1.=1:\n+ONE")).unwrap();
+        first
+            .edit(&cwd, &format!("{h1}\nPUT 1.=1:\n+ONE"), &Open)
+            .unwrap();
         second
-            .edit(&cwd, &format!("{h2}\nPUT 3.=3:\n+THREE"))
+            .edit(&cwd, &format!("{h2}\nPUT 3.=3:\n+THREE"), &Open)
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(cwd.join("a.txt")).unwrap(),
@@ -194,10 +230,10 @@ mod tests {
         let source = (1..=10).map(|n| n.to_string() + "\n").collect::<String>();
         std::fs::write(cwd.join("a.txt"), &source).unwrap();
         let docs = session(dir.path());
-        let view = docs.read(&cwd, "a.txt:1-1").unwrap();
+        let view = docs.read(&cwd, "a.txt:1-1", &Open).unwrap();
         assert!(!view.rendered.contains("9:9"));
         let header = view.rendered.lines().next().unwrap().to_owned();
-        docs.edit(&cwd, &format!("{header}\nPUT 9.=9:\n+NINE"))
+        docs.edit(&cwd, &format!("{header}\nPUT 9.=9:\n+NINE"), &Open)
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(cwd.join("a.txt")).unwrap(),
@@ -212,6 +248,7 @@ mod tests {
         std::fs::write(&path, "other writer\n").unwrap();
         let writer = LockedWriter {
             lock_dir: &dir.path().join("locks"),
+            gate: &Open,
         };
         let error = crate::hashline::EditWriter::write(
             &writer,
@@ -252,10 +289,10 @@ mod tests {
                 scope.spawn(move || {
                     let docs = session(locks);
                     loop {
-                        let view = docs.read(cwd, "a.txt").unwrap();
+                        let view = docs.read(cwd, "a.txt", &Open).unwrap();
                         let header = view.rendered.lines().next().unwrap().to_owned();
                         let payload = format!("{header}\nPUT {n}.={n}:\n+LINE {n}");
-                        match docs.edit(cwd, &payload) {
+                        match docs.edit(cwd, &payload, &Open) {
                             Ok(_) => break,
                             Err(EditError::Apply(_) | EditError::Match(_)) => {}
                             Err(error) => panic!("{error}"),

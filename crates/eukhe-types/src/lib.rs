@@ -22,6 +22,7 @@ pub mod incident;
 pub mod input_origin;
 pub mod job;
 pub mod output;
+pub mod path_policy;
 pub mod pi_ai;
 pub mod platform;
 pub mod session;

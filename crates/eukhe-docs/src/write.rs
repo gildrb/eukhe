@@ -1,18 +1,24 @@
-//! Locked, atomic writes. Every writer of a path takes an OS lock on
-//! `<lock dir>/<xxh64 of the canonical path>.lock` (shared by every session
-//! and process of one eukhe home), then replaces the file through a
+//! Locked, atomic writes. Every write lands on the target's real path
+//! (symlinks followed) and runs only after the host's [`AccessGate`]
+//! let it. A writer then takes an OS lock on
+//! `<lock dir>/<xxh64 of the real path>.lock` (shared by every session
+//! and process of one eukhe home), and replaces the file through a
 //! same-directory temporary file: write, fsync, rename, fsync the
-//! directory. The mode of a replaced file is kept.
+//! directory. A replaced file keeps its mode; a created file gets the
+//! default mode (no execute bit).
 
 use std::fs::{File, OpenOptions, Permissions};
 use std::io::Write as _;
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use eukhe_types::path_policy::{real_path, resolve};
 use twox_hash::XxHash64;
 
 use crate::error::EditError;
+use crate::gate::{Access, AccessGate};
 use crate::hashline::{EditWriter, WriteOp, WriteRequest as EditWriteRequest, WriteResponse};
 use crate::store::EditStore;
 use crate::text::{detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom};
@@ -39,7 +45,8 @@ pub(crate) fn lock(lock_dir: &Path, canonical: &Path) -> std::io::Result<PathLoc
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Replace `target` with `bytes` atomically; `permissions` applies to the
-/// new file (the replaced file's, or the creation mode).
+/// new file from its creation (the replaced file's mode; `None`: the
+/// default mode).
 pub(crate) fn replace_atomic(
     target: &Path,
     bytes: &[u8],
@@ -69,9 +76,17 @@ fn write_synced(
     bytes: &[u8],
     permissions: Option<Permissions>,
 ) -> std::io::Result<()> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    if let Some(permissions) = &permissions {
+        // The mode applies at creation: no window where the bytes are
+        // readable under a wider mode.
+        options.mode(permissions.mode());
+    }
+    let mut file = options.open(path)?;
     file.write_all(bytes)?;
     if let Some(permissions) = permissions {
+        // The umask may have narrowed the creation mode.
         file.set_permissions(permissions)?;
     }
     file.sync_all()
@@ -84,6 +99,8 @@ pub enum WriteError {
     IsDirectory { display: String },
     #[error("Cannot write {display}: it changed on disk since it was read. Nothing was written; re-read it and retry.")]
     Changed { display: String },
+    #[error("Did not write {display}: {reason}")]
+    Refused { display: String, reason: String },
     #[error("Cannot write {display}: {source}")]
     Io {
         display: String,
@@ -109,8 +126,6 @@ pub struct WriteOutcome {
     pub bytes: usize,
     /// The new file tag; `None` when the file is too large to snapshot.
     pub tag: Option<String>,
-    /// A created file starting with `#!` got execute bits.
-    pub made_executable: bool,
     /// `[path#TAG]` and the confirmation line.
     pub rendered: String,
 }
@@ -139,14 +154,16 @@ fn permissions_if_unchanged(
 }
 
 /// Create or overwrite `absolute` with `content` under its path lock, when
-/// its current bytes are `base`.
+/// its current bytes are `base`, after `gate` let the write of its real
+/// path.
 ///
 /// A replaced file keeps its BOM, line endings, and mode; a created file
-/// gets `content` as given and execute bits when it starts with `#!`. The
+/// gets `content` as given and the default mode (no execute bit). The
 /// written text is recorded in `store` with every line seen.
 pub(crate) fn write_file(
     store: &EditStore,
     lock_dir: &Path,
+    gate: &dyn AccessGate,
     absolute: &Path,
     display: &str,
     content: &str,
@@ -156,8 +173,18 @@ pub(crate) fn write_file(
         display: display.to_owned(),
         source,
     };
-    let canonical = crate::path::canonical_key(absolute);
+    let refused = |reason| WriteError::Refused {
+        display: display.to_owned(),
+        reason,
+    };
+    let resolved = resolve(absolute);
+    gate.check(Access::Write, &resolved, display)
+        .map_err(refused)?;
+    let canonical = resolved.into_path();
     let _lock = lock(lock_dir, &canonical).map_err(io)?;
+    if real_path(absolute) != canonical {
+        return Err(refused(MOVED.to_owned()));
+    }
     let existing = match std::fs::metadata(&canonical) {
         Ok(metadata) if metadata.is_dir() => {
             return Err(WriteError::IsDirectory {
@@ -183,34 +210,20 @@ pub(crate) fn write_file(
             }
         }
     }
-    let (persisted, permissions, disposition, made_executable) =
-        if let Some((bytes, permissions)) = existing {
-            let previous = String::from_utf8_lossy(&bytes);
-            let (bom, body) = strip_bom(&previous);
-            let persisted = format!(
-                "{bom}{}",
-                restore_line_endings(&normalize_to_lf(content), detect_line_ending(body))
-            );
-            (
-                persisted,
-                Some(permissions),
-                WriteDisposition::Overwrote,
-                false,
-            )
-        } else {
-            if let Some(parent) = canonical.parent() {
-                std::fs::create_dir_all(parent).map_err(io)?;
-            }
-            let executable = content.starts_with("#!");
-            // A script is created rwxr-xr-x.
-            let permissions = executable.then(|| Permissions::from_mode(0o755));
-            (
-                content.to_owned(),
-                permissions,
-                WriteDisposition::Created,
-                executable,
-            )
-        };
+    let (persisted, permissions, disposition) = if let Some((bytes, permissions)) = existing {
+        let previous = String::from_utf8_lossy(&bytes);
+        let (bom, body) = strip_bom(&previous);
+        let persisted = format!(
+            "{bom}{}",
+            restore_line_endings(&normalize_to_lf(content), detect_line_ending(body))
+        );
+        (persisted, Some(permissions), WriteDisposition::Overwrote)
+    } else {
+        if let Some(parent) = canonical.parent() {
+            std::fs::create_dir_all(parent).map_err(io)?;
+        }
+        (content.to_owned(), None, WriteDisposition::Created)
+    };
     replace_atomic(&canonical, persisted.as_bytes(), permissions).map_err(io)?;
     let text = normalize_to_lf(strip_bom(&persisted).1).into_owned();
     let tag = (persisted.len() as u64 <= crate::store::MAX_SNAPSHOT_FILE_BYTES).then(|| {
@@ -230,27 +243,54 @@ pub(crate) fn write_file(
         disposition,
         bytes: persisted.len(),
         tag,
-        made_executable,
         rendered,
     })
 }
 
-/// The [`EditWriter`] of a session: every hashline write takes the path
-/// lock, compares the file's current bytes with the bytes the edit was
-/// applied to, and replaces the file atomically (mode kept).
+/// Why a write stops when the real path changed between the gate and the
+/// lock (a link was made or moved meanwhile).
+const MOVED: &str = "its real path changed while the write waited (a symlink was made or moved). Nothing was written; retry.";
+
+/// The [`EditWriter`] of a session: every hashline write lets `gate` check
+/// each real path it changes, takes the path lock, compares the file's
+/// current bytes with the bytes the edit was applied to, and replaces the
+/// file atomically (mode kept).
 pub(crate) struct LockedWriter<'a> {
     pub(crate) lock_dir: &'a Path,
+    pub(crate) gate: &'a dyn AccessGate,
 }
 
 impl LockedWriter<'_> {
-    fn lock_all(&self, paths: &[&Path]) -> Result<Vec<PathLock>, EditError> {
-        let mut keys: Vec<&Path> = paths.to_vec();
+    /// Let the gate check the write of `absolute` (shown as `display`);
+    /// its real path.
+    fn allow(&self, absolute: &Path, display: &str) -> Result<PathBuf, EditError> {
+        let real = resolve(absolute);
+        self.gate
+            .check(Access::Write, &real, display)
+            .map_err(|reason| EditError::Refused(format!("Did not write {display}: {reason}")))?;
+        Ok(real.into_path())
+    }
+
+    /// Lock every path of `pairs` (each the written path and its real
+    /// path at the gate), then fail if a real path changed meanwhile.
+    fn lock_all(&self, pairs: &[(&Path, &Path, &str)]) -> Result<Vec<PathLock>, EditError> {
+        let mut keys: Vec<&Path> = pairs.iter().map(|(_, real, _)| *real).collect();
         // One global order keeps two movers from deadlocking.
         keys.sort_unstable();
         keys.dedup();
-        keys.into_iter()
+        let locks = keys
+            .into_iter()
             .map(|key| lock(self.lock_dir, key).map_err(|source| io_error(key, source)))
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        match pairs
+            .iter()
+            .find(|(absolute, real, _)| real_path(absolute) != *real)
+        {
+            Some((_, _, display)) => Err(EditError::Refused(format!(
+                "Did not write {display}: {MOVED}"
+            ))),
+            None => Ok(locks),
+        }
     }
 }
 
@@ -275,10 +315,11 @@ fn compare(canonical: &Path, display: &str, before_raw: &str) -> Result<Permissi
 
 impl EditWriter for LockedWriter<'_> {
     fn write(&self, request: &EditWriteRequest<'_>) -> Result<WriteResponse, EditError> {
-        let source = crate::path::canonical_key(request.absolute);
+        let source = self.allow(request.absolute, request.display)?;
+        let this = (request.absolute, source.as_path(), request.display);
         match request.op {
             WriteOp::Create { content } => {
-                let _locks = self.lock_all(&[&source])?;
+                let _locks = self.lock_all(&[this])?;
                 if let Some(parent) = source.parent() {
                     std::fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;
                 }
@@ -292,7 +333,7 @@ impl EditWriter for LockedWriter<'_> {
                 before_raw,
                 content,
             } => {
-                let _locks = self.lock_all(&[&source])?;
+                let _locks = self.lock_all(&[this])?;
                 let permissions = compare(&source, request.display, before_raw)?;
                 replace_atomic(&source, content.as_bytes(), Some(permissions))
                     .map_err(|error| io_error(&source, error))?;
@@ -301,7 +342,7 @@ impl EditWriter for LockedWriter<'_> {
                 })
             }
             WriteOp::Delete { before_raw } => {
-                let _locks = self.lock_all(&[&source])?;
+                let _locks = self.lock_all(&[this])?;
                 compare(&source, request.display, before_raw)?;
                 std::fs::remove_file(&source).map_err(|error| io_error(&source, error))?;
                 Ok(WriteResponse {
@@ -313,8 +354,9 @@ impl EditWriter for LockedWriter<'_> {
                 destination,
                 content,
             } => {
-                let target = crate::path::canonical_key(destination);
-                let _locks = self.lock_all(&[&source, &target])?;
+                let shown = destination.display().to_string();
+                let target = self.allow(destination, &shown)?;
+                let _locks = self.lock_all(&[this, (destination, target.as_path(), &shown)])?;
                 let permissions = compare(&source, request.display, before_raw)?;
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;

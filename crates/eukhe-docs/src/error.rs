@@ -25,6 +25,9 @@ pub enum EditError {
     /// A search anchor could not be located in the target text.
     #[error("{0}")]
     Match(String),
+    /// The host's gate refused a write (the path policy, or the user).
+    #[error("{0}")]
+    Refused(String),
     /// Filesystem failure reading a target.
     #[error("{source}")]
     Io {

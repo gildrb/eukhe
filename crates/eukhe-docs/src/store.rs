@@ -230,7 +230,7 @@ impl EditStore {
         }
         let (_, without_bom) = crate::text::strip_bom(&raw);
         let normalized = crate::text::normalize_to_lf(without_bom);
-        let key = crate::path::canonical_key(absolute);
+        let key = eukhe_types::path_policy::real_path(absolute);
         Some(self.record(&key, &normalized, seen_lines))
     }
 

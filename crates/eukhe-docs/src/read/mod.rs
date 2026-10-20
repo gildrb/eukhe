@@ -10,6 +10,9 @@ pub(crate) mod selector;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use eukhe_types::path_policy::{resolve, RealPath};
+
+use crate::gate::{Access, AccessGate};
 use crate::notice::{Notice, NoticeKind, Omitted, Unit};
 use crate::store::{EditStore, MAX_SNAPSHOT_FILE_BYTES};
 use crate::text::{normalize_to_lf, strip_bom};
@@ -47,6 +50,8 @@ pub enum ReadError {
     },
     #[error(transparent)]
     Url(#[from] crate::url::UrlError),
+    #[error("Did not read {display}: {reason}")]
+    Refused { display: String, reason: String },
 }
 
 /// One inclusive, one-based span of source lines.
@@ -98,6 +103,7 @@ pub(crate) fn read(
     cwd: &Path,
     home: Option<&Path>,
     authored: &str,
+    gate: &dyn AccessGate,
 ) -> Result<ReadView, ReadError> {
     let literal = crate::path::resolve(cwd, home, authored);
     let (absolute, selector) = if literal.exists() {
@@ -106,7 +112,8 @@ pub(crate) fn read(
         let split = selector::split_path_and_selector(authored);
         (crate::path::resolve(cwd, home, split.path), split.selector)
     };
-    project_path(store, cwd, home, authored, absolute, None, selector)
+    let real = resolve(&absolute);
+    project_path(store, cwd, home, authored, absolute, &real, selector, gate)
 }
 
 /// Read the internal URL `url` (whose path may carry a `:selector`):
@@ -126,6 +133,7 @@ pub(crate) fn read_under(
     home: Option<&Path>,
     url: Url<'_>,
     locate: impl Fn(&[&str]) -> Option<Located>,
+    gate: &dyn AccessGate,
 ) -> Result<ReadView, ReadError> {
     let authored = format!("{}://{}", url.scheme.name(), url.path);
     let (located, path, selector) = match url.names().map(|names| locate(&names)) {
@@ -145,14 +153,16 @@ pub(crate) fn read_under(
         display: display_path(&located.root, cwd, home),
         source,
     })?;
-    let real = std::fs::canonicalize(&located.path).map_err(|source| match source.kind() {
-        std::io::ErrorKind::NotFound => ReadError::NotFound(authored.clone()),
-        _ => ReadError::Io {
-            display: display_path(&located.path, cwd, home),
-            source,
-        },
-    })?;
-    if !real.starts_with(&real_root) {
+    let real = std::fs::canonicalize(&located.path)
+        .map(|real| resolve(&real))
+        .map_err(|source| match source.kind() {
+            std::io::ErrorKind::NotFound => ReadError::NotFound(authored.clone()),
+            _ => ReadError::Io {
+                display: display_path(&located.path, cwd, home),
+                source,
+            },
+        })?;
+    if !real.path().starts_with(&real_root) {
         return Err(UrlError::Leaves {
             scheme: url.scheme.name(),
             path: path.to_owned(),
@@ -165,24 +175,27 @@ pub(crate) fn read_under(
         home,
         &authored,
         located.path,
-        Some(&real),
+        &real,
         selector,
+        gate,
     )
 }
 
-/// Project the file or directory at `absolute`, opened at `real` when
-/// given (the checked real path of `absolute`); `authored` names it in a
-/// not-found message.
+/// Project the file or directory at `absolute`, opened at `real` (its
+/// resolved path), after `gate` let the read (a list, for a directory) of
+/// `real`; `authored` names it in a not-found message.
+#[allow(clippy::too_many_arguments)] // Each argument is one part of the read; a struct would only rename them.
 fn project_path(
     store: &EditStore,
     cwd: &Path,
     home: Option<&Path>,
     authored: &str,
     absolute: PathBuf,
-    real: Option<&Path>,
+    real: &RealPath,
     selector: Option<&str>,
+    gate: &dyn AccessGate,
 ) -> Result<ReadView, ReadError> {
-    let open = real.unwrap_or(&absolute);
+    let open = real.path();
     let selector = selector::parse_selector(selector)?;
     let display = display_path(&absolute, cwd, home);
     let metadata = std::fs::metadata(open).map_err(|source| match source.kind() {
@@ -192,6 +205,16 @@ fn project_path(
             source,
         },
     })?;
+    let access = if metadata.is_dir() {
+        Access::List
+    } else {
+        Access::Read
+    };
+    gate.check(access, real, &display)
+        .map_err(|reason| ReadError::Refused {
+            display: display.clone(),
+            reason,
+        })?;
     if metadata.is_dir() {
         let (offset, limit) = match &selector {
             Selector::Whole | Selector::Raw => (None, None),
@@ -242,7 +265,7 @@ fn project_path(
             .flat_map(|span| span.start_line..=span.end_line)
             .map(|line| u32::try_from(line).unwrap_or(u32::MAX))
             .collect();
-        store.record(&crate::path::canonical_key(&absolute), &text, Some(&seen))
+        store.record(open, &text, Some(&seen))
     });
     let rendered = match (&tag, selector.is_raw()) {
         (Some(tag), false) => format!("[{display}#{tag}]\n{}", projection.text),

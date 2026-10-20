@@ -23,8 +23,8 @@ use std::{
 };
 
 use eukhe_docs::{
-    apply_hashline, canonical_key, text::normalize_to_lf, EditError, EditStore, EditWriter,
-    HashlineOptions, HashlineOutcome, WriteOp, WriteRequest, WriteResponse,
+    apply_hashline, text::normalize_to_lf, EditError, EditStore, EditWriter, HashlineOptions,
+    HashlineOutcome, WriteOp, WriteRequest, WriteResponse,
 };
 use serde_json::Value;
 
@@ -134,7 +134,7 @@ impl Workspace {
 
     /// Record a snapshot (LF-normalized) as a read would, and return its tag.
     pub fn snapshot(&self, rel: &str, text: &str, seen: Option<&[u32]>) -> String {
-        let key = canonical_key(&self.cwd.join(rel));
+        let key = eukhe_types::path_policy::real_path(&self.cwd.join(rel));
         self.store.record(&key, &normalize_to_lf(text), seen)
     }
 

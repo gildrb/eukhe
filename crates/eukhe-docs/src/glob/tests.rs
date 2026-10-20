@@ -6,6 +6,7 @@ use std::{
 use tempfile::TempDir;
 
 use super::*;
+use crate::gate::Open;
 use crate::notice::Severity;
 
 fn request(path: &str) -> GlobRequest {
@@ -38,7 +39,7 @@ fn paths(output: &GlobOutput) -> Vec<&str> {
 }
 
 fn run(directory: &TempDir, request: &GlobRequest) -> GlobOutput {
-    glob(directory.path(), request).expect("glob succeeds")
+    glob(directory.path(), request, &Open).expect("glob succeeds")
 }
 
 #[test]
@@ -160,8 +161,13 @@ fn multi_root_missing_targets_and_timeout_are_explicit() {
         )]
     );
 
-    let timed_out =
-        glob_until(directory.path(), &request("one/**/*.rs"), Duration::ZERO).expect("partial");
+    let timed_out = glob_until(
+        directory.path(),
+        &request("one/**/*.rs"),
+        &Open,
+        Duration::ZERO,
+    )
+    .expect("partial");
     assert_eq!(
         (
             timed_out.matches.len(),
@@ -188,7 +194,7 @@ fn multi_root_missing_targets_and_timeout_are_explicit() {
 fn faults_keep_the_omp_messages() {
     let directory = fixture(&[("file.rs", 1)]);
     let fault = |path: &str| {
-        glob(directory.path(), &request(path))
+        glob(directory.path(), &request(path), &Open)
             .expect_err("glob fails")
             .to_string()
     };
@@ -223,6 +229,7 @@ fn external_absolute_directory_keeps_its_absolute_spelling() {
     let output = glob(
         &parent.path().join("workspace"),
         &request(&format!("{}/**/*.rs", external.display())),
+        &Open,
     )
     .expect("glob succeeds");
     assert_eq!(

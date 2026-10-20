@@ -126,7 +126,6 @@ class WriteResult:
     created: bool
     bytes: int
     tag: str | None
-    made_executable: bool
     rendered: str
     warnings: list[str] = field(default_factory=list)
 
@@ -249,7 +248,6 @@ def write(*args: Any, **kwargs: Any) -> WriteResult:
         created=reply["created"],
         bytes=reply["bytes"],
         tag=reply["tag"],
-        made_executable=reply["made_executable"],
         rendered=reply["rendered"],
         warnings=reply["warnings"],
     )

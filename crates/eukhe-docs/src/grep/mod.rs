@@ -19,9 +19,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+use eukhe_types::path_policy::resolve;
+
 use crate::{
+    gate::{Access, AccessGate},
     notice::{Notice, NoticeKind, Omitted, Unit},
-    path::canonical_key,
     path_tree::{build_path_tree, walk_path_tree, GroupedTreeEventKind},
     read::selector::{
         line_in_ranges, parse_selector, split_path_and_selector, LineRange, Selector,
@@ -104,6 +106,14 @@ pub enum GrepError {
     InvalidSelector {
         /// The model-facing reason.
         message: String,
+    },
+    /// The host's gate refused a target.
+    #[error("Did not search {path}: {reason}")]
+    Refused {
+        /// The target as the model wrote it.
+        path: String,
+        /// Why the host's gate refused it.
+        reason: String,
     },
     /// The filesystem failed or a glob did not compile.
     #[error("{message}")]
@@ -236,13 +246,20 @@ struct Page {
     match_limit_reached: bool,
 }
 
-/// Search `request.path` under `cwd`, record every shown row as seen in
-/// `store`, and render the result.
+/// Search `request.path` under `cwd`, each target after `gate` let the read
+/// (a file) or the search (a directory) of its real path, record every
+/// shown row as seen in `store`, and render the result.
 ///
 /// # Errors
 /// [`GrepError`] for an empty pattern, an unusable regex or glob, all targets
-/// missing, a filesystem failure, or the 30-second deadline.
-pub fn grep(store: &EditStore, cwd: &Path, request: &GrepRequest) -> Result<GrepOutput, GrepError> {
+/// missing, a target the gate refused, a filesystem failure, or the
+/// 30-second deadline.
+pub(crate) fn grep(
+    store: &EditStore,
+    cwd: &Path,
+    request: &GrepRequest,
+    gate: &dyn AccessGate,
+) -> Result<GrepOutput, GrepError> {
     if request.pattern.trim().is_empty() {
         return Err(GrepError::EmptyPattern);
     }
@@ -254,7 +271,18 @@ pub fn grep(store: &EditStore, cwd: &Path, request: &GrepRequest) -> Result<Grep
     for input in &roots {
         let (path, ranges) = parse_root(input)?;
         match resolve_target(&root, path)? {
-            Some(target) => targets.push(Scoped { target, ranges }),
+            Some(target) => {
+                let (access, real) = match &target {
+                    Target::File(path) => (Access::Read, path),
+                    Target::Directory { path, .. } => (Access::Search, path),
+                };
+                gate.check(access, &resolve(real), input)
+                    .map_err(|reason| GrepError::Refused {
+                        path: input.clone(),
+                        reason,
+                    })?;
+                targets.push(Scoped { target, ranges });
+            }
             None => missing_paths.push(input.clone()),
         }
     }
@@ -463,7 +491,7 @@ fn search_targets(
             if hits.matches.is_empty() {
                 continue;
             }
-            let absolute = canonical_key(&file);
+            let absolute = eukhe_types::path_policy::real_path(&file);
             let path = display_path(root, &absolute)?;
             for mut matched in hits.matches {
                 if !ranges.is_empty() {

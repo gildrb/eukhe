@@ -1,6 +1,29 @@
 use std::path::Path;
 
 use super::*;
+use crate::gate::Open;
+
+/// A read of these tests: the gate is not their subject.
+fn read(
+    store: &EditStore,
+    cwd: &Path,
+    home: Option<&Path>,
+    authored: &str,
+) -> Result<ReadView, ReadError> {
+    super::read(store, cwd, home, authored, &Open)
+}
+
+/// A read of an internal URL of these tests: the gate is not their
+/// subject.
+fn read_under(
+    store: &EditStore,
+    cwd: &Path,
+    home: Option<&Path>,
+    url: Url<'_>,
+    locate: impl Fn(&[&str]) -> Option<Located>,
+) -> Result<ReadView, ReadError> {
+    super::read_under(store, cwd, home, url, locate, &Open)
+}
 
 fn setup(text: &str) -> (tempfile::TempDir, EditStore) {
     let dir = tempfile::tempdir().unwrap();
@@ -20,7 +43,7 @@ fn whole_small_file_has_header_and_rows_and_records_seen_lines() {
     let view = read(&store, dir.path(), None, "a.rs").unwrap();
     let tag = crate::file_hash("one\ntwo\n");
     assert_eq!(view.rendered, format!("[a.rs#{tag}]\n1:one\n2:two"));
-    let key = crate::canonical_key(&dir.path().join("a.rs"));
+    let key = eukhe_types::path_policy::real_path(&dir.path().join("a.rs"));
     let snapshot = store.by_hash(&key, &tag).unwrap();
     assert_eq!(
         snapshot.seen_lines.unwrap().into_iter().collect::<Vec<_>>(),

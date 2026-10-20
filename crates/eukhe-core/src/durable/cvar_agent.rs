@@ -64,7 +64,7 @@ impl CvarAgent {
             CvarAgent::Subagent { .. } => vec![SUBAGENT_CFG.to_string()],
         };
         if let Some(name) = self.name() {
-            files.push(format!("agents/{name}.cfg"));
+            files.push(format!("{}/{name}.cfg", crate::settings::PROFILE_DIR));
         }
         files
     }

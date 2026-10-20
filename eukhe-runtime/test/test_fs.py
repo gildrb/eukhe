@@ -73,7 +73,6 @@ class WriteTest(unittest.TestCase):
             "created": True,
             "bytes": 3,
             "tag": "9F3E",
-            "made_executable": False,
             "rendered": "[b.txt#9F3E]\nSuccessfully wrote 3 bytes to b.txt",
             "warnings": [],
         }

@@ -15,6 +15,7 @@ pub(crate) mod types;
 pub use manager::{IdleEviction, SessionArchivePolicy, SettingsError, SettingsManager};
 pub use storage::{
     FileSettingsStorage, InMemorySettingsStorage, SettingsScope, SettingsStorage, CONFIG_DIR_NAME,
+    PROFILE_DIR,
 };
 pub use trust::{ProjectTrust, TrustLevel};
 pub use types::{

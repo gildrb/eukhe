@@ -23,7 +23,7 @@ use super::{
 use crate::{
     diff_string::generate_diff_string,
     error::EditError,
-    path::{canonical_key, lexical_normalize},
+    path::lexical_normalize,
     rebase::rebase_content,
     store::{file_hash, payload_hash, Clipboard, EditStore},
     text::{detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom, LineEnding},
@@ -103,7 +103,7 @@ impl FileRead {
         let ending = detect_line_ending(body);
         let text = normalize_to_lf(body).into_owned();
         Ok(Some(Self {
-            canonical: canonical_key(absolute),
+            canonical: eukhe_types::path_policy::real_path(absolute),
             raw,
             bom,
             ending,
@@ -556,7 +556,7 @@ pub(crate) fn stage_patch(
         let move_to = match &parsed.file_op {
             Some(FileOp::Move { dest }) => {
                 let destination = workspace.resolve(dest);
-                if canonical_key(&destination.absolute) == read.canonical {
+                if eukhe_types::path_policy::real_path(&destination.absolute) == read.canonical {
                     return Err(EditError::apply(format!(
                         "MV destination is the same as {}.",
                         section.path

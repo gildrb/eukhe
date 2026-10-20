@@ -17,6 +17,7 @@ use std::{
 use globset::GlobBuilder;
 
 use crate::{
+    gate::{Access, AccessGate},
     notice::{Notice, NoticeKind},
     path_tree::format_grouped_paths,
     scope::{
@@ -80,6 +81,14 @@ pub enum GlobError {
         /// The parser's explanation.
         message: String,
     },
+    /// The host's gate refused a target.
+    #[error("Did not list {path}: {reason}")]
+    Refused {
+        /// The target as the model wrote it.
+        path: String,
+        /// Why the host's gate refused it.
+        reason: String,
+    },
     /// The filesystem failed.
     #[error("{message}")]
     Workspace {
@@ -132,13 +141,19 @@ impl GlobOutput {
     }
 }
 
-/// Lists paths matching `request.path` under `cwd`.
+/// Lists paths matching `request.path` under `cwd`, each target after
+/// `gate` let the list of its real path.
 ///
 /// # Errors
 /// [`GlobError`] for an empty or root target, a URL target, every target
-/// missing, a file used as a glob base, a bad glob, or a filesystem failure.
-pub fn glob(cwd: &Path, request: &GlobRequest) -> Result<GlobOutput, GlobError> {
-    glob_until(cwd, request, DEFAULT_TIMEOUT)
+/// missing, a file used as a glob base, a bad glob, a target the gate
+/// refused, or a filesystem failure.
+pub(crate) fn glob(
+    cwd: &Path,
+    request: &GlobRequest,
+    gate: &dyn AccessGate,
+) -> Result<GlobOutput, GlobError> {
+    glob_until(cwd, request, gate, DEFAULT_TIMEOUT)
 }
 
 struct Target {
@@ -151,6 +166,7 @@ struct Target {
 fn glob_until(
     cwd: &Path,
     request: &GlobRequest,
+    gate: &dyn AccessGate,
     timeout: Duration,
 ) -> Result<GlobOutput, GlobError> {
     let limit = request
@@ -199,6 +215,12 @@ fn glob_until(
             Err(error) => return Err(workspace_error(error)),
         };
         let canonical = fs::canonicalize(&target_path).map_err(workspace_error)?;
+        let resolved = eukhe_types::path_policy::resolve(&canonical);
+        gate.check(Access::List, &resolved, &input)
+            .map_err(|reason| GlobError::Refused {
+                path: input.clone(),
+                reason,
+            })?;
         // Walk the canonical root, but keep an external absolute root's spelling
         // for display, normalizing only lexical `.` and `..`.
         let visible_root = (Path::new(&base).is_absolute() && !canonical.starts_with(&root))

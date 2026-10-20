@@ -147,7 +147,7 @@ fn build_models(
 ) -> Result<Models, ModelsError> {
     let models = create_pi_models(CreateModelsOptions {
         credentials: Some(Arc::new(stores::AuthJsonCredentialStore::new(
-            agent_dir.join("auth.json"),
+            agent_dir.join(crate::auth::AUTH_FILE_NAME),
         ))),
         models_store: None,
         auth_context,

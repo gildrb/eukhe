@@ -3,6 +3,8 @@
 //! - [`file_hash`]: the four-hex file tag (`[path#TAG]`), omp's xxh32 tag.
 //! - [`EditStore`]: per-session snapshots of read text, seen lines, clipboard
 //!   registers, and the no-op loop guard.
+//! - [`AccessGate`]: the host's check of each path a tool reads or writes
+//!   (the path policy and the user's approval), on the real path.
 //! - [`Documents`]: the session's authority: reads project `[path#TAG]` plus
 //!   `N:TEXT` rows and record seen lines; writes take an OS path lock and
 //!   replace files atomically.
@@ -25,6 +27,7 @@ mod diff;
 mod diff_string;
 mod documents;
 mod error;
+mod gate;
 mod glob;
 mod grep;
 mod hashline;
@@ -43,16 +46,17 @@ mod write;
 
 pub use documents::Documents;
 pub use error::{EditError, EditResult};
-pub use glob::{glob, GlobError, GlobMatch, GlobOutput, GlobRequest, MAX_GLOB_LIMIT};
+pub use gate::{Access, AccessGate};
+pub use glob::{GlobError, GlobMatch, GlobOutput, GlobRequest, MAX_GLOB_LIMIT};
 pub use grep::{
-    grep, ContextLine, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest, DEFAULT_FILE_LIMIT,
+    ContextLine, GrepError, GrepFile, GrepMatch, GrepOutput, GrepRequest, DEFAULT_FILE_LIMIT,
 };
 pub use hashline::{
     apply_hashline, section_paths, EditWriter, FileChange, FileOutcome, HashlineOptions,
     HashlineOutcome, WriteOp, WriteRequest, WriteResponse, HASHLINE_DESCRIPTION,
 };
 pub use notice::{Notice, NoticeKind, Omitted, Severity, Unit};
-pub use path::{canonical_key, lexical_normalize, resolve};
+pub use path::{lexical_normalize, resolve};
 pub use read::{
     display_path, DirEntry, FileView, LineSpan, ReadContent, ReadError, ReadView, SelectorError,
 };

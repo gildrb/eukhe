@@ -13,6 +13,10 @@ use anyhow::{anyhow, Result};
 /// The TS `CONFIG_DIR_NAME` (pkg.piConfig.configDir fallback).
 pub const CONFIG_DIR_NAME: &str = ".eukhe";
 
+/// The directory of the agents' profile cfg files (`agents/<agent>.cfg`)
+/// in the global scope.
+pub const PROFILE_DIR: &str = "agents";
+
 /// Scope of a settings document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SettingsScope {

@@ -40,6 +40,7 @@ import ./laws/supervisor.bend as Sup
 import ./laws/gateway_width.bend as GatewayWidth
 import ./laws/tui_color.bend as TuiColor
 import ./laws/fsmode.bend as Fm
+import ./laws/path_policy.bend as Pg
 
 # (a) The view
 # ------------

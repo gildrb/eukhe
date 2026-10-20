@@ -1,5 +1,6 @@
-//! Path resolution against the caller's working directory and the
-//! snapshot key every store entry uses.
+//! Path resolution against the caller's working directory. The snapshot
+//! key of every store entry, and the path every write lands on, is the
+//! real path ([`eukhe_types::path_policy::real_path`]).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -16,19 +17,6 @@ pub fn resolve(cwd: &Path, home: Option<&Path>, authored: &str) -> PathBuf {
     } else {
         cwd.join(expanded)
     }
-}
-
-/// Snapshot key: the realpath, else the parent realpath plus the file name,
-/// else the input.
-#[must_use]
-pub fn canonical_key(absolute: &Path) -> PathBuf {
-    std::fs::canonicalize(absolute)
-        .or_else(|_| {
-            let parent = absolute.parent().ok_or(std::io::ErrorKind::NotFound)?;
-            let name = absolute.file_name().ok_or(std::io::ErrorKind::NotFound)?;
-            std::fs::canonicalize(parent).map(|parent| parent.join(name))
-        })
-        .unwrap_or_else(|_| absolute.to_path_buf())
 }
 
 /// Drop `.` components and resolve `..` against the preceding component,

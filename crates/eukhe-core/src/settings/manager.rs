@@ -340,7 +340,7 @@ impl SettingsManager {
         self.storage
             .with_cfg_lock(
                 SettingsScope::Global,
-                &format!("agents/{name}.cfg"),
+                &format!("{}/{name}.cfg", super::PROFILE_DIR),
                 &mut |current| Some(replace_sets(&current.unwrap_or_default(), sets)),
             )
             .map_err(|error| CvarWriteError::Io(format!("{error:#}")))

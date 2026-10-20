@@ -181,6 +181,14 @@ impl EukheSettings {
         &self.agent_dir
     }
 
+    /// The settings files this session loads and re-reads when they
+    /// change: the global and project `settings.json` and `config.cfg`,
+    /// and the agent's profile files.
+    #[must_use]
+    pub(crate) fn watched(&self) -> &[PathBuf] {
+        &self.paths
+    }
+
     /// The current settings (reloaded first when a file changed), with the
     /// session's family applied.
     #[must_use]

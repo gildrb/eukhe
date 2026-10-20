@@ -94,11 +94,17 @@ async fn execute(
         .cwd
         .clone()
         .map_or_else(|| deps.cwd.clone(), PathBuf::from);
-    let performed = perform(&host, function, cwd, args, Some(Arc::clone(&api)), cx)
-        .await
-        .map_err(|error| {
-            SessionError::error(format!("{} worker failed: {error}", function.name()))
-        })?;
+    let performed = perform(
+        &host,
+        function,
+        cwd.clone(),
+        &cwd,
+        args,
+        Some(Arc::clone(&api)),
+        cx,
+    )
+    .await
+    .map_err(|error| SessionError::error(format!("{} worker failed: {error}", function.name())))?;
     match performed {
         Ok(Performed { done, images }) => {
             let mut output = BoundedOutput::in_session(

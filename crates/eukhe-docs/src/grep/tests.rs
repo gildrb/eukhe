@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fs, num::NonZeroUsize, path::Path};
 use tempfile::TempDir;
 
 use super::*;
-use crate::{file_hash, notice::Severity};
+use crate::{file_hash, gate::Open, notice::Severity};
 
 fn request(pattern: &str, path: &str) -> GrepRequest {
     GrepRequest {
@@ -30,7 +30,7 @@ fn fixture(files: &[(&str, &str)]) -> TempDir {
 }
 
 fn run(directory: &TempDir, request: &GrepRequest) -> GrepOutput {
-    grep(&EditStore::new(), directory.path(), request).expect("grep succeeds")
+    grep(&EditStore::new(), directory.path(), request, &Open).expect("grep succeeds")
 }
 
 fn kinds(output: &GrepOutput) -> Vec<(Severity, NoticeKind)> {
@@ -189,6 +189,7 @@ fn bad_line_selectors_are_rejected() {
             &EditStore::new(),
             directory.path(),
             &request("needle", path),
+            &Open,
         )
         .unwrap_err()
         .to_string()
@@ -217,6 +218,7 @@ fn shown_rows_are_recorded_as_seen_lines_of_the_tagged_snapshot() {
             context_after: 1,
             ..request("needle", "f.rs")
         },
+        &Open,
     )
     .expect("grep succeeds");
     let absolute = &output.files[0].absolute;
@@ -306,13 +308,14 @@ fn faults_keep_the_omp_messages() {
     let directory = fixture(&[("live.txt", "needle\n")]);
     let store = EditStore::new();
     assert_eq!(
-        grep(&store, directory.path(), &request("  ", ".")),
+        grep(&store, directory.path(), &request("  ", "."), &Open),
         Err(GrepError::EmptyPattern)
     );
     let missing = grep(
         &store,
         directory.path(),
         &request("needle", "gone.txt; also/*.rs"),
+        &Open,
     )
     .expect_err("all targets missing");
     assert_eq!(
@@ -594,6 +597,7 @@ fn display_paths_outside_the_working_directory_stay_absolute() {
         &EditStore::new(),
         &workspace,
         &request("needle", external.to_str().expect("UTF-8 path")),
+        &Open,
     )
     .expect("grep succeeds");
     assert_eq!(Path::new(&output.files[0].path), external.as_path());

@@ -11,6 +11,9 @@ use anyhow::Result;
 use super::flight::RefreshFlights;
 use super::types::AuthStorageData;
 
+/// The auth document's file name in the agent dir.
+pub const AUTH_FILE_NAME: &str = "auth.json";
+
 /// Locked read/modify/write over the auth document. `update` returns
 /// `(result, next)`; `next: Some` writes it back atomically.
 pub trait AuthStorageBackend: Send + Sync {

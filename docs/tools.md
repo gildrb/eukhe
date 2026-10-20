@@ -269,3 +269,136 @@ dropped bytes, and the budget kills `ssh`). Not modelled: the wire form of
 the version annotation, the MCP listing and call through the kernel, the
 row of a report, and the remote side of an `ssh://` read. Their tests tie
 them.
+
+### G1. Path policy
+
+One path policy judges each path that an agent tool reads or writes.
+The `bash` tool (S7 item 8) and the document tools (`read`, `write`,
+`edit`, `grep`, `glob`, and the kernel `fs.*` requests) use the same
+policy (`eukhe_types::path_policy::PathPolicy`). Thus the two cannot
+judge a path differently.
+
+1. The real path. The policy judges the real path of a path, not the
+   path as written. `resolve` follows each symlink on the part of the
+   path that exists. It also follows a dangling symlink: a write through
+   it creates the target. `.` does not move. `..` goes up from the real
+   directory, not from the written name. `..` of `/` is `/`. The part
+   that does not exist stays as written. Thus a symlink gets the class of
+   its target. After 40 symlinks (`MAX_LINKS`, as Linux) the path loops:
+   the resolution does not follow more symlinks, and the policy does not
+   trust the rest of the path.
+2. The classes. Each real path has one class. When more than one class
+   applies, the first class in this list is the class:
+   1. Secret: the path is a secret entry, or it is under one.
+   2. Protected: a protected rule covers the path, or the path is an
+      ancestor of a protected or secret entry. (A move or a removal of
+      the ancestor moves or removes the entry.)
+   3. Inside: the path is under a workspace root.
+   4. Outside: all other paths.
+
+   A path whose symlinks loop is never Inside. It is Outside, or
+   Protected or Secret when one of these applies.
+3. The protected set. The settings loaders give the protected set; there
+   is no separate list (`durable::path_policy::policy`):
+   - the agent dir and each entry directly in it (`settings.json`,
+     `config.cfg`, `subagent.cfg`, `models.json`, `auth.json`,
+     `binds.cfg`): a `Dir` rule;
+   - the profile dir (`agents/<agent>.cfg`): a `Tree` rule;
+   - the project config dir of the session (`<cwd>/.eukhe`): a `Tree`
+     rule, and each `.eukhe` directory below the workspace root: a
+     `Named` rule;
+   - each settings file that the session loads and reads again
+     (`EukheSettings::watched`): a `Tree` rule;
+   - each `.git` directory below the workspace root: a `Named` rule (its
+     config and its hooks name programs that git runs);
+   - each directory on `PATH`: a `Dir` rule (a file in it replaces a
+     command).
+
+   A `Named` rule looks at the part of the path below its workspace root
+   (all of the path when no root holds it). The policy makes each entry
+   real when it starts.
+4. The secret set: `auth.json` in the agent dir, the Prime CLI config,
+   the credential stores of other programs in the home dir (`.ssh`,
+   `.aws`, `.azure`, `.config/gcloud`, `.config/gh`,
+   `.docker/config.json`, `.kube`, `.gnupg`, `.password-store`,
+   `.local/share/keyrings`, `.netrc`, `.git-credentials`, `.npmrc`,
+   `.pypirc`, `.cargo/credentials`, `.cargo/credentials.toml`), and the
+   files that `AWS_SHARED_CREDENTIALS_FILE`, `AWS_CONFIG_FILE` and
+   `CLOUDSDK_CONFIG` name.
+5. The effects of an access. A read or a list of a path is read; of a
+   Secret path, read and secret. A search (a `grep` of a directory) of a
+   path that is a secret or that holds a secret is read and secret. A
+   write is write when Inside, write and outside when Outside, write and
+   protected when Protected, and write and secret when Secret.
+6. The gate of the document tools (`DocumentsGate`). A document tool
+   resolves each path one time. It gives that resolution (`RealPath`: the
+   real path, and whether its symlinks looped) to the gate before the
+   access. The access then occurs on that real path. The gate judges the
+   resolution as it is. It does not resolve the real path again: a second
+   resolution can lose a loop. An access runs without a question only
+   when the auto set (`shell.autoEffects`, S7 item 8) holds each of its
+   effects. Outside, protected and secret are never in the auto set.
+   Thus:
+   - a write runs without a question only Inside, and only when the auto
+     set holds write;
+   - a read of a secret always asks;
+   - each other access asks when the auto set does not hold all of its
+     effects.
+
+   The question goes through the approval sink of a `bash` step: the
+   `shell_approval` frame, with the verb and the real path as the command
+   (`write /path`), and the effects. When the user approves, the access
+   runs. When the user denies, or no answer comes, the access does not
+   run, and the model gets the reason. When no client can answer (the
+   session has no approval sink), the gate does not ask: each access that
+   must ask does not run, and the model gets an error that names the
+   effects that need the approval of the user.
+7. A write occurs on the real path. The writer locks the real path, then
+   resolves the path again. When the real path changed (a symlink was
+   made or moved), the write stops, and nothing is written. A replaced
+   file keeps its mode. A created file gets the default mode: it has no
+   execute bit.
+
+Model: `bend/path_policy.bend` (alias `Pp`: `real` with `max_links`
+links of fuel, `class`, `holds`, `effs`, `runs`, `asks`, the store
+`run` and `guarded`). Laws: `laws/path_policy.bend` (alias `Pg`).
+Proofs: `bend/proof_path_policy.bend`. Every input is free: any
+symlinks (loops too), any policy, any paths, any auto set, any answers.
+
+| Law | Says |
+| --- | --- |
+| `path_real_has_no_link` | Unless its symlinks looped, no prefix of the real path of a path is a symlink (G1.1). |
+| `path_secret_wins` | A path whose real path is under a secret entry is Secret (G1.2). |
+| `path_inside_is_safe` | A path is Inside only when its symlinks did not loop, no secret covers it, no rule protects it, it is no ancestor of an entry, and a root holds it (G1.2). |
+| `path_ancestor_guarded` | An ancestor of a protected or secret entry is Protected or Secret (G1.2). |
+| `gate_write_auto_only_inside` | A write runs without a yes only Inside (G1.6). |
+| `gate_secret_read_needs_yes` | A read of a secret runs only on a yes (G1.6). |
+| `gate_yes_runs` | The yes of the user runs each access (G1.6). |
+| `gate_inside_write_runs` | With write in the auto set, a write Inside runs without a question (G1.6). |
+| `config_needs_yes` | No sequence of agent writes without a yes changes a protected or secret location (G1.6, G1.7). |
+
+Code: `eukhe-types/src/path_policy.rs` (`resolve`, `RealPath`,
+`PathPolicy::class_of_resolved`, `holds_secret_of_resolved`, `PathRule`,
+`MAX_LINKS`), `eukhe-core/src/durable/path_policy.rs` (`policy`,
+`session_policy`, `effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs`
+(`AccessGate`, `Access`), `eukhe-docs/src/write.rs` (`write_file`,
+`LockedWriter`), `eukhe-shell/src/run.rs` (the effects of the paths of a
+step: `PathPolicy::class` and `holds_secret`). Tie:
+`durable::path_policy::bridge::path_policy_and_gate_match_the_model`
+with `bend/bridge_path_policy.bend`. It runs 200 scenarios from a fixed
+seed. Each scenario makes a tree in a temp dir (directories, files, and
+symlinks with targets from `/` and from their directory, dangling targets
+and loops too) and a policy (roots, `Tree`, `Dir` and `Named` rules,
+secret entries). For each query path it compares the loop bit, the real
+path, the class, `holds_secret`, and, for a read, a list, a search and a
+write with a random auto set and answer, whether the real `DocumentsGate`
+let the access run and whether it asked. Then it writes through
+`Documents::write` with answers that are never yes, and compares whether
+the gate asked, the path that the question names, and the content of each
+protected or secret file after the writes (`Pp.guarded` of `Pp.run`: law
+`config_needs_yes`). Regression tests:
+`durable::path_policy::tests::every_loader_file_is_guarded_and_a_project_file_is_inside`,
+`durable::path_policy::tests::a_write_whose_links_looped_asks_even_when_its_real_path_is_inside`,
+and `path_policy::tests` in `eukhe-types`. Not modelled: a change of the
+filesystem between the gate and the lock (the writer checks it), and the
+file modes.

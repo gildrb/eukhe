@@ -1,4 +1,31 @@
+use std::sync::Mutex;
+
+use eukhe_types::path_policy::RealPath;
+
 use super::*;
+use crate::gate::Open;
+
+/// A gate that records each check and refuses every access to a path
+/// under `refused`.
+struct Recorder {
+    refused: PathBuf,
+    checks: Mutex<Vec<(Access, PathBuf, String)>>,
+}
+
+impl AccessGate for Recorder {
+    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), String> {
+        let real = real.path();
+        self.checks
+            .lock()
+            .unwrap()
+            .push((access, real.to_path_buf(), display.to_owned()));
+        if real.starts_with(&self.refused) {
+            Err("the user denied it".to_owned())
+        } else {
+            Ok(())
+        }
+    }
+}
 
 struct Fixture {
     dir: tempfile::TempDir,
@@ -30,6 +57,7 @@ impl Fixture {
         write_file(
             &self.store,
             &self.locks(),
+            &Open,
             &self.dir.path().join(name),
             name,
             content,
@@ -71,11 +99,10 @@ fn creates_with_parents_and_records_every_line_seen() {
             disposition: WriteDisposition::Created,
             bytes: 8,
             tag: Some(tag.clone()),
-            made_executable: false,
             rendered: format!("[sub/a.txt#{tag}]\nSuccessfully wrote 8 bytes to sub/a.txt"),
         }
     );
-    let key = crate::canonical_key(&fixture.dir.path().join("sub/a.txt"));
+    let key = eukhe_types::path_policy::real_path(&fixture.dir.path().join("sub/a.txt"));
     let seen = fixture.store.head(&key).unwrap().seen_lines.unwrap();
     assert_eq!(seen.into_iter().collect::<Vec<_>>(), [1, 2]);
 }
@@ -98,15 +125,58 @@ fn overwrite_keeps_bom_crlf_and_mode() {
     );
 }
 
+/// Regression: a created file that starts with `#!` was made 0o755, so
+/// an agent's write made a program that a later step could run.
 #[test]
-fn created_script_is_executable() {
+fn created_script_gets_no_execute_bit() {
     let fixture = Fixture::new();
-    let outcome = fixture.write("run.sh", "#!/bin/sh\necho hi\n");
+    fixture.write("run.sh", "#!/bin/sh\necho hi\n");
     let mode = std::fs::metadata(fixture.dir.path().join("run.sh"))
         .unwrap()
         .permissions()
         .mode();
-    assert_eq!((outcome.made_executable, mode & 0o111), (true, 0o111));
+    assert_eq!(mode & 0o111, 0);
+}
+
+/// A write through a symlink is checked on the link's target, and a
+/// refused write changes nothing.
+#[test]
+fn the_gate_judges_a_link_by_its_target_and_a_refusal_writes_nothing() {
+    let fixture = Fixture::new();
+    let top = fixture.dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(top.join("cfg")).unwrap();
+    std::fs::write(top.join("cfg/settings.json"), "{}").unwrap();
+    std::os::unix::fs::symlink(top.join("cfg/settings.json"), top.join("link")).unwrap();
+    let gate = Recorder {
+        refused: top.join("cfg"),
+        checks: Mutex::new(Vec::new()),
+    };
+    let error = write_file(
+        &fixture.store,
+        &fixture.locks(),
+        &gate,
+        &top.join("link"),
+        "link",
+        "{\"shell\":{\"autoEffects\":[\"exec\"]}}",
+        Base::Any,
+    )
+    .unwrap_err();
+    assert_eq!(
+        (
+            error.to_string(),
+            gate.checks.into_inner().unwrap(),
+            std::fs::read_to_string(top.join("cfg/settings.json")).unwrap(),
+        ),
+        (
+            "Did not write link: the user denied it".to_owned(),
+            vec![(
+                Access::Write,
+                top.join("cfg/settings.json"),
+                "link".to_owned()
+            )],
+            "{}".to_owned(),
+        )
+    );
 }
 
 #[test]

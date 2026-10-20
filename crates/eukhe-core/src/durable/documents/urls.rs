@@ -26,6 +26,7 @@ use super::requests::{
 use super::ssh::{SshError, SshRead};
 use super::DocumentsHost;
 use crate::durable::optchat::agent_chat;
+use crate::durable::path_policy::DocumentsGate;
 use crate::durable::tool_surface::kernel_manager;
 use crate::kernel::manager::McpResource;
 use crate::memory::Zoomed;
@@ -121,18 +122,20 @@ fn count(segment: &str) -> Result<u64, Rejection> {
 
 /// Read `url`. `cwd` shortens display paths; `api` is the tool call the
 /// read runs in (`agent://` needs it: the subagents are its
-/// conversation's). The outer error is a failed file worker.
+/// conversation's). A file-backed URL is read through `gate`. The outer
+/// error is a failed file worker.
 #[tracing::instrument(name = "documents.read_url", skip_all, fields(scheme = url.scheme.name()))]
 pub(super) async fn read(
     host: &Arc<DocumentsHost>,
     api: Option<Arc<dyn ToolExecutionApi>>,
     cwd: PathBuf,
     url: Url<'_>,
+    gate: DocumentsGate,
     cx: &Context,
 ) -> Result<Result<Performed, Rejection>, JoinError> {
     let zoomed = match url.scheme {
-        Scheme::Repo => return file(host, cwd, url, Root::Workspace).await,
-        Scheme::Skill => return file(host, cwd, url, Root::Skills).await,
+        Scheme::Repo => return file(host, cwd, url, Root::Workspace, gate).await,
+        Scheme::Skill => return file(host, cwd, url, Root::Skills, gate).await,
         Scheme::Agent => async {
             let names = url.names().map_err(|error| url_error(&error))?;
             let [name] = names.as_slice() else {
@@ -304,13 +307,15 @@ pub(super) async fn read(
     }))
 }
 
-/// A file-backed URL under `root`, read on a blocking thread.
+/// A file-backed URL under `root`, read on a blocking thread through
+/// `gate`.
 #[tracing::instrument(name = "documents.read_file_url", skip_all)]
 async fn file(
     host: &Arc<DocumentsHost>,
     cwd: PathBuf,
     url: Url<'_>,
     root: Root,
+    gate: DocumentsGate,
 ) -> Result<Result<Performed, Rejection>, JoinError> {
     let host = Arc::clone(host);
     let (scheme, path) = (url.scheme, url.path.to_owned());
@@ -320,7 +325,7 @@ async fn file(
             path: &path,
         };
         host.documents
-            .read_under(&cwd, url, |names| root.locate(&host, names))
+            .read_under(&cwd, url, |names| root.locate(&host, names), &gate)
             .map(|view| Performed {
                 done: Done::Read(read_reply(view)),
                 images: Vec::new(),

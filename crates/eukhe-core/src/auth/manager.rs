@@ -310,9 +310,10 @@ impl AuthStorage {
         agent_dir: impl AsRef<std::path::Path>,
         oauth: Arc<dyn OAuthIntegration>,
     ) -> Self {
-        let backend: Arc<dyn AuthStorageBackend> = Arc::new(
-            super::storage::FileAuthStorageBackend::new(agent_dir.as_ref().join("auth.json")),
-        );
+        let backend: Arc<dyn AuthStorageBackend> =
+            Arc::new(super::storage::FileAuthStorageBackend::new(
+                agent_dir.as_ref().join(super::storage::AUTH_FILE_NAME),
+            ));
         Self::from_storage(backend, oauth)
     }
 

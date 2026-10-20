@@ -37,6 +37,8 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 
+use eukhe_types::path_policy::real_path;
+
 use self::{
     input::split_sections,
     messages::write_drift_warning,
@@ -45,7 +47,6 @@ use self::{
 use crate::{
     diff_string::build_compact_diff_preview,
     error::EditError,
-    path::canonical_key,
     store::EditStore,
     text::{normalize_to_lf, strip_bom},
 };
@@ -294,7 +295,7 @@ fn commit(
                 normalize_to_lf(strip_bom(&response.written).1).into_owned()
             };
             let (key, change) = if let Some(destination) = &file.move_to {
-                let key = canonical_key(&destination.absolute);
+                let key = real_path(&destination.absolute);
                 store.relocate(&file.canonical, &key);
                 let change = FileChange::Moved {
                     destination: destination.absolute.clone(),
