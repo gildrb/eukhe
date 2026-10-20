@@ -83,6 +83,8 @@ import ./laws/dashboard_auth.bend as DashAuth
 import ./bend/proof_dashboard_auth.bend as DashPairing
 import ./laws/documents.bend as Docs
 import ./bend/proof_documents_laws.bend as DocumentsLaws
+import ./laws/config.bend as Cfg
+import ./bend/proof_config.bend as Configs
 
 # (a) The view
 
@@ -1452,3 +1454,53 @@ def DashAuth.dash_rotation_ends_connections(hist, c, evs, again):
 
 def DashAuth.dash_rotation_rejects_old_tokens(hist, more, c, t, old):
   DashPairing.pa.rotation_rejects_old_tokens(hist, more, c, t, old)
+
+# (H1-H4, M3, M7) Config documents, trust and the saved default model
+
+def Cfg.rmw_refuses_broken(e):
+  Configs.pcf.rmw_refuses_broken(e)
+
+def Cfg.rmw_keeps_others(d, e, j, h):
+  Configs.pcf.rmw_keeps_others(d, e, j, h)
+
+def Cfg.rmw_applies_change(d, k, v):
+  Configs.pcf.rmw_applies_change(d, k, v)
+
+def Cfg.settings_save_preserves(loaded, d, k, v):
+  Configs.pcf.settings_save_preserves(loaded, d, k, v)
+
+def Cfg.leaf_applied_or_reported(ls, l, i):
+  Configs.pcf.leaf_applied_or_reported(ls, l, i)
+
+def Cfg.leaf_not_both(ls, n, d):
+  Configs.pcf.leaf_not_both(ls, n, d)
+
+def Cfg.limit_malformed_fails_closed(s, p, h):
+  Configs.pcf.limit_malformed_fails_closed(s, p, h)
+
+def Cfg.limit_number_applies(es, p, n, h):
+  Configs.pcf.limit_number_applies(es, p, n, h)
+
+def Cfg.default_honoured_or_reported(x):
+  Configs.pcf.default_honoured_or_reported(x)
+
+def Cfg.default_quiet_when_honoured(x, h):
+  Configs.pcf.default_quiet_when_honoured(x, h)
+
+def Cfg.default_quiet_when_unset(cat, key, out, next):
+  Configs.pcf.default_quiet_when_unset(cat, key, out, next)
+
+def Cfg.default_unkeyed_never_moves(m, out, next):
+  Configs.pcf.default_unkeyed_never_moves(m, out, next)
+
+def Cfg.untrusted_changes_nothing_guarded(g, items, k, h):
+  Configs.pcf.untrusted_changes_nothing_guarded(g, items, k, h)
+
+def Cfg.trusted_project_applies(g, k, kind, v, items):
+  Configs.pcf.trusted_project_applies(g, k, kind, v, items)
+
+def Cfg.project_entry_never_merges(g, p, n, h):
+  Configs.pcf.project_entry_never_merges(g, p, n, h)
+
+def Cfg.global_entry_kept(g, p, n, h):
+  Configs.pcf.global_entry_kept(g, p, n, h)

@@ -49,6 +49,7 @@ import ./laws/retry.bend as Rt
 import ./laws/model_facts.bend as ModelFacts
 import ./laws/dashboard_auth.bend as DashAuth
 import ./laws/documents.bend as Docs
+import ./laws/config.bend as Cfg
 
 # (a) The view
 # ------------
