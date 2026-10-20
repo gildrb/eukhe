@@ -50,6 +50,7 @@ import ./laws/model_facts.bend as ModelFacts
 import ./laws/dashboard_auth.bend as DashAuth
 import ./laws/documents.bend as Docs
 import ./laws/config.bend as Cfg
+import ./laws/workflow.bend as Wf
 
 # (a) The view
 # ------------

@@ -85,6 +85,9 @@ import ./laws/documents.bend as Docs
 import ./bend/proof_documents_laws.bend as DocumentsLaws
 import ./laws/config.bend as Cfg
 import ./bend/proof_config.bend as Configs
+import ./laws/workflow.bend as Wf
+import ./bend/proof_workflow.bend as Workflows
+import ./bend/workflow.bend as WfModel
 
 # (a) The view
 
@@ -1516,3 +1519,20 @@ def Cfg.project_entry_never_merges(g, p, n, h):
 
 def Cfg.global_entry_kept(g, p, n, h):
   Configs.pcf.global_entry_kept(g, p, n, h)
+
+# (WF) Dynamic workflows
+
+def Wf.wf_running_within_concurrency(cap, es):
+  Workflows.pw.run_size(es, WfModel.pool(cap))
+
+def Wf.wf_spawned_within_budget(max, n):
+  Workflows.pw.spawns_size(n, WfModel.pool(max))
+
+def Wf.wf_cached_key_spawns_nothing(k, cache, hit):
+  Workflows.pw.cached(k, cache, hit)
+
+def Wf.wf_empty_cache_spawns_all(keys):
+  Workflows.pw.empty(keys)
+
+def Wf.wf_failure_spares_siblings(xs, ys):
+  Workflows.pw.spares(xs, ys)
