@@ -1,5 +1,5 @@
 # semver: the model of eukhe's release versions (laws/release.bend R1,
-# README "Releases"). scripts/release/next_version.py implements it; its bridge
+# docs/develop.md "Releases"). scripts/release/next_version.py implements it; its bridge
 # test (scripts/release/test_next_version.py, with bend/bridge_semver.bend)
 # runs both on the same cases.
 #

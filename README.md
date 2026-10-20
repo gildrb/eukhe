@@ -66,21 +66,6 @@ Details: [docs/memory.md](docs/memory.md).
 - `eukhe dashboard` serves the session on `127.0.0.1`. For a phone, run
   `poros eukhe dashboard`. See [docs/dashboard.md](docs/dashboard.md).
 
-## Develop
-
-```sh
-nix develop        # Rust toolchain, uv, git, ONNX Runtime (sets ORT_DYLIB_PATH)
-make check         # fmt, clippy, tests
-make dashboard-ui  # Node: rebuild the dashboard web app into crates/eukhe-dashboard/web (commit it)
-```
-
-Run tests with a clean environment. Inherited `EUKHE_*` variables point
-test daemons at real state:
-
-```sh
-env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspace
-```
-
 ## References
 
 |File|Content|
@@ -92,6 +77,7 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspac
 |[docs/local-models.md](docs/local-models.md)|Local models: titles, translation, speech, dictation|
 |[docs/gateway.md](docs/gateway.md)|Signal gateway|
 |[docs/dashboard.md](docs/dashboard.md)|Web dashboard|
+|[docs/develop.md](docs/develop.md)|Build, test, releases|
 
 ## Limitations
 

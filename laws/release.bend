@@ -7,7 +7,7 @@ import ../bend/semver.bend as Sv
 
 # (R1) Release versions
 # ---------------------
-# README "Releases", the model in bend/semver.bend; the script
+# docs/develop.md "Releases", the model in bend/semver.bend; the script
 # scripts/release/next_version.py implements it and its bridge test runs
 # both on the same cases. Every input is free: any version, any tags (any
 # text, in any order: other series, other prefixes, no version at all),
