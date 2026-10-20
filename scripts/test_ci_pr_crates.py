@@ -86,12 +86,12 @@ class TheMappingTestCase(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-gateway,eukhe-tui")
 
-    def test_pa_types_only_runs_every_crate(self):
+    def test_types_only_runs_every_crate(self):
         rc, out, outputs = run_mapper(["crates/eukhe-types/src/lib.rs"])
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], ",".join(sorted(ci_pr_crates.WORKSPACE_DEPS)))
 
-    def test_pa_tui_only_runs_pa_cli_and_gateway_too(self):
+    def test_tui_only_runs_cli_and_gateway_too(self):
         rc, out, outputs = run_mapper(["crates/eukhe-tui/src/lib.rs"])
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], "eukhe-cli,eukhe-gateway,eukhe-tui")

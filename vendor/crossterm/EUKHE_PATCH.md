@@ -8,7 +8,7 @@ The window bound is 250ms (instead of upstream's 2000ms), held in 10ms poll slic
 
 The `event-stream` feature's waker machinery (upstream, unchanged: `WAKE_TOKEN`,
 the `Waker` type, `InternalEventReader::waker`) compiles in for the product
-(`crates/pa-tui` enables the feature), and three additive exports make it
+(`crates/eukhe-tui` enables the feature), and three additive exports make it
 usable by the app's single input-reader thread:
 
 * `event::poll_opt(timeout: Option<Duration>)` — the existing `poll` with the
@@ -25,9 +25,9 @@ usable by the app's single input-reader thread:
 * `InternalEventReader::try_waker` — the non-panicking `waker()` variant
   (`Option` instead of `.expect("reader source not set")`).
 
-The app reader (`crates/pa-tui/src/input.rs`) parks on `poll_opt(None)` when its
+The app reader (`crates/eukhe-tui/src/input.rs`) parks on `poll_opt(None)` when its
 sequence guard holds nothing, keeps the 10ms bounded poll while the kitty-probe
-window is open (`pa_tui::enhanced_keys::query_in_flight`) — the probe's slices
+window is open (`eukhe_tui::enhanced_keys::query_in_flight`) — the probe's slices
 and the reader share the process-global event-reader lock, and a park would
 starve them — and its stop flag is now observed through `Waker::wake()` at
 teardown instead of a poll tick. Behavior on the wire (events, parse order,
@@ -60,7 +60,7 @@ rejected on that misclassification distribution: it would silently drop
 the enhancement for the RTT>50ms class (the product's primary remote-SSH
 deployment shape) while buying only the silent class's raced-transition
 stall, which no user rides. The timed contract is locked by
-`crates/pa-cli/tests/kitty_verdict_time_e2e.rs`.
+`crates/eukhe-cli/tests/kitty_verdict_time_e2e.rs`.
 
 # The tty drain (2026-10-06, burst-input-stall lane)
 
