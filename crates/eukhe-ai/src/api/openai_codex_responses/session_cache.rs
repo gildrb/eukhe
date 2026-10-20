@@ -646,11 +646,7 @@ async fn run_websocket_request(
         output,
         stream,
         request.model,
-        &responses_stream_options(
-            request.model,
-            options,
-            request.grammar_tool_input_properties,
-        ),
+        &responses_stream_options(options, request.grammar_tool_input_properties),
     )
     .await;
     effects.apply(output);

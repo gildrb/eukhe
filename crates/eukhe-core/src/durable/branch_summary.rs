@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage, FileEntry};
+use eukhe_types::token_estimate::estimate_text_tokens;
 
 use crate::durable::compaction::summary_request::{estimate_tokens, summarizer_request_tokens};
 use crate::durable::compaction::utils::{
@@ -303,7 +304,7 @@ pub fn estimate_branch_summary_request_tokens(
     if request.is_empty() {
         return reserve_tokens.saturating_add(1);
     }
-    let system_prompt_tokens = (SUMMARIZATION_SYSTEM_PROMPT.chars().count() as u64).div_ceil(4);
+    let system_prompt_tokens = estimate_text_tokens(SUMMARIZATION_SYSTEM_PROMPT);
     let prompt_tokens = summarizer_request_tokens(&request);
     // The completion budget and the input-slice reserve are separate
     // draws on the same window, so the larger of the two decides whether
@@ -371,12 +372,12 @@ mod tests {
                 user(&format!("message {i} with padding")),
             ));
         }
-        // Each message estimates to ~6 tokens; a 6-token budget keeps only
-        // the newest one before the walk breaks.
-        let preparation = prepare_branch_entries(&entries, 6);
+        // Each 22-char message estimates to 7 tokens at 3.5 chars per
+        // token (6 at chars/4): a 7-token budget keeps only the newest one
+        // before the walk breaks, and a 6-token budget keeps nothing.
+        let preparation = prepare_branch_entries(&entries, 7);
         assert_eq!(preparation.messages.len(), 1);
-        // A budget below any single message keeps nothing.
-        let tight = prepare_branch_entries(&entries, 1);
+        let tight = prepare_branch_entries(&entries, 6);
         assert_eq!(tight.messages.len(), 0);
         let unlimited = prepare_branch_entries(&entries, 0);
         assert_eq!(unlimited.messages.len(), 10);

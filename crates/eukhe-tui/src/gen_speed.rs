@@ -11,13 +11,11 @@ use std::time::{Duration, Instant};
 
 use eukhe_types::ai::{AssistantMessage, StopReason, Usage};
 use eukhe_types::pi_ai::{PromptProgress, ResponseTiming};
+use eukhe_types::token_estimate::chars_to_tokens;
 
 /// The decode rate shows after this much decode time; before it, the rate
 /// of the first deltas is noise.
 const DECODE_RATE_AFTER: Duration = Duration::from_millis(250);
-
-/// Characters per token for the estimates (the loader's estimate too).
-const CHARS_PER_TOKEN: u64 = 4;
 
 /// TS `formatRate`: whole numbers at 100 tok/s and above, one decimal
 /// below.
@@ -148,8 +146,9 @@ pub enum SpeedPhase {
         /// The server's own progress through the prompt (llama.cpp).
         progress: Option<PromptProgress>,
         /// The prompt tokens the cache likely does not hold: the last
-        /// response's output and what the session added since, at
-        /// [`CHARS_PER_TOKEN`]. `None` before the first response.
+        /// response's output and what the session added since, at the one
+        /// token estimate ([`chars_to_tokens`]). `None` before the first
+        /// response.
         uncached_estimate: Option<u64>,
     },
     /// Tokens stream.
@@ -157,7 +156,7 @@ pub enum SpeedPhase {
         since: Instant,
         first_token: Instant,
         /// Output tokens so far: the provider's count when it streams one,
-        /// else the content at [`CHARS_PER_TOKEN`].
+        /// else the content at the one token estimate.
         tokens: u64,
     },
     /// The last response settled.
@@ -213,8 +212,8 @@ impl SpeedPhase {
 #[derive(Debug, Default)]
 pub(crate) struct SpeedClock {
     phase: Option<SpeedPhase>,
-    /// Prompt characters the session added since the last response (the
-    /// user's text, tool results).
+    /// Prompt characters (UTF-16 code units) the session added since the
+    /// last response (the user's text, tool results).
     added_chars: u64,
     /// The output tokens of the last response; `None` before the first.
     last_output: Option<u64>,
@@ -234,20 +233,23 @@ impl SpeedClock {
             progress: None,
             uncached_estimate: self
                 .last_output
-                .map(|output| output + self.added_chars / CHARS_PER_TOKEN),
+                .map(|output| output + chars_to_tokens(self.added_chars)),
         });
     }
 
-    /// The session added `chars` characters of prompt (user text, a tool
-    /// result) for the next request.
+    /// The session added `chars` characters (UTF-16 code units) of prompt
+    /// (user text, a tool result) for the next request.
     pub(crate) fn prompt_added(&mut self, chars: u64) {
         self.added_chars = self.added_chars.saturating_add(chars);
-        if let Some(SpeedPhase::Prefill {
-            uncached_estimate: Some(estimate),
-            ..
-        }) = &mut self.phase
+        if let (
+            Some(SpeedPhase::Prefill {
+                uncached_estimate: Some(estimate),
+                ..
+            }),
+            Some(output),
+        ) = (&mut self.phase, self.last_output)
         {
-            *estimate = estimate.saturating_add(chars / CHARS_PER_TOKEN);
+            *estimate = output + chars_to_tokens(self.added_chars);
         }
     }
 

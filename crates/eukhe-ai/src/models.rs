@@ -13,6 +13,7 @@ mod ladder;
 mod provider;
 mod refresh;
 mod requests;
+mod thinking;
 
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
@@ -28,7 +29,8 @@ pub use create_provider::{
 };
 pub use ladder::{
     clamp_thinking_level, cycle_thinking_level, get_supported_thinking_levels,
-    registry_clamp_thinking_level, registry_thinking_levels, thinking_level_map,
+    registry_clamp_thinking_level, registry_rule_ladder, registry_thinking_levels,
+    thinking_level_map,
 };
 pub use provider::{
     chat_models, FilterAllModelsFn, FilterModelsFn, GetModelsFn, ModelsPersistence,
@@ -40,6 +42,7 @@ pub use requests::{
     ModelsDeferredFetchOptions, ModelsImagesOptions, ModelsRequestOptions,
     ModelsSimpleStreamOptions, TransformHeadersFn,
 };
+pub use thinking::adaptive_thinking;
 
 pub use crate::utils::model_operations::{get_model_type, is_model_type};
 pub use crate::utils::models_error::{ModelsError, ModelsErrorCode};
@@ -172,8 +175,11 @@ pub fn has_api(model: &AnyModel, api: &str) -> bool {
 }
 
 /// Computes `usage.cost` from the model's prices (request-wide tiers by
-/// total input tokens; Anthropic 1h cache writes at 2x base input), stores
-/// it in `usage`, and returns it.
+/// total input tokens), stores it in `usage`, and returns it. A 1h cache
+/// write costs the input rate times the multiplier of the rulebook's
+/// `cache_write_1h_prices` row of the model
+/// ([`crate::quirks::cache_write_1h_multiplier`]), else the model's own
+/// cache write rate.
 #[allow(clippy::cast_precision_loss)] // Token counts are JS numbers: far below 2^53.
 pub fn calculate_cost<M: CatalogModel>(model: &M, usage: &mut Usage) -> UsageCost {
     let cost = model.model_cost();
@@ -190,17 +196,39 @@ pub fn calculate_cost<M: CatalogModel>(model: &M, usage: &mut Usage) -> UsageCos
         }
     }
 
-    // Anthropic charges 2x base input for 1h cache writes.
+    let long_write_rate = match usage.cache_write_1h {
+        None | Some(0) => rates.cache_write,
+        Some(_) => crate::quirks::cache_write_1h_multiplier(model.model_id())
+            .map_or(rates.cache_write, |multiplier| rates.input * multiplier),
+    };
     let long_write = usage.cache_write_1h.unwrap_or(0) as f64;
     let short_write = usage.cache_write as f64 - long_write;
     usage.cost.input = (rates.input / 1_000_000.0) * usage.input as f64;
     usage.cost.output = (rates.output / 1_000_000.0) * usage.output as f64;
     usage.cost.cache_read = (rates.cache_read / 1_000_000.0) * usage.cache_read as f64;
     usage.cost.cache_write =
-        (rates.cache_write * short_write + rates.input * 2.0 * long_write) / 1_000_000.0;
+        (rates.cache_write * short_write + long_write_rate * long_write) / 1_000_000.0;
     usage.cost.total =
         usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
     usage.cost
+}
+
+/// Scales `usage.cost` by the price of the service tier `service_tier`
+/// that served the request: the multiplier of the rulebook's
+/// `service_tier_prices` row of `model` and the tier
+/// ([`crate::quirks::service_tier_multiplier`]). With no row, the cost stays
+/// as it is.
+pub(crate) fn apply_service_tier_pricing(model: &Model, usage: &mut Usage, service_tier: &str) {
+    let Some(multiplier) = crate::quirks::service_tier_multiplier(model.into(), service_tier)
+    else {
+        return;
+    };
+    usage.cost.input *= multiplier;
+    usage.cost.output *= multiplier;
+    usage.cost.cache_read *= multiplier;
+    usage.cost.cache_write *= multiplier;
+    usage.cost.total =
+        usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
 }
 
 /// Whether two models are equal by type, id, and provider. `false` when

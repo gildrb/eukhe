@@ -212,19 +212,40 @@ fn empty_view() -> ContextView {
     }
 }
 
-/// Derive the context view from the entries scanned within `bounds`.
-fn derive_range(bounds: ContextBounds, entries: Vec<EntryRecord>) -> ContextRange {
+/// The context view the committed `entries` of one conversation derive:
+/// every visible entry, oldest first, as a context read scans them. The
+/// newest head marker bounds the range, as `capture_context_bounds` finds
+/// it. A worker derives the context it shows from its event mirror with
+/// this, without a storage read.
+#[must_use]
+pub fn derive_view(entries: &[EntryRecord]) -> ContextView {
+    let head = entries.iter().rev().find(|entry| entry.head.is_some());
+    let from = head
+        .and_then(|head| head.head)
+        .map_or(0, |start| entries.partition_point(|entry| entry.id < start));
+    derive(head, &entries[from..]).view
+}
+
+/// What [`derive`] gives a [`ContextRange`].
+struct Derived {
+    view: ContextView,
+    edited: HashSet<EntryId>,
+    settled: Vec<Message>,
+    open: Vec<Message>,
+}
+
+/// Derive the view from the visible `entries` of one range under the head
+/// marker `head`.
+fn derive(head: Option<&EntryRecord>, entries: &[EntryRecord]) -> Derived {
     let mut edits: HashMap<EntryId, &ContextEdit> = HashMap::new();
     // Edits of every entry in the range count, including older head markers
     // that `select_active()` drops.
-    for entry in &entries {
+    for entry in entries {
         for edit in entry.edits.iter().flatten() {
             edits.insert(edit.target, edit);
         }
     }
-    let active: Vec<EntryRecord> = select_active_refs(bounds.head.as_ref(), &entries)
-        .cloned()
-        .collect();
+    let active: Vec<EntryRecord> = select_active_refs(head, entries).cloned().collect();
     let contributions: Vec<Vec<Message>> = active
         .iter()
         .map(|entry| contribute(entry, edits.get(&entry.id).copied()))
@@ -238,12 +259,27 @@ fn derive_range(bounds: ContextBounds, entries: Vec<EntryRecord>) -> ContextRang
             .chain(order_tool_results(&open))
             .collect(),
     );
-    let view = ContextView {
-        head: bounds.head.clone(),
-        entries: active,
-        contributions,
-        messages,
-    };
+    Derived {
+        view: ContextView {
+            head: head.cloned(),
+            entries: active,
+            contributions,
+            messages,
+        },
+        edited,
+        settled,
+        open,
+    }
+}
+
+/// Derive the context view from the entries scanned within `bounds`.
+fn derive_range(bounds: ContextBounds, entries: Vec<EntryRecord>) -> ContextRange {
+    let Derived {
+        view,
+        edited,
+        settled,
+        open,
+    } = derive(bounds.head.as_ref(), &entries);
     ContextRange {
         bounds,
         entries,

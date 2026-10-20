@@ -7,8 +7,8 @@
 //! fails the call (the owner reports it and retries) instead of silently
 //! picking another one. The request runs through the durable model
 //! collection ([`crate::durable::create_models`]), which serves the
-//! registered pi-ai models only. It asks for at most [`MAX_TOKENS`], and a
-//! dropped call cancels it.
+//! registered pi-ai models only. It asks for at most the cap of
+//! [`thinking_output_cap`], and a dropped call cancels it.
 //!
 //! Every request first takes a background slot of its provider from the
 //! same admission authority as the sessions' requests
@@ -24,13 +24,13 @@
 
 use std::path::{Path, PathBuf};
 
-use eukhe_ai::api::simple_options::{DEFAULT_THINKING_BUDGETS, MIN_ANSWER_TOKENS};
+use eukhe_ai::api::simple_options::{thinking_budget_for_level, MIN_ANSWER_TOKENS};
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
 use eukhe_chord::context::AbortController;
 use eukhe_types::ai::{Model, ModelThinkingLevel};
 use eukhe_types::daemon::AdmissionPriority;
-use eukhe_types::pi_ai::{self, Context};
+use eukhe_types::pi_ai::{self, Context, ThinkingBudgets};
 use futures::StreamExt;
 
 use super::compactor::{ResponseStarted, Summarizer, SummarizerFuture};
@@ -41,11 +41,45 @@ use crate::admission::{local_admission, AdmissionHandle, AdmissionRequest, Queue
 /// calls.
 const COMPACTOR_SESSION: &str = "chat-memory-compactor";
 
-/// The output cap of one compactor call: a high-effort think (the default
-/// `high` budget) and room for a line of [`super::NODE`] bytes (the answer
-/// floor). The model's own output budget, often many times larger, would
-/// let one call run on for minutes or hours; a smaller one still applies.
-const MAX_TOKENS: u64 = DEFAULT_THINKING_BUDGETS.high.unwrap() + MIN_ANSWER_TOKENS;
+/// The output cap of a call that may think: its thinking budget plus its
+/// answer size. The compactor uses the `high` budget of the user's
+/// `thinkingBudgets` (the providers' default when it is not set) and
+/// [`MIN_ANSWER_TOKENS`] for its answer (a line of [`super::NODE`] bytes):
+/// so the cap minus the budget is always the answer size. The model's own
+/// output budget, often many times larger, would let one call run on for
+/// minutes or hours; a smaller one still applies.
+pub(crate) fn thinking_output_cap(thinking_budget: u64, answer_tokens: u64) -> u64 {
+    thinking_budget.saturating_add(answer_tokens)
+}
+
+/// The options of one compactor request: the cap of
+/// [`thinking_output_cap`] (or the model's own output budget when it is
+/// smaller; a model budget of 0 names none), the `memory.thinking` effort,
+/// and the user's `thinkingBudgets`, which the provider then fits into the
+/// cap.
+fn request_options(
+    model_max_tokens: u64,
+    thinking: ModelThinkingLevel,
+    thinking_budgets: Option<ThinkingBudgets>,
+) -> SimpleStreamOptions {
+    let cap = thinking_output_cap(
+        thinking_budget_for_level(pi_ai::ThinkingLevel::High, thinking_budgets.as_ref()),
+        MIN_ANSWER_TOKENS,
+    );
+    SimpleStreamOptions {
+        stream: StreamOptions {
+            session_id: Some(COMPACTOR_SESSION.to_string()),
+            max_tokens: Some(match model_max_tokens {
+                0 => cap,
+                budget => budget.min(cap),
+            }),
+            ..StreamOptions::default()
+        },
+        reasoning: reasoning(thinking),
+        thinking_budgets,
+        ..SimpleStreamOptions::default()
+    }
+}
 
 /// Cancels a compactor call's request when the call is dropped: the
 /// provider streams on a task of its own, which only the signal stops.
@@ -133,19 +167,11 @@ impl Summarizer for SettingsSummarizer {
                     }
                 }
                 let abort = AbortOnDrop(AbortController::new());
-                let mut options: ModelsSimpleStreamOptions = SimpleStreamOptions {
-                    stream: StreamOptions {
-                        session_id: Some(COMPACTOR_SESSION.to_string()),
-                        // A model budget of 0 names none.
-                        max_tokens: Some(match target.model.max_tokens {
-                            0 => MAX_TOKENS,
-                            budget => budget.min(MAX_TOKENS),
-                        }),
-                        ..StreamOptions::default()
-                    },
-                    reasoning: reasoning(target.thinking),
-                    ..SimpleStreamOptions::default()
-                }
+                let mut options: ModelsSimpleStreamOptions = request_options(
+                    target.model.max_tokens,
+                    target.thinking,
+                    target.thinking_budgets.clone(),
+                )
                 .into();
                 options.options.stream.request.signal = Some(abort.0.signal());
                 options
@@ -228,6 +254,7 @@ struct Target {
     api_key: Option<String>,
     headers: Option<std::collections::BTreeMap<String, String>>,
     thinking: ModelThinkingLevel,
+    thinking_budgets: Option<ThinkingBudgets>,
 }
 
 fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
@@ -302,6 +329,7 @@ fn resolve(agent_dir: &Path) -> anyhow::Result<Target> {
         api_key: resolved.api_key,
         headers: resolved.headers,
         thinking: settings.get_memory_thinking().model_level(),
+        thinking_budgets: settings.get_thinking_budgets(),
     })
 }
 
@@ -454,7 +482,8 @@ mod tests {
     }
 
     /// An agent dir whose compactor model `local/m` is served by
-    /// `listener`, with `limits` as its `providerMaxInFlight`.
+    /// `listener`, with `settings` (the global settings beside
+    /// `memory.model`).
     struct Setup {
         dir: TempDir,
         listener: TcpListener,
@@ -463,11 +492,11 @@ mod tests {
         queued: mpsc::UnboundedReceiver<AdmissionPriority>,
     }
 
-    async fn setup(limits: Value) -> Setup {
+    async fn setup(mut settings: Value) -> Setup {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let dir = tempfile::tempdir().unwrap();
-        let settings = json!({"memory": {"model": "local/m"}, "providerMaxInFlight": limits});
+        settings["memory"] = json!({"model": "local/m"});
         std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
         let models = json!({"providers": {"local": {
             "baseUrl": format!("http://127.0.0.1:{port}/v1"),
@@ -518,12 +547,13 @@ mod tests {
         }
     }
 
-    /// A compactor call asks for at most [`MAX_TOKENS`], however large the
+    /// A compactor call asks for at most the default `high` thinking budget
+    /// plus [`MIN_ANSWER_TOKENS`] (16384 + 1024), however large the
     /// model's own budget, and dropping it mid-stream closes its request:
     /// the provider streams on a task of its own.
     #[tokio::test]
     async fn a_compactor_call_is_capped_and_closes_its_request_when_dropped() {
-        let setup = setup(json!({})).await;
+        let setup = setup(json!({"providerMaxInFlight": {}})).await;
         let call = tokio::spawn(
             setup
                 .summarizer()
@@ -538,8 +568,61 @@ mod tests {
                 body["max_completion_tokens"].clone(),
                 closed(&mut socket).await
             ),
-            (json!(MAX_TOKENS), true)
+            (json!(17_408), true)
         );
+    }
+
+    /// Regression: the compactor cap follows the user's
+    /// `thinkingBudgets.high`. The old fixed cap (16384 + 1024) is below a
+    /// user budget of 30000 and left the call no answer room; the cap is
+    /// now that budget plus [`MIN_ANSWER_TOKENS`], and the request carries
+    /// the budgets the provider fits into it.
+    #[test]
+    fn the_compactor_cap_leaves_answer_room_over_a_user_thinking_budget() {
+        let budgets = ThinkingBudgets {
+            high: Some(30_000),
+            ..ThinkingBudgets::default()
+        };
+        let expected = SimpleStreamOptions {
+            stream: StreamOptions {
+                session_id: Some(COMPACTOR_SESSION.to_string()),
+                max_tokens: Some(31_024),
+                ..StreamOptions::default()
+            },
+            reasoning: Some(pi_ai::ThinkingLevel::Medium),
+            thinking_budgets: Some(budgets.clone()),
+            ..SimpleStreamOptions::default()
+        };
+        let built = request_options(131_072, ModelThinkingLevel::Medium, Some(budgets));
+        let old_cap: u64 = 16_384 + 1024;
+        assert_eq!(
+            (
+                old_cap.checked_sub(30_000),
+                format!("{built:?}"),
+                built.stream.max_tokens.map(|cap| cap - 30_000)
+            ),
+            (None, format!("{expected:?}"), Some(MIN_ANSWER_TOKENS))
+        );
+    }
+
+    /// The user's `thinkingBudgets.high` in settings reaches the compactor's
+    /// request cap on the wire.
+    #[tokio::test]
+    async fn a_compactor_call_cap_follows_the_users_thinking_budget() {
+        let setup = setup(json!({
+            "providerMaxInFlight": {},
+            "thinkingBudgets": {"high": 30_000}
+        }))
+        .await;
+        let call = tokio::spawn(
+            setup
+                .summarizer()
+                .complete(context("hi"), ResponseStarted::default()),
+        );
+        let mut socket = setup.accept().await;
+        let body = within(read_body(&mut socket)).await;
+        call.abort();
+        assert_eq!(body["max_completion_tokens"], json!(31_024));
     }
 
     /// A compactor call signals its response's start at the first streamed
@@ -547,7 +630,7 @@ mod tests {
     /// prefix go then, not at its end (§3.3).
     #[tokio::test]
     async fn a_compactor_call_signals_its_response_start_before_it_ends() {
-        let setup = setup(json!({})).await;
+        let setup = setup(json!({"providerMaxInFlight": {}})).await;
         let (started, response) = ResponseStarted::channel();
         let call = tokio::spawn(setup.summarizer().complete(context("hi"), started));
         let mut socket = setup.accept().await;
@@ -563,7 +646,7 @@ mod tests {
     /// slot frees.
     #[tokio::test]
     async fn compactor_calls_count_against_the_providers_limit() {
-        let mut setup = setup(json!({"local": 1})).await;
+        let mut setup = setup(json!({"providerMaxInFlight": {"local": 1}})).await;
         let first = tokio::spawn(
             setup
                 .summarizer()
@@ -614,7 +697,7 @@ mod tests {
     /// out again and builds its node: a preemption is no failure.
     #[tokio::test]
     async fn a_session_request_preempts_a_compactor_call_which_resumes_after_it() {
-        let mut setup = setup(json!({"local": 1})).await;
+        let mut setup = setup(json!({"providerMaxInFlight": {"local": 1}})).await;
         let memory = Memory::open(chat_dir(setup.dir.path()), Arc::new(setup.summarizer()))
             .await
             .unwrap();

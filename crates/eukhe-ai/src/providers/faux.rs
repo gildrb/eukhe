@@ -297,7 +297,11 @@ fn random_unit() -> f64 {
     rand::random()
 }
 
-/// `Math.ceil(length / 4)` over a UTF-16 length.
+/// The faux server's own token count (TS faux provider: `Math.ceil(length
+/// / 4)` over a UTF-16 length). It stands for a provider's tokenizer, the
+/// usage a server reports, not the client's estimate
+/// (`eukhe_types::token_estimate`), so it keeps its own ratio: a test whose
+/// reported usage equals the estimate could not tell them apart.
 fn estimate_tokens_from_units(units: usize) -> u64 {
     u64::try_from(units.div_ceil(4)).unwrap_or(u64::MAX)
 }

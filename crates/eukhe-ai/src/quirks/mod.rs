@@ -34,7 +34,10 @@
 //!
 //! The rulebook also holds the service tiers ([`service_tiers`],
 //! docs/inference.md S6.8): a table of the tiers that a provider honors
-//! over one wire API, for every model or for the models of one family.
+//! over one wire API, for every model or for the models of one family;
+//! and the prices that a catalog row does not carry
+//! ([`service_tier_multiplier`], [`cache_write_1h_multiplier`]); and the
+//! default model of each provider ([`provider_default_model`]).
 //!
 //! The shipped rulebook is `rulebook.json`, compiled into the binary and
 //! compiled once on first use.
@@ -53,9 +56,13 @@ use crate::types::{
     ThinkingLevelMap,
 };
 
+mod prices;
+mod provider_defaults;
 mod revision;
 mod tiers;
 
+pub use prices::{cache_write_1h_multiplier, service_tier_multiplier};
+pub use provider_defaults::{provider_default_model, provider_defaults};
 pub use tiers::{service_tiers, supports_service_tier};
 
 #[cfg(test)]
@@ -129,8 +136,24 @@ pub enum Directive {
     GoogleValidatedTools,
     /// openai-completions: the model renders the Qwen chat template.
     QwenChatTemplate,
-    /// Bedrock: the model takes adaptive thinking.
+    /// The model takes adaptive thinking (`thinking.type: adaptive` with an
+    /// effort), on Bedrock and on Anthropic Messages. An explicit
+    /// `compat.forceAdaptiveThinking` of the model wins over it.
     AdaptiveThinking,
+    /// Bedrock: the adaptive model takes `thinking.block_binding`.
+    ThinkingBlockBinding,
+    /// Bedrock: the model takes `cachePoint` blocks (prompt caching).
+    PromptCaching,
+    /// `OpenAI` Responses: the model takes the explicit prompt-cache controls
+    /// (`prompt_cache_breakpoint: {"mode": "explicit"}` on `input_text`
+    /// items and `reasoning.context: "all_turns"`).
+    ExplicitCacheBreakpoints,
+    /// Google: the model takes the discrete `thinkingLevel` control (true)
+    /// or the token `thinkingBudget` control (false).
+    GoogleThinkingLevel,
+    /// Google: the thinking budget of each level. `minimal` is the smallest
+    /// budget the model accepts and `high` the largest.
+    ThinkingBudgets,
     /// The host supports a native forced tool choice.
     ToolChoiceNative,
     /// Forcing a tool choice costs no prompt-cache invalidation.
@@ -171,6 +194,11 @@ impl Directive {
         Self::GoogleValidatedTools,
         Self::QwenChatTemplate,
         Self::AdaptiveThinking,
+        Self::ThinkingBlockBinding,
+        Self::PromptCaching,
+        Self::ExplicitCacheBreakpoints,
+        Self::GoogleThinkingLevel,
+        Self::ThinkingBudgets,
         Self::ToolChoiceNative,
         Self::ToolChoiceFree,
         Self::PromptProgress,
@@ -205,6 +233,11 @@ impl Directive {
             Self::GoogleValidatedTools => "google_validated_tools",
             Self::QwenChatTemplate => "qwen_chat_template",
             Self::AdaptiveThinking => "adaptive_thinking",
+            Self::ThinkingBlockBinding => "thinking_block_binding",
+            Self::PromptCaching => "prompt_caching",
+            Self::ExplicitCacheBreakpoints => "explicit_cache_breakpoints",
+            Self::GoogleThinkingLevel => "google_thinking_level",
+            Self::ThinkingBudgets => "thinking_budgets",
             Self::ToolChoiceNative => "tool_choice_native",
             Self::ToolChoiceFree => "tool_choice_free",
             Self::PromptProgress => "prompt_progress",
@@ -244,6 +277,11 @@ impl Directive {
             | Self::GoogleValidatedTools
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
+            | Self::ThinkingBlockBinding
+            | Self::PromptCaching
+            | Self::ExplicitCacheBreakpoints
+            | Self::GoogleThinkingLevel
+            | Self::ThinkingBudgets
             | Self::ToolChoiceNative
             | Self::ToolChoiceFree
             | Self::PromptProgress
@@ -265,6 +303,10 @@ impl Directive {
             | Self::GoogleValidatedTools
             | Self::QwenChatTemplate
             | Self::AdaptiveThinking
+            | Self::ThinkingBlockBinding
+            | Self::PromptCaching
+            | Self::ExplicitCacheBreakpoints
+            | Self::GoogleThinkingLevel
             | Self::ToolChoiceNative
             | Self::ToolChoiceFree
             | Self::PromptProgress => ValueKind::Bool,
@@ -276,6 +318,7 @@ impl Directive {
             Self::SessionAffinityFormat => ValueKind::SessionAffinityFormat,
             Self::StrictCap => ValueKind::Count,
             Self::ThinkingLadder => ValueKind::ThinkingLadder,
+            Self::ThinkingBudgets => ValueKind::ThinkingBudgets,
             Self::Endpoint(capability) => ValueKind::Endpoint(capability),
         }
     }
@@ -299,6 +342,9 @@ pub enum ValueKind {
     /// A `thinkingLevelMap`: an object from level names to a wire string
     /// or `null`.
     ThinkingLadder,
+    /// A `thinkingBudgets` object with all four levels set, each level at
+    /// least the one before it (`minimal` ≤ `low` ≤ `medium` ≤ `high`).
+    ThinkingBudgets,
     /// A [`Dialect`] wire string that implements the capability, or `false`.
     Endpoint(Capability),
 }
@@ -334,6 +380,14 @@ impl ValueKind {
             Self::ThinkingLadder => ThinkingLevelMap::deserialize(raw)
                 .ok()
                 .map(Value::ThinkingLadder),
+            Self::ThinkingBudgets => LevelBudgets::deserialize(raw)
+                .ok()
+                .filter(|budgets| {
+                    budgets.minimal <= budgets.low
+                        && budgets.low <= budgets.medium
+                        && budgets.medium <= budgets.high
+                })
+                .map(Value::ThinkingBudgets),
             Self::Endpoint(capability) => match raw {
                 JsonValue::Bool(false) => Some(Value::Endpoint(None)),
                 JsonValue::String(name) => Dialect::parse(name)
@@ -360,8 +414,22 @@ pub enum Value {
     SessionAffinityFormat(SessionAffinityFormat),
     /// A thinking ladder ([`Directive::ThinkingLadder`]).
     ThinkingLadder(ThinkingLevelMap),
+    /// Thinking budgets ([`Directive::ThinkingBudgets`]).
+    ThinkingBudgets(LevelBudgets),
     /// The dialect of a capability endpoint; `None`: unsupported.
     Endpoint(Option<Dialect>),
+}
+
+/// The token budgets of the four budget levels (`xhigh` and `max` take
+/// `high`). A rule's budgets are ordered: each level is at least the one
+/// before it, so `minimal` is the smallest budget and `high` the largest.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LevelBudgets {
+    pub minimal: u64,
+    pub low: u64,
+    pub medium: u64,
+    pub high: u64,
 }
 
 /// The answer of a lookup.
@@ -606,15 +674,19 @@ impl<'a> From<&'a eukhe_types::ai::Model> for ModelKey<'a> {
     }
 }
 
-/// The default thinking ladders (docs/inference.md S10, the ladder 0):
-/// the levels a model offers where its ladder gives no entry, in the wire
-/// API's own form. `reasoning` serves a reasoning model, `plain` a model
-/// without reasoning (whose ladder has no effect).
+/// The thinking defaults (docs/inference.md S10, the ladder 0). The
+/// ladders are the levels a model offers where its ladder gives no entry,
+/// in the wire API's own form: `reasoning` serves a reasoning model,
+/// `plain` a model without reasoning (whose ladder has no effect).
+/// `budgets` are the token budgets of the levels where neither the user's
+/// `thinkingBudgets` nor a rule of the model gives one.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThinkingDefaults {
     pub reasoning: Vec<ModelThinkingLevel>,
     pub plain: Vec<ModelThinkingLevel>,
+    #[serde(default)]
+    pub budgets: LevelBudgets,
 }
 
 /// What a family pattern is matched against.
@@ -646,6 +718,10 @@ struct FamilyEntry {
     pattern: String,
     #[serde(default)]
     revision: Option<RevisionEntry>,
+    /// A regex that excludes a model the `match` pattern matches (on the
+    /// same candidates), so two families stay disjoint without a lookahead.
+    #[serde(default)]
+    except: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -680,6 +756,12 @@ struct RulebookEntry {
     service_tiers: Vec<tiers::TierEntry>,
     #[serde(default)]
     thinking_defaults: ThinkingDefaults,
+    #[serde(default)]
+    service_tier_prices: prices::TierPrices,
+    #[serde(default)]
+    cache_write_1h_prices: prices::LongWritePrices,
+    #[serde(default)]
+    provider_defaults: provider_defaults::ProviderDefaults,
 }
 
 #[derive(Debug)]
@@ -687,12 +769,15 @@ struct Family {
     id: String,
     on: MatchOn,
     pattern: Regex,
+    /// The pattern that excludes a model `pattern` matches.
+    except: Option<Regex>,
     /// The revision prefix (lowercase) and the range the revision is in.
     revision: Option<(String, revision::Range)>,
 }
 
 /// A rulebook: the families, the hosts, the compiled rules, the service
-/// tiers and the default thinking ladders.
+/// tiers, the default thinking ladders, the prices that a catalog row
+/// does not carry and the default model of each provider.
 #[derive(Debug)]
 pub struct Rulebook {
     /// Sorted by id, so a [`QuirksError::FamilyOverlap`] names its two
@@ -707,6 +792,9 @@ pub struct Rulebook {
     rules: Rules,
     service_tiers: Vec<tiers::TierEntry>,
     thinking_defaults: ThinkingDefaults,
+    service_tier_prices: prices::TierPrices,
+    cache_write_1h_prices: prices::LongWritePrices,
+    provider_defaults: provider_defaults::ProviderDefaults,
 }
 
 /// `/[\s_.:]+/g`.
@@ -818,14 +906,16 @@ impl Rulebook {
                 },
                 None => None,
             };
-            match Regex::new(&family.pattern) {
-                Ok(pattern) => families.push(Family {
+            let except = family.except.as_deref().map(Regex::new).transpose();
+            match (Regex::new(&family.pattern), except) {
+                (Ok(pattern), Ok(except)) => families.push(Family {
                     id: family.id,
                     on: family.on,
                     pattern,
+                    except,
                     revision,
                 }),
-                Err(error) => errors.push(QuirksError::BadPattern {
+                (Err(error), _) | (Ok(_), Err(error)) => errors.push(QuirksError::BadPattern {
                     family: family.id,
                     reason: error.to_string(),
                 }),
@@ -928,6 +1018,9 @@ impl Rulebook {
                 rules,
                 service_tiers: entry.service_tiers,
                 thinking_defaults: entry.thinking_defaults,
+                service_tier_prices: entry.service_tier_prices,
+                cache_write_1h_prices: entry.cache_write_1h_prices,
+                provider_defaults: entry.provider_defaults,
             })
         } else {
             Err(errors)
@@ -961,14 +1054,15 @@ impl Rulebook {
         let lower_id = id.to_lowercase();
         let mut candidates: Option<Vec<String>> = None;
         let mut matching = self.families.iter().filter(|family| {
-            let pattern = match family.on {
-                MatchOn::Id => family.pattern.is_match(&lower_id),
+            let mut matches = |pattern: &Regex| match family.on {
+                MatchOn::Id => pattern.is_match(&lower_id),
                 MatchOn::Names => candidates
                     .get_or_insert_with(|| match_candidates(id, name))
                     .iter()
-                    .any(|candidate| family.pattern.is_match(candidate)),
+                    .any(|candidate| pattern.is_match(candidate)),
             };
-            pattern
+            matches(&family.pattern)
+                && !family.except.as_ref().is_some_and(&mut matches)
                 && family.revision.as_ref().is_none_or(|(prefix, range)| {
                     range.holds(revision::of(id, prefix).unwrap_or_default())
                 })
@@ -1116,6 +1210,7 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1129,6 +1224,7 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1168,6 +1264,7 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1189,6 +1286,7 @@ impl<'a> Quirks<'a> {
             | Value::MaxTokensField(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1216,6 +1314,7 @@ impl<'a> Quirks<'a> {
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
             | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1243,6 +1342,7 @@ impl<'a> Quirks<'a> {
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
             | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_)
             | Value::Endpoint(_) => None,
         }
     }
@@ -1261,7 +1361,8 @@ impl<'a> Quirks<'a> {
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
-            | Value::ThinkingLadder(_) => None,
+            | Value::ThinkingLadder(_)
+            | Value::ThinkingBudgets(_) => None,
         }
     }
 
@@ -1281,6 +1382,46 @@ impl<'a> Quirks<'a> {
     #[must_use]
     pub fn adaptive_thinking(&self) -> Option<bool> {
         self.flag(Directive::AdaptiveThinking)
+    }
+
+    /// [`Directive::ThinkingBlockBinding`].
+    #[must_use]
+    pub fn thinking_block_binding(&self) -> Option<bool> {
+        self.flag(Directive::ThinkingBlockBinding)
+    }
+
+    /// [`Directive::PromptCaching`].
+    #[must_use]
+    pub fn prompt_caching(&self) -> Option<bool> {
+        self.flag(Directive::PromptCaching)
+    }
+
+    /// [`Directive::ExplicitCacheBreakpoints`].
+    #[must_use]
+    pub fn explicit_cache_breakpoints(&self) -> Option<bool> {
+        self.flag(Directive::ExplicitCacheBreakpoints)
+    }
+
+    /// [`Directive::GoogleThinkingLevel`].
+    #[must_use]
+    pub fn google_thinking_level(&self) -> Option<bool> {
+        self.flag(Directive::GoogleThinkingLevel)
+    }
+
+    /// [`Directive::ThinkingBudgets`].
+    #[must_use]
+    pub fn thinking_budgets(&self) -> Option<&'static LevelBudgets> {
+        match self.known(Directive::ThinkingBudgets)? {
+            Value::ThinkingBudgets(budgets) => Some(budgets),
+            Value::Bool(_)
+            | Value::Count(_)
+            | Value::Prefixes(_)
+            | Value::MaxTokensField(_)
+            | Value::ThinkingFormat(_)
+            | Value::SessionAffinityFormat(_)
+            | Value::ThinkingLadder(_)
+            | Value::Endpoint(_) => None,
+        }
     }
 
     /// [`Directive::ToolChoiceNative`].
@@ -1313,6 +1454,7 @@ impl<'a> Quirks<'a> {
             | Value::MaxTokensField(_)
             | Value::ThinkingFormat(_)
             | Value::SessionAffinityFormat(_)
+            | Value::ThinkingBudgets(_)
             | Value::Endpoint(_) => None,
         }
     }

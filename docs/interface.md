@@ -69,7 +69,9 @@ true). `/toggle terminal.showSpeed` hides or shows the segment at once.
    session, it also shows an estimate of the prompt tokens that the cache
    does not hold: `prefill 3.2s (~1.2K tok)`. The estimate is the output
    of the last response plus the user text and the tool results since
-   then, at 4 characters for each token.
+   then, at the one token estimate: 3.5 characters (UTF-16 code units)
+   for each token, rounded up. The compaction threshold and the context
+   usage of the tray use the same estimate.
 2. Prefill progress. A llama.cpp `llama-server` sends its progress
    through the prompt when the request sets `return_progress`
    (`prompt_progress`: `total`, `cache`, `processed`, `time_ms`). The
@@ -83,7 +85,7 @@ true). `/toggle terminal.showSpeed` hides or shows the segment at once.
    `decode N tok/s`: the output tokens after the first one, divided by
    the time since the first token. The token count is the count of the
    provider when it streams one, else the streamed text and tool
-   arguments at 4 characters for each token. The rate shows after
+   arguments at 3.5 characters for each token. The rate shows after
    250 ms of decode.
 4. Summary. When the response settles, the segment shows the exact
    rates from the usage and the stream marks of the provider, until the

@@ -141,7 +141,7 @@ fn ghost_gap_does_not_zero_the_token_totals() {
     assert_eq!(
         stats["contextUsage"]["tokens"],
         json!(4),
-        "13 chars, ceil/4"
+        "13 chars at 3.5 chars per token"
     );
 }
 
@@ -176,14 +176,44 @@ fn counts_messages_tool_calls_and_tokens() {
 
 #[test]
 fn context_usage_sums_trailing_estimates() {
-    // No usage at all: everything is estimated.
+    // No usage at all: everything is estimated, at 3.5 chars per token
+    // (chars/4 made 2 tokens and 0.2 %).
     let store = store_with(&[(
         "message",
         json!({ "message": message("user", &json!({ "content": "12345678" })) }),
     )]);
     let stats = session_stats(&store, Some(1000));
-    assert_eq!(stats["contextUsage"]["tokens"], 2, "8 chars / 4");
-    assert_eq!(stats["contextUsage"]["percent"], 0.2);
+    assert_eq!(
+        stats["contextUsage"],
+        json!({ "tokens": 3, "contextWindow": 1000, "percent": 0.3 })
+    );
+}
+
+/// One row's estimate (TS `estimateTokens`) at the one token estimate:
+/// text, thinking, the tool call's name and serialized arguments, and an
+/// image; string content only for user, custom, and tool-result rows.
+#[test]
+fn row_estimate_counts_text_thinking_tool_calls_and_images() {
+    let blocks = json!({
+        "role": "assistant",
+        "content": [
+            { "type": "text", "text": "abcd" },
+            { "type": "thinking", "thinking": "efgh" },
+            { "type": "toolCall", "name": "ipython", "arguments": { "code": "x = 1" } },
+            { "type": "image" },
+        ],
+    });
+    // `{"code":"x = 1"}` is 17 chars: 4 + 4 + 7 + 17 + 4800 = 4832 chars.
+    assert_eq!(
+        [
+            json!({ "role": "user", "content": "12345678" }),
+            blocks,
+            json!({ "role": "assistant", "content": "12345678" }),
+            json!({ "role": "toolResult", "content": "12345678" }),
+        ]
+        .map(|message| estimate_row_tokens(&message)),
+        [3, 1381, 0, 3]
+    );
 }
 
 #[test]
@@ -219,8 +249,8 @@ fn compaction_with_post_usage_estimates() {
     ]);
     let stats = session_stats(&store, Some(1000));
     assert_eq!(
-        stats["contextUsage"]["tokens"], 301,
-        "300 usage + 1 estimated"
+        stats["contextUsage"]["tokens"], 302,
+        "300 usage + 2 estimated"
     );
 }
 

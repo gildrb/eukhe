@@ -2,8 +2,11 @@
 //! over an in-process worker hosting a scripted (faux) durable session.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_durable::harness::compaction::estimate_context;
+use eukhe_durable::harness::types::ContextOptions;
 use serde_json::{json, Value};
 
 use crate::worker::{Worker, WorkerConfig};
@@ -160,6 +163,54 @@ async fn the_attach_state_carries_the_stats_context_usage() {
     assert_eq!(stats["contextUsage"], state_usage);
     let tree = get(&worker, "get_context_tree", &json!({})).await;
     assert_eq!(tree["contextUsage"], state_usage);
+}
+
+/// The context usage the TUI shows (the attach snapshot's
+/// `state.contextUsage`, off the event mirror) is the estimate the
+/// compaction threshold reads ([`estimate_context`]) of the context the
+/// Harness derives, as one whole object. The failed answer leaves no usage
+/// anchor, so the estimate covers the system prompt and the prompt at the
+/// one token estimate (the shown usage was chars/4 over the shown rows,
+/// without the system prompt).
+#[tokio::test]
+async fn the_shown_context_usage_is_the_compaction_threshold_estimate() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let script = json!({
+        "modelId": "faux-1",
+        "responses": [{ "stopReason": "error", "errorMessage": "invalid request body" }],
+    });
+    let worker = created_worker(dir.path(), script).await;
+    worker
+        .dispatch(
+            "prompt_and_wait",
+            &json!({ "message": "estimate the size of this prompt" }),
+        )
+        .await;
+    let shown = {
+        let core = worker.core.lock().unwrap_or_else(PoisonError::into_inner);
+        serde_json::to_value(worker.connection_state_locked(&core)).expect("state")["contextUsage"]
+            .clone()
+    };
+    let view = worker
+        .hosted("get_context_tree")
+        .expect("hosted")
+        .main()
+        .expect("main conversation")
+        .context(&BACKGROUND_CONTEXT, ContextOptions::default())
+        .await
+        .expect("context");
+    let tokens = estimate_context(&view, &[]);
+    assert!(tokens > 0, "the prompt is estimated: {view:?}");
+    let window = shown["contextWindow"].as_u64().expect("context window");
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "the wire percent is a JS double"
+    )]
+    let percent = tokens as f64 / window as f64 * 100.0;
+    assert_eq!(
+        shown,
+        json!({ "tokens": tokens, "contextWindow": window, "percent": percent })
+    );
 }
 
 /// `get_commands` / `get_resource_snapshot`: the TS loader shapes over the

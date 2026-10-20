@@ -49,6 +49,12 @@ pub struct OnboardingTask {
     /// The startup model itself (TS `getCurrentModel` at flow time):
     /// the default model applies only without one.
     pub current_model: Option<eukhe_types::ai::Model>,
+    /// The default model id of the Prime Inference provider (the
+    /// composition root reads the quirks rulebook's `provider_defaults`):
+    /// the model the flow applies after the sign-in when the home has no
+    /// current model. `None`: the provider has no default, and the flow
+    /// applies no model.
+    pub prime_default_model_id: Option<String>,
     /// The provider auth flows the full branch signs in through (the
     /// composition root's `/login` surface); `None` leaves a
     /// not-ready home without its sign-in step.
@@ -505,18 +511,20 @@ async fn run_onboarding_flow(
     // The default-model apply (TS `prepareForModelSelectionAfterLogin`):
     // only a home with no current model picks the Prime default. The
     // daemon resolves the model against its own registry -- read fresh at
-    // the switch, so the just-stored credential is what makes GLM 5.3
+    // the switch, so the just-stored credential is what makes the default
     // available (the client's startup snapshot predates the sign-in and
     // never carries it). A resolution failure surfaces as the switch's
     // error row and the flow still completes.
     if task.current_model.is_none() {
-        session
-            .apply_model_selection(
-                crate::provider_auth::PRIME_INFERENCE_PROVIDER_ID,
-                crate::provider_auth::PRIME_INFERENCE_DEFAULT_MODEL_ID,
-                view,
-            )
-            .await;
+        if let Some(model_id) = &task.prime_default_model_id {
+            session
+                .apply_model_selection(
+                    crate::provider_auth::PRIME_INFERENCE_PROVIDER_ID,
+                    model_id,
+                    view,
+                )
+                .await;
+        }
     }
 
     // The connect-more-providers picker (TS `askOnboardingProviders`):

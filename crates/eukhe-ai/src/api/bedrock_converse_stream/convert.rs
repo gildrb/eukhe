@@ -19,9 +19,9 @@ use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, ConstrainedSamplingError, StrictPlan, StrictSupport,
     StrictToolParameters,
 };
-use crate::api::simple_options::clamp_reasoning;
+use crate::api::simple_options::thinking_budget_for_level;
 use crate::api::transform_messages::transform_messages;
-use crate::models::thinking_level_map;
+use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::quirks::{match_candidates, Quirks};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::js::js_trim;
@@ -29,50 +29,18 @@ use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 use crate::utils::transcript::without_initial_system_message;
 
+#[cfg(test)]
+mod facts_tests;
+
 const EMPTY_TEXT_PLACEHOLDER: &str = "<empty>";
 
 const THINKING_BINDING_CONTROLS_BETA: &str = "thinking-binding-controls-2026-08-01";
 
-fn any_candidate(model_id: &str, model_name: &str, needles: &[&str]) -> bool {
-    match_candidates(model_id, model_name)
-        .iter()
-        .any(|candidate| needles.iter().any(|needle| candidate.contains(needle)))
-}
-
-/// TS `supportsAdaptiveThinking` (Opus 4.6+, Sonnet 4.6+, Fable 5): the
-/// quirks rulebook's `adaptive_thinking` (family `claude-adaptive`).
-pub(crate) fn supports_adaptive_thinking(model: &Model) -> bool {
-    Quirks::of(model).adaptive_thinking().unwrap_or(false)
-}
-
-/// TS `supportsNativeXhighEffort`.
-fn supports_native_xhigh_effort(model: &Model) -> bool {
-    any_candidate(
-        &model.id,
-        &model.name,
-        &[
-            "opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5",
-        ],
-    )
-}
-
-/// TS `supportsThinkingBlockBinding`: Opus 4.6 and Sonnet 4.6 reject
-/// `thinking.block_binding`.
-fn supports_thinking_block_binding(model: &Model) -> bool {
-    any_candidate(
-        &model.id,
-        &model.name,
-        &[
-            "opus-4-7", "opus-4-8", "opus-5", "sonnet-5", "haiku-5", "fable-5",
-        ],
-    )
-}
-
-/// TS `mapThinkingLevelToEffort`.
-fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> String {
-    if level == ThinkingLevel::Xhigh && supports_native_xhigh_effort(model) {
-        return "xhigh".to_owned();
-    }
+/// TS `mapThinkingLevelToEffort`: the model's thinking-level map, else the
+/// Bedrock default effort of the level. A model with native `xhigh` says so
+/// in its map (`xhigh: "xhigh"`).
+#[must_use]
+pub fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> String {
     let mapped = thinking_level_map(model)
         .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
         .and_then(Option::as_ref);
@@ -114,25 +82,14 @@ pub(crate) fn is_anthropic_claude_model(model: &Model) -> bool {
         || name.contains("claude")
 }
 
-/// TS `supportsPromptCaching`: Claude 3.5 Haiku, 3.7 Sonnet, 4.x, 5; any
-/// model with `AWS_BEDROCK_FORCE_CACHE=1` when the id/name names no Claude.
-pub(crate) fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
-    let candidates = match_candidates(&model.id, &model.name);
-    let any = |needle: &str| {
-        candidates
-            .iter()
-            .any(|candidate| candidate.contains(needle))
-    };
-    if !any("claude") {
-        return get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).as_deref() == Some("1");
-    }
-    any("fable-5")
-        || any("opus-5")
-        || any("sonnet-5")
-        || any("haiku-5")
-        || any("-4-")
-        || any("claude-3-7-sonnet")
-        || any("claude-3-5-haiku")
+/// TS `supportsPromptCaching`: the quirks rulebook's `prompt_caching` for
+/// the model; a model the rulebook does not name caches only with
+/// `AWS_BEDROCK_FORCE_CACHE=1`.
+#[must_use]
+pub fn supports_prompt_caching(model: &Model, env: Option<&ProviderEnv>) -> bool {
+    Quirks::of(model).prompt_caching().unwrap_or_else(|| {
+        get_provider_env_value("AWS_BEDROCK_FORCE_CACHE", env).as_deref() == Some("1")
+    })
 }
 
 /// TS `supportsThinkingSignature`: only Claude accepts
@@ -577,10 +534,11 @@ pub(crate) fn build_additional_model_request_fields(
                 .unwrap_or(BedrockThinkingDisplay::Summarized),
         )
     };
-    let adaptive = supports_adaptive_thinking(model);
+    let adaptive = adaptive_thinking(model);
     let mut result = JsonObject::new();
     if adaptive {
-        let use_block_binding = !is_gov_cloud && supports_thinking_block_binding(model);
+        let use_block_binding =
+            !is_gov_cloud && Quirks::of(model).thinking_block_binding().unwrap_or(false);
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "adaptive".into());
         if let Some(display) = display {
@@ -604,29 +562,13 @@ pub(crate) fn build_additional_model_request_fields(
             );
         }
     } else {
-        let default_budget: u64 = match reasoning {
-            ThinkingLevel::Minimal => 1024,
-            ThinkingLevel::Low => 2048,
-            ThinkingLevel::Medium => 8192,
-            // Budget-based Claude clamps extended levels to high.
-            ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => 16384,
-        };
-        // Custom budgets only cover token-based levels through high.
-        let custom = options.thinking_budgets.as_ref().and_then(|budgets| {
-            match clamp_reasoning(Some(reasoning)) {
-                Some(ThinkingLevel::Minimal) => budgets.minimal,
-                Some(ThinkingLevel::Low) => budgets.low,
-                Some(ThinkingLevel::Medium) => budgets.medium,
-                Some(ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max) | None => {
-                    budgets.high
-                }
-            }
-        });
+        // Budget-based Claude clamps extended levels to high; custom budgets
+        // only cover token-based levels through high.
         let mut thinking = JsonObject::new();
         thinking.insert("type".to_owned(), "enabled".into());
         thinking.insert(
             "budget_tokens".to_owned(),
-            custom.unwrap_or(default_budget).into(),
+            thinking_budget_for_level(reasoning, options.thinking_budgets.as_ref()).into(),
         );
         if let Some(display) = display {
             thinking.insert("display".to_owned(), display.as_str().into());

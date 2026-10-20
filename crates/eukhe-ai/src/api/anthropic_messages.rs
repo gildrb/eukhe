@@ -38,7 +38,7 @@ use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copi
 use crate::api::simple_options::{
     adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context,
 };
-use crate::models::thinking_level_map;
+use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::types::{FetchFunction, ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -240,11 +240,10 @@ pub(crate) struct ResolvedCompat {
 /// extended thinking (`thinking: {type: "enabled"}`), under which Anthropic
 /// rejects a forced tool choice; adaptive thinking does not.
 pub(crate) fn manual_thinking(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
-    let compat = model_compat(model);
     model.reasoning
         && reasoning.is_some()
-        && compat.and_then(|compat| compat.force_adaptive_thinking) != Some(true)
-        && compat.and_then(|compat| compat.supports_mid_convo_effort) != Some(true)
+        && !adaptive_thinking(model)
+        && !supports_mid_convo_effort(model)
 }
 
 pub(crate) fn get_anthropic_compat(model: &Model) -> ResolvedCompat {
@@ -730,7 +729,7 @@ pub fn stream_simple(
         );
     };
 
-    if model_compat(model).and_then(|compat| compat.force_adaptive_thinking) == Some(true) {
+    if adaptive_thinking(model) {
         let effort = map_thinking_level_to_effort(model, reasoning);
         return stream_anthropic(
             model,

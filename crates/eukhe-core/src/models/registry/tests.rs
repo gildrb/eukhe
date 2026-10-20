@@ -268,19 +268,6 @@ fn a_stored_xai_subscription_switches_its_models_onto_responses() {
         compat.raw.get("supportsLongCacheRetention"),
         Some(&serde_json::json!(false))
     );
-    // The TS flow's explicit maps stay per model id (unit level;
-    // the offline catalog no longer carries those models).
-    let map_46 = xai_subscription_thinking_map("grok-4.6");
-    assert_eq!(map_46.get(&ModelThinkingLevel::Off), Some(&None));
-    assert_eq!(
-        map_46.get(&ModelThinkingLevel::Xhigh),
-        Some(&Some("xhigh".to_string()))
-    );
-    let map_43 = xai_subscription_thinking_map("grok-4.3");
-    assert_eq!(
-        map_43.get(&ModelThinkingLevel::Off),
-        Some(&Some("none".to_string()))
-    );
 }
 
 /// TS `getXaiSubscriptionModel` fills only an absent `thinkingLevelMap`:
@@ -296,14 +283,83 @@ fn a_subscription_model_keeps_its_own_thinking_level_map() {
         Some(std::iter::once((ModelThinkingLevel::Off, Some("none".to_string()))).collect());
     let adapted = xai_subscription_model(&grok);
     assert_eq!(adapted.thinking_level_map, grok.thinking_level_map);
+}
 
-    let bare = model("grok-4.5", "xai");
-    assert!(bare.thinking_level_map.is_none());
-    let adapted = xai_subscription_model(&bare);
-    assert_eq!(
-        adapted.thinking_level_map,
-        Some(xai_subscription_thinking_map("grok-4.5"))
-    );
+/// The map that the subscription switch gave a model without one before
+/// the quirks rulebook held the ladders (a match over model ids), kept
+/// here only as the oracle of
+/// [`a_subscription_model_without_a_map_gets_the_former_map`].
+fn former_subscription_map(model_id: &str) -> eukhe_types::ai::ThinkingLevelMap {
+    let null = || None;
+    let value = |text: &str| Some(text.to_string());
+    let mut map = eukhe_types::ai::ThinkingLevelMap::new();
+    match model_id {
+        "grok-4.3" => {
+            map.insert(ModelThinkingLevel::Off, value("none"));
+            map.insert(ModelThinkingLevel::Minimal, null());
+        }
+        "grok-4.5" => {
+            map.insert(ModelThinkingLevel::Off, null());
+            map.insert(ModelThinkingLevel::Minimal, null());
+        }
+        "grok-4.6" | "grok-4.7" => {
+            map.insert(ModelThinkingLevel::Off, null());
+            map.insert(ModelThinkingLevel::Minimal, null());
+            map.insert(ModelThinkingLevel::Xhigh, value("xhigh"));
+        }
+        _ => {
+            for level in [
+                ModelThinkingLevel::Off,
+                ModelThinkingLevel::Minimal,
+                ModelThinkingLevel::Low,
+                ModelThinkingLevel::Medium,
+                ModelThinkingLevel::High,
+                ModelThinkingLevel::Xhigh,
+                ModelThinkingLevel::Max,
+            ] {
+                map.insert(level, null());
+            }
+        }
+    }
+    map
+}
+
+/// Every xAI model id of the built-in catalog (its map removed), the ids
+/// that the former match named, and ids near them: the subscription
+/// switch gives each one the map that the former match gave it, for
+/// every level.
+#[test]
+fn a_subscription_model_without_a_map_gets_the_former_map() {
+    let registry = ModelRegistry::in_memory(auth_with(&serde_json::json!({})));
+    let ids: std::collections::BTreeSet<String> = registry
+        .get_all()
+        .filter(|model| model.provider == "xai")
+        .map(|model| model.id.clone())
+        .chain(
+            [
+                "grok-4.3",
+                "grok-4.5",
+                "grok-4.6",
+                "grok-4.7",
+                "grok-4.8",
+                "grok-4.30",
+                "grok-4.6-fast",
+                "x-ai/grok-4.6",
+                "grok-5",
+            ]
+            .map(str::to_string),
+        )
+        .collect();
+    let differences: Vec<(String, Option<eukhe_types::ai::ThinkingLevelMap>)> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let mut bare = model(&id, "xai");
+            bare.reasoning = true;
+            let adapted = xai_subscription_model(&bare).thinking_level_map;
+            (adapted.as_ref() != Some(&former_subscription_map(&id))).then_some((id, adapted))
+        })
+        .collect();
+    assert_eq!(differences, Vec::new());
 }
 
 #[test]

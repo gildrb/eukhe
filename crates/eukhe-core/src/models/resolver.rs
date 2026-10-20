@@ -1,42 +1,10 @@
 //! Model resolution, scoping, and CLI selection. Port of model-resolver.ts.
 
-use eukhe_types::ai::Model;
+use eukhe_ai::quirks::provider_default_model;
+use eukhe_types::ai::{Model, PRIME_INFERENCE_PROVIDER_ID};
 use eukhe_types::pi_ai::ModelThinkingLevel;
 
 use super::prime_inference::is_private_prime_inference_model;
-
-pub const PRIME_INFERENCE_DEFAULT_MODEL_ID: &str = "z-ai/glm-5.3";
-
-/// Default model ids per provider (TS `defaultModelPerProvider`).
-pub fn default_model_per_provider(provider: &str) -> Option<&'static str> {
-    Some(match provider {
-        "amazon-bedrock" => "us.anthropic.claude-opus-4-6-v1",
-        "anthropic" => "claude-opus-4-7",
-        "openai" | "azure-openai-responses" | "github-copilot" => "gpt-5.4",
-        "openai-codex" => "gpt-5.5",
-        "prime-inference" => PRIME_INFERENCE_DEFAULT_MODEL_ID,
-        "deepseek" => "deepseek-v4-pro",
-        "google" | "google-vertex" => "gemini-3.1-pro-preview",
-        "openrouter" => "moonshotai/kimi-k2.6",
-        "vercel-ai-gateway" => "zai/glm-5.1",
-        "xai" => "grok-4.20-0309-reasoning",
-        "groq" => "openai/gpt-oss-120b",
-        "cerebras" => "gpt-oss-120b",
-        "zai" => "glm-5.3",
-        "mistral" => "devstral-medium-latest",
-        "minimax" | "minimax-cn" => "MiniMax-M2.7",
-        "moonshotai" | "moonshotai-cn" | "opencode" | "opencode-go" => "kimi-k2.6",
-        "huggingface" => "moonshotai/Kimi-K2.6",
-        "fireworks" => "accounts/fireworks/models/kimi-k2p6",
-        "kimi-coding" => "kimi-for-coding",
-        "cloudflare-workers-ai" => "@cf/moonshotai/kimi-k2.6",
-        "cloudflare-ai-gateway" => "claude-sonnet-4.5",
-        "xiaomi" | "xiaomi-token-plan-cn" | "xiaomi-token-plan-ams" | "xiaomi-token-plan-sgp" => {
-            "mimo-v2.5-pro"
-        }
-        _ => return None,
-    })
-}
 
 /// A resolved model plus an explicit thinking level from the pattern.
 #[derive(Debug, Clone)]
@@ -157,7 +125,7 @@ pub fn build_fallback_model(
             })
         })?
     } else {
-        let default_id = default_model_per_provider(provider)?;
+        let default_id = provider_default_model(provider)?;
         provider_models
             .iter()
             .copied()
@@ -181,17 +149,19 @@ fn wire_skeleton() -> Model {
     .expect("skeleton model serializes")
 }
 
-/// Preferred default: prime-inference glm-5.3 first, then per-provider defaults.
+/// Preferred default: the Prime Inference default first, then the default
+/// of each provider (the quirks rulebook's `provider_defaults`).
 #[must_use]
 pub fn find_preferred_default_model(available_models: &[Model]) -> Option<&Model> {
+    let prime_default = provider_default_model(PRIME_INFERENCE_PROVIDER_ID);
     if let Some(model) = available_models.iter().find(|model| {
-        model.provider == "prime-inference" && model.id == PRIME_INFERENCE_DEFAULT_MODEL_ID
+        model.provider == PRIME_INFERENCE_PROVIDER_ID && Some(model.id.as_str()) == prime_default
     }) {
         return Some(model);
     }
     available_models
         .iter()
-        .find(|model| default_model_per_provider(&model.provider).is_some_and(|id| model.id == id))
+        .find(|model| provider_default_model(&model.provider) == Some(model.id.as_str()))
 }
 
 pub(crate) fn is_valid_thinking_level(value: &str) -> bool {
@@ -613,7 +583,7 @@ pub fn find_initial_model(options: &InitialModelOptions<'_>) -> Option<Model> {
                 .collect();
             let featured_id = of_provider
                 .first()
-                .and_then(|model| default_model_per_provider(&model.provider));
+                .and_then(|model| provider_default_model(&model.provider));
             of_provider
                 .iter()
                 .find(|model| Some(model.id.as_str()) == saved_id)

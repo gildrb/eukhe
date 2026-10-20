@@ -229,7 +229,7 @@ fn forced_tool_choices_use_any_mode_and_name_the_tool() {
             tool_choice: Some(choice),
             ..SimpleStreamOptions::default()
         };
-        let options = simple_request_options(&model, &context, options, None, |_, _, _| 0).unwrap();
+        let options = simple_request_options(&model, &context, options, None).unwrap();
         super::stream::build_params(&model, &context, &options).unwrap()["config"]["toolConfig"]
             .clone()
     };

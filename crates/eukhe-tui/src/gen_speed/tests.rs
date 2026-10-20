@@ -235,7 +235,8 @@ fn the_next_prefill_estimates_the_uncached_prompt_and_a_failure_shows_nothing() 
         start,
     );
     // A tool result of 2,000 characters before the next request, and 400
-    // after it starts.
+    // after it starts: 120 output tokens plus ceil(2,400 / 3.5) = 686
+    // (chars/4 made 720 in all).
     clock.prompt_added(2000);
     clock.request_started(start);
     clock.prompt_added(400);
@@ -244,12 +245,12 @@ fn the_next_prefill_estimates_the_uncached_prompt_and_a_failure_shows_nothing() 
         Some(&SpeedPhase::Prefill {
             since: start,
             progress: None,
-            uncached_estimate: Some(720),
+            uncached_estimate: Some(806),
         })
     );
     assert_eq!(
         clock.phase().unwrap().text(start),
-        "prefill 0.0s (~720 tok)"
+        "prefill 0.0s (~806 tok)"
     );
 
     clock.settled(&message("error", usage(0, 0, 0, 0), None), start);

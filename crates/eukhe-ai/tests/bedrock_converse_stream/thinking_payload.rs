@@ -50,12 +50,10 @@ fn fields(payload: &Value) -> &Value {
     &payload["additionalModelRequestFields"]
 }
 
+/// The catalog's Opus 4.8 row: its thinking-level map sends native `xhigh`
+/// (the effort comes from the map, not from the model id).
 fn opus_48() -> Model {
-    Model {
-        id: "global.anthropic.claude-opus-4-8-v1".into(),
-        name: "Claude Opus 4.8 (Global)".into(),
-        ..get_model("amazon-bedrock", "global.anthropic.claude-opus-4-6-v1")
-    }
+    get_model("amazon-bedrock", "global.anthropic.claude-opus-4-8")
 }
 
 #[tokio::test]

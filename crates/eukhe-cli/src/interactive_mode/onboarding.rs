@@ -123,6 +123,10 @@ pub(super) fn onboarding_task(
         }),
         model_ready: std::sync::Arc::new(move || probe.resolve().1),
         current_model,
+        prime_default_model_id: eukhe_ai::quirks::provider_default_model(
+            eukhe_types::ai::PRIME_INFERENCE_PROVIDER_ID,
+        )
+        .map(str::to_string),
         provider_auth,
     };
     Some(task)

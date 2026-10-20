@@ -1,10 +1,14 @@
-//! Character-based context token estimation (3.5 chars per token).
+//! Message and context token estimates over pi-ai messages, on the one
+//! token estimate of [`eukhe_types::token_estimate`] (3.5 chars per token).
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Message, StopReason, Usage, UserContent, UserContentBlock,
 };
+use eukhe_types::token_estimate::{
+    chars_to_tokens, estimate_text_tokens, text_chars, ESTIMATED_IMAGE_CHARS,
+};
 
-use super::js::{json_stringify, utf16_len};
+use super::js::json_stringify;
 use super::text::get_system_message_text;
 
 /// Estimated context size.
@@ -20,11 +24,6 @@ pub struct ContextUsageEstimate {
     pub last_usage_index: Option<usize>,
 }
 
-/// TS `CHARS_PER_TOKEN = 3.5`, kept as the exact fraction 7/2.
-const CHARS_PER_TOKEN_NUMERATOR: u64 = 7;
-const CHARS_PER_TOKEN_DENOMINATOR: u64 = 2;
-const ESTIMATED_IMAGE_CHARS: u64 = 4800;
-
 /// Context tokens a usage block describes: `total_tokens`, or the sum of its parts when zero.
 #[must_use]
 pub fn calculate_context_tokens(usage: &Usage) -> u64 {
@@ -34,29 +33,14 @@ pub fn calculate_context_tokens(usage: &Usage) -> u64 {
     usage.input + usage.output + usage.cache_read + usage.cache_write
 }
 
-/// `Math.ceil(chars / CHARS_PER_TOKEN)`.
-const fn chars_to_tokens(chars: u64) -> u64 {
-    (chars * CHARS_PER_TOKEN_DENOMINATOR).div_ceil(CHARS_PER_TOKEN_NUMERATOR)
-}
-
-fn length(text: &str) -> u64 {
-    utf16_len(text) as u64
-}
-
 fn estimate_blocks_chars(blocks: &[UserContentBlock]) -> u64 {
     blocks
         .iter()
         .map(|block| match block {
-            UserContentBlock::Text(text) => length(&text.text),
+            UserContentBlock::Text(text) => text_chars(&text.text),
             UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
         })
         .sum()
-}
-
-/// Estimated tokens of a text.
-#[must_use]
-pub fn estimate_text_tokens(text: &str) -> u64 {
-    chars_to_tokens(length(text))
 }
 
 /// Estimated tokens of user/tool-result content (images count 4800 chars).
@@ -106,10 +90,10 @@ pub fn estimate_message_tokens(message: &Message) -> u64 {
                 .content
                 .iter()
                 .map(|block| match block {
-                    AssistantContentBlock::Text(text) => length(&text.text),
-                    AssistantContentBlock::Thinking(thinking) => length(&thinking.thinking),
+                    AssistantContentBlock::Text(text) => text_chars(&text.text),
+                    AssistantContentBlock::Thinking(thinking) => text_chars(&thinking.thinking),
                     AssistantContentBlock::ToolCall(call) => {
-                        length(&call.name) + length(&stringify(&call.arguments))
+                        text_chars(&call.name) + text_chars(&stringify(&call.arguments))
                     }
                 })
                 .sum();

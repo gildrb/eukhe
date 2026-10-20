@@ -6,6 +6,8 @@
 //! literals produce; [`genai`] then sends them the way the `@google/genai`
 //! SDK does.
 
+#[cfg(test)]
+mod facts_tests;
 pub(crate) mod genai;
 mod messages;
 mod options;
@@ -29,13 +31,13 @@ use super::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictToolParameters,
 };
 use crate::models::{clamp_thinking_level, thinking_level_map};
+use crate::quirks::Quirks;
 use crate::utils::diagnostics::{thrown, ErrorObject, Thrown};
 use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions};
 
 pub use messages::convert_messages;
-pub(crate) use options::{
-    budget_for, custom_budget, pi_headers, simple_request_options, GoogleRequestOptions,
-};
+pub use options::google_thinking_budget;
+pub(crate) use options::{pi_headers, simple_request_options, GoogleRequestOptions};
 pub(crate) use stream::{run_google_stream, GoogleApiKind};
 
 /// Thinking level for Gemini 3 models: mirrors Google's `ThinkingLevel`
@@ -143,28 +145,18 @@ pub fn resolve_google_thinking_level(
     }
 }
 
-/// Matches Gemini 3 Pro/Flash IDs with or without a minor version, such as
-/// gemini-3-flash-preview, gemini-3.1-pro-preview, and gemini-3.8-flash.
-static GEMINI_3_LEVEL_MODEL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"gemini-3(?:\.\d+)?-(?:pro|flash)").unwrap_or_else(|error| panic!("{error}"))
-});
-/// Matches both hosted Gemma 4 naming forms: gemma-4-* and gemma4-*.
-static GEMMA_4_MODEL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"gemma-?4").unwrap_or_else(|error| panic!("{error}")));
 static GEMINI_MAJOR_VERSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^gemini(?:-live)?-(\d+)").unwrap_or_else(|error| panic!("{error}"))
 });
 
 /// Whether this model uses Gemini's discrete `thinkingLevel` control instead
-/// of the token-based `thinkingBudget` control. Supported levels come from
-/// the model's `thinkingLevelMap`; this only selects the Google wire format.
+/// of the token-based `thinkingBudget` control: the quirks rulebook's
+/// `google_thinking_level`; a model the rulebook does not name takes the
+/// budget control. Supported levels come from the model's
+/// `thinkingLevelMap`; this only selects the Google wire format.
 #[must_use]
 pub fn uses_google_thinking_level(model: &Model) -> bool {
-    let id = model.id.to_lowercase();
-    GEMINI_3_LEVEL_MODEL.is_match(&id)
-        || id == "gemini-flash-latest"
-        || id == "gemini-flash-lite-latest"
-        || GEMMA_4_MODEL.is_match(&id)
+    Quirks::of(model).google_thinking_level().unwrap_or(false)
 }
 
 /// TS `toGoogleThinkingLevel`.

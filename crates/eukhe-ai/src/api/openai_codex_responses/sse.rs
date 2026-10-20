@@ -335,7 +335,7 @@ async fn process_stream(
         output,
         stream,
         model,
-        &responses_stream_options(model, options, grammar_tool_input_properties),
+        &responses_stream_options(options, grammar_tool_input_properties),
     )
     .await;
     effects.apply(output);

@@ -1,85 +1,75 @@
 //! The summarization request: the history and turn-prefix summarizer
-//! request bodies (TS core/compaction/compaction.ts prompts), their chars/4
-//! size estimates, and the completion budgets of the two summary calls.
+//! request bodies (TS core/compaction/compaction.ts prompts), their size
+//! estimates (the one token estimate, [`eukhe_types::token_estimate`]),
+//! and the completion budgets of the two summary calls.
 
-use eukhe_types::ai::{TextContent, UserContent, UserContentBlock, UserMessage};
+use eukhe_types::ai::{
+    AssistantContentBlock, TextContent, UserContent, UserContentBlock, UserMessage,
+};
 use eukhe_types::session::AgentMessage;
+use eukhe_types::token_estimate::{
+    chars_to_tokens, estimate_text_tokens, text_chars, ESTIMATED_IMAGE_CHARS,
+};
 use std::fmt::Write as _;
 
 use super::utils::{serialize_conversation, SUMMARIZATION_SYSTEM_PROMPT};
 use crate::durable::messages::convert_to_llm;
 
-/// Chars/4 heuristic token estimate (conservative; overestimates).
+/// Estimated tokens of one session message (TS `estimateTokens`): the
+/// characters of its text, thinking, tool calls (name and arguments),
+/// command and output, or summary, at the one token estimate.
 #[must_use]
 pub fn estimate_tokens(message: &AgentMessage) -> u64 {
-    let chars = |text: &str| text.chars().count() as u64;
-    match message {
+    let chars = match message {
         AgentMessage::User(user) => match &user.content {
-            eukhe_types::ai::UserContent::Text(text) => div4(chars(text)),
-            eukhe_types::ai::UserContent::Blocks(blocks) => div4(
-                blocks
-                    .iter()
-                    .filter_map(|block| match block {
-                        eukhe_types::ai::UserContentBlock::Text(text) => Some(chars(&text.text)),
-                        _ => None,
-                    })
-                    .sum(),
-            ),
-        },
-        AgentMessage::Assistant(assistant) => {
-            let mut total = 0u64;
-            for block in &assistant.content {
-                match block {
-                    eukhe_types::ai::AssistantContentBlock::Text(text) => {
-                        total += chars(&text.text);
-                    }
-                    eukhe_types::ai::AssistantContentBlock::Thinking(thinking) => {
-                        total += chars(&thinking.thinking);
-                    }
-                    eukhe_types::ai::AssistantContentBlock::ToolCall(call) => {
-                        total += chars(&call.name)
-                            + serde_json::to_string(&call.arguments)
-                                .map_or(0, |json| json.chars().count() as u64);
-                    }
-                }
-            }
-            div4(total)
-        }
-        AgentMessage::Custom(custom) => match &custom.content {
-            eukhe_types::ai::UserContent::Text(text) => div4(chars(text)),
-            eukhe_types::ai::UserContent::Blocks(blocks) => div4(
-                blocks
-                    .iter()
-                    .map(|block| match block {
-                        eukhe_types::ai::UserContentBlock::Text(text) => chars(&text.text),
-                        eukhe_types::ai::UserContentBlock::Image(_) => 4_800, // ~1200 tokens
-                        // Un-modeled blocks have no modeled size; TS sizes
-                        // only typed blocks, so estimate zero.
-                        eukhe_types::ai::UserContentBlock::Raw(_) => 0,
-                    })
-                    .sum(),
-            ),
-        },
-        AgentMessage::ToolResult(result) => div4(
-            result
-                .content
+            UserContent::Text(text) => text_chars(text),
+            UserContent::Blocks(blocks) => blocks
                 .iter()
                 .map(|block| match block {
-                    eukhe_types::ai::UserContentBlock::Text(text) => chars(&text.text),
-                    eukhe_types::ai::UserContentBlock::Image(_) => 4_800,
-                    eukhe_types::ai::UserContentBlock::Raw(_) => 0,
+                    UserContentBlock::Text(text) => text_chars(&text.text),
+                    UserContentBlock::Image(_) | UserContentBlock::Raw(_) => 0,
                 })
                 .sum(),
-        ),
-        AgentMessage::BashExecution(bash) => div4(chars(&bash.command) + chars(&bash.output)),
-        AgentMessage::BranchSummary(summary) => div4(chars(&summary.summary)),
-        AgentMessage::CompactionSummary(summary) => div4(chars(&summary.summary)),
-    }
-    .saturating_add(0) // keep type u64
-}
-
-fn div4(chars: u64) -> u64 {
-    chars.div_ceil(4)
+        },
+        AgentMessage::Assistant(assistant) => assistant
+            .content
+            .iter()
+            .map(|block| match block {
+                AssistantContentBlock::Text(text) => text_chars(&text.text),
+                AssistantContentBlock::Thinking(thinking) => text_chars(&thinking.thinking),
+                AssistantContentBlock::ToolCall(call) => {
+                    text_chars(&call.name)
+                        + serde_json::to_string(&call.arguments).map_or(0, |json| text_chars(&json))
+                }
+            })
+            .sum(),
+        AgentMessage::Custom(custom) => match &custom.content {
+            UserContent::Text(text) => text_chars(text),
+            UserContent::Blocks(blocks) => blocks
+                .iter()
+                .map(|block| match block {
+                    UserContentBlock::Text(text) => text_chars(&text.text),
+                    UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
+                    // Un-modeled blocks have no modeled size; TS sizes
+                    // only typed blocks, so estimate zero.
+                    UserContentBlock::Raw(_) => 0,
+                })
+                .sum(),
+        },
+        AgentMessage::ToolResult(result) => result
+            .content
+            .iter()
+            .map(|block| match block {
+                UserContentBlock::Text(text) => text_chars(&text.text),
+                UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
+                UserContentBlock::Raw(_) => 0,
+            })
+            .sum(),
+        AgentMessage::BashExecution(bash) => text_chars(&bash.command) + text_chars(&bash.output),
+        AgentMessage::BranchSummary(summary) => text_chars(&summary.summary),
+        AgentMessage::CompactionSummary(summary) => text_chars(&summary.summary),
+    };
+    chars_to_tokens(chars)
 }
 
 const SUMMARIZATION_PROMPT: &str = "The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.";
@@ -197,24 +187,29 @@ pub(crate) fn turn_prefix_summary_completion_budget(reserve_tokens: u64) -> u64 
     reserve_tokens / 2
 }
 
-/// The chars the summarizer request text occupies at the compaction
-/// module's chars/4 heuristic (TS #2411's estimator math).
+/// The tokens the summarizer request text occupies at the one token
+/// estimate (TS #2411's estimator math): the request is user text only.
 pub(crate) fn summarizer_request_tokens(request: &[AgentMessage]) -> u64 {
-    let chars: usize = request
+    let chars = request
         .iter()
         .map(|message| match message {
-            AgentMessage::User(user) => user.content.text().chars().count(),
-            _ => 0,
+            AgentMessage::User(user) => text_chars(&user.content.text()),
+            AgentMessage::Assistant(_)
+            | AgentMessage::Custom(_)
+            | AgentMessage::ToolResult(_)
+            | AgentMessage::BashExecution(_)
+            | AgentMessage::BranchSummary(_)
+            | AgentMessage::CompactionSummary(_) => 0,
         })
         .sum();
-    (chars as u64).div_ceil(4)
+    chars_to_tokens(chars)
 }
 
 /// Estimate the context window the compaction's summary calls need (TS
 /// #2411's `estimateSummaryRequestTokens`): the exact request bodies
 /// through the same builders as the wire calls
 /// ([`build_summarization_request`], [`build_turn_prefix_request`]), the
-/// chars/4 heuristic, the shared system prompt, and each call's
+/// one token estimate, the shared system prompt, and each call's
 /// completion budget — the largest slice wins, because routing must fit
 /// every request the compaction will issue. `history` and `turn_prefix`
 /// are the messages the run will summarize (the compaction run's slices).
@@ -232,7 +227,7 @@ pub fn estimate_summary_request_tokens(
     custom_instructions: Option<&str>,
     reserve_tokens: u64,
 ) -> u64 {
-    let system_prompt_tokens = (SUMMARIZATION_SYSTEM_PROMPT.chars().count() as u64).div_ceil(4);
+    let system_prompt_tokens = estimate_text_tokens(SUMMARIZATION_SYSTEM_PROMPT);
     let mut required = 0u64;
     // The history slice runs for every compaction except a split turn
     // whose kept cut leaves no history ("No prior history." is a literal
@@ -278,14 +273,36 @@ mod tests {
         })
     }
 
+    /// 8 chars at 3.5 chars per token are 3 tokens (chars/4 made 2).
     #[test]
     fn token_estimation() {
-        let user = AgentMessage::User(eukhe_types::ai::UserMessage {
-            content: eukhe_types::ai::UserContent::Text("12345678".to_string()), // 8 chars -> 2 tokens
-            timestamp: 0,
-            rest: serde_json::Map::default(),
-        });
-        assert_eq!(estimate_tokens(&user), 2);
+        assert_eq!(estimate_tokens(&user("12345678")), 3);
+    }
+
+    /// Summary routing sizes the request with the estimate the compaction
+    /// threshold uses (`eukhe_ai::utils::estimate`), not its own chars/4:
+    /// the system prompt, the request body, and the completion budget.
+    #[test]
+    fn summary_routing_uses_the_threshold_estimate() {
+        let history = vec![user(&"0123456".repeat(100))];
+        let request = build_summarization_request(&history, None, None, None, 1_000);
+        let AgentMessage::User(prompt) = &request[0] else {
+            panic!("the summarization request is a single user message");
+        };
+        let as_model = |text: String| {
+            eukhe_types::pi_ai::Message::User(eukhe_types::pi_ai::UserMessage {
+                content: eukhe_types::pi_ai::UserContent::Text(text),
+                timestamp: 0,
+            })
+        };
+        assert_eq!(
+            estimate_summary_request_tokens(&history, &[], false, None, None, None, 1_000),
+            eukhe_ai::utils::estimate::estimate_message_tokens(&as_model(
+                SUMMARIZATION_SYSTEM_PROMPT.to_owned()
+            )) + eukhe_ai::utils::estimate::estimate_message_tokens(&as_model(
+                prompt.content.text()
+            )) + 800
+        );
     }
 
     #[test]

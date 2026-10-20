@@ -30,13 +30,12 @@ use self::streaming::StreamState;
 use super::cache_breakpoints::excess_breakpoints_error;
 use super::constrained_sampling::create_grammar_tool_input_properties;
 use super::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
-use super::openai_responses::apply_service_tier_pricing;
 use super::openai_sdk::{
     stream_failure_of, OpenAiClient, OpenAiClientConfig, OpenAiClientKind, OpenAiRequestOptions,
 };
 use super::simple_options::build_base_options;
 use super::ProviderStreams;
-use crate::models::clamp_thinking_level;
+use crate::models::{apply_service_tier_pricing, clamp_thinking_level};
 use crate::types::{
     AssistantMessage, AssistantMessageEvent, CacheControlFormat, CacheRetention, DoneReason,
     ErrorReason, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, ProviderResponse,
@@ -516,14 +515,11 @@ async fn run_stream(
         state.handle_chunk(&chunk)?;
     }
 
-    // eukhe addition: OpenAI prices non-default service tiers; gateways price
-    // tiers per endpoint, so only the `openai` provider applies the table.
-    if model.provider == "openai" {
-        apply_service_tier_pricing(
-            &mut state.output.usage,
-            state.response_service_tier.as_deref(),
-            &model.id,
-        );
+    // eukhe addition: the rulebook's `service_tier_prices` table prices the
+    // service tier that the response names (gateways price tiers per
+    // endpoint, so only the providers that the table names change the cost).
+    if let Some(service_tier) = &state.response_service_tier {
+        apply_service_tier_pricing(model, &mut state.output.usage, service_tier);
     }
 
     state.finish_blocks()?;

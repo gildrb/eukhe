@@ -12,14 +12,14 @@ use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::utils::transcript::get_current_system_message;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::models::ModelRegistry;
-use eukhe_durable::harness::types::PromptInput;
-use eukhe_durable::harness::Conversation;
+use eukhe_durable::harness::compaction::estimate_context;
+use eukhe_durable::harness::types::{ContextOptions, ContextView, PromptInput};
+use eukhe_durable::harness::{derive_view, Conversation};
 use eukhe_durable::types::EntryRecord;
 use eukhe_types::daemon::{
     MemoryReply, MemorySnapshot, MemoryStatusSnapshot, MemoryTree, MemoryTreeReply, MemoryZoom,
 };
 use eukhe_types::pi_ai::IndexMap;
-use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
 use serde_json::{json, Value};
 
 use crate::context_tree_cache::WalkRequest;
@@ -89,9 +89,12 @@ impl Worker {
             Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
         let context_usage = match context_window {
-            Some(window) => match context_messages(&main, &BACKGROUND_CONTEXT).await {
-                Ok(messages) => Some(context_usage(&messages, window)),
-                Err(error) => return response_failure(None, COMMAND, &error, None),
+            Some(window) => match main
+                .context(&BACKGROUND_CONTEXT, ContextOptions::default())
+                .await
+            {
+                Ok(view) => Some(context_usage(&view, window)),
+                Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
             },
             None => None,
         };
@@ -404,7 +407,7 @@ impl Worker {
 /// `session.state.messages`).
 async fn context_messages(conversation: &Conversation, cx: &Context) -> Result<Vec<Value>, String> {
     let view = conversation
-        .context(cx, eukhe_durable::harness::types::ContextOptions::default())
+        .context(cx, ContextOptions::default())
         .await
         .map_err(|error| error.to_string())?;
     Ok(transcript_messages(&view.entries))
@@ -421,10 +424,11 @@ pub(crate) fn model_context_window(model: Option<&Value>) -> Option<u64> {
 
 /// The tray's context usage off the shown conversation's event mirror (the
 /// attach snapshot's `state.contextUsage` and `get_session_stats`): the
-/// estimate `get_context_tree` computes, over [`mirror_context_messages`],
-/// so the attach can fill it under the core lock it already holds.
+/// [`context_usage`] of the view the mirror's entries derive
+/// ([`derive_view`]), the one `get_context_tree` reads through the
+/// Harness, so the attach can fill it under the core lock it already holds.
 pub(crate) fn mirror_context_usage(entries: &[EntryRecord], context_window: u64) -> Value {
-    context_usage(&mirror_context_messages(entries), context_window)
+    context_usage(&derive_view(entries), context_window)
 }
 
 /// The active context off the event mirror as wire `AgentMessage` rows (TS
@@ -452,25 +456,13 @@ pub(crate) fn mirror_context_messages(entries: &[EntryRecord]) -> Vec<Value> {
         .collect()
 }
 
-/// TS `estimateContextTokens` over `messages` against `context_window`:
-/// the last valid assistant usage anchors the estimate and the messages
-/// after it add their char/4 estimates; no anchor estimates every message.
-fn context_usage(messages: &[Value], context_window: u64) -> Value {
-    let anchor = messages
-        .iter()
-        .enumerate()
-        .rev()
-        .find_map(|(index, message)| valid_assistant_usage(message).map(|usage| (index, usage)));
-    let tokens = match anchor {
-        Some((index, usage)) => {
-            calculate_context_tokens(&usage)
-                + messages[index + 1..]
-                    .iter()
-                    .map(estimate_tokens)
-                    .sum::<u64>()
-        }
-        None => messages.iter().map(estimate_tokens).sum(),
-    };
+/// The context usage the clients show (`contextUsage`) of `view` against
+/// `context_window`: the estimate the compaction threshold reads
+/// ([`estimate_context`], spec §8.3), so the percent the user sees is the
+/// percent that starts a compaction. The threshold also counts the system
+/// entries the next request plans; the shown view holds the committed ones.
+pub(crate) fn context_usage(view: &ContextView, context_window: u64) -> Value {
+    let tokens = estimate_context(view, &[]);
     #[expect(
         clippy::cast_precision_loss,
         reason = "TS computes the percentage over JS doubles"

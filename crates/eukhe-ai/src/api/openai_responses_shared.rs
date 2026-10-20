@@ -15,6 +15,7 @@ use super::constrained_sampling::{
     StrictPlan, StrictSupport, StrictToolParameters,
 };
 use super::transform_messages::transform_messages;
+use crate::quirks::Quirks;
 use crate::types::{
     AssistantContentBlock, AssistantMessage, IndexMap, JsonObject, JsonValue, Message, Modality,
     Model, ModelCompat, SystemMessage, Tool, ToolChoice, TranscriptContext, UserContent,
@@ -28,10 +29,7 @@ use crate::utils::sanitize_unicode::sanitize_surrogates;
 use crate::utils::text::{get_system_message_text, render_system_message_update};
 use crate::utils::transcript::{resolve_transcript, resolve_transcript_tools};
 
-pub use stream::{
-    process_responses_stream, ApplyServiceTierPricingFn, OpenAIResponsesStreamOptions,
-    ResolveServiceTierFn,
-};
+pub use stream::{process_responses_stream, OpenAIResponsesStreamOptions, ResolveServiceTierFn};
 
 /// Tool name → the argument property that carries a grammar tool's raw input.
 pub type GrammarToolInputProperties = IndexMap<String, String>;
@@ -159,26 +157,16 @@ pub fn responses_tool_choice(choice: &ToolChoice) -> JsonValue {
     }
 }
 
-/// eukhe addition: whether an `OpenAI` Responses model id has the explicit
-/// prompt-cache controls: GPT-5.6 and every later GPT-5 minor version
-/// (`gpt-5.6`, `gpt-5.6-sol`, ...) and every GPT-6 model (`gpt-6-astra`,
-/// `gpt-6.1-sol`, ...). These models accept `prompt_cache_breakpoint:
-/// {"mode": "explicit"}` on `input_text` items and `reasoning.context:
+/// eukhe addition: whether `model` has the explicit prompt-cache controls:
+/// the quirks rulebook's `explicit_cache_breakpoints` (false where no rule
+/// applies). These models accept `prompt_cache_breakpoint: {"mode":
+/// "explicit"}` on `input_text` items and `reasoning.context:
 /// "all_turns"`; the requests of every other model carry neither field.
 #[must_use]
-pub fn supports_explicit_cache_breakpoints(model_id: &str) -> bool {
-    if let Some(rest) = model_id.strip_prefix("gpt-6") {
-        return rest.is_empty() || rest.starts_with(['-', '.']);
-    }
-    let Some(rest) = model_id.strip_prefix("gpt-5.") else {
-        return false;
-    };
-    let minor_end = rest
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(rest.len());
-    let (minor, suffix) = rest.split_at(minor_end);
-    (suffix.is_empty() || suffix.starts_with('-'))
-        && minor.parse::<u32>().is_ok_and(|minor| minor >= 6)
+pub fn supports_explicit_cache_breakpoints(model: &Model) -> bool {
+    Quirks::of(model)
+        .explicit_cache_breakpoints()
+        .unwrap_or(false)
 }
 
 /// eukhe addition: pin `reasoning.context: "all_turns"` in the request's
@@ -188,7 +176,7 @@ pub fn supports_explicit_cache_breakpoints(model_id: &str) -> bool {
 /// `current_turn` it drops the earlier reasoning and the cache misses).
 /// Other models' requests stay unchanged.
 pub fn apply_reasoning_context(model: &Model, params: &mut JsonObject) {
-    if !supports_explicit_cache_breakpoints(&model.id) {
+    if !supports_explicit_cache_breakpoints(model) {
         return;
     }
     if let Some(JsonValue::Object(reasoning)) = params.get_mut("reasoning") {
@@ -349,7 +337,7 @@ pub fn convert_responses_messages(
             "system"
         };
     let explicit_breakpoints =
-        options.explicit_cache_breakpoints && supports_explicit_cache_breakpoints(&model.id);
+        options.explicit_cache_breakpoints && supports_explicit_cache_breakpoints(model);
     let grammar = options.grammar_tool_input_properties.as_ref();
 
     let mut msg_index: usize = 0;

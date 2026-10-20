@@ -1,8 +1,9 @@
-//! Context-usage estimation over raw message JSON: pure data helpers shared
+//! Context-usage helpers over raw message JSON: pure data helpers shared
 //! by crates that read session files in different representations
 //! (eukhe-daemon's wire-shaped session store, eukhe-core's typed session manager).
-//! Port of `estimateContextTokens` / `estimateTokens` / `getAssistantUsage`
-//! from the TS core (compaction + agent-session).
+//! Port of `calculateContextTokens` / `getAssistantUsage` from the TS core
+//! (compaction + agent-session). The token estimate from text is
+//! [`crate::token_estimate`].
 
 use serde_json::Value;
 
@@ -48,60 +49,6 @@ pub fn valid_assistant_usage(message: &Value) -> Option<Value> {
         .filter(|usage| !usage.is_null())
 }
 
-/// Chars/4 heuristic token estimate (TS `estimateTokens`): text and thinking
-/// content counts, tool calls count their serialized arguments, images count
-/// as 4800 chars.
-pub fn estimate_tokens(message: &Value) -> u64 {
-    let role = message
-        .get("role")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let mut chars = 0u64;
-    match message.get("content") {
-        Some(Value::String(text)) if role == "user" || role == "custom" || role == "toolResult" => {
-            chars += text.chars().count() as u64;
-        }
-        Some(Value::Array(blocks)) => {
-            for block in blocks {
-                match block.get("type").and_then(Value::as_str) {
-                    Some("text") => {
-                        chars += block
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .map(|text| text.chars().count() as u64)
-                            .unwrap_or_default();
-                    }
-                    Some("thinking") => {
-                        chars += block
-                            .get("thinking")
-                            .and_then(Value::as_str)
-                            .map(|text| text.chars().count() as u64)
-                            .unwrap_or_default();
-                    }
-                    Some("toolCall") => {
-                        chars += block
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .map(|name| name.chars().count() as u64)
-                            .unwrap_or_default();
-                        if let Some(arguments) = block.get("arguments") {
-                            chars += serde_json::to_string(arguments)
-                                .map(|text| text.chars().count() as u64)
-                                .unwrap_or_default();
-                        }
-                    }
-                    Some("image") => {
-                        chars += 4800;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        _ => {}
-    }
-    chars.div_ceil(4)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,37 +89,5 @@ mod tests {
         );
         let usage = valid_assistant_usage(&json!({ "role": "assistant", "usage": { "input": 3 } }));
         assert_eq!(usage, Some(json!({ "input": 3 })));
-    }
-
-    #[test]
-    fn estimate_counts_text_thinking_and_tool_calls_by_chars() {
-        // 8 chars -> 2 tokens.
-        assert_eq!(
-            estimate_tokens(&json!({ "role": "user", "content": "12345678" })),
-            2
-        );
-        // Blocks: text + thinking + serialized tool-call arguments + image.
-        let message = json!({
-            "role": "assistant",
-            "content": [
-                { "type": "text", "text": "abcd" },
-                { "type": "thinking", "thinking": "efgh" },
-                { "type": "toolCall", "name": "ipython", "arguments": { "code": "x = 1" } },
-                { "type": "image" },
-            ],
-        });
-        // The tool-call block counts its name plus the serialized arguments
-        // (`{"code":"x = 1"}` = 17 chars).
-        let expected = (4_u64 + 4 + 7 /*name*/ + 17 /*arguments*/ + 4800).div_ceil(4);
-        assert_eq!(estimate_tokens(&message), expected);
-        // Plain-string content only counts for user/custom/toolResult roles.
-        assert_eq!(
-            estimate_tokens(&json!({ "role": "assistant", "content": "12345678" })),
-            0
-        );
-        assert_eq!(
-            estimate_tokens(&json!({ "role": "toolResult", "content": "12345678" })),
-            2
-        );
     }
 }

@@ -10,12 +10,11 @@ pub(crate) mod tests;
 
 use std::sync::Arc;
 
-use eukhe_types::pi_ai::{Model, ProviderHeaders, ThinkingBudgets, TranscriptContext};
+use eukhe_types::pi_ai::{Model, ProviderHeaders, TranscriptContext};
 
 use super::google_shared::genai::{GoogleGenAi, GoogleGenAiOptions, HttpOptions};
 use super::google_shared::{
-    budget_for, custom_budget, pi_headers, run_google_stream, simple_request_options,
-    GoogleApiKind, GoogleRequestOptions, ResolvedGoogleThinkingLevel,
+    pi_headers, run_google_stream, simple_request_options, GoogleApiKind, GoogleRequestOptions,
 };
 use super::lazy::lazy_stream;
 use super::ProviderStreams;
@@ -94,7 +93,7 @@ pub fn stream_simple(
             ErrorObject::new(format!("No API key for provider: {}", model.provider)).thrown();
         return lazy_stream(model, async move { Err(error) });
     };
-    match simple_request_options(model, context, options, Some(&api_key), get_google_budget) {
+    match simple_request_options(model, context, options, Some(&api_key)) {
         Ok(options) => stream_with(model, context, Ok(options)),
         Err(error) => lazy_stream(model, async move { Err(error) }),
     }
@@ -118,25 +117,4 @@ fn create_client(
         http_options: (!http_options.is_empty()).then_some(http_options),
         ..GoogleGenAiOptions::default()
     })
-}
-
-/// TS `getGoogleBudget` of `google-generative-ai.ts`.
-fn get_google_budget(
-    model: &Model,
-    level: ResolvedGoogleThinkingLevel,
-    custom_budgets: Option<&ThinkingBudgets>,
-) -> i64 {
-    if let Some(budget) = custom_budget(custom_budgets, level) {
-        return budget;
-    }
-    let budgets: [i64; 4] = if model.id.contains("2.5-pro") {
-        [128, 2048, 8192, 32768]
-    } else if model.id.contains("2.5-flash-lite") {
-        [512, 2048, 8192, 24576]
-    } else if model.id.contains("2.5-flash") {
-        [128, 2048, 8192, 24576]
-    } else {
-        return -1;
-    };
-    budget_for(budgets, level)
 }

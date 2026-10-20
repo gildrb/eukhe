@@ -17,7 +17,9 @@ import type {
 } from "./types.ts";
 import type { fmt as Fmt } from "./format.ts";
 
-const CHARS_PER_TOKEN = 4; // eukhe-tui/src/gen_speed.rs
+// The one token estimate (eukhe-types `token_estimate`, 7/2 chars per
+// token); a Rust test in eukhe-dashboard pins this value to it.
+const CHARS_PER_TOKEN = 3.5;
 const LIVE_RATE_AFTER_MS = 250;
 const BASH_TAIL_CHARS = 64_000;
 const NOTE_LIMIT = 200;
@@ -277,7 +279,7 @@ function lastFromMessages(messages: Message[]): Speed | null {
   return null;
 }
 
-/** Live decode estimate (≈ chars / 4), once 250ms of deltas came in. */
+/** Live decode estimate (chars / CHARS_PER_TOKEN), once 250ms of deltas came in. */
 export function liveRate(turn: Turn, now: number): number | null {
   if (!turn.deltaStartAt || turn.deltaChars <= 0) return null;
   const elapsed = now - turn.deltaStartAt;

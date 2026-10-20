@@ -69,8 +69,8 @@ use errors::{
 };
 use events::StartEmitter;
 use request::{
-    apply_service_tier_pricing, build_request_body, build_sse_headers, build_websocket_headers,
-    extract_account_id, resolve_codex_service_tier, resolve_codex_websocket_url,
+    build_request_body, build_sse_headers, build_websocket_headers, extract_account_id,
+    resolve_codex_service_tier, resolve_codex_websocket_url,
 };
 use session_cache::{
     is_websocket_sse_fallback_active, process_websocket_stream, record_websocket_failure,
@@ -177,22 +177,15 @@ fn responses_compat(model: &Model) -> Option<&OpenAIResponsesCompat> {
 }
 
 /// The processor options both transports pass (TS `{ serviceTier,
-/// grammarToolInputProperties, resolveServiceTier, applyServiceTierPricing }`).
+/// grammarToolInputProperties, resolveServiceTier }`).
 fn responses_stream_options(
-    model: &Model,
     options: &CodexOptions,
     grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> OpenAIResponsesStreamOptions {
-    let model_id = model.id.clone();
     OpenAIResponsesStreamOptions {
         service_tier: options.service_tier_text(),
         grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
         resolve_service_tier: Some(Arc::new(resolve_codex_service_tier)),
-        apply_service_tier_pricing: Some(Arc::new(
-            move |usage: &mut Usage, service_tier: Option<&str>| {
-                apply_service_tier_pricing(usage, service_tier, &model_id);
-            },
-        )),
         ..OpenAIResponsesStreamOptions::default()
     }
 }

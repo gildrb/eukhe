@@ -77,6 +77,8 @@ import ./laws/approvals.bend as Ap
 import ./bend/proof_approvals.bend as Approvals
 import ./laws/retry.bend as Rt
 import ./bend/proof_retry_policy.bend as RetryPolicy
+import ./laws/model_facts.bend as ModelFacts
+import ./bend/proof_facts.bend as Facts
 
 # (a) The view
 
@@ -1357,3 +1359,63 @@ def Rt.stall_detection_bounded(gs, d):
 
 def Rt.stall_silent_ends_at_deadline(d):
   RetryPolicy.silent_at_deadline(d)
+
+# (S6.10) Model and provider facts are data
+# ------------------------------------------
+
+def ModelFacts.facts_rulebook_decides(known, pre, r, post, q, dflt, ok, hit, top):
+  Facts.pf.facts_rulebook_decides(known, pre, r, post, q, dflt, ok, hit, top)
+
+def ModelFacts.facts_rulebook_default(rs, q, d, dflt, none):
+  Facts.pf.facts_rulebook_default(rs, q, d, dflt, none)
+
+def ModelFacts.facts_only_the_rulebook_decides(rs, q1, q2, d, dflt, same):
+  Facts.pf.facts_only_the_rulebook_decides(rs, q1, q2, d, dflt, same)
+
+def ModelFacts.facts_adaptive_compat_first(b, a):
+  Facts.pf.facts_adaptive_compat_first(b, a)
+
+def ModelFacts.facts_adaptive_rulebook_second(a):
+  Facts.pf.facts_adaptive_rulebook_second(a)
+
+def ModelFacts.facts_google_budget_at_most_high(b, c, l, ordered):
+  Facts.pf.facts_google_budget_at_most_high(b, c, l, ordered)
+
+def ModelFacts.facts_google_budget_at_least_minimal(b, c, l, ordered):
+  Facts.pf.facts_google_budget_at_least_minimal(b, c, l, ordered)
+
+def ModelFacts.facts_google_rule_is_the_table(b, l, ordered):
+  Facts.pf.facts_google_rule_is_the_table(b, l, ordered)
+
+def ModelFacts.facts_fit_budget_under_ceiling(base, mm, b, a):
+  Facts.pf.facts_fit_budget_under_ceiling(base, mm, b, a)
+
+def ModelFacts.facts_fit_ceiling_under_model(base, mm, b, a):
+  Facts.pf.facts_fit_ceiling_under_model(base, mm, b, a)
+
+def ModelFacts.facts_room_leaves_the_answer(b, m, a, fits):
+  Facts.pf.facts_room_leaves_the_answer(b, m, a, fits)
+
+def ModelFacts.facts_aux_cap_answer_room(b, a):
+  Facts.pf.facts_aux_cap_answer_room(b, a)
+
+def ModelFacts.facts_bedrock_effort_oracle(native, m, l, ok):
+  Facts.pf.facts_bedrock_effort_oracle(native, m, l, ok)
+
+def ModelFacts.facts_bedrock_budget_oracle(c, l):
+  Facts.pf.facts_bedrock_budget_oracle(c, l)
+
+def ModelFacts.facts_tier_price_model_row_first(rows, m, t, k, hit):
+  Facts.pf.facts_tier_price_model_row_first(rows, m, t, k, hit)
+
+def ModelFacts.facts_tier_price_no_row_base(rows, m, t, base, none):
+  Facts.pf.facts_tier_price_no_row_base(rows, m, t, base, none)
+
+def ModelFacts.facts_tier_price_openai_oracle(m, t):
+  Facts.pf.facts_tier_price_openai_oracle(m, t)
+
+def ModelFacts.facts_tier_price_codex_oracle(m, t):
+  Facts.pf.facts_tier_price_codex_oracle(m, t)
+
+def ModelFacts.facts_cache_write_1h_own_rate(input, write):
+  Facts.pf.facts_cache_write_1h_own_rate(input, write)

@@ -214,37 +214,6 @@ impl OpenAIResponsesOptions {
     }
 }
 
-/// Multipliers per <https://developers.openai.com/api/docs/pricing>.
-fn get_service_tier_cost_multiplier(model_id: &str, service_tier: Option<&str>) -> f64 {
-    match service_tier {
-        Some("flex") => 0.5,
-        Some("priority" | "fast") => {
-            if model_id == "gpt-5.5" {
-                2.5
-            } else {
-                2.0
-            }
-        }
-        _ => 1.0,
-    }
-}
-
-/// TS `applyServiceTierPricing`.
-pub fn apply_service_tier_pricing(usage: &mut Usage, service_tier: Option<&str>, model_id: &str) {
-    let multiplier = get_service_tier_cost_multiplier(model_id, service_tier);
-    // The multiplier table is discrete; 1 is the no-op sentinel.
-    #[allow(clippy::float_cmp)]
-    if multiplier == 1.0 {
-        return;
-    }
-    usage.cost.input *= multiplier;
-    usage.cost.output *= multiplier;
-    usage.cost.cache_read *= multiplier;
-    usage.cost.cache_write *= multiplier;
-    usage.cost.total =
-        usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
-}
-
 /// The effective `serviceTier`: the API option, else the eukhe addition
 /// [`StreamOptions::service_tier`](crate::types::StreamOptions) (never sent
 /// to GitHub Copilot, which rejects the field itself with a 400).
@@ -658,16 +627,12 @@ async fn run(
     }
     stream.push_partial(output, |partial| AssistantMessageEvent::Start { partial });
 
-    let model_id = model.id.clone();
     let stream_options = OpenAIResponsesStreamOptions {
         on_provider_stream_event: options.stream.on_provider_stream_event.clone(),
         service_tier: effective_service_tier(model, options, &api)
             .and_then(|tier| tier.as_str().map(str::to_owned)),
         grammar_tool_input_properties: Some(grammar),
         resolve_service_tier: None,
-        apply_service_tier_pricing: Some(Arc::new(move |usage, service_tier| {
-            apply_service_tier_pricing(usage, service_tier, &model_id);
-        })),
     };
     process_responses_stream(response.events, output, stream, model, &stream_options).await?;
 

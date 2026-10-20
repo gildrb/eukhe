@@ -69,6 +69,7 @@ async fn model_ready_home_completes_silently() {
         }),
         model_ready: std::sync::Arc::new(|| true),
         current_model: None,
+        prime_default_model_id: None,
         provider_auth: None,
     });
     // No key step answers anything: the flow must complete before the
@@ -289,6 +290,12 @@ async fn fresh_home_runs_the_full_sign_in_flow_to_completion() {
         }),
         model_ready,
         current_model: None,
+        // The product's Prime default (the quirks rulebook): the apply
+        // below asks the daemon for this id.
+        prime_default_model_id: eukhe_ai::quirks::provider_default_model(
+            eukhe_tui::provider_auth::PRIME_INFERENCE_PROVIDER_ID,
+        )
+        .map(str::to_string),
         provider_auth: Some(eukhe_tui::provider_auth::ProviderAuthCommandsHandle(
             std::sync::Arc::new(FullFlowProviderAuth {
                 agent_dir: agent_dir.clone(),
@@ -439,6 +446,7 @@ async fn a_failed_completion_write_surfaces_a_warning_and_never_kills_the_run() 
         }),
         model_ready: std::sync::Arc::new(|| true),
         current_model: None,
+        prime_default_model_id: None,
         provider_auth: None,
     });
     let plan = eukhe_tui::interactive::HeadlessPlan {

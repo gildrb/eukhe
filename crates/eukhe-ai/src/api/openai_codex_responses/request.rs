@@ -1,5 +1,5 @@
 //! Request building: body, headers, account id, endpoint URLs, and the
-//! service-tier pricing hooks. Section of the port of
+//! service tier that the response names. Section of the port of
 //! `api/openai-codex-responses.ts`.
 
 use base64::alphabet;
@@ -8,7 +8,7 @@ use base64::engine::DecodePaddingMode;
 use base64::Engine as _;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
-    JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, TranscriptContext, Usage,
+    JsonObject, JsonValue, Model, ModelThinkingLevel, ProviderHeaders, TranscriptContext,
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::json;
@@ -196,42 +196,6 @@ fn nullish_or(value: Option<&JsonValue>, fallback: JsonValue) -> JsonValue {
         Some(value) if !value.is_null() => value.clone(),
         Some(_) | None => fallback,
     }
-}
-
-/// TS `getServiceTierCostMultiplier`.
-fn get_service_tier_cost_multiplier(model_id: &str, service_tier: Option<&str>) -> f64 {
-    match service_tier {
-        Some("flex") => 0.5,
-        Some("priority") => {
-            if model_id == "gpt-5.5" {
-                2.5
-            } else {
-                2.0
-            }
-        }
-        _ => 1.0,
-    }
-}
-
-/// TS `applyServiceTierPricing`.
-pub(crate) fn apply_service_tier_pricing(
-    usage: &mut Usage,
-    service_tier: Option<&str>,
-    model_id: &str,
-) {
-    let multiplier = get_service_tier_cost_multiplier(model_id, service_tier);
-    // The multiplier table is discrete; equality with 1 is the TS no-op check.
-    #[allow(clippy::float_cmp)]
-    if multiplier == 1.0 {
-        return;
-    }
-
-    usage.cost.input *= multiplier;
-    usage.cost.output *= multiplier;
-    usage.cost.cache_read *= multiplier;
-    usage.cost.cache_write *= multiplier;
-    usage.cost.total =
-        usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
 }
 
 /// TS `resolveCodexServiceTier`.

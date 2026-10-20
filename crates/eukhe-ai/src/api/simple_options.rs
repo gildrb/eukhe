@@ -7,6 +7,7 @@ use eukhe_types::pi_ai::{
 };
 
 use crate::models::clamp_thinking_level;
+use crate::quirks::Rulebook;
 use crate::types::{SimpleStreamOptions, StreamOptions};
 use crate::utils::estimate::estimate_context_tokens;
 
@@ -123,14 +124,6 @@ pub fn build_base_options(
 /// Tokens always left for the answer when a thinking budget shares the response ceiling.
 pub const MIN_ANSWER_TOKENS: u64 = 1024;
 
-/// TS `DEFAULT_THINKING_BUDGETS`.
-pub const DEFAULT_THINKING_BUDGETS: ThinkingBudgets = ThinkingBudgets {
-    minimal: Some(1024),
-    low: Some(2048),
-    medium: Some(8192),
-    high: Some(16384),
-};
-
 /// Map `xhigh`/`max` to `high`; other levels unchanged.
 #[must_use]
 pub fn clamp_reasoning(effort: Option<ThinkingLevel>) -> Option<ThinkingLevel> {
@@ -140,23 +133,24 @@ pub fn clamp_reasoning(effort: Option<ThinkingLevel>) -> Option<ThinkingLevel> {
     }
 }
 
-/// Token budget of a thinking level, custom budgets over the defaults.
+/// Token budget of a thinking level: the custom budget of the level, else
+/// the quirks rulebook's default budget (`thinking_defaults.budgets`).
+/// `xhigh` and `max` take the `high` budget.
 #[must_use]
 pub fn thinking_budget_for_level(
     reasoning_level: ThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
 ) -> u64 {
-    let custom = custom_budgets.cloned().unwrap_or_default();
-    let defaults = DEFAULT_THINKING_BUDGETS;
-    let (custom_value, default_value) = match clamp_reasoning(Some(reasoning_level)) {
-        Some(ThinkingLevel::Minimal) => (custom.minimal, defaults.minimal),
-        Some(ThinkingLevel::Low) => (custom.low, defaults.low),
-        Some(ThinkingLevel::Medium) => (custom.medium, defaults.medium),
+    let defaults = Rulebook::shipped().thinking_defaults().budgets;
+    let (custom, default) = match clamp_reasoning(Some(reasoning_level)) {
+        Some(ThinkingLevel::Minimal) => (custom_budgets.and_then(|b| b.minimal), defaults.minimal),
+        Some(ThinkingLevel::Low) => (custom_budgets.and_then(|b| b.low), defaults.low),
+        Some(ThinkingLevel::Medium) => (custom_budgets.and_then(|b| b.medium), defaults.medium),
         Some(ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max) | None => {
-            (custom.high, defaults.high)
+            (custom_budgets.and_then(|b| b.high), defaults.high)
         }
     };
-    custom_value.or(default_value).unwrap_or_default()
+    custom.unwrap_or(default)
 }
 
 /// Cap a thinking budget so at least [`MIN_ANSWER_TOKENS`] remain under a shared response ceiling.

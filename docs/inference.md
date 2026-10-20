@@ -153,9 +153,10 @@ what a request may ask of a provider.
    `openrouter` over `openai-completions` honors `flex` and `priority`
    (OpenRouter routes to tier endpoints and bills the tier that served
    the request); `openai` over `openai-responses` and `openai-codex` over
-   `openai-codex-responses` honor `auto` and `scale`; the family
-   `gpt-priority` adds `flex` and `priority` on `openai` and `priority`
-   on `openai-codex` (the ChatGPT backend has no flex tier). The
+   `openai-codex-responses` honor `auto` and `scale`; the families
+   `gpt-priority` and `gpt-priority-explicit-cache` add `flex` and
+   `priority` on `openai` and `priority` on `openai-codex` (the ChatGPT
+   backend has no flex tier). The
    `/tier` and `/fast` commands, the connection state
    (`availableServiceTiers`), the image route and the completions request
    (`service_tier`) all read this table (`quirks::service_tiers`).
@@ -164,9 +165,15 @@ what a request may ask of a provider.
    `thinkingLevelMap`. The shipped ladders: `qwen-3.8` offers `off` (wire
    `none`), `low`, `medium` and `xhigh`; `qwen` offers `off` (the
    template toggle) and `high` (omp's llama.cpp rules for the Qwen
-   templates). The default ladders (`thinking_defaults`) give the levels
+   templates); `grok-4.3` sends `off` as `none` and removes `minimal`;
+   `grok-4.5` removes `off` and `minimal`; `grok-4.6` (the ids
+   `grok-4.6` and `grok-4.7`) removes `off` and `minimal` and adds
+   `xhigh`. The default ladders (`thinking_defaults`) give the levels
    where a ladder has no entry: `reasoning` lists `off` to `high`,
-   `plain` (a model without reasoning) lists `off`.
+   `plain` (a model without reasoning) lists `off`. A stored xAI
+   subscription moves the xAI models to `openai-responses`; a model
+   there without a `thinkingLevelMap` gets the rulebook's ladder of its
+   model, else a map that sets every level to null.
 10. The harness reads the tool calls at the end of a stream, whatever
     the stop reason. A reply with a tool call runs its calls: vLLM,
     llama.cpp and Ollama send the stop reason `stop` with tool calls
@@ -188,6 +195,66 @@ what a request may ask of a provider.
     `eukhe-durable/src/harness/generation/leak.rs` (`scan`),
     `generation.rs` `classify`, `generation/round.rs`
     `start_tool_round`.
+11. The default model of each provider is rulebook data
+   (`provider_defaults`: provider id to model id,
+   `quirks::provider_default_model`). The startup model chain, the
+   fallback model template and the onboarding's model after the Prime
+   Inference sign-in read it. A provider that the table does not name
+   has no default.
+12. The prices that a catalog row does not carry are rulebook data.
+   `service_tier_prices`: each row names a provider, a wire API, the
+   tiers it prices (the `service_tier` of the response, else of the
+   request), a multiplier, and optionally a model id. A response at a
+   tier costs the base price times the multiplier of the row of the
+   model's provider, API and id, else of the row of its provider and API
+   without a model id; with no row the cost stays the base price. The
+   shipped table: `openai` over `openai-responses` and
+   `openai-completions` prices `flex` at 0.5 and `priority` and `fast`
+   (the value that the API reports for Fast mode) at 2, `gpt-5.5` at
+   2.5; `openai-codex` prices `flex` at 0.5 and `priority` at 2,
+   `gpt-5.5` at 2.5. `cache_write_1h_prices`: each row names a regex on
+   the lowercased model id and a multiplier of the input rate; the first
+   row that matches prices the model's 1h cache writes, and a model with
+   no row pays its own cache write rate for them. The shipped table:
+   `claude` at 2 (Anthropic's price, which Bedrock and the gateways that
+   resell Claude at Anthropic's list rates charge too).
+   `models::calculate_cost` and `models::apply_service_tier_pricing`
+   read these tables (`quirks::cache_write_1h_multiplier`,
+   `quirks::service_tier_multiplier`).
+13. Every other fact of a model that a wire API reads is rulebook data
+   too (S6.10): a wire API asks the rulebook, never the model id.
+   - `adaptive_thinking` (families `claude-adaptive`,
+     `claude-adaptive-4-6`): the model takes `thinking.type: adaptive`
+     with an effort, on Anthropic Messages and on Bedrock alike
+     (`models::adaptive_thinking`). An explicit
+     `compat.forceAdaptiveThinking` of the model wins over it.
+   - `thinking_block_binding` (`claude-adaptive`): Bedrock sends
+     `thinking.block_binding` (not on GovCloud).
+   - `prompt_caching` (`claude-adaptive`, `claude-adaptive-4-6`,
+     `claude-cached`: true; `claude-uncached`: false): Bedrock sends
+     `cachePoint` blocks. A model that no rule names caches only with
+     `AWS_BEDROCK_FORCE_CACHE=1`.
+   - `explicit_cache_breakpoints` (`gpt-explicit-cache`,
+     `gpt-priority-explicit-cache`): an OpenAI Responses request sends
+     `prompt_cache_breakpoint` and `reasoning.context: "all_turns"`.
+   - `google_thinking_level` (`gemini-3-plus`, `gemini-latest`,
+     `gemma-4`: true; the Gemini 2.5 families: false): a Google request
+     sends `thinkingLevel`; a model that no rule names sends
+     `thinkingBudget`.
+   - `thinking_budgets` (`gemini-2.5-pro` 128, 2048, 8192, 32768;
+     `gemini-2.5-flash` 128, 2048, 8192, 24576; `gemini-2.5-flash-lite`
+     512, 2048, 8192, 24576): the Google budget of each level, on the
+     Gemini API and on Vertex alike. The user's `thinkingBudgets` wins,
+     held inside the rule's `minimal` to `high`. A model with no rule
+     sends the user's budget, else `-1` (dynamic).
+   - `thinking_defaults.budgets` (1024, 2048, 8192, 16384): the budget
+     of a level where neither the user nor a rule gives one, for every
+     wire API that sends a token budget.
+
+   A family may give an `except` regex: a model that it matches is not
+   in the family, so the families stay disjoint. The Bedrock effort is
+   the model's thinking-level map (a native `xhigh` model says
+   `xhigh: "xhigh"` there), else the Bedrock default effort.
 
 Model: `bend/infer.bend`. Laws: `LAWS.bend` section (S6) and
 `laws/ladder.bend` (S6.9). Proofs:
@@ -226,6 +293,8 @@ Code: `eukhe-ai/src/quirks/mod.rs` (`compile`, `Rules::lookup`,
 `Rulebook::query`, `Rulebook::family`, `Rulebook::check_catalog`,
 `Quirks`, `ModelKey`, `ThinkingDefaults`), `quirks/revision.rs`,
 `quirks/tiers.rs` (`service_tiers`, `supports_service_tier`),
+`quirks/prices.rs` (`service_tier_multiplier`,
+`cache_write_1h_multiplier`),
 `eukhe-ai/src/models/ladder.rs` (`thinking_level_map`, the ladder
 functions) and `quirks/rulebook.json` (the shipped
 rules); the resolvers that take the rulebook as their detected input:
@@ -235,7 +304,7 @@ rules); the resolvers that take the rulebook as their detected input:
 `get_compat`;
 `api/azure_openai_responses.rs`, `api/openai_codex_responses/request.rs`,
 `api/bedrock_converse_stream.rs` (strict default, `manual_thinking`),
-`bedrock_converse_stream/convert.rs` `supports_adaptive_thinking`,
+`models/thinking.rs` `adaptive_thinking`,
 `api/google_shared/stream.rs` (validated function calling),
 `api/mistral_conversations/payload.rs`;
 `api/constrained_sampling.rs` `strict_budget`, `StrictPlan`;

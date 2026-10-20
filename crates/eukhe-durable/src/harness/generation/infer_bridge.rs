@@ -67,6 +67,7 @@ fn raw_value(d: usize, v: usize) -> JsonValue {
         ValueKind::ThinkingFormat => json!(ThinkingFormat::ALL[v].as_str()),
         ValueKind::SessionAffinityFormat => json!(SessionAffinityFormat::ALL[v].as_str()),
         ValueKind::ThinkingLadder => json!({ "high": format!("w{v}") }),
+        ValueKind::ThinkingBudgets => json!({ "minimal": v, "low": v, "medium": v, "high": v }),
         // 0 is `false` (no endpoint), 1 the first dialect with one.
         ValueKind::Endpoint(capability) => match v {
             0 => json!(false),

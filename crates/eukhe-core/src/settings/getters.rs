@@ -248,6 +248,19 @@ impl SettingsManager {
         self.choice(&table::MEMORY_THINKING)
     }
 
+    /// `thinkingBudgets.*`: the user's token budget of each thinking
+    /// level; `None` when no level is set (the providers' defaults apply).
+    #[must_use]
+    pub fn get_thinking_budgets(&self) -> Option<eukhe_types::pi_ai::ThinkingBudgets> {
+        let budgets = eukhe_types::pi_ai::ThinkingBudgets {
+            minimal: self.json_u64(&table::THINKING_BUDGET_MINIMAL),
+            low: self.json_u64(&table::THINKING_BUDGET_LOW),
+            medium: self.json_u64(&table::THINKING_BUDGET_MEDIUM),
+            high: self.json_u64(&table::THINKING_BUDGET_HIGH),
+        };
+        (budgets != eukhe_types::pi_ai::ThinkingBudgets::default()).then_some(budgets)
+    }
+
     /// `memory.settleTimeoutMs`: how long a turn waits for the view's
     /// lines to be summarized; then it goes on with the view as it is,
     /// each line not summarized yet as its input cut to 512 bytes. `0`

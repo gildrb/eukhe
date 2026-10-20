@@ -6,7 +6,8 @@ use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheRetention, JsonObject, JsonValue, Message, Model,
-    ModelThinkingLevel, ProviderEnv, Tool, ToolResultMessage, UserContent, UserContentBlock,
+    ModelThinkingLevel, ProviderEnv, ThinkingLevel, Tool, ToolResultMessage, UserContent,
+    UserContentBlock,
 };
 use serde_json::json;
 
@@ -18,8 +19,9 @@ use crate::api::cache_breakpoints::{has_cache_breakpoint, CacheMarkBudget};
 use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
+use crate::api::simple_options::thinking_budget_for_level;
 use crate::api::transform_messages::transform_messages;
-use crate::models::thinking_level_map;
+use crate::models::{adaptive_thinking, thinking_level_map};
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_trim;
 use crate::utils::provider_env::get_provider_env_value;
@@ -622,11 +624,10 @@ fn get_beta_features(
     {
         features.push(FINE_GRAINED_TOOL_STREAMING_BETA.into());
     }
-    let force_adaptive = compat.and_then(|compat| compat.force_adaptive_thinking) == Some(true);
     if model.reasoning
         && options.thinking_enabled == Some(true)
         && options.interleaved_thinking.unwrap_or(true)
-        && !force_adaptive
+        && !adaptive_thinking(model)
     {
         features.push(INTERLEAVED_THINKING_BETA.into());
     }
@@ -831,7 +832,7 @@ pub(crate) fn build_params(
         params.insert("output_config".into(), json!({ "effort": "high" }));
     } else if model.reasoning {
         if options.thinking_enabled == Some(true) {
-            if model_compat.and_then(|compat| compat.force_adaptive_thinking) == Some(true) {
+            if adaptive_thinking(model) {
                 params.insert(
                     "thinking".into(),
                     json!({ "type": "adaptive", "display": display }),
@@ -840,10 +841,12 @@ pub(crate) fn build_params(
                     params.insert("output_config".into(), json!({ "effort": effort }));
                 }
             } else {
+                // No budget from the caller: the default budget of the
+                // smallest level.
                 let budget = options
                     .thinking_budget_tokens
                     .filter(|&b| b != 0)
-                    .unwrap_or(1024);
+                    .unwrap_or_else(|| thinking_budget_for_level(ThinkingLevel::Minimal, None));
                 params.insert(
                     "thinking".into(),
                     json!({ "type": "enabled", "budget_tokens": budget, "display": display }),

@@ -290,7 +290,6 @@ async fn run(
         service_tier: None,
         grammar_tool_input_properties: Some(grammar),
         resolve_service_tier: None,
-        apply_service_tier_pricing: None,
     };
     process_responses_stream(response.events, output, stream, model, &stream_options).await?;
 

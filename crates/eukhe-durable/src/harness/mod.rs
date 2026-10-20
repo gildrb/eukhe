@@ -28,7 +28,7 @@ pub(crate) mod scheduler;
 pub(crate) mod submissions;
 pub mod tool;
 
-pub use context::order_tool_results;
+pub use context::{derive_view, order_tool_results};
 pub use harness::{Conversation, ConversationEntryQuery, Harness, RootOptions};
 pub use inbox::{InboxItem, InboxState, INBOX_DOC};
 pub use live::{

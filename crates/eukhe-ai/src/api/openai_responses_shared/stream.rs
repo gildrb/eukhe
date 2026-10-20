@@ -16,7 +16,7 @@ use super::{GrammarToolInputProperties, JsonObject};
 use crate::api::constrained_sampling::{
     append_grammar_tool_input_json_delta, GrammarInputClose, GrammarToolInputJsonBuffer,
 };
-use crate::models::calculate_cost;
+use crate::models::{apply_service_tier_pricing, calculate_cost};
 use crate::types::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, JsonValue, Model,
     OnProviderStreamEvent, Partial, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
@@ -33,9 +33,6 @@ use crate::utils::json_parse::{
 pub type ResolveServiceTierFn =
     Arc<dyn Fn(Option<&str>, Option<&str>) -> Option<String> + Send + Sync>;
 
-/// TS `applyServiceTierPricing(usage, serviceTier)`.
-pub type ApplyServiceTierPricingFn = Arc<dyn Fn(&mut Usage, Option<&str>) + Send + Sync>;
-
 /// TS `OpenAIResponsesStreamOptions`.
 #[derive(Clone, Default)]
 pub struct OpenAIResponsesStreamOptions {
@@ -44,7 +41,6 @@ pub struct OpenAIResponsesStreamOptions {
     pub service_tier: Option<String>,
     pub grammar_tool_input_properties: Option<GrammarToolInputProperties>,
     pub resolve_service_tier: Option<ResolveServiceTierFn>,
-    pub apply_service_tier_pricing: Option<ApplyServiceTierPricingFn>,
 }
 
 impl fmt::Debug for OpenAIResponsesStreamOptions {
@@ -69,13 +65,6 @@ impl fmt::Debug for OpenAIResponsesStreamOptions {
                     .resolve_service_tier
                     .as_ref()
                     .map(|_| "ResolveServiceTierFn"),
-            )
-            .field(
-                "apply_service_tier_pricing",
-                &self
-                    .apply_service_tier_pricing
-                    .as_ref()
-                    .map(|_| "ApplyServiceTierPricingFn"),
             )
             .finish()
     }
@@ -524,14 +513,14 @@ impl Processor<'_> {
             };
         }
         calculate_cost(self.model, &mut self.output.usage);
-        if let Some(apply) = &self.options.apply_service_tier_pricing {
-            let response_tier = response.get("service_tier").and_then(JsonValue::as_str);
-            let request_tier = self.options.service_tier.as_deref();
-            let service_tier = match &self.options.resolve_service_tier {
-                Some(resolve) => resolve(response_tier, request_tier),
-                None => response_tier.or(request_tier).map(str::to_owned),
-            };
-            apply(&mut self.output.usage, service_tier.as_deref());
+        let response_tier = response.get("service_tier").and_then(JsonValue::as_str);
+        let request_tier = self.options.service_tier.as_deref();
+        let service_tier = match &self.options.resolve_service_tier {
+            Some(resolve) => resolve(response_tier, request_tier),
+            None => response_tier.or(request_tier).map(str::to_owned),
+        };
+        if let Some(service_tier) = service_tier {
+            apply_service_tier_pricing(self.model, &mut self.output.usage, &service_tier);
         }
         // Map status to stop reason. For incomplete responses, retain the
         // provider's specific reason so max-output truncation and content

@@ -10,10 +10,10 @@ use std::sync::Arc;
 
 use eukhe_core::durable::{fork_main_conversation, fork_session, ForkPoint, SessionLocation};
 use eukhe_durable::entries::USER_ENTRY;
+use eukhe_durable::harness::types::ContextOptions;
 use eukhe_durable::types::{EntryId, EntryRecord};
 use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::{Message, UserContent, UserContentBlock};
-use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
 use serde_json::{json, Value};
 
 use super::commands::RpcState;
@@ -23,7 +23,9 @@ use super::reads::{
 };
 use super::session::RpcEngineRequest;
 use crate::session_export::durable::export_html as export_session_html;
+use crate::state_getters::context_usage;
 use crate::worker::durable_host::meta::set_session_name as persist_session_name;
+use crate::worker::durable_host::wire_messages::transcript_messages;
 
 /// The TS in-process error texts for the daemon-mode surfaces
 /// (`InProcessAgentConnection`'s throws, verbatim).
@@ -387,34 +389,18 @@ fn message_stats(messages: &[Value]) -> Value {
     })
 }
 
-/// TS `estimateContextTokens`: the last valid assistant usage anchors the
-/// estimate; messages after it add their char/4 estimates, and no anchor
-/// estimates every message.
-fn context_tokens(messages: &[Value]) -> u64 {
-    let anchor = messages
-        .iter()
-        .enumerate()
-        .rev()
-        .find_map(|(index, message)| valid_assistant_usage(message).map(|usage| (index, usage)));
-    match anchor {
-        Some((index, usage)) => {
-            calculate_context_tokens(&usage)
-                + messages[index + 1..]
-                    .iter()
-                    .map(estimate_tokens)
-                    .sum::<u64>()
-        }
-        None => messages.iter().map(estimate_tokens).sum(),
-    }
-}
-
 /// `get_session_stats` (TS `getSessionStats` over `state.messages`).
 async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String> {
     let handle = state.session.handle().await;
     let session = &handle.session;
     let deps = session.deps();
     let cx = rpc_context();
-    let messages = context_messages(&session.main(), &cx).await?;
+    let view = session
+        .main()
+        .context(&cx, ContextOptions::default())
+        .await
+        .map_err(|error| error.to_string())?;
+    let messages = transcript_messages(&view.entries);
     let agent = main_agent(session, &cx).await?;
     let mut session_stats = json!({
         "sessionFile": deps
@@ -430,17 +416,7 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, String
     }
     let context_window = agent_model(session, &agent).map_or(0, |model| model.context_window);
     if context_window > 0 {
-        let tokens = context_tokens(&messages);
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "TS computes the percentage over JS doubles"
-        )]
-        let percent = tokens as f64 / context_window as f64 * 100.0;
-        session_stats["contextUsage"] = json!({
-            "tokens": tokens,
-            "contextWindow": context_window,
-            "percent": percent,
-        });
+        session_stats["contextUsage"] = context_usage(&view, context_window);
     }
     Ok(ResponseData::Present(session_stats))
 }

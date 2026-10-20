@@ -1,5 +1,7 @@
 //! The apply concern: the streamed-event pump -- client events, turn
 //! updates, assistant/tool rows, and compaction aborts.
+use eukhe_types::token_estimate::{chars_to_tokens, text_chars, ESTIMATED_IMAGE_CHARS};
+
 use super::bash::BashSettled;
 use super::{
     assistant_message_parts, event_to_update, pop_superseded_attempt_row, AgentView, ChatEntry,
@@ -393,7 +395,7 @@ impl SessionUi {
                 self.speed_clock.request_started(std::time::Instant::now());
             }
             TurnUpdate::UserMessage(text) => {
-                self.speed_clock.prompt_added(text.chars().count() as u64);
+                self.speed_clock.prompt_added(text_chars(&text));
                 // TS `addMessageToChat`'s user case: a skill block parses
                 // into the skill-invocation card plus the trailing
                 // argument text as its own user block.
@@ -483,11 +485,9 @@ impl SessionUi {
                         .content
                         .iter()
                         .map(|block| match block {
-                            eukhe_types::ai::UserContentBlock::Text(text) => {
-                                text.text.chars().count() as u64
-                            }
-                            eukhe_types::ai::UserContentBlock::Image(_)
-                            | eukhe_types::ai::UserContentBlock::Raw(_) => 0,
+                            eukhe_types::ai::UserContentBlock::Text(text) => text_chars(&text.text),
+                            eukhe_types::ai::UserContentBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
+                            eukhe_types::ai::UserContentBlock::Raw(_) => 0,
                         })
                         .sum(),
                 );
@@ -814,9 +814,7 @@ impl SessionUi {
             let content_chars: u64 = blocks
                 .iter()
                 .map(|block| match block {
-                    MessageBlock::Text(text) | MessageBlock::Thinking(text) => {
-                        text.chars().count() as u64
-                    }
+                    MessageBlock::Text(text) | MessageBlock::Thinking(text) => text_chars(text),
                 })
                 .sum();
             let current = self
@@ -827,14 +825,14 @@ impl SessionUi {
             }
             // This message's own output so far, tool-call arguments
             // included: the provider's count when it streams one, else the
-            // content at 4 characters per token.
+            // content at the one token estimate.
             let tool_chars: u64 = tool_calls
                 .iter()
-                .map(|(_, name, args)| (name.len() + args.to_string().len()) as u64)
+                .map(|(_, name, args)| text_chars(name) + text_chars(&args.to_string()))
                 .sum();
             self.speed_clock.streamed(
                 std::time::Instant::now(),
-                usage_output.max((content_chars + tool_chars) / 4),
+                usage_output.max(chars_to_tokens(content_chars + tool_chars)),
             );
         } else {
             self.working_tokens.settle(usage_output);

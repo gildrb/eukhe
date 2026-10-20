@@ -2,13 +2,14 @@
 //! `AgentSession.getSessionStats` / `getContextUsage` (TS
 //! `core/agent-session.ts`, shapes from `core/session-stats.ts`) and the
 //! `estimateContextTokens` / `estimateTokens` heuristics from
-//! the same code serves scripted and real engine sessions. The token-estimate
-//! helpers live in `eukhe_types::usage` (shared with eukhe-core's `compact.status`
-//! host request).
+//! the same code serves scripted and real engine sessions. The rows are
+//! wire JSON; their token estimate is the one token estimate
+//! ([`eukhe_types::token_estimate`]).
 
 use serde_json::{json, Value};
 
-use eukhe_types::usage::{calculate_context_tokens, estimate_tokens, valid_assistant_usage};
+use eukhe_types::token_estimate::{chars_to_tokens, text_chars, ESTIMATED_IMAGE_CHARS};
+use eukhe_types::usage::{calculate_context_tokens, valid_assistant_usage};
 
 use crate::session_store::{SessionEntry, SessionFile};
 
@@ -243,7 +244,7 @@ fn context_usage(
     }
 
     // TS `estimateContextTokens`: the last valid assistant usage anchors the
-    // estimate; messages after it are added with the chars/4 heuristic.
+    // estimate; messages after it add their estimates.
     let mut tokens = 0u64;
     match messages
         .iter()
@@ -254,13 +255,13 @@ fn context_usage(
             tokens += calculate_context_tokens(&usage);
             tokens += messages[last_usage_index + 1..]
                 .iter()
-                .map(|message| estimate_tokens(message))
+                .map(|message| estimate_row_tokens(message))
                 .sum::<u64>();
         }
         None => {
             tokens += messages
                 .iter()
-                .map(|message| estimate_tokens(message))
+                .map(|message| estimate_row_tokens(message))
                 .sum::<u64>();
         }
     }
@@ -270,6 +271,42 @@ fn context_usage(
         "contextWindow": context_window,
         "percent": percent,
     }))
+}
+
+/// Estimated tokens of one wire message row (TS `estimateTokens`): string
+/// content of user, custom, and tool-result rows, and the text, thinking,
+/// tool calls (name and serialized arguments), and images of content
+/// blocks, at the one token estimate.
+fn estimate_row_tokens(message: &Value) -> u64 {
+    let role = message
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let text = |value: Option<&Value>| value.and_then(Value::as_str).map_or(0, text_chars);
+    let chars = match message.get("content") {
+        Some(Value::String(content))
+            if role == "user" || role == "custom" || role == "toolResult" =>
+        {
+            text_chars(content)
+        }
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .map(|block| match block.get("type").and_then(Value::as_str) {
+                Some("text") => text(block.get("text")),
+                Some("thinking") => text(block.get("thinking")),
+                Some("toolCall") => {
+                    text(block.get("name"))
+                        + block.get("arguments").map_or(0, |arguments| {
+                            serde_json::to_string(arguments).map_or(0, |json| text_chars(&json))
+                        })
+                }
+                Some("image") => ESTIMATED_IMAGE_CHARS,
+                Some(_) | None => 0,
+            })
+            .sum(),
+        Some(_) | None => 0,
+    };
+    chars_to_tokens(chars)
 }
 
 /// `totalTokens` when present, else the four-field sum (TS

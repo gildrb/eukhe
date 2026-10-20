@@ -46,6 +46,7 @@ import ./laws/shell_classification.bend as Sg
 import ./laws/runners.bend as Ru
 import ./laws/approvals.bend as Ap
 import ./laws/retry.bend as Rt
+import ./laws/model_facts.bend as ModelFacts
 
 # (a) The view
 # ------------

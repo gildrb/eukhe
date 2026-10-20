@@ -28,7 +28,8 @@ pub struct Usage {
     pub output: u64,
     pub cache_read: u64,
     pub cache_write: u64,
-    /// Subset of `cache_write` written with 1h retention. Only Anthropic reports this split.
+    /// Subset of `cache_write` written with 1h retention. Only the Anthropic
+    /// Messages and Bedrock Converse APIs report this split.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_1h: Option<u64>,
     /// Reasoning/thinking tokens, when the provider reports them. A subset of

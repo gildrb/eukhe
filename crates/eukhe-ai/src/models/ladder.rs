@@ -202,6 +202,23 @@ pub fn registry_clamp_thinking_level(
     REGISTRY_LEVELS[clamp_rung(&registry_rungs(model), rung)]
 }
 
+/// The quirks rulebook's thinking ladder of a registry model (the rule of
+/// its host, model id or family), in the registry's level type. Unlike
+/// the chosen ladder (the module docs, rule 1), it does not look at the
+/// provider or the reasoning flag: the caller decides where it applies.
+/// `None`: no rule gives a ladder.
+#[must_use]
+pub fn registry_rule_ladder(
+    model: &eukhe_types::ai::Model,
+) -> Option<eukhe_types::ai::ThinkingLevelMap> {
+    Quirks::of(model).thinking_ladder().map(|ladder| {
+        ladder
+            .iter()
+            .map(|(level, value)| (REGISTRY_LEVELS[rung_of(*level)], value.clone()))
+            .collect()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use eukhe_types::pi_ai::{Model, ModelThinkingLevel};

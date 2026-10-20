@@ -15,6 +15,7 @@ use super::{
     uses_google_thinking_level, GoogleApiThinkingLevel, ResolvedGoogleThinkingLevel,
 };
 use crate::models::clamp_thinking_level;
+use crate::quirks::{LevelBudgets, Quirks};
 use crate::types::{ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::headers::provider_headers_to_record;
@@ -87,10 +88,6 @@ impl GoogleRequestOptions {
     }
 }
 
-/// A module's `getGoogleBudget(model, level, customBudgets)`.
-pub(crate) type GetGoogleBudget =
-    fn(&Model, ResolvedGoogleThinkingLevel, Option<&ThinkingBudgets>) -> i64;
-
 /// The `streamSimple` body shared by both TS modules: base options plus
 /// `toolChoice`, and `thinking` disabled, level-based, or budget-based.
 ///
@@ -102,7 +99,6 @@ pub(crate) fn simple_request_options(
     context: &TranscriptContext,
     options: SimpleStreamOptions,
     api_key: Option<&str>,
-    get_google_budget: GetGoogleBudget,
 ) -> Result<GoogleRequestOptions, Thrown> {
     let stream = build_base_options(model, context, Some(&options), api_key);
     let SimpleStreamOptions {
@@ -152,7 +148,7 @@ pub(crate) fn simple_request_options(
     } else {
         GoogleThinkingOptions {
             enabled: true,
-            budget_tokens: Some(get_google_budget(
+            budget_tokens: Some(google_thinking_budget(
                 model,
                 resolved,
                 thinking_budgets.as_ref(),
@@ -187,27 +183,41 @@ pub(crate) fn pi_headers(
     provider_headers_to_record(&[Some(&spread)])
 }
 
-/// `customBudgets?.[level]`.
-pub(crate) fn custom_budget(
-    custom_budgets: Option<&ThinkingBudgets>,
+/// The `thinkingBudget` of `level` (docs/inference.md S10.3): the user's
+/// custom budget of the level, else the quirks rulebook's budget of the
+/// model (`thinking_budgets`), held inside the model's range (the rule's
+/// `minimal` to its `high`). A model that the rulebook gives no budgets
+/// takes the custom budget, else `-1` (dynamic: the server decides).
+#[must_use]
+pub fn google_thinking_budget(
+    model: &Model,
     level: ResolvedGoogleThinkingLevel,
-) -> Option<i64> {
-    let budgets = custom_budgets?;
-    let budget = match level {
+    custom_budgets: Option<&ThinkingBudgets>,
+) -> i64 {
+    let custom = custom_budgets.and_then(|budgets| match level {
         ResolvedGoogleThinkingLevel::Minimal => budgets.minimal,
         ResolvedGoogleThinkingLevel::Low => budgets.low,
         ResolvedGoogleThinkingLevel::Medium => budgets.medium,
         ResolvedGoogleThinkingLevel::High => budgets.high,
-    }?;
-    Some(i64::try_from(budget).unwrap_or(i64::MAX))
-}
-
-/// The `[minimal, low, medium, high]` table entry for `level`.
-pub(crate) const fn budget_for(budgets: [i64; 4], level: ResolvedGoogleThinkingLevel) -> i64 {
-    match level {
-        ResolvedGoogleThinkingLevel::Minimal => budgets[0],
-        ResolvedGoogleThinkingLevel::Low => budgets[1],
-        ResolvedGoogleThinkingLevel::Medium => budgets[2],
-        ResolvedGoogleThinkingLevel::High => budgets[3],
-    }
+    });
+    let budget = match (Quirks::of(model).thinking_budgets(), custom) {
+        (Some(rule), custom) => {
+            let LevelBudgets {
+                minimal,
+                low,
+                medium,
+                high,
+            } = *rule;
+            let wanted = custom.unwrap_or(match level {
+                ResolvedGoogleThinkingLevel::Minimal => minimal,
+                ResolvedGoogleThinkingLevel::Low => low,
+                ResolvedGoogleThinkingLevel::Medium => medium,
+                ResolvedGoogleThinkingLevel::High => high,
+            });
+            wanted.clamp(minimal, high)
+        }
+        (None, Some(custom)) => custom,
+        (None, None) => return -1,
+    };
+    i64::try_from(budget).unwrap_or(i64::MAX)
 }
