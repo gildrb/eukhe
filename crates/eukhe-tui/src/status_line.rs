@@ -372,6 +372,13 @@ fn activity_segments(dock: &ActivityDock, theme: &Theme) -> Vec<Line> {
                     format!("{} factory", dock.factory_runs),
                 )],
             ),
+            ActivityGroup::Workflow => (
+                dock.workflow_runs > 0,
+                vec![theme.fg(
+                    color(dock.workflow_runs),
+                    plural(dock.workflow_runs, "workflow", "workflows"),
+                )],
+            ),
             // A pursued goal reads green; its paused and budget-limited
             // states read amber.
             ActivityGroup::Goal => {

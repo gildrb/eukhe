@@ -291,6 +291,14 @@ pub fn settings_menu_rows(current: &SettingsCurrentValues) -> Vec<SettingsMenuRo
             submenu: Some(SettingsSubmenu::ServiceTier),
         },
         SettingsMenuRow {
+            id: "workflow-size",
+            label: "Workflow size",
+            description: "Default size of a /dynamic-workflow run: small (3 at once, 5 agents), medium (6, 10), large (12, 25)",
+            current: current.workflow_size.clone(),
+            values: Some(vec!["small".into(), "medium".into(), "large".into()]),
+            submenu: None,
+        },
+        SettingsMenuRow {
             id: "mermaid-rendering",
             label: "Mermaid diagrams",
             description: "Render Mermaid code blocks as Unicode diagrams",
@@ -367,6 +375,7 @@ pub struct SettingsCurrentValues {
     pub transport: String,
     pub default_service_tier: String,
     pub mermaid: String,
+    pub workflow_size: String,
     pub quiet_startup: bool,
     pub tree_filter_mode: String,
     pub warnings_anthropic_extra_usage: bool,

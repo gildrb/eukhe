@@ -58,6 +58,9 @@ pub enum SelectorKind {
     ResourceConfig,
     /// The `/effort` picker: single-select semantics, Enter applies.
     Effort,
+    /// The `/workflow-size` picker: single-select semantics, Enter
+    /// applies.
+    WorkflowSize,
 }
 
 impl SelectorKind {
@@ -73,6 +76,9 @@ impl SelectorKind {
                 "Thinking Level",
                 &[("enter", "select"), ("escape", "close")],
             ),
+            SelectorKind::WorkflowSize => {
+                ("Workflow Size", &[("enter", "select"), ("escape", "close")])
+            }
         }
     }
 }
@@ -477,6 +483,7 @@ impl ConfigSelector {
         match self.kind {
             SelectorKind::ResourceConfig => "Type to filter resources",
             SelectorKind::Effort => "Type to filter levels",
+            SelectorKind::WorkflowSize => "Type to filter sizes",
         }
     }
 
@@ -485,6 +492,7 @@ impl ConfigSelector {
         match self.kind {
             SelectorKind::ResourceConfig => "No resources found",
             SelectorKind::Effort => "No matching levels",
+            SelectorKind::WorkflowSize => "No matching sizes",
         }
     }
 

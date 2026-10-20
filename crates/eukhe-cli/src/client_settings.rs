@@ -265,6 +265,14 @@ impl ClientSettings for CliClientSettings {
         get_mermaid_rendering_mode,
         set_mermaid_rendering_mode
     );
+    fn workflow_size(&self) -> String {
+        self.manager().get_workflow_size().as_str().to_owned()
+    }
+
+    fn set_workflow_size(&self, size: &str) -> Result<()> {
+        self.manager().set_workflow_size(size)?.applied()
+    }
+
     str_setting!(
         tree_filter_mode,
         set_tree_filter_mode,

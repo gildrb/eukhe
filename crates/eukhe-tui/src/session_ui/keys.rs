@@ -8,6 +8,7 @@ use super::{
 };
 use crate::glyphs::WARN;
 use crate::view::{ScrollAmount, ScrollRequest};
+use crate::workflow_size_picker::WorkflowSizePickerAction;
 use eukhe_types::cvar::{render_list, Command};
 
 /// How long the Ctrl+C exit hint arms the second-press exit (TS
@@ -143,6 +144,32 @@ impl SessionUi {
         Ok(())
     }
 
+    /// One key press while the `/workflow-size` picker is open: Esc or
+    /// Ctrl+C close it; Enter sets `workflow.size`.
+    fn handle_workflow_size_picker_key(&mut self, key: KeyEvent, view: &mut AgentView) {
+        let Some(id) = key_event_to_id(&key) else {
+            return;
+        };
+        if id == "ctrl+c" {
+            self.exit_guard.note_ctrl_c_handled();
+        }
+        let action = view
+            .workflow_size_picker
+            .as_mut()
+            .map(|picker| picker.handle_key(&id, view.editor.keybindings()));
+        match action {
+            Some(WorkflowSizePickerAction::None) | None => {}
+            Some(WorkflowSizePickerAction::Cancel) => {
+                view.workflow_size_picker = None;
+                self.dirty = true;
+            }
+            Some(WorkflowSizePickerAction::Apply(size)) => {
+                view.workflow_size_picker = None;
+                self.apply_workflow_size(size, view);
+            }
+        }
+    }
+
     pub(crate) async fn handle_key(
         &mut self,
         key: KeyEvent,
@@ -168,6 +195,11 @@ impl SessionUi {
         if view.effort_picker.is_some() {
             return self.handle_effort_picker_key(key, view).await;
         }
+        // The `/workflow-size` picker owns the frame the same way.
+        if view.workflow_size_picker.is_some() {
+            self.handle_workflow_size_picker_key(key, view);
+            return Ok(());
+        }
         // The `/mcp` connections view owns the frame the same way.
         if view.mcp_view.is_some() {
             return self.handle_mcp_view_key(key, view);
@@ -175,6 +207,10 @@ impl SessionUi {
         // The factory page owns the frame the same way.
         if view.factory_view.is_some() {
             return self.handle_factory_view_key(key, view).await;
+        }
+        // The `/workflows` page owns the frame the same way.
+        if view.workflow_view.is_some() {
+            return self.handle_workflow_view_key(key, view).await;
         }
         // The `/heartbeats` view owns the frame the same way.
         if view.heartbeats_picker.is_some() {

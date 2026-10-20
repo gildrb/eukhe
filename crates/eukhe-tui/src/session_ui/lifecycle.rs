@@ -138,6 +138,8 @@ impl SessionUi {
             factory_refresh_queued: false,
             factory_list_epoch: 0,
             factory_updates: activity_updates.factory,
+            workflow_lane: super::workflows::WorkflowLane::default(),
+            workflow_updates: activity_updates.workflows,
             factory_selected_run: None,
             subagents_focused: false,
             activity_group: crate::chrome::ActivityGroup::Subagents,
@@ -462,6 +464,7 @@ impl SessionUi {
                 // never show another session's runs (the 2s poll
                 // refills; the spawn below asks for the first frame).
                 self.factory_graph = serde_json::json!({"runs": []});
+                self.workflow_lane.runs.clear();
             }
             // The held dock keeps its registry for the same reason it
             // keeps the heartbeat catalog above.
@@ -476,6 +479,7 @@ impl SessionUi {
         // every fold (the poll's serialization makes an immediate
         // request safe -- the in-flight slot frees on its own cycle).
         self.spawn_factory_refresh();
+        self.spawn_workflow_refresh();
         // The chat memory's view (`OptChat` spec section 10's startup print) lands as a
         // transcript block after the rebuild that follows this attach,
         // and its status seeds the `mem` gauge (the previous session's
@@ -615,6 +619,7 @@ impl SessionUi {
                 .as_deref()
                 .is_some_and(|session| session != self.session_id)
             {
+                view.workflow_view = None;
                 view.factory_view = None;
                 self.factory_selected_run = None;
                 self.factory_view_session = None;

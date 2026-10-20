@@ -259,10 +259,14 @@ impl AgentView {
             Some(picker.render(&self.theme, width, kb))
         } else if let Some(picker) = &self.effort_picker {
             Some(picker.render(&self.theme, width, kb))
+        } else if let Some(picker) = &self.workflow_size_picker {
+            Some(picker.render(&self.theme, width, kb))
         } else if let Some(mcp_view) = self.mcp_view.as_mut() {
             Some(mcp_view.render(&self.theme, width, kb))
         } else if let Some(factory_view) = self.factory_view.as_ref() {
             Some(factory_view.render(&self.theme, width, kb))
+        } else if let Some(page) = self.workflow_view.as_ref() {
+            Some(page.render(&self.theme, width, kb))
         } else if let Some(picker) = &self.heartbeats_picker {
             Some(picker.render(&self.theme, width, kb))
         } else if let Some(panel) = &self.goal_panel {

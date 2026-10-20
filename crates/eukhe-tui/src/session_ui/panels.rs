@@ -13,6 +13,7 @@ pub(crate) struct ActivityUpdates {
     pub heartbeats: mpsc::UnboundedSender<HeartbeatsUpdate>,
     pub bash: mpsc::UnboundedSender<BashActivityUpdate>,
     pub factory: mpsc::UnboundedSender<FactoryUpdate>,
+    pub workflows: mpsc::UnboundedSender<super::WorkflowUpdate>,
     pub commands: mpsc::UnboundedSender<CommandCatalogUpdate>,
     pub chat_view: mpsc::UnboundedSender<ChatViewUpdate>,
     pub memory_tree: mpsc::UnboundedSender<super::MemoryTreeUpdate>,
@@ -171,6 +172,8 @@ impl SessionUi {
             // lane: the factory's opt-in gate (a daemon without the
             // factory lane never mounts the group).
             factory_group: self.factory_activity_supported(),
+            workflow_runs: crate::workflow_view::running_runs(&self.workflow_lane.runs),
+            workflow_group: self.workflow_activity_supported(),
             goal_label,
             selected: self.activity_group,
             focused: self.subagents_focused,
@@ -254,6 +257,9 @@ impl SessionUi {
             }
             crate::chrome::ActivityGroup::Factory => {
                 self.open_factory_page(view);
+            }
+            crate::chrome::ActivityGroup::Workflow => {
+                self.open_workflows_page(view);
             }
             crate::chrome::ActivityGroup::Goal => {
                 self.open_goal_panel(view);

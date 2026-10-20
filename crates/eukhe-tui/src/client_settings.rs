@@ -198,6 +198,16 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_mermaid_rendering_mode(&self, mode: &str) -> Result<()>;
+    /// `workflow.size` (`small`/`medium`/`large`): the default size of a
+    /// `/dynamic-workflow` run.
+    fn workflow_size(&self) -> String;
+    /// Persists `workflow.size` to the global scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` for an unknown size, or when opening or persisting
+    /// the settings store fails.
+    fn set_workflow_size(&self, size: &str) -> Result<()>;
     /// `treeFilterMode` (`default`/`no-tools`/`user-only`/`labeled-only`/`all`).
     fn tree_filter_mode(&self) -> String;
     /// Persists `treeFilterMode` to the global scope.

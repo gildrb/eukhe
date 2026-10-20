@@ -340,6 +340,7 @@ impl SessionUi {
             values.terminal_progress = settings.show_terminal_progress();
             values.idle_eviction_minutes = settings.idle_eviction_minutes();
             values.mermaid = settings.mermaid_rendering_mode();
+            values.workflow_size = settings.workflow_size();
             values.quiet_startup = settings.quiet_startup();
             values.tree_filter_mode = settings.tree_filter_mode();
             values.warnings_anthropic_extra_usage = settings.warnings_anthropic_extra_usage();
@@ -355,6 +356,7 @@ impl SessionUi {
             values.builtin_skills = true;
             values.idle_eviction_minutes = "90".to_string();
             values.mermaid = "streaming".to_string();
+            values.workflow_size = "medium".to_string();
             values.tree_filter_mode = "user-only".to_string();
             values.warnings_anthropic_extra_usage = true;
             values.theme = "eukhe".to_string();
@@ -670,6 +672,13 @@ impl SessionUi {
                 );
             }
 
+            "workflow-size" => {
+                if let Some(settings) = &self.client_settings {
+                    if let Err(error) = settings.set_workflow_size(value) {
+                        self.error_row(&format!("{error:#}"), view);
+                    }
+                }
+            }
             "mermaid-rendering" => {
                 if let Some(settings) = &self.client_settings {
                     if let Err(error) = settings.set_mermaid_rendering_mode(value) {

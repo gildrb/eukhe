@@ -9,8 +9,30 @@ use super::{
     SubmitBehavior, Value, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::glyphs::WARN;
+use crate::workflow_size_picker;
+use eukhe_types::workflow::WorkflowSize;
 
 impl SessionUi {
+    /// Persist `size` as `workflow.size` and report it.
+    pub(super) fn apply_workflow_size(&mut self, size: WorkflowSize, view: &mut AgentView) {
+        let Some(settings) = &self.client_settings else {
+            self.error_row("Settings are not available in this client", view);
+            return;
+        };
+        if let Err(error) = settings.set_workflow_size(size.as_str()) {
+            self.error_row(&format!("{error:#}"), view);
+            return;
+        }
+        self.note(
+            &format!(
+                "Workflow size: {} ({})",
+                size.as_str(),
+                workflow_size_picker::size_description(size)
+            ),
+            view,
+        );
+    }
+
     /// Slash-command dispatch (the TS interactive submission ladder reduced
     /// to this client's surface): local client commands run here, builtin
     /// client commands without a UI yet report unavailability, session
@@ -256,6 +278,37 @@ impl SessionUi {
                     }
                     effort_picker::EffortCommandOutcome::Apply { level } => {
                         self.apply_thinking_level(&level, view).await;
+                    }
+                }
+            }
+            "workflows" => {
+                if resolved.args.trim().is_empty() {
+                    self.open_workflows_page(view);
+                } else {
+                    self.note("Usage: /workflows", view);
+                }
+            }
+            // `/workflow-size [size]`: the default size of a
+            // `/dynamic-workflow` run (the `workflow.size` setting).
+            "workflow-size" => {
+                let current = self
+                    .client_settings
+                    .as_ref()
+                    .and_then(|settings| WorkflowSize::parse(&settings.workflow_size()));
+                match workflow_size_picker::workflow_size_command(&resolved.args, current) {
+                    workflow_size_picker::WorkflowSizeCommand::Open(picker) => {
+                        view.workflow_size_picker = Some(picker);
+                    }
+                    workflow_size_picker::WorkflowSizeCommand::Apply(size) => {
+                        self.apply_workflow_size(size, view);
+                    }
+                    workflow_size_picker::WorkflowSizeCommand::Unknown(requested) => {
+                        self.error_row(
+                            &format!(
+                                "Unknown workflow size '{requested}'. Available: small, medium, large"
+                            ),
+                            view,
+                        );
                     }
                 }
             }

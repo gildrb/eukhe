@@ -57,7 +57,12 @@ fn tabs_partition_the_settings_rows() {
             ),
             (
                 "Models",
-                vec!["thinking", "transport", "default-service-tier"]
+                vec![
+                    "thinking",
+                    "transport",
+                    "default-service-tier",
+                    "workflow-size"
+                ]
             ),
             (
                 "Display",

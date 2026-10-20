@@ -341,6 +341,12 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
     fn set_mermaid_rendering_mode(&self, _mode: &str) -> Result<()> {
         Ok(())
     }
+    fn workflow_size(&self) -> String {
+        "medium".to_string()
+    }
+    fn set_workflow_size(&self, _size: &str) -> Result<()> {
+        Ok(())
+    }
     fn tree_filter_mode(&self) -> String {
         "user-only".to_string()
     }

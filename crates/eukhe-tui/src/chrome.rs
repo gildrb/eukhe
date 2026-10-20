@@ -118,6 +118,9 @@ pub enum ActivityGroup {
     /// opens the factory page over the lane -- the same navigation family
     /// as the subagents, heartbeats, and shells pages.
     Factory,
+    /// The `/workflows` page: dynamic workflow runs. Its group renders
+    /// while the daemon advertises the `workflow_activity` lane.
+    Workflow,
     /// The active goal: its group is mounted while a goal is being
     /// pursued and opens the read-only goal panel (the objective and
     /// its facts); a goal that ended unmounts the row with it.
@@ -169,6 +172,11 @@ pub struct ActivityDock {
     /// mounts no factory group anywhere: no row, no traversal, no
     /// click, no page.
     pub factory_group: bool,
+    /// Dynamic workflow runs still running (the current session's).
+    pub workflow_runs: usize,
+    /// Whether the workflow group renders: the daemon's
+    /// `workflow_activity` advertisement.
+    pub workflow_group: bool,
     /// The active goal's dock label -- `Pursuing goal (12m 05s)`-style,
     /// the elapsed-time form (the operator's 2026-09-24 directive: the
     /// row reads the time, the token budget lives inside the goal
@@ -195,6 +203,9 @@ impl ActivityDock {
         ];
         if self.factory_group {
             groups.push(ActivityGroup::Factory);
+        }
+        if self.workflow_group {
+            groups.push(ActivityGroup::Workflow);
         }
         if self.goal_label.is_some() {
             groups.push(ActivityGroup::Goal);

@@ -25,6 +25,7 @@ mod queue;
 mod sessions_fork;
 mod settings;
 mod stream;
+mod workflows;
 
 pub(crate) use agents::AgentMessageOutcome;
 pub(crate) use apply::CompactionAbortNote;
@@ -55,6 +56,7 @@ pub(crate) use stream::resume_hint_from_stats;
 use stream::streaming_tray_hint;
 use stream::LoaderTokenTracker;
 use stream::SpeedStats;
+pub(crate) use workflows::WorkflowUpdate;
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -435,6 +437,10 @@ pub(crate) struct SessionUi {
     /// Where background factory refreshes deliver the run graph (the run
     /// loop folds them into the open view).
     factory_updates: mpsc::UnboundedSender<FactoryUpdate>,
+    /// The `/workflows` lane: cached runs and the refresh serialization.
+    workflow_lane: workflows::WorkflowLane,
+    /// Where background workflow refreshes deliver.
+    workflow_updates: mpsc::UnboundedSender<WorkflowUpdate>,
     /// The open view's selected run id: the refresh's watch target.
     factory_selected_run: Option<String>,
     /// The subagent summary line holds keyboard focus.
@@ -756,6 +762,26 @@ impl SessionUi {
             .collect();
         view.editor
             .set_autocomplete_argument_completions("tier", items);
+        // The dynamic workflow sizes: `/workflow-size <size>` and the
+        // leading `--size <size>` of `/dynamic-workflow` (and its alias).
+        let sizes = |prefix: &str| -> Vec<crate::autocomplete::CompletionItem> {
+            eukhe_types::workflow::WorkflowSize::ALL
+                .iter()
+                .map(|size| crate::autocomplete::CompletionItem {
+                    value: format!("{prefix}{}", size.as_str()),
+                    label: format!("{prefix}{}", size.as_str()),
+                    description: Some(crate::workflow_size_picker::size_description(*size)),
+                    argument_hint: None,
+                    source_tag: None,
+                })
+                .collect()
+        };
+        view.editor
+            .set_autocomplete_argument_completions("workflow-size", sizes(""));
+        for command in ["dynamic-workflow", "workflow"] {
+            view.editor
+                .set_autocomplete_argument_completions(command, sizes("--size "));
+        }
     }
 
     /// `/tier [tier]` (TS `handleTierCommand`): without an argument report

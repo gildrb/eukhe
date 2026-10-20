@@ -84,6 +84,8 @@ pub struct AgentView {
     /// The `/effort` inline picker (TS `ThinkingSelectorComponent` seam):
     /// while set, it owns the whole frame like the model picker.
     pub effort_picker: Option<crate::effort_picker::EffortPicker>,
+    /// The `/workflow-size` picker, while open.
+    pub workflow_size_picker: Option<crate::workflow_size_picker::WorkflowSizePicker>,
     /// The `/mcp` inline connections view (the MCP surface's own
     /// picker): while set, it owns the editor dock like the model
     /// picker.
@@ -92,6 +94,8 @@ pub struct AgentView {
     /// inline pickers (one panel per live factory run) -- the activity
     /// dock's factory group's destination.
     pub factory_view: Option<crate::factory_view::FactoryView>,
+    /// The `/workflows` page, while open.
+    pub workflow_view: Option<crate::workflow_view::WorkflowView>,
     /// The `/heartbeats` inline management view (TS
     /// `HeartbeatManagerComponent`, inline-picker style): while set, it
     /// owns the editor dock like the `/model` and `/effort` pickers.
@@ -244,6 +248,10 @@ impl AgentView {
             picker.paste(text);
             return true;
         }
+        if let Some(picker) = self.workflow_size_picker.as_mut() {
+            picker.paste(text);
+            return true;
+        }
         if let Some(mcp) = self.mcp_view.as_mut() {
             mcp.paste(text);
             return true;
@@ -312,8 +320,10 @@ impl AgentView {
             auth_panel: None,
             fork_selector: None,
             effort_picker: None,
+            workflow_size_picker: None,
             mcp_view: None,
             factory_view: None,
+            workflow_view: None,
             heartbeats_picker: None,
             goal_panel: None,
             bash_view: None,

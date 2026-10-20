@@ -153,6 +153,7 @@ async fn run_interactive_surface(
     // into the session -- the open page's panels and the dock's count.
     let (factory_tx, mut factory_rx) =
         mpsc::unbounded_channel::<crate::session_ui::FactoryUpdate>();
+    let (workflow_tx, mut workflow_rx) = mpsc::unbounded_channel();
     // Background slash-command-catalog refreshes (`get_commands`) report
     // here; the loop folds the session's skill commands into the
     // autocomplete provider.
@@ -294,6 +295,7 @@ async fn run_interactive_surface(
         let heartbeats_tx = heartbeats_tx.clone();
         let bash_tx = bash_tx.clone();
         let factory_tx = factory_tx.clone();
+        let workflow_tx = workflow_tx.clone();
         let commands_tx = commands_tx.clone();
         let chat_view_tx = chat_view_tx.clone();
         let memory_tree_tx = memory_tree_tx.clone();
@@ -313,6 +315,7 @@ async fn run_interactive_surface(
                     heartbeats: heartbeats_tx,
                     bash: bash_tx,
                     factory: factory_tx,
+                    workflows: workflow_tx,
                     commands: commands_tx,
                     chat_view: chat_view_tx,
                     memory_tree: memory_tree_tx,
@@ -1179,7 +1182,8 @@ async fn run_interactive_surface(
         // surface.
         let autocomplete_pending = view.editor.has_pending_autocomplete();
         let bash_refresh_wanted = session.kernel_bash_supported();
-        let factory_refresh_wanted = session.factory_activity_supported();
+        let factory_refresh_wanted =
+            session.factory_activity_supported() || session.workflow_activity_supported();
         // A settle waiting out a member is pending work like the
         // autocomplete park: the gate runs at the loop top, so its
         // re-check (and the settle bound's expiry) needs this arm's
@@ -1478,6 +1482,7 @@ async fn run_interactive_surface(
                     session.apply_bash_activity(update, &mut view);
                 }
             }
+            Some(update) = workflow_rx.recv() => session.apply_workflow_update(update, &mut view),
             maybe_factory = factory_rx.recv() => {
                 if let Some(update) = maybe_factory {
                     session.apply_factory_update(update, &mut view);
@@ -1779,6 +1784,7 @@ async fn run_interactive_surface(
             } => {
                 last_factory_refresh = Instant::now();
                 session.spawn_factory_refresh();
+                session.spawn_workflow_refresh();
             }
             _frame = async {
                 match render_deadline {
