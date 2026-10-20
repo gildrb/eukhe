@@ -67,6 +67,14 @@ import ./laws/fsmode.bend as Fm
 import ./bend/proof_fsmode.bend as FileModes
 import ./laws/path_policy.bend as Pg
 import ./bend/proof_path_policy.bend as PathPolicy
+import ./laws/child_env.bend as Ce
+import ./bend/proof_child_env.bend as ChildEnv
+import ./laws/shell_classification.bend as Sg
+import ./bend/proof_shell.bend as Shells
+import ./laws/runners.bend as Ru
+import ./bend/proof_runners.bend as Runners
+import ./laws/approvals.bend as Ap
+import ./bend/proof_approvals.bend as Approvals
 
 # (a) The view
 
@@ -1171,3 +1179,117 @@ def Pg.gate_inside_write_runs(auto, ans, w):
 
 def Pg.config_needs_yes(es, pol, ls, auto, cs, no):
   PathPolicy.pp.config_needs_yes(es, pol, ls, auto, cs, no)
+
+# (G3) No credential reaches a child
+
+def Ce.env_drops_credentials(reg, base, over, v, i):
+  ChildEnv.pce.env_drops_credentials(reg, base, over, v, i)
+
+def Ce.env_kernel_keeps_only_listed(reg, keep, base, over, v, i, c):
+  ChildEnv.pce.env_kernel_keeps_only_listed(reg, keep, base, over, v, i, c)
+
+def Ce.env_keeps_the_rest(reg, keep, base, over, v, i, c):
+  ChildEnv.pce.env_keeps_the_rest(reg, keep, base, over, v, i, c)
+
+def Ce.env_keeps_listed(reg, keep, base, over, v, i, k, r):
+  ChildEnv.pce.env_keeps_listed(reg, keep, base, over, v, i, k, r)
+
+# (G2) Shell classification
+
+def Sg.step_holds_every_part(pre, p, post, c, has):
+  Shells.ps.step_holds_every_part(pre, p, post, c, has)
+
+def Sg.secret_needs_a_secret_path(ps, has):
+  Shells.ps.secret_needs_a_secret_path(ps, has)
+
+def Sg.secret_path_gives_secret(pre, p, post, named):
+  Shells.ps.secret_path_gives_secret(pre, p, post, named)
+
+def Sg.auto_needs_every_effect(s, auto, c, has, out):
+  Shells.ps.auto_needs_every_effect(s, auto, c, has, out)
+
+def Sg.auto_never_sensitive(s, auto, c, has, held):
+  Shells.ps.auto_never_sensitive(s, auto, c, has, held)
+
+def Sg.composed_needs_every_part(i, pre, p, post, auto, c, has, out):
+  Shells.ps.composed_needs_every_part(i, pre, p, post, auto, c, has, out)
+
+def Sg.auto_runs_within(s, post, auto, ans, w):
+  Shells.ps.auto_runs_within(s, post, auto, ans, w)
+
+def Sg.held_needs_a_yes(s, post, auto, w):
+  Shells.ps.held_needs_a_yes(s, post, auto, w)
+
+# (G4) Every runner of code goes through the gate
+
+def Ru.gate_covers_every_runner(chat, i, t, at, runs):
+  Runners.pr.covers(chat, i, t, at, runs)
+
+def Ru.ipython_gated_each_call(chat):
+  Runners.pr.ipython(chat)
+
+def Ru.cell_runs_only_within_or_approved(caps, auto, a, ran):
+  Runners.pr.only(caps, auto, a, ran)
+
+def Ru.cell_within_runs_unasked(caps, auto, a, free):
+  Runners.pr.unasked(caps, auto, a, free)
+
+def Ru.cell_approved_runs(caps, auto, held):
+  Runners.pr.approved(caps, auto, held)
+
+def Ru.cell_no_yes_stops(caps, auto, a, held, no):
+  Runners.pr.stops(caps, auto, a, held, no)
+
+def Ru.cell_exec_asks(caps, auto, has, lacks):
+  Runners.pr.exec_asks(caps, auto, has, lacks)
+
+# (G5) A child's question reaches its root's user
+
+def Ap.child_answered_by_root(below, quiet, yes):
+  Approvals.pa.root(below, quiet, yes)
+
+def Ap.nearest_answer_wins(below, quiet, yes, above):
+  Approvals.pa.nearest(below, quiet, yes, above)
+
+def Ap.unanswered_only_when_quiet(ds, none):
+  Approvals.pa.only_quiet(ds, none)
+
+def Ap.quiet_is_unanswered(ds, quiet):
+  Approvals.pa.quiet_none(ds, quiet)
+
+# (G5) A session that runs only from the phone gateway never waits
+
+def Ap.gateway_never_waits(above):
+  Approvals.pa.never_waits(above)
+
+def Ap.gateway_refuses_protected(es, protected, above):
+  Approvals.pa.refuses_protected(es, protected, above)
+
+def Ap.gateway_refuses_secret(es, secret, above):
+  Approvals.pa.refuses_secret(es, secret, above)
+
+def Ap.gateway_runs_the_rest(es, not_protected, not_secret, above):
+  Approvals.pa.runs_the_rest(es, not_protected, not_secret, above)
+
+def Ap.left_to_the_gateway(above):
+  Approvals.pa.left_to_gateway(above)
+
+def Ap.gateway_rules_a_subagent(below, quiet, es, above):
+  Approvals.pa.subagent(below, quiet, es, above)
+
+# (G5) The default auto set; the never-auto effects
+
+def Ap.default_auto_is_grantable(c):
+  Approvals.pa.default_auto(c)
+
+def Ap.never_auto_is_routed(auto, es, c, has, held, ds):
+  Approvals.pa.never_auto(auto, es, c, has, held, ds)
+
+def Ap.never_auto_asks_the_client(auto, es, c, has, held, yes, above):
+  Approvals.pa.never_auto_asks(auto, es, c, has, held, yes, above)
+
+def Ap.outside_runs_only_by_the_gateway(auto, es, outside, not_protected, not_secret, above):
+  Approvals.pa.outside_by_gateway(auto, es, outside, not_protected, not_secret, above)
+
+def Ap.guarded_refused_from_the_phone(auto, es, guarded, above):
+  Approvals.pa.guarded_from_phone(auto, es, guarded, above)

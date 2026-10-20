@@ -315,8 +315,13 @@ pub(crate) struct SessionUi {
     /// The question the open confirm panel answers.
     pending_confirm: Option<PendingConfirm>,
     /// `shell_approval` questions waiting behind the open confirm, in
-    /// arrival order: (the asking active session id, the question).
-    shell_approvals: std::collections::VecDeque<(String, eukhe_types::shell::ShellApprovalRequest)>,
+    /// arrival order: (the asking active session id, the question, the
+    /// subagent that asks when it came up from one).
+    shell_approvals: std::collections::VecDeque<(
+        String,
+        eukhe_types::shell::ShellApprovalRequest,
+        Option<String>,
+    )>,
     /// `/login` + `/logout`: the provider auth flows the composition root
     /// owns (credential storage, OAuth flows, the provider catalog).
     provider_auth: Option<crate::provider_auth::ProviderAuthCommandsHandle>,

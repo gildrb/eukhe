@@ -614,6 +614,7 @@ async fn bind_daemon_session(
             id: None,
             active_session_id: binding.active_session_id.clone(),
             client_id: None,
+            client_kind: None,
             capabilities: None,
             resume_cursor: None,
             recovery_config: None,

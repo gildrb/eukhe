@@ -11,6 +11,10 @@ use crate::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthEvent, AuthInfoLink, AuthPrompt,
     AuthPromptKind, AuthResult, AuthSelectOption, ModelAuth, ProviderAuth, ProviderAuthInteraction,
 };
+use crate::env_api_keys::{
+    AWS_ACCESS_KEY_ID_ENV, AWS_BEARER_TOKEN_BEDROCK_ENV, AWS_SECRET_ACCESS_KEY_ENV,
+    AWS_WEB_IDENTITY_TOKEN_FILE_ENV,
+};
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
 use crate::types::ProviderEnv;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
@@ -133,8 +137,8 @@ impl ApiKeyAuth for BedrockAuth {
                     }));
                 }
             }
-            if env("AWS_BEARER_TOKEN_BEDROCK").await?.is_some() {
-                return Ok(Some(result("AWS_BEARER_TOKEN_BEDROCK", None)));
+            if env(AWS_BEARER_TOKEN_BEDROCK_ENV).await?.is_some() {
+                return Ok(Some(result(AWS_BEARER_TOKEN_BEDROCK_ENV, None)));
             }
             let stored_profile = credential
                 .as_ref()
@@ -157,8 +161,8 @@ impl ApiKeyAuth for BedrockAuth {
                 };
                 return Ok(Some(result(source, stored_env)));
             }
-            if env("AWS_ACCESS_KEY_ID").await?.is_some()
-                && env("AWS_SECRET_ACCESS_KEY").await?.is_some()
+            if env(AWS_ACCESS_KEY_ID_ENV).await?.is_some()
+                && env(AWS_SECRET_ACCESS_KEY_ENV).await?.is_some()
             {
                 return Ok(Some(result("AWS access keys", None)));
             }
@@ -171,7 +175,7 @@ impl ApiKeyAuth for BedrockAuth {
             if env("AWS_CONTAINER_CREDENTIALS_FULL_URI").await?.is_some() {
                 return Ok(Some(result("ECS task role", None)));
             }
-            if env("AWS_WEB_IDENTITY_TOKEN_FILE").await?.is_some() {
+            if env(AWS_WEB_IDENTITY_TOKEN_FILE_ENV).await?.is_some() {
                 return Ok(Some(result("web identity token", None)));
             }
             Ok(None)

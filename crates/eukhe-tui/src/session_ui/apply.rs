@@ -279,9 +279,11 @@ impl SessionUi {
             DaemonClientEvent::ShellApproval {
                 active_session_id,
                 request,
+                agent,
             } => {
                 if active_session_id == self.active_session_id {
-                    self.shell_approvals.push_back((active_session_id, request));
+                    self.shell_approvals
+                        .push_back((active_session_id, request, agent));
                     if view.confirm.is_none() {
                         self.open_next_shell_approval(view);
                     }

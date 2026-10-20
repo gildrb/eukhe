@@ -781,6 +781,7 @@ impl Tab {
                 id: None,
                 active_session_id: active_session_id.clone(),
                 client_id: None,
+                client_kind: None,
                 capabilities: Some(ATTACH_CAPABILITIES.map(str::to_string).to_vec()),
                 resume_cursor: resume,
                 recovery_config: None,
@@ -895,9 +896,11 @@ impl Tab {
                 }),
                 Binding::Unbound | Binding::Opening { .. } | Binding::Bound { .. } => {}
             },
+            // The tab's approval card does not name a subagent that asks.
             DaemonClientEvent::ShellApproval {
                 active_session_id,
                 request,
+                agent: _,
             } => {
                 if binding.active_session_id() == Some(active_session_id.as_str()) {
                     self.send(&ServerFrame::Approval { request: &request });
@@ -946,7 +949,7 @@ impl Tab {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use eukhe_types::shell::{ShellApprovalRequest, ShellEffect};
+    use eukhe_types::shell::{ShellApprovalRequest, ShellEffect, ShellEffects};
     use std::io::{BufRead, BufReader, Write};
 
     #[tokio::test]
@@ -1001,8 +1004,9 @@ mod tests {
                 request_id: format!("r-{active_session_id}"),
                 step: 1,
                 command: "make".to_string(),
-                effect: ShellEffect::Exec,
+                effects: ShellEffects::of(&[ShellEffect::Exec]),
             },
+            agent: None,
         };
         let lost = |active_session_id: &str| DaemonClientEvent::DirectLinkLost {
             active_session_id: active_session_id.to_string(),
@@ -1039,7 +1043,7 @@ mod tests {
                 json!({ "type": "event", "event": { "type": "agent_start" } }),
                 json!({
                     "type": "approval",
-                    "request": { "requestId": "r-s1", "step": 1, "command": "make", "effect": "exec" },
+                    "request": { "requestId": "r-s1", "step": 1, "command": "make", "effects": ["exec"] },
                 }),
                 json!({ "type": "resync", "reason": "the link to the session's worker was lost" }),
             ]

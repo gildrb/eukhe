@@ -2,7 +2,7 @@
 //!
 //! Ported from `core/kernel/shared.ts`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -514,6 +514,24 @@ pub struct KernelSnapshotConfig {
     pub debounce_ms: Option<u64>,
 }
 
+/// The credential names a local kernel keeps in its environment
+/// (`startup::child_env`, laws (G3)): the variables the user's own MCP
+/// config reads a credential from (an HTTP server's `bearerTokenEnvVar`,
+/// a stdio server's `{"env": NAME}` references, an `mcp:*` api key in
+/// `auth.json` that names a set variable). The kernel's MCP client reads
+/// them from its environment. Every other credential name is stripped, and
+/// a provider credential is stripped even when kept. Empty by default: the
+/// `bash` tool's external steps keep no credential.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeptCredentials(pub(crate) BTreeSet<String>);
+
+impl KeptCredentials {
+    #[must_use]
+    pub fn new(names: impl IntoIterator<Item = String>) -> Self {
+        Self(names.into_iter().collect())
+    }
+}
+
 /// Options for constructing a [`ReplKernelManager`].
 #[derive(Clone, Default)]
 pub struct KernelManagerOptions {
@@ -537,6 +555,8 @@ pub struct KernelManagerOptions {
     /// Where the kernel runs: a local child process (the default) or under
     /// a wrapper (a container, a VM, a remote host).
     pub transport: crate::kernel::transport::KernelTransport,
+    /// The credential names a local kernel keeps in its environment.
+    pub kept_credentials: KeptCredentials,
 }
 
 /// Shutdown options: whether to flush a final namespace snapshot and drain

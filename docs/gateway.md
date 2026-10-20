@@ -151,10 +151,17 @@ the agent.
 
 > [!WARNING]
 > A Signal message runs tools on this machine with your user permissions.
-> There is no approval step.
+> There is no approval step: while only the gateway is attached to the
+> session, each step that would ask for approval runs at once.
 
 - Only Note to Self and the numbers in `allow` reach the agent. The gateway
   ignores all other senders.
+- A step that writes eukhe's own files (its config and credentials, a `.git`
+  or `.eukhe` dir, a `PATH` dir) or reads or writes a secret (ssh keys,
+  credential stores) never runs from the phone. The agent gets a refusal at
+  once and can tell you to run the step from the TUI or the dashboard. When
+  the TUI or the dashboard is attached to the same session, it gets the
+  approval question instead (docs/tools.md G5).
 - Keep `allow` short. Each number in it can run commands on this machine.
 - Protect the phone with a screen lock. Anyone with the open phone can use
   the agent.

@@ -133,9 +133,9 @@ pub use agent_relay::AgentRelayEvent;
 pub use chat_turn_wait::CHAT_TURN_WAIT_NOTICE;
 pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
-    AdmissionPriority, AgentPeerScope, CycleDirection, DaemonCommand, DaemonCommandEnvelope,
-    DaemonCommandFrameType, DaemonCommandWire, DaemonSessionLifecycle, ForkPosition, PromptInput,
-    StreamingBehavior,
+    AdmissionPriority, AgentPeerScope, CycleDirection, DaemonClientKind, DaemonCommand,
+    DaemonCommandEnvelope, DaemonCommandFrameType, DaemonCommandWire, DaemonSessionLifecycle,
+    ForkPosition, PromptInput, StreamingBehavior,
 };
 pub use cvar::{CvarFailureData, CvarFailureKind, CvarReply, CvarValue};
 pub use memory::{

@@ -232,12 +232,6 @@ async fn each_restore_notice_shows_once_across_reconnects() {
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
-    // The cell runs unasked: no client answers a shell approval.
-    std::fs::write(
-        agent_dir.join("config.cfg"),
-        "set shell.autoEffects read,exec\n",
-    )
-    .expect("config.cfg");
     let socket = dir.path().join("daemon.sock");
     // The in-process TUI reads the same agent dir as the daemon.
     std::env::set_var("EUKHE_CODING_AGENT_DIR", &agent_dir);

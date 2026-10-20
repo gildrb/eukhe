@@ -77,11 +77,19 @@ tools behind `dyn`, the internal URLs and the shell.
    runs `grep` on the ripgrep engine (`grep-regex`, `grep-searcher`). It
    starts all other commands, and these commands with options it does not
    know, as external processes. Each external process gets its own
-   process group and the same environment as a local kernel: the
-   environment of the daemon worker, with the session values on top
-   (`EUKHE_CODING_AGENT_DIR`, and `EUKHE_CHAT_MEMORY` in a chat-memory
-   session). One function (`kernel::manager::local_env` over
-   `durable::rlm::session_env`) makes this environment for both. The
+   process group and this environment: the environment of the daemon
+   worker, with the session values on top (`EUKHE_CODING_AGENT_DIR`, and
+   `EUKHE_CHAT_MEMORY` in a chat-memory session), less each credential
+   (`kernel::manager::local_env` over `durable::rlm::session_env`). A
+   credential is a provider credential that the provider code reads
+   (`eukhe_ai::env_api_keys::credential_env_vars`, in any case), or a name
+   whose upper case contains `API_KEY`, `APIKEY`, `TOKEN`, `SECRET`,
+   `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `PRIVATE_KEY` or
+   `ACCESS_KEY`. A local kernel gets the same environment, but it keeps the
+   credentials that the MCP config of the user reads (a `bearerTokenEnvVar`,
+   a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that
+   names a variable). It never keeps a provider credential. The laws (G3)
+   in `laws/child_env.bend` state this. The
    commands of a pipeline run at the same time. OS pipes connect them, and
    the pipe buffer of the kernel limits each pipe. When a command stops,
    its input pipe closes. The command that writes to that pipe then stops
@@ -103,11 +111,33 @@ tools behind `dyn`, the internal URLs and the shell.
    bounded output) through the job-settled wake, the same as a detached
    cell. The kill of the job stops the script and kills the process group
    of each running external process; the job then settles `killed`.
-8. Each step has one effect: read, write, exec or net. A table in
-   `eukhe-shell` (`effect.rs`) gives the effect from the command name, the
-   `git` subcommand and some options. A command that is not in the table
-   has the effect exec. A read step only reads. These rules make sure of
-   that:
+8. Each step has a set of effects: read, write, exec, net, outside,
+   protected and secret. A table in `eukhe-shell` (`effect.rs`) gives the
+   effects of the command from its name, the `git` subcommand and some
+   options. A command that is not in the table has the effect exec. Each
+   redirection adds the effects of its target: a write to a path inside
+   the workspace is write, outside it write and outside, to a protected
+   path (S7 G1: eukhe's own settings and credentials, a `.git` directory,
+   a directory on `PATH`, an ancestor of a protected or secret entry)
+   write and protected; a read of a secret (ssh keys, credential stores)
+   is read and secret. The paths that a step names add effects too: a
+   word that is a secret or holds one (`cat ~/.ssh/id_ed25519`,
+   `grep -r KEY ~`) adds secret; for a command that writes, a word
+   outside the workspace adds outside and a protected word adds
+   protected. The working directory adds secret, when it holds a secret,
+   only to a command that reads it because it names no path of its own:
+   `ls`, `du`, `find` with no starting point, `rg` (the first operand is
+   the pattern unless `-e`, `-f`, `--regexp`, `--file` or `--files`
+   gives it), `grep -r`/`-R` (the same), `git ls-files`, and `git grep`
+   with no pathspec after `--` (an operand before `--` may be a
+   revision). An option whose value may be the next word takes it, so
+   the count of paths errs low. `echo hi`, `date` or `git -C repo log`
+   in the home dir has no secret effect; `ls` or `rg x` there has. Every
+   other command in the table reads only what it names or its input; a
+   command that is not in the table is exec. A script outside the
+   grammar is one step with exec and every effect of every command it
+   holds (subshells, command substitutions, pipelines inside control
+   flow). A read step only reads. These rules make sure of that:
    - A program name with `/` (`./cat`, `bin/stat`, `/usr/bin/rm`) is
      exec. The shell runs that file, whatever its name.
    - A step with an assignment (`PATH=./bin stat f`, `X=1`) is exec, and
@@ -117,9 +147,32 @@ tools behind `dyn`, the internal URLs and the shell.
    - `git`: before the subcommand, only `-C DIR` and options that set no
      configuration and no program (`--no-pager`, `-P`, the pathspec
      options, `--no-optional-locks`, `--no-replace-objects`) are allowed.
-     Any other option (`-c`, `--config-env`, `--exec-path`, `--git-dir`)
-     is exec. A read subcommand with `--output` is write. `git grep` with
-     `-O` or `--open-files-in-pager` is exec.
+     Any other option (`-c`, `--config-env`, `--exec-path`, `--git-dir`,
+     `-p`) is exec. A repository's configuration can make git run a
+     program: the filesystem monitor, hooks, a pager, clean filters,
+     external diff and textconv drivers, signature programs, ssh commands
+     and credential helpers. Thus only these subcommands are read:
+     `cat-file`, `count-objects`, `describe`, `for-each-ref`, `grep`,
+     `log`, `ls-files`, `ls-tree`, `merge-base`, `name-rev`, `rev-list`,
+     `rev-parse`, `shortlog`, `show`, `show-ref`, `version`, `diff
+     --cached`, `branch` and `symbolic-ref` that only show. `branch`,
+     `symbolic-ref`, `update-ref` and `init` that change refs are write.
+     The shell runs each of these with `GIT_UNTRUSTED_REPO_ARGS`
+     (`eukhe-shell`, also used by eukhe's own git probes: no fsmonitor, no
+     hooks, no signature check, no pager, no fetch of missing objects),
+     and `diff`, `log`, `show` with `--no-ext-diff --no-textconv`. Each of
+     them is exec with `--textconv`, `--ext-diff`, `--filters`, a
+     signature option or format (`%G`, `signature`, a `pretty.<name>`
+     alias), `describe --dirty`/`--broken`, `ls-files -m`, `grep -O`,
+     `branch --edit-description`. Every other subcommand is exec:
+     `status`, `diff` of the work tree, `blame` and `add` hash work-tree
+     files through the clean filters, which no argument can switch off;
+     `commit`, `merge`, `rebase -x`, `bisect run`, aliases run commands. A
+     subcommand that talks to a remote (`clone`, `fetch`, `ls-remote`,
+     `pull`, `push`, `submodule`) is net and exec. A read subcommand with
+     `--output` is also write.
+   - `curl` with an option that writes a file (`-o`, `-O`, `-D`, `-c`,
+     `-K`, `--output`, ...) is net and write; `wget` is net and write.
    - `sed`: each script must be a known-safe form, else the step is exec.
      A safe script has only the commands `p P d D q Q = n N g G h H x { }`,
      `s` with the flags `g i I m M p` and a number, and `y`. Each command
@@ -142,28 +195,58 @@ tools behind `dyn`, the internal URLs and the shell.
    accept each prefix of the option name. An option letter in a group of
    short options (`-uo`) counts.
 
-   A redirection to a file changes a read step to a write step. A step
-   whose effect is in the auto set runs immediately. The auto set is the
-   Local cvar `shell.autoEffects` (S4): a list of effect names, default
-   `["read"]`. A name that is not an effect is a typed error when the
-   value is set. The cvar is an execution gate, so an untrusted project
-   cannot set it. For each other step, the host asks the user before the
-   step runs. The worker sends a `shell_approval` frame to the attached
+   A step runs immediately only when each of its effects is in the auto
+   set. The auto set is the Local cvar `shell.autoEffects` (S4): a list of
+   effect names from read, write, exec and net, default all four
+   (`["read", "write", "exec", "net"]`, law `default_auto_is_grantable`).
+   Outside, protected and secret are never in it: a step with one of them
+   always asks (law `never_auto_is_routed`). A user who narrows the auto
+   set is asked about the steps it no longer holds. A name that is not
+   one of the four is a typed error when the value is set. The cvar is an
+   execution gate, so an untrusted project cannot set it. For each other
+   step, the host asks the user
+   before the step runs. The question shows the step exactly as it runs:
+   each control or bidi character in a word is escaped (`$'…'`), and the
+   prompt keeps each line whole; Enter alone answers no. The worker
+   sends a `shell_approval` frame (`effects`: the names) to the attached
    clients. The first `answer_shell_approval` (approve or deny) is the
-   answer. If no client is attached, or if all clients detach, there is no
-   answer. No answer is a denial. The shell asks about the steps of a
-   pipeline in order before any of them runs. A denial stops the script at
-   that step. The steps before it ran, and their changes stay. The denied
-   step, the other steps of its pipeline and all later steps do not run.
-   The result gives the output and the exit status of each step that ran.
-   It also tells how the script ended: finished, exited, or refused at
-   step N (`denied` or `unanswered`). Shell state (`cd`, `export`) lasts
-   for one call only. The kernel `bash()` in `ipython` is not gated. The
-   reason: a cell is arbitrary Python, and Python can start any process
-   without `bash()` (`subprocess`, `os.system`). A gate on `bash()` would
-   thus not stop an effect; it would only seem to. Also, `bash()` gives a
-   live process handle (pid, kill, tail, background notices) that an
-   in-process shell cannot give. The `bash` tool is the gated surface.
+   answer. The phone gateway (`eukhe gateway`) shows no question. A
+   session whose only attached clients are the gateway asks no one: it
+   runs the step at once, but it refuses at once a step with the effect
+   protected or secret (the gateway rule, G5). If a TUI or the dashboard
+   is attached too, that client gets the question. If no client is
+   attached, or if all clients detach without an answer, a subagent's
+   session hands the question to its parent, up to the root (G5); a root
+   has no one to ask, and there is no answer. No answer is a denial. The
+   shell asks about the steps of a pipeline in order before any of them
+   runs. A denial stops the script at that step. The steps before it ran,
+   and their changes stay. The denied step, the other steps of its
+   pipeline and all later steps do not run. The result gives the output
+   and the exit status of each step that ran. It also tells how the
+   script ended: finished, exited, or refused at step N (`denied`,
+   `unanswered` or `gateway_refused`). The text of a refused step, of a
+   cell that did not run and of a document access that did not run comes
+   from one renderer (`durable/shell.rs` `RefusalText`): what failed, then
+   the model's next step, as `<what failed>. <next step>.`. Denied: do not
+   try it again unless the user asks for it. Unanswered: ask the user to
+   attach a client, or to allow its effect in `shell.autoEffects` if that
+   is write, exec or net; or use read-only steps. Gateway refused: ask the
+   user to run it from the eukhe TUI or the dashboard. Shell state (`cd`,
+   `export`) lasts for one call only.
+
+   The `ipython` tool is gated too. A cell is arbitrary Python: it can
+   start any process (`subprocess`, `os.system`, the kernel `bash()`).
+   Thus each cell is one step with the effect `exec`. A cell runs
+   immediately only when `exec` is in `shell.autoEffects`, as it is by
+   default. Else the host asks the user with the same `shell_approval`
+   frame: request id `<call>:cell`, step 0, the code as the command
+   (control and bidi characters escaped), effects `["exec"]`. The host
+   asks before it starts the kernel, starts a job or starts the blocking
+   budget. If the user denies, or no client is attached, or no answer
+   comes, the cell does not run and the model gets the refusal's text
+   (`ipython did not run (exec): ` and the text above). The `bash()`
+   calls and the host requests of a cell run inside the cell that the
+   gate let run; they do not ask again.
 9. Remote reads (`ssh://`). An `ssh://` read is new outbound traffic, so
    it is off by default:
    1. The host must be in the setting `ssh.hosts` (a list of strings;
@@ -251,9 +334,9 @@ drives a real registry with its roster fixed, a `ToolSurface` and
 also asked to drop the roster), requests resolved as the Harness resolves
 them, and schemas built twice. `bend/bridge_paths.bend` compares
 `Url::names` with the model `resolve` and `stays`; `Url::remote` walks
-with the same `walk`. `bend/bridge_shell.bend`
-compares the gate of `eukhe-shell`
-(`run::tests::the_gate_runs_as_its_model`) with the model `exec`.
+with the same `walk`. `bend/bridge_shell.bend` compares the gate of
+`eukhe-shell` (`run::tests::the_gate_runs_as_its_model`) with the model
+`join` and `exec` (see G2).
 Regression tests:
 `harness::tests::registry::a_fixed_roster_rejects_every_change_of_the_tools_the_model_sees`,
 `durable::tool_surface::tests` (an open session over two turns: every
@@ -348,11 +431,13 @@ judge a path differently.
    The question goes through the approval sink of a `bash` step: the
    `shell_approval` frame, with the verb and the real path as the command
    (`write /path`), and the effects. When the user approves, the access
-   runs. When the user denies, or no answer comes, the access does not
-   run, and the model gets the reason. When no client can answer (the
-   session has no approval sink), the gate does not ask: each access that
-   must ask does not run, and the model gets an error that names the
-   effects that need the approval of the user.
+   runs. When the user denies, or no answer comes, or the gateway rule
+   refuses it (G5), the access does not run, and the model gets the
+   refusal's text (S7 item 8), opened by the access's effects
+   (`(write+outside) it needs the user's approval, …`). When no client can
+   answer (the session has no approval sink), the gate does not ask: each
+   access that must ask does not run, and the model gets the unanswered
+   refusal's text, opened the same way.
 7. A write occurs on the real path. The writer locks the real path, then
    resolves the path again. When the real path changed (a symlink was
    made or moved), the write stops, and nothing is written. A replaced
@@ -402,3 +487,191 @@ protected or secret file after the writes (`Pp.guarded` of `Pp.run`: law
 and `path_policy::tests` in `eukhe-types`. Not modelled: a change of the
 filesystem between the gate and the lock (the writer checks it), and the
 file modes.
+
+### G2. Shell classification
+
+A step's effects are a set: every effect of every part of it (S7 item
+8). The gate runs a step without a question only when the whole set is
+within the auto set; outside, protected and secret are never within it.
+By default the auto set holds every grantable effect (read, write, exec,
+net; law `default_auto_is_grantable`, G5), so only a step with outside,
+protected or secret asks.
+A step has secret only when one of its parts names a path that is or
+holds a secret (an operand, an option value, a redirection target, the
+working directory of a command that reads it because it names no path).
+
+Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
+`within`, `join`, `Part{own, secret}`, `part.effs`, `parts.effs`,
+`parts.secret`, `exec`). Laws: `laws/shell_classification.bend` (alias
+`Sg`). Proofs: `bend/proof_shell.bend`.
+
+| Law | Says |
+| --- | --- |
+| `step_holds_every_part` | A step made of parts has every effect of every part. |
+| `secret_needs_a_secret_path` | A step has secret only when one of its parts names a path that is or holds a secret: a step whose parts name none has no secret. |
+| `secret_path_gives_secret` | A part that names a path that is or holds a secret gives its step secret. |
+| `auto_needs_every_effect` | A step with one effect that is not in the auto set, or that no auto set may hold, does not run without a question. |
+| `auto_never_sensitive` | A step with outside, protected or secret never runs without a question, whatever the auto set holds. |
+| `composed_needs_every_part` | A step made of parts runs without a question only when every effect of every part is within the auto set. |
+| `auto_runs_within` | A step whose effects are within the auto set runs and uses no answer. |
+| `held_needs_a_yes` | A step whose effects are not within the auto set does not run without a yes; the script stops there. |
+
+Code: `eukhe-types/src/shell.rs` (`ShellEffect`, `ShellEffects`,
+`AutoSet`), `eukhe-shell/src/effect.rs` (`classify`,
+`GIT_UNTRUSTED_REPO_ARGS`, `reads_cwd`), `run.rs` (`Shell::effects`,
+the parts of a script outside the grammar from `parse::parts`),
+`shown.rs` (`quote`, `visible`), `eukhe-tui/src/confirm.rs`
+(`ConfirmPanel::approval`). Tie: `run::tests::the_gate_runs_as_its_model`
+builds steps from parts whose effects and secret paths the path classes
+of a temp workspace fix (reads of a secret, writes outside and to a
+protected tree, redirections, scripts outside the grammar), in the
+workspace or in the dir above it, which holds a secret (`echo` and
+`date` there have no secret part; `ls` and `grep -r` have one for the
+working directory), runs them with random auto sets (outside, protected
+and secret in them too) and answers, and compares the steps that ran
+with their effects and the end with `bend/bridge_shell.bend`. Every
+command and redirection kind runs in each directory. Regression tests:
+`every_effect_of_a_step_must_be_allowed`,
+`only_a_step_that_reads_its_working_directory_reads_a_secret_in_it`,
+`effect::tests::a_command_reads_the_working_directory_only_when_it_names_no_path`,
+`effect::tests::a_git_step_that_can_run_a_repository_program_is_exec`,
+`a_git_step_that_is_not_exec_runs_with_the_untrusted_repository_arguments`,
+`shown::tests::a_hidden_character_is_escaped_and_bash_reads_the_word_back`,
+`confirm::tests::an_approval_answers_no_on_enter_and_keeps_every_line`.
+Not modelled: which paths a command reads or writes (every word counts;
+the working directory only by `reads_cwd`), and what an exec step does
+once approved.
+
+### G4. Every runner of code goes through the gate
+
+A tool that runs code declares a `Runner` in its registration (`extra`):
+its caps (each effect that its code can have) and how the gate covers it
+(`EachStep`: `bash`; `EachCall`: `ipython`). A tool that declares no
+`Runner` runs no code of its own. A `Runner` is always gated: Rust cannot
+write an ungated one.
+
+Model: `bend/runners.bend` (`registry`, the tools that a default session
+installs, in install order; `cell`, the gate of one call). Laws:
+`laws/runners.bend` (alias `Ru`). Proofs: `bend/proof_runners.bend`.
+
+| Law | Says |
+| --- | --- |
+| `gate_covers_every_runner` | Each tool of the registry whose caps hold `exec` is gated. |
+| `ipython_gated_each_call` | `ipython` has the caps `exec` and the gate covers each call. |
+| `cell_runs_only_within_or_approved` | A gated call runs only when its caps are within the auto set or the user approves it. |
+| `cell_within_runs_unasked` | A call whose caps are within the auto set runs, and does not ask. |
+| `cell_approved_runs` | A call outside the auto set that the user approves runs. |
+| `cell_no_yes_stops` | A call outside the auto set without approval (a denial, no answer, no client) does not run. |
+| `cell_exec_asks` | Code that can run a program is never within an auto set without `exec`. |
+
+Code: `eukhe-core/src/durable/runner.rs` (`Runner`, `Gate`),
+`durable/rlm/tool.rs` (the `ipython` gate), `durable/shell.rs` (the
+`bash` runner). Tie: `durable::runner::tests` with
+`bend/bridge_runners.bend`. `the_registry_is_its_model` dumps every tool
+of an opened session (name, caps, gate) and compares it with `registry`.
+`the_ipython_gate_runs_as_its_model` runs one real `ipython` call for
+each auto set and asker (no client, no answer, deny, approve) and
+compares whether it asked and how it ended with `cell`. Regression test:
+`a_cell_runs_only_within_the_auto_set_or_approved`. Not modelled: the
+dynamic tools behind `dyn` (MCP tools, `remote/<name>` functions of the
+kernel).
+
+### G5. A child's question reaches its root's user; the phone never waits
+
+A subagent session (an RLM child) runs in its own worker and has no
+client of its own, so its gated steps (S7 item 8: `bash` steps, `ipython`
+cells) must ask the user of its root session. A session whose question no
+client answers, because none is attached or all detach without an
+answer, hands it to its parent session: the daemon command
+`relay_shell_approval` (the parent's persisted session id, the request,
+and `agent`, the name of the subagent that asks), which the supervisor
+routes to the parent's worker like a turn-long wait. The parent asks its
+own clients with a `shell_approval` frame that carries `agent`, or hands
+the question on to its own parent. The first session up the chain whose
+clients answer gives the answer (`{"answer": "approve" | "deny" |
+"unanswered" | "gateway_refused"}`); when the root has no client that
+answers, the answer is `unanswered` (a denial, with the usual message to
+the model). The TUI's prompt names the subagent (`Subagent <name> asks:
+allow shell step N (<effects>)?`), with the characters of the name that a
+terminal hides or moves escaped. A frame without `agent` is the session's
+own question.
+
+A client tells its kind when it attaches (`clientKind`: `interactive`,
+the default, or `gateway`). The phone gateway attaches as `gateway`: it
+shows no question, so a session must never wait for its answer. A session
+whose attached clients are all gateways asks no one and answers at once
+by the gateway rule: a step with the effect protected (a write of eukhe's
+own config or credentials, a `.git` or `.eukhe` dir, a `PATH` dir) or
+secret is refused (`gateway_refused`), and every other step runs. The
+bash result, the `ipython` result and the document tools' error tell the
+model that the session runs only from the phone gateway and that the user
+must run the step from the TUI or the dashboard. A subagent's question
+that reaches such a session gets the same answer. When a TUI or the
+dashboard is attached beside the gateway, that client gets the question;
+if all of them detach without an answer while the gateway stays, the
+gateway rule answers.
+
+The auto set comes first: a step within it runs, and no one is asked
+(`gate`). The auto set of a session whose user sets none holds every
+grantable effect: read, write, exec and net. A step with outside,
+protected or secret is never within any auto set, so its question goes
+the route above: a TUI or the dashboard is asked, and from the phone
+alone a write outside the workspace runs by the gateway rule while a
+protected write or a secret is refused.
+
+Model: `bend/approvals.bend` (`route`, a chain of sessions from the one
+that asks up to its root: no client, clients that leave, clients that
+answer, the gateway alone, clients that leave while the gateway stays;
+`fate`, what becomes of a step with given effects; `default_auto`;
+`gate`, the auto set before the route). Laws:
+`laws/approvals.bend` (alias `Ap`). Proofs: `bend/proof_approvals.bend`.
+
+| Law | Says |
+| --- | --- |
+| `child_answered_by_root` | When no session below the root has clients that answer, a subagent's question reaches the root's clients, and their answer is the verdict. |
+| `nearest_answer_wins` | The first session up the chain whose clients answer gives the verdict, whatever the sessions above it. |
+| `unanswered_only_when_quiet` | A question is unanswered (a denial) only when no session of the whole chain has clients that answer. |
+| `quiet_is_unanswered` | Then it is unanswered: no session invents an answer. |
+| `gateway_never_waits` | A step of a session whose only clients are the phone gateway never waits: no client gets a frame, the question does not go up the chain, and the session's gateway rule answers at once. |
+| `gateway_refuses_protected` | The gateway rule refuses a step that writes a protected path. |
+| `gateway_refuses_secret` | The gateway rule refuses a step that reads or writes a secret. |
+| `gateway_runs_the_rest` | The gateway rule runs every other step unasked. |
+| `left_to_the_gateway` | A question the interactive clients leave unanswered while the gateway stays falls to the gateway rule, not up the chain. |
+| `gateway_rules_a_subagent` | A subagent's question that reaches a session whose only clients are the gateway fares as that session's own step. |
+| `default_auto_is_grantable` | The auto set of a session whose user sets none holds exactly the grantable effects: read, write, exec and net. |
+| `never_auto_is_routed` | A step with outside, protected or secret never runs unasked through the auto set, in any session: its question goes its route. |
+| `never_auto_asks_the_client` | In a session whose client answers (the TUI, the dashboard), such a step asks that client, and its answer decides. |
+| `outside_runs_only_by_the_gateway` | From the phone alone, a write outside the workspace that is not protected and touches no secret runs, and only by the gateway rule. |
+| `guarded_refused_from_the_phone` | From the phone alone, a protected write or a secret is refused at once, whatever the auto set. |
+
+Code: `eukhe-daemon/src/shell_approval.rs` (`ShellApprovals::ask`,
+`relay`), `worker.rs` (the relay over the supervisor link),
+`supervisor/routing.rs` (the relay's budget), `eukhe-tui/src/session_ui/
+settings.rs` (the prompt), `worker/connection.rs` (the client kind at
+attach), `eukhe-gateway/src/link.rs` (the gateway attaches as
+`gateway`), `eukhe-core/src/settings/cvar/table.rs` (`SHELL_AUTO_EFFECTS`,
+the default auto set). Ties: `shell_approval::bridge::
+the_approval_route_is_its_model` with `bend/bridge_approvals.bend` runs
+every chain of up to 3 sessions with a write, a run of a program, a
+protected write and a secret read, and generated longer ones, on real
+`ShellApprovals`, each relaying through its parent's real handler, and
+compares which sessions showed the question, whether each frame names
+the subagent, and how it ended. `durable::shell::tests::
+the_default_auto_set_is_its_model` reads the real auto set of a session
+whose user sets none and compares, with the same model, the effects it
+holds and whether the gate runs each of the 127 steps of one to seven
+effects unasked. Regression tests:
+`with_no_auto_set_only_the_write_outside_the_workspace_asks` (no client:
+a write and a run of a program run, a write outside the workspace stops
+the script unanswered),
+`rlm_child_approval_e2e::a_subagent_step_runs_when_the_root_client_approves`
+(a real supervisor, a root with an attached client, a subagent whose
+`bash` step writes under an auto set of `read`) and
+`shell_approval_e2e::a_phone_only_session_runs_steps_unasked_and_refuses_a_protected_write`
+(a real supervisor and a client attached as `gateway`, under an auto set
+of `read`: a write and a run of a program run unasked by the gateway
+rule, a write of `.eukhe/settings.json` is refused at once with the
+gateway message). Not modelled: the supervisor's routing of
+the command (a parent whose worker is not resident is not asked; the
+question is then unanswered), a client attaching while a question waits
+above it. The dashboard shows a subagent's question without its name.

@@ -30,11 +30,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eukhe_docs::{Access, AccessGate};
+use eukhe_shell::Refusal;
 use eukhe_types::path_policy::{PathClass, PathPolicy, PathRule, RealPath};
-use eukhe_types::shell::{AutoSet, ShellApprovalRequest, ShellEffects, ShellVerdict};
+use eukhe_types::shell::{AutoSet, ShellApprovalRequest, ShellEffects};
 
 use super::deps::ShellApprovalSink;
 use super::settings::EukheSettings;
+use super::shell::RefusalText;
 use crate::settings::{CONFIG_DIR_NAME, PROFILE_DIR};
 
 /// The credential stores other programs keep in the home dir: ssh keys,
@@ -180,11 +182,11 @@ impl AccessGate for DocumentsGate {
         if self.auto.allows(effects) {
             return Ok(());
         }
+        // The effects open the refusal, as a `bash` step's stop line names
+        // them: the model learns which effect needs the user's approval.
+        let refused = |refusal: RefusalText| Err(format!("({}) {refusal}", effects.names()));
         let Some(sink) = &self.sink else {
-            return Err(format!(
-                "a {} of this path needs the user's approval, and no client can answer",
-                effects.names()
-            ));
+            return refused(RefusalText::of(Refusal::Unanswered));
         };
         let step = self.asked.fetch_add(1, Ordering::Relaxed);
         let verb = match access {
@@ -199,11 +201,7 @@ impl AccessGate for DocumentsGate {
             command: eukhe_shell::visible(&format!("{verb} {}", real.path().display())),
             effects,
         };
-        match self.runtime.block_on(sink(request)) {
-            Some(ShellVerdict::Approve) => Ok(()),
-            Some(ShellVerdict::Deny) => Err("the user denied it".to_owned()),
-            None => Err("no one answered the approval".to_owned()),
-        }
+        RefusalText::of_answer(self.runtime.block_on(sink(request))).map_or(Ok(()), refused)
     }
 }
 

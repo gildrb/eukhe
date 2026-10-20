@@ -35,6 +35,7 @@ use crate::durable::{
 };
 use crate::kernel::state_snapshot::manifest_path_in;
 use eukhe_types::job::{CellStatus, JobId, JobSettled};
+use eukhe_types::shell::ShellAnswer;
 
 pub(crate) fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -73,7 +74,9 @@ impl Fixture {
         self.open_configured(|_| {}).await
     }
 
-    /// Open with `configure` applied to the config last.
+    /// Open with `configure` applied to the config last. The session's
+    /// approver approves every question (an `ipython` cell asks unless
+    /// `exec` is in the auto set).
     pub(crate) async fn open_configured(
         &self,
         configure: impl FnOnce(&mut SessionConfig),
@@ -95,6 +98,9 @@ impl Fixture {
             }
             .into(),
         );
+        config.shell_approval = Some(Arc::new(|_request| {
+            std::future::ready(ShellAnswer::Approve).boxed()
+        }));
         configure(&mut config);
         open_session(config, cx()).await.expect("session opens")
     }
@@ -110,7 +116,7 @@ impl Fixture {
     }
 }
 
-fn ipython(call_id: &str, code: &str) -> FauxResponseStep {
+pub(crate) fn ipython(call_id: &str, code: &str) -> FauxResponseStep {
     let Value::Object(arguments) = json!({ "code": code }) else {
         unreachable!("an object literal");
     };

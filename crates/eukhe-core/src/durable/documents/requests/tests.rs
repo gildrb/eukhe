@@ -41,7 +41,7 @@ fn registry(dir: &std::path::Path) -> HostRequestRegistry {
                 dir.join("agent"),
             )),
             sink: Some(Arc::new(|_| {
-                Box::pin(async { Some(eukhe_types::shell::ShellVerdict::Approve) })
+                Box::pin(async { eukhe_types::shell::ShellAnswer::Approve })
                     as futures::future::BoxFuture<'static, _>
             })),
         },

@@ -60,6 +60,7 @@ fn test_options(snapshot_dir: Option<&std::path::Path>) -> KernelManagerOptions 
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
         transport: eukhe_core::kernel::KernelTransport::Local,
+        kept_credentials: eukhe_core::kernel::shared::KeptCredentials::default(),
     }
 }
 

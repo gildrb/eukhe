@@ -573,6 +573,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         "answer_shell_approval",
         r#"{"type": "answer_shell_approval", "activeSessionId": "sess", "requestId": "r1", "verdict": "deny"}"#,
     ),
+    (
+        "relay_shell_approval",
+        r#"{"type": "relay_shell_approval", "activeSessionId": "sess", "request": {"requestId": "r1", "step": 0, "command": "touch a", "effects": ["write"]}, "agent": "scout"}"#,
+    ),
 ];
 
 /// The accept list is the TS list, in TS order, followed by the Rust-native
@@ -601,6 +605,7 @@ fn known_command_types_match_the_ts_list() {
                     | "tail_kernel_bash"
                     | "kill_kernel_bash"
                     | "answer_shell_approval"
+                    | "relay_shell_approval"
                     | "mark_anthropic_warning_shown"
                     | "get_chat_view"
                     | "get_memory"

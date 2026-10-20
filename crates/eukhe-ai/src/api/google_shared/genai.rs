@@ -24,6 +24,7 @@ use eukhe_types::pi_ai::{IndexMap, JsonValue};
 #[cfg(test)]
 use serde_json::json;
 
+use crate::env_api_keys::{GEMINI_API_KEY_ENV, GOOGLE_API_KEY_ENV};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 
 pub(crate) use auth::GoogleAuthOptions;
@@ -165,8 +166,8 @@ fn truthy(value: Option<&String>) -> bool {
 
 /// `getApiKeyFromEnv()`.
 fn get_api_key_from_env() -> Option<String> {
-    let google = get_env("GOOGLE_API_KEY").filter(|key| !key.is_empty());
-    let gemini = get_env("GEMINI_API_KEY").filter(|key| !key.is_empty());
+    let google = get_env(GOOGLE_API_KEY_ENV).filter(|key| !key.is_empty());
+    let gemini = get_env(GEMINI_API_KEY_ENV).filter(|key| !key.is_empty());
     google.or(gemini)
 }
 

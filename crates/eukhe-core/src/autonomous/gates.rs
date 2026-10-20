@@ -325,7 +325,7 @@ pub async fn capture_git_worktree_snapshot(cwd: &Path) -> Option<GitWorktreeSnap
 
 /// One git invocation: `None` on any non-zero exit, timeout, or truncation.
 async fn run_git(prefix: &[&str], pathspec: &[String], cwd: &Path) -> Option<String> {
-    let mut args: Vec<String> = crate::platform::process::GIT_UNTRUSTED_REPO_ARGS
+    let mut args: Vec<String> = eukhe_shell::GIT_UNTRUSTED_REPO_ARGS
         .iter()
         .chain(prefix)
         .map(std::string::ToString::to_string)

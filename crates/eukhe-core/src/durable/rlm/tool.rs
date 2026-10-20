@@ -15,6 +15,16 @@
 //! `detached` with the output so far, and the cell's end settles the job
 //! ([`super::jobs`]). A later call waits for the job within its own budget,
 //! then settles `busy` without running its code.
+//!
+//! A cell runs code that may run any program, so the approval gate covers
+//! it as one `bash` step of the effect `exec` (bend/runners.bend): it runs
+//! unasked only when `exec` is in the auto set (`shell.autoEffects`), else
+//! only after the user approves it through the session's
+//! [`ShellApprovalSink`](crate::durable::ShellApprovalSink), the question
+//! the `bash` tool asks. The gate answers before the call touches the
+//! kernel and before its budget starts: a denied or unanswered cell does
+//! not start the kernel, start a job or reach the kernel. The `bash()`
+//! calls and host requests of a cell run inside the cell the gate let run.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -35,6 +45,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_types::job::{CellStatus, JobId, JobSettled};
 use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
+use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellEffects};
 use futures::FutureExt;
 use serde_json::json;
 
@@ -43,6 +54,8 @@ use super::kernels::ConversationKernel;
 use super::RlmRuntime;
 use crate::durable::bounded_output::BoundedOutput;
 use crate::durable::jobs::{self, Job, JobEvent, JobKind, JobSpec, Wait};
+use crate::durable::runner::{Gate, Runner};
+use crate::durable::shell::{auto_set, RefusalText};
 use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
     CellJob, ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment,
@@ -57,7 +70,7 @@ use crate::kernel::ReplKernelManager;
 pub const IPYTHON_TOOL_NAME: &str = "ipython";
 
 /// The tool description.
-const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment. A cell that outlives the runtime's blocking budget keeps running as a job: the call returns its output so far, and the job's end arrives later as a `[job-settled ...]` message.";
+const IPYTHON_TOOL_DESCRIPTION: &str = "Execute Python code in a persistent Python REPL. Top-level `await` is supported. Variables, imports, and loaded data persist across calls, and are revived on a best-effort basis when a session is resumed (objects that cannot be serialized are dropped and reported). Run shell commands with `bash('cmd')` / `await bash('cmd')`. A cell runs code: it runs at once when `exec` is in the user's shell.autoEffects (the default), else only after the user approves it; a denied or unanswered cell does not run. Prefer the bash tool for reading files and running read-only commands: those run without approval. Project imports, tests, scripts, CLIs, and dependency checks should run through the target project's own environment. A cell that outlives the runtime's blocking budget keeps running as a job: the call returns its output so far, and the job's end arrives later as a `[job-settled ...]` message.";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -81,16 +94,21 @@ pub fn ipython_parameters() -> TSchema {
 }
 
 /// The `ipython` registration: sequential (the kernel is single-threaded),
-/// never replayed after a crash (a cell may have partially run).
+/// never replayed after a crash (a cell may have partially run), and a
+/// [`Runner`] of `exec` that the gate covers at each call.
 pub(crate) fn ipython_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
     let runtime = Arc::clone(runtime);
+    let runner = Runner {
+        caps: ShellEffects::of(&[ShellEffect::Exec]),
+        gate: Gate::EachCall,
+    };
     let mut registration = ToolRegistration::new(
         IPYTHON_TOOL_NAME,
         IPYTHON_TOOL_DESCRIPTION,
         ipython_parameters(),
         move |args: PiJsonValue, api: Arc<dyn ToolExecutionApi>, cx: Context| {
             let runtime = Arc::clone(&runtime);
-            async move { execute(&runtime, &args, api, &cx).await }
+            async move { execute(&runtime, runner.caps, &args, api, &cx).await }
         },
     );
     registration.execution_mode = Some(ToolExecutionMode::Sequential);
@@ -102,6 +120,7 @@ pub(crate) fn ipython_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
         ..OutputLimits::default()
     });
     registration.replay = Some(ToolReplay::Unsafe);
+    registration.extra = Some(Arc::new(runner));
     define_tool(registration)
 }
 
@@ -138,6 +157,7 @@ pub(crate) async fn call_aborted(cx: &Context) {
 #[tracing::instrument(skip_all, fields(call = api.call_id()))]
 async fn execute(
     runtime: &RlmRuntime,
+    caps: ShellEffects,
     args: &PiJsonValue,
     api: Arc<dyn ToolExecutionApi>,
     cx: &Context,
@@ -147,6 +167,33 @@ async fn execute(
         .and_then(PiJsonValue::as_str)
         .ok_or_else(|| SessionError::error("ipython tool requires a code string"))?
         .to_owned();
+    // The gate: a cell outside the auto set runs only once the user
+    // approves it. No kernel, job or budget before the answer.
+    if !auto_set(&runtime.deps.settings).allows(caps) {
+        let answer = match &runtime.deps.shell_approval {
+            Some(sink) => {
+                let request = ShellApprovalRequest {
+                    request_id: format!("{}:cell", api.task_id()),
+                    step: 0,
+                    command: eukhe_shell::visible(&code),
+                    effects: caps,
+                };
+                tokio::select! {
+                    answer = sink(request) => answer,
+                    () = call_aborted(cx) => {
+                        return Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")));
+                    }
+                }
+            }
+            None => ShellAnswer::Unanswered,
+        };
+        if let Some(refusal) = RefusalText::of_answer(answer) {
+            return Ok(error_result(format!(
+                "ipython did not run ({}): {refusal}",
+                caps.names()
+            )));
+        }
+    }
     // The runtime's one blocking budget bounds this call's waits on the
     // kernel (ADR 0010), each the one blocking wait on a job
     // ([`jobs::wait_until`]): on a detached cell still holding it, then on

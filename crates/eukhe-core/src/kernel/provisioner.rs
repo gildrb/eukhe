@@ -118,6 +118,8 @@ pub struct IpythonKernelProvisionerOptions {
     pub on_unavailable_skills: Option<UnavailableSkillsCallback>,
     /// Where the kernel runs (the session's `kernelTransport` setting).
     pub transport: crate::kernel::transport::KernelTransport,
+    /// The credential names the kernel keeps in its environment.
+    pub kept_credentials: crate::kernel::shared::KeptCredentials,
 }
 
 /// Why and how long one startup failed, published through the shared startup
@@ -1057,6 +1059,7 @@ async fn start_kernel(
         bootstrap_code: Some(bootstrap_code.clone()),
         stderr_log_path,
         transport: options.transport.clone(),
+        kept_credentials: options.kept_credentials.clone(),
     });
 
     emit_startup_progress(inner, on_progress, memo, "Starting Python kernel...");

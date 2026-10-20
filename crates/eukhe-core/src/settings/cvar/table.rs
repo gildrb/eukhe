@@ -1095,15 +1095,18 @@ pub const KERNEL_TRANSPORT: Decl = Decl {
 
 pub(crate) const SHELL_EFFECTS: &[&str] = &["read", "write", "exec", "net"];
 
-/// The effects a shell command may have without asking. An execution
-/// gate: an untrusted project may not set it and an agent never saves it.
+/// The effects a shell command may have without asking; by default every
+/// grantable effect (docs/tools.md S7 item 8, law `default_auto_is_grantable`):
+/// only a write outside the workspace, a write to a protected place and a
+/// read or write of a secret ask. An execution gate: an untrusted project
+/// may not set it and an agent never saves it.
 pub const SHELL_AUTO_EFFECTS: Decl = Decl {
     id: "shell.autoEffects",
     ty: CvarType::ChoiceList(SHELL_EFFECTS),
     scope: CvarScope::Local,
     persist: false,
     replicate: false,
-    init: Init::List(&["read"]),
+    init: Init::List(SHELL_EFFECTS),
 };
 
 /// The hosts an `ssh://` read may reach (docs/tools.md S7.5): new

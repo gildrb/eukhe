@@ -37,6 +37,7 @@ mod prompt;
 mod registry;
 mod retry_outcome;
 pub mod rlm;
+mod runner;
 pub(crate) mod session_commands;
 mod settings;
 mod shell;

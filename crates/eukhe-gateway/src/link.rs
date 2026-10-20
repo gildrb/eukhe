@@ -9,7 +9,7 @@ use anyhow::Context;
 use eukhe_tui::daemon_build::{kept_daemon_notice, Build};
 use eukhe_tui::daemon_client::{DaemonClient, DaemonClientEvent};
 use eukhe_tui::saved_sessions::{attach, create_resident, list_root_sessions, CreatedSession};
-use eukhe_types::daemon::DaemonCommand;
+use eukhe_types::daemon::{DaemonClientKind, DaemonCommand};
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, watch};
 
@@ -204,7 +204,9 @@ impl<L: DaemonLauncher> Link<L> {
             id: session_id,
             path: session_file,
         };
-        let attached = attach(&self.client, &active_session_id).await?;
+        // The gateway shows no approval question: the daemon answers a
+        // session whose only client is the gateway by the gateway rule.
+        let attached = attach(&self.client, &active_session_id, DaemonClientKind::Gateway).await?;
         let streaming = attached
             .pointer("/snapshot/state/isStreaming")
             .and_then(Value::as_bool)

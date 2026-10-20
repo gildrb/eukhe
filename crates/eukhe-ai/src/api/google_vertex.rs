@@ -21,6 +21,7 @@ use super::google_shared::{
 };
 use super::lazy::lazy_stream;
 use super::ProviderStreams;
+use crate::env_api_keys::GOOGLE_APPLICATION_CREDENTIALS_ENV;
 use crate::types::{ProviderStreamOptions, SimpleStreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -169,7 +170,7 @@ fn base_url_includes_api_version(base_url: &str) -> bool {
 }
 
 fn build_google_auth_options(env: Option<&ProviderEnv>) -> Option<GoogleAuthOptions> {
-    get_provider_env_value("GOOGLE_APPLICATION_CREDENTIALS", env)
+    get_provider_env_value(GOOGLE_APPLICATION_CREDENTIALS_ENV, env)
         .filter(|key_filename| !key_filename.is_empty())
         .map(|key_filename| GoogleAuthOptions { key_filename })
 }

@@ -14,6 +14,7 @@ use super::sdk_client::{
     AwsService, HttpReply, NestedClientConfig, PreparedRequest, RetryErrorType,
 };
 use super::{ProviderFailure, ProviderResult, Resolution};
+use crate::env_api_keys::AWS_WEB_IDENTITY_TOKEN_FILE_ENV;
 use crate::utils::diagnostics::ErrorObject;
 use crate::utils::js::number_to_js_string;
 
@@ -290,7 +291,7 @@ pub(crate) async fn from_token_file(
     let env = resolution.env;
     let token_file = init
         .web_identity_token_file
-        .or_else(|| env.var("AWS_WEB_IDENTITY_TOKEN_FILE"));
+        .or_else(|| env.var(AWS_WEB_IDENTITY_TOKEN_FILE_ENV));
     let role_arn = init.role_arn.or_else(|| env.var("AWS_ROLE_ARN"));
     let role_session_name = init
         .role_session_name

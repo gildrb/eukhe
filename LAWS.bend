@@ -41,6 +41,10 @@ import ./laws/gateway_width.bend as GatewayWidth
 import ./laws/tui_color.bend as TuiColor
 import ./laws/fsmode.bend as Fm
 import ./laws/path_policy.bend as Pg
+import ./laws/child_env.bend as Ce
+import ./laws/shell_classification.bend as Sg
+import ./laws/runners.bend as Ru
+import ./laws/approvals.bend as Ap
 
 # (a) The view
 # ------------

@@ -81,6 +81,23 @@ pub enum DaemonSessionLifecycle {
     ClientOwned,
 }
 
+/// Who an attached client is ([`DaemonCommand::Attach`] `clientKind`). A
+/// session asks its interactive clients each shell approval question. A
+/// session whose only clients are the phone gateway asks no one: it runs
+/// each gated step at once, except a step that writes a protected path
+/// or reads or writes a secret, which it refuses at once (docs/tools.md
+/// G5). An attach without the field is interactive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonClientKind {
+    /// A person at a screen that shows the questions (the TUI, the
+    /// dashboard).
+    #[default]
+    Interactive,
+    /// The Signal gateway (`eukhe gateway`): it shows no question.
+    Gateway,
+}
+
 /// `prompt`/`steer`/`follow_up`-family input payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -321,6 +338,8 @@ pub enum DaemonCommand {
         active_session_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_id: Option<DaemonClientId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_kind: Option<DaemonClientKind>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         capabilities: Option<Vec<DaemonClientCapability>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -604,6 +623,23 @@ pub enum DaemonCommand {
         active_session_id: String,
         request_id: String,
         verdict: crate::shell::ShellVerdict,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native, worker to worker over the supervisor: a subagent
+    /// session with no attached client hands one approval question to
+    /// its parent session, which asks its own clients, answers by the
+    /// gateway rule, or hands it on to its parent. The response data is
+    /// `{"answer": "approve" | "deny" | "unanswered" |
+    /// "gateway_refused"}` (a [`crate::shell::ShellAnswer`]).
+    RelayShellApproval {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// The parent session (its persisted id, else its live id).
+        active_session_id: String,
+        request: crate::shell::ShellApprovalRequest,
+        /// The subagent that asks (its session name).
+        agent: String,
         #[serde(flatten)]
         rest: JsonMap,
     },

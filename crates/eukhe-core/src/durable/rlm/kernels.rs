@@ -17,6 +17,7 @@ use super::super::{HostCall, HostDeps};
 use super::jobs::CellJobs;
 use super::CustomNotice;
 use super::{skills_unavailable_notice, state_restore_notice};
+use crate::auth::AUTH_FILE_NAME;
 use crate::kernel::bootstrap::UnavailablePythonSkills;
 use crate::kernel::provisioner::{
     IpythonKernelProvisioner, IpythonKernelProvisionerOptions, RestoreCallback,
@@ -24,10 +25,11 @@ use crate::kernel::provisioner::{
 };
 use crate::kernel::shared::{
     host_request_unavailable, HostHandlerFuture, HostRequestHandlers, HostRequestPayload,
-    KernelHostDispatch, KernelHostRequest, KernelShutdownOptions,
+    KeptCredentials, KernelHostDispatch, KernelHostRequest, KernelShutdownOptions,
 };
 use crate::kernel::state_snapshot::{manifest_path_in, snapshot_path_in, RestoreResult};
 use crate::kernel::transport::KernelTransport;
+use crate::mcp::McpServerConfig;
 
 /// Bound on the background MCP settle after a prewarm boot (one wedged
 /// server must not keep the settle task alive forever).
@@ -178,6 +180,46 @@ impl KernelPool {
             })
         };
         let env = session_env(&deps);
+        // The credential names the kernel keeps: the variables the user's
+        // own MCP config reads a credential from, as the kernel's MCP
+        // client (`rlm.mcp`, `rlm.mcp_base`) resolves them from its
+        // environment. An HTTP server's `bearerTokenEnvVar`, a stdio
+        // server's `{"env": NAME}` references, and an `mcp:*` key in
+        // `auth.json` that names a set variable. The kernel reads
+        // `auth.json` itself, without a lock, and an unreadable or invalid
+        // file gives it no credential: it gives no kept name here either.
+        let mut kept: Vec<String> = Vec::new();
+        for integration in lock(deps.mcp.as_ref()).integrations().values() {
+            match &integration.config {
+                McpServerConfig::Http {
+                    bearer_token_env_var,
+                    ..
+                } => kept.extend(bearer_token_env_var.iter().cloned()),
+                McpServerConfig::Stdio { env, .. } => kept.extend(
+                    env.iter()
+                        .flat_map(HashMap::values)
+                        .filter_map(|reference| reference.env.clone()),
+                ),
+            }
+        }
+        let auth = std::fs::read_to_string(deps.agent_dir.join(AUTH_FILE_NAME))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+        if let Some(Value::Object(credentials)) = auth {
+            kept.extend(
+                credentials
+                    .iter()
+                    .filter(|(id, _)| id.starts_with("mcp:"))
+                    .filter_map(|(_, credential)| credential.get("key")?.as_str())
+                    .map(str::trim)
+                    .filter(|key| {
+                        !key.is_empty()
+                            && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                            && std::env::var_os(key).is_some()
+                    })
+                    .map(str::to_owned),
+            );
+        }
         let dispatch = Arc::new(RegistryDispatch {
             registry: deps.host_requests.clone(),
             extra: deps.extra_host_handlers.clone(),
@@ -200,6 +242,7 @@ impl KernelPool {
                 on_restore: Some(on_restore),
                 on_unavailable_skills: Some(on_unavailable_skills),
                 transport,
+                kept_credentials: KeptCredentials::new(kept),
                 ..IpythonKernelProvisionerOptions::default()
             },
         );

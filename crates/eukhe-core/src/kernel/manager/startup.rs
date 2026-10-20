@@ -13,6 +13,9 @@ use super::{
     MAX_KERNEL_STDERR_CHARS, MAX_KERNEL_STDERR_LOG_BYTES, READY_TIMEOUT_MS, REPL_PROTOCOL_VERSION,
 };
 
+use eukhe_ai::env_api_keys::{is_credential_env_var, is_provider_credential_env_var};
+
+use crate::kernel::shared::KeptCredentials;
 use crate::kernel::transport::{KernelTransport, KernelWrapper};
 
 // ---------------------------------------------------------------------------
@@ -29,16 +32,36 @@ enum Launch<'a> {
     Wrapped(&'a KernelWrapper),
 }
 
-/// The environment of a local kernel, and of every program the host runs
-/// for an agent the same way (the `bash` tool's external steps): this
-/// process's environment with `overlay` over it.
+/// The environment of every program the host runs for an agent outside the
+/// kernel (the `bash` tool's external steps): this process's environment
+/// with `overlay` over it, less every credential name ([`child_env`] with
+/// no kept name).
 pub(crate) fn local_env(overlay: &HashMap<String, String>) -> HashMap<String, String> {
-    let mut env: HashMap<String, String> = std::env::vars().collect();
+    child_env(std::env::vars(), overlay, &KeptCredentials::default())
+}
+
+/// The environment of a child the host starts for an agent (the model is
+/// `bend/child_env.bend`, the laws are (G3) in `laws/child_env.bend`):
+/// `base` with `overlay` over it, less every credential name
+/// ([`is_credential_env_var`]) that `kept` does not hold. A provider
+/// credential ([`is_provider_credential_env_var`]) never stays, even when
+/// kept. The filter runs after the overlay, so no overlay adds a
+/// credential back.
+pub(crate) fn child_env(
+    base: impl IntoIterator<Item = (String, String)>,
+    overlay: &HashMap<String, String>,
+    kept: &KeptCredentials,
+) -> HashMap<String, String> {
+    let mut env: HashMap<String, String> = base.into_iter().collect();
     env.extend(
         overlay
             .iter()
             .map(|(key, value)| (key.clone(), value.clone())),
     );
+    env.retain(|name, _| {
+        !is_credential_env_var(name)
+            || (kept.0.contains(name) && !is_provider_credential_env_var(name))
+    });
     env
 }
 
@@ -213,7 +236,11 @@ impl Inner {
                     std::process::id(),
                     NEXT_ORPHAN_JOURNAL.fetch_add(1, Ordering::Relaxed)
                 ));
-                let mut env = local_env(&self.options.env);
+                let mut env = child_env(
+                    std::env::vars(),
+                    &self.options.env,
+                    &self.options.kept_credentials,
+                );
                 env.insert(
                     "EUKHE_KERNEL_OWNER_PID".to_string(),
                     std::process::id().to_string(),
@@ -639,6 +666,9 @@ impl Inner {
 }
 
 #[cfg(test)]
+mod bridge;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::kernel::manager::ReplKernelManager;
@@ -653,6 +683,51 @@ mod tests {
             std::env::temp_dir().join(format!("pa-stderr-perms-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    fn vars(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn no_credential_of_the_base_or_the_overlay_reaches_an_external_step() {
+        let base = vars(&[
+            ("PATH", "/bin"),
+            ("OPENAI_API_KEY", "sk-fake"),
+            ("db_password", "hunter2"),
+            ("HOME", "/home/user"),
+        ]);
+        let overlay = vars(&[
+            ("GITHUB_TOKEN", "ghp-fake"),
+            ("PATH", "/usr/bin"),
+            ("EUKHE_CODING_AGENT_DIR", "/agent"),
+        ]);
+        assert_eq!(
+            child_env(base, &overlay, &KeptCredentials::default()),
+            vars(&[
+                ("PATH", "/usr/bin"),
+                ("HOME", "/home/user"),
+                ("EUKHE_CODING_AGENT_DIR", "/agent"),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_kernel_keeps_only_the_kept_credentials_that_are_no_provider_key() {
+        let base = vars(&[
+            ("PATH", "/bin"),
+            ("OPENAI_API_KEY", "sk-fake"),
+            ("GITHUB_TOKEN", "ghp-fake"),
+            ("SLACK_SECRET", "xoxb-fake"),
+        ]);
+        let kept = KeptCredentials::new(["GITHUB_TOKEN".to_owned(), "OPENAI_API_KEY".to_owned()]);
+        assert_eq!(
+            child_env(base, &HashMap::new(), &kept),
+            vars(&[("PATH", "/bin"), ("GITHUB_TOKEN", "ghp-fake")])
+        );
     }
 
     #[test]

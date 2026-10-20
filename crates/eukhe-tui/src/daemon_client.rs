@@ -113,10 +113,12 @@ pub enum DaemonClientEvent {
     },
     /// `shell_approval`: the session's `bash` tool asks whether one step
     /// may run; the client answers with `answer_shell_approval` (the first
-    /// answer of any attached client wins).
+    /// answer of any attached client wins). `agent` names the subagent
+    /// that asks, when the question came up from one.
     ShellApproval {
         active_session_id: String,
         request: eukhe_types::shell::ShellApprovalRequest,
+        agent: Option<String>,
     },
     /// `roster_update`: live roster deltas for subscribers (the agents
     /// view): changed entries upsert by agent id, `removed` deletes, and
@@ -183,6 +185,8 @@ struct InboundFrame<'a> {
     update: Option<&'a RawValue>,
     #[serde(borrow, default)]
     request: Option<&'a RawValue>,
+    #[serde(borrow, default)]
+    agent: Option<&'a RawValue>,
 }
 
 /// The `meta` fields a session event's sequence rides on.
@@ -257,6 +261,7 @@ fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent
         "shell_approval" => decode(frame.request).map(|request| DaemonClientEvent::ShellApproval {
             active_session_id: decode_string(frame.active_session_id),
             request,
+            agent: decode(frame.agent),
         }),
         "session_list_item" => Some(DaemonClientEvent::SessionListItem {
             session: decode(frame.session).unwrap_or(Value::Null),

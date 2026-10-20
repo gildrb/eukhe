@@ -9,9 +9,15 @@
 # 3. A path. An internal URL's path is a list of segments under the root
 #    of its scheme. `..` goes up one; a path that goes above its root is
 #    rejected, never clamped.
-# 4. The approval gate. A shell script runs step by step. A step whose
-#    effect is not in the auto set runs only after the user approves it.
-#    A denial stops the script: no later step runs.
+# 4. The approval gate. A shell script runs step by step. A step has a
+#    set of effects: every effect of every part of it (its command, each
+#    redirection, each path it names; every command an external script
+#    holds). A step runs without a question only when every effect is in
+#    the auto set and may be there (read, write, exec, net); a write
+#    outside the workspace, to a protected place, or a read of a secret
+#    always asks; a step has the secret effect only when a part of it
+#    names a path that is or holds a secret. A denial stops the script:
+#    no later step runs.
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
@@ -206,30 +212,108 @@ def stays(segs: List<&2, Seg>, d: Nat) -> Bool:
 # 4. The approval gate
 # --------------------
 
-type Eff is Data:
-  Read{}
-  Write{}
-  Exec{}
-  Net{}
-
-def Eff.code(e: Eff) -> Nat:
-  match e:
-    case Read{}:
-      0n
-    case Write{}:
-      1n
-    case Exec{}:
-      2n
-    case Net{}:
-      3n
-
+# Effect codes: 0 read, 1 write, 2 exec, 3 net (an auto set may hold
+# these), 4 outside, 5 protected, 6 secret (an auto set that holds one
+# of these has no effect for it). A step: its id and its effects.
 type Step is Data:
-  Step{id: Nat, eff: Eff}
+  Step{id: Nat, effs: List<&2, Nat>}
 
-def Step.code(s: Step) -> Nat:
+def Step.effs(s: Step) -> List<&2, Nat>:
   match s:
     case Step{i, e}:
-      Eff.code(e)
+      e
+
+# an auto set may hold effect c: read, write, exec or net
+def grantable(c: Nat) -> Bool:
+  match c:
+    case 0n:
+      True{}
+    case 1n+a:
+      match a:
+        case 0n:
+          True{}
+        case 1n+b:
+          match b:
+            case 0n:
+              True{}
+            case 1n+d:
+              match d:
+                case 0n:
+                  True{}
+                case 1n+e:
+                  False{}
+
+# every effect of effs may be in an auto set and is in auto
+def within(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
+  match effs:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(grantable(c), elem(auto, c)), within(rest, auto))
+
+# the effects of a step made of parts: every effect of every part
+def join(ps: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      List.append(&2, Nat, p, join(rest))
+
+# A part of a step: its own effect codes (the command's from the table,
+# a redirection's from its target's class) and whether it names a path
+# that is or holds a secret (an operand, an option value or a redirection
+# target; the working directory only for a command that reads it because
+# it names no path of its own). Only a named secret path gives the secret
+# effect (6): the table and a class give the other codes.
+type Part is Data:
+  Part{own: List<&2, Nat>, secret: Bool}
+
+def Part.secret(p: Part) -> Bool:
+  match p:
+    case Part{o, s}:
+      s
+
+# c, unless drop
+def plain.add(drop: Bool, c: Nat, acc: List<&2, Nat>) -> List<&2, Nat>:
+  match drop:
+    case True{}:
+      acc
+    case False{}:
+      c <> acc
+
+# the codes of cs that are not secret (6)
+def plain(cs: List<&2, Nat>) -> List<&2, Nat>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case +c <> rest:
+      plain.add(Nat.is_eq(c, 6n), c, plain(rest))
+
+# the effects of a part: its own codes, and secret when it names a secret
+# path
+def part.effs(p: Part) -> List<&2, Nat>:
+  match p:
+    case Part{o, s}:
+      match s:
+        case True{}:
+          6n <> plain(o)
+        case False{}:
+          plain(o)
+
+def parts.effs(ps: List<&2, Part>) -> List<&2, List<&2, Nat>>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      part.effs(p) <> parts.effs(rest)
+
+# some part names a path that is or holds a secret
+def parts.secret(ps: List<&2, Part>) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> rest:
+      Bool.or(Part.secret(p), parts.secret(rest))
 
 type End is Data:
   Finished{}       # every step ran
@@ -249,9 +333,9 @@ def ran.add(+s: Step, r: Ran) -> Ran:
     case Ran{ss, e}:
       Ran{s <> ss, e}
 
-# the step's effect is in the auto set
+# the step runs without a question: its effects are within the auto set
 def auto.at(+auto: List<&2, Nat>, +s: Step) -> Bool:
-  elem(auto, Step.code(s))
+  within(Step.effs(s), auto)
 
 # a gated step with answer a (True: the user approves), then the rest
 def gate(a: Bool, +s: Step, rest: Ran) -> Ran:
@@ -309,7 +393,7 @@ def step.eq(a: Step, b: Step) -> Bool:
     case Step{i, e}:
       match b:
         case Step{j, f}:
-          Bool.and(Nat.is_eq(i, j), Nat.is_eq(Eff.code(e), Eff.code(f)))
+          Bool.and(Nat.is_eq(i, j), ids.eq(e, f))
 
 # xs is a prefix of ys
 def prefix(xs: List<&2, Step>, ys: List<&2, Step>) -> Bool:

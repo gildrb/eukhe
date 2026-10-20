@@ -301,10 +301,25 @@ impl Worker {
             events.clone(),
             config.active_session_id.clone(),
         );
+        // A question no client of this session answers goes up to the
+        // parent session over the supervisor link; the user may take as
+        // long as a turn.
         let shell_approvals = crate::shell_approval::ShellApprovals::new(
             Arc::clone(&core),
             events.clone(),
             config.active_session_id.clone(),
+            Arc::new(move |command| {
+                let link = Arc::clone(&roster_link);
+                Box::pin(async move {
+                    link.request(
+                        command,
+                        std::time::Duration::from_millis(
+                            crate::supervisor::WORKER_REQUEST_TIMEOUT_MS,
+                        ),
+                    )
+                    .await
+                })
+            }),
         );
         let compaction = crate::compaction::CompactionManager::new(
             session.clone(),

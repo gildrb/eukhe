@@ -104,7 +104,9 @@ fn a_write_whose_links_looped_asks_even_when_its_real_path_is_inside() {
         (written, ws.join("x").exists()),
         (
             Err(
-                "a write+outside of this path needs the user's approval, and no client can answer"
+                "(write+outside) it needs the user's approval, and no client answered. Ask the \
+user to attach a client, or to allow its effect in shell.autoEffects if that is write, exec or \
+net; or use read-only steps."
                     .to_owned()
             ),
             false

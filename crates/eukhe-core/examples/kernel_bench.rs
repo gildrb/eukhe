@@ -102,6 +102,7 @@ fn manager_options(
         )),
         stderr_log_path: None,
         transport: eukhe_core::kernel::KernelTransport::Local,
+        kept_credentials: eukhe_core::kernel::shared::KeptCredentials::default(),
     }
 }
 

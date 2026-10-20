@@ -23,6 +23,7 @@ use eukhe_types::pi_ai::{JsonObject, JsonValue};
 use serde_json::json;
 
 use super::{append_header, has_header, HTTP_CLIENT};
+use crate::env_api_keys::GOOGLE_APPLICATION_CREDENTIALS_ENV;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::js::json_stringify;
 use crate::utils::json_parse::json_parse;
@@ -182,7 +183,7 @@ fn read_application_credentials(path: &str) -> Result<JsonValue, Thrown> {
 
 /// `getApplicationDefaultAsync()`.
 async fn application_default(signal: Option<&AbortSignal>) -> Result<AccessCredential, Thrown> {
-    let env_path = process_env("GOOGLE_APPLICATION_CREDENTIALS")
+    let env_path = process_env(GOOGLE_APPLICATION_CREDENTIALS_ENV)
         .or_else(|| process_env("google_application_credentials"));
     if let Some(path) = env_path {
         let json = read_application_credentials(&path).map_err(|cause| {

@@ -172,7 +172,7 @@ impl ServerFrame<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eukhe_types::shell::ShellEffect;
+    use eukhe_types::shell::{ShellEffect, ShellEffects};
     use serde_json::json;
 
     #[test]
@@ -355,13 +355,13 @@ mod tests {
                     request_id: "r1".to_string(),
                     step: 0,
                     command: "rm -rf build".to_string(),
-                    effect: ShellEffect::Write,
+                    effects: ShellEffects::of(&[ShellEffect::Write]),
                 }
             })
             .unwrap(),
             json!({
                 "type": "approval",
-                "request": { "requestId": "r1", "step": 0, "command": "rm -rf build", "effect": "write" },
+                "request": { "requestId": "r1", "step": 0, "command": "rm -rf build", "effects": ["write"] },
             })
         );
     }

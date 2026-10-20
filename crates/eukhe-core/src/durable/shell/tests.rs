@@ -1,8 +1,12 @@
 //! The `bash` tool under the S2 limits: its output bounded by the call's
 //! truncation (whole under the opt-out), and a script past the blocking
 //! budget detached as a job whose end settles it and whose kill stops it.
+//! The gate's refusal texts, and the default auto set against its model
+//! (`bend/approvals.bend` `default_auto`).
 
+use std::fmt::Write as _;
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +15,9 @@ use eukhe_ai::providers::faux::{
 };
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput};
 use eukhe_durable::harness::{OutputLimits, Truncation};
+use eukhe_durable::testing::bridge::{compare, Scenario};
 use eukhe_types::pi_ai::{JsonObject, StopReason};
+use eukhe_types::shell::ShellEffects;
 use serde_json::{json, Value};
 
 use super::*;
@@ -58,10 +64,16 @@ async fn transcript_of(script: &str, truncation: Truncation) -> (String, Option<
         truncation,
     ));
     let env = [("PATH".to_owned(), std::env::var("PATH").unwrap_or_default())];
+    let paths = eukhe_types::path_policy::PathPolicy::new(
+        vec![dir.path().to_path_buf()],
+        Vec::new(),
+        Vec::new(),
+    );
     let ran = Shell::new(dir.path(), env, "bash")
         .run(
             script,
-            &AutoSet::new([ShellEffect::Read]),
+            AutoSet::new([ShellEffect::Read]),
+            &paths,
             &Never,
             &transcript,
         )
@@ -250,5 +262,146 @@ async fn the_kill_of_a_detached_script_stops_it() {
         }
     );
     assert_eq!(job.ended().await, JobEnd::Killed);
+    session.close(cx()).await.expect("close");
+}
+
+/// Each answer of the approval sink that is not a yes becomes its
+/// refusal's text, and each text ends with a next step for the model.
+#[test]
+fn every_refusal_text_names_what_failed_and_the_next_step() {
+    let next = [
+        Refusal::Denied,
+        Refusal::Unanswered,
+        Refusal::GatewayRefused,
+    ]
+    .map(|refusal| RefusalText::of(refusal).next.is_empty());
+    let texts = [
+        ShellAnswer::Approve,
+        ShellAnswer::Deny,
+        ShellAnswer::Unanswered,
+        ShellAnswer::GatewayRefused,
+    ]
+    .map(|answer| RefusalText::of_answer(answer).map(|text| text.to_string()));
+    assert_eq!(
+        (next, texts),
+        (
+            [false, false, false],
+            [
+                None,
+                Some(
+                    "the user denied it. Do not try it again unless the user asks for it."
+                        .to_owned()
+                ),
+                Some(
+                    "it needs the user's approval, and no client answered. Ask the user to attach \
+a client, or to allow its effect in shell.autoEffects if that is write, exec or net; or use \
+read-only steps."
+                        .to_owned()
+                ),
+                Some(
+                    "the session runs only from the phone gateway, and from there a step that \
+writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) or \
+reads or writes a secret never runs. Ask the user to run it from the eukhe TUI or the dashboard."
+                        .to_owned()
+                ),
+            ]
+        )
+    );
+}
+
+/// The auto set of a session whose user sets no `shell.autoEffects`
+/// against its model (`bend/approvals.bend` `default_auto`, laws
+/// `default_auto_is_grantable` and `never_auto_is_routed`): the effects
+/// it holds, and for each of the 127 steps of one to seven effects
+/// whether the gate runs it unasked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_default_auto_set_is_its_model() {
+    let fixture = Fixture::new();
+    let session = fixture.open_configured(|_| {}).await;
+    let auto = auto_set(&session.deps().settings);
+    let mut events = "d\n".to_owned();
+    let mut transcript = ShellEffect::ALL
+        .into_iter()
+        .filter(|&effect| auto.allows(ShellEffects::of(&[effect])))
+        .fold("d".to_owned(), |mut line, effect| {
+            write!(line, " {}", effect.code()).unwrap();
+            line
+        });
+    transcript.push('\n');
+    for mask in 1u8..1 << ShellEffect::ALL.len() {
+        let effects: Vec<ShellEffect> = ShellEffect::ALL
+            .into_iter()
+            .filter(|&effect| mask & 1 << effect.code() != 0)
+            .collect();
+        events.push('a');
+        for effect in &effects {
+            write!(events, " {}", effect.code()).unwrap();
+        }
+        events.push('\n');
+        let gated = if auto.allows(ShellEffects::of(&effects)) {
+            "unasked"
+        } else {
+            "asks"
+        };
+        writeln!(transcript, "a {gated}").unwrap();
+    }
+    compare(
+        "bend/bridge_approvals.bend",
+        [Scenario {
+            name: "the default auto set".to_owned(),
+            events,
+            transcript,
+        }],
+    );
+    session.close(cx()).await.expect("close");
+}
+
+/// Regression: the default auto set was `read` alone, so in a session
+/// whose user set none, with no client to answer, the first write
+/// stopped the script unanswered. Now a write in the workspace and a run
+/// of a program run unasked; a write outside the workspace still asks,
+/// and unanswered it stops the script there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn with_no_auto_set_only_the_write_outside_the_workspace_asks() {
+    let fixture = Fixture::new();
+    fixture.faux.set_responses(vec![
+        bash(
+            "b1",
+            "echo one > one.txt\nsh -c 'echo two > two.txt'\necho three > ../three.txt\necho four > four.txt",
+        ),
+        text("done"),
+    ]);
+    let session = fixture
+        .open_configured(|config| config.shell_approval = None)
+        .await;
+    let id = submit(&session, "go").await;
+    tokio::time::timeout(Duration::from_millis(WAIT_MS), settle(&session, id))
+        .await
+        .expect("the turn ends");
+    let work = fixture.dir.path().join("work");
+    let read = |path: PathBuf| std::fs::read_to_string(path).ok();
+    assert_eq!(
+        (
+            results(&entries(&session).await)
+                .iter()
+                .map(result_text)
+                .collect::<Vec<_>>(),
+            read(work.join("one.txt")),
+            read(work.join("two.txt")),
+            read(fixture.dir.path().join("three.txt")),
+            read(work.join("four.txt")),
+        ),
+        (
+            vec!["$ echo one >one.txt\n$ sh -c 'echo two > two.txt'\n[stopped at step 2 \
+(read+write+outside): `echo three >../three.txt` and the steps after it did not run: it needs the \
+user's approval, and no client answered. Ask the user to attach a client, or to allow its effect in \
+shell.autoEffects if that is write, exec or net; or use read-only steps.]\n"
+                .to_owned()],
+            Some("one\n".to_owned()),
+            Some("two\n".to_owned()),
+            None,
+            None,
+        )
+    );
     session.close(cx()).await.expect("close");
 }

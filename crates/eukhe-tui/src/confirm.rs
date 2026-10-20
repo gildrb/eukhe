@@ -6,7 +6,7 @@
 use crate::keybindings::KeybindingsManager;
 use crate::menu_panel::{hint_row, key_hint, menu_row};
 use crate::theme::{Theme, ThemeColor};
-use crate::width::truncate_line;
+use crate::width::{truncate_line, wrap_line};
 use crate::Line;
 
 /// One answer to the pending question.
@@ -27,6 +27,17 @@ pub struct ConfirmPanel {
     message: Vec<String>,
     options: Vec<String>,
     selected: usize,
+    /// How a message line wider than the pane shows.
+    fit: Fit,
+}
+
+/// How a message line wider than the pane shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fit {
+    /// Cut at the pane's width.
+    Truncate,
+    /// Wrapped onto more rows: every character shows.
+    Wrap,
 }
 
 impl ConfirmPanel {
@@ -42,6 +53,21 @@ impl ConfirmPanel {
                 .collect(),
             options: vec!["Yes".to_string(), "No".to_string()],
             selected: 0,
+            fit: Fit::Truncate,
+        }
+    }
+
+    /// The Yes/No confirm of a step that may run (a `bash` step, an
+    /// `ipython` cell): every line of `message` shows whole and wrapped,
+    /// none trimmed or dropped, so the user reads exactly what runs; Enter
+    /// alone answers No.
+    pub fn approval(title: &str, message: &str) -> Self {
+        ConfirmPanel {
+            title: title.to_string(),
+            message: message.split('\n').map(str::to_string).collect(),
+            options: vec!["Yes".to_string(), "No".to_string()],
+            selected: 1,
+            fit: Fit::Wrap,
         }
     }
 
@@ -77,11 +103,11 @@ impl ConfirmPanel {
         lines.push(Vec::new());
         lines.push(vec![crate::Span::raw(format!("  {}", self.title))]);
         for line in &self.message {
-            lines.push(truncate_line(
-                &vec![theme.fg_span(ThemeColor::Muted, format!("  {line}"))],
-                width,
-                "",
-            ));
+            let row = vec![theme.fg_span(ThemeColor::Muted, format!("  {line}"))];
+            match self.fit {
+                Fit::Truncate => lines.push(truncate_line(&row, width, "")),
+                Fit::Wrap => lines.extend(wrap_line(&row, width)),
+            }
         }
         lines.push(Vec::new());
         for (index, option) in self.options.iter().enumerate() {
@@ -134,6 +160,20 @@ mod tests {
         assert_eq!(
             panel.handle_key(&kb(), "enter"),
             ConfirmAction::Select("Yes".to_string())
+        );
+    }
+
+    /// Regression (audit M3): the step question answered Yes on Enter and
+    /// trimmed or dropped the lines of the step.
+    #[test]
+    fn an_approval_answers_no_on_enter_and_keeps_every_line() {
+        let mut panel = ConfirmPanel::approval("Allow?", "  indented\n\nlast ");
+        assert_eq!(
+            (panel.message.clone(), panel.handle_key(&kb(), "enter")),
+            (
+                vec!["  indented".to_string(), String::new(), "last ".to_string()],
+                ConfirmAction::Select("No".to_string())
+            )
         );
     }
 

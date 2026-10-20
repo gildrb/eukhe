@@ -30,6 +30,9 @@ use std::time::Duration;
 use eukhe_chord::context::AbortSignal;
 
 use super::client_config::{AwsCredentials, BedrockRequestHandler};
+use crate::env_api_keys::{
+    AWS_ACCESS_KEY_ID_ENV, AWS_SECRET_ACCESS_KEY_ENV, AWS_SESSION_TOKEN_ENV,
+};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use js_compat::node_path_join;
 use shared_ini::{get_profile_name, load_config, PreferredFile};
@@ -370,13 +373,13 @@ async fn run_link(resolution: &Resolution<'_>, link: ChainLink) -> ProviderResul
 /// `fromEnv()` of `@aws-sdk/credential-provider-env`.
 pub(crate) fn from_env(env: &CredentialEnv<'_>) -> ProviderResult<AwsCredentials> {
     match (
-        env.truthy_var("AWS_ACCESS_KEY_ID"),
-        env.truthy_var("AWS_SECRET_ACCESS_KEY"),
+        env.truthy_var(AWS_ACCESS_KEY_ID_ENV),
+        env.truthy_var(AWS_SECRET_ACCESS_KEY_ENV),
     ) {
         (Some(access_key_id), Some(secret_access_key)) => Ok(AwsCredentials {
             access_key_id,
             secret_access_key,
-            session_token: env.truthy_var("AWS_SESSION_TOKEN"),
+            session_token: env.truthy_var(AWS_SESSION_TOKEN_ENV),
         }),
         _ => Err(ProviderFailure::credentials(
             "Unable to find environment variable credentials.",

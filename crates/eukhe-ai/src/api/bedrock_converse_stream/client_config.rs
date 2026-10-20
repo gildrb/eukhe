@@ -10,6 +10,10 @@ use eukhe_types::pi_ai::{Model, ProviderEnv};
 use regex::Regex;
 
 use super::BedrockOptions;
+use crate::env_api_keys::{
+    AWS_ACCESS_KEY_ID_ENV, AWS_BEARER_TOKEN_BEDROCK_ENV, AWS_SECRET_ACCESS_KEY_ENV,
+    AWS_SESSION_TOKEN_ENV,
+};
 use crate::utils::node_http_proxy::{resolve_http_proxy_url_for_target, ProxyError};
 use crate::utils::provider_env::get_provider_env_value;
 
@@ -91,12 +95,12 @@ pub(crate) fn get_configured_bedrock_region(options: &BedrockOptions) -> Option<
 
 /// TS `getConfiguredBedrockCredentials`.
 fn get_configured_bedrock_credentials(env: Option<&ProviderEnv>) -> Option<AwsCredentials> {
-    let access_key_id = get_provider_env_value("AWS_ACCESS_KEY_ID", env)?;
-    let secret_access_key = get_provider_env_value("AWS_SECRET_ACCESS_KEY", env)?;
+    let access_key_id = get_provider_env_value(AWS_ACCESS_KEY_ID_ENV, env)?;
+    let secret_access_key = get_provider_env_value(AWS_SECRET_ACCESS_KEY_ENV, env)?;
     Some(AwsCredentials {
         access_key_id,
         secret_access_key,
-        session_token: get_provider_env_value("AWS_SESSION_TOKEN", env),
+        session_token: get_provider_env_value(AWS_SESSION_TOKEN_ENV, env),
     })
 }
 
@@ -176,7 +180,7 @@ pub(crate) fn resolve_client_config(
     let skip_auth = get_provider_env_value("AWS_BEDROCK_SKIP_AUTH", env).as_deref() == Some("1");
     let bearer_token = non_empty(options.bearer_token.as_deref())
         .or_else(|| non_empty(options.stream.request.api_key.as_deref()))
-        .or_else(|| get_provider_env_value("AWS_BEARER_TOKEN_BEDROCK", env));
+        .or_else(|| get_provider_env_value(AWS_BEARER_TOKEN_BEDROCK_ENV, env));
     let use_bearer_token = bearer_token.is_some() && !skip_auth;
 
     // Region resolution: ARN-embedded > explicit option > env vars > SDK

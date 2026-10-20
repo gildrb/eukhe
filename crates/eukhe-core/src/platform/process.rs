@@ -29,17 +29,6 @@ impl Signal {
     }
 }
 
-/// The leading `git` arguments for read-only probes run in a working tree
-/// the user may not trust (a session cwd, a snapshot or gate target): a
-/// repository's own `.git/config` cannot run a command through the
-/// filesystem monitor or a hook.
-pub const GIT_UNTRUSTED_REPO_ARGS: [&str; 4] = [
-    "-c",
-    "core.fsmonitor=false",
-    "-c",
-    "core.hooksPath=/dev/null",
-];
-
 /// Put the spawned child into its own process group so later group-scoped
 /// kills reach all of its descendants (TS: `detached: true` on POSIX).
 pub fn set_new_process_group(command: &mut Command) {

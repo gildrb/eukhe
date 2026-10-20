@@ -126,6 +126,17 @@ enum RedirectKind {
     Write(WriteMode),
 }
 
+impl RedirectKind {
+    /// The redirection of `word` this kind names.
+    fn op(self, word: Word) -> RedirectOp {
+        match self {
+            Self::Read => RedirectOp::Read(word),
+            Self::Write(WriteMode::Truncate) => RedirectOp::Write(word),
+            Self::Write(WriteMode::Append) => RedirectOp::Append(word),
+        }
+    }
+}
+
 /// Words that start syntax outside the grammar at command position.
 const RESERVED: &[&str] = &[
     "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
@@ -232,6 +243,118 @@ pub(crate) fn parse(source: &str) -> Result<Vec<AndOr>, Unsupported> {
     }
 }
 
+/// The simple commands of a script outside the grammar, found without
+/// running it, to name what the script as a whole may do: the script is
+/// cut at every `(`, `)`, `` ` ``, `$(`, `;`, `&`, `|` and newline (not
+/// inside single quotes), the reserved words that open each piece are
+/// dropped, and each piece parses as a command of the grammar. A piece
+/// that still does not parse gives one command of its blank-separated
+/// words, quotes removed (a leading `~` stays the home directory), with
+/// the words after `<`, `>` and `>>` as redirection targets. The result
+/// over-approximates: a piece may be no command at all.
+pub(crate) fn parts(source: &str) -> Vec<Command> {
+    let mut pieces = vec![String::new()];
+    let mut quoted = false;
+    let mut chars = source.chars().peekable();
+    while let Some(c) = chars.next() {
+        let cut = match c {
+            '\'' => {
+                quoted = !quoted;
+                false
+            }
+            '$' if !quoted && chars.peek() == Some(&'(') => {
+                chars.next();
+                true
+            }
+            '(' | ')' | '`' | ';' | '&' | '|' | '\n' => !quoted,
+            _ => false,
+        };
+        if cut {
+            pieces.push(String::new());
+        } else if let Some(piece) = pieces.last_mut() {
+            piece.push(c);
+        }
+    }
+    let mut commands = Vec::new();
+    for piece in &pieces {
+        let mut words: Vec<&str> = piece.split_whitespace().collect();
+        let opened = words
+            .iter()
+            .take_while(|word| RESERVED.contains(word))
+            .count();
+        words.drain(..opened);
+        if words.is_empty() {
+            continue;
+        }
+        if let Ok(list) = parse(&words.join(" ")) {
+            for chain in list {
+                let rest = chain.rest.into_iter().map(|(_, pipeline)| pipeline);
+                for pipeline in std::iter::once(chain.first).chain(rest) {
+                    commands.extend(pipeline.commands);
+                }
+            }
+            continue;
+        }
+        let mut command = Command {
+            assigns: Vec::new(),
+            words: Vec::new(),
+            redirects: Vec::new(),
+        };
+        let mut redirect: Option<RedirectKind> = None;
+        for raw in words {
+            let (kind, text) = match raw.trim_start_matches(|c: char| c.is_ascii_digit()) {
+                rest if rest.starts_with(">>") => {
+                    (Some(RedirectKind::Write(WriteMode::Append)), &rest[2..])
+                }
+                rest if rest.starts_with('>') => {
+                    (Some(RedirectKind::Write(WriteMode::Truncate)), &rest[1..])
+                }
+                rest if rest.starts_with('<') => {
+                    (Some(RedirectKind::Read), rest.trim_start_matches('<'))
+                }
+                _ => (None, raw),
+            };
+            let text: String = text.chars().filter(|&c| c != '\'' && c != '"').collect();
+            let kind = kind.or(redirect.take());
+            if text.is_empty() {
+                redirect = kind;
+                continue;
+            }
+            let word = match text.strip_prefix('~') {
+                Some(rest) if rest.is_empty() || rest.starts_with('/') => Word {
+                    parts: vec![
+                        Part::Tilde,
+                        Part::Lit {
+                            text: rest.to_string(),
+                            quoting: Quoting::Quoted,
+                        },
+                    ],
+                },
+                Some(_) | None => Word {
+                    parts: vec![Part::Lit {
+                        text,
+                        quoting: Quoting::Quoted,
+                    }],
+                },
+            };
+            match kind {
+                None => command.words.push(word),
+                Some(kind) => command.redirects.push(Redirect {
+                    fd: match kind {
+                        RedirectKind::Read => 0,
+                        RedirectKind::Write(_) => 1,
+                    },
+                    op: kind.op(word),
+                }),
+            }
+        }
+        if !(command.words.is_empty() && command.redirects.is_empty()) {
+            commands.push(command);
+        }
+    }
+    commands
+}
+
 fn pipeline(tokens: &[Token], at: &mut usize) -> Result<Pipeline, Unsupported> {
     let mut commands = vec![command(tokens, at)?];
     while matches!(tokens.get(*at), Some(Token::Pipe)) {
@@ -294,12 +417,10 @@ fn command(tokens: &[Token], at: &mut usize) -> Result<Command, Unsupported> {
             Some(Token::Redirect { fd, op }) => {
                 *at += 1;
                 let word = target(tokens, at)?;
-                let op = match op {
-                    RedirectKind::Read => RedirectOp::Read(word),
-                    RedirectKind::Write(WriteMode::Truncate) => RedirectOp::Write(word),
-                    RedirectKind::Write(WriteMode::Append) => RedirectOp::Append(word),
-                };
-                command.redirects.push(Redirect { fd: *fd, op });
+                command.redirects.push(Redirect {
+                    fd: *fd,
+                    op: op.op(word),
+                });
             }
             Some(Token::Dup { fd, to }) => {
                 *at += 1;
@@ -863,6 +984,42 @@ mod tests {
                     },
                     rest: Vec::new(),
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_script_outside_the_grammar_gives_every_command_it_holds() {
+        let got =
+            parts("if grep -q x f; then (cat ~/.ssh/k > out.txt); fi; echo \"$(curl u)\" ${X:-y}");
+        assert_eq!(
+            got,
+            vec![
+                simple(
+                    vec![
+                        word(vec![lit("grep")]),
+                        word(vec![lit("-q")]),
+                        word(vec![lit("x")]),
+                        word(vec![lit("f")]),
+                    ],
+                    Vec::new(),
+                ),
+                simple(
+                    vec![
+                        word(vec![lit("cat")]),
+                        word(vec![Part::Tilde, lit("/.ssh/k")])
+                    ],
+                    vec![Redirect {
+                        fd: 1,
+                        op: RedirectOp::Write(word(vec![lit("out.txt")])),
+                    }],
+                ),
+                simple(vec![word(vec![quoted("echo")])], Vec::new()),
+                simple(
+                    vec![word(vec![lit("curl")]), word(vec![lit("u")])],
+                    Vec::new()
+                ),
+                simple(vec![word(vec![quoted("${X:-y}")])], Vec::new()),
             ]
         );
     }

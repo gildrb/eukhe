@@ -122,6 +122,7 @@ async fn the_stub_runs_unchanged_under_a_wrapper_and_fs_paths_map_through_the_mo
             }]),
             env: Vec::new(),
         }),
+        kept_credentials: eukhe_core::kernel::shared::KeptCredentials::default(),
     });
     manager
         .start(KernelStartOptions::default())

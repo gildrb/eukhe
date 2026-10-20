@@ -1,10 +1,15 @@
 //! `eukhe.shell`: the `bash` tool (`bash@1`, docs/tools.md S7). It runs
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
-//! directory. A step whose effect is in the auto set (the `shell.autoEffects`
-//! setting, default `read`) runs unasked; every other step runs only when
+//! directory. A step whose effects are all in the auto set (the
+//! `shell.autoEffects` setting, default every grantable effect: `read`,
+//! `write`, `exec`, `net`) runs unasked; every other step runs only when
 //! the user approves it through the session's [`ShellApprovalSink`] (the
-//! daemon asks the attached client). A denial, or no answer, stops the
-//! script at that step.
+//! daemon asks the attached client). A write outside the workspace, to a
+//! protected place, or a read of a secret (the session's
+//! [`PathPolicy`](eukhe_types::path_policy::PathPolicy)) always asks. A
+//! denial, no answer, or the refusal of a session that runs only from the
+//! phone gateway (docs/tools.md G5) stops the script at that step, and the
+//! model reads it as a [`RefusalText`].
 //!
 //! The tool obeys the S2 limits. Its output streams through one
 //! [`BoundedOutput`] under the call's [`Truncation`](eukhe_durable::harness::Truncation):
@@ -15,8 +20,9 @@
 //! [`Job`] of the session's [`JobTable`](super::jobs::JobTable). Its end
 //! settles the job and reaches the session through
 //! [`HostDeps::job_settled`]; the job's kill stops the script and every
-//! process it started. External steps get the environment of a local
-//! kernel ([`local_env`] over [`session_env`]).
+//! process it started. External steps get [`local_env`] over
+//! [`session_env`]: the host environment less every credential name (laws
+//! (G3)).
 
 #[cfg(test)]
 mod tests;
@@ -35,12 +41,10 @@ use eukhe_durable::harness::types::{
     ToolExecutionResult, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_shell::{
-    Answer, Approval, Approver, Ask, AutoSet, End, Ran, Refusal, Shell, Sink, Stream,
-};
+use eukhe_shell::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, Stream};
 use eukhe_types::job::{CellStatus, JobId, JobSettled};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
-use eukhe_types::shell::{ShellApprovalRequest, ShellEffect, ShellVerdict};
+use eukhe_types::shell::{AutoSet, ShellAnswer, ShellApprovalRequest, ShellEffect};
 
 use super::bounded_output::BoundedOutput;
 use super::deps::ShellApprovalSink;
@@ -60,13 +64,17 @@ const VERSION: &str = "bash@1";
 
 const DESCRIPTION: &str = "Run a bash script in the working directory. Steps are simple commands \
 joined by `;`, newlines, `&&`, `||`, `|`, with redirections; the commands of a pipeline run \
-together. Read-only steps run at once; a step that writes files, runs another program, or uses \
-the network runs only after the user approves it, and a denial stops the script there. Common \
-commands (cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, touch, cp, mv, grep) run in \
-process; a script with control flow, functions, subshells or command substitution runs whole in \
-bash as one step that needs approval. The result lists every step that ran with its exit status; \
-the output is bounded. A script that outlives the blocking budget goes on as a job, and its end \
-reaches the session as a [job-settled] message.";
+together. A step that reads, writes files in the workspace, runs another program, or uses the \
+network runs at once, unless the user narrowed the kinds of step that do: then it runs only after \
+the user approves it, and a denial stops the script there. A write outside the workspace or to \
+eukhe's own settings, and a read of a secret (ssh keys, credential stores), always need approval. \
+`git` commands that can run a repository's programs (status, diff of the work tree, commit, ...) \
+count as running a program. Common commands (cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
+touch, cp, mv, grep) run in process; a script with control flow, functions, subshells or command \
+substitution runs whole in bash as one step that runs a program. The environment holds no API keys \
+or tokens. The result \
+lists every step that ran with its exit status; the output is bounded. A script that outlives the \
+blocking budget goes on as a job, and its end reaches the session as a [job-settled] message.";
 
 /// Asks through the session's sink; each question's id is the tool
 /// call's id and the step.
@@ -85,13 +93,63 @@ impl Approver for SinkApprover {
             request_id: format!("{}:{}", self.call, ask.step),
             step: ask.step,
             command: ask.command,
-            effect: ask.effect,
+            effects: ask.effects,
         };
         match sink(request).await {
-            Some(ShellVerdict::Approve) => Answer::Approve,
-            Some(ShellVerdict::Deny) => Answer::Deny,
-            None => Answer::Unanswered,
+            ShellAnswer::Approve => Answer::Approve,
+            ShellAnswer::Deny => Answer::Deny,
+            ShellAnswer::Unanswered => Answer::Unanswered,
+            ShellAnswer::GatewayRefused => Answer::GatewayRefused,
         }
+    }
+}
+
+/// A refusal of the approval gate as the model reads it, for every runner
+/// the gate covers (a `bash` step, an `ipython` cell, a document tool's
+/// access): what failed and the step the model takes next, rendered as
+/// `<what failed>. <next step>.`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RefusalText {
+    pub(crate) what: &'static str,
+    pub(crate) next: &'static str,
+}
+
+impl RefusalText {
+    pub(crate) fn of(refusal: Refusal) -> Self {
+        match refusal {
+            Refusal::Denied => Self {
+                what: "the user denied it",
+                next: "Do not try it again unless the user asks for it",
+            },
+            Refusal::Unanswered => Self {
+                what: "it needs the user's approval, and no client answered",
+                next:
+                    "Ask the user to attach a client, or to allow its effect in shell.autoEffects \
+if that is write, exec or net; or use read-only steps",
+            },
+            Refusal::GatewayRefused => Self {
+                what: "the session runs only from the phone gateway, and from there a step that \
+writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) or \
+reads or writes a secret never runs",
+                next: "Ask the user to run it from the eukhe TUI or the dashboard",
+            },
+        }
+    }
+
+    /// The refusal of an approval answer that is not a yes.
+    pub(crate) fn of_answer(answer: ShellAnswer) -> Option<Self> {
+        match answer {
+            ShellAnswer::Approve => None,
+            ShellAnswer::Deny => Some(Self::of(Refusal::Denied)),
+            ShellAnswer::Unanswered => Some(Self::of(Refusal::Unanswered)),
+            ShellAnswer::GatewayRefused => Some(Self::of(Refusal::GatewayRefused)),
+        }
+    }
+}
+
+impl std::fmt::Display for RefusalText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}. {}.", self.what, self.next)
     }
 }
 
@@ -223,17 +281,23 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     // A step may have written before a crash: never replay.
     registration.execution_mode = Some(ToolExecutionMode::Sequential);
     registration.replay = Some(ToolReplay::Unsafe);
+    registration.extra = Some(Arc::new(super::runner::Runner {
+        caps: eukhe_types::shell::ShellEffects::of(&ShellEffect::ALL),
+        gate: super::runner::Gate::EachStep,
+    }));
     define_extension(Extension {
         tools: vec![define_tool(registration)],
         ..Extension::named(SHELL_EXTENSION)
     })
 }
 
-/// The auto set of the `shell.autoEffects` setting. The setting admits
-/// only effect names; a name it holds that names no effect is skipped.
-fn auto_set(deps: &HostDeps) -> AutoSet {
+/// The auto set of the `shell.autoEffects` setting, for every runner of
+/// code the gate covers (the `bash` steps, the `ipython` cells). The
+/// setting admits only the grantable effect names; a name it holds that
+/// names no grantable effect is skipped.
+pub(crate) fn auto_set(settings: &super::settings::EukheSettings) -> AutoSet {
     AutoSet::new(
-        deps.settings
+        settings
             .manager()
             .get_shell_auto_effects()
             .iter()
@@ -278,11 +342,12 @@ async fn execute(
         api.truncation(),
     )));
     let mut running = {
-        let (auto, env) = (auto_set(deps), local_env(&session_env(deps)));
+        let (auto, env) = (auto_set(&deps.settings), local_env(&session_env(deps)));
+        let paths = super::path_policy::session_policy(&deps.agent_dir, &deps.settings, &cwd);
         let (script, transcript) = (script.to_owned(), Arc::clone(&transcript));
         tokio::spawn(async move {
             Shell::new(cwd, env, "bash")
-                .run(&script, &auto, &approver, &*transcript)
+                .run(&script, auto, &paths, &approver, &*transcript)
                 .await
         })
     };
@@ -363,7 +428,7 @@ async fn execute(
             serde_json::json!({
                 "step": step.step,
                 "command": step.command,
-                "effect": step.effect.as_str(),
+                "effects": step.effects,
                 "approval": match step.approval {
                     Approval::Auto => "auto",
                     Approval::Approved => "approved",
@@ -378,16 +443,17 @@ async fn execute(
         End::Refused {
             step,
             command,
-            effect,
+            effects,
             refusal,
         } => serde_json::json!({
             "kind": "refused",
             "step": step,
             "command": command,
-            "effect": effect.as_str(),
+            "effects": effects,
             "refusal": match refusal {
                 Refusal::Denied => "denied",
                 Refusal::Unanswered => "unanswered",
+                Refusal::GatewayRefused => "gateway_refused",
             },
         }),
     };
@@ -416,17 +482,14 @@ fn settle(ran: &Ran, transcript: &Transcript) -> (CellStatus, i32) {
         End::Refused {
             step,
             command,
-            effect,
+            effects,
             refusal,
         } => {
-            let why = match refusal {
-                Refusal::Denied => "the user denied it",
-                Refusal::Unanswered => "no one answered",
-            };
             transcript.push(
                 &format!(
-                    "[stopped at step {step} ({}): `{command}` did not run: {why}; later steps did not run]\n",
-                    effect.as_str()
+                    "[stopped at step {step} ({}): `{command}` and the steps after it did not run: {}]\n",
+                    effects.names(),
+                    RefusalText::of(*refusal)
                 ),
                 true,
             );

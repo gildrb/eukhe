@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Context;
-use eukhe_types::daemon::{DaemonCommand, DaemonSessionLifecycle};
+use eukhe_types::daemon::{DaemonClientKind, DaemonCommand, DaemonSessionLifecycle};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -212,17 +212,23 @@ pub async fn create_resident(
 }
 
 /// Attach to `active_session_id` with the interactive client's
-/// capabilities; answers the attach data (with its `snapshot`).
+/// capabilities, as a client of `kind`; answers the attach data (with its
+/// `snapshot`).
 ///
 /// # Errors
 ///
 /// The attach request fails.
-pub async fn attach(client: &DaemonClient, active_session_id: &str) -> anyhow::Result<Value> {
+pub async fn attach(
+    client: &DaemonClient,
+    active_session_id: &str,
+    kind: DaemonClientKind,
+) -> anyhow::Result<Value> {
     client
         .request_ok(DaemonCommand::Attach {
             id: None,
             active_session_id: active_session_id.to_string(),
             client_id: None,
+            client_kind: Some(kind),
             capabilities: Some(ATTACH_CAPABILITIES.map(str::to_string).to_vec()),
             resume_cursor: None,
             recovery_config: None,

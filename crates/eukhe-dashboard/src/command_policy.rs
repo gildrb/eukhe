@@ -153,6 +153,7 @@ pub(crate) fn verdict(command: &DaemonCommand) -> Verdict {
         | DaemonCommand::SetSessionEntryLabel { .. }
         | DaemonCommand::MarkAnthropicWarningShown { .. }
         | DaemonCommand::AgentRelay { .. }
+        | DaemonCommand::RelayShellApproval { .. }
         | DaemonCommand::AgentReply { .. }
         | DaemonCommand::AckResult { .. }
         | DaemonCommand::RetryWorker { .. }

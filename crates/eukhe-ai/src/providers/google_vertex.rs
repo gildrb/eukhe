@@ -11,6 +11,7 @@ use crate::auth::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthEvent, AuthInfoLink, AuthPrompt,
     AuthPromptKind, AuthResult, AuthSelectOption, ModelAuth, ProviderAuth, ProviderAuthInteraction,
 };
+use crate::env_api_keys::GOOGLE_APPLICATION_CREDENTIALS_ENV;
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
 use crate::types::ProviderEnv;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
@@ -104,7 +105,7 @@ impl ApiKeyAuth for VertexAuth {
                 ("GOOGLE_CLOUD_LOCATION".to_owned(), location),
             ]);
             if let Some(path) = credentials_path.filter(|path| !path.is_empty()) {
-                env.insert("GOOGLE_APPLICATION_CREDENTIALS".to_owned(), path);
+                env.insert(GOOGLE_APPLICATION_CREDENTIALS_ENV.to_owned(), path);
             }
             Ok(ApiKeyCredential {
                 env: Some(env),
@@ -166,9 +167,9 @@ impl ApiKeyAuth for VertexAuth {
                 }));
             }
 
-            let adc_path = match stored_env("GOOGLE_APPLICATION_CREDENTIALS") {
+            let adc_path = match stored_env(GOOGLE_APPLICATION_CREDENTIALS_ENV) {
                 Some(path) => Some(path),
-                None => env("GOOGLE_APPLICATION_CREDENTIALS").await?,
+                None => env(GOOGLE_APPLICATION_CREDENTIALS_ENV).await?,
             };
             signal.throw_if_aborted()?;
             let has_credentials = ctx

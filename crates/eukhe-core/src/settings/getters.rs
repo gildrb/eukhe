@@ -591,7 +591,7 @@ impl SettingsManager {
     }
 
     /// `shell.autoEffects`: the effects (`read`, `write`, `exec`, `net`) a
-    /// shell command may have without asking.
+    /// shell command may have without asking; by default all four.
     #[must_use]
     pub fn get_shell_auto_effects(&self) -> Vec<String> {
         self.cvars().list(&table::SHELL_AUTO_EFFECTS)

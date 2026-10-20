@@ -139,6 +139,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "tail_kernel_bash",
     "kill_kernel_bash",
     "answer_shell_approval",
+    "relay_shell_approval",
     "worker_register",
     "worker_roster_delta",
     "provider_admission_acquire",
@@ -672,6 +673,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::AnswerShellApproval {
             active_session_id, ..
         }
+        | DaemonCommand::RelayShellApproval {
+            active_session_id, ..
+        }
         | DaemonCommand::CancelRlmChild {
             active_session_id, ..
         }
@@ -1008,6 +1012,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::TailKernelBash { .. } => "tail_kernel_bash",
         DaemonCommand::KillKernelBash { .. } => "kill_kernel_bash",
         DaemonCommand::AnswerShellApproval { .. } => "answer_shell_approval",
+        DaemonCommand::RelayShellApproval { .. } => "relay_shell_approval",
         DaemonCommand::CancelRlmChild { .. } => "cancel_rlm_child",
         DaemonCommand::FactoryActivity { .. } => "factory_activity",
         DaemonCommand::DeleteRlmSubagent { .. } => "delete_rlm_subagent",

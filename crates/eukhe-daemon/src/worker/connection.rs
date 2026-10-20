@@ -11,7 +11,8 @@ use super::{
 };
 use std::collections::HashMap;
 
-use eukhe_types::daemon::DaemonWorkerCommand;
+use eukhe_types::daemon::{DaemonClientKind, DaemonWorkerCommand};
+use serde::Deserialize as _;
 
 /// Result of one connection's authentication command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -909,6 +910,11 @@ impl Worker {
             .and_then(Value::as_str)
             .unwrap_or("anonymous")
             .to_string();
+        // An attach without a kind (older clients) is interactive.
+        let client_kind = payload
+            .get("clientKind")
+            .and_then(|kind| DaemonClientKind::deserialize(kind).ok())
+            .unwrap_or_default();
         let capabilities = payload
             .get("capabilities")
             .and_then(Value::as_array)
@@ -962,8 +968,15 @@ impl Worker {
             Some(token) => self.register_session_attach(token, &client_id),
             None => true,
         };
-        if retained && !core.attached_client_ids.iter().any(|id| id == &client_id) {
-            core.attached_client_ids.push(client_id.clone());
+        if retained {
+            if !core.attached_client_ids.iter().any(|id| id == &client_id) {
+                core.attached_client_ids.push(client_id.clone());
+            }
+            core.gateway_client_ids.retain(|id| id != &client_id);
+            match client_kind {
+                DaemonClientKind::Gateway => core.gateway_client_ids.push(client_id.clone()),
+                DaemonClientKind::Interactive => {}
+            }
         }
         let summary = self.summary_locked(&core);
         // The shown conversation's active context (TS `session.state.messages`:
@@ -1172,9 +1185,10 @@ impl Worker {
                 .any(|other| other.iter().any(|entry| entry == id));
             if !held_elsewhere {
                 core.attached_client_ids.retain(|entry| entry != id);
+                core.gateway_client_ids.retain(|entry| entry != id);
             }
         }
-        self.shell_approvals.release_if_unattached(&core);
+        self.shell_approvals.release_if_no_interactive_client(&core);
     }
 
     pub(crate) fn handle_detach(&self, payload: &Value) -> DaemonResponse {
@@ -1208,8 +1222,9 @@ impl Worker {
             .any(|other| other.iter().any(|entry| entry == &client_id));
         if !held_elsewhere {
             core.attached_client_ids.retain(|id| id != &client_id);
+            core.gateway_client_ids.retain(|id| id != &client_id);
         }
-        self.shell_approvals.release_if_unattached(&core);
+        self.shell_approvals.release_if_no_interactive_client(&core);
         drop(core);
         response_success(None, "detach", None)
     }

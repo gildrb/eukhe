@@ -13,6 +13,7 @@ use super::super::client_config::AwsCredentials;
 use super::imds::{imds_credentials, metadata_request, MetadataEndpoint, METADATA_TIMEOUT};
 use super::js_compat::{js_error_string, node_fs_error, parse_rfc3339_date_time};
 use super::{ProviderFailure, ProviderResult, Resolution};
+use crate::env_api_keys::AWS_CONTAINER_AUTHORIZATION_TOKEN_ENV;
 use crate::utils::diagnostics::ErrorObject;
 use crate::utils::json_parse::js_json_parse;
 
@@ -84,7 +85,7 @@ fn from_http(resolution: &Resolution<'_>) -> ProviderResult<FromHttp> {
     let env = resolution.env;
     let relative = env.var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
     let full = env.var("AWS_CONTAINER_CREDENTIALS_FULL_URI");
-    let token = env.var("AWS_CONTAINER_AUTHORIZATION_TOKEN");
+    let token = env.var(AWS_CONTAINER_AUTHORIZATION_TOKEN_ENV);
     let token_file = env.var("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
     // The SDK warns on the console when both forms of a setting are present.
     let host = match (
@@ -267,7 +268,7 @@ async fn from_container_metadata(resolution: &Resolution<'_>) -> ProviderResult<
     let (endpoint, path) = container_metadata_uri(resolution)?;
     let headers: Vec<(&str, String)> = resolution
         .env
-        .truthy_var("AWS_CONTAINER_AUTHORIZATION_TOKEN")
+        .truthy_var(AWS_CONTAINER_AUTHORIZATION_TOKEN_ENV)
         .map(|token| vec![("Authorization", token)])
         .unwrap_or_default();
     let body = resolution

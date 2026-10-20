@@ -120,7 +120,7 @@ pub(crate) fn git_command(args: &[&str], cwd: &Path) -> tokio::process::Command 
     ];
     let mut command = tokio::process::Command::new("git");
     command
-        .args(crate::platform::process::GIT_UNTRUSTED_REPO_ARGS)
+        .args(eukhe_shell::GIT_UNTRUSTED_REPO_ARGS)
         .args(args)
         .current_dir(cwd);
     for variable in GIT_SELECTION_VARS {

@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex};
 use eukhe_docs::{Access, AccessGate as _, Documents};
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 use eukhe_types::path_policy::{resolve, PathClass, PathPolicy, PathRule};
-use eukhe_types::shell::{AutoSet, ShellApprovalRequest, ShellEffect, ShellVerdict};
+use eukhe_types::shell::{AutoSet, ShellAnswer, ShellApprovalRequest, ShellEffect};
 use futures::FutureExt as _;
 
 use super::{DocumentsGate, ShellApprovalSink};
@@ -111,11 +111,11 @@ impl Answer {
         }
     }
 
-    fn verdict(self) -> Option<ShellVerdict> {
+    fn answer(self) -> ShellAnswer {
         match self {
-            Answer::Yes => Some(ShellVerdict::Approve),
-            Answer::No => Some(ShellVerdict::Deny),
-            Answer::Gone => None,
+            Answer::Yes => ShellAnswer::Approve,
+            Answer::No => ShellAnswer::Deny,
+            Answer::Gone => ShellAnswer::Unanswered,
         }
     }
 }
@@ -503,7 +503,7 @@ fn gate(
     let log = Arc::clone(asked);
     let sink: ShellApprovalSink = Arc::new(move |request: ShellApprovalRequest| {
         log.lock().unwrap().push_back(request.command);
-        async move { answer.verdict() }.boxed()
+        async move { answer.answer() }.boxed()
     });
     DocumentsGate {
         policy: policy.clone(),

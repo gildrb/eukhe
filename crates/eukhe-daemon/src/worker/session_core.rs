@@ -51,6 +51,11 @@ pub(crate) struct SessionCore {
 
     pub(crate) cwd: String,
     pub(crate) attached_client_ids: Vec<String>,
+    /// The attached clients that attached as the phone gateway
+    /// (`clientKind` `gateway`; a subset of `attached_client_ids`). A
+    /// session whose attached clients are all gateways asks no one
+    /// (docs/tools.md G5).
+    pub(crate) gateway_client_ids: Vec<String>,
     pub(crate) shutdown_requested: bool,
     /// The wall-clock ms of this session's last activity (run end);
     /// zero before any.
@@ -115,6 +120,7 @@ impl SessionCore {
             held: Vec::new(),
             withdrawn_gate: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             attached_client_ids: Vec::new(),
+            gateway_client_ids: Vec::new(),
             shutdown_requested: false,
             last_activity_ms: 0,
             // The empty projection: a fresh session's first empty snapshot

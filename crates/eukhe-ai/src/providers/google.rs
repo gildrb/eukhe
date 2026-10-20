@@ -4,6 +4,7 @@ use super::google_models::GOOGLE_MODELS;
 use super::{builtin_baseline, chat_models};
 use crate::api::builtin::google_generative_ai_api;
 use crate::auth::{env_api_key_auth, ProviderAuth};
+use crate::env_api_keys::GEMINI_API_KEY_ENV;
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
 
 /// TS `googleProvider()`.
@@ -14,7 +15,7 @@ pub fn google_provider() -> Provider {
         name: Some("Google".to_owned()),
         base_url: Some("https://generativelanguage.googleapis.com/v1beta".to_owned()),
         auth: ProviderAuth {
-            api_key: Some(env_api_key_auth("Gemini API key", &["GEMINI_API_KEY"])),
+            api_key: Some(env_api_key_auth("Gemini API key", &[GEMINI_API_KEY_ENV])),
             oauth: None,
         },
         models: builtin_baseline("google", || chat_models(&GOOGLE_MODELS)),

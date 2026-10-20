@@ -255,7 +255,7 @@ More settings:
 
 |Key|Default|Effect|
 |---|---|---|
-|`shell.autoEffects`|`["read"]`|Effects of a `bash` tool step that run without approval: `read`, `write`, `exec`, `net`; a different step asks the attached client; no answer is a denial (no agent or untrusted project can set it)|
+|`shell.autoEffects`|`["read", "write", "exec", "net"]`|Effects of a `bash` tool step (and of an `ipython` cell, which is `exec`) that run without approval: `read`, `write`, `exec`, `net`; a write outside the workspace, a protected write and a read or write of a secret always ask; a step with an effect not in the list asks the attached client; no answer is a denial; with only the phone gateway attached it runs at once, but a protected or secret step is refused (no agent or untrusted project can set it)|
 |`kernelTransport`|none|Run the Python kernel through a wrapper, e.g. `{"argvPrefix":["docker","exec","-i","box"],"pathMap":[{"sandbox":"/work","host":"/home/me/project"}]}`; `"command":"shell"` for ssh; none runs it as a local process (no agent or untrusted project can set it)|
 |`ssh.hosts`|`[]`|Hosts that `ssh://host/path` reads can go to, as written in the URL (`box` or `user@box`); reads only, through your `ssh` and `~/.ssh/config` (global only)|
 |`titles.generate`|`true`|Make a session title from the first message with the `tiny` role; a name you gave stays|

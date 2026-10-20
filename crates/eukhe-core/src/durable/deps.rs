@@ -164,13 +164,14 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
 
 /// Asks the user whether one gated step of a `bash` tool script may run
-/// (docs/tools.md S7): the daemon worker asks its attached clients and
-/// waits for the first answer. `None` (the future's output) means no
-/// answer came (no client attached, or the clients detached): a denial.
+/// (docs/tools.md S7, G5): the daemon worker asks its attached clients and
+/// waits for the first answer, or answers by the gateway rule when its
+/// only clients are the phone gateway, or hands the question to its
+/// parent session when no client is attached.
 pub type ShellApprovalSink = Arc<
     dyn Fn(
             eukhe_types::shell::ShellApprovalRequest,
-        ) -> BoxFuture<'static, Option<eukhe_types::shell::ShellVerdict>>
+        ) -> BoxFuture<'static, eukhe_types::shell::ShellAnswer>
         + Send
         + Sync,
 >;

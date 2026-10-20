@@ -304,6 +304,7 @@ impl SessionUi {
             id: None,
             active_session_id: session_id.to_string(),
             client_id: None,
+            client_kind: None,
             // `elide_snapshot_images`: the transcript arrives without the
             // base64 image payloads (their fallback-only metadata rows
             // ride the marker), so an image-heavy session's attach stops

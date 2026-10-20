@@ -17,39 +17,28 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use eukhe_types::shell::ShellEffect;
+use eukhe_types::path_policy::{PathClass, PathPolicy};
+use eukhe_types::shell::{AutoSet, ShellEffect, ShellEffects};
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use crate::coreutils::{self, Io};
-use crate::effect::classify;
+use crate::effect::{classify, reads_cwd};
 use crate::expand::Scope;
-use crate::parse::{self, Link, Pipeline, RedirectOp};
-
-/// The effects whose steps run without asking.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AutoSet(BTreeSet<ShellEffect>);
-
-impl AutoSet {
-    pub fn new(effects: impl IntoIterator<Item = ShellEffect>) -> Self {
-        Self(effects.into_iter().collect())
-    }
-
-    #[must_use]
-    pub fn contains(&self, effect: ShellEffect) -> bool {
-        self.0.contains(&effect)
-    }
-}
+use crate::parse::{self, Command, Link, Pipeline, RedirectOp};
+use crate::shown::quote;
 
 /// The question about one gated step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ask {
     /// The step's place in the script, from 0, in the order steps run.
     pub step: u64,
-    /// The step as it will run, after expansion.
+    /// The step exactly as it will run, after expansion, every hidden
+    /// character escaped.
     pub command: String,
-    pub effect: ShellEffect,
+    /// Every effect of the step.
+    pub effects: ShellEffects,
 }
 
 /// The user's answer to one [`Ask`].
@@ -59,6 +48,9 @@ pub enum Answer {
     Deny,
     /// No one answered: a denial.
     Unanswered,
+    /// The session runs only from the phone gateway, and the step writes
+    /// a protected path or reads or writes a secret: refused unasked.
+    GatewayRefused,
 }
 
 /// Asks the user whether a gated step may run.
@@ -92,9 +84,10 @@ pub trait Sink: Sync {
 /// Why a step ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Approval {
-    /// Its effect is in the auto set.
+    /// Its effects are within the auto set.
     Auto,
-    /// The user approved it.
+    /// The user approved it, or the session runs only from the phone
+    /// gateway, which runs a step that is not guarded unasked.
     Approved,
 }
 
@@ -104,7 +97,7 @@ pub enum Approval {
 pub struct StepRun {
     pub step: u64,
     pub command: String,
-    pub effect: ShellEffect,
+    pub effects: ShellEffects,
     pub approval: Approval,
     pub status: i32,
 }
@@ -114,6 +107,8 @@ pub struct StepRun {
 pub enum Refusal {
     Denied,
     Unanswered,
+    /// [`Answer::GatewayRefused`].
+    GatewayRefused,
 }
 
 /// How a script ended.
@@ -128,7 +123,7 @@ pub enum End {
     Refused {
         step: u64,
         command: String,
-        effect: ShellEffect,
+        effects: ShellEffects,
         refusal: Refusal,
     },
 }
@@ -156,7 +151,7 @@ struct Planned {
     redirects: Vec<(u32, RedirectOp, String)>,
     /// The step as it will run, for people.
     command: String,
-    effect: ShellEffect,
+    effects: ShellEffects,
 }
 
 /// Where a command's fd 1 or fd 2 goes.
@@ -228,19 +223,6 @@ pub struct Shell {
     external: PathBuf,
 }
 
-/// `text` quoted for a shell when it needs quotes.
-fn quote(text: &str) -> String {
-    let plain = !text.is_empty()
-        && text
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_./=:,+@%^-".contains(c));
-    if plain {
-        text.to_string()
-    } else {
-        format!("'{}'", text.replace('\'', "'\\''"))
-    }
-}
-
 /// A pipe whose read end streams to the sink as `stream` of `step`; the
 /// write end.
 fn capture(
@@ -302,14 +284,18 @@ impl Shell {
         &self.cwd
     }
 
-    /// Run `script`: each step whose effect is in `auto` runs, every
-    /// other step runs only when `approver` approves it; the first step
-    /// it does not approve ends the script. The output streams to `sink`.
+    /// Run `script`: each step whose effects are all in `auto` runs,
+    /// every other step runs only when `approver` approves it; the first
+    /// step it does not approve ends the script. `paths` classes the
+    /// paths a step names (a write outside the workspace, to a protected
+    /// place, a read of a secret always asks). The output streams to
+    /// `sink`.
     #[tracing::instrument(level = "debug", skip_all, fields(cwd = %self.cwd.display()))]
     pub async fn run(
         &mut self,
         script: &str,
-        auto: &AutoSet,
+        auto: AutoSet,
+        paths: &PathPolicy,
         approver: &impl Approver,
         sink: &impl Sink,
     ) -> Ran {
@@ -318,6 +304,13 @@ impl Shell {
             Ok(list) => list,
             Err(unsupported) => {
                 tracing::debug!(why = unsupported.0, "the script runs in the external shell");
+                // One step: the external shell runs every command the
+                // script holds, so the step has each one's effects.
+                let mut effects = ShellEffects::of(&[ShellEffect::Exec]);
+                for part in parse::parts(script) {
+                    let (assigns, mut argv, redirects) = self.expand(&part);
+                    effects = effects.union(self.effects(&assigns, &mut argv, &redirects, paths));
+                }
                 let argv = vec![
                     self.external.display().to_string(),
                     "-c".to_string(),
@@ -334,7 +327,7 @@ impl Shell {
                     assigns: Vec::new(),
                     redirects: Vec::new(),
                     command,
-                    effect: ShellEffect::Exec,
+                    effects,
                 };
                 let end = self
                     .pipeline(vec![whole], auto, approver, sink, &mut steps)
@@ -348,7 +341,7 @@ impl Shell {
             }
         };
         for chain in &list {
-            let planned = self.plan(&chain.first, steps.len() as u64);
+            let planned = self.plan(&chain.first, steps.len() as u64, paths);
             if let Some(end) = self
                 .pipeline(planned, auto, approver, sink, &mut steps)
                 .await
@@ -361,7 +354,7 @@ impl Shell {
                     Link::Or => self.status != 0,
                 };
                 if runs {
-                    let planned = self.plan(pipeline, steps.len() as u64);
+                    let planned = self.plan(pipeline, steps.len() as u64, paths);
                     if let Some(end) = self
                         .pipeline(planned, auto, approver, sink, &mut steps)
                         .await
@@ -379,41 +372,107 @@ impl Shell {
         }
     }
 
-    /// Expand and classify a pipeline's commands, numbered from `first`.
-    fn plan(&self, pipeline: &Pipeline, first: u64) -> Vec<Planned> {
+    /// A command's assignments, fields and redirections (with their
+    /// targets), expanded in the shell's state.
+    #[allow(clippy::type_complexity)] // The three parts of one expanded command.
+    fn expand(
+        &self,
+        command: &Command,
+    ) -> (
+        Vec<(String, String)>,
+        Vec<String>,
+        Vec<(u32, RedirectOp, String)>,
+    ) {
         let scope = Scope {
             vars: &self.vars,
             status: self.status,
             cwd: &self.cwd,
         };
+        let argv: Vec<String> = command.words.iter().flat_map(|w| scope.fields(w)).collect();
+        let assigns: Vec<(String, String)> = command
+            .assigns
+            .iter()
+            .map(|assign| (assign.name.clone(), scope.text(&assign.value)))
+            .collect();
+        let redirects: Vec<(u32, RedirectOp, String)> = command
+            .redirects
+            .iter()
+            .map(|redirect| {
+                let target = match &redirect.op {
+                    RedirectOp::Read(word) | RedirectOp::Write(word) | RedirectOp::Append(word) => {
+                        scope.text(word)
+                    }
+                    RedirectOp::Dup(to) => to.to_string(),
+                };
+                (redirect.fd, redirect.op.clone(), target)
+            })
+            .collect();
+        (assigns, argv, redirects)
+    }
+
+    /// Every effect of one expanded command (bend/tools.bend `part.effs`
+    /// and `join`): the command's own ([`classify`], which also makes a
+    /// `git` step that is not `Exec` run with the untrusted-repository
+    /// arguments), each redirection's (a write to, a read of the target's
+    /// class), and the paths it names: a word that is a secret or holds
+    /// one adds `Secret`, and so does the working directory when the
+    /// command reads it because it names no path ([`reads_cwd`]); for a
+    /// command that writes, a word outside the workspace adds `Outside`,
+    /// a protected one `Protected`.
+    fn effects(
+        &self,
+        assigns: &[(String, String)],
+        argv: &mut Vec<String>,
+        redirects: &[(u32, RedirectOp, String)],
+        paths: &PathPolicy,
+    ) -> ShellEffects {
+        let cwd_read = reads_cwd(argv);
+        let mut effects = classify(assigns, argv);
+        for (_, op, target) in redirects {
+            let class = || paths.class(&self.cwd.join(target));
+            match op {
+                RedirectOp::Read(_) => effects = effects.union(ShellEffects::read_of(class())),
+                RedirectOp::Write(_) | RedirectOp::Append(_) if target != "/dev/null" => {
+                    effects = effects.union(ShellEffects::write_to(class()));
+                }
+                RedirectOp::Write(_) | RedirectOp::Append(_) | RedirectOp::Dup(_) => {}
+            }
+        }
+        let writes = effects.contains(ShellEffect::Write);
+        // An operand, or the value of `--option=value`.
+        let named = argv
+            .iter()
+            .skip(1)
+            .filter_map(|word| match word.split_once('=') {
+                Some((option, value)) if option.starts_with('-') => Some(value),
+                Some(_) | None => (!word.starts_with('-')).then_some(word.as_str()),
+            });
+        for word in named {
+            let path = self.cwd.join(word);
+            if paths.holds_secret(&path) {
+                effects.insert(ShellEffect::Secret);
+            }
+            if writes {
+                match paths.class(&path) {
+                    PathClass::Inside => {}
+                    PathClass::Outside => effects.insert(ShellEffect::Outside),
+                    PathClass::Protected => effects.insert(ShellEffect::Protected),
+                    PathClass::Secret => effects.insert(ShellEffect::Secret),
+                }
+            }
+        }
+        if cwd_read && paths.holds_secret(&self.cwd) {
+            effects.insert(ShellEffect::Secret);
+        }
+        effects
+    }
+
+    /// Expand and classify a pipeline's commands, numbered from `first`.
+    fn plan(&self, pipeline: &Pipeline, first: u64, paths: &PathPolicy) -> Vec<Planned> {
         let mut planned = Vec::with_capacity(pipeline.commands.len());
         for (step, command) in (first..).zip(&pipeline.commands) {
-            let argv: Vec<String> = command.words.iter().flat_map(|w| scope.fields(w)).collect();
-            let assigns: Vec<(String, String)> = command
-                .assigns
-                .iter()
-                .map(|assign| (assign.name.clone(), scope.text(&assign.value)))
-                .collect();
-            let redirects: Vec<(u32, RedirectOp, String)> = command
-                .redirects
-                .iter()
-                .map(|redirect| {
-                    let target = match &redirect.op {
-                        RedirectOp::Read(word)
-                        | RedirectOp::Write(word)
-                        | RedirectOp::Append(word) => scope.text(word),
-                        RedirectOp::Dup(to) => to.to_string(),
-                    };
-                    (redirect.fd, redirect.op.clone(), target)
-                })
-                .collect();
-            let mut effect = classify(&assigns, &argv);
-            let writes_file = redirects.iter().any(|(_, op, target)| {
-                matches!(op, RedirectOp::Write(_) | RedirectOp::Append(_)) && target != "/dev/null"
-            });
-            if effect == ShellEffect::Read && writes_file {
-                effect = ShellEffect::Write;
-            }
+            let (assigns, mut argv, redirects) = self.expand(command);
+            let effects = self.effects(&assigns, &mut argv, &redirects, paths);
             let mut words: Vec<String> = assigns
                 .iter()
                 .map(|(name, value)| format!("{name}={}", quote(value)))
@@ -445,7 +504,7 @@ impl Shell {
                 assigns,
                 redirects,
                 command: words.join(" "),
-                effect,
+                effects,
             });
         }
         planned
@@ -457,30 +516,31 @@ impl Shell {
     async fn pipeline(
         &mut self,
         planned: Vec<Planned>,
-        auto: &AutoSet,
+        auto: AutoSet,
         approver: &impl Approver,
         sink: &impl Sink,
         steps: &mut Vec<StepRun>,
     ) -> Option<End> {
         let mut approvals = Vec::with_capacity(planned.len());
         for stage in &planned {
-            let approval = if auto.contains(stage.effect) {
+            let approval = if auto.allows(stage.effects) {
                 Approval::Auto
             } else {
                 let ask = Ask {
                     step: stage.step,
                     command: stage.command.clone(),
-                    effect: stage.effect,
+                    effects: stage.effects,
                 };
                 match approver.approve(ask).await {
                     Answer::Approve => Approval::Approved,
-                    refused @ (Answer::Deny | Answer::Unanswered) => {
+                    refused @ (Answer::Deny | Answer::Unanswered | Answer::GatewayRefused) => {
                         return Some(End::Refused {
                             step: stage.step,
                             command: stage.command.clone(),
-                            effect: stage.effect,
+                            effects: stage.effects,
                             refusal: match refused {
                                 Answer::Unanswered => Refusal::Unanswered,
+                                Answer::GatewayRefused => Refusal::GatewayRefused,
                                 Answer::Approve | Answer::Deny => Refusal::Denied,
                             },
                         });
@@ -505,7 +565,7 @@ impl Shell {
             steps.push(StepRun {
                 step: stage.step,
                 command: stage.command,
-                effect: stage.effect,
+                effects: stage.effects,
                 approval,
                 status,
             });

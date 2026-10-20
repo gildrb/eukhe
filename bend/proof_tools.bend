@@ -306,9 +306,8 @@ def pl.gate_no_fin(-A: Type, s: Tl.Step, r: Tl.Ran, h: {Tl.End.finished(Tl.Ran.e
 def pl.step_refl(s: Tl.Step) -> {Tl.step.eq(s, s) == True{} : Bool}:
   match s:
     case Tl.Step{+i, +f}:
-      %pl.eq_refl(i) : {Bool.and(_, Nat.is_eq(Tl.Eff.code(f), Tl.Eff.code(f))) == True{} : Bool}
-      %pl.eq_refl(Tl.Eff.code(f)) : {Bool.and(True{}, _) == True{} : Bool}
-      {==}
+      %pl.eq_refl(i) : {Bool.and(_, Tl.ids.eq(f, f)) == True{} : Bool}
+      pl.ids_refl(f)
 
 def pl.prefix_cons(+s: Tl.Step, xs: List<&2, Tl.Step>, ys: List<&2, Tl.Step>, h: {Tl.prefix(xs, ys) == True{} : Bool}) -> {Tl.prefix(s <> xs, s <> ys) == True{} : Bool}:
   %Equal.sym(Bool, Tl.step.eq(s, s), True{}, pl.step_refl(s)) : {Bool.and(_, Tl.prefix(xs, ys)) == True{} : Bool}

@@ -124,14 +124,44 @@ impl SessionUi {
         outcome
     }
 
-    /// Open the oldest queued `shell_approval` question, if any.
+    /// Open the oldest queued `shell_approval` question, if any. A
+    /// subagent's question names the subagent first.
     pub(super) fn open_next_shell_approval(&mut self, view: &mut AgentView) {
-        let Some((active_session_id, request)) = self.shell_approvals.pop_front() else {
+        let Some((active_session_id, request, agent)) = self.shell_approvals.pop_front() else {
             return;
         };
-        view.confirm = Some(crate::confirm::ConfirmPanel::yes_no(
-            &format!("Allow shell step {}?", request.step),
-            &format!("{}: {}", request.effect.as_str(), request.command),
+        let question = format!("shell step {} ({})?", request.step, request.effects.names());
+        let title = match agent {
+            Some(agent) => {
+                // The name is the model's text: a character a terminal
+                // hides or moves (the set of eukhe-shell's `shown::hidden`)
+                // shows as its escape.
+                let agent = agent.chars().fold(String::new(), |mut shown, c| {
+                    let hidden = c.is_control()
+                        || matches!(
+                            c,
+                            '\u{00ad}'
+                                | '\u{061c}'
+                                | '\u{180e}'
+                                | '\u{200b}'..='\u{200f}'
+                                | '\u{2028}'..='\u{202e}'
+                                | '\u{2060}'..='\u{2069}'
+                                | '\u{feff}'
+                        );
+                    if hidden {
+                        shown.extend(c.escape_unicode());
+                    } else {
+                        shown.push(c);
+                    }
+                    shown
+                });
+                format!("Subagent {agent} asks: allow {question}")
+            }
+            None => format!("Allow {question}"),
+        };
+        view.confirm = Some(crate::confirm::ConfirmPanel::approval(
+            &title,
+            &request.command,
         ));
         self.pending_confirm = Some(PendingConfirm::ShellApproval {
             active_session_id,

@@ -46,6 +46,7 @@ impl Worker {
                 self.side_questions.abort(payload)
             }
             "answer_shell_approval" => self.shell_approvals.answer(payload),
+            "relay_shell_approval" => self.shell_approvals.relay(payload).await,
             "compact" => self.handle_compaction(payload).await,
             "abort_compaction" => self.handle_abort_compaction().await,
             "set_auto_compaction" => self.handle_set_auto_compaction(payload).await,

@@ -65,6 +65,7 @@ fn test_options(snapshot_dir: Option<&Path>, debounce_ms: Option<u64>) -> Kernel
         stderr_log_path: None,
         transport: eukhe_core::kernel::KernelTransport::Local,
         on_background_work_settled: None,
+        kept_credentials: eukhe_core::kernel::shared::KeptCredentials::default(),
     }
 }
 

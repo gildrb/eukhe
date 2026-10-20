@@ -86,6 +86,7 @@ fn test_options() -> eukhe_core::kernel::shared::KernelManagerOptions {
         bootstrap_code: Some(eukhe_core::kernel::bootstrap::build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
         transport: eukhe_core::kernel::KernelTransport::Local,
+        kept_credentials: eukhe_core::kernel::shared::KeptCredentials::default(),
     }
 }
 

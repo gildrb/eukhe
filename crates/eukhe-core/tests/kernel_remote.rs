@@ -109,6 +109,7 @@ async fn a_remote_function_registers_answers_calls_and_fails_typed() {
         bootstrap_code: Some(bootstrap.clone()),
         stderr_log_path: None,
         transport: KernelTransport::Local,
+        kept_credentials: eukhe_core::kernel::shared::KeptCredentials::default(),
     });
     manager
         .start(KernelStartOptions::default())
@@ -273,6 +274,7 @@ async fn a_remote_call_whose_kernel_exits_is_unreachable_not_a_timeout() {
         bootstrap_code: Some(bootstrap.clone()),
         stderr_log_path: None,
         transport: KernelTransport::Local,
+        kept_credentials: eukhe_core::kernel::shared::KeptCredentials::default(),
     });
     manager
         .start(KernelStartOptions::default())

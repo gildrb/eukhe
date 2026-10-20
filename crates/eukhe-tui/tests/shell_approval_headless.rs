@@ -1,6 +1,7 @@
 //! Headless e2e for the `bash` step questions: a `shell_approval` frame
-//! opens the yes/no confirm, a second one queues behind it, `Yes` answers
-//! `approve`, escape answers `deny`, and the answers go out in order.
+//! opens the yes/no confirm, later ones queue behind it, `Yes` answers
+//! `approve`, escape answers `deny`, the answers go out in order, and a
+//! subagent's question names the subagent (its hidden characters escaped).
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -54,20 +55,25 @@ fn serve(listener: &UnixListener) -> Vec<DaemonCommand> {
             .to_string();
         if command_type == "attach" {
             write_json(&mut writer, &attach_data(id));
-            for (request_id, step, command) in [("r1", 0, "rm -rf build"), ("r2", 1, "curl x")] {
-                write_json(
-                    &mut writer,
-                    &json!({
-                        "type": "shell_approval",
-                        "activeSessionId": "s1",
-                        "request": {
-                            "requestId": request_id,
-                            "step": step,
-                            "command": command,
-                            "effect": "write",
-                        },
-                    }),
-                );
+            for (request_id, step, command, effects, agent) in [
+                ("r1", 0, "rm -rf build", "write", None),
+                ("r2", 1, "curl x", "net", None),
+                ("r3", 0, "touch a", "write", Some("scout\u{1b}[2J")),
+            ] {
+                let mut frame = json!({
+                    "type": "shell_approval",
+                    "activeSessionId": "s1",
+                    "request": {
+                        "requestId": request_id,
+                        "step": step,
+                        "command": command,
+                        "effects": [effects],
+                    },
+                });
+                if let Some(agent) = agent {
+                    frame["agent"] = json!(agent);
+                }
+                write_json(&mut writer, &frame);
             }
             continue;
         }
@@ -188,17 +194,25 @@ fn step_questions_open_in_order_and_answer_the_daemon() {
     let plan = HeadlessPlan {
         steps: vec![
             HeadlessStep::WaitRender {
-                needle: "Allow shell step 0?".to_string(),
+                needle: "Allow shell step 0 (write)?".to_string(),
                 timeout_ms: BARRIER_TIMEOUT_MS,
             },
+            // Enter alone answers no: move to Yes first.
+            key(KeyCode::Up),
             key(KeyCode::Enter),
             HeadlessStep::WaitRender {
-                needle: "Allow shell step 1?".to_string(),
+                needle: "Allow shell step 1 (net)?".to_string(),
                 timeout_ms: BARRIER_TIMEOUT_MS,
             },
             key(KeyCode::Esc),
+            HeadlessStep::WaitRender {
+                needle: "Subagent scout\\u{1b}[2J asks: allow shell step 0 (write)?".to_string(),
+                timeout_ms: BARRIER_TIMEOUT_MS,
+            },
+            key(KeyCode::Up),
+            key(KeyCode::Enter),
             HeadlessStep::WaitGone {
-                needle: "Allow shell step 1?".to_string(),
+                needle: "asks: allow shell step 0 (write)?".to_string(),
                 timeout_ms: BARRIER_TIMEOUT_MS,
             },
         ],
@@ -214,12 +228,13 @@ fn step_questions_open_in_order_and_answer_the_daemon() {
         !all.contains("timed out waiting"),
         "a render barrier timed out:\n{all}"
     );
-    assert!(all.contains("write: rm -rf build"), "{all}");
+    assert!(all.contains("rm -rf build"), "{all}");
     assert_eq!(
         answers,
         vec![
             answer("r1", ShellVerdict::Approve),
             answer("r2", ShellVerdict::Deny),
+            answer("r3", ShellVerdict::Approve),
         ]
     );
 }

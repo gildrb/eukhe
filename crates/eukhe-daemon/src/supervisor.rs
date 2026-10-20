@@ -44,7 +44,7 @@ pub(crate) use clients::client_command_payload;
 // scheduling_catalog).
 pub(crate) use routing::{
     client_route_admission, client_route_timeout, ROUTE_TIMEOUT_MS, SUMMARY_TIMEOUT_MS,
-    WORKER_NOT_CONNECTED,
+    WORKER_NOT_CONNECTED, WORKER_REQUEST_TIMEOUT_MS,
 };
 
 use worker_lifecycle::{probe_worker_socket, worker_connect_deadline};
