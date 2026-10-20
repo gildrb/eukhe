@@ -60,6 +60,15 @@ Details: [docs/memory.md](docs/memory.md).
 - `@name message` sends a message to a family agent.
 - `/agents` lists the agents of the session.
 
+## Dynamic workflows
+
+- `/dynamic-workflow <request>` makes the agent write and run one orchestration script.
+- The script starts many subagents: fan-out, pipelines and phases.
+- `--size small|medium|large` sets how many agents run. `/workflow-size` sets the default.
+- `/workflows` shows each run: phases, agents, log.
+
+Details: [docs/workflows.md](docs/workflows.md).
+
 ## Phone and browser
 
 - `eukhe gateway` connects Signal to the CLI session. See [docs/gateway.md](docs/gateway.md).
@@ -73,6 +82,7 @@ Details: [docs/memory.md](docs/memory.md).
 |[docs/install.md](docs/install.md)|Installer, Nix, Home Manager, mise, source build, daemon versions|
 |[docs/usage.md](docs/usage.md)|Commands, agents, providers, session state|
 |[docs/settings.md](docs/settings.md)|Settings files, key binds, all settings, Directors|
+|[docs/workflows.md](docs/workflows.md)|Dynamic workflows: sizes, script API, resume, limits|
 |[docs/memory.md](docs/memory.md)|Chat memory: use, rules, Bend model, proofs|
 |[docs/local-models.md](docs/local-models.md)|Local models: titles, translation, speech, dictation|
 |[docs/gateway.md](docs/gateway.md)|Signal gateway|
