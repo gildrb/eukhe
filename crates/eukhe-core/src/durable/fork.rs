@@ -8,6 +8,7 @@
 #[cfg(test)]
 mod tests;
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::types::{ConversationId, ConversationOwnership, EntryId};
+use eukhe_types::platform::access::{PRIVATE_DIR_MODE, PRIVATE_FILE_MODE};
 use futures::FutureExt;
 
 use super::discovery::SessionLocation;
@@ -164,7 +166,10 @@ async fn fork_into(
         staging_dir(new_dir, StagingKind::Fork).ok_or_else(|| ForkError::TargetDir {
             path: new_dir.to_owned(),
         })?;
-    tokio::fs::create_dir_all(&parent)
+    tokio::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(PRIVATE_DIR_MODE)
+        .create(&parent)
         .await
         .map_err(io("create", &parent))?;
     let _lock = lock_staging(&staging).map_err(io("lock staging directory", &staging))?;
@@ -356,7 +361,9 @@ enum Snapshot {
 /// every entry of `source` but `main.jsonl` into it. Returns the length
 /// `main.jsonl` had before.
 async fn copy_without_main(source: &Path, target: &Path) -> Result<u64, ForkError> {
-    tokio::fs::create_dir(target)
+    tokio::fs::DirBuilder::new()
+        .mode(PRIVATE_DIR_MODE)
+        .create(target)
         .await
         .map_err(io("create staging directory", target))?;
     let main = source.join(MAIN_FILE);
@@ -372,9 +379,15 @@ async fn copy_without_main(source: &Path, target: &Path) -> Result<u64, ForkErro
 /// length was `published` before [`copy_without_main`], and judge the copy.
 async fn finish_copy(source: &Path, target: &Path, published: u64) -> Result<Snapshot, ForkError> {
     let main = source.join(MAIN_FILE);
-    let copied = tokio::fs::copy(&main, target.join(MAIN_FILE))
+    let copy = target.join(MAIN_FILE);
+    let copied = tokio::fs::copy(&main, &copy)
         .await
         .map_err(io("copy", &main))?;
+    // A copy takes the source's mode; the private staging dir hides it
+    // until it is private too.
+    tokio::fs::set_permissions(&copy, std::fs::Permissions::from_mode(PRIVATE_FILE_MODE))
+        .await
+        .map_err(io("restrict", &copy))?;
     Ok(if copied == published {
         Snapshot::Consistent
     } else {
@@ -383,7 +396,7 @@ async fn finish_copy(source: &Path, target: &Path, published: u64) -> Result<Sna
 }
 
 /// Copy the entries of `source` into the existing `target`, recursively,
-/// except the top-level `skip`.
+/// except the top-level `skip`: directories 0700, files 0600.
 async fn copy_dir_contents(
     source: &Path,
     target: &Path,
@@ -407,7 +420,9 @@ async fn copy_dir_contents(
             let destination = to.join(&name);
             let file_type = entry.file_type().await.map_err(io("inspect", &path))?;
             if file_type.is_dir() {
-                tokio::fs::create_dir(&destination)
+                tokio::fs::DirBuilder::new()
+                    .mode(PRIVATE_DIR_MODE)
+                    .create(&destination)
                     .await
                     .map_err(io("create", &destination))?;
                 pending.push((path, destination, None));
@@ -415,6 +430,12 @@ async fn copy_dir_contents(
                 tokio::fs::copy(&path, &destination)
                     .await
                     .map_err(io("copy", &path))?;
+                tokio::fs::set_permissions(
+                    &destination,
+                    std::fs::Permissions::from_mode(PRIVATE_FILE_MODE),
+                )
+                .await
+                .map_err(io("restrict", &destination))?;
             }
         }
     }

@@ -63,6 +63,8 @@ import ./laws/gateway_width.bend as GatewayWidth
 import ./bend/proof_gateway_width.bend as GatewayWidths
 import ./laws/tui_color.bend as TuiColor
 import ./bend/proof_tui_color.bend as TuiColors
+import ./laws/fsmode.bend as Fm
+import ./bend/proof_fsmode.bend as FileModes
 
 # (a) The view
 
@@ -1100,3 +1102,41 @@ def TuiColor.tui_roles_resolve(f, v):
 
 def TuiColor.tui_roles_shipped(s):
   TuiColors.tui_roles_shipped(s)
+
+# File modes, the socket dir and the working dir
+
+def Fm.socket_dir_owned(d, used):
+  FileModes.owned(d, used)
+
+def Fm.socket_dir_progress(d, safe):
+  FileModes.progress(d, safe)
+
+def Fm.socket_dir_created(mine, loose):
+  FileModes.created(mine, loose)
+
+def Fm.socket_dir_created_used():
+  FileModes.created_used()
+
+def Fm.peer_same_uid(p, own, ok):
+  FileModes.peer_same(p, own, ok)
+
+def Fm.peer_own_accepted(own):
+  FileModes.peer_own(own)
+
+def Fm.private_on_create(k):
+  FileModes.private(k)
+
+def Fm.cwd_is_explicit(c, p, ok):
+  FileModes.explicit(c, p, ok)
+
+def Fm.cwd_none_refused():
+  {==}
+
+def Fm.cwd_gone_refused(p):
+  {==}
+
+def Fm.cwd_file_refused(p):
+  {==}
+
+def Fm.cwd_dir_opens(p):
+  {==}

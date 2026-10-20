@@ -140,7 +140,8 @@ async fn a_relaunch_spawn_record_serves_the_durable_persist() {
         "createdAt": "2026-10-01T00:00:00Z",
         "updatedAt": "2026-10-01T00:00:00Z",
         "lifecycle": "ready",
-        "createCommand": {},
+        // A spawn runs in the session's own cwd, which must exist.
+        "createCommand": { "cwd": dir.to_string_lossy() },
         "consecutiveFailures": 0,
     }))
     .expect("descriptor");
@@ -198,7 +199,8 @@ async fn a_fresh_create_spawn_record_keeps_the_unsynced_shape() {
         continue_recent: None,
         no_session: None,
         name: Some("faux".to_string()),
-        config: None,
+        // A create names its cwd, which must exist.
+        config: Some(serde_json::json!({ "cwd": dir.to_string_lossy() })),
         runtime_metadata: None,
         lifecycle: None,
         env: None,

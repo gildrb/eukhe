@@ -530,7 +530,7 @@ fn a_persisted_scan_state_resumes_like_the_full_fold() {
     // message): it is owner-only like the session files it derives from.
     assert_eq!(
         eukhe_core::platform::perms::file_mode(&path.with_extension("info-cache.json")),
-        Some(eukhe_core::platform::perms::PRIVATE_FILE_MODE)
+        Some(eukhe_types::platform::access::PRIVATE_FILE_MODE)
     );
     super::session_info_cache()
         .lock()

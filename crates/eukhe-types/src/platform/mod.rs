@@ -1,5 +1,5 @@
-//! Cross-crate platform contracts: transport, process identity, and home-dir
-//! resolution.
+//! Cross-crate platform contracts: transport, process identity, local
+//! access (own uid, private modes, socket peers), and home-dir resolution.
 //!
 //! eukhe-types is the only crate every platform consumer can depend on
 //! (eukhe-tui depends on eukhe-types alone; eukhe-daemon, eukhe-cli, eukhe-core all sit
@@ -7,6 +7,7 @@
 //! `/proc`/libproc process queries, with call sites never branching on
 //! `cfg` themselves.
 
+pub mod access;
 pub mod dirs;
 pub mod identity;
 pub mod process;

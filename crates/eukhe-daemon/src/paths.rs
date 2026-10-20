@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use sha2::{Digest, Sha256};
 
 pub const AGENT_DIR_ENV: &str = "EUKHE_CODING_AGENT_DIR";
@@ -75,17 +75,19 @@ pub fn logs_dir(agent_dir: &Path) -> PathBuf {
     agent_dir.join("logs")
 }
 
-/// Create the directory (and any missing parents), then restrict its
-/// permissions to the current user.
+/// Create the directory and any missing parents with mode 0700 (no
+/// window), then set 0700 on the directory itself, also when it existed.
+/// Only for eukhe's own directories: the agent dir, the sessions root and
+/// the dirs under them.
 ///
 /// # Errors
 ///
-/// Returns an error when directory creation fails; the permission
-/// restriction is best effort and never fails the call.
+/// Returns an error when the directory cannot be created or made private.
 pub fn ensure_dir(path: &Path) -> Result<()> {
-    std::fs::create_dir_all(path)?;
-    let _ = eukhe_core::platform::perms::restrict_dir(path);
-    Ok(())
+    eukhe_core::platform::perms::create_dir_all_private(path)
+        .with_context(|| format!("create the private dir {}", path.display()))?;
+    eukhe_core::platform::perms::restrict_dir(path)
+        .with_context(|| format!("set mode 0700 on {}", path.display()))
 }
 
 /// sha256 hex, first `chars` characters.

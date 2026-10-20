@@ -21,7 +21,7 @@ use futures::future::BoxFuture;
 
 pub use decode::{range_decoder, starts_with_bom, StreamDecoder, Utf8Decoder};
 pub use line_scan::{InvalidLineRange, LineScanner};
-pub use native::{NativeExecutionEnv, NativeExecutionEnvOptions};
+pub use native::{CreationModes, NativeExecutionEnv, NativeExecutionEnvOptions};
 pub use native_watch::NativeWatchOptions;
 
 /// The cause attached to a [`FileError`] or [`ExecutionError`]: the JS

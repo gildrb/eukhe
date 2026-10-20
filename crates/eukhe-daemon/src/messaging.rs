@@ -354,14 +354,13 @@ impl Supervisor {
             1 => {
                 let edge = matches.pop().expect("one match");
                 let session_file = edge.child.clone();
-                let (cwd, depth) =
+                // The create names no cwd: launch_worker takes the one the
+                // child's session recorded, and refuses when there is none.
+                let depth =
                     crate::session_store::read_session_info(std::path::Path::new(&session_file))
-                        .map_or_else(
-                            || ("/".to_string(), edge.depth),
-                            |info| (info.cwd, info.rlm_depth),
-                        );
+                        .map_or(edge.depth, |info| info.rlm_depth);
                 Some(
-                    self.launch_ledger_child_wake(&session_file, cwd, &edge.child_id, depth)
+                    self.launch_ledger_child_wake(&session_file, &edge.child_id, depth)
                         .await,
                 )
             }
@@ -380,7 +379,6 @@ impl Supervisor {
     async fn launch_ledger_child_wake(
         self: &Arc<Self>,
         session_file: &str,
-        cwd: String,
         child_id: &str,
         depth: u32,
     ) -> WakeOutcome {
@@ -402,7 +400,7 @@ impl Supervisor {
             // `create_command.rest.rlmDepth`); a bare create `rest` is
             // never read there. Without the identity the revived child's
             // fence sees a root and never re-passivates.
-            config: Some(json!({ "cwd": cwd, "rlmDepth": depth })),
+            config: Some(json!({ "rlmDepth": depth })),
             runtime_metadata: Some(json!({ "kind": "subagent", "rlmChildId": child_id })),
             lifecycle: None,
             env: None,

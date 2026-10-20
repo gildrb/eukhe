@@ -250,11 +250,16 @@ impl Supervisor {
     ///
     /// # Errors
     ///
-    /// Returns an error when the descriptor directory cannot be created,
-    /// the sessions dir cannot be resolved, the supervisor config
+    /// Returns an error when the agent dir, the sessions dir or the
+    /// descriptor directory cannot be created or made private (0700), the
+    /// sessions dir cannot be resolved, the supervisor config
     /// cannot be persisted, or the compaction-supervision journal cannot
     /// be opened.
     pub fn new(options: SupervisorOptions) -> Result<Self> {
+        // The agent dir and the sessions root (an `EUKHE_SESSION_DIR`
+        // override included) are private at every start.
+        paths::ensure_dir(&options.agent_dir)?;
+        paths::ensure_dir(&paths::sessions_dir(&options.agent_dir)?)?;
         let descriptor_dir =
             crate::descriptor::descriptor_dir(&options.agent_dir, &options.socket_path);
         paths::ensure_dir(&descriptor_dir)?;
@@ -367,7 +372,7 @@ impl Supervisor {
         // at the same path survives this supervisor's exit.
         *self.bound_socket_identity.lock().unwrap() =
             socket::socket_identity(&self.options.socket_path);
-        socket::restrict_socket_path(&self.options.socket_path);
+        socket::restrict_socket_path(&self.options.socket_path)?;
         self.log
             .append(&format!("supervisor started pid {}", std::process::id()));
         // Claim the chat memory only once this process owns the daemon

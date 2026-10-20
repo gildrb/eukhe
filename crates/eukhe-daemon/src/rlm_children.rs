@@ -115,6 +115,19 @@ impl ParentIdentity {
             ..Default::default()
         }
     }
+
+    /// The parent's working directory, which its children inherit (and
+    /// whose settings scope their spawns).
+    ///
+    /// # Errors
+    ///
+    /// [`crate::session_cwd::CwdError::Missing`] when the identity carries
+    /// none: a child never runs in `/` for want of one.
+    pub(crate) fn working_dir(&self) -> Result<&str, crate::session_cwd::CwdError> {
+        self.cwd
+            .as_deref()
+            .ok_or(crate::session_cwd::CwdError::Missing)
+    }
 }
 
 /// One child's family-addressing identity: the same facts the RLM roster
@@ -391,10 +404,11 @@ impl SupervisorChildSessionsInner {
     }
 
     /// The per-child session directory under the parent's artifacts tree
-    /// (TS `_createChildRlmSessionDir`); the child session persists inside it.
+    /// (TS `_createChildRlmSessionDir`); the child session persists inside
+    /// it. Created 0700, its missing parents too.
     fn child_session_dir(&self, child_id: &str, identity: &ParentIdentity) -> Result<PathBuf> {
         let base = self.child_session_path(child_id, identity);
-        std::fs::create_dir_all(&base)
+        eukhe_core::platform::perms::create_dir_all_private(&base)
             .with_context(|| format!("create RLM child session dir {}", base.display()))?;
         Ok(base)
     }

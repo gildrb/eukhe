@@ -71,12 +71,12 @@ impl FileAuthStorageBackend {
         }
     }
 
+    /// The agent dir holds the credentials: when it is missing, it (and
+    /// its missing parents) is created with mode 0700, in one step. The
+    /// daemon sets 0700 on an existing agent dir at each start.
     fn ensure_parent_dir(&self) -> Result<()> {
         if let Some(dir) = self.auth_path.parent() {
-            if !dir.exists() {
-                fs::create_dir_all(dir)?;
-                crate::platform::perms::restrict_dir(dir)?;
-            }
+            crate::platform::perms::create_dir_all_private(dir)?;
         }
         Ok(())
     }

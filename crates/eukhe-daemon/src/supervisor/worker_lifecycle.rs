@@ -168,16 +168,24 @@ impl Supervisor {
             return Err(anyhow!("Supervisor is shutting down"));
         }
         let config_object = config.as_ref().and_then(Value::as_object);
-        let cwd_value = config_object
+        // The session's cwd: the one the create names, else (a reopen that
+        // names none, the agents-view resume) the one its saved session
+        // recorded. It must exist; there is no fallback to this
+        // supervisor's own cwd or to `/`.
+        let named_cwd = config_object
             .and_then(|config| config.get("cwd"))
             .and_then(Value::as_str)
+            .filter(|cwd| !cwd.is_empty())
             .map(str::to_string)
             .or_else(|| {
-                std::env::current_dir()
-                    .ok()
-                    .map(|p| p.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| "/".to_string());
+                session_path.as_deref().and_then(|path| {
+                    crate::session_store::read_session_info(std::path::Path::new(path))
+                        .map(|info| info.cwd)
+                })
+            });
+        let cwd_value = crate::session_cwd::session_cwd(named_cwd.as_deref())?
+            .to_string_lossy()
+            .into_owned();
         let session_dir = config_object
             .and_then(|config| config.get("sessionDir"))
             .and_then(Value::as_str)

@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 
 pub use crate::platform::socket_dir;
 pub use crate::platform::{
@@ -64,13 +64,14 @@ async fn acquire_cleanup_lock(path: &Path) -> Result<eukhe_core::platform::LockD
 ///
 /// # Errors
 ///
-/// Returns an error when the parent directory cannot be created, the
-/// socket path cannot be stat'ed, a live listener already answers on the
-/// socket (in use), the cross-process cleanup lock cannot be acquired,
-/// or the locked cleanup itself fails.
+/// Returns an error when the parent directory is not safe or cannot be
+/// created ([`crate::platform::prepare_socket_dir`]), the socket path
+/// cannot be stat'ed, a live listener already answers on the socket (in
+/// use), the cross-process cleanup lock cannot be acquired, or the locked
+/// cleanup itself fails.
 pub async fn prepare_socket_path(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
-        crate::paths::ensure_dir(parent)?;
+        crate::platform::prepare_socket_dir(parent)?;
     }
     // lstat, not `Path::exists()`: a dangling symlink still blocks `bind`
     // while `exists()` - which follows links - denies it, and it must reach
@@ -208,9 +209,16 @@ pub fn cleanup_socket_path_after_close(path: &Path, expected_identity: Option<So
     cleanup_socket_path(path, expected_identity);
 }
 
-/// Restrict the bound socket file to its owner (mode 0o600).
-pub fn restrict_socket_path(path: &Path) {
-    let _ = eukhe_core::platform::perms::restrict_file(path);
+/// Restrict the bound socket file to its owner (mode 0o600). The checked
+/// 0700 dir already hides it; the mode keeps it private if the dir ever
+/// opens up.
+///
+/// # Errors
+///
+/// Returns an error that names the socket when the mode cannot be set.
+pub fn restrict_socket_path(path: &Path) -> Result<()> {
+    eukhe_core::platform::perms::restrict_file(path)
+        .with_context(|| format!("set mode 0600 on the socket {}", path.display()))
 }
 
 /// The bind-capture gap seam (the `EUKHE_DAEMON_EVENT_LOG` seam family): a

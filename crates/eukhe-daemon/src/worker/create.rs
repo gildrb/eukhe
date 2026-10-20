@@ -103,6 +103,12 @@ impl CreateParams {
             None => paths::sessions_dir(agent_dir).map_err(|error| error.to_string())?,
         };
         let (rlm_depth, rlm_max_depth) = create_payload_rlm_depth(payload)?;
+        // The supervisor resolved and checked the cwd; a gone cwd (deleted
+        // since, or a respawn) is refused here too, never replaced by `/`.
+        let cwd = crate::session_cwd::session_cwd(payload.get("cwd").and_then(Value::as_str))
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .into_owned();
         let metadata = payload
             .get("runtimeMetadata")
             .filter(|metadata| metadata.get("kind").and_then(Value::as_str) == Some("subagent"));
@@ -148,7 +154,7 @@ impl CreateParams {
             name: text(Some(payload), "name").filter(|name| !name.trim().is_empty()),
             model,
             thinking,
-            cwd: text(Some(payload), "cwd").unwrap_or_else(|| "/".to_string()),
+            cwd,
             session_dir,
             session_id: text(Some(payload), "sessionId").filter(|id| !id.is_empty()),
             rlm_depth,

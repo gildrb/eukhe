@@ -10,7 +10,7 @@ use eukhe_ai::models::{
 };
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, JsonValue};
-use eukhe_durable::env::{NativeExecutionEnv, NativeExecutionEnvOptions};
+use eukhe_durable::env::{CreationModes, NativeExecutionEnv, NativeExecutionEnvOptions};
 use eukhe_durable::errors::StorageError;
 use eukhe_durable::harness::agent::AGENT_DOC;
 use eukhe_durable::harness::registry::Registry;
@@ -410,8 +410,10 @@ async fn open_storage(
                     "imported legacy session"
                 );
             }
+            // The storage is eukhe's own state: owner-only files and dirs.
             let fs = Arc::new(NativeExecutionEnv::new(NativeExecutionEnvOptions {
                 cwd: config.cwd.to_string_lossy().into_owned(),
+                creation: CreationModes::Private,
                 ..NativeExecutionEnvOptions::default()
             }));
             let storage = JsonlStorage::open(
@@ -427,6 +429,12 @@ async fn open_storage(
             .map_err(|source| OpenError::Storage {
                 dir: dir.clone(),
                 source,
+            })?;
+            // A session dir an older eukhe made with the umask is made
+            // private here; a failure fails the open.
+            crate::platform::perms::restrict_dir(dir).map_err(|error| OpenError::Storage {
+                dir: dir.clone(),
+                source: StorageError::failed(error),
             })?;
             let storage = Arc::new(storage);
             Ok((

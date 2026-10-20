@@ -87,6 +87,7 @@ pub(crate) mod session_archive;
 pub(crate) mod session_bindings;
 pub(crate) mod session_catalog;
 pub(crate) mod session_custom;
+pub(crate) mod session_cwd;
 pub mod session_export;
 pub mod session_input_pause;
 pub mod session_navigation;
@@ -118,5 +119,7 @@ pub(crate) mod worker_stderr;
 
 #[cfg(test)]
 pub(crate) mod durable_test_support;
+#[cfg(test)]
+mod fsmode_bridge;
 #[cfg(test)]
 mod supervision_bridge;

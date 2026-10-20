@@ -50,20 +50,16 @@ pub fn durable_create_command(payload: &Value) -> DurableDaemonCreateCommand {
 /// current one as the snapshot). The session-lease owner id is stamped
 /// per worker (TS `daemon-supervisor.ts` mints it at launch): a lease the
 /// worker acquires must name its own active session, never an id the
-/// supervisor inherited from an ancestor environment.
+/// supervisor inherited from an ancestor environment. `cwd` is the
+/// session's checked working directory (`crate::session_cwd`).
 pub fn worker_launch_env(
     agent_dir: &Path,
     supervisor_socket: &str,
     instance_id: &str,
+    cwd: &Path,
     descriptor: &DaemonWorkerDescriptor,
 ) -> std::collections::BTreeMap<String, String> {
-    let cwd = descriptor
-        .create_command
-        .rest
-        .get("cwd")
-        .and_then(Value::as_str)
-        .unwrap_or("/")
-        .to_string();
+    let cwd = cwd.to_string_lossy().into_owned();
     let script = descriptor
         .create_command
         .rest

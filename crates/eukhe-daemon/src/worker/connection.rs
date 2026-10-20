@@ -295,7 +295,13 @@ impl Worker {
         // successor's file at the same path survives this worker's exit.
         *self.bound_socket_identity.lock().unwrap() =
             crate::socket::socket_identity(&self.config.socket_path);
-        crate::socket::restrict_socket_path(&self.config.socket_path);
+        if let Err(error) = crate::socket::restrict_socket_path(&self.config.socket_path) {
+            // The bind's own failure path: no accept loop runs, so this
+            // task closes the listener and confirms the close.
+            drop(listener);
+            self.listener_closed.notify_one();
+            return Err(error);
+        }
         // This loop owns the bound listener and hands its close to the
         // exit paths (TS daemon-mode.ts:8011-8018 awaits `server.close()`
         // FIRST and cleans the socket path after): an exiting path

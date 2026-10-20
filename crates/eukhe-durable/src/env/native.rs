@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::Metadata;
 use std::future::Future;
 use std::io;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::sync::{Arc, Mutex};
 
 use eukhe_chord::context::Context;
@@ -33,6 +33,36 @@ use readers::{NativeBinaryReader, NativeDirReader, NativeTextLineReader};
 
 pub(crate) use paths::resolve_path;
 
+/// The modes of the files and directories a [`NativeExecutionEnv`]
+/// creates. A mode applies at creation only (no window); an existing file
+/// keeps its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CreationModes {
+    /// Node's modes (files 0o666, directories 0o777) less the process
+    /// umask: the user's own files, which the tools write.
+    #[default]
+    Umask,
+    /// Owner only (files 0o600, directories 0o700): eukhe's own state, a
+    /// session storage.
+    Private,
+}
+
+impl CreationModes {
+    fn file(self) -> u32 {
+        match self {
+            Self::Umask => 0o666,
+            Self::Private => eukhe_types::platform::access::PRIVATE_FILE_MODE,
+        }
+    }
+
+    fn dir(self) -> u32 {
+        match self {
+            Self::Umask => 0o777,
+            Self::Private => eukhe_types::platform::access::PRIVATE_DIR_MODE,
+        }
+    }
+}
+
 /// Options of [`NativeExecutionEnv::new`].
 #[derive(Clone, Debug, Default)]
 pub struct NativeExecutionEnvOptions {
@@ -44,6 +74,9 @@ pub struct NativeExecutionEnvOptions {
     /// Variables commands get on top of the process environment.
     pub shell_env: Option<BTreeMap<String, String>>,
     pub watch: NativeWatchOptions,
+    /// The modes of the files and directories `create_dir`, `write_file`
+    /// and `append_file` create.
+    pub creation: CreationModes,
 }
 
 /// The process's own file system and shell: the TS `NodeExecutionEnv`.
@@ -52,6 +85,7 @@ pub struct NativeExecutionEnv {
     shell_path: Option<String>,
     shell_env: Option<BTreeMap<String, String>>,
     watch_options: NativeWatchOptions,
+    creation: CreationModes,
     /// Process groups of the commands still running.
     active_child_pids: Arc<Mutex<HashSet<u32>>>,
     #[cfg(test)]
@@ -69,6 +103,7 @@ impl NativeExecutionEnv {
             shell_path: options.shell_path,
             shell_env: options.shell_env,
             watch_options: options.watch,
+            creation: options.creation,
             active_child_pids: Arc::new(Mutex::new(HashSet::new())),
             #[cfg(test)]
             spill_hook: None,
@@ -180,15 +215,15 @@ fn symlink_refused(path: &str, cause: io::Error) -> FileError {
     .with_cause(Arc::new(cause))
 }
 
-/// `mkdir(path, { recursive })`.
-async fn make_dir(path: &str, recursive: bool) -> Result<(), FileError> {
+/// `mkdir(path, { recursive, mode })`: every directory it creates gets
+/// `mode` (less the umask).
+async fn make_dir(path: &str, recursive: bool, mode: u32) -> Result<(), FileError> {
     let target = path.to_owned();
     blocking(move || {
-        if recursive {
-            std::fs::create_dir_all(&target)
-        } else {
-            std::fs::create_dir(&target)
-        }
+        std::fs::DirBuilder::new()
+            .recursive(recursive)
+            .mode(mode)
+            .create(&target)
     })
     .await
     .map_err(|error| fs_error(error, "mkdir", path))
@@ -373,13 +408,24 @@ impl NativeExecutionEnv {
     ) -> Result<(), FileError> {
         let resolved = self.resolve(path);
         abort_result(cx, Some(&resolved))?;
-        make_dir(&paths::resolve(&[&resolved, ".."]), true).await?;
+        make_dir(
+            &paths::resolve(&[&resolved, ".."]),
+            true,
+            self.creation.dir(),
+        )
+        .await?;
         abort_result(cx, Some(&resolved))?;
         let target = resolved.clone();
         let content = content.to_vec();
+        let mode = self.creation.file();
         let write = blocking(move || {
             use std::io::Write;
-            let mut file = std::fs::File::create(&target)
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(mode)
+                .open(&target)
                 .map_err(|error| io::Error::new(error.kind(), SyscallError("open", error)))?;
             file.write_all(&content)
                 .map_err(|error| io::Error::new(error.kind(), SyscallError("write", error)))
@@ -397,15 +443,22 @@ impl NativeExecutionEnv {
     ) -> Result<(), FileError> {
         let resolved = self.resolve(path);
         abort_result(cx, Some(&resolved))?;
-        make_dir(&paths::resolve(&[&resolved, ".."]), true).await?;
+        make_dir(
+            &paths::resolve(&[&resolved, ".."]),
+            true,
+            self.creation.dir(),
+        )
+        .await?;
         abort_result(cx, Some(&resolved))?;
         let target = resolved.clone();
         let content = content.to_vec();
+        let mode = self.creation.file();
         blocking(move || {
             use std::io::Write;
             let mut file = std::fs::OpenOptions::new()
                 .append(true)
                 .create(true)
+                .mode(mode)
                 .open(&target)
                 .map_err(|error| io::Error::new(error.kind(), SyscallError("open", error)))?;
             file.write_all(&content)
@@ -611,7 +664,7 @@ impl NativeExecutionEnv {
     ) -> Result<(), FileError> {
         let resolved = self.resolve(path);
         abort_result(cx, Some(&resolved))?;
-        make_dir(&resolved, options.recursive).await
+        make_dir(&resolved, options.recursive, self.creation.dir()).await
     }
 
     async fn remove_inner(

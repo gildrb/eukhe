@@ -424,7 +424,7 @@ pub fn acquire_runtime_session_lease(
 ) -> Result<SessionLease> {
     let canonical = canonical_session_path(session_path);
     let root = agent_dir.join("session-leases");
-    fs::create_dir_all(&root)?;
+    eukhe_core::platform::perms::create_dir_all_private(&root)?;
     let directory = lease_directory(agent_dir, &canonical);
 
     // The open path outlasts the stale window: a guard left by a holder
@@ -439,7 +439,7 @@ pub fn acquire_runtime_session_lease(
                 std::process::id(),
                 uuid::Uuid::new_v4().simple()
             ));
-            fs::create_dir_all(&candidate)?;
+            eukhe_core::platform::perms::create_dir_all_private(&candidate)?;
             let owner = LeaseOwner {
                 version: 1,
                 token: token.clone(),
@@ -449,7 +449,15 @@ pub fn acquire_runtime_session_lease(
                 created_at: crate::util::now_iso(),
             };
             let owner_path = candidate.join("owner.json");
-            fs::write(&owner_path, serde_json::to_string_pretty(&owner)? + "\n")?;
+            {
+                use std::io::Write as _;
+                let mut options = fs::OpenOptions::new();
+                options.write(true).create(true).truncate(true);
+                eukhe_core::platform::perms::set_private_mode(&mut options);
+                options
+                    .open(&owner_path)?
+                    .write_all((serde_json::to_string_pretty(&owner)? + "\n").as_bytes())?;
+            }
             // The holder touches owner.json each refresh period while the
             // lease is still its own, so a reader that cannot verify this
             // process's identity sees that it runs. A lost rename drops the

@@ -1,12 +1,10 @@
-//! File permission policy: owner-only mode bits (0o600 files, 0o700 dirs).
+//! File permission policy: owner-only mode bits (0o600 files, 0o700 dirs,
+//! the constants of `eukhe_types::platform::access`).
 
 use std::fs::OpenOptions;
 use std::path::Path;
 
-/// Owner-only file mode.
-pub const PRIVATE_FILE_MODE: u32 = 0o600;
-/// Owner-only directory mode.
-pub const PRIVATE_DIR_MODE: u32 = 0o700;
+use eukhe_types::platform::access::{PRIVATE_DIR_MODE, PRIVATE_FILE_MODE};
 
 /// Make a file owner-readable/writable only (`chmod 0o600`). Best-effort:
 /// callers decide whether a failure is fatal.

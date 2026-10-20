@@ -46,11 +46,36 @@ pub trait TransportListener: Send + Sync {
     fn accept(&self) -> AcceptFuture<'_>;
 }
 
+/// Every accepted connection passes the peer rule
+/// ([`super::access::peer_verdict`]): a peer of another uid (or one whose
+/// credentials cannot be read) is closed before a frame is read, with a
+/// warning, and the accept waits for the next peer. This one place covers
+/// the supervisor socket and every worker socket.
 impl TransportListener for tokio::net::UnixListener {
     fn accept(&self) -> AcceptFuture<'_> {
         Box::pin(async move {
-            let (stream, _address) = self.accept().await?;
-            Ok(Box::new(stream) as Box<dyn TransportStream>)
+            let own_uid = super::access::current_uid();
+            loop {
+                let (stream, _address) = self.accept().await?;
+                match stream.peer_cred() {
+                    Ok(credentials) => {
+                        match super::access::peer_verdict(credentials.uid(), own_uid) {
+                            super::access::PeerVerdict::Accept => {
+                                return Ok(Box::new(stream) as Box<dyn TransportStream>);
+                            }
+                            super::access::PeerVerdict::Drop => tracing::warn!(
+                                peer_uid = credentials.uid(),
+                                own_uid,
+                                "dropped a socket peer of another uid"
+                            ),
+                        }
+                    }
+                    Err(error) => tracing::warn!(
+                        %error,
+                        "dropped a socket peer whose credentials cannot be read"
+                    ),
+                }
+            }
         })
     }
 }

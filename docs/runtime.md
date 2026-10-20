@@ -478,6 +478,79 @@ directories and symlinks in the hand-back (the model's
 paths are flat files), the transport and `@remote` (the tests above tie
 them).
 
+### Local access: the socket dir, file modes and the working dir
+
+This section is part of G1 (path policy). Only the user that runs eukhe
+can reach the state of eukhe. A session runs only in the directory that
+its create names.
+
+1. The socket dir. The default daemon socket is
+   `$TMPDIR/eukhe-<uid>/daemon.sock` (`/tmp` when `TMPDIR` is not set).
+   The uid comes from `getuid()`. Before the daemon or a worker binds a
+   socket, it checks the directory of the socket (the default dir or the
+   directory of `--daemon-socket`). A missing directory gets mode 0700 at
+   creation, in one step; its missing parents get 0700 too. The daemon
+   then checks the directory again. The daemon uses the directory only
+   when it is a real directory (not a symbolic link), the uid of the
+   daemon owns it, and no group or other user can write in it (no `g+w`,
+   no `o+w`). A user who can write in the directory can replace the
+   socket; read and search bits only let a user try to connect, and the
+   socket mode and the peer check (item 2) stop that. In all other cases
+   the daemon does not start. The error names the directory, what is
+   wrong (a symbolic link, not a directory, the owner uid, or the mode)
+   and what to do: remove the path, run `chmod go-w` on your own
+   directory, or give `--daemon-socket` a path in a private directory.
+   After the bind, the socket file gets mode 0600. If this fails, the bind
+   fails.
+2. Socket peers. The listener of the supervisor socket and of each worker
+   socket reads the uid of each peer (`SO_PEERCRED`). It accepts a peer
+   only when that uid is the uid of the daemon. It closes every other
+   peer before it reads a frame, and logs a warning with the uid of the
+   peer. A peer whose uid it cannot read is closed too.
+3. File modes. Each file that eukhe makes for a session (`main.jsonl`,
+   the sidecars, the staged copies of an import or a fork) gets mode 0600
+   when it is made. Each directory gets mode 0700 when it is made: the
+   agent dir (`~/.eukhe` or `EUKHE_CODING_AGENT_DIR`), the sessions root
+   (`<agent dir>/sessions` or `EUKHE_SESSION_DIR`), each session dir, and
+   the staging dirs of an import or a fork. The mode is set at creation,
+   so no other user can open the file in the time between. The process
+   that makes a directory first sets the mode: the daemon, the CLI, the
+   auth store or the session storage. At each start the daemon also sets
+   0700 on the agent dir and on the sessions root. If it cannot, it does
+   not start. Each open of a session sets 0700 on its session dir (an
+   older eukhe made it with the umask). If it cannot, the open fails. A
+   copy in a fork gets 0600 inside its private staging dir,
+   because a copy keeps the mode of its source. The modes of the files of
+   the user (the files that the tools write) do not change: they keep the
+   umask.
+4. The working dir. A session create must name a working dir. A reopen
+   that names none uses the dir that the saved session recorded. The dir
+   must exist and must be a directory. Else the create fails with `a
+   session needs a working directory`, `working directory <path> is
+   gone` or `working directory <path> is not a directory`. No path uses
+   `/` or the working dir of the supervisor in place of the missing one.
+   The supervisor starts each worker in the working dir of its session.
+   When that dir is gone at a restart, the restart fails.
+
+The Bend model is `bend/fsmode.bend` and the laws are in
+`laws/fsmode.bend`: `socket_dir_owned`, `socket_dir_progress`,
+`socket_dir_created`, `socket_dir_created_used`, `peer_same_uid`,
+`peer_own_accepted`, `private_on_create`, `cwd_is_explicit`,
+`cwd_none_refused`, `cwd_gone_refused`, `cwd_file_refused` and
+`cwd_dir_opens`. `PROOF.bend` proves them with
+`bend/proof_fsmode.bend`.
+
+Bridge: `fsmode_bridge::the_local_access_code_equals_the_bend_model`
+(eukhe-daemon) runs the real code against `bend/bridge_fsmode.bend`. It
+checks generated socket dirs (missing, dirs of the user in nine modes, a
+link, a file, and system dirs of another uid), 64 generated uid pairs,
+the mode of each dir and file that the real creation paths make in a new
+home (the start dirs of the daemon, the socket dir, the auth store, the
+session of a worker, an import and a fork), and 48 generated creates
+(no cwd, an empty cwd, a missing path, a file, a dir). Not modelled: the
+peer check reads the uid from the kernel; the bridge drives the rule
+(`peer_verdict`), not a second user.
+
 ### The kernel environment: install once, no downloads in a session
 
 The kernel runs on a venv (`~/.eukhe/kernel-venv`, or

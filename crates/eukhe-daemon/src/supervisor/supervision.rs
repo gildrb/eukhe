@@ -493,22 +493,23 @@ impl Supervisor {
         // identically").
         let (worker_socket, cwd, launch_env) = {
             let descriptor = resident.descriptor.lock().await;
-            (
-                PathBuf::from(&descriptor.socket_path),
+            // The worker runs in the session's own cwd: a cwd that is gone
+            // refuses the spawn (never `/`, never this supervisor's cwd).
+            let cwd = crate::session_cwd::session_cwd(
                 descriptor
                     .create_command
                     .rest
                     .get("cwd")
-                    .and_then(Value::as_str)
-                    .unwrap_or("/")
-                    .to_string(),
-                crate::descriptor::worker_launch_env(
-                    &self.options.agent_dir,
-                    &self.options.socket_path.to_string_lossy(),
-                    &uuid::Uuid::new_v4().to_string(),
-                    &descriptor,
-                ),
-            )
+                    .and_then(Value::as_str),
+            )?;
+            let launch_env = crate::descriptor::worker_launch_env(
+                &self.options.agent_dir,
+                &self.options.socket_path.to_string_lossy(),
+                &uuid::Uuid::new_v4().to_string(),
+                &cwd,
+                &descriptor,
+            );
+            (PathBuf::from(&descriptor.socket_path), cwd, launch_env)
         };
 
         let image = crate::platform::worker_image()?;
@@ -525,9 +526,7 @@ impl Supervisor {
             // supervisor's inherited stderr, which a detached supervisor
             // never had): the launch failure errors below tail this file.
             .stderr(std::process::Stdio::from(stderr_log));
-        if std::path::Path::new(&cwd).is_dir() {
-            command.current_dir(&cwd);
-        }
+        command.current_dir(&cwd);
         // Detached and window-hidden, the TS worker spawn
         // (`spawnHidden(..., { detached: true })`): the worker leaves the
         // supervisor's console group and shows no fresh console.

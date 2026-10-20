@@ -868,3 +868,4 @@ tests: `durable::compaction::tests::an_unused_auxiliary_model_shows_a_notice_onc
 - [S8. The interface](interface.md#s8-the-interface)
 - [S9. Local tiny models](inference.md#s9-local-tiny-models)
 - [S10. Reasoning depth](inference.md#s10-reasoning-depth)
+- [Local access: the socket dir, file modes and the working dir](runtime.md#local-access-the-socket-dir-file-modes-and-the-working-dir)

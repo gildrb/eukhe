@@ -1197,19 +1197,19 @@ impl Supervisor {
                     )
                 })
         };
-        let cwd = crate::session_store::read_session_info(std::path::Path::new(&session_file))
-            .map_or_else(|| "/".to_string(), |info| info.cwd);
         // The identity rides `config.rlmDepth` + `runtime_metadata.rlmChildId`
         // - the keys launch_worker copies into the DURABLE create command's
         // rest (the parent-owned passivation fence reads that rest; a bare
-        // create `rest` is never read on this path).
+        // create `rest` is never read on this path). The create names no
+        // cwd: launch_worker takes the one the session recorded, and
+        // refuses when there is none.
         let create = DaemonCommand::Create {
             id: None,
             session_path: Some(session_file.clone()),
             continue_recent: Some(false),
             no_session: None,
             name: None,
-            config: Some(json!({ "cwd": cwd, "rlmDepth": depth })),
+            config: Some(json!({ "rlmDepth": depth })),
             runtime_metadata: Some(json!({ "rlmChildId": child_id })),
             lifecycle: None,
             env: None,

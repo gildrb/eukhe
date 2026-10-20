@@ -13,9 +13,13 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 libc = "0.2"
-# platform: signals, the suspend's thread mask and stop, and the tty's
-# termios through safe wrappers. MIT.
-nix = { version = "0.29", features = ["signal", "process", "pthread", "term"] }
+# platform: signals, the suspend's thread mask and stop, the tty's
+# termios, and this process's uid (platform/access) through safe
+# wrappers. MIT.
+nix = { version = "0.29", features = ["signal", "process", "pthread", "term", "user"] }
+# platform/transport: a socket peer of another uid is dropped with a
+# warning. Already in the graph (workspace). MIT.
+tracing.workspace = true
 # platform/process: the suspend window's SIGINT shield (a handler that
 # swallows or runs the default action) without unsafe `sigaction`.
 # Already in the graph through crossterm. MIT OR Apache-2.0.

@@ -666,11 +666,11 @@ mod tests {
         drop(log);
         assert_eq!(
             crate::platform::perms::file_mode(&path),
-            Some(crate::platform::perms::PRIVATE_FILE_MODE)
+            Some(eukhe_types::platform::access::PRIVATE_FILE_MODE)
         );
         assert_eq!(
             crate::platform::perms::file_mode(path.parent().expect("parent")),
-            Some(crate::platform::perms::PRIVATE_DIR_MODE)
+            Some(eukhe_types::platform::access::PRIVATE_DIR_MODE)
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -704,12 +704,12 @@ mod tests {
         let old = path.with_extension("log.old");
         assert_eq!(
             crate::platform::perms::file_mode(&old),
-            Some(crate::platform::perms::PRIVATE_FILE_MODE),
+            Some(eukhe_types::platform::access::PRIVATE_FILE_MODE),
             "the rotated file holds the historical exception payloads"
         );
         assert_eq!(
             crate::platform::perms::file_mode(&path),
-            Some(crate::platform::perms::PRIVATE_FILE_MODE),
+            Some(eukhe_types::platform::access::PRIVATE_FILE_MODE),
             "the fresh log is tightened despite a loose predecessor"
         );
         let _ = std::fs::remove_dir_all(&root);

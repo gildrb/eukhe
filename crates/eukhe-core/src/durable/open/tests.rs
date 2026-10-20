@@ -1218,3 +1218,24 @@ async fn the_read_tool_reads_mcp_resources() {
     );
     session.close(cx()).await.expect("close");
 }
+
+/// A session dir that an older eukhe made with the umask (0755) is made
+/// private (0700) when the session opens.
+#[tokio::test]
+async fn open_makes_an_existing_session_dir_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let SessionStorage::Jsonl { dir, .. } = fixture.jsonl() else {
+        unreachable!("a JSONL storage")
+    };
+    std::fs::create_dir_all(&dir).expect("session dir");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("loose mode");
+    let session = open_session(fixture.config(fixture.jsonl()), cx())
+        .await
+        .expect("open");
+    assert_eq!(
+        crate::platform::perms::file_mode(&dir),
+        Some(eukhe_types::platform::access::PRIVATE_DIR_MODE)
+    );
+    session.close(cx()).await.expect("close");
+}

@@ -44,7 +44,7 @@ async fn resolve_child_model_allowlisted(
     unpinned: UnpinnedChildModel,
 ) -> Result<String> {
     let identity = this.identity.lock().expect("identity lock").clone();
-    let cwd = identity.cwd.clone().unwrap_or_else(|| "/".to_string());
+    let cwd = identity.working_dir()?.to_owned();
     let agent_dir = this.agent_dir.clone();
     let reference = reference.map(str::to_string);
     tokio::task::spawn_blocking(move || {
@@ -338,7 +338,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 }
             } else {
                 let thinking = request.thinking.as_deref().or(identity.thinking.as_deref());
-                let parent_cwd = identity.cwd.clone().unwrap_or_else(|| "/".to_owned());
+                let parent_cwd = identity.working_dir()?.to_owned();
                 let cwd = match request.workspace {
                     WorkspaceMode::Shared => parent_cwd,
                     // Idempotent: a rerun after a restart keeps the copy
@@ -418,11 +418,11 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
             let cwd = match &request.cwd {
                 Some(cwd) if Path::new(cwd).is_absolute() => PathBuf::from(cwd),
-                Some(cwd) => Path::new(identity.cwd.as_deref().unwrap_or("/")).join(cwd),
-                None => PathBuf::from(identity.cwd.clone().unwrap_or_else(|| "/".to_owned())),
+                Some(cwd) => Path::new(identity.working_dir()?).join(cwd),
+                None => PathBuf::from(identity.working_dir()?),
             };
             let sessions_dir = crate::paths::sessions_dir(&this.agent_dir)?;
-            std::fs::create_dir_all(&sessions_dir)?;
+            crate::paths::ensure_dir(&sessions_dir)?;
             let thinking = request.thinking.as_deref().or(identity.thinking.as_deref());
             let created = this
                 .launch_child(
@@ -845,9 +845,8 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 .identity
                 .lock()
                 .expect("identity lock")
-                .cwd
-                .clone()
-                .unwrap_or_else(|| "/".to_owned());
+                .working_dir()?
+                .to_owned();
             let agent_dir = this.agent_dir.clone();
             let max_concurrency = tokio::task::spawn_blocking(move || {
                 eukhe_core::settings::SettingsManager::create(Path::new(&cwd), &agent_dir)

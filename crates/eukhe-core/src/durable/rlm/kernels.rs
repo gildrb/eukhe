@@ -160,7 +160,7 @@ impl KernelPool {
             .ok_or_else(|| anyhow::anyhow!("the session is closed"))?;
         let snapshot_dir = Self::snapshot_dir(&deps, conversation_id);
         if let Some(dir) = &snapshot_dir {
-            std::fs::create_dir_all(dir).map_err(|error| {
+            crate::platform::perms::create_dir_all_private(dir).map_err(|error| {
                 anyhow::anyhow!("cannot create kernel directory {}: {error}", dir.display())
             })?;
         }
@@ -350,7 +350,11 @@ async fn dispose(conversation_id: ConversationId, kernel: &ConversationKernel) {
 /// Move the snapshot payload and manifest in `from` (when written) into
 /// `to`.
 async fn relocate_snapshot(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-    tokio::fs::create_dir_all(to).await?;
+    tokio::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(eukhe_types::platform::access::PRIVATE_DIR_MODE)
+        .create(to)
+        .await?;
     for (source, target) in [
         (snapshot_path_in(from), snapshot_path_in(to)),
         (manifest_path_in(from), manifest_path_in(to)),
