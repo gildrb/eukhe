@@ -1,0 +1,12 @@
+# eukhe.com: serves the installer (`curl -fsSL https://eukhe.com/install | sh`).
+# Deploy: npx wrangler deploy (from this folder, with a Cloudflare login that
+# can write Workers and Workers routes for the eukhe.com zone).
+name = "eukhe-site"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+account_id = "87b6add2ec2f23c7fdebebb2af63d833"
+
+routes = [
+  { pattern = "eukhe.com/*", zone_name = "eukhe.com" },
+]
