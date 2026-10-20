@@ -92,13 +92,12 @@ fn write_revival_fixture(
             "createdAt": now,
             "updatedAt": now,
             "lifecycle": lifecycle,
+            // The persisted shape: `rest` is flattened into `createCommand`.
             "createCommand": {
                 "sessionPath": session_file.to_string_lossy(),
-                "rest": {
-                    "cwd": dir.to_string_lossy(),
-                    "sessionDir": sessions_dir.to_string_lossy(),
-                    "script": script.to_string_lossy(),
-                },
+                "cwd": dir.to_string_lossy(),
+                "sessionDir": sessions_dir.to_string_lossy(),
+                "script": script.to_string_lossy(),
             },
             "consecutiveFailures": 0,
         })

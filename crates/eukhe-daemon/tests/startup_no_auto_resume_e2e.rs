@@ -266,13 +266,17 @@ fn messages(client: &mut Client, id: &str, active_session_id: &str) -> String {
 fn write_ts_era_session(agent_dir: &Path, session_id: &str, name: &str, state: &str) -> PathBuf {
     let sessions = agent_dir.join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
+    // The project the session ran in: a session reopens only in an
+    // existing working directory.
+    let work = agent_dir.with_file_name("work");
+    std::fs::create_dir_all(&work).expect("work dir");
     let path = sessions.join(format!("{session_id}.jsonl"));
     let lines = json_lines(vec![
         json!({
             "type": "session",
             "id": session_id,
             "timestamp": "2026-01-05T10:00:00.000Z",
-            "cwd": "/work",
+            "cwd": work.to_string_lossy(),
         }),
         json!({
             "type": "session_info",

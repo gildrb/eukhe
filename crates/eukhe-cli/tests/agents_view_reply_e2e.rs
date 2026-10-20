@@ -169,7 +169,8 @@ fn faux_engine_config(dir: &Path, responses: &[&str]) -> serde_json::Value {
         .to_string(),
     )
     .expect("write faux script");
-    serde_json::json!({ "script": script.to_string_lossy() })
+    // Every client create names the session's working directory.
+    serde_json::json!({ "script": script.to_string_lossy(), "cwd": dir.to_string_lossy() })
 }
 
 fn view_options(socket: &Path, session_dir: &Path, config: serde_json::Value) -> AgentsViewOptions {
