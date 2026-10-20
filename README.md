@@ -5,9 +5,7 @@ as its memory.
 
 eukhe is a fork of [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
 by Prime Intellect. It is not affiliated with Prime Intellect, Victor Taelin or Earendil.
-Upstream remote: `upstream`. See [Attribution](#attribution).
-
-Website: https://eukhe.com
+See [Attribution](#attribution).
 
 PROBLEM: A coding agent forgets. A new session starts empty. A compaction
 removes the start of a long session.
@@ -59,7 +57,6 @@ Details: [docs/memory.md](docs/memory.md).
 ## Agents
 
 - An agent starts subagents from its Python REPL (`rlm.spawn`).
-- Each agent can send a message to each agent of its family.
 - `@name message` sends a message to a family agent.
 - `/agents` lists the agents of the session.
 
@@ -68,33 +65,6 @@ Details: [docs/memory.md](docs/memory.md).
 - `eukhe gateway` connects Signal to the CLI session. See [docs/gateway.md](docs/gateway.md).
 - `eukhe dashboard` serves the session on `127.0.0.1`. For a phone, run
   `poros eukhe dashboard`. See [docs/dashboard.md](docs/dashboard.md).
-
-## Changes from Prime Agent
-
-|Area|Change|
-|---|---|
-|Memory|The OptChat chat log is the default memory. The daemon owns the log and runs the compactor.|
-|Agents|Each agent can send a message to each agent of its family.|
-|Name|Binary `eukhe`, crates `eukhe-*`, env vars `EUKHE_*`, state in `~/.eukhe`. eukhe and Prime Agent do not share state.|
-|Install|curl installer, Nix flake, Home Manager module, GitHub release (mise).|
-|Prompt cache|Breakpoints on text blocks.|
-
-## Releases
-
-Every commit of `main` that passes CI (`.github/workflows/ci.yml`: the
-laws, the tests, the deny gate) is released once, by
-`.github/workflows/eukhe-release.yml`. The version is the next patch of
-the series in `Cargo.toml` (`[workspace.package] version = "X.Y.0"`): 1 +
-the highest patch among the tags `eukhe-vX.Y.P`, or 0 for the first
-release of a series. The release is tagged `eukhe-v<version>`, titled
-`Eukhe v<version>`, marked latest, and pinned for the flake in
-`nix/release.json`. To start a new series, set the workspace version to
-the next `X.Y.0` (for example `0.11.0` or `1.0.0`). A workspace version
-that is no `X.Y.0`, or a tag of a newer series, stops the release.
-`scripts/release/next_version.py` computes the version; its rule is the
-model `bend/semver.bend`, whose laws (`laws/release.bend`, section R1)
-`PROOF.bend` proves, and `scripts/release/test_next_version.py` runs the
-script and the model on the same cases.
 
 ## Develop
 
@@ -125,13 +95,11 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspac
 
 ## Limitations
 
-```
 - eukhe runs model-generated Python and shell commands with your user
   permissions. It is not a sandbox. Use trusted repositories only.
 - Platforms: macOS (Apple Silicon), Linux (x64, arm64). No Windows.
 - The kernel needs uv. The chat memory needs git. The Nix package supplies both.
 - Local models need ONNX Runtime 1.24 or newer.
-```
 
 ## Attribution
 
