@@ -34,6 +34,8 @@ const COLLECT_WAIT_MS: u64 = 60_000;
 /// tried again, and how many times it is.
 const SPAWN_RETRY_PAUSE: Duration = Duration::from_secs(2);
 const SPAWN_RETRIES: u32 = 300;
+/// How `rlm.answer` refuses a name no live child holds.
+const NO_SUCH_CHILD: &str = "No direct RLM child matches";
 /// Characters of an answer or error a row's note keeps.
 const NOTE_CHARS: usize = 160;
 
@@ -140,10 +142,10 @@ pub(super) struct AgentOptions {
 ///
 /// An unknown key or a value of the wrong type.
 pub(super) fn agent_options(options: &Value) -> Result<AgentOptions, String> {
+    const KEYS: [&str; 6] = ["label", "phase", "schema", "model", "effort", "isolation"];
     let Value::Object(object) = options else {
         return Err("agent(prompt, opts): opts must be an object".to_owned());
     };
-    const KEYS: [&str; 6] = ["label", "phase", "schema", "model", "effort", "isolation"];
     if let Some(key) = object.keys().find(|key| !KEYS.contains(&key.as_str())) {
         return Err(format!(
             "agent(prompt, opts): unknown option {key} (label, phase, schema, model, effort, isolation)"
@@ -189,11 +191,9 @@ pub(super) fn agent_options(options: &Value) -> Result<AgentOptions, String> {
 pub(super) fn resume_key(prompt: &str, options: &Value, occurrence: u32) -> String {
     let canonical = json!([prompt, options]).to_string();
     let digest = Sha256::digest(canonical.as_bytes());
-    let hex: String = digest[..16]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    format!("{hex}:{occurrence}")
+    let mut head = [0_u8; 16];
+    head.copy_from_slice(&digest[..16]);
+    format!("{:032x}:{occurrence}", u128::from_be_bytes(head))
 }
 
 /// What the admission of one `agent()` call decided.
@@ -475,12 +475,14 @@ async fn settle_child(
     options: &AgentOptions,
     ordinal: u32,
 ) -> SessionResult<ChildEnd> {
-    let existing = host_call(services, api, "rlm.answer", json!({ "target": name }))
-        .await
-        .ok();
-    let found = match existing {
-        Some(found) => found,
-        None => {
+    // The child exists when an earlier attempt of this call spawned it
+    // (a restart cut the call off): the call reattaches to it.
+    let found = match host_call(services, api, "rlm.answer", json!({ "target": name })).await {
+        Ok(found) => found,
+        Err(error) if !format!("{error:#}").starts_with(NO_SUCH_CHILD) => {
+            return Ok(ChildEnd::Failed(format!("{error:#}")));
+        }
+        Err(_) => {
             let kwargs = json!({
                 "name": name,
                 "label": options.label,
@@ -564,10 +566,11 @@ async fn settle_child(
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
-    let status = state
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("error");
+    let Some(status) = state.get("status").and_then(Value::as_str) else {
+        return Ok(ChildEnd::Failed(format!(
+            "rlm.answer gave no status for agent {name}"
+        )));
+    };
     let answer = state
         .get("answer")
         .and_then(Value::as_str)

@@ -5,6 +5,8 @@
 //! print the same transcript. `bend/bridge_workflow.bend` documents the
 //! scenario format.
 
+use std::fmt::Write as _;
+
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 use eukhe_types::workflow::{WorkflowAgentStatus, WorkflowLimits, WorkflowSize};
 
@@ -55,26 +57,26 @@ fn the_rust_admission_equals_the_bend_model() {
         for _ in 0..rng.range(1, 4) {
             let size_code = rng.below(3);
             let cap = rng.below(15);
-            let size = WorkflowSize::ALL[usize::try_from(size_code).unwrap_or(0)];
-            let limits = effective_limits(size, u32::try_from(cap).unwrap_or(u32::MAX));
-            events.push_str(&format!("l {size_code} {cap}\n"));
-            transcript.push_str(&format!("l {} {}\n", limits.concurrency, limits.max_agents));
+            let size = WorkflowSize::ALL[usize::try_from(size_code).unwrap()];
+            let limits = effective_limits(size, u32::try_from(cap).unwrap());
+            writeln!(events, "l {size_code} {cap}").unwrap();
+            writeln!(transcript, "l {} {}", limits.concurrency, limits.max_agents).unwrap();
         }
         let max_agents = rng.below(6);
-        events.push_str(&format!("b {max_agents}\n"));
-        let mut run = record(u32::try_from(max_agents).unwrap_or(0));
+        writeln!(events, "b {max_agents}").unwrap();
+        let mut run = record(u32::try_from(max_agents).unwrap());
         let mut earlier = record(25);
         for ordinal in 0..rng.range(0, 5) {
             let key = rng.below(8);
-            events.push_str(&format!("c {key}\n"));
-            let ordinal = u32::try_from(ordinal).unwrap_or(0) + 1;
+            writeln!(events, "c {key}").unwrap();
+            let ordinal = u32::try_from(ordinal).unwrap() + 1;
             earlier
                 .agents
                 .insert(ordinal, row(ordinal, key, WorkflowAgentStatus::Done));
         }
-        for ordinal in 1..=u32::try_from(rng.range(0, 10)).unwrap_or(0) {
+        for ordinal in 1..=u32::try_from(rng.range(0, 10)).unwrap() {
             let key = rng.below(8);
-            events.push_str(&format!("g {key}\n"));
+            writeln!(events, "g {key}").unwrap();
             let decided = admit(
                 &mut run,
                 Some(&earlier),

@@ -135,6 +135,10 @@ pub(crate) enum ReportMode {
 }
 
 impl ReportMode {
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's skip_serializing_if passes the field by reference"
+    )]
     fn is_inbox(&self) -> bool {
         match self {
             Self::Inbox => true,

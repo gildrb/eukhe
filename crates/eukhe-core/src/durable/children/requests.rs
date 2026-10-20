@@ -339,6 +339,14 @@ async fn run_batch(children: Arc<Children>, call: HostCall) -> anyhow::Result<Va
     Ok(json!({ "handles": handles }))
 }
 
+/// One admitted spawn: its name, label, phase, and task input.
+type Admitted = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    ChildTaskInput,
+);
+
 /// Admit `specs` as `eukhe.rlm.child` tasks in the calling tool's commit,
 /// together with their registry rows, then wait for each task's `spawn`
 /// phase to create its child. The name checks, the spawn cap, and the rows
@@ -386,12 +394,7 @@ async fn admit_spawns(
         .as_ref()
         .and_then(|recorder| recorder.last_turn_request_id())
         .or_else(|| Some(api.call_id().to_owned()));
-    let admitted: Vec<(
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        ChildTaskInput,
-    )> = specs
+    let admitted: Vec<Admitted> = specs
         .into_iter()
         .map(|spec| {
             (
