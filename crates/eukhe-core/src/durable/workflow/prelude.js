@@ -8,6 +8,11 @@ let __wfSpawned = 0;
 let __wfPhase = null;
 const __wfSeen = new Map();
 const __wfIgnore = () => undefined;
+const __wfUpdates = [];
+
+function __wfSettled() {
+	return Promise.all(__wfUpdates.map((update) => update.then(__wfIgnore, __wfIgnore)));
+}
 
 function __wfAcquire() {
 	if (__wfFree > 0) {
@@ -36,12 +41,14 @@ const budget = Object.freeze({
 function phase(title) {
 	__wfPhase = String(title);
 	const done = wf.phase({ title: __wfPhase });
+	__wfUpdates.push(done);
 	done.then(__wfIgnore, __wfIgnore);
 	return done;
 }
 
 function log(message) {
 	const done = wf.log({ message: typeof message === "string" ? message : JSON.stringify(message) });
+	__wfUpdates.push(done);
 	done.then(__wfIgnore, __wfIgnore);
 	return done;
 }

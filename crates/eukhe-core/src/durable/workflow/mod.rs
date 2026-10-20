@@ -13,6 +13,9 @@ mod run_doc;
 mod schema;
 mod size;
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 
 use eukhe_ai::typebox::{Options, TSchema, Type};
@@ -164,12 +167,14 @@ fn now_ms() -> f64 {
 }
 
 /// The source the code mode sandbox runs: the header (`args`, the
-/// limits), the prelude, then the script's body. A rerun builds the same
+/// limits), the prelude, then the script's body in its own async
+/// function, whose result returns once every `phase()` and `log()` update
+/// landed. A rerun builds the same
 /// source from the run's record.
 fn source(record: &RunRecord, request: &str, body: &str) -> String {
     let request = serde_json::Value::String(request.to_owned());
     format!(
-        "// eukhe workflow v{WORKFLOW_MODULE_VERSION}\nconst args = {request};\nconst __wfLimits = Object.freeze({{ size: \"{size}\", concurrency: {concurrency}, maxAgents: {max_agents} }});\n{PRELUDE}\n{body}",
+        "// eukhe workflow v{WORKFLOW_MODULE_VERSION}\nconst args = {request};\nconst __wfLimits = Object.freeze({{ size: \"{size}\", concurrency: {concurrency}, maxAgents: {max_agents} }});\n{PRELUDE}\nconst __wfResult = await (async () => {{\n{body}\n}})();\nawait __wfSettled();\nreturn __wfResult;",
         size = record.size.as_str(),
         concurrency = record.concurrency.max(1),
         max_agents = record.max_agents,
