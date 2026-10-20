@@ -323,10 +323,20 @@ class BashHandle:
             os.close(status_write)
         self._pid: int = self._proc.pid
         self._released = False
+        # The journal this handle enrolls in, resolved once and before the
+        # handle is visible to `_kill_live_handles`: its inactive record must
+        # reach the same file even if the environment changes meanwhile.
+        journal = _journal_target()
+        self._journal: _JournalTarget | None = (
+            journal if isinstance(journal, _JournalTarget) else None
+        )
         with _live_lock:
             _live_handles.add(self)
             _activity_handles[self._activity_id] = self
-        enrolled = _record_journal(self._pid, active=True)
+        enrolled = journal is None or (
+            isinstance(journal, _JournalTarget)
+            and _record_journal(self._pid, active=True, journal=journal)
+        )
         if not enrolled:
             # Fail closed: a configured journal that cannot enroll the pid must
             # not let the command run (the host reaper would never see it).
@@ -501,8 +511,8 @@ class BashHandle:
             callback, self._reap_callback = self._reap_callback, None
         if callback is not None:
             callback()
-        if delivered:
-            _record_journal(self._pid, active=False)
+        if delivered and self._journal is not None:
+            _record_journal(self._pid, active=False, journal=self._journal)
         with _live_lock:
             _live_handles.discard(self)
             _activity_order.append(self._activity_id)
@@ -818,8 +828,8 @@ class BashHandle:
         with _live_lock:
             _live_handles.discard(self)
             _activity_handles.pop(self._activity_id, None)
-        if delivered:
-            _record_journal(self._pid, active=False)
+        if delivered and self._journal is not None:
+            _record_journal(self._pid, active=False, journal=self._journal)
 
     def __await__(self) -> Generator[Any, None, BashResult]:
         # A handle awaited before any other API use is a one-shot command tied
@@ -1007,25 +1017,42 @@ def _process_start_id(pid: int) -> str | None:
         return None
 
 
-def _record_journal(pid: int, active: bool) -> bool:
-    # Fail closed: once a journal is configured, True means the whole record
-    # is on disk. Enrollment (active=True) also needs the process start id:
-    # without it the host reaper cannot tell the group from a reused pid.
+@dataclass(frozen=True)
+class _JournalTarget:
+    """A configured orphan journal: its file and the kernel owner's pid."""
+
+    path: str
+    owner_pid: int
+
+
+@dataclass(frozen=True)
+class _BadJournal:
+    """A journal is configured, but its owner pid is not a number."""
+
+
+def _journal_target() -> _JournalTarget | _BadJournal | None:
+    # `None`: no journal is configured, so nothing is recorded.
     path = os.environ.get("EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL")
     owner = os.environ.get("EUKHE_KERNEL_OWNER_PID")
     if not path or not owner:
-        return True
+        return None
     try:
-        owner_pid = int(owner)
+        return _JournalTarget(path=path, owner_pid=int(owner))
     except ValueError:
-        return False
+        return _BadJournal()
+
+
+def _record_journal(pid: int, active: bool, journal: _JournalTarget) -> bool:
+    # Fail closed: True means the whole record is on disk. Enrollment
+    # (active=True) also needs the process start id: without it the host
+    # reaper cannot tell the group from a reused pid.
     start_id = _process_start_id(pid) if active else None
     if active and start_id is None:
         return False
     record: dict[str, Any] = {
         "version": 1,
         "pid": pid,
-        "ownerPid": owner_pid,
+        "ownerPid": journal.owner_pid,
         # The host reaps bash children per kernel pid when it kills or loses this kernel.
         "kernelPid": os.getpid(),
         **({"processStartId": start_id} if start_id else {}),
@@ -1034,7 +1061,7 @@ def _record_journal(pid: int, active: bool) -> bool:
     }
     data = (json.dumps(record) + "\n").encode()
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        fd = os.open(journal.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:
             view = memoryview(data)
             while view:
@@ -1056,8 +1083,8 @@ def _kill_live_handles() -> None:
         handles = list(_live_handles)
     for handle in handles:
         delivered = _signal_group(handle._pid, signal.SIGKILL)
-        if delivered:
-            _record_journal(handle._pid, active=False)
+        if delivered and handle._journal is not None:
+            _record_journal(handle._pid, active=False, journal=handle._journal)
 
 
 def _install_shutdown_hook() -> None:

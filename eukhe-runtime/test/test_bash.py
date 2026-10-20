@@ -703,6 +703,30 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                     handle.kill(signal.SIGKILL)
                     await asyncio.wait_for(handle, timeout=5)
 
+    async def test_inactive_record_goes_to_the_journal_the_handle_enrolled_in(self):
+        # A handle's records stay in its own journal: a later change of the
+        # configured journal (another kernel config, another test) must not
+        # receive them.
+        with tempfile.TemporaryDirectory() as tmp:
+            enrolled = os.path.join(tmp, "enrolled.jsonl")
+            later = os.path.join(tmp, "later.jsonl")
+            owner = str(os.getpid())
+            with mock.patch.dict(
+                os.environ,
+                {"EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL": enrolled, "EUKHE_KERNEL_OWNER_PID": owner},
+            ):
+                handle = bash("sleep 30")
+                await _poll_journal(enrolled, count=1)
+            with mock.patch.dict(
+                os.environ,
+                {"EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL": later, "EUKHE_KERNEL_OWNER_PID": owner},
+            ):
+                handle.kill(signal.SIGKILL)
+                await asyncio.wait_for(handle, timeout=5)
+                records = await _poll_journal(enrolled, count=2)
+            self.assertEqual([r["active"] for r in records], [True, False])
+            self.assertFalse(os.path.exists(later))
+
     async def test_signal_group_reports_delivery(self):
         with mock.patch.object(bash_module.os, "killpg", side_effect=ProcessLookupError):
             self.assertTrue(bash_module._signal_group(1234567, signal.SIGKILL))
@@ -782,7 +806,10 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                 },
             ):
                 with mock.patch.object(bash_module.os, "write", short_write):
-                    self.assertFalse(bash_module._record_journal(os.getpid(), active=False))
+                    journal_target = bash_module._journal_target()
+                    self.assertFalse(
+                        bash_module._record_journal(os.getpid(), active=False, journal=journal_target)
+                    )
 
     async def test_journal_partial_writes_complete_the_record(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -801,7 +828,10 @@ class BashTest(unittest.IsolatedAsyncioTestCase):
                 },
             ):
                 with mock.patch.object(bash_module.os, "write", partial_write):
-                    self.assertTrue(bash_module._record_journal(os.getpid(), active=False))
+                    journal_target = bash_module._journal_target()
+                    self.assertTrue(
+                        bash_module._record_journal(os.getpid(), active=False, journal=journal_target)
+                    )
             with open(journal) as f:
                 record = json.loads(f.read())
             self.assertEqual(record["pid"], os.getpid())
