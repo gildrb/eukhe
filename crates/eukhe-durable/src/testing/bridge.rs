@@ -5,7 +5,7 @@
 //! [`Rng`] generates the scenarios, the same on every run; [`compare`]
 //! builds the model's bridge file into a native binary, runs it on each
 //! scenario's events and diffs its output with the Rust transcript. It
-//! needs `bend` (2.0.37; `$BEND` or on `PATH`) and clang. Without `bend` a
+//! needs `bend` (2.0.38; `$BEND` or on `PATH`) and clang. Without `bend` a
 //! bridge is skipped with a message, unless `EUKHE_REQUIRE_BEND` is set, as
 //! CI sets it: then a missing `bend` fails it.
 
@@ -101,7 +101,7 @@ pub fn compare(model: &str, scenarios: impl IntoIterator<Item = Scenario>) {
         );
         eprintln!(
             "SKIPPED the bridge to {model}: `bend` is not installed \
-             (https://bend-lang.com/install.sh, version 2.0.37), so the Rust code was \
+             (https://bend-lang.com/install.sh, version 2.0.38), so the Rust code was \
              not compared with its Bend model"
         );
         return;

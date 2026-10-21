@@ -88,7 +88,7 @@ def line(h: String, +ws: List<&2, String>, s: St) -> St:
     case SCon{'t', r}:
       match s:
         case St{g, es, o, ps}:
-          St{g, Sr.Ent{arg(ws, 1n), Sr.Text{arg(ws, 2n), yes(arg(ws, 3n))}} <> es, o, ps}
+          St{g, Sr.Ent{arg(ws, 1n), Sr.Opened{arg(ws, 2n), yes(arg(ws, 3n))}} <> es, o, ps}
     case SCon{'s', r}:
       match s:
         case St{g, es, o, ps}:

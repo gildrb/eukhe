@@ -168,9 +168,10 @@ def find(+t: Tone, xs: List<&2, Entry>) -> Maybe<&2, Col>:
 # 2. Legibility
 # -------------
 
-# the contrast a pair needs: 9/2 for text, 3/1 for captions on fills
+# the contrast a pair needs: 9/2 for text (prose), 3/1 for captions on
+# fills
 type Need is Data:
-  Text{}
+  Prose{}
   Caption{}
 
 # text in tone fg on ground bg
@@ -186,18 +187,18 @@ def grounds(+fg: Tone, +need: Need) -> List<&2, Ink>:
 # button; secondary: a primary button under the pointer; danger: a
 # danger button)
 def pairs() -> List<&2, Ink>:
-  List.concat(&2, Ink, [grounds(Primary{}, Text{}), grounds(Secondary{}, Text{}), grounds(Danger{}, Text{}), [Ink{Tertiary{}, Bg{}, Text{}}, Ink{Tertiary{}, Sidebar{}, Text{}}, Ink{Tertiary{}, Raised{}, Text{}}, Ink{Tertiary{}, Surface{}, Caption{}}, Ink{Tertiary{}, Hover{}, Caption{}}, Ink{Bg{}, Primary{}, Text{}}, Ink{Bg{}, Secondary{}, Text{}}, Ink{Bg{}, Danger{}, Text{}}]])
+  List.concat(&2, Ink, [grounds(Primary{}, Prose{}), grounds(Secondary{}, Prose{}), grounds(Danger{}, Prose{}), [Ink{Tertiary{}, Bg{}, Prose{}}, Ink{Tertiary{}, Sidebar{}, Prose{}}, Ink{Tertiary{}, Raised{}, Prose{}}, Ink{Tertiary{}, Surface{}, Caption{}}, Ink{Tertiary{}, Hover{}, Caption{}}, Ink{Bg{}, Primary{}, Prose{}}, Ink{Bg{}, Secondary{}, Prose{}}, Ink{Bg{}, Danger{}, Prose{}}]])
 
 def Need.num(n: Need) -> U32:
   match n:
-    case Text{}:
+    case Prose{}:
       9
     case Caption{}:
       3
 
 def Need.den(n: Need) -> U32:
   match n:
-    case Text{}:
+    case Prose{}:
       2
     case Caption{}:
       1

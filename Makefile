@@ -16,7 +16,7 @@ runtime-test:
 # mirror of the ci.yml laws job. --verdict needs Lean 4.34.0 (CI installs
 # both pinned releases with .github/actions/setup-bend).
 laws:
-	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend 2.0.37: https://bend-lang.com/install.sh)"; exit 1; }
+	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend 2.0.38: https://bend-lang.com/install.sh)"; exit 1; }
 	bend PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 	bend PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 

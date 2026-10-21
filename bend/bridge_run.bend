@@ -58,7 +58,7 @@ def reply.pick(m: Bool, t: Bool, c: Bool, d: Bool, e: Bool, flag: Bool, +ws: Lis
     case True{} t c d e:
       R.Ended.reply(R.Ended{tok.bool(tok.at(ws, 5n)), tok.bool(tok.at(ws, 6n))})
     case False{} True{} c d e:
-      R.Text{}
+      R.Plain{}
     case False{} False{} True{} d e:
       R.Calls{}
     case False{} False{} False{} True{} e:

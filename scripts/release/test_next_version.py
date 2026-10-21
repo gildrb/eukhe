@@ -3,7 +3,7 @@
 Bend model (bend/semver.bend, LAWS.bend section R1).
 
 The bridge builds bend/bridge_semver.bend into a native binary (needs
-`bend` 2.0.37, from $BEND or PATH, and clang), runs it on generated cases
+`bend` 2.0.38, from $BEND or PATH, and clang), runs it on generated cases
 and requires its transcript to equal the script's, byte for byte. Without
 `bend` the bridge is skipped with a message, unless EUKHE_REQUIRE_BEND is
 set (as CI sets it): then a missing `bend` fails it.
@@ -198,7 +198,7 @@ class BridgeTest(unittest.TestCase):
                 os.environ,
                 "EUKHE_REQUIRE_BEND is set but no `bend` is on PATH (or in $BEND)",
             )
-            self.skipTest("`bend` is not installed (version 2.0.37): the script was not compared with bend/semver.bend")
+            self.skipTest("`bend` is not installed (version 2.0.38): the script was not compared with bend/semver.bend")
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "bridge_semver"
             built = subprocess.run([bend, str(BRIDGE), "-o", str(binary)], capture_output=True, text=True)

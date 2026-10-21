@@ -72,7 +72,7 @@ test("the token tables equal bend/tokens.bend", (context) => {
       "EUKHE_REQUIRE_BEND is set but no `bend` is on PATH (or in $BEND)",
     ).toBeUndefined();
     console.warn(
-      "SKIPPED the bridge to bend/tokens.bend: `bend` is not installed (https://bend-lang.com/install.sh, version 2.0.37)",
+      "SKIPPED the bridge to bend/tokens.bend: `bend` is not installed (https://bend-lang.com/install.sh, version 2.0.38)",
     );
     context.skip();
     return;

@@ -54,7 +54,7 @@ cargo test -p eukhe-core --lib memory::compactor::bridge
 ```
 
 CI does all of this (`.github/workflows/ci.yml`, job `laws`, and the test
-shards). The `.github/actions/setup-bend` action installs Bend 2.0.37 and
+shards). The `.github/actions/setup-bend` action installs Bend 2.0.38 and
 Lean 4.34.0 from their releases and checks each download against its
 sha256. The bridge test skips with a message when `bend` is not
 installed. In CI, `EUKHE_REQUIRE_BEND=1` makes a missing `bend` fail the
@@ -168,10 +168,10 @@ machine `bend PROOF.bend` takes about 30 s and `--verdict` about 2 min 15 s.
 
 ### What is trusted
 
-- The laws are theorems about `bend/optchat.bend`, checked by Bend 2.0.37
+- The laws are theorems about `bend/optchat.bend`, checked by Bend 2.0.38
   and by its BendTT kernel (Lean 4.34.0).
 - That the Rust planner does the same is a finite differential test (the
-  bridge), not a proof. It also trusts the Bend 2.0.37 compiler, its
+  bridge), not a proof. It also trusts the Bend 2.0.38 compiler, its
   runtime, and clang, which build the bridge binary.
 - The bridge and the laws catch real mistakes. Each of these breaks was
   made on purpose and then removed:

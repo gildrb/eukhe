@@ -252,7 +252,7 @@ def K.prepare(+P: Nat, reply: R.Reply, c: Nat) -> Nat:
   match reply:
     case R.Overflow{cut}:
       K.prepare_cut(P, cut, c)
-    case R.Text{}:
+    case R.Plain{}:
       0n
     case R.Calls{}:
       0n
@@ -265,7 +265,7 @@ def dec_prepare(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: R.Reply, +r: Nat, +
   match reply:
     case R.Overflow{cut}:
       dec_prepare_cut(cap, P, A, N, cut, r, c, a, n, p)
-    case R.Text{}:
+    case R.Plain{}:
       lift(0n, gen(P, R.Prepare{}, c, Nat.add(a, n), p), gen(P, R.Call{}, c, Nat.add(a, n), P), X(P, Nat.add(A, N), r), {==})
     case R.Calls{}:
       lift(0n, gen(P, R.Prepare{}, c, Nat.add(a, n), p), gen(P, R.Call{}, c, Nat.add(a, n), P), X(P, Nat.add(A, N), r), {==})
@@ -361,7 +361,7 @@ def dec_deferred(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, +r: Nat, +c: Nat, +a: Nat
 
 def K.call(+P: Nat, +U: Nat, reply: R.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +p: Nat) -> Nat:
   match reply:
-    case R.Text{}:
+    case R.Plain{}:
       K.call_end(P, U, r, c, Nat.add(a, n), p)
     case R.Calls{}:
       Nat.add(p, B(P, c, Nat.add(a, n)))
@@ -374,7 +374,7 @@ def K.call(+P: Nat, +U: Nat, reply: R.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat,
 
 def dec_call(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: R.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +p: Nat) -> Fall(R.Cfg{cap, P, A, N}, R.St{R.Call{}, r, c, a, n, p}, K.call(P, Nat.add(A, N), reply, r, c, a, n, p), R.call(R.Cfg{cap, P, A, N}, reply, r, c, a, n, p)):
   match reply:
-    case R.Text{}:
+    case R.Plain{}:
       call_end(P, Nat.add(A, N), r, c, Nat.add(a, n), p)
     case R.Calls{}:
       lift(Nat.add(p, B(P, c, Nat.add(a, n))), gen(P, R.Call{}, c, Nat.add(a, n), p), 0n, X(P, Nat.add(A, N), r), call_tools(Nat.add(p, B(P, c, Nat.add(a, n)))))
@@ -715,7 +715,7 @@ def inv_prepare(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: R.Reply, +r: Nat, +
   match reply:
     case R.Overflow{cut}:
       inv_prepare_cut(cap, P, A, N, cut, r, c, a, n, k, capv)
-    case R.Text{}:
+    case R.Plain{}:
       (Inl{{==}}, Inr{capv})
     case R.Calls{}:
       (Inl{{==}}, Inr{capv})
@@ -758,7 +758,7 @@ def inv_overflow(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, cut: Bool, +r: Nat, c: Na
 
 def inv_call(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: R.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, p: Nat, +k: Nat, capv: {Nat.add(k, 1n+r) == Nat.max(cap, 1n) : Nat}) -> InvS(R.Cfg{cap, P, A, N}, R.call(R.Cfg{cap, P, A, N}, reply, r, c, a, n, p), k):
   match reply:
-    case R.Text{}:
+    case R.Plain{}:
       (Inl{{==}}, Inr{capv})
     case R.Calls{}:
       (Inl{{==}}, Inr{capv})
@@ -911,7 +911,7 @@ def pinv_prepare(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: R.Reply, +r: Nat, 
   match reply:
     case R.Overflow{cut}:
       pinv_prepare_cut(cap, P, A, N, cut, r, c, a, n)
-    case R.Text{}:
+    case R.Plain{}:
       {==}
     case R.Calls{}:
       {==}
@@ -960,7 +960,7 @@ def polls_full(+k: Nat, -P: Nat, i: {Nat.add(k, 0n) == P : Nat}) -> {1n+k == 1n+
 
 def pinv_call(+cap: Nat, +P: Nat, +A: Nat, +N: Nat, reply: R.Reply, +r: Nat, +c: Nat, +a: Nat, +n: Nat, p: Nat, +k: Nat, i: {Nat.add(k, p) == P : Nat}) -> PInv(R.Cfg{cap, P, A, N}, R.call(R.Cfg{cap, P, A, N}, reply, r, c, a, n, p), R.defers.reply(reply, k)):
   match reply:
-    case R.Text{}:
+    case R.Plain{}:
       Unit{}
     case R.Calls{}:
       Unit{}

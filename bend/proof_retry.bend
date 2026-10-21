@@ -265,7 +265,7 @@ def ok_reply(reply: R.Reply, +ctx: Nat, +n: Nat, +note: Nat, +log: List<&2, R.Se
   match reply:
     case R.Error{retryable, noted}:
       ok_error(noted, ctx, n, note, log, ok)
-    case R.Text{}:
+    case R.Plain{}:
       ok
     case R.Calls{}:
       ok

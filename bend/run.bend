@@ -76,7 +76,7 @@ type Ph is Data:
 # stream repeated itself until the guard cut it, the reply gave no
 # answer, or a recovery (Act.reply)
 type Reply is Data:
-  Text{}
+  Plain{}
   Calls{}
   Deferred{}
   Error{retryable: Bool, noted: Bool}
@@ -90,7 +90,7 @@ type Ended is Data:
 def Ended.text(text: Bool) -> Reply:
   match text:
     case True{}:
-      Text{}
+      Plain{}
     case False{}:
       Error{False{}, True{}}
 
@@ -286,7 +286,7 @@ def prepare(+cfg: Cfg, reply: Reply, r: Nat, c: Nat, a: Nat, n: Nat) -> St:
   match reply:
     case Overflow{cut}:
       prepare.cut(cfg, cut, r, c, a, n)
-    case Text{}:
+    case Plain{}:
       St{Call{}, r, c, a, n, Cfg.polls(cfg)}
     case Calls{}:
       St{Call{}, r, c, a, n, Cfg.polls(cfg)}
@@ -335,7 +335,7 @@ def overflow(cut: Bool, r: Nat, c: Nat, a: Nat, n: Nat, p: Nat) -> St:
 # a reply to a request or a poll (after_reply)
 def call(+cfg: Cfg, reply: Reply, r: Nat, c: Nat, a: Nat, n: Nat, p: Nat) -> St:
   match reply:
-    case Text{}:
+    case Plain{}:
       St{Answered{}, r, c, a, n, p}
     case Calls{}:
       St{Tools{}, r, c, a, n, p}
@@ -496,7 +496,7 @@ def defers.reply(reply: Reply, k: Nat) -> Nat:
   match reply:
     case Deferred{}:
       1n+k
-    case Text{}:
+    case Plain{}:
       0n
     case Calls{}:
       0n
@@ -647,7 +647,7 @@ def Reqs.reply(reply: Reply, +ctx: Nat, +n: Nat, note: Nat, log: List<&2, Sent>)
   match reply:
     case Error{retryable, noted}:
       Reqs.error(noted, ctx, n, note, log)
-    case Text{}:
+    case Plain{}:
       Reqs{ctx, n, note, log}
     case Calls{}:
       Reqs{ctx, n, note, log}
@@ -896,7 +896,7 @@ def Act.reply(a: Act, pass: Reply) -> Reply:
     case Redo{}:
       Error{False{}, True{}}
     case Stand{}:
-      Text{}
+      Plain{}
     case Quit{}:
       Error{False{}, False{}}
 

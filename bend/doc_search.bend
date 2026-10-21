@@ -56,7 +56,7 @@ type Reason is Data:
   Broken{}       # the walk could not read a directory
 
 type Form is Data:
-  Text{hits: Nat, big: Bool}   # a file it opens: the matches in the part it searches; over the size limit
+  Opened{hits: Nat, big: Bool}   # a file it opens: the matches in the part it searches; over the size limit
   Skip{why: Reason}
 
 type Ent is Data:
@@ -126,7 +126,7 @@ def out(e: Ent, +p: Nat, +s: Nat, +k: Nat, +rem: Nat, +n: Nat) -> Out:
   match e:
     case Ent{i, f}:
       match f:
-        case Text{+h, big}:
+        case Opened{+h, big}:
           match rem:
             case 0n:
               Out{i, Unsearched{}, False{}, False{}}
@@ -140,7 +140,7 @@ def left(e: Ent, +p: Nat, +rem: Nat) -> Nat:
   match e:
     case Ent{i, f}:
       match f:
-        case Text{+h, big}:
+        case Opened{+h, big}:
           Nat.sub(rem, Nat.min(h, Nat.min(p, rem)))
         case Skip{why}:
           rem
@@ -157,7 +157,7 @@ def seen(e: Ent, rem: Nat, +n: Nat) -> Nat:
   match e:
     case Ent{i, f}:
       match f:
-        case Text{h, big}:
+        case Opened{h, big}:
           match rem:
             case 0n:
               n
