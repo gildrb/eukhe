@@ -397,6 +397,10 @@ pub struct SignalGatewaySettings {
     pub cli_path: Option<String>,
     /// The working directory of new sessions. Absent means `$HOME`.
     pub cwd: Option<String>,
+    /// The model (`provider/model-id`) that Signal messages run on. The
+    /// gateway switches the session to it before each message. Absent
+    /// means the session keeps its model.
+    pub model: Option<String>,
 }
 
 /// The settings document: every known field optional; unknown keys preserved.

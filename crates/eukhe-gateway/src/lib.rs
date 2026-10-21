@@ -1,6 +1,7 @@
 //! Signal gateway: one `signal-cli` child carries chat messages between a
 //! phone and the eukhe daemon. The phone shares the CLI's session.
 
+mod answer;
 mod commands;
 mod gateway;
 mod link;
@@ -27,7 +28,22 @@ pub struct GatewayConfig {
     /// The working directory of sessions that `/new` creates (and of the
     /// first session when none exists).
     pub new_session_cwd: PathBuf,
+    /// The model Signal messages run on; `None` keeps the session's model.
+    pub model: Option<SignalModel>,
     pub signal: SignalConfig,
+}
+
+/// A model of the catalog, as `set_model` names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignalModel {
+    pub provider: String,
+    pub model_id: String,
+}
+
+impl std::fmt::Display for SignalModel {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}/{}", self.provider, self.model_id)
+    }
 }
 
 /// The `signal-cli` account the gateway runs as.

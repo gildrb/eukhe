@@ -351,6 +351,7 @@ impl SettingsManager {
             allow: self.nonempty_list(&table::GATEWAY_SIGNAL_ALLOW),
             cli_path: self.raw_text(&table::GATEWAY_SIGNAL_CLI_PATH),
             cwd: self.raw_text(&table::GATEWAY_SIGNAL_CWD),
+            model: self.raw_text(&table::GATEWAY_SIGNAL_MODEL),
         }
     }
 

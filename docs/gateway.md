@@ -103,7 +103,8 @@ All keys are optional. Set them in the global settings,
       "account": "+15557654321",
       "allow": ["+15551234567"],
       "cliPath": "signal-cli",
-      "cwd": "~/work"
+      "cwd": "~/work",
+      "model": "elpis-fast/qwen3.8-27b"
     }
   }
 }
@@ -115,11 +116,26 @@ All keys are optional. Set them in the global settings,
 |`allow`|`[]`|Numbers or ACIs that can send to the agent. Note to Self is always accepted|
 |`cliPath`|`signal-cli` on `PATH`|The signal-cli executable|
 |`cwd`|`$HOME`|The folder of a new session|
+|`model`|The session model|The model (`provider/model-id`, see `eukhe model list`) for Signal messages|
 
 With Home Manager, set `programs.eukhe.settings.gateway`. Activation
 replaces `~/.eukhe/settings.json`.
 
 Use `--daemon-socket <path>` for a daemon on another socket.
+
+## Model
+
+Set `model` to run Signal messages on one model, for example a local one.
+
+- Before each Signal message, the gateway switches the session to `model`
+  if the session uses a different model.
+- The CLI shares the session. After a Signal message, the CLI also uses
+  `model`.
+- The switch also sets `model` as the default model, as `/model` in the
+  CLI does.
+- If the switch fails (unknown model, provider not signed in), the message
+  does not go to the agent. Signal gets `Error: ...`.
+- `/status` shows the model of the session.
 
 ## Phone commands
 
@@ -133,7 +149,7 @@ Send the command as the full message. Case is not important.
 |`/latest`|Send the next messages to the newest session (default)|
 |`/new`|Start a new session in `cwd` and use it|
 |`/stop`|Stop the current turn|
-|`/status`|Show the session name, folder, mode, and busy state|
+|`/status`|Show the session name, folder, model, mode, and busy state|
 
 Other text goes to the agent. Session commands such as `/compact` also go to
 the agent.
@@ -142,6 +158,8 @@ the agent.
 
 - After a Signal message, Signal gets each final agent message: text,
   `Error: ...`, or `Stopped.`.
+- A turn that fails before the model answers (for example, no model is
+  set) also sends `Error: ...`.
 - Signal does not get thinking, tool calls, or tool output.
 - Replies to later turns also go to Signal, for example after a subagent
   report.

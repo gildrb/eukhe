@@ -166,6 +166,7 @@ fn populated() -> Settings {
                 allow: Some(vec![]),
                 cli_path: Some("c".into()),
                 cwd: Some("d".into()),
+                model: Some("e".into()),
             }),
         }),
         kernel_transport: Some(Value::from(1)),

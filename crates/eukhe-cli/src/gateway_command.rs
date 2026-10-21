@@ -129,10 +129,27 @@ fn gateway_config(
         .as_deref()
         .map_or_else(|| home.clone(), crate::config::expand_tilde_path);
     let session_dir = eukhe_core::settings::resolve_session_dir(None, &settings, &agent_dir)?.path;
+    // `provider/model-id`: a provider name has no `/`, a model id may.
+    let model = match signal.model.as_deref().map(str::trim) {
+        None => None,
+        Some(model) => match model.split_once('/') {
+            Some((provider, model_id)) if !provider.is_empty() && !model_id.is_empty() => {
+                Some(eukhe_gateway::SignalModel {
+                    provider: provider.to_string(),
+                    model_id: model_id.to_string(),
+                })
+            }
+            Some(_) | None => anyhow::bail!(
+                "gateway.signal.model in {} is {model:?}; set it to provider/model-id (see eukhe model list) or remove it",
+                global_path.display()
+            ),
+        },
+    };
     Ok(eukhe_gateway::GatewayConfig {
         socket_path: crate::config::resolve_daemon_socket_path(daemon_socket),
         session_dir,
         new_session_cwd,
+        model,
         signal: eukhe_gateway::SignalConfig {
             cli_path,
             account,

@@ -1053,6 +1053,15 @@ pub const GATEWAY_SIGNAL_CWD: Decl = Decl {
     init: Init::Text(""),
 };
 
+pub const GATEWAY_SIGNAL_MODEL: Decl = Decl {
+    id: "gateway.signal.model",
+    ty: CvarType::Text,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Text(""),
+};
+
 /// Where the session's kernel runs (S3); parsed by
 /// `kernel::transport::KernelTransportSettings`. Routes code execution,
 /// so an untrusted project may not set it and an agent never saves it.
@@ -1298,6 +1307,7 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_ALLOW,
     GATEWAY_SIGNAL_CLI_PATH,
     GATEWAY_SIGNAL_CWD,
+    GATEWAY_SIGNAL_MODEL,
     KERNEL_TRANSPORT,
     SHELL_AUTO_EFFECTS,
     SSH_HOSTS,

@@ -8,9 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use eukhe_tui::daemon_build::{relation, Build, Relation};
 use eukhe_tui::daemon_client::DaemonClientEvent;
-use eukhe_types::ai::{
-    AssistantContentBlock, AssistantMessage, StopReason, UserContent, UserContentBlock,
-};
+use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::daemon::{
     DaemonCommand, MemoryReply, MemorySnapshot, PromptInput, SessionEvent, StreamingBehavior,
 };
@@ -19,6 +17,7 @@ use serde_json::{json, Map, Value};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 
+use crate::answer::{answer, Answer};
 use crate::commands::{Parsed, PhoneCommand};
 use crate::link::{Binding, Link, Opened, Reconnect, RECONNECT_FIRST_DELAY, RECONNECT_MAX_DELAY};
 use crate::sessions::{Route, SavedSession, SessionRef, LISTED_SESSIONS};
@@ -481,8 +480,21 @@ impl<L: DaemonLauncher> Gateway<L> {
             .and_then(Value::as_bool)
             .context("the session state has no isStreaming")?;
         let busy = if busy { "yes" } else { "no" };
+        // `get_state` leaves `model` out when the session has none.
+        let model = match state.get("model") {
+            None => "none".to_string(),
+            Some(model) => {
+                let field = |key: &str| {
+                    model
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .with_context(|| format!("the session model has no {key}"))
+                };
+                format!("{}/{}", field("provider")?, field("id")?)
+            }
+        };
         Ok(format!(
-            "Session: {name}\nFolder: {cwd}\nMode: {mode}\nBusy: {busy}"
+            "Session: {name}\nFolder: {cwd}\nModel: {model}\nMode: {mode}\nBusy: {busy}"
         ))
     }
 
@@ -581,6 +593,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             rest: Map::default(),
         };
         let binding = self.routed_binding().await?;
+        self.select_model(&binding.active_session_id).await?;
         if self.sent_prompts.len() == SENT_PROMPTS_KEPT {
             self.sent_prompts.pop_front();
         }
@@ -606,6 +619,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                 .routed_binding()
                 .await
                 .with_context(|| format!("the daemon refused the message ({refusal})"))?;
+            self.select_model(&binding.active_session_id).await?;
             let response = self
                 .link
                 .client
@@ -623,6 +637,55 @@ impl<L: DaemonLauncher> Gateway<L> {
         }
         self.floor = Some(inbound.peer.clone());
         self.start_typing(&inbound.peer).await;
+        Ok(())
+    }
+
+    /// Switch the session to the Signal model (`gateway.signal.model`)
+    /// when it runs another model. Without the setting the session keeps
+    /// its model.
+    ///
+    /// # Errors
+    ///
+    /// The daemon cannot report the session state, or refuses the switch
+    /// (an unknown model, a provider without credentials).
+    #[tracing::instrument(skip(self))]
+    async fn select_model(&self, active_session_id: &str) -> anyhow::Result<()> {
+        let Some(model) = &self.config.model else {
+            return Ok(());
+        };
+        let state = self
+            .link
+            .client
+            .request_ok(DaemonCommand::GetState {
+                id: None,
+                active_session_id: active_session_id.to_string(),
+                rest: Map::default(),
+            })
+            .await
+            .context("read the session state")?;
+        let current = |key: &str| {
+            state
+                .get("model")
+                .and_then(|current| current.get(key))
+                .and_then(Value::as_str)
+        };
+        if current("provider") == Some(model.provider.as_str())
+            && current("id") == Some(model.model_id.as_str())
+        {
+            return Ok(());
+        }
+        self.link
+            .client
+            .request_ok(DaemonCommand::SetModel {
+                id: None,
+                active_session_id: active_session_id.to_string(),
+                provider: model.provider.clone(),
+                model_id: model.model_id.clone(),
+                rest: Map::default(),
+            })
+            .await
+            .with_context(|| format!("switch the session to {model} (gateway.signal.model)"))?;
+        tracing::info!(%model, "switched the session to the Signal model");
         Ok(())
     }
 
@@ -797,7 +860,9 @@ impl<L: DaemonLauncher> Gateway<L> {
                 self.running = false;
                 self.stop_typing().await;
                 if let Some(peer) = self.stop_pending.take() {
+                    // A stopped run answers `Stopped.` only.
                     self.reply(&peer, "Stopped.".to_string()).await;
+                    return;
                 }
             }
             SessionEvent::MessageStart {
@@ -812,9 +877,6 @@ impl<L: DaemonLauncher> Gateway<L> {
                     self.stop_typing().await;
                 }
             }
-            SessionEvent::MessageEnd {
-                message: AgentMessage::Assistant(message),
-            } => self.relay_answer(message).await,
             SessionEvent::MessageStart { .. }
             | SessionEvent::MessageUpdate { .. }
             | SessionEvent::MessageEnd { .. }
@@ -843,29 +905,18 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::RefineFailed { .. }
             | SessionEvent::IpythonSentAgentMessage { .. } => {}
         }
+        if let Some(answer) = answer(event) {
+            self.relay_answer(answer).await;
+        }
     }
 
-    /// Relay one settled assistant message to the peer holding the floor.
-    async fn relay_answer(&mut self, message: &AssistantMessage) {
+    /// Relay one answer to the peer holding the floor.
+    async fn relay_answer(&mut self, answer: Answer) {
         let Some(peer) = self.floor.clone() else {
             return;
         };
-        match message.stop_reason {
-            StopReason::Stop | StopReason::Length => {
-                let text = message
-                    .content
-                    .iter()
-                    .filter_map(|block| match block {
-                        AssistantContentBlock::Text(text) => Some(text.text.as_str()),
-                        AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n\n");
-                if text.trim().is_empty() {
-                    return;
-                }
+        match answer {
+            Answer::Text(text) => {
                 for chunk in style::render(&text) {
                     if let Err(error) = self.signal.send(&peer, &chunk).await {
                         tracing::error!(error = %format!("{error:#}"), "reply send failed");
@@ -873,22 +924,13 @@ impl<L: DaemonLauncher> Gateway<L> {
                     }
                 }
             }
-            StopReason::Error => {
-                let reason = message
-                    .error_message
-                    .as_deref()
-                    .filter(|reason| !reason.trim().is_empty())
-                    .unwrap_or("the model request failed");
-                let line = reason.split_whitespace().collect::<Vec<_>>().join(" ");
-                self.reply(&peer, format!("Error: {line}")).await;
-            }
-            StopReason::Aborted => {
+            Answer::Failed(reason) => self.reply(&peer, format!("Error: {reason}")).await,
+            Answer::Stopped => {
                 if self.stop_pending.as_ref() == Some(&peer) {
                     self.stop_pending = None;
                 }
                 self.reply(&peer, "Stopped.".to_string()).await;
             }
-            StopReason::ToolUse => {}
         }
     }
 
