@@ -77,3 +77,21 @@ open, and a full read that ends on a lone ESC no longer parks it. A read error
 other than EINTR/EAGAIN is returned instead of spinning. Locked by
 `crates/eukhe-cli/tests/anthropic_remote_login_pty_e2e.rs`
 `a_typed_long_redirect_in_one_write_logs_in`.
+
+# The bare CSI-u provenance (2026-10-21, burst-repeat-drop lane)
+
+`src/event.rs` adds `KeyEventState::BARE_CSI_U` (`0b0000_1000`), and
+`src/event/sys/unix/parse.rs` `parse_csi_u_encoded_key_code` sets it on a
+`Char` press decoded from the bare `CSI <codepoint> u` form (a digits-only
+body: no alternate keys, modifier, or event-type field). Upstream parses
+that form and the same character sent as raw text to identical events, so
+the app's kitty-printable dedup (the TS `pendingKittyPrintableCodepoint`
+port in `crates/eukhe-tui/src/input.rs`, which drops the raw twin a
+duplicate-reporting kitty terminal sends after the bare form) could not
+tell a twin from a typed repeat: it dropped every identical raw pair in one
+terminal write, and text a terminal writes in one burst without bracketed
+paste lost its doubled characters (`--size` -> `-size`, `300` -> `30`).
+The app keys the dedup on the stamp and strips it before any surface sees
+the event; the sequence guard stamps its reassembled split reports the
+same way. Locked by `parse.rs` `test_parse_basic_csi_u_encoded_key_code`
+and `input.rs` `raw_repeated_characters_in_one_kitty_burst_all_arrive`.

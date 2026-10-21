@@ -525,7 +525,9 @@ fn tilde_key(body: &[u8]) -> Option<Event> {
 /// codepoints and the control specials, with the shifted alternate
 /// resolving to the produced character. The 57xxx functional range is
 /// consumed -- a split keypad report must not leak, and no surface this
-/// reader feeds dispatches those keys.
+/// reader feeds dispatches those keys. A bare `ESC [ <cp> u` printable
+/// carries crossterm's `BARE_CSI_U` provenance like the unsplit parse
+/// (the reader's kitty-printable dedup keys on it).
 fn csi_u_key(body: &[u8]) -> Option<Event> {
     let text = std::str::from_utf8(body).ok()?;
     let mut fields = text.split(';');
@@ -546,6 +548,11 @@ fn csi_u_key(body: &[u8]) -> Option<Event> {
             KeyEventKind::Press,
             KeyEventState::empty(),
         ),
+    };
+    let bare_char_state = if body.iter().all(u8::is_ascii_digit) {
+        KeyEventState::BARE_CSI_U
+    } else {
+        KeyEventState::empty()
     };
     let (mut code, state_from_keycode) = match codepoint {
         // The keypad block of the kitty functional range (crossterm
@@ -595,7 +602,7 @@ fn csi_u_key(body: &[u8]) -> Option<Event> {
         0x0d => (KeyCode::Enter, KeyEventState::empty()),
         // Raw mode is always on under this reader, so LF is not Enter
         // (crossterm's own raw-mode branch).
-        0x0a => (KeyCode::Char('\n'), KeyEventState::empty()),
+        0x0a => (KeyCode::Char('\n'), bare_char_state),
         0x09 if modifiers.contains(KeyModifiers::SHIFT) => {
             (KeyCode::BackTab, KeyEventState::empty())
         }
@@ -606,7 +613,7 @@ fn csi_u_key(body: &[u8]) -> Option<Event> {
         // reports -- TS drops them too), and a split report must not
         // turn into a text character.
         c if (57344..=63743).contains(&c) => return None,
-        c => (KeyCode::Char(char::from_u32(c)?), KeyEventState::empty()),
+        c => (KeyCode::Char(char::from_u32(c)?), bare_char_state),
     };
     if modifiers.contains(KeyModifiers::SHIFT) {
         if let Some(shifted) = codepoints

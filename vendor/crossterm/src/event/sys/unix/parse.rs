@@ -537,31 +537,39 @@ pub(crate) fn parse_csi_u_encoded_key_code(buffer: &[u8]) -> io::Result<Option<I
             (KeyModifiers::NONE, KeyEventKind::Press, KeyEventState::NONE)
         };
 
+    // eukhe patch: a bare `CSI <codepoint> u` printable (digits only -- no
+    // alternate keys, modifier, or event-type field) carries the
+    // `BARE_CSI_U` provenance, so the app can tell it from the same
+    // character sent as raw text.
+    let bare = s.bytes().all(|b| b.is_ascii_digit());
     let (mut keycode, state_from_keycode) = {
         if let Some((special_key_code, state)) = translate_functional_key_code(codepoint) {
             (special_key_code, state)
         } else if let Some(c) = char::from_u32(codepoint) {
-            (
-                match c {
-                    '\x1B' => KeyCode::Esc,
-                    '\r' => KeyCode::Enter,
-                    // Issue #371: \n = 0xA, which is also the keycode for Ctrl+J. The only reason we get
-                    // newlines as input is because the terminal converts \r into \n for us. When we
-                    // enter raw mode, we disable that, so \n no longer has any meaning - it's better to
-                    // use Ctrl+J. Waiting to handle it here means it gets picked up later
-                    '\n' if !crate::terminal::sys::is_raw_mode_enabled() => KeyCode::Enter,
-                    '\t' => {
-                        if modifiers.contains(KeyModifiers::SHIFT) {
-                            KeyCode::BackTab
-                        } else {
-                            KeyCode::Tab
-                        }
+            let keycode = match c {
+                '\x1B' => KeyCode::Esc,
+                '\r' => KeyCode::Enter,
+                // Issue #371: \n = 0xA, which is also the keycode for Ctrl+J. The only reason we get
+                // newlines as input is because the terminal converts \r into \n for us. When we
+                // enter raw mode, we disable that, so \n no longer has any meaning - it's better to
+                // use Ctrl+J. Waiting to handle it here means it gets picked up later
+                '\n' if !crate::terminal::sys::is_raw_mode_enabled() => KeyCode::Enter,
+                '\t' => {
+                    if modifiers.contains(KeyModifiers::SHIFT) {
+                        KeyCode::BackTab
+                    } else {
+                        KeyCode::Tab
                     }
-                    '\x7F' => KeyCode::Backspace,
-                    _ => KeyCode::Char(c),
-                },
-                KeyEventState::empty(),
-            )
+                }
+                '\x7F' => KeyCode::Backspace,
+                _ => KeyCode::Char(c),
+            };
+            let state = if bare && matches!(keycode, KeyCode::Char(_)) {
+                KeyEventState::BARE_CSI_U
+            } else {
+                KeyEventState::empty()
+            };
+            (keycode, state)
         } else {
             return Err(could_not_parse_event_error());
         }
@@ -1233,8 +1241,21 @@ mod tests {
 
     #[test]
     fn test_parse_basic_csi_u_encoded_key_code() {
+        // eukhe patch: the bare form carries its provenance; any form with
+        // a modifier field (even the no-op `;1`) does not.
         assert_eq!(
             parse_csi_u_encoded_key_code(b"\x1B[97u").unwrap(),
+            Some(InternalEvent::Event(Event::Key(
+                KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('a'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                    KeyEventState::BARE_CSI_U,
+                )
+            ))),
+        );
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;1u").unwrap(),
             Some(InternalEvent::Event(Event::Key(KeyEvent::new(
                 KeyCode::Char('a'),
                 KeyModifiers::empty()

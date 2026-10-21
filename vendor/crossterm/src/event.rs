@@ -754,6 +754,14 @@ bitflags! {
         ///
         /// **Note:** this is set for the initial press of Num Lock itself.
         const NUM_LOCK = 0b0000_0100;
+        /// eukhe patch: the character press was reported in the bare kitty
+        /// `CSI <codepoint> u` form (no alternate keys, no modifier or
+        /// event-type field) instead of as raw text. Both encodings
+        /// otherwise parse to the same event, and a duplicate-reporting
+        /// kitty terminal sends the bare form AND the raw character for
+        /// one keypress -- the app needs the provenance to drop only that
+        /// raw twin, never a typed repeat of the same character.
+        const BARE_CSI_U = 0b0000_1000;
         const NONE = 0b0000_0000;
     }
 }

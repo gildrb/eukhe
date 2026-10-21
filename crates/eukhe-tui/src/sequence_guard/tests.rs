@@ -354,9 +354,17 @@ fn model_parse(buf: &[u8], more: bool) -> ModelParse {
                         13 => {
                             ModelParse::Event(Event::Key(KeyEvent::new(KeyCode::Enter, modifiers)))
                         }
-                        c => ModelParse::Event(Event::Key(KeyEvent::new(
+                        // The vendored `BARE_CSI_U` provenance: a
+                        // digits-only body is the bare printable form.
+                        c => ModelParse::Event(Event::Key(KeyEvent::new_with_kind_and_state(
                             KeyCode::Char(char::from_u32(c).expect("corpus")),
                             modifiers,
+                            KeyEventKind::Press,
+                            if text.bytes().all(|b| b.is_ascii_digit()) {
+                                KeyEventState::BARE_CSI_U
+                            } else {
+                                KeyEventState::empty()
+                            },
                         ))),
                     }
                 }
@@ -701,7 +709,15 @@ fn a_split_kitty_esc_press_stays_the_escape_key() {
 #[test]
 fn a_split_csi_u_printable_arrives_as_the_character() {
     let outputs = run_guard(read_projection(b"\x1b[97u", &[1]));
-    assert_eq!(leaks(&outputs), vec![char_press('a')]);
+    assert_eq!(
+        leaks(&outputs),
+        vec![Event::Key(KeyEvent::new_with_kind_and_state(
+            KeyCode::Char('a'),
+            KeyModifiers::NONE,
+            KeyEventKind::Press,
+            KeyEventState::BARE_CSI_U,
+        ))]
+    );
 }
 
 #[test]
