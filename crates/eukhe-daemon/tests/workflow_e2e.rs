@@ -405,9 +405,9 @@ const HELD_SCRIPT: &str = r#"export const meta = { name: "held", description: "t
 return await parallel([1, 2].map((n) => () => agent(`held ${n}`, { label: `held ${n}` })));"#;
 
 /// Regression: a run outlives a crash of its parent's worker. The worker
-/// dies while the run's agents still run; the relaunched worker resumes
-/// the run task, reattaches the live agents instead of spawning new ones,
-/// and the run reports exactly once.
+/// dies while the run's agents run; the supervisor stops the children of
+/// the dead parent, the relaunched worker resumes the run task, runs each
+/// interrupted agent once more, and the run reports exactly once.
 #[test]
 fn a_run_survives_a_parent_worker_crash_and_reports_once() {
     let lane = Lane::new();
@@ -423,12 +423,28 @@ fn a_run_survives_a_parent_worker_crash_and_reports_once() {
     let mut client = connect(&lane.socket());
     let parent = lane.create_parent(&mut client, &parent_script, &child_script);
     client.run_turn(&parent, "run the held workflow");
-    let runs = client.request(
-        "activity1",
-        &json!({ "type": "workflow_activity", "activeSessionId": parent }),
-    )["runs"]
-        .clone();
-    assert_eq!(runs[0]["state"], json!({ "state": "running" }), "{runs}");
+    // Both agents' children exist: the crash interrupts them.
+    let deadline = Instant::now() + Duration::from_mins(1);
+    let mut poll = 0;
+    loop {
+        poll += 1;
+        let runs = client.request(
+            &format!("activity{poll}"),
+            &json!({ "type": "workflow_activity", "activeSessionId": parent }),
+        )["runs"]
+            .clone();
+        let live = runs[0]["agents"].as_array().map_or(0, |agents| {
+            agents
+                .iter()
+                .filter(|agent| agent["status"] == "running" && agent["childSessionId"].is_string())
+                .count()
+        });
+        if live == 2 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the agents never ran: {runs}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 
     // The relaunched worker reads its faux script again from the start:
     // its one answer is the report's turn.
@@ -465,20 +481,24 @@ fn a_run_survives_a_parent_worker_crash_and_reports_once() {
     }
 
     let messages = client.messages(&parent);
+    let runs = client.request(
+        "activity-end",
+        &json!({ "type": "workflow_activity", "activeSessionId": parent }),
+    )["runs"]
+        .clone();
     let reports = workflow_reports(&messages);
     assert_eq!(reports.len(), 1, "{messages:?}");
     assert!(reports[0].contains("(held): done"), "{}", reports[0]);
-    assert_eq!(returned(&reports[0]), json!([CHILD_ANSWER, CHILD_ANSWER]));
+    assert_eq!(
+        returned(&reports[0]),
+        json!([CHILD_ANSWER, CHILD_ANSWER]),
+        "{runs}"
+    );
     assert_eq!(
         messages.last().map(message_text).as_deref(),
         Some("workflow done"),
         "{messages:?}"
     );
-    let runs = client.request(
-        "activity2",
-        &json!({ "type": "workflow_activity", "activeSessionId": parent }),
-    )["runs"]
-        .clone();
     assert_eq!(
         (runs[0]["state"].clone(), runs[0]["spawned"].clone()),
         (json!({ "state": "done" }), json!(2)),

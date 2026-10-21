@@ -74,6 +74,7 @@ async fn a_silent_child_settles_its_row_without_a_report() {
             "sessionId": row.session_id,
             "answer": "the full answer",
             "error": null,
+            "failure": null,
         })
     );
     opened.harness.close(cx()).await.unwrap();

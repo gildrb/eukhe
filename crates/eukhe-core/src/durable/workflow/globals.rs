@@ -13,6 +13,7 @@ use eukhe_chord::json::JsonValue;
 use eukhe_durable::codemode::CodemodeGlobal;
 use eukhe_durable::harness::types::{ToolExecutionApi, ToolExecutionApiExt};
 use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::workflow::WorkflowAgentStatus;
 use futures::FutureExt;
 use serde_json::{json, Value};
@@ -411,10 +412,8 @@ async fn run_agent(
         ),
     };
     let ordinal = row.ordinal;
-    let outcome = match settle_child(services, api, cx, &name, &full_prompt, options, ordinal)
-        .await?
-    {
-        ChildEnd::Answered(answer) => match &options.schema {
+    let outcome = match answer_of(services, api, cx, &name, &full_prompt, options, ordinal).await? {
+        Ok(answer) => match &options.schema {
             None => Ok(Value::String(answer)),
             Some(schema) => match checked(&answer, schema) {
                 Ok(value) => Ok(value),
@@ -422,32 +421,19 @@ async fn run_agent(
                     let retry = format!(
                         "{full_prompt}\n\nAn earlier attempt answered this, which does not match the schema ({mismatch}):\n{answer}\n\nAnswer again; end with the matching ```json block."
                     );
-                    // The row names the retry before it spawns, so a
-                    // cancel of the run reaches it.
                     let retry_name = format!("{name}r");
-                    let recorded = retry_name.clone();
-                    update_run(api, cx, move |run| {
-                        if let Some(agent) = run.agents.get_mut(&ordinal) {
-                            if !agent.retries.contains(&recorded) {
-                                agent.retries.push(recorded);
-                            }
-                        }
-                    })
-                    .await?;
-                    match settle_child(services, api, cx, &retry_name, &retry, options, ordinal)
+                    record_child(api, cx, ordinal, retry_name.clone()).await?;
+                    answer_of(services, api, cx, &retry_name, &retry, options, ordinal)
                         .await?
-                    {
-                        ChildEnd::Answered(second) => {
+                        .and_then(|second| {
                             checked(&second, schema).map_err(|mismatch| {
                                 format!("schema mismatch after a retry: {mismatch}")
                             })
-                        }
-                        ChildEnd::Failed(error) => Err(error),
-                    }
+                        })
                 }
             },
         },
-        ChildEnd::Failed(error) => Err(error),
+        Err(error) => Err(error),
     };
     let (status, result, note) = match outcome {
         Ok(value) => {
@@ -471,6 +457,54 @@ async fn run_agent(
     Ok(result)
 }
 
+/// Name `child` on agent `ordinal`'s row before it spawns, so a cancel of
+/// the run reaches it.
+async fn record_child(
+    api: &Arc<dyn ToolExecutionApi>,
+    cx: &Context,
+    ordinal: u32,
+    child: String,
+) -> SessionResult<()> {
+    update_run(api, cx, move |run| {
+        if let Some(agent) = run.agents.get_mut(&ordinal) {
+            if !agent.retries.contains(&child) {
+                agent.retries.push(child);
+            }
+        }
+    })
+    .await
+}
+
+/// The answer of the agent's child `name`, or why it has none. A child
+/// interrupted from outside (its parent's worker crashed, or its own
+/// worker died) runs once more as `<name>i`.
+async fn answer_of(
+    services: &WorkflowServices,
+    api: &Arc<dyn ToolExecutionApi>,
+    cx: &Context,
+    name: &str,
+    prompt: &str,
+    options: &AgentOptions,
+    ordinal: u32,
+) -> SessionResult<Result<String, String>> {
+    let interrupted = match settle_child(services, api, cx, name, prompt, options, ordinal).await? {
+        ChildEnd::Answered(answer) => return Ok(Ok(answer)),
+        ChildEnd::Failed(error) => return Ok(Err(error)),
+        ChildEnd::Interrupted(error) => error,
+    };
+    let restart = format!("{name}i");
+    record_child(api, cx, ordinal, restart.clone()).await?;
+    Ok(
+        match settle_child(services, api, cx, &restart, prompt, options, ordinal).await? {
+            ChildEnd::Answered(answer) => Ok(answer),
+            ChildEnd::Failed(error) => Err(error),
+            ChildEnd::Interrupted(again) => Err(format!(
+                "the agent was interrupted twice: {interrupted}; then: {again}"
+            )),
+        },
+    )
+}
+
 fn checked(answer: &str, schema: &Value) -> Result<Value, String> {
     let value = extract_json(answer).ok_or_else(|| "the answer holds no JSON value".to_owned())?;
     validate(&value, schema)?;
@@ -480,6 +514,10 @@ fn checked(answer: &str, schema: &Value) -> Result<Value, String> {
 /// How a child ended.
 enum ChildEnd {
     Answered(String),
+    /// The child never got its task, or it stopped mid-run for a reason
+    /// outside its own work (its parent's worker crashed, or its own
+    /// worker died): running it again can succeed.
+    Interrupted(String),
     Failed(String),
 }
 
@@ -617,14 +655,39 @@ async fn settle_child(
         .get("answer")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    Ok(match (status, answer) {
-        ("done", Some(answer)) => ChildEnd::Answered(answer),
-        ("done", None) => ChildEnd::Failed("the agent ended without an answer".to_owned()),
-        (other, _) => ChildEnd::Failed(
-            state
-                .get("error")
-                .and_then(Value::as_str)
-                .map_or_else(|| format!("the agent ended {other}"), str::to_owned),
+    let error = |other: &str| {
+        state
+            .get("error")
+            .and_then(Value::as_str)
+            .map_or_else(|| format!("the agent ended {other}"), str::to_owned)
+    };
+    let failure = match state.get("failure") {
+        None | Some(Value::Null) => None,
+        Some(failure) => Some(
+            serde_json::from_value::<ChildFailure>(failure.clone())
+                .map_err(|error| SessionError::error(format!("rlm.answer failure: {error}")))?,
         ),
+    };
+    Ok(match (status, answer, failure) {
+        ("done", Some(answer), _) => ChildEnd::Answered(answer),
+        ("done", None, _) => ChildEnd::Failed("the agent ended without an answer".to_owned()),
+        (
+            other,
+            _,
+            Some(
+                ChildFailure::Interrupted | ChildFailure::WorkerExited | ChildFailure::Undelivered,
+            ),
+        ) => ChildEnd::Interrupted(error(other)),
+        (
+            other,
+            _,
+            None
+            | Some(
+                ChildFailure::Provider { .. }
+                | ChildFailure::Aborted
+                | ChildFailure::Stalled
+                | ChildFailure::Unreachable,
+            ),
+        ) => ChildEnd::Failed(error(other)),
     })
 }

@@ -487,6 +487,7 @@ async fn admit_spawns(
                         model: None,
                         answer_preview: None,
                         error: None,
+                        failure: None,
                         replied_since_task: false,
                         deletion: None,
                         settled: false,
@@ -1013,7 +1014,7 @@ async fn wait_for_verdicts(
 
 /// `rlm.answer`: the settled-or-not state of the one live child `target`
 /// selects, with its full final answer when it kept one (a silent
-/// child's): `{status, settled, sessionId, answer?, error?}`.
+/// child's): `{status, settled, sessionId, answer?, error?, failure?}`.
 async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let Some(target) = call
         .data
@@ -1035,6 +1036,7 @@ async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value
         "sessionId": row.session_id,
         "answer": row.answer.clone().or_else(|| row.answer_preview.clone()),
         "error": row.error,
+        "failure": row.failure,
     }))
 }
 

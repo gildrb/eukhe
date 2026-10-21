@@ -253,6 +253,7 @@ async fn a_reopened_parent_polls_its_child_at_once() {
         ChildRow {
             status: ChildStatus::Error,
             error: Some(error.to_owned()),
+            failure: Some(ChildFailure::Interrupted),
             settled: true,
             ..row.clone()
         }

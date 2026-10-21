@@ -1199,6 +1199,7 @@ async fn the_read_tool_serves_internal_urls() {
         model: None,
         answer_preview: None,
         error: None,
+        failure: None,
         replied_since_task: false,
         deletion: None,
         settled: true,

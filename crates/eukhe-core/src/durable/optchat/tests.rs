@@ -1348,6 +1348,7 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         model: None,
         answer_preview: None,
         error: None,
+        failure: None,
         replied_since_task: false,
         deletion: None,
         settled: true,

@@ -75,7 +75,7 @@ Rules:
 
 ## Resume
 
-- A worker restart resumes the run. Finished agents come from the journal. Running agents reattach. The result message comes once.
+- A worker restart resumes the run. Finished agents come from the journal. Running agents reattach. An agent that the restart cut off runs once more. The result message comes once.
 - The start answer and the result message name the run id: `workflow run <id> (<name>)`.
 - A new run with `resume: "<id>"` reuses every finished agent whose prompt and options did not change. Reused agents show `↺` and do not count against the total.
 

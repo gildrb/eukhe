@@ -78,6 +78,7 @@ impl Sim {
                 model: None,
                 answer_preview: None,
                 error: None,
+                failure: None,
                 replied_since_task: false,
                 deletion: None,
                 settled: false,

@@ -17,6 +17,7 @@ use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
     ConversationId, DocumentReader, DocumentReaderExt, EntryId, EntryQuery, LatestFork, TaskId,
 };
+use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{IndexMap, Usage, UsageCost};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -102,6 +103,9 @@ pub(crate) struct ChildRow {
     /// Terminal error text: the failure, or the cancel/delete reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) error: Option<String>,
+    /// Why the child's run failed, when it ended in error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) failure: Option<ChildFailure>,
     #[serde(default)]
     pub(crate) replied_since_task: bool,
     /// Where a delete of this child stands; `None` while not deleted.

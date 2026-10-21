@@ -481,6 +481,7 @@ async fn prompt(
     };
     let now = runtime.now()?;
     let conversation_id = task.conversation_id;
+    let report = task.input.report;
     runtime
         .commit(
             move |tx, _current| async move {
@@ -496,14 +497,25 @@ async fn prompt(
                 let row = tx_update_row(&tx, conversation_id, task_id, |row| {
                     row.status = ChildStatus::Error;
                     row.error = Some(error.clone());
+                    row.failure = Some(ChildFailure::Undelivered);
+                    // A silent child's end goes to its caller through its
+                    // row, never to the inbox.
+                    row.settled = report == ReportMode::Silent;
                 })
                 .await?;
-                Ok(Some(report_next(ChildReport::Failed {
-                    session_name: row.session_name,
-                    failure: Some(ChildFailure::Undelivered),
-                    error,
-                    handback: None,
-                })))
+                Ok(Some(match report {
+                    ReportMode::Inbox => report_next(ChildReport::Failed {
+                        session_name: row.session_name,
+                        failure: Some(ChildFailure::Undelivered),
+                        error,
+                        handback: None,
+                    }),
+                    ReportMode::Silent => NextTaskState::Terminal {
+                        outcome: TaskOutcome::Completed {
+                            result: ChildStatus::Error,
+                        },
+                    },
+                }))
             },
             &cx,
         )
@@ -617,6 +629,7 @@ fn watched_next(
         Watched::Failed { failure, error } | Watched::Stuck { failure, error } => {
             row.status = ChildStatus::Error;
             row.error = Some(error.clone());
+            row.failure = Some(failure);
             match report {
                 ReportMode::Inbox => report_next(ChildReport::Failed {
                     session_name: row.session_name.clone(),
