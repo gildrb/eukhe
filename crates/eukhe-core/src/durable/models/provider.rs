@@ -34,7 +34,7 @@
 use crate::cron::JobSource;
 use eukhe_ai::api::lazy::lazy_stream;
 use eukhe_ai::api::{StreamFn, StreamSimpleFn};
-use eukhe_ai::auth::AuthResolutionOverrides;
+use eukhe_ai::auth::{AuthOperationOptions, AuthResolutionOverrides};
 use eukhe_ai::models::Models;
 use eukhe_ai::types::{
     ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions, StreamOptions,
@@ -370,7 +370,7 @@ async fn run_request(
             message.stop_reason == StopReason::Error && is_retryable_assistant_error(&message);
         let next = if retryable && failover.enabled {
             if chain.is_empty() {
-                chain = failover_chain(&inner, &primary, &settings);
+                chain = failover_chain(&inner, &primary, &settings, &carried).await;
             }
             let at = chain
                 .iter()
@@ -684,15 +684,40 @@ fn refuted_message(model: &Model, text: &str) -> AssistantMessage {
 }
 
 /// The failover chain of a request to `primary`: the primary, then its
-/// candidates over the configured catalog (credential-configured
-/// providers only), allowlisted like every other model resolution.
-fn failover_chain(inner: &Inner, primary: &Model, settings: &SettingsManager) -> Vec<Model> {
-    let available = inner
+/// candidates among the models whose providers have credentials
+/// ([`Models::get_available`]: a stored API key or OAuth credential, the
+/// provider's environment key, or a configured `apiKey`), allowlisted
+/// like every other model resolution. A provider that only declares an
+/// auth method (every built-in provider does) never receives a switch: a
+/// request to a provider without credentials fails with that provider's
+/// missing key in place of the primary's own failure. When the
+/// credential check itself fails, the chain is the primary alone.
+async fn failover_chain(
+    inner: &Inner,
+    primary: &Model,
+    settings: &SettingsManager,
+    carried: &CarriedOptions,
+) -> Vec<Model> {
+    let available = match inner
         .models
-        .get_models(None)
-        .into_iter()
-        .filter(|model| catalog_available(inner, model))
-        .collect::<Vec<_>>();
+        .get_available(
+            None,
+            AuthOperationOptions {
+                signal: carried.signal.clone(),
+            },
+        )
+        .await
+    {
+        Ok(available) => available,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "failover credential check failed; the request stays on {}",
+                model_reference(primary)
+            );
+            Vec::new()
+        }
+    };
     std::iter::once(primary.clone())
         .chain(
             failover_candidates(primary, &available)
@@ -700,15 +725,6 @@ fn failover_chain(inner: &Inner, primary: &Model, settings: &SettingsManager) ->
                 .filter(|candidate| allowlist_allows(settings, candidate)),
         )
         .collect()
-}
-
-/// A provider with no configured auth never receives a failover switch (the
-/// old chain walked the auth-configured catalog).
-fn catalog_available(inner: &Inner, model: &Model) -> bool {
-    inner
-        .models
-        .get_provider(&model.provider)
-        .is_some_and(|provider| provider.auth.api_key.is_some() || provider.auth.oauth.is_some())
 }
 
 /// The daemon `allowedModels` gate over one candidate (fail closed on an
@@ -1372,6 +1388,73 @@ mod tests {
         );
         assert!(events.try_recv().is_err(), "no switch event: {message:?}");
         assert!(!fixture.runtime.is_quota_parked());
+    }
+
+    /// Declares api-key auth and resolves no credential: a built-in
+    /// provider the user never configured (`cloudflare-ai-gateway` without
+    /// `CLOUDFLARE_API_KEY`).
+    struct Unconfigured;
+
+    impl eukhe_ai::auth::ApiKeyAuth for Unconfigured {
+        // The trait returns a borrowed name; this one is a literal.
+        #[allow(clippy::unnecessary_literal_bound)]
+        fn name(&self) -> &str {
+            "Unconfigured"
+        }
+
+        fn resolve(
+            &self,
+            _input: eukhe_ai::auth::ApiKeyResolveInput,
+        ) -> futures::future::BoxFuture<
+            '_,
+            Result<Option<eukhe_ai::auth::AuthResult>, eukhe_ai::utils::diagnostics::Thrown>,
+        > {
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    /// Regression: the failover chain took every provider that declares an
+    /// auth method (every built-in one) as configured, so an outage of a
+    /// session on `anthropic/claude-opus-5-5` (OAuth) re-routed to
+    /// `cloudflare-ai-gateway/claude-opus-5-5`, which has no key: the turn
+    /// failed with "No API key for provider: cloudflare-ai-gateway" and
+    /// the session's own provider's failure was lost. A sibling without
+    /// credentials is no failover candidate.
+    #[tokio::test]
+    async fn a_sibling_without_credentials_never_receives_the_request() {
+        let fixture = fixture(/*text_only*/ false);
+        let mut sibling = (*fixture.models.get_provider("faux-b").expect("faux-b")).clone();
+        sibling.auth = eukhe_ai::auth::ProviderAuth {
+            api_key: Some(Arc::new(Unconfigured)),
+            oauth: None,
+        };
+        fixture.models.set_provider(sibling);
+        let model = fixture.faux_a.get_model();
+        fixture
+            .faux_a
+            .set_responses(vec![error_step("503 Service Unavailable")]);
+        fixture
+            .faux_b
+            .set_responses(vec![FauxResponseStep::Message(Box::new(
+                faux_assistant_message("backup answer", FauxAssistantMessageOptions::default()),
+            ))]);
+        let mut events = fixture.runtime.subscribe();
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        assert_eq!(
+            (
+                message.provider.as_str(),
+                message.stop_reason,
+                message.error_message.as_deref()
+            ),
+            ("faux-a", StopReason::Error, Some("503 Service Unavailable"))
+        );
+        assert_eq!(switches(&mut events), Vec::<(String, u64)>::new());
+        assert_eq!(fixture.faux_b.get_pending_response_count(), 1);
     }
 
     /// The switches a request made: each sibling's reference and wait.
