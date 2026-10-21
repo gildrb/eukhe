@@ -54,6 +54,7 @@ mod models;
 mod output;
 pub mod sandbox;
 pub mod source;
+mod task;
 mod tool;
 mod types;
 
@@ -72,9 +73,10 @@ pub use models::{
     create_model_tools, ClassifierDefault, ClassifierResolver, CODEMODE_INTERNAL_PREFIX,
 };
 pub use output::DEFAULT_MAX_OUTPUT_TOKENS;
+pub use task::run_codemode_task;
 pub use tool::{
-    create_codemode_extension, create_codemode_tool, run_codemode_source, CodemodeGlobal,
-    CodemodeGlobalExecute, CodemodeToolOptions, CODEMODE_MODULE_VERSION, CODEMODE_TOOL_NAME,
+    create_codemode_extension, create_codemode_tool, CodemodeGlobal, CodemodeGlobalExecute,
+    CodemodeToolOptions, CODEMODE_MODULE_VERSION, CODEMODE_TOOL_NAME,
 };
 pub use types::{
     CodemodeCallStatus, CodemodeCallTarget, CodemodeDeclaredGlobal, CodemodeDeclaredTool,
