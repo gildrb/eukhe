@@ -41,6 +41,11 @@ pub struct SessionSummary {
     /// the wake time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_quota_parked: Option<bool>,
+    /// The park itself while the session is quota-parked: when it resumes
+    /// and which provider's usage limit parked it (the clients' parked
+    /// indicator names both).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_park: Option<QuotaPark>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_bash_running: Option<bool>,
     /// A streaming turn with tool calls in flight (TS `isRunningTools`:
@@ -125,6 +130,18 @@ pub struct SessionSummary {
     /// session is still initializing (older workers never emit it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anthropic_warning_shown: Option<bool>,
+}
+
+/// A session's quota park: no turn runs until the provider's usage resets,
+/// and the session resumes on its own at `resume_at`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaPark {
+    /// When the session resumes (RFC 3339, UTC).
+    pub resume_at: String,
+    /// The provider whose usage limit parked the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 /// The queue projection (TS `SessionActionSnapshot`): the parked inputs of

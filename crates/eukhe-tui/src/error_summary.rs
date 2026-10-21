@@ -49,6 +49,47 @@ pub fn format_inline_login_recovery_message(text: &str) -> Option<String> {
     Some(format!("{base} - {LOGIN_RECOVERY_MESSAGE}"))
 }
 
+/// The provider a missing-credentials failure names: the pi-ai wording
+/// `No API key for provider: <provider>` (every provider transport throws
+/// it before the request leaves).
+const MISSING_KEY_PREFIX: &str = "No API key for provider: ";
+
+/// The words the quota park's failure texts share (`Session parked until
+/// <time> ...`, `Session is parked until <time> ...`, eukhe-core
+/// `quota_parked_final_error` and `quota_already_parked_final_error`).
+const PARKED_MARKER: &str = " parked until ";
+
+/// The next step a failed turn's error row names, so a turn that ends
+/// without an answer always tells the user what to do. A missing key names
+/// its provider and the three ways out (sign in, set the key, switch
+/// models); a quota park says the turn resumes on its own; every other
+/// failure offers the resend or a model switch. An error that already
+/// carries the login-recovery hint has its next step, so it gets none.
+#[must_use]
+pub fn failure_next_step(error: &str) -> Option<String> {
+    let normalized = normalize_error_details(error);
+    if normalized.contains(LOGIN_RECOVERY_MESSAGE) {
+        return None;
+    }
+    if normalized.contains(PARKED_MARKER) {
+        return Some(
+            "Next: the turn resumes on its own at the reset, or pick another model with /model to go on now."
+                .to_string(),
+        );
+    }
+    let provider = normalized
+        .split_once(MISSING_KEY_PREFIX)
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .map(|provider| provider.trim_end_matches(['.', ',', ';', '"', '\'']))
+        .filter(|provider| !provider.is_empty());
+    Some(match provider {
+        Some(provider) => format!(
+            "Next: sign in with /login, set the {provider} API key, or pick another model with /model."
+        ),
+        None => "Next: send the message again, or pick another model with /model.".to_string(),
+    })
+}
+
 /// `startsStackContext` (trimmed line): the leading rows of a traceback.
 fn starts_stack_context(line: &str) -> bool {
     line.starts_with("Traceback ")
@@ -209,6 +250,46 @@ mod tests {
             format_inline_login_recovery_message(
                 "Auth failed\nfor provider.\n\nRun /login to update credentials."
             ),
+            None
+        );
+    }
+
+    /// A missing key names its provider and every way out; any other
+    /// failure offers the resend or a model switch; an error carrying the
+    /// login-recovery hint already has its next step.
+    #[test]
+    fn failure_next_step_names_the_way_out() {
+        assert_eq!(
+            failure_next_step("Error: No API key for provider: cloudflare-ai-gateway"),
+            Some(
+                "Next: sign in with /login, set the cloudflare-ai-gateway API key, or pick another model with /model."
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            failure_next_step(
+                "! Error: Retry failed after 2 attempts: No API key for provider: anthropic."
+            ),
+            Some(
+                "Next: sign in with /login, set the anthropic API key, or pick another model with /model."
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            failure_next_step("Error: 529 overloaded"),
+            Some("Next: send the message again, or pick another model with /model.".to_string())
+        );
+        assert_eq!(
+            failure_next_step(
+                "Provider requested a 172800s wait before retrying (above retry.provider.maxRetryDelayMs=15000ms). Session parked until 2026-10-23T14:05:00.000Z and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"
+            ),
+            Some(
+                "Next: the turn resumes on its own at the reset, or pick another model with /model to go on now."
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            failure_next_step("Auth failed.\n\nRun /login to update credentials."),
             None
         );
     }

@@ -28,6 +28,7 @@
 //   removals would ripple through the callers without changing behavior.
 #![allow(clippy::unnecessary_wraps)]
 
+pub mod activity;
 mod agent_delivery;
 pub mod agents_view;
 pub mod agents_view_forest;

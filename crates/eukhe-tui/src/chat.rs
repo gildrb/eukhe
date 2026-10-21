@@ -193,11 +193,12 @@ pub enum MessageBlock {
     Text(String),
 }
 
-/// The working loader (TS `Loader`): spinner + activity label, or a
+/// The working loader (TS `Loader`): spinner + the turn phase's label, or a
 /// tool-owned working message while one is set (TS `workingMessage`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkingState {
-    pub activity: &'static str,
+    /// Where the turn is ([`crate::activity::TurnPhase`] owns the label).
+    pub phase: crate::activity::TurnPhase,
     /// A transient message owned by the running tool (TS
     /// `workingMessage`, set by the python-kernel bootstrap): replaces the
     /// activity label and the token count until the tool clears it.
@@ -255,7 +256,7 @@ impl WorkingState {
         if let Some(message) = &self.message {
             return format!("{message} {}", format_working_elapsed(self.elapsed_secs));
         }
-        let mut parts = vec![self.activity.to_string()];
+        let mut parts = vec![self.phase.label().to_string()];
         parts.push(format_working_elapsed(self.elapsed_secs));
         if self.tokens > 0 {
             parts.push(format!(
@@ -443,6 +444,21 @@ pub fn render_assistant(
             theme,
             width,
         ));
+        // A failed (not aborted) answer always names the user's next
+        // step under its error, in every detail mode: the turn ended
+        // without an answer, and the row must say what to do about it.
+        if !message.aborted {
+            if let Some(step) = crate::error_summary::failure_next_step(error) {
+                out.extend(crate::error_summary::render_collapsible_error(
+                    &step,
+                    None,
+                    true,
+                    ThemeColor::Warning,
+                    theme,
+                    width,
+                ));
+            }
+        }
     }
     // TS `AssistantMessageComponent.hasTrailingSpace`: the tool-call
     // separator renders for visible bodies, aborted messages, and messages
@@ -596,12 +612,25 @@ impl RetryState {
 }
 
 /// The retry loader rows (TS `auto_retry_start` rendering: muted spinner +
-/// the retry message).
+/// the retry message), led by the turn's elapsed time: the retry is a
+/// phase of the turn, and its clock stays on screen (ahead of the
+/// message, which a long provider error can run past the row's end).
 #[must_use]
-pub fn render_retry(retry: &RetryState, frame: usize, theme: &Theme, width: usize) -> Vec<Line> {
+pub fn render_retry(
+    retry: &RetryState,
+    turn_elapsed_secs: u64,
+    frame: usize,
+    theme: &Theme,
+    width: usize,
+) -> Vec<Line> {
     let muted = theme.fg_style(ThemeColor::Muted);
     let spinner = crate::glyphs::SPINNER[frame % crate::glyphs::SPINNER.len()];
-    let message = retry.message();
+    let message = format!(
+        "{}{}{}",
+        format_working_elapsed(turn_elapsed_secs),
+        crate::glyphs::SEP,
+        retry.message()
+    );
     let mut row: Line = vec![Span::styled(" ".to_string(), Style::default())];
     row.push(Span::styled(spinner.to_string(), muted));
     // The gap between the spinner and the label is unstyled (the TS

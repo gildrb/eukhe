@@ -4,6 +4,7 @@
 use eukhe_types::token_estimate::chars_to_tokens;
 
 use super::{AgentView, SessionUi, Value, WorkingState};
+use crate::activity::TurnPhase;
 use crate::gen_speed::format_rate;
 use crate::glyphs::WARN;
 
@@ -100,11 +101,10 @@ impl SessionUi {
         };
     }
 
-    /// The working loader starts with a `Waiting` activity and a zero
-    /// token count (TS `agent_start` resets the tracker), anchored at
-    /// this instant.
-    pub(crate) fn start_loader(&mut self, view: &mut AgentView) {
-        self.start_loader_at(view, std::time::Instant::now());
+    /// The working loader starts at `phase` with a zero token count (TS
+    /// `agent_start` resets the tracker), anchored at this instant.
+    pub(crate) fn start_loader(&mut self, view: &mut AgentView, phase: TurnPhase) {
+        self.start_loader_at(view, phase, std::time::Instant::now());
     }
 
     /// [`Self::start_loader`] with an explicit anchor: the live paths
@@ -114,9 +114,14 @@ impl SessionUi {
     /// transition -- an agents-view round trip re-attaches mid-turn
     /// and the clock keeps counting from the prompt that started the
     /// turn).
-    pub(crate) fn start_loader_at(&mut self, view: &mut AgentView, since: std::time::Instant) {
+    pub(crate) fn start_loader_at(
+        &mut self,
+        view: &mut AgentView,
+        phase: TurnPhase,
+        since: std::time::Instant,
+    ) {
         view.working = Some(WorkingState {
-            activity: "Waiting",
+            phase,
             message: None,
             download: false,
             tokens: 0,
@@ -126,7 +131,28 @@ impl SessionUi {
         self.working_tokens.reset();
     }
 
-    /// Update the loader's activity label from one provider stream event
+    /// Move the turn's loader to `phase`. A loader already up keeps its
+    /// clock and its token count: one turn runs from the Enter that sent
+    /// it through its admission, every model request and tool round, its
+    /// retries and compactions, so the elapsed time never restarts inside
+    /// it. Without a loader one starts now at `phase`.
+    pub(crate) fn enter_phase(&mut self, view: &mut AgentView, phase: TurnPhase) {
+        match &mut view.working {
+            Some(working) => {
+                working.phase = phase;
+                working.download = false;
+            }
+            None => self.start_loader(view, phase),
+        }
+    }
+
+    /// Take the loader down (the turn and everything it ran settled).
+    pub(crate) fn stop_loader(view: &mut AgentView) {
+        view.working = None;
+        view.working_since = None;
+    }
+
+    /// Update the loader's phase from one provider stream event
     /// (TS `AgentActivityTracker`: thinking/text/toolcall events switch the
     /// label and direction). Token counting lives in
     /// [`Self::track_stream_tokens`]: the event's own delta is only the
@@ -137,11 +163,11 @@ impl SessionUi {
         view: &mut AgentView,
     ) {
         use eukhe_types::daemon::StreamUpdate;
-        let (activity, download) = match event {
-            StreamUpdate::ThinkingStart | StreamUpdate::ThinkingDelta { .. } => ("Thinking", true),
-            StreamUpdate::TextStart | StreamUpdate::TextDelta { .. } => ("Writing", true),
+        let phase = match event {
+            StreamUpdate::ThinkingStart | StreamUpdate::ThinkingDelta { .. } => TurnPhase::Thinking,
+            StreamUpdate::TextStart | StreamUpdate::TextDelta { .. } => TurnPhase::Writing,
             StreamUpdate::ToolcallStart | StreamUpdate::ToolcallDelta { .. } => {
-                ("Writing code", true)
+                TurnPhase::WritingCode
             }
             StreamUpdate::Start
             | StreamUpdate::TextEnd
@@ -150,8 +176,8 @@ impl SessionUi {
             | StreamUpdate::Message => return,
         };
         if let Some(working) = &mut view.working {
-            working.activity = activity;
-            working.download = download;
+            working.phase = phase;
+            working.download = true;
         }
     }
 

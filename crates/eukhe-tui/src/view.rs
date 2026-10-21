@@ -57,11 +57,17 @@ pub struct AgentView {
     pub compaction_generation: u64,
     /// Animation frame for spinners and the working icon.
     pub pulse_frame: usize,
-    /// When the current working loader started (elapsed label).
+    /// When the current turn started (the loader's elapsed label): the
+    /// user's Enter, or the run's start when nothing of this client sent
+    /// it; one clock across the turn's requests, retries and compactions.
     pub working_since: Option<std::time::Instant>,
     /// An active provider auto-retry (replaces the working loader while
     /// the retry loop waits, TS `retryLoader`).
     pub retry: Option<crate::chat::RetryState>,
+    /// The session's quota park (its roster summary's `quotaPark`): no turn
+    /// runs, and the row above the composer names the wake time instead of
+    /// reading as idle.
+    pub quota_park: Option<crate::activity::QuotaPark>,
     /// The first-run onboarding pane (TS `runStartupOnboarding`): while
     /// set, it owns the whole frame.
     pub onboarding: Option<crate::onboarding::OnboardingScreen>,
@@ -312,6 +318,7 @@ impl AgentView {
             pulse_frame: 0,
             working_since: None,
             retry: None,
+            quota_park: None,
             onboarding: None,
             model_picker: None,
             tree_selector: None,

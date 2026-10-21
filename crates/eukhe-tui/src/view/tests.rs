@@ -292,7 +292,7 @@ fn compaction_loader_replaces_the_working_loader() {
     // area while a compaction runs, working loader hidden.
     let mut v = view();
     v.working = Some(WorkingState {
-        activity: "Waiting",
+        phase: crate::activity::TurnPhase::Requesting,
         message: None,
         download: false,
         tokens: 0,

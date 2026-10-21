@@ -10,6 +10,7 @@ use super::{
     RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi, Value,
     EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
 };
+use crate::activity::TurnPhase;
 
 impl SessionUi {
     /// Create/attach per the session selection and return the live state.
@@ -98,6 +99,10 @@ impl SessionUi {
             streaming_index: None,
             working_tokens: LoaderTokenTracker::default(),
             turn_error_shown: false,
+            run_open: false,
+            run_rounds: 0,
+            run_showed_reply: false,
+            resynced_phase: TurnPhase::Requesting,
             pending_tools: HashSet::default(),
             aborted_tools: HashSet::default(),
             last_assistant_text: None,
@@ -519,15 +524,21 @@ impl SessionUi {
         // rebuilds from the snapshot): a turn that is still live behind the
         // re-attach keeps the spinner, one that died with the old link (or
         // never ran) does not.
-        let streaming = ["isStreaming", "isCompacting"].iter().any(|flag| {
+        let flag = |name: &str| {
             attach
                 .snapshot
                 .state
-                .get(flag)
+                .get(name)
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
-        });
-        self.turn_active = streaming;
+        };
+        let compacting = flag("isCompacting");
+        self.turn_active = flag("isStreaming") || compacting;
+        self.resynced_phase = if compacting {
+            TurnPhase::Compacting
+        } else {
+            TurnPhase::Requesting
+        };
         self.streaming_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
@@ -759,14 +770,19 @@ impl SessionUi {
         // where it left off instead of restarting at the re-attach
         // instant. The live paths (a submit's ack, a turn's engine
         // start) keep their own anchors; only the rebuild re-derives one.
+        // A retry countdown or a compaction loader belongs to the stream
+        // the rebuild replaced: the snapshot's own state re-derives the
+        // phase, and the next live frame restores either overlay.
+        view.retry = None;
+        view.compaction = None;
         if self.turn_active {
             let anchor = self
                 .loader_anchor_ms
                 .and_then(Self::loader_anchor_instant)
                 .unwrap_or_else(std::time::Instant::now);
-            self.start_loader_at(view, anchor);
+            self.start_loader_at(view, self.resynced_phase, anchor);
         } else {
-            view.working = None;
+            Self::stop_loader(view);
         }
         // An open `/heartbeats` picker follows the rebuilt session's
         // catalog (the channel fold's `apply_catalog` path): without this

@@ -21,7 +21,7 @@ fn backup_switch_loader_renders_the_failover_message() {
             backup_model: "prime-backup/mock-1".to_string(),
         },
     };
-    let rows = render_retry(&retry, 0, &theme(), 60);
+    let rows = render_retry(&retry, 0, 0, &theme(), 60);
     let text = rows[1]
         .iter()
         .map(|s| s.content.as_str())
@@ -43,7 +43,7 @@ fn retry_loader_renders_countdown() {
         error_message: "provider down".to_string(),
         reason: RetryStartReason::Quick,
     };
-    let rows = render_retry(&retry, 0, &theme(), 60);
+    let rows = render_retry(&retry, 0, 0, &theme(), 60);
     let text = rows[1]
         .iter()
         .map(|s| s.content.as_str())
@@ -70,14 +70,14 @@ fn retry_loader_spans_carry_the_ts_sgr_boundaries() {
     };
     let t = theme();
     let muted = t.fg_style(ThemeColor::Muted);
-    let rows = render_retry(&retry, 0, &t, 60);
+    let rows = render_retry(&retry, 0, 0, &t, 60);
     assert_eq!(
         rows[1][..4],
         [
             Span::styled(" ", Style::default()),
             Span::styled(crate::glyphs::SPINNER[0], muted),
             Span::raw(" "),
-            Span::styled("provider down -- retrying (1/2) in 1s...", muted),
+            Span::styled("0s - provider down -- retrying (1/2) in 1s...", muted),
         ]
     );
 }
@@ -660,16 +660,40 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
             &mut crate::markdown::MarkdownBlockCache::default(),
         )
     };
-    // No suffix: the raw single-line error row is unchanged (fence).
+    // No suffix: the raw single-line error row is unchanged (fence); the
+    // failure's next step follows it and closes the zone.
+    let rows = render("Auth failed.", Detail::Overview);
     assert_eq!(
-        render("Auth failed.", Detail::Overview)[1],
+        rows[1],
         vec![
-            Span::raw(crate::osc133::ZONE_END_PREFIX),
             Span::raw(" "),
             Span::styled("Auth failed.", error_style),
             Span::raw(" ".repeat(47)),
         ]
     );
+    let next: Vec<String> = rows[2..]
+        .iter()
+        .map(|line| line.iter().map(|span| span.content.as_str()).collect())
+        .collect();
+    assert_eq!(
+        next,
+        vec![
+            format!(
+                " Next: send the message again, or pick another model with{}",
+                " ".repeat(3)
+            ),
+            format!(
+                "{} /model.{}",
+                crate::osc133::ZONE_END_PREFIX,
+                " ".repeat(52)
+            ),
+        ]
+    );
+    assert!(rows[2..]
+        .iter()
+        .flatten()
+        .filter(|span| !span.content.trim().is_empty() && !span.content.starts_with('\u{1b}'))
+        .all(|span| span.style == theme.fg_style(ThemeColor::Warning)));
     // Multi-line base: the collapsible path applies to the full error --
     // the summary row while collapsed, the suffix as its own block while
     // expanded.
@@ -806,7 +830,7 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
 #[test]
 fn loader_line_shape() {
     let working = WorkingState {
-        activity: "Writing",
+        phase: crate::activity::TurnPhase::Writing,
         message: None,
         download: true,
         tokens: 72,
@@ -828,7 +852,7 @@ fn loader_line_shape() {
 #[test]
 fn loader_gap_between_spinner_and_label_is_unstyled() {
     let working = WorkingState {
-        activity: "Writing",
+        phase: crate::activity::TurnPhase::Writing,
         message: None,
         download: true,
         tokens: 72,
@@ -855,7 +879,7 @@ fn loader_gap_between_spinner_and_label_is_unstyled() {
 #[test]
 fn loader_working_message_replaces_the_activity_label() {
     let working = WorkingState {
-        activity: "Executing",
+        phase: crate::activity::TurnPhase::RunningTool,
         message: Some("\u{203a} setting up python kernel (one-time, ~30s)\u{2026}".into()),
         download: true,
         tokens: 72,

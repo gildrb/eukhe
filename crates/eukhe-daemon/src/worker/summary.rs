@@ -14,7 +14,7 @@ use super::{
 
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::usage::UsageState;
-use eukhe_types::daemon::{QueuedItem, SessionEvent};
+use eukhe_types::daemon::{QueuedItem, QuotaPark, SessionEvent};
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
@@ -132,7 +132,7 @@ impl Worker {
             &thinking_level(core, &self.session),
             model_metadata(core, &self.session),
             self.user_bash.is_running(),
-            quota_parked(&self.session),
+            quota_park(&self.session),
         );
         // The worker's roster-delta counter at snapshot time and the
         // process instance that read it: the supervisor's pull gate orders
@@ -352,15 +352,14 @@ pub(crate) struct RosterPushContext {
     pub(crate) roster_delta_sequence: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
-/// Whether the session's provider runtime is quota-parked (the durable
-/// `eukhe.quota_park` state; `false` without a hosted session).
-fn quota_parked(session: &SessionSlot) -> bool {
-    session.get().is_some_and(|hosted| {
-        hosted
-            .deps()
-            .provider_runtime
-            .get()
-            .is_some_and(|runtime| runtime.is_quota_parked())
+/// The session's live quota park (the durable `eukhe.quota_park` state:
+/// its wake time and provider); `None` unparked or without a hosted
+/// session.
+fn quota_park(session: &SessionSlot) -> Option<QuotaPark> {
+    let park = session.get()?.deps().provider_runtime.get()?.quota_park()?;
+    Some(QuotaPark {
+        resume_at: crate::util::iso_from_unix_ms(park.resume_at_ms),
+        provider: park.provider,
     })
 }
 
@@ -388,7 +387,7 @@ pub(crate) async fn push_roster_delta(context: &RosterPushContext) {
             &thinking_level(&core, &context.session),
             model_metadata(&core, &context.session),
             context.user_bash.is_running(),
-            quota_parked(&context.session),
+            quota_park(&context.session),
         );
         // The embedded counter is the pre-stamp value: every sequence
         // stamped before the snapshot is at or below it.
@@ -546,7 +545,7 @@ pub(crate) fn session_summary(
     thinking_level: &str,
     model: Option<Value>,
     bash_running: bool,
-    quota_parked: bool,
+    quota_park: Option<QuotaPark>,
 ) -> SessionSummary {
     let streaming = core.is_busy();
     let compacting = core.is_compacting();
@@ -579,7 +578,8 @@ pub(crate) fn session_summary(
         thinking_level: Some(thinking_level.to_string()),
         is_streaming: streaming,
         is_compacting: compacting,
-        is_quota_parked: Some(quota_parked),
+        is_quota_parked: Some(quota_park.is_some()),
+        quota_park,
         is_bash_running: Some(bash_running),
         is_running_tools: streaming && running_tools,
         has_running_subagents: false,

@@ -20,7 +20,7 @@
 //!   reset exceeds the bounded wait parks the session — the durable
 //!   `eukhe.quota_park` document on the root conversation, the park/resume
 //!   transcript rows, a one-shot wake job through the scheduled-jobs (cron)
-//!   path, and [`ProviderRuntime::is_quota_parked`] for the session
+//!   path, and [`ProviderRuntime::quota_park`] for the session
 //!   summary. A successful model call while parked resumes (cancelling the
 //!   wake); an early resume queues the resume marker.
 //! - Request timing ([`super::timing`]): per-request phase entries in the
@@ -247,11 +247,12 @@ impl ProviderRuntime {
         self.inner.events.subscribe()
     }
 
-    /// True while the session is parked waiting out a provider-reported
-    /// usage reset (TS `session.isQuotaParked`).
+    /// The live quota park (its wake time and provider), `None` unparked
+    /// (TS `session.isQuotaParked`): the session summary carries it so a
+    /// client names the wake time.
     #[must_use]
-    pub fn is_quota_parked(&self) -> bool {
-        self.inner.park.lock().unwrap_or_else(poisoned).is_some()
+    pub fn quota_park(&self) -> Option<ParkDocState> {
+        self.inner.park.lock().unwrap_or_else(poisoned).clone()
     }
 }
 
@@ -1387,7 +1388,7 @@ mod tests {
             Some("503 Service Unavailable")
         );
         assert!(events.try_recv().is_err(), "no switch event: {message:?}");
-        assert!(!fixture.runtime.is_quota_parked());
+        assert_eq!(fixture.runtime.quota_park(), None);
     }
 
     /// Declares api-key auth and resolves no credential: a built-in
@@ -1592,7 +1593,7 @@ mod tests {
                 && parked.contains("will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"),
             "{parked}"
         );
-        assert!(fixture.runtime.is_quota_parked());
+        assert!(fixture.runtime.quota_park().is_some());
         // The wake job is armed in the session's scheduled-jobs store.
         let store = AgentCronJobStore::new(fixture.dir.path().join("agent").join("cron-jobs.json"));
         let wakes = store
@@ -1639,7 +1640,7 @@ mod tests {
         )
         .await;
         assert_eq!(message.error_message.as_deref(), Some("429 rate limit"));
-        assert!(!fixture.runtime.is_quota_parked());
+        assert_eq!(fixture.runtime.quota_park(), None);
     }
 
     #[tokio::test]
@@ -1692,7 +1693,7 @@ mod tests {
                 provider: Some("faux-a".to_owned()),
                 wake_retries: 0,
             }));
-        assert!(fixture.runtime.is_quota_parked());
+        assert!(fixture.runtime.quota_park().is_some());
         fixture
             .faux_a
             .set_responses(vec![FauxResponseStep::Message(Box::new(
@@ -1705,7 +1706,7 @@ mod tests {
         )
         .await;
         assert_eq!(message.stop_reason, StopReason::Stop);
-        assert!(!fixture.runtime.is_quota_parked());
+        assert_eq!(fixture.runtime.quota_park(), None);
     }
 
     /// The serving stream's prompt progress reaches the runtime's wire

@@ -155,7 +155,8 @@ pub use session_event::{
     SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
 pub use session_state::{
-    AgentConnectionState, QueuedItem, SessionActionActive, SessionActionSnapshot, SessionSummary,
+    AgentConnectionState, QueuedItem, QuotaPark, SessionActionActive, SessionActionSnapshot,
+    SessionSummary,
 };
 pub use state_tree::{
     StateRewindPlanReply, StateTreeEffect, StateTreeKind, StateTreeNode, StateTreeNodeRef,

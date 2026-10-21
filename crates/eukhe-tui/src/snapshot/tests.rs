@@ -1057,12 +1057,17 @@ fn decodes_streamed_events() {
             if assistant_text(message) == "done"
     ));
     let ended = event_to_update(&event(json!({ "type": "turn_end" })));
-    assert_eq!(ended, TurnUpdate::TurnEnded { error: None });
+    assert_eq!(
+        ended,
+        TurnUpdate::TurnEnded {
+            outcome: crate::snapshot::TurnOutcome::Unreported
+        }
+    );
     let failed = event_to_update(&event(json!({ "type": "turn_end", "error": "boom" })));
     assert_eq!(
         failed,
         TurnUpdate::TurnEnded {
-            error: Some("boom".to_string())
+            outcome: crate::snapshot::TurnOutcome::Failed("boom".to_string())
         }
     );
     assert_eq!(

@@ -460,7 +460,7 @@ pub fn attach_data_from_response(data: Value) -> anyhow::Result<AttachData> {
 
 pub use decoder::{
     content_text, event_to_update, message_value_to_entries, queued_messages, user_display_text,
-    working_message_from_update, RetryStartReason, TurnUpdate,
+    working_message_from_update, RetryStartReason, TurnOutcome, TurnUpdate,
 };
 mod decoder;
 

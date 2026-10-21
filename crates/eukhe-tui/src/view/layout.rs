@@ -3,6 +3,7 @@
 //! transcript tail (pending bash cards, loaders, side pane).
 
 use super::AgentView;
+use crate::activity::{AgentActivity, TurnPhase};
 use crate::chat::{render_loader, ChatEntry};
 use crate::chrome::render_splash;
 use crate::Line;
@@ -138,46 +139,74 @@ impl AgentView {
                 ));
             }
         }
-        // While the provider retry loop waits, its countdown loader owns
-        // the status area (TS `stopWorkingLoader` + `retryLoader`); a
-        // compaction run owns it next (TS `startCompactionLoader`); the
-        // working loader renders only when neither is active.
-        if let Some(retry) = &self.retry {
-            tail.extend(crate::chat::render_retry(
-                retry,
-                self.pulse_frame,
-                &self.theme,
-                width,
-            ));
-        } else if let Some(compaction) = &self.compaction {
-            let cancel_hint = self
-                .editor
-                .keybindings()
-                .first_key("app.clear")
-                .map_or_else(
-                    || "Ctrl+C".to_string(),
-                    |key| crate::keybindings::format_key_text(&key),
-                );
-            tail.extend(crate::compaction_row::render_compaction_loader(
-                compaction,
-                self.pulse_frame,
-                &cancel_hint,
-                &self.theme,
-                width,
-            ));
-            // The live streamed-summary block (the operator's "stream
-            // the compacted summary" feature): under the loader row, the
-            // expanded view renders the summary as the compaction model
-            // generates it -- one delta at a time -- nested on the branch
-            // grammar like the expanded summary row that settles it.
-            tail.extend(crate::compaction_row::render_compaction_stream(
-                compaction,
-                self.detail.tool_output_expanded(),
-                &self.theme,
-                width,
-            ));
-        } else if let Some(working) = &self.working {
-            tail.extend(render_loader(working, self.pulse_frame, &self.theme, width));
+        // The indicator row above the composer follows the session's
+        // activity (`crate::activity`): a running turn always shows one
+        // loader row with its elapsed time -- the retry countdown while
+        // the provider retry loop waits (TS `stopWorkingLoader` +
+        // `retryLoader`), the compaction loader while a compaction runs
+        // (TS `startCompactionLoader`), the working loader otherwise --
+        // and a quota-parked session names its wake time instead of
+        // reading as idle. Background work rides the dock's counts.
+        match self.activity() {
+            AgentActivity::Working { .. } => {
+                let elapsed = self
+                    .working
+                    .as_ref()
+                    .map_or(0, |working| working.elapsed_secs);
+                if let Some(retry) = &self.retry {
+                    tail.extend(crate::chat::render_retry(
+                        retry,
+                        elapsed,
+                        self.pulse_frame,
+                        &self.theme,
+                        width,
+                    ));
+                } else if let Some(compaction) = &self.compaction {
+                    let cancel_hint = self
+                        .editor
+                        .keybindings()
+                        .first_key("app.clear")
+                        .map_or_else(
+                            || "Ctrl+C".to_string(),
+                            |key| crate::keybindings::format_key_text(&key),
+                        );
+                    tail.extend(crate::compaction_row::render_compaction_loader(
+                        compaction,
+                        elapsed,
+                        self.pulse_frame,
+                        &cancel_hint,
+                        &self.theme,
+                        width,
+                    ));
+                    // The live streamed-summary block (the operator's
+                    // "stream the compacted summary" feature): under the
+                    // loader row, the expanded view renders the summary as
+                    // the compaction model generates it -- one delta at a
+                    // time -- nested on the branch grammar like the
+                    // expanded summary row that settles it.
+                    tail.extend(crate::compaction_row::render_compaction_stream(
+                        compaction,
+                        self.detail.tool_output_expanded(),
+                        &self.theme,
+                        width,
+                    ));
+                } else if let Some(working) = &self.working {
+                    tail.extend(render_loader(working, self.pulse_frame, &self.theme, width));
+                }
+            }
+            AgentActivity::Parked(park) => {
+                tail.push(Vec::new());
+                tail.extend(crate::chat::render_text_rows(
+                    &format!(
+                        "{} {}",
+                        crate::glyphs::WARN,
+                        crate::activity::park_label(&park, crate::agents_view_state::now_ms())
+                    ),
+                    self.theme.fg_style(crate::theme::ThemeColor::Warning),
+                    width,
+                ));
+            }
+            AgentActivity::Background { .. } | AgentActivity::Idle => {}
         }
         // The side-question pane (TS `sideQuestionContainer`): a scroll-area
         // component under the status area, not a dock row -- it hugs the
@@ -197,5 +226,41 @@ impl AgentView {
             ));
         }
         tail
+    }
+
+    /// This session at a glance, the input of the [`crate::activity`]
+    /// mapping: a turn runs while its loader, a retry, or a compaction is
+    /// up (a retry or a compaction overlays the loader's phase); between
+    /// turns a quota park, then the dock's running background work, else
+    /// idle.
+    #[must_use]
+    pub fn activity(&self) -> AgentActivity {
+        let phase = match (&self.retry, &self.compaction, &self.working) {
+            (Some(_), _, _) => Some(TurnPhase::Retrying),
+            (None, Some(_), _) => Some(TurnPhase::Compacting),
+            (None, None, Some(working)) => Some(working.phase),
+            (None, None, None) => None,
+        };
+        if let Some(phase) = phase {
+            return AgentActivity::Working {
+                phase,
+                since: self.working_since.unwrap_or_else(std::time::Instant::now),
+            };
+        }
+        if let Some(park) = &self.quota_park {
+            return AgentActivity::Parked(park.clone());
+        }
+        let tasks = self.chrome.activity.as_ref().map_or(0, |dock| {
+            dock.subagents_running_direct
+                + dock.subagents_running_nested
+                + dock.bash_running
+                + dock.factory_runs
+                + dock.workflow_runs
+        });
+        if tasks > 0 {
+            AgentActivity::Background { tasks }
+        } else {
+            AgentActivity::Idle
+        }
     }
 }

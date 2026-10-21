@@ -3,11 +3,11 @@
 //! update), the loader-note partial decode, and the message helpers (moved
 //! with their concern).
 use super::{assistant_value_to_entries, ChatEntry};
-use eukhe_types::ai::{AssistantMessage, ServiceTier, UserContent, UserContentBlock};
+use eukhe_types::ai::{AssistantMessage, ServiceTier, StopReason, UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
 use eukhe_types::daemon::{
     AgentRelayEvent, BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover,
-    MemoryUpdate, SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput,
+    MemoryUpdate, SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
 use eukhe_types::goal::GoalState;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
@@ -15,7 +15,9 @@ use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
 /// One session event decoded for the transcript.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TurnUpdate {
-    /// `agent_start` / `turn_start`.
+    /// `agent_start`: a run began (its first `turn_start` follows).
+    RunStarted,
+    /// `turn_start`: the run's next model request began.
     TurnStarted,
     /// `session_info_changed`: the session display name (cleared when the
     /// event carries none).
@@ -48,10 +50,13 @@ pub enum TurnUpdate {
         result: ToolOutput,
         is_error: bool,
     },
-    /// `turn_end`, with the turn error string when the turn failed.
-    TurnEnded { error: Option<String> },
+    /// `turn_end`: one model request of the run settled, and how.
+    TurnEnded { outcome: TurnOutcome },
     /// A `custom`-role message the transcript renders.
     CustomRow(ChatEntry),
+    /// The `provider_retry_outcome` row: the ONE line a provider failure
+    /// episode leaves, replacing the failed attempts' rows above it.
+    RetryOutcomeRow(ChatEntry),
     /// `auto_retry_start`: a provider failure is being retried after
     /// `delay_ms` (TS retry loader countdown). A `Backup` reason is a
     /// provider-failover switch: the failed turn re-routes to
@@ -144,6 +149,24 @@ pub enum TurnUpdate {
     StatusUpdate,
 }
 
+/// How one `turn_end` settled its model request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnOutcome {
+    /// The answer called tools: the run's next request follows.
+    Continues,
+    /// The answer put text or tool calls on screen.
+    Answered,
+    /// The answer settled with nothing to show (no text, no tool call:
+    /// thinking only, or nothing at all).
+    Empty,
+    /// The request failed: the error text.
+    Failed(String),
+    /// The user aborted the request.
+    Aborted,
+    /// The `turn_end` carried neither an answer nor an error.
+    Unreported,
+}
+
 /// Why one `auto_retry_start` fired.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetryStartReason {
@@ -158,10 +181,11 @@ pub enum RetryStartReason {
 #[must_use]
 pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
     match event {
-        SessionEvent::AgentStart | SessionEvent::TurnStart => TurnUpdate::TurnStarted,
+        SessionEvent::AgentStart => TurnUpdate::RunStarted,
+        SessionEvent::TurnStart => TurnUpdate::TurnStarted,
         SessionEvent::AgentEnd { .. } => TurnUpdate::Idle,
-        SessionEvent::TurnEnd { error, .. } => TurnUpdate::TurnEnded {
-            error: error.clone(),
+        SessionEvent::TurnEnd { answer, error } => TurnUpdate::TurnEnded {
+            outcome: turn_outcome(answer.as_ref(), error.as_deref()),
         },
         SessionEvent::PromptProgress { progress } => TurnUpdate::PromptProgress(*progress),
         SessionEvent::MessageStart {
@@ -181,15 +205,20 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             // Custom rows arrive as a message_start + message_end pair
             // carrying the same payload; only the start adds the row.
             AgentMessage::Custom(custom) => {
-                match crate::custom_message::custom_message_entries(
-                    &CustomType::parse(&custom.custom_type),
+                let custom_type = CustomType::parse(&custom.custom_type);
+                let entry = crate::custom_message::custom_message_entries(
+                    &custom_type,
                     &custom.content,
                     custom.display,
                     custom.details.as_ref(),
                 )
-                .first()
-                {
-                    Some(entry) => TurnUpdate::CustomRow(entry.clone()),
+                .into_iter()
+                .next();
+                match entry {
+                    Some(entry) if custom_type == CustomType::ProviderRetryOutcome => {
+                        TurnUpdate::RetryOutcomeRow(entry)
+                    }
+                    Some(entry) => TurnUpdate::CustomRow(entry),
                     None => TurnUpdate::StatusUpdate,
                 }
             }
@@ -357,6 +386,48 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
         | SessionEvent::IpythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
+    }
+}
+
+/// How a `turn_end` settled: its terminal assistant message's stop reason
+/// (an answer that called tools continues the run), else the bare turn
+/// error of a request that failed without a message.
+fn turn_outcome(answer: Option<&TurnAnswer>, error: Option<&str>) -> TurnOutcome {
+    let message = answer.and_then(|answer| match &answer.message {
+        AgentMessage::Assistant(message) => Some(message),
+        AgentMessage::User(_)
+        | AgentMessage::ToolResult(_)
+        | AgentMessage::BashExecution(_)
+        | AgentMessage::Custom(_)
+        | AgentMessage::BranchSummary(_)
+        | AgentMessage::CompactionSummary(_) => None,
+    });
+    match (message, error) {
+        (Some(message), _) => match message.stop_reason {
+            StopReason::ToolUse => TurnOutcome::Continues,
+            StopReason::Error => TurnOutcome::Failed(
+                message
+                    .error_message
+                    .clone()
+                    .filter(|text| !text.is_empty())
+                    .unwrap_or_else(|| "Unknown error".to_string()),
+            ),
+            StopReason::Aborted => TurnOutcome::Aborted,
+            StopReason::Stop | StopReason::Length => {
+                let (blocks, tool_calls) = super::assistant_message_parts(message);
+                let shows_text = blocks.iter().any(|block| match block {
+                    super::MessageBlock::Text(text) => !text.trim().is_empty(),
+                    super::MessageBlock::Thinking(_) => false,
+                });
+                if shows_text || !tool_calls.is_empty() {
+                    TurnOutcome::Answered
+                } else {
+                    TurnOutcome::Empty
+                }
+            }
+        },
+        (None, Some(error)) => TurnOutcome::Failed(error.to_string()),
+        (None, None) => TurnOutcome::Unreported,
     }
 }
 

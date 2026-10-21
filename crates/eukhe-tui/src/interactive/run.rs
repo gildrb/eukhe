@@ -1811,7 +1811,13 @@ async fn run_interactive_surface(
         // requestRender a quiet turn produces, so a turn without stream
         // events paints at the 80ms loader cadence, not the 16ms frame
         // cap).
-        let animating = session.turn_active || view.retry.is_some() || view.compaction.is_some();
+        // Any loader animates: the send before the admission, the gap
+        // between a run's requests, and a compaction outside a turn have
+        // a loader up with no engine turn active.
+        let animating = session.turn_active
+            || view.working.is_some()
+            || view.retry.is_some()
+            || view.compaction.is_some();
         if animating {
             let now = Instant::now();
             let started = *anim_started.get_or_insert(now);

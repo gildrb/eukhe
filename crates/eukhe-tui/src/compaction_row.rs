@@ -46,10 +46,12 @@ pub struct CompactionState {
 /// muted -- the compaction loader colors spinner and text `muted`). The label
 /// is TS `startCompactionLoader`'s: the reason text, the custom instructions
 /// truncated to 60 columns as the focus (`truncateToWidth(..., 60, "...")`),
-/// and the resolved `app.clear` cancel hint.
+/// and the resolved `app.clear` cancel hint, then the turn's elapsed time
+/// (the compaction is a phase of the turn, and its clock stays on screen).
 #[must_use]
 pub fn render_compaction_loader(
     state: &CompactionState,
+    turn_elapsed_secs: u64,
     frame: usize,
     cancel_hint: &str,
     theme: &Theme,
@@ -72,7 +74,12 @@ pub fn render_compaction_loader(
                 .map(|span| span.content.as_str())
                 .collect::<String>()
         });
-    let label = loader_label(state.reason, focus.as_deref(), cancel_hint);
+    let label = format!(
+        "{}{}{}",
+        loader_label(state.reason, focus.as_deref(), cancel_hint),
+        crate::glyphs::SEP,
+        crate::chat::format_working_elapsed(turn_elapsed_secs)
+    );
     let mut row: Line = vec![Span::styled(
         " ".to_string(),
         crate::style::Style::default(),
@@ -317,7 +324,7 @@ mod tests {
     /// The label of one rendered loader row (spinner, margin, then the
     /// message text).
     fn loader_text(state: &CompactionState, cancel_hint: &str) -> String {
-        let rows = render_compaction_loader(state, 0, cancel_hint, &theme(), 80);
+        let rows = render_compaction_loader(state, 0, 0, cancel_hint, &theme(), 80);
         plain(&rows)[1].trim().to_string()
     }
 
@@ -347,19 +354,19 @@ mod tests {
                 ),
                 "Ctrl+C"
             ),
-            "| Compacting context (focus: focus on the goal)... (Ctrl+C to cancel)"
+            "| Compacting context (focus: focus on the goal)... (Ctrl+C to cancel) - 0s"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Manual, None), "Ctrl+C"),
-            "| Compacting context... (Ctrl+C to cancel)"
+            "| Compacting context... (Ctrl+C to cancel) - 0s"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Overflow, None), "Ctrl+C"),
-            "| Context overflow detected, Auto-compacting... (Ctrl+C to cancel)"
+            "| Context overflow detected, Auto-compacting... (Ctrl+C to cancel) - 0s"
         );
         assert_eq!(
             loader_text(&state(CompactionReason::Threshold, None), "Ctrl+C"),
-            "| Auto-compacting... (Ctrl+C to cancel)"
+            "| Auto-compacting... (Ctrl+C to cancel) - 0s"
         );
     }
 
@@ -494,7 +501,7 @@ mod tests {
             custom_instructions: None,
             summary: String::new(),
         };
-        let rows = render_compaction_loader(&state, 0, "Ctrl+C", &theme(), 80);
+        let rows = render_compaction_loader(&state, 0, 0, "Ctrl+C", &theme(), 80);
         assert_eq!(rows.len(), 2, "TS Loader renders a blank then the row");
         let text = plain(&rows);
         assert!(text[1].contains("Compacting context... (Ctrl+C to cancel)"));

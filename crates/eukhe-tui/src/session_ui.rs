@@ -296,10 +296,24 @@ pub(crate) struct SessionUi {
     /// The loader's token accounting (TS `AgentActivityTracker`), reported
     /// monotonically within a run.
     working_tokens: LoaderTokenTracker,
-    /// The turn already surfaced its error (a failed assistant message or a
-    /// retry-exhausted banner); the `turn_end` error stays silent then (TS
-    /// renders the failure once, through the message or the retry banner).
+    /// The turn shows its failure in the chat now (a failed assistant
+    /// message's error row, or the failure row the turn's end or the retry
+    /// loop's give-up pushed); the turn's end adds no second row then.
+    /// A retry that pops the failed attempt's row clears it: the failure
+    /// is off screen again until the episode settles.
     turn_error_shown: bool,
+    /// The `agent_start` of a run this connection saw, until its
+    /// `agent_end`.
+    run_open: bool,
+    /// Model requests (`turn_start`s) the open run made: a run that ends
+    /// with none still ends the turn its prompt waited for.
+    run_rounds: u32,
+    /// The open run put a reply on screen (answer text or a tool card): a
+    /// run that ends with neither tells the user so.
+    run_showed_reply: bool,
+    /// The loader phase the last attach's snapshot implies (compacting, or
+    /// waiting on the model) for the rebuild that follows it.
+    resynced_phase: crate::activity::TurnPhase,
     /// Tool cards awaiting their final result (TS `pendingTools`): a
     /// streamed call registers at its `message_update` frame or at
     /// `tool_execution_start`, the final result unregisters, and the run's

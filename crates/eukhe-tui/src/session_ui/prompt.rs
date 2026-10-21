@@ -759,6 +759,13 @@ impl SessionUi {
             generation,
             view,
         );
+        // The Enter's own frame shows the turn: a loader goes up at once
+        // (the send phase until the daemon admits the prompt), so the
+        // daemon round trip is never a silent window. A turn already
+        // running keeps its loader; the queue strip shows the new prompt.
+        if view.working.is_none() {
+            self.start_loader(view, crate::activity::TurnPhase::Sending);
+        }
         self.dirty = true;
         Ok(())
     }
@@ -970,8 +977,31 @@ impl SessionUi {
                     .is_some_and(|expected| self.turn_ends_seen < expected)
                 {
                     self.turn_active = true;
-                    self.start_loader(view);
+                    // An up loader keeps its clock and phase (the run may
+                    // already stream: the ack can trail `agent_start`); a
+                    // loader still in the send phase moves to queued.
+                    match view.working.as_ref().map(|working| working.phase) {
+                        Some(crate::activity::TurnPhase::Sending) | None => {
+                            self.enter_phase(view, crate::activity::TurnPhase::Queued);
+                        }
+                        Some(
+                            crate::activity::TurnPhase::Queued
+                            | crate::activity::TurnPhase::Reconnecting
+                            | crate::activity::TurnPhase::Requesting
+                            | crate::activity::TurnPhase::Thinking
+                            | crate::activity::TurnPhase::Writing
+                            | crate::activity::TurnPhase::WritingCode
+                            | crate::activity::TurnPhase::RunningTool
+                            | crate::activity::TurnPhase::Compacting
+                            | crate::activity::TurnPhase::Retrying,
+                        ) => {}
+                    }
                     self.dirty = true;
+                } else {
+                    // The admitted prompt's turn already ended (it
+                    // streamed before the ack), or it was a session
+                    // command that settled: the send loader comes down.
+                    self.settle_send_loader(view);
                 }
                 // TS `onSubmit`'s finally: the current submit's admitted prompt
                 // restores the stash head it captured, if that is still the head.
@@ -1017,6 +1047,8 @@ impl SessionUi {
                         // replay keeps the submit's generation and spends
                         // the rebind budget.
                         self.rebuild_view(view, &RebuildKind::Rebind);
+                        // The replay travels again: its send shows.
+                        self.enter_phase(view, crate::activity::TurnPhase::Sending);
                         self.order_prompt_request(
                             note.text.clone(),
                             note.behavior,
@@ -1030,6 +1062,10 @@ impl SessionUi {
                         return Ok(());
                     }
                 }
+                // No turn waits on this submit any more (refused, or its
+                // fate is unknown -- a live turn raises its own loader at
+                // `agent_start`): the send loader comes down.
+                self.settle_send_loader(view);
                 if crate::daemon_client::is_daemon_timeout(&error) {
                     // Sent but unanswered: the submission was on the
                     // wire, so the turn may already be admitted and
@@ -1084,6 +1120,20 @@ impl SessionUi {
                 }
                 Err(error)
             }
+        }
+    }
+
+    /// The send loader after a submit settled without a turn to wait for:
+    /// it comes down unless other work holds it up (a turn, a run, a
+    /// compaction, a retry, another submit still traveling).
+    fn settle_send_loader(&mut self, view: &mut AgentView) {
+        if !self.turn_active
+            && !self.run_open
+            && view.compaction.is_none()
+            && view.retry.is_none()
+            && self.prompt_in_flight == 0
+        {
+            Self::stop_loader(view);
         }
     }
 

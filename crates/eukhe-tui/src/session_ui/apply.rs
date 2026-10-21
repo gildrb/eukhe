@@ -9,7 +9,9 @@ use super::{
     MessageBlock, Result, RetryState, SessionUi, StatusKind, ToolResultView, TurnUpdate, Value,
     UI_REQUEST_TIMEOUT_MS,
 };
+use crate::activity::TurnPhase;
 use crate::glyphs::WARN;
+use crate::snapshot::TurnOutcome;
 
 /// One backgrounded compaction-abort outcome (the abort supervision's UI
 /// recovery): a failed abort request surfaces as the transcript note and
@@ -131,6 +133,7 @@ impl SessionUi {
         if let Err(error) = note.outcome {
             self.note(&format!("the compaction abort failed: {error:#}"), view);
             view.compaction = None;
+            self.settle_compaction_loader(view);
         }
     }
 
@@ -297,7 +300,12 @@ impl SessionUi {
             } => {
                 if active_session_id == self.active_session_id {
                     self.turn_active = false;
-                    view.working = None;
+                    self.run_open = false;
+                    // Nothing runs for this view any more: no loader, no
+                    // retry countdown, no compaction row outlives it.
+                    Self::stop_loader(view);
+                    view.retry = None;
+                    view.compaction = None;
                     // A killed, shut-down, or replaced session is an error
                     // the user must still see after the cancelled turn's
                     // later status rows land (TS `showError`), not a
@@ -327,6 +335,9 @@ impl SessionUi {
                 // reports its old session and is ignored here.
                 if active_session_id == self.active_session_id {
                     self.transport_lost = Some(active_session_id);
+                    // The turn's frames stop until the re-attach: the
+                    // loader says so instead of a stale phase.
+                    Self::set_working_phase(TurnPhase::Reconnecting, view);
                 }
             }
             DaemonClientEvent::DaemonClosing { reason } => {
@@ -384,15 +395,15 @@ impl SessionUi {
 
     fn apply_update(&mut self, update: TurnUpdate, view: &mut AgentView) {
         match update {
+            TurnUpdate::RunStarted => {
+                self.run_open = true;
+                self.run_rounds = 0;
+                self.run_showed_reply = false;
+                self.begin_request(view);
+            }
             TurnUpdate::TurnStarted => {
-                self.turn_active = true;
-                self.turn_error_shown = false;
-                // TS `agent_start` clears the pending tool map: no card
-                // from a previous run settles on this one's failure.
-                self.pending_tools.clear();
-                self.aborted_tools.clear();
-                self.start_loader(view);
-                self.speed_clock.request_started(std::time::Instant::now());
+                self.run_rounds += 1;
+                self.begin_request(view);
             }
             TurnUpdate::UserMessage(text) => {
                 self.speed_clock.prompt_added(text_chars(&text));
@@ -427,6 +438,23 @@ impl SessionUi {
             TurnUpdate::CustomRow(entry) => {
                 view.push_entry(entry);
             }
+            TurnUpdate::RetryOutcomeRow(entry) => {
+                // The episode's ONE line replaces the failed attempts' rows
+                // it settles, live exactly like the rebuild
+                // (`transcript_to_entries`): the chat never shows a
+                // failure twice.
+                while pop_superseded_attempt_row(view) {}
+                if matches!(
+                    entry,
+                    ChatEntry::Status {
+                        kind: StatusKind::Error,
+                        ..
+                    }
+                ) {
+                    self.turn_error_shown = true;
+                }
+                view.push_entry(entry);
+            }
             TurnUpdate::AssistantMessage {
                 message,
                 streaming,
@@ -454,7 +482,8 @@ impl SessionUi {
                     // pending map (a card may predate a pending-state reset or
                     // arrive without its own streamed frame).
                     self.pending_tools.insert(tool_call_id.clone());
-                    Self::set_working_activity("Executing", false, view);
+                    self.run_showed_reply = true;
+                    Self::set_working_phase(TurnPhase::RunningTool, view);
                 }
             }
             TurnUpdate::ToolExecutionUpdate {
@@ -496,7 +525,7 @@ impl SessionUi {
                 // the aborted run must not rewrite the new turn's activity
                 // label or clear its loader note.
                 if self.apply_tool_result(&tool_call_id, &result, is_error, false, view) {
-                    Self::set_working_activity("Waiting", false, view);
+                    Self::set_working_phase(TurnPhase::Requesting, view);
                     // The tool that owned the loader note finished executing
                     // (TS clears `workingMessage` in the tool's `finally`).
                     if let Some(working) = &mut view.working {
@@ -504,15 +533,13 @@ impl SessionUi {
                     }
                 }
             }
-            TurnUpdate::TurnEnded { error } => {
+            TurnUpdate::TurnEnded { outcome } => {
                 // Only the engine's own turn_end clears the busy state:
                 // trailing `agent_end` frames from the previous turn must
                 // not cancel a turn admitted in between (prompt queueing).
                 self.streaming_index = None;
                 self.turn_ends_seen += 1;
                 self.turn_active = false;
-                view.working = None;
-                view.working_since = None;
                 view.retry = None;
                 // The turn settled: the bash cards held above the
                 // indicator stream into the transcript (TS `turn_end`
@@ -523,14 +550,40 @@ impl SessionUi {
                 // next run.
                 self.pending_tools.clear();
                 self.aborted_tools.clear();
-                // A provider failure already surfaced through the failed
-                // assistant message and/or the retry-exhausted banner; the
-                // turn result error is only a silent-failure backstop.
-                if let (Some(error), false) = (error, self.turn_error_shown) {
-                    view.push_entry(ChatEntry::Status {
-                        text: format!("turn failed: {error}"),
-                        kind: StatusKind::Warning,
-                    });
+                match outcome {
+                    // The answer's tools ran; the run's next request is
+                    // on its way (its `turn_start` follows): the loader
+                    // stays up and keeps the turn's clock.
+                    TurnOutcome::Continues => self.enter_phase(view, TurnPhase::Requesting),
+                    TurnOutcome::Answered | TurnOutcome::Aborted | TurnOutcome::Unreported => {
+                        Self::stop_loader(view);
+                    }
+                    // A failure the chat does not show yet (no failed
+                    // message carried it, or its row left with a retry)
+                    // gets its row now: a turn never ends without a
+                    // visible failure.
+                    TurnOutcome::Failed(error) => {
+                        Self::stop_loader(view);
+                        if !self.turn_error_shown {
+                            self.push_failure_row(&error, view);
+                        }
+                    }
+                    // A run that put nothing on screen and ended without
+                    // a reply says so instead of falling silent.
+                    TurnOutcome::Empty => {
+                        Self::stop_loader(view);
+                        if !self.run_showed_reply {
+                            let step =
+                                crate::error_summary::failure_next_step("").unwrap_or_default();
+                            view.push_entry(ChatEntry::Status {
+                                text: format!(
+                                    "{WARN} The model ended the turn without a reply{}{step}",
+                                    crate::glyphs::SEP
+                                ),
+                                kind: StatusKind::Warning,
+                            });
+                        }
+                    }
                 }
             }
             TurnUpdate::AutoRetryStart {
@@ -553,7 +606,12 @@ impl SessionUi {
                 // the episode runs, and the episode's durable outcome row
                 // replaces it at the settle. (TS keeps one error row per
                 // failed attempt; a 429-storm spammed the chat.)
-                pop_superseded_attempt_row(view);
+                if pop_superseded_attempt_row(view) {
+                    // The failure is off screen until the episode settles:
+                    // the next attempt's answer or its own failure row.
+                    self.turn_error_shown = false;
+                }
+                self.enter_phase(view, TurnPhase::Retrying);
                 view.retry = Some(RetryState {
                     attempt,
                     max_attempts,
@@ -569,13 +627,15 @@ impl SessionUi {
                 restored_model,
             } => {
                 view.retry = None;
-                if final_error.is_some() {
-                    self.turn_error_shown = true;
-                    // The give-up's final failed attempt is superseded by
-                    // the ONE terminal line (the durable outcome row that
-                    // follows this event renders it; the row text matches
-                    // the old live banner).
-                    pop_superseded_attempt_row(view);
+                if view.working.is_some() {
+                    self.enter_phase(view, TurnPhase::Requesting);
+                }
+                // A give-up whose final failure is not on screen (the
+                // retry wait was cancelled, or its last attempt carried no
+                // message) shows it now; the episode's durable outcome
+                // row, when one follows, replaces it.
+                if let (Some(error), false) = (final_error, self.turn_error_shown) {
+                    self.push_failure_row(&error, view);
                 }
                 // A settled switch restores the primary provider (TS
                 // `restoredModel` status line).
@@ -590,11 +650,14 @@ impl SessionUi {
                 reason,
                 custom_instructions,
             } => {
-                // TS `startCompactionLoader`: the compaction loader fully
-                // replaces the working loader for the run's duration. The
-                // generation bump retires every in-flight abort outcome
-                // that addressed an earlier run's loader.
-                view.working = None;
+                // TS `startCompactionLoader`: the compaction loader
+                // replaces the working loader's row for the run's
+                // duration; the loader itself stays up underneath (the
+                // turn's clock keeps counting, and a compaction outside a
+                // turn starts one). The generation bump retires every
+                // in-flight abort outcome that addressed an earlier run's
+                // loader.
+                self.enter_phase(view, TurnPhase::Compacting);
                 view.compaction_generation += 1;
                 view.compaction = Some(CompactionState {
                     reason,
@@ -628,6 +691,7 @@ impl SessionUi {
                 error_severity,
             } => {
                 view.compaction = None;
+                self.settle_compaction_loader(view);
                 if let Some(result) = result {
                     // A succeeded compaction rebuilt the durable transcript
                     // (it now starts at the compaction summary): show the
@@ -666,8 +730,27 @@ impl SessionUi {
                 }
             }
             TurnUpdate::Idle => {
+                // A run that made no model request (stopped while it
+                // prepared or waited) never sends the `turn_end` its
+                // prompt's admission counts on: its end stands in for it.
+                if self.run_open && self.run_rounds == 0 {
+                    self.turn_ends_seen += 1;
+                }
+                self.run_open = false;
+                // The run is over unless a later prompt of this client is
+                // still owed its turn (admitted in between, or traveling).
+                let owed =
+                    self.prompt_in_flight > 0 || self.turn_ends_seen < self.last_prompt_turn_end;
+                if !owed {
+                    self.turn_active = false;
+                }
                 if !self.turn_active {
-                    view.working = None;
+                    view.retry = None;
+                    // A compaction still running keeps its loader; its
+                    // `compaction_end` settles it.
+                    if view.compaction.is_none() {
+                        Self::stop_loader(view);
+                    }
                 }
             }
             TurnUpdate::GoalUpdate(goal) => {
@@ -846,6 +929,14 @@ impl SessionUi {
             self.last_assistant_text = Some(text);
         }
         let has_tool_calls = !tool_calls.is_empty();
+        if has_tool_calls
+            || blocks.iter().any(|block| match block {
+                MessageBlock::Text(text) => !text.trim().is_empty(),
+                MessageBlock::Thinking(_) => false,
+            })
+        {
+            self.run_showed_reply = true;
+        }
         // A message_start always opens a new streaming message (the engine
         // emits one per provider call); later frames update it in place.
         if starts_message {
@@ -1031,11 +1122,58 @@ impl SessionUi {
         false
     }
 
-    /// Update the loader activity label (agent-activity tracker subset).
-    fn set_working_activity(activity: &'static str, download: bool, view: &mut AgentView) {
+    /// Move an up loader to `phase` (the agent-activity tracker subset): a
+    /// tool frame never raises a loader on its own -- a late frame of an
+    /// ended run must not leave one behind.
+    fn set_working_phase(phase: TurnPhase, view: &mut AgentView) {
         if let Some(working) = &mut view.working {
-            working.activity = activity;
-            working.download = download;
+            working.phase = phase;
+            working.download = false;
+        }
+    }
+
+    /// A model request began (`agent_start` or `turn_start`): the turn is
+    /// busy, its loader waits on the model (keeping the clock the Enter, a
+    /// queued admission, or an earlier request of the run started), and
+    /// the request's failure state starts clean.
+    fn begin_request(&mut self, view: &mut AgentView) {
+        self.turn_active = true;
+        self.turn_error_shown = false;
+        // TS `agent_start` clears the pending tool map: no card
+        // from a previous run settles on this one's failure.
+        self.pending_tools.clear();
+        self.aborted_tools.clear();
+        self.enter_phase(view, TurnPhase::Requesting);
+        self.speed_clock.request_started(std::time::Instant::now());
+    }
+
+    /// A failure row for a turn whose failure the chat does not show yet:
+    /// the failed-attempt row shape (an error-only assistant entry), so it
+    /// renders the failure's next step and the episode's outcome row
+    /// replaces it like any failed attempt.
+    fn push_failure_row(&mut self, error: &str, view: &mut AgentView) {
+        view.push_entry(ChatEntry::Assistant(Box::new(
+            crate::chat::AssistantMessage {
+                blocks: Vec::new(),
+                has_tool_calls: false,
+                streaming: false,
+                error: Some(format!("Error: {error}")),
+                aborted: false,
+            },
+        )));
+        self.turn_error_shown = true;
+    }
+
+    /// The loader after a compaction settled: the run it ran inside goes
+    /// on (its next request follows), a submit still traveling keeps its
+    /// send phase, and a compaction outside any turn takes the loader down.
+    pub(super) fn settle_compaction_loader(&mut self, view: &mut AgentView) {
+        if self.turn_active || self.run_open {
+            self.enter_phase(view, TurnPhase::Requesting);
+        } else if self.prompt_in_flight > 0 {
+            self.enter_phase(view, TurnPhase::Sending);
+        } else {
+            Self::stop_loader(view);
         }
     }
 }
