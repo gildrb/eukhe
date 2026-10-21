@@ -8,7 +8,8 @@
 //! `Failed` as aborted — a failed run settles now even while background
 //! jobs remain, the failure is what the parent must act on. A run that
 //! answered is `Idle` while background jobs it started (the kernel's
-//! running background bash handles, its own unsettled children) still
+//! running background bash handles, its own unsettled children and
+//! workflow runs) still
 //! run, since their settlement wakes it into another run; else `Answered`.
 //!
 //! The reply carries the session's progress token (rule H5): its distinct
@@ -27,6 +28,7 @@ use eukhe_core::durable::children::{
     unsettled_children, RlmChildOutcome, RlmChildRunState, RLM_CHILD_ANSWER_MAX_BYTES,
 };
 use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_job_progress};
+use eukhe_core::durable::workflow::unsettled_runs;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{
@@ -59,7 +61,12 @@ impl Worker {
                 Ok(children) => children,
                 Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
             };
-        let pending_jobs = children.count + kernel_background_jobs(hosted.deps(), main.id());
+        let runs = match unsettled_runs(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await {
+            Ok(runs) => runs,
+            Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+        };
+        let pending_jobs =
+            children.count + runs.count + kernel_background_jobs(hosted.deps(), main.id());
         let job_progress = kernel_job_progress(hosted.deps(), main.id()).await;
         let state = {
             let mut core = self
@@ -99,6 +106,7 @@ impl Worker {
                 state,
                 progress: Some(
                     work.wrapping_add(children.progress)
+                        .wrapping_add(runs.progress)
                         .wrapping_add(job_progress),
                 ),
                 answer,

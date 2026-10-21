@@ -118,7 +118,7 @@ async fn update_run(
                     SessionError::error(format!("workflow run {run_id} has no record"))
                 })?;
             change(&mut run);
-            tx_put_run(&tx, conversation_id, &run_id, &run).await
+            tx_put_run(&tx, conversation_id, &run_id, &mut run).await
         },
         cx,
     )
@@ -209,12 +209,21 @@ pub(super) enum Admission {
     Exhausted(u32),
 }
 
+/// The run an `agent()` call may take finished answers from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Resumed<'a> {
+    /// The run resumes none.
+    Fresh,
+    /// The run resumes this earlier run.
+    From(&'a RunRecord),
+}
+
 /// Decide one `agent()` call against the run `run`, which may take the
-/// cache of `resumed` (the run it resumes): the pure rule the `wf.agent`
+/// cache of the run it resumes (`resumed`): the pure rule the `wf.agent`
 /// global commits, and the Bend bridge replays.
 pub(super) fn admit(
     run: &mut RunRecord,
-    resumed: Option<&RunRecord>,
+    resumed: Resumed<'_>,
     ordinal: u32,
     fresh: AgentRow,
 ) -> Admission {
@@ -225,7 +234,11 @@ pub(super) fn admit(
             Admission::Run(row.clone())
         };
     }
-    let hit = resumed.and_then(|resumed| {
+    let earlier = match resumed {
+        Resumed::Fresh => None,
+        Resumed::From(earlier) => Some(earlier),
+    };
+    let hit = earlier.and_then(|resumed| {
         resumed.agents.values().find(|old| {
             old.key == fresh.key
                 && matches!(
@@ -296,6 +309,7 @@ async fn agent(
         status: WorkflowAgentStatus::Queued,
         key: resume_key(&prompt, &raw_options, occurrence),
         child_name: Some(format!("wf{run_id}-{ordinal}")),
+        retries: Vec::new(),
         child_session_id: None,
         result: None,
         note: None,
@@ -314,8 +328,12 @@ async fn agent(
                     Some(from) => tx_run(&tx, conversation_id, from).await?,
                     None => None,
                 };
-                let admission = admit(&mut run, resumed.as_ref(), ordinal, fresh);
-                tx_put_run(&tx, conversation_id, &run_id, &run).await?;
+                let cache = match &resumed {
+                    Some(earlier) => Resumed::From(earlier),
+                    None => Resumed::Fresh,
+                };
+                let admission = admit(&mut run, cache, ordinal, fresh);
+                tx_put_run(&tx, conversation_id, &run_id, &mut run).await?;
                 Ok(admission)
             },
             &cx,
@@ -328,15 +346,22 @@ async fn agent(
                 "WorkflowBudgetExhausted: this run may spawn at most {max_agents} agents"
             )));
         }
-        Admission::Cached(row) => return Ok(Some(answer_value(row.result, true)?)),
+        Admission::Cached(row) => return Ok(Some(answer_value(row.result, Source::Cached)?)),
         Admission::Ended(row) => {
-            let cached = row.status == WorkflowAgentStatus::Cached;
-            return Ok(Some(answer_value(row.result, cached)?));
+            let source = match row.status {
+                WorkflowAgentStatus::Cached => Source::Cached,
+                WorkflowAgentStatus::Queued
+                | WorkflowAgentStatus::Running
+                | WorkflowAgentStatus::Done
+                | WorkflowAgentStatus::Failed
+                | WorkflowAgentStatus::Cancelled => Source::Ran,
+            };
+            return Ok(Some(answer_value(row.result, source)?));
         }
         Admission::Run(row) => row,
     };
     let result = run_agent(services, &api, &cx, &row, &prompt, &options).await?;
-    Ok(Some(answer_value(result, false)?))
+    Ok(Some(answer_value(result, Source::Ran)?))
 }
 
 fn string_field_of(args: &Value, key: &str) -> SessionResult<String> {
@@ -348,7 +373,20 @@ fn string_field_of(args: &Value, key: &str) -> SessionResult<String> {
     }
 }
 
-fn answer_value(result: Option<Value>, cached: bool) -> SessionResult<JsonValue> {
+/// Whether an agent's answer came from an earlier run's cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// The agent ran in this run.
+    Ran,
+    /// An earlier run's answer served the agent.
+    Cached,
+}
+
+fn answer_value(result: Option<Value>, source: Source) -> SessionResult<JsonValue> {
+    let cached = match source {
+        Source::Ran => false,
+        Source::Cached => true,
+    };
     let value = json!({ "result": result.unwrap_or(Value::Null), "cached": cached });
     serde_json::from_value(value).map_err(|error| SessionError::error(error.to_string()))
 }
@@ -384,16 +422,20 @@ async fn run_agent(
                     let retry = format!(
                         "{full_prompt}\n\nAn earlier attempt answered this, which does not match the schema ({mismatch}):\n{answer}\n\nAnswer again; end with the matching ```json block."
                     );
-                    match settle_child(
-                        services,
-                        api,
-                        cx,
-                        &format!("{name}r"),
-                        &retry,
-                        options,
-                        ordinal,
-                    )
-                    .await?
+                    // The row names the retry before it spawns, so a
+                    // cancel of the run reaches it.
+                    let retry_name = format!("{name}r");
+                    let recorded = retry_name.clone();
+                    update_run(api, cx, move |run| {
+                        if let Some(agent) = run.agents.get_mut(&ordinal) {
+                            if !agent.retries.contains(&recorded) {
+                                agent.retries.push(recorded);
+                            }
+                        }
+                    })
+                    .await?;
+                    match settle_child(services, api, cx, &retry_name, &retry, options, ordinal)
+                        .await?
                     {
                         ChildEnd::Answered(second) => {
                             checked(&second, schema).map_err(|mismatch| {

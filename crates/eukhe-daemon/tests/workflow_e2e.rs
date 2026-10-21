@@ -2,11 +2,14 @@
 //! faux model calls the `workflow` tool, and real faux child workers the
 //! script's `agent()` calls spawn as silent RLM children.
 //!
-//! The run fans out three agents with `parallel`, pipes two items through
-//! two stages with `pipeline` (the first stage asks for a schema), and
-//! returns every answer; the parent gets no child reports, and the
-//! `workflow_activity` lane shows the finished run. A second run of size
-//! small hits the agent budget: the calls past `max_agents` give `null`.
+//! The `workflow` call returns at once and the run goes on in the
+//! background. The run fans out three agents with `parallel`, pipes two
+//! items through two stages with `pipeline` (the first stage asks for a
+//! schema), and returns every answer in one `[job-settled job:workflow-N]`
+//! report that starts a parent turn; the parent gets no child reports, and
+//! the `workflow_activity` lane shows the finished run. A second run of
+//! size small hits the agent budget: the calls past `max_agents` give
+//! `null`.
 
 #![allow(clippy::too_many_lines)]
 
@@ -120,14 +123,20 @@ impl Client {
     }
 
     fn request(&mut self, id: &str, command: &Value) -> Value {
+        let line = self.try_request(id, command);
+        assert_eq!(line["success"], true, "{command} failed: {line}");
+        line["data"].clone()
+    }
+
+    /// The whole response line of `command`, success or not.
+    fn try_request(&mut self, id: &str, command: &Value) -> Value {
         self.send_command(id, command);
         let deadline = Instant::now() + Duration::from_mins(4);
         loop {
             assert!(Instant::now() < deadline, "no response for id {id}");
             let line = self.read_line();
             if line.get("id").and_then(Value::as_str) == Some(id) {
-                assert_eq!(line["success"], true, "{command} failed: {line}");
-                return line["data"].clone();
+                return line;
             }
         }
     }
@@ -238,11 +247,30 @@ fn workflow_results(messages: &[Value]) -> Vec<String> {
         .collect()
 }
 
-/// The JSON value a `workflow` result returned (its text after
-/// `Output:`).
-fn returned(result: &str) -> Value {
-    let body = result.split_once("Output:").map_or("", |(_, body)| body);
-    serde_json::from_str(body.trim()).unwrap_or_else(|_| panic!("result JSON: {result}"))
+/// The bodies of the workflow reports (`[job-settled job:workflow-N ...]`
+/// inputs) that reached the transcript, in order.
+fn workflow_reports(messages: &[Value]) -> Vec<String> {
+    messages
+        .iter()
+        .map(message_text)
+        .filter(|text| text.starts_with("[job-settled job:workflow-"))
+        .collect()
+}
+
+/// The JSON value a workflow report returned (its text after `Output:`).
+fn returned(report: &str) -> Value {
+    let body = report.split_once("Output:").map_or("", |(_, body)| body);
+    serde_json::from_str(body.trim()).unwrap_or_else(|_| panic!("report JSON: {report}"))
+}
+
+/// Wait until the parent and every background task it owns (workflow
+/// runs and their reports' turns included) settled (`request` asserts the
+/// barrier's success).
+fn wait_quiescent(client: &mut Client, id: &str, session: &str) {
+    client.request(
+        id,
+        &json!({ "type": "wait_for_idle", "activeSessionId": session, "waitForRlmQuiescence": true }),
+    );
 }
 
 #[test]
@@ -253,8 +281,10 @@ fn a_workflow_fans_out_pipes_and_respects_the_budget() {
         "parent",
         &json!([
             workflow_call(SCRIPT, "medium"),
+            { "text": "workflow started" },
             { "text": "workflow done" },
             workflow_call(BUDGET_SCRIPT, "small"),
+            { "text": "budget started" },
             { "text": "budget done" },
         ]),
     );
@@ -262,18 +292,34 @@ fn a_workflow_fans_out_pipes_and_respects_the_budget() {
     let mut client = connect(&lane.socket());
     let parent = lane.create_parent(&mut client, &parent_script, &child_script);
 
+    // The call returns at once: the turn ends before the script does.
     client.run_turn(&parent, "run the workflow");
-    let messages = client.messages(&parent);
-    let results = workflow_results(&messages);
-    assert_eq!(results.len(), 1, "{messages:?}");
-    assert!(results[0].starts_with("workflow run "), "{}", results[0]);
+    let started = workflow_results(&client.messages(&parent));
+    assert_eq!(started.len(), 1, "{started:?}");
     assert!(
-        results[0].lines().next().unwrap().ends_with("(e2e): done"),
+        started[0].contains("(e2e): started in the background"),
         "{}",
-        results[0]
+        started[0]
+    );
+    // The run's report wakes the parent once the script ends.
+    wait_quiescent(&mut client, "idle1", &parent);
+    let messages = client.messages(&parent);
+    let reports = workflow_reports(&messages);
+    assert_eq!(reports.len(), 1, "{messages:?}");
+    let header = reports[0].lines().next().unwrap();
+    assert!(
+        header.starts_with("[job-settled job:workflow-") && header.ends_with(" status:ok]"),
+        "{}",
+        reports[0]
+    );
+    assert!(reports[0].contains("(e2e): done"), "{}", reports[0]);
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("workflow done"),
+        "the report did not start a turn: {messages:?}"
     );
     assert_eq!(
-        returned(&results[0]),
+        returned(&reports[0]),
         json!({
             "fan": [CHILD_ANSWER, CHILD_ANSWER, CHILD_ANSWER],
             "piped": [CHILD_ANSWER, CHILD_ANSWER],
@@ -338,9 +384,10 @@ fn a_workflow_fans_out_pipes_and_respects_the_budget() {
 
     // Size small: five agents run, the other two calls give null.
     client.run_turn(&parent, "run the budget workflow");
-    let results = workflow_results(&client.messages(&parent));
-    assert_eq!(results.len(), 2);
-    let ran = returned(&results[1]);
+    wait_quiescent(&mut client, "idle2", &parent);
+    let reports = workflow_reports(&client.messages(&parent));
+    assert_eq!(reports.len(), 2, "{reports:?}");
+    let ran = returned(&reports[1]);
     let answered = ran
         .as_array()
         .expect("answers")
@@ -351,5 +398,90 @@ fn a_workflow_fans_out_pipes_and_respects_the_budget() {
         (answered, ran.as_array().map(Vec::len)),
         (5, Some(7)),
         "{ran}"
+    );
+}
+
+const HELD_SCRIPT: &str = r#"export const meta = { name: "held", description: "two held agents", phases: [] };
+return await parallel([1, 2].map((n) => () => agent(`held ${n}`, { label: `held ${n}` })));"#;
+
+/// Regression: a run outlives a crash of its parent's worker. The worker
+/// dies while the run's agents still run; the relaunched worker resumes
+/// the run task, reattaches the live agents instead of spawning new ones,
+/// and the run reports exactly once.
+#[test]
+fn a_run_survives_a_parent_worker_crash_and_reports_once() {
+    let lane = Lane::new();
+    let child_script = lane.script(
+        "child",
+        &json!([{ "text": CHILD_ANSWER, "delayMs": 5_000 }]),
+    );
+    let parent_script = lane.script(
+        "parent",
+        &json!([workflow_call(HELD_SCRIPT, "small"), { "text": "workflow started" }]),
+    );
+    let _daemon = spawn_supervisor(&lane.socket(), &lane.agent_dir());
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script);
+    client.run_turn(&parent, "run the held workflow");
+    let runs = client.request(
+        "activity1",
+        &json!({ "type": "workflow_activity", "activeSessionId": parent }),
+    )["runs"]
+        .clone();
+    assert_eq!(runs[0]["state"], json!({ "state": "running" }), "{runs}");
+
+    // The relaunched worker reads its faux script again from the start:
+    // its one answer is the report's turn.
+    lane.script("parent", &json!([{ "text": "workflow done" }]));
+    let state = client.request(
+        "state",
+        &json!({ "type": "get_state", "activeSessionId": parent }),
+    );
+    let pid = state["workerPid"].as_u64().expect("the worker pid");
+    let killed = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status()
+        .expect("run kill");
+    assert!(killed.success(), "kill -9 {pid}");
+
+    // The supervisor relaunches the worker with backoff; the barrier
+    // answers once the relaunched worker serves the session.
+    let deadline = Instant::now() + Duration::from_mins(2);
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let idle = client.try_request(
+            &format!("idle{attempt}"),
+            &json!({ "type": "wait_for_idle", "activeSessionId": parent, "waitForRlmQuiescence": true }),
+        );
+        if idle["success"] == true {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the session never came back: {idle}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let messages = client.messages(&parent);
+    let reports = workflow_reports(&messages);
+    assert_eq!(reports.len(), 1, "{messages:?}");
+    assert!(reports[0].contains("(held): done"), "{}", reports[0]);
+    assert_eq!(returned(&reports[0]), json!([CHILD_ANSWER, CHILD_ANSWER]));
+    assert_eq!(
+        messages.last().map(message_text).as_deref(),
+        Some("workflow done"),
+        "{messages:?}"
+    );
+    let runs = client.request(
+        "activity2",
+        &json!({ "type": "workflow_activity", "activeSessionId": parent }),
+    )["runs"]
+        .clone();
+    assert_eq!(
+        (runs[0]["state"].clone(), runs[0]["spawned"].clone()),
+        (json!({ "state": "done" }), json!(2)),
+        "{runs}"
     );
 }

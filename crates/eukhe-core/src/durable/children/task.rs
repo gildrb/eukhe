@@ -210,7 +210,7 @@ pub(crate) fn report_request_id(task_id: TaskId, ordinal: u32) -> String {
 /// Where the parent's inbox holds a submission of the report; `S` is the
 /// handle the report phase waits on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Fate<S> {
+pub(crate) enum Fate<S> {
     Queued(S),
     Withdrawn,
     Placed,
@@ -219,7 +219,7 @@ enum Fate<S> {
 impl<S> Fate<S> {
     /// The fate of `submission` in `state`: placed once it has a
     /// transcript entry, withdrawn once it settled without one.
-    fn of(state: &SubmissionState, submission: S) -> Self {
+    pub(crate) fn of(state: &SubmissionState, submission: S) -> Self {
         if state.entry().is_some() {
             Self::Placed
         } else if state.status() == SubmissionStatus::Queued {
@@ -232,7 +232,7 @@ impl<S> Fate<S> {
 
 /// The report phase's next move.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReportStep<S> {
+pub(crate) enum ReportStep<S> {
     /// Submit the report under this ordinal (a known request id finds its
     /// submission).
     Submit(u32),
@@ -256,7 +256,7 @@ fn report_ordinal(withdrawn: u32) -> u32 {
 /// its current submission has `fate` (`None`: not submitted). It submits
 /// again only once it saw its submission withdrawn, so at most one
 /// submission of the report is ever live (`child_one_live`).
-fn report_step<S>(withdrawn: u32, fate: Option<Fate<S>>) -> ReportStep<S> {
+pub(crate) fn report_step<S>(withdrawn: u32, fate: Option<Fate<S>>) -> ReportStep<S> {
     match fate {
         None => ReportStep::Submit(report_ordinal(withdrawn)),
         Some(Fate::Queued(submission)) => ReportStep::Wait(submission),

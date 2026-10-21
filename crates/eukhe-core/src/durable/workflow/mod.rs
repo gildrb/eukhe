@@ -1,15 +1,20 @@
-//! `eukhe.workflow`: dynamic workflows. The `workflow` tool runs a
-//! model-written JavaScript orchestration script on the code mode sandbox
-//! (`eukhe_durable::codemode`): deterministic, journaled, and replayed
-//! after a worker restart. The script's `agent()` calls spawn silent RLM
-//! children (`eukhe.children`), at most the run size's concurrency at once
-//! and its `max_agents` in total; each run's progress lives in the
-//! `eukhe.workflow.runs` document the `/workflows` view reads.
+//! `eukhe.workflow`: dynamic workflows. The `workflow` tool starts a run of
+//! a model-written JavaScript orchestration script and returns at once with
+//! the run's id. The run is a background `eukhe.workflow.run` task of the
+//! calling conversation ([`run_task`]): the script runs on the code mode
+//! sandbox (`eukhe_durable::codemode`), deterministic, journaled, and
+//! replayed after a worker restart, and its end reaches the conversation as
+//! a `[job-settled job:workflow-<id> ...]` report that wakes the model. The
+//! script's `agent()` calls spawn silent RLM children (`eukhe.children`), at
+//! most the run size's concurrency at once and its `max_agents` in total;
+//! each run's progress lives in the `eukhe.workflow.runs` document the
+//! `/workflows` view reads.
 
 pub(crate) mod command;
 mod globals;
 mod meta;
 mod run_doc;
+mod run_task;
 mod schema;
 mod size;
 
@@ -21,64 +26,80 @@ mod tests;
 use std::sync::Arc;
 
 use eukhe_ai::typebox::{Options, TSchema, Type};
-use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_chord::json::JsonValue;
+use eukhe_chord::context::Context;
+use eukhe_chord::json::to_json;
 use eukhe_durable::codemode::sandbox::{CodemodeSandbox, CodemodeSandboxOptions};
-use eukhe_durable::codemode::{
-    run_codemode_source, ClassifierDefault, CodemodeModels, CodemodeToolOptions,
-};
+use eukhe_durable::codemode::{ClassifierDefault, CodemodeModels, CodemodeToolOptions};
 use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::types::{
-    Extension, OutputRetain, ToolCaller, ToolExecutionApi, ToolExecutionApiExt,
-    ToolExecutionResult, ToolRegistration, ToolReplay,
+    Extension, ToolCaller, ToolExecutionApi, ToolExecutionApiExt, ToolExecutionResult,
+    ToolRegistration, ToolReplay,
 };
-use eukhe_durable::harness::{Harness, OutputLimits, Truncation};
+use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_durable::types::{ConversationId, TaskId};
+use eukhe_durable::types::{ConversationId, TaskOptions, TaskOwnership};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
-use eukhe_types::workflow::{WorkflowAgentStatus, WorkflowRunState, WorkflowSize};
+use eukhe_types::workflow::{WorkflowRunState, WorkflowSize};
 
-pub use run_doc::snapshots;
+pub use run_doc::{snapshots, unsettled_run_tasks, unsettled_runs, UnsettledRuns};
 pub use size::effective_limits;
 
-use super::deps::{HarnessCell, HostDeps};
+use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, SessionClosing};
 use super::settings::EukheSettings;
 use globals::WorkflowServices;
 use meta::parse_script;
-use run_doc::{read_runs, tx_put_run, tx_run, RunRecord};
+use run_doc::{read_runs, run_task_id, tx_put_run, tx_run, tx_run_of_call, RunRecord};
+use run_task::{run_task, RunServices, RunTask, RunTaskInput};
 
 /// The extension name.
 pub const EXTENSION_NAME: &str = "eukhe.workflow";
 /// The tool name.
 pub const WORKFLOW_TOOL_NAME: &str = "workflow";
-/// Version of the script the tool builds (prelude and header): a call
-/// started by another version is not replayed by this one.
-pub const WORKFLOW_MODULE_VERSION: u32 = 1;
+/// Version of the script the tool builds (prelude and header) and of the
+/// run's contract: a run started by another version is not replayed by
+/// this one. Version 2 runs in a background task.
+pub const WORKFLOW_MODULE_VERSION: u32 = 2;
 
 const WORKFLOW_DESCRIPTION: &str = include_str!("../../prompts/layers/workflow.md");
 const PRELUDE: &str = include_str!("prelude.js");
 const NO_RUNTIME: &str =
     "dynamic workflows need the eukhe daemon: this session has no subagent runtime";
 
-/// Outputs are the script's own; the limits only stop a runaway.
-const OUTPUT_LIMITS: OutputLimits = OutputLimits {
-    max_bytes: 1024 * 1024,
-    max_lines: 20_000,
-    retain: OutputRetain::Head,
-};
-
 struct Shared {
-    options: Arc<CodemodeToolOptions>,
-    harness: HarnessCell,
     settings: Arc<EukheSettings>,
     has_runtime: bool,
+    task: RunTask,
 }
 
-/// The `eukhe.workflow` extension of a session: the `workflow` tool.
+/// The `eukhe.workflow` extension of a session: the `workflow` tool and the
+/// `eukhe.workflow.run` task.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
-    let services = Arc::new(WorkflowServices {
+    install(&WorkflowConfig {
         host_requests: deps.host_requests.clone(),
+        harness: deps.harness.clone(),
+        settings: Arc::clone(&deps.settings),
+        has_runtime: deps.children.is_some(),
+        closing: deps.closing.clone(),
+    })
+}
+
+/// Inputs of [`install`].
+pub(crate) struct WorkflowConfig {
+    /// The `rlm.*` host requests the `wf.*` globals send.
+    pub(crate) host_requests: HostRequestRegistry,
+    pub(crate) harness: HarnessCell,
+    pub(crate) settings: Arc<EukheSettings>,
+    /// Whether the session has a real subagent runtime (a daemon host).
+    pub(crate) has_runtime: bool,
+    /// The session's closing gate: a closing conversation admits no report.
+    pub(crate) closing: SessionClosing,
+}
+
+/// The extension over `config`.
+pub(crate) fn install(config: &WorkflowConfig) -> Arc<Extension> {
+    let services = Arc::new(WorkflowServices {
+        host_requests: config.host_requests.clone(),
     });
     let options = CodemodeToolOptions {
         models: CodemodeModels::Excluded,
@@ -86,14 +107,20 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         globals: globals::globals(&services),
         ..CodemodeToolOptions::new(CodemodeSandbox::new(CodemodeSandboxOptions::default()))
     };
-    let shared = Arc::new(Shared {
+    let task = run_task(&Arc::new(RunServices {
         options: Arc::new(options),
-        harness: deps.harness.clone(),
-        settings: Arc::clone(&deps.settings),
-        has_runtime: deps.children.is_some(),
+        harness: config.harness.clone(),
+        closing: config.closing.clone(),
+    }));
+    let erased = task.erase();
+    let shared = Arc::new(Shared {
+        settings: Arc::clone(&config.settings),
+        has_runtime: config.has_runtime,
+        task,
     });
     define_extension(Extension {
         tools: vec![workflow_tool(shared)],
+        tasks: vec![erased],
         ..Extension::named(EXTENSION_NAME)
     })
 }
@@ -139,10 +166,9 @@ fn workflow_tool(shared: Arc<Shared>) -> Arc<ToolRegistration> {
         parameters(),
         move |args: PiJsonValue, api: Arc<dyn ToolExecutionApi>, cx: Context| {
             let shared = Arc::clone(&shared);
-            async move { execute(&shared, &args, api, cx).await }
+            async move { execute(&shared, &args, &api, &cx).await }
         },
     );
-    tool.truncation = Truncation::On(OUTPUT_LIMITS);
     tool.callers = Some(vec![ToolCaller::Model]);
     tool.replay = Some(ToolReplay::Safe);
     define_tool(tool)
@@ -171,8 +197,7 @@ fn now_ms() -> f64 {
 /// The source the code mode sandbox runs: the header (`args`, the
 /// limits), the prelude, then the script's body in its own async
 /// function, whose result returns once every `phase()` and `log()` update
-/// landed. A rerun builds the same
-/// source from the run's record.
+/// landed.
 fn source(record: &RunRecord, request: &str, body: &str) -> String {
     let request = serde_json::Value::String(request.to_owned());
     format!(
@@ -183,11 +208,28 @@ fn source(record: &RunRecord, request: &str, body: &str) -> String {
     )
 }
 
+/// What the tool answers once the run of `run_id` started.
+fn started(run_id: &str, record: &RunRecord) -> SessionResult<ToolExecutionResult> {
+    let text = format!(
+        "workflow run {run_id} ({name}): started in the background. Watch it with /workflows. Its result arrives as a [job-settled job:workflow-{run_id} ...] message that starts a new turn: do not poll and do not wait; continue with other work or end your turn.",
+        name = record.meta.name
+    );
+    let details = serde_json::json!({ "status": "detached", "run": run_id });
+    Ok(ToolExecutionResult {
+        output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
+        details: Some(to_json(&details)?),
+        ..ToolExecutionResult::default()
+    })
+}
+
+/// Start a run: validate the call, then, in one commit, create the run's
+/// background task and its record. A rerun of the call (a restart cut it
+/// off) finds the run it started and answers the same.
 async fn execute(
     shared: &Shared,
     args: &PiJsonValue,
-    api: Arc<dyn ToolExecutionApi>,
-    cx: Context,
+    api: &Arc<dyn ToolExecutionApi>,
+    cx: &Context,
 ) -> SessionResult<ToolExecutionResult> {
     if !shared.has_runtime {
         return Err(SessionError::error(NO_RUNTIME));
@@ -211,14 +253,14 @@ async fn execute(
         size,
         shared.settings.manager().get_subagent_max_concurrency(),
     );
-    let run_id = api.task_id().to_string();
+    let call_task = api.task_id().to_string();
     let conversation_id = api.conversation_id();
-    let record = {
-        let (run_id, meta) = (run_id.clone(), parsed.meta.clone());
-        api.commit(
+    let definition = shared.task.as_definition_ref();
+    let (run_id, record) = api
+        .commit(
             move |tx| async move {
-                if let Some(existing) = tx_run(&tx, conversation_id, &run_id).await? {
-                    return Ok(existing);
+                if let Some(found) = tx_run_of_call(&tx, conversation_id, &call_task).await? {
+                    return Ok(found);
                 }
                 if let Some(from) = &resume {
                     if tx_run(&tx, conversation_id, from).await?.is_none() {
@@ -227,86 +269,36 @@ async fn execute(
                         )));
                     }
                 }
-                let record = RunRecord::start(meta, size, limits, now_ms(), resume);
-                tx_put_run(&tx, conversation_id, &run_id, &record).await?;
-                Ok(record)
+                let mut record =
+                    RunRecord::start(parsed.meta, size, limits, now_ms(), resume, call_task);
+                let input = RunTaskInput::Run {
+                    code: source(&record, &request, &parsed.body),
+                };
+                let run = tx
+                    .create_task(
+                        definition,
+                        to_json(&input)?,
+                        TaskOptions {
+                            ownership: TaskOwnership::Conversation,
+                            conversation_id: Some(conversation_id),
+                            background: Some(true),
+                            abandon_on_restart: None,
+                        },
+                    )
+                    .await?;
+                let run_id = run.to_string();
+                tx_put_run(&tx, conversation_id, &run_id, &mut record).await?;
+                Ok((run_id, record))
             },
-            &cx,
+            cx,
         )
-        .await?
-    };
-    let code = source(&record, &request, &parsed.body);
-    let outcome = run_codemode_source(
-        Arc::clone(&shared.options),
-        Arc::clone(&api),
-        cx.clone(),
-        &code,
-    )
-    .await;
-    let state = match &outcome {
-        _ if cx.aborted() => WorkflowRunState::Cancelled,
-        Err(error) => WorkflowRunState::Failed {
-            error: error.to_string(),
-        },
-        Ok(result) if result.is_error == Some(true) => WorkflowRunState::Failed {
-            error: output_text(result),
-        },
-        Ok(_) => WorkflowRunState::Done,
-    };
-    if state == WorkflowRunState::Cancelled {
-        if let Some(harness) = shared.harness.get() {
-            cancel_agents(&harness, conversation_id, &run_id, &BACKGROUND_CONTEXT)
-                .await
-                .map_err(|error| SessionError::error(format!("{error:#}")))?;
-        }
-    }
-    let ended = state.clone();
-    api.commit(
-        move |tx| async move {
-            if let Some(mut record) = tx_run(&tx, conversation_id, &run_id).await? {
-                if !record.state.is_terminal() {
-                    record.state = ended;
-                }
-                tx_put_run(&tx, conversation_id, &run_id, &record).await?;
-            }
-            Ok(())
-        },
-        &BACKGROUND_CONTEXT,
-    )
-    .await?;
-    let mut result = outcome?;
-    let header = format!(
-        "workflow run {} ({}): {}",
-        api.task_id(),
-        record.meta.name,
-        match &state {
-            WorkflowRunState::Running => "running",
-            WorkflowRunState::Done => "done",
-            WorkflowRunState::Failed { .. } => "failed",
-            WorkflowRunState::Cancelled => "cancelled",
-        }
-    );
-    let mut output = vec![UserContentBlock::Text(TextContent::new(header))];
-    output.extend(result.output.take().unwrap_or_default());
-    result.output = Some(output);
-    Ok(result)
+        .await?;
+    started(&run_id, &record)
 }
 
-fn output_text(result: &ToolExecutionResult) -> String {
-    result
-        .output
-        .iter()
-        .flatten()
-        .filter_map(|block| match block {
-            UserContentBlock::Text(text) => Some(text.text.as_str()),
-            UserContentBlock::Image(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Cancel the live agents of run `run_id`.
-async fn cancel_agents(
+/// Cancel the live children of run `run_id`: every child of each agent
+/// that did not end, its schema retries included.
+pub(crate) async fn cancel_agents(
     harness: &Harness,
     conversation_id: ConversationId,
     run_id: &str,
@@ -320,16 +312,16 @@ async fn cancel_agents(
         if agent.status.is_terminal() {
             continue;
         }
-        if let Some(name) = &agent.child_name {
+        for name in agent.child_names() {
             super::children::cancel_child(harness, conversation_id, name, cx).await?;
         }
     }
     Ok(())
 }
 
-/// Cancel the run `run_id` of `conversation_id`: abort its `workflow`
-/// call, cancel its live agents, and mark it cancelled. `false` when no
-/// running run has that id.
+/// Cancel the run `run_id` of `conversation_id`: abort its background task
+/// (whose abort reports the cancel to the conversation), cancel its live
+/// agents, and mark it cancelled. `false` when no running run has that id.
 ///
 /// # Errors
 ///
@@ -347,12 +339,7 @@ pub async fn cancel_run(
     if record.state.is_terminal() {
         return Ok(false);
     }
-    let task: u64 = run_id
-        .parse()
-        .map_err(|_| anyhow::anyhow!("workflow run id {run_id} is not a task id"))?;
-    harness
-        .abort_task(TaskId::<JsonValue>::from_number(task).erase(), cx)
-        .await?;
+    harness.abort_task(run_task_id(run_id)?, cx).await?;
     cancel_agents(harness, conversation_id, run_id, cx).await?;
     let conversation = harness
         .conversation(conversation_id, cx)
@@ -363,13 +350,11 @@ pub async fn cancel_run(
         .commit(
             move |tx| async move {
                 if let Some(mut record) = tx_run(&tx, conversation_id, &run_id).await? {
-                    record.state = WorkflowRunState::Cancelled;
-                    for agent in record.agents.values_mut() {
-                        if !agent.status.is_terminal() {
-                            agent.status = WorkflowAgentStatus::Cancelled;
-                        }
+                    if !record.state.is_terminal() {
+                        record.state = WorkflowRunState::Cancelled;
                     }
-                    tx_put_run(&tx, conversation_id, &run_id, &record).await?;
+                    record.cancel_live_agents();
+                    tx_put_run(&tx, conversation_id, &run_id, &mut record).await?;
                 }
                 Ok(())
             },

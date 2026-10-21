@@ -65,6 +65,7 @@ use crate::durable::directors::{
     DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::durable::entries::custom_entry_draft;
+use crate::durable::workflow::unsettled_runs;
 use crate::goals::{GoalContextKind, GoalState, GoalStatus};
 
 #[cfg(test)]
@@ -308,10 +309,11 @@ impl GoalsHost {
                 YieldOutcome::End => None,
             });
         }
-        // Queued user input owns the boundary; unsettled children hold the
-        // continuation until their report run.
+        // Queued user input owns the boundary; unsettled children and
+        // workflow runs hold the continuation until their report run.
         if user_input_queued(api, conversation_id, cx).await?
             || has_unsettled_children(api, conversation_id, cx).await?
+            || unsettled_runs(api, conversation_id, cx).await?.count > 0
         {
             return Ok(None);
         }

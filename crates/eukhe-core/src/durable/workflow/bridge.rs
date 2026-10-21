@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 use eukhe_types::workflow::{WorkflowAgentStatus, WorkflowLimits, WorkflowSize};
 
-use super::globals::{admit, Admission};
+use super::globals::{admit, Admission, Resumed};
 use super::meta::WorkflowMeta;
 use super::run_doc::{AgentRow, RunRecord};
 use super::size::effective_limits;
@@ -29,6 +29,7 @@ fn record(max_agents: u32) -> RunRecord {
         },
         0.0,
         Some("earlier".to_owned()),
+        "1".to_owned(),
     )
 }
 
@@ -40,6 +41,7 @@ fn row(ordinal: u32, key: u64, status: WorkflowAgentStatus) -> AgentRow {
         status,
         key: format!("k{key}"),
         child_name: Some(format!("wf1-{ordinal}")),
+        retries: Vec::new(),
         child_session_id: None,
         result: None,
         note: None,
@@ -79,7 +81,7 @@ fn the_rust_admission_equals_the_bend_model() {
             writeln!(events, "g {key}").unwrap();
             let decided = admit(
                 &mut run,
-                Some(&earlier),
+                Resumed::From(&earlier),
                 ordinal,
                 row(ordinal, key, WorkflowAgentStatus::Queued),
             );

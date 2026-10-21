@@ -14,6 +14,7 @@ use std::time::Duration;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::children::unsettled_child_tasks;
 use eukhe_core::durable::rlm::kernel_background_jobs;
+use eukhe_core::durable::workflow::unsettled_run_tasks;
 use tokio::sync::Notify;
 
 use super::durable_host::bridge::inbox_previews;
@@ -105,7 +106,7 @@ impl Worker {
     /// `worker_quiesce`: close the run gate when the session is idle. The
     /// work the core shows is read under the core lock together with the
     /// gate change. With the gate closed no run can start, so the durable
-    /// work is read after it: unsettled child tasks, kernel background
+    /// work is read after it: unsettled child tasks and workflow runs, kernel background
     /// jobs, a user bash, and a queued input or run the core does not show
     /// yet. Any work opens the gate again and answers busy. Success means
     /// quiesced.
@@ -135,8 +136,10 @@ impl Worker {
         };
         let cx = &BACKGROUND_CONTEXT;
         let children = unsettled_child_tasks(hosted.harness(), main.id(), cx).await;
+        let runs = unsettled_run_tasks(hosted.harness(), main.id(), cx).await;
         let inbox = inbox_previews(hosted.harness(), main.id(), cx).await;
         let durable_idle = children.is_ok_and(|children| children.is_empty())
+            && runs.is_ok_and(|runs| runs.is_empty())
             && inbox.is_ok_and(|inbox| inbox.is_empty())
             && kernel_background_jobs(hosted.deps(), main.id()) == 0
             && !self.user_bash.is_running();

@@ -1,4 +1,4 @@
-Run a dynamic workflow: a deterministic JavaScript orchestration script that spawns many subagents, waits for them, and returns one result. Use it when the user asks for a workflow (`/dynamic-workflow`) or when a task splits into many independent agent tasks. The call blocks until the script ends; the user watches progress in `/workflows`.
+Run a dynamic workflow: a deterministic JavaScript orchestration script that spawns many subagents, waits for them, and returns one result. Use it when the user asks for a workflow (`/dynamic-workflow`) or when a task splits into many independent agent tasks. The run goes on in the background: the call returns at once with the run id, and the user watches progress in `/workflows`. When the script ends, its result arrives as a `[job-settled job:workflow-<id> status:ok|error|aborted]` message that starts a new turn. Do not poll or wait for it: tell the user the run started, then end your turn or do other work. Start one run per request; do not start a second run for the same work while one runs.
 
 Arguments: `script` (the JavaScript below), `args` (the user's request, given to the script as `args`), `size` (`small`, `medium`, or `large`; default: the `workflow.size` setting), `resume` (the run id of an earlier run whose finished agents to reuse).
 
@@ -18,7 +18,7 @@ API (globals):
 - `phase(title)`: enter a phase of `meta.phases` (the view marks earlier phases done).
 - `log(message)`: add a line to the run's log in `/workflows`.
 - `args`: the request string. `budget`: `{ size, concurrency, maxAgents, spawned() }`.
-- `return value`: the JSON value returned to you as the tool result.
+- `return value`: the JSON value the result message carries back to you.
 
 Rules:
 
@@ -77,4 +77,4 @@ log(`${parts.filter((p) => p !== null).length}/${parts.length} parts done`);
 return { parts: parts.map((p) => (p === null ? "failed" : "done")), verdict };
 ```
 
-After a failed or changed run, call again with `resume: "<run id>"` (the id is in the result): agents whose prompt and options did not change return their earlier answer without a new spawn.
+After a failed or changed run, call again with `resume: "<run id>"` (the id is in the start answer and the result message): agents whose prompt and options did not change return their earlier answer without a new spawn.

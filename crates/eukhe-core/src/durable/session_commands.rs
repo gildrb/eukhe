@@ -567,7 +567,7 @@ async fn execute_dynamic_workflow(
     let limits = effective_limits(size, manager.get_subagent_max_concurrency());
     let request_json = serde_json::Value::String(parsed.request.clone());
     let text = format!(
-        "Run this request as a dynamic workflow: author one orchestration script and run it with one `workflow` tool call, with `size: \"{size}\"` and `args: {request_json}`. Size {size}: at most {concurrency} agents at once and {max_agents} in total; plan the work to fit. Give each agent a short `label`, use `meta.phases` and `phase()` for the stages, and summarize the result for me when the call returns.\n\nRequest: {request}",
+        "Run this request as a dynamic workflow: author one orchestration script and run it with one `workflow` tool call, with `size: \"{size}\"` and `args: {request_json}`. Size {size}: at most {concurrency} agents at once and {max_agents} in total; plan the work to fit. Give each agent a short `label`, use `meta.phases` and `phase()` for the stages. The run goes on in the background: tell me it started, then end your turn; when its result message arrives, summarize the result for me.\n\nRequest: {request}",
         size = size.as_str(),
         concurrency = limits.concurrency,
         max_agents = limits.max_agents,

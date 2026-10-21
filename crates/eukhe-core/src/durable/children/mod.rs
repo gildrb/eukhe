@@ -59,6 +59,7 @@ use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, ProgressNoteSink, 
 use crate::durable::observe::semantic_edges::SemanticEdgeRecorder;
 use crate::durable::settings::EukheSettings;
 use task::{child_task, ChildTask, ChildrenServices};
+pub(crate) use task::{report_step, Fate, ReportStep};
 
 /// The extension name.
 pub const EXTENSION_NAME: &str = "eukhe.children";

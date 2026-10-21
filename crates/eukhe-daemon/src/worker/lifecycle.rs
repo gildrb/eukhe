@@ -4,6 +4,7 @@
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::children::unsettled_child_tasks;
 use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_background_jobs_settled};
+use eukhe_core::durable::workflow::unsettled_run_tasks;
 use serde_json::Value;
 
 use super::{response_failure, response_success, DaemonResponse, Worker};
@@ -78,7 +79,9 @@ impl Worker {
     /// tasks the idle scope does not reach, so it waits for every
     /// unsettled child task to end, then for the idle the report it
     /// submitted (the terminal notice turn) leads to, until no child is
-    /// left unsettled. With `waitForBackgroundJobs` too (a parent's child
+    /// left unsettled. A background workflow run (`eukhe.workflow.run`)
+    /// counts the same: the barrier waits for its task and the turn its
+    /// report starts. With `waitForBackgroundJobs` too (a parent's child
     /// settle watch) it also holds while the kernel's background jobs run:
     /// their settlement wakes the session into another run, so the session
     /// is not quiescent before they end.
@@ -96,9 +99,14 @@ impl Worker {
             if !rlm_quiescence {
                 break;
             }
-            let unsettled = unsettled_child_tasks(hosted.harness(), main.id(), cx)
+            let mut unsettled = unsettled_child_tasks(hosted.harness(), main.id(), cx)
                 .await
                 .map_err(|error| error.to_string())?;
+            unsettled.extend(
+                unsettled_run_tasks(hosted.harness(), main.id(), cx)
+                    .await
+                    .map_err(|error| error.to_string())?,
+            );
             if unsettled.is_empty() {
                 if !background_jobs || kernel_background_jobs(hosted.deps(), main.id()) == 0 {
                     break;

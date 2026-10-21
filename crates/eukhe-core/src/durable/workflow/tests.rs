@@ -4,7 +4,7 @@
 use eukhe_types::workflow::{WorkflowAgentStatus, WorkflowLimits, WorkflowSize};
 use serde_json::json;
 
-use super::globals::{admit, resume_key, Admission};
+use super::globals::{admit, resume_key, Admission, Resumed};
 use super::meta::WorkflowMeta;
 use super::run_doc::{AgentRow, RunRecord};
 
@@ -22,6 +22,7 @@ fn run(max_agents: u32, resume_from: Option<&str>) -> RunRecord {
         },
         0.0,
         resume_from.map(str::to_owned),
+        "1".to_owned(),
     )
 }
 
@@ -33,6 +34,7 @@ fn row(ordinal: u32, prompt: &str) -> AgentRow {
         status: WorkflowAgentStatus::Queued,
         key: resume_key(prompt, &json!({}), 0),
         child_name: Some(format!("wf1-{ordinal}")),
+        retries: Vec::new(),
         child_session_id: None,
         result: None,
         note: None,
@@ -44,20 +46,20 @@ fn row(ordinal: u32, prompt: &str) -> AgentRow {
 fn the_budget_refuses_the_agent_past_max_agents() {
     let mut record = run(2, None);
     assert_eq!(
-        admit(&mut record, None, 1, row(1, "a")),
+        admit(&mut record, Resumed::Fresh, 1, row(1, "a")),
         Admission::Run(row(1, "a"))
     );
     assert_eq!(
-        admit(&mut record, None, 2, row(2, "b")),
+        admit(&mut record, Resumed::Fresh, 2, row(2, "b")),
         Admission::Run(row(2, "b"))
     );
     assert_eq!(
-        admit(&mut record, None, 3, row(3, "c")),
+        admit(&mut record, Resumed::Fresh, 3, row(3, "c")),
         Admission::Exhausted(2)
     );
     // A rerun of an admitted call reattaches to its row.
     assert_eq!(
-        admit(&mut record, None, 2, row(2, "b")),
+        admit(&mut record, Resumed::Fresh, 2, row(2, "b")),
         Admission::Run(row(2, "b"))
     );
 }
@@ -82,11 +84,11 @@ fn a_resume_takes_finished_agents_from_the_earlier_run_without_counting_them() {
         ..row(1, "a")
     };
     assert_eq!(
-        admit(&mut record, Some(&earlier), 1, row(1, "a")),
+        admit(&mut record, Resumed::From(&earlier), 1, row(1, "a")),
         Admission::Cached(cached)
     );
     assert_eq!(
-        admit(&mut record, Some(&earlier), 2, row(2, "b")),
+        admit(&mut record, Resumed::From(&earlier), 2, row(2, "b")),
         Admission::Run(row(2, "b"))
     );
     assert_eq!(record.spawned(), 1);
