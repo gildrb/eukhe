@@ -458,10 +458,15 @@ async fn abort(
                 if record.state != WorkflowRunState::Done {
                     record.cancel_live_agents();
                 }
-                let (report, withdrawn) = match carried {
-                    Some(carried) => carried,
-                    None => (RunReport::ended(&run_id, &record, CANCELLED_BY_USER), 0),
-                };
+                let (report, withdrawn) = carried.unwrap_or_else(|| {
+                    let finished = record.finished_answers();
+                    let output = if finished.is_empty() {
+                        CANCELLED_BY_USER.to_owned()
+                    } else {
+                        format!("{CANCELLED_BY_USER}. Agents that finished:\n{finished}")
+                    };
+                    (RunReport::ended(&run_id, &record, &output), 0)
+                });
                 let input = RunTaskInput::Report {
                     owed: OwedReport {
                         run,

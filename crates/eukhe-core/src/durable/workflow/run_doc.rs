@@ -163,6 +163,31 @@ impl RunRecord {
         }
     }
 
+    /// The answers of the agents that finished, one `label: answer` line
+    /// each in ordinal order: what a cancelled run still gives back.
+    pub(crate) fn finished_answers(&self) -> String {
+        let mut lines = Vec::new();
+        for agent in self.agents.values() {
+            let answer = match (&agent.status, &agent.result) {
+                (WorkflowAgentStatus::Done | WorkflowAgentStatus::Cached, Some(result)) => result,
+                (WorkflowAgentStatus::Done | WorkflowAgentStatus::Cached, None)
+                | (
+                    WorkflowAgentStatus::Queued
+                    | WorkflowAgentStatus::Running
+                    | WorkflowAgentStatus::Failed
+                    | WorkflowAgentStatus::Cancelled,
+                    _,
+                ) => continue,
+            };
+            let text = match answer {
+                serde_json::Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            lines.push(format!("{}: {text}", agent.label));
+        }
+        lines.join("\n")
+    }
+
     /// Agents that count against `max_agents`.
     pub(crate) fn spawned(&self) -> u32 {
         let counted = self.agents.values().filter(|agent| agent.counted).count();
