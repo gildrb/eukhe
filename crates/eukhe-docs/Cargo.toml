@@ -11,6 +11,9 @@ description = "Documents: file tags, edit store, read projection, locked writes,
 # on its real path (eukhe_types::path_policy::resolve), as the shell's.
 eukhe-types.workspace = true
 thiserror.workspace = true
+# The seen-line guard and the persist plan run as their compiled Bend
+# models (bend/ffi_doc_seen.bend, bend/ffi_doc_lines.bend).
+eukhe-bend.workspace = true
 # The edit store is shared by the wire `edit` tool and the kernel requests
 # of one session.
 parking_lot = "0.12"

@@ -70,6 +70,8 @@ import ./bend/ffi_workflow.bend as FW
 import ./bend/ffi_default_model.bend as FDm
 import ./bend/ffi_aux_fallback.bend as FAf
 import ./bend/wire.bend as Wr
+import ./bend/ffi_doc_seen.bend as Fds
+import ./bend/ffi_doc_lines.bend as Fdl
 
 # (a) The view
 # ------------
@@ -4973,6 +4975,43 @@ law persist_plan_refines:
 law persist_plan_example:
   {Dl.plan([Dl.Run{Some{Dl.CrLf{}}, 2n}, Dl.Run{None{}, 3n}, Dl.Run{Some{Dl.Lf{}}, 1n}, Dl.Run{Some{Dl.CrLf{}}, 0n}, Dl.Run{None{}, 1n}], Dl.Lf{}) == [Dl.Seps{Dl.CrLf{}, 2n}, Dl.Seps{Dl.CrLf{}, 3n}, Dl.Seps{Dl.Lf{}, 1n}, Dl.Seps{Dl.Lf{}, 1n}] : List<&2, Dl.Seps>}
 
+# a run of lines fits the wire: its length does
+def lines.RunFit(r: Dl.Run) -> Bool:
+  match r:
+    case Dl.Run{o, n}:
+      wire_fits(n)
+
+def lines.RunsFit(rs: List<&2, Dl.Run>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> rest:
+      Bool.and(lines.RunFit(r), lines.RunsFit(rest))
+
+# every number of a request of the plan fits the wire
+def lines.WireFits(+rs: List<&2, Dl.Run>) -> Bool:
+  Bool.and(wire_fits(List.length(&2, Dl.Run, rs)), lines.RunsFit(rs))
+
+# LAW: the plan's entry of the compiled core answers, for every request
+# whose numbers fit the wire, the encoding of the model's separators
+# EXCLUDES: a codec that loses, reorders or misreads a run or the carry
+law lines_entry_refines:
+  for +rs: List<&2, Dl.Run>
+  for +c: Dl.End
+  for h: {lines.WireFits(rs) == True{} : Bool}
+  {Fdl.ffi(Fdl.put_req(rs, c, "")) == Wr.put_list(~Dl.Seps, ~Fdl.put_seps, Dl.plan(rs, c), "") : String}
+
+# LAW anchor: an unknown ending tag answers the error form
+# EXCLUDES: a default ending for a request the entry could not read
+law lines_entry_rejects_example:
+  {Fdl.ffi("0,2,") == Wr.err("doc_lines: malformed carry") : String}
+
+# LAW witness: a request of the plan fits the wire (lines_entry_refines is
+# not vacuous)
+# EXCLUDES: a vacuous lines_entry_refines
+law lines_wire_fits_example:
+  {lines.WireFits([Dl.Run{Some{Dl.CrLf{}}, 3n}, Dl.Run{None{}, 1n}]) == True{} : Bool}
+
 # (F3) Tags
 # ---------
 # bend/doc_tags.bend: every input is free: any text, any lines shown, a
@@ -5210,6 +5249,63 @@ law seen_runs_example:
 # EXCLUDES: a changed reveal cap or column limit
 law reveal_bounds:
   {Ds.cap == 40n : Nat} & {Ds.cols == 512n : Nat}
+
+# a run fits the wire: both ends do
+def seen.IvFit(iv: Ds.Iv) -> Bool:
+  match iv:
+    case Ds.Iv{lo, hi}:
+      Bool.and(wire_fits(lo), wire_fits(hi))
+
+def seen.IvsFit(ivs: List<&2, Ds.Iv>) -> Bool:
+  match ivs:
+    case Nil{}:
+      True{}
+    case iv <> rest:
+      Bool.and(seen.IvFit(iv), seen.IvsFit(rest))
+
+# an anchor fits the wire: its line, and its width when it has one
+def seen.AtFit(a: Ds.At) -> Bool:
+  match a:
+    case Ds.At{n, w}:
+      match w:
+        case None{}:
+          wire_fits(n)
+        case Some{x}:
+          Bool.and(wire_fits(n), wire_fits(x))
+
+def seen.AtsFit(ats: List<&2, Ds.At>) -> Bool:
+  match ats:
+    case Nil{}:
+      True{}
+    case a <> rest:
+      Bool.and(seen.AtFit(a), seen.AtsFit(rest))
+
+# every number of a request of the guard fits the wire (Rust saturates a
+# width at the wire's bound, and a line number is a u32)
+def seen.WireFits(+seen: List<&2, Ds.Iv>, +ats: List<&2, Ds.At>) -> Bool:
+  Bool.and(Bool.and(wire_fits(List.length(&2, Ds.Iv, seen)), seen.IvsFit(seen)), Bool.and(wire_fits(List.length(&2, Ds.At, ats)), seen.AtsFit(ats)))
+
+# LAW: the guard's entry of the compiled core answers, for every request
+# whose numbers fit the wire, the encoding of the model's verdict
+# EXCLUDES: a codec that loses, invents, reorders or misreads a seen run
+# or an anchor, an entry that answers a default or another rule
+law seen_entry_refines:
+  for +seen: List<&2, Ds.Iv>
+  for +ats: List<&2, Ds.At>
+  for h: {seen.WireFits(seen, ats) == True{} : Bool}
+  {Fds.ffi(Fds.put_req(seen, ats, "")) == Fds.put_check(Ds.check(seen, ats), "") : String}
+
+# LAW anchor: a malformed request answers the error form, and a request
+# with input left over too
+# EXCLUDES: a default verdict for a request the entry could not read
+law seen_entry_rejects_example:
+  {Fds.ffi("1,1,") == Wr.err("doc_seen: malformed seen runs") : String} & {Fds.ffi("0,0,x") == Wr.err("doc_seen: input left over") : String}
+
+# LAW witness: a request of the guard fits the wire (seen_entry_refines
+# is not vacuous)
+# EXCLUDES: a vacuous seen_entry_refines
+law seen_wire_fits_example:
+  {seen.WireFits([Ds.Iv{1n, 3n}], [Ds.At{2n, Some{80n}}, Ds.At{9n, None{}}]) == True{} : Bool}
 
 # (F6) What grep searched
 # -----------------------

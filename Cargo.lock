@@ -728,6 +728,7 @@ dependencies = [
 name = "eukhe-docs"
 version = "0.10.0"
 dependencies = [
+ "eukhe-bend",
  "eukhe-types",
  "globset",
  "grep-regex",

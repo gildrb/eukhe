@@ -751,6 +751,7 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 | `grep_line_is_read_line` | `grep` and `read` show the same line text at the same number (S8.6). |
 | `persist_weaves_carry` | An edited file is written line by line, each line but the last followed by its own ending, else the separator written before it (S8.6). |
 | `persist_plan_refines` | The separator plan over runs of lines gives, line for line, the separators of that rule (S8.6). |
+| `lines_entry_refines` | The compiled entry of the plan reads every request back and answers the model's separators (S8.6). |
 | `tag_names_shown_text` | The tag of a result names the text that its rows come from (S8.7). |
 | `edit_only_seen_lines` | An edit applies only when every anchor is a seen line (S8.8). |
 | `edit_seen_applies` | An edit whose anchors are all seen applies (S8.8). |
@@ -760,6 +761,7 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 | `reject_shows_lines` | A rejection shows, of its first 40 unseen anchors, each that is a line of the file, cut to 512 characters when longer (S8.8). |
 | `reject_whole_exact` | A rejection says it showed its anchors whole exactly when it did (S8.8). |
 | `reveal_bounds` | The reveal cap is 40 anchors and 512 characters (S8.8). |
+| `seen_entry_refines` | The compiled entry of the guard reads every request back and answers the model's verdict (S8.8). |
 | `grep_accounts_every_file` | Each walked entry is in exactly one class, and the classes add up to the walk (S8.9). |
 | `grep_notes_every_gap` | A class of skipped, cut or not-searched entries has its notice exactly when it is not empty (S8.9). |
 | `grep_notes_every_cut` | A shown file whose matches were cut has its own notice (S8.9). |
