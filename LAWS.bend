@@ -79,6 +79,7 @@ import ./bend/ffi_sandbox.bend as FSb
 import ./bend/ffi_director.bend as FDr
 import ./bend/ffi_child_env.bend as FEnv
 import ./bend/ffi_cvar.bend as FCv
+import ./bend/ffi_retry.bend as Fr
 
 # (a) The view
 # ------------
@@ -5572,6 +5573,129 @@ law stall_detection_bounded:
 law stall_silent_ends_at_deadline:
   for d: Nat
   {R.idle(Nil{}, d) == R.IdleStall{d} : R.Idle}
+
+# (R7) The entry of the compiled core
+# -----------------------------------
+# bend/ffi_retry.bend `ffi`: the classifier, the wait, the failover walk
+# and the stall, called from Rust through crate eukhe-bend in the wire
+# format of LAWS.bend section wire. Rust saturates every value (above) so
+# each Nat it encodes fits the wire.
+
+# a Maybe<Nat> fits the wire
+def rs.mfits(m: Maybe<&2, Nat>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{n}:
+      wire_fits(n)
+
+# every attempt of ts fits the wire
+def rs.tried_fit(ts: List<&2, R.Tried>) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case t <> rest:
+      match t:
+        case R.Tried{at, w}:
+          Bool.and(Bool.and(wire_fits(at), rs.mfits(w)), rs.tried_fit(rest))
+
+# every Nat of a request fits the wire (and so does the count of a list)
+def rs.req_fits(q: Fr.Req) -> Bool:
+  match q:
+    case Fr.QClassify{f}:
+      match f:
+        case R.Facts{parked, limit, status, kind, text}:
+          rs.mfits(status)
+    case Fr.QWait{base, attempt, cap, draw, server}:
+      Bool.and(Bool.and(wire_fits(base), wire_fits(attempt)), Bool.and(Bool.and(wire_fits(cap), wire_fits(draw)), rs.mfits(server)))
+    case Fr.QFailover{len, +ts, p}:
+      match p:
+        case R.Policy{switches, base, max}:
+          Bool.and(Bool.and(wire_fits(len), Bool.and(wire_fits(R.length(ts)), rs.tried_fit(ts))), Bool.and(wire_fits(switches), Bool.and(wire_fits(base), wire_fits(max))))
+    case Fr.QStall{idle}:
+      wire_fits(idle)
+
+# LAW: a request that fits the wire reads back, and the rest is untouched
+# EXCLUDES: a field read into the wrong slot, a lost or extra attempt, a
+#   swapped Bool, a cause read as another cause, a wrong decision tag
+law retry_ffi_request_round_trip:
+  for q: Fr.Req
+  for +rest: String
+  for h: {rs.req_fits(q) == True{} : Bool}
+  {Fr.get_req(Fr.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}
+
+# LAW: a decoded request is exactly an encoding: any other input is Bad{}
+# EXCLUDES: an unknown tag, cause or Maybe mark read as a value, a request
+#   read from a string that no encoder writes (a default for bad input)
+law retry_ffi_request_exact:
+  for +s: String
+  for +q: Fr.Req
+  for +rest: String
+  for h: {Fr.get_req(s) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}
+  {s == Fr.put_req(q, rest) : String}
+
+# LAW: the entry answers a classify request with the classifier's decision
+# EXCLUDES: an entry that answers anything but the model's decision
+law retry_ffi_classify:
+  for f: R.Facts
+  for h: {rs.req_fits(Fr.QClassify{f}) == True{} : Bool}
+  {Fr.ffi(Fr.put_req(Fr.QClassify{f}, "")) == Wr.put_bool(R.retryable(f), "") : String}
+
+# LAW: the entry answers a wait request with the model's wait
+# EXCLUDES: an entry that answers anything but the model's decision
+law retry_ffi_wait:
+  for base: Nat
+  for attempt: Nat
+  for cap: Nat
+  for draw: Nat
+  for server: Maybe<&2, Nat>
+  for h: {rs.req_fits(Fr.QWait{base, attempt, cap, draw, server}) == True{} : Bool}
+  {Fr.ffi(Fr.put_req(Fr.QWait{base, attempt, cap, draw, server}, "")) == Fr.put_delay(R.retry_wait(base, attempt, cap, draw, server), "") : String}
+
+# LAW: the entry answers a failover request with the model's next switch
+# EXCLUDES: an entry that answers anything but the model's decision
+law retry_ffi_failover:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  for h: {rs.req_fits(Fr.QFailover{len, ts, p}) == True{} : Bool}
+  {Fr.ffi(Fr.put_req(Fr.QFailover{len, ts, p}, "")) == Fr.put_switch(R.next(len, ts, p), "") : String}
+
+# LAW: the entry answers a stall request with the model's next deadline
+# EXCLUDES: an entry that answers anything but the model's decision
+law retry_ffi_stall:
+  for idle: Nat
+  for h: {rs.req_fits(Fr.QStall{idle}) == True{} : Bool}
+  {Fr.ffi(Fr.put_req(Fr.QStall{idle}, "")) == Wr.put_nat(R.stall.next(idle), "") : String}
+
+# LAW: malformed input answers the error form, never a decision
+# EXCLUDES: a default decision for input that is no request
+law retry_ffi_malformed:
+  for +s: String
+  for h: {Fr.get_req(s) == Wr.Bad{} : Wr.Dec<Fr.Req>}
+  {Fr.ffi(s) == Wr.err("retry: malformed request") : String}
+
+# LAW: input left after a request answers the error form
+# EXCLUDES: a decision for a request followed by garbage
+law retry_ffi_trailing:
+  for +s: String
+  for q: Fr.Req
+  for rest: String
+  for h: {Fr.get_req(s) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}
+  for left: {Wr.end(rest) == False{} : Bool}
+  {Fr.ffi(s) == Wr.err("retry: input left after the request") : String}
+
+# LAW: witness: requests that fit exist (the premise of the laws above)
+# EXCLUDES: a vacuous rs.req_fits
+law retry_ffi_fits_exists:
+  exs q: Fr.Req
+  {rs.req_fits(q) == True{} : Bool}
+
+# LAW: anchors of the encodings Rust writes and reads (crates/eukhe-bend
+# WIRE.md): a request per decision, and the replies
+# EXCLUDES: a field order or a tag that differs from the Rust side
+law retry_ffi_example:
+  {[Fr.put_req(Fr.QClassify{R.Facts{False{}, True{}, Some{42n}, Some{R.Unknown{}}, True{}}}, ""), Fr.put_req(Fr.QWait{100n, 4n, 200n, 7n, None{}}, ""), Fr.put_req(Fr.QFailover{3n, [R.Tried{0n, None{}}, R.Tried{1n, Some{70n}}], R.Policy{8n, 10n, 200n}}, ""), Fr.put_req(Fr.QStall{30n}, ""), Fr.put_delay(R.After{45n}, ""), Fr.put_delay(R.Refused{90n, 40n}, ""), Fr.put_switch(None{}, ""), Fr.put_switch(Some{R.Switch{1n, 20n}}, "")] == ["0,FT1,42,1,13,T", "1,100,4,200,7,0,", "2,3,2,0,0,1,1,70,8,10,200,", "3,30,", "0,45,", "1,90,40,", "0,", "1,1,20,"] : List<&2, String>}
 
 # ---- model_facts ----
 
