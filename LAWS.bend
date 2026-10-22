@@ -66,6 +66,10 @@ import ./bend/config.bend as Cf
 import ./bend/default_model.bend as Dm
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/ffi_child.bend as FCh
+import ./bend/ffi_job.bend as FJb
+import ./bend/ffi_progress.bend as FPr
+import ./bend/ffi_sandbox.bend as FSb
 
 # (a) The view
 # ------------
@@ -5313,3 +5317,141 @@ law wf_failure_spares_siblings:
   for xs: List<&2, W.Out>
   for ys: List<&2, W.Out>
   {W.results(W.cat(xs, W.Failed{} <> ys)) == W.rcat(W.results(xs), None{} <> W.results(ys)) : List<&2, Maybe<&2, Nat>>}
+
+# ---- core_w6 ----
+
+# LAWS: the entries of the compiled Bend core for the child task, the jobs,
+# the goal's progress check and the hand-back (bend/ffi_child.bend,
+# bend/ffi_job.bend, bend/ffi_progress.bend, bend/ffi_sandbox.bend). Each
+# entry, on the request Rust writes (`put_req`, every number within the
+# wire), answers the encoding of the model's decision: the codec loses,
+# invents and reorders nothing, and the Rust rule is the proven model.
+
+# a content id or a token that fits the wire (None always does)
+def wire_mfits(m: Maybe<&2, Nat>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{x}:
+      wire_fits(x)
+
+def wire_cfg_fits(c: Ch.Cfg) -> Bool:
+  match c:
+    case Ch.Cfg{s, f}:
+      Bool.and(wire_fits(s), wire_fits(f))
+
+def wire_w_fits(w: Ch.W) -> Bool:
+  match w:
+    case Ch.W{t, l, n}:
+      Bool.and(wire_mfits(t), Bool.and(wire_fits(l), wire_fits(n)))
+
+def wire_obs_fits(o: Ch.Obs) -> Bool:
+  match o:
+    case Ch.Busy{t}:
+      wire_mfits(t)
+    case Ch.Lost{}:
+      True{}
+    case Ch.Answered{r}:
+      True{}
+    case Ch.Broke{}:
+      True{}
+    case Ch.Gone{}:
+      True{}
+
+def wire_ph_fits(p: Ch.Ph) -> Bool:
+  match p:
+    case Ch.Watching{w}:
+      wire_w_fits(w)
+    case Ch.Owing{k, n}:
+      wire_fits(n)
+    case Ch.Ended{}:
+      True{}
+
+def wire_job_fits(j: Jb.J) -> Bool:
+  match j:
+    case Jb.Live{k, d}:
+      Bool.and(wire_fits(k), wire_fits(d))
+    case Jb.Ended{k, d, e}:
+      Bool.and(wire_fits(k), wire_fits(d))
+
+def wire_ev_fits(e: Jb.JEv) -> Bool:
+  match e:
+    case Jb.Out{n}:
+      wire_fits(n)
+    case Jb.Quit{c}:
+      True{}
+    case Jb.Kill{}:
+      True{}
+    case Jb.Tick{}:
+      True{}
+
+def wire_prior_fits(p: Maybe<&2, Pr.Prior>) -> Bool:
+  match p:
+    case None{}:
+      True{}
+    case Some{x}:
+      match x:
+        case Pr.Prior{s, w}:
+          Bool.and(wire_fits(s), wire_fits(w))
+
+# LAW: the child entry's verdict request answers the task's call
+# EXCLUDES: a codec that drops or swaps a field, a default for a field
+law child_entry_verdict:
+  for +c: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +o: Ch.Obs
+  for +m: Ch.Mode
+  for hc: {wire_cfg_fits(c) == True{} : Bool}
+  for hw: {wire_w_fits(w) == True{} : Bool}
+  for he: {wire_fits(e) == True{} : Bool}
+  for ho: {wire_obs_fits(o) == True{} : Bool}
+  {FCh.ffi(FCh.put_req(FCh.AskVerdict{c, w, e, o, m})) == FCh.put_call(Ch.verdict(c, w, e, o, m), "") : String}
+
+# LAW: the child entry's move request answers the report phase's move
+law child_entry_move:
+  for +f: Maybe<&2, Ch.Fate>
+  for +n: Nat
+  for hn: {wire_fits(n) == True{} : Bool}
+  {FCh.ffi(FCh.put_req(FCh.AskMove{f, n})) == FCh.put_move(Ch.owe.next(f, n), "") : String}
+
+# LAW: the child entry's abort request answers the abort's phase
+law child_entry_abort:
+  for +p: Ch.Ph
+  for +d: Bool
+  for hp: {wire_ph_fits(p) == True{} : Bool}
+  {FCh.ffi(FCh.put_req(FCh.AskAbort{p, d})) == FCh.put_ph(Ch.cut.ph(p, d), "") : String}
+
+# LAW: the job entry answers the held step and the ends the event reported
+law job_entry:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +j: Jb.J
+  for +e: Jb.JEv
+  for ht: {wire_fits(t) == True{} : Bool}
+  for hc: {wire_mfits(cap) == True{} : Bool}
+  for hj: {wire_job_fits(j) == True{} : Bool}
+  for he: {wire_ev_fits(e) == True{} : Bool}
+  {FJb.ffi(FJb.put_req(t, cap, j, e)) == FJb.put_reply(Jb.feed(t, cap, j, e), Jb.ends.of(j, e)) : String}
+
+# LAW: the progress entry answers the goal's check
+law goal_entry:
+  for +t: Nat
+  for +cap: Nat
+  for +p: Maybe<&2, Pr.Prior>
+  for +work: Nat
+  for ht: {wire_fits(t) == True{} : Bool}
+  for hc: {wire_fits(cap) == True{} : Bool}
+  for hp: {wire_prior_fits(p) == True{} : Bool}
+  for hw: {wire_fits(work) == True{} : Bool}
+  {FPr.ffi(FPr.put_req(t, cap, p, work)) == FPr.put_goal(Pr.judge(t, cap, p, work), "") : String}
+
+# LAW: the sandbox entry answers the plan of the path
+law cow_entry:
+  for +p: Maybe<&2, Nat>
+  for +b: Maybe<&2, Nat>
+  for +c: Maybe<&2, Nat>
+  for hp: {wire_mfits(p) == True{} : Bool}
+  for hb: {wire_mfits(b) == True{} : Bool}
+  for hc: {wire_mfits(c) == True{} : Bool}
+  {FSb.ffi(FSb.put_req(p, b, c)) == FSb.put_plan(Sb.plan(p, b, c), "") : String}

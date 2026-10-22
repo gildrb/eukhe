@@ -3,3 +3,7 @@
 # a new area takes the next free id.
 0 echo
 1 wire
+2 child
+3 job
+4 progress
+5 sandbox

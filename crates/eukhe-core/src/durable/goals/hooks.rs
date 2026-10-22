@@ -56,7 +56,7 @@ use super::host::GoalsHost;
 use super::ops::{goal_context, submit_goal_context, user_input_queued};
 use super::state::{
     accounted, failed, mint, owns_continuation_wakeup, paused, served, spends_budget, stall_check,
-    stamp, terminal_provider_failure, Stall, UsageOutcome, Work,
+    stamp, terminal_provider_failure, Prior, Stall, UsageOutcome,
 };
 use crate::autonomous::{now_millis, AutonomousRuntimeState};
 use crate::durable::children::{has_unsettled_children, WorkLedger};
@@ -574,19 +574,16 @@ fn goal_check(
     work: u64,
     cap: u64,
 ) -> GoalCheck {
-    let stall = match prior.filter(|prior| prior.input == input && prior.goal_id == goal.goal_id) {
-        None => Stall::Go { stalls: 0 },
-        Some(prior) => stall_check(
-            cap,
-            prior.stalls,
-            if work > prior.work {
-                Work::Grew
-            } else {
-                Work::Same
-            },
-        ),
-    };
-    GoalCheck { stall, cap }
+    let prior = prior
+        .filter(|prior| prior.input == input && prior.goal_id == goal.goal_id)
+        .map(|prior| Prior {
+            stalls: prior.stalls,
+            work: prior.work,
+        });
+    GoalCheck {
+        stall: stall_check(cap, prior, work),
+        cap,
+    }
 }
 
 /// The judgment of a step.

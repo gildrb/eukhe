@@ -413,15 +413,23 @@ number for the kind). Their tests tie them.
    a reply is now a model error, H4.7, so that strike was removed. This
    check counts work, not replies.)
 
-Model: `bend/progress.bend` (`work`, `check`, `goal`). Laws
+Model: `bend/progress.bend` (`work`, `check`, `goal`, `judge`). Laws
 (`LAWS.bend` section `progress`): `goal_stops_without_progress` (continuations in a
 row whose acts the session did before, at least as many as the cap, stop
-the goal from any count) and `goal_progress_continues` (a continuation
-with an act the session never did before clears the count). Proofs:
+the goal from any count), `goal_progress_continues` (a continuation
+with an act the session never did before clears the count), and the laws
+of `judge`, the check the Rust loop runs on the ledger's counts:
+`goal_first_check_starts`, `goal_judge_is_check`, `goal_judge_counts_work`
+(the count grew exactly when the session did new work), `goal_judge_held`
+and `goal_judge_top_stops` (the count is held within the wire's largest
+Nat, and a count there stops a goal that did no new work), and
+`goal_entry` (section `core_w6`: the core's entry answers the encoded
+`judge` on the request Rust writes). Proofs:
 `PROOF.bend` section `progress`.
 
 Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`),
-`durable/goals/state.rs` (`stall_check`), `durable/goals/hooks.rs`
+`durable/goals/state.rs` (`stall_check`: `judge`, run as the compiled
+Bend core, `bend/ffi_progress.bend`), `durable/goals/hooks.rs`
 (`goal_check`, the work read in `on_yield`, the pause and its row in
 `commit_step`), `durable/directors/mod.rs` (`DEFAULT_STALL_STEPS`).
 

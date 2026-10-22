@@ -358,7 +358,7 @@ async fn report(
     let signal = runtime.signal();
     let mut fate: Option<Fate<Arc<dyn Submission>>> = None;
     let again = loop {
-        fate = Some(match report_step(withdrawn, fate) {
+        fate = Some(match report_step(withdrawn, fate)? {
             ReportStep::Submit(ordinal) => {
                 if withdrawn > 0 {
                     let conversation = owner(&runtime, &task, &cx).await?;

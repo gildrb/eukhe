@@ -1,5 +1,5 @@
 //! Copy-on-write child workspaces (docs/runtime.md S3; model
-//! `bend/sandbox.bend`, `back`).
+//! `bend/sandbox.bend`, `back`, and its per-path `plan`).
 //!
 //! An isolated child works on its own copy of its parent's workspace. At
 //! its spawn the host copies the parent's tracked and untracked, not
@@ -9,11 +9,12 @@
 //! XFS, APFS); elsewhere it copies the bytes and logs that it did.
 //!
 //! At the child's end the host takes the child's changes back into the
-//! parent's workspace, path by path, with [`merge::merge1`]: a path the
-//! child did not change keeps the parent's content; a path only the child
-//! changed gets the child's; a path both changed to the same content keeps
-//! it; a path both changed differently keeps the parent's and is a
-//! conflict, and the child's version stays under `conflicts/`.
+//! parent's workspace, path by path, with the plan of each path
+//! ([`merge::plan`], run by the compiled Bend core): a path the child did
+//! not change keeps the parent's content; a path only the child changed
+//! gets the child's; a path both changed to the same content keeps it; a
+//! path both changed differently keeps the parent's and is a conflict, and
+//! the child's version stays under `conflicts/`.
 //!
 //! Each path is replaced in one rename, and the hand-back is idempotent: a
 //! path already taken reads as changed by both to the same content, so a
@@ -33,11 +34,10 @@ mod files;
 mod merge;
 
 #[cfg(test)]
-mod bridge;
-#[cfg(test)]
 mod tests;
 
 use files::{Copied, Listing};
+use merge::Plan;
 
 const MANIFEST: &str = "manifest.json";
 const HANDBACK: &str = "handback.json";
@@ -325,8 +325,12 @@ fn hand_back_at(root: &Path) -> anyhow::Result<Handback> {
         let ours = files::content(&parent.join(path))?;
         let found = files::content(&base.join(path))?;
         let theirs = files::content(&tree.join(path))?;
-        let one = merge::merge1(ours.as_ref(), found.as_ref(), theirs.as_ref());
         let name = path.to_string_lossy().into_owned();
+        let conflict = |handback: &mut Handback, name: String| -> anyhow::Result<()> {
+            files::replace(&tree.join(path), &root.join(CONFLICTS).join(path))?;
+            handback.conflicts.push(name);
+            Ok(())
+        };
         // A path whose place in the parent cannot take the child's file
         // (a directory there, or a file or symlink where one of its
         // directories goes) is a conflict too: the parent's entry stays.
@@ -347,16 +351,18 @@ fn hand_back_at(root: &Path) -> anyhow::Result<Handback> {
             }
             Ok(false)
         };
-        if one.clash || (one.body != ours && one.body.is_some() && blocked()?) {
-            files::replace(&tree.join(path), &root.join(CONFLICTS).join(path))?;
-            handback.conflicts.push(name);
-            continue;
-        }
-        if one.body != ours {
-            files::replace(&tree.join(path), &parent.join(path))?;
-        }
-        if one.body == theirs && theirs != found {
-            handback.taken.push(name);
+        match merge::plan(ours.as_ref(), found.as_ref(), theirs.as_ref()) {
+            Plan::Keep { taken } => {
+                if taken {
+                    handback.taken.push(name);
+                }
+            }
+            Plan::Clash => conflict(&mut handback, name)?,
+            Plan::Take if blocked()? => conflict(&mut handback, name)?,
+            Plan::Take | Plan::Drop => {
+                files::replace(&tree.join(path), &parent.join(path))?;
+                handback.taken.push(name);
+            }
         }
     }
     if !handback.conflicts.is_empty() {

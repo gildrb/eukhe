@@ -22,6 +22,7 @@ eukhe-models = { path = "../eukhe-models" }
 # its pi-ai model layer, and chord contexts/JSON.
 eukhe-durable.workspace = true
 eukhe-ai.workspace = true
+eukhe-bend.workspace = true
 eukhe-chord.workspace = true
 eukhe-docs = { path = "../eukhe-docs" }
 # The `bash` tool's in-process interpreter and approval gate.

@@ -2,7 +2,11 @@
 # bend/ffi_*.bend: do not edit (make bend-core).
 import Base
 import ./wire.bend as W
+import ./ffi_child.bend as ffi_child
 import ./ffi_echo.bend as ffi_echo
+import ./ffi_job.bend as ffi_job
+import ./ffi_progress.bend as ffi_progress
+import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_wire.bend as ffi_wire
 
 # The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and
@@ -19,6 +23,14 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_echo.ffi(input)
     case 1:
       ffi_wire.ffi(input)
+    case 2:
+      ffi_child.ffi(input)
+    case 3:
+      ffi_job.ffi(input)
+    case 4:
+      ffi_progress.ffi(input)
+    case 5:
+      ffi_sandbox.ffi(input)
     case _:
       W.err("unknown entry")
 

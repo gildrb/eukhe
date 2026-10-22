@@ -697,20 +697,28 @@ Every law is universal.
 | `child_report_once` | After any events, at most one submission of the report is placed: the transcript holds it at most once (H5.4). |
 | `child_resubmits_per_abort` | The report's submissions are at most 1 + the parent's aborts, closes and withdrawals (H5.4). |
 | `child_delivered_once` | After any events, a report the task owes is placed exactly once when the parent reopens, the task takes three steps and the parent's run places the id the task then waits on (H5.4). |
+| `child_task_call` | The task's call on a poll is the watch's verdict (`look`) as its report mode acts on it: watch on, report, or settle with no report (H5.2-H5.4). |
+| `child_silent_never_reports` | A silent task (`ReportMode::Silent`) never reports to its parent. |
+| `child_report_move`, `child_report_move_is_owe` | The report phase's move is the one report rule, and carried out it is the model's `owe` (H5.4). |
+| `child_abort_rule` | An abort of a watched child: a delete owes a cancelled report, a cancel owes nothing; an owed report goes on as it was (H5.4). |
+| `child_entry_verdict`, `child_entry_move`, `child_entry_abort` (`LAWS.bend` section `core_w6`) | The core's child entry, on each request Rust writes, answers the encoded decision of the model. |
 
-Rust (paths from `crates/`):
+Rust (paths from `crates/`). The task's three decisions run as the
+compiled Bend core (`bend/ffi_child.bend`, through `eukhe-bend`):
 
-- `eukhe-core/src/durable/children/watch.rs`: `Vigil::judge`, the pure
-  verdict (`look`); `CHILD_POLL_FAILURES`.
+- `eukhe-core/src/durable/children/watch.rs`: `verdict` (`verdict` in
+  `bend/child.bend`); the checkpoint's `Vigil` (quiet ms and failed polls,
+  counting up) as the model's clock (`left`, `tries`, counting down);
+  `CHILD_POLL_FAILURES`.
 - `eukhe-core/src/durable/children/task.rs`: the `watch` phase keeps the
   `Vigil` in its checkpoint, skips the pause on its first poll in a
   session (`ChildrenServices.polled`), aborts then stops a stuck child
   (`host.cancel`, `host.stop`) and reports it
-  `Failed{stalled|unreachable}`; `watched_next` is its next state; the
-  `report` phase follows `report_step`, the one report rule (`owe`), on
-  its submission's `Fate`; `abort` hands the report `owed_on_abort` picks
-  (`cut.ph`) to a new task (`ChildTaskInput.owed`, the row's `reporter`,
-  which the quiescence barrier waits on).
+  `Failed{stalled|unreachable}`; `watched_next` turns the call into its
+  next state; the `report` phase follows `report_step` (`owe.next`) on
+  its submission's `Fate`; `abort` hands the report `owed_on_abort`
+  (`cut.ph`) picks to a new task (`ChildTaskInput.owed`, the row's
+  `reporter`, which the quiescence barrier waits on).
 - `eukhe-core/src/durable/children/work.rs`: `WorkLedger`, the work
   (`work` in `bend/progress.bend`).
 - `eukhe-daemon/src/worker/run_outcome.rs`: the progress token in the
@@ -722,15 +730,7 @@ Rust (paths from `crates/`):
   `Running` before, forever); `stop` is the plain kill.
 - `eukhe-core/src/settings`: `subagentStallMs`.
 
-Tie: the bridge tests
-`durable::children::watch::bridge::the_rust_watch_equals_the_bend_model`
-(40 scenarios of 300 polls each, `bend/bridge_child.bend`) and
-`durable::children::task::bridge::the_rust_report_rule_equals_the_bend_model`
-(300 scenarios of 80 events: task steps, deliveries and withdrawals of
-any id, aborts, closes, reopens, cancels and deletes, against `step`
-through `bend/bridge_report.bend`; it drives `watched_next`,
-`report_step` and `owed_on_abort` over an inbox kept as the harness
-keeps it), and
+Tie: the decisions are the proven model itself (the compiled core), and
 `durable::goals::hooks::bridge::the_rust_progress_check_equals_the_bend_model`
 (40 scenarios of 60 goal continuations, `bend/bridge_progress.bend`: the
 work ledger over transcripts with call ids, words and thinking that are no
