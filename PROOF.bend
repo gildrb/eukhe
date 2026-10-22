@@ -7085,6 +7085,754 @@ def note_spends_no_retry(+cfg: Rn.Cfg, -retryable: Bool, +r: Nat, +c: Nat, +a: N
 def retry_spends_no_note(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +b: Nat, +n: Nat, +p: Nat) -> {Rn.call(cfg, Rn.Error{True{}, False{}}, r, c, 1n+b, n, p) == Rn.St{Rn.Prepare{}, r, c, b, n, Rn.Cfg.polls(cfg)} : Rn.St}:
   {==}
 
+
+# The decisions Rust calls (H4.9)
+# --------------------------------
+# rk.*: the lemmas of the laws of LAWS.bend (H4.9) and of
+# rec_recover_is_the_rust_rule: each decision of bend/run.bend that
+# Rust calls is the rule decide.rs wrote (the counts left are exact,
+# by induction on the counts and the limits), the counts left lose
+# nothing (m - (m - x) = x for x <= m), and the core's cap changes no
+# decision.
+
+def rk.BD(b: Bool, t: Type, f: Type) -> Type:
+  match b:
+    case True{}:
+      t
+    case False{}:
+      f
+
+def rk.wait(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +w: Nat, +x: Nat) -> {Rn.Then.ph(False{}, Rn.St.ph(Rn.call(cfg, Rn.Deferred{}, r, c, a, n, Nat.sub(w, x)))) == Laws.rust.wait(Nat.is_lt(x, w)) : Rn.Then}:
+  match w x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.wait(cfg, r, c, a, n, v, y)
+
+def rk.notes(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.Then.ph(True{}, Rn.St.ph(Rn.note(cfg, r, c, a, Nat.sub(m, x), p))) == Laws.rust.noted(Nat.is_lt(x, m)) : Rn.Then}:
+  match m x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.notes(cfg, r, c, a, p, v, y)
+
+def rk.retry(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.Then.ph(False{}, Rn.St.ph(Rn.retry(cfg, True{}, r, c, Nat.sub(m, x), n, p))) == Laws.rust.retry(Nat.is_lt(x, m)) : Rn.Then}:
+  match m x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.retry(cfg, r, c, n, p, v, y)
+
+def rk.over(+cfg: Rn.Cfg, +r: Nat, +a: Nat, +n: Nat, +p: Nat, +compacted: Bool, +cut: Bool) -> {Rn.Then.ph(False{}, Rn.St.ph(Rn.call(cfg, Rn.Overflow{cut}, r, Rn.c.of(compacted), a, n, p))) == Laws.rust.over(Bool.and(cut, Bool.not(compacted))) : Rn.Then}:
+  match compacted cut:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def rk.run_reply_is_the_rust_rule(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply) -> {Rn.decide.reply(l, t, reply) == Laws.rust.after_reply(l, t, reply) : Rn.Then}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          match reply:
+            case Rn.Plain{}:
+              {==}
+            case Rn.Calls{}:
+              {==}
+            case Rn.Deferred{}:
+              rk.wait(Rn.Cfg{rounds, wait, retries, most}, 0n, Rn.c.of(compacted), Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), Nat.sub(most, notes), wait, waited)
+            case Rn.Error{retryable, noted}:
+              match retryable noted:
+                case retryable True{}:
+                  rk.notes(Rn.Cfg{rounds, wait, retries, most}, 0n, Rn.c.of(compacted), Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), Nat.sub(wait, waited), most, notes)
+                case True{} False{}:
+                  rk.retry(Rn.Cfg{rounds, wait, retries, most}, 0n, Rn.c.of(compacted), Nat.sub(most, notes), Nat.sub(wait, waited), retries, Nat.sub(Nat.sub(attempt, 1n), notes))
+                case False{} False{}:
+                  {==}
+            case Rn.Overflow{cut}:
+              rk.over(Rn.Cfg{rounds, wait, retries, most}, 0n, Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), Nat.sub(most, notes), Nat.sub(wait, waited), compacted, cut)
+
+def rk.run_prepare_is_the_rust_rule(+compacted: Bool, +th: Rn.Th) -> {Rn.decide.prepare(compacted, th) == Laws.rust.before_request(compacted, th) : Rn.Prepared}:
+  match compacted th:
+    case True{} Rn.Under{}:
+      {==}
+    case True{} Rn.Background{}:
+      {==}
+    case True{} Rn.Blocking{}:
+      {==}
+    case False{} Rn.Under{}:
+      {==}
+    case False{} Rn.Background{}:
+      {==}
+    case False{} Rn.Blocking{}:
+      {==}
+
+def rk.run_prepare_compacted_reads_no_threshold(+th: Rn.Th) -> {Rn.decide.prepare(True{}, th) == Rn.decide.prepare(True{}, Rn.Under{}) : Rn.Prepared}:
+  match th:
+    case Rn.Under{}:
+      {==}
+    case Rn.Background{}:
+      {==}
+    case Rn.Blocking{}:
+      {==}
+
+def rk.run_compact_is_the_rust_rule(+over: Bool, +got: Rn.Got) -> {Rn.decide.compact(over, got) == Laws.rust.after_compaction(over, got) : Bool}:
+  match over got:
+    case True{} Rn.Built{}:
+      {==}
+    case True{} Rn.Kept{}:
+      {==}
+    case True{} Rn.Broke{}:
+      {==}
+    case False{} Rn.Built{}:
+      {==}
+    case False{} Rn.Kept{}:
+      {==}
+    case False{} Rn.Broke{}:
+      {==}
+
+def rk.lt_pred(+m: Nat, +x: Nat) -> {Nat.is_lt(x, Nat.sub(m, 1n)) == Nat.is_lt(1n+x, m) : Bool}:
+  match m:
+    case 0n:
+      match x:
+        case 0n:
+          {==}
+        case 1n+y:
+          {==}
+    case 1n+v:
+      match v:
+        case 0n:
+          {==}
+        case 1n+u:
+          {==}
+
+def rk.round_t(+cfg: Rn.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +k: Nat, +m: Nat, +x: Nat) -> {Rn.End.ph(Rn.Resets{}, k, Rn.St.ph(Rn.round(cfg, True{}, Nat.sub(m, x), c, a, n, p))) == Laws.rust.next(Nat.is_lt(x, m), True{}, k) : Rn.End}:
+  match m x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.round_t(cfg, c, a, n, p, k, v, y)
+
+def rk.round_f(+cfg: Rn.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +k: Nat, +m: Nat, +x: Nat) -> {Rn.End.ph(Rn.Goes{}, k, Rn.St.ph(Rn.round(cfg, False{}, Nat.sub(m, x), c, a, n, p))) == Laws.rust.next(Nat.is_lt(x, m), False{}, k) : Rn.End}:
+  match m x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.round_f(cfg, c, a, n, p, k, v, y)
+
+def rk.run_round_is_the_rust_rule(+l: Rn.Lim, +count: Nat, +stops: Bool, +reset: Bool) -> {Rn.decide.round(l, count, stops, reset) == Laws.rust.round_end(l, count, stops, reset) : Rn.End}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match stops reset:
+        case True{} reset:
+          {==}
+        case False{} True{}:
+          %rk.lt_pred(rounds, count) : {Rn.End.ph(Rn.Resets{}, count, Rn.St.ph(Rn.round(Rn.Cfg{rounds, wait, retries, most}, True{}, Nat.sub(Nat.sub(rounds, 1n), count), 0n, 0n, 0n, 0n))) == Laws.rust.next(_, True{}, count) : Rn.End}
+          rk.round_t(Rn.Cfg{rounds, wait, retries, most}, 0n, 0n, 0n, 0n, count, Nat.sub(rounds, 1n), count)
+        case False{} False{}:
+          %rk.lt_pred(rounds, count) : {Rn.End.ph(Rn.Goes{}, count, Rn.St.ph(Rn.round(Rn.Cfg{rounds, wait, retries, most}, False{}, Nat.sub(Nat.sub(rounds, 1n), count), 0n, 0n, 0n, 0n))) == Laws.rust.next(_, False{}, count) : Rn.End}
+          rk.round_f(Rn.Cfg{rounds, wait, retries, most}, 0n, 0n, 0n, 0n, count, Nat.sub(rounds, 1n), count)
+
+def rk.below(+a: Nat, +b: Nat) -> {Nat.is_lt(a, b) == Rn.below(a, b) : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      rk.below(p, q)
+
+def rk.long(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: Rn.Rec) -> {Rn.Help.of(Rn.rec.long(b, n, same, last, r)) == Laws.rust.redo(b, n, Rn.Quits{}) : Rn.Help}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.leak(+b: Bool, +n: Nat, +same: Nat, +last: Nat, +r: Rn.Rec) -> {Rn.Help.of(Rn.rec.leak(b, n, same, last, r)) == Laws.rust.redo(b, n, Rn.Stands{}) : Rn.Help}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.ran(+fresh: Bool, +under: Bool, +m: Nat, +h: Nat, +n: Nat, +same: Nat, +last: Nat, +r: Rn.Rec) -> {Rn.Help.of(Rn.rec.ran(fresh, under, True{}, m, h, n, same, last, r)) == Laws.rust.calls(fresh, Laws.rust.redo(under, n, Rn.Quits{})) : Rn.Help}:
+  match fresh under:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def rk.again(+before: Nat) -> {1n+before == Rn.again(before, 0n, 0n) : Nat}:
+  match before:
+    case 0n:
+      {==}
+    case 1n+j:
+      {==}
+
+def rk.long_row(+k: Rn.Rk, +row: Nat) -> {Rn.Rk.longs(k, row) == Laws.rust.long_row(k, row) : Nat}:
+  match k:
+    case Rn.Free{}:
+      {==}
+    case Rn.Longs{}:
+      {==}
+    case Rn.Leaks{}:
+      {==}
+    case Rn.Loops{}:
+      {==}
+
+def rk.leak_row(+k: Rn.Rk, +row: Nat) -> {Rn.Rk.leaks(k, row) == Laws.rust.leak_row(k, row) : Nat}:
+  match k:
+    case Rn.Free{}:
+      {==}
+    case Rn.Longs{}:
+      {==}
+    case Rn.Leaks{}:
+      {==}
+    case Rn.Loops{}:
+      {==}
+
+def rk.loop_row(+k: Rn.Rk, +row: Nat) -> {Rn.Rk.loops(k, row) == Laws.rust.loop_row(k, row) : Nat}:
+  match k:
+    case Rn.Free{}:
+      {==}
+    case Rn.Longs{}:
+      {==}
+    case Rn.Leaks{}:
+      {==}
+    case Rn.Loops{}:
+      {==}
+
+def rk.rec_recover_is_the_rust_rule(+rc: Rn.RCfg, +s: Rn.Stuck, +k: Rn.Rk, +row: Nat) -> {Rn.decide.recover(rc, s, k, row) == Laws.rust.recover(rc, s, k, row) : Rn.Help}:
+  match rc:
+    case Rn.RCfg{+long, +leak, +redirect, +repeat}:
+      match s:
+        case Rn.Truncated{}:
+          +x = Rn.Rk.longs(k, row)
+          +r = {Rn.Rec{k, row, 0n, 0n} : Rn.Rec}
+          %rk.long_row(k, row) : {Rn.Help.of(Rn.rec.long(Rn.below(x, long), x, 0n, 0n, r)) == Laws.rust.redo(Nat.is_lt(_, long), _, Rn.Quits{}) : Rn.Help}
+          %rk.below(x, long) : {Rn.Help.of(Rn.rec.long(_, x, 0n, 0n, r)) == Laws.rust.redo(Nat.is_lt(x, long), x, Rn.Quits{}) : Rn.Help}
+          rk.long(Nat.is_lt(x, long), x, 0n, 0n, r)
+        case Rn.Leaked{}:
+          +x = Rn.Rk.leaks(k, row)
+          +r = {Rn.Rec{k, row, 0n, 0n} : Rn.Rec}
+          %rk.leak_row(k, row) : {Rn.Help.of(Rn.rec.leak(Rn.below(x, leak), x, 0n, 0n, r)) == Laws.rust.redo(Nat.is_lt(_, leak), _, Rn.Stands{}) : Rn.Help}
+          %rk.below(x, leak) : {Rn.Help.of(Rn.rec.leak(_, x, 0n, 0n, r)) == Laws.rust.redo(Nat.is_lt(x, leak), x, Rn.Stands{}) : Rn.Help}
+          rk.leak(Nat.is_lt(x, leak), x, 0n, 0n, r)
+        case Rn.Repeats{+before}:
+          +y = Rn.Rk.loops(k, row)
+          +r = {Rn.Rec{k, row, before, 0n} : Rn.Rec}
+          %rk.again(before) : {Rn.Help.of(Rn.rec.ran(Rn.below(_, repeat), Rn.below(y, redirect), True{}, _, 0n, y, before, 0n, r)) == Laws.rust.calls(Nat.is_lt(1n+before, repeat), Laws.rust.redo(Nat.is_lt(Laws.rust.loop_row(k, row), redirect), Laws.rust.loop_row(k, row), Rn.Quits{})) : Rn.Help}
+          %rk.loop_row(k, row) : {Rn.Help.of(Rn.rec.ran(Rn.below(1n+before, repeat), Rn.below(y, redirect), True{}, 1n+before, 0n, y, before, 0n, r)) == Laws.rust.calls(Nat.is_lt(1n+before, repeat), Laws.rust.redo(Nat.is_lt(_, redirect), _, Rn.Quits{})) : Rn.Help}
+          %rk.below(1n+before, repeat) : {Rn.Help.of(Rn.rec.ran(_, Rn.below(y, redirect), True{}, 1n+before, 0n, y, before, 0n, r)) == Laws.rust.calls(Nat.is_lt(1n+before, repeat), Laws.rust.redo(Nat.is_lt(y, redirect), y, Rn.Quits{})) : Rn.Help}
+          %rk.below(y, redirect) : {Rn.Help.of(Rn.rec.ran(Nat.is_lt(1n+before, repeat), _, True{}, 1n+before, 0n, y, before, 0n, r)) == Laws.rust.calls(Nat.is_lt(1n+before, repeat), Laws.rust.redo(Nat.is_lt(y, redirect), y, Rn.Quits{})) : Rn.Help}
+          rk.ran(Nat.is_lt(1n+before, repeat), Nat.is_lt(y, redirect), 1n+before, 0n, y, before, 0n, r)
+
+def rk.gt(+w: Nat, +x: Nat) -> {Nat.is_lt(x, w) == Nat.is_gt(Nat.sub(w, x), 0n) : Bool}:
+  match w x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.gt(v, y)
+
+def rk.eq0(+w: Nat, +x: Nat) -> {Bool.not(Nat.is_lt(x, w)) == Nat.is_eq(Nat.sub(w, x), 0n) : Bool}:
+  match w x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+v 0n:
+      {==}
+    case 1n+v 1n+y:
+      rk.eq0(v, y)
+
+def rk.job(+retryable: Bool, +b1: Bool, +b2: Bool, +failed: Nat, +left: Nat, +gap: Nat) -> {Laws.rust.job(Bool.and(retryable, b1), Laws.rust.wait(b2)) == R.Step.act(R.live.failed(Bool.and(retryable, Bool.and(b1, b2)), failed, left, gap)) : R.Act}:
+  match retryable b1 b2:
+    case True{} True{} True{}:
+      {==}
+    case True{} True{} False{}:
+      {==}
+    case True{} False{} b2:
+      {==}
+    case False{} b1 b2:
+      {==}
+
+def rk.later(+b: Bool, +left: Nat, +gap: Nat) -> {Laws.rust.later(Laws.rust.wait(b)) == R.Step.act(R.live.pending(Bool.not(b), left, gap)) : R.Act}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.run_failed_poll_is_the_job_model(+l: Rn.Lim, +t: Rn.At, +retryable: Bool, +failed: Nat, +budget: Nat, +gap: Nat) -> {Laws.rust.job(Rn.decide.poll(retryable, failed, Rn.Lim.retries(l)), Rn.decide.reply(l, t, Rn.Deferred{})) == R.Step.act(R.step(Rn.Lim.retries(l), budget, R.Live{failed, Rn.At.p(l, t)}, R.Broke{retryable, gap})) : R.Act}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          +cfg = {Rn.Cfg{rounds, wait, retries, most} : Rn.Cfg}
+          +c = Rn.c.of(compacted)
+          +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))
+          +n = Nat.sub(most, notes)
+          +ph = Rn.Then.ph(False{}, Rn.St.ph(Rn.call(cfg, Rn.Deferred{}, 0n, c, a, n, Nat.sub(wait, waited))))
+          %Equal.sym(Rn.Then, ph, Laws.rust.wait(Nat.is_lt(waited, wait)), rk.wait(cfg, 0n, c, a, n, wait, waited)) : {Laws.rust.job(Bool.and(retryable, Nat.is_lt(failed, retries)), _) == R.Step.act(R.step(retries, budget, R.Live{failed, Nat.sub(wait, waited)}, R.Broke{retryable, gap})) : R.Act}
+          %rk.gt(wait, waited) : {Laws.rust.job(Bool.and(retryable, Nat.is_lt(failed, retries)), Laws.rust.wait(Nat.is_lt(waited, wait))) == R.Step.act(R.live.failed(Bool.and(retryable, Bool.and(Nat.is_lt(failed, retries), _)), failed, Nat.sub(wait, waited), gap)) : R.Act}
+          rk.job(retryable, Nat.is_lt(failed, retries), Nat.is_lt(waited, wait), failed, Nat.sub(wait, waited), gap)
+
+def rk.run_deferred_reply_is_the_job_model(+l: Rn.Lim, +t: Rn.At, +fails: Nat, +budget: Nat, +failed: Nat, +gap: Nat) -> {Laws.rust.later(Rn.decide.reply(l, t, Rn.Deferred{})) == R.Step.act(R.step(fails, budget, R.Live{failed, Rn.At.p(l, t)}, R.Later{gap})) : R.Act}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          +cfg = {Rn.Cfg{rounds, wait, retries, most} : Rn.Cfg}
+          +c = Rn.c.of(compacted)
+          +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))
+          +n = Nat.sub(most, notes)
+          +ph = Rn.Then.ph(False{}, Rn.St.ph(Rn.call(cfg, Rn.Deferred{}, 0n, c, a, n, Nat.sub(wait, waited))))
+          %Equal.sym(Rn.Then, ph, Laws.rust.wait(Nat.is_lt(waited, wait)), rk.wait(cfg, 0n, c, a, n, wait, waited)) : {Laws.rust.later(_) == R.Step.act(R.step(fails, budget, R.Live{failed, Nat.sub(wait, waited)}, R.Later{gap})) : R.Act}
+          %rk.eq0(wait, waited) : {Laws.rust.later(Laws.rust.wait(Nat.is_lt(waited, wait))) == R.Step.act(R.live.pending(_, Nat.sub(wait, waited), gap)) : R.Act}
+          rk.later(Nat.is_lt(waited, wait), Nat.sub(wait, waited), gap)
+
+def rk.run_first_deferred_reply_is_the_job_model(+l: Rn.Lim, +t: Rn.At, +fails: Nat, +gap: Nat) -> {Laws.rust.later(Rn.decide.reply(l, t, Rn.Deferred{})) == R.Step.act(R.step(fails, Rn.At.p(l, t), R.NoJob{}, R.Later{gap})) : R.Act}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          +cfg = {Rn.Cfg{rounds, wait, retries, most} : Rn.Cfg}
+          +c = Rn.c.of(compacted)
+          +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))
+          +n = Nat.sub(most, notes)
+          +ph = Rn.Then.ph(False{}, Rn.St.ph(Rn.call(cfg, Rn.Deferred{}, 0n, c, a, n, Nat.sub(wait, waited))))
+          %Equal.sym(Rn.Then, ph, Laws.rust.wait(Nat.is_lt(waited, wait)), rk.wait(cfg, 0n, c, a, n, wait, waited)) : {Laws.rust.later(_) == R.Step.act(R.step(fails, Nat.sub(wait, waited), R.NoJob{}, R.Later{gap})) : R.Act}
+          %rk.eq0(wait, waited) : {Laws.rust.later(Laws.rust.wait(Nat.is_lt(waited, wait))) == R.Step.act(R.live.pending(_, Nat.sub(wait, waited), gap)) : R.Act}
+          rk.later(Nat.is_lt(waited, wait), Nat.sub(wait, waited), gap)
+
+def rk.absurd(-A: Type, e: {False{} == True{} : Bool}) -> A:
+  %e : rk.BD(_, A, Unit)
+  Unit{}
+
+def rk.sub0(+x: Nat) -> {x == Nat.sub(x, 0n) : Nat}:
+  match x:
+    case 0n:
+      {==}
+    case 1n+y:
+      {==}
+
+def rk.rpred_t(+cfg: Rn.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.St.r(Rn.round(cfg, True{}, Nat.sub(m, x), c, a, n, p)) == Nat.sub(m, 1n+x) : Nat}:
+  match m x:
+    case 0n x:
+      {==}
+    case 1n+v 0n:
+      rk.sub0(v)
+    case 1n+v 1n+y:
+      rk.rpred_t(cfg, c, a, n, p, v, y)
+
+def rk.rpred_f(+cfg: Rn.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.St.r(Rn.round(cfg, False{}, Nat.sub(m, x), c, a, n, p)) == Nat.sub(m, 1n+x) : Nat}:
+  match m x:
+    case 0n x:
+      {==}
+    case 1n+v 0n:
+      rk.sub0(v)
+    case 1n+v 1n+y:
+      rk.rpred_f(cfg, c, a, n, p, v, y)
+
+def rk.run_round_counts_down(+l: Rn.Lim, +count: Nat, +reset: Bool, +c: Nat, +a: Nat, +n: Nat, +p: Nat) -> {Rn.St.r(Rn.tools(Rn.Lim.cfg(l), Rn.fin.of(False{}, reset), Rn.Lim.r(l, count), c, a, n, p)) == Rn.Lim.r(l, 1n+count) : Nat}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match reset:
+        case True{}:
+          rk.rpred_t(Rn.Cfg{rounds, wait, retries, most}, c, a, n, p, Nat.sub(rounds, 1n), count)
+        case False{}:
+          rk.rpred_f(Rn.Cfg{rounds, wait, retries, most}, c, a, n, p, Nat.sub(rounds, 1n), count)
+
+def rk.npred(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.St.n(Rn.note(cfg, r, c, a, Nat.sub(m, x), p)) == Nat.sub(m, 1n+x) : Nat}:
+  match m x:
+    case 0n x:
+      {==}
+    case 1n+v 0n:
+      rk.sub0(v)
+    case 1n+v 1n+y:
+      rk.npred(cfg, r, c, a, p, v, y)
+
+def rk.na(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +n: Nat) -> {a == Rn.St.a(Rn.note(cfg, r, c, a, n, p)) : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+m:
+      {==}
+
+def rk.s1(+x: Nat, +y: Nat) -> {Nat.sub(Nat.sub(x, 1n), y) == Nat.sub(Nat.sub(1n+x, 1n), 1n+y) : Nat}:
+  match x:
+    case 0n:
+      {==}
+    case 1n+u:
+      match u:
+        case 0n:
+          {==}
+        case 1n+v:
+          {==}
+
+def rk.run_note_counts_down(+l: Rn.Lim, +t: Rn.At, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.n(Rn.note(Rn.Lim.cfg(l), r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.n(l, Laws.rust.noted_next(t)) : Nat}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          rk.npred(Rn.Cfg{rounds, wait, retries, most}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), p, most, notes)
+
+def rk.run_note_keeps_the_retries(+l: Rn.Lim, +t: Rn.At, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.a(Rn.note(Rn.Lim.cfg(l), r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.a(l, Laws.rust.noted_next(t)) : Nat}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          +cfg = {Rn.Cfg{rounds, wait, retries, most} : Rn.Cfg}
+          +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))
+          %rk.na(cfg, r, c, a, p, Nat.sub(most, notes)) : {_ == Nat.sub(retries, Nat.sub(Nat.sub(1n+attempt, 1n), 1n+notes)) : Nat}
+          %rk.s1(attempt, notes) : {a == Nat.sub(retries, _) : Nat}
+          {==}
+
+def rk.apred(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +m: Nat, +x: Nat) -> {Rn.St.a(Rn.retry(cfg, True{}, r, c, Nat.sub(m, x), n, p)) == Nat.sub(m, 1n+x) : Nat}:
+  match m x:
+    case 0n x:
+      {==}
+    case 1n+v 0n:
+      rk.sub0(v)
+    case 1n+v 1n+y:
+      rk.apred(cfg, r, c, n, p, v, y)
+
+def rk.rn(+cfg: Rn.Cfg, +r: Nat, +c: Nat, +n: Nat, +p: Nat, +a: Nat) -> {n == Rn.St.n(Rn.retry(cfg, True{}, r, c, a, n, p)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+b:
+      {==}
+
+def rk.sub_succ(+v: Nat, +s: Nat, +e: {Nat.is_le(s, v) == True{} : Bool}) -> {1n+Nat.sub(v, s) == Nat.sub(1n+v, s) : Nat}:
+  match v s:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      rk.absurd({1n+Nat.sub(0n, 1n+y) == Nat.sub(1n, 1n+y) : Nat}, e)
+    case 1n+u 0n:
+      {==}
+    case 1n+u 1n+y:
+      rk.sub_succ(u, y, e)
+
+def rk.ra(+retries: Nat, +b: Nat, +notes: Nat, +e: {Nat.is_le(notes, b) == True{} : Bool}) -> {Nat.sub(retries, 1n+Nat.sub(Nat.sub(1n+b, 1n), notes)) == Nat.sub(retries, Nat.sub(Nat.sub(2n+b, 1n), notes)) : Nat}:
+  %rk.sub0(b) : {Nat.sub(retries, 1n+Nat.sub(_, notes)) == Nat.sub(retries, Nat.sub(1n+b, notes)) : Nat}
+  %rk.sub_succ(b, notes, e) : {Nat.sub(retries, 1n+Nat.sub(b, notes)) == Nat.sub(retries, _) : Nat}
+  {==}
+
+def rk.run_retry_counts_down(+l: Rn.Lim, +t: Rn.At, +e: {Nat.is_le(1n+Rn.At.notes(t), Rn.At.attempt(t)) == True{} : Bool}, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.a(Rn.retry(Rn.Lim.cfg(l), True{}, r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.a(l, Laws.rust.retried_next(t)) : Nat}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          match attempt:
+            case 0n:
+              rk.absurd({Rn.St.a(Rn.retry(Rn.Cfg{rounds, wait, retries, most}, True{}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(0n, 1n), notes)), Nat.sub(most, notes), p)) == Nat.sub(retries, Nat.sub(Nat.sub(1n, 1n), notes)) : Nat}, e)
+            case 1n++b:
+              Equal.trans(Nat, Rn.St.a(Rn.retry(Rn.Cfg{rounds, wait, retries, most}, True{}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(1n+b, 1n), notes)), Nat.sub(most, notes), p)), Nat.sub(retries, 1n+Nat.sub(Nat.sub(1n+b, 1n), notes)), Nat.sub(retries, Nat.sub(Nat.sub(2n+b, 1n), notes)), rk.apred(Rn.Cfg{rounds, wait, retries, most}, r, c, Nat.sub(most, notes), p, retries, Nat.sub(Nat.sub(1n+b, 1n), notes)), rk.ra(retries, b, notes, e))
+
+def rk.run_retry_keeps_the_notes(+l: Rn.Lim, +t: Rn.At, +r: Nat, +c: Nat, +p: Nat) -> {Rn.St.n(Rn.retry(Rn.Lim.cfg(l), True{}, r, c, Rn.At.a(l, t), Rn.At.n(l, t), p)) == Rn.At.n(l, Laws.rust.retried_next(t)) : Nat}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          Equal.sym(Nat, Nat.sub(most, notes), Rn.St.n(Rn.retry(Rn.Cfg{rounds, wait, retries, most}, True{}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), Nat.sub(most, notes), p)), rk.rn(Rn.Cfg{rounds, wait, retries, most}, r, c, Nat.sub(most, notes), p, Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))))
+
+def rk.and_l(+a: Bool, +b: Bool, +e: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      rk.absurd({False{} == True{} : Bool}, e)
+
+def rk.and_r(+a: Bool, +b: Bool, +e: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      e
+    case False{}:
+      rk.absurd({b == True{} : Bool}, e)
+
+def rk.add0(+n: Nat) -> {n == Nat.add(n, 0n) : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      %rk.add0(p) : {1n+p == 1n+_ : Nat}
+      {==}
+
+def rk.adds(+a: Nat, +b: Nat) -> {1n+Nat.add(a, b) == Nat.add(a, 1n+b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %rk.adds(p, b) : {2n+Nat.add(p, b) == 1n+_ : Nat}
+      {==}
+
+def rk.subadd(+m: Nat, +x: Nat, +e: {Nat.is_le(x, m) == True{} : Bool}) -> {Nat.add(Nat.sub(m, x), x) == m : Nat}:
+  match m x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      rk.absurd({Nat.add(Nat.sub(0n, 1n+y), 1n+y) == 0n : Nat}, e)
+    case 1n+v 0n:
+      %rk.add0(v) : {1n+_ == 1n+v : Nat}
+      {==}
+    case 1n+v 1n+y:
+      %rk.adds(Nat.sub(v, y), y) : {_ == 1n+v : Nat}
+      %rk.subadd(v, y, e) : {1n+Nat.add(Nat.sub(v, y), y) == 1n+_ : Nat}
+      {==}
+
+def rk.addsub(+a: Nat, +b: Nat) -> {b == Nat.sub(Nat.add(a, b), a) : Nat}:
+  match a:
+    case 0n:
+      rk.sub0(b)
+    case 1n+p:
+      rk.addsub(p, b)
+
+def rk.subsub(+m: Nat, +x: Nat, +e: {Nat.is_le(x, m) == True{} : Bool}) -> {x == Nat.sub(m, Nat.sub(m, x)) : Nat}:
+  %rk.subadd(m, x, e) : {x == Nat.sub(_, Nat.sub(m, x)) : Nat}
+  rk.addsub(Nat.sub(m, x), x)
+
+def rk.att(+attempt: Nat, +notes: Nat, +e: {Nat.is_le(1n+notes, attempt) == True{} : Bool}) -> {attempt == 1n+Nat.add(Nat.sub(Nat.sub(attempt, 1n), notes), notes) : Nat}:
+  match attempt:
+    case 0n:
+      rk.absurd({0n == 1n+Nat.add(Nat.sub(Nat.sub(0n, 1n), notes), notes) : Nat}, e)
+    case 1n++b:
+      %rk.sub0(b) : {1n+b == 1n+Nat.add(Nat.sub(_, notes), notes) : Nat}
+      %rk.subadd(b, notes, e) : {1n+_ == 1n+Nat.add(Nat.sub(b, notes), notes) : Nat}
+      {==}
+
+def rk.c(+compacted: Bool) -> {compacted == Nat.is_eq(Rn.c.of(compacted), 0n) : Bool}:
+  match compacted:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.run_counts_lossless(+l: Rn.Lim, +t: Rn.At, +w: {Laws.rust.within(l, t) == True{} : Bool}) -> {Laws.rust.back(l, Rn.At.a(l, t), Rn.At.n(l, t), Rn.At.p(l, t), Rn.At.c(t)) == t : Rn.At}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          +spent = Nat.sub(Nat.sub(attempt, 1n), notes)
+          +b1 = Nat.is_le(notes, most)
+          +b2 = Nat.is_le(1n+notes, attempt)
+          +b3 = Nat.is_le(spent, retries)
+          +b4 = Nat.is_le(waited, wait)
+          +w1 = rk.and_l(b1, Bool.and(b2, Bool.and(b3, b4)), w)
+          +r1 = rk.and_r(b1, Bool.and(b2, Bool.and(b3, b4)), w)
+          +w2 = rk.and_l(b2, Bool.and(b3, b4), r1)
+          +r2 = rk.and_r(b2, Bool.and(b3, b4), r1)
+          +w3 = rk.and_l(b3, b4, r2)
+          +w4 = rk.and_r(b3, b4, r2)
+          %rk.subsub(retries, spent, w3) : {Rn.At{1n+Nat.add(_, Nat.sub(most, Nat.sub(most, notes))), Nat.sub(most, Nat.sub(most, notes)), Nat.sub(wait, Nat.sub(wait, waited)), Nat.is_eq(Rn.c.of(compacted), 0n)} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
+          %rk.subsub(most, notes, w1) : {Rn.At{1n+Nat.add(spent, _), _, Nat.sub(wait, Nat.sub(wait, waited)), Nat.is_eq(Rn.c.of(compacted), 0n)} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
+          %rk.subsub(wait, waited, w4) : {Rn.At{1n+Nat.add(spent, notes), notes, _, Nat.is_eq(Rn.c.of(compacted), 0n)} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
+          %rk.c(compacted) : {Rn.At{1n+Nat.add(spent, notes), notes, waited, _} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
+          %rk.att(attempt, notes, w2) : {Rn.At{_, notes, waited, compacted} == Rn.At{attempt, notes, waited, compacted} : Rn.At}
+          {==}
+
+def rk.lt_s(+v: Nat, +x: Nat) -> {Nat.is_le(x, v) == Nat.is_lt(x, 1n+v) : Bool}:
+  match v x:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      match y:
+        case 0n:
+          {==}
+        case 1n+z:
+          {==}
+    case 1n+u 0n:
+      {==}
+    case 1n+u 1n+y:
+      rk.lt_s(u, y)
+
+def rk.lt_le(+m: Nat, +x: Nat, +e: {Nat.is_lt(x, m) == True{} : Bool}) -> {Nat.is_le(x, Nat.sub(m, 1n)) == True{} : Bool}:
+  match m:
+    case 0n:
+      match x:
+        case 0n:
+          rk.absurd({Nat.is_le(0n, 0n) == True{} : Bool}, e)
+        case 1n+y:
+          rk.absurd({Nat.is_le(1n+y, 0n) == True{} : Bool}, e)
+    case 1n+v:
+      %rk.sub0(v) : {Nat.is_le(x, _) == True{} : Bool}
+      Equal.trans(Bool, Nat.is_le(x, v), Nat.is_lt(x, 1n+v), True{}, rk.lt_s(v, x), e)
+
+def rk.run_rounds_lossless(+l: Rn.Lim, +count: Nat, +w: {Nat.is_lt(count, Rn.Lim.rounds(l)) == True{} : Bool}) -> {Nat.sub(Nat.sub(Rn.Lim.rounds(l), 1n), Rn.Lim.r(l, count)) == count : Nat}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      Equal.sym(Nat, count, Nat.sub(Nat.sub(rounds, 1n), Nat.sub(Nat.sub(rounds, 1n), count)), rk.subsub(Nat.sub(rounds, 1n), count, rk.lt_le(rounds, count, w)))
+
+def rk.min_lt(+w: Nat, +c: Nat, +x: Nat, +e: {Nat.is_lt(x, c) == True{} : Bool}) -> {Nat.is_lt(x, w) == Nat.is_lt(x, Nat.min(w, c)) : Bool}:
+  match w:
+    case 0n:
+      {==}
+    case 1n+v:
+      match c:
+        case 0n:
+          match x:
+            case 0n:
+              rk.absurd({Nat.is_lt(0n, 1n+v) == Nat.is_lt(0n, Nat.min(1n+v, 0n)) : Bool}, e)
+            case 1n+y:
+              rk.absurd({Nat.is_lt(1n+y, 1n+v) == Nat.is_lt(1n+y, Nat.min(1n+v, 0n)) : Bool}, e)
+        case 1n+d:
+          match x:
+            case 0n:
+              {==}
+            case 1n+y:
+              rk.min_lt(v, d, y, e)
+
+def rk.sat_wait(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Rn.At.waited(t), cap) == True{} : Bool}) -> {Laws.rust.after_reply(Laws.rust.sat_wait(l, cap), t, reply) == Laws.rust.after_reply(l, t, reply) : Rn.Then}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          match reply:
+            case Rn.Plain{}:
+              {==}
+            case Rn.Calls{}:
+              {==}
+            case Rn.Deferred{}:
+              %rk.min_lt(wait, cap, waited, e) : {Laws.rust.wait(_) == Laws.rust.wait(Nat.is_lt(waited, wait)) : Rn.Then}
+              {==}
+            case Rn.Error{retryable, noted}:
+              match retryable noted:
+                case retryable True{}:
+                  {==}
+                case True{} False{}:
+                  {==}
+                case False{} False{}:
+                  {==}
+            case Rn.Overflow{cut}:
+              {==}
+
+def rk.run_reply_saturates_the_wait(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Rn.At.waited(t), cap) == True{} : Bool}) -> {Rn.decide.reply(Laws.rust.sat_wait(l, cap), t, reply) == Rn.decide.reply(l, t, reply) : Rn.Then}:
+  +l2 = Laws.rust.sat_wait(l, cap)
+  Equal.trans(Rn.Then, Rn.decide.reply(l2, t, reply), Laws.rust.after_reply(l2, t, reply), Rn.decide.reply(l, t, reply), rk.run_reply_is_the_rust_rule(l2, t, reply), Equal.trans(Rn.Then, Laws.rust.after_reply(l2, t, reply), Laws.rust.after_reply(l, t, reply), Rn.decide.reply(l, t, reply), rk.sat_wait(l, t, reply, cap, e), Equal.sym(Rn.Then, Rn.decide.reply(l, t, reply), Laws.rust.after_reply(l, t, reply), rk.run_reply_is_the_rust_rule(l, t, reply))))
+
+def rk.min_le(+a: Nat, +c: Nat, +r: Nat, +e: {Nat.is_le(r, c) == True{} : Bool}) -> {Nat.is_lt(a, r) == Nat.is_lt(Nat.min(a, c), r) : Bool}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+u:
+      match c:
+        case 0n:
+          match r:
+            case 0n:
+              {==}
+            case 1n+q:
+              rk.absurd({Nat.is_lt(1n+u, 1n+q) == Nat.is_lt(Nat.min(1n+u, 0n), 1n+q) : Bool}, e)
+        case 1n+d:
+          match r:
+            case 0n:
+              {==}
+            case 1n+q:
+              rk.min_le(u, d, q, e)
+
+def rk.min_sub(+k: Nat, +a: Nat, +c: Nat, +r: Nat, +e: {Nat.is_le(Nat.add(k, r), c) == True{} : Bool}) -> {Nat.is_lt(Nat.sub(a, k), r) == Nat.is_lt(Nat.sub(Nat.min(a, c), k), r) : Bool}:
+  match k:
+    case 0n:
+      %rk.sub0(a) : {Nat.is_lt(_, r) == Nat.is_lt(Nat.sub(Nat.min(a, c), 0n), r) : Bool}
+      %rk.sub0(Nat.min(a, c)) : {Nat.is_lt(a, r) == Nat.is_lt(_, r) : Bool}
+      rk.min_le(a, c, r, e)
+    case 1n+j:
+      match a:
+        case 0n:
+          {==}
+        case 1n+u:
+          match c:
+            case 0n:
+              rk.absurd({Nat.is_lt(Nat.sub(1n+u, 1n+j), r) == Nat.is_lt(Nat.sub(Nat.min(1n+u, 0n), 1n+j), r) : Bool}, e)
+            case 1n+d:
+              rk.min_sub(j, u, d, r, e)
+
+def rk.ss(+a: Nat, +n: Nat) -> {Nat.sub(a, 1n+n) == Nat.sub(Nat.sub(a, 1n), n) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+u:
+      %rk.sub0(u) : {Nat.sub(u, n) == Nat.sub(_, n) : Nat}
+      {==}
+
+def rk.lt_le1(+c: Nat, +x: Nat, +e: {Nat.is_lt(x, c) == True{} : Bool}) -> {Nat.is_le(1n+x, c) == True{} : Bool}:
+  match c:
+    case 0n:
+      match x:
+        case 0n:
+          rk.absurd({Nat.is_le(1n, 0n) == True{} : Bool}, e)
+        case 1n+y:
+          rk.absurd({Nat.is_le(2n+y, 0n) == True{} : Bool}, e)
+    case 1n+d:
+      Equal.trans(Bool, Nat.is_le(x, d), Nat.is_lt(x, 1n+d), True{}, rk.lt_s(d, x), e)
+
+def rk.sat_attempt(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(Rn.At.notes(t), Rn.Lim.retries(l)), cap) == True{} : Bool}) -> {Laws.rust.after_reply(l, Laws.rust.sat_attempt(t, cap), reply) == Laws.rust.after_reply(l, t, reply) : Rn.Then}:
+  match l:
+    case Rn.Lim{+rounds, +wait, +retries, +most}:
+      match t:
+        case Rn.At{+attempt, +notes, +waited, +compacted}:
+          match reply:
+            case Rn.Plain{}:
+              {==}
+            case Rn.Calls{}:
+              {==}
+            case Rn.Deferred{}:
+              {==}
+            case Rn.Error{retryable, noted}:
+              match retryable noted:
+                case retryable True{}:
+                  {==}
+                case True{} False{}:
+                  +m = Nat.min(attempt, cap)
+                  %rk.ss(m, notes) : {Laws.rust.retry(Nat.is_lt(_, retries)) == Laws.rust.retry(Nat.is_lt(Nat.sub(Nat.sub(attempt, 1n), notes), retries)) : Rn.Then}
+                  %rk.ss(attempt, notes) : {Laws.rust.retry(Nat.is_lt(Nat.sub(m, 1n+notes), retries)) == Laws.rust.retry(Nat.is_lt(_, retries)) : Rn.Then}
+                  %rk.min_sub(1n+notes, attempt, cap, retries, rk.lt_le1(cap, Nat.add(notes, retries), e)) : {Laws.rust.retry(_) == Laws.rust.retry(Nat.is_lt(Nat.sub(attempt, 1n+notes), retries)) : Rn.Then}
+                  {==}
+                case False{} False{}:
+                  {==}
+            case Rn.Overflow{cut}:
+              {==}
+
+def rk.run_reply_saturates_the_attempt(+l: Rn.Lim, +t: Rn.At, +reply: Rn.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(Rn.At.notes(t), Rn.Lim.retries(l)), cap) == True{} : Bool}) -> {Rn.decide.reply(l, Laws.rust.sat_attempt(t, cap), reply) == Rn.decide.reply(l, t, reply) : Rn.Then}:
+  +t2 = Laws.rust.sat_attempt(t, cap)
+  Equal.trans(Rn.Then, Rn.decide.reply(l, t2, reply), Laws.rust.after_reply(l, t2, reply), Rn.decide.reply(l, t, reply), rk.run_reply_is_the_rust_rule(l, t2, reply), Equal.trans(Rn.Then, Laws.rust.after_reply(l, t2, reply), Laws.rust.after_reply(l, t, reply), Rn.decide.reply(l, t, reply), rk.sat_attempt(l, t, reply, cap, e), Equal.sym(Rn.Then, Rn.decide.reply(l, t, reply), Laws.rust.after_reply(l, t, reply), rk.run_reply_is_the_rust_rule(l, t, reply))))
+
 # ---- retry ----
 
 # proof_retry: the H4.7 retry laws of LAWS.bend about the requests of
@@ -37761,6 +38509,68 @@ def Laws.run_cut_names_the_request(retryable, fin, got, pa, ctx, n, note, log):
 def Laws.run_note_is_never_logged(q):
   note_is_never_logged(q)
 
+# (H4.9) The decisions Rust calls are the model's
+
+def Laws.run_reply_is_the_rust_rule(l, t, reply):
+  rk.run_reply_is_the_rust_rule(l, t, reply)
+
+def Laws.run_prepare_is_the_rust_rule(compacted, th):
+  rk.run_prepare_is_the_rust_rule(compacted, th)
+
+def Laws.run_prepare_compacted_reads_no_threshold(th):
+  rk.run_prepare_compacted_reads_no_threshold(th)
+
+def Laws.run_compact_is_the_rust_rule(over, got):
+  rk.run_compact_is_the_rust_rule(over, got)
+
+def Laws.run_round_is_the_rust_rule(l, count, stops, reset):
+  rk.run_round_is_the_rust_rule(l, count, stops, reset)
+
+def Laws.run_round_counts_down(l, count, reset, c, a, n, p):
+  rk.run_round_counts_down(l, count, reset, c, a, n, p)
+
+def Laws.run_note_counts_down(l, t, r, c, p):
+  rk.run_note_counts_down(l, t, r, c, p)
+
+def Laws.run_note_keeps_the_retries(l, t, r, c, p):
+  rk.run_note_keeps_the_retries(l, t, r, c, p)
+
+def Laws.run_retry_counts_down(l, t, e, r, c, p):
+  rk.run_retry_counts_down(l, t, e, r, c, p)
+
+def Laws.run_retry_premise_witness():
+  (Rn.At{1n, 0n, 0n, False{}}, {==})
+
+def Laws.run_retry_keeps_the_notes(l, t, r, c, p):
+  rk.run_retry_keeps_the_notes(l, t, r, c, p)
+
+def Laws.run_counts_lossless(l, t, w):
+  rk.run_counts_lossless(l, t, w)
+
+def Laws.run_counts_within_witness():
+  (Rn.Lim{1n, 0n, 0n, 0n}, (Rn.At{1n, 0n, 0n, False{}}, {==}))
+
+def Laws.run_rounds_lossless(l, count, w):
+  rk.run_rounds_lossless(l, count, w)
+
+def Laws.run_rounds_within_witness():
+  (Rn.Lim{1n, 0n, 0n, 0n}, (0n, {==}))
+
+def Laws.run_failed_poll_is_the_job_model(l, t, retryable, failed, budget, gap):
+  rk.run_failed_poll_is_the_job_model(l, t, retryable, failed, budget, gap)
+
+def Laws.run_deferred_reply_is_the_job_model(l, t, fails, budget, failed, gap):
+  rk.run_deferred_reply_is_the_job_model(l, t, fails, budget, failed, gap)
+
+def Laws.run_first_deferred_reply_is_the_job_model(l, t, fails, gap):
+  rk.run_first_deferred_reply_is_the_job_model(l, t, fails, gap)
+
+def Laws.run_reply_saturates_the_wait(l, t, reply, cap, e):
+  rk.run_reply_saturates_the_wait(l, t, reply, cap, e)
+
+def Laws.run_reply_saturates_the_attempt(l, t, reply, cap, e):
+  rk.run_reply_saturates_the_attempt(l, t, reply, cap, e)
+
 # (H4.8) A stuck model gets a recovery, each with a cap
 
 def Laws.rec_length_retries_with_a_note(rc, k, row, same, last, under):
@@ -37807,6 +38617,9 @@ def Laws.rec_redo_is_noted(pass):
 
 def Laws.rec_quit_fails(cfg, pass, r, c, a, n, p):
   quit_fails(cfg, pass, r, c, a, n, p)
+
+def Laws.rec_recover_is_the_rust_rule(rc, s, k, row):
+  rk.rec_recover_is_the_rust_rule(rc, s, k, row)
 
 # (C1) The catalog union
 

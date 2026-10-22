@@ -125,7 +125,7 @@ impl Run {
         reason = "one arm per reply, as `Rec.step` of `bend/run.bend` has"
     )]
     fn reply(&mut self, out: Out, rng: &mut Rng) {
-        let note = self.note.as_ref().map(|note| &note.cause);
+        let note = self.note.as_ref().and_then(|note| note.cause.recovery());
         let act = match out {
             Out::Long => {
                 let act = recover(Stuck::Length, note, &self.caps);
@@ -189,7 +189,7 @@ impl Run {
                             tool: "read".to_owned(),
                             arguments: String::new(),
                         }],
-                        rounds,
+                        rounds: rounds.get(),
                         row,
                     })),
                     Act::Stand | Act::Quit => {}
@@ -233,16 +233,13 @@ impl Run {
             Some(Act::Stand) => "stand",
             Some(Act::Quit) => "quit",
         };
-        let (kind, row) = match self.note.as_ref().map(|note| &note.cause) {
-            None
-            | Some(NoteCause::Repeated { .. } | NoteCause::NoAnswer | NoteCause::Stalled { .. }) => {
-                ("free", 0)
-            }
-            Some(cause @ NoteCause::Length { .. }) => ("longs", cause.row(Recovery::Length)),
-            Some(cause @ NoteCause::Leaked { .. }) => ("leaks", cause.row(Recovery::Leak)),
-            Some(cause @ NoteCause::Redirect { .. }) => ("loops", cause.row(Recovery::Redirect)),
+        let (kind, row) = match self.note.as_ref().and_then(|note| note.cause.recovery()) {
+            None => ("free", 0),
+            Some((Recovery::Length, row)) => ("longs", row),
+            Some((Recovery::Leak, row)) => ("leaks", row),
+            Some((Recovery::Redirect, row)) => ("loops", row),
         };
-        let same = rounds_in_a_row(&self.context, &self.last) - 1;
+        let same = rounds_in_a_row(&self.context, &self.last).get() - 1;
         let _ = writeln!(self.out, "{act} {kind} row={row} same={same}");
     }
 }
