@@ -79,18 +79,27 @@ pub struct Reconstructed {
     /// subscribe because a `session_action_update` in the gap is lost).
     pub queued: crate::queued::QueuedMessages,
     /// The LAST HUMAN PROMPT's wall-clock time (unix ms): the newest
-    /// user message's `timestamp` in fold order. The rebuilt loader
-    /// anchors its elapsed clock here (the operator's 2026-09-28
-    /// rule: the waiting/executing timer counts since the last human
-    /// prompt and never resets on a view transition -- an agents-view
-    /// round trip re-attaches mid-turn and the clock keeps its
-    /// anchor). `None` when no user message carries a timestamp (an
-    /// old snapshot or a seeded replay) -- the loader then keeps its
-    /// re-attach-instant anchor.
+    /// user message's `timestamp` in fold order. A rebuilt loader of a
+    /// running turn (`turn_running`) anchors its elapsed clock here (the
+    /// operator's 2026-09-28 rule: the waiting/executing timer counts
+    /// since the prompt and never resets on a view transition -- an
+    /// agents-view round trip re-attaches mid-turn and the clock keeps
+    /// its anchor); a settled newest turn's prompt anchors nothing. `None`
+    /// when no user message carries a timestamp (an old snapshot or a
+    /// seeded replay) -- the loader then keeps its re-attach-instant
+    /// anchor.
     pub last_user_prompt_ms: Option<u64>,
     /// The session's effective service tier (`state.serviceTier`), the
     /// `/fast` toggle's baseline.
     pub service_tier: Option<String>,
+    /// A run is open (`state.isStreaming`).
+    pub run_open: bool,
+    /// A compaction runs (`state.isCompacting`).
+    pub compacting: bool,
+    /// A turn of the open run is unanswered: the run is open and the
+    /// conversation's newest message does not settle its turn (an
+    /// answer, a blank reply or an abort does).
+    pub turn_running: bool,
 }
 
 impl Reconstructed {
@@ -237,10 +246,28 @@ fn order_messages_for_transcript(messages: &[AgentMessage]) -> Vec<&AgentMessage
     rest
 }
 
+/// [`fold_transcript`] of a transcript whose newest turn may still run.
+#[must_use]
 pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
+    fold_transcript(messages, TurnTail::Running)
+}
+
+/// Replay a whole transcript into chat rows: every message's rows, the
+/// `toolResult` messages folded onto their cards, each retry episode
+/// collapsed to its outcome row, and every ended turn's end row -- the
+/// rows the live event pump left (`laws/turn_visibility.bend` R7). `tail`
+/// says whether the newest turn ended.
+#[must_use]
+pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEntry> {
     let ordered = order_messages_for_transcript(messages);
     let mut chat: Vec<ChatEntry> = Vec::new();
     let mut card_index: HashMap<String, Vec<usize>> = HashMap::new();
+    // Rows a recovered episode's outcome row superseded in the middle of
+    // the chat: dropped at the end, so the card indices stay valid.
+    let mut superseded: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    // The stored turn being folded: none before the first prompt (a
+    // compacted transcript's head, or an empty one).
+    let mut turn: Option<TurnFold> = None;
     for message in ordered {
         if let Some(result) = tool_result_message_view(message) {
             let tool_call_id = result.tool_call_id.clone();
@@ -258,20 +285,37 @@ pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
             }
             continue;
         }
-        // The retry-episode collapse (SANCTIONED DIVERGENCE, operator
-        // ruling 2026-09-23): a `provider_retry_outcome` row replaces the
-        // failed attempts its episode superseded, so the rebuilt chat
-        // shows ONE line per episode instead of the per-attempt error
-        // rows TS renders. The superseded rows sit at the tail (attempts
-        // are appended in order), and the collapse never touches tool
-        // cards (their failures ride the cards, not error-only rows).
-        if matches!(message, AgentMessage::Custom(custom)
-            if eukhe_types::custom_type::CustomType::parse(&custom.custom_type)
-                == eukhe_types::custom_type::CustomType::ProviderRetryOutcome)
-        {
-            while chat.last().is_some_and(is_superseded_attempt_row) {
-                chat.pop();
+        match message {
+            // The previous turn ended at this prompt: its end row first.
+            AgentMessage::User(_) => {
+                if let Some(ended) = turn.replace(TurnFold::default()) {
+                    chat.extend(ended.end(TurnBoundary::NextPrompt));
+                }
             }
+            AgentMessage::Assistant(assistant) => {
+                if let Some(turn) = turn.as_mut() {
+                    turn.assistant(assistant);
+                }
+            }
+            // The retry-episode collapse (SANCTIONED DIVERGENCE, operator
+            // ruling 2026-09-23): a `provider_retry_outcome` row replaces
+            // the failed attempts its episode superseded, so the rebuilt
+            // chat shows ONE line per episode instead of the per-attempt
+            // error rows TS renders, and never the failure twice.
+            AgentMessage::Custom(custom)
+                if eukhe_types::custom_type::CustomType::parse(&custom.custom_type)
+                    == eukhe_types::custom_type::CustomType::ProviderRetryOutcome =>
+            {
+                if let Some(turn) = turn.as_mut() {
+                    turn.outcome();
+                }
+                collapse_retry_episode(&mut chat, &mut superseded);
+            }
+            AgentMessage::Custom(_)
+            | AgentMessage::ToolResult(_)
+            | AgentMessage::BashExecution(_)
+            | AgentMessage::BranchSummary(_)
+            | AgentMessage::CompactionSummary(_) => {}
         }
         let first_new = chat.len();
         chat.extend(message_value_to_entries(message));
@@ -284,7 +328,54 @@ pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
             }
         }
     }
-    chat
+    if let (TurnTail::Ended, Some(ended)) = (tail, turn) {
+        chat.extend(ended.end(TurnBoundary::RunEnded));
+    }
+    if superseded.is_empty() {
+        return chat;
+    }
+    chat.into_iter()
+        .enumerate()
+        .filter(|(index, _)| !superseded.contains(index))
+        .map(|(_, entry)| entry)
+        .collect()
+}
+
+/// Settle a retry episode before its outcome row lands. A failed
+/// episode's attempt rows sit at the tail (attempts append in order) and
+/// pop. The episode's ending message is the newest assistant entry: a
+/// reply that streamed text before it failed keeps its text, the outcome
+/// row carries the failure (one row, not two); and the attempt rows right
+/// before that message are the recovered episode's failed attempts (the
+/// outcome row lands after the answer that ended it). The collapse never
+/// touches tool cards (their failures ride the cards, not error-only
+/// rows) or an abort.
+fn collapse_retry_episode(
+    chat: &mut Vec<ChatEntry>,
+    superseded: &mut std::collections::HashSet<usize>,
+) {
+    while chat.last().is_some_and(is_superseded_attempt_row) {
+        chat.pop();
+    }
+    superseded.retain(|index| *index < chat.len());
+    let Some(ending) = chat.iter().enumerate().rposition(|(index, entry)| {
+        !superseded.contains(&index) && matches!(entry, ChatEntry::Assistant(_))
+    }) else {
+        return;
+    };
+    if let Some(ChatEntry::Assistant(reply)) = chat.get_mut(ending) {
+        if reply.error.is_some() && !reply.aborted && !reply.blocks.is_empty() {
+            reply.error = None;
+        }
+    }
+    let mut at = ending;
+    while let Some(previous) = at.checked_sub(1) {
+        if !superseded.contains(&previous) && !is_superseded_attempt_row(&chat[previous]) {
+            break;
+        }
+        superseded.insert(previous);
+        at = previous;
+    }
 }
 
 /// Settle one result onto the LAST pending card among `indices` (the
@@ -358,7 +449,47 @@ pub(crate) fn state_session_id(state: &Value) -> &str {
 /// The state's `sessionActions` does not decode.
 pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Error> {
     let snapshot = &attach.snapshot;
-    let messages = transcript_to_entries(&snapshot.messages);
+    let flag = |name: &str| {
+        snapshot
+            .state
+            .get(name)
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    };
+    let run_open = flag("isStreaming");
+    let compacting = flag("isCompacting");
+    // A turn of the open run is unanswered unless the newest message of
+    // the conversation settled it: an answer, a blank reply or an abort
+    // ends the turn (between that `turn_end` and the run's `agent_end`
+    // nothing works); a prompt, a tool round, a tool result, or a failure
+    // a retry may follow still run.
+    let turn_running = run_open
+        && snapshot
+            .messages
+            .iter()
+            .rev()
+            .find_map(|message| match message {
+                AgentMessage::User(_) | AgentMessage::ToolResult(_) => Some(true),
+                AgentMessage::Assistant(assistant) => Some(!matches!(
+                    assistant.stop_reason,
+                    eukhe_types::ai::StopReason::Stop
+                        | eukhe_types::ai::StopReason::Length
+                        | eukhe_types::ai::StopReason::Aborted
+                )),
+                AgentMessage::BashExecution(_)
+                | AgentMessage::Custom(_)
+                | AgentMessage::BranchSummary(_)
+                | AgentMessage::CompactionSummary(_) => None,
+            })
+            .unwrap_or(true);
+    let messages = fold_transcript(
+        &snapshot.messages,
+        if run_open {
+            TurnTail::Running
+        } else {
+            TurnTail::Ended
+        },
+    );
     let state = Some(&snapshot.state);
     let (model_id, model_provider) = state
         .and_then(|state| state.get("model"))
@@ -423,6 +554,9 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         queued,
         service_tier,
         last_user_prompt_ms,
+        run_open,
+        compacting,
+        turn_running,
     })
 }
 
@@ -470,6 +604,11 @@ pub use tool_fold::{
     settle_pending_tool_cards, AssistantErrorRow,
 };
 mod tool_fold;
+
+pub use turn_end::TurnTail;
+pub(crate) use turn_end::{failure_row, no_reply_row};
+use turn_end::{TurnBoundary, TurnFold};
+mod turn_end;
 
 #[cfg(test)]
 mod tests;

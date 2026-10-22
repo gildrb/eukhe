@@ -211,6 +211,11 @@ impl SessionUi {
         for entry in entries {
             view.push_entry(entry);
         }
+        // The latest prompt's client-only end rows survive this rebuild
+        // too (laws/turn_visibility.bend Q3).
+        for row in &self.carried_rows {
+            view.push_entry(row.clone());
+        }
         self.dirty = true;
     }
 
@@ -299,31 +304,50 @@ impl SessionUi {
                 reason,
             } => {
                 if active_session_id == self.active_session_id {
+                    // Whether a turn of this view was running when the
+                    // session closed: its end must say so.
+                    let working = self.turn_active
+                        || self.run_open
+                        || self.prompt_in_flight > 0
+                        || view.working.is_some();
                     self.turn_active = false;
                     self.run_open = false;
+                    self.run_awaits_turn = false;
+                    // No turn of this session ends on this stream any
+                    // more: a late prompt ack re-arms nothing.
+                    self.session_closed = true;
+                    self.last_prompt_turn_end = self.turn_ends_seen;
                     // Nothing runs for this view any more: no loader, no
                     // retry countdown, no compaction row outlives it.
                     Self::stop_loader(view);
                     view.retry = None;
                     view.compaction = None;
+                    // The retry wait the closure cut short took the failed
+                    // attempt's row off the chat; the stored transcript
+                    // keeps it, so the chat does too.
+                    if let Some(attempt) = self.retry_popped_attempt.take() {
+                        view.push_entry(attempt);
+                    }
                     // A killed, shut-down, or replaced session is an error
                     // the user must still see after the cancelled turn's
                     // later status rows land (TS `showError`), not a
-                    // transient note.
-                    match reason.as_str() {
-                        "shutdown" => self.error_row(
-                            "The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.",
-                            view,
-                        ),
-                        "replaced" => self.error_row(
-                            "The daemon replaced this agent session with another session. Reopen the current session from Agents View.",
-                            view,
-                        ),
-                        "killed" => self.error_row(
-                            "The daemon stopped this agent session. Its transcript remains saved and can be reopened from Agents View.",
-                            view,
-                        ),
-                        _ => self.note(&format!("session closed ({reason})"), view),
+                    // transient note; so is any other closure that cut a
+                    // running turn short (laws/turn_visibility.bend Q9).
+                    let text = match reason.as_str() {
+                        "shutdown" => Some("The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.".to_string()),
+                        "replaced" => Some("The daemon replaced this agent session with another session. Reopen the current session from Agents View.".to_string()),
+                        "killed" => Some("The daemon stopped this agent session. Its transcript remains saved and can be reopened from Agents View.".to_string()),
+                        _ if working => Some(format!("The session closed ({reason}) while a turn was running. Its transcript remains saved; reopen it from Agents View to go on.")),
+                        _ => None,
+                    };
+                    match text {
+                        Some(text) => {
+                            self.error_row(&text, view);
+                            if let Some(row) = view.chat.last() {
+                                self.carried_rows.push(row.clone());
+                            }
+                        }
+                        None => self.note(&format!("session closed ({reason})"), view),
                     }
                 }
             }
@@ -398,15 +422,46 @@ impl SessionUi {
             TurnUpdate::RunStarted => {
                 self.run_open = true;
                 self.run_rounds = 0;
-                self.run_showed_reply = false;
+                self.run_awaits_turn = true;
+                self.retry_popped_attempt = None;
                 self.begin_request(view);
             }
             TurnUpdate::TurnStarted => {
                 self.run_rounds += 1;
+                self.run_awaits_turn = true;
                 self.begin_request(view);
             }
             TurnUpdate::UserMessage(text) => {
                 self.speed_clock.prompt_added(text_chars(&text));
+                // A prompt that lands in an open run starts a turn this
+                // view may have missed the start of (it attached after
+                // the run's `turn_start`, before the prompt was stored):
+                // the turn runs, so its loader shows.
+                if self.run_open && !self.turn_active {
+                    self.turn_active = true;
+                    self.run_awaits_turn = true;
+                    self.enter_phase(view, TurnPhase::Requesting);
+                }
+                // The lost submit's turn reached the daemon after all: its
+                // "may still be in flight" row has its answer now, and the
+                // turn's own rows say how it ends (one row, not two).
+                if let Some((_, row)) = self.maybe_sent.take_if(|(prompt, _)| *prompt == text) {
+                    self.carried_rows.retain(|carried| *carried != row);
+                    match view.chat.iter().rposition(|shown| *shown == row) {
+                        Some(index) if index + 1 == view.chat.len() => {
+                            view.pop_chat_entry();
+                        }
+                        Some(index) => {
+                            view.update_status_row(
+                                index,
+                                "The prompt reached the daemon; its turn follows.",
+                                StatusKind::Info,
+                            );
+                        }
+                        None => {}
+                    }
+                }
+                self.last_user_text = Some(text.clone());
                 // TS `addMessageToChat`'s user case: a skill block parses
                 // into the skill-invocation card plus the trailing
                 // argument text as its own user block.
@@ -441,9 +496,23 @@ impl SessionUi {
             TurnUpdate::RetryOutcomeRow(entry) => {
                 // The episode's ONE line replaces the failed attempts' rows
                 // it settles, live exactly like the rebuild
-                // (`transcript_to_entries`): the chat never shows a
-                // failure twice.
-                while pop_superseded_attempt_row(view) {}
+                // (`fold_transcript`): the chat never shows a failure
+                // twice. A reply that streamed text before it failed keeps
+                // its text; the outcome row carries its failure.
+                while pop_superseded_attempt_row(view).is_some() {}
+                self.retry_popped_attempt = None;
+                if let Some(index) = view
+                    .chat
+                    .iter()
+                    .rposition(|shown| matches!(shown, ChatEntry::Assistant(_)))
+                {
+                    if let Some(ChatEntry::Assistant(reply)) = view.chat.get_mut(index) {
+                        if reply.error.is_some() && !reply.aborted && !reply.blocks.is_empty() {
+                            reply.error = None;
+                            view.mark_entry_stale(index);
+                        }
+                    }
+                }
                 if matches!(
                     entry,
                     ChatEntry::Status {
@@ -460,6 +529,10 @@ impl SessionUi {
                 streaming,
                 stream_event,
             } => {
+                // A next attempt's message: the retry wait is over.
+                if matches!(stream_event, Some(eukhe_types::daemon::StreamUpdate::Start)) {
+                    self.retry_popped_attempt = None;
+                }
                 self.apply_assistant_message(&message, streaming, stream_event.as_ref(), view);
             }
             TurnUpdate::ToolExecutionStart {
@@ -482,7 +555,6 @@ impl SessionUi {
                     // pending map (a card may predate a pending-state reset or
                     // arrive without its own streamed frame).
                     self.pending_tools.insert(tool_call_id.clone());
-                    self.run_showed_reply = true;
                     Self::set_working_phase(TurnPhase::RunningTool, view);
                 }
             }
@@ -550,12 +622,16 @@ impl SessionUi {
                 // next run.
                 self.pending_tools.clear();
                 self.aborted_tools.clear();
+                self.retry_popped_attempt = None;
+                // Only an answer that called tools leaves the run owing a
+                // next turn.
+                self.run_awaits_turn = outcome == TurnOutcome::Continues;
                 match outcome {
                     // The answer's tools ran; the run's next request is
                     // on its way (its `turn_start` follows): the loader
                     // stays up and keeps the turn's clock.
                     TurnOutcome::Continues => self.enter_phase(view, TurnPhase::Requesting),
-                    TurnOutcome::Answered | TurnOutcome::Aborted | TurnOutcome::Unreported => {
+                    TurnOutcome::Answered | TurnOutcome::Aborted => {
                         Self::stop_loader(view);
                     }
                     // A failure the chat does not show yet (no failed
@@ -568,20 +644,14 @@ impl SessionUi {
                             self.push_failure_row(&error, view);
                         }
                     }
-                    // A run that put nothing on screen and ended without
-                    // a reply says so instead of falling silent.
-                    TurnOutcome::Empty => {
+                    // A turn that ended with nothing to show (a blank
+                    // answer) or that the engine reported nothing for
+                    // says so instead of falling silent -- the same row
+                    // the rebuild folds (`snapshot::fold_transcript`).
+                    TurnOutcome::Empty | TurnOutcome::Unreported => {
                         Self::stop_loader(view);
-                        if !self.run_showed_reply {
-                            let step =
-                                crate::error_summary::failure_next_step("").unwrap_or_default();
-                            view.push_entry(ChatEntry::Status {
-                                text: format!(
-                                    "{WARN} The model ended the turn without a reply{}{step}",
-                                    crate::glyphs::SEP
-                                ),
-                                kind: StatusKind::Warning,
-                            });
+                        if !self.turn_error_shown {
+                            view.push_entry(crate::snapshot::no_reply_row());
                         }
                     }
                 }
@@ -606,10 +676,12 @@ impl SessionUi {
                 // the episode runs, and the episode's durable outcome row
                 // replaces it at the settle. (TS keeps one error row per
                 // failed attempt; a 429-storm spammed the chat.)
-                if pop_superseded_attempt_row(view) {
+                if let Some(attempt) = pop_superseded_attempt_row(view) {
                     // The failure is off screen until the episode settles:
-                    // the next attempt's answer or its own failure row.
+                    // the next attempt's answer or its own failure row (a
+                    // closure in the wait puts the row back).
                     self.turn_error_shown = false;
+                    self.retry_popped_attempt = Some(attempt);
                 }
                 self.enter_phase(view, TurnPhase::Retrying);
                 view.retry = Some(RetryState {
@@ -627,6 +699,7 @@ impl SessionUi {
                 restored_model,
             } => {
                 view.retry = None;
+                self.retry_popped_attempt = None;
                 if view.working.is_some() {
                     self.enter_phase(view, TurnPhase::Requesting);
                 }
@@ -638,12 +711,14 @@ impl SessionUi {
                     self.push_failure_row(&error, view);
                 }
                 // A settled switch restores the primary provider (TS
-                // `restoredModel` status line).
+                // `restoredModel` status line): a passing notice, not a
+                // chat row -- the stored transcript has no record of it,
+                // and a reopened chat must show the rows this one does.
                 if let Some(restored_model) = restored_model {
-                    view.push_entry(ChatEntry::Status {
-                        text: format!("Primary provider recovered -- back on {restored_model}"),
-                        kind: StatusKind::Info,
-                    });
+                    self.toast(
+                        &format!("Primary provider recovered -- back on {restored_model}"),
+                        view,
+                    );
                 }
             }
             TurnUpdate::CompactionStart {
@@ -736,7 +811,22 @@ impl SessionUi {
                 if self.run_open && self.run_rounds == 0 {
                     self.turn_ends_seen += 1;
                 }
+                // A run that ends owing its answering turn (none came, or
+                // its last turn called tools and the next never did) ended
+                // without a reply: the chat says so, like the rebuild of
+                // its stored transcript. A run that made no request stored
+                // no prompt for a rebuild to fold, so only this view holds
+                // the row.
+                if self.run_open && self.run_awaits_turn && !self.turn_error_shown {
+                    let row = crate::snapshot::no_reply_row();
+                    if self.run_rounds == 0 {
+                        self.carried_rows.push(row.clone());
+                    }
+                    view.push_entry(row);
+                }
                 self.run_open = false;
+                self.run_awaits_turn = false;
+                self.retry_popped_attempt = None;
                 // The run is over unless a later prompt of this client is
                 // still owed its turn (admitted in between, or traveling).
                 let owed =
@@ -748,7 +838,7 @@ impl SessionUi {
                     view.retry = None;
                     // A compaction still running keeps its loader; its
                     // `compaction_end` settles it.
-                    if view.compaction.is_none() {
+                    if !compaction_runs(view) {
                         Self::stop_loader(view);
                     }
                 }
@@ -929,14 +1019,6 @@ impl SessionUi {
             self.last_assistant_text = Some(text);
         }
         let has_tool_calls = !tool_calls.is_empty();
-        if has_tool_calls
-            || blocks.iter().any(|block| match block {
-                MessageBlock::Text(text) => !text.trim().is_empty(),
-                MessageBlock::Thinking(_) => false,
-            })
-        {
-            self.run_showed_reply = true;
-        }
         // A message_start always opens a new streaming message (the engine
         // emits one per provider call); later frames update it in place.
         if starts_message {
@@ -1147,28 +1229,18 @@ impl SessionUi {
         self.speed_clock.request_started(std::time::Instant::now());
     }
 
-    /// A failure row for a turn whose failure the chat does not show yet:
-    /// the failed-attempt row shape (an error-only assistant entry), so it
-    /// renders the failure's next step and the episode's outcome row
-    /// replaces it like any failed attempt.
+    /// A failure row for a turn whose failure the chat does not show yet
+    /// (`snapshot::failure_row`, the row the rebuild folds too).
     fn push_failure_row(&mut self, error: &str, view: &mut AgentView) {
-        view.push_entry(ChatEntry::Assistant(Box::new(
-            crate::chat::AssistantMessage {
-                blocks: Vec::new(),
-                has_tool_calls: false,
-                streaming: false,
-                error: Some(format!("Error: {error}")),
-                aborted: false,
-            },
-        )));
+        view.push_entry(crate::snapshot::failure_row(error));
         self.turn_error_shown = true;
     }
 
-    /// The loader after a compaction settled: the run it ran inside goes
+    /// The loader after a compaction settled: the turn it ran inside goes
     /// on (its next request follows), a submit still traveling keeps its
     /// send phase, and a compaction outside any turn takes the loader down.
     pub(super) fn settle_compaction_loader(&mut self, view: &mut AgentView) {
-        if self.turn_active || self.run_open {
+        if self.turn_active || self.run_awaits_turn {
             self.enter_phase(view, TurnPhase::Requesting);
         } else if self.prompt_in_flight > 0 {
             self.enter_phase(view, TurnPhase::Sending);
@@ -1176,4 +1248,14 @@ impl SessionUi {
             Self::stop_loader(view);
         }
     }
+}
+
+/// A compaction runs under this view: its loader row is up, or a rebuild
+/// re-mounted the loader of one the snapshot reported (`isCompacting`).
+pub(super) fn compaction_runs(view: &AgentView) -> bool {
+    view.compaction.is_some()
+        || view
+            .working
+            .as_ref()
+            .is_some_and(|working| working.phase == TurnPhase::Compacting)
 }

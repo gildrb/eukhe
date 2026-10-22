@@ -1847,3 +1847,7 @@ mod thinking_pins;
 /// The tool-card folds (streamed naming, the failed-frame sweep, replay
 /// pairing) live in their own child module with this file's harness.
 mod tool_cards;
+
+/// The rows ended turns leave in a rebuilt chat (`laws/turn_visibility.bend`)
+/// live in their own child module with this file's harness.
+mod turn_end;
