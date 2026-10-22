@@ -165,12 +165,40 @@ dashboard_ui() {
   test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
 }
 
-# The clean test environment of AGENTS.md: inherited EUKHE_* variables
-# would point test daemons at real state.
-workspace_tests() {
+# `cargo test --workspace`, split: the test units go to TEST_SHARDS shards
+# (scripts/ci_test_shard.py, a stable assignment), all shards run at the
+# same time on one build, then scripts/ci_test_shard_summary.py audits that
+# the shards ran every unit exactly once. The environment is the clean one
+# of AGENTS.md: inherited EUKHE_* variables would point test daemons at
+# real state.
+TEST_SHARDS=8
+
+clean_env() {
   env -i HOME="${HOME}" PATH="${PATH}" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" \
-    EUKHE_REQUIRE_BEND=1 BEND_NO_TELEMETRY=1 \
-    cargo test --workspace --locked --no-fail-fast
+    EUKHE_REQUIRE_BEND=1 BEND_NO_TELEMETRY=1 "$@"
+}
+
+workspace_tests() {
+  local total="${TEST_SHARDS}" dir shard pids=() failed=0
+  dir="$(mktemp -d)"
+  clean_env cargo test --workspace --locked --no-run
+  clean_env cargo build --workspace --bins --locked
+  echo "running ${total} test shards at the same time (logs: ${dir})"
+  for shard in $(seq 1 "${total}"); do
+    (trap - INT; clean_env python3 scripts/ci_test_shard.py --shard "${shard}" --total "${total}" \
+      --manifest "${dir}/shard-manifest-${shard}.json") </dev/null >"${dir}/shard-${shard}.log" 2>&1 &
+    pids+=("$!")
+  done
+  for shard in $(seq 1 "${total}"); do
+    if ! wait "${pids[shard - 1]}"; then
+      failed=1
+      echo "==> test shard ${shard}/${total} failed; its log:"
+      cat "${dir}/shard-${shard}.log"
+    fi
+  done
+  python3 scripts/ci_test_shard_summary.py --total "${total}" --dir "${dir}"
+  [[ ${failed} -eq 0 ]]
+  rm -rf "${dir}"
 }
 
 side_lane() {
@@ -194,25 +222,25 @@ case "${mode}" in
     gate "bend version" check_bend
     gate "lean version" check_lean
     gate fmt cargo fmt --all --check
-    # Job control: each lane runs in its own process group with the default
-    # SIGINT action (a plain background job ignores SIGINT, and the
-    # eukhe-runtime and pty tests send it). On an interrupt, stop both lanes.
-    set -m
+    # The other lane runs in the background. Bash starts a background job
+    # with SIGINT ignored, and the eukhe-runtime tests send SIGINT, so the
+    # job restores the default action first (`trap - INT`); Ctrl+C then
+    # stops every lane. The Rust lane runs in the foreground: its pty tests
+    # need the terminal state of a foreground job.
     log="$(mktemp)"
-    side_lane >"${log}" 2>&1 &
+    (trap - INT; side_lane) </dev/null >"${log}" 2>&1 &
     side=$!
+    set +e
     (
+      set -e
       gate check cargo check --workspace --all-targets --locked
       gate clippy cargo clippy --workspace --all-targets --locked -- -D warnings
       gate test workspace_tests
-    ) &
-    rust=$!
-    trap 'trap - INT TERM; kill -TERM -- "-${rust}" "-${side}" 2>/dev/null; exit 130' INT TERM
-    rust_rc=0
-    wait "${rust}" || rust_rc=$?
-    side_rc=0
-    wait "${side}" || side_rc=$?
-    set +m
+    )
+    rust_rc=$?
+    wait "${side}"
+    side_rc=$?
+    set -e
     echo "==> ci-full: secrets, deny, laws, runtime-test, dashboard-ui log"
     cat "${log}"
     rm -f "${log}"
