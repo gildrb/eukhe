@@ -78,10 +78,13 @@ def flag(n: Nat) -> Bool:
 # Writing
 # -------
 
+# the bridge's exit codes are 0..2: the low word is the code
 def show.end(e: Jb.End) -> String:
   match e:
     case Jb.Exited{c}:
-      String.append("exited:", Nat.show(c))
+      match c:
+        case Jb.Code{hi, lo}:
+          String.append("exited:", U32.show(lo))
     case Jb.Killed{}:
       "killed"
 
@@ -184,7 +187,7 @@ def line(h: String, +ws: List<&2, String>, +s: St) -> St:
     case SCon{'o', r}:
       see(Jb.Out{arg(ws, 1n)}, s)
     case SCon{'q', r}:
-      see(Jb.Quit{arg(ws, 1n)}, s)
+      see(Jb.Quit{Jb.Code{0, U32.from_nat(arg(ws, 1n))}}, s)
     case SCon{'k', r}:
       see(Jb.Kill{}, s)
     case SCon{'t', r}:

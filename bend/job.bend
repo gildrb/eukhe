@@ -17,16 +17,21 @@ import Base
 # A job
 # -----
 
+# An exit status: the i64 the process reported, as its two 32-bit words,
+# high first (two's complement), so every i64 is exactly one Code
+type Code is Data:
+  Code{hi: U32, lo: U32}
+
 # What a job sees
 type JEv is Data:
-  Out{n: Nat}     # n bytes of output
-  Quit{code: Nat} # the process exits with code
-  Kill{}          # the kill signal
-  Tick{}          # one tick of time
+  Out{n: Nat}      # n bytes of output
+  Quit{code: Code} # the process exits with code
+  Kill{}           # the kill signal
+  Tick{}           # one tick of time
 
 # How a job ends
 type End is Data:
-  Exited{code: Nat}
+  Exited{code: Code}
   Killed{}
 
 # A job: live with the bytes kept and dropped, or ended
@@ -99,6 +104,42 @@ def ends.of(j: J, e: JEv) -> List<&2, End>:
           [Killed{}]
         case Tick{}:
           Nil{}
+
+# The step the Rust jobs run
+# --------------------------
+# The compiled core's wire carries a Nat up to 10^14 - 1 (below the
+# runtime's 2^48 - 1), so the Rust jobs hold a job's bytes kept plus
+# dropped to t = 10^14 - 1 (about 90 TiB): an output counts only the
+# bytes up to t. Below t, `feed` is `step`.
+
+# the bytes kept plus dropped
+def J.total(j: J) -> Nat:
+  match j:
+    case Live{k, d}:
+      Nat.add(k, d)
+    case Ended{k, d, e}:
+      Nat.add(k, d)
+
+# the event a live job with counts k and d sees under t: an output cut to
+# the bytes left below t
+def feed.ev(+t: Nat, +k: Nat, +d: Nat, e: JEv) -> JEv:
+  match e:
+    case Out{n}:
+      Out{Nat.min(n, Nat.sub(Nat.sub(t, k), d))}
+    case Quit{c}:
+      Quit{c}
+    case Kill{}:
+      Kill{}
+    case Tick{}:
+      Tick{}
+
+# one event, with the counts held to t
+def feed(+t: Nat, +cap: Maybe<&2, Nat>, j: J, e: JEv) -> J:
+  match j:
+    case Live{+k, +d}:
+      step(cap, Live{k, d}, feed.ev(t, k, d, e))
+    case Ended{k, d, x}:
+      Ended{k, d, x}
 
 # the job after events es, from j
 def go(es: List<&2, JEv>, +cap: Maybe<&2, Nat>, j: J) -> J:

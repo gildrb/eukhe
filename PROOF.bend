@@ -5919,6 +5919,31 @@ def pc.delivered(+cfg: Ch.Cfg, s: Ch.St, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: C
 def pc.delivered_once(+cfg: Ch.Cfg, +evs: List<&2, Ch.Ev>, +d1: Nat, +o1: Ch.Obs, +d2: Nat, +o2: Ch.Obs, +d3: Nat, +o3: Ch.Obs, ow: {Ch.Ph.owing(Ch.St.ph(Ch.run(evs, cfg, Ch.St.init(cfg)))) == True{} : Bool}, +m: Nat, em: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}) -> {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}:
   pc.delivered(cfg, Ch.run(evs, cfg, Ch.St.init(cfg)), d1, o1, d2, o2, d3, o3, m, pc.K_run(evs, cfg, Ch.St.init(cfg), {==}), ow, em)
 
+# The task's decisions: the call on a poll is the watch's verdict as the
+# mode acts on it, for any verdict.
+
+def pc.acted(x: Ch.Next, m: Ch.Mode) -> {Ch.call.of(x, m) == Laws.ChildActed(x, m) : Ch.Call}:
+  match x:
+    case Ch.Watch{w}:
+      {==}
+    case Ch.Owe{k}:
+      match m:
+        case Ch.Inbox{}:
+          {==}
+        case Ch.Silent{}:
+          {==}
+    case Ch.Quiet{}:
+      {==}
+
+def pc.silent(x: Ch.Next) -> {Ch.Call.reports(Ch.call.of(x, Ch.Silent{})) == False{} : Bool}:
+  match x:
+    case Ch.Watch{w}:
+      {==}
+    case Ch.Owe{k}:
+      {==}
+    case Ch.Quiet{}:
+      {==}
+
 # ---- run ----
 
 # proof_run: the H4 laws of LAWS.bend about bend/run.bend.
@@ -11521,7 +11546,7 @@ def pj.same(+xs: List<&2, Jb.JEv>, +ys: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, 
   %pj.ended(xs, cap, k, d, x) : {_ == Jb.go(ys, cap, Jb.Ended{k, d, x}) : Jb.J}
   pj.ended(ys, cap, k, d, x)
 
-def pj.quit_end(+xs: List<&2, Jb.JEv>, +ys: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, j: Jb.J, +q: Nat) -> {Jb.go(xs, cap, Jb.step(cap, j, Jb.Quit{q})) == Jb.go(ys, cap, Jb.step(cap, j, Jb.Quit{q})) : Jb.J}:
+def pj.quit_end(+xs: List<&2, Jb.JEv>, +ys: List<&2, Jb.JEv>, +cap: Maybe<&2, Nat>, j: Jb.J, +q: Jb.Code) -> {Jb.go(xs, cap, Jb.step(cap, j, Jb.Quit{q})) == Jb.go(ys, cap, Jb.step(cap, j, Jb.Quit{q})) : Jb.J}:
   match j:
     case Jb.Live{k, d}:
       pj.same(xs, ys, cap, k, d, Jb.Exited{q})
@@ -11940,6 +11965,122 @@ def pj.rewind_stops_orphans(+js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> {Jb
 def pj.rewind_keeps_target_jobs(+js: List<&2, Jb.Slot>, +keep: List<&2, Nat>) -> {Jb.kept(Jb.rewind(js, keep), js, keep) == True{} : Bool}:
   pj.keeps(js, keep)
 
+# The step the Rust jobs run (`feed`): below t it is the step; any output
+# is a step on a part of it; the counts stay within t and fill it.
+
+def pj.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
+  %e : pj.BD(_, Unit, A)
+  Unit{}
+
+def pj.sub_sub_r(+t: Nat, +k: Nat, +d: Nat) -> {Nat.sub(t, Nat.add(k, d)) == Nat.sub(Nat.sub(t, k), d) : Nat}:
+  Equal.sym(Nat, Nat.sub(Nat.sub(t, k), d), Nat.sub(t, Nat.add(k, d)), pj.sub_sub(t, k, d))
+
+# n == min(m, n) when n <= m
+def pj.min_of_ge(m: Nat, n: Nat, h: {Nat.is_le(n, m) == True{} : Bool}) -> {n == Nat.min(m, n) : Nat}:
+  match m n:
+    case 0n 0n:
+      {==}
+    case 0n 1n+np:
+      pj.absurdF({1n+np == Nat.min(0n, 1n+np) : Nat}, h)
+    case 1n+mp 0n:
+      {==}
+    case 1n+mp 1n+np:
+      %pj.min_of_ge(mp, np, h) : {1n+np == 1n+_ : Nat}
+      {==}
+
+# a + m <= t when a <= t and m <= t - a
+def pj.add_le_sub(a: Nat, t: Nat, +m: Nat, ha: {Nat.is_le(a, t) == True{} : Bool}, hm: {Nat.is_le(m, Nat.sub(t, a)) == True{} : Bool}) -> {Nat.is_le(Nat.add(a, m), t) == True{} : Bool}:
+  match a t:
+    case 0n 0n:
+      hm
+    case 0n 1n+tp:
+      hm
+    case 1n+ap 0n:
+      pj.absurdF({Nat.is_le(Nat.add(1n+ap, m), 0n) == True{} : Bool}, ha)
+    case 1n+ap 1n+tp:
+      pj.add_le_sub(ap, tp, m, ha, hm)
+
+def pj.lt_le(t: Nat, n: Nat, h: {Nat.is_lt(t, n) == True{} : Bool}) -> {Nat.is_le(t, n) == True{} : Bool}:
+  match t n:
+    case 0n 0n:
+      pj.absurdF({Nat.is_le(0n, 0n) == True{} : Bool}, h)
+    case 0n 1n+np:
+      {==}
+    case 1n+tp 0n:
+      pj.absurdF({Nat.is_le(1n+tp, 0n) == True{} : Bool}, h)
+    case 1n+tp 1n+np:
+      pj.lt_le(tp, np, h)
+
+# t - a <= n when t < a + n
+def pj.sub_le_of_lt(a: Nat, t: Nat, +n: Nat, h: {Nat.is_lt(t, Nat.add(a, n)) == True{} : Bool}) -> {Nat.is_le(Nat.sub(t, a), n) == True{} : Bool}:
+  match a t:
+    case 0n 0n:
+      pj.le0(n)
+    case 0n 1n+tp:
+      pj.lt_le(1n+tp, n, h)
+    case 1n+ap 0n:
+      pj.le0(n)
+    case 1n+ap 1n+tp:
+      pj.sub_le_of_lt(ap, tp, n, h)
+
+# the total of an output step: the old total plus the output
+def pj.out_total(+cap: Maybe<&2, Nat>, +k: Nat, +d: Nat, +m: Nat) -> {Nat.add(Nat.add(k, d), m) == Jb.J.total(Jb.step(cap, Jb.Live{k, d}, Jb.Out{m})) : Nat}:
+  pj.split(k, d, Jb.take(cap, k, m), m, pj.take_le(cap, k, m))
+
+def pj.job_feed_fits(+t: Nat, +cap: Maybe<&2, Nat>, +k: Nat, +d: Nat, +n: Nat, fits: {Nat.is_le(Nat.add(Nat.add(k, d), n), t) == True{} : Bool}) -> {Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{n}) : Jb.J}:
+  +le = pj.le_sub(Nat.add(k, d), n, t, fits)
+  %pj.sub_sub_r(t, k, d) : {Jb.step(cap, Jb.Live{k, d}, Jb.Out{Nat.min(n, _)}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{n}) : Jb.J}
+  %pj.min_of_le(n, Nat.sub(t, Nat.add(k, d)), le) : {Jb.step(cap, Jb.Live{k, d}, Jb.Out{_}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{n}) : Jb.J}
+  {==}
+
+def pj.job_feed_no_output(+t: Nat, +cap: Maybe<&2, Nat>, j: Jb.J, e: Jb.JEv, quiet: {Laws.JobWrites(e) == False{} : Bool}) -> {Jb.feed(t, cap, j, e) == Jb.step(cap, j, e) : Jb.J}:
+  match j:
+    case Jb.Live{k, d}:
+      match e:
+        case Jb.Out{n}:
+          pj.absurdT({Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{n}) : Jb.J}, quiet)
+        case Jb.Quit{c}:
+          {==}
+        case Jb.Kill{}:
+          {==}
+        case Jb.Tick{}:
+          {==}
+    case Jb.Ended{k, d, x}:
+      match e:
+        case Jb.Out{n}:
+          {==}
+        case Jb.Quit{c}:
+          {==}
+        case Jb.Kill{}:
+          {==}
+        case Jb.Tick{}:
+          {==}
+
+def pj.job_feed_bounded(+t: Nat, +cap: Maybe<&2, Nat>, +j: Jb.J, e: Jb.JEv, below: {Nat.is_le(Jb.J.total(j), t) == True{} : Bool}) -> {Nat.is_le(Jb.J.total(Jb.feed(t, cap, j, e)), t) == True{} : Bool}:
+  match j:
+    case Jb.Live{+k, +d}:
+      match e:
+        case Jb.Out{+n}:
+          %pj.out_total(cap, k, d, Nat.min(n, Nat.sub(Nat.sub(t, k), d))) : {Nat.is_le(_, t) == True{} : Bool}
+          %pj.sub_sub_r(t, k, d) : {Nat.is_le(Nat.add(Nat.add(k, d), Nat.min(n, _)), t) == True{} : Bool}
+          pj.add_le_sub(Nat.add(k, d), t, Nat.min(n, Nat.sub(t, Nat.add(k, d))), below, pj.min_le_r(n, Nat.sub(t, Nat.add(k, d))))
+        case Jb.Quit{c}:
+          below
+        case Jb.Kill{}:
+          below
+        case Jb.Tick{}:
+          below
+    case Jb.Ended{k, d, x}:
+      below
+
+def pj.job_feed_fills(+t: Nat, +cap: Maybe<&2, Nat>, +k: Nat, +d: Nat, +n: Nat, below: {Nat.is_le(Nat.add(k, d), t) == True{} : Bool}, over: {Nat.is_lt(t, Nat.add(Nat.add(k, d), n)) == True{} : Bool}) -> {Jb.J.total(Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n})) == t : Nat}:
+  +a = Nat.add(k, d)
+  %pj.out_total(cap, k, d, Nat.min(n, Nat.sub(Nat.sub(t, k), d))) : {_ == t : Nat}
+  %pj.sub_sub_r(t, k, d) : {Nat.add(a, Nat.min(n, _)) == t : Nat}
+  %pj.min_of_ge(n, Nat.sub(t, a), pj.sub_le_of_lt(a, t, n, over)) : {Nat.add(a, _) == t : Nat}
+  %pj.add_sub(a, t, below) : {_ == t : Nat}
+  {==}
+
 # ---- sandbox ----
 
 # proof_sandbox: the S3 laws (docs/runtime.md) of the sandbox model in
@@ -12262,6 +12403,47 @@ def px.cow_conflict_is_real(+ks: List<&2, Nat>, +par: List<&2, Sb.Doc>, +base: L
   +M = px.mk(par, base, child, k)
   +both = Equal.trans(Bool, Bool.and(Sb.elem(ks, k), Sb.One.clash(M)), Sb.elem(Sb.Back.clashes(Sb.back(ks, par, base, child)), k), True{}, px.cl_back(ks, par, base, child, k), clash)
   px.real(Sb.read(par, k), Sb.read(base, k), Sb.read(child, k), px.and_r(Sb.elem(ks, k), Sb.One.clash(M), both))
+
+# The plan of one path, for any three equalities of its contents: the
+# copy-on-write rule, and the merge it carries out.
+
+def px.plan(calm: Bool, still: Bool, same: Bool, c: Maybe<&2, Nat>) -> {Sb.plan.at(calm, still, same, c) == Laws.CowPlan.go(calm, still, same, c) : Sb.Plan}:
+  match calm:
+    case True{}:
+      {==}
+    case False{}:
+      match still:
+        case True{}:
+          match c:
+            case None{}:
+              {==}
+            case Some{x}:
+              {==}
+        case False{}:
+          match same:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+
+def px.plan_merge(calm: Bool, still: Bool, same: Bool, +p: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> {Sb.Plan.merge(Sb.plan.at(calm, still, same, c), p, c) == Sb.merge.at(Bool.not(calm), Bool.not(still), same, p, c) : Sb.One}:
+  match calm:
+    case True{}:
+      {==}
+    case False{}:
+      match still:
+        case True{}:
+          match c:
+            case None{}:
+              {==}
+            case Some{x}:
+              {==}
+        case False{}:
+          match same:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
 
 # ---- cvar ----
 
@@ -19708,6 +19890,92 @@ def pp.news(+w: Ch.W, +a: Nat, +b: Nat, tok: {Ch.W.tok(w) == Some{a} : Maybe<&2,
 def pp.new_work_moves(+cfg: Ch.Cfg, +w: Ch.W, +e: Nat, +seen: List<&2, Nat>, +seg: List<&2, Nat>, +x: Nat, fresh: {Pr.mem(x, seen) == False{} : Bool}, i: Pr.In(x, seg), tok: {Ch.W.tok(w) == Some{Pr.work(seen)} : Maybe<&2, Nat>}) -> {Ch.look(cfg, w, e, Ch.Busy{Some{Pr.work(List.append(&2, Nat, seen, seg))}}) == Ch.Watch{Ch.W.fresh(cfg, Some{Pr.work(List.append(&2, Nat, seen, seg))})} : Ch.Next}:
   +b = Pr.work(List.append(&2, Nat, seen, seg))
   pc.progress_is_not_a_stall(cfg, w, e, b, pp.news(w, Pr.work(seen), b, tok, pp.new_work(seen, seg, x, fresh, i)))
+
+# The check the Rust goal loop runs (`judge`): below t it is the check on
+# the counts, the counts grow exactly when `grew`, and the count is held.
+
+def pp.le0_eq(t: Nat) -> {True{} == Nat.is_le(0n, t) : Bool}:
+  match t:
+    case 0n:
+      {==}
+    case 1n+q:
+      {==}
+
+# a < b is 1 + a <= b
+def pp.lt_is_le(a: Nat, b: Nat) -> {Nat.is_lt(a, b) == Nat.is_le(1n+a, b) : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+bp:
+      %pp.le0_eq(bp) : {True{} == _ : Bool}
+      {==}
+    case 1n+ap 0n:
+      {==}
+    case 1n+ap 1n+bp:
+      pp.lt_is_le(ap, bp)
+
+# 1 + s <= t when s < t
+def pp.lt_le_succ(s: Nat, t: Nat, h: {Nat.is_lt(s, t) == True{} : Bool}) -> {Nat.is_le(1n+s, t) == True{} : Bool}:
+  %pp.lt_is_le(s, t) : {_ == True{} : Bool}
+  h
+
+# s <= t - 1 when s < t
+def pp.lt_pred(s: Nat, t: Nat, h: {Nat.is_lt(s, t) == True{} : Bool}) -> {Nat.is_le(s, Nat.sub(t, 1n)) == True{} : Bool}:
+  match s t:
+    case 0n 0n:
+      pj.absurdF({Nat.is_le(0n, Nat.sub(0n, 1n)) == True{} : Bool}, h)
+    case 0n 1n+tp:
+      pj.le0(Nat.sub(1n+tp, 1n))
+    case 1n+sp 0n:
+      pj.absurdF({Nat.is_le(1n+sp, Nat.sub(0n, 1n)) == True{} : Bool}, h)
+    case 1n+sp 1n++tp:
+      %pj.sub_zero(tp) : {Nat.is_le(1n+sp, _) == True{} : Bool}
+      pp.lt_le_succ(sp, tp, h)
+
+def pp.strike_stalls(b: Bool, +n: Nat) -> {n == Pr.Goal.stalls(Pr.strike.put(b, n)) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# min(1 + u, u) == u
+def pp.min_succ(u: Nat) -> {u == Nat.min(1n+u, u) : Nat}:
+  match u:
+    case 0n:
+      {==}
+    case 1n+p:
+      %pp.min_succ(p) : {1n+p == 1n+_ : Nat}
+      {==}
+
+def pp.held_check(+u: Nat, +cap: Nat, +m: Nat, g: Bool, h: {Nat.is_le(m, u) == True{} : Bool}) -> {Nat.is_le(Pr.Goal.stalls(Pr.check(cap, m, g)), 1n+u) == True{} : Bool}:
+  match g:
+    case True{}:
+      {==}
+    case False{}:
+      %pp.strike_stalls(Nat.is_le(cap, 1n+m), 1n+m) : {Nat.is_le(_, 1n+u) == True{} : Bool}
+      h
+
+def pp.judge_is_check(+t: Nat, +cap: Nat, +s: Nat, +w: Nat, +work: Nat, below: {Nat.is_lt(s, t) == True{} : Bool}) -> {Pr.judge(t, cap, Some{Pr.Prior{s, w}}, work) == Pr.check(cap, s, Nat.is_lt(w, work)) : Pr.Goal}:
+  %pj.min_of_le(s, Nat.sub(t, 1n), pp.lt_pred(s, t, below)) : {Pr.check(cap, _, Nat.is_lt(w, work)) == Pr.check(cap, s, Nat.is_lt(w, work)) : Pr.Goal}
+  {==}
+
+def pp.judge_held(+u: Nat, +cap: Nat, p: Maybe<&2, Pr.Prior>, +work: Nat) -> {Nat.is_le(Pr.Goal.stalls(Pr.judge(1n+u, cap, p, work)), 1n+u) == True{} : Bool}:
+  match p:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case Pr.Prior{+s, +w}:
+          %pj.sub_zero(u) : {Nat.is_le(Pr.Goal.stalls(Pr.check(cap, Nat.min(s, _), Nat.is_lt(w, work))), 1n+u) == True{} : Bool}
+          pp.held_check(u, cap, Nat.min(s, u), Nat.is_lt(w, work), pj.min_le_r(s, u))
+
+def pp.judge_top_stops(+u: Nat, +cap: Nat, +w: Nat, +work: Nat, fits: {Nat.is_le(cap, 1n+u) == True{} : Bool}, same: {Nat.is_lt(w, work) == False{} : Bool}) -> {Pr.judge(1n+u, cap, Some{Pr.Prior{1n+u, w}}, work) == Pr.Stop{1n+u} : Pr.Goal}:
+  %pj.sub_zero(u) : {Pr.check(cap, Nat.min(1n+u, _), Nat.is_lt(w, work)) == Pr.Stop{1n+u} : Pr.Goal}
+  %pp.min_succ(u) : {Pr.check(cap, _, Nat.is_lt(w, work)) == Pr.Stop{1n+u} : Pr.Goal}
+  %Equal.sym(Bool, Nat.is_lt(w, work), False{}, same) : {Pr.check(cap, u, _) == Pr.Stop{1n+u} : Pr.Goal}
+  %Equal.sym(Bool, Nat.is_le(cap, 1n+u), True{}, fits) : {Pr.strike.put(_, 1n+u) == Pr.Stop{1n+u} : Pr.Goal}
+  {==}
 
 # ---- progress_report ----
 
@@ -32314,6 +32582,51 @@ def Laws.child_resubmits_per_abort(cfg, evs):
 def Laws.child_delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits):
   pc.delivered_once(cfg, evs, d1, o1, d2, o2, d3, o3, owing, m, waits)
 
+def Laws.child_task_call(cfg, w, e, o, m):
+  pc.acted(Ch.look(cfg, w, e, o), m)
+
+def Laws.child_silent_never_reports(cfg, w, e, o):
+  pc.silent(Ch.look(cfg, w, e, o))
+
+def Laws.child_report_move(f, n):
+  match f:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case Ch.Queued{}:
+          {==}
+        case Ch.Withdrawn{}:
+          {==}
+        case Ch.Placed{}:
+          {==}
+
+def Laws.child_report_move_is_owe(f, k, n, open, inbox):
+  match f:
+    case None{}:
+      {==}
+    case Some{x}:
+      match x:
+        case Ch.Queued{}:
+          {==}
+        case Ch.Withdrawn{}:
+          {==}
+        case Ch.Placed{}:
+          {==}
+
+def Laws.child_abort_rule(ph, del):
+  match ph:
+    case Ch.Watching{w}:
+      match del:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case Ch.Owing{k, n}:
+      {==}
+    case Ch.Ended{}:
+      {==}
+
 # (H3) A user's request never waits behind background work
 
 def Laws.admission_preempts(s):
@@ -32425,6 +32738,24 @@ def Laws.rewind_stops_orphans(js, keep):
 def Laws.rewind_keeps_target_jobs(js, keep):
   pj.rewind_keeps_target_jobs(js, keep)
 
+def Laws.job_feed_fits(t, cap, k, d, n, fits):
+  pj.job_feed_fits(t, cap, k, d, n, fits)
+
+def Laws.job_feed_no_output(t, cap, j, e, quiet):
+  pj.job_feed_no_output(t, cap, j, e, quiet)
+
+def Laws.job_feed_ended(t, cap, k, d, x, e):
+  {==}
+
+def Laws.job_feed_is_a_step(t, cap, k, d, n):
+  (Nat.min(n, Nat.sub(Nat.sub(t, k), d)), {==})
+
+def Laws.job_feed_bounded(t, cap, j, e, below):
+  pj.job_feed_bounded(t, cap, j, e, below)
+
+def Laws.job_feed_fills(t, cap, k, d, n, below, over):
+  pj.job_feed_fills(t, cap, k, d, n, below, over)
+
 # (S3) The host and the sandbox
 
 def Laws.proto_one_reply_each(fs, max, allowed):
@@ -32450,6 +32781,12 @@ def Laws.cow_conflict_reported(ks, par, base, child, k, listed, moved, also, apa
 
 def Laws.cow_conflict_is_real(ks, par, base, child, k, clash):
   px.cow_conflict_is_real(ks, par, base, child, k, clash)
+
+def Laws.cow_plan(p, b, c):
+  px.plan(Sb.m.eq(c, b), Sb.m.eq(p, b), Sb.m.eq(p, c), c)
+
+def Laws.cow_plan_is_merge(p, b, c):
+  px.plan_merge(Sb.m.eq(c, b), Sb.m.eq(p, b), Sb.m.eq(p, c), p, c)
 
 # (S4) Settings as console variables
 
@@ -32885,6 +33222,21 @@ def Laws.goal_stops_without_progress(cap, s, hist, seg, segs, repeats, long):
 
 def Laws.goal_progress_continues(cap, s, hist, seg, x, fresh, news):
   pp.grew_yes(cap, s, hist, seg, x, fresh, news)
+
+def Laws.goal_first_check_starts(t, cap, work):
+  {==}
+
+def Laws.goal_judge_is_check(t, cap, s, w, work, below):
+  pp.judge_is_check(t, cap, s, w, work, below)
+
+def Laws.goal_judge_counts_work(hist, seg):
+  pp.lt_is_le(Pr.work(hist), Pr.work(List.append(&2, Nat, hist, seg)))
+
+def Laws.goal_judge_held(u, cap, p, work):
+  pp.judge_held(u, cap, p, work)
+
+def Laws.goal_judge_top_stops(u, cap, w, work, fits, same):
+  pp.judge_top_stops(u, cap, w, work, fits, same)
 
 def Laws.fallback_is_reported(ps, k, h):
   ppr.fallback_is_reported(ps, k, h)

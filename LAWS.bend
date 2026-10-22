@@ -527,6 +527,103 @@ law child_delivered_once:
   for waits: {Ch.St.owed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == m : Nat}
   {Ch.St.placed(Ch.run([Ch.Reopen{}, Ch.Poll{d1, o1}, Ch.Poll{d2, o2}, Ch.Poll{d3, o3}, Ch.Deliver{m}], cfg, Ch.run(evs, cfg, Ch.St.init(cfg)))) == 1n : Nat}
 
+# The task's decisions, as the Rust task runs them (bend/child.bend
+# `verdict`, `owe.next`, `cut.ph`): the call on one poll, the report
+# phase's move, the abort.
+
+# the call a task in mode m makes on the watch's verdict x: watch on,
+# report to the parent's inbox, or (a silent task, or a child that
+# replied) end with no report, keeping why
+def ChildActed(x: Ch.Next, m: Ch.Mode) -> Ch.Call:
+  match x:
+    case Ch.Watch{w}:
+      Ch.Watches{w}
+    case Ch.Owe{k}:
+      match m:
+        case Ch.Inbox{}:
+          Ch.Reports{k}
+        case Ch.Silent{}:
+          Ch.Settles{Some{k}}
+    case Ch.Quiet{}:
+      Ch.Settles{None{}}
+
+# the report phase's move on the fate of submission n: none yet, submit
+# it under n; queued, wait; withdrawn, owe it under n + 1; placed, end
+def ChildMove(f: Maybe<&2, Ch.Fate>, +n: Nat) -> Ch.Move:
+  match f:
+    case None{}:
+      Ch.Submit{n}
+    case Some{x}:
+      match x:
+        case Ch.Queued{}:
+          Ch.Await{}
+        case Ch.Withdrawn{}:
+          Ch.Resubmit{1n+n}
+        case Ch.Placed{}:
+          Ch.Delivered{}
+
+# the phase an abort leaves: a delete of a watched child owes a cancelled
+# report under the first id, a cancel owes nothing, an owed report goes
+# on as it was, an ended task stays ended
+def ChildAbort(ph: Ch.Ph, del: Bool) -> Ch.Ph:
+  match ph:
+    case Ch.Watching{w}:
+      match del:
+        case True{}:
+          Ch.Owing{Ch.Cancelled{}, 1n}
+        case False{}:
+          Ch.Ended{}
+    case Ch.Owing{k, n}:
+      Ch.Owing{k, n}
+    case Ch.Ended{}:
+      Ch.Ended{}
+
+# LAW: the task's call on a poll is the watch's verdict (`look`, which
+# the laws above bound) as the task's mode acts on it
+# EXCLUDES: a call that drops or invents a report, a silent task that
+# reports, an inbox task that settles a child that owes a report
+law child_task_call:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for o: Ch.Obs
+  for m: Ch.Mode
+  {Ch.verdict(cfg, w, e, o, m) == ChildActed(Ch.look(cfg, w, e, o), m) : Ch.Call}
+
+# LAW: a silent task never reports to its parent
+law child_silent_never_reports:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for o: Ch.Obs
+  {Ch.Call.reports(Ch.verdict(cfg, w, e, o, Ch.Silent{})) == False{} : Bool}
+
+# LAW: the report phase's move is the one report rule
+# EXCLUDES: a second submission while one is queued, a resubmission under
+# the same id, an end before the report is placed
+law child_report_move:
+  for f: Maybe<&2, Ch.Fate>
+  for +n: Nat
+  {Ch.owe.next(f, n) == ChildMove(f, n) : Ch.Move}
+
+# LAW: the move, carried out, is the model's report rule `owe`, so the
+# report laws above hold for the task the Rust code runs
+law child_report_move_is_owe:
+  for f: Maybe<&2, Ch.Fate>
+  for k: Ch.Report
+  for +n: Nat
+  for open: Bool
+  for inbox: List<&2, Ch.Sub>
+  {Ch.owe.do(Ch.owe.next(f, n), k, n, open, inbox) == Ch.owe(f, k, n, open, inbox) : Ch.St}
+
+# LAW: the abort's rule
+# EXCLUDES: a delete with no report, a cancel that reports, an abort that
+# loses or restarts an owed report
+law child_abort_rule:
+  for ph: Ch.Ph
+  for del: Bool
+  {Ch.cut.ph(ph, del) == ChildAbort(ph, del) : Ch.Ph}
+
 # (H3) A user's request never waits behind background work
 # ---------------------------------------------------------
 # docs/harness.md H3, the model in bend/admission.bend: one provider's
@@ -815,6 +912,84 @@ law rewind_keeps_target_jobs:
   for +keep: List<&2, Nat>
   {Jb.kept(Jb.rewind(js, keep), js, keep) == True{} : Bool}
 
+# The step the Rust jobs run is `feed` (bend/job.bend): `step` with a
+# job's bytes kept plus dropped held to t (t = 10^14 - 1 in the compiled
+# core: the largest Nat its wire carries). Every law below holds for every t.
+
+# an event that writes output
+def JobWrites(e: Jb.JEv) -> Bool:
+  match e:
+    case Jb.Out{n}:
+      True{}
+    case Jb.Quit{c}:
+      False{}
+    case Jb.Kill{}:
+      False{}
+    case Jb.Tick{}:
+      False{}
+
+# LAW: output that fits below t is the step: nothing is cut
+law job_feed_fits:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  for +n: Nat
+  for fits: {Nat.is_le(Nat.add(Nat.add(k, d), n), t) == True{} : Bool}
+  {Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{n}) : Jb.J}
+
+# LAW: an event that writes no output is the step
+law job_feed_no_output:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for j: Jb.J
+  for e: Jb.JEv
+  for quiet: {JobWrites(e) == False{} : Bool}
+  {Jb.feed(t, cap, j, e) == Jb.step(cap, j, e) : Jb.J}
+
+# LAW: an ended job stays as it ended
+law job_feed_ended:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  for +x: Jb.End
+  for e: Jb.JEv
+  {Jb.feed(t, cap, Jb.Ended{k, d, x}, e) == Jb.Ended{k, d, x} : Jb.J}
+
+# LAW: any output is a step on a part of it, so the cap laws above hold
+# for what the Rust jobs count
+law job_feed_is_a_step:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  for +n: Nat
+  exs m: Nat
+  {Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n}) == Jb.step(cap, Jb.Live{k, d}, Jb.Out{m}) : Jb.J}
+
+# LAW: the bytes kept plus dropped never pass t
+# EXCLUDES: a count past the compiled core's Nat range (the process stops)
+law job_feed_bounded:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +j: Jb.J
+  for e: Jb.JEv
+  for below: {Nat.is_le(Jb.J.total(j), t) == True{} : Bool}
+  {Nat.is_le(Jb.J.total(Jb.feed(t, cap, j, e)), t) == True{} : Bool}
+
+# LAW: output past t fills the counts to exactly t: they saturate
+# EXCLUDES: output past t that is dropped whole or counted short
+law job_feed_fills:
+  for +t: Nat
+  for +cap: Maybe<&2, Nat>
+  for +k: Nat
+  for +d: Nat
+  for +n: Nat
+  for below: {Nat.is_le(Nat.add(k, d), t) == True{} : Bool}
+  for over: {Nat.is_lt(t, Nat.add(Nat.add(k, d), n)) == True{} : Bool}
+  {Jb.J.total(Jb.feed(t, cap, Jb.Live{k, d}, Jb.Out{n})) == t : Nat}
+
 # (S3) The host and the sandbox
 # -----------------------------
 # docs/runtime.md S3, the model in bend/sandbox.bend. Every input is
@@ -899,6 +1074,52 @@ law cow_conflict_is_real:
   for +k: Nat
   for clash: {Sb.elem(Sb.Back.clashes(Sb.back(ks, par, base, child)), k) == True{} : Bool}
   {Bool.or(Bool.or(Sb.m.eq(Sb.read(child, k), Sb.read(base, k)), Sb.m.eq(Sb.read(par, k), Sb.read(base, k))), Sb.m.eq(Sb.read(par, k), Sb.read(child, k))) == False{} : Bool}
+
+# The plan of one path the Rust hand-back runs (bend/sandbox.bend
+# `plan`): the parent's content stays (taken: both made the same change),
+# a conflict, the child's file goes in, or the child's removal does.
+
+def CowPlan.go(calm: Bool, still: Bool, same: Bool, c: Maybe<&2, Nat>) -> Sb.Plan:
+  match calm:
+    case True{}:
+      Sb.Keep{False{}}
+    case False{}:
+      match still:
+        case True{}:
+          match c:
+            case None{}:
+              Sb.Drop{}
+            case Some{x}:
+              Sb.Take{}
+        case False{}:
+          match same:
+            case True{}:
+              Sb.Keep{True{}}
+            case False{}:
+              Sb.Clash{}
+
+# the child did not change the path: keep; only the child changed it:
+# its file (or its removal) goes in; both changed it alike: keep, taken;
+# both changed it differently: a conflict
+def CowPlan(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> Sb.Plan:
+  CowPlan.go(Sb.m.eq(c, b), Sb.m.eq(p, b), Sb.m.eq(p, c), c)
+
+# LAW: the plan of a path is the copy-on-write rule
+# EXCLUDES: a lost change of either side, a conflict reported as taken, a
+# removal written as a file
+law cow_plan:
+  for +p: Maybe<&2, Nat>
+  for +b: Maybe<&2, Nat>
+  for +c: Maybe<&2, Nat>
+  {Sb.plan(p, b, c) == CowPlan(p, b, c) : Sb.Plan}
+
+# LAW: the plan carries out the merge of the path, so the hand-back laws
+# above hold for the Rust hand-back
+law cow_plan_is_merge:
+  for +p: Maybe<&2, Nat>
+  for +b: Maybe<&2, Nat>
+  for +c: Maybe<&2, Nat>
+  {Sb.Plan.merge(Sb.plan(p, b, c), p, c) == Sb.merge1(p, b, c) : Sb.One}
 
 # (S4) Settings as console variables
 # ----------------------------------
@@ -2327,6 +2548,56 @@ law goal_progress_continues:
   for fresh: {Pr.mem(x, hist) == False{} : Bool}
   for news: Pr.In(x, seg)
   {Pr.check(cap, s, Pr.grew(hist, seg)) == Pr.Go{0n} : Pr.Goal}
+
+# The check the Rust goal loop runs (bend/progress.bend `judge`): it
+# compares the ledger's counts, and holds the count of stalls below t
+# (t = 10^14 - 1, the largest Nat the core's wire carries). Every law
+# holds for every t.
+
+# LAW: the first check of a run or a goal starts the count
+law goal_first_check_starts:
+  for +t: Nat
+  for +cap: Nat
+  for +work: Nat
+  {Pr.judge(t, cap, None{}, work) == Pr.Go{0n} : Pr.Goal}
+
+# LAW: below t, a later check is the progress check on whether the
+# work's count grew
+law goal_judge_is_check:
+  for +t: Nat
+  for +cap: Nat
+  for +s: Nat
+  for +w: Nat
+  for +work: Nat
+  for below: {Nat.is_lt(s, t) == True{} : Bool}
+  {Pr.judge(t, cap, Some{Pr.Prior{s, w}}, work) == Pr.check(cap, s, Nat.is_lt(w, work)) : Pr.Goal}
+
+# LAW: the count grew exactly when the session did new work, so the goal
+# laws above hold for the counts the Rust loop compares
+law goal_judge_counts_work:
+  for +hist: List<&2, Nat>
+  for +seg: List<&2, Nat>
+  {Nat.is_lt(Pr.work(hist), Pr.work(List.append(&2, Nat, hist, seg))) == Pr.grew(hist, seg) : Bool}
+
+# LAW: the count of stalls stays within t
+# EXCLUDES: a count past the compiled core's Nat range (the process stops)
+law goal_judge_held:
+  for +u: Nat
+  for +cap: Nat
+  for p: Maybe<&2, Pr.Prior>
+  for +work: Nat
+  {Nat.is_le(Pr.Goal.stalls(Pr.judge(1n+u, cap, p, work)), 1n+u) == True{} : Bool}
+
+# LAW: a count at t stops a goal with a cap within t that did no new work
+# EXCLUDES: a held count that never reaches the cap
+law goal_judge_top_stops:
+  for +u: Nat
+  for +cap: Nat
+  for +w: Nat
+  for +work: Nat
+  for fits: {Nat.is_le(cap, 1n+u) == True{} : Bool}
+  for same: {Nat.is_lt(w, work) == False{} : Bool}
+  {Pr.judge(1n+u, cap, Some{Pr.Prior{1n+u, w}}, work) == Pr.Stop{1n+u} : Pr.Goal}
 
 # (M5) A model the harness substitutes is reported
 # ------------------------------------------------
