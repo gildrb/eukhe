@@ -8,7 +8,9 @@ description = "Terminal UI for Eukhe."
 
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
-# The key binds' presses run as the compiled command-language model.
+# The compiled Bend core: the key binds' presses (the command-language
+# model), the transcript ledger, the pace, the stack, the paint decision
+# and the replacement verdict run as their Bend models.
 eukhe-bend = { path = "../eukhe-bend" }
 # Theme files, validation, name resolution and color math.
 eukhe-theme = { path = "../eukhe-theme" }

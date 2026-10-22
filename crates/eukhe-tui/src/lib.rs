@@ -43,6 +43,7 @@ mod autolink;
 pub mod bash_bang;
 pub mod bash_card;
 pub mod bash_view;
+mod bend_core;
 pub(crate) mod branch;
 pub mod chat;
 pub mod chat_slash;

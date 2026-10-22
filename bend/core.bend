@@ -18,9 +18,11 @@ import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_progress.bend as ffi_progress
+import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
+import ./ffi_screen.bend as ffi_screen
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_wire.bend as ffi_wire
@@ -78,6 +80,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_orphan.ffi(input)
     case 22:
       ffi_supervise.ffi(input)
+    case 23:
+      ffi_replace.ffi(input)
+    case 24:
+      ffi_screen.ffi(input)
     case _:
       W.err("unknown entry")
 

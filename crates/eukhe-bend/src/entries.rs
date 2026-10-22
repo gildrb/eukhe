@@ -52,6 +52,10 @@ pub enum Entry {
     Orphan = 21,
     /// `bend/ffi_supervise.bend`: a call.
     Supervise = 22,
+    /// `bend/ffi_replace.bend`: a call.
+    Replace = 23,
+    /// `bend/ffi_screen.bend`: a call.
+    Screen = 24,
 }
 
 impl Entry {
@@ -80,6 +84,8 @@ impl Entry {
         Entry::Tree,
         Entry::Orphan,
         Entry::Supervise,
+        Entry::Replace,
+        Entry::Screen,
     ];
 
     /// The id `bend/core.bend` dispatches on.

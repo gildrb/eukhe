@@ -9,12 +9,16 @@
 //! written again: a finish of a committed entry changes nothing here, and
 //! a new width only applies to the rows written after it.
 //!
-//! Entry `i` of the chat is block `i`. The rule is one pure call, [`run`]:
-//! the events of a frame applied to the blocks after the committed prefix
-//! (law `tx_committed_inert`: committed blocks are inert, so the prefix
-//! never travels).
+//! Entry `i` of the chat is block `i`. The rule runs as its Bend model, one
+//! call of the compiled core per frame (`bend/ffi_screen.bend`, law
+//! `screen_ffi_run`): the events of the frame on the blocks after the
+//! committed prefix (law `tx_committed_inert`: committed blocks are inert,
+//! so the prefix never travels).
 
 use std::ops::Range;
+
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
+use eukhe_bend::Entry;
 
 /// The state of one block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,53 +46,61 @@ pub(crate) enum Event {
     Resize(usize),
 }
 
-/// The blocks after the committed prefix (model `Tx`): block
-/// `first + i` is `phases[i]`, the next block opens as
-/// `first + phases.len()`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Tail {
-    first: usize,
-    phases: Vec<Phase>,
-    width: usize,
+/// A phase, by its tag in `bend/ffi_screen.bend` (model `St`).
+fn phase_tag(phase: Phase) -> u32 {
+    match phase {
+        Phase::Active => 0,
+        Phase::Final => 1,
+        Phase::Committed => 2,
+    }
 }
 
-/// The transcript after `events` (model `run`).
-fn run(tail: Tail, events: &[Event]) -> Tail {
-    let Tail {
-        first,
-        mut phases,
-        mut width,
-    } = tail;
+/// A width as the core reads it: saturated at the wire's largest Nat (a
+/// width never ends a row, so the cap writes the same rows).
+fn wire_width(width: usize) -> u64 {
+    u64::try_from(width).map_or(NAT_MAX, |width| width.min(NAT_MAX))
+}
+
+/// The request: the blocks from `first` (model `Tx`: each block's id, its
+/// phase and its length 0, then the next id and the width), and the
+/// events.
+fn write_run(writer: &mut Writer, first: usize, phases: &[Phase], width: usize, events: &[Event]) {
+    writer.tag(0).count(phases.len());
+    for (offset, phase) in phases.iter().enumerate() {
+        writer.count(first + offset).tag(phase_tag(*phase)).nat(0);
+    }
+    writer
+        .count(first + phases.len())
+        .nat(wire_width(width))
+        .count(events.len());
     for event in events {
         match *event {
-            Event::Open => phases.push(Phase::Active),
-            Event::Finish(id) => {
-                if let Some(phase) = id
-                    .checked_sub(first)
-                    .and_then(|index| phases.get_mut(index))
-                {
-                    match phase {
-                        Phase::Active => *phase = Phase::Final,
-                        Phase::Final | Phase::Committed => {}
-                    }
-                }
-            }
-            Event::Flush => {
-                for phase in &mut phases {
-                    match phase {
-                        Phase::Active => break,
-                        Phase::Final | Phase::Committed => *phase = Phase::Committed,
-                    }
-                }
-            }
-            Event::Resize(new) => width = new,
-        }
+            Event::Open => writer.tag(0),
+            Event::Finish(id) => writer.tag(2).count(id),
+            Event::Flush => writer.tag(3),
+            Event::Resize(width) => writer.tag(4).nat(wire_width(width)),
+        };
     }
-    Tail {
-        first,
-        phases,
-        width,
+}
+
+/// The reply: the blocks' phases and the width (model `Tx`).
+fn read_run(reader: &mut Reader<'_>) -> Result<(Vec<Phase>, usize), WireError> {
+    let blocks = reader.count()?;
+    let mut phases = Vec::with_capacity(blocks);
+    for _ in 0..blocks {
+        let _id = reader.nat()?;
+        phases.push(match reader.tag_of(3, "a block state")? {
+            0 => Phase::Active,
+            1 => Phase::Final,
+            // `tag_of` answered at most 2.
+            2..=u32::MAX => Phase::Committed,
+        });
+        let _len = reader.nat()?;
     }
+    let _next = reader.nat()?;
+    // The width the request saturated, back as a `usize`.
+    let width = reader.count()?;
+    Ok((phases, width))
 }
 
 /// The blocks, in chat order, and the width new rows are written at.
@@ -99,12 +111,6 @@ pub(crate) struct Ledger {
 }
 
 impl Ledger {
-    /// The blocks in chat order (the bridge reads them).
-    #[cfg(test)]
-    pub(crate) fn blocks(&self) -> &[Phase] {
-        &self.blocks
-    }
-
     /// The width new rows are written at.
     pub(crate) fn width(&self) -> usize {
         self.width
@@ -123,20 +129,18 @@ impl Ledger {
             .count()
     }
 
-    /// Apply a frame's `events` (model `run`). Returns the ids they
-    /// committed: their rows go into scrollback now.
+    /// Apply a frame's `events` (model `run`, in the compiled core).
+    /// Returns the ids they committed: their rows go into scrollback now.
     pub(crate) fn apply(&mut self, events: &[Event]) -> Range<usize> {
         let start = self.committed();
-        let after = run(
-            Tail {
-                first: start,
-                phases: self.blocks.split_off(start),
-                width: self.width,
-            },
-            events,
+        let (phases, width) = crate::bend_core::decide(
+            Entry::Screen,
+            |writer| write_run(writer, start, &self.blocks[start..], self.width, events),
+            read_run,
         );
-        self.blocks.extend(after.phases);
-        self.width = after.width;
+        self.blocks.truncate(start);
+        self.blocks.extend(phases);
+        self.width = width;
         start..self.committed()
     }
 
@@ -153,8 +157,9 @@ impl Ledger {
 mod tests {
     use super::*;
 
-    /// A flush commits the final prefix and stops at the first active
-    /// block; a finish of a committed block changes nothing.
+    /// The core's reply replaces the blocks after the committed prefix,
+    /// which stays in Rust: a flush commits the final prefix and stops at
+    /// the first active block, and the range names the ids it committed.
     #[test]
     fn a_flush_commits_up_to_the_first_active_block() {
         let mut ledger = Ledger::default();

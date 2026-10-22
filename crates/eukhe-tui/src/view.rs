@@ -11,8 +11,6 @@ use crate::editor::Editor;
 use crate::session::TranscriptItem;
 use crate::theme::Theme;
 
-#[cfg(test)]
-mod bridge;
 pub(crate) mod editor_surface;
 mod frame;
 mod layout;

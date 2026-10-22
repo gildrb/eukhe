@@ -187,7 +187,7 @@ impl AgentView {
     }
 
     /// The live area: the dock (or the open panel) at the bottom, and
-    /// above it a vertical stack (`stack::vstack`) of the unsettled
+    /// above it a vertical stack (`stack::stack_rows`, model `vstack`) of the unsettled
     /// entries, the transcript tail, and the toasts, in the rows the dock
     /// leaves free. The children are cut from their top, newest first, so
     /// they fit: the stack then draws each one whole. The onboarding pane
