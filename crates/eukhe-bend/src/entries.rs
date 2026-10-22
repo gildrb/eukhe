@@ -38,10 +38,12 @@ pub enum Entry {
     Job = 14,
     /// `bend/ffi_progress.bend`: a call.
     Progress = 15,
+    /// `bend/ffi_retry.bend`: a call.
+    Retry = 16,
     /// `bend/ffi_sandbox.bend`: a call.
-    Sandbox = 16,
+    Sandbox = 17,
     /// `bend/ffi_workflow.bend`: a call.
-    Workflow = 17,
+    Workflow = 18,
 }
 
 impl Entry {
@@ -63,6 +65,7 @@ impl Entry {
         Entry::Infer,
         Entry::Job,
         Entry::Progress,
+        Entry::Retry,
         Entry::Sandbox,
         Entry::Workflow,
     ];

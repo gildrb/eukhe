@@ -3,3 +3,4 @@
 //! format, calling its entry and decoding the reply.
 
 pub mod cvar;
+pub mod retry;
