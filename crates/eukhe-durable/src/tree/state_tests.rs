@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::{CursorAhead, CursorError, StateError, StateKey, StateKind, StateNode, StateTree};
+use super::{CursorAhead, StateError, StateKey, StateKind, StateNode, StateTree};
 use crate::storage::jsonl::HistoryCommit;
 use crate::tree::{Applied, NodeId, RewindEffect, TreeOp, TreeRecord};
 use crate::types::{
@@ -501,10 +501,10 @@ fn a_rewind_plan_stops_starts_and_restores() {
                 RewindEffect::Restore(NodeId(6)),
             ]),
             Ok(Vec::new()),
-            Err(CursorError::Ahead(CursorAhead {
+            Err(CursorAhead {
                 cursor: 10,
                 current: 9
-            })),
+            }),
         )
     );
 }

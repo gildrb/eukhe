@@ -46,6 +46,8 @@ pub enum Entry {
     Workflow = 18,
     /// `bend/ffi_run.bend`: a call.
     Run = 19,
+    /// `bend/ffi_tree.bend`: a stepper.
+    Tree = 20,
 }
 
 impl Entry {
@@ -71,6 +73,7 @@ impl Entry {
         Entry::Sandbox,
         Entry::Workflow,
         Entry::Run,
+        Entry::Tree,
     ];
 
     /// The id `bend/core.bend` dispatches on.

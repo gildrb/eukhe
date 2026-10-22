@@ -20,6 +20,7 @@ import ./ffi_progress.bend as ffi_progress
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
+import ./ffi_tree.bend as ffi_tree
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -84,6 +85,7 @@ type State is Type:
   Echo{s: ffi_echo.St}
   Admission{s: ffi_admission.St}
   Cvar{s: ffi_cvar.St}
+  Tree{s: ffi_tree.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -101,6 +103,11 @@ def open.cvar(r: ffi_cvar.St & String) -> State & String:
     case (s, reply):
       (Cvar{s}, reply)
 
+def open.tree(r: ffi_tree.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Tree{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
@@ -109,6 +116,8 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.admission(ffi_admission.open(input))
     case 6:
       open.cvar(ffi_cvar.open(input))
+    case 20:
+      open.tree(ffi_tree.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -132,6 +141,11 @@ def step.cvar(r: ffi_cvar.St & String) -> State & String:
     case (s, reply):
       (Cvar{s}, reply)
 
+def step.tree(r: ffi_tree.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Tree{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
@@ -140,6 +154,8 @@ def step.go(state: State, input: String) -> State & String:
       step.admission(ffi_admission.step(s, input))
     case Cvar{s}:
       step.cvar(ffi_cvar.step(s, input))
+    case Tree{s}:
+      step.tree(ffi_tree.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -155,6 +171,8 @@ def close.go(state: State) -> Unit:
     case Admission{s}:
       Unit{}
     case Cvar{s}:
+      Unit{}
+    case Tree{s}:
       Unit{}
     case Unknown{}:
       Unit{}

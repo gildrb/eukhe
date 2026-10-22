@@ -34,7 +34,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::{Applied, CoreError, Journal, NodeId, RewindEffect, SessionTree, TreeOp, TreeRecord};
+use super::{Applied, Journal, NodeId, RewindEffect, SessionTree, TreeOp, TreeRecord};
 use crate::storage::jsonl::HistoryCommit;
 use crate::types::{
     AnyTaskRecord, CommitChange, CommitPublication, ConversationRecord, DocumentCommitChange,
@@ -201,17 +201,6 @@ pub struct CursorAhead {
     pub current: usize,
 }
 
-/// A question about the tree at a cursor that the tree cannot answer.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum CursorError {
-    /// The cursor is more than the cursor of the tree.
-    #[error(transparent)]
-    Ahead(#[from] CursorAhead),
-    /// The tree core answered something the journal cannot read.
-    #[error(transparent)]
-    Core(#[from] CoreError),
-}
-
 /// One planned change of a commit, before the ids are known.
 enum Planned {
     Put {
@@ -227,7 +216,7 @@ enum Planned {
 
 /// The state tree of a session: the journal of [`StateNode`] records, the
 /// keys of the node ids, and the last commit it recorded.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct StateTree {
     journal: Journal<StateNode>,
     ids: HashMap<StateKey, NodeId>,
@@ -521,22 +510,27 @@ impl StateTree {
     /// The tree after the first `cursor` records.
     ///
     /// # Errors
-    /// The cursor is more than [`Self::cursor`], or the tree core answered
-    /// something the journal cannot read.
-    pub fn snapshot_at(&self, cursor: usize) -> Result<SessionTree<StateNode>, CursorError> {
+    /// The cursor is more than [`Self::cursor`].
+    ///
+    /// # Panics
+    /// When the compiled Bend core fails (an inconsistent build).
+    pub fn snapshot_at(&self, cursor: usize) -> Result<SessionTree<StateNode>, CursorAhead> {
         if cursor > self.cursor() {
-            return Err(self.ahead(cursor).into());
+            return Err(self.ahead(cursor));
         }
-        Ok(self.journal.snapshot_at(cursor)?)
+        Ok(self.journal.snapshot_at(cursor))
     }
 
     /// What a rewind from the live tree to the snapshot at `cursor` does.
     ///
     /// # Errors
     /// The cursor is more than [`Self::cursor`].
-    pub fn rewind_plan(&self, cursor: usize) -> Result<Vec<RewindEffect>, CursorError> {
+    ///
+    /// # Panics
+    /// When the compiled Bend core fails (an inconsistent build).
+    pub fn rewind_plan(&self, cursor: usize) -> Result<Vec<RewindEffect>, CursorAhead> {
         if cursor > self.cursor() {
-            return Err(self.ahead(cursor).into());
+            return Err(self.ahead(cursor));
         }
         Ok(self.journal.rewind_plan(cursor))
     }

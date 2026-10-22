@@ -85,6 +85,7 @@ import ./bend/ffi_effort.bend as FEf
 import ./bend/ffi_infer.bend as FIn
 import ./bend/ffi_facts.bend as FFx
 import ./bend/ffi_run.bend as FRn
+import ./bend/ffi_tree.bend as Ft
 
 # ---- cover ----
 
@@ -46725,3 +46726,158 @@ def Laws.run_ffi_reply_round_trip(x, rest):
 
 def Laws.run_ffi_answer_fits_witness():
   (Rn.EndStop{}, (Rn.Runs{}, {==}))
+
+# ---- tree_ffi ----
+
+# proof_tree_ffi: the laws of LAWS.bend section tree_ffi (the entry of
+# bend/ffi_tree.bend). Round trip: each field reads back by the wire law
+# wire_nat_round_trip, a tag picks its constructor, and the ops of a
+# rewind read back item by item (tf.ops_rt, after the list lemmas of
+# section wire). The entry laws rewrite the decoded ask into the entry;
+# a step's reply splits its pair (tf.ans).
+
+# the Nat round trip, turned for rewriting
+def tf.rt(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+
+def tf.op_rt(o: Tr.Op, +rest: String, +h: {Laws.tree.op_fits(o) == True{} : Bool}) -> {Ft.get_op(Ft.put_op(o, rest)) == Wr.Got{o, rest} : Wr.Dec<Tr.Op>}:
+  match o:
+    case Tr.Put{+k, +p, +v}:
+      +O = {Tr.Put{k, p, v} : Tr.Op}
+      +hpv = wr_and_r(Laws.wire_fits(k), Bool.and(Laws.wire_fits(p), Laws.wire_fits(v)), h)
+      %tf.rt(0n, Wr.put_nat(k, Wr.put_nat(p, Wr.put_nat(v, rest))), {==}) : {Ft.get_op.go(_) == Wr.Got{O, rest} : Wr.Dec<Tr.Op>}
+      %tf.rt(k, Wr.put_nat(p, Wr.put_nat(v, rest)), wr_and_l(Laws.wire_fits(k), Bool.and(Laws.wire_fits(p), Laws.wire_fits(v)), h)) : {Ft.get_op.put(_) == Wr.Got{O, rest} : Wr.Dec<Tr.Op>}
+      %tf.rt(p, Wr.put_nat(v, rest), wr_and_l(Laws.wire_fits(p), Laws.wire_fits(v), hpv)) : {Ft.get_op.p(k, _) == Wr.Got{O, rest} : Wr.Dec<Tr.Op>}
+      %tf.rt(v, rest, wr_and_r(Laws.wire_fits(p), Laws.wire_fits(v), hpv)) : {Ft.get_op.v(k, p, _) == Wr.Got{O, rest} : Wr.Dec<Tr.Op>}
+      {==}
+    case Tr.Del{+k}:
+      %tf.rt(1n, Wr.put_nat(k, rest), {==}) : {Ft.get_op.go(_) == Wr.Got{Tr.Del{k}, rest} : Wr.Dec<Tr.Op>}
+      %tf.rt(k, rest, h) : {Ft.get_op.del(_) == Wr.Got{Tr.Del{k}, rest} : Wr.Dec<Tr.Op>}
+      {==}
+
+# the ops of a rewind
+# ------------------
+
+def tf.fit_l(+o: Tr.Op, -ops: List<&2, Tr.Op>, h: {Laws.tree.ops_fit(o <> ops) == True{} : Bool}) -> {Laws.tree.op_fits(o) == True{} : Bool}:
+  wr_and_l(Laws.tree.op_fits(o), Laws.tree.ops_fit(ops), h)
+
+def tf.fit_r(+o: Tr.Op, -ops: List<&2, Tr.Op>, h: {Laws.tree.ops_fit(o <> ops) == True{} : Bool}) -> {Laws.tree.ops_fit(ops) == True{} : Bool}:
+  wr_and_r(Laws.tree.op_fits(o), Laws.tree.ops_fit(ops), h)
+
+# the items of a list of ops, then rest
+def tf.items(ops: List<&2, Tr.Op>, rest: String) -> String:
+  match ops:
+    case Nil{}:
+      rest
+    case o <> r:
+      Ft.put_op(o, tf.items(r, rest))
+
+def tf.go(ops: List<&2, Tr.Op>, +rest: String) -> {Wr.put_list.go(~Tr.Op, ~Ft.put_op, ops, rest) == (List.length(&2, Tr.Op, ops), tf.items(ops, rest)) : Nat & String}:
+  match ops:
+    case Nil{}:
+      {==}
+    case +o <> +r:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Tr.Op, ~Ft.put_op, r, rest), (List.length(&2, Tr.Op, r), tf.items(r, rest)), tf.go(r, rest)) : {Wr.put_list.step(~Tr.Op, ~Ft.put_op, o, _) == (1n+List.length(&2, Tr.Op, r), Ft.put_op(o, tf.items(r, rest))) : Nat & String}
+      {==}
+
+# a list of ops is its count, then its items
+def tf.put_list(+ops: List<&2, Tr.Op>, +rest: String) -> {Wr.put_list(~Tr.Op, ~Ft.put_op, ops, rest) == Wr.put_nat(List.length(&2, Tr.Op, ops), tf.items(ops, rest)) : String}:
+  Equal.cong(Nat & String, String, x => Wr.put_list.fin(x), Wr.put_list.go(~Tr.Op, ~Ft.put_op, ops, rest), (List.length(&2, Tr.Op, ops), tf.items(ops, rest)), tf.go(ops, rest))
+
+def tf.list_go(ops: List<&2, Tr.Op>, +o: Tr.Op, +rest: String, +hf: {Laws.tree.ops_fit(o <> ops) == True{} : Bool}) -> {Wr.get_list.go(~Tr.Op, ~Ft.get_op, List.length(&2, Tr.Op, ops), Ft.get_op(Ft.put_op(o, tf.items(ops, rest)))) == Wr.Got{o <> ops, rest} : Wr.Dec<List<&2, Tr.Op>>}:
+  match ops:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Tr.Op>, Ft.get_op(Ft.put_op(o, rest)), Wr.Got{o, rest}, tf.op_rt(o, rest, tf.fit_l(o, Nil{}, hf))) : {Wr.get_list.go(~Tr.Op, ~Ft.get_op, 0n, _) == Wr.Got{[o], rest} : Wr.Dec<List<&2, Tr.Op>>}
+      {==}
+    case +o2 <> +ops2:
+      %Equal.sym(Wr.Dec<Tr.Op>, Ft.get_op(Ft.put_op(o, tf.items(o2 <> ops2, rest))), Wr.Got{o, tf.items(o2 <> ops2, rest)}, tf.op_rt(o, tf.items(o2 <> ops2, rest), tf.fit_l(o, o2 <> ops2, hf))) : {Wr.get_list.go(~Tr.Op, ~Ft.get_op, 1n+List.length(&2, Tr.Op, ops2), _) == Wr.Got{o <> o2 <> ops2, rest} : Wr.Dec<List<&2, Tr.Op>>}
+      %Equal.sym(Wr.Dec<List<&2, Tr.Op>>, Wr.get_list.go(~Tr.Op, ~Ft.get_op, List.length(&2, Tr.Op, ops2), Ft.get_op(Ft.put_op(o2, tf.items(ops2, rest)))), Wr.Got{o2 <> ops2, rest}, tf.list_go(ops2, o2, rest, tf.fit_r(o, o2 <> ops2, hf))) : {Wr.get_list.cons(Tr.Op, o, _) == Wr.Got{o <> o2 <> ops2, rest} : Wr.Dec<List<&2, Tr.Op>>}
+      {==}
+
+def tf.list_start(ops: List<&2, Tr.Op>, +rest: String, +hf: {Laws.tree.ops_fit(ops) == True{} : Bool}) -> {Wr.get_list.start(~Tr.Op, ~Ft.get_op, Wr.Got{List.length(&2, Tr.Op, ops), tf.items(ops, rest)}) == Wr.Got{ops, rest} : Wr.Dec<List<&2, Tr.Op>>}:
+  match ops:
+    case Nil{}:
+      {==}
+    case +o <> +r:
+      tf.list_go(r, o, rest, hf)
+
+# a list of ops that fits reads back
+def tf.ops_rt(+ops: List<&2, Tr.Op>, +rest: String, hl: {Laws.wire_fits(List.length(&2, Tr.Op, ops)) == True{} : Bool}, +hf: {Laws.tree.ops_fit(ops) == True{} : Bool}) -> {Wr.get_list(~Tr.Op, ~Ft.get_op, Wr.put_list(~Tr.Op, ~Ft.put_op, ops, rest)) == Wr.Got{ops, rest} : Wr.Dec<List<&2, Tr.Op>>}:
+  %Equal.sym(String, Wr.put_list(~Tr.Op, ~Ft.put_op, ops, rest), Wr.put_nat(List.length(&2, Tr.Op, ops), tf.items(ops, rest)), tf.put_list(ops, rest)) : {Wr.get_list(~Tr.Op, ~Ft.get_op, _) == Wr.Got{ops, rest} : Wr.Dec<List<&2, Tr.Op>>}
+  %tf.rt(List.length(&2, Tr.Op, ops), tf.items(ops, rest), hl) : {Wr.get_list.start(~Tr.Op, ~Ft.get_op, _) == Wr.Got{ops, rest} : Wr.Dec<List<&2, Tr.Op>>}
+  tf.list_start(ops, rest, hf)
+
+# an ask
+# ------
+
+def tf.ask_rt(q: Tr.Ask, +rest: String, +h: {Laws.tree.ask_fits(q) == True{} : Bool}) -> {Ft.get_ask(Ft.put_ask(q, rest)) == Wr.Got{q, rest} : Wr.Dec<Tr.Ask>}:
+  match q:
+    case Tr.Note{r}:
+      match r:
+        case Tr.Do{+o}:
+          +Q = {Tr.Note{Tr.Do{o}} : Tr.Ask}
+          %tf.rt(0n, Wr.put_nat(0n, Ft.put_op(o, rest)), {==}) : {Ft.get_ask.go(_) == Wr.Got{Q, rest} : Wr.Dec<Tr.Ask>}
+          %tf.rt(0n, Ft.put_op(o, rest), {==}) : {Ft.get_ask.note(Ft.get_rec.go(_)) == Wr.Got{Q, rest} : Wr.Dec<Tr.Ask>}
+          %Equal.sym(Wr.Dec<Tr.Op>, Ft.get_op(Ft.put_op(o, rest)), Wr.Got{o, rest}, tf.op_rt(o, rest, h)) : {Ft.get_ask.note(Ft.get_rec.do(_)) == Wr.Got{Q, rest} : Wr.Dec<Tr.Ask>}
+          {==}
+        case Tr.Rewind{+ops}:
+          +Q = {Tr.Note{Tr.Rewind{ops}} : Tr.Ask}
+          +s2 = Wr.put_list(~Tr.Op, ~Ft.put_op, ops, rest)
+          %tf.rt(0n, Wr.put_nat(1n, s2), {==}) : {Ft.get_ask.go(_) == Wr.Got{Q, rest} : Wr.Dec<Tr.Ask>}
+          %tf.rt(1n, s2, {==}) : {Ft.get_ask.note(Ft.get_rec.go(_)) == Wr.Got{Q, rest} : Wr.Dec<Tr.Ask>}
+          %Equal.sym(Wr.Dec<List<&2, Tr.Op>>, Wr.get_list(~Tr.Op, ~Ft.get_op, s2), Wr.Got{ops, rest}, tf.ops_rt(ops, rest, wr_and_l(Laws.wire_fits(List.length(&2, Tr.Op, ops)), Laws.tree.ops_fit(ops), h), wr_and_r(Laws.wire_fits(List.length(&2, Tr.Op, ops)), Laws.tree.ops_fit(ops), h))) : {Ft.get_ask.note(Ft.get_rec.rewind(_)) == Wr.Got{Q, rest} : Wr.Dec<Tr.Ask>}
+          {==}
+    case Tr.Plan{+n}:
+      %tf.rt(1n, Wr.put_nat(n, rest), {==}) : {Ft.get_ask.go(_) == Wr.Got{Tr.Plan{n}, rest} : Wr.Dec<Tr.Ask>}
+      %tf.rt(n, rest, h) : {Ft.get_ask.plan(_) == Wr.Got{Tr.Plan{n}, rest} : Wr.Dec<Tr.Ask>}
+      {==}
+    case Tr.Snap{+n}:
+      %tf.rt(2n, Wr.put_nat(n, rest), {==}) : {Ft.get_ask.go(_) == Wr.Got{Tr.Snap{n}, rest} : Wr.Dec<Tr.Ask>}
+      %tf.rt(n, rest, h) : {Ft.get_ask.snap(_) == Wr.Got{Tr.Snap{n}, rest} : Wr.Dec<Tr.Ask>}
+      {==}
+
+# a step's reply is the pair's parts
+def tf.ans(r: Tr.St & Tr.Ans) -> {Ft.step.ans(r) == (Ft.Live{Pair.fst(Tr.St, Tr.Ans, r)}, Ft.put_ans(Pair.snd(Tr.St, Tr.Ans, r), "")) : Ft.St & String}:
+  (s, a) = r
+  {==}
+
+# The laws
+# --------
+
+def Laws.tree_ffi_ask_round_trip(q, rest, h):
+  tf.ask_rt(q, rest, h)
+
+def Laws.tree_ffi_step(s, q, h):
+  %Equal.sym(Wr.Dec<Tr.Ask>, Ft.get_ask(Ft.put_ask(q, "")), Wr.Got{q, ""}, tf.ask_rt(q, "", h)) : {Ft.step.ask(s, _) == (Ft.Live{Pair.fst(Tr.St, Tr.Ans, Tr.core.step(s, q))}, Ft.put_ans(Pair.snd(Tr.St, Tr.Ans, Tr.core.step(s, q)), "")) : Ft.St & String}
+  tf.ans(Tr.core.step(s, q))
+
+def Laws.tree_ffi_malformed(s, input, h):
+  %Equal.sym(Wr.Dec<Tr.Ask>, Ft.get_ask(input), Wr.Bad{}, h) : {Ft.step.ask(s, _) == (Ft.Live{s}, Wr.err("tree: malformed ask")) : Ft.St & String}
+  {==}
+
+def Laws.tree_ffi_trailing(s, input, q, rest, h, left):
+  %Equal.sym(Wr.Dec<Tr.Ask>, Ft.get_ask(input), Wr.Got{q, rest}, h) : {Ft.step.ask(s, _) == (Ft.Live{s}, Wr.err("tree: input left after the ask")) : Ft.St & String}
+  %Equal.sym(Bool, Wr.end(rest), False{}, left) : {Ft.step.end(_, s, q) == (Ft.Live{s}, Wr.err("tree: input left after the ask")) : Ft.St & String}
+  {==}
+
+def Laws.tree_ffi_refused(input):
+  {==}
+
+def Laws.tree_ffi_open(hs, h):
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, hs, "")), Wr.Got{hs, ""}, Laws.wire_list_round_trip(hs, "", h)) : {Ft.open.go(_) == (Ft.Live{Tr.core.start(hs)}, "") : Ft.St & String}
+  {==}
+
+def Laws.tree_ffi_open_malformed(input, h):
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, input), Wr.Bad{}, h) : {Ft.open.go(_) == (Ft.Shut{}, Wr.err("tree: malformed halves")) : Ft.St & String}
+  {==}
+
+def Laws.tree_ffi_open_trailing(input, hs, rest, h, left):
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, input), Wr.Got{hs, rest}, h) : {Ft.open.go(_) == (Ft.Shut{}, Wr.err("tree: input left after the halves")) : Ft.St & String}
+  %Equal.sym(Bool, Wr.end(rest), False{}, left) : {Ft.open.end(_, hs) == (Ft.Shut{}, Wr.err("tree: input left after the halves")) : Ft.St & String}
+  {==}
+
+def Laws.tree_ffi_fits_exists():
+  (Tr.Plan{0n}, (Nil{}, {==}))
+
+def Laws.tree_ffi_example():
+  {==}
