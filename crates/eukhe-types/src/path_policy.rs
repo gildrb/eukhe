@@ -1,14 +1,15 @@
-//! The path policy (docs/tools.md S7, LAWS.bend (G1)): the class of a
-//! path that an agent tool reads or writes. The document tools and the
-//! shell use this one policy, so the two cannot judge a path differently.
+//! The path policy (docs/tools.md S7, LAWS.bend (G1)): the data that
+//! judges a path an agent tool reads or writes. The document tools and
+//! the shell use this one policy, so the two cannot judge a path
+//! differently; the judgment itself is `eukhe_shell::paths::judge`
+//! (`judge` in `bend/path_policy.bend`).
 //!
 //! A path is judged on its real path: [`resolve`] follows every symlink
 //! on the part of the path that exists (a dangling link too: a write
 //! through it creates its target), and `..` after a resolved part goes up
 //! from the real directory. A symlink is thus judged by its target. A
-//! tool that resolved a path itself judges the [`RealPath`] it acts on
-//! ([`PathPolicy::class_of_resolved`]); a second resolution of the real
-//! path would lose a loop.
+//! tool that resolved a path itself judges the [`RealPath`] it acts on; a
+//! second resolution of the real path would lose a loop.
 //!
 //! The classes, strongest first:
 //!
@@ -83,22 +84,11 @@ impl PathRule {
     }
 
     /// The concrete path the rule names; `None` for a name rule.
-    fn entry(&self) -> Option<&Path> {
+    #[must_use]
+    pub fn entry(&self) -> Option<&Path> {
         match self {
             Self::Tree(path) | Self::Dir(path) => Some(path),
             Self::Named(_) => None,
-        }
-    }
-
-    /// `real` is covered; `below` is the part of `real` under its
-    /// workspace root (all of it when under no root).
-    fn covers(&self, real: &Path, below: &Path) -> bool {
-        match self {
-            Self::Tree(path) => real.starts_with(path),
-            Self::Dir(path) => real == path || real.parent() == Some(path.as_path()),
-            Self::Named(name) => below
-                .components()
-                .any(|component| component.as_os_str() == name.as_os_str()),
         }
     }
 }
@@ -233,57 +223,16 @@ impl PathPolicy {
         &self.roots
     }
 
-    /// The class of `absolute`, judged on its real path.
+    /// The protected rules, over real paths.
     #[must_use]
-    pub fn class(&self, absolute: &Path) -> PathClass {
-        self.class_of_resolved(&resolve(absolute))
+    pub fn protected(&self) -> &[PathRule] {
+        &self.protected
     }
 
-    /// The class of a resolved path, judged on its real path as it is (no
-    /// second resolution): the place where an access to it happens. A path
-    /// whose links looped is never [`PathClass::Inside`].
+    /// The secret entries, real.
     #[must_use]
-    pub fn class_of_resolved(&self, resolved: &RealPath) -> PathClass {
-        let real = resolved.path();
-        if self.secret.iter().any(|entry| real.starts_with(entry)) {
-            return PathClass::Secret;
-        }
-        let root = self
-            .roots
-            .iter()
-            .filter(|root| real.starts_with(root))
-            .max_by_key(|root| root.components().count());
-        let below = root.map_or(real, |root| real.strip_prefix(root).unwrap_or(real));
-        let ancestor = |entry: &Path| entry != real && entry.starts_with(real);
-        let protected = self.protected.iter().any(|rule| rule.covers(real, below))
-            || self
-                .protected
-                .iter()
-                .filter_map(PathRule::entry)
-                .chain(self.secret.iter().map(PathBuf::as_path))
-                .any(ancestor);
-        match (protected, root, resolved.looped()) {
-            (true, _, _) => PathClass::Protected,
-            (false, Some(_), false) => PathClass::Inside,
-            (false, Some(_), true) | (false, None, _) => PathClass::Outside,
-        }
-    }
-
-    /// `absolute` is a secret, or a directory that holds one: a recursive
-    /// read of it reads a secret.
-    #[must_use]
-    pub fn holds_secret(&self, absolute: &Path) -> bool {
-        self.holds_secret_of_resolved(&resolve(absolute))
-    }
-
-    /// [`Self::holds_secret`] of a resolved path, as it is (no second
-    /// resolution).
-    #[must_use]
-    pub fn holds_secret_of_resolved(&self, resolved: &RealPath) -> bool {
-        let real = resolved.path();
-        self.secret
-            .iter()
-            .any(|entry| entry.starts_with(real) || real.starts_with(entry))
+    pub fn secret(&self) -> &[PathBuf] {
+        &self.secret
     }
 }
 

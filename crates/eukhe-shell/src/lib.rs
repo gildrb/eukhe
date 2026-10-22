@@ -29,6 +29,7 @@ mod coreutils;
 mod effect;
 mod expand;
 mod parse;
+pub mod paths;
 mod run;
 mod shown;
 #[cfg(test)]

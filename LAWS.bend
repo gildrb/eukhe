@@ -2889,19 +2889,21 @@ law union_compiled_only:
   {CU.find(CU.union(bs, cs), k) == Some{c} : Maybe<&2, CU.Ent>}
 
 # LAW: a model in both sources takes its api and its data from the
-# bundled entry, and the optional field too when the bundled entry
-# states it
+# bundled entry, and each optional field too when the bundled entry
+# states it (every field f of the four: the slot of f pins the key, api,
+# data and that field)
 law union_both_keeps_bundled:
   for +bs: List<&2, CU.Ent>
   for +cs: List<&2, CU.Ent>
   for +k: Nat
   for +b: CU.Ent
   for +c: CU.Ent
+  for +f: CU.Fld
   for +v: Nat
   for hb: {CU.find(bs, k) == Some{b} : Maybe<&2, CU.Ent>}
   for hc: {CU.find(cs, k) == Some{c} : Maybe<&2, CU.Ent>}
-  for hv: {CU.Ent.opt(b) == Some{v} : Maybe<&2, Nat>}
-  {CU.find(CU.union(bs, cs), k) == Some{CU.Ent{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), Some{v}}} : Maybe<&2, CU.Ent>}
+  for hv: {CU.Ent.opt(b, f) == Some{v} : Maybe<&2, Nat>}
+  {CU.slot(CU.find(CU.union(bs, cs), k), f) == Some{CU.Slot{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), Some{v}}} : Maybe<&2, CU.Slot>}
 
 # LAW: an optional field that the bundled entry leaves out comes from the
 # compiled entry when both use the same api
@@ -2911,11 +2913,12 @@ law union_both_fills_from_compiled:
   for +k: Nat
   for +b: CU.Ent
   for +c: CU.Ent
+  for +f: CU.Fld
   for hb: {CU.find(bs, k) == Some{b} : Maybe<&2, CU.Ent>}
   for hc: {CU.find(cs, k) == Some{c} : Maybe<&2, CU.Ent>}
-  for hn: {CU.Ent.opt(b) == None{} : Maybe<&2, Nat>}
+  for hn: {CU.Ent.opt(b, f) == None{} : Maybe<&2, Nat>}
   for ha: {Nat.is_eq(CU.Ent.api(b), CU.Ent.api(c)) == True{} : Bool}
-  {CU.find(CU.union(bs, cs), k) == Some{CU.Ent{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), CU.Ent.opt(c)}} : Maybe<&2, CU.Ent>}
+  {CU.slot(CU.find(CU.union(bs, cs), k), f) == Some{CU.Slot{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), CU.Ent.opt(c, f)}} : Maybe<&2, CU.Slot>}
 
 # LAW: and stays out when they use different apis
 law union_both_other_api:
@@ -2924,11 +2927,29 @@ law union_both_other_api:
   for +k: Nat
   for +b: CU.Ent
   for +c: CU.Ent
+  for +f: CU.Fld
   for hb: {CU.find(bs, k) == Some{b} : Maybe<&2, CU.Ent>}
   for hc: {CU.find(cs, k) == Some{c} : Maybe<&2, CU.Ent>}
-  for hn: {CU.Ent.opt(b) == None{} : Maybe<&2, Nat>}
+  for hn: {CU.Ent.opt(b, f) == None{} : Maybe<&2, Nat>}
   for ha: {Nat.is_eq(CU.Ent.api(b), CU.Ent.api(c)) == False{} : Bool}
-  {CU.find(CU.union(bs, cs), k) == Some{CU.Ent{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), None{}}} : Maybe<&2, CU.Ent>}
+  {CU.slot(CU.find(CU.union(bs, cs), k), f) == Some{CU.Slot{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), None{}}} : Maybe<&2, CU.Slot>}
+
+# LAW: the four optional fields are four: thinkingLevelMap, compat,
+# featured and headers each read their own place of an entry
+# EXCLUDES: a field view that reads one field for two (then the laws
+#   above would leave a field free)
+law union_fields_example:
+  {[CU.Ent.opt(CU.Ent{0n, 0n, 0n, Some{1n}, Some{2n}, Some{3n}, Some{4n}}, CU.Tlm{}), CU.Ent.opt(CU.Ent{0n, 0n, 0n, Some{1n}, Some{2n}, Some{3n}, Some{4n}}, CU.Compat{}), CU.Ent.opt(CU.Ent{0n, 0n, 0n, Some{1n}, Some{2n}, Some{3n}, Some{4n}}, CU.Featured{}), CU.Ent.opt(CU.Ent{0n, 0n, 0n, Some{1n}, Some{2n}, Some{3n}, Some{4n}}, CU.Headers{})] == [Some{1n}, Some{2n}, Some{3n}, Some{4n}] : List<&2, Maybe<&2, Nat>>}
+
+# LAW: the union the catalog runs (by tables keyed by the entries' keys,
+# O(n log n)) is the union these laws read, entry for entry, in order
+# EXCLUDES: a fast path that drops, reorders, duplicates or merges an
+#   entry differently from the rule (a lost twin, a second twin, a missed
+#   bundled key)
+law union_fast:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  {CU.fast(bs, cs) == CU.union(bs, cs) : List<&2, CU.Ent>}
 
 # LAW: the result does not depend on the order the sources are read: the
 # bundle first or the compiled catalog first, each source with its
@@ -3140,6 +3161,38 @@ law ascii_unchanged:
   for +rows: List<&2, List<&2, List<&2, Nat>>>
   for +ones: Gw.Ones.rows(rows)
   {Gw.table(Gw.Display{}, rows) == Gw.table(Gw.Chars{}, rows) : List<&2, List<&2, Nat>>}
+
+# the pads of row from column i over k columns: the width of the column
+# less the display width of the row's cell (0 when it has none)
+def gw_pads(k: Nat, +rows: List<&2, List<&2, List<&2, Nat>>>, +row: List<&2, List<&2, Nat>>, +i: Nat) -> List<&2, Nat>:
+  match k:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      Nat.sub(Gw.col.w(rows, Gw.Display{}, i), Gw.get.w(row, Gw.Display{}, i)) <> gw_pads(p, rows, row, 1n+i)
+
+# the pads of every row of rs over k columns of the table rows
+def gw_pads_all(rs: List<&2, List<&2, List<&2, Nat>>>, +k: Nat, +rows: List<&2, List<&2, List<&2, Nat>>>) -> List<&2, List<&2, Nat>>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      gw_pads(k, rows, r, 0n) <> gw_pads_all(rest, k, rows)
+
+# LAW: the layout the renderer reads has the width of every column (the
+# rule row's `-` runs; the last column too): its widest cell
+# EXCLUDES: a rule row narrower or wider than a column, a dropped column
+law layout_widths:
+  for +rows: List<&2, List<&2, List<&2, Nat>>>
+  {Gw.Lay.widths(Gw.layout(rows)) == Gw.widths(Gw.cols(rows), Gw.Display{}, rows, 0n) : List<&2, Nat>}
+
+# LAW: the layout pads each row's cell in every column but the last with
+# the column's width less the cell's display width, and the last not
+# EXCLUDES: a pad by glyph count, a padded last column, a pad that
+#   forgets a missing cell (a short row)
+law layout_pads:
+  for +rows: List<&2, List<&2, List<&2, Nat>>>
+  {Gw.Lay.pads(Gw.layout(rows)) == gw_pads_all(rows, Nat.sub(Gw.cols(rows), 1n), rows) : List<&2, List<&2, Nat>>}
 
 # ---- tui_color ----
 
@@ -3362,6 +3415,26 @@ law path_ancestor_guarded:
   for +segs: List<&2, Tl.Seg>
   for anc: {Pp.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(Pp.Pol.rules(pol)), Pp.Pol.secret(pol)), Pp.Res.at(Pp.real(ls, segs))) == True{} : Bool}
   {Pp.Cls.guarded(Pp.class(pol, ls, segs)) == True{} : Bool}
+
+# LAW: the one call the shell and the document gate make on a path they
+# resolved answers its class as the policy judges a real path: a loop
+# demotes Inside to Outside, and the laws above hold for it
+# EXCLUDES: a caller-side class that skips the loop demotion or judges a
+#   second resolution
+law path_judge_class:
+  for +pol: Pp.Pol
+  for +r: Pp.Res
+  {Pp.Judged.cls(Pp.judge(pol, r)) == Pp.class_res(pol, r) : Pp.Cls}
+
+# LAW: and answers that the path holds a secret exactly when its real
+# path is under a secret entry or is an ancestor of one (a recursive read
+# of it reads the secret)
+# EXCLUDES: a holds test that misses a directory above a secret, or that
+#   flags a sibling of one
+law path_judge_holds:
+  for +pol: Pp.Pol
+  for +r: Pp.Res
+  {Pp.Judged.holds(Pp.judge(pol, r)) == Bool.or(Pp.any_under(Pp.Pol.secret(pol), Pp.Res.at(r)), Pp.any_ancestor(Pp.Pol.secret(pol), Pp.Res.at(r))) : Bool}
 
 # LAW: a write runs without the user's yes only Inside the workspace:
 # never Outside, never to eukhe's config or credentials, never to a

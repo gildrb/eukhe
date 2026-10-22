@@ -111,3 +111,52 @@ def Ones.rows(rows: List<&2, List<&2, List<&2, Nat>>>) -> Data:
       Unit
     case r <> rest:
       Sigma<&2, &2, Ones.row(r), x => Ones.rows(rest)>
+
+# The layout the renderer reads
+# -----------------------------
+# The Rust renderer measures each cell (its display width: a cell of one
+# glyph), asks for the layout and writes the cells: the rule row is a
+# run of `-` per column width; each row puts its pad (spaces) after each
+# cell but the last column's.
+
+# the pads of row from column i, rest the widths after column i and w
+# its width: the column width less the cell's width, for every
+# column but the last
+def pads.at(rest: List<&2, Nat>, w: Nat, +row: List<&2, List<&2, Nat>>, +i: Nat) -> List<&2, Nat>:
+  match rest:
+    case Nil{}:
+      Nil{}
+    case v <> more:
+      Nat.sub(w, get.w(row, Display{}, i)) <> pads.at(more, v, row, 1n+i)
+
+def pads.row(ws: List<&2, Nat>, +row: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case w <> rest:
+      pads.at(rest, w, row, 0n)
+
+def pads.all(rs: List<&2, List<&2, List<&2, Nat>>>, +ws: List<&2, Nat>) -> List<&2, List<&2, Nat>>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      pads.row(ws, r) <> pads.all(rest, ws)
+
+# The layout: the width of every column, and every row's pads
+type Lay is Data:
+  Lay{widths: List<&2, Nat>, pads: List<&2, List<&2, Nat>>}
+
+def Lay.widths(l: Lay) -> List<&2, Nat>:
+  match l:
+    case Lay{w, p}:
+      w
+
+def Lay.pads(l: Lay) -> List<&2, List<&2, Nat>>:
+  match l:
+    case Lay{w, p}:
+      p
+
+def layout(+rows: List<&2, List<&2, List<&2, Nat>>>) -> Lay:
+  +ws = widths(cols(rows), Display{}, rows, 0n)
+  Lay{ws, pads.all(rows, ws)}

@@ -429,7 +429,7 @@ impl Shell {
         let cwd_read = reads_cwd(argv);
         let mut effects = classify(assigns, argv);
         for (_, op, target) in redirects {
-            let class = || paths.class(&self.cwd.join(target));
+            let class = || crate::paths::judge_path(paths, &self.cwd.join(target)).class;
             match op {
                 RedirectOp::Read(_) => effects = effects.union(ShellEffects::read_of(class())),
                 RedirectOp::Write(_) | RedirectOp::Append(_) if target != "/dev/null" => {
@@ -448,12 +448,12 @@ impl Shell {
                 Some(_) | None => (!word.starts_with('-')).then_some(word.as_str()),
             });
         for word in named {
-            let path = self.cwd.join(word);
-            if paths.holds_secret(&path) {
+            let judged = crate::paths::judge_path(paths, &self.cwd.join(word));
+            if judged.holds_secret {
                 effects.insert(ShellEffect::Secret);
             }
             if writes {
-                match paths.class(&path) {
+                match judged.class {
                     PathClass::Inside => {}
                     PathClass::Outside => effects.insert(ShellEffect::Outside),
                     PathClass::Protected => effects.insert(ShellEffect::Protected),
@@ -461,7 +461,7 @@ impl Shell {
                 }
             }
         }
-        if cwd_read && paths.holds_secret(&self.cwd) {
+        if cwd_read && crate::paths::judge_path(paths, &self.cwd).holds_secret {
             effects.insert(ShellEffect::Secret);
         }
         effects

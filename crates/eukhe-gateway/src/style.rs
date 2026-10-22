@@ -155,6 +155,42 @@ pub(crate) fn render(markdown: &str) -> Vec<StyledText> {
     out.into_chunks()
 }
 
+/// Where a table's cells go: the width of every column (the rule row) and,
+/// per row, the spaces after each cell but the last column's
+/// (`layout` in `bend/gateway_width.bend`, `LAWS.bend` section `gateway_width`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Layout {
+    widths: Vec<usize>,
+    pads: Vec<Vec<usize>>,
+}
+
+/// The layout of a table whose cells have these display widths, row by
+/// row: a column is as wide as its widest cell (a missing cell is 0
+/// wide), and a cell's pad is its column's width less its own.
+fn layout(rows: &[Vec<usize>]) -> Layout {
+    let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..columns)
+        .map(|column| {
+            rows.iter()
+                .filter_map(|row| row.get(column).copied())
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    let pads = rows
+        .iter()
+        .map(|row| {
+            widths
+                .iter()
+                .take(columns.saturating_sub(1))
+                .enumerate()
+                .map(|(column, width)| width - row.get(column).copied().unwrap_or(0))
+                .collect()
+        })
+        .collect();
+    Layout { widths, pads }
+}
+
 impl Rendered {
     /// Pushes a table (header, delimiter row, body rows) as a monospace
     /// block with aligned columns.
@@ -174,35 +210,26 @@ impl Rendered {
                     .collect()
             })
             .collect();
-        let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
-        let widths: Vec<usize> = (0..columns)
-            .map(|column| {
-                rows.iter()
-                    .filter_map(|row| row.get(column))
-                    .map(|cell| str_width(&cell.text))
-                    .max()
-                    .unwrap_or(0)
-            })
+        let measured: Vec<Vec<usize>> = rows
+            .iter()
+            .map(|row| row.iter().map(|cell| str_width(&cell.text)).collect())
             .collect();
+        let Layout { widths, pads } = layout(&measured);
         self.begin_line();
         let start = self.units;
-        for (row_index, row) in rows.iter().enumerate() {
+        for (row_index, (row, pads)) in rows.iter().zip(&pads).enumerate() {
             if row_index > 0 {
                 self.begin_line();
             }
-            for (column, width) in widths.iter().enumerate() {
+            for column in 0..widths.len() {
                 if column > 0 {
                     self.push(" | ");
                 }
-                let cell_width = match row.get(column) {
-                    Some(cell) => {
-                        self.append(cell);
-                        str_width(&cell.text)
-                    }
-                    None => 0,
-                };
-                if column + 1 < columns {
-                    self.push(&" ".repeat(width - cell_width));
+                if let Some(cell) = row.get(column) {
+                    self.append(cell);
+                }
+                if let Some(pad) = pads.get(column) {
+                    self.push(&" ".repeat(*pad));
                 }
             }
             if row_index == 0 {

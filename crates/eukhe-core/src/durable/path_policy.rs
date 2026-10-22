@@ -150,14 +150,11 @@ pub(crate) fn session_policy(
 /// it is (no second resolution: a loop stays a loop): a search of a
 /// directory that holds a secret reads the secret.
 pub(crate) fn effects(policy: &PathPolicy, access: Access, real: &RealPath) -> ShellEffects {
+    let judged = eukhe_shell::paths::judge(policy, real);
     match access {
-        Access::Search if policy.holds_secret_of_resolved(real) => {
-            ShellEffects::read_of(PathClass::Secret)
-        }
-        Access::Read | Access::List | Access::Search => {
-            ShellEffects::read_of(policy.class_of_resolved(real))
-        }
-        Access::Write => ShellEffects::write_to(policy.class_of_resolved(real)),
+        Access::Search if judged.holds_secret => ShellEffects::read_of(PathClass::Secret),
+        Access::Read | Access::List | Access::Search => ShellEffects::read_of(judged.class),
+        Access::Write => ShellEffects::write_to(judged.class),
     }
 }
 

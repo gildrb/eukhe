@@ -572,8 +572,8 @@ fn run(
         let absolute = top.path(&query.path);
         let real = resolve(&absolute);
         let looped = real.looped();
-        let class = policy.class(&absolute);
-        let holds = policy.holds_secret(&absolute);
+        let judged = eukhe_shell::paths::judge(&policy, &real);
+        let (class, holds) = (judged.class, judged.holds_secret);
         let (case, shown) = match class {
             PathClass::Inside => (Case::Inside, 'i'),
             PathClass::Outside => (Case::Outside, 'o'),
@@ -632,7 +632,7 @@ fn run(
             writeln!(transcript, "w 0").unwrap();
         }
     }
-    let guarded = |path: &Path| match policy.class(path) {
+    let guarded = |path: &Path| match eukhe_shell::paths::judge_path(&policy, path).class {
         PathClass::Protected | PathClass::Secret => true,
         PathClass::Inside | PathClass::Outside => false,
     };
