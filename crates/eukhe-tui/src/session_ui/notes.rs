@@ -56,8 +56,9 @@ impl SessionUi {
     /// line below the prompt bar; the dock's row below carries it).
     pub(crate) fn sync_goal_tray(&mut self, view: &mut AgentView) {
         let previous = view.chrome.activity.clone();
+        let previous_panel = view.agents_panel.clone();
         self.update_subagent_summary(view);
-        if previous != view.chrome.activity {
+        if previous != view.chrome.activity || previous_panel != view.agents_panel {
             self.dirty = true;
         }
     }

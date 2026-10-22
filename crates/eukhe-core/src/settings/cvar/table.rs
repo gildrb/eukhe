@@ -52,6 +52,7 @@ pub(crate) const TREE_FILTER_MODES: &[&str] =
 pub(crate) const CHAT_DETAILS: &[&str] = &["overview", "details", "all"];
 pub(crate) const MERMAID_MODES: &[&str] = &["off", "final", "streaming"];
 pub(crate) const WORKFLOW_SIZES: &[&str] = &["small", "medium", "large"];
+pub(crate) const PINNED_AGENTS_MODES: &[&str] = &["off", "collapsed", "full"];
 
 pub const ONBOARDING_SHOWN: Decl = Decl {
     id: "onboardingShown",
@@ -813,6 +814,28 @@ pub const TERMINAL_FULLSCREEN: Decl = Decl {
     init: Init::Bool(true),
 };
 
+/// The pinned agents block above the composer: `off`, `collapsed` (three
+/// rows and a count of the rest), or `full`.
+pub const TERMINAL_PINNED_AGENTS: Decl = Decl {
+    id: "terminal.pinnedAgents",
+    ty: CvarType::Choice(PINNED_AGENTS_MODES),
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::Text("collapsed"),
+};
+
+/// Seconds a running agent may go without a word before the pinned
+/// agents block shows it as quiet; `0` turns the signal off.
+pub const TERMINAL_STUCK_AFTER_SECS: Decl = Decl {
+    id: "terminal.stuckAfterSecs",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::Nat(60),
+};
+
 /// `0` reads as 1.
 pub const TERMINAL_STREAM_PACE_MIN_CHARS: Decl = Decl {
     id: "terminal.streamPace.minChars",
@@ -1281,6 +1304,8 @@ pub const DECLS: &[Decl] = &[
     TERMINAL_SHOW_TERMINAL_PROGRESS,
     TERMINAL_SHOW_SPEED,
     TERMINAL_FULLSCREEN,
+    TERMINAL_PINNED_AGENTS,
+    TERMINAL_STUCK_AFTER_SECS,
     TERMINAL_STREAM_PACE_MIN_CHARS,
     TERMINAL_STREAM_PACE_LAG,
     IMAGES_AUTO_RESIZE,

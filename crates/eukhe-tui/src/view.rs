@@ -68,6 +68,16 @@ pub struct AgentView {
     /// runs, and the row above the composer names the wake time instead of
     /// reading as idle.
     pub quota_park: Option<crate::activity::QuotaPark>,
+    /// The pinned agents block's content (the family's running agents and
+    /// the session's running jobs), rebuilt on every roster, shell, and
+    /// workflow update; frames only render it.
+    pub agents_panel: crate::agents_panel::AgentsPanel,
+    /// How the pinned agents block shows (`terminal.pinnedAgents`; the
+    /// dock's expand key toggles it for this run).
+    pub pinned_agents: crate::agents_panel::PinnedAgents,
+    /// `terminal.stuckAfterSecs`: a running agent quiet this long shows
+    /// `no activity for ...`; `0` is off.
+    pub stuck_after_secs: u64,
     /// The first-run onboarding pane (TS `runStartupOnboarding`): while
     /// set, it owns the whole frame.
     pub onboarding: Option<crate::onboarding::OnboardingScreen>,
@@ -319,6 +329,9 @@ impl AgentView {
             working_since: None,
             retry: None,
             quota_park: None,
+            agents_panel: crate::agents_panel::AgentsPanel::default(),
+            pinned_agents: crate::agents_panel::PinnedAgents::default(),
+            stuck_after_secs: crate::agents_panel::DEFAULT_STUCK_AFTER_SECS,
             onboarding: None,
             model_picker: None,
             tree_selector: None,

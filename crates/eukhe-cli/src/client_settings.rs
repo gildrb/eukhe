@@ -136,6 +136,14 @@ impl ClientSettings for CliClientSettings {
         self.manager().get_show_speed()
     }
 
+    fn pinned_agents(&self) -> eukhe_tui::agents_panel::PinnedAgents {
+        eukhe_tui::agents_panel::PinnedAgents::parse(&self.manager().get_pinned_agents())
+    }
+
+    fn stuck_after_secs(&self) -> u64 {
+        self.manager().get_stuck_after_secs()
+    }
+
     setting!(
         show_images,
         set_show_images,

@@ -65,6 +65,8 @@ More settings:
 |`terminal.streamPace.lag`|`3`|How far the screen stays behind the stream: each frame shows the backlog divided by `1 + lag`|
 |`terminal.showSpeed`|`true`|Show the generation speed on the status line: `prefill <elapsed>s` (or `prefill p/n tokens` from a llama.cpp server), `decode N tok/s`, then `prefill X tok/s (TTFT Ys) · decode Z tok/s` after the reply|
 |`terminal.fullscreen`|`true`|Run the interactive surfaces in the alternate screen (a transcript window above the dock, wheel scrolling); `false` runs them inline, with the transcript in the terminal's scrollback|
+|`terminal.pinnedAgents`|`collapsed`|The agents block above the composer, shown while a subagent or a job runs: `off`, `collapsed` (three rows and `... N more`), or `full`; with the dock focused (Alt+A), Space expands or collapses it and Enter (or Alt+A again) opens the agents view|
+|`terminal.stuckAfterSecs`|`60`|Seconds a running subagent may go without a word (no event, no streamed token, no tool output) before its row in the agents block shows `no activity for ...` in the warning color; `0` turns it off|
 
 ## Agents and providers
 

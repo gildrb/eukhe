@@ -387,6 +387,11 @@ impl SessionUi {
                 self.dirty = true;
                 return Ok(());
             }
+            if kb.matches(&id, "app.subagents.pinned") {
+                view.pinned_agents = view.pinned_agents.toggled();
+                self.dirty = true;
+                return Ok(());
+            }
             if kb.matches(&id, "app.tools.expand") {
                 self.cycle_detail(view);
                 return Ok(());

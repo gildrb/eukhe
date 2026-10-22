@@ -134,6 +134,19 @@ impl SettingsManager {
         self.cvars().bool(&table::TERMINAL_FULLSCREEN)
     }
 
+    /// `terminal.pinnedAgents`: `off`, `collapsed`, or `full`.
+    #[must_use]
+    pub fn get_pinned_agents(&self) -> String {
+        self.cvars().text(&table::TERMINAL_PINNED_AGENTS)
+    }
+
+    /// `terminal.stuckAfterSecs`: seconds a running agent may go without
+    /// a word before the pinned agents block shows it as quiet; `0` is off.
+    #[must_use]
+    pub fn get_stuck_after_secs(&self) -> u64 {
+        self.cvars().nat(&table::TERMINAL_STUCK_AFTER_SECS)
+    }
+
     /// `terminal.streamPace.minChars`: the fewest streamed characters a
     /// frame reveals. A 0 reads as 1, since a zero minimum would stall a
     /// small backlog.

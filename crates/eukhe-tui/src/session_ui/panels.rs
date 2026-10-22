@@ -114,6 +114,19 @@ impl SessionUi {
             .and_then(|park| {
                 <crate::activity::QuotaPark as serde::Deserialize>::deserialize(park).ok()
             });
+        // The pinned agents block reads the same feeds the dock counts;
+        // it is rebuilt here, on the update, so a frame only renders it.
+        // The fixed clock anchor makes a rebuild over the same feeds equal
+        // to the last one (no repaint for nothing).
+        let (anchor, anchor_ms) = crate::agents_panel::clock_anchor();
+        view.agents_panel = crate::agents_panel::AgentsPanel::build(
+            &self.roster,
+            &identity,
+            &crate::bash_view::parse_bash_activities(&self.bash_activities),
+            &self.workflow_lane.runs,
+            anchor,
+            anchor_ms,
+        );
         let dock = self.activity_dock_state();
         // A focused selection must stay on a rendered group: only the
         // goal group can leave the row (its goal ended), and the
@@ -379,8 +392,9 @@ impl SessionUi {
     /// carries a heartbeat count beside the model name).
     pub(crate) fn sync_activity_dock(&mut self, view: &mut AgentView) {
         let previous = view.chrome.activity.clone();
+        let previous_panel = view.agents_panel.clone();
         self.update_subagent_summary(view);
-        if previous != view.chrome.activity {
+        if previous != view.chrome.activity || previous_panel != view.agents_panel {
             self.dirty = true;
         }
     }

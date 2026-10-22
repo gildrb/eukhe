@@ -58,6 +58,16 @@ pub trait ClientSettings: Send + Sync {
     fn show_speed(&self) -> bool {
         true
     }
+    /// `terminal.pinnedAgents` (default `collapsed`): the pinned agents
+    /// block above the composer.
+    fn pinned_agents(&self) -> crate::agents_panel::PinnedAgents {
+        crate::agents_panel::PinnedAgents::Collapsed
+    }
+    /// `terminal.stuckAfterSecs` (default 60; 0 is off): seconds a running
+    /// agent may go without a word before the block shows it as quiet.
+    fn stuck_after_secs(&self) -> u64 {
+        crate::agents_panel::DEFAULT_STUCK_AFTER_SECS
+    }
     /// `terminal.fullscreen` (default true: the alternate screen; an
     /// explicit false runs inline).
     fn fullscreen(&self) -> bool;

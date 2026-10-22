@@ -121,6 +121,20 @@ impl SessionUi {
                     view.show_speed = show;
                     self.sync_speed(view);
                 }
+                // The pinned agents block follows its two settings at once.
+                let value_of = |id: &str| {
+                    reply
+                        .values
+                        .iter()
+                        .find(|value| value.id == id)
+                        .map(|value| &value.value)
+                };
+                if let Some(mode) = value_of("terminal.pinnedAgents").and_then(Value::as_str) {
+                    view.pinned_agents = crate::agents_panel::PinnedAgents::parse(mode);
+                }
+                if let Some(secs) = value_of("terminal.stuckAfterSecs").and_then(Value::as_u64) {
+                    view.stuck_after_secs = secs;
+                }
                 let shown = parse_list(line)
                     .ok()
                     .and_then(|commands| match commands.as_slice() {

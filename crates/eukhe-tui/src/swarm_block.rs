@@ -64,7 +64,7 @@ pub struct RosterLine {
 pub(crate) struct FamilyMember<'a> {
     pub(crate) entry: &'a Value,
     pub(crate) depth: usize,
-    parent: Option<usize>,
+    pub(crate) parent: Option<usize>,
 }
 
 /// What an `@token` names in the family.
@@ -176,6 +176,38 @@ fn has_root(parents: &[Option<usize>], index: usize) -> bool {
         }
     }
     false
+}
+
+/// The members `keep` selects, in the same tree order, each hung under
+/// its nearest kept ancestor (the session when none is kept): a running
+/// grandchild of an idle child still nests under the session's tree.
+pub(crate) fn kept_members<'a>(
+    members: &[FamilyMember<'a>],
+    keep: impl Fn(&FamilyMember<'a>) -> bool,
+) -> Vec<FamilyMember<'a>> {
+    let kept: Vec<bool> = members.iter().map(&keep).collect();
+    let mut moved_to: Vec<Option<usize>> = vec![None; members.len()];
+    let mut out = Vec::new();
+    for (index, member) in members.iter().enumerate() {
+        if !kept[index] {
+            continue;
+        }
+        let mut ancestor = member.parent;
+        while let Some(at) = ancestor {
+            if kept[at] {
+                break;
+            }
+            ancestor = members[at].parent;
+        }
+        moved_to[index] = Some(out.len());
+        out.push(FamilyMember {
+            entry: member.entry,
+            depth: member.depth,
+            // Tree order puts every parent before its children.
+            parent: ancestor.and_then(|at| moved_to[at]),
+        });
+    }
+    out
 }
 
 /// The `parent/child` path of a member: its parent's display name (the

@@ -125,6 +125,8 @@ fn populated() -> Settings {
             show_terminal_progress: Some(true),
             show_speed: Some(true),
             fullscreen: Some(true),
+            pinned_agents: Some("full".into()),
+            stuck_after_secs: Some(1),
             stream_pace: Some(StreamPaceSettings {
                 min_chars: Some(1),
                 lag: Some(1),

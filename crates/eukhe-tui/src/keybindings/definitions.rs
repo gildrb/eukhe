@@ -236,6 +236,9 @@ pub const APP_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     ),
     ("app.tools.expand", def!(&["ctrl+o"], scope "editor")),
     ("app.subagents.focus", def!(&["alt+a"])),
+    // The focused dock's expand key: the pinned agents block opens in full
+    // or folds to its first rows.
+    ("app.subagents.pinned", def!(&["space"])),
     ("app.heartbeats.openSelected", def!(&["right"])),
     ("app.memory.expand", def!(&["right"])),
     ("app.editor.external", def!(&["ctrl+g"])),

@@ -30,6 +30,7 @@
 
 pub mod activity;
 mod agent_delivery;
+pub mod agents_panel;
 pub mod agents_view;
 pub mod agents_view_forest;
 pub mod agents_view_search;

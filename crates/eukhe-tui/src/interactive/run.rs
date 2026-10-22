@@ -217,6 +217,8 @@ async fn run_interactive_surface(
         view.show_hardware_cursor = settings.show_hardware_cursor();
         view.pace_rate = settings.stream_pace();
         view.show_speed = settings.show_speed();
+        view.pinned_agents = settings.pinned_agents();
+        view.stuck_after_secs = settings.stuck_after_secs();
         // Every frame the off-screen check rejects goes to the agent log.
         let log = std::sync::Arc::clone(settings);
         crate::inline_term::log_rejections_with(Box::new(move |message| {
@@ -1813,11 +1815,13 @@ async fn run_interactive_surface(
         // cap).
         // Any loader animates: the send before the admission, the gap
         // between a run's requests, and a compaction outside a turn have
-        // a loader up with no engine turn active.
+        // a loader up with no engine turn active. The pinned agents block
+        // animates too: its spinners and durations tick while it shows.
         let animating = session.turn_active
             || view.working.is_some()
             || view.retry.is_some()
-            || view.compaction.is_some();
+            || view.compaction.is_some()
+            || view.agents_panel_shown();
         if animating {
             let now = Instant::now();
             let started = *anim_started.get_or_insert(now);

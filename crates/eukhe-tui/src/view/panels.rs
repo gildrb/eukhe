@@ -9,17 +9,25 @@ use crate::theme::ThemeColor;
 use crate::{Line, Span};
 
 impl AgentView {
-    /// Render the dock: the queued-input strip, the autocomplete overlay
-    /// (when showing), the composer, and the status line under it.
+    /// Render the dock: the pinned agents block (while anything runs), the
+    /// queued-input strip, the autocomplete overlay (when showing), the
+    /// composer, and the status line under it.
     pub fn render_dock(&mut self, width: usize) -> Vec<Line> {
+        // The pinned agents block heads the dock (omp's subagent HUD above
+        // the editor), in fullscreen and inline alike.
+        let mut lines = self.render_agents_panel(width);
         // The queued-input strip sits directly above the prompt (TS
         // `queuedMessagesContainer` above the editor).
         let browse_key = {
             let kb = self.editor.keybindings();
             crate::keybindings::format_key_text(&kb.get_keys("app.message.navigateOlder").join("/"))
         };
-        let queue_rows = crate::queued::render_queue(&self.theme, &self.queued, &browse_key, width);
-        let mut lines = queue_rows;
+        lines.extend(crate::queued::render_queue(
+            &self.theme,
+            &self.queued,
+            &browse_key,
+            width,
+        ));
         lines.extend(self.render_autocomplete_overlay(width));
         let editor_row = lines.len();
         let (editor_rows, cursor) = self.render_editor_surface(width);
@@ -41,6 +49,41 @@ impl AgentView {
             ));
         }
         lines
+    }
+
+    /// Whether the pinned agents block shows (something runs and the
+    /// setting leaves it on): the block's durations tick while it does.
+    #[must_use]
+    pub fn agents_panel_shown(&self) -> bool {
+        self.agents_panel.shown(self.pinned_agents)
+    }
+
+    /// The pinned agents block's rows at this frame's clock.
+    fn render_agents_panel(&self, width: usize) -> Vec<Line> {
+        if !self.agents_panel_shown() {
+            return Vec::new();
+        }
+        let kb = self.editor.keybindings();
+        let open_key = kb.key_text("app.subagents.focus");
+        let expand_key = kb.key_text("app.subagents.pinned");
+        let focused = self.chrome.activity.as_ref().is_some_and(|dock| {
+            dock.focused && dock.selected == crate::chrome::ActivityGroup::Subagents
+        });
+        crate::agents_panel::render_agents_panel(
+            &self.agents_panel,
+            &crate::agents_panel::PanelView {
+                mode: self.pinned_agents,
+                stuck_after_secs: self.stuck_after_secs,
+                focused,
+                open_key: &open_key,
+                expand_key: &expand_key,
+                frame: self.pulse_frame,
+                now: std::time::Instant::now(),
+                now_ms: crate::agents_view_state::now_ms(),
+            },
+            &self.theme,
+            width,
+        )
     }
 
     /// The autocomplete dropdown, mounted just above the prompt.

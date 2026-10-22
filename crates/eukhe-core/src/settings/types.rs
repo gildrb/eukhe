@@ -268,6 +268,12 @@ pub struct TerminalSettings {
     /// Run the interactive surfaces in the alternate screen (default
     /// true; an explicit false runs them inline).
     pub fullscreen: Option<bool>,
+    /// The pinned agents block above the composer: `off`, `collapsed`
+    /// (default), or `full`.
+    pub pinned_agents: Option<String>,
+    /// Seconds a running agent may go without a word before the pinned
+    /// agents block shows it as quiet (default 60; 0 is off).
+    pub stuck_after_secs: Option<u64>,
     /// How fast streamed text appears on screen.
     pub stream_pace: Option<StreamPaceSettings>,
 }

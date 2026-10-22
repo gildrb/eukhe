@@ -23,7 +23,7 @@ SOLUTION: the agent writes the plan as a short deterministic script. eukhe runs 
 - When the script ends, the result comes back as a `[job-settled job:workflow-<id> status:ok|error|aborted]` message. That message starts a new turn of the agent.
 - On the `/workflows` page: the arrows move over the agents, Enter opens the agents view, `c` then `y` cancels the run, Esc closes.
 - Esc in the chat stops the turn. It does not stop a run. Cancel a run on the `/workflows` page.
-- The activity dock shows a `workflows` count while a run runs. Enter on it opens `/workflows`.
+- The activity dock shows a `workflows` count while a run runs. Enter on it opens `/workflows`. The agents block above the composer lists the run (its active phase and how many agents are done) and each of its running agents (`terminal.pinnedAgents` in [settings.md](settings.md)).
 - The Signal gateway and the dashboard send `/dynamic-workflow` to the session as a prompt.
 
 ## Sizes
