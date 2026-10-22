@@ -33,8 +33,10 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   shared vocabulary crate. Dependency direction is in the Crates table. Minimal public
   APIs, no god-modules.
 - Private modules with an explicit public crate API. Internals are `pub(crate)`.
-- Keep files under 2,000 lines, tests included. Split by responsibility; move related
-  tests with extracted code.
+- Keep Rust and TypeScript files under 2,000 lines, tests included. Split by
+  responsibility; move related tests with extracted code. Bend files (`LAWS.bend`,
+  `laws/`, `PROOF.bend`, `bend/`) have no line limit: a complete law set is long,
+  and one area's laws stay together.
 - Name modules for what they own, not `utils` or `common`. Follow existing structure:
   `crates/eukhe-core/src/kernel/manager/` (`mod.rs` connects `execution.rs`,
   `requests.rs`, `teardown.rs`); `crates/eukhe-core/src/cron/store/` (`heartbeat.rs`,
