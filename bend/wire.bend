@@ -64,25 +64,6 @@ def dchar(d: Nat) -> Char:
     case 10n+p:
       '9'
 
-# The codes of '0'..'9', in order.
-def codes() -> List<&2, U32>:
-  [48, 49, 50, 51, 52, 53, 54, 55, 56, 57]
-
-def cdig.pick(hit: Bool, later: Maybe<&2, Nat>, i: Nat) -> Maybe<&2, Nat>:
-  match hit:
-    case True{}:
-      Some{i}
-    case False{}:
-      later
-
-# The digit whose code is x, the i-th of ds onwards.
-def cdig.go(ds: List<&2, U32>, +x: U32, +i: Nat) -> Maybe<&2, Nat>:
-  match ds:
-    case Nil{}:
-      None{}
-    case Con{+h, t}:
-      cdig.pick(U32.is_eq(x, h), cdig.go(t, x, 1n+i), i)
-
 def tok.end(comma: Bool) -> Tok:
   match comma:
     case True{}:
@@ -90,26 +71,23 @@ def tok.end(comma: Bool) -> Tok:
     case False{}:
       Other{}
 
-def tok.of(m: Maybe<&2, Nat>, comma: Bool) -> Tok:
-  match m:
-    case Some{d}:
+def tok.is(ok: Bool, d: Nat, comma: Bool) -> Tok:
+  match ok:
+    case True{}:
       Dig{d}
-    case None{}:
+    case False{}:
       tok.end(comma)
 
-# The token of a char.
+# The token of the char of code x, where d is its code less 48 (0 below
+# 48): a digit when d is below 10 and x is the code of d again.
+def tok.code(+x: U32, +d: Nat) -> Tok:
+  tok.is(Bool.and(Nat.is_lt(d, 10n), U32.is_eq(x, U32.from_nat(Nat.add(48n, d)))), d, U32.is_eq(x, 44))
+
+# The token of a char: native compares on its code, no table.
 def tok(c: Char) -> Tok:
   match c:
     case Chr{+x}:
-      tok.of(cdig.go(codes(), x, 0n), U32.is_eq(x, 44))
-
-# The token at the head of s and the rest (the end of input reads Other).
-def peek(s: String) -> Tok & String:
-  match s:
-    case SNil{}:
-      (Other{}, SNil{})
-    case SCon{c, t}:
-      (tok(c), t)
+      tok.code(x, Nat.sub(U32.to_nat(x), 48n))
 
 # Nat
 # ---
@@ -134,60 +112,64 @@ def put_nat(n: Nat, rest: String) -> String:
   +m = n
   put_nat.go(m, Nat.div(m, 10n), SCon{dchar(Nat.mod(m, 10n)), SCon{',', rest}})
 
-# The value of digits read last first: d0 + 10 * value(rest).
-def value(ds: List<&2, Nat>) -> Nat:
-  match ds:
-    case Nil{}:
-      0n
-    case Con{d, t}:
-      Nat.add(d, Nat.mul(10n, value(t)))
-
-# No digit is left: only the end mark may follow.
-def get_nat.end(ts: Tok & String, ds: List<&2, Nat>) -> Dec<Nat>:
-  (t, s) = ts
+# No digit is left: only the end mark may follow (t is the token of the
+# char before s).
+def get_nat.end(t: Tok, s: String, v: Nat) -> Dec<Nat>:
   match t:
     case Dig{d}:
       Bad{}
     case Comma{}:
-      Got{value(ds), s}
+      Got{v, s}
     case Other{}:
       Bad{}
 
-# Read at most k more digits after ds (read last first), then ','.
-def get_nat.go(k: Nat, ts: Tok & String, ds: List<&2, Nat>) -> Dec<Nat>:
+# Read at most k more digits after those worth v, then ','; t is the
+# token of the char before s. One flat loop: the value folds as it reads
+# (v * 10 + d), and k counts the digits, so at most 14 are ever folded.
+def get_nat.go(k: Nat, t: Tok, s: String, v: Nat) -> Dec<Nat>:
   match k:
     case 0n:
-      get_nat.end(ts, ds)
+      get_nat.end(t, s, v)
     case 1n+j:
-      (t, s) = ts
       match t:
         case Dig{d}:
-          get_nat.go(j, peek(s), d <> ds)
+          match s:
+            case SNil{}:
+              Bad{}
+            case SCon{c, r}:
+              get_nat.go(j, tok(c), r, Nat.add(d, Nat.mul(10n, v)))
         case Comma{}:
-          Got{value(ds), s}
+          Got{v, s}
         case Other{}:
           Bad{}
 
-def get_nat.lead(d: Nat, ts: Tok & String) -> Dec<Nat>:
+def get_nat.lead(d: Nat, t: Tok, s: String) -> Dec<Nat>:
   match d:
     case 0n:
-      get_nat.end(ts, [0n])
+      get_nat.end(t, s, 0n)
     case 1n+p:
-      get_nat.go(13n, ts, [1n+p])
+      get_nat.go(13n, t, s, 1n+p)
 
 # The first digit: 0 stands alone, any other starts up to 13 more.
-def get_nat.first(ts: Tok & String) -> Dec<Nat>:
-  (t, s) = ts
+def get_nat.first(t: Tok, s: String) -> Dec<Nat>:
   match t:
     case Dig{d}:
-      get_nat.lead(d, peek(s))
+      match s:
+        case SNil{}:
+          Bad{}
+        case SCon{c, r}:
+          get_nat.lead(d, tok(c), r)
     case Comma{}:
       Bad{}
     case Other{}:
       Bad{}
 
 def get_nat(s: String) -> Dec<Nat>:
-  get_nat.first(peek(s))
+  match s:
+    case SNil{}:
+      Bad{}
+    case SCon{c, r}:
+      get_nat.first(tok(c), r)
 
 # U32
 # ---
@@ -251,43 +233,38 @@ def get_bool(s: String) -> Dec<Bool>:
 # String
 # ------
 
-def put_str.step(c: Char, r: Nat & String) -> Nat & String:
-  (n, s) = r
-  (1n+n, SCon{c, s})
-
-# The chars of a, then rest, and how many there are.
-def put_str.go(a: String, rest: String) -> Nat & String:
+# The chars of a reversed onto acc, and n plus how many there are (one
+# flat loop).
+def put_str.go(a: String, acc: String, n: Nat) -> Nat & String:
   match a:
     case SNil{}:
-      (0n, rest)
+      (n, acc)
     case SCon{c, t}:
-      put_str.step(c, put_str.go(t, rest))
+      put_str.go(t, SCon{c, acc}, 1n+n)
 
-def put_str.fin(r: Nat & String) -> String:
-  (n, s) = r
-  put_nat(n, s)
+def put_str.fin(r: Nat & String, rest: String) -> String:
+  (n, b) = r
+  put_nat(n, String.reverse.go(b, rest))
 
 def put_str(a: String, rest: String) -> String:
-  put_str.fin(put_str.go(a, rest))
+  put_str.fin(put_str.go(a, SNil{}, 0n), rest)
 
-def take.cons(c: Char, r: Dec<String>) -> Dec<String>:
-  match r:
-    case Got{a, s}:
-      Got{SCon{c, a}, s}
-    case Bad{}:
-      Bad{}
-
-# The first n chars of s and the rest.
-def take(n: Nat, s: String) -> Dec<String>:
+# The first n chars of s, reversed onto acc, and the rest (one flat loop;
+# the chars are turned around once at the end).
+def take.go(n: Nat, s: String, acc: String) -> Dec<String>:
   match n:
     case 0n:
-      Got{SNil{}, s}
+      Got{String.reverse(acc), s}
     case 1n+m:
       match s:
         case SNil{}:
           Bad{}
         case SCon{c, t}:
-          take.cons(c, take(m, t))
+          take.go(m, t, SCon{c, acc})
+
+# The first n chars of s and the rest.
+def take(n: Nat, s: String) -> Dec<String>:
+  take.go(n, s, SNil{})
 
 def get_str.go(r: Dec<Nat>) -> Dec<String>:
   match r:

@@ -40,10 +40,11 @@ the 15th digit, so it never folds a value the runtime cannot hold. Rust
 refuses. Counts (string lengths, list lengths) are Nats too.
 
 A String has at most `STR_MAX` = 8 Mi chars (`Writer::str` refuses a
-longer one): Bend decodes a String with one stack frame per char, and the
-shim's 256 MiB evaluation stack holds about 16 Mi of them; a deeper run
-faults and ends the process. A larger text belongs in a stepper's state,
-fed in pieces.
+longer one): Bend's `put_str` and `get_str` are flat loops, but a model
+that recurses over a String takes one stack frame per char (and
+`get_list` / `put_list` one per item), and the shim's 256 MiB evaluation
+stack holds about 16 Mi of them; a deeper run faults and ends the
+process. A larger text belongs in a stepper's state, fed in pieces.
 
 Examples of a whole request. A record `{ name: String, tries: Nat, tags:
 List<String>, cap: Maybe<U32>, on: Bool }` with `("héllo", 3, ["a", "bc"],
