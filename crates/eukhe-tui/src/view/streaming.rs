@@ -107,11 +107,13 @@ impl AgentView {
                     count
                 });
             }
-            match arrived.checked_sub(pace.recv()) {
-                Some(more) => pace.chunk(more),
-                None => pace.shrink_to(arrived),
-            }
-            pace.frame(self.pace_rate);
+            let more = if let Some(more) = arrived.checked_sub(pace.recv()) {
+                more
+            } else {
+                pace.shrink_to(arrived);
+                0
+            };
+            pace.frame(self.pace_rate, more);
         }
         if !self.is_pacing() {
             self.loader_held_by_pace = None;

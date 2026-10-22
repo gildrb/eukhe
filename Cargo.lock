@@ -863,6 +863,7 @@ dependencies = [
  "base64",
  "clap",
  "crossterm",
+ "eukhe-bend",
  "eukhe-build-info",
  "eukhe-theme",
  "eukhe-types",

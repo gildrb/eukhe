@@ -66,6 +66,8 @@ import ./bend/config.bend as Cf
 import ./bend/default_model.bend as Dm
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/ffi_screen.bend as FSc
+import ./bend/ffi_replace.bend as FRp
 
 # (a) The view
 # ------------
@@ -3091,10 +3093,10 @@ law cron_backoff_bounded:
 # worker), bend/launcher.bend (the idle shutdown and adoption),
 # bend/replace.bend (the launcher's replacement verdict) and
 # bend/notice.bend (the kernel restore notices a view shows); the bridge
-# tests crates/eukhe-daemon/src/supervision_bridge.rs,
-# crates/eukhe-tui/src/daemon_build/bridge.rs and
+# tests crates/eukhe-daemon/src/supervision_bridge.rs and
 # crates/eukhe-tui/src/restore_notices.rs run the Rust code and each
-# model on the same scenarios. Every input is free: any configuration, any
+# model on the same scenarios; the replacement verdict runs as its model
+# (the compiled core, section `replace: the entry`). Every input is free: any configuration, any
 # gaps between failures, any run length, any events and operations in any
 # order, any builds.
 
@@ -3178,7 +3180,9 @@ law background_never_replaces:
 # numbers have at most 14 digits; [X, Y, 0, Z] with a '-' (a prerelease),
 # [X, Y, 1, Z] without; [] for any other text. A number of 15 digits or
 # more is past the range of the compiled core's numbers (2^48 - 1): its
-# version has no rank, as text that is no version.
+# version has no rank, as text that is no version. A text of more than 64
+# chars has no rank either (no version is that long): the first 65 chars
+# of any text decide its rank, so Rust sends only those.
 
 def rank_spec.core.at(dash: Bool, c: Char, rest: String) -> String:
   match dash:
@@ -3230,8 +3234,15 @@ def rank_spec.of(m: Maybe<&2, Sv.Ver>, t: Nat) -> List<&2, Nat>:
         case Sv.Ver{+a, +b, +c}:
           rank_spec.keep(Bool.and(rank_spec.short(a), Bool.and(rank_spec.short(b), rank_spec.short(c))), a, b, t, c)
 
+def rank_spec.cap(short: Bool, +s: String) -> List<&2, Nat>:
+  match short:
+    case True{}:
+      rank_spec.of(Sv.Ver.parse(rank_spec.core(s)), rank_spec.tier(s))
+    case False{}:
+      Nil{}
+
 def rank_spec(+s: String) -> List<&2, Nat>:
-  rank_spec.of(Sv.Ver.parse(rank_spec.core(s)), rank_spec.tier(s))
+  rank_spec.cap(Nat.is_le(String.length(s), 64n), s)
 
 # a rank is empty, or four numbers whose version numbers (the first, the
 # second and the fourth) have at most 14 digits
@@ -4324,6 +4335,151 @@ law wire_err_example:
 law wire_end_exact:
   for +s: String
   {Wr.end(s) == String.is_empty(s) : Bool}
+
+# ---- screen: the entry ----
+
+# LAWS (S8, the compiled core): the interface's rules run as the model of
+# bend/screen.bend through the compiled core's entry bend/ffi_screen.bend
+# (crates/eukhe-tui: view/ledger.rs, pace.rs, view/stack.rs). The laws of
+# the model itself are in the first section, (S8) The interface. Every
+# input is free: any transcript, events, pace, rate and heights whose
+# numbers fit the wire.
+
+# The compiled core's entry of the interface (bend/ffi_screen.bend): Rust
+# writes a request with FSc.put_req and reads the reply; every Nat of a
+# request fits the wire (at most 14 digits, wire_fits)
+
+# every Nat of a block fits the wire
+def blk_fits(b: Sc.Blk) -> Bool:
+  match b:
+    case Sc.Blk{i, s, l}:
+      Bool.and(wire_fits(i), wire_fits(l))
+
+def blks_fit(bs: List<&2, Sc.Blk>) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case Con{b, t}:
+      Bool.and(blk_fits(b), blks_fit(t))
+
+# every Nat of an event fits the wire
+def ev_fits(e: Sc.Ev) -> Bool:
+  match e:
+    case Sc.Open{}:
+      True{}
+    case Sc.Grow{x, n}:
+      Bool.and(wire_fits(x), wire_fits(n))
+    case Sc.Fin{x}:
+      wire_fits(x)
+    case Sc.Flush{}:
+      True{}
+    case Sc.Resize{w}:
+      wire_fits(w)
+
+def evs_fit(es: List<&2, Sc.Ev>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case Con{e, t}:
+      Bool.and(ev_fits(e), evs_fit(t))
+
+# every Nat of a transcript fits the wire, its block count too
+def tx_fits(t: Sc.Tx) -> Bool:
+  match t:
+    case Sc.Tx{+bs, n, w}:
+      Bool.and(wire_fits(List.length(&2, Sc.Blk, bs)), Bool.and(blks_fit(bs), Bool.and(wire_fits(n), wire_fits(w))))
+
+# LAW: the entry runs a frame's events as the model: the reply to a Run
+# request is the transcript Sc.run gives, encoded
+# EXCLUDES: an entry that misreads a block, an event or the order of the
+# events, that drops or invents an event, or answers another transcript
+law screen_ffi_run:
+  for +t: Sc.Tx
+  for +es: List<&2, Sc.Ev>
+  for +ft: {tx_fits(t) == True{} : Bool}
+  for +fe: {Bool.and(wire_fits(List.length(&2, Sc.Ev, es)), evs_fit(es)) == True{} : Bool}
+  {FSc.ffi(FSc.put_req(FSc.ReqRun{t, es}, "")) == FSc.put_tx(Sc.run(es, t), "") : String}
+
+# LAW: the entry paces a frame as the model: n characters arrive, then a
+# frame shows its share
+# EXCLUDES: an entry that swaps the minimum and the lag, reads recv and
+# shown the wrong way round, or frames before the characters arrive
+law screen_ffi_pace:
+  for +min: Nat
+  for +k: Nat
+  for +r: Nat
+  for +s: Nat
+  for +n: Nat
+  for +f: {Bool.and(Bool.and(wire_fits(min), wire_fits(k)), Bool.and(Bool.and(wire_fits(r), wire_fits(s)), wire_fits(n))) == True{} : Bool}
+  {FSc.ffi(FSc.put_req(FSc.ReqPace{min, k, Sc.Pace{r, s}, n}, "")) == FSc.put_pace(Sc.pace.run([Sc.Chunk{n}, Sc.Frame{}], min, k, Sc.Pace{r, s}), "") : String}
+
+# LAW: the entry stacks children as the model
+# EXCLUDES: an entry that misreads a height, the start row or the rows
+law screen_ffi_stack:
+  for +hs: List<&2, Nat>
+  for +y: Nat
+  for +rows: Nat
+  for +f: {Bool.and(Bool.and(wire_fits(List.length(&2, Nat, hs)), wire_nats_fit(hs)), Bool.and(wire_fits(y), wire_fits(rows))) == True{} : Bool}
+  {FSc.ffi(FSc.put_req(FSc.ReqStack{hs, y, rows}, "")) == Wr.put_list(~Sc.Rect, ~FSc.put_rect, Sc.vstack(hs, y, rows), "") : String}
+
+# LAW: the requests Rust writes, as text: a frame (blocks 5 and 6 live,
+# open one, finish 5, flush), a pace frame and a stack, with their replies
+# EXCLUDES: a request or reply format other than WIRE.md's (tags, field
+# order, counts)
+law screen_ffi_example:
+  {[FSc.ffi("0,2,5,0,0,6,0,0,7,80,3,0,2,5,3,"), FSc.ffi("1,2,3,0,0,400,"), FSc.ffi("2,3,2,3,4,1,5,")] == ["3,5,2,0,6,0,0,7,0,0,8,80,", "400,100,", "3,1,2,3,2,6,0,"] : List<&2, String>}
+
+# LAW: a malformed request or one with input left over answers the error
+# form, never a reply
+# EXCLUDES: a default reply to a request the entry could not read
+law screen_ffi_refuses_example:
+  {[FSc.ffi("7,"), FSc.ffi("2,0,0,0,x"), FSc.ffi("1,2,3,0,0,01,")] == [Wr.err("screen: malformed request"), Wr.err("screen: input left over"), Wr.err("screen: malformed request")] : List<&2, String>}
+
+# ---- replace: the entry ----
+
+# LAWS (D1, the compiled core): the launcher's replacement verdict runs as
+# the model of bend/replace.bend through the compiled core's entry
+# bend/ffi_replace.bend (crates/eukhe-tui daemon_build.rs). The laws of the
+# model itself are in section supervisor. Every input is free: any
+# versions, any build ids, any caller.
+
+# LAW: the first 65 chars of a version decide its rank, so the entry may
+# read only those
+# EXCLUDES: a cut that changes a rank (a cut below 65 chars, or a rank that
+# reads past its 65th char)
+law replace_rank_cut:
+  for +s: String
+  {Rp.rank(String.take(s, 65n)) == Rp.rank(s) : List<&2, Nat>}
+
+# LAW: the entry's relation is the model's relation of the two builds: it
+# reads the versions, and the build ids only through their equality
+# EXCLUDES: an entry that swaps client and daemon, ignores the ids, or
+# misreads a version
+law replace_ffi_relation:
+  for +c: String
+  for +d: String
+  for +ic: String
+  for +id: String
+  for +f: {Bool.and(wire_fits(String.length(c)), wire_fits(String.length(d))) == True{} : Bool}
+  {FRp.ffi(FRp.put_req(FRp.ReqRelation{c, d, String.eq(ic, id)}, "")) == FRp.put_rel(Rp.relation(Rp.Build.of(c, ic), Rp.Build.of(d, id)), "") : String}
+
+# LAW: the entry's verdict is the model's verdict of a start
+# EXCLUDES: an entry that ignores or swaps the caller
+law replace_ffi_verdict:
+  for +c: String
+  for +d: String
+  for +ic: String
+  for +id: String
+  for +k: Rp.Caller
+  for +f: {Bool.and(wire_fits(String.length(c)), wire_fits(String.length(d))) == True{} : Bool}
+  {FRp.ffi(FRp.put_req(FRp.ReqVerdict{c, d, String.eq(ic, id), k}, "")) == FRp.put_verdict(Rp.verdict(Rp.Build.of(c, ic), Rp.Build.of(d, id), k), "") : String}
+
+# LAW: the requests Rust writes, as text, with their replies: a new client
+# by an interactive start on an older daemon (replace), the same build,
+# and a relation to a newer daemon; a malformed request is refused
+# EXCLUDES: a request or reply format other than WIRE.md's
+law replace_ffi_example:
+  {[FRp.ffi("1,7,0.10.4013,0.9.9-main.46F0,"), FRp.ffi("1,7,0.10.407,0.10.40T0,"), FRp.ffi("0,13,0.9.9-main.467,0.10.40F"), FRp.ffi("0,7,0.10.40")] == ["0,", "1,0,", "2,", Wr.err("replace: malformed request")] : List<&2, String>}
 
 # ---- retry ----
 

@@ -15,14 +15,15 @@
 //! Only an interactive start replaces a daemon, and only a daemon of a
 //! lower rank. Thus a client never replaces a newer daemon, a background
 //! client never replaces a daemon, and two builds cannot replace each other
-//! in turn. The model is `bend/replace.bend`; `LAWS.bend` section `supervisor` states
-//! `replace_never_downgrades`, `replacement_terminates` and
-//! `background_never_replaces`; the bridge test is `daemon_build/bridge.rs`.
+//! in turn. The rule runs as its Bend model, `bend/replace.bend`, through
+//! the compiled core's entry `bend/ffi_replace.bend`; `LAWS.bend` section
+//! `supervisor` states `replace_never_downgrades`, `replacement_terminates`,
+//! `background_never_replaces`, and pins the reading of a version
+//! (`replace_rank_reads_semver`) and the entry (`replace_ffi_relation`,
+//! `replace_ffi_verdict`).
 
-use std::cmp::Ordering;
-
-#[cfg(test)]
-mod bridge;
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::Entry;
 
 /// The client that starts the daemon or connects to it again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,68 +77,75 @@ pub enum Replacement {
     Keep(Relation),
 }
 
-/// Release before prerelease, in the order of the derive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Tier {
-    Prerelease,
-    Release,
+/// The chars of a version the core reads: a version of more than 64 chars
+/// has no rank, so its first 65 decide its rank (law `replace_rank_cut`),
+/// and a daemon's hello cannot push the request past the wire's longest
+/// string.
+const VERSION_CHARS: usize = 65;
+
+/// The first [`VERSION_CHARS`] chars of `version`.
+fn version_head(version: &str) -> &str {
+    version
+        .char_indices()
+        .nth(VERSION_CHARS)
+        .map_or(version, |(end, _)| &version[..end])
 }
 
-/// The rank of a version, in the order of the derive: major, minor, tier,
-/// patch. A version without a rank is `None`, which orders below `Some`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct Rank {
-    major: u64,
-    minor: u64,
-    tier: Tier,
-    patch: u64,
+/// The request both entries start with: the two versions and whether the
+/// build ids are equal (the model reads the ids only through that).
+fn write_builds(writer: &mut Writer, client: Build<'_>, daemon: Build<'_>) {
+    writer
+        .str(version_head(client.version))
+        .str(version_head(daemon.version))
+        .bool(client.id == daemon.id);
 }
 
-/// A number in decimal without leading zeros, of at most 14 digits.
-fn number(text: &str) -> Option<u64> {
-    let canonical = !text.is_empty()
-        && text.len() <= 14
-        && text.bytes().all(|byte| byte.is_ascii_digit())
-        && (text.len() == 1 || !text.starts_with('0'));
-    canonical.then(|| text.parse().ok()).flatten()
-}
-
-fn rank(version: &str) -> Option<Rank> {
-    let (core, tier) = match version.split_once('-') {
-        Some((core, _suffix)) => (core, Tier::Prerelease),
-        None => (version, Tier::Release),
-    };
-    let mut fields = core.split('.');
-    let rank = Rank {
-        major: number(fields.next()?)?,
-        minor: number(fields.next()?)?,
-        tier,
-        patch: number(fields.next()?)?,
-    };
-    fields.next().is_none().then_some(rank)
+/// A relation, by its tag in `bend/ffi_replace.bend`.
+fn read_relation(reader: &mut Reader<'_>) -> Result<Relation, WireError> {
+    Ok(match reader.tag_of(4, "a Rel tag")? {
+        0 => Relation::Same,
+        1 => Relation::Older,
+        2 => Relation::Newer,
+        // `tag_of` answered at most 3.
+        3..=u32::MAX => Relation::Other,
+    })
 }
 
 /// How the `daemon` build relates to the `client` build.
 #[must_use]
 pub fn relation(client: Build<'_>, daemon: Build<'_>) -> Relation {
-    if client.id == daemon.id {
-        return Relation::Same;
-    }
-    match rank(daemon.version).cmp(&rank(client.version)) {
-        Ordering::Less => Relation::Older,
-        Ordering::Greater => Relation::Newer,
-        Ordering::Equal => Relation::Other,
-    }
+    crate::bend_core::decide(
+        Entry::Replace,
+        |writer| {
+            writer.tag(0);
+            write_builds(writer, client, daemon);
+        },
+        read_relation,
+    )
 }
 
 /// What a start of `client` by `caller` does with a running `daemon`: an
 /// interactive start replaces an older daemon; every other start keeps it.
 #[must_use]
 pub fn replacement_verdict(client: Build<'_>, daemon: Build<'_>, caller: Caller) -> Replacement {
-    match (relation(client, daemon), caller) {
-        (Relation::Older, Caller::Interactive) => Replacement::Replace,
-        (kept, Caller::Interactive | Caller::Background) => Replacement::Keep(kept),
-    }
+    crate::bend_core::decide(
+        Entry::Replace,
+        |writer| {
+            writer.tag(1);
+            write_builds(writer, client, daemon);
+            writer.tag(match caller {
+                Caller::Interactive => 0,
+                Caller::Background => 1,
+            });
+        },
+        |reader| {
+            Ok(if reader.tag_of(2, "a Verdict tag")? == 0 {
+                Replacement::Replace
+            } else {
+                Replacement::Keep(read_relation(reader)?)
+            })
+        },
+    )
 }
 
 /// What a client says when the running daemon is newer than its build.
@@ -179,65 +187,35 @@ mod tests {
         Build { version, id }
     }
 
-    /// Releases order by semver precedence; a dev or older-scheme build
-    /// ranks below the releases of its series; text that is no version
-    /// ranks below everything.
+    /// A client older than the daemon tells the user so, through the real
+    /// core call.
     #[test]
-    fn versions_rank_by_release_then_series() {
-        let ascending = [
-            "garbage",
-            "0.9.0-dev",
-            "0.9.9-main.46",
-            "0.9.0",
-            "0.9.9",
-            "0.10.0-dev",
-            "0.10.3-dev",
-            "0.10.0",
-            "0.10.40",
-            "0.10.41",
-            "1.0.0",
-        ];
-        let ranks: Vec<Option<Rank>> = ascending.iter().map(|version| rank(version)).collect();
-        let mut sorted = ranks.clone();
-        sorted.sort();
-        sorted.dedup();
-        assert_eq!(sorted, ranks);
-        assert_eq!(
-            ["01.2.3", "1.2", "1.2.3.4", "", "1..3", "+1.2.3"].map(rank),
-            [None; 6]
-        );
-    }
-
-    // Regression: an old dashboard (0.9.9-main.46) and a new TUI (0.10.40)
-    // replaced each other's daemon forever. Now neither replaces a newer
-    // daemon, and the background reconnects replace nothing.
-    #[test]
-    fn the_ping_pong_pair_settles_on_the_newer_build() {
+    fn an_older_client_names_the_newer_daemon() {
         let old = build("0.9.9-main.46", "eukhe-daemon-rs-0.9.9-main.46");
         let new = build("0.10.40", "eukhe-daemon-rs-0.10.40+0123456789ab");
-        let verdicts = [
-            replacement_verdict(old, new, Caller::Background),
-            replacement_verdict(old, new, Caller::Interactive),
-            replacement_verdict(new, old, Caller::Background),
-            replacement_verdict(new, old, Caller::Interactive),
-            replacement_verdict(new, new, Caller::Interactive),
-        ];
-        assert_eq!(
-            verdicts,
-            [
-                Replacement::Keep(Relation::Newer),
-                Replacement::Keep(Relation::Newer),
-                Replacement::Keep(Relation::Older),
-                Replacement::Replace,
-                Replacement::Keep(Relation::Same),
-            ]
-        );
         assert_eq!(
             kept_daemon_notice(old, new),
             Some(
                 "this eukhe (v0.9.9-main.46) is older than the running daemon (v0.10.40): update or run `eukhe shutdown`"
                     .to_string()
             )
+        );
+    }
+
+    /// A version longer than the wire's longest string reaches the core
+    /// cut to its head: it has no rank, so an interactive start of a
+    /// release replaces it, and no call fails.
+    #[test]
+    fn a_huge_version_has_no_rank() {
+        let huge = format!("0.1.0-{}", "x".repeat(eukhe_bend::wire::STR_MAX));
+        let daemon = build(&huge, "eukhe-daemon-rs-huge");
+        let client = build("0.0.1", "eukhe-daemon-rs-0.0.1");
+        assert_eq!(
+            (
+                replacement_verdict(client, daemon, Caller::Interactive),
+                relation(daemon, client)
+            ),
+            (Replacement::Replace, Relation::Newer)
         );
     }
 

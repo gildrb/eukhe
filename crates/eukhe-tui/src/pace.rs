@@ -4,7 +4,12 @@
 //! Text arrives in chunks of any size. Each frame shows more of it: at
 //! least `min` characters while there is a backlog, and `1/(1+lag)` of
 //! the backlog when that is more. The screen never shows text that did
-//! not arrive, and never shows less than before.
+//! not arrive, and never shows less than before. A frame runs as the Bend
+//! model, one call of the compiled core (`bend/ffi_screen.bend`, law
+//! `screen_ffi_pace`).
+
+use eukhe_bend::wire::NAT_MAX;
+use eukhe_bend::Entry;
 
 /// How fast a frame reveals the backlog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,15 +62,34 @@ impl Pace {
         self.shown >= self.recv
     }
 
-    /// `n` more characters arrived (model `Chunk{n}`).
-    pub fn chunk(&mut self, n: usize) {
-        self.recv += n;
-    }
-
-    /// The renderer draws a frame (model `Frame{}`): reveal part of the
+    /// `more` characters arrived, then the renderer draws a frame (model
+    /// `Chunk{more}` then `Frame{}`): the frame reveals part of the
     /// backlog.
-    pub fn frame(&mut self, rate: PaceRate) {
-        self.shown += reveal(rate, self.recv.saturating_sub(self.shown));
+    ///
+    /// Each count goes to the core saturated at the wire's largest Nat
+    /// ([`NAT_MAX`], some 10^14): a lag or a minimum at the cap reveals as
+    /// one past every backlog would (law `pace_lag_at_cap`), and a message
+    /// never holds 10^14 characters, so `recv` and `more` stay exact.
+    pub fn frame(&mut self, rate: PaceRate, more: usize) {
+        let cap = |n: usize| u64::try_from(n).map_or(NAT_MAX, |n| n.min(NAT_MAX));
+        let recv = cap(self.recv);
+        let shown = cap(self.shown);
+        let more = cap(more).min(NAT_MAX - recv);
+        let (recv, shown) = crate::bend_core::decide(
+            Entry::Screen,
+            |writer| {
+                writer
+                    .tag(1)
+                    .nat(cap(rate.min))
+                    .nat(cap(rate.lag))
+                    .nat(recv)
+                    .nat(shown)
+                    .nat(more);
+            },
+            |reader| Ok((reader.count()?, reader.count()?)),
+        );
+        self.recv = recv;
+        self.shown = shown;
     }
 
     /// The text was replaced by a shorter one (a provider snapshot can
@@ -86,60 +110,49 @@ impl Pace {
     }
 }
 
-/// The characters one frame adds with `backlog` characters waiting
-/// (model `reveal`).
-#[must_use]
-pub fn reveal(rate: PaceRate, backlog: usize) -> usize {
-    backlog.min(rate.min.max(backlog / rate.lag.saturating_add(1)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A burst drains in a bounded number of frames, each frame shows
-    /// more than the one before, and none shows text that did not arrive.
-    #[test]
-    fn a_burst_drains_smoothly_and_never_runs_ahead() {
-        let mut pace = Pace::default();
-        pace.chunk(400);
-        let mut shown = Vec::new();
-        while !pace.drained() {
-            pace.frame(PaceRate::DEFAULT);
-            shown.push(pace.shown());
-        }
-        assert_eq!(
-            shown,
-            [
-                100, 175, 231, 273, 304, 328, 346, 359, 369, 376, 382, 386, 389, 391, 393, 395,
-                397, 399, 400
-            ]
-        );
-    }
 
     /// With no backlog a frame shows nothing new; a shrunk text never
     /// shows more than it holds.
     #[test]
     fn a_frame_without_backlog_and_a_shrink_keep_the_pace_behind() {
         let mut pace = Pace::default();
-        pace.frame(PaceRate::DEFAULT);
+        pace.frame(PaceRate::DEFAULT, 0);
         assert_eq!(pace, Pace::default());
-        pace.chunk(10);
-        pace.frame(PaceRate { min: 8, lag: 0 });
+        pace.frame(PaceRate { min: 8, lag: 0 }, 10);
         pace.shrink_to(5);
         assert_eq!(pace, Pace { recv: 5, shown: 5 });
     }
 
-    /// The largest lag (`terminal.streamPace.lag` at its maximum) reveals
-    /// `min` a frame: `1 + lag` saturates instead of overflowing.
+    /// The largest lag and minimum (`terminal.streamPace` at its maximum)
+    /// reach the core saturated: the lag reveals `min` a frame, the
+    /// minimum the whole backlog, and no number overflows.
     #[test]
     fn the_largest_lag_reveals_the_minimum() {
         let mut pace = Pace::default();
-        pace.chunk(10);
-        pace.frame(PaceRate {
-            min: 2,
-            lag: usize::MAX,
-        });
+        pace.frame(
+            PaceRate {
+                min: 2,
+                lag: usize::MAX,
+            },
+            10,
+        );
         assert_eq!(pace, Pace { recv: 10, shown: 2 });
+        pace.frame(
+            PaceRate {
+                min: usize::MAX,
+                lag: usize::MAX,
+            },
+            0,
+        );
+        assert_eq!(
+            pace,
+            Pace {
+                recv: 10,
+                shown: 10
+            }
+        );
     }
 }

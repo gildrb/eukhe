@@ -3,6 +3,8 @@
 import Base
 import ./wire.bend as W
 import ./ffi_echo.bend as ffi_echo
+import ./ffi_replace.bend as ffi_replace
+import ./ffi_screen.bend as ffi_screen
 import ./ffi_wire.bend as ffi_wire
 
 # The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and
@@ -19,6 +21,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_echo.ffi(input)
     case 1:
       ffi_wire.ffi(input)
+    case 2:
+      ffi_replace.ffi(input)
+    case 3:
+      ffi_screen.ffi(input)
     case _:
       W.err("unknown entry")
 

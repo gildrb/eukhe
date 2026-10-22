@@ -11,7 +11,9 @@
 # releases of its series X.Y. X, Y and Z are numbers written as semver.bend
 # writes them (decimal, no leading zero) with at most 14 digits: a number
 # of 15 digits or more is past the range of the compiled core's numbers
-# (2^48 - 1, about 2.8 * 10^14), and its version does not parse.
+# (2^48 - 1, about 2.8 * 10^14), and its version does not parse; neither
+# does a text of more than 64 chars (no version is that long), so Rust
+# sends only the first 65 chars of a version (law replace_rank_cut).
 #
 # A client start meets the running daemon (or none). Builds with equal ids
 # are the same build. Else the daemon is older (its rank is lower), newer
@@ -180,9 +182,17 @@ def tier(s: String) -> Nat:
     case SCon{c, r}:
       tier.at(Char.is_eq(c, '-'), tier(r))
 
-# the rank of a version (the hello `appVersion`)
+def rank.cap(short: Bool, +s: String) -> List<&2, Nat>:
+  match short:
+    case True{}:
+      rank.fields(Sv.Ver.fields(Sv.Sym.list(core(s)), Nil{}, Nil{}), tier(s))
+    case False{}:
+      Nil{}
+
+# the rank of a version (the hello `appVersion`): a text of more than 64
+# chars has none, so the first 65 chars of a text decide its rank
 def rank(+s: String) -> List<&2, Nat>:
-  rank.fields(Sv.Ver.fields(Sv.Sym.list(core(s)), Nil{}, Nil{}), tier(s))
+  rank.cap(Nat.is_le(String.length(s), 64n), s)
 
 # a build of version v and build id i
 def Build.of(v: String, i: String) -> Build:

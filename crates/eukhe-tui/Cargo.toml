@@ -12,6 +12,9 @@ eukhe-types = { path = "../eukhe-types" }
 eukhe-theme = { path = "../eukhe-theme" }
 # The build identity a daemon's hello is compared against.
 eukhe-build-info = { path = "../eukhe-build-info" }
+# The compiled Bend core: the transcript ledger, the pace, the stack and the
+# replacement verdict run as their Bend models.
+eukhe-bend = { path = "../eukhe-bend" }
 crossterm = { version = "0.28", features = ["event-stream"] }
 unicode-width = "0.2"
 unicode-properties = "0.1"

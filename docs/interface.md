@@ -150,7 +150,8 @@ history rows, takes 30 ms, of which the check is 12 ms. In a dev build:
 254 µs per streaming frame, of which the check is 117 µs. Both are far
 below the 16 ms frame.
 
-Layout. The live area is a vertical stack (`stack::vstack`) above the
+Layout. The live area is a vertical stack (`stack::stack_rows`, model
+`vstack`) above the
 dock: the unsettled entries, the transcript tail, then the toasts. Each
 child is cut from its top, newest first, to the rows that the dock
 leaves. Then the stack places them from the top, one under the other:
@@ -163,10 +164,15 @@ status, a fill and children). One renderer draws the panel header, the
 status icons (the animated working icon too), the fill, the padding and
 the semantic colors. No card draws its own chrome.
 
-Model: `bend/screen.bend`. Laws: `LAWS.bend` section (S8). Proofs:
-`PROOF.bend` section `screen`. Every input is free: any blocks, growths,
-finals, flushes and resizes in any order; any chunk sizes and frames;
-any check results; any child heights.
+Model: `bend/screen.bend`, run by the compiled Bend core (`eukhe-bend`,
+entry `bend/ffi_screen.bend`): the ledger, the pace and the stack are the
+model, one core call each per frame. Laws: `LAWS.bend` section (S8) and
+section `screen: the entry`. Proofs: `PROOF.bend` sections `screen` and
+`screen: the entry`. Every input is free: any blocks, growths, finals,
+flushes and resizes in any order; any chunk sizes and frames; any check
+results; any child heights. Rust saturates every count it sends at the
+wire's largest Nat (10^14 - 1): a lag or minimum at its largest
+(`terminal.streamPace`) reveals as one past every backlog would.
 
 | Law | Says |
 | --- | --- |
@@ -181,13 +187,17 @@ any check results; any child heights.
 | `layout_inside` | No child is drawn outside the viewport (layout). |
 | `layout_apart` | No two children overlap (layout). |
 | `layout_whole_when_room` | Children that fit are drawn whole (layout). |
+| `pace_reveal_formula`, `pace_lag_at_cap` | A frame reveals min(b, max(min, b / (1 + lag))), and a lag at least the backlog reveals the minimum: a saturated lag never overflows (pacing). |
+| `tx_committed_inert` | Committed blocks are inert: the core runs a frame's events on the blocks after the committed prefix alone (S8.3). |
+| `screen_ffi_run`, `screen_ffi_pace`, `screen_ffi_stack` | The core's entry answers exactly the model's transcript, pace and placement for every request Rust writes. |
 
-Code: `eukhe-tui/src/view/ledger.rs` `Ledger` (`open`, `grow`, `finish`,
-`flush`, `resize`), `Phase`; `view/frame.rs` `AgentView::compose`
-(one flush per frame), `FrameStart`, `Scrollback`, `TranscriptBreak`,
+Code: `eukhe-tui/src/view/ledger.rs` `Ledger` (`apply`: a frame's events,
+one core call; `truncate`, outside the model), `Event`, `Phase`;
+`bend_core.rs` `decide` (one core call); `view/frame.rs`
+`AgentView::compose` (one ledger call per frame), `FrameStart`, `Scrollback`, `TranscriptBreak`,
 `transcript_break_row` (the separator), `compose_live`;
-`view/stack.rs` `vstack`, `stack_rows`; `pace.rs` `Pace`, `PaceRate`,
-`reveal`; `view/streaming.rs` `advance_paces`, `paced_message`;
+`view/stack.rs` `stack_rows`; `pace.rs` `Pace` (`frame`: one core call;
+`shrink_to` and `recount`, outside the model), `PaceRate`; `view/streaming.rs` `advance_paces`, `paced_message`;
 `view.rs` `mark_entry_stale`, `clear_chat`, `note_resize`, `is_pacing`;
 `inline_term.rs` `InlineTerminal::paint` (the check), `present`,
 `Check`, `Shown`, `Painted`, `Rejection`, `ScreenCheckFailed`,
@@ -198,14 +208,11 @@ Code: `eukhe-tui/src/view/ledger.rs` `Ledger` (`open`, `grow`, `finish`,
 `interactive/run.rs` (the resize arms, the pace wake, the log hook);
 `client_settings.rs` `stream_pace`, `log_render_error`.
 
-Tie: the bridge test
-`view::bridge::the_rust_interface_equals_the_bend_model` runs `Ledger`,
-`Pace`, `present` and `vstack` against `bend/bridge_screen.bend` on 600
-generated scenarios (opens, growths, finishes, flushes and resizes on
-blocks that exist and that do not; chunks of zero and minimums of zero;
-all four check pairs; children that fit and that do not) and compares
-the transcripts byte for byte. eukhe-tui may not depend on
-eukhe-durable, so `src/testing.rs` holds a copy of the bridge runner.
+Tie: the ledger, the pace and the stack are the model (the compiled
+core), so no bridge compares them. `present` stays in Rust (two checks
+around the lazy full redraw, which only Rust can build);
+`inline_term::tests::present_follows_the_model_table` checks it against
+the model's whole table (all four check pairs).
 Regression tests: `view::screen_tests` (committed rows are written once
 through a width change, a detail change and an edit; a new transcript
 starts below a separator and keeps the old rows on the virtual

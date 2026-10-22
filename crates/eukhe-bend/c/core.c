@@ -338,115 +338,266 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define CID_WNil 26
 #define CID_wire_Got 27
 #define CID_wire_Bad 28
-#define CID_wire_Dig 29
-#define CID_wire_Comma 30
-#define CID_wire_Other 31
-#define CID_IO_args 32
-#define CID_IO_print 33
-#define FID_wire_get_list_go_0 0
-#define FID_wire_get_list_go_0_k7 1
-#define FID_wire_get_list_go_0_k8 2
-#define FID_wire_put_list_go_0 3
-#define FID_wire_put_list_go_0_k10 4
-#define FID_wire_put_str_go 5
-#define FID_wire_put_str_go_k13 6
-#define FID_wire_take 7
-#define FID_wire_take_k20 8
-#define FID_wire_put_list_0 9
-#define FID_wire_put_list_0_k24 10
-#define FID_wire_put_str 11
-#define FID_wire_put_str_k26 12
-#define FID_wire_value 13
-#define FID_wire_value_k33 14
-#define FID_wire_get_list_0 15
-#define FID_wire_get_list_0_k37 16
-#define FID_wire_get_list_0_k38 17
-#define FID_wire_cdig_go 18
-#define FID_wire_cdig_go_k45 19
-#define FID_wire_get_nat_go 20
-#define FID_wire_get_nat_go_k48 21
-#define FID_wire_get_nat_go_k49 22
-#define FID_wire_get_nat_end 23
-#define FID_wire_get_nat_end_k51 24
-#define FID_wire_get_str 25
-#define FID_wire_get_str_k56 26
-#define FID_U32_show_go 27
-#define FID_wire_tok 28
-#define FID_wire_tok_k64 29
-#define FID_Nat_show_fin 30
-#define FID_wire_peek 31
-#define FID_wire_peek_k77 32
-#define FID_wire_get_u32 33
-#define FID_wire_get_u32_k82 34
-#define FID_U32_show 35
-#define FID_Nat_show 36
-#define FID_String_append 37
-#define FID_String_append_k91 38
-#define FID_wire_get_nat 39
-#define FID_wire_get_nat_k93 40
-#define FID_wire_get_nat_k94 41
-#define FID_ffi_echo_step 42
-#define FID_ffi_echo_step_k104 43
-#define FID_ffi_echo_step_k105 44
-#define FID_ffi_echo_step_k106 45
-#define FID_ffi_echo_open 46
-#define FID_ffi_echo_open_k118 47
-#define FID_ffi_echo_open_k119 48
-#define FID_step_go 49
-#define FID_step_go_k122 50
-#define FID_ffi_go 51
-#define FID_ffi_go_k125 52
-#define FID_ffi_go_k126 53
-#define FID_ffi_go_k127 54
-#define FID_ffi_go_k128 55
-#define FID_ffi_go_k129 56
-#define FID_ffi_go_k130 57
-#define FID_open_go 58
-#define FID_open_go_k134 59
-#define FID_step 60
-#define FID_step_k136 61
-#define FID_close 62
-#define FID_ffi 63
-#define FID_ffi_k140 64
-#define FID_U32_read_go 65
-#define FID_open 66
-#define FID_open_k145 67
-#define FID_cli_steps 68
-#define FID_cli_steps_k147 69
-#define FID_cli_steps_k148 70
-#define FID_cli_steps_k149 71
-#define FID_U32_read 72
-#define FID_cli_print 73
-#define FID_cli_print_c161 74
-#define FID_cli_print_c162 75
-#define FID_cli_print_c163 76
-#define FID_cli_args 77
-#define FID_cli_args_k165 78
-#define FID_cli_args_k166 79
-#define FID_cli_args_k167 80
-#define FID_cli_args_k168 81
-#define FID_IO_bind 82
-#define FID_IO_bind_c172 83
-#define FID_IO_bind_k173 84
-#define FID_main 85
-#define FID_main_c175 86
-#define FID_main_c176 87
-#define FID_main_k177 88
-#define FID_main_c178 89
-#define FID_IO_args 90
-#define FID_IO_print 91
-#define FID_IO_emit 92
-#define FID_Clo_apply 93
-#define FID_EXIT 94
-#define FID_ENTER 95
-CONSTV Fid FID_T[] = { { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 4, 4, 0, 1 }, { 2, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 0, 0, 1 }, { 5, 5, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 5, 5, 0, 1 }, { 6, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 5, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 6, 5, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 } };
-CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
-#define STAT_LEN 382
+#define CID_ffi_replace_ReqRelation 29
+#define CID_ffi_replace_ReqVerdict 30
+#define CID_ffi_screen_ReqRun 31
+#define CID_ffi_screen_ReqPace 32
+#define CID_ffi_screen_ReqStack 33
+#define CID_replace_Interactive 34
+#define CID_replace_Background 35
+#define CID_wire_Dig 36
+#define CID_wire_Comma 37
+#define CID_wire_Other 38
+#define CID_screen_Tx 39
+#define CID_screen_Open 40
+#define CID_screen_Grow 41
+#define CID_screen_Fin 42
+#define CID_screen_Flush 43
+#define CID_screen_Resize 44
+#define CID_screen_Pace 45
+#define CID_screen_Blk 46
+#define CID_replace_Same 47
+#define CID_replace_Older 48
+#define CID_replace_Newer 49
+#define CID_replace_Other 50
+#define CID_replace_Replace 51
+#define CID_replace_Keep 52
+#define CID_screen_Active 53
+#define CID_screen_Final 54
+#define CID_screen_Comm 55
+#define CID_screen_Chunk 56
+#define CID_screen_Frame 57
+#define CID_screen_Rect 58
+#define CID_semver_D0 59
+#define CID_semver_D1 60
+#define CID_semver_D2 61
+#define CID_semver_D3 62
+#define CID_semver_D4 63
+#define CID_semver_D5 64
+#define CID_semver_D6 65
+#define CID_semver_D7 66
+#define CID_semver_D8 67
+#define CID_semver_D9 68
+#define CID_semver_Digit 69
+#define CID_semver_Dot 70
+#define CID_semver_Other 71
+#define CID_IO_args 72
+#define CID_IO_print 73
+#define FID_replace_fval 0
+#define FID_replace_fval_k13 1
+#define FID_ffi_screen_get_st 2
+#define FID_ffi_screen_get_st_k15 3
+#define FID_List_length 4
+#define FID_List_length_k29 5
+#define FID_replace_field 6
+#define FID_replace_field_k54 7
+#define FID_replace_field_k55 8
+#define FID_ffi_screen_get_blk 9
+#define FID_ffi_screen_get_blk_k62 10
+#define FID_ffi_screen_get_blk_k63 11
+#define FID_ffi_screen_get_blk_k64 12
+#define FID_wire_get_list_go_0 13
+#define FID_wire_get_list_go_0_k66 14
+#define FID_wire_get_list_go_0_k67 15
+#define FID_ffi_screen_get_ev 16
+#define FID_ffi_screen_get_ev_k70 17
+#define FID_ffi_screen_get_ev_k71 18
+#define FID_ffi_screen_get_ev_k72 19
+#define FID_ffi_screen_get_ev_k73 20
+#define FID_ffi_screen_get_ev_k74 21
+#define FID_wire_get_list_go_1 22
+#define FID_wire_get_list_go_1_k76 23
+#define FID_wire_get_list_go_1_k77 24
+#define FID_screen_edit_go 25
+#define FID_screen_edit_go_k82 26
+#define FID_screen_edit_go_k83 27
+#define FID_wire_put_list_go_2 28
+#define FID_wire_put_list_go_2_k86 29
+#define FID_wire_put_str_go 30
+#define FID_wire_put_str_go_k88 31
+#define FID_ffi_replace_get_caller 32
+#define FID_ffi_replace_get_caller_k91 33
+#define FID_replace_tier 34
+#define FID_replace_tier_k97 35
+#define FID_replace_core 36
+#define FID_replace_core_k99 37
+#define FID_semver_Sym_list 38
+#define FID_semver_Sym_list_k101 39
+#define FID_wire_get_list_go_2 40
+#define FID_wire_get_list_go_2_k110 41
+#define FID_wire_get_list_go_2_k111 42
+#define FID_ffi_screen_get_pace 43
+#define FID_ffi_screen_get_pace_k114 44
+#define FID_ffi_screen_get_pace_k115 45
+#define FID_screen_flush 46
+#define FID_screen_flush_k127 47
+#define FID_screen_flush_k128 48
+#define FID_screen_edit 49
+#define FID_List_append 50
+#define FID_List_append_k131 51
+#define FID_wire_put_list_go_0 52
+#define FID_wire_put_list_go_0_k133 53
+#define FID_wire_put_list_2 54
+#define FID_wire_put_list_2_k135 55
+#define FID_wire_put_str 56
+#define FID_wire_put_str_k137 57
+#define FID_wire_take 58
+#define FID_wire_take_k143 59
+#define FID_String_length 60
+#define FID_String_length_k147 61
+#define FID_wire_get_list_0 62
+#define FID_wire_get_list_0_k168 63
+#define FID_wire_get_list_0_k169 64
+#define FID_wire_get_list_1 65
+#define FID_wire_get_list_1_k174 66
+#define FID_wire_get_list_1_k175 67
+#define FID_wire_put_list_go_3 68
+#define FID_wire_put_list_go_3_k178 69
+#define FID_screen_step 70
+#define FID_screen_step_k182 71
+#define FID_screen_step_k183 72
+#define FID_screen_step_k184 73
+#define FID_screen_step_k185 74
+#define FID_wire_value 75
+#define FID_wire_value_k191 76
+#define FID_replace_lt 77
+#define FID_replace_lt_k201 78
+#define FID_replace_rank 79
+#define FID_replace_rank_k204 80
+#define FID_replace_rank_k205 81
+#define FID_replace_rank_k206 82
+#define FID_replace_rank_k207 83
+#define FID_replace_rank_k208 84
+#define FID_replace_rank_k209 85
+#define FID_replace_rank_k210 86
+#define FID_wire_get_list_2 87
+#define FID_wire_get_list_2_k214 88
+#define FID_wire_get_list_2_k215 89
+#define FID_ffi_screen_get_tx 90
+#define FID_ffi_screen_get_tx_k224 91
+#define FID_ffi_screen_get_tx_k225 92
+#define FID_ffi_screen_get_tx_k226 93
+#define FID_screen_vstack 94
+#define FID_screen_vstack_k230 95
+#define FID_screen_run 96
+#define FID_screen_run_k236 97
+#define FID_wire_cdig_go 98
+#define FID_wire_cdig_go_k241 99
+#define FID_wire_get_nat_go 100
+#define FID_wire_get_nat_go_k244 101
+#define FID_wire_get_nat_go_k245 102
+#define FID_wire_get_nat_end 103
+#define FID_wire_get_nat_end_k247 104
+#define FID_wire_get_str 105
+#define FID_wire_get_str_k259 106
+#define FID_ffi_replace_relation 107
+#define FID_ffi_replace_relation_k265 108
+#define FID_ffi_replace_relation_k266 109
+#define FID_ffi_replace_relation_k267 110
+#define FID_ffi_replace_relation_k268 111
+#define FID_U32_show_go 112
+#define FID_wire_tok 113
+#define FID_wire_tok_k288 114
+#define FID_Nat_show_fin 115
+#define FID_wire_peek 116
+#define FID_wire_peek_k326 117
+#define FID_wire_get_u32 118
+#define FID_wire_get_u32_k331 119
+#define FID_U32_show 120
+#define FID_Nat_show 121
+#define FID_String_append 122
+#define FID_String_append_k350 123
+#define FID_ffi_screen_get_req 124
+#define FID_ffi_screen_get_req_k352 125
+#define FID_ffi_screen_get_req_k353 126
+#define FID_ffi_screen_get_req_k354 127
+#define FID_ffi_screen_get_req_k355 128
+#define FID_ffi_screen_get_req_k356 129
+#define FID_ffi_screen_get_req_k357 130
+#define FID_ffi_screen_get_req_k358 131
+#define FID_ffi_screen_get_req_k359 132
+#define FID_ffi_screen_get_req_k360 133
+#define FID_ffi_screen_get_req_k361 134
+#define FID_wire_get_nat 135
+#define FID_wire_get_nat_k368 136
+#define FID_wire_get_nat_k369 137
+#define FID_ffi_replace_get_req 138
+#define FID_ffi_replace_get_req_k377 139
+#define FID_ffi_replace_get_req_k378 140
+#define FID_ffi_replace_get_req_k379 141
+#define FID_ffi_replace_get_req_k380 142
+#define FID_ffi_replace_get_req_k381 143
+#define FID_ffi_replace_get_req_k382 144
+#define FID_ffi_echo_step 145
+#define FID_ffi_echo_step_k389 146
+#define FID_ffi_echo_step_k390 147
+#define FID_ffi_echo_step_k391 148
+#define FID_ffi_echo_open 149
+#define FID_ffi_echo_open_k413 150
+#define FID_ffi_echo_open_k414 151
+#define FID_step_go 152
+#define FID_step_go_k417 153
+#define FID_ffi_go 154
+#define FID_ffi_go_k420 155
+#define FID_ffi_go_k421 156
+#define FID_ffi_go_k422 157
+#define FID_ffi_go_k423 158
+#define FID_ffi_go_k424 159
+#define FID_ffi_go_k425 160
+#define FID_ffi_go_k426 161
+#define FID_ffi_go_k427 162
+#define FID_ffi_go_k428 163
+#define FID_ffi_go_k429 164
+#define FID_ffi_go_k430 165
+#define FID_ffi_go_k431 166
+#define FID_ffi_go_k432 167
+#define FID_ffi_go_k433 168
+#define FID_open_go 169
+#define FID_open_go_k437 170
+#define FID_step 171
+#define FID_step_k439 172
+#define FID_close 173
+#define FID_ffi 174
+#define FID_ffi_k443 175
+#define FID_U32_read_go 176
+#define FID_open 177
+#define FID_open_k448 178
+#define FID_cli_steps 179
+#define FID_cli_steps_k450 180
+#define FID_cli_steps_k451 181
+#define FID_cli_steps_k452 182
+#define FID_U32_read 183
+#define FID_cli_print 184
+#define FID_cli_print_c464 185
+#define FID_cli_print_c465 186
+#define FID_cli_print_c466 187
+#define FID_cli_args 188
+#define FID_cli_args_k468 189
+#define FID_cli_args_k469 190
+#define FID_cli_args_k470 191
+#define FID_cli_args_k471 192
+#define FID_IO_bind 193
+#define FID_IO_bind_c475 194
+#define FID_IO_bind_k476 195
+#define FID_main 196
+#define FID_main_c478 197
+#define FID_main_c479 198
+#define FID_main_k480 199
+#define FID_main_c481 200
+#define FID_IO_args 201
+#define FID_IO_print 202
+#define FID_IO_emit 203
+#define FID_Clo_apply 204
+#define FID_EXIT 205
+#define FID_ENTER 206
+CONSTV Fid FID_T[] = { { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 0, 0, 1 }, { 9, 5, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 6, 0, 0, 1 }, { 9, 5, 0, 1 }, { 6, 3, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 5, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 2, 0, 1 }, { 6, 2, 0, 1 }, { 7, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 5, 5, 0, 1 }, { 6, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 4, 0, 1 }, { 7, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 3, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 4, 4, 0, 1 }, { 2, 0, 0, 1 }, { 7, 7, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 8, 8, 0, 1 }, { 3, 3, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 0, 0, 1 }, { 5, 5, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 5, 5, 0, 1 }, { 6, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 5, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 6, 5, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 } };
+CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 4, 0, 0 }, { 5, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 0, 0 }, { 3, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
+#define STAT_LEN 492
 
-#define WL_RESW 5
+#define WL_RESW 8
 #define BANGS   0
 
-#define WL_BANK Term r0, r1, r2, r3, r4, r5;
+#define WL_BANK Term r0, r1, r2, r3, r4, r5, rp, r6, r7;
 
 #define WL_LOAD(A, N) \
   do { \
@@ -456,6 +607,8 @@ CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 2, 0, 0 }, { 1, 
     if ((N) <= 3) break; r3 = e.mem[(A) + 3]; \
     if ((N) <= 4) break; r4 = e.mem[(A) + 4]; \
     if ((N) <= 5) break; r5 = e.mem[(A) + 5]; \
+    if ((N) <= 6) break; r6 = e.mem[(A) + 6]; \
+    if ((N) <= 7) break; r7 = e.mem[(A) + 7]; \
   } while (0);
 
 #define WL_LAST(X) \
@@ -472,17 +625,21 @@ CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 2, 0, 0 }, { 1, 
       break; \
     case 5: r5 = (X); \
       break; \
+    case 6: r6 = (X); \
+      break; \
+    case 7: r7 = (X); \
+      break; \
   }
 
-#define WL_SAVE(V) (V)[0] = r0; (V)[1] = r1; (V)[2] = r2; (V)[3] = r3; (V)[4] = r4;
+#define WL_SAVE(V) (V)[0] = r0; (V)[1] = r1; (V)[2] = r2; (V)[3] = r3; (V)[4] = r4; (V)[5] = r5; (V)[6] = r6; (V)[7] = r7;
 
-#define WL_TAKE(V) r0 = (V)[0]; r1 = (V)[1]; r2 = (V)[2]; r3 = (V)[3]; r4 = (V)[4];
+#define WL_TAKE(V) r0 = (V)[0]; r1 = (V)[1]; r2 = (V)[2]; r3 = (V)[3]; r4 = (V)[4]; r5 = (V)[5]; r6 = (V)[6]; r7 = (V)[7];
 
-#define WL_SIG Env e, DEV Term* sp, u32 seq, u32 rn, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5
+#define WL_SIG Env e, DEV Term* sp, u32 seq, u32 rn, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5, Term rp, Term r6, Term r7
 
-#define WL_ALL e, sp, seq, rn, r0, r1, r2, r3, r4, r5
+#define WL_ALL e, sp, seq, rn, r0, r1, r2, r3, r4, r5, rp, r6, r7
 
-#define WL_TABLE WL_X(FID_wire_get_list_go_0) WL_X(FID_wire_get_list_go_0_k7) WL_X(FID_wire_get_list_go_0_k8) WL_X(FID_wire_put_list_go_0) WL_X(FID_wire_put_list_go_0_k10) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k13) WL_X(FID_wire_take) WL_X(FID_wire_take_k20) WL_X(FID_wire_put_list_0) WL_X(FID_wire_put_list_0_k24) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k26) WL_X(FID_wire_value) WL_X(FID_wire_value_k33) WL_X(FID_wire_get_list_0) WL_X(FID_wire_get_list_0_k37) WL_X(FID_wire_get_list_0_k38) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k45) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k48) WL_X(FID_wire_get_nat_go_k49) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k51) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k56) WL_X(FID_U32_show_go) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k64) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k77) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k82) WL_X(FID_U32_show) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k91) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k93) WL_X(FID_wire_get_nat_k94) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k104) WL_X(FID_ffi_echo_step_k105) WL_X(FID_ffi_echo_step_k106) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k118) WL_X(FID_ffi_echo_open_k119) WL_X(FID_step_go) WL_X(FID_step_go_k122) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k125) WL_X(FID_ffi_go_k126) WL_X(FID_ffi_go_k127) WL_X(FID_ffi_go_k128) WL_X(FID_ffi_go_k129) WL_X(FID_ffi_go_k130) WL_X(FID_open_go) WL_X(FID_open_go_k134) WL_X(FID_step) WL_X(FID_step_k136) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k140) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k145) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k147) WL_X(FID_cli_steps_k148) WL_X(FID_cli_steps_k149) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c161) WL_X(FID_cli_print_c162) WL_X(FID_cli_print_c163) WL_X(FID_cli_args) WL_X(FID_cli_args_k165) WL_X(FID_cli_args_k166) WL_X(FID_cli_args_k167) WL_X(FID_cli_args_k168) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c172) WL_X(FID_IO_bind_k173) WL_X(FID_main) WL_X(FID_main_c175) WL_X(FID_main_c176) WL_X(FID_main_k177) WL_X(FID_main_c178) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
+#define WL_TABLE WL_X(FID_replace_fval) WL_X(FID_replace_fval_k13) WL_X(FID_ffi_screen_get_st) WL_X(FID_ffi_screen_get_st_k15) WL_X(FID_List_length) WL_X(FID_List_length_k29) WL_X(FID_replace_field) WL_X(FID_replace_field_k54) WL_X(FID_replace_field_k55) WL_X(FID_ffi_screen_get_blk) WL_X(FID_ffi_screen_get_blk_k62) WL_X(FID_ffi_screen_get_blk_k63) WL_X(FID_ffi_screen_get_blk_k64) WL_X(FID_wire_get_list_go_0) WL_X(FID_wire_get_list_go_0_k66) WL_X(FID_wire_get_list_go_0_k67) WL_X(FID_ffi_screen_get_ev) WL_X(FID_ffi_screen_get_ev_k70) WL_X(FID_ffi_screen_get_ev_k71) WL_X(FID_ffi_screen_get_ev_k72) WL_X(FID_ffi_screen_get_ev_k73) WL_X(FID_ffi_screen_get_ev_k74) WL_X(FID_wire_get_list_go_1) WL_X(FID_wire_get_list_go_1_k76) WL_X(FID_wire_get_list_go_1_k77) WL_X(FID_screen_edit_go) WL_X(FID_screen_edit_go_k82) WL_X(FID_screen_edit_go_k83) WL_X(FID_wire_put_list_go_2) WL_X(FID_wire_put_list_go_2_k86) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k88) WL_X(FID_ffi_replace_get_caller) WL_X(FID_ffi_replace_get_caller_k91) WL_X(FID_replace_tier) WL_X(FID_replace_tier_k97) WL_X(FID_replace_core) WL_X(FID_replace_core_k99) WL_X(FID_semver_Sym_list) WL_X(FID_semver_Sym_list_k101) WL_X(FID_wire_get_list_go_2) WL_X(FID_wire_get_list_go_2_k110) WL_X(FID_wire_get_list_go_2_k111) WL_X(FID_ffi_screen_get_pace) WL_X(FID_ffi_screen_get_pace_k114) WL_X(FID_ffi_screen_get_pace_k115) WL_X(FID_screen_flush) WL_X(FID_screen_flush_k127) WL_X(FID_screen_flush_k128) WL_X(FID_screen_edit) WL_X(FID_List_append) WL_X(FID_List_append_k131) WL_X(FID_wire_put_list_go_0) WL_X(FID_wire_put_list_go_0_k133) WL_X(FID_wire_put_list_2) WL_X(FID_wire_put_list_2_k135) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k137) WL_X(FID_wire_take) WL_X(FID_wire_take_k143) WL_X(FID_String_length) WL_X(FID_String_length_k147) WL_X(FID_wire_get_list_0) WL_X(FID_wire_get_list_0_k168) WL_X(FID_wire_get_list_0_k169) WL_X(FID_wire_get_list_1) WL_X(FID_wire_get_list_1_k174) WL_X(FID_wire_get_list_1_k175) WL_X(FID_wire_put_list_go_3) WL_X(FID_wire_put_list_go_3_k178) WL_X(FID_screen_step) WL_X(FID_screen_step_k182) WL_X(FID_screen_step_k183) WL_X(FID_screen_step_k184) WL_X(FID_screen_step_k185) WL_X(FID_wire_value) WL_X(FID_wire_value_k191) WL_X(FID_replace_lt) WL_X(FID_replace_lt_k201) WL_X(FID_replace_rank) WL_X(FID_replace_rank_k204) WL_X(FID_replace_rank_k205) WL_X(FID_replace_rank_k206) WL_X(FID_replace_rank_k207) WL_X(FID_replace_rank_k208) WL_X(FID_replace_rank_k209) WL_X(FID_replace_rank_k210) WL_X(FID_wire_get_list_2) WL_X(FID_wire_get_list_2_k214) WL_X(FID_wire_get_list_2_k215) WL_X(FID_ffi_screen_get_tx) WL_X(FID_ffi_screen_get_tx_k224) WL_X(FID_ffi_screen_get_tx_k225) WL_X(FID_ffi_screen_get_tx_k226) WL_X(FID_screen_vstack) WL_X(FID_screen_vstack_k230) WL_X(FID_screen_run) WL_X(FID_screen_run_k236) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k241) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k244) WL_X(FID_wire_get_nat_go_k245) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k247) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k259) WL_X(FID_ffi_replace_relation) WL_X(FID_ffi_replace_relation_k265) WL_X(FID_ffi_replace_relation_k266) WL_X(FID_ffi_replace_relation_k267) WL_X(FID_ffi_replace_relation_k268) WL_X(FID_U32_show_go) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k288) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k326) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k331) WL_X(FID_U32_show) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k350) WL_X(FID_ffi_screen_get_req) WL_X(FID_ffi_screen_get_req_k352) WL_X(FID_ffi_screen_get_req_k353) WL_X(FID_ffi_screen_get_req_k354) WL_X(FID_ffi_screen_get_req_k355) WL_X(FID_ffi_screen_get_req_k356) WL_X(FID_ffi_screen_get_req_k357) WL_X(FID_ffi_screen_get_req_k358) WL_X(FID_ffi_screen_get_req_k359) WL_X(FID_ffi_screen_get_req_k360) WL_X(FID_ffi_screen_get_req_k361) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k368) WL_X(FID_wire_get_nat_k369) WL_X(FID_ffi_replace_get_req) WL_X(FID_ffi_replace_get_req_k377) WL_X(FID_ffi_replace_get_req_k378) WL_X(FID_ffi_replace_get_req_k379) WL_X(FID_ffi_replace_get_req_k380) WL_X(FID_ffi_replace_get_req_k381) WL_X(FID_ffi_replace_get_req_k382) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k389) WL_X(FID_ffi_echo_step_k390) WL_X(FID_ffi_echo_step_k391) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k413) WL_X(FID_ffi_echo_open_k414) WL_X(FID_step_go) WL_X(FID_step_go_k417) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k420) WL_X(FID_ffi_go_k421) WL_X(FID_ffi_go_k422) WL_X(FID_ffi_go_k423) WL_X(FID_ffi_go_k424) WL_X(FID_ffi_go_k425) WL_X(FID_ffi_go_k426) WL_X(FID_ffi_go_k427) WL_X(FID_ffi_go_k428) WL_X(FID_ffi_go_k429) WL_X(FID_ffi_go_k430) WL_X(FID_ffi_go_k431) WL_X(FID_ffi_go_k432) WL_X(FID_ffi_go_k433) WL_X(FID_open_go) WL_X(FID_open_go_k437) WL_X(FID_step) WL_X(FID_step_k439) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k443) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k448) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k450) WL_X(FID_cli_steps_k451) WL_X(FID_cli_steps_k452) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c464) WL_X(FID_cli_print_c465) WL_X(FID_cli_print_c466) WL_X(FID_cli_args) WL_X(FID_cli_args_k468) WL_X(FID_cli_args_k469) WL_X(FID_cli_args_k470) WL_X(FID_cli_args_k471) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c475) WL_X(FID_IO_bind_k476) WL_X(FID_main) WL_X(FID_main_c478) WL_X(FID_main_c479) WL_X(FID_main_k480) WL_X(FID_main_c481) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
 #define MAIN_FID FID_main
 #define MAIN_PURE 0
 #define BLK_SHR 0
@@ -1373,9 +1530,191 @@ static u32 root_take(DEV u64* H, THR Term* v) {
 // Spins
 // =====
 
-CONSTV u64 STAT_IMG[] = { 116ull, term_pak(CID_SNil, 0), 115ull, term_ctr(CID_SCon, STAT_OFF + 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 2), 117ull, term_ctr(CID_SCon, STAT_OFF + 4), 113ull, term_ctr(CID_SCon, STAT_OFF + 6), 101ull, term_ctr(CID_SCon, STAT_OFF + 8), 114ull, term_ctr(CID_SCon, STAT_OFF + 10), 32ull, term_ctr(CID_SCon, STAT_OFF + 12), 101ull, term_ctr(CID_SCon, STAT_OFF + 14), 114ull, term_ctr(CID_SCon, STAT_OFF + 16), 105ull, term_ctr(CID_SCon, STAT_OFF + 18), 119ull, term_ctr(CID_SCon, STAT_OFF + 20), 32ull, term_ctr(CID_SCon, STAT_OFF + 22), 100ull, term_ctr(CID_SCon, STAT_OFF + 24), 101ull, term_ctr(CID_SCon, STAT_OFF + 26), 109ull, term_ctr(CID_SCon, STAT_OFF + 28), 114ull, term_ctr(CID_SCon, STAT_OFF + 30), 111ull, term_ctr(CID_SCon, STAT_OFF + 32), 102ull, term_ctr(CID_SCon, STAT_OFF + 34), 108ull, term_ctr(CID_SCon, STAT_OFF + 36), 97ull, term_ctr(CID_SCon, STAT_OFF + 38), 109ull, term_ctr(CID_SCon, STAT_OFF + 40), 57ull, term_pak(CID_Nil, 0), 56ull, term_ctr(CID_Con, STAT_OFF + 44), 55ull, term_ctr(CID_Con, STAT_OFF + 46), 54ull, term_ctr(CID_Con, STAT_OFF + 48), 53ull, term_ctr(CID_Con, STAT_OFF + 50), 52ull, term_ctr(CID_Con, STAT_OFF + 52), 51ull, term_ctr(CID_Con, STAT_OFF + 54), 50ull, term_ctr(CID_Con, STAT_OFF + 56), 49ull, term_ctr(CID_Con, STAT_OFF + 58), 48ull, term_ctr(CID_Con, STAT_OFF + 60), 0, term_pak(CID_Nil, 0), 48ull, term_pak(CID_SNil, 0), 50ull, term_pak(CID_SNil, 0), 51ull, term_ctr(CID_SCon, STAT_OFF + 68), 85ull, term_ctr(CID_SCon, STAT_OFF + 70), 32ull, term_ctr(CID_SCon, STAT_OFF + 72), 108ull, term_ctr(CID_SCon, STAT_OFF + 74), 97ull, term_ctr(CID_SCon, STAT_OFF + 76), 109ull, term_ctr(CID_SCon, STAT_OFF + 78), 105ull, term_ctr(CID_SCon, STAT_OFF + 80), 99ull, term_ctr(CID_SCon, STAT_OFF + 82), 101ull, term_ctr(CID_SCon, STAT_OFF + 84), 100ull, term_ctr(CID_SCon, STAT_OFF + 86), 32ull, term_ctr(CID_SCon, STAT_OFF + 88), 97ull, term_ctr(CID_SCon, STAT_OFF + 90), 32ull, term_ctr(CID_SCon, STAT_OFF + 92), 115ull, term_ctr(CID_SCon, STAT_OFF + 94), 116ull, term_ctr(CID_SCon, STAT_OFF + 96), 110ull, term_ctr(CID_SCon, STAT_OFF + 98), 97ull, term_ctr(CID_SCon, STAT_OFF + 100), 119ull, term_ctr(CID_SCon, STAT_OFF + 102), 32ull, term_ctr(CID_SCon, STAT_OFF + 104), 110ull, term_ctr(CID_SCon, STAT_OFF + 106), 101ull, term_ctr(CID_SCon, STAT_OFF + 108), 112ull, term_ctr(CID_SCon, STAT_OFF + 110), 111ull, term_ctr(CID_SCon, STAT_OFF + 112), 32ull, term_ctr(CID_SCon, STAT_OFF + 114), 58ull, term_ctr(CID_SCon, STAT_OFF + 116), 111ull, term_ctr(CID_SCon, STAT_OFF + 118), 104ull, term_ctr(CID_SCon, STAT_OFF + 120), 99ull, term_ctr(CID_SCon, STAT_OFF + 122), 101ull, term_ctr(CID_SCon, STAT_OFF + 124), 32ull, term_ctr(CID_SCon, STAT_OFF + 126), 69ull, term_ctr(CID_SCon, STAT_OFF + 128), 32ull, term_pak(CID_SNil, 0), 100ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 134), 115ull, term_ctr(CID_SCon, STAT_OFF + 136), 117ull, term_ctr(CID_SCon, STAT_OFF + 138), 102ull, term_ctr(CID_SCon, STAT_OFF + 140), 101ull, term_ctr(CID_SCon, STAT_OFF + 142), 114ull, term_ctr(CID_SCon, STAT_OFF + 144), 32ull, term_ctr(CID_SCon, STAT_OFF + 146), 115ull, term_ctr(CID_SCon, STAT_OFF + 148), 97ull, term_ctr(CID_SCon, STAT_OFF + 150), 119ull, term_ctr(CID_SCon, STAT_OFF + 152), 32ull, term_ctr(CID_SCon, STAT_OFF + 154), 110ull, term_ctr(CID_SCon, STAT_OFF + 156), 101ull, term_ctr(CID_SCon, STAT_OFF + 158), 112ull, term_ctr(CID_SCon, STAT_OFF + 160), 111ull, term_ctr(CID_SCon, STAT_OFF + 162), 32ull, term_ctr(CID_SCon, STAT_OFF + 164), 101ull, term_ctr(CID_SCon, STAT_OFF + 166), 104ull, term_ctr(CID_SCon, STAT_OFF + 168), 116ull, term_ctr(CID_SCon, STAT_OFF + 170), 32ull, term_ctr(CID_SCon, STAT_OFF + 172), 58ull, term_ctr(CID_SCon, STAT_OFF + 174), 111ull, term_ctr(CID_SCon, STAT_OFF + 176), 104ull, term_ctr(CID_SCon, STAT_OFF + 178), 99ull, term_ctr(CID_SCon, STAT_OFF + 180), 101ull, term_ctr(CID_SCon, STAT_OFF + 182), 32ull, term_ctr(CID_SCon, STAT_OFF + 184), 69ull, term_ctr(CID_SCon, STAT_OFF + 186), 121ull, term_pak(CID_SNil, 0), 114ull, term_ctr(CID_SCon, STAT_OFF + 190), 116ull, term_ctr(CID_SCon, STAT_OFF + 192), 110ull, term_ctr(CID_SCon, STAT_OFF + 194), 101ull, term_ctr(CID_SCon, STAT_OFF + 196), 32ull, term_ctr(CID_SCon, STAT_OFF + 198), 110ull, term_ctr(CID_SCon, STAT_OFF + 200), 119ull, term_ctr(CID_SCon, STAT_OFF + 202), 111ull, term_ctr(CID_SCon, STAT_OFF + 204), 110ull, term_ctr(CID_SCon, STAT_OFF + 206), 107ull, term_ctr(CID_SCon, STAT_OFF + 208), 110ull, term_ctr(CID_SCon, STAT_OFF + 210), 117ull, term_ctr(CID_SCon, STAT_OFF + 212), 32ull, term_ctr(CID_SCon, STAT_OFF + 214), 69ull, term_ctr(CID_SCon, STAT_OFF + 216), 108ull, term_pak(CID_SNil, 0), 108ull, term_ctr(CID_SCon, STAT_OFF + 220), 97ull, term_ctr(CID_SCon, STAT_OFF + 222), 99ull, term_ctr(CID_SCon, STAT_OFF + 224), 110ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 228), 112ull, term_ctr(CID_SCon, STAT_OFF + 230), 111ull, term_ctr(CID_SCon, STAT_OFF + 232), 93ull, term_pak(CID_SNil, 0), 46ull, term_ctr(CID_SCon, STAT_OFF + 236), 46ull, term_ctr(CID_SCon, STAT_OFF + 238), 46ull, term_ctr(CID_SCon, STAT_OFF + 240), 62ull, term_ctr(CID_SCon, STAT_OFF + 242), 116ull, term_ctr(CID_SCon, STAT_OFF + 244), 110ull, term_ctr(CID_SCon, STAT_OFF + 246), 101ull, term_ctr(CID_SCon, STAT_OFF + 248), 118ull, term_ctr(CID_SCon, STAT_OFF + 250), 101ull, term_ctr(CID_SCon, STAT_OFF + 252), 60ull, term_ctr(CID_SCon, STAT_OFF + 254), 91ull, term_ctr(CID_SCon, STAT_OFF + 256), 32ull, term_ctr(CID_SCon, STAT_OFF + 258), 62ull, term_ctr(CID_SCon, STAT_OFF + 260), 116ull, term_ctr(CID_SCon, STAT_OFF + 262), 117ull, term_ctr(CID_SCon, STAT_OFF + 264), 112ull, term_ctr(CID_SCon, STAT_OFF + 266), 110ull, term_ctr(CID_SCon, STAT_OFF + 268), 105ull, term_ctr(CID_SCon, STAT_OFF + 270), 60ull, term_ctr(CID_SCon, STAT_OFF + 272), 32ull, term_ctr(CID_SCon, STAT_OFF + 274), 62ull, term_ctr(CID_SCon, STAT_OFF + 276), 121ull, term_ctr(CID_SCon, STAT_OFF + 278), 114ull, term_ctr(CID_SCon, STAT_OFF + 280), 116ull, term_ctr(CID_SCon, STAT_OFF + 282), 110ull, term_ctr(CID_SCon, STAT_OFF + 284), 101ull, term_ctr(CID_SCon, STAT_OFF + 286), 60ull, term_ctr(CID_SCon, STAT_OFF + 288), 32ull, term_ctr(CID_SCon, STAT_OFF + 290), 110ull, term_ctr(CID_SCon, STAT_OFF + 292), 101ull, term_ctr(CID_SCon, STAT_OFF + 294), 112ull, term_ctr(CID_SCon, STAT_OFF + 296), 111ull, term_ctr(CID_SCon, STAT_OFF + 298), 32ull, term_ctr(CID_SCon, STAT_OFF + 300), 101ull, term_ctr(CID_SCon, STAT_OFF + 302), 114ull, term_ctr(CID_SCon, STAT_OFF + 304), 111ull, term_ctr(CID_SCon, STAT_OFF + 306), 99ull, term_ctr(CID_SCon, STAT_OFF + 308), 32ull, term_ctr(CID_SCon, STAT_OFF + 310), 124ull, term_ctr(CID_SCon, STAT_OFF + 312), 32ull, term_ctr(CID_SCon, STAT_OFF + 314), 62ull, term_ctr(CID_SCon, STAT_OFF + 316), 116ull, term_ctr(CID_SCon, STAT_OFF + 318), 117ull, term_ctr(CID_SCon, STAT_OFF + 320), 112ull, term_ctr(CID_SCon, STAT_OFF + 322), 110ull, term_ctr(CID_SCon, STAT_OFF + 324), 105ull, term_ctr(CID_SCon, STAT_OFF + 326), 60ull, term_ctr(CID_SCon, STAT_OFF + 328), 32ull, term_ctr(CID_SCon, STAT_OFF + 330), 62ull, term_ctr(CID_SCon, STAT_OFF + 332), 121ull, term_ctr(CID_SCon, STAT_OFF + 334), 114ull, term_ctr(CID_SCon, STAT_OFF + 336), 116ull, term_ctr(CID_SCon, STAT_OFF + 338), 110ull, term_ctr(CID_SCon, STAT_OFF + 340), 101ull, term_ctr(CID_SCon, STAT_OFF + 342), 60ull, term_ctr(CID_SCon, STAT_OFF + 344), 32ull, term_ctr(CID_SCon, STAT_OFF + 346), 108ull, term_ctr(CID_SCon, STAT_OFF + 348), 108ull, term_ctr(CID_SCon, STAT_OFF + 350), 97ull, term_ctr(CID_SCon, STAT_OFF + 352), 99ull, term_ctr(CID_SCon, STAT_OFF + 354), 32ull, term_ctr(CID_SCon, STAT_OFF + 356), 101ull, term_ctr(CID_SCon, STAT_OFF + 358), 114ull, term_ctr(CID_SCon, STAT_OFF + 360), 111ull, term_ctr(CID_SCon, STAT_OFF + 362), 99ull, term_ctr(CID_SCon, STAT_OFF + 364), 32ull, term_ctr(CID_SCon, STAT_OFF + 366), 58ull, term_ctr(CID_SCon, STAT_OFF + 368), 101ull, term_ctr(CID_SCon, STAT_OFF + 370), 103ull, term_ctr(CID_SCon, STAT_OFF + 372), 97ull, term_ctr(CID_SCon, STAT_OFF + 374), 115ull, term_ctr(CID_SCon, STAT_OFF + 376), 117ull, term_ctr(CID_SCon, STAT_OFF + 378) };
+CONSTV u64 STAT_IMG[] = { 116ull, term_pak(CID_SNil, 0), 115ull, term_ctr(CID_SCon, STAT_OFF + 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 2), 117ull, term_ctr(CID_SCon, STAT_OFF + 4), 113ull, term_ctr(CID_SCon, STAT_OFF + 6), 101ull, term_ctr(CID_SCon, STAT_OFF + 8), 114ull, term_ctr(CID_SCon, STAT_OFF + 10), 32ull, term_ctr(CID_SCon, STAT_OFF + 12), 101ull, term_ctr(CID_SCon, STAT_OFF + 14), 114ull, term_ctr(CID_SCon, STAT_OFF + 16), 105ull, term_ctr(CID_SCon, STAT_OFF + 18), 119ull, term_ctr(CID_SCon, STAT_OFF + 20), 32ull, term_ctr(CID_SCon, STAT_OFF + 22), 100ull, term_ctr(CID_SCon, STAT_OFF + 24), 101ull, term_ctr(CID_SCon, STAT_OFF + 26), 109ull, term_ctr(CID_SCon, STAT_OFF + 28), 114ull, term_ctr(CID_SCon, STAT_OFF + 30), 111ull, term_ctr(CID_SCon, STAT_OFF + 32), 102ull, term_ctr(CID_SCon, STAT_OFF + 34), 108ull, term_ctr(CID_SCon, STAT_OFF + 36), 97ull, term_ctr(CID_SCon, STAT_OFF + 38), 109ull, term_ctr(CID_SCon, STAT_OFF + 40), 57ull, term_pak(CID_Nil, 0), 56ull, term_ctr(CID_Con, STAT_OFF + 44), 55ull, term_ctr(CID_Con, STAT_OFF + 46), 54ull, term_ctr(CID_Con, STAT_OFF + 48), 53ull, term_ctr(CID_Con, STAT_OFF + 50), 52ull, term_ctr(CID_Con, STAT_OFF + 52), 51ull, term_ctr(CID_Con, STAT_OFF + 54), 50ull, term_ctr(CID_Con, STAT_OFF + 56), 49ull, term_ctr(CID_Con, STAT_OFF + 58), 48ull, term_ctr(CID_Con, STAT_OFF + 60), term_pak(CID_screen_Frame, 0), term_pak(CID_Nil, 0), 0, term_pak(CID_Nil, 0), 48ull, term_pak(CID_SNil, 0), 114ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 70), 118ull, term_ctr(CID_SCon, STAT_OFF + 72), 111ull, term_ctr(CID_SCon, STAT_OFF + 74), 32ull, term_ctr(CID_SCon, STAT_OFF + 76), 116ull, term_ctr(CID_SCon, STAT_OFF + 78), 102ull, term_ctr(CID_SCon, STAT_OFF + 80), 101ull, term_ctr(CID_SCon, STAT_OFF + 82), 108ull, term_ctr(CID_SCon, STAT_OFF + 84), 32ull, term_ctr(CID_SCon, STAT_OFF + 86), 116ull, term_ctr(CID_SCon, STAT_OFF + 88), 117ull, term_ctr(CID_SCon, STAT_OFF + 90), 112ull, term_ctr(CID_SCon, STAT_OFF + 92), 110ull, term_ctr(CID_SCon, STAT_OFF + 94), 105ull, term_ctr(CID_SCon, STAT_OFF + 96), 32ull, term_ctr(CID_SCon, STAT_OFF + 98), 58ull, term_ctr(CID_SCon, STAT_OFF + 100), 110ull, term_ctr(CID_SCon, STAT_OFF + 102), 101ull, term_ctr(CID_SCon, STAT_OFF + 104), 101ull, term_ctr(CID_SCon, STAT_OFF + 106), 114ull, term_ctr(CID_SCon, STAT_OFF + 108), 99ull, term_ctr(CID_SCon, STAT_OFF + 110), 115ull, term_ctr(CID_SCon, STAT_OFF + 112), 101ull, term_ctr(CID_SCon, STAT_OFF + 102), 99ull, term_ctr(CID_SCon, STAT_OFF + 116), 97ull, term_ctr(CID_SCon, STAT_OFF + 118), 108ull, term_ctr(CID_SCon, STAT_OFF + 120), 112ull, term_ctr(CID_SCon, STAT_OFF + 122), 101ull, term_ctr(CID_SCon, STAT_OFF + 124), 114ull, term_ctr(CID_SCon, STAT_OFF + 126), 100ull, term_ctr(CID_SCon, STAT_OFF + 14), 101ull, term_ctr(CID_SCon, STAT_OFF + 130), 109ull, term_ctr(CID_SCon, STAT_OFF + 132), 114ull, term_ctr(CID_SCon, STAT_OFF + 134), 111ull, term_ctr(CID_SCon, STAT_OFF + 136), 102ull, term_ctr(CID_SCon, STAT_OFF + 138), 108ull, term_ctr(CID_SCon, STAT_OFF + 140), 97ull, term_ctr(CID_SCon, STAT_OFF + 142), 109ull, term_ctr(CID_SCon, STAT_OFF + 144), 32ull, term_ctr(CID_SCon, STAT_OFF + 146), 58ull, term_ctr(CID_SCon, STAT_OFF + 148), 110ull, term_ctr(CID_SCon, STAT_OFF + 150), 101ull, term_ctr(CID_SCon, STAT_OFF + 152), 101ull, term_ctr(CID_SCon, STAT_OFF + 154), 114ull, term_ctr(CID_SCon, STAT_OFF + 156), 99ull, term_ctr(CID_SCon, STAT_OFF + 158), 115ull, term_ctr(CID_SCon, STAT_OFF + 160), 101ull, term_ctr(CID_SCon, STAT_OFF + 150), 99ull, term_ctr(CID_SCon, STAT_OFF + 164), 97ull, term_ctr(CID_SCon, STAT_OFF + 166), 108ull, term_ctr(CID_SCon, STAT_OFF + 168), 112ull, term_ctr(CID_SCon, STAT_OFF + 170), 101ull, term_ctr(CID_SCon, STAT_OFF + 172), 114ull, term_ctr(CID_SCon, STAT_OFF + 174), 50ull, term_pak(CID_SNil, 0), 51ull, term_ctr(CID_SCon, STAT_OFF + 178), 85ull, term_ctr(CID_SCon, STAT_OFF + 180), 32ull, term_ctr(CID_SCon, STAT_OFF + 182), 108ull, term_ctr(CID_SCon, STAT_OFF + 184), 97ull, term_ctr(CID_SCon, STAT_OFF + 186), 109ull, term_ctr(CID_SCon, STAT_OFF + 188), 105ull, term_ctr(CID_SCon, STAT_OFF + 190), 99ull, term_ctr(CID_SCon, STAT_OFF + 192), 101ull, term_ctr(CID_SCon, STAT_OFF + 194), 100ull, term_ctr(CID_SCon, STAT_OFF + 196), 32ull, term_ctr(CID_SCon, STAT_OFF + 198), 97ull, term_ctr(CID_SCon, STAT_OFF + 200), 32ull, term_ctr(CID_SCon, STAT_OFF + 202), 115ull, term_ctr(CID_SCon, STAT_OFF + 204), 116ull, term_ctr(CID_SCon, STAT_OFF + 206), 110ull, term_ctr(CID_SCon, STAT_OFF + 208), 97ull, term_ctr(CID_SCon, STAT_OFF + 210), 119ull, term_ctr(CID_SCon, STAT_OFF + 212), 32ull, term_ctr(CID_SCon, STAT_OFF + 214), 110ull, term_ctr(CID_SCon, STAT_OFF + 216), 101ull, term_ctr(CID_SCon, STAT_OFF + 218), 112ull, term_ctr(CID_SCon, STAT_OFF + 220), 111ull, term_ctr(CID_SCon, STAT_OFF + 222), 32ull, term_ctr(CID_SCon, STAT_OFF + 224), 58ull, term_ctr(CID_SCon, STAT_OFF + 226), 111ull, term_ctr(CID_SCon, STAT_OFF + 228), 104ull, term_ctr(CID_SCon, STAT_OFF + 230), 99ull, term_ctr(CID_SCon, STAT_OFF + 232), 101ull, term_ctr(CID_SCon, STAT_OFF + 234), 32ull, term_ctr(CID_SCon, STAT_OFF + 236), 69ull, term_ctr(CID_SCon, STAT_OFF + 238), 32ull, term_pak(CID_SNil, 0), 100ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 244), 115ull, term_ctr(CID_SCon, STAT_OFF + 246), 117ull, term_ctr(CID_SCon, STAT_OFF + 248), 102ull, term_ctr(CID_SCon, STAT_OFF + 250), 101ull, term_ctr(CID_SCon, STAT_OFF + 252), 114ull, term_ctr(CID_SCon, STAT_OFF + 254), 32ull, term_ctr(CID_SCon, STAT_OFF + 256), 115ull, term_ctr(CID_SCon, STAT_OFF + 258), 97ull, term_ctr(CID_SCon, STAT_OFF + 260), 119ull, term_ctr(CID_SCon, STAT_OFF + 262), 32ull, term_ctr(CID_SCon, STAT_OFF + 264), 110ull, term_ctr(CID_SCon, STAT_OFF + 266), 101ull, term_ctr(CID_SCon, STAT_OFF + 268), 112ull, term_ctr(CID_SCon, STAT_OFF + 270), 111ull, term_ctr(CID_SCon, STAT_OFF + 272), 32ull, term_ctr(CID_SCon, STAT_OFF + 274), 101ull, term_ctr(CID_SCon, STAT_OFF + 276), 104ull, term_ctr(CID_SCon, STAT_OFF + 278), 116ull, term_ctr(CID_SCon, STAT_OFF + 280), 32ull, term_ctr(CID_SCon, STAT_OFF + 282), 58ull, term_ctr(CID_SCon, STAT_OFF + 284), 111ull, term_ctr(CID_SCon, STAT_OFF + 286), 104ull, term_ctr(CID_SCon, STAT_OFF + 288), 99ull, term_ctr(CID_SCon, STAT_OFF + 290), 101ull, term_ctr(CID_SCon, STAT_OFF + 292), 32ull, term_ctr(CID_SCon, STAT_OFF + 294), 69ull, term_ctr(CID_SCon, STAT_OFF + 296), 121ull, term_pak(CID_SNil, 0), 114ull, term_ctr(CID_SCon, STAT_OFF + 300), 116ull, term_ctr(CID_SCon, STAT_OFF + 302), 110ull, term_ctr(CID_SCon, STAT_OFF + 304), 101ull, term_ctr(CID_SCon, STAT_OFF + 306), 32ull, term_ctr(CID_SCon, STAT_OFF + 308), 110ull, term_ctr(CID_SCon, STAT_OFF + 310), 119ull, term_ctr(CID_SCon, STAT_OFF + 312), 111ull, term_ctr(CID_SCon, STAT_OFF + 314), 110ull, term_ctr(CID_SCon, STAT_OFF + 316), 107ull, term_ctr(CID_SCon, STAT_OFF + 318), 110ull, term_ctr(CID_SCon, STAT_OFF + 320), 117ull, term_ctr(CID_SCon, STAT_OFF + 322), 32ull, term_ctr(CID_SCon, STAT_OFF + 324), 69ull, term_ctr(CID_SCon, STAT_OFF + 326), 108ull, term_pak(CID_SNil, 0), 108ull, term_ctr(CID_SCon, STAT_OFF + 330), 97ull, term_ctr(CID_SCon, STAT_OFF + 332), 99ull, term_ctr(CID_SCon, STAT_OFF + 334), 110ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 338), 112ull, term_ctr(CID_SCon, STAT_OFF + 340), 111ull, term_ctr(CID_SCon, STAT_OFF + 342), 93ull, term_pak(CID_SNil, 0), 46ull, term_ctr(CID_SCon, STAT_OFF + 346), 46ull, term_ctr(CID_SCon, STAT_OFF + 348), 46ull, term_ctr(CID_SCon, STAT_OFF + 350), 62ull, term_ctr(CID_SCon, STAT_OFF + 352), 116ull, term_ctr(CID_SCon, STAT_OFF + 354), 110ull, term_ctr(CID_SCon, STAT_OFF + 356), 101ull, term_ctr(CID_SCon, STAT_OFF + 358), 118ull, term_ctr(CID_SCon, STAT_OFF + 360), 101ull, term_ctr(CID_SCon, STAT_OFF + 362), 60ull, term_ctr(CID_SCon, STAT_OFF + 364), 91ull, term_ctr(CID_SCon, STAT_OFF + 366), 32ull, term_ctr(CID_SCon, STAT_OFF + 368), 62ull, term_ctr(CID_SCon, STAT_OFF + 370), 116ull, term_ctr(CID_SCon, STAT_OFF + 372), 117ull, term_ctr(CID_SCon, STAT_OFF + 374), 112ull, term_ctr(CID_SCon, STAT_OFF + 376), 110ull, term_ctr(CID_SCon, STAT_OFF + 378), 105ull, term_ctr(CID_SCon, STAT_OFF + 380), 60ull, term_ctr(CID_SCon, STAT_OFF + 382), 32ull, term_ctr(CID_SCon, STAT_OFF + 384), 62ull, term_ctr(CID_SCon, STAT_OFF + 386), 121ull, term_ctr(CID_SCon, STAT_OFF + 388), 114ull, term_ctr(CID_SCon, STAT_OFF + 390), 116ull, term_ctr(CID_SCon, STAT_OFF + 392), 110ull, term_ctr(CID_SCon, STAT_OFF + 394), 101ull, term_ctr(CID_SCon, STAT_OFF + 396), 60ull, term_ctr(CID_SCon, STAT_OFF + 398), 32ull, term_ctr(CID_SCon, STAT_OFF + 400), 110ull, term_ctr(CID_SCon, STAT_OFF + 402), 101ull, term_ctr(CID_SCon, STAT_OFF + 404), 112ull, term_ctr(CID_SCon, STAT_OFF + 406), 111ull, term_ctr(CID_SCon, STAT_OFF + 408), 32ull, term_ctr(CID_SCon, STAT_OFF + 410), 101ull, term_ctr(CID_SCon, STAT_OFF + 412), 114ull, term_ctr(CID_SCon, STAT_OFF + 414), 111ull, term_ctr(CID_SCon, STAT_OFF + 416), 99ull, term_ctr(CID_SCon, STAT_OFF + 418), 32ull, term_ctr(CID_SCon, STAT_OFF + 420), 124ull, term_ctr(CID_SCon, STAT_OFF + 422), 32ull, term_ctr(CID_SCon, STAT_OFF + 424), 62ull, term_ctr(CID_SCon, STAT_OFF + 426), 116ull, term_ctr(CID_SCon, STAT_OFF + 428), 117ull, term_ctr(CID_SCon, STAT_OFF + 430), 112ull, term_ctr(CID_SCon, STAT_OFF + 432), 110ull, term_ctr(CID_SCon, STAT_OFF + 434), 105ull, term_ctr(CID_SCon, STAT_OFF + 436), 60ull, term_ctr(CID_SCon, STAT_OFF + 438), 32ull, term_ctr(CID_SCon, STAT_OFF + 440), 62ull, term_ctr(CID_SCon, STAT_OFF + 442), 121ull, term_ctr(CID_SCon, STAT_OFF + 444), 114ull, term_ctr(CID_SCon, STAT_OFF + 446), 116ull, term_ctr(CID_SCon, STAT_OFF + 448), 110ull, term_ctr(CID_SCon, STAT_OFF + 450), 101ull, term_ctr(CID_SCon, STAT_OFF + 452), 60ull, term_ctr(CID_SCon, STAT_OFF + 454), 32ull, term_ctr(CID_SCon, STAT_OFF + 456), 108ull, term_ctr(CID_SCon, STAT_OFF + 458), 108ull, term_ctr(CID_SCon, STAT_OFF + 460), 97ull, term_ctr(CID_SCon, STAT_OFF + 462), 99ull, term_ctr(CID_SCon, STAT_OFF + 464), 32ull, term_ctr(CID_SCon, STAT_OFF + 466), 101ull, term_ctr(CID_SCon, STAT_OFF + 468), 114ull, term_ctr(CID_SCon, STAT_OFF + 470), 111ull, term_ctr(CID_SCon, STAT_OFF + 472), 99ull, term_ctr(CID_SCon, STAT_OFF + 474), 32ull, term_ctr(CID_SCon, STAT_OFF + 476), 58ull, term_ctr(CID_SCon, STAT_OFF + 478), 101ull, term_ctr(CID_SCon, STAT_OFF + 480), 103ull, term_ctr(CID_SCon, STAT_OFF + 482), 97ull, term_ctr(CID_SCon, STAT_OFF + 484), 115ull, term_ctr(CID_SCon, STAT_OFF + 486), 117ull, term_ctr(CID_SCon, STAT_OFF + 488) };
 
-INLINE Term spin_2(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_0(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _n_0 = r0;
+  Term _s_0 = r1;
+  WL_SPIN
+    if (_n_0 == 0) {
+      o[0] = 0;
+      o[1] = 0;
+      o[2] = _s_0;
+    } else if (_n_0 == 1) {
+      o[0] = 0;
+      o[1] = 1;
+      o[2] = _s_0;
+    } else if (_n_0 == 2) {
+      o[0] = 0;
+      o[1] = 2;
+      o[2] = _s_0;
+    } else {
+      Term _c_0 = (_n_0 - 3);
+      term_sink(e, _s_0);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_1(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  Term _x_0 = r0;
+  u32 _r_4 = r1;
+  Term _r_5 = r2;
+  Term _r_6 = r3;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = 1;
+      o[2] = _x_0;
+      o[3] = _r_5;
+      o[4] = _r_6;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_2(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _d_0 = r0;
+  WL_SPIN
+    if (_d_0 == 0) {
+      o[0] = 0;
+    } else if (_d_0 == 1) {
+      o[0] = 1ull;
+    } else if (_d_0 == 2) {
+      o[0] = 2ull;
+    } else if (_d_0 == 3) {
+      o[0] = 3ull;
+    } else if (_d_0 == 4) {
+      o[0] = 4ull;
+    } else if (_d_0 == 5) {
+      o[0] = 5ull;
+    } else if (_d_0 == 6) {
+      o[0] = 6ull;
+    } else if (_d_0 == 7) {
+      o[0] = 7ull;
+    } else if (_d_0 == 8) {
+      o[0] = 8ull;
+    } else {
+      o[0] = 9ull;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_3(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _r_1 = r1;
+  Term _r_2 = r2;
+  WL_SPIN
+    if (_r_0 == 0) {
+      Term _o_0[3];
+      if (spin_0(e, _o_0, _r_1, _r_2) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_0[0];
+      o[1] = (u32)_o_0[1];
+      o[2] = _o_0[2];
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_4(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _i_2 = r0;
+  u32 _st_0 = r1;
+  u32 _r_4 = r2;
+  Term _r_5 = r3;
+  Term _r_6 = r4;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = _i_2;
+      o[2] = _st_0;
+      o[3] = _r_5;
+      o[4] = _r_6;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_5(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _r_1 = r1;
+  Term _r_2 = r2;
+  WL_SPIN
+    if (_r_0 == 0) {
+      o[0] = 0;
+      o[1] = 2;
+      o[2] = _r_1;
+      o[3] = 0;
+      o[4] = _r_2;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_6(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _r_3 = r0;
+  Term _r_4 = r1;
+  Term _r_5 = r2;
+  WL_SPIN
+    if (_r_3 == 0) {
+      o[0] = 0;
+      o[1] = 4;
+      o[2] = _r_4;
+      o[3] = 0;
+      o[4] = _r_5;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_9(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _p_0 = r0;
   Term _p_1 = r1;
@@ -1386,7 +1725,7 @@ INLINE Term spin_2(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_1(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_8(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _a_0 = r0;
   Term _b_0 = r1;
@@ -1394,7 +1733,7 @@ INLINE Term spin_1(Env e, THR Term* o, Term r0, Term r1) {
     Term _a_1 = (_b_0 == 0 ? 0 : _a_0 / _b_0);
     Term _a_2 = (_b_0 == 0 ? _a_0 : _a_0 % _b_0);
     Term _o_0[1];
-    if (spin_2(e, _o_0, _a_1, _a_2) == 0) {
+    if (spin_9(e, _o_0, _a_1, _a_2) == 0) {
       return 0;
     }
     o[0] = _o_0[0];
@@ -1403,7 +1742,7 @@ INLINE Term spin_1(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_4(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_11(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _p_2 = r0;
   Term _p_3 = r1;
@@ -1414,7 +1753,7 @@ INLINE Term spin_4(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_3(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_10(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _a_3 = r0;
   Term _b_1 = r1;
@@ -1422,7 +1761,7 @@ INLINE Term spin_3(Env e, THR Term* o, Term r0, Term r1) {
     Term _a_4 = (_b_1 == 0 ? 0 : _a_3 / _b_1);
     Term _a_5 = (_b_1 == 0 ? _a_3 : _a_3 % _b_1);
     Term _o_2[1];
-    if (spin_4(e, _o_2, _a_4, _a_5) == 0) {
+    if (spin_11(e, _o_2, _a_4, _a_5) == 0) {
       return 0;
     }
     o[0] = _o_2[0];
@@ -1431,7 +1770,7 @@ INLINE Term spin_3(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_5(Env e, THR Term* o, Term r0) {
+INLINE Term spin_12(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _d_0 = r0;
   WL_SPIN
@@ -1464,7 +1803,7 @@ INLINE Term spin_5(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_6(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+INLINE Term spin_13(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   u32 wpoll = 0;
   Term _g_0 = r0;
   Term _n_1 = r1;
@@ -1479,34 +1818,34 @@ INLINE Term spin_6(Env e, THR Term* o, Term r0, Term r1, Term r2) {
       } else {
         Term _p_5 = (_n_1 - 1);
         Term _m_0 = nat_chk(e, _p_5 + 1);
-        Term _v_4 = 0;
+        Term _v_3 = 0;
         Term _o_5[1];
-        if (spin_1(e, _o_5, _m_0, 10ull) == 0) {
+        if (spin_8(e, _o_5, _m_0, 10ull) == 0) {
           return 0;
         }
-        _v_4 = _o_5[0];
-        u32 _v_5 = 0;
-        Term _v_6 = 0;
+        _v_3 = _o_5[0];
+        u32 _v_4 = 0;
+        Term _v_5 = 0;
         Term _o_6[1];
-        if (spin_3(e, _o_6, _m_0, 10ull) == 0) {
+        if (spin_10(e, _o_6, _m_0, 10ull) == 0) {
           return 0;
         }
-        _v_6 = _o_6[0];
+        _v_5 = _o_6[0];
         Term _o_7[1];
-        if (spin_5(e, _o_7, _v_6) == 0) {
+        if (spin_12(e, _o_7, _v_5) == 0) {
           return 0;
         }
-        _v_5 = (u32)_o_7[0];
+        _v_4 = (u32)_o_7[0];
         u64 _nd_2 = heap_alloc(e, cls_fit(2));
-        e.mem[_nd_2 + 0] = _v_5;
-        e.mem[_nd_2 + 1] = _acc_0;
+        e.mem[_nd_2 + 0] = rfc_seal(e, _v_4);
+        e.mem[_nd_2 + 1] = rfc_seal(e, _acc_0);
         r0 = _f_0;
-        r1 = _v_4;
+        r1 = _v_3;
         r2 = term_ctr(CID_SCon, _nd_2);
         _g_0 = r0;
         _n_1 = r1;
         _acc_0 = r2;
-        WL_AGAIN(spin_6);
+        WL_AGAIN(spin_13);
       }
     }
   break;
@@ -1514,37 +1853,37 @@ INLINE Term spin_6(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_0(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_7(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _n_0 = r0;
-  Term _rest_0 = r1;
+  Term _rest_1 = r1;
   WL_SPIN
-    Term _v_1 = 0;
+    Term _v_0 = 0;
     Term _o_1[1];
-    if (spin_1(e, _o_1, _n_0, 10ull) == 0) {
+    if (spin_8(e, _o_1, _n_0, 10ull) == 0) {
       return 0;
     }
-    _v_1 = _o_1[0];
-    u32 _v_2 = 0;
-    Term _v_3 = 0;
+    _v_0 = _o_1[0];
+    u32 _v_1 = 0;
+    Term _v_2 = 0;
     Term _o_3[1];
-    if (spin_3(e, _o_3, _n_0, 10ull) == 0) {
+    if (spin_10(e, _o_3, _n_0, 10ull) == 0) {
       return 0;
     }
-    _v_3 = _o_3[0];
+    _v_2 = _o_3[0];
     Term _o_4[1];
-    if (spin_5(e, _o_4, _v_3) == 0) {
+    if (spin_12(e, _o_4, _v_2) == 0) {
       return 0;
     }
-    _v_2 = (u32)_o_4[0];
+    _v_1 = (u32)_o_4[0];
     u64 _nd_0 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_0 + 0] = 44ull;
-    e.mem[_nd_0 + 1] = _rest_0;
+    e.mem[_nd_0 + 0] = rfc_seal(e, 44ull);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _rest_1);
     u64 _nd_1 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_1 + 0] = _v_2;
-    e.mem[_nd_1 + 1] = term_ctr(CID_SCon, _nd_0);
+    e.mem[_nd_1 + 0] = rfc_seal(e, _v_1);
+    e.mem[_nd_1 + 1] = rfc_seal(e, term_ctr(CID_SCon, _nd_0));
     Term _o_8[1];
-    if (spin_6(e, _o_8, _n_0, _v_1, term_ctr(CID_SCon, _nd_1)) == 0) {
+    if (spin_13(e, _o_8, _n_0, _v_0, term_ctr(CID_SCon, _nd_1)) == 0) {
       return 0;
     }
     o[0] = _o_8[0];
@@ -1553,7 +1892,1110 @@ INLINE Term spin_0(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_7(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_14(Env e, THR Term* o, Term r0, u32 r1) {
+  u32 wpoll = 0;
+  Term _rest_0 = r0;
+  u32 _d_0 = r1;
+  WL_SPIN
+    if (term_aux(_rest_0) == CID_Nil) {
+      o[0] = _d_0;
+    } else {
+      u64 _sp_2 = term_peek(e.mem, _rest_0);
+      Term _f_4 = e.mem[_sp_2 + 0];
+      Term _f_5 = e.mem[_sp_2 + 1];
+      u32 _o_2 = 0;
+      if (term_aux(_f_4) == CID_semver_D0) {
+        _o_2 = 0;
+      } else if (term_aux(_f_4) == CID_semver_D1) {
+        _o_2 = 1;
+      } else if (term_aux(_f_4) == CID_semver_D2) {
+        _o_2 = 2;
+      } else if (term_aux(_f_4) == CID_semver_D3) {
+        _o_2 = 3;
+      } else if (term_aux(_f_4) == CID_semver_D4) {
+        _o_2 = 4;
+      } else if (term_aux(_f_4) == CID_semver_D5) {
+        _o_2 = 5;
+      } else if (term_aux(_f_4) == CID_semver_D6) {
+        _o_2 = 6;
+      } else if (term_aux(_f_4) == CID_semver_D7) {
+        _o_2 = 7;
+      } else if (term_aux(_f_4) == CID_semver_D8) {
+        _o_2 = 8;
+      } else {
+        _o_2 = 9;
+      }
+      r0 = _f_5;
+      r1 = _o_2;
+      _rest_0 = r0;
+      _d_0 = r1;
+      WL_AGAIN(spin_14);
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_15(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _d_1 = r0;
+  WL_SPIN
+    if (_d_1 == 0) {
+      o[0] = 1;
+    } else if (_d_1 == 1) {
+      o[0] = 0;
+    } else if (_d_1 == 2) {
+      o[0] = 0;
+    } else if (_d_1 == 3) {
+      o[0] = 0;
+    } else if (_d_1 == 4) {
+      o[0] = 0;
+    } else if (_d_1 == 5) {
+      o[0] = 0;
+    } else if (_d_1 == 6) {
+      o[0] = 0;
+    } else if (_d_1 == 7) {
+      o[0] = 0;
+    } else if (_d_1 == 8) {
+      o[0] = 0;
+    } else {
+      o[0] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_16(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _b_0 = r0;
+  WL_SPIN
+    if (_b_0 == 0) {
+      o[0] = 1;
+    } else {
+      o[0] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_17(Env e, THR Term* o, Term r0, u32 r1, Term r2) {
+  u32 wpoll = 0;
+  Term _b_3 = r0;
+  u32 _b_4 = r1;
+  Term _b_5 = r2;
+  WL_SPIN
+    if (_b_4 == 0) {
+      o[0] = _b_3;
+      o[1] = 1;
+      o[2] = _b_5;
+    } else if (_b_4 == 1) {
+      o[0] = _b_3;
+      o[1] = 1;
+      o[2] = _b_5;
+    } else {
+      o[0] = _b_3;
+      o[1] = 2;
+      o[2] = _b_5;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_18(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  Term _b_6 = r0;
+  u32 _b_7 = r1;
+  Term _b_8 = r2;
+  Term _n_0 = r3;
+  WL_SPIN
+    if (_b_7 == 0) {
+      o[0] = _b_6;
+      o[1] = 0;
+      o[2] = nat_chk(e, _b_8 + _n_0);
+    } else if (_b_7 == 1) {
+      o[0] = _b_6;
+      o[1] = 1;
+      o[2] = _b_8;
+    } else {
+      o[0] = _b_6;
+      o[1] = 2;
+      o[2] = _b_8;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_19(Env e, THR Term* o, u32 r0, Term r1) {
+  u32 wpoll = 0;
+  u32 _s_0 = r0;
+  Term _rest_1 = r1;
+  WL_SPIN
+    if (_s_0 == 0) {
+      Term _o_1[1];
+      if (spin_7(e, _o_1, 0, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_1[0];
+    } else if (_s_0 == 1) {
+      Term _o_2[1];
+      if (spin_7(e, _o_2, 1ull, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_2[0];
+    } else {
+      Term _o_3[1];
+      if (spin_7(e, _o_3, 2ull, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_3[0];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_20(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _n_0 = r0;
+  Term _s_0 = r1;
+  WL_SPIN
+    if (_n_0 == 0) {
+      o[0] = 0;
+      o[1] = 0;
+      o[2] = _s_0;
+    } else if (_n_0 == 1) {
+      o[0] = 0;
+      o[1] = 1;
+      o[2] = _s_0;
+    } else {
+      Term _b_0 = (_n_0 - 2);
+      term_sink(e, _s_0);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_22(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _c_0 = r0;
+  WL_SPIN
+    if (_c_0 == 2) {
+      o[0] = 0;
+    } else {
+      o[0] = 1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_21(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _a_0 = r0;
+  Term _b_0 = r1;
+  WL_SPIN
+    Term _o_0[1];
+    if (spin_22(e, _o_0, ((_a_0 > _b_0) + (_a_0 >= _b_0))) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_0[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_23(Env e, THR Term* o, Term r0) {
+  u32 wpoll = 0;
+  Term _ds_2 = r0;
+  WL_SPIN
+    if (term_aux(_ds_2) == CID_Nil) {
+      o[0] = 0;
+    } else {
+      u64 _sp_0 = term_peek(e.mem, _ds_2);
+      Term _f_0 = e.mem[_sp_0 + 0];
+      Term _f_1 = e.mem[_sp_0 + 1];
+      u32 _o_2 = 0;
+      if (term_aux(_f_0) == CID_semver_D0) {
+        _o_2 = 0;
+      } else if (term_aux(_f_0) == CID_semver_D1) {
+        _o_2 = 1;
+      } else if (term_aux(_f_0) == CID_semver_D2) {
+        _o_2 = 2;
+      } else if (term_aux(_f_0) == CID_semver_D3) {
+        _o_2 = 3;
+      } else if (term_aux(_f_0) == CID_semver_D4) {
+        _o_2 = 4;
+      } else if (term_aux(_f_0) == CID_semver_D5) {
+        _o_2 = 5;
+      } else if (term_aux(_f_0) == CID_semver_D6) {
+        _o_2 = 6;
+      } else if (term_aux(_f_0) == CID_semver_D7) {
+        _o_2 = 7;
+      } else if (term_aux(_f_0) == CID_semver_D8) {
+        _o_2 = 8;
+      } else {
+        _o_2 = 9;
+      }
+      if (term_aux(_f_1) == CID_Nil) {
+        o[0] = 1;
+      } else {
+        u64 _sp_1 = term_peek(e.mem, _f_1);
+        Term _f_2 = e.mem[_sp_1 + 0];
+        Term _f_3 = e.mem[_sp_1 + 1];
+        u32 _o_3 = 0;
+        if (term_aux(_f_2) == CID_semver_D0) {
+          _o_3 = 0;
+        } else if (term_aux(_f_2) == CID_semver_D1) {
+          _o_3 = 1;
+        } else if (term_aux(_f_2) == CID_semver_D2) {
+          _o_3 = 2;
+        } else if (term_aux(_f_2) == CID_semver_D3) {
+          _o_3 = 3;
+        } else if (term_aux(_f_2) == CID_semver_D4) {
+          _o_3 = 4;
+        } else if (term_aux(_f_2) == CID_semver_D5) {
+          _o_3 = 5;
+        } else if (term_aux(_f_2) == CID_semver_D6) {
+          _o_3 = 6;
+        } else if (term_aux(_f_2) == CID_semver_D7) {
+          _o_3 = 7;
+        } else if (term_aux(_f_2) == CID_semver_D8) {
+          _o_3 = 8;
+        } else {
+          _o_3 = 9;
+        }
+        u32 _v_3 = 0;
+        u32 _v_4 = 0;
+        Term _o_4[1];
+        if (spin_14(e, _o_4, _f_3, _o_3) == 0) {
+          return 0;
+        }
+        _v_4 = (u32)_o_4[0];
+        Term _o_5[1];
+        if (spin_15(e, _o_5, _v_4) == 0) {
+          return 0;
+        }
+        _v_3 = (u32)_o_5[0];
+        Term _o_6[1];
+        if (spin_16(e, _o_6, _v_3) == 0) {
+          return 0;
+        }
+        o[0] = (u32)_o_6[0];
+      }
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_24(Env e, THR Term* o, u32 r0, u32 r1) {
+  u32 wpoll = 0;
+  u32 _a_1 = r0;
+  u32 _b_1 = r1;
+  WL_SPIN
+    if (_a_1 == 0) {
+      o[0] = 0;
+    } else {
+      o[0] = _b_1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_25(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  Term _r0_0 = r0;
+  u32 _r_4 = r1;
+  Term _r_5 = r2;
+  Term _r_6 = r3;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = _r0_0;
+      o[2] = _r_5;
+      o[3] = _r_6;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_26(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3, Term r4, Term r5) {
+  u32 wpoll = 0;
+  Term _x_0 = r0;
+  u32 _x_1 = r1;
+  Term _x_2 = r2;
+  u32 _r_0 = r3;
+  Term _r_1 = r4;
+  Term _r_2 = r5;
+  WL_SPIN
+    if (_r_0 == 0) {
+      u64 _nd_2 = heap_alloc(e, cls_fit(3));
+      e.mem[_nd_2 + 0] = rfc_seal(e, _x_0);
+      e.mem[_nd_2 + 1] = rfc_seal(e, _x_1);
+      e.mem[_nd_2 + 2] = rfc_seal(e, _x_2);
+      u64 _nd_3 = heap_alloc(e, cls_fit(2));
+      e.mem[_nd_3 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_2));
+      e.mem[_nd_3 + 1] = rfc_seal(e, _r_1);
+      o[0] = 0;
+      o[1] = term_ctr(CID_Con, _nd_3);
+      o[2] = _r_2;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_27(Env e, THR Term* o, u32 r0, Term r1, Term r2, u32 r3, Term r4, Term r5) {
+  u32 wpoll = 0;
+  u32 _x_0 = r0;
+  Term _x_1 = r1;
+  Term _x_2 = r2;
+  u32 _r_0 = r3;
+  Term _r_1 = r4;
+  Term _r_2 = r5;
+  WL_SPIN
+    if (_r_0 == 0) {
+      Term _b_1 = 0;
+      if (_x_0 == 0) {
+        _b_1 = term_pak(CID_screen_Open, 0);
+      } else if (_x_0 == 1) {
+        u64 _nd_4 = heap_alloc(e, cls_fit(2));
+        e.mem[_nd_4 + 0] = rfc_seal(e, _x_1);
+        e.mem[_nd_4 + 1] = rfc_seal(e, _x_2);
+        _b_1 = term_ctr(CID_screen_Grow, _nd_4);
+      } else if (_x_0 == 2) {
+        u64 _nd_5 = heap_alloc(e, cls_fit(1));
+        e.mem[_nd_5 + 0] = rfc_seal(e, _x_1);
+        _b_1 = term_ctr(CID_screen_Fin, _nd_5);
+      } else if (_x_0 == 3) {
+        _b_1 = term_pak(CID_screen_Flush, 0);
+      } else {
+        u64 _nd_6 = heap_alloc(e, cls_fit(1));
+        e.mem[_nd_6 + 0] = rfc_seal(e, _x_1);
+        _b_1 = term_ctr(CID_screen_Resize, _nd_6);
+      }
+      u64 _nd_7 = heap_alloc(e, cls_fit(2));
+      e.mem[_nd_7 + 0] = rfc_seal(e, _b_1);
+      e.mem[_nd_7 + 1] = rfc_seal(e, _r_1);
+      o[0] = 0;
+      o[1] = term_ctr(CID_Con, _nd_7);
+      o[2] = _r_2;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_28(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _below_0 = r0;
+  Term _k_1 = r1;
+  Term _b_1 = r2;
+  WL_SPIN
+    if (_below_0 == 1) {
+      Term _o_0[1];
+      if (spin_8(e, _o_0, _b_1, nat_chk(e, _k_1 + 1)) == 0) {
+        return 0;
+      }
+      o[0] = _o_0[0];
+    } else {
+      o[0] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_29(Env e, THR Term* o, Term r0, u32 r1, Term r2) {
+  u32 wpoll = 0;
+  Term _b_0 = r0;
+  u32 _b_1 = r1;
+  Term _b_2 = r2;
+  WL_SPIN
+    o[0] = _b_0;
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_31(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _c_0 = r0;
+  WL_SPIN
+    if (_c_0 == 1) {
+      o[0] = 1;
+    } else {
+      o[0] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_30(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _a_0 = r0;
+  Term _b_3 = r1;
+  WL_SPIN
+    Term _o_1[1];
+    if (spin_31(e, _o_1, ((_a_0 > _b_3) + (_a_0 >= _b_3))) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_1[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _bs_1 = r0;
+  Term _x_1 = r1;
+  WL_SPIN
+    if (term_aux(_bs_1) == CID_Nil) {
+      o[0] = 0;
+    } else {
+      u64 _sp_2 = term_peek(e.mem, _bs_1);
+      Term _f_5 = e.mem[_sp_2 + 0];
+      Term _f_6 = e.mem[_sp_2 + 1];
+      u64 _sp_3 = term_peek(e.mem, _f_5);
+      Term _f_7 = e.mem[_sp_3 + 0];
+      u32 _f_8 = e.mem[_sp_3 + 1];
+      Term _f_9 = e.mem[_sp_3 + 2];
+      Term _v_1 = 0;
+      Term _o_0[1];
+      if (spin_29(e, _o_0, _f_7, _f_8, _f_9) == 0) {
+        return 0;
+      }
+      _v_1 = _o_0[0];
+      Term _o_1[1];
+      if (spin_30(e, _o_1, _v_1, _x_1) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_1[0];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_33(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3, Term r4) {
+  u32 wpoll = 0;
+  Term _b_0 = r0;
+  u32 _b_1 = r1;
+  Term _b_2 = r2;
+  u32 _g_4 = r3;
+  Term _g_5 = r4;
+  WL_SPIN
+    if (_g_4 == 0) {
+      Term _o_3[3];
+      if (spin_17(e, _o_3, _b_0, _b_1, _b_2) == 0) {
+        return 0;
+      }
+      o[0] = _o_3[0];
+      o[1] = (u32)_o_3[1];
+      o[2] = _o_3[2];
+    } else {
+      Term _o_4[3];
+      if (spin_18(e, _o_4, _b_0, _b_1, _b_2, _g_5) == 0) {
+        return 0;
+      }
+      o[0] = _o_4[0];
+      o[1] = (u32)_o_4[1];
+      o[2] = _o_4[2];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_34(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  Term _b_0 = r0;
+  u32 _b_1 = r1;
+  Term _b_2 = r2;
+  Term _rest_0 = r3;
+  WL_SPIN
+    Term _v_1 = 0;
+    Term _v_2 = 0;
+    Term _o_0[1];
+    if (spin_7(e, _o_0, _b_2, _rest_0) == 0) {
+      return 0;
+    }
+    _v_2 = _o_0[0];
+    Term _o_1[1];
+    if (spin_19(e, _o_1, _b_1, _v_2) == 0) {
+      return 0;
+    }
+    _v_1 = _o_1[0];
+    Term _o_2[1];
+    if (spin_7(e, _o_2, _b_0, _v_1) == 0) {
+      return 0;
+    }
+    o[0] = _o_2[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_35(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  Term _x_0 = r0;
+  Term _r_0 = r1;
+  Term _r_1 = r2;
+  WL_SPIN
+    Term _v_0 = 0;
+    Term _o_0[1];
+    if (spin_7(e, _o_0, _x_0, _r_1) == 0) {
+      return 0;
+    }
+    _v_0 = _o_0[0];
+    o[0] = nat_chk(e, _r_0 + 1);
+    o[1] = _v_0;
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_36(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _c_0 = r0;
+  Term _r_0 = r1;
+  Term _r_1 = r2;
+  WL_SPIN
+    u64 _nd_0 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_0 + 0] = rfc_seal(e, _c_0);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _r_1);
+    o[0] = nat_chk(e, _r_0 + 1);
+    o[1] = term_ctr(CID_SCon, _nd_0);
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_37(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _r_1 = r1;
+  Term _r_2 = r2;
+  WL_SPIN
+    if (_r_0 == 0) {
+      Term _o_0[3];
+      if (spin_20(e, _o_0, _r_1, _r_2) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_0[0];
+      o[1] = (u32)_o_0[1];
+      o[2] = _o_0[2];
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_38(Env e, THR Term* o, u32 r0, u32 r1) {
+  u32 wpoll = 0;
+  u32 _a_0 = r0;
+  u32 _b_0 = r1;
+  WL_SPIN
+    o[0] = U32_BIN(_a_0, ==, _b_0);
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_39(Env e, THR Term* o, u32 r0, Term r1) {
+  u32 wpoll = 0;
+  u32 _dash_0 = r0;
+  Term _rest_0 = r1;
+  WL_SPIN
+    if (_dash_0 == 1) {
+      o[0] = 0;
+    } else {
+      o[0] = _rest_0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_40(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _dash_0 = r0;
+  u32 _c_0 = r1;
+  Term _rest_0 = r2;
+  WL_SPIN
+    if (_dash_0 == 1) {
+      term_sink(e, _rest_0);
+      o[0] = term_pak(CID_SNil, 0);
+    } else {
+      u64 _nd_0 = heap_alloc(e, cls_fit(2));
+      e.mem[_nd_0 + 0] = rfc_seal(e, _c_0);
+      e.mem[_nd_0 + 1] = rfc_seal(e, _rest_0);
+      o[0] = term_ctr(CID_SCon, _nd_0);
+    }
+  break;
+  }
+  return 1;
+}
+
+DFAR Term spin_41(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _c_0 = r0;
+  WL_SPIN
+    if (_c_0 == 48) {
+      o[0] = 0;
+      o[1] = 0;
+    } else if ((_c_0 & 15) == 0) {
+      u32 _15_0 = ((_c_0 >> 4) & 1);
+      u32 _16_0 = ((_c_0 >> 5) & 1);
+      u32 _16_1 = ((_c_0 >> 6) & 1);
+      u32 _16_2 = ((_c_0 >> 7) & 1);
+      u32 _16_3 = ((_c_0 >> 8) & 1);
+      u32 _16_4 = ((_c_0 >> 9) & 1);
+      u32 _16_5 = ((_c_0 >> 10) & 1);
+      u32 _16_6 = ((_c_0 >> 11) & 1);
+      u32 _16_7 = ((_c_0 >> 12) & 1);
+      u32 _16_8 = ((_c_0 >> 13) & 1);
+      u32 _16_9 = ((_c_0 >> 14) & 1);
+      u32 _16_10 = ((_c_0 >> 15) & 1);
+      u32 _16_11 = ((_c_0 >> 16) & 1);
+      u32 _16_12 = ((_c_0 >> 17) & 1);
+      u32 _16_13 = ((_c_0 >> 18) & 1);
+      u32 _16_14 = ((_c_0 >> 19) & 1);
+      u32 _16_15 = ((_c_0 >> 20) & 1);
+      u32 _16_16 = ((_c_0 >> 21) & 1);
+      u32 _16_17 = ((_c_0 >> 22) & 1);
+      u32 _16_18 = ((_c_0 >> 23) & 1);
+      u32 _16_19 = ((_c_0 >> 24) & 1);
+      u32 _16_20 = ((_c_0 >> 25) & 1);
+      u32 _16_21 = ((_c_0 >> 26) & 1);
+      u32 _16_22 = ((_c_0 >> 27) & 1);
+      u32 _16_23 = ((_c_0 >> 28) & 1);
+      u32 _16_24 = ((_c_0 >> 29) & 1);
+      u32 _16_25 = ((_c_0 >> 30) & 1);
+      u32 _16_26 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 56) {
+      o[0] = 0;
+      o[1] = 8;
+    } else if ((_c_0 & 15) == 8) {
+      u32 _71_0 = ((_c_0 >> 4) & 1);
+      u32 _72_0 = ((_c_0 >> 5) & 1);
+      u32 _72_1 = ((_c_0 >> 6) & 1);
+      u32 _72_2 = ((_c_0 >> 7) & 1);
+      u32 _72_3 = ((_c_0 >> 8) & 1);
+      u32 _72_4 = ((_c_0 >> 9) & 1);
+      u32 _72_5 = ((_c_0 >> 10) & 1);
+      u32 _72_6 = ((_c_0 >> 11) & 1);
+      u32 _72_7 = ((_c_0 >> 12) & 1);
+      u32 _72_8 = ((_c_0 >> 13) & 1);
+      u32 _72_9 = ((_c_0 >> 14) & 1);
+      u32 _72_10 = ((_c_0 >> 15) & 1);
+      u32 _72_11 = ((_c_0 >> 16) & 1);
+      u32 _72_12 = ((_c_0 >> 17) & 1);
+      u32 _72_13 = ((_c_0 >> 18) & 1);
+      u32 _72_14 = ((_c_0 >> 19) & 1);
+      u32 _72_15 = ((_c_0 >> 20) & 1);
+      u32 _72_16 = ((_c_0 >> 21) & 1);
+      u32 _72_17 = ((_c_0 >> 22) & 1);
+      u32 _72_18 = ((_c_0 >> 23) & 1);
+      u32 _72_19 = ((_c_0 >> 24) & 1);
+      u32 _72_20 = ((_c_0 >> 25) & 1);
+      u32 _72_21 = ((_c_0 >> 26) & 1);
+      u32 _72_22 = ((_c_0 >> 27) & 1);
+      u32 _72_23 = ((_c_0 >> 28) & 1);
+      u32 _72_24 = ((_c_0 >> 29) & 1);
+      u32 _72_25 = ((_c_0 >> 30) & 1);
+      u32 _72_26 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 52) {
+      o[0] = 0;
+      o[1] = 4;
+    } else if ((_c_0 & 7) == 4) {
+      u32 _127_0 = ((_c_0 >> 3) & 1);
+      u32 _128_0 = ((_c_0 >> 4) & 1);
+      u32 _128_1 = ((_c_0 >> 5) & 1);
+      u32 _128_2 = ((_c_0 >> 6) & 1);
+      u32 _128_3 = ((_c_0 >> 7) & 1);
+      u32 _128_4 = ((_c_0 >> 8) & 1);
+      u32 _128_5 = ((_c_0 >> 9) & 1);
+      u32 _128_6 = ((_c_0 >> 10) & 1);
+      u32 _128_7 = ((_c_0 >> 11) & 1);
+      u32 _128_8 = ((_c_0 >> 12) & 1);
+      u32 _128_9 = ((_c_0 >> 13) & 1);
+      u32 _128_10 = ((_c_0 >> 14) & 1);
+      u32 _128_11 = ((_c_0 >> 15) & 1);
+      u32 _128_12 = ((_c_0 >> 16) & 1);
+      u32 _128_13 = ((_c_0 >> 17) & 1);
+      u32 _128_14 = ((_c_0 >> 18) & 1);
+      u32 _128_15 = ((_c_0 >> 19) & 1);
+      u32 _128_16 = ((_c_0 >> 20) & 1);
+      u32 _128_17 = ((_c_0 >> 21) & 1);
+      u32 _128_18 = ((_c_0 >> 22) & 1);
+      u32 _128_19 = ((_c_0 >> 23) & 1);
+      u32 _128_20 = ((_c_0 >> 24) & 1);
+      u32 _128_21 = ((_c_0 >> 25) & 1);
+      u32 _128_22 = ((_c_0 >> 26) & 1);
+      u32 _128_23 = ((_c_0 >> 27) & 1);
+      u32 _128_24 = ((_c_0 >> 28) & 1);
+      u32 _128_25 = ((_c_0 >> 29) & 1);
+      u32 _128_26 = ((_c_0 >> 30) & 1);
+      u32 _128_27 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 50) {
+      o[0] = 0;
+      o[1] = 2;
+    } else if ((_c_0 & 7) == 2) {
+      u32 _187_0 = ((_c_0 >> 3) & 1);
+      u32 _188_0 = ((_c_0 >> 4) & 1);
+      u32 _188_1 = ((_c_0 >> 5) & 1);
+      u32 _188_2 = ((_c_0 >> 6) & 1);
+      u32 _188_3 = ((_c_0 >> 7) & 1);
+      u32 _188_4 = ((_c_0 >> 8) & 1);
+      u32 _188_5 = ((_c_0 >> 9) & 1);
+      u32 _188_6 = ((_c_0 >> 10) & 1);
+      u32 _188_7 = ((_c_0 >> 11) & 1);
+      u32 _188_8 = ((_c_0 >> 12) & 1);
+      u32 _188_9 = ((_c_0 >> 13) & 1);
+      u32 _188_10 = ((_c_0 >> 14) & 1);
+      u32 _188_11 = ((_c_0 >> 15) & 1);
+      u32 _188_12 = ((_c_0 >> 16) & 1);
+      u32 _188_13 = ((_c_0 >> 17) & 1);
+      u32 _188_14 = ((_c_0 >> 18) & 1);
+      u32 _188_15 = ((_c_0 >> 19) & 1);
+      u32 _188_16 = ((_c_0 >> 20) & 1);
+      u32 _188_17 = ((_c_0 >> 21) & 1);
+      u32 _188_18 = ((_c_0 >> 22) & 1);
+      u32 _188_19 = ((_c_0 >> 23) & 1);
+      u32 _188_20 = ((_c_0 >> 24) & 1);
+      u32 _188_21 = ((_c_0 >> 25) & 1);
+      u32 _188_22 = ((_c_0 >> 26) & 1);
+      u32 _188_23 = ((_c_0 >> 27) & 1);
+      u32 _188_24 = ((_c_0 >> 28) & 1);
+      u32 _188_25 = ((_c_0 >> 29) & 1);
+      u32 _188_26 = ((_c_0 >> 30) & 1);
+      u32 _188_27 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 54) {
+      o[0] = 0;
+      o[1] = 6;
+    } else if ((_c_0 & 15) == 6) {
+      u32 _247_0 = ((_c_0 >> 4) & 1);
+      u32 _248_0 = ((_c_0 >> 5) & 1);
+      u32 _248_1 = ((_c_0 >> 6) & 1);
+      u32 _248_2 = ((_c_0 >> 7) & 1);
+      u32 _248_3 = ((_c_0 >> 8) & 1);
+      u32 _248_4 = ((_c_0 >> 9) & 1);
+      u32 _248_5 = ((_c_0 >> 10) & 1);
+      u32 _248_6 = ((_c_0 >> 11) & 1);
+      u32 _248_7 = ((_c_0 >> 12) & 1);
+      u32 _248_8 = ((_c_0 >> 13) & 1);
+      u32 _248_9 = ((_c_0 >> 14) & 1);
+      u32 _248_10 = ((_c_0 >> 15) & 1);
+      u32 _248_11 = ((_c_0 >> 16) & 1);
+      u32 _248_12 = ((_c_0 >> 17) & 1);
+      u32 _248_13 = ((_c_0 >> 18) & 1);
+      u32 _248_14 = ((_c_0 >> 19) & 1);
+      u32 _248_15 = ((_c_0 >> 20) & 1);
+      u32 _248_16 = ((_c_0 >> 21) & 1);
+      u32 _248_17 = ((_c_0 >> 22) & 1);
+      u32 _248_18 = ((_c_0 >> 23) & 1);
+      u32 _248_19 = ((_c_0 >> 24) & 1);
+      u32 _248_20 = ((_c_0 >> 25) & 1);
+      u32 _248_21 = ((_c_0 >> 26) & 1);
+      u32 _248_22 = ((_c_0 >> 27) & 1);
+      u32 _248_23 = ((_c_0 >> 28) & 1);
+      u32 _248_24 = ((_c_0 >> 29) & 1);
+      u32 _248_25 = ((_c_0 >> 30) & 1);
+      u32 _248_26 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 46) {
+      o[0] = 1;
+      o[1] = 0;
+    } else if ((_c_0 & 15) == 14) {
+      u32 _303_0 = ((_c_0 >> 4) & 1);
+      u32 _304_0 = ((_c_0 >> 5) & 1);
+      u32 _304_1 = ((_c_0 >> 6) & 1);
+      u32 _304_2 = ((_c_0 >> 7) & 1);
+      u32 _304_3 = ((_c_0 >> 8) & 1);
+      u32 _304_4 = ((_c_0 >> 9) & 1);
+      u32 _304_5 = ((_c_0 >> 10) & 1);
+      u32 _304_6 = ((_c_0 >> 11) & 1);
+      u32 _304_7 = ((_c_0 >> 12) & 1);
+      u32 _304_8 = ((_c_0 >> 13) & 1);
+      u32 _304_9 = ((_c_0 >> 14) & 1);
+      u32 _304_10 = ((_c_0 >> 15) & 1);
+      u32 _304_11 = ((_c_0 >> 16) & 1);
+      u32 _304_12 = ((_c_0 >> 17) & 1);
+      u32 _304_13 = ((_c_0 >> 18) & 1);
+      u32 _304_14 = ((_c_0 >> 19) & 1);
+      u32 _304_15 = ((_c_0 >> 20) & 1);
+      u32 _304_16 = ((_c_0 >> 21) & 1);
+      u32 _304_17 = ((_c_0 >> 22) & 1);
+      u32 _304_18 = ((_c_0 >> 23) & 1);
+      u32 _304_19 = ((_c_0 >> 24) & 1);
+      u32 _304_20 = ((_c_0 >> 25) & 1);
+      u32 _304_21 = ((_c_0 >> 26) & 1);
+      u32 _304_22 = ((_c_0 >> 27) & 1);
+      u32 _304_23 = ((_c_0 >> 28) & 1);
+      u32 _304_24 = ((_c_0 >> 29) & 1);
+      u32 _304_25 = ((_c_0 >> 30) & 1);
+      u32 _304_26 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 49) {
+      o[0] = 0;
+      o[1] = 1;
+    } else if ((_c_0 & 15) == 1) {
+      u32 _365_0 = ((_c_0 >> 4) & 1);
+      u32 _366_0 = ((_c_0 >> 5) & 1);
+      u32 _366_1 = ((_c_0 >> 6) & 1);
+      u32 _366_2 = ((_c_0 >> 7) & 1);
+      u32 _366_3 = ((_c_0 >> 8) & 1);
+      u32 _366_4 = ((_c_0 >> 9) & 1);
+      u32 _366_5 = ((_c_0 >> 10) & 1);
+      u32 _366_6 = ((_c_0 >> 11) & 1);
+      u32 _366_7 = ((_c_0 >> 12) & 1);
+      u32 _366_8 = ((_c_0 >> 13) & 1);
+      u32 _366_9 = ((_c_0 >> 14) & 1);
+      u32 _366_10 = ((_c_0 >> 15) & 1);
+      u32 _366_11 = ((_c_0 >> 16) & 1);
+      u32 _366_12 = ((_c_0 >> 17) & 1);
+      u32 _366_13 = ((_c_0 >> 18) & 1);
+      u32 _366_14 = ((_c_0 >> 19) & 1);
+      u32 _366_15 = ((_c_0 >> 20) & 1);
+      u32 _366_16 = ((_c_0 >> 21) & 1);
+      u32 _366_17 = ((_c_0 >> 22) & 1);
+      u32 _366_18 = ((_c_0 >> 23) & 1);
+      u32 _366_19 = ((_c_0 >> 24) & 1);
+      u32 _366_20 = ((_c_0 >> 25) & 1);
+      u32 _366_21 = ((_c_0 >> 26) & 1);
+      u32 _366_22 = ((_c_0 >> 27) & 1);
+      u32 _366_23 = ((_c_0 >> 28) & 1);
+      u32 _366_24 = ((_c_0 >> 29) & 1);
+      u32 _366_25 = ((_c_0 >> 30) & 1);
+      u32 _366_26 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 57) {
+      o[0] = 0;
+      o[1] = 9;
+    } else if ((_c_0 & 15) == 9) {
+      u32 _421_0 = ((_c_0 >> 4) & 1);
+      u32 _422_0 = ((_c_0 >> 5) & 1);
+      u32 _422_1 = ((_c_0 >> 6) & 1);
+      u32 _422_2 = ((_c_0 >> 7) & 1);
+      u32 _422_3 = ((_c_0 >> 8) & 1);
+      u32 _422_4 = ((_c_0 >> 9) & 1);
+      u32 _422_5 = ((_c_0 >> 10) & 1);
+      u32 _422_6 = ((_c_0 >> 11) & 1);
+      u32 _422_7 = ((_c_0 >> 12) & 1);
+      u32 _422_8 = ((_c_0 >> 13) & 1);
+      u32 _422_9 = ((_c_0 >> 14) & 1);
+      u32 _422_10 = ((_c_0 >> 15) & 1);
+      u32 _422_11 = ((_c_0 >> 16) & 1);
+      u32 _422_12 = ((_c_0 >> 17) & 1);
+      u32 _422_13 = ((_c_0 >> 18) & 1);
+      u32 _422_14 = ((_c_0 >> 19) & 1);
+      u32 _422_15 = ((_c_0 >> 20) & 1);
+      u32 _422_16 = ((_c_0 >> 21) & 1);
+      u32 _422_17 = ((_c_0 >> 22) & 1);
+      u32 _422_18 = ((_c_0 >> 23) & 1);
+      u32 _422_19 = ((_c_0 >> 24) & 1);
+      u32 _422_20 = ((_c_0 >> 25) & 1);
+      u32 _422_21 = ((_c_0 >> 26) & 1);
+      u32 _422_22 = ((_c_0 >> 27) & 1);
+      u32 _422_23 = ((_c_0 >> 28) & 1);
+      u32 _422_24 = ((_c_0 >> 29) & 1);
+      u32 _422_25 = ((_c_0 >> 30) & 1);
+      u32 _422_26 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 53) {
+      o[0] = 0;
+      o[1] = 5;
+    } else if ((_c_0 & 7) == 5) {
+      u32 _477_0 = ((_c_0 >> 3) & 1);
+      u32 _478_0 = ((_c_0 >> 4) & 1);
+      u32 _478_1 = ((_c_0 >> 5) & 1);
+      u32 _478_2 = ((_c_0 >> 6) & 1);
+      u32 _478_3 = ((_c_0 >> 7) & 1);
+      u32 _478_4 = ((_c_0 >> 8) & 1);
+      u32 _478_5 = ((_c_0 >> 9) & 1);
+      u32 _478_6 = ((_c_0 >> 10) & 1);
+      u32 _478_7 = ((_c_0 >> 11) & 1);
+      u32 _478_8 = ((_c_0 >> 12) & 1);
+      u32 _478_9 = ((_c_0 >> 13) & 1);
+      u32 _478_10 = ((_c_0 >> 14) & 1);
+      u32 _478_11 = ((_c_0 >> 15) & 1);
+      u32 _478_12 = ((_c_0 >> 16) & 1);
+      u32 _478_13 = ((_c_0 >> 17) & 1);
+      u32 _478_14 = ((_c_0 >> 18) & 1);
+      u32 _478_15 = ((_c_0 >> 19) & 1);
+      u32 _478_16 = ((_c_0 >> 20) & 1);
+      u32 _478_17 = ((_c_0 >> 21) & 1);
+      u32 _478_18 = ((_c_0 >> 22) & 1);
+      u32 _478_19 = ((_c_0 >> 23) & 1);
+      u32 _478_20 = ((_c_0 >> 24) & 1);
+      u32 _478_21 = ((_c_0 >> 25) & 1);
+      u32 _478_22 = ((_c_0 >> 26) & 1);
+      u32 _478_23 = ((_c_0 >> 27) & 1);
+      u32 _478_24 = ((_c_0 >> 28) & 1);
+      u32 _478_25 = ((_c_0 >> 29) & 1);
+      u32 _478_26 = ((_c_0 >> 30) & 1);
+      u32 _478_27 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 51) {
+      o[0] = 0;
+      o[1] = 3;
+    } else if ((_c_0 & 7) == 3) {
+      u32 _537_0 = ((_c_0 >> 3) & 1);
+      u32 _538_0 = ((_c_0 >> 4) & 1);
+      u32 _538_1 = ((_c_0 >> 5) & 1);
+      u32 _538_2 = ((_c_0 >> 6) & 1);
+      u32 _538_3 = ((_c_0 >> 7) & 1);
+      u32 _538_4 = ((_c_0 >> 8) & 1);
+      u32 _538_5 = ((_c_0 >> 9) & 1);
+      u32 _538_6 = ((_c_0 >> 10) & 1);
+      u32 _538_7 = ((_c_0 >> 11) & 1);
+      u32 _538_8 = ((_c_0 >> 12) & 1);
+      u32 _538_9 = ((_c_0 >> 13) & 1);
+      u32 _538_10 = ((_c_0 >> 14) & 1);
+      u32 _538_11 = ((_c_0 >> 15) & 1);
+      u32 _538_12 = ((_c_0 >> 16) & 1);
+      u32 _538_13 = ((_c_0 >> 17) & 1);
+      u32 _538_14 = ((_c_0 >> 18) & 1);
+      u32 _538_15 = ((_c_0 >> 19) & 1);
+      u32 _538_16 = ((_c_0 >> 20) & 1);
+      u32 _538_17 = ((_c_0 >> 21) & 1);
+      u32 _538_18 = ((_c_0 >> 22) & 1);
+      u32 _538_19 = ((_c_0 >> 23) & 1);
+      u32 _538_20 = ((_c_0 >> 24) & 1);
+      u32 _538_21 = ((_c_0 >> 25) & 1);
+      u32 _538_22 = ((_c_0 >> 26) & 1);
+      u32 _538_23 = ((_c_0 >> 27) & 1);
+      u32 _538_24 = ((_c_0 >> 28) & 1);
+      u32 _538_25 = ((_c_0 >> 29) & 1);
+      u32 _538_26 = ((_c_0 >> 30) & 1);
+      u32 _538_27 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    } else if (_c_0 == 55) {
+      o[0] = 0;
+      o[1] = 7;
+    } else {
+      u32 _595_0 = ((_c_0 >> 3) & 1);
+      u32 _596_0 = ((_c_0 >> 4) & 1);
+      u32 _596_1 = ((_c_0 >> 5) & 1);
+      u32 _596_2 = ((_c_0 >> 6) & 1);
+      u32 _596_3 = ((_c_0 >> 7) & 1);
+      u32 _596_4 = ((_c_0 >> 8) & 1);
+      u32 _596_5 = ((_c_0 >> 9) & 1);
+      u32 _596_6 = ((_c_0 >> 10) & 1);
+      u32 _596_7 = ((_c_0 >> 11) & 1);
+      u32 _596_8 = ((_c_0 >> 12) & 1);
+      u32 _596_9 = ((_c_0 >> 13) & 1);
+      u32 _596_10 = ((_c_0 >> 14) & 1);
+      u32 _596_11 = ((_c_0 >> 15) & 1);
+      u32 _596_12 = ((_c_0 >> 16) & 1);
+      u32 _596_13 = ((_c_0 >> 17) & 1);
+      u32 _596_14 = ((_c_0 >> 18) & 1);
+      u32 _596_15 = ((_c_0 >> 19) & 1);
+      u32 _596_16 = ((_c_0 >> 20) & 1);
+      u32 _596_17 = ((_c_0 >> 21) & 1);
+      u32 _596_18 = ((_c_0 >> 22) & 1);
+      u32 _596_19 = ((_c_0 >> 23) & 1);
+      u32 _596_20 = ((_c_0 >> 24) & 1);
+      u32 _596_21 = ((_c_0 >> 25) & 1);
+      u32 _596_22 = ((_c_0 >> 26) & 1);
+      u32 _596_23 = ((_c_0 >> 27) & 1);
+      u32 _596_24 = ((_c_0 >> 28) & 1);
+      u32 _596_25 = ((_c_0 >> 29) & 1);
+      u32 _596_26 = ((_c_0 >> 30) & 1);
+      u32 _596_27 = ((_c_0 >> 31) & 1);
+      o[0] = 2;
+      o[1] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_42(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3, u32 r4, Term r5, Term r6) {
+  u32 wpoll = 0;
+  u32 _a_0 = r0;
+  Term _a_1 = r1;
+  u32 _b_0 = r2;
+  Term _b_1 = r3;
+  u32 _c_0 = r4;
+  Term _c_1 = r5;
+  Term _t_10 = r6;
+  WL_SPIN
+    if (_a_0 == 1) {
+      if (_b_0 == 1) {
+        if (_c_0 == 1) {
+          u64 _nd_0 = heap_alloc(e, cls_fit(2));
+          e.mem[_nd_0 + 0] = rfc_seal(e, _c_1);
+          e.mem[_nd_0 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
+          u64 _nd_1 = heap_alloc(e, cls_fit(2));
+          e.mem[_nd_1 + 0] = rfc_seal(e, _t_10);
+          e.mem[_nd_1 + 1] = rfc_seal(e, term_ctr(CID_Con, _nd_0));
+          u64 _nd_2 = heap_alloc(e, cls_fit(2));
+          e.mem[_nd_2 + 0] = rfc_seal(e, _b_1);
+          e.mem[_nd_2 + 1] = rfc_seal(e, term_ctr(CID_Con, _nd_1));
+          u64 _nd_3 = heap_alloc(e, cls_fit(2));
+          e.mem[_nd_3 + 0] = rfc_seal(e, _a_1);
+          e.mem[_nd_3 + 1] = rfc_seal(e, term_ctr(CID_Con, _nd_2));
+          o[0] = term_ctr(CID_Con, _nd_3);
+        } else {
+          o[0] = term_pak(CID_Nil, 0);
+        }
+      } else {
+        o[0] = term_pak(CID_Nil, 0);
+      }
+    } else {
+      o[0] = term_pak(CID_Nil, 0);
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_43(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   Term _x_0 = r0;
   u32 _r_0 = r1;
@@ -1562,8 +3004,8 @@ INLINE Term spin_7(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   WL_SPIN
     if (_r_0 == 0) {
       u64 _nd_1 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_1 + 0] = _x_0;
-      e.mem[_nd_1 + 1] = _r_1;
+      e.mem[_nd_1 + 0] = rfc_seal(e, _x_0);
+      e.mem[_nd_1 + 1] = rfc_seal(e, _r_1);
       o[0] = 0;
       o[1] = term_ctr(CID_Con, _nd_1);
       o[2] = _r_2;
@@ -1577,15 +3019,115 @@ INLINE Term spin_7(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_8(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+INLINE Term spin_44(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, u32 r4, Term r5, Term r6) {
+  u32 wpoll = 0;
+  Term _min_2 = r0;
+  Term _k_2 = r1;
+  Term _p_0 = r2;
+  Term _p_1 = r3;
+  u32 _r_6 = r4;
+  Term _r_7 = r5;
+  Term _r_8 = r6;
+  WL_SPIN
+    if (_r_6 == 0) {
+      o[0] = 0;
+      o[1] = 1;
+      o[2] = _min_2;
+      o[3] = _k_2;
+      o[4] = _p_0;
+      o[5] = _p_1;
+      o[6] = _r_7;
+      o[7] = _r_8;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_45(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _bs_2 = r0;
+  Term _n_0 = r1;
+  u32 _r_4 = r2;
+  Term _r_5 = r3;
+  Term _r_6 = r4;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = _bs_2;
+      o[2] = _n_0;
+      o[3] = _r_5;
+      o[4] = _r_6;
+    } else {
+      term_sink(e, _bs_2);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_46(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  Term _r_2 = r0;
+  Term _r_3 = r1;
+  Term _rest_0 = r2;
+  WL_SPIN
+    Term _v_1 = 0;
+    Term _o_0[1];
+    if (spin_7(e, _o_0, _r_3, _rest_0) == 0) {
+      return 0;
+    }
+    _v_1 = _o_0[0];
+    Term _o_1[1];
+    if (spin_7(e, _o_1, _r_2, _v_1) == 0) {
+      return 0;
+    }
+    o[0] = _o_1[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_47(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _k_1 = r0;
+  Term _b_1 = r1;
+  WL_SPIN
+    Term _o_0[1];
+    if (spin_28(e, _o_0, (_k_1 < _b_1), _k_1, _b_1) == 0) {
+      return 0;
+    }
+    o[0] = _o_0[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_48(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
   Term _x_0 = r0;
-  Term _r_0 = r1;
-  Term _r_1 = r2;
+  u32 _x_1 = r1;
+  Term _x_2 = r2;
+  Term _r_0 = r3;
+  Term _r_1 = r4;
   WL_SPIN
     Term _v_0 = 0;
     Term _o_0[1];
-    if (spin_0(e, _o_0, _x_0, _r_1) == 0) {
+    if (spin_34(e, _o_0, _x_0, _x_1, _x_2, _r_1) == 0) {
       return 0;
     }
     _v_0 = _o_0[0];
@@ -1596,23 +3138,70 @@ INLINE Term spin_8(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_9(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_49(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
-  u32 _c_0 = r0;
-  Term _r_0 = r1;
-  Term _r_1 = r2;
+  Term _r_0 = r0;
+  Term _r_1 = r1;
   WL_SPIN
-    u64 _nd_0 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_0 + 0] = _c_0;
-    e.mem[_nd_0 + 1] = _r_1;
-    o[0] = nat_chk(e, _r_0 + 1);
-    o[1] = term_ctr(CID_SCon, _nd_0);
+    Term _o_0[1];
+    if (spin_7(e, _o_0, _r_0, _r_1) == 0) {
+      return 0;
+    }
+    o[0] = _o_0[0];
   break;
   }
   return 1;
 }
 
-INLINE Term spin_10(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_50(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _r_0 = r0;
+  Term _r_1 = r1;
+  WL_SPIN
+    Term _o_0[1];
+    if (spin_7(e, _o_0, _r_0, _r_1) == 0) {
+      return 0;
+    }
+    o[0] = _o_0[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_51(Env e, THR Term* o, Term r0, Term r1, u32 r2, u32 r3, u32 r4, Term r5) {
+  u32 wpoll = 0;
+  Term _c_2 = r0;
+  Term _d_2 = r1;
+  u32 _same_0 = r2;
+  u32 _r_4 = r3;
+  u32 _r_5 = r4;
+  Term _r_6 = r5;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = 1;
+      o[2] = _c_2;
+      o[3] = _d_2;
+      o[4] = _same_0;
+      o[5] = _r_5;
+      o[6] = _r_6;
+    } else {
+      term_sink(e, _c_2);
+      term_sink(e, _d_2);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_52(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _c_0 = r0;
   u32 _r_0 = r1;
@@ -1621,8 +3210,8 @@ INLINE Term spin_10(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   WL_SPIN
     if (_r_0 == 0) {
       u64 _nd_0 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_0 + 0] = _c_0;
-      e.mem[_nd_0 + 1] = _r_1;
+      e.mem[_nd_0 + 0] = rfc_seal(e, _c_0);
+      e.mem[_nd_0 + 1] = rfc_seal(e, _r_1);
       o[0] = 0;
       o[1] = term_ctr(CID_SCon, _nd_0);
       o[2] = _r_2;
@@ -1636,50 +3225,194 @@ INLINE Term spin_10(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_11(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_53(Env e, THR Term* o, u32 r0, u32 r1) {
   u32 wpoll = 0;
-  Term _r_0 = r0;
-  Term _r_1 = r1;
+  u32 _c_0 = r0;
+  u32 _t_1 = r1;
   WL_SPIN
-    Term _o_0[1];
-    if (spin_0(e, _o_0, _r_0, _r_1) == 0) {
-      return 0;
+    if (_c_0 == 0) {
+      o[0] = 1;
+    } else if (_c_0 == 1) {
+      o[0] = _t_1;
+    } else {
+      o[0] = 0;
     }
-    o[0] = _o_0[0];
   break;
   }
   return 1;
 }
 
-INLINE Term spin_12(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_54(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   u32 wpoll = 0;
-  Term _r_0 = r0;
-  Term _r_1 = r1;
+  Term _ss_0 = r0;
+  Term _cur_0 = r1;
+  Term _fs_0 = r2;
   WL_SPIN
-    Term _o_0[1];
-    if (spin_0(e, _o_0, _r_0, _r_1) == 0) {
-      return 0;
+    if (term_aux(_ss_0) == CID_Nil) {
+      u64 _nd_0 = heap_alloc(e, cls_fit(2));
+      e.mem[_nd_0 + 0] = rfc_seal(e, _cur_0);
+      e.mem[_nd_0 + 1] = rfc_seal(e, _fs_0);
+      o[0] = 1;
+      o[1] = term_ctr(CID_Con, _nd_0);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _ss_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      u32 _o_0 = 0;
+      u32 _o_1 = 0;
+      if (term_aux(_f_0) == CID_semver_Digit) {
+        _o_0 = 0;
+        _o_1 = term_loc(_f_0);
+      } else if (term_aux(_f_0) == CID_semver_Dot) {
+        _o_0 = 1;
+      } else {
+        _o_0 = 2;
+      }
+      if (_o_0 == 0) {
+        Term _b_0 = 0;
+        if (_o_1 == 0) {
+          _b_0 = term_pak(CID_semver_D0, 0);
+        } else if (_o_1 == 1) {
+          _b_0 = term_pak(CID_semver_D1, 0);
+        } else if (_o_1 == 2) {
+          _b_0 = term_pak(CID_semver_D2, 0);
+        } else if (_o_1 == 3) {
+          _b_0 = term_pak(CID_semver_D3, 0);
+        } else if (_o_1 == 4) {
+          _b_0 = term_pak(CID_semver_D4, 0);
+        } else if (_o_1 == 5) {
+          _b_0 = term_pak(CID_semver_D5, 0);
+        } else if (_o_1 == 6) {
+          _b_0 = term_pak(CID_semver_D6, 0);
+        } else if (_o_1 == 7) {
+          _b_0 = term_pak(CID_semver_D7, 0);
+        } else if (_o_1 == 8) {
+          _b_0 = term_pak(CID_semver_D8, 0);
+        } else {
+          _b_0 = term_pak(CID_semver_D9, 0);
+        }
+        u64 _nd_1 = _sp_0 >= HEAP_OFF ? _sp_0 : heap_alloc(e, cls_fit(2));
+        e.mem[_nd_1 + 0] = rfc_seal(e, _b_0);
+        e.mem[_nd_1 + 1] = rfc_seal(e, _cur_0);
+        r0 = _f_1;
+        r1 = term_ctr(CID_Con, _nd_1);
+        r2 = _fs_0;
+        _ss_0 = r0;
+        _cur_0 = r1;
+        _fs_0 = r2;
+        WL_AGAIN(spin_54);
+      } else if (_o_0 == 1) {
+        u64 _nd_2 = _sp_0 >= HEAP_OFF ? _sp_0 : heap_alloc(e, cls_fit(2));
+        e.mem[_nd_2 + 0] = rfc_seal(e, _cur_0);
+        e.mem[_nd_2 + 1] = rfc_seal(e, _fs_0);
+        r0 = _f_1;
+        r1 = term_pak(CID_Nil, 0);
+        r2 = term_ctr(CID_Con, _nd_2);
+        _ss_0 = r0;
+        _cur_0 = r1;
+        _fs_0 = r2;
+        WL_AGAIN(spin_54);
+      } else {
+        term_sink(e, _f_1);
+        term_sink(e, _cur_0);
+        term_sink(e, _fs_0);
+        o[0] = 0;
+        o[1] = 0;
+        spare_free(e, cls_fit(2), _sp_0);
+      }
     }
-    o[0] = _o_0[0];
   break;
   }
   return 1;
 }
 
-INLINE Term spin_13(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_55(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _hs_2 = r0;
+  Term _y_0 = r1;
+  u32 _r_4 = r2;
+  Term _r_5 = r3;
+  Term _r_6 = r4;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = 2;
+      o[2] = _hs_2;
+      o[3] = _y_0;
+      o[4] = _r_5;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = _r_6;
+    } else {
+      term_sink(e, _hs_2);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_56(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  Term _x_0 = r0;
+  Term _x_1 = r1;
+  Term _r_0 = r2;
+  Term _r_1 = r3;
+  WL_SPIN
+    Term _v_0 = 0;
+    Term _o_0[1];
+    if (spin_46(e, _o_0, _x_0, _x_1, _r_1) == 0) {
+      return 0;
+    }
+    _v_0 = _o_0[0];
+    o[0] = nat_chk(e, _r_0 + 1);
+    o[1] = _v_0;
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_57(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  Term _min_1 = r0;
+  Term _k_1 = r1;
+  Term _b_0 = r2;
+  WL_SPIN
+    Term _v_1 = 0;
+    Term _o_0[1];
+    if (spin_47(e, _o_0, _k_1, _b_0) == 0) {
+      return 0;
+    }
+    _v_1 = _o_0[0];
+    Term _a_0 = (_min_1 > _v_1 ? _min_1 : _v_1);
+    o[0] = (_b_0 < _a_0 ? _b_0 : _a_0);
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_58(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _b_3 = r0;
   Term _rest_0 = r1;
   WL_SPIN
     if (_b_3 == 1) {
       u64 _nd_0 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_0 + 0] = 84ull;
-      e.mem[_nd_0 + 1] = _rest_0;
+      e.mem[_nd_0 + 0] = rfc_seal(e, 84ull);
+      e.mem[_nd_0 + 1] = rfc_seal(e, _rest_0);
       o[0] = term_ctr(CID_SCon, _nd_0);
     } else {
       u64 _nd_1 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_1 + 0] = 70ull;
-      e.mem[_nd_1 + 1] = _rest_0;
+      e.mem[_nd_1 + 0] = rfc_seal(e, 70ull);
+      e.mem[_nd_1 + 1] = rfc_seal(e, _rest_0);
       o[0] = term_ctr(CID_SCon, _nd_1);
     }
   break;
@@ -1687,13 +3420,13 @@ INLINE Term spin_13(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_14(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_59(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _x_3 = r0;
   Term _rest_1 = r1;
   WL_SPIN
     Term _o_1[1];
-    if (spin_0(e, _o_1, ((u64)_x_3), _rest_1) == 0) {
+    if (spin_7(e, _o_1, ((u64)_x_3), _rest_1) == 0) {
       return 0;
     }
     o[0] = _o_1[0];
@@ -1702,27 +3435,27 @@ INLINE Term spin_14(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_16(Env e, THR Term* o, Term r0) {
+INLINE Term spin_61(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _text_0 = r0;
   WL_SPIN
     u64 _nd_2 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_2 + 0] = 32ull;
-    e.mem[_nd_2 + 1] = _text_0;
+    e.mem[_nd_2 + 0] = rfc_seal(e, 32ull);
+    e.mem[_nd_2 + 1] = rfc_seal(e, _text_0);
     u64 _nd_3 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_3 + 0] = 69ull;
-    e.mem[_nd_3 + 1] = term_ctr(CID_SCon, _nd_2);
+    e.mem[_nd_3 + 0] = rfc_seal(e, 69ull);
+    e.mem[_nd_3 + 1] = rfc_seal(e, term_ctr(CID_SCon, _nd_2));
     o[0] = term_ctr(CID_SCon, _nd_3);
   break;
   }
   return 1;
 }
 
-INLINE Term spin_15(Env e, THR Term* o) {
+INLINE Term spin_60(Env e, THR Term* o) {
   u32 wpoll = 0;
   WL_SPIN
     Term _o_4[1];
-    if (spin_16(e, _o_4, term_ctr(CID_SCon, STAT_OFF + 42)) == 0) {
+    if (spin_61(e, _o_4, term_ctr(CID_SCon, STAT_OFF + 42)) == 0) {
       return 0;
     }
     o[0] = _o_4[0];
@@ -1731,7 +3464,187 @@ INLINE Term spin_15(Env e, THR Term* o) {
   return 1;
 }
 
-INLINE Term spin_17(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_64(Env e, THR Term* o, u32 r0, Term r1) {
+  u32 wpoll = 0;
+  u32 _f_3 = r0;
+  Term _s_2 = r1;
+  WL_SPIN
+    if (_f_3 == 1) {
+      o[0] = 0;
+      o[1] = 0;
+      o[2] = _s_2;
+    } else {
+      term_sink(e, _s_2);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_63(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _t_0 = r0;
+  u32 _f_2 = r1;
+  Term _s_1 = r2;
+  WL_SPIN
+    if (_t_0 == 1) {
+      o[0] = 0;
+      o[1] = 1;
+      o[2] = _s_1;
+    } else {
+      Term _o_0[3];
+      if (spin_64(e, _o_0, _f_2, _s_1) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_0[0];
+      o[1] = (u32)_o_0[1];
+      o[2] = _o_0[2];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_62(Env e, THR Term* o, Term r0) {
+  u32 wpoll = 0;
+  Term _s_0 = r0;
+  WL_SPIN
+    if (term_aux(_s_0) == CID_SNil) {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _s_0, 2, _fb_0);
+      u32 _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      Term _o_1[3];
+      if (spin_63(e, _o_1, U32_BIN(_f_0, ==, 84ull), U32_BIN(_f_0, ==, 70ull), _f_1) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_1[0];
+      o[1] = (u32)_o_1[1];
+      o[2] = _o_1[2];
+      spare_free(e, cls_fit(2), _sp_0);
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_65(Env e, THR Term* o, Term r0, Term r1, u32 r2, u32 r3, Term r4) {
+  u32 wpoll = 0;
+  Term _c_1 = r0;
+  Term _d_0 = r1;
+  u32 _r_3 = r2;
+  u32 _r_4 = r3;
+  Term _r_5 = r4;
+  WL_SPIN
+    if (_r_3 == 0) {
+      o[0] = 0;
+      o[1] = 0;
+      o[2] = _c_1;
+      o[3] = _d_0;
+      o[4] = _r_4;
+      o[5] = 0;
+      o[6] = _r_5;
+    } else {
+      term_sink(e, _c_1);
+      term_sink(e, _d_0);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_66(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
+  u32 wpoll = 0;
+  Term _x_0 = r0;
+  Term _y_0 = r1;
+  u32 _t_1 = r2;
+  WL_SPIN
+    Term _o_0[1];
+    if (spin_53(e, _o_0, ((_x_0 > _y_0) + (_x_0 >= _y_0)), _t_1) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_0[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_67(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5) {
+  u32 wpoll = 0;
+  Term _t_2 = r0;
+  Term _t_3 = r1;
+  Term _t_4 = r2;
+  u32 _r_8 = r3;
+  Term _r_9 = r4;
+  Term _r_10 = r5;
+  WL_SPIN
+    if (_r_8 == 0) {
+      o[0] = 0;
+      o[1] = 0;
+      o[2] = _t_2;
+      o[3] = _t_3;
+      o[4] = _t_4;
+      o[5] = _r_9;
+      o[6] = 0;
+      o[7] = _r_10;
+    } else {
+      term_sink(e, _t_2);
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_68(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, u32 r4, Term r5) {
+  u32 wpoll = 0;
+  Term _min_1 = r0;
+  Term _k_1 = r1;
+  Term _p_2 = r2;
+  Term _p_3 = r3;
+  u32 _e_0 = r4;
+  Term _e_1 = r5;
+  WL_SPIN
+    if (_e_0 == 0) {
+      o[0] = nat_chk(e, _p_2 + _e_1);
+      o[1] = _p_3;
+    } else {
+      Term _v_2 = 0;
+      Term _o_2[1];
+      if (spin_57(e, _o_2, _min_1, _k_1, (_p_2 < _p_3 ? 0 : _p_2 - _p_3)) == 0) {
+        return 0;
+      }
+      _v_2 = _o_2[0];
+      o[0] = _p_2;
+      o[1] = nat_chk(e, _p_3 + _v_2);
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_69(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _hit_0 = r0;
   u32 _later_0 = r1;
@@ -1750,7 +3663,7 @@ INLINE Term spin_17(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_18(Env e, THR Term* o, u32 r0) {
+INLINE Term spin_70(Env e, THR Term* o, u32 r0) {
   u32 wpoll = 0;
   u32 _comma_1 = r0;
   WL_SPIN
@@ -1766,41 +3679,110 @@ INLINE Term spin_18(Env e, THR Term* o, u32 r0) {
   return 1;
 }
 
-INLINE Term spin_19(Env e, THR Term* o, u32 r0) {
+INLINE Term spin_71(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
-  u32 _c_0 = r0;
+  Term _c_0 = r0;
+  u32 _r_4 = r1;
+  Term _r_5 = r2;
+  Term _r_6 = r3;
   WL_SPIN
-    if (_c_0 == 1) {
-      o[0] = 1;
+    if (_r_4 == 0) {
+      u32 _v_0 = 0;
+      u32 _v_1 = 0;
+      Term _v_2 = 0;
+      Term _o_0[3];
+      if (spin_62(e, _o_0, _r_6) == 0) {
+        return 0;
+      }
+      _v_0 = (u32)_o_0[0];
+      _v_1 = (u32)_o_0[1];
+      _v_2 = _o_0[2];
+      Term _o_1[7];
+      if (spin_65(e, _o_1, _c_0, _r_5, _v_0, _v_1, _v_2) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_1[0];
+      o[1] = (u32)_o_1[1];
+      o[2] = _o_1[2];
+      o[3] = _o_1[3];
+      o[4] = (u32)_o_1[4];
+      o[5] = (u32)_o_1[5];
+      o[6] = _o_1[6];
     } else {
-      o[0] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_20(Env e, THR Term* o, u32 r0, Term r1) {
-  u32 wpoll = 0;
-  u32 _f_1 = r0;
-  Term _s_1 = r1;
-  WL_SPIN
-    if (_f_1 == 1) {
-      o[0] = 0;
-      o[1] = 0;
-      o[2] = _s_1;
-    } else {
-      term_sink(e, _s_1);
+      term_sink(e, _c_0);
       o[0] = 1;
       o[1] = 0;
       o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
     }
   break;
   }
   return 1;
 }
 
-INLINE Term spin_21(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_72(Env e, THR Term* o, u32 r0, Term r1) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _rest_1 = r1;
+  WL_SPIN
+    if (_r_0 == 0) {
+      Term _o_1[1];
+      if (spin_7(e, _o_1, 0, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_1[0];
+    } else if (_r_0 == 1) {
+      Term _o_2[1];
+      if (spin_7(e, _o_2, 1ull, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_2[0];
+    } else if (_r_0 == 2) {
+      Term _o_3[1];
+      if (spin_7(e, _o_3, 2ull, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_3[0];
+    } else {
+      Term _o_4[1];
+      if (spin_7(e, _o_4, 3ull, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_4[0];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_73(Env e, THR Term* o, u32 r0, u32 r1, u32 r2) {
+  u32 wpoll = 0;
+  u32 _same_5 = r0;
+  u32 _older_0 = r1;
+  u32 _newer_0 = r2;
+  WL_SPIN
+    if (_same_5 == 1) {
+      o[0] = 0;
+    } else {
+      if (_older_0 == 1) {
+        o[0] = 1;
+      } else {
+        if (_newer_0 == 1) {
+          o[0] = 2;
+        } else {
+          o[0] = 3;
+        }
+      }
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_74(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _qr_0 = r0;
   Term _qr_1 = r1;
@@ -1812,7 +3794,83 @@ INLINE Term spin_21(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_22(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
+INLINE Term spin_75(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _es_0 = r0;
+  Term _min_0 = r1;
+  Term _k_0 = r2;
+  Term _p_0 = r3;
+  Term _p_1 = r4;
+  WL_SPIN
+    if (term_aux(_es_0) == CID_Nil) {
+      o[0] = _p_0;
+      o[1] = _p_1;
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _es_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      u32 _o_3 = 0;
+      Term _o_4 = 0;
+      if (term_aux(_f_0) == CID_screen_Chunk) {
+        _o_3 = 0;
+        Term _fb_1[1];
+        u64 _sp_1 = ctr_take(e, _f_0, 1, _fb_1);
+        Term _f_2 = _fb_1[0];
+        spare_free(e, cls_fit(1), _sp_1);
+        _o_4 = _f_2;
+      } else {
+        _o_3 = 1;
+      }
+      Term _v_4 = 0;
+      Term _v_5 = 0;
+      Term _o_5[2];
+      if (spin_68(e, _o_5, _min_0, _k_0, _p_0, _p_1, _o_3, _o_4) == 0) {
+        return 0;
+      }
+      _v_4 = _o_5[0];
+      _v_5 = _o_5[1];
+      spare_free(e, cls_fit(2), _sp_0);
+      r0 = _f_1;
+      r1 = _min_0;
+      r2 = _k_0;
+      r3 = _v_4;
+      r4 = _v_5;
+      _es_0 = r0;
+      _min_0 = r1;
+      _k_0 = r2;
+      _p_0 = r3;
+      _p_1 = r4;
+      WL_AGAIN(spin_75);
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_76(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  Term _p_2 = r0;
+  Term _p_3 = r1;
+  Term _rest_1 = r2;
+  WL_SPIN
+    Term _v_6 = 0;
+    Term _o_7[1];
+    if (spin_7(e, _o_7, _p_3, _rest_1) == 0) {
+      return 0;
+    }
+    _v_6 = _o_7[0];
+    Term _o_8[1];
+    if (spin_7(e, _o_8, _p_2, _v_6) == 0) {
+      return 0;
+    }
+    o[0] = _o_8[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_77(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
   u32 wpoll = 0;
   u32 _m_0 = r0;
   Term _m_1 = r1;
@@ -1823,7 +3881,7 @@ INLINE Term spin_22(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
       o[1] = _m_1;
     } else {
       Term _o_0[2];
-      if (spin_18(e, _o_0, _comma_0) == 0) {
+      if (spin_70(e, _o_0, _comma_0) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -1834,22 +3892,7 @@ INLINE Term spin_22(Env e, THR Term* o, u32 r0, Term r1, u32 r2) {
   return 1;
 }
 
-INLINE Term spin_23(Env e, THR Term* o, Term r0, Term r1) {
-  u32 wpoll = 0;
-  Term _a_0 = r0;
-  Term _b_0 = r1;
-  WL_SPIN
-    Term _o_0[1];
-    if (spin_19(e, _o_0, ((_a_0 > _b_0) + (_a_0 >= _b_0))) == 0) {
-      return 0;
-    }
-    o[0] = (u32)_o_0[0];
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_24(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+INLINE Term spin_78(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   u32 wpoll = 0;
   u32 _ok_0 = r0;
   u32 _x_1 = r1;
@@ -1870,31 +3913,65 @@ INLINE Term spin_24(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_25(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+INLINE Term spin_79(Env e, THR Term* o, u32 r0, u32 r1) {
   u32 wpoll = 0;
-  u32 _t_0 = r0;
-  u32 _f_2 = r1;
-  Term _s_1 = r2;
+  u32 _r_0 = r0;
+  u32 _k_0 = r1;
   WL_SPIN
-    if (_t_0 == 1) {
-      o[0] = 0;
-      o[1] = 1;
-      o[2] = _s_1;
-    } else {
-      Term _o_0[3];
-      if (spin_20(e, _o_0, _f_2, _s_1) == 0) {
-        return 0;
+    if (_r_0 == 0) {
+      o[0] = 1;
+      o[1] = 0;
+    } else if (_r_0 == 1) {
+      if (_k_0 == 0) {
+        o[0] = 0;
+        o[1] = 0;
+      } else {
+        o[0] = 1;
+        o[1] = 1;
       }
-      o[0] = (u32)_o_0[0];
-      o[1] = (u32)_o_0[1];
-      o[2] = _o_0[2];
+    } else if (_r_0 == 2) {
+      o[0] = 1;
+      o[1] = 2;
+    } else {
+      o[0] = 1;
+      o[1] = 3;
     }
   break;
   }
   return 1;
 }
 
-INLINE Term spin_26(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_80(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _v_2 = r0;
+  u32 _v_3 = r1;
+  Term _rest_0 = r2;
+  WL_SPIN
+    if (_v_2 == 0) {
+      Term _o_2[1];
+      if (spin_7(e, _o_2, 0, _rest_0) == 0) {
+        return 0;
+      }
+      o[0] = _o_2[0];
+    } else {
+      Term _v_4 = 0;
+      Term _o_3[1];
+      if (spin_72(e, _o_3, _v_3, _rest_0) == 0) {
+        return 0;
+      }
+      _v_4 = _o_3[0];
+      Term _o_4[1];
+      if (spin_7(e, _o_4, 1ull, _v_4) == 0) {
+        return 0;
+      }
+      o[0] = _o_4[0];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_81(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   Term _r_1 = r1;
@@ -1904,12 +3981,12 @@ INLINE Term spin_26(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
       u32 _x_0 = ((u64)(u32)(_r_1));
       u32 _v_0 = 0;
       Term _o_0[1];
-      if (spin_23(e, _o_0, ((u64)_x_0), _r_1) == 0) {
+      if (spin_30(e, _o_0, ((u64)_x_0), _r_1) == 0) {
         return 0;
       }
       _v_0 = (u32)_o_0[0];
       Term _o_1[3];
-      if (spin_24(e, _o_1, _v_0, _x_0, _r_2) == 0) {
+      if (spin_78(e, _o_1, _v_0, _x_0, _r_2) == 0) {
         return 0;
       }
       o[0] = (u32)_o_1[0];
@@ -1925,26 +4002,19 @@ INLINE Term spin_26(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_27(Env e, THR Term* o, Term r0) {
+INLINE Term spin_82(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
-  Term _s_0 = r0;
+  Term _s_1 = r0;
   WL_SPIN
-    if (term_aux(_s_0) == CID_SNil) {
+    if (term_aux(_s_1) == CID_SNil) {
       o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
     } else {
       Term _fb_0[2];
-      u64 _sp_0 = ctr_take(e, _s_0, 2, _fb_0);
+      u64 _sp_0 = ctr_take(e, _s_1, 2, _fb_0);
       u32 _f_0 = _fb_0[0];
       Term _f_1 = _fb_0[1];
-      Term _o_0[3];
-      if (spin_25(e, _o_0, U32_BIN(_f_0, ==, 84ull), U32_BIN(_f_0, ==, 70ull), _f_1) == 0) {
-        return 0;
-      }
-      o[0] = (u32)_o_0[0];
-      o[1] = (u32)_o_0[1];
-      o[2] = _o_0[2];
+      term_sink(e, _f_1);
+      o[0] = 0;
       spare_free(e, cls_fit(2), _sp_0);
     }
   break;
@@ -1952,7 +4022,21 @@ INLINE Term spin_27(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_28(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_83(Env e, THR Term* o, Term r0) {
+  u32 wpoll = 0;
+  Term _s_0 = r0;
+  WL_SPIN
+    Term _o_0[1];
+    if (spin_82(e, _o_0, _s_0) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_0[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_84(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   Term _r_1 = r1;
@@ -1969,7 +4053,7 @@ INLINE Term spin_28(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_29(Env e, THR Term* o, Term r0) {
+INLINE Term spin_85(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _input_1 = r0;
   WL_SPIN
@@ -1979,7 +4063,7 @@ INLINE Term spin_29(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_30(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_86(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   Term _r_1 = r1;
@@ -1996,7 +4080,7 @@ INLINE Term spin_30(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_31(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_87(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _state_4 = r0;
   u32 _state_5 = r1;
@@ -2014,7 +4098,7 @@ INLINE Term spin_31(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
+INLINE Term spin_88(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
   u32 wpoll = 0;
   Term _a_1 = r0;
   Term _b_1 = r1;
@@ -2061,7 +4145,7 @@ INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
           _a_1 = r0;
           _b_1 = r1;
           _c_0 = r2;
-          WL_AGAIN(spin_32);
+          WL_AGAIN(spin_88);
         } else {
           term_sink(e, _f_5);
           o[0] = _c_0;
@@ -2074,26 +4158,26 @@ INLINE Term spin_32(Env e, THR Term* o, Term r0, Term r1, u32 r2) {
   return 1;
 }
 
-INLINE Term spin_33(Env e, THR Term* o, Term r0) {
+INLINE Term spin_89(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _reply_0 = r0;
   WL_SPIN
     u64 _nd_0 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_0 + 0] = _reply_0;
-    e.mem[_nd_0 + 1] = term_pak(CID_Nil, 0);
+    e.mem[_nd_0 + 0] = rfc_seal(e, _reply_0);
+    e.mem[_nd_0 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
     o[0] = term_ctr(CID_Con, _nd_0);
   break;
   }
   return 1;
 }
 
-INLINE Term spin_34(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_90(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _a_1 = r0;
   Term _b_1 = r1;
   WL_SPIN
     Term _o_0[1];
-    if (spin_32(e, _o_0, _a_1, _b_1, 1) == 0) {
+    if (spin_88(e, _o_0, _a_1, _b_1, 1) == 0) {
       return 0;
     }
     o[0] = (u32)_o_0[0];
@@ -2102,19 +4186,19 @@ INLINE Term spin_34(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_35(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_91(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _a_0 = r0;
   Term _b_0 = r1;
   WL_SPIN
     u32 _v_1 = 0;
     Term _o_0[1];
-    if (spin_34(e, _o_0, _a_0, _b_0) == 0) {
+    if (spin_90(e, _o_0, _a_0, _b_0) == 0) {
       return 0;
     }
     _v_1 = (u32)_o_0[0];
     Term _o_1[1];
-    if (spin_19(e, _o_1, _v_1) == 0) {
+    if (spin_31(e, _o_1, _v_1) == 0) {
       return 0;
     }
     o[0] = (u32)_o_1[0];
@@ -2123,7 +4207,7 @@ INLINE Term spin_35(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_36(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_92(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _code_0 = r0;
   Term _msg_0 = r1;
@@ -2203,20 +4287,382 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 // and its parameters the stack; any other segment's parameters ride r0..
 
 #if !DEVICE
+  WL_CASE(FID_replace_fval)
+    Term _ds_0 = r0;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_ds_0) == CID_Nil) {
+      r0 = 0;
+      WL_RETN(1);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _ds_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      u32 _o_0 = 0;
+      if (term_aux(_f_0) == CID_semver_D0) {
+        _o_0 = 0;
+      } else if (term_aux(_f_0) == CID_semver_D1) {
+        _o_0 = 1;
+      } else if (term_aux(_f_0) == CID_semver_D2) {
+        _o_0 = 2;
+      } else if (term_aux(_f_0) == CID_semver_D3) {
+        _o_0 = 3;
+      } else if (term_aux(_f_0) == CID_semver_D4) {
+        _o_0 = 4;
+      } else if (term_aux(_f_0) == CID_semver_D5) {
+        _o_0 = 5;
+      } else if (term_aux(_f_0) == CID_semver_D6) {
+        _o_0 = 6;
+      } else if (term_aux(_f_0) == CID_semver_D7) {
+        _o_0 = 7;
+      } else if (term_aux(_f_0) == CID_semver_D8) {
+        _o_0 = 8;
+      } else {
+        _o_0 = 9;
+      }
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _o_0;
+        STK(1) = FID_replace_fval_k13;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_0 = task_node(e, FID_replace_fval_k13, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _o_0;
+        WL_CONT = term_tsk(FID_replace_fval_k13, _t_0);
+        WL_IDX = 1;
+      }
+      r0 = _f_1;
+      _ds_0 = r0;
+      WL_AGAIN(FID_replace_fval);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_fval_k13)
+    WL_POPN(1);
+    u32 _o_1 = STK(0);
+    Term _h_0 = r0;
+    WL_OPEN
+    Term _v_0 = 0;
+    Term _o_2[1];
+    if (spin_2(e, _o_2, _o_1) == 0) {
+      return 0;
+    }
+    _v_0 = _o_2[0];
+    r0 = nat_chk(e, _v_0 + nat_mul(e, _h_0, 10ull));
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_st)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_screen_get_st_k15;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_screen_get_st_k15, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_screen_get_st_k15, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_st_k15)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    Term _o_1[3];
+    if (spin_3(e, _o_1, _h_0, _h_1, _h_2) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_1[0];
+    r1 = (u32)_o_1[1];
+    r2 = _o_1[2];
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_List_length)
+    Term _xs_0 = r0;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_xs_0) == CID_Nil) {
+      r0 = 0;
+      WL_RETN(1);
+    } else {
+      u64 _sp_0 = term_peek(e.mem, _xs_0);
+      Term _f_0 = e.mem[_sp_0 + 0];
+      Term _f_1 = e.mem[_sp_0 + 1];
+      if (seq) {
+        WL_ROOM(1, 0);
+        STK(0) = FID_List_length_k29;
+        WL_PUSHN(1);
+      } else {
+        u64 _t_0 = task_node(e, FID_List_length_k29, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_List_length_k29, _t_0);
+        WL_IDX = 0;
+      }
+      r0 = _f_1;
+      _xs_0 = r0;
+      WL_AGAIN(FID_List_length);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_List_length_k29)
+    Term _h_0 = r0;
+    WL_OPEN
+    r0 = nat_chk(e, _h_0 + 1);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_field)
+    Term _ds_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(2, 0);
+      STK(0) = _ds_0;
+      STK(1) = FID_replace_field_k54;
+      WL_PUSHN(2);
+    } else {
+      u64 _t_0 = task_node(e, FID_replace_field_k54, WL_CONT, WL_IDX, 1);
+      e.mem[_t_0 + 0] = _ds_0;
+      WL_CONT = term_tsk(FID_replace_field_k54, _t_0);
+      WL_IDX = 1;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_List_length)) {
+      u64 _t_1 = task_node(e, FID_List_length, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _ds_0;
+      return term_tsk(FID_List_length, _t_1);
+    }
+    r0 = _ds_0;
+    WL_JMP(FID_List_length);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_field_k54)
+    WL_POPN(1);
+    Term _ds_1 = STK(0);
+    Term _h_0 = r0;
+    WL_OPEN
+    u32 _v_0 = 0;
+    u32 _v_1 = 0;
+    Term _o_1[1];
+    if (spin_21(e, _o_1, _h_0, 14ull) == 0) {
+      return 0;
+    }
+    _v_1 = (u32)_o_1[0];
+    u32 _v_2 = 0;
+    Term _o_7[1];
+    if (spin_23(e, _o_7, _ds_1) == 0) {
+      return 0;
+    }
+    _v_2 = (u32)_o_7[0];
+    Term _o_8[1];
+    if (spin_24(e, _o_8, _v_1, _v_2) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_8[0];
+    if (_v_0 == 1) {
+      if (seq) {
+        WL_ROOM(1, 0);
+        STK(0) = FID_replace_field_k55;
+        WL_PUSHN(1);
+      } else {
+        u64 _t_2 = task_node(e, FID_replace_field_k55, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_replace_field_k55, _t_2);
+        WL_IDX = 0;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_replace_fval)) {
+        u64 _t_3 = task_node(e, FID_replace_fval, WL_CONT, WL_IDX, 0);
+        e.mem[_t_3 + 0] = _ds_1;
+        return term_tsk(FID_replace_fval, _t_3);
+      }
+      r0 = _ds_1;
+      WL_JMP(FID_replace_fval);
+    } else {
+      term_sink(e, _ds_1);
+      r0 = 0;
+      r1 = 0;
+      WL_RETN(2);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_field_k55)
+    Term _h_1 = r0;
+    WL_OPEN
+    r0 = 1;
+    r1 = _h_1;
+    WL_RETN(2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_blk)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_screen_get_blk_k62;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_screen_get_blk_k62, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_screen_get_blk_k62, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_blk_k62)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_1;
+        STK(1) = FID_ffi_screen_get_blk_k63;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_2 = task_node(e, FID_ffi_screen_get_blk_k63, WL_CONT, WL_IDX, 1);
+        e.mem[_t_2 + 0] = _h_1;
+        WL_CONT = term_tsk(FID_ffi_screen_get_blk_k63, _t_2);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_st)) {
+        u64 _t_3 = task_node(e, FID_ffi_screen_get_st, WL_CONT, WL_IDX, 0);
+        e.mem[_t_3 + 0] = _h_2;
+        return term_tsk(FID_ffi_screen_get_st, _t_3);
+      }
+      r0 = _h_2;
+      WL_JMP(FID_ffi_screen_get_st);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      WL_RETN(5);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_blk_k63)
+    WL_POPN(1);
+    Term _h_6 = STK(0);
+    u32 _h_3 = r0;
+    u32 _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    if (_h_3 == 0) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _h_6;
+        STK(1) = _h_4;
+        STK(2) = FID_ffi_screen_get_blk_k64;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_4 = task_node(e, FID_ffi_screen_get_blk_k64, WL_CONT, WL_IDX, 1);
+        e.mem[_t_4 + 0] = _h_6;
+        e.mem[_t_4 + 1] = _h_4;
+        WL_CONT = term_tsk(FID_ffi_screen_get_blk_k64, _t_4);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_5 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_5 + 0] = _h_5;
+        return term_tsk(FID_wire_get_nat, _t_5);
+      }
+      r0 = _h_5;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      WL_RETN(5);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_blk_k64)
+    WL_POPN(2);
+    Term _h_10 = STK(0);
+    u32 _h_11 = STK(1);
+    u32 _h_7 = r0;
+    Term _h_8 = r1;
+    Term _h_9 = r2;
+    WL_OPEN
+    Term _o_0[5];
+    if (spin_4(e, _o_0, _h_10, _h_11, _h_7, _h_8, _h_9) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = _o_0[1];
+    r2 = (u32)_o_0[2];
+    r3 = _o_0[3];
+    r4 = _o_0[4];
+    WL_RETN(5);
+  }}
+#endif
+
+#if !DEVICE
   WL_CASE(FID_wire_get_list_go_0)
     Term _n_0 = r0;
     u32 _cur_0 = r1;
     Term _cur_1 = r2;
-    Term _cur_2 = r3;
+    u32 _cur_2 = r3;
+    Term _cur_3 = r4;
+    Term _cur_4 = r5;
     WL_OPEN
     if (_n_0 == 0) {
       if (_cur_0 == 0) {
-        u64 _nd_0 = heap_alloc(e, cls_fit(2));
-        e.mem[_nd_0 + 0] = _cur_1;
-        e.mem[_nd_0 + 1] = term_pak(CID_Nil, 0);
+        u64 _nd_0 = heap_alloc(e, cls_fit(3));
+        e.mem[_nd_0 + 0] = rfc_seal(e, _cur_1);
+        e.mem[_nd_0 + 1] = rfc_seal(e, _cur_2);
+        e.mem[_nd_0 + 2] = rfc_seal(e, _cur_3);
+        u64 _nd_1 = heap_alloc(e, cls_fit(2));
+        e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_0));
+        e.mem[_nd_1 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
         r0 = 0;
-        r1 = term_ctr(CID_Con, _nd_0);
-        r2 = _cur_2;
+        r1 = term_ctr(CID_Con, _nd_1);
+        r2 = _cur_4;
         WL_RETN(3);
       } else {
         r0 = 1;
@@ -2228,25 +4674,29 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       Term _m_0 = (_n_0 - 1);
       if (_cur_0 == 0) {
         if (seq) {
-          WL_ROOM(3, 0);
+          WL_ROOM(5, 0);
           STK(0) = _m_0;
           STK(1) = _cur_1;
-          STK(2) = FID_wire_get_list_go_0_k7;
-          WL_PUSHN(3);
+          STK(2) = _cur_2;
+          STK(3) = _cur_3;
+          STK(4) = FID_wire_get_list_go_0_k66;
+          WL_PUSHN(5);
         } else {
-          u64 _t_0 = task_node(e, FID_wire_get_list_go_0_k7, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_wire_get_list_go_0_k66, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _m_0;
           e.mem[_t_0 + 1] = _cur_1;
-          WL_CONT = term_tsk(FID_wire_get_list_go_0_k7, _t_0);
-          WL_IDX = 2;
+          e.mem[_t_0 + 2] = _cur_2;
+          e.mem[_t_0 + 3] = _cur_3;
+          WL_CONT = term_tsk(FID_wire_get_list_go_0_k66, _t_0);
+          WL_IDX = 4;
         }
-        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-          u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-          e.mem[_t_1 + 0] = _cur_2;
-          return term_tsk(FID_wire_get_nat, _t_1);
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_blk)) {
+          u64 _t_1 = task_node(e, FID_ffi_screen_get_blk, WL_CONT, WL_IDX, 0);
+          e.mem[_t_1 + 0] = _cur_4;
+          return term_tsk(FID_ffi_screen_get_blk, _t_1);
         }
-        r0 = _cur_2;
-        WL_JMP(FID_wire_get_nat);
+        r0 = _cur_4;
+        WL_JMP(FID_ffi_screen_get_blk);
       } else {
         r0 = 1;
         r1 = 0;
@@ -2258,24 +4708,32 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_0_k7)
-    WL_POPN(2);
+  WL_CASE(FID_wire_get_list_go_0_k66)
+    WL_POPN(4);
     Term _m_1 = STK(0);
-    Term _cur_3 = STK(1);
+    Term _cur_5 = STK(1);
+    u32 _cur_6 = STK(2);
+    Term _cur_7 = STK(3);
     u32 _h_0 = r0;
     Term _h_1 = r1;
-    Term _h_2 = r2;
+    u32 _h_2 = r2;
+    Term _h_3 = r3;
+    Term _h_4 = r4;
     WL_OPEN
     if (seq) {
-      WL_ROOM(2, 0);
-      STK(0) = _cur_3;
-      STK(1) = FID_wire_get_list_go_0_k8;
-      WL_PUSHN(2);
+      WL_ROOM(4, 0);
+      STK(0) = _cur_5;
+      STK(1) = _cur_6;
+      STK(2) = _cur_7;
+      STK(3) = FID_wire_get_list_go_0_k67;
+      WL_PUSHN(4);
     } else {
-      u64 _t_2 = task_node(e, FID_wire_get_list_go_0_k8, WL_CONT, WL_IDX, 1);
-      e.mem[_t_2 + 0] = _cur_3;
-      WL_CONT = term_tsk(FID_wire_get_list_go_0_k8, _t_2);
-      WL_IDX = 1;
+      u64 _t_2 = task_node(e, FID_wire_get_list_go_0_k67, WL_CONT, WL_IDX, 1);
+      e.mem[_t_2 + 0] = _cur_5;
+      e.mem[_t_2 + 1] = _cur_6;
+      e.mem[_t_2 + 2] = _cur_7;
+      WL_CONT = term_tsk(FID_wire_get_list_go_0_k67, _t_2);
+      WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_0)) {
       u64 _t_3 = task_node(e, FID_wire_get_list_go_0, WL_CONT, WL_IDX, 0);
@@ -2283,26 +4741,32 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_t_3 + 1] = _h_0;
       e.mem[_t_3 + 2] = _h_1;
       e.mem[_t_3 + 3] = _h_2;
+      e.mem[_t_3 + 4] = _h_3;
+      e.mem[_t_3 + 5] = _h_4;
       return term_tsk(FID_wire_get_list_go_0, _t_3);
     }
     r0 = _m_1;
     r1 = _h_0;
     r2 = _h_1;
     r3 = _h_2;
+    r4 = _h_3;
+    r5 = _h_4;
     WL_JMP(FID_wire_get_list_go_0);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_0_k8)
-    WL_POPN(1);
-    Term _cur_4 = STK(0);
-    u32 _h_3 = r0;
-    Term _h_4 = r1;
-    Term _h_5 = r2;
+  WL_CASE(FID_wire_get_list_go_0_k67)
+    WL_POPN(3);
+    Term _cur_8 = STK(0);
+    u32 _cur_9 = STK(1);
+    Term _cur_10 = STK(2);
+    u32 _h_5 = r0;
+    Term _h_6 = r1;
+    Term _h_7 = r2;
     WL_OPEN
     Term _o_0[3];
-    if (spin_7(e, _o_0, _cur_4, _h_3, _h_4, _h_5) == 0) {
+    if (spin_26(e, _o_0, _cur_8, _cur_9, _cur_10, _h_5, _h_6, _h_7) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -2313,7 +4777,520 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_0)
+  WL_CASE(FID_ffi_screen_get_ev)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_screen_get_ev_k70;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_screen_get_ev_k70, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_screen_get_ev_k70, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_ev_k70)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        r0 = 0;
+        r1 = 0;
+        r2 = 0;
+        r3 = 0;
+        r4 = _h_2;
+        WL_RETN(5);
+      } else if (_h_1 == 1) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_screen_get_ev_k71;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_2 = task_node(e, FID_ffi_screen_get_ev_k71, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_screen_get_ev_k71, _t_2);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+          u64 _t_3 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_wire_get_nat, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_nat);
+      } else if (_h_1 == 2) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_screen_get_ev_k73;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_6 = task_node(e, FID_ffi_screen_get_ev_k73, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_screen_get_ev_k73, _t_6);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+          u64 _t_7 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+          e.mem[_t_7 + 0] = _h_2;
+          return term_tsk(FID_wire_get_nat, _t_7);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_nat);
+      } else if (_h_1 == 3) {
+        r0 = 0;
+        r1 = 3;
+        r2 = 0;
+        r3 = 0;
+        r4 = _h_2;
+        WL_RETN(5);
+      } else if (_h_1 == 4) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_screen_get_ev_k74;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_8 = task_node(e, FID_ffi_screen_get_ev_k74, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_screen_get_ev_k74, _t_8);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+          u64 _t_9 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+          e.mem[_t_9 + 0] = _h_2;
+          return term_tsk(FID_wire_get_nat, _t_9);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_nat);
+      } else {
+        Term _e_0 = (_h_1 - 5);
+        term_sink(e, _h_2);
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        r3 = 0;
+        r4 = 0;
+        WL_RETN(5);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      WL_RETN(5);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_ev_k71)
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    if (_h_3 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_4;
+        STK(1) = FID_ffi_screen_get_ev_k72;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_4 = task_node(e, FID_ffi_screen_get_ev_k72, WL_CONT, WL_IDX, 1);
+        e.mem[_t_4 + 0] = _h_4;
+        WL_CONT = term_tsk(FID_ffi_screen_get_ev_k72, _t_4);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_5 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_5 + 0] = _h_5;
+        return term_tsk(FID_wire_get_nat, _t_5);
+      }
+      r0 = _h_5;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      WL_RETN(5);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_ev_k72)
+    WL_POPN(1);
+    Term _h_9 = STK(0);
+    u32 _h_6 = r0;
+    Term _h_7 = r1;
+    Term _h_8 = r2;
+    WL_OPEN
+    Term _o_0[5];
+    if (spin_1(e, _o_0, _h_9, _h_6, _h_7, _h_8) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = (u32)_o_0[1];
+    r2 = _o_0[2];
+    r3 = _o_0[3];
+    r4 = _o_0[4];
+    WL_RETN(5);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_ev_k73)
+    u32 _h_10 = r0;
+    Term _h_11 = r1;
+    Term _h_12 = r2;
+    WL_OPEN
+    Term _o_1[5];
+    if (spin_5(e, _o_1, _h_10, _h_11, _h_12) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_1[0];
+    r1 = (u32)_o_1[1];
+    r2 = _o_1[2];
+    r3 = _o_1[3];
+    r4 = _o_1[4];
+    WL_RETN(5);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_ev_k74)
+    u32 _h_13 = r0;
+    Term _h_14 = r1;
+    Term _h_15 = r2;
+    WL_OPEN
+    Term _o_2[5];
+    if (spin_6(e, _o_2, _h_13, _h_14, _h_15) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_2[0];
+    r1 = (u32)_o_2[1];
+    r2 = _o_2[2];
+    r3 = _o_2[3];
+    r4 = _o_2[4];
+    WL_RETN(5);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_go_1)
+    Term _n_0 = r0;
+    u32 _cur_0 = r1;
+    u32 _cur_1 = r2;
+    Term _cur_2 = r3;
+    Term _cur_3 = r4;
+    Term _cur_4 = r5;
+    WL_OPEN
+    if (_n_0 == 0) {
+      if (_cur_0 == 0) {
+        Term _b_0 = 0;
+        if (_cur_1 == 0) {
+          _b_0 = term_pak(CID_screen_Open, 0);
+        } else if (_cur_1 == 1) {
+          u64 _nd_0 = heap_alloc(e, cls_fit(2));
+          e.mem[_nd_0 + 0] = rfc_seal(e, _cur_2);
+          e.mem[_nd_0 + 1] = rfc_seal(e, _cur_3);
+          _b_0 = term_ctr(CID_screen_Grow, _nd_0);
+        } else if (_cur_1 == 2) {
+          u64 _nd_1 = heap_alloc(e, cls_fit(1));
+          e.mem[_nd_1 + 0] = rfc_seal(e, _cur_2);
+          _b_0 = term_ctr(CID_screen_Fin, _nd_1);
+        } else if (_cur_1 == 3) {
+          _b_0 = term_pak(CID_screen_Flush, 0);
+        } else {
+          u64 _nd_2 = heap_alloc(e, cls_fit(1));
+          e.mem[_nd_2 + 0] = rfc_seal(e, _cur_2);
+          _b_0 = term_ctr(CID_screen_Resize, _nd_2);
+        }
+        u64 _nd_3 = heap_alloc(e, cls_fit(2));
+        e.mem[_nd_3 + 0] = rfc_seal(e, _b_0);
+        e.mem[_nd_3 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
+        r0 = 0;
+        r1 = term_ctr(CID_Con, _nd_3);
+        r2 = _cur_4;
+        WL_RETN(3);
+      } else {
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        WL_RETN(3);
+      }
+    } else {
+      Term _m_0 = (_n_0 - 1);
+      if (_cur_0 == 0) {
+        if (seq) {
+          WL_ROOM(5, 0);
+          STK(0) = _m_0;
+          STK(1) = _cur_1;
+          STK(2) = _cur_2;
+          STK(3) = _cur_3;
+          STK(4) = FID_wire_get_list_go_1_k76;
+          WL_PUSHN(5);
+        } else {
+          u64 _t_0 = task_node(e, FID_wire_get_list_go_1_k76, WL_CONT, WL_IDX, 1);
+          e.mem[_t_0 + 0] = _m_0;
+          e.mem[_t_0 + 1] = _cur_1;
+          e.mem[_t_0 + 2] = _cur_2;
+          e.mem[_t_0 + 3] = _cur_3;
+          WL_CONT = term_tsk(FID_wire_get_list_go_1_k76, _t_0);
+          WL_IDX = 4;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_ev)) {
+          u64 _t_1 = task_node(e, FID_ffi_screen_get_ev, WL_CONT, WL_IDX, 0);
+          e.mem[_t_1 + 0] = _cur_4;
+          return term_tsk(FID_ffi_screen_get_ev, _t_1);
+        }
+        r0 = _cur_4;
+        WL_JMP(FID_ffi_screen_get_ev);
+      } else {
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        WL_RETN(3);
+      }
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_go_1_k76)
+    WL_POPN(4);
+    Term _m_1 = STK(0);
+    u32 _cur_5 = STK(1);
+    Term _cur_6 = STK(2);
+    Term _cur_7 = STK(3);
+    u32 _h_0 = r0;
+    u32 _h_1 = r1;
+    Term _h_2 = r2;
+    Term _h_3 = r3;
+    Term _h_4 = r4;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(4, 0);
+      STK(0) = _cur_5;
+      STK(1) = _cur_6;
+      STK(2) = _cur_7;
+      STK(3) = FID_wire_get_list_go_1_k77;
+      WL_PUSHN(4);
+    } else {
+      u64 _t_2 = task_node(e, FID_wire_get_list_go_1_k77, WL_CONT, WL_IDX, 1);
+      e.mem[_t_2 + 0] = _cur_5;
+      e.mem[_t_2 + 1] = _cur_6;
+      e.mem[_t_2 + 2] = _cur_7;
+      WL_CONT = term_tsk(FID_wire_get_list_go_1_k77, _t_2);
+      WL_IDX = 3;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_1)) {
+      u64 _t_3 = task_node(e, FID_wire_get_list_go_1, WL_CONT, WL_IDX, 0);
+      e.mem[_t_3 + 0] = _m_1;
+      e.mem[_t_3 + 1] = _h_0;
+      e.mem[_t_3 + 2] = _h_1;
+      e.mem[_t_3 + 3] = _h_2;
+      e.mem[_t_3 + 4] = _h_3;
+      e.mem[_t_3 + 5] = _h_4;
+      return term_tsk(FID_wire_get_list_go_1, _t_3);
+    }
+    r0 = _m_1;
+    r1 = _h_0;
+    r2 = _h_1;
+    r3 = _h_2;
+    r4 = _h_3;
+    r5 = _h_4;
+    WL_JMP(FID_wire_get_list_go_1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_go_1_k77)
+    WL_POPN(3);
+    u32 _cur_8 = STK(0);
+    Term _cur_9 = STK(1);
+    Term _cur_10 = STK(2);
+    u32 _h_5 = r0;
+    Term _h_6 = r1;
+    Term _h_7 = r2;
+    WL_OPEN
+    Term _o_0[3];
+    if (spin_27(e, _o_0, _cur_8, _cur_9, _cur_10, _h_5, _h_6, _h_7) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = _o_0[1];
+    r2 = _o_0[2];
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_edit_go)
+    Term _bs_0 = r0;
+    Term _x_0 = r1;
+    u32 _g_0 = r2;
+    Term _g_1 = r3;
+    u32 _hit_0 = r4;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_bs_0) == CID_Nil) {
+      r0 = term_pak(CID_Nil, 0);
+      WL_RETN(1);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _bs_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      Term _fb_1[3];
+      u64 _sp_1 = ctr_take(e, _f_0, 3, _fb_1);
+      Term _f_2 = _fb_1[0];
+      u32 _f_3 = _fb_1[1];
+      Term _f_4 = _fb_1[2];
+      spare_free(e, cls_fit(3), _sp_1);
+      if (_hit_0 == 1) {
+        u32 _v_0 = 0;
+        Term _o_2[1];
+        if (spin_32(e, _o_2, _f_1, _x_0) == 0) {
+          return 0;
+        }
+        _v_0 = (u32)_o_2[0];
+        spare_free(e, cls_fit(2), _sp_0);
+        if (seq) {
+          WL_ROOM(6, 0);
+          STK(0) = _f_2;
+          STK(1) = _f_3;
+          STK(2) = _f_4;
+          STK(3) = _g_0;
+          STK(4) = _g_1;
+          STK(5) = FID_screen_edit_go_k82;
+          WL_PUSHN(6);
+        } else {
+          u64 _t_0 = task_node(e, FID_screen_edit_go_k82, WL_CONT, WL_IDX, 1);
+          e.mem[_t_0 + 0] = _f_2;
+          e.mem[_t_0 + 1] = _f_3;
+          e.mem[_t_0 + 2] = _f_4;
+          e.mem[_t_0 + 3] = _g_0;
+          e.mem[_t_0 + 4] = _g_1;
+          WL_CONT = term_tsk(FID_screen_edit_go_k82, _t_0);
+          WL_IDX = 5;
+        }
+        r0 = _f_1;
+        r1 = _x_0;
+        r2 = _g_0;
+        r3 = _g_1;
+        r4 = _v_0;
+        _bs_0 = r0;
+        _x_0 = r1;
+        _g_0 = r2;
+        _g_1 = r3;
+        _hit_0 = r4;
+        WL_AGAIN(FID_screen_edit_go);
+      } else {
+        u32 _v_5 = 0;
+        Term _o_6[1];
+        if (spin_32(e, _o_6, _f_1, _x_0) == 0) {
+          return 0;
+        }
+        _v_5 = (u32)_o_6[0];
+        spare_free(e, cls_fit(2), _sp_0);
+        if (seq) {
+          WL_ROOM(4, 0);
+          STK(0) = _f_2;
+          STK(1) = _f_3;
+          STK(2) = _f_4;
+          STK(3) = FID_screen_edit_go_k83;
+          WL_PUSHN(4);
+        } else {
+          u64 _t_1 = task_node(e, FID_screen_edit_go_k83, WL_CONT, WL_IDX, 1);
+          e.mem[_t_1 + 0] = _f_2;
+          e.mem[_t_1 + 1] = _f_3;
+          e.mem[_t_1 + 2] = _f_4;
+          WL_CONT = term_tsk(FID_screen_edit_go_k83, _t_1);
+          WL_IDX = 3;
+        }
+        r0 = _f_1;
+        r1 = _x_0;
+        r2 = _g_0;
+        r3 = _g_1;
+        r4 = _v_5;
+        _bs_0 = r0;
+        _x_0 = r1;
+        _g_0 = r2;
+        _g_1 = r3;
+        _hit_0 = r4;
+        WL_AGAIN(FID_screen_edit_go);
+      }
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_edit_go_k82)
+    WL_POPN(5);
+    Term _f_10 = STK(0);
+    u32 _f_11 = STK(1);
+    Term _f_12 = STK(2);
+    u32 _g_2 = STK(3);
+    Term _g_3 = STK(4);
+    Term _h_0 = r0;
+    WL_OPEN
+    Term _v_2 = 0;
+    u32 _v_3 = 0;
+    Term _v_4 = 0;
+    Term _o_5[3];
+    if (spin_33(e, _o_5, _f_10, _f_11, _f_12, _g_2, _g_3) == 0) {
+      return 0;
+    }
+    _v_2 = _o_5[0];
+    _v_3 = (u32)_o_5[1];
+    _v_4 = _o_5[2];
+    u64 _nd_0 = heap_alloc(e, cls_fit(3));
+    e.mem[_nd_0 + 0] = rfc_seal(e, _v_2);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _v_3);
+    e.mem[_nd_0 + 2] = rfc_seal(e, _v_4);
+    u64 _nd_1 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_0));
+    e.mem[_nd_1 + 1] = rfc_seal(e, _h_0);
+    r0 = term_ctr(CID_Con, _nd_1);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_edit_go_k83)
+    WL_POPN(3);
+    Term _f_13 = STK(0);
+    u32 _f_14 = STK(1);
+    Term _f_15 = STK(2);
+    Term _h_1 = r0;
+    WL_OPEN
+    u64 _nd_2 = heap_alloc(e, cls_fit(3));
+    e.mem[_nd_2 + 0] = rfc_seal(e, _f_13);
+    e.mem[_nd_2 + 1] = rfc_seal(e, _f_14);
+    e.mem[_nd_2 + 2] = rfc_seal(e, _f_15);
+    u64 _nd_3 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_3 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_2));
+    e.mem[_nd_3 + 1] = rfc_seal(e, _h_1);
+    r0 = term_ctr(CID_Con, _nd_3);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_list_go_2)
     Term _xs_0 = r0;
     Term _rest_0 = r1;
     WL_OPEN
@@ -2331,33 +5308,33 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_wire_put_list_go_0_k10;
+        STK(1) = FID_wire_put_list_go_2_k86;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_list_go_0_k10, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_2_k86, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_wire_put_list_go_0_k10, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_list_go_2_k86, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
       r1 = _rest_0;
       _xs_0 = r0;
       _rest_0 = r1;
-      WL_AGAIN(FID_wire_put_list_go_0);
+      WL_AGAIN(FID_wire_put_list_go_2);
     }
     WL_SPUN
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_0_k10)
+  WL_CASE(FID_wire_put_list_go_2_k86)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[2];
-    if (spin_8(e, _o_1, _f_2, _h_0, _h_1) == 0) {
+    if (spin_35(e, _o_1, _f_2, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_1[0];
@@ -2385,12 +5362,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_wire_put_str_go_k13;
+        STK(1) = FID_wire_put_str_go_k88;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_str_go_k13, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_str_go_k88, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_wire_put_str_go_k13, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_str_go_k88, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -2404,19 +5381,752 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_str_go_k13)
+  WL_CASE(FID_wire_put_str_go_k88)
     WL_POPN(1);
     u32 _f_2 = STK(0);
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_0[2];
-    if (spin_9(e, _o_0, _f_2, _h_0, _h_1) == 0) {
+    if (spin_36(e, _o_0, _f_2, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_0[0];
     r1 = _o_0[1];
     WL_RETN(2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_caller)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_replace_get_caller_k91;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_replace_get_caller_k91, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_replace_get_caller_k91, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_caller_k91)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    Term _o_1[3];
+    if (spin_37(e, _o_1, _h_0, _h_1, _h_2) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_1[0];
+    r1 = (u32)_o_1[1];
+    r2 = _o_1[2];
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_tier)
+    Term _s_0 = r0;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_s_0) == CID_SNil) {
+      r0 = 1ull;
+      WL_RETN(1);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _s_0, 2, _fb_0);
+      u32 _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _f_0;
+        STK(1) = FID_replace_tier_k97;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_0 = task_node(e, FID_replace_tier_k97, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_0;
+        WL_CONT = term_tsk(FID_replace_tier_k97, _t_0);
+        WL_IDX = 1;
+      }
+      r0 = _f_1;
+      _s_0 = r0;
+      WL_AGAIN(FID_replace_tier);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_tier_k97)
+    WL_POPN(1);
+    u32 _f_2 = STK(0);
+    Term _h_0 = r0;
+    WL_OPEN
+    u32 _v_0 = 0;
+    Term _o_0[1];
+    if (spin_38(e, _o_0, _f_2, 45ull) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_0[0];
+    Term _o_1[1];
+    if (spin_39(e, _o_1, _v_0, _h_0) == 0) {
+      return 0;
+    }
+    r0 = _o_1[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_core)
+    Term _s_0 = r0;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_s_0) == CID_SNil) {
+      r0 = term_pak(CID_SNil, 0);
+      WL_RETN(1);
+    } else {
+      u64 _sp_0 = term_peek(e.mem, _s_0);
+      u32 _f_0 = e.mem[_sp_0 + 0];
+      Term _f_1 = e.mem[_sp_0 + 1];
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _f_0;
+        STK(1) = FID_replace_core_k99;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_0 = task_node(e, FID_replace_core_k99, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_0;
+        WL_CONT = term_tsk(FID_replace_core_k99, _t_0);
+        WL_IDX = 1;
+      }
+      r0 = _f_1;
+      _s_0 = r0;
+      WL_AGAIN(FID_replace_core);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_core_k99)
+    WL_POPN(1);
+    u32 _f_2 = STK(0);
+    Term _h_0 = r0;
+    WL_OPEN
+    u32 _v_0 = 0;
+    Term _o_0[1];
+    if (spin_38(e, _o_0, _f_2, 45ull) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_0[0];
+    Term _o_1[1];
+    if (spin_40(e, _o_1, _v_0, _f_2, _h_0) == 0) {
+      return 0;
+    }
+    r0 = _o_1[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_semver_Sym_list)
+    Term _s_0 = r0;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_s_0) == CID_SNil) {
+      r0 = term_pak(CID_Nil, 0);
+      WL_RETN(1);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _s_0, 2, _fb_0);
+      u32 _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _f_0;
+        STK(1) = FID_semver_Sym_list_k101;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_0 = task_node(e, FID_semver_Sym_list_k101, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_0;
+        WL_CONT = term_tsk(FID_semver_Sym_list_k101, _t_0);
+        WL_IDX = 1;
+      }
+      r0 = _f_1;
+      _s_0 = r0;
+      WL_AGAIN(FID_semver_Sym_list);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_semver_Sym_list_k101)
+    WL_POPN(1);
+    u32 _f_2 = STK(0);
+    Term _h_0 = r0;
+    WL_OPEN
+    u32 _v_0 = 0;
+    u32 _v_1 = 0;
+    Term _o_0[2];
+    if (spin_41(e, _o_0, _f_2) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_0[0];
+    _v_1 = (u32)_o_0[1];
+    Term _b_0 = 0;
+    if (_v_0 == 0) {
+      _b_0 = term_pak(CID_semver_Digit, _v_1);
+    } else if (_v_0 == 1) {
+      _b_0 = term_pak(CID_semver_Dot, 0);
+    } else {
+      _b_0 = term_pak(CID_semver_Other, 0);
+    }
+    u64 _nd_0 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_0 + 0] = rfc_seal(e, _b_0);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _h_0);
+    r0 = term_ctr(CID_Con, _nd_0);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_go_2)
+    Term _n_0 = r0;
+    u32 _cur_0 = r1;
+    Term _cur_1 = r2;
+    Term _cur_2 = r3;
+    WL_OPEN
+    if (_n_0 == 0) {
+      if (_cur_0 == 0) {
+        u64 _nd_0 = heap_alloc(e, cls_fit(2));
+        e.mem[_nd_0 + 0] = rfc_seal(e, _cur_1);
+        e.mem[_nd_0 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
+        r0 = 0;
+        r1 = term_ctr(CID_Con, _nd_0);
+        r2 = _cur_2;
+        WL_RETN(3);
+      } else {
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        WL_RETN(3);
+      }
+    } else {
+      Term _m_0 = (_n_0 - 1);
+      if (_cur_0 == 0) {
+        if (seq) {
+          WL_ROOM(3, 0);
+          STK(0) = _m_0;
+          STK(1) = _cur_1;
+          STK(2) = FID_wire_get_list_go_2_k110;
+          WL_PUSHN(3);
+        } else {
+          u64 _t_0 = task_node(e, FID_wire_get_list_go_2_k110, WL_CONT, WL_IDX, 1);
+          e.mem[_t_0 + 0] = _m_0;
+          e.mem[_t_0 + 1] = _cur_1;
+          WL_CONT = term_tsk(FID_wire_get_list_go_2_k110, _t_0);
+          WL_IDX = 2;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+          u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+          e.mem[_t_1 + 0] = _cur_2;
+          return term_tsk(FID_wire_get_nat, _t_1);
+        }
+        r0 = _cur_2;
+        WL_JMP(FID_wire_get_nat);
+      } else {
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        WL_RETN(3);
+      }
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_go_2_k110)
+    WL_POPN(2);
+    Term _m_1 = STK(0);
+    Term _cur_3 = STK(1);
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(2, 0);
+      STK(0) = _cur_3;
+      STK(1) = FID_wire_get_list_go_2_k111;
+      WL_PUSHN(2);
+    } else {
+      u64 _t_2 = task_node(e, FID_wire_get_list_go_2_k111, WL_CONT, WL_IDX, 1);
+      e.mem[_t_2 + 0] = _cur_3;
+      WL_CONT = term_tsk(FID_wire_get_list_go_2_k111, _t_2);
+      WL_IDX = 1;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_2)) {
+      u64 _t_3 = task_node(e, FID_wire_get_list_go_2, WL_CONT, WL_IDX, 0);
+      e.mem[_t_3 + 0] = _m_1;
+      e.mem[_t_3 + 1] = _h_0;
+      e.mem[_t_3 + 2] = _h_1;
+      e.mem[_t_3 + 3] = _h_2;
+      return term_tsk(FID_wire_get_list_go_2, _t_3);
+    }
+    r0 = _m_1;
+    r1 = _h_0;
+    r2 = _h_1;
+    r3 = _h_2;
+    WL_JMP(FID_wire_get_list_go_2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_go_2_k111)
+    WL_POPN(1);
+    Term _cur_4 = STK(0);
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    Term _o_0[3];
+    if (spin_43(e, _o_0, _cur_4, _h_3, _h_4, _h_5) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = _o_0[1];
+    r2 = _o_0[2];
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_pace)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_screen_get_pace_k114;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_screen_get_pace_k114, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_screen_get_pace_k114, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_pace_k114)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_1;
+        STK(1) = FID_ffi_screen_get_pace_k115;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_2 = task_node(e, FID_ffi_screen_get_pace_k115, WL_CONT, WL_IDX, 1);
+        e.mem[_t_2 + 0] = _h_1;
+        WL_CONT = term_tsk(FID_ffi_screen_get_pace_k115, _t_2);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_3 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_3 + 0] = _h_2;
+        return term_tsk(FID_wire_get_nat, _t_3);
+      }
+      r0 = _h_2;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      WL_RETN(4);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_pace_k115)
+    WL_POPN(1);
+    Term _h_6 = STK(0);
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    Term _o_0[4];
+    if (spin_25(e, _o_0, _h_6, _h_3, _h_4, _h_5) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = _o_0[1];
+    r2 = _o_0[2];
+    r3 = _o_0[3];
+    WL_RETN(4);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_flush)
+    Term _bs_0 = r0;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_bs_0) == CID_Nil) {
+      r0 = term_pak(CID_Nil, 0);
+      WL_RETN(1);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _bs_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      Term _fb_1[3];
+      u64 _sp_1 = ctr_take(e, _f_0, 3, _fb_1);
+      Term _f_2 = _fb_1[0];
+      u32 _f_3 = _fb_1[1];
+      Term _f_4 = _fb_1[2];
+      spare_free(e, cls_fit(3), _sp_1);
+      if (_f_3 == 2) {
+        spare_free(e, cls_fit(2), _sp_0);
+        if (seq) {
+          WL_ROOM(3, 0);
+          STK(0) = _f_2;
+          STK(1) = _f_4;
+          STK(2) = FID_screen_flush_k127;
+          WL_PUSHN(3);
+        } else {
+          u64 _t_0 = task_node(e, FID_screen_flush_k127, WL_CONT, WL_IDX, 1);
+          e.mem[_t_0 + 0] = _f_2;
+          e.mem[_t_0 + 1] = _f_4;
+          WL_CONT = term_tsk(FID_screen_flush_k127, _t_0);
+          WL_IDX = 2;
+        }
+        r0 = _f_1;
+        _bs_0 = r0;
+        WL_AGAIN(FID_screen_flush);
+      } else if (_f_3 == 1) {
+        spare_free(e, cls_fit(2), _sp_0);
+        if (seq) {
+          WL_ROOM(3, 0);
+          STK(0) = _f_2;
+          STK(1) = _f_4;
+          STK(2) = FID_screen_flush_k128;
+          WL_PUSHN(3);
+        } else {
+          u64 _t_1 = task_node(e, FID_screen_flush_k128, WL_CONT, WL_IDX, 1);
+          e.mem[_t_1 + 0] = _f_2;
+          e.mem[_t_1 + 1] = _f_4;
+          WL_CONT = term_tsk(FID_screen_flush_k128, _t_1);
+          WL_IDX = 2;
+        }
+        r0 = _f_1;
+        _bs_0 = r0;
+        WL_AGAIN(FID_screen_flush);
+      } else {
+        u64 _nd_4 = heap_alloc(e, cls_fit(3));
+        e.mem[_nd_4 + 0] = rfc_seal(e, _f_2);
+        e.mem[_nd_4 + 1] = rfc_seal(e, 0);
+        e.mem[_nd_4 + 2] = rfc_seal(e, _f_4);
+        u64 _nd_5 = _sp_0 >= HEAP_OFF ? _sp_0 : heap_alloc(e, cls_fit(2));
+        e.mem[_nd_5 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_4));
+        e.mem[_nd_5 + 1] = rfc_seal(e, _f_1);
+        r0 = term_ctr(CID_Con, _nd_5);
+        WL_RETN(1);
+      }
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_flush_k127)
+    WL_POPN(2);
+    Term _f_5 = STK(0);
+    Term _f_6 = STK(1);
+    Term _h_0 = r0;
+    WL_OPEN
+    u64 _nd_0 = heap_alloc(e, cls_fit(3));
+    e.mem[_nd_0 + 0] = rfc_seal(e, _f_5);
+    e.mem[_nd_0 + 1] = rfc_seal(e, 2);
+    e.mem[_nd_0 + 2] = rfc_seal(e, _f_6);
+    u64 _nd_1 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_0));
+    e.mem[_nd_1 + 1] = rfc_seal(e, _h_0);
+    r0 = term_ctr(CID_Con, _nd_1);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_flush_k128)
+    WL_POPN(2);
+    Term _f_7 = STK(0);
+    Term _f_8 = STK(1);
+    Term _h_1 = r0;
+    WL_OPEN
+    u64 _nd_2 = heap_alloc(e, cls_fit(3));
+    e.mem[_nd_2 + 0] = rfc_seal(e, _f_7);
+    e.mem[_nd_2 + 1] = rfc_seal(e, 2);
+    e.mem[_nd_2 + 2] = rfc_seal(e, _f_8);
+    u64 _nd_3 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_3 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_2));
+    e.mem[_nd_3 + 1] = rfc_seal(e, _h_1);
+    r0 = term_ctr(CID_Con, _nd_3);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_edit)
+    Term _bs_0 = r0;
+    Term _x_0 = r1;
+    u32 _g_0 = r2;
+    Term _g_1 = r3;
+    WL_OPEN
+    u32 _v_0 = 0;
+    Term _o_0[1];
+    if (spin_32(e, _o_0, _bs_0, _x_0) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_0[0];
+    if (!DEVICE && !seq && fid_nofk(FID_screen_edit_go)) {
+      u64 _t_0 = task_node(e, FID_screen_edit_go, WL_CONT, WL_IDX, 0);
+      e.mem[_t_0 + 0] = _bs_0;
+      e.mem[_t_0 + 1] = _x_0;
+      e.mem[_t_0 + 2] = _g_0;
+      e.mem[_t_0 + 3] = _g_1;
+      e.mem[_t_0 + 4] = _v_0;
+      return term_tsk(FID_screen_edit_go, _t_0);
+    }
+    r0 = _bs_0;
+    r1 = _x_0;
+    r2 = _g_0;
+    r3 = _g_1;
+    r4 = _v_0;
+    WL_JMP(FID_screen_edit_go);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_List_append)
+    Term _xs_0 = r0;
+    Term _ys_0 = r1;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_xs_0) == CID_Nil) {
+      r0 = _ys_0;
+      WL_RETN(1);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _xs_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _f_0;
+        STK(1) = FID_List_append_k131;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_0 = task_node(e, FID_List_append_k131, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_0;
+        WL_CONT = term_tsk(FID_List_append_k131, _t_0);
+        WL_IDX = 1;
+      }
+      r0 = _f_1;
+      r1 = _ys_0;
+      _xs_0 = r0;
+      _ys_0 = r1;
+      WL_AGAIN(FID_List_append);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_List_append_k131)
+    WL_POPN(1);
+    Term _f_2 = STK(0);
+    Term _h_0 = r0;
+    WL_OPEN
+    u64 _nd_0 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_0 + 0] = rfc_seal(e, _f_2);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _h_0);
+    r0 = term_ctr(CID_Con, _nd_0);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_list_go_0)
+    Term _xs_0 = r0;
+    Term _rest_0 = r1;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_xs_0) == CID_Nil) {
+      r0 = 0;
+      r1 = _rest_0;
+      WL_RETN(2);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _xs_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      Term _fb_1[3];
+      u64 _sp_1 = ctr_take(e, _f_0, 3, _fb_1);
+      Term _f_2 = _fb_1[0];
+      u32 _f_3 = _fb_1[1];
+      Term _f_4 = _fb_1[2];
+      spare_free(e, cls_fit(3), _sp_1);
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(4, 0);
+        STK(0) = _f_2;
+        STK(1) = _f_3;
+        STK(2) = _f_4;
+        STK(3) = FID_wire_put_list_go_0_k133;
+        WL_PUSHN(4);
+      } else {
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_0_k133, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_2;
+        e.mem[_t_0 + 1] = _f_3;
+        e.mem[_t_0 + 2] = _f_4;
+        WL_CONT = term_tsk(FID_wire_put_list_go_0_k133, _t_0);
+        WL_IDX = 3;
+      }
+      r0 = _f_1;
+      r1 = _rest_0;
+      _xs_0 = r0;
+      _rest_0 = r1;
+      WL_AGAIN(FID_wire_put_list_go_0);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_list_go_0_k133)
+    WL_POPN(3);
+    Term _f_5 = STK(0);
+    u32 _f_6 = STK(1);
+    Term _f_7 = STK(2);
+    Term _h_0 = r0;
+    Term _h_1 = r1;
+    WL_OPEN
+    Term _o_1[2];
+    if (spin_48(e, _o_1, _f_5, _f_6, _f_7, _h_0, _h_1) == 0) {
+      return 0;
+    }
+    r0 = _o_1[0];
+    r1 = _o_1[1];
+    WL_RETN(2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_list_2)
+    Term _xs_0 = r0;
+    Term _rest_0 = r1;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_wire_put_list_2_k135;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_wire_put_list_2_k135, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_list_2_k135, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_2)) {
+      u64 _t_1 = task_node(e, FID_wire_put_list_go_2, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _xs_0;
+      e.mem[_t_1 + 1] = _rest_0;
+      return term_tsk(FID_wire_put_list_go_2, _t_1);
+    }
+    r0 = _xs_0;
+    r1 = _rest_0;
+    WL_JMP(FID_wire_put_list_go_2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_list_2_k135)
+    Term _h_0 = r0;
+    Term _h_1 = r1;
+    WL_OPEN
+    Term _o_1[1];
+    if (spin_49(e, _o_1, _h_0, _h_1) == 0) {
+      return 0;
+    }
+    r0 = _o_1[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_str)
+    Term _a_0 = r0;
+    Term _rest_0 = r1;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_wire_put_str_k137;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_wire_put_str_k137, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_str_k137, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_put_str_go)) {
+      u64 _t_1 = task_node(e, FID_wire_put_str_go, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _a_0;
+      e.mem[_t_1 + 1] = _rest_0;
+      return term_tsk(FID_wire_put_str_go, _t_1);
+    }
+    r0 = _a_0;
+    r1 = _rest_0;
+    WL_JMP(FID_wire_put_str_go);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_str_k137)
+    Term _h_0 = r0;
+    Term _h_1 = r1;
+    WL_OPEN
+    Term _o_1[1];
+    if (spin_50(e, _o_1, _h_0, _h_1) == 0) {
+      return 0;
+    }
+    r0 = _o_1[0];
+    WL_RETN(1);
   }}
 #endif
 
@@ -2447,12 +6157,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _f_0;
-          STK(1) = FID_wire_take_k20;
+          STK(1) = FID_wire_take_k143;
           WL_PUSHN(2);
         } else {
-          u64 _t_0 = task_node(e, FID_wire_take_k20, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_wire_take_k143, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _f_0;
-          WL_CONT = term_tsk(FID_wire_take_k20, _t_0);
+          WL_CONT = term_tsk(FID_wire_take_k143, _t_0);
           WL_IDX = 1;
         }
         r0 = _m_0;
@@ -2467,7 +6177,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_take_k20)
+  WL_CASE(FID_wire_take_k143)
     WL_POPN(1);
     u32 _f_2 = STK(0);
     u32 _h_0 = r0;
@@ -2475,7 +6185,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_2 = r2;
     WL_OPEN
     Term _o_0[3];
-    if (spin_10(e, _o_0, _f_2, _h_0, _h_1, _h_2) == 0) {
+    if (spin_52(e, _o_0, _f_2, _h_0, _h_1, _h_2) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -2486,82 +6196,471 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_0)
+  WL_CASE(FID_String_length)
+    Term _s_0 = r0;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_s_0) == CID_SNil) {
+      r0 = 0;
+      WL_RETN(1);
+    } else {
+      u64 _sp_0 = term_peek(e.mem, _s_0);
+      u32 _f_0 = e.mem[_sp_0 + 0];
+      Term _f_1 = e.mem[_sp_0 + 1];
+      if (seq) {
+        WL_ROOM(1, 0);
+        STK(0) = FID_String_length_k147;
+        WL_PUSHN(1);
+      } else {
+        u64 _t_0 = task_node(e, FID_String_length_k147, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_String_length_k147, _t_0);
+        WL_IDX = 0;
+      }
+      r0 = _f_1;
+      _s_0 = r0;
+      WL_AGAIN(FID_String_length);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_String_length_k147)
+    Term _h_0 = r0;
+    WL_OPEN
+    r0 = nat_chk(e, _h_0 + 1);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_0)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_wire_get_list_0_k168;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_wire_get_list_0_k168, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_list_0_k168, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_0_k168)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        r0 = 0;
+        r1 = term_pak(CID_Nil, 0);
+        r2 = _h_2;
+        WL_RETN(3);
+      } else {
+        Term _m_0 = (_h_1 - 1);
+        if (seq) {
+          WL_ROOM(2, 0);
+          STK(0) = _m_0;
+          STK(1) = FID_wire_get_list_0_k169;
+          WL_PUSHN(2);
+        } else {
+          u64 _t_2 = task_node(e, FID_wire_get_list_0_k169, WL_CONT, WL_IDX, 1);
+          e.mem[_t_2 + 0] = _m_0;
+          WL_CONT = term_tsk(FID_wire_get_list_0_k169, _t_2);
+          WL_IDX = 1;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_blk)) {
+          u64 _t_3 = task_node(e, FID_ffi_screen_get_blk, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_ffi_screen_get_blk, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_ffi_screen_get_blk);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      WL_RETN(3);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_0_k169)
+    WL_POPN(1);
+    Term _m_1 = STK(0);
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    u32 _h_5 = r2;
+    Term _h_6 = r3;
+    Term _h_7 = r4;
+    WL_OPEN
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_0)) {
+      u64 _t_4 = task_node(e, FID_wire_get_list_go_0, WL_CONT, WL_IDX, 0);
+      e.mem[_t_4 + 0] = _m_1;
+      e.mem[_t_4 + 1] = _h_3;
+      e.mem[_t_4 + 2] = _h_4;
+      e.mem[_t_4 + 3] = _h_5;
+      e.mem[_t_4 + 4] = _h_6;
+      e.mem[_t_4 + 5] = _h_7;
+      return term_tsk(FID_wire_get_list_go_0, _t_4);
+    }
+    r0 = _m_1;
+    r1 = _h_3;
+    r2 = _h_4;
+    r3 = _h_5;
+    r4 = _h_6;
+    r5 = _h_7;
+    WL_JMP(FID_wire_get_list_go_0);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_1)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_wire_get_list_1_k174;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_wire_get_list_1_k174, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_list_1_k174, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_1_k174)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        r0 = 0;
+        r1 = term_pak(CID_Nil, 0);
+        r2 = _h_2;
+        WL_RETN(3);
+      } else {
+        Term _m_0 = (_h_1 - 1);
+        if (seq) {
+          WL_ROOM(2, 0);
+          STK(0) = _m_0;
+          STK(1) = FID_wire_get_list_1_k175;
+          WL_PUSHN(2);
+        } else {
+          u64 _t_2 = task_node(e, FID_wire_get_list_1_k175, WL_CONT, WL_IDX, 1);
+          e.mem[_t_2 + 0] = _m_0;
+          WL_CONT = term_tsk(FID_wire_get_list_1_k175, _t_2);
+          WL_IDX = 1;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_ev)) {
+          u64 _t_3 = task_node(e, FID_ffi_screen_get_ev, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_ffi_screen_get_ev, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_ffi_screen_get_ev);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      WL_RETN(3);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_1_k175)
+    WL_POPN(1);
+    Term _m_1 = STK(0);
+    u32 _h_3 = r0;
+    u32 _h_4 = r1;
+    Term _h_5 = r2;
+    Term _h_6 = r3;
+    Term _h_7 = r4;
+    WL_OPEN
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_1)) {
+      u64 _t_4 = task_node(e, FID_wire_get_list_go_1, WL_CONT, WL_IDX, 0);
+      e.mem[_t_4 + 0] = _m_1;
+      e.mem[_t_4 + 1] = _h_3;
+      e.mem[_t_4 + 2] = _h_4;
+      e.mem[_t_4 + 3] = _h_5;
+      e.mem[_t_4 + 4] = _h_6;
+      e.mem[_t_4 + 5] = _h_7;
+      return term_tsk(FID_wire_get_list_go_1, _t_4);
+    }
+    r0 = _m_1;
+    r1 = _h_3;
+    r2 = _h_4;
+    r3 = _h_5;
+    r4 = _h_6;
+    r5 = _h_7;
+    WL_JMP(FID_wire_get_list_go_1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_put_list_go_3)
     Term _xs_0 = r0;
     Term _rest_0 = r1;
     WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_list_0_k24;
-      WL_PUSHN(1);
+    WL_SPIN
+    if (term_aux(_xs_0) == CID_Nil) {
+      r0 = 0;
+      r1 = _rest_0;
+      WL_RETN(2);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_list_0_k24, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_list_0_k24, _t_0);
-      WL_IDX = 0;
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _xs_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      Term _fb_1[2];
+      u64 _sp_1 = ctr_take(e, _f_0, 2, _fb_1);
+      Term _f_2 = _fb_1[0];
+      Term _f_3 = _fb_1[1];
+      spare_free(e, cls_fit(2), _sp_1);
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _f_2;
+        STK(1) = _f_3;
+        STK(2) = FID_wire_put_list_go_3_k178;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_3_k178, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_2;
+        e.mem[_t_0 + 1] = _f_3;
+        WL_CONT = term_tsk(FID_wire_put_list_go_3_k178, _t_0);
+        WL_IDX = 2;
+      }
+      r0 = _f_1;
+      r1 = _rest_0;
+      _xs_0 = r0;
+      _rest_0 = r1;
+      WL_AGAIN(FID_wire_put_list_go_3);
     }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_0)) {
-      u64 _t_1 = task_node(e, FID_wire_put_list_go_0, WL_CONT, WL_IDX, 0);
-      e.mem[_t_1 + 0] = _xs_0;
-      e.mem[_t_1 + 1] = _rest_0;
-      return term_tsk(FID_wire_put_list_go_0, _t_1);
-    }
-    r0 = _xs_0;
-    r1 = _rest_0;
-    WL_JMP(FID_wire_put_list_go_0);
+    WL_SPUN
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_0_k24)
+  WL_CASE(FID_wire_put_list_go_3_k178)
+    WL_POPN(2);
+    Term _f_4 = STK(0);
+    Term _f_5 = STK(1);
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
-    Term _o_1[1];
-    if (spin_11(e, _o_1, _h_0, _h_1) == 0) {
+    Term _o_1[2];
+    if (spin_56(e, _o_1, _f_4, _f_5, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_1[0];
-    WL_RETN(1);
+    r1 = _o_1[1];
+    WL_RETN(2);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_str)
-    Term _a_0 = r0;
-    Term _rest_0 = r1;
+  WL_CASE(FID_screen_step)
+    Term _t_0 = r0;
+    Term _t_1 = r1;
+    Term _t_2 = r2;
+    u32 _e_0 = r3;
+    Term _e_1 = r4;
+    Term _e_2 = r5;
     WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_str_k26;
-      WL_PUSHN(1);
+    if (_e_0 == 0) {
+      u64 _nd_0 = heap_alloc(e, cls_fit(3));
+      e.mem[_nd_0 + 0] = rfc_seal(e, _t_1);
+      e.mem[_nd_0 + 1] = rfc_seal(e, 0);
+      e.mem[_nd_0 + 2] = rfc_seal(e, 0);
+      u64 _nd_1 = heap_alloc(e, cls_fit(2));
+      e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_screen_Blk, _nd_0));
+      e.mem[_nd_1 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _t_1;
+        STK(1) = _t_2;
+        STK(2) = FID_screen_step_k182;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_3 = task_node(e, FID_screen_step_k182, WL_CONT, WL_IDX, 1);
+        e.mem[_t_3 + 0] = _t_1;
+        e.mem[_t_3 + 1] = _t_2;
+        WL_CONT = term_tsk(FID_screen_step_k182, _t_3);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_List_append)) {
+        u64 _t_4 = task_node(e, FID_List_append, WL_CONT, WL_IDX, 0);
+        e.mem[_t_4 + 0] = _t_0;
+        e.mem[_t_4 + 1] = term_ctr(CID_Con, _nd_1);
+        return term_tsk(FID_List_append, _t_4);
+      }
+      r0 = _t_0;
+      r1 = term_ctr(CID_Con, _nd_1);
+      WL_JMP(FID_List_append);
+    } else if (_e_0 == 1) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _t_1;
+        STK(1) = _t_2;
+        STK(2) = FID_screen_step_k183;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_7 = task_node(e, FID_screen_step_k183, WL_CONT, WL_IDX, 1);
+        e.mem[_t_7 + 0] = _t_1;
+        e.mem[_t_7 + 1] = _t_2;
+        WL_CONT = term_tsk(FID_screen_step_k183, _t_7);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_screen_edit)) {
+        u64 _t_8 = task_node(e, FID_screen_edit, WL_CONT, WL_IDX, 0);
+        e.mem[_t_8 + 0] = _t_0;
+        e.mem[_t_8 + 1] = _e_1;
+        e.mem[_t_8 + 2] = 1;
+        e.mem[_t_8 + 3] = _e_2;
+        return term_tsk(FID_screen_edit, _t_8);
+      }
+      r0 = _t_0;
+      r1 = _e_1;
+      r2 = 1;
+      r3 = _e_2;
+      WL_JMP(FID_screen_edit);
+    } else if (_e_0 == 2) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _t_1;
+        STK(1) = _t_2;
+        STK(2) = FID_screen_step_k184;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_11 = task_node(e, FID_screen_step_k184, WL_CONT, WL_IDX, 1);
+        e.mem[_t_11 + 0] = _t_1;
+        e.mem[_t_11 + 1] = _t_2;
+        WL_CONT = term_tsk(FID_screen_step_k184, _t_11);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_screen_edit)) {
+        u64 _t_12 = task_node(e, FID_screen_edit, WL_CONT, WL_IDX, 0);
+        e.mem[_t_12 + 0] = _t_0;
+        e.mem[_t_12 + 1] = _e_1;
+        e.mem[_t_12 + 2] = 0;
+        e.mem[_t_12 + 3] = 0;
+        return term_tsk(FID_screen_edit, _t_12);
+      }
+      r0 = _t_0;
+      r1 = _e_1;
+      r2 = 0;
+      r3 = 0;
+      WL_JMP(FID_screen_edit);
+    } else if (_e_0 == 3) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _t_1;
+        STK(1) = _t_2;
+        STK(2) = FID_screen_step_k185;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_15 = task_node(e, FID_screen_step_k185, WL_CONT, WL_IDX, 1);
+        e.mem[_t_15 + 0] = _t_1;
+        e.mem[_t_15 + 1] = _t_2;
+        WL_CONT = term_tsk(FID_screen_step_k185, _t_15);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_screen_flush)) {
+        u64 _t_16 = task_node(e, FID_screen_flush, WL_CONT, WL_IDX, 0);
+        e.mem[_t_16 + 0] = _t_0;
+        return term_tsk(FID_screen_flush, _t_16);
+      }
+      r0 = _t_0;
+      WL_JMP(FID_screen_flush);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_str_k26, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_str_k26, _t_0);
-      WL_IDX = 0;
+      r0 = _t_0;
+      r1 = _t_1;
+      r2 = _e_1;
+      WL_RETN(3);
     }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_put_str_go)) {
-      u64 _t_1 = task_node(e, FID_wire_put_str_go, WL_CONT, WL_IDX, 0);
-      e.mem[_t_1 + 0] = _a_0;
-      e.mem[_t_1 + 1] = _rest_0;
-      return term_tsk(FID_wire_put_str_go, _t_1);
-    }
-    r0 = _a_0;
-    r1 = _rest_0;
-    WL_JMP(FID_wire_put_str_go);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_str_k26)
+  WL_CASE(FID_screen_step_k182)
+    WL_POPN(2);
+    Term _t_5 = STK(0);
+    Term _t_6 = STK(1);
     Term _h_0 = r0;
-    Term _h_1 = r1;
     WL_OPEN
-    Term _o_1[1];
-    if (spin_12(e, _o_1, _h_0, _h_1) == 0) {
-      return 0;
-    }
-    r0 = _o_1[0];
-    WL_RETN(1);
+    r0 = _h_0;
+    r1 = nat_chk(e, _t_5 + 1);
+    r2 = _t_6;
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_step_k183)
+    WL_POPN(2);
+    Term _t_9 = STK(0);
+    Term _t_10 = STK(1);
+    Term _h_1 = r0;
+    WL_OPEN
+    r0 = _h_1;
+    r1 = _t_9;
+    r2 = _t_10;
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_step_k184)
+    WL_POPN(2);
+    Term _t_13 = STK(0);
+    Term _t_14 = STK(1);
+    Term _h_2 = r0;
+    WL_OPEN
+    r0 = _h_2;
+    r1 = _t_13;
+    r2 = _t_14;
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_step_k185)
+    WL_POPN(2);
+    Term _t_17 = STK(0);
+    Term _t_18 = STK(1);
+    Term _h_3 = r0;
+    WL_OPEN
+    r0 = _h_3;
+    r1 = _t_17;
+    r2 = _t_18;
+    WL_RETN(3);
   }}
 #endif
 
@@ -2582,12 +6681,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_wire_value_k33;
+        STK(1) = FID_wire_value_k191;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_value_k33, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_value_k191, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_wire_value_k33, _t_0);
+        WL_CONT = term_tsk(FID_wire_value_k191, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -2599,7 +6698,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_value_k33)
+  WL_CASE(FID_wire_value_k191)
     WL_POPN(1);
     Term _f_2 = STK(0);
     Term _h_0 = r0;
@@ -2610,16 +6709,404 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_0)
+  WL_CASE(FID_replace_lt)
+    Term _xs_0 = r0;
+    Term _ys_0 = r1;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_xs_0) == CID_Nil) {
+      if (term_aux(_ys_0) == CID_Nil) {
+        r0 = 0;
+        WL_RETN(1);
+      } else {
+        Term _fb_0[2];
+        u64 _sp_0 = ctr_take(e, _ys_0, 2, _fb_0);
+        Term _f_0 = _fb_0[0];
+        Term _f_1 = _fb_0[1];
+        term_sink(e, _f_1);
+        spare_free(e, cls_fit(2), _sp_0);
+        r0 = 1;
+        WL_RETN(1);
+      }
+    } else {
+      Term _fb_1[2];
+      u64 _sp_1 = ctr_take(e, _xs_0, 2, _fb_1);
+      Term _f_2 = _fb_1[0];
+      Term _f_3 = _fb_1[1];
+      if (term_aux(_ys_0) == CID_Nil) {
+        term_sink(e, _f_3);
+        spare_free(e, cls_fit(2), _sp_1);
+        r0 = 0;
+        WL_RETN(1);
+      } else {
+        Term _fb_2[2];
+        u64 _sp_2 = ctr_take(e, _ys_0, 2, _fb_2);
+        Term _f_4 = _fb_2[0];
+        Term _f_5 = _fb_2[1];
+        spare_free(e, cls_fit(2), _sp_2);
+        spare_free(e, cls_fit(2), _sp_1);
+        if (seq) {
+          WL_ROOM(3, 0);
+          STK(0) = _f_2;
+          STK(1) = _f_4;
+          STK(2) = FID_replace_lt_k201;
+          WL_PUSHN(3);
+        } else {
+          u64 _t_0 = task_node(e, FID_replace_lt_k201, WL_CONT, WL_IDX, 1);
+          e.mem[_t_0 + 0] = _f_2;
+          e.mem[_t_0 + 1] = _f_4;
+          WL_CONT = term_tsk(FID_replace_lt_k201, _t_0);
+          WL_IDX = 2;
+        }
+        r0 = _f_3;
+        r1 = _f_5;
+        _xs_0 = r0;
+        _ys_0 = r1;
+        WL_AGAIN(FID_replace_lt);
+      }
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_lt_k201)
+    WL_POPN(2);
+    Term _f_6 = STK(0);
+    Term _f_7 = STK(1);
+    u32 _h_0 = r0;
+    WL_OPEN
+    Term _o_1[1];
+    if (spin_66(e, _o_1, _f_6, _f_7, _h_0) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_1[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(2, 0);
+      STK(0) = _s_0;
+      STK(1) = FID_replace_rank_k204;
+      WL_PUSHN(2);
+    } else {
+      u64 _t_0 = task_node(e, FID_replace_rank_k204, WL_CONT, WL_IDX, 1);
+      e.mem[_t_0 + 0] = _s_0;
+      WL_CONT = term_tsk(FID_replace_rank_k204, _t_0);
+      WL_IDX = 1;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_String_length)) {
+      u64 _t_1 = task_node(e, FID_String_length, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_String_length, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_String_length);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank_k204)
+    WL_POPN(1);
+    Term _s_1 = STK(0);
+    Term _h_0 = r0;
+    WL_OPEN
+    u32 _v_0 = 0;
+    Term _o_0[1];
+    if (spin_21(e, _o_0, _h_0, 64ull) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_0[0];
+    if (_v_0 == 1) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _s_1;
+        STK(1) = FID_replace_rank_k205;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_2 = task_node(e, FID_replace_rank_k205, WL_CONT, WL_IDX, 1);
+        e.mem[_t_2 + 0] = _s_1;
+        WL_CONT = term_tsk(FID_replace_rank_k205, _t_2);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_replace_core)) {
+        u64 _t_3 = task_node(e, FID_replace_core, WL_CONT, WL_IDX, 0);
+        e.mem[_t_3 + 0] = _s_1;
+        return term_tsk(FID_replace_core, _t_3);
+      }
+      r0 = _s_1;
+      WL_JMP(FID_replace_core);
+    } else {
+      term_sink(e, _s_1);
+      r0 = term_pak(CID_Nil, 0);
+      WL_RETN(1);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank_k205)
+    WL_POPN(1);
+    Term _s_2 = STK(0);
+    Term _h_1 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(2, 0);
+      STK(0) = _s_2;
+      STK(1) = FID_replace_rank_k206;
+      WL_PUSHN(2);
+    } else {
+      u64 _t_4 = task_node(e, FID_replace_rank_k206, WL_CONT, WL_IDX, 1);
+      e.mem[_t_4 + 0] = _s_2;
+      WL_CONT = term_tsk(FID_replace_rank_k206, _t_4);
+      WL_IDX = 1;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_semver_Sym_list)) {
+      u64 _t_5 = task_node(e, FID_semver_Sym_list, WL_CONT, WL_IDX, 0);
+      e.mem[_t_5 + 0] = _h_1;
+      return term_tsk(FID_semver_Sym_list, _t_5);
+    }
+    r0 = _h_1;
+    WL_JMP(FID_semver_Sym_list);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank_k206)
+    WL_POPN(1);
+    Term _s_3 = STK(0);
+    Term _h_2 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(2, 0);
+      STK(0) = _h_2;
+      STK(1) = FID_replace_rank_k207;
+      WL_PUSHN(2);
+    } else {
+      u64 _t_6 = task_node(e, FID_replace_rank_k207, WL_CONT, WL_IDX, 1);
+      e.mem[_t_6 + 0] = _h_2;
+      WL_CONT = term_tsk(FID_replace_rank_k207, _t_6);
+      WL_IDX = 1;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_replace_tier)) {
+      u64 _t_7 = task_node(e, FID_replace_tier, WL_CONT, WL_IDX, 0);
+      e.mem[_t_7 + 0] = _s_3;
+      return term_tsk(FID_replace_tier, _t_7);
+    }
+    r0 = _s_3;
+    WL_JMP(FID_replace_tier);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank_k207)
+    WL_POPN(1);
+    Term _h_4 = STK(0);
+    Term _h_3 = r0;
+    WL_OPEN
+    u32 _v_1 = 0;
+    Term _v_2 = 0;
+    Term _o_1[2];
+    if (spin_54(e, _o_1, _h_4, term_pak(CID_Nil, 0), term_pak(CID_Nil, 0)) == 0) {
+      return 0;
+    }
+    _v_1 = (u32)_o_1[0];
+    _v_2 = _o_1[1];
+    if (_v_1 == 0) {
+      r0 = term_pak(CID_Nil, 0);
+      WL_RETN(1);
+    } else {
+      if (term_aux(_v_2) == CID_Nil) {
+        r0 = term_pak(CID_Nil, 0);
+        WL_RETN(1);
+      } else {
+        Term _fb_0[2];
+        u64 _sp_0 = ctr_take(e, _v_2, 2, _fb_0);
+        Term _f_0 = _fb_0[0];
+        Term _f_1 = _fb_0[1];
+        if (term_aux(_f_1) == CID_Nil) {
+          term_sink(e, _f_0);
+          spare_free(e, cls_fit(2), _sp_0);
+          r0 = term_pak(CID_Nil, 0);
+          WL_RETN(1);
+        } else {
+          Term _fb_1[2];
+          u64 _sp_1 = ctr_take(e, _f_1, 2, _fb_1);
+          Term _f_2 = _fb_1[0];
+          Term _f_3 = _fb_1[1];
+          if (term_aux(_f_3) == CID_Nil) {
+            term_sink(e, _f_0);
+            term_sink(e, _f_2);
+            spare_free(e, cls_fit(2), _sp_1);
+            spare_free(e, cls_fit(2), _sp_0);
+            r0 = term_pak(CID_Nil, 0);
+            WL_RETN(1);
+          } else {
+            Term _fb_2[2];
+            u64 _sp_2 = ctr_take(e, _f_3, 2, _fb_2);
+            Term _f_4 = _fb_2[0];
+            Term _f_5 = _fb_2[1];
+            if (term_aux(_f_5) == CID_Nil) {
+              spare_free(e, cls_fit(2), _sp_2);
+              spare_free(e, cls_fit(2), _sp_1);
+              spare_free(e, cls_fit(2), _sp_0);
+              if (seq) {
+                WL_ROOM(4, 0);
+                STK(0) = _f_0;
+                STK(1) = _f_2;
+                STK(2) = _h_3;
+                STK(3) = FID_replace_rank_k208;
+                WL_PUSHN(4);
+              } else {
+                u64 _t_8 = task_node(e, FID_replace_rank_k208, WL_CONT, WL_IDX, 1);
+                e.mem[_t_8 + 0] = _f_0;
+                e.mem[_t_8 + 1] = _f_2;
+                e.mem[_t_8 + 2] = _h_3;
+                WL_CONT = term_tsk(FID_replace_rank_k208, _t_8);
+                WL_IDX = 3;
+              }
+              if (!DEVICE && !seq && fid_nofk(FID_replace_field)) {
+                u64 _t_9 = task_node(e, FID_replace_field, WL_CONT, WL_IDX, 0);
+                e.mem[_t_9 + 0] = _f_4;
+                return term_tsk(FID_replace_field, _t_9);
+              }
+              r0 = _f_4;
+              WL_JMP(FID_replace_field);
+            } else {
+              term_sink(e, _f_0);
+              term_sink(e, _f_2);
+              term_sink(e, _f_4);
+              Term _fb_3[2];
+              u64 _sp_3 = ctr_take(e, _f_5, 2, _fb_3);
+              Term _f_9 = _fb_3[0];
+              Term _f_10 = _fb_3[1];
+              term_sink(e, _f_9);
+              term_sink(e, _f_10);
+              spare_free(e, cls_fit(2), _sp_3);
+              spare_free(e, cls_fit(2), _sp_2);
+              spare_free(e, cls_fit(2), _sp_1);
+              spare_free(e, cls_fit(2), _sp_0);
+              r0 = term_pak(CID_Nil, 0);
+              WL_RETN(1);
+            }
+          }
+        }
+      }
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank_k208)
+    WL_POPN(3);
+    Term _f_6 = STK(0);
+    Term _f_7 = STK(1);
+    Term _h_7 = STK(2);
+    u32 _h_5 = r0;
+    Term _h_6 = r1;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(5, 0);
+      STK(0) = _f_6;
+      STK(1) = _h_7;
+      STK(2) = _h_5;
+      STK(3) = _h_6;
+      STK(4) = FID_replace_rank_k209;
+      WL_PUSHN(5);
+    } else {
+      u64 _t_10 = task_node(e, FID_replace_rank_k209, WL_CONT, WL_IDX, 1);
+      e.mem[_t_10 + 0] = _f_6;
+      e.mem[_t_10 + 1] = _h_7;
+      e.mem[_t_10 + 2] = _h_5;
+      e.mem[_t_10 + 3] = _h_6;
+      WL_CONT = term_tsk(FID_replace_rank_k209, _t_10);
+      WL_IDX = 4;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_replace_field)) {
+      u64 _t_11 = task_node(e, FID_replace_field, WL_CONT, WL_IDX, 0);
+      e.mem[_t_11 + 0] = _f_7;
+      return term_tsk(FID_replace_field, _t_11);
+    }
+    r0 = _f_7;
+    WL_JMP(FID_replace_field);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank_k209)
+    WL_POPN(4);
+    Term _f_8 = STK(0);
+    Term _h_10 = STK(1);
+    u32 _h_11 = STK(2);
+    Term _h_12 = STK(3);
+    u32 _h_8 = r0;
+    Term _h_9 = r1;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(6, 0);
+      STK(0) = _h_10;
+      STK(1) = _h_11;
+      STK(2) = _h_12;
+      STK(3) = _h_8;
+      STK(4) = _h_9;
+      STK(5) = FID_replace_rank_k210;
+      WL_PUSHN(6);
+    } else {
+      u64 _t_12 = task_node(e, FID_replace_rank_k210, WL_CONT, WL_IDX, 1);
+      e.mem[_t_12 + 0] = _h_10;
+      e.mem[_t_12 + 1] = _h_11;
+      e.mem[_t_12 + 2] = _h_12;
+      e.mem[_t_12 + 3] = _h_8;
+      e.mem[_t_12 + 4] = _h_9;
+      WL_CONT = term_tsk(FID_replace_rank_k210, _t_12);
+      WL_IDX = 5;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_replace_field)) {
+      u64 _t_13 = task_node(e, FID_replace_field, WL_CONT, WL_IDX, 0);
+      e.mem[_t_13 + 0] = _f_8;
+      return term_tsk(FID_replace_field, _t_13);
+    }
+    r0 = _f_8;
+    WL_JMP(FID_replace_field);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_replace_rank_k210)
+    WL_POPN(5);
+    Term _h_15 = STK(0);
+    u32 _h_16 = STK(1);
+    Term _h_17 = STK(2);
+    u32 _h_18 = STK(3);
+    Term _h_19 = STK(4);
+    u32 _h_13 = r0;
+    Term _h_14 = r1;
+    WL_OPEN
+    Term _o_2[1];
+    if (spin_42(e, _o_2, _h_16, _h_17, _h_18, _h_19, _h_13, _h_14, _h_15) == 0) {
+      return 0;
+    }
+    r0 = _o_2[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_2)
     Term _s_0 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_list_0_k37;
+      STK(0) = FID_wire_get_list_2_k214;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_list_0_k37, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_list_0_k37, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_list_2_k214, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_list_2_k214, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -2633,7 +7120,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_0_k37)
+  WL_CASE(FID_wire_get_list_2_k214)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -2649,12 +7136,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _m_0;
-          STK(1) = FID_wire_get_list_0_k38;
+          STK(1) = FID_wire_get_list_2_k215;
           WL_PUSHN(2);
         } else {
-          u64 _t_2 = task_node(e, FID_wire_get_list_0_k38, WL_CONT, WL_IDX, 1);
+          u64 _t_2 = task_node(e, FID_wire_get_list_2_k215, WL_CONT, WL_IDX, 1);
           e.mem[_t_2 + 0] = _m_0;
-          WL_CONT = term_tsk(FID_wire_get_list_0_k38, _t_2);
+          WL_CONT = term_tsk(FID_wire_get_list_2_k215, _t_2);
           WL_IDX = 1;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -2675,26 +7162,316 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_0_k38)
+  WL_CASE(FID_wire_get_list_2_k215)
     WL_POPN(1);
     Term _m_1 = STK(0);
     u32 _h_3 = r0;
     Term _h_4 = r1;
     Term _h_5 = r2;
     WL_OPEN
-    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_0)) {
-      u64 _t_4 = task_node(e, FID_wire_get_list_go_0, WL_CONT, WL_IDX, 0);
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_2)) {
+      u64 _t_4 = task_node(e, FID_wire_get_list_go_2, WL_CONT, WL_IDX, 0);
       e.mem[_t_4 + 0] = _m_1;
       e.mem[_t_4 + 1] = _h_3;
       e.mem[_t_4 + 2] = _h_4;
       e.mem[_t_4 + 3] = _h_5;
-      return term_tsk(FID_wire_get_list_go_0, _t_4);
+      return term_tsk(FID_wire_get_list_go_2, _t_4);
     }
     r0 = _m_1;
     r1 = _h_3;
     r2 = _h_4;
     r3 = _h_5;
-    WL_JMP(FID_wire_get_list_go_0);
+    WL_JMP(FID_wire_get_list_go_2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_tx)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_screen_get_tx_k224;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_screen_get_tx_k224, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_screen_get_tx_k224, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_0)) {
+      u64 _t_1 = task_node(e, FID_wire_get_list_0, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_list_0, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_list_0);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_tx_k224)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_1;
+        STK(1) = FID_ffi_screen_get_tx_k225;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_2 = task_node(e, FID_ffi_screen_get_tx_k225, WL_CONT, WL_IDX, 1);
+        e.mem[_t_2 + 0] = _h_1;
+        WL_CONT = term_tsk(FID_ffi_screen_get_tx_k225, _t_2);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_3 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_3 + 0] = _h_2;
+        return term_tsk(FID_wire_get_nat, _t_3);
+      }
+      r0 = _h_2;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      WL_RETN(5);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_tx_k225)
+    WL_POPN(1);
+    Term _h_6 = STK(0);
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    if (_h_3 == 0) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _h_6;
+        STK(1) = _h_4;
+        STK(2) = FID_ffi_screen_get_tx_k226;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_4 = task_node(e, FID_ffi_screen_get_tx_k226, WL_CONT, WL_IDX, 1);
+        e.mem[_t_4 + 0] = _h_6;
+        e.mem[_t_4 + 1] = _h_4;
+        WL_CONT = term_tsk(FID_ffi_screen_get_tx_k226, _t_4);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_5 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_5 + 0] = _h_5;
+        return term_tsk(FID_wire_get_nat, _t_5);
+      }
+      r0 = _h_5;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      term_sink(e, _h_6);
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      WL_RETN(5);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_tx_k226)
+    WL_POPN(2);
+    Term _h_10 = STK(0);
+    Term _h_11 = STK(1);
+    u32 _h_7 = r0;
+    Term _h_8 = r1;
+    Term _h_9 = r2;
+    WL_OPEN
+    Term _o_0[5];
+    if (spin_45(e, _o_0, _h_10, _h_11, _h_7, _h_8, _h_9) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = _o_0[1];
+    r2 = _o_0[2];
+    r3 = _o_0[3];
+    r4 = _o_0[4];
+    WL_RETN(5);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_vstack)
+    Term _hs_0 = r0;
+    Term _y_0 = r1;
+    Term _rows_0 = r2;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_hs_0) == CID_Nil) {
+      r0 = term_pak(CID_Nil, 0);
+      WL_RETN(1);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _hs_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(4, 0);
+        STK(0) = _f_0;
+        STK(1) = _y_0;
+        STK(2) = _rows_0;
+        STK(3) = FID_screen_vstack_k230;
+        WL_PUSHN(4);
+      } else {
+        u64 _t_0 = task_node(e, FID_screen_vstack_k230, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_0;
+        e.mem[_t_0 + 1] = _y_0;
+        e.mem[_t_0 + 2] = _rows_0;
+        WL_CONT = term_tsk(FID_screen_vstack_k230, _t_0);
+        WL_IDX = 3;
+      }
+      r0 = _f_1;
+      r1 = nat_chk(e, _y_0 + _f_0);
+      r2 = _rows_0;
+      _hs_0 = r0;
+      _y_0 = r1;
+      _rows_0 = r2;
+      WL_AGAIN(FID_screen_vstack);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_vstack_k230)
+    WL_POPN(3);
+    Term _f_2 = STK(0);
+    Term _y_1 = STK(1);
+    Term _rows_1 = STK(2);
+    Term _h_0 = r0;
+    WL_OPEN
+    Term _a_0 = (_rows_1 < _y_1 ? 0 : _rows_1 - _y_1);
+    u64 _nd_0 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_0 + 0] = rfc_seal(e, _y_1);
+    e.mem[_nd_0 + 1] = rfc_seal(e, (_f_2 < _a_0 ? _f_2 : _a_0));
+    u64 _nd_1 = heap_alloc(e, cls_fit(2));
+    e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_screen_Rect, _nd_0));
+    e.mem[_nd_1 + 1] = rfc_seal(e, _h_0);
+    r0 = term_ctr(CID_Con, _nd_1);
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_run)
+    Term _es_0 = r0;
+    Term _t_0 = r1;
+    Term _t_1 = r2;
+    Term _t_2 = r3;
+    WL_OPEN
+    if (term_aux(_es_0) == CID_Nil) {
+      r0 = _t_0;
+      r1 = _t_1;
+      r2 = _t_2;
+      WL_RETN(3);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _es_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      u32 _o_0 = 0;
+      Term _o_1 = 0;
+      Term _o_2 = 0;
+      if (term_aux(_f_0) == CID_screen_Open) {
+        _o_0 = 0;
+      } else if (term_aux(_f_0) == CID_screen_Grow) {
+        _o_0 = 1;
+        Term _fb_1[2];
+        u64 _sp_1 = ctr_take(e, _f_0, 2, _fb_1);
+        Term _f_2 = _fb_1[0];
+        Term _f_3 = _fb_1[1];
+        spare_free(e, cls_fit(2), _sp_1);
+        _o_1 = _f_2;
+        _o_2 = _f_3;
+      } else if (term_aux(_f_0) == CID_screen_Fin) {
+        _o_0 = 2;
+        Term _fb_2[1];
+        u64 _sp_2 = ctr_take(e, _f_0, 1, _fb_2);
+        Term _f_4 = _fb_2[0];
+        spare_free(e, cls_fit(1), _sp_2);
+        _o_1 = _f_4;
+      } else if (term_aux(_f_0) == CID_screen_Flush) {
+        _o_0 = 3;
+      } else {
+        _o_0 = 4;
+        Term _fb_3[1];
+        u64 _sp_3 = ctr_take(e, _f_0, 1, _fb_3);
+        Term _f_5 = _fb_3[0];
+        spare_free(e, cls_fit(1), _sp_3);
+        _o_1 = _f_5;
+      }
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _f_1;
+        STK(1) = FID_screen_run_k236;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_3 = task_node(e, FID_screen_run_k236, WL_CONT, WL_IDX, 1);
+        e.mem[_t_3 + 0] = _f_1;
+        WL_CONT = term_tsk(FID_screen_run_k236, _t_3);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_screen_step)) {
+        u64 _t_4 = task_node(e, FID_screen_step, WL_CONT, WL_IDX, 0);
+        e.mem[_t_4 + 0] = _t_0;
+        e.mem[_t_4 + 1] = _t_1;
+        e.mem[_t_4 + 2] = _t_2;
+        e.mem[_t_4 + 3] = _o_0;
+        e.mem[_t_4 + 4] = _o_1;
+        e.mem[_t_4 + 5] = _o_2;
+        return term_tsk(FID_screen_step, _t_4);
+      }
+      r0 = _t_0;
+      r1 = _t_1;
+      r2 = _t_2;
+      r3 = _o_0;
+      r4 = _o_1;
+      r5 = _o_2;
+      WL_JMP(FID_screen_step);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_screen_run_k236)
+    WL_POPN(1);
+    Term _f_6 = STK(0);
+    Term _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (!DEVICE && !seq && fid_nofk(FID_screen_run)) {
+      u64 _t_5 = task_node(e, FID_screen_run, WL_CONT, WL_IDX, 0);
+      e.mem[_t_5 + 0] = _f_6;
+      e.mem[_t_5 + 1] = _h_0;
+      e.mem[_t_5 + 2] = _h_1;
+      e.mem[_t_5 + 3] = _h_2;
+      return term_tsk(FID_screen_run, _t_5);
+    }
+    r0 = _f_6;
+    r1 = _h_0;
+    r2 = _h_1;
+    r3 = _h_2;
+    WL_JMP(FID_screen_run);
   }}
 #endif
 
@@ -2720,14 +7497,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _f_0;
         STK(1) = _x_0;
         STK(2) = _i_0;
-        STK(3) = FID_wire_cdig_go_k45;
+        STK(3) = FID_wire_cdig_go_k241;
         WL_PUSHN(4);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_cdig_go_k45, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_cdig_go_k241, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
         e.mem[_t_0 + 1] = _x_0;
         e.mem[_t_0 + 2] = _i_0;
-        WL_CONT = term_tsk(FID_wire_cdig_go_k45, _t_0);
+        WL_CONT = term_tsk(FID_wire_cdig_go_k241, _t_0);
         WL_IDX = 3;
       }
       r0 = _f_1;
@@ -2743,7 +7520,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_cdig_go_k45)
+  WL_CASE(FID_wire_cdig_go_k241)
     WL_POPN(3);
     u32 _f_2 = STK(0);
     u32 _x_1 = STK(1);
@@ -2752,7 +7529,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_1 = r1;
     WL_OPEN
     Term _o_0[2];
-    if (spin_17(e, _o_0, U32_BIN(_x_1, ==, _f_2), _h_0, _h_1, _i_1) == 0) {
+    if (spin_69(e, _o_0, U32_BIN(_x_1, ==, _f_2), _h_0, _h_1, _i_1) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -2791,14 +7568,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           STK(0) = _j_0;
           STK(1) = _ts_1;
           STK(2) = _ds_0;
-          STK(3) = FID_wire_get_nat_go_k48;
+          STK(3) = FID_wire_get_nat_go_k244;
           WL_PUSHN(4);
         } else {
-          u64 _t_1 = task_node(e, FID_wire_get_nat_go_k48, WL_CONT, WL_IDX, 1);
+          u64 _t_1 = task_node(e, FID_wire_get_nat_go_k244, WL_CONT, WL_IDX, 1);
           e.mem[_t_1 + 0] = _j_0;
           e.mem[_t_1 + 1] = _ts_1;
           e.mem[_t_1 + 2] = _ds_0;
-          WL_CONT = term_tsk(FID_wire_get_nat_go_k48, _t_1);
+          WL_CONT = term_tsk(FID_wire_get_nat_go_k244, _t_1);
           WL_IDX = 3;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_peek)) {
@@ -2812,12 +7589,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _ts_2;
-          STK(1) = FID_wire_get_nat_go_k49;
+          STK(1) = FID_wire_get_nat_go_k245;
           WL_PUSHN(2);
         } else {
-          u64 _t_4 = task_node(e, FID_wire_get_nat_go_k49, WL_CONT, WL_IDX, 1);
+          u64 _t_4 = task_node(e, FID_wire_get_nat_go_k245, WL_CONT, WL_IDX, 1);
           e.mem[_t_4 + 0] = _ts_2;
-          WL_CONT = term_tsk(FID_wire_get_nat_go_k49, _t_4);
+          WL_CONT = term_tsk(FID_wire_get_nat_go_k245, _t_4);
           WL_IDX = 1;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_value)) {
@@ -2840,7 +7617,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_go_k48)
+  WL_CASE(FID_wire_get_nat_go_k244)
     WL_POPN(3);
     Term _j_1 = STK(0);
     Term _ts_3 = STK(1);
@@ -2850,8 +7627,8 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_2 = r2;
     WL_OPEN
     u64 _nd_0 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_0 + 0] = _ts_3;
-    e.mem[_nd_0 + 1] = _ds_1;
+    e.mem[_nd_0 + 0] = rfc_seal(e, _ts_3);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _ds_1);
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat_go)) {
       u64 _t_3 = task_node(e, FID_wire_get_nat_go, WL_CONT, WL_IDX, 0);
       e.mem[_t_3 + 0] = _j_1;
@@ -2871,7 +7648,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_go_k49)
+  WL_CASE(FID_wire_get_nat_go_k245)
     WL_POPN(1);
     Term _ts_4 = STK(0);
     Term _h_3 = r0;
@@ -2901,12 +7678,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _ts_2;
-        STK(1) = FID_wire_get_nat_end_k51;
+        STK(1) = FID_wire_get_nat_end_k247;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_get_nat_end_k51, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_get_nat_end_k247, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _ts_2;
-        WL_CONT = term_tsk(FID_wire_get_nat_end_k51, _t_0);
+        WL_CONT = term_tsk(FID_wire_get_nat_end_k247, _t_0);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_value)) {
@@ -2928,7 +7705,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_end_k51)
+  WL_CASE(FID_wire_get_nat_end_k247)
     WL_POPN(1);
     Term _ts_3 = STK(0);
     Term _h_0 = r0;
@@ -2946,11 +7723,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_str_k56;
+      STK(0) = FID_wire_get_str_k259;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_str_k56, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_str_k56, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_str_k259, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_str_k259, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -2964,7 +7741,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_str_k56)
+  WL_CASE(FID_wire_get_str_k259)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -2989,6 +7766,150 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
+  WL_CASE(FID_ffi_replace_relation)
+    Term _c_0 = r0;
+    Term _d_0 = r1;
+    u32 _same_0 = r2;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(3, 0);
+      STK(0) = _d_0;
+      STK(1) = _same_0;
+      STK(2) = FID_ffi_replace_relation_k265;
+      WL_PUSHN(3);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_replace_relation_k265, WL_CONT, WL_IDX, 1);
+      e.mem[_t_0 + 0] = _d_0;
+      e.mem[_t_0 + 1] = _same_0;
+      WL_CONT = term_tsk(FID_ffi_replace_relation_k265, _t_0);
+      WL_IDX = 2;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_replace_rank)) {
+      u64 _t_1 = task_node(e, FID_replace_rank, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _c_0;
+      return term_tsk(FID_replace_rank, _t_1);
+    }
+    r0 = _c_0;
+    WL_JMP(FID_replace_rank);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_relation_k265)
+    WL_POPN(2);
+    Term _d_1 = STK(0);
+    u32 _same_1 = STK(1);
+    Term _rc_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(3, 0);
+      STK(0) = _same_1;
+      STK(1) = _rc_0;
+      STK(2) = FID_ffi_replace_relation_k266;
+      WL_PUSHN(3);
+    } else {
+      u64 _t_2 = task_node(e, FID_ffi_replace_relation_k266, WL_CONT, WL_IDX, 1);
+      e.mem[_t_2 + 0] = _same_1;
+      e.mem[_t_2 + 1] = _rc_0;
+      WL_CONT = term_tsk(FID_ffi_replace_relation_k266, _t_2);
+      WL_IDX = 2;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_replace_rank)) {
+      u64 _t_3 = task_node(e, FID_replace_rank, WL_CONT, WL_IDX, 0);
+      e.mem[_t_3 + 0] = _d_1;
+      return term_tsk(FID_replace_rank, _t_3);
+    }
+    r0 = _d_1;
+    WL_JMP(FID_replace_rank);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_relation_k266)
+    WL_POPN(2);
+    u32 _same_2 = STK(0);
+    Term _rc_1 = STK(1);
+    Term _rd_0 = r0;
+    WL_OPEN
+    _rd_0 = term_keep(e, _rd_0, 1);
+    _rc_1 = term_keep(e, _rc_1, 1);
+    if (seq) {
+      WL_ROOM(4, 0);
+      STK(0) = _same_2;
+      STK(1) = _rc_1;
+      STK(2) = _rd_0;
+      STK(3) = FID_ffi_replace_relation_k267;
+      WL_PUSHN(4);
+    } else {
+      u64 _t_4 = task_node(e, FID_ffi_replace_relation_k267, WL_CONT, WL_IDX, 1);
+      e.mem[_t_4 + 0] = _same_2;
+      e.mem[_t_4 + 1] = _rc_1;
+      e.mem[_t_4 + 2] = _rd_0;
+      WL_CONT = term_tsk(FID_ffi_replace_relation_k267, _t_4);
+      WL_IDX = 3;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_replace_lt)) {
+      u64 _t_5 = task_node(e, FID_replace_lt, WL_CONT, WL_IDX, 0);
+      e.mem[_t_5 + 0] = _rd_0;
+      e.mem[_t_5 + 1] = _rc_1;
+      return term_tsk(FID_replace_lt, _t_5);
+    }
+    r0 = _rd_0;
+    r1 = _rc_1;
+    WL_JMP(FID_replace_lt);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_relation_k267)
+    WL_POPN(3);
+    u32 _same_3 = STK(0);
+    Term _rc_2 = STK(1);
+    Term _rd_1 = STK(2);
+    u32 _h_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(3, 0);
+      STK(0) = _same_3;
+      STK(1) = _h_0;
+      STK(2) = FID_ffi_replace_relation_k268;
+      WL_PUSHN(3);
+    } else {
+      u64 _t_6 = task_node(e, FID_ffi_replace_relation_k268, WL_CONT, WL_IDX, 1);
+      e.mem[_t_6 + 0] = _same_3;
+      e.mem[_t_6 + 1] = _h_0;
+      WL_CONT = term_tsk(FID_ffi_replace_relation_k268, _t_6);
+      WL_IDX = 2;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_replace_lt)) {
+      u64 _t_7 = task_node(e, FID_replace_lt, WL_CONT, WL_IDX, 0);
+      e.mem[_t_7 + 0] = _rc_2;
+      e.mem[_t_7 + 1] = _rd_1;
+      return term_tsk(FID_replace_lt, _t_7);
+    }
+    r0 = _rc_2;
+    r1 = _rd_1;
+    WL_JMP(FID_replace_lt);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_relation_k268)
+    WL_POPN(2);
+    u32 _same_4 = STK(0);
+    u32 _h_2 = STK(1);
+    u32 _h_1 = r0;
+    WL_OPEN
+    Term _o_0[1];
+    if (spin_73(e, _o_0, _same_4, _h_2, _h_1) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
   WL_CASE(FID_U32_show_go)
     Term _f_0 = r0;
     u32 _n_0 = r1;
@@ -3008,8 +7929,8 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         Term _a_0 = 10ull;
         Term _a_1 = 10ull;
         u64 _nd_0 = heap_alloc(e, cls_fit(2));
-        e.mem[_nd_0 + 0] = U32_BIN(48ull, +, ((u32)(_a_1) == 0 ? _n_0 : U32_BIN(_n_0, -, U32_QUO((u32)(_n_0), (u32)(_a_1)) * _a_1)));
-        e.mem[_nd_0 + 1] = _acc_0;
+        e.mem[_nd_0 + 0] = rfc_seal(e, U32_BIN(48ull, +, ((u32)(_a_1) == 0 ? _n_0 : U32_BIN(_n_0, -, U32_QUO((u32)(_n_0), (u32)(_a_1)) * _a_1))));
+        e.mem[_nd_0 + 1] = rfc_seal(e, _acc_0);
         r0 = _g_0;
         r1 = ((u32)(_a_0) == 0 ? 0 : (u64)U32_QUO((u32)(_n_0), (u32)(_a_0)));
         r2 = term_ctr(CID_SCon, _nd_0);
@@ -3030,12 +7951,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _c_0;
-      STK(1) = FID_wire_tok_k64;
+      STK(1) = FID_wire_tok_k288;
       WL_PUSHN(2);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_tok_k64, WL_CONT, WL_IDX, 1);
+      u64 _t_0 = task_node(e, FID_wire_tok_k288, WL_CONT, WL_IDX, 1);
       e.mem[_t_0 + 0] = _c_0;
-      WL_CONT = term_tsk(FID_wire_tok_k64, _t_0);
+      WL_CONT = term_tsk(FID_wire_tok_k288, _t_0);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_cdig_go)) {
@@ -3053,14 +7974,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_tok_k64)
+  WL_CASE(FID_wire_tok_k288)
     WL_POPN(1);
     u32 _c_1 = STK(0);
     u32 _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[2];
-    if (spin_22(e, _o_1, _h_0, _h_1, U32_BIN(_c_1, ==, 44ull)) == 0) {
+    if (spin_77(e, _o_1, _h_0, _h_1, U32_BIN(_c_1, ==, 44ull)) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -3079,15 +8000,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_SPIN
     if (_dq_1 == 0) {
       u64 _nd_0 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_0 + 0] = _dq_0;
-      e.mem[_nd_0 + 1] = _acc_0;
+      e.mem[_nd_0 + 0] = rfc_seal(e, _dq_0);
+      e.mem[_nd_0 + 1] = rfc_seal(e, _acc_0);
       r0 = term_ctr(CID_SCon, _nd_0);
       WL_RETN(1);
     } else {
       Term _p_0 = (_dq_1 - 1);
       u64 _nd_1 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_1 + 0] = _dq_0;
-      e.mem[_nd_1 + 1] = _acc_0;
+      e.mem[_nd_1 + 0] = rfc_seal(e, _dq_0);
+      e.mem[_nd_1 + 1] = rfc_seal(e, _acc_0);
       if (_g_0 == 0) {
         Term _n_0 = nat_chk(e, _p_0 + 1);
         Term _acc_1 = term_ctr(CID_SCon, _nd_1);
@@ -3103,7 +8024,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         Term _a_1 = (_a_0 == 0 ? 0 : _n_1 / _a_0);
         Term _a_2 = (_a_0 == 0 ? _n_1 : _n_1 % _a_0);
         Term _o_0[2];
-        if (spin_21(e, _o_0, _a_1, _a_2) == 0) {
+        if (spin_74(e, _o_0, _a_1, _a_2) == 0) {
           return 0;
         }
         _v_0 = (u32)_o_0[0];
@@ -3141,12 +8062,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_1;
-        STK(1) = FID_wire_peek_k77;
+        STK(1) = FID_wire_peek_k326;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_peek_k77, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_peek_k326, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_1;
-        WL_CONT = term_tsk(FID_wire_peek_k77, _t_0);
+        WL_CONT = term_tsk(FID_wire_peek_k326, _t_0);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_tok)) {
@@ -3161,7 +8082,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_peek_k77)
+  WL_CASE(FID_wire_peek_k326)
     WL_POPN(1);
     Term _f_2 = STK(0);
     u32 _h_0 = r0;
@@ -3180,11 +8101,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_u32_k82;
+      STK(0) = FID_wire_get_u32_k331;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_u32_k82, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_u32_k82, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_u32_k331, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_u32_k331, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -3198,13 +8119,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_u32_k82)
+  WL_CASE(FID_wire_get_u32_k331)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
     WL_OPEN
     Term _o_2[3];
-    if (spin_26(e, _o_2, _h_0, _h_1, _h_2) == 0) {
+    if (spin_81(e, _o_2, _h_0, _h_1, _h_2) == 0) {
       return 0;
     }
     r0 = (u32)_o_2[0];
@@ -3220,7 +8141,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _s_0 = U32_BIN(_a_0, ==, 0);
     if (_s_0 == 1) {
-      r0 = term_ctr(CID_SCon, STAT_OFF + 66);
+      r0 = term_ctr(CID_SCon, STAT_OFF + 68);
       WL_RETN(1);
     } else {
       if (!DEVICE && !seq && fid_nofk(FID_U32_show_go)) {
@@ -3248,7 +8169,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _a_1 = (_a_0 == 0 ? 0 : _n_0 / _a_0);
     Term _a_2 = (_a_0 == 0 ? _n_0 : _n_0 % _a_0);
     Term _o_0[2];
-    if (spin_21(e, _o_0, _a_1, _a_2) == 0) {
+    if (spin_74(e, _o_0, _a_1, _a_2) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_0[0];
@@ -3287,12 +8208,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _f_0;
-        STK(1) = FID_String_append_k91;
+        STK(1) = FID_String_append_k350;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_String_append_k91, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_String_append_k350, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_0;
-        WL_CONT = term_tsk(FID_String_append_k91, _t_0);
+        WL_CONT = term_tsk(FID_String_append_k350, _t_0);
         WL_IDX = 1;
       }
       r0 = _f_1;
@@ -3306,16 +8227,461 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_String_append_k91)
+  WL_CASE(FID_String_append_k350)
     WL_POPN(1);
     u32 _f_2 = STK(0);
     Term _h_0 = r0;
     WL_OPEN
     u64 _nd_0 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_0 + 0] = _f_2;
-    e.mem[_nd_0 + 1] = _h_0;
+    e.mem[_nd_0 + 0] = rfc_seal(e, _f_2);
+    e.mem[_nd_0 + 1] = rfc_seal(e, _h_0);
     r0 = term_ctr(CID_SCon, _nd_0);
     WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_screen_get_req_k352;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_screen_get_req_k352, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_screen_get_req_k352, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k352)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_screen_get_req_k353;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_2 = task_node(e, FID_ffi_screen_get_req_k353, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_screen_get_req_k353, _t_2);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_tx)) {
+          u64 _t_3 = task_node(e, FID_ffi_screen_get_tx, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_ffi_screen_get_tx, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_ffi_screen_get_tx);
+      } else if (_h_1 == 1) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_screen_get_req_k355;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_6 = task_node(e, FID_ffi_screen_get_req_k355, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_screen_get_req_k355, _t_6);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+          u64 _t_7 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+          e.mem[_t_7 + 0] = _h_2;
+          return term_tsk(FID_wire_get_nat, _t_7);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_nat);
+      } else if (_h_1 == 2) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_screen_get_req_k359;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_14 = task_node(e, FID_ffi_screen_get_req_k359, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_screen_get_req_k359, _t_14);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_2)) {
+          u64 _t_15 = task_node(e, FID_wire_get_list_2, WL_CONT, WL_IDX, 0);
+          e.mem[_t_15 + 0] = _h_2;
+          return term_tsk(FID_wire_get_list_2, _t_15);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_list_2);
+      } else {
+        Term _c_0 = (_h_1 - 3);
+        term_sink(e, _h_2);
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        r3 = 0;
+        r4 = 0;
+        r5 = 0;
+        r6 = 0;
+        r7 = 0;
+        WL_RETN(8);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      WL_RETN(8);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k353)
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    Term _h_5 = r2;
+    Term _h_6 = r3;
+    Term _h_7 = r4;
+    WL_OPEN
+    if (_h_3 == 0) {
+      if (seq) {
+        WL_ROOM(4, 0);
+        STK(0) = _h_4;
+        STK(1) = _h_5;
+        STK(2) = _h_6;
+        STK(3) = FID_ffi_screen_get_req_k354;
+        WL_PUSHN(4);
+      } else {
+        u64 _t_4 = task_node(e, FID_ffi_screen_get_req_k354, WL_CONT, WL_IDX, 1);
+        e.mem[_t_4 + 0] = _h_4;
+        e.mem[_t_4 + 1] = _h_5;
+        e.mem[_t_4 + 2] = _h_6;
+        WL_CONT = term_tsk(FID_ffi_screen_get_req_k354, _t_4);
+        WL_IDX = 3;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_1)) {
+        u64 _t_5 = task_node(e, FID_wire_get_list_1, WL_CONT, WL_IDX, 0);
+        e.mem[_t_5 + 0] = _h_7;
+        return term_tsk(FID_wire_get_list_1, _t_5);
+      }
+      r0 = _h_7;
+      WL_JMP(FID_wire_get_list_1);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      WL_RETN(8);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k354)
+    WL_POPN(3);
+    Term _h_11 = STK(0);
+    Term _h_12 = STK(1);
+    Term _h_13 = STK(2);
+    u32 _h_8 = r0;
+    Term _h_9 = r1;
+    Term _h_10 = r2;
+    WL_OPEN
+    Term _o_0[8];
+    if (spin_67(e, _o_0, _h_11, _h_12, _h_13, _h_8, _h_9, _h_10) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = (u32)_o_0[1];
+    r2 = _o_0[2];
+    r3 = _o_0[3];
+    r4 = _o_0[4];
+    r5 = _o_0[5];
+    r6 = _o_0[6];
+    r7 = _o_0[7];
+    WL_RETN(8);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k355)
+    u32 _h_14 = r0;
+    Term _h_15 = r1;
+    Term _h_16 = r2;
+    WL_OPEN
+    if (_h_14 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_15;
+        STK(1) = FID_ffi_screen_get_req_k356;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_8 = task_node(e, FID_ffi_screen_get_req_k356, WL_CONT, WL_IDX, 1);
+        e.mem[_t_8 + 0] = _h_15;
+        WL_CONT = term_tsk(FID_ffi_screen_get_req_k356, _t_8);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_9 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_9 + 0] = _h_16;
+        return term_tsk(FID_wire_get_nat, _t_9);
+      }
+      r0 = _h_16;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      WL_RETN(8);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k356)
+    WL_POPN(1);
+    Term _h_20 = STK(0);
+    u32 _h_17 = r0;
+    Term _h_18 = r1;
+    Term _h_19 = r2;
+    WL_OPEN
+    if (_h_17 == 0) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _h_20;
+        STK(1) = _h_18;
+        STK(2) = FID_ffi_screen_get_req_k357;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_10 = task_node(e, FID_ffi_screen_get_req_k357, WL_CONT, WL_IDX, 1);
+        e.mem[_t_10 + 0] = _h_20;
+        e.mem[_t_10 + 1] = _h_18;
+        WL_CONT = term_tsk(FID_ffi_screen_get_req_k357, _t_10);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_pace)) {
+        u64 _t_11 = task_node(e, FID_ffi_screen_get_pace, WL_CONT, WL_IDX, 0);
+        e.mem[_t_11 + 0] = _h_19;
+        return term_tsk(FID_ffi_screen_get_pace, _t_11);
+      }
+      r0 = _h_19;
+      WL_JMP(FID_ffi_screen_get_pace);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      WL_RETN(8);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k357)
+    WL_POPN(2);
+    Term _h_25 = STK(0);
+    Term _h_26 = STK(1);
+    u32 _h_21 = r0;
+    Term _h_22 = r1;
+    Term _h_23 = r2;
+    Term _h_24 = r3;
+    WL_OPEN
+    if (_h_21 == 0) {
+      if (seq) {
+        WL_ROOM(5, 0);
+        STK(0) = _h_25;
+        STK(1) = _h_26;
+        STK(2) = _h_22;
+        STK(3) = _h_23;
+        STK(4) = FID_ffi_screen_get_req_k358;
+        WL_PUSHN(5);
+      } else {
+        u64 _t_12 = task_node(e, FID_ffi_screen_get_req_k358, WL_CONT, WL_IDX, 1);
+        e.mem[_t_12 + 0] = _h_25;
+        e.mem[_t_12 + 1] = _h_26;
+        e.mem[_t_12 + 2] = _h_22;
+        e.mem[_t_12 + 3] = _h_23;
+        WL_CONT = term_tsk(FID_ffi_screen_get_req_k358, _t_12);
+        WL_IDX = 4;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_13 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_13 + 0] = _h_24;
+        return term_tsk(FID_wire_get_nat, _t_13);
+      }
+      r0 = _h_24;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      WL_RETN(8);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k358)
+    WL_POPN(4);
+    Term _h_30 = STK(0);
+    Term _h_31 = STK(1);
+    Term _h_32 = STK(2);
+    Term _h_33 = STK(3);
+    u32 _h_27 = r0;
+    Term _h_28 = r1;
+    Term _h_29 = r2;
+    WL_OPEN
+    Term _o_1[8];
+    if (spin_44(e, _o_1, _h_30, _h_31, _h_32, _h_33, _h_27, _h_28, _h_29) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_1[0];
+    r1 = (u32)_o_1[1];
+    r2 = _o_1[2];
+    r3 = _o_1[3];
+    r4 = _o_1[4];
+    r5 = _o_1[5];
+    r6 = _o_1[6];
+    r7 = _o_1[7];
+    WL_RETN(8);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k359)
+    u32 _h_34 = r0;
+    Term _h_35 = r1;
+    Term _h_36 = r2;
+    WL_OPEN
+    if (_h_34 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_35;
+        STK(1) = FID_ffi_screen_get_req_k360;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_16 = task_node(e, FID_ffi_screen_get_req_k360, WL_CONT, WL_IDX, 1);
+        e.mem[_t_16 + 0] = _h_35;
+        WL_CONT = term_tsk(FID_ffi_screen_get_req_k360, _t_16);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_17 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_17 + 0] = _h_36;
+        return term_tsk(FID_wire_get_nat, _t_17);
+      }
+      r0 = _h_36;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      WL_RETN(8);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k360)
+    WL_POPN(1);
+    Term _h_40 = STK(0);
+    u32 _h_37 = r0;
+    Term _h_38 = r1;
+    Term _h_39 = r2;
+    WL_OPEN
+    if (_h_37 == 0) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _h_40;
+        STK(1) = _h_38;
+        STK(2) = FID_ffi_screen_get_req_k361;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_18 = task_node(e, FID_ffi_screen_get_req_k361, WL_CONT, WL_IDX, 1);
+        e.mem[_t_18 + 0] = _h_40;
+        e.mem[_t_18 + 1] = _h_38;
+        WL_CONT = term_tsk(FID_ffi_screen_get_req_k361, _t_18);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_19 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_19 + 0] = _h_39;
+        return term_tsk(FID_wire_get_nat, _t_19);
+      }
+      r0 = _h_39;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      term_sink(e, _h_40);
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      WL_RETN(8);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_screen_get_req_k361)
+    WL_POPN(2);
+    Term _h_44 = STK(0);
+    Term _h_45 = STK(1);
+    u32 _h_41 = r0;
+    Term _h_42 = r1;
+    Term _h_43 = r2;
+    WL_OPEN
+    Term _o_2[8];
+    if (spin_55(e, _o_2, _h_44, _h_45, _h_41, _h_42, _h_43) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_2[0];
+    r1 = (u32)_o_2[1];
+    r2 = _o_2[2];
+    r3 = _o_2[3];
+    r4 = _o_2[4];
+    r5 = _o_2[5];
+    r6 = _o_2[6];
+    r7 = _o_2[7];
+    WL_RETN(8);
   }}
 #endif
 
@@ -3325,11 +8691,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_nat_k93;
+      STK(0) = FID_wire_get_nat_k368;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_nat_k93, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_nat_k93, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_nat_k368, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_nat_k368, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_peek)) {
@@ -3343,7 +8709,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_k93)
+  WL_CASE(FID_wire_get_nat_k368)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -3352,12 +8718,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_1;
-        STK(1) = FID_wire_get_nat_k94;
+        STK(1) = FID_wire_get_nat_k369;
         WL_PUSHN(2);
       } else {
-        u64 _t_2 = task_node(e, FID_wire_get_nat_k94, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_wire_get_nat_k369, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_wire_get_nat_k94, _t_2);
+        WL_CONT = term_tsk(FID_wire_get_nat_k369, _t_2);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_peek)) {
@@ -3384,7 +8750,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_nat_k94)
+  WL_CASE(FID_wire_get_nat_k369)
     WL_POPN(1);
     Term _h_6 = STK(0);
     u32 _h_3 = r0;
@@ -3397,19 +8763,19 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         e.mem[_t_4 + 0] = _h_3;
         e.mem[_t_4 + 1] = _h_4;
         e.mem[_t_4 + 2] = _h_5;
-        e.mem[_t_4 + 3] = term_ctr(CID_Con, STAT_OFF + 64);
+        e.mem[_t_4 + 3] = term_ctr(CID_Con, STAT_OFF + 66);
         return term_tsk(FID_wire_get_nat_end, _t_4);
       }
       r0 = _h_3;
       r1 = _h_4;
       r2 = _h_5;
-      r3 = term_ctr(CID_Con, STAT_OFF + 64);
+      r3 = term_ctr(CID_Con, STAT_OFF + 66);
       WL_JMP(FID_wire_get_nat_end);
     } else {
       Term _p_0 = (_h_6 - 1);
       u64 _nd_0 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_0 + 0] = nat_chk(e, _p_0 + 1);
-      e.mem[_nd_0 + 1] = term_pak(CID_Nil, 0);
+      e.mem[_nd_0 + 0] = rfc_seal(e, nat_chk(e, _p_0 + 1));
+      e.mem[_nd_0 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat_go)) {
         u64 _t_5 = task_node(e, FID_wire_get_nat_go, WL_CONT, WL_IDX, 0);
         e.mem[_t_5 + 0] = 13ull;
@@ -3430,6 +8796,287 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
+  WL_CASE(FID_ffi_replace_get_req)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_replace_get_req_k377;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_replace_get_req_k377, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_replace_get_req_k377, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_req_k377)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_replace_get_req_k378;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_2 = task_node(e, FID_ffi_replace_get_req_k378, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_replace_get_req_k378, _t_2);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_str)) {
+          u64 _t_3 = task_node(e, FID_wire_get_str, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_wire_get_str, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_str);
+      } else if (_h_1 == 1) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_replace_get_req_k380;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_6 = task_node(e, FID_ffi_replace_get_req_k380, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_replace_get_req_k380, _t_6);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_str)) {
+          u64 _t_7 = task_node(e, FID_wire_get_str, WL_CONT, WL_IDX, 0);
+          e.mem[_t_7 + 0] = _h_2;
+          return term_tsk(FID_wire_get_str, _t_7);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_str);
+      } else {
+        Term _b_0 = (_h_1 - 2);
+        term_sink(e, _h_2);
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        r3 = 0;
+        r4 = 0;
+        r5 = 0;
+        r6 = 0;
+        WL_RETN(7);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      WL_RETN(7);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_req_k378)
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    if (_h_3 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_4;
+        STK(1) = FID_ffi_replace_get_req_k379;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_4 = task_node(e, FID_ffi_replace_get_req_k379, WL_CONT, WL_IDX, 1);
+        e.mem[_t_4 + 0] = _h_4;
+        WL_CONT = term_tsk(FID_ffi_replace_get_req_k379, _t_4);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_str)) {
+        u64 _t_5 = task_node(e, FID_wire_get_str, WL_CONT, WL_IDX, 0);
+        e.mem[_t_5 + 0] = _h_5;
+        return term_tsk(FID_wire_get_str, _t_5);
+      }
+      r0 = _h_5;
+      WL_JMP(FID_wire_get_str);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      WL_RETN(7);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_req_k379)
+    WL_POPN(1);
+    Term _h_9 = STK(0);
+    u32 _h_6 = r0;
+    Term _h_7 = r1;
+    Term _h_8 = r2;
+    WL_OPEN
+    Term _o_0[7];
+    if (spin_71(e, _o_0, _h_9, _h_6, _h_7, _h_8) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = (u32)_o_0[1];
+    r2 = _o_0[2];
+    r3 = _o_0[3];
+    r4 = (u32)_o_0[4];
+    r5 = (u32)_o_0[5];
+    r6 = _o_0[6];
+    WL_RETN(7);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_req_k380)
+    u32 _h_10 = r0;
+    Term _h_11 = r1;
+    Term _h_12 = r2;
+    WL_OPEN
+    if (_h_10 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_11;
+        STK(1) = FID_ffi_replace_get_req_k381;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_8 = task_node(e, FID_ffi_replace_get_req_k381, WL_CONT, WL_IDX, 1);
+        e.mem[_t_8 + 0] = _h_11;
+        WL_CONT = term_tsk(FID_ffi_replace_get_req_k381, _t_8);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_str)) {
+        u64 _t_9 = task_node(e, FID_wire_get_str, WL_CONT, WL_IDX, 0);
+        e.mem[_t_9 + 0] = _h_12;
+        return term_tsk(FID_wire_get_str, _t_9);
+      }
+      r0 = _h_12;
+      WL_JMP(FID_wire_get_str);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      WL_RETN(7);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_req_k381)
+    WL_POPN(1);
+    Term _h_16 = STK(0);
+    u32 _h_13 = r0;
+    Term _h_14 = r1;
+    Term _h_15 = r2;
+    WL_OPEN
+    if (_h_13 == 0) {
+      u32 _v_0 = 0;
+      u32 _v_1 = 0;
+      Term _v_2 = 0;
+      Term _o_1[3];
+      if (spin_62(e, _o_1, _h_15) == 0) {
+        return 0;
+      }
+      _v_0 = (u32)_o_1[0];
+      _v_1 = (u32)_o_1[1];
+      _v_2 = _o_1[2];
+      if (_v_0 == 0) {
+        if (seq) {
+          WL_ROOM(4, 0);
+          STK(0) = _h_16;
+          STK(1) = _h_14;
+          STK(2) = _v_1;
+          STK(3) = FID_ffi_replace_get_req_k382;
+          WL_PUSHN(4);
+        } else {
+          u64 _t_10 = task_node(e, FID_ffi_replace_get_req_k382, WL_CONT, WL_IDX, 1);
+          e.mem[_t_10 + 0] = _h_16;
+          e.mem[_t_10 + 1] = _h_14;
+          e.mem[_t_10 + 2] = _v_1;
+          WL_CONT = term_tsk(FID_ffi_replace_get_req_k382, _t_10);
+          WL_IDX = 3;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_replace_get_caller)) {
+          u64 _t_11 = task_node(e, FID_ffi_replace_get_caller, WL_CONT, WL_IDX, 0);
+          e.mem[_t_11 + 0] = _v_2;
+          return term_tsk(FID_ffi_replace_get_caller, _t_11);
+        }
+        r0 = _v_2;
+        WL_JMP(FID_ffi_replace_get_caller);
+      } else {
+        term_sink(e, _h_16);
+        term_sink(e, _h_14);
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        r3 = 0;
+        r4 = 0;
+        r5 = 0;
+        r6 = 0;
+        WL_RETN(7);
+      }
+    } else {
+      term_sink(e, _h_16);
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      WL_RETN(7);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_replace_get_req_k382)
+    WL_POPN(3);
+    Term _h_20 = STK(0);
+    Term _h_21 = STK(1);
+    u32 _v_3 = STK(2);
+    u32 _h_17 = r0;
+    u32 _h_18 = r1;
+    Term _h_19 = r2;
+    WL_OPEN
+    Term _o_2[7];
+    if (spin_51(e, _o_2, _h_20, _h_21, _v_3, _h_17, _h_18, _h_19) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_2[0];
+    r1 = (u32)_o_2[1];
+    r2 = _o_2[2];
+    r3 = _o_2[3];
+    r4 = (u32)_o_2[4];
+    r5 = (u32)_o_2[5];
+    r6 = _o_2[6];
+    WL_RETN(7);
+  }}
+#endif
+
+#if !DEVICE
   WL_CASE(FID_ffi_echo_step)
     u32 _s_0 = r0;
     Term _s_1 = r1;
@@ -3442,14 +9089,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _s_1;
         STK(1) = _s_2;
         STK(2) = _input_0;
-        STK(3) = FID_ffi_echo_step_k104;
+        STK(3) = FID_ffi_echo_step_k389;
         WL_PUSHN(4);
       } else {
-        u64 _t_0 = task_node(e, FID_ffi_echo_step_k104, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_ffi_echo_step_k389, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _s_1;
         e.mem[_t_0 + 1] = _s_2;
         e.mem[_t_0 + 2] = _input_0;
-        WL_CONT = term_tsk(FID_ffi_echo_step_k104, _t_0);
+        WL_CONT = term_tsk(FID_ffi_echo_step_k389, _t_0);
         WL_IDX = 3;
       }
       if (!DEVICE && !seq && fid_nofk(FID_Nat_show)) {
@@ -3464,14 +9111,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       r0 = 1;
       r1 = 0;
       r2 = 0;
-      r3 = term_ctr(CID_SCon, STAT_OFF + 188);
+      r3 = term_ctr(CID_SCon, STAT_OFF + 298);
       WL_RETN(4);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_step_k104)
+  WL_CASE(FID_ffi_echo_step_k389)
     WL_POPN(3);
     Term _s_3 = STK(0);
     Term _s_4 = STK(1);
@@ -3483,30 +9130,30 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(0) = _s_3;
       STK(1) = _input_1;
       STK(2) = _h_0;
-      STK(3) = FID_ffi_echo_step_k105;
+      STK(3) = FID_ffi_echo_step_k390;
       WL_PUSHN(4);
     } else {
-      u64 _t_2 = task_node(e, FID_ffi_echo_step_k105, WL_CONT, WL_IDX, 1);
+      u64 _t_2 = task_node(e, FID_ffi_echo_step_k390, WL_CONT, WL_IDX, 1);
       e.mem[_t_2 + 0] = _s_3;
       e.mem[_t_2 + 1] = _input_1;
       e.mem[_t_2 + 2] = _h_0;
-      WL_CONT = term_tsk(FID_ffi_echo_step_k105, _t_2);
+      WL_CONT = term_tsk(FID_ffi_echo_step_k390, _t_2);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_String_append)) {
       u64 _t_3 = task_node(e, FID_String_append, WL_CONT, WL_IDX, 0);
-      e.mem[_t_3 + 0] = term_ctr(CID_SCon, STAT_OFF + 132);
+      e.mem[_t_3 + 0] = term_ctr(CID_SCon, STAT_OFF + 242);
       e.mem[_t_3 + 1] = _s_4;
       return term_tsk(FID_String_append, _t_3);
     }
-    r0 = term_ctr(CID_SCon, STAT_OFF + 132);
+    r0 = term_ctr(CID_SCon, STAT_OFF + 242);
     r1 = _s_4;
     WL_JMP(FID_String_append);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_step_k105)
+  WL_CASE(FID_ffi_echo_step_k390)
     WL_POPN(3);
     Term _s_5 = STK(0);
     Term _input_2 = STK(1);
@@ -3517,13 +9164,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       WL_ROOM(3, 0);
       STK(0) = _s_5;
       STK(1) = _input_2;
-      STK(2) = FID_ffi_echo_step_k106;
+      STK(2) = FID_ffi_echo_step_k391;
       WL_PUSHN(3);
     } else {
-      u64 _t_4 = task_node(e, FID_ffi_echo_step_k106, WL_CONT, WL_IDX, 1);
+      u64 _t_4 = task_node(e, FID_ffi_echo_step_k391, WL_CONT, WL_IDX, 1);
       e.mem[_t_4 + 0] = _s_5;
       e.mem[_t_4 + 1] = _input_2;
-      WL_CONT = term_tsk(FID_ffi_echo_step_k106, _t_4);
+      WL_CONT = term_tsk(FID_ffi_echo_step_k391, _t_4);
       WL_IDX = 2;
     }
     if (!DEVICE && !seq && fid_nofk(FID_String_append)) {
@@ -3539,7 +9186,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_step_k106)
+  WL_CASE(FID_ffi_echo_step_k391)
     WL_POPN(2);
     Term _s_6 = STK(0);
     Term _input_3 = STK(1);
@@ -3559,11 +9206,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_echo_open_k118;
+      STK(0) = FID_ffi_echo_open_k413;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_echo_open_k118, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_echo_open_k118, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_echo_open_k413, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_echo_open_k413, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_U32_read)) {
@@ -3577,7 +9224,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_open_k118)
+  WL_CASE(FID_ffi_echo_open_k413)
     u32 _h_0 = r0;
     u32 _h_1 = r1;
     WL_OPEN
@@ -3585,12 +9232,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_1;
-        STK(1) = FID_ffi_echo_open_k119;
+        STK(1) = FID_ffi_echo_open_k414;
         WL_PUSHN(2);
       } else {
-        u64 _t_2 = task_node(e, FID_ffi_echo_open_k119, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_ffi_echo_open_k414, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_ffi_echo_open_k119, _t_2);
+        WL_CONT = term_tsk(FID_ffi_echo_open_k414, _t_2);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_U32_show)) {
@@ -3604,14 +9251,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       r0 = 1;
       r1 = 0;
       r2 = 0;
-      r3 = term_ctr(CID_SCon, STAT_OFF + 130);
+      r3 = term_ctr(CID_SCon, STAT_OFF + 240);
       WL_RETN(4);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_echo_open_k119)
+  WL_CASE(FID_ffi_echo_open_k414)
     WL_POPN(1);
     u32 _h_3 = STK(0);
     Term _h_2 = r0;
@@ -3635,11 +9282,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (_state_0 == 0) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_step_go_k122;
+        STK(0) = FID_step_go_k417;
         WL_PUSHN(1);
       } else {
-        u64 _t_0 = task_node(e, FID_step_go_k122, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_step_go_k122, _t_0);
+        u64 _t_0 = task_node(e, FID_step_go_k417, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_step_go_k417, _t_0);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_echo_step)) {
@@ -3661,21 +9308,21 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       r1 = 0;
       r2 = 0;
       r3 = 0;
-      r4 = term_ctr(CID_SCon, STAT_OFF + 218);
+      r4 = term_ctr(CID_SCon, STAT_OFF + 328);
       WL_RETN(5);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_step_go_k122)
+  WL_CASE(FID_step_go_k417)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
     Term _h_3 = r3;
     WL_OPEN
     Term _o_0[5];
-    if (spin_28(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
+    if (spin_84(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -3694,312 +9341,294 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (_entry_0 == 0) {
       Term _o_0[1];
-      if (spin_29(e, _o_0, _input_0) == 0) {
+      if (spin_85(e, _o_0, _input_0) == 0) {
         return 0;
       }
       r0 = _o_0[0];
       WL_RETN(1);
-    } else if ((_entry_0 & 1) == 0) {
-      u32 _10_0 = ((_entry_0 >> 1) & 1);
-      u32 _11_0 = ((_entry_0 >> 2) & 1);
-      u32 _11_1 = ((_entry_0 >> 3) & 1);
-      u32 _11_2 = ((_entry_0 >> 4) & 1);
-      u32 _11_3 = ((_entry_0 >> 5) & 1);
-      u32 _11_4 = ((_entry_0 >> 6) & 1);
-      u32 _11_5 = ((_entry_0 >> 7) & 1);
-      u32 _11_6 = ((_entry_0 >> 8) & 1);
-      u32 _11_7 = ((_entry_0 >> 9) & 1);
-      u32 _11_8 = ((_entry_0 >> 10) & 1);
-      u32 _11_9 = ((_entry_0 >> 11) & 1);
-      u32 _11_10 = ((_entry_0 >> 12) & 1);
-      u32 _11_11 = ((_entry_0 >> 13) & 1);
-      u32 _11_12 = ((_entry_0 >> 14) & 1);
-      u32 _11_13 = ((_entry_0 >> 15) & 1);
-      u32 _11_14 = ((_entry_0 >> 16) & 1);
-      u32 _11_15 = ((_entry_0 >> 17) & 1);
-      u32 _11_16 = ((_entry_0 >> 18) & 1);
-      u32 _11_17 = ((_entry_0 >> 19) & 1);
-      u32 _11_18 = ((_entry_0 >> 20) & 1);
-      u32 _11_19 = ((_entry_0 >> 21) & 1);
-      u32 _11_20 = ((_entry_0 >> 22) & 1);
-      u32 _11_21 = ((_entry_0 >> 23) & 1);
-      u32 _11_22 = ((_entry_0 >> 24) & 1);
-      u32 _11_23 = ((_entry_0 >> 25) & 1);
-      u32 _11_24 = ((_entry_0 >> 26) & 1);
-      u32 _11_25 = ((_entry_0 >> 27) & 1);
-      u32 _11_26 = ((_entry_0 >> 28) & 1);
-      u32 _11_27 = ((_entry_0 >> 29) & 1);
-      u32 _11_28 = ((_entry_0 >> 30) & 1);
-      u32 _11_29 = ((_entry_0 >> 31) & 1);
+    } else if ((_entry_0 & 3) == 0) {
+      u32 _12_0 = ((_entry_0 >> 2) & 1);
+      u32 _13_0 = ((_entry_0 >> 3) & 1);
+      u32 _13_1 = ((_entry_0 >> 4) & 1);
+      u32 _13_2 = ((_entry_0 >> 5) & 1);
+      u32 _13_3 = ((_entry_0 >> 6) & 1);
+      u32 _13_4 = ((_entry_0 >> 7) & 1);
+      u32 _13_5 = ((_entry_0 >> 8) & 1);
+      u32 _13_6 = ((_entry_0 >> 9) & 1);
+      u32 _13_7 = ((_entry_0 >> 10) & 1);
+      u32 _13_8 = ((_entry_0 >> 11) & 1);
+      u32 _13_9 = ((_entry_0 >> 12) & 1);
+      u32 _13_10 = ((_entry_0 >> 13) & 1);
+      u32 _13_11 = ((_entry_0 >> 14) & 1);
+      u32 _13_12 = ((_entry_0 >> 15) & 1);
+      u32 _13_13 = ((_entry_0 >> 16) & 1);
+      u32 _13_14 = ((_entry_0 >> 17) & 1);
+      u32 _13_15 = ((_entry_0 >> 18) & 1);
+      u32 _13_16 = ((_entry_0 >> 19) & 1);
+      u32 _13_17 = ((_entry_0 >> 20) & 1);
+      u32 _13_18 = ((_entry_0 >> 21) & 1);
+      u32 _13_19 = ((_entry_0 >> 22) & 1);
+      u32 _13_20 = ((_entry_0 >> 23) & 1);
+      u32 _13_21 = ((_entry_0 >> 24) & 1);
+      u32 _13_22 = ((_entry_0 >> 25) & 1);
+      u32 _13_23 = ((_entry_0 >> 26) & 1);
+      u32 _13_24 = ((_entry_0 >> 27) & 1);
+      u32 _13_25 = ((_entry_0 >> 28) & 1);
+      u32 _13_26 = ((_entry_0 >> 29) & 1);
+      u32 _13_27 = ((_entry_0 >> 30) & 1);
+      u32 _13_28 = ((_entry_0 >> 31) & 1);
       term_sink(e, _input_0);
       Term _o_1[1];
-      if (spin_16(e, _o_1, term_ctr(CID_SCon, STAT_OFF + 214)) == 0) {
+      if (spin_61(e, _o_1, term_ctr(CID_SCon, STAT_OFF + 324)) == 0) {
         return 0;
       }
       r0 = _o_1[0];
       WL_RETN(1);
-    } else if (_entry_0 == 1) {
+    } else if (_entry_0 == 2) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_ffi_go_k125;
+        STK(0) = FID_ffi_go_k420;
         WL_PUSHN(1);
       } else {
-        u64 _t_0 = task_node(e, FID_ffi_go_k125, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_ffi_go_k125, _t_0);
+        u64 _t_0 = task_node(e, FID_ffi_go_k420, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_go_k420, _t_0);
         WL_IDX = 0;
       }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-        u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      if (!DEVICE && !seq && fid_nofk(FID_ffi_replace_get_req)) {
+        u64 _t_1 = task_node(e, FID_ffi_replace_get_req, WL_CONT, WL_IDX, 0);
         e.mem[_t_1 + 0] = _input_0;
-        return term_tsk(FID_wire_get_nat, _t_1);
+        return term_tsk(FID_ffi_replace_get_req, _t_1);
       }
       r0 = _input_0;
-      WL_JMP(FID_wire_get_nat);
-    } else {
-      u32 _72_0 = ((_entry_0 >> 1) & 1);
-      u32 _73_0 = ((_entry_0 >> 2) & 1);
-      u32 _73_1 = ((_entry_0 >> 3) & 1);
-      u32 _73_2 = ((_entry_0 >> 4) & 1);
-      u32 _73_3 = ((_entry_0 >> 5) & 1);
-      u32 _73_4 = ((_entry_0 >> 6) & 1);
-      u32 _73_5 = ((_entry_0 >> 7) & 1);
-      u32 _73_6 = ((_entry_0 >> 8) & 1);
-      u32 _73_7 = ((_entry_0 >> 9) & 1);
-      u32 _73_8 = ((_entry_0 >> 10) & 1);
-      u32 _73_9 = ((_entry_0 >> 11) & 1);
-      u32 _73_10 = ((_entry_0 >> 12) & 1);
-      u32 _73_11 = ((_entry_0 >> 13) & 1);
-      u32 _73_12 = ((_entry_0 >> 14) & 1);
-      u32 _73_13 = ((_entry_0 >> 15) & 1);
-      u32 _73_14 = ((_entry_0 >> 16) & 1);
-      u32 _73_15 = ((_entry_0 >> 17) & 1);
-      u32 _73_16 = ((_entry_0 >> 18) & 1);
-      u32 _73_17 = ((_entry_0 >> 19) & 1);
-      u32 _73_18 = ((_entry_0 >> 20) & 1);
-      u32 _73_19 = ((_entry_0 >> 21) & 1);
-      u32 _73_20 = ((_entry_0 >> 22) & 1);
-      u32 _73_21 = ((_entry_0 >> 23) & 1);
-      u32 _73_22 = ((_entry_0 >> 24) & 1);
-      u32 _73_23 = ((_entry_0 >> 25) & 1);
-      u32 _73_24 = ((_entry_0 >> 26) & 1);
-      u32 _73_25 = ((_entry_0 >> 27) & 1);
-      u32 _73_26 = ((_entry_0 >> 28) & 1);
-      u32 _73_27 = ((_entry_0 >> 29) & 1);
-      u32 _73_28 = ((_entry_0 >> 30) & 1);
-      u32 _73_29 = ((_entry_0 >> 31) & 1);
+      WL_JMP(FID_ffi_replace_get_req);
+    } else if ((_entry_0 & 3) == 2) {
+      u32 _72_0 = ((_entry_0 >> 2) & 1);
+      u32 _73_0 = ((_entry_0 >> 3) & 1);
+      u32 _73_1 = ((_entry_0 >> 4) & 1);
+      u32 _73_2 = ((_entry_0 >> 5) & 1);
+      u32 _73_3 = ((_entry_0 >> 6) & 1);
+      u32 _73_4 = ((_entry_0 >> 7) & 1);
+      u32 _73_5 = ((_entry_0 >> 8) & 1);
+      u32 _73_6 = ((_entry_0 >> 9) & 1);
+      u32 _73_7 = ((_entry_0 >> 10) & 1);
+      u32 _73_8 = ((_entry_0 >> 11) & 1);
+      u32 _73_9 = ((_entry_0 >> 12) & 1);
+      u32 _73_10 = ((_entry_0 >> 13) & 1);
+      u32 _73_11 = ((_entry_0 >> 14) & 1);
+      u32 _73_12 = ((_entry_0 >> 15) & 1);
+      u32 _73_13 = ((_entry_0 >> 16) & 1);
+      u32 _73_14 = ((_entry_0 >> 17) & 1);
+      u32 _73_15 = ((_entry_0 >> 18) & 1);
+      u32 _73_16 = ((_entry_0 >> 19) & 1);
+      u32 _73_17 = ((_entry_0 >> 20) & 1);
+      u32 _73_18 = ((_entry_0 >> 21) & 1);
+      u32 _73_19 = ((_entry_0 >> 22) & 1);
+      u32 _73_20 = ((_entry_0 >> 23) & 1);
+      u32 _73_21 = ((_entry_0 >> 24) & 1);
+      u32 _73_22 = ((_entry_0 >> 25) & 1);
+      u32 _73_23 = ((_entry_0 >> 26) & 1);
+      u32 _73_24 = ((_entry_0 >> 27) & 1);
+      u32 _73_25 = ((_entry_0 >> 28) & 1);
+      u32 _73_26 = ((_entry_0 >> 29) & 1);
+      u32 _73_27 = ((_entry_0 >> 30) & 1);
+      u32 _73_28 = ((_entry_0 >> 31) & 1);
       term_sink(e, _input_0);
-      Term _o_12[1];
-      if (spin_16(e, _o_12, term_ctr(CID_SCon, STAT_OFF + 214)) == 0) {
-        return 0;
-      }
-      r0 = _o_12[0];
-      WL_RETN(1);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_go_k125)
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    Term _h_2 = r2;
-    WL_OPEN
-    if (_h_0 == 0) {
-      if (seq) {
-        WL_ROOM(2, 0);
-        STK(0) = _h_1;
-        STK(1) = FID_ffi_go_k126;
-        WL_PUSHN(2);
-      } else {
-        u64 _t_2 = task_node(e, FID_ffi_go_k126, WL_CONT, WL_IDX, 1);
-        e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_ffi_go_k126, _t_2);
-        WL_IDX = 1;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_u32)) {
-        u64 _t_3 = task_node(e, FID_wire_get_u32, WL_CONT, WL_IDX, 0);
-        e.mem[_t_3 + 0] = _h_2;
-        return term_tsk(FID_wire_get_u32, _t_3);
-      }
-      r0 = _h_2;
-      WL_JMP(FID_wire_get_u32);
-    } else {
-      Term _o_11[1];
-      if (spin_15(e, _o_11) == 0) {
-        return 0;
-      }
-      r0 = _o_11[0];
-      WL_RETN(1);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_go_k126)
-    WL_POPN(1);
-    Term _h_6 = STK(0);
-    u32 _h_3 = r0;
-    u32 _h_4 = r1;
-    Term _h_5 = r2;
-    WL_OPEN
-    if (_h_3 == 0) {
-      u32 _v_0 = 0;
-      u32 _v_1 = 0;
-      Term _v_2 = 0;
-      Term _o_2[3];
-      if (spin_27(e, _o_2, _h_5) == 0) {
-        return 0;
-      }
-      _v_0 = (u32)_o_2[0];
-      _v_1 = (u32)_o_2[1];
-      _v_2 = _o_2[2];
-      if (_v_0 == 0) {
-        if (seq) {
-          WL_ROOM(4, 0);
-          STK(0) = _v_1;
-          STK(1) = _h_6;
-          STK(2) = _h_4;
-          STK(3) = FID_ffi_go_k127;
-          WL_PUSHN(4);
-        } else {
-          u64 _t_4 = task_node(e, FID_ffi_go_k127, WL_CONT, WL_IDX, 1);
-          e.mem[_t_4 + 0] = _v_1;
-          e.mem[_t_4 + 1] = _h_6;
-          e.mem[_t_4 + 2] = _h_4;
-          WL_CONT = term_tsk(FID_ffi_go_k127, _t_4);
-          WL_IDX = 3;
-        }
-        if (!DEVICE && !seq && fid_nofk(FID_wire_get_str)) {
-          u64 _t_5 = task_node(e, FID_wire_get_str, WL_CONT, WL_IDX, 0);
-          e.mem[_t_5 + 0] = _v_2;
-          return term_tsk(FID_wire_get_str, _t_5);
-        }
-        r0 = _v_2;
-        WL_JMP(FID_wire_get_str);
-      } else {
-        Term _o_9[1];
-        if (spin_15(e, _o_9) == 0) {
-          return 0;
-        }
-        r0 = _o_9[0];
-        WL_RETN(1);
-      }
-    } else {
-      Term _o_10[1];
-      if (spin_15(e, _o_10) == 0) {
-        return 0;
-      }
-      r0 = _o_10[0];
-      WL_RETN(1);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_go_k127)
-    WL_POPN(3);
-    u32 _v_3 = STK(0);
-    Term _h_10 = STK(1);
-    u32 _h_11 = STK(2);
-    u32 _h_7 = r0;
-    Term _h_8 = r1;
-    Term _h_9 = r2;
-    WL_OPEN
-    if (_h_7 == 0) {
-      if (seq) {
-        WL_ROOM(5, 0);
-        STK(0) = _h_8;
-        STK(1) = _h_10;
-        STK(2) = _h_11;
-        STK(3) = _v_3;
-        STK(4) = FID_ffi_go_k128;
-        WL_PUSHN(5);
-      } else {
-        u64 _t_6 = task_node(e, FID_ffi_go_k128, WL_CONT, WL_IDX, 1);
-        e.mem[_t_6 + 0] = _h_8;
-        e.mem[_t_6 + 1] = _h_10;
-        e.mem[_t_6 + 2] = _h_11;
-        e.mem[_t_6 + 3] = _v_3;
-        WL_CONT = term_tsk(FID_ffi_go_k128, _t_6);
-        WL_IDX = 4;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_0)) {
-        u64 _t_7 = task_node(e, FID_wire_get_list_0, WL_CONT, WL_IDX, 0);
-        e.mem[_t_7 + 0] = _h_9;
-        return term_tsk(FID_wire_get_list_0, _t_7);
-      }
-      r0 = _h_9;
-      WL_JMP(FID_wire_get_list_0);
-    } else {
       Term _o_8[1];
-      if (spin_15(e, _o_8) == 0) {
+      if (spin_61(e, _o_8, term_ctr(CID_SCon, STAT_OFF + 324)) == 0) {
         return 0;
       }
       r0 = _o_8[0];
       WL_RETN(1);
+    } else if (_entry_0 == 1) {
+      if (seq) {
+        WL_ROOM(1, 0);
+        STK(0) = FID_ffi_go_k423;
+        WL_PUSHN(1);
+      } else {
+        u64 _t_6 = task_node(e, FID_ffi_go_k423, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_go_k423, _t_6);
+        WL_IDX = 0;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_7 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_7 + 0] = _input_0;
+        return term_tsk(FID_wire_get_nat, _t_7);
+      }
+      r0 = _input_0;
+      WL_JMP(FID_wire_get_nat);
+    } else if ((_entry_0 & 3) == 1) {
+      u32 _134_0 = ((_entry_0 >> 2) & 1);
+      u32 _135_0 = ((_entry_0 >> 3) & 1);
+      u32 _135_1 = ((_entry_0 >> 4) & 1);
+      u32 _135_2 = ((_entry_0 >> 5) & 1);
+      u32 _135_3 = ((_entry_0 >> 6) & 1);
+      u32 _135_4 = ((_entry_0 >> 7) & 1);
+      u32 _135_5 = ((_entry_0 >> 8) & 1);
+      u32 _135_6 = ((_entry_0 >> 9) & 1);
+      u32 _135_7 = ((_entry_0 >> 10) & 1);
+      u32 _135_8 = ((_entry_0 >> 11) & 1);
+      u32 _135_9 = ((_entry_0 >> 12) & 1);
+      u32 _135_10 = ((_entry_0 >> 13) & 1);
+      u32 _135_11 = ((_entry_0 >> 14) & 1);
+      u32 _135_12 = ((_entry_0 >> 15) & 1);
+      u32 _135_13 = ((_entry_0 >> 16) & 1);
+      u32 _135_14 = ((_entry_0 >> 17) & 1);
+      u32 _135_15 = ((_entry_0 >> 18) & 1);
+      u32 _135_16 = ((_entry_0 >> 19) & 1);
+      u32 _135_17 = ((_entry_0 >> 20) & 1);
+      u32 _135_18 = ((_entry_0 >> 21) & 1);
+      u32 _135_19 = ((_entry_0 >> 22) & 1);
+      u32 _135_20 = ((_entry_0 >> 23) & 1);
+      u32 _135_21 = ((_entry_0 >> 24) & 1);
+      u32 _135_22 = ((_entry_0 >> 25) & 1);
+      u32 _135_23 = ((_entry_0 >> 26) & 1);
+      u32 _135_24 = ((_entry_0 >> 27) & 1);
+      u32 _135_25 = ((_entry_0 >> 28) & 1);
+      u32 _135_26 = ((_entry_0 >> 29) & 1);
+      u32 _135_27 = ((_entry_0 >> 30) & 1);
+      u32 _135_28 = ((_entry_0 >> 31) & 1);
+      term_sink(e, _input_0);
+      Term _o_19[1];
+      if (spin_61(e, _o_19, term_ctr(CID_SCon, STAT_OFF + 324)) == 0) {
+        return 0;
+      }
+      r0 = _o_19[0];
+      WL_RETN(1);
+    } else if (_entry_0 == 3) {
+      if (seq) {
+        WL_ROOM(1, 0);
+        STK(0) = FID_ffi_go_k429;
+        WL_PUSHN(1);
+      } else {
+        u64 _t_18 = task_node(e, FID_ffi_go_k429, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_go_k429, _t_18);
+        WL_IDX = 0;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_ffi_screen_get_req)) {
+        u64 _t_19 = task_node(e, FID_ffi_screen_get_req, WL_CONT, WL_IDX, 0);
+        e.mem[_t_19 + 0] = _input_0;
+        return term_tsk(FID_ffi_screen_get_req, _t_19);
+      }
+      r0 = _input_0;
+      WL_JMP(FID_ffi_screen_get_req);
+    } else {
+      u32 _194_0 = ((_entry_0 >> 2) & 1);
+      u32 _195_0 = ((_entry_0 >> 3) & 1);
+      u32 _195_1 = ((_entry_0 >> 4) & 1);
+      u32 _195_2 = ((_entry_0 >> 5) & 1);
+      u32 _195_3 = ((_entry_0 >> 6) & 1);
+      u32 _195_4 = ((_entry_0 >> 7) & 1);
+      u32 _195_5 = ((_entry_0 >> 8) & 1);
+      u32 _195_6 = ((_entry_0 >> 9) & 1);
+      u32 _195_7 = ((_entry_0 >> 10) & 1);
+      u32 _195_8 = ((_entry_0 >> 11) & 1);
+      u32 _195_9 = ((_entry_0 >> 12) & 1);
+      u32 _195_10 = ((_entry_0 >> 13) & 1);
+      u32 _195_11 = ((_entry_0 >> 14) & 1);
+      u32 _195_12 = ((_entry_0 >> 15) & 1);
+      u32 _195_13 = ((_entry_0 >> 16) & 1);
+      u32 _195_14 = ((_entry_0 >> 17) & 1);
+      u32 _195_15 = ((_entry_0 >> 18) & 1);
+      u32 _195_16 = ((_entry_0 >> 19) & 1);
+      u32 _195_17 = ((_entry_0 >> 20) & 1);
+      u32 _195_18 = ((_entry_0 >> 21) & 1);
+      u32 _195_19 = ((_entry_0 >> 22) & 1);
+      u32 _195_20 = ((_entry_0 >> 23) & 1);
+      u32 _195_21 = ((_entry_0 >> 24) & 1);
+      u32 _195_22 = ((_entry_0 >> 25) & 1);
+      u32 _195_23 = ((_entry_0 >> 26) & 1);
+      u32 _195_24 = ((_entry_0 >> 27) & 1);
+      u32 _195_25 = ((_entry_0 >> 28) & 1);
+      u32 _195_26 = ((_entry_0 >> 29) & 1);
+      u32 _195_27 = ((_entry_0 >> 30) & 1);
+      u32 _195_28 = ((_entry_0 >> 31) & 1);
+      term_sink(e, _input_0);
+      Term _o_29[1];
+      if (spin_61(e, _o_29, term_ctr(CID_SCon, STAT_OFF + 324)) == 0) {
+        return 0;
+      }
+      r0 = _o_29[0];
+      WL_RETN(1);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k128)
-    WL_POPN(4);
-    Term _h_15 = STK(0);
-    Term _h_16 = STK(1);
-    u32 _h_17 = STK(2);
-    u32 _v_4 = STK(3);
-    u32 _h_12 = r0;
-    Term _h_13 = r1;
-    Term _h_14 = r2;
+  WL_CASE(FID_ffi_go_k420)
+    u32 _h_0 = r0;
+    u32 _h_1 = r1;
+    Term _h_2 = r2;
+    Term _h_3 = r3;
+    u32 _h_4 = r4;
+    u32 _h_5 = r5;
+    Term _h_6 = r6;
     WL_OPEN
-    if (_h_12 == 0) {
-      if (term_aux(_h_14) == CID_SNil) {
-        if (seq) {
-          WL_ROOM(5, 0);
-          STK(0) = _h_16;
-          STK(1) = _h_17;
-          STK(2) = _v_4;
-          STK(3) = _h_15;
-          STK(4) = FID_ffi_go_k129;
-          WL_PUSHN(5);
+    if (_h_0 == 0) {
+      u32 _v_0 = 0;
+      Term _o_2[1];
+      if (spin_83(e, _o_2, _h_6) == 0) {
+        return 0;
+      }
+      _v_0 = (u32)_o_2[0];
+      if (_v_0 == 1) {
+        if (_h_1 == 0) {
+          if (seq) {
+            WL_ROOM(1, 0);
+            STK(0) = FID_ffi_go_k421;
+            WL_PUSHN(1);
+          } else {
+            u64 _t_2 = task_node(e, FID_ffi_go_k421, WL_CONT, WL_IDX, 1);
+            WL_CONT = term_tsk(FID_ffi_go_k421, _t_2);
+            WL_IDX = 0;
+          }
+          if (!DEVICE && !seq && fid_nofk(FID_ffi_replace_relation)) {
+            u64 _t_3 = task_node(e, FID_ffi_replace_relation, WL_CONT, WL_IDX, 0);
+            e.mem[_t_3 + 0] = _h_2;
+            e.mem[_t_3 + 1] = _h_3;
+            e.mem[_t_3 + 2] = _h_4;
+            return term_tsk(FID_ffi_replace_relation, _t_3);
+          }
+          r0 = _h_2;
+          r1 = _h_3;
+          r2 = _h_4;
+          WL_JMP(FID_ffi_replace_relation);
         } else {
-          u64 _t_8 = task_node(e, FID_ffi_go_k129, WL_CONT, WL_IDX, 1);
-          e.mem[_t_8 + 0] = _h_16;
-          e.mem[_t_8 + 1] = _h_17;
-          e.mem[_t_8 + 2] = _v_4;
-          e.mem[_t_8 + 3] = _h_15;
-          WL_CONT = term_tsk(FID_ffi_go_k129, _t_8);
-          WL_IDX = 4;
+          if (seq) {
+            WL_ROOM(2, 0);
+            STK(0) = _h_5;
+            STK(1) = FID_ffi_go_k422;
+            WL_PUSHN(2);
+          } else {
+            u64 _t_4 = task_node(e, FID_ffi_go_k422, WL_CONT, WL_IDX, 1);
+            e.mem[_t_4 + 0] = _h_5;
+            WL_CONT = term_tsk(FID_ffi_go_k422, _t_4);
+            WL_IDX = 1;
+          }
+          if (!DEVICE && !seq && fid_nofk(FID_ffi_replace_relation)) {
+            u64 _t_5 = task_node(e, FID_ffi_replace_relation, WL_CONT, WL_IDX, 0);
+            e.mem[_t_5 + 0] = _h_2;
+            e.mem[_t_5 + 1] = _h_3;
+            e.mem[_t_5 + 2] = _h_4;
+            return term_tsk(FID_ffi_replace_relation, _t_5);
+          }
+          r0 = _h_2;
+          r1 = _h_3;
+          r2 = _h_4;
+          WL_JMP(FID_ffi_replace_relation);
         }
-        if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_0)) {
-          u64 _t_9 = task_node(e, FID_wire_put_list_0, WL_CONT, WL_IDX, 0);
-          e.mem[_t_9 + 0] = _h_13;
-          e.mem[_t_9 + 1] = term_pak(CID_SNil, 0);
-          return term_tsk(FID_wire_put_list_0, _t_9);
-        }
-        r0 = _h_13;
-        r1 = term_pak(CID_SNil, 0);
-        WL_JMP(FID_wire_put_list_0);
       } else {
-        term_sink(e, _h_13);
-        Term _fb_0[2];
-        u64 _sp_0 = ctr_take(e, _h_14, 2, _fb_0);
-        u32 _f_0 = _fb_0[0];
-        Term _f_1 = _fb_0[1];
-        term_sink(e, _f_1);
-        term_sink(e, _h_15);
+        term_sink(e, _h_2);
+        term_sink(e, _h_3);
         Term _o_6[1];
-        if (spin_15(e, _o_6) == 0) {
+        if (spin_61(e, _o_6, term_ctr(CID_SCon, STAT_OFF + 128)) == 0) {
           return 0;
         }
-        spare_free(e, cls_fit(2), _sp_0);
         r0 = _o_6[0];
         WL_RETN(1);
       }
     } else {
-      term_sink(e, _h_15);
       Term _o_7[1];
-      if (spin_15(e, _o_7) == 0) {
+      if (spin_61(e, _o_7, term_ctr(CID_SCon, STAT_OFF + 176)) == 0) {
         return 0;
       }
       r0 = _o_7[0];
@@ -4009,66 +9638,511 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k129)
+  WL_CASE(FID_ffi_go_k421)
+    u32 _h_7 = r0;
+    WL_OPEN
+    Term _o_3[1];
+    if (spin_72(e, _o_3, _h_7, term_pak(CID_SNil, 0)) == 0) {
+      return 0;
+    }
+    r0 = _o_3[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k422)
+    WL_POPN(1);
+    u32 _h_9 = STK(0);
+    u32 _h_8 = r0;
+    WL_OPEN
+    u32 _v_1 = 0;
+    u32 _v_2 = 0;
+    Term _o_4[2];
+    if (spin_79(e, _o_4, _h_8, _h_9) == 0) {
+      return 0;
+    }
+    _v_1 = (u32)_o_4[0];
+    _v_2 = (u32)_o_4[1];
+    Term _o_5[1];
+    if (spin_80(e, _o_5, _v_1, _v_2, term_pak(CID_SNil, 0)) == 0) {
+      return 0;
+    }
+    r0 = _o_5[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k423)
+    u32 _h_10 = r0;
+    Term _h_11 = r1;
+    Term _h_12 = r2;
+    WL_OPEN
+    if (_h_10 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_11;
+        STK(1) = FID_ffi_go_k424;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_8 = task_node(e, FID_ffi_go_k424, WL_CONT, WL_IDX, 1);
+        e.mem[_t_8 + 0] = _h_11;
+        WL_CONT = term_tsk(FID_ffi_go_k424, _t_8);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_u32)) {
+        u64 _t_9 = task_node(e, FID_wire_get_u32, WL_CONT, WL_IDX, 0);
+        e.mem[_t_9 + 0] = _h_12;
+        return term_tsk(FID_wire_get_u32, _t_9);
+      }
+      r0 = _h_12;
+      WL_JMP(FID_wire_get_u32);
+    } else {
+      Term _o_18[1];
+      if (spin_60(e, _o_18) == 0) {
+        return 0;
+      }
+      r0 = _o_18[0];
+      WL_RETN(1);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k424)
+    WL_POPN(1);
+    Term _h_16 = STK(0);
+    u32 _h_13 = r0;
+    u32 _h_14 = r1;
+    Term _h_15 = r2;
+    WL_OPEN
+    if (_h_13 == 0) {
+      u32 _v_3 = 0;
+      u32 _v_4 = 0;
+      Term _v_5 = 0;
+      Term _o_9[3];
+      if (spin_62(e, _o_9, _h_15) == 0) {
+        return 0;
+      }
+      _v_3 = (u32)_o_9[0];
+      _v_4 = (u32)_o_9[1];
+      _v_5 = _o_9[2];
+      if (_v_3 == 0) {
+        if (seq) {
+          WL_ROOM(4, 0);
+          STK(0) = _v_4;
+          STK(1) = _h_16;
+          STK(2) = _h_14;
+          STK(3) = FID_ffi_go_k425;
+          WL_PUSHN(4);
+        } else {
+          u64 _t_10 = task_node(e, FID_ffi_go_k425, WL_CONT, WL_IDX, 1);
+          e.mem[_t_10 + 0] = _v_4;
+          e.mem[_t_10 + 1] = _h_16;
+          e.mem[_t_10 + 2] = _h_14;
+          WL_CONT = term_tsk(FID_ffi_go_k425, _t_10);
+          WL_IDX = 3;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_str)) {
+          u64 _t_11 = task_node(e, FID_wire_get_str, WL_CONT, WL_IDX, 0);
+          e.mem[_t_11 + 0] = _v_5;
+          return term_tsk(FID_wire_get_str, _t_11);
+        }
+        r0 = _v_5;
+        WL_JMP(FID_wire_get_str);
+      } else {
+        Term _o_16[1];
+        if (spin_60(e, _o_16) == 0) {
+          return 0;
+        }
+        r0 = _o_16[0];
+        WL_RETN(1);
+      }
+    } else {
+      Term _o_17[1];
+      if (spin_60(e, _o_17) == 0) {
+        return 0;
+      }
+      r0 = _o_17[0];
+      WL_RETN(1);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k425)
+    WL_POPN(3);
+    u32 _v_6 = STK(0);
+    Term _h_20 = STK(1);
+    u32 _h_21 = STK(2);
+    u32 _h_17 = r0;
+    Term _h_18 = r1;
+    Term _h_19 = r2;
+    WL_OPEN
+    if (_h_17 == 0) {
+      if (seq) {
+        WL_ROOM(5, 0);
+        STK(0) = _h_18;
+        STK(1) = _h_20;
+        STK(2) = _h_21;
+        STK(3) = _v_6;
+        STK(4) = FID_ffi_go_k426;
+        WL_PUSHN(5);
+      } else {
+        u64 _t_12 = task_node(e, FID_ffi_go_k426, WL_CONT, WL_IDX, 1);
+        e.mem[_t_12 + 0] = _h_18;
+        e.mem[_t_12 + 1] = _h_20;
+        e.mem[_t_12 + 2] = _h_21;
+        e.mem[_t_12 + 3] = _v_6;
+        WL_CONT = term_tsk(FID_ffi_go_k426, _t_12);
+        WL_IDX = 4;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_2)) {
+        u64 _t_13 = task_node(e, FID_wire_get_list_2, WL_CONT, WL_IDX, 0);
+        e.mem[_t_13 + 0] = _h_19;
+        return term_tsk(FID_wire_get_list_2, _t_13);
+      }
+      r0 = _h_19;
+      WL_JMP(FID_wire_get_list_2);
+    } else {
+      Term _o_15[1];
+      if (spin_60(e, _o_15) == 0) {
+        return 0;
+      }
+      r0 = _o_15[0];
+      WL_RETN(1);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k426)
     WL_POPN(4);
-    Term _h_19 = STK(0);
-    u32 _h_20 = STK(1);
-    u32 _v_5 = STK(2);
-    Term _h_21 = STK(3);
-    Term _h_18 = r0;
+    Term _h_25 = STK(0);
+    Term _h_26 = STK(1);
+    u32 _h_27 = STK(2);
+    u32 _v_7 = STK(3);
+    u32 _h_22 = r0;
+    Term _h_23 = r1;
+    Term _h_24 = r2;
+    WL_OPEN
+    if (_h_22 == 0) {
+      if (term_aux(_h_24) == CID_SNil) {
+        if (seq) {
+          WL_ROOM(5, 0);
+          STK(0) = _h_26;
+          STK(1) = _h_27;
+          STK(2) = _v_7;
+          STK(3) = _h_25;
+          STK(4) = FID_ffi_go_k427;
+          WL_PUSHN(5);
+        } else {
+          u64 _t_14 = task_node(e, FID_ffi_go_k427, WL_CONT, WL_IDX, 1);
+          e.mem[_t_14 + 0] = _h_26;
+          e.mem[_t_14 + 1] = _h_27;
+          e.mem[_t_14 + 2] = _v_7;
+          e.mem[_t_14 + 3] = _h_25;
+          WL_CONT = term_tsk(FID_ffi_go_k427, _t_14);
+          WL_IDX = 4;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_2)) {
+          u64 _t_15 = task_node(e, FID_wire_put_list_2, WL_CONT, WL_IDX, 0);
+          e.mem[_t_15 + 0] = _h_23;
+          e.mem[_t_15 + 1] = term_pak(CID_SNil, 0);
+          return term_tsk(FID_wire_put_list_2, _t_15);
+        }
+        r0 = _h_23;
+        r1 = term_pak(CID_SNil, 0);
+        WL_JMP(FID_wire_put_list_2);
+      } else {
+        term_sink(e, _h_23);
+        Term _fb_0[2];
+        u64 _sp_0 = ctr_take(e, _h_24, 2, _fb_0);
+        u32 _f_0 = _fb_0[0];
+        Term _f_1 = _fb_0[1];
+        term_sink(e, _f_1);
+        term_sink(e, _h_25);
+        Term _o_13[1];
+        if (spin_60(e, _o_13) == 0) {
+          return 0;
+        }
+        spare_free(e, cls_fit(2), _sp_0);
+        r0 = _o_13[0];
+        WL_RETN(1);
+      }
+    } else {
+      term_sink(e, _h_25);
+      Term _o_14[1];
+      if (spin_60(e, _o_14) == 0) {
+        return 0;
+      }
+      r0 = _o_14[0];
+      WL_RETN(1);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k427)
+    WL_POPN(4);
+    Term _h_29 = STK(0);
+    u32 _h_30 = STK(1);
+    u32 _v_8 = STK(2);
+    Term _h_31 = STK(3);
+    Term _h_28 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(4, 0);
-      STK(0) = _h_19;
-      STK(1) = _h_20;
-      STK(2) = _v_5;
-      STK(3) = FID_ffi_go_k130;
+      STK(0) = _h_29;
+      STK(1) = _h_30;
+      STK(2) = _v_8;
+      STK(3) = FID_ffi_go_k428;
       WL_PUSHN(4);
     } else {
-      u64 _t_10 = task_node(e, FID_ffi_go_k130, WL_CONT, WL_IDX, 1);
-      e.mem[_t_10 + 0] = _h_19;
-      e.mem[_t_10 + 1] = _h_20;
-      e.mem[_t_10 + 2] = _v_5;
-      WL_CONT = term_tsk(FID_ffi_go_k130, _t_10);
+      u64 _t_16 = task_node(e, FID_ffi_go_k428, WL_CONT, WL_IDX, 1);
+      e.mem[_t_16 + 0] = _h_29;
+      e.mem[_t_16 + 1] = _h_30;
+      e.mem[_t_16 + 2] = _v_8;
+      WL_CONT = term_tsk(FID_ffi_go_k428, _t_16);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_put_str)) {
-      u64 _t_11 = task_node(e, FID_wire_put_str, WL_CONT, WL_IDX, 0);
-      e.mem[_t_11 + 0] = _h_21;
-      e.mem[_t_11 + 1] = _h_18;
-      return term_tsk(FID_wire_put_str, _t_11);
+      u64 _t_17 = task_node(e, FID_wire_put_str, WL_CONT, WL_IDX, 0);
+      e.mem[_t_17 + 0] = _h_31;
+      e.mem[_t_17 + 1] = _h_28;
+      return term_tsk(FID_wire_put_str, _t_17);
     }
-    r0 = _h_21;
-    r1 = _h_18;
+    r0 = _h_31;
+    r1 = _h_28;
     WL_JMP(FID_wire_put_str);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k130)
+  WL_CASE(FID_ffi_go_k428)
     WL_POPN(3);
-    Term _h_23 = STK(0);
-    u32 _h_24 = STK(1);
-    u32 _v_6 = STK(2);
-    Term _h_22 = r0;
+    Term _h_33 = STK(0);
+    u32 _h_34 = STK(1);
+    u32 _v_9 = STK(2);
+    Term _h_32 = r0;
     WL_OPEN
-    Term _v_7 = 0;
-    Term _v_8 = 0;
-    Term _o_3[1];
-    if (spin_13(e, _o_3, _v_6, _h_22) == 0) {
+    Term _v_10 = 0;
+    Term _v_11 = 0;
+    Term _o_10[1];
+    if (spin_58(e, _o_10, _v_9, _h_32) == 0) {
       return 0;
     }
-    _v_8 = _o_3[0];
-    Term _o_4[1];
-    if (spin_14(e, _o_4, _h_24, _v_8) == 0) {
+    _v_11 = _o_10[0];
+    Term _o_11[1];
+    if (spin_59(e, _o_11, _h_34, _v_11) == 0) {
       return 0;
     }
-    _v_7 = _o_4[0];
-    Term _o_5[1];
-    if (spin_0(e, _o_5, _h_23, _v_7) == 0) {
+    _v_10 = _o_11[0];
+    Term _o_12[1];
+    if (spin_7(e, _o_12, _h_33, _v_10) == 0) {
       return 0;
     }
-    r0 = _o_5[0];
+    r0 = _o_12[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k429)
+    u32 _h_35 = r0;
+    u32 _h_36 = r1;
+    Term _h_37 = r2;
+    Term _h_38 = r3;
+    Term _h_39 = r4;
+    Term _h_40 = r5;
+    Term _h_41 = r6;
+    Term _h_42 = r7;
+    WL_OPEN
+    if (_h_35 == 0) {
+      u32 _v_12 = 0;
+      Term _o_20[1];
+      if (spin_83(e, _o_20, _h_42) == 0) {
+        return 0;
+      }
+      _v_12 = (u32)_o_20[0];
+      if (_v_12 == 1) {
+        if (_h_36 == 0) {
+          if (seq) {
+            WL_ROOM(1, 0);
+            STK(0) = FID_ffi_go_k430;
+            WL_PUSHN(1);
+          } else {
+            u64 _t_20 = task_node(e, FID_ffi_go_k430, WL_CONT, WL_IDX, 1);
+            WL_CONT = term_tsk(FID_ffi_go_k430, _t_20);
+            WL_IDX = 0;
+          }
+          if (!DEVICE && !seq && fid_nofk(FID_screen_run)) {
+            u64 _t_21 = task_node(e, FID_screen_run, WL_CONT, WL_IDX, 0);
+            e.mem[_t_21 + 0] = _h_40;
+            e.mem[_t_21 + 1] = _h_37;
+            e.mem[_t_21 + 2] = _h_38;
+            e.mem[_t_21 + 3] = _h_39;
+            return term_tsk(FID_screen_run, _t_21);
+          }
+          r0 = _h_40;
+          r1 = _h_37;
+          r2 = _h_38;
+          r3 = _h_39;
+          WL_JMP(FID_screen_run);
+        } else if (_h_36 == 1) {
+          Term _v_15 = 0;
+          Term _v_16 = 0;
+          u64 _nd_0 = heap_alloc(e, cls_fit(1));
+          e.mem[_nd_0 + 0] = rfc_seal(e, _h_41);
+          u64 _nd_1 = heap_alloc(e, cls_fit(2));
+          e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_screen_Chunk, _nd_0));
+          e.mem[_nd_1 + 1] = rfc_seal(e, term_ctr(CID_Con, STAT_OFF + 64));
+          Term _o_24[2];
+          if (spin_75(e, _o_24, term_ctr(CID_Con, _nd_1), _h_37, _h_38, _h_39, _h_40) == 0) {
+            return 0;
+          }
+          _v_15 = _o_24[0];
+          _v_16 = _o_24[1];
+          Term _o_25[1];
+          if (spin_76(e, _o_25, _v_15, _v_16, term_pak(CID_SNil, 0)) == 0) {
+            return 0;
+          }
+          r0 = _o_25[0];
+          WL_RETN(1);
+        } else {
+          if (seq) {
+            WL_ROOM(1, 0);
+            STK(0) = FID_ffi_go_k432;
+            WL_PUSHN(1);
+          } else {
+            u64 _t_24 = task_node(e, FID_ffi_go_k432, WL_CONT, WL_IDX, 1);
+            WL_CONT = term_tsk(FID_ffi_go_k432, _t_24);
+            WL_IDX = 0;
+          }
+          if (!DEVICE && !seq && fid_nofk(FID_screen_vstack)) {
+            u64 _t_25 = task_node(e, FID_screen_vstack, WL_CONT, WL_IDX, 0);
+            e.mem[_t_25 + 0] = _h_37;
+            e.mem[_t_25 + 1] = _h_38;
+            e.mem[_t_25 + 2] = _h_39;
+            return term_tsk(FID_screen_vstack, _t_25);
+          }
+          r0 = _h_37;
+          r1 = _h_38;
+          r2 = _h_39;
+          WL_JMP(FID_screen_vstack);
+        }
+      } else {
+        term_sink(e, _h_37);
+        term_sink(e, _h_40);
+        Term _o_27[1];
+        if (spin_61(e, _o_27, term_ctr(CID_SCon, STAT_OFF + 114)) == 0) {
+          return 0;
+        }
+        r0 = _o_27[0];
+        WL_RETN(1);
+      }
+    } else {
+      Term _o_28[1];
+      if (spin_61(e, _o_28, term_ctr(CID_SCon, STAT_OFF + 162)) == 0) {
+        return 0;
+      }
+      r0 = _o_28[0];
+      WL_RETN(1);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k430)
+    Term _h_43 = r0;
+    Term _h_44 = r1;
+    Term _h_45 = r2;
+    WL_OPEN
+    Term _rest_0 = term_pak(CID_SNil, 0);
+    Term _v_13 = 0;
+    Term _v_14 = 0;
+    Term _o_21[1];
+    if (spin_7(e, _o_21, _h_45, _rest_0) == 0) {
+      return 0;
+    }
+    _v_14 = _o_21[0];
+    Term _o_22[1];
+    if (spin_7(e, _o_22, _h_44, _v_14) == 0) {
+      return 0;
+    }
+    _v_13 = _o_22[0];
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_go_k431;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_22 = task_node(e, FID_ffi_go_k431, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_go_k431, _t_22);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_0)) {
+      u64 _t_23 = task_node(e, FID_wire_put_list_go_0, WL_CONT, WL_IDX, 0);
+      e.mem[_t_23 + 0] = _h_43;
+      e.mem[_t_23 + 1] = _v_13;
+      return term_tsk(FID_wire_put_list_go_0, _t_23);
+    }
+    r0 = _h_43;
+    r1 = _v_13;
+    WL_JMP(FID_wire_put_list_go_0);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k431)
+    Term _h_46 = r0;
+    Term _h_47 = r1;
+    WL_OPEN
+    Term _o_23[1];
+    if (spin_49(e, _o_23, _h_46, _h_47) == 0) {
+      return 0;
+    }
+    r0 = _o_23[0];
+    WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k432)
+    Term _h_48 = r0;
+    WL_OPEN
+    Term _rest_1 = term_pak(CID_SNil, 0);
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_go_k433;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_26 = task_node(e, FID_ffi_go_k433, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_go_k433, _t_26);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_3)) {
+      u64 _t_27 = task_node(e, FID_wire_put_list_go_3, WL_CONT, WL_IDX, 0);
+      e.mem[_t_27 + 0] = _h_48;
+      e.mem[_t_27 + 1] = _rest_1;
+      return term_tsk(FID_wire_put_list_go_3, _t_27);
+    }
+    r0 = _h_48;
+    r1 = _rest_1;
+    WL_JMP(FID_wire_put_list_go_3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k433)
+    Term _h_49 = r0;
+    Term _h_50 = r1;
+    WL_OPEN
+    Term _o_26[1];
+    if (spin_49(e, _o_26, _h_49, _h_50) == 0) {
+      return 0;
+    }
+    r0 = _o_26[0];
     WL_RETN(1);
   }}
 #endif
@@ -4081,11 +10155,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (_entry_0 == 0) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_open_go_k134;
+        STK(0) = FID_open_go_k437;
         WL_PUSHN(1);
       } else {
-        u64 _t_0 = task_node(e, FID_open_go_k134, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_open_go_k134, _t_0);
+        u64 _t_0 = task_node(e, FID_open_go_k437, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_open_go_k437, _t_0);
         WL_IDX = 0;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_echo_open)) {
@@ -4133,21 +10207,21 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       r1 = 0;
       r2 = 0;
       r3 = 0;
-      r4 = term_ctr(CID_SCon, STAT_OFF + 218);
+      r4 = term_ctr(CID_SCon, STAT_OFF + 328);
       WL_RETN(5);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_open_go_k134)
+  WL_CASE(FID_open_go_k437)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
     Term _h_3 = r3;
     WL_OPEN
     Term _o_0[5];
-    if (spin_30(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
+    if (spin_86(e, _o_0, _h_0, _h_1, _h_2, _h_3) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -4169,11 +10243,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_step_k136;
+      STK(0) = FID_step_k439;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_step_k136, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_step_k136, _t_0);
+      u64 _t_0 = task_node(e, FID_step_k439, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_step_k439, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_step_go)) {
@@ -4195,7 +10269,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_step_k136)
+  WL_CASE(FID_step_k439)
     u32 _r_0 = r0;
     u32 _r_1 = r1;
     Term _r_2 = r2;
@@ -4220,7 +10294,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     Term _v_0 = 0;
     Term _o_0[1];
-    if (spin_31(e, _o_0, _state_0, _state_1, _state_2, _state_3) == 0) {
+    if (spin_87(e, _o_0, _state_0, _state_1, _state_2, _state_3) == 0) {
       return 0;
     }
     _v_0 = _o_0[0];
@@ -4236,11 +10310,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_k140;
+      STK(0) = FID_ffi_k443;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_k140, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_k140, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_k443, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_k443, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_ffi_go)) {
@@ -4256,7 +10330,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_k140)
+  WL_CASE(FID_ffi_k443)
     Term _r_0 = r0;
     WL_OPEN
     r0 = _r_0;
@@ -4308,11 +10382,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_open_k145;
+      STK(0) = FID_open_k448;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_open_k145, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_open_k145, _t_0);
+      u64 _t_0 = task_node(e, FID_open_k448, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_open_k448, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_open_go)) {
@@ -4328,7 +10402,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_open_k145)
+  WL_CASE(FID_open_k448)
     u32 _r_0 = r0;
     u32 _r_1 = r1;
     Term _r_2 = r2;
@@ -4357,12 +10431,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _r_4;
-        STK(1) = FID_cli_steps_k147;
+        STK(1) = FID_cli_steps_k450;
         WL_PUSHN(2);
       } else {
-        u64 _t_0 = task_node(e, FID_cli_steps_k147, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_cli_steps_k450, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _r_4;
-        WL_CONT = term_tsk(FID_cli_steps_k147, _t_0);
+        WL_CONT = term_tsk(FID_cli_steps_k450, _t_0);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_close)) {
@@ -4388,13 +10462,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_ROOM(3, 0);
         STK(0) = _f_1;
         STK(1) = _r_4;
-        STK(2) = FID_cli_steps_k148;
+        STK(2) = FID_cli_steps_k451;
         WL_PUSHN(3);
       } else {
-        u64 _t_2 = task_node(e, FID_cli_steps_k148, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_cli_steps_k451, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _f_1;
         e.mem[_t_2 + 1] = _r_4;
-        WL_CONT = term_tsk(FID_cli_steps_k148, _t_2);
+        WL_CONT = term_tsk(FID_cli_steps_k451, _t_2);
         WL_IDX = 2;
       }
       if (!DEVICE && !seq && fid_nofk(FID_step)) {
@@ -4417,13 +10491,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_steps_k147)
+  WL_CASE(FID_cli_steps_k450)
     WL_POPN(1);
     Term _r_5 = STK(0);
     Term _h_0 = r0;
     WL_OPEN
     Term _o_0[1];
-    if (spin_33(e, _o_0, _r_5) == 0) {
+    if (spin_89(e, _o_0, _r_5) == 0) {
       return 0;
     }
     r0 = _o_0[0];
@@ -4432,7 +10506,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_steps_k148)
+  WL_CASE(FID_cli_steps_k451)
     WL_POPN(2);
     Term _f_2 = STK(0);
     Term _r_6 = STK(1);
@@ -4445,12 +10519,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _r_6;
-      STK(1) = FID_cli_steps_k149;
+      STK(1) = FID_cli_steps_k452;
       WL_PUSHN(2);
     } else {
-      u64 _t_4 = task_node(e, FID_cli_steps_k149, WL_CONT, WL_IDX, 1);
+      u64 _t_4 = task_node(e, FID_cli_steps_k452, WL_CONT, WL_IDX, 1);
       e.mem[_t_4 + 0] = _r_6;
-      WL_CONT = term_tsk(FID_cli_steps_k149, _t_4);
+      WL_CONT = term_tsk(FID_cli_steps_k452, _t_4);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_cli_steps)) {
@@ -4474,14 +10548,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_steps_k149)
+  WL_CASE(FID_cli_steps_k452)
     WL_POPN(1);
     Term _r_7 = STK(0);
     Term _h_6 = r0;
     WL_OPEN
     u64 _nd_1 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_1 + 0] = _r_7;
-    e.mem[_nd_1 + 1] = _h_6;
+    e.mem[_nd_1 + 0] = rfc_seal(e, _r_7);
+    e.mem[_nd_1 + 1] = rfc_seal(e, _h_6);
     r0 = term_ctr(CID_Con, _nd_1);
     WL_RETN(1);
   }}
@@ -4501,8 +10575,8 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       u32 _f_0 = _fb_0[0];
       Term _f_1 = _fb_0[1];
       u64 _nd_0 = _sp_0 >= HEAP_OFF ? _sp_0 : heap_alloc(e, cls_fit(2));
-      e.mem[_nd_0 + 0] = _f_0;
-      e.mem[_nd_0 + 1] = _f_1;
+      e.mem[_nd_0 + 0] = rfc_seal(e, _f_0);
+      e.mem[_nd_0 + 1] = rfc_seal(e, _f_1);
       if (!DEVICE && !seq && fid_nofk(FID_U32_read_go)) {
         u64 _t_0 = task_node(e, FID_U32_read_go, WL_CONT, WL_IDX, 0);
         e.mem[_t_0 + 0] = term_ctr(CID_SCon, _nd_0);
@@ -4521,7 +10595,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _lines_0 = r0;
     WL_OPEN
     if (term_aux(_lines_0) == CID_Nil) {
-      r0 = term_clo(FID_cli_print_c161, 0);
+      r0 = term_clo(FID_cli_print_c464, 0);
       WL_RETN(1);
     } else {
       Term _fb_0[2];
@@ -4532,14 +10606,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       e.mem[_nd_0 + 0] = _f_0;
       e.mem[_nd_0 + 1] = _f_1;
       spare_free(e, cls_fit(2), _sp_0);
-      r0 = term_clo(FID_cli_print_c162, _nd_0);
+      r0 = term_clo(FID_cli_print_c465, _nd_0);
       WL_RETN(1);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_print_c161)
+  WL_CASE(FID_cli_print_c464)
     Term _x_0 = r0;
     WL_OPEN
     Term _x_1 = term_pak(CID_Unit, 0);
@@ -4556,7 +10630,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_print_c162)
+  WL_CASE(FID_cli_print_c465)
     Term _f_2 = r0;
     Term _f_3 = r1;
     Term _x_2 = r2;
@@ -4568,19 +10642,19 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (!DEVICE && !seq && fid_nofk(FID_IO_bind)) {
       u64 _t_2 = task_node(e, FID_IO_bind, WL_CONT, WL_IDX, 0);
       e.mem[_t_2 + 0] = term_clo(FID_IO_print, _nd_1);
-      e.mem[_t_2 + 1] = term_clo(FID_cli_print_c163, _nd_2);
+      e.mem[_t_2 + 1] = term_clo(FID_cli_print_c466, _nd_2);
       e.mem[_t_2 + 2] = _x_2;
       return term_tsk(FID_IO_bind, _t_2);
     }
     r0 = term_clo(FID_IO_print, _nd_1);
-    r1 = term_clo(FID_cli_print_c163, _nd_2);
+    r1 = term_clo(FID_cli_print_c466, _nd_2);
     r2 = _x_2;
     WL_JMP(FID_IO_bind);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_print_c163)
+  WL_CASE(FID_cli_print_c466)
     Term _f_4 = r0;
     Term _x_3 = r1;
     WL_OPEN
@@ -4628,14 +10702,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
               STK(0) = _f_2;
               STK(1) = _f_6;
               STK(2) = _f_7;
-              STK(3) = FID_cli_args_k165;
+              STK(3) = FID_cli_args_k468;
               WL_PUSHN(4);
             } else {
-              u64 _t_0 = task_node(e, FID_cli_args_k165, WL_CONT, WL_IDX, 1);
+              u64 _t_0 = task_node(e, FID_cli_args_k468, WL_CONT, WL_IDX, 1);
               e.mem[_t_0 + 0] = _f_2;
               e.mem[_t_0 + 1] = _f_6;
               e.mem[_t_0 + 2] = _f_7;
-              WL_CONT = term_tsk(FID_cli_args_k165, _t_0);
+              WL_CONT = term_tsk(FID_cli_args_k468, _t_0);
               WL_IDX = 3;
             }
             if (!DEVICE && !seq && fid_nofk(FID_U32_read)) {
@@ -4678,7 +10752,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k165)
+  WL_CASE(FID_cli_args_k468)
     WL_POPN(3);
     Term _f_8 = STK(0);
     Term _f_9 = STK(1);
@@ -4688,13 +10762,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _v_0 = 0;
     Term _o_2[1];
-    if (spin_35(e, _o_2, _f_8, term_ctr(CID_SCon, STAT_OFF + 226)) == 0) {
+    if (spin_91(e, _o_2, _f_8, term_ctr(CID_SCon, STAT_OFF + 336)) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_2[0];
     u32 _v_2 = 0;
     Term _o_3[1];
-    if (spin_35(e, _o_3, _f_8, term_ctr(CID_SCon, STAT_OFF + 234)) == 0) {
+    if (spin_91(e, _o_3, _f_8, term_ctr(CID_SCon, STAT_OFF + 344)) == 0) {
       return 0;
     }
     term_sink(e, _f_8);
@@ -4705,11 +10779,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           if (term_aux(_f_10) == CID_Nil) {
             if (seq) {
               WL_ROOM(1, 0);
-              STK(0) = FID_cli_args_k166;
+              STK(0) = FID_cli_args_k469;
               WL_PUSHN(1);
             } else {
-              u64 _t_2 = task_node(e, FID_cli_args_k166, WL_CONT, WL_IDX, 1);
-              WL_CONT = term_tsk(FID_cli_args_k166, _t_2);
+              u64 _t_2 = task_node(e, FID_cli_args_k469, WL_CONT, WL_IDX, 1);
+              WL_CONT = term_tsk(FID_cli_args_k469, _t_2);
               WL_IDX = 0;
             }
             if (!DEVICE && !seq && fid_nofk(FID_ffi)) {
@@ -4762,12 +10836,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           if (seq) {
             WL_ROOM(2, 0);
             STK(0) = _f_10;
-            STK(1) = FID_cli_args_k167;
+            STK(1) = FID_cli_args_k470;
             WL_PUSHN(2);
           } else {
-            u64 _t_4 = task_node(e, FID_cli_args_k167, WL_CONT, WL_IDX, 1);
+            u64 _t_4 = task_node(e, FID_cli_args_k470, WL_CONT, WL_IDX, 1);
             e.mem[_t_4 + 0] = _f_10;
-            WL_CONT = term_tsk(FID_cli_args_k167, _t_4);
+            WL_CONT = term_tsk(FID_cli_args_k470, _t_4);
             WL_IDX = 1;
           }
           if (!DEVICE && !seq && fid_nofk(FID_open)) {
@@ -4806,12 +10880,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k166)
+  WL_CASE(FID_cli_args_k469)
     Term _h_2 = r0;
     WL_OPEN
     u64 _nd_0 = heap_alloc(e, cls_fit(2));
-    e.mem[_nd_0 + 0] = _h_2;
-    e.mem[_nd_0 + 1] = term_pak(CID_Nil, 0);
+    e.mem[_nd_0 + 0] = rfc_seal(e, _h_2);
+    e.mem[_nd_0 + 1] = rfc_seal(e, term_pak(CID_Nil, 0));
     r0 = 1;
     r1 = term_ctr(CID_Con, _nd_0);
     WL_RETN(2);
@@ -4819,7 +10893,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k167)
+  WL_CASE(FID_cli_args_k470)
     WL_POPN(1);
     Term _f_13 = STK(0);
     u32 _h_3 = r0;
@@ -4830,11 +10904,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_cli_args_k168;
+      STK(0) = FID_cli_args_k471;
       WL_PUSHN(1);
     } else {
-      u64 _t_6 = task_node(e, FID_cli_args_k168, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_cli_args_k168, _t_6);
+      u64 _t_6 = task_node(e, FID_cli_args_k471, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_cli_args_k471, _t_6);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_cli_steps)) {
@@ -4858,7 +10932,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_cli_args_k168)
+  WL_CASE(FID_cli_args_k471)
     Term _h_8 = r0;
     WL_OPEN
     r0 = 1;
@@ -4879,17 +10953,17 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (!DEVICE && !seq && fid_nofk(FID_Clo_apply)) {
       u64 _t_3 = task_node(e, FID_Clo_apply, WL_CONT, WL_IDX, 0);
       e.mem[_t_3 + 0] = _m_0;
-      e.mem[_t_3 + 1] = term_clo(FID_IO_bind_c172, _nd_0);
+      e.mem[_t_3 + 1] = term_clo(FID_IO_bind_c475, _nd_0);
       return term_tsk(FID_Clo_apply, _t_3);
     }
     r0 = _m_0;
-    r1 = term_clo(FID_IO_bind_c172, _nd_0);
+    r1 = term_clo(FID_IO_bind_c475, _nd_0);
     WL_JMP(FID_Clo_apply);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_IO_bind_c172)
+  WL_CASE(FID_IO_bind_c475)
     Term _f_1 = r0;
     Term _k_1 = r1;
     Term _x_0 = r2;
@@ -4897,12 +10971,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     if (seq) {
       WL_ROOM(2, 0);
       STK(0) = _k_1;
-      STK(1) = FID_IO_bind_k173;
+      STK(1) = FID_IO_bind_k476;
       WL_PUSHN(2);
     } else {
-      u64 _t_0 = task_node(e, FID_IO_bind_k173, WL_CONT, WL_IDX, 1);
+      u64 _t_0 = task_node(e, FID_IO_bind_k476, WL_CONT, WL_IDX, 1);
       e.mem[_t_0 + 0] = _k_1;
-      WL_CONT = term_tsk(FID_IO_bind_k173, _t_0);
+      WL_CONT = term_tsk(FID_IO_bind_k476, _t_0);
       WL_IDX = 1;
     }
     if (!DEVICE && !seq && fid_nofk(FID_Clo_apply)) {
@@ -4918,7 +10992,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_IO_bind_k173)
+  WL_CASE(FID_IO_bind_k476)
     WL_POPN(1);
     Term _k_2 = STK(0);
     Term _h_0 = r0;
@@ -4938,40 +11012,40 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #if !DEVICE
   WL_CASE(FID_main)
     WL_OPEN
-    r0 = term_clo(FID_main_c175, 0);
+    r0 = term_clo(FID_main_c478, 0);
     WL_RETN(1);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_c175)
+  WL_CASE(FID_main_c478)
     Term _x_0 = r0;
     WL_OPEN
     if (!DEVICE && !seq && fid_nofk(FID_IO_bind)) {
       u64 _t_3 = task_node(e, FID_IO_bind, WL_CONT, WL_IDX, 0);
       e.mem[_t_3 + 0] = term_clo(FID_IO_args, 0);
-      e.mem[_t_3 + 1] = term_clo(FID_main_c176, 0);
+      e.mem[_t_3 + 1] = term_clo(FID_main_c479, 0);
       e.mem[_t_3 + 2] = _x_0;
       return term_tsk(FID_IO_bind, _t_3);
     }
     r0 = term_clo(FID_IO_args, 0);
-    r1 = term_clo(FID_main_c176, 0);
+    r1 = term_clo(FID_main_c479, 0);
     r2 = _x_0;
     WL_JMP(FID_IO_bind);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_c176)
+  WL_CASE(FID_main_c479)
     Term _x_1 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_main_k177;
+      STK(0) = FID_main_k480;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_main_k177, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_main_k177, _t_0);
+      u64 _t_0 = task_node(e, FID_main_k480, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_main_k480, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_cli_args)) {
@@ -4985,7 +11059,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_k177)
+  WL_CASE(FID_main_k480)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
@@ -4998,18 +11072,18 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       r0 = _h_1;
       WL_JMP(FID_cli_print);
     } else {
-      r0 = term_clo(FID_main_c178, 0);
+      r0 = term_clo(FID_main_c481, 0);
       WL_RETN(1);
     }
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_main_c178)
+  WL_CASE(FID_main_c481)
     Term _x_2 = r0;
     WL_OPEN
     Term _o_0[1];
-    if (spin_36(e, _o_0, 2ull, term_ctr(CID_SCon, STAT_OFF + 380), _x_2) == 0) {
+    if (spin_92(e, _o_0, 2ull, term_ctr(CID_SCon, STAT_OFF + 490), _x_2) == 0) {
       return 0;
     }
     r0 = _o_0[0];
