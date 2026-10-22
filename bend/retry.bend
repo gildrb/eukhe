@@ -6,8 +6,9 @@
 #    `FailureFacts::retryable`): a failure the quota park ended, or a
 #    quota/billing limit, is never retried; else the HTTP status the
 #    failure recorded decides; else its typed kind; else its text.
-# 2. The wait (`RetryWait::of`): never before the server's wait; a server
-#    wait above the cap refuses the retry.
+# 2. The wait (`retry_wait`): a full-jitter draw under the step (the base
+#    doubled per retry, at most the cap); never before the server's wait;
+#    a server wait above the cap refuses the retry.
 # 3. The failover walk (crates/eukhe-core/src/durable/models/failover.rs,
 #    `next_switch`): one request tries every provider of its chain once,
 #    at once, before it returns to one, and a return waits the backoff and
@@ -212,6 +213,53 @@ def Delay.respects(w: Delay, +s: Nat) -> Bool:
     case Refused{server, cap}:
       True{}
 
+# b doubled k times, at most cap: min(b * 2^k, cap). A step stops once b
+# is 0 or b + b passes cap, so no value passes cap (a native Nat stays
+# below 2^48 when cap does) and a positive b doubles at most 48 times.
+def double.halt(+b: Nat, +cap: Nat) -> Bool:
+  Bool.or(Nat.is_eq(b, 0n), Nat.is_gt(b, Nat.sub(cap, b)))
+
+# the end of a halted doubling: 0 stays 0, else b + b passed cap
+def double.stop(b: Nat, +cap: Nat) -> Nat:
+  match b:
+    case 0n:
+      0n
+    case 1n+p:
+      cap
+
+def double.go(k: Nat, halt: Bool, +b: Nat, +cap: Nat) -> Nat:
+  match k halt:
+    case 0n h:
+      Nat.min(b, cap)
+    case 1n+j True{}:
+      double.stop(b, cap)
+    case 1n+j False{}:
+      +d = Nat.add(b, b)
+      double.go(j, double.halt(d, cap), d, cap)
+
+def double(k: Nat, +b: Nat, +cap: Nat) -> Nat:
+  double.go(k, double.halt(b, cap), b, cap)
+
+# the step of retry `attempt` (1 for the first retry): base doubled per
+# retry before it, at most cap (`retry_wait`)
+def jitter.step(+base: Nat, attempt: Nat, +cap: Nat) -> Nat:
+  double(Nat.sub(attempt, 1n), base, cap)
+
+# the full-jitter draw under a step: a draw uniform in [0, 2^46) modulo
+# the step, so in [0, step); 0 for a step of 0
+def jitter.draw(step: Nat, +draw: Nat) -> Nat:
+  match step:
+    case 0n:
+      0n
+    case 1n+p:
+      Nat.mod(draw, 1n+p)
+
+# the wait of retry `attempt` (`retry_wait`) under the policy's base and
+# cap (0: no cap on the server's wait): the jitter of `draw` under its
+# step, never before the server's wait, refused past the cap
+def retry_wait(+base: Nat, attempt: Nat, +cap: Nat, +draw: Nat, server: Maybe<&2, Nat>) -> Delay:
+  wait(jitter.draw(jitter.step(base, attempt, cap), draw), server, cap)
+
 # 3. The failover walk
 # --------------------
 
@@ -365,7 +413,7 @@ def pick.back(xs: List<&2, Nat>, +ts: List<&2, Tried>, +backoff: Nat, +max: Nat)
 # the backoff of the next return: base doubled per earlier return, at
 # most max
 def backoff(+p: Policy, +len: Nat, +ts: List<&2, Tried>) -> Nat:
-  Nat.min(Nat.mul(Policy.base(p), Nat.pow(2n, Nat.sub(length(ts), len))), Policy.max(p))
+  double(Nat.sub(length(ts), len), Policy.base(p), Policy.max(p))
 
 def next.mode(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, Tried>, +p: Policy) -> Maybe<&2, Switch>:
   match all:
