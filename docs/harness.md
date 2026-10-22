@@ -3,14 +3,25 @@
 This page is the spec of the harness's liveness. Each rule says what must
 always happen, whatever the model, the provider, or the timing does. Each
 rule has a model in Bend, a law in `LAWS.bend`, a proof in `PROOF.bend`,
-and a tie to the Rust code: a bridge test (the Rust code and the Bend model
-run the same scenarios and must print the same output) or a regression test.
+and a tie to the Rust code. A rule whose model is a function runs as the
+compiled model itself: Bend compiles every `bend/ffi_<area>.bend` entry
+into `crates/eukhe-bend/c/core.c` (`make bend-core`), and the Rust code
+calls it through `eukhe-bend` (the wire format of `bend/wire.bend`,
+`crates/eukhe-bend/WIRE.md`), with no Rust copy of the rule. A model that
+is an abstraction of Rust code (a protocol, a schedule) keeps a bridge
+test (the Rust code and the Bend model run the same scenarios and must
+print the same output) or a regression test.
 
 Paths start at `crates/`.
 
 ## What a law secures, and what it does not
 
 - A law is proven for the Bend model, for every input it names.
+- For a compiled rule, the proven model is the code that runs; the laws of
+  the entry (`ffi_<area>.bend`) show that it reads the request the Rust
+  side writes and answers the model's result. Trusted: the Bend compiler,
+  the C shim (`eukhe-bend/c/shim.c`, `src/ffi.rs`) and the Rust
+  `Writer`/`Reader`, which one FFI test checks against the Bend codec.
 - A bridge test shows that the Rust code makes the same steps as the model
   on its scenarios. The scenarios are finite.
 - A deadline in Rust (a timer, a fuel count) is what makes a wait end in

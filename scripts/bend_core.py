@@ -1,0 +1,414 @@
+#!/usr/bin/env python3
+"""bend_core.py generate|check: the compiled Bend core (crates/eukhe-bend).
+
+Every `bend/ffi_<area>.bend` is one entry of the core. Its id is the line
+`<id> <area>` of bend/core_entries.txt: ids are explicit, so adding an area
+never renumbers the others. An area file defines a call, a stepper or both:
+- call: `def ffi(input: String) -> String`;
+- stepper: its state `type St`, `def open(input: String) -> St & String` and
+  `def step(s: St, input: String) -> St & String`.
+
+`generate` writes the three generated files:
+- bend/core.bend: imports every area (sorted), `def ffi(+entry: U32, input:
+  String) -> String`, the state sum `type State` (one constructor per stepper
+  area, named after it, plus `Unknown{}`), `def open(+entry: U32, input:
+  String) -> State & String`, `def step(state: State, input: String) -> State
+  & String`, `def close(state: State) -> Unit`, and a debugging CLI `main`
+  (`bend bend/core.bend call <entry> <input>`, `bend bend/core.bend open
+  <entry> <input> [<event>...]`);
+- crates/eukhe-bend/src/entries.rs: `pub enum Entry` with the same ids;
+- crates/eukhe-bend/c/core.c: `bend bend/core.bend -o <it>`.
+`check` regenerates them in a temporary directory and exits 1 when a
+committed file differs or when `bend version` is not the BEND_VERSION of
+scripts/toolchain.env."""
+import difflib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+BEND = ROOT / "bend"
+MANIFEST = BEND / "core_entries.txt"
+CORE_BEND = "bend/core.bend"
+ENTRIES_RS = "crates/eukhe-bend/src/entries.rs"
+CORE_C = "crates/eukhe-bend/c/core.c"
+TOOLCHAIN = ROOT / "scripts" / "toolchain.env"
+# The segments crates/eukhe-bend/c/shim.c enters.
+SEGMENTS = ("FID_ffi", "FID_open", "FID_step", "FID_close")
+
+AREA = re.compile(r"^ffi_([a-z][a-z0-9_]*)\.bend$")
+DEF_FFI = re.compile(r"^def ffi\(", re.M)
+DEF_OPEN = re.compile(r"^def open\(", re.M)
+DEF_STEP = re.compile(r"^def step\(", re.M)
+TYPE_ST = re.compile(r"^type St\b", re.M)
+UNKNOWN = 'W.err("unknown entry")'
+USAGE = '"usage: core call <entry> <input> | core open <entry> <input> [<event>...]"'
+
+
+class Fail(Exception):
+    """A generator error: printed, exit 1."""
+
+
+@dataclass(frozen=True)
+class Area:
+    id: int
+    name: str
+    call: bool
+    stepper: bool
+
+    @property
+    def alias(self) -> str:
+        return f"ffi_{self.name}"
+
+    @property
+    def camel(self) -> str:
+        return "".join(p.capitalize() for p in self.name.split("_"))
+
+
+def manifest() -> dict[str, int]:
+    """bend/core_entries.txt: `<id> <area>` lines; `#` comments."""
+    if not MANIFEST.exists():
+        raise Fail(f"{MANIFEST.relative_to(ROOT)} is missing")
+    ids: dict[str, int] = {}
+    seen: dict[int, str] = {}
+    for n, line in enumerate(MANIFEST.read_text().splitlines(), 1):
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        parts = text.split()
+        if len(parts) != 2 or not parts[0].isdigit() or not re.fullmatch(r"[a-z][a-z0-9_]*", parts[1]):
+            raise Fail(f"core_entries.txt:{n}: expected `<id> <area>`, got {line!r}")
+        i, name = int(parts[0]), parts[1]
+        if i > 0xFFFF_FFFF:
+            raise Fail(f"core_entries.txt:{n}: id {i} is not a U32")
+        if name in ids:
+            raise Fail(f"core_entries.txt:{n}: area {name} has two ids")
+        if i in seen:
+            raise Fail(f"core_entries.txt:{n}: id {i} names {seen[i]} and {name}")
+        ids[name] = i
+        seen[i] = name
+    return ids
+
+
+def areas() -> list[Area]:
+    ids = manifest()
+    files = {}
+    for f in sorted(BEND.iterdir()):
+        m = AREA.match(f.name)
+        if m:
+            files[m.group(1)] = f
+    errors = [f"bend/ffi_{a}.bend has no id in core_entries.txt" for a in files if a not in ids]
+    errors += [f"core_entries.txt: id {i} names {a}, but bend/ffi_{a}.bend does not exist"
+               for a, i in ids.items() if a not in files]
+    out = []
+    for name, f in files.items():
+        text = f.read_text()
+        call = bool(DEF_FFI.search(text))
+        parts = [bool(DEF_OPEN.search(text)), bool(DEF_STEP.search(text)), bool(TYPE_ST.search(text))]
+        if any(parts) and not all(parts):
+            errors.append(f"{f.relative_to(ROOT)}: a stepper needs `type St`, `def open(` and `def step(`")
+        if not call and not any(parts):
+            errors.append(f"{f.relative_to(ROOT)}: defines neither `def ffi(` nor a stepper")
+        if name in ids:
+            out.append(Area(ids[name], name, call, all(parts)))
+    if errors:
+        raise Fail("\n".join(errors))
+    return sorted(out, key=lambda a: a.name)
+
+
+def core_bend(xs: list[Area]) -> str:
+    by_id = sorted(xs, key=lambda a: a.id)
+    calls = [a for a in by_id if a.call]
+    steppers = [a for a in by_id if a.stepper]
+    o = [
+        "# GENERATED by scripts/bend_core.py from bend/core_entries.txt and",
+        "# bend/ffi_*.bend: do not edit (make bend-core).",
+        "import Base",
+        "import ./wire.bend as W",
+    ]
+    o += [f"import ./{a.alias}.bend as {a.alias}" for a in xs]
+    o += [
+        "",
+        "# The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and",
+        "# `close` by their segments (FID_ffi, ...). The compiler inlines a small",
+        "# fork-free def into its callers and gives it no segment, so each entry is",
+        "# a parallel let of its body and `seg.pin` (scripts/bend_core.py checks",
+        "# that the emitted C has the four segments).",
+        "def seg.pin() -> Unit:",
+        "  Unit{}",
+        "",
+        "def ffi.go(+entry: U32, input: String) -> String:",
+        "  match entry:",
+    ]
+    for a in calls:
+        o += [f"    case {a.id}:", f"      {a.alias}.ffi(input)"]
+    o += [
+        "    case _:",
+        f"      {UNKNOWN}",
+        "",
+        "# call: the reply of the entry's `ffi` to one input.",
+        "def ffi(+entry: U32, input: String) -> String:",
+        "  r u = ffi.go(entry, input) seg.pin()",
+        "  r",
+        "",
+        "# A stepper's state, tagged with its entry; Unknown: an unknown entry.",
+        "type State is Type:",
+    ]
+    o += [f"  {a.camel}{{s: {a.alias}.St}}" for a in steppers]
+    o += ["  Unknown{}"]
+    for a in steppers:
+        o += [
+            "",
+            f"def open.{a.name}(r: {a.alias}.St & String) -> State & String:",
+            "  match r:",
+            "    case (s, reply):",
+            f"      ({a.camel}{{s}}, reply)",
+        ]
+    o += ["", "def open.go(+entry: U32, input: String) -> State & String:", "  match entry:"]
+    for a in steppers:
+        o += [f"    case {a.id}:", f"      open.{a.name}({a.alias}.open(input))"]
+    o += [
+        "    case _:",
+        f"      (Unknown{{}}, {UNKNOWN})",
+        "",
+        "# open: a new state of the entry's stepper and its reply.",
+        "def open(+entry: U32, input: String) -> State & String:",
+        "  r u = open.go(entry, input) seg.pin()",
+        "  r",
+    ]
+    for a in steppers:
+        o += [
+            "",
+            f"def step.{a.name}(r: {a.alias}.St & String) -> State & String:",
+            "  match r:",
+            "    case (s, reply):",
+            f"      ({a.camel}{{s}}, reply)",
+        ]
+    o += ["", "def step.go(state: State, input: String) -> State & String:", "  match state:"]
+    for a in steppers:
+        o += [f"    case {a.camel}{{s}}:", f"      step.{a.name}({a.alias}.step(s, input))"]
+    o += [
+        "    case Unknown{}:",
+        f"      (Unknown{{}}, {UNKNOWN})",
+        "",
+        "# step: the state after one input, and the reply.",
+        "def step(state: State, input: String) -> State & String:",
+        "  r u = step.go(state, input) seg.pin()",
+        "  r",
+        "",
+        "def close.go(state: State) -> Unit:",
+        "  match state:",
+    ]
+    for a in steppers:
+        o += [f"    case {a.camel}{{s}}:", "      Unit{}"]
+    o += [
+        "    case Unknown{}:",
+        "      Unit{}",
+        "",
+        "# close: drops a state.",
+        "def close(state: State) -> Unit:",
+        "  r u = close.go(state) seg.pin()",
+        "  r",
+    ]
+    o += CLI
+    return "\n".join(o) + "\n"
+
+
+# The debugging CLI: `core call <entry> <input>` prints the call's reply;
+# `core open <entry> <input> [<event>...]` prints the open's reply, then each
+# step's reply. It reaches every entry with run-time data, so each keeps its
+# segment.
+CLI = [
+    "",
+    "# The debugging CLI (bend bend/core.bend call|open ...).",
+    "def cli.done(u: Unit, reply: String) -> List<String>:",
+    "  match u:",
+    "    case Unit{}:",
+    "      [reply]",
+    "",
+    "def cli.steps(events: List<String>, r: State & String) -> List<String>:",
+    "  match events r:",
+    "    case Nil{} Tuple{state, reply}:",
+    "      cli.done(close(state), reply)",
+    "    case Con{ev, rest} Tuple{state, reply}:",
+    "      reply <> cli.steps(rest, step(state, ev))",
+    "",
+    "def cli.call(events: List<String>, +entry: U32, input: String) -> Maybe<&1, List<String>>:",
+    "  match events:",
+    "    case Nil{}:",
+    "      Some{[ffi(entry, input)]}",
+    "    case Con{ev, rest}:",
+    "      None{}",
+    "",
+    "def cli.run(",
+    "  is_call: Bool, is_open: Bool, id: Maybe<&2, U32>, input: String, events: List<String>",
+    ") -> Maybe<&1, List<String>>:",
+    "  match is_call is_open id:",
+    "    case True{} False{} Some{+n}:",
+    "      cli.call(events, n, input)",
+    "    case False{} True{} Some{+n}:",
+    "      Some{cli.steps(events, open(n, input))}",
+    "    case True{} True{} Some{+n}:",
+    "      None{}",
+    "    case False{} False{} Some{+n}:",
+    "      None{}",
+    "    case _ _ None{}:",
+    "      None{}",
+    "",
+    "def cli.args(args: List<String>) -> Maybe<&1, List<String>>:",
+    "  match args:",
+    "    case Con{prog, Con{+mode, Con{id, Con{input, events}}}}:",
+    '      cli.run(String.eq(mode, "call"), String.eq(mode, "open"), U32.read(id), input, events)',
+    "    case Nil{}:",
+    "      None{}",
+    "    case Con{prog, Nil{}}:",
+    "      None{}",
+    "    case Con{prog, Con{mode, Nil{}}}:",
+    "      None{}",
+    "    case Con{prog, Con{mode, Con{id, Nil{}}}}:",
+    "      None{}",
+    "",
+    "def cli.print(lines: List<String>) -> IO(Unit):",
+    "  match lines:",
+    "    case Nil{}:",
+    "      IO.pure(Unit, Unit{})",
+    "    case Con{line, rest}:",
+    "      do IO<Unit>:",
+    "        IO.print(line)",
+    "        cli.print(rest)",
+    "",
+    "def cli.out(r: Maybe<&1, List<String>>) -> IO(Unit):",
+    "  match r:",
+    "    case Some{lines}:",
+    "      cli.print(lines)",
+    "    case None{}:",
+    f"      IO.die(Unit, 2, {USAGE})",
+    "",
+    "def main() -> IO(Unit):",
+    "  do IO<Unit>:",
+    "    args : List<String> <- IO.args()",
+    "    cli.out(cli.args(args))",
+]
+
+
+def entries_rs(xs: list[Area]) -> str:
+    by_id = sorted(xs, key=lambda a: a.id)
+    o = [
+        "// GENERATED by scripts/bend_core.py from bend/core_entries.txt and",
+        "// bend/ffi_*.bend: do not edit (make bend-core).",
+        "",
+        "/// An entry of the compiled Bend core, one per `bend/ffi_<area>.bend`; the",
+        "/// discriminant is the id `bend/core.bend` dispatches on (`bend/core_entries.txt`).",
+        "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]",
+        "#[repr(u32)]",
+        "pub enum Entry {",
+    ]
+    for a in by_id:
+        kinds = " and ".join(k for k, on in (("a call", a.call), ("a stepper", a.stepper)) if on)
+        o += [f"    /// `bend/ffi_{a.name}.bend`: {kinds}.", f"    {a.camel} = {a.id},"]
+    o += ["}", "", "impl Entry {", "    /// Every entry, in id order."]
+    items = [f"Entry::{a.camel}" for a in by_id]
+    line = f"    pub const ALL: &[Entry] = &[{', '.join(items)}];"
+    if len(line) <= 100:
+        o.append(line)
+    else:
+        o += ["    pub const ALL: &[Entry] = &["] + [f"        {i}," for i in items] + ["    ];"]
+    o += [
+        "",
+        "    /// The id `bend/core.bend` dispatches on.",
+        "    #[must_use]",
+        "    pub const fn id(self) -> u32 {",
+        "        self as u32",
+        "    }",
+        "}",
+    ]
+    return "\n".join(o) + "\n"
+
+
+def bend_version() -> str:
+    try:
+        out = subprocess.run(["bend", "version"], capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise Fail(f"bend version failed: {e}") from e
+    return out.strip().removeprefix("bend ").strip()
+
+
+def pinned_version() -> str:
+    for line in TOOLCHAIN.read_text().splitlines():
+        if line.startswith("BEND_VERSION="):
+            return line.split("=", 1)[1].strip()
+    raise Fail("scripts/toolchain.env has no BEND_VERSION")
+
+
+def build() -> dict[str, str]:
+    """The three generated files, built in a copy of bend/."""
+    have, want = bend_version(), pinned_version()
+    if have != want:
+        raise Fail(f"bend {have} is installed; scripts/toolchain.env pins {want}")
+    xs = areas()
+    out = {CORE_BEND: core_bend(xs), ENTRIES_RS: entries_rs(xs)}
+    with tempfile.TemporaryDirectory(prefix="bend-core-") as tmp:
+        work = Path(tmp) / "bend"
+        shutil.copytree(BEND, work, ignore=shutil.ignore_patterns("core.bend"))
+        (work / "core.bend").write_text(out[CORE_BEND])
+        c = Path(tmp) / "core.c"
+        r = subprocess.run(["bend", "core.bend", "-o", str(c)], cwd=work, capture_output=True, text=True)
+        if r.returncode != 0 or not c.exists():
+            raise Fail(f"bend bend/core.bend -o core.c failed:\n{r.stdout}{r.stderr}")
+        out[CORE_C] = c.read_text()
+    missing = [f for f in SEGMENTS if not re.search(rf"^#define {f} \d+$", out[CORE_C], re.M)]
+    if missing:
+        raise Fail(f"the emitted C has no {', '.join(missing)}: the shim cannot enter the core")
+    return out
+
+
+def generate() -> int:
+    for rel, text in build().items():
+        path = ROOT / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists() or path.read_text() != text:
+            path.write_text(text)
+            print(f"wrote {rel}")
+    return 0
+
+
+def check() -> int:
+    stale = []
+    for rel, text in build().items():
+        path = ROOT / rel
+        old = path.read_text() if path.exists() else ""
+        if old == text:
+            continue
+        diff = list(difflib.unified_diff(
+            old.splitlines(), text.splitlines(), f"{rel} (committed)", f"{rel} (generated)", lineterm="", n=1))
+        stale.append(rel)
+        changed = sum(1 for d in diff[2:] if d[:1] in "+-")
+        print(f"{rel}: differs from the generator ({changed} changed lines)")
+        for d in diff[:40]:
+            print(f"  {d}")
+        if len(diff) > 40:
+            print(f"  ... {len(diff) - 40} more diff lines")
+    if stale:
+        print("run `make bend-core` and commit the result")
+        return 1
+    print("bend-core: the generated files match")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2 or argv[1] not in ("generate", "check"):
+        print(__doc__, file=sys.stderr)
+        return 2
+    try:
+        return generate() if argv[1] == "generate" else check()
+    except Fail as e:
+        print(f"bend_core.py: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

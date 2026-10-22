@@ -6,7 +6,8 @@
 # clippy on the crates the staged change touches).
 # pre-push: scripts/ci_local.sh pre-push, on the pushed commits in this
 # worktree: rustfmt, their secrets scan, clippy and tests on the crates
-# they touch, `bend PROOF.bend`. No lock: every worktree pushes at any
+# they touch, the compiled Bend core up to date (scripts/bend_core.py
+# check), `bend PROOF.bend`. No lock: every worktree pushes at any
 # time. The full gate runs nightly (scripts/ci_nightly.sh).
 # Skip rule: a push that changes only Markdown files in docs/ or at the
 # repository root does not run the gate (the `exclude` below).
@@ -22,7 +23,7 @@ repos:
         always_run: true
         stages: [pre-commit]
       - id: ci-push
-        name: ci-push (fmt, secrets, clippy and tests on the touched crates, bend PROOF.bend)
+        name: ci-push (fmt, secrets, clippy and tests on the touched crates, bend core check, bend PROOF.bend)
         entry: nice -n 10 scripts/ci_local.sh pre-push
         language: system
         pass_filenames: false

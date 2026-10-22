@@ -169,6 +169,7 @@ proofs() {
   local out
   out="$(mktemp)"
   python3 scripts/check_laws_wired.py .
+  python3 scripts/bend_core.py check
   bend PROOF.bend | tee "${out}"
   grep -qx 'ALL PROOFS CHECK' "${out}"
   rm -f "${out}"
@@ -193,6 +194,7 @@ laws() {
   local out
   out="$(mktemp -d)"
   python3 scripts/check_laws_wired.py .
+  python3 scripts/bend_core.py check
   bend PROOF.bend | tee "${out}/proof.out"
   grep -qx 'ALL PROOFS CHECK' "${out}/proof.out"
   EUKHE_REQUIRE_BEND=1 python3 scripts/release/test_next_version.py
