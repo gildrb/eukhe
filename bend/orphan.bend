@@ -69,13 +69,25 @@ def W.work(w: W) -> Work:
     case W{r, q, c, a}:
       work.put(Bool.or(r, Bool.or(c, queued_any(q))))
 
-# whether the worker exits after `absent` ms with the window
-def exit_due(+window: Nat, absent: Nat, work: Work) -> Bool:
+# whether the worker exits after `absent` ms with the window: without
+# work once the window passed, with work once two windows passed
+# (`window <= absent - window`: no sum that could pass the Nat range)
+def exit_due(+window: Nat, +absent: Nat, work: Work) -> Bool:
   match work:
     case Idle{}:
       Nat.is_le(window, absent)
     case Ongoing{}:
-      Nat.is_le(Nat.add(window, window), absent)
+      Nat.is_le(window, Nat.sub(absent, window))
+
+# the decision the Rust makes: `None` is a window past the wire's Nat
+# range (10^14 - 1 ms, about 3170 years; Rust saturates the env window
+# there), which never expires; the absence saturates at the same cap
+def exit_due.at(window: Maybe<&2, Nat>, +absent: Nat, work: Work) -> Bool:
+  match window:
+    case None{}:
+      False{}
+    case Some{w}:
+      exit_due(w, absent, work)
 
 # how a worker with this work exits: it shuts the session, or it hands
 # the work over

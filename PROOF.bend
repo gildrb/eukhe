@@ -40573,10 +40573,77 @@ def Laws.cron_claim_owned(s, e, i, x, o):
 def Laws.cron_backoff_bounded(evs, s, e, i, k, c, nx):
   pc.cron_backoff_bounded(evs, s, e, i, k, c, nx)
 
+# (D1) the restart decision and the orphan exit window
+
+# the budget's window is the spec's: keep after older, in one pass
+def ps.rs_window_put(b: Bool, +x: Nat, r: List<&2, Nat>) -> {Su.keep.put(b, x, r) == Laws.restart_window_put(b, x, r) : List<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def ps.rs_window(+w: Nat, +g: Nat, a: List<&2, Nat>) -> {Su.keep(w, Su.older(g, a)) == Laws.restart_window(w, g, a) : List<&2, Nat>}:
+  match a:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      %ps.rs_window(w, g, t) : {Su.keep.put(Nat.is_lt(Nat.add(g, x), w), Nat.add(g, x), Su.keep(w, Su.older(g, t))) == Laws.restart_window_put(Nat.is_lt(Nat.add(g, x), w), Nat.add(g, x), _) : List<&2, Nat>}
+      ps.rs_window_put(Nat.is_lt(Nat.add(g, x), w), Nat.add(g, x), Su.keep(w, Su.older(g, t)))
+
+def ps.rs_pow2(e: Nat) -> {Nat.pow(2n, e) == Laws.restart_pow2(e) : Nat}:
+  match e:
+    case 0n:
+      {==}
+    case 1n+p:
+      %ps.rs_pow2(p) : {Nat.mul(2n, Nat.pow(2n, p)) == Nat.mul(2n, _) : Nat}
+      {==}
+
+def ps.rs_verdict(b: Bool, +c: Su.Cfg, +n: Nat) -> {Su.verdict.put(b, c, n) == Laws.restart_verdict_put(b, c, n) : Su.Verdict}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      match c:
+        case Su.Cfg{k, w, +b0, +m}:
+          %ps.rs_pow2(Nat.min(Nat.sub(n, 1n), 7n)) : {Su.Relaunch{n, Nat.min(Nat.mul(Nat.pow(2n, Nat.min(Nat.sub(n, 1n), 7n)), b0), m)} == Su.Relaunch{n, Nat.min(Nat.mul(_, b0), m)} : Su.Verdict}
+          {==}
+
+# with n <= p: p <= m - n exactly when n + p <= m (m - n saturates at 0)
+def ps.or_le_sub_zero(np: Nat, p: Nat, h: {Nat.is_le(1n+np, p) == True{} : Bool}) -> {Nat.is_le(p, 0n) == Nat.is_le(Nat.add(1n+np, p), 0n) : Bool}:
+  match p:
+    case 0n:
+      screen.ps.absurdF({Nat.is_le(0n, 0n) == Nat.is_le(Nat.add(1n+np, 0n), 0n) : Bool}, h)
+    case 1n+pp:
+      {==}
+
+def ps.or_le_sub(n: Nat, +p: Nat, m: Nat, h: {Nat.is_le(n, p) == True{} : Bool}) -> {Nat.is_le(p, Nat.sub(m, n)) == Nat.is_le(Nat.add(n, p), m) : Bool}:
+  match n m:
+    case 0n 0n:
+      {==}
+    case 0n 1n+mp:
+      {==}
+    case 1n+(+np) 0n:
+      ps.or_le_sub_zero(np, p, h)
+    case 1n+(+np) 1n+mp:
+      ps.or_le_sub(np, p, mp, screen.ps.le_trans(np, 1n+np, p, screen.ps.le_succ(np), h))
+
 # (D1) Supervisor
 
 def Laws.restart_gives_up(c, pre, g, gs, many, fast):
   ps.restart_gives_up(c, pre, g, gs, many, fast)
+
+def Laws.restart_decide_window(c, s, g):
+  match s:
+    case Su.St{a, n}:
+      %ps.rs_window(Su.Cfg.w(c), g, a) : {Su.St{0n <> Su.keep(Su.Cfg.w(c), Su.older(g, a)), 1n+List.length(&2, Nat, Su.keep(Su.Cfg.w(c), Su.older(g, a)))} == Su.St{0n <> _, 1n+List.length(&2, Nat, _)} : Su.St}
+      {==}
+
+def Laws.restart_decide_verdict(c, s, g):
+  match s:
+    case Su.St{a, n}:
+      %ps.rs_window(Su.Cfg.w(c), g, a) : {Su.verdict(c, 1n+List.length(&2, Nat, Su.keep(Su.Cfg.w(c), Su.older(g, a)))) == Laws.restart_verdict_put(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, _)), c, 1n+List.length(&2, Nat, _)) : Su.Verdict}
+      ps.rs_verdict(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, Su.keep(Su.Cfg.w(c), Su.older(g, a)))), c, 1n+List.length(&2, Nat, Su.keep(Su.Cfg.w(c), Su.older(g, a))))
 
 def Laws.timeouts_ordered(t):
   ps.timeouts_ordered(t)
@@ -40586,6 +40653,22 @@ def Laws.revive_after_refresh(h, pos, b, c, d, soon):
 
 def Laws.orphan_never_aborts_resumable(window, evs):
   ps.orphan_never_aborts_resumable(window, evs)
+
+def Laws.orphan_idle_exit_due(window, absent):
+  {==}
+
+def Laws.orphan_work_exit_due(window, absent):
+  ps.or_le_sub(window, window, absent, screen.ps.le_refl(window))
+
+def Laws.orphan_capped_window_never_expires(absent, work):
+  {==}
+
+def Laws.orphan_exit_by_work(work):
+  match work:
+    case Or.Idle{}:
+      {==}
+    case Or.Ongoing{}:
+      {==}
 
 def Laws.idle_shutdown_never_aborts(bs, ops):
   ps.idle_shutdown_never_aborts(bs, ops)
