@@ -10,11 +10,13 @@ pub enum Entry {
     Echo = 0,
     /// `bend/ffi_wire.bend`: a call.
     Wire = 1,
+    /// `bend/ffi_retry.bend`: a call.
+    Retry = 2,
 }
 
 impl Entry {
     /// Every entry, in id order.
-    pub const ALL: &[Entry] = &[Entry::Echo, Entry::Wire];
+    pub const ALL: &[Entry] = &[Entry::Echo, Entry::Wire, Entry::Retry];
 
     /// The id `bend/core.bend` dispatches on.
     #[must_use]
