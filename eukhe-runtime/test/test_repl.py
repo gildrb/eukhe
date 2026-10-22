@@ -1314,18 +1314,23 @@ class ReplTest(unittest.TestCase):
                 self.assertIsNone(request)
 
     def test_as_completed_outside_creating_cell_keeps_one_bash_completion(self):
+        mime = "application/vnd.eukhe.bash-activity+json"
+        # Each cell ends only after the command (and the detached consumer)
+        # finished, without awaiting the handle itself.
         snippets = {
             "no-await": (
                 "iterator = asyncio.as_completed([handle])\n"
                 "next(iterator).close()\n"
-                "await asyncio.sleep(0.05)"
+                "await handle._wait()"
             ),
             "detached": (
+                "consumed = asyncio.Event()\n"
                 "async def consume():\n"
                 "    for completed in asyncio.as_completed([handle]):\n"
                 "        await completed\n"
+                "    consumed.set()\n"
                 "consumer = asyncio.create_task(consume())\n"
-                "await asyncio.sleep(0.05)"
+                "await consumed.wait()"
             ),
         }
         for label, snippet in snippets.items():
@@ -1335,12 +1340,19 @@ class ReplTest(unittest.TestCase):
                     f"as-completed-{label}",
                     f"from rlm import bash\nimport asyncio\nhandle = bash({command!r})\n{snippet}",
                 )
-                events += self.repl.execute(
-                    f"as-completed-{label}-probe", "await asyncio.sleep(0.05)"
-                )
-                requests = [event for event in events if event.get("event") == "host_request"]
-                for request in requests:
-                    reply_ok(self.repl, request)
+                # The completion notice runs after the cell; it releases the
+                # handle's activity only after its host requests are answered.
+                requests = []
+                cursor = 0
+                while True:
+                    for event in events[cursor:]:
+                        if event.get("event") == "host_request":
+                            requests.append(event)
+                            reply_ok(self.repl, event)
+                    cursor = len(events)
+                    if any(event.get("data", {}).get(mime, {}).get("active") is False for event in events):
+                        break
+                    events.append(self.repl.read_event())
                 self.assertEqual(len(requests), 1)
                 self.assertEqual(requests[0]["data"]["type"], "bash.completed")
                 self.assertEqual(requests[0]["data"]["command"], command)
