@@ -339,16 +339,15 @@ Tie: the bridge tests
 (compile and lookup on generated rulebooks, each also with two rules
 swapped, against `bend/bridge_quirks.bend`; the directives are the first
 of each value type in `Directive::ALL`, and a query can name no family
-or no host),
-`durable::effort_bridge::the_rust_reasoning_depth_equals_the_bend_model`
-(S10: the rulebook's default ladders and rule ladders against
-`bend/infer.bend` section 6) and
+or no host) and
 `the_rust_inference_units_equal_the_bend_model` (the escalation, the
-strict budget, the guard on lines fed in random deltas: random chunks,
+guard on lines fed in random deltas: random chunks,
 cycles of 1 to 4 chunks, the same cycles with one chunk changed, and the
 observed loop of 7 lines against windows of 27, 28, 32 and 64 chunks, and
 the compaction threshold, against `bend/bridge_infer.bend`) compare the
-transcripts byte for byte. The code compares token counts strictly
+transcripts byte for byte. The strict plan and the thinking ladder (section
+6) run as their compiled models (`bend/ffi_infer.bend`,
+`bend/ffi_effort.bend`), with no Rust copy. The code compares token counts strictly
 (`>`), so for whole token counts the model threshold is the limit less
 the margin, plus one. Regression tests: `quirks::tests` (the shipped
 rulebook compiles and no two families match one catalog model;
@@ -903,16 +902,9 @@ Code: `eukhe-ai/src/models/ladder.rs` `thinking_level_map`,
 set); `setting_switches.rs` `handle_cycle_thinking_level`;
 `worker/summary.rs` `thinking_level`; `rpc/model_commands.rs`.
 
-Tie: the bridge test
-`durable::effort_bridge::the_rust_reasoning_depth_equals_the_bend_model`
-(`eukhe-core`) runs `get_supported_thinking_levels`,
-`clamp_thinking_level` and `cycle_thinking_level` (forward and
-backward, from each ladder level) on catalog models against
-`bend/bridge_effort.bend`. The models are the edge models (no
-reasoning, no map, an `off`-only ladder, an empty ladder, one level,
-explicit `xhigh` and `max`) and random models (each entry missing,
-`null` or a wire string). The test requires that the models reach each
-rule. Regression tests: `eukhe-core` `durable::open::tests`
+Tie: the offer, the clamp and the cycle run as the compiled model
+(`bend/ffi_effort.bend`, called from `eukhe-ai` `models/ladder.rs`): there
+is no Rust copy of the rule. Regression tests: `eukhe-core` `durable::open::tests`
 (`open_settles_an_unset_thinking_level_on_the_clamped_default`: open
 settles an unset level on the clamped default); `eukhe-daemon`
 `setting_switches::tests` (`cycle_thinking_level` without reasoning

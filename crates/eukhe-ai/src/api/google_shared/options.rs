@@ -9,13 +9,15 @@ use eukhe_types::pi_ai::{
 };
 use serde::Deserialize;
 
-use super::super::simple_options::build_base_options;
+use super::super::simple_options::{
+    budgets_call, build_base_options, write_budgets, write_customs,
+};
 use super::{
     as_thinking_level, resolve_google_thinking_level, to_google_thinking_level,
     uses_google_thinking_level, GoogleApiThinkingLevel, ResolvedGoogleThinkingLevel,
 };
 use crate::models::clamp_thinking_level;
-use crate::quirks::{LevelBudgets, Quirks};
+use crate::quirks::Quirks;
 use crate::types::{ProviderStreamOptions, SimpleStreamOptions, StreamOptions};
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::headers::provider_headers_to_record;
@@ -201,37 +203,55 @@ pub fn google_thinking_budget(
     level: ResolvedGoogleThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
 ) -> Result<i64, Thrown> {
-    let custom = custom_budgets.and_then(|budgets| match level {
-        ResolvedGoogleThinkingLevel::Minimal => budgets.minimal,
-        ResolvedGoogleThinkingLevel::Low => budgets.low,
-        ResolvedGoogleThinkingLevel::Medium => budgets.medium,
-        ResolvedGoogleThinkingLevel::High => budgets.high,
-    });
-    let budget = match (Quirks::of(model).thinking_budgets(), custom) {
-        (Some(rule), custom) => {
-            let LevelBudgets {
-                minimal,
-                low,
-                medium,
-                high,
-            } = *rule;
-            if !(minimal <= low && low <= medium && medium <= high) {
-                return Err(ErrorObject::new(format!(
-                    "The thinking_budgets rule of {}/{} is not ordered (minimal <= low <= medium <= high)",
-                    model.provider, model.id
-                ))
-                .thrown());
+    let rule = Quirks::of(model).thinking_budgets();
+    let budget = budgets_call(
+        3,
+        |writer| {
+            if let Some(rule) = rule {
+                writer.some();
+                write_budgets(writer, rule);
+            } else {
+                writer.none();
             }
-            let wanted = custom.unwrap_or(match level {
-                ResolvedGoogleThinkingLevel::Minimal => minimal,
-                ResolvedGoogleThinkingLevel::Low => low,
-                ResolvedGoogleThinkingLevel::Medium => medium,
-                ResolvedGoogleThinkingLevel::High => high,
+            write_customs(writer, custom_budgets);
+            writer.tag(match level {
+                ResolvedGoogleThinkingLevel::Minimal => 0,
+                ResolvedGoogleThinkingLevel::Low => 1,
+                ResolvedGoogleThinkingLevel::Medium => 2,
+                ResolvedGoogleThinkingLevel::High => 3,
             });
-            wanted.clamp(minimal, high)
+        },
+        |reader| {
+            // `tag_of` answers 0, 1 or 2.
+            let tag = reader.tag_of(3, "a Google budget")?;
+            Ok(if tag == 0 {
+                GoogleBudget::Dynamic
+            } else if tag == 1 {
+                GoogleBudget::Tokens(reader.nat()?)
+            } else {
+                GoogleBudget::Unordered
+            })
+        },
+    )
+    .map_err(|error| ErrorObject::new(error.to_string()).thrown())?;
+    match budget {
+        GoogleBudget::Dynamic => Ok(-1),
+        GoogleBudget::Tokens(tokens) => {
+            i64::try_from(tokens).map_err(|error| ErrorObject::new(error.to_string()).thrown())
         }
-        (None, Some(custom)) => custom,
-        (None, None) => return Ok(-1),
-    };
-    i64::try_from(budget).map_err(|error| ErrorObject::new(error.to_string()).thrown())
+        GoogleBudget::Unordered => Err(ErrorObject::new(format!(
+            "The thinking_budgets rule of {}/{} is not ordered (minimal <= low <= medium <= high)",
+            model.provider, model.id
+        ))
+        .thrown()),
+    }
+}
+
+/// The reply of the compiled Google budget rule (model `Fx.GB`).
+enum GoogleBudget {
+    /// `-1`: the server decides.
+    Dynamic,
+    Tokens(u64),
+    /// The model's budget rule is not ordered.
+    Unordered,
 }

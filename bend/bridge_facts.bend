@@ -13,7 +13,7 @@
 #   i A B C X G         the directive ids of adaptive_thinking,
 #                       thinking_block_binding, prompt_caching,
 #                       explicit_cache_breakpoints, google_thinking_level
-#   d MI LO ME HI N     the default budgets and the answer room N
+#   d MI LO ME HI       the default budgets
 #   m F M H P           a model: its query (family F, model M, host H; a
 #                       target no rule names for none) and its compat flag
 #                       P (0 false, 1 true, 2 none); prints
@@ -21,14 +21,6 @@
 #                       prompt caching without and with the user's force,
 #                       explicit cache breakpoints, the Google thinking
 #                       format (1: level)
-#   g R MI LO ME HI L C a Google budget: R 1 with the rule MI..HI, 0
-#                       without; level L (0 minimal .. 3 high); the user's
-#                       budget C of the level; prints `g N` or `g -1`
-#   f B MM L C          a fit: the caller's cap B, the model's cap MM, the
-#                       level L, the user's budget C of the level; prints
-#                       `f MAX BUDGET`
-#   o B M               a budget B capped under the ceiling M; prints `o R`
-#   x B                 an auxiliary cap over the budget B; prints `x CAP`
 #   e L E0 .. E5        a Bedrock effort: level L (0 minimal .. 5 max), the
 #                       map's entries (`-` missing, `n` null, a wire code);
 #                       prints `e CODE`
@@ -90,21 +82,6 @@ def lay(n: Nat) -> If.Lay:
         case 1n+r:
           If.Host{}
 
-def lv(n: Nat) -> Fx.Lv:
-  match n:
-    case 0n:
-      Fx.Minimal{}
-    case 1n+a:
-      match a:
-        case 0n:
-          Fx.Low{}
-        case 1n+b:
-          match b:
-            case 0n:
-              Fx.Medium{}
-            case 1n+c:
-              Fx.High{}
-
 def elv(n: Nat) -> Fx.ELv:
   match n:
     case 0n:
@@ -156,18 +133,6 @@ def ent(+ws: List<&2, String>, k: Nat) -> Maybe<&2, Maybe<&2, Nat>>:
   +c = tok.head(s)
   ent.of(Char.is_eq(c, '-'), Char.is_eq(c, 'n'), s)
 
-# the user's budgets: c at level l, none elsewhere
-def customs(l: Fx.Lv, c: Maybe<&2, Nat>) -> Fx.Customs:
-  match l:
-    case Fx.Minimal{}:
-      Fx.Customs{c, None{}, None{}, None{}}
-    case Fx.Low{}:
-      Fx.Customs{None{}, c, None{}, None{}}
-    case Fx.Medium{}:
-      Fx.Customs{None{}, None{}, c, None{}}
-    case Fx.High{}:
-      Fx.Customs{None{}, None{}, None{}, c}
-
 # Writing
 # -------
 
@@ -185,44 +150,30 @@ def opt.show(m: Maybe<&2, Nat>) -> String:
     case Some{n}:
       Nat.show(n)
 
-def gb.show(g: Fx.GB) -> String:
-  match g:
-    case Fx.Dynamic{}:
-      "-1"
-    case Fx.Tokens{n}:
-      Nat.show(n)
-    case Fx.Unordered{}:
-      "unordered"
-
 # The state
 # ---------
 
 type St is Data:
-  St{rules: List<&2, If.Rule>, ids: List<&2, Nat>, d: Fx.Budgets, a: Nat, prices: List<&2, Fx.PRow>}
+  St{rules: List<&2, If.Rule>, ids: List<&2, Nat>, d: Fx.Budgets, prices: List<&2, Fx.PRow>}
 
 def St.rules(s: St) -> List<&2, If.Rule>:
   match s:
-    case St{r, i, d, a, p}:
+    case St{r, i, d, p}:
       r
 
 def St.ids(s: St) -> List<&2, Nat>:
   match s:
-    case St{r, i, d, a, p}:
+    case St{r, i, d, p}:
       i
 
 def St.d(s: St) -> Fx.Budgets:
   match s:
-    case St{r, i, d, a, p}:
+    case St{r, i, d, p}:
       d
-
-def St.a(s: St) -> Nat:
-  match s:
-    case St{r, i, d, a, p}:
-      a
 
 def St.prices(s: St) -> List<&2, Fx.PRow>:
   match s:
-    case St{r, i, d, a, p}:
+    case St{r, i, d, p}:
       p
 
 def id(+s: St, k: Nat) -> Nat:
@@ -232,22 +183,6 @@ def id(+s: St, k: Nat) -> Nat:
 def model(+s: St, +q: If.Query, p: Maybe<&2, Bool>) -> String:
   +rs = St.rules(s)
   String.concat(["m ", bit(Fx.adaptive(p, If.lookup(rs, q, id(s, 0n)))), " ", bit(Fx.decide(rs, q, id(s, 1n), False{})), " ", bit(Fx.decide(rs, q, id(s, 2n), False{})), " ", bit(Fx.decide(rs, q, id(s, 2n), True{})), " ", bit(Fx.decide(rs, q, id(s, 3n), False{})), " ", bit(Fx.decide(rs, q, id(s, 4n), False{})), "\n"])
-
-def google.rule(has: Bool, +ws: List<&2, String>) -> Maybe<&2, Fx.Budgets>:
-  match has:
-    case True{}:
-      Some{Fx.Budgets{num(ws, 2n), num(ws, 3n), num(ws, 4n), num(ws, 5n)}}
-    case False{}:
-      None{}
-
-def google(+ws: List<&2, String>) -> String:
-  +l = lv(num(ws, 6n))
-  String.concat(["g ", gb.show(Fx.gbudget(google.rule(Nat.is_eq(num(ws, 1n), 1n), ws), customs(l, tok.opt(ws, 7n)), l)), "\n"])
-
-def fit(+s: St, +ws: List<&2, String>) -> String:
-  +l = lv(num(ws, 3n))
-  +f = Fx.fit(tok.opt(ws, 1n), num(ws, 2n), Fx.budget(customs(l, tok.opt(ws, 4n)), St.d(s), l), St.a(s))
-  String.concat(["f ", Nat.show(Fx.Fit.max(f)), " ", Nat.show(Fx.Fit.budget(f)), "\n"])
 
 def effort(+ws: List<&2, String>) -> String:
   +m = {Fx.EMap{ent(ws, 2n), ent(ws, 3n), ent(ws, 4n), ent(ws, 5n), ent(ws, 6n), ent(ws, 7n)} : Fx.EMap}
@@ -293,14 +228,14 @@ def line.t(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
 def line.w(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
   match hit:
     case True{}:
-      Out{St{St.rules(s), St.ids(s), St.d(s), St.a(s), List.append(&2, Fx.PRow, St.prices(s), [Fx.PRow{tok.opt(ws, 1n), num(ws, 2n), num(ws, 3n)}])}, ""}
+      Out{St{St.rules(s), St.ids(s), St.d(s), List.append(&2, Fx.PRow, St.prices(s), [Fx.PRow{tok.opt(ws, 1n), num(ws, 2n), num(ws, 3n)}])}, ""}
     case False{}:
       line.t(Char.is_eq(c, 't'), c, ws, s)
 
 def line.q(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
   match hit:
     case True{}:
-      Out{St{St.rules(s), St.ids(s), St.d(s), St.a(s), Nil{}}, ""}
+      Out{St{St.rules(s), St.ids(s), St.d(s), Nil{}}, ""}
     case False{}:
       line.w(Char.is_eq(c, 'w'), c, ws, s)
 
@@ -318,59 +253,31 @@ def line.e(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
     case False{}:
       line.s(Char.is_eq(c, 's'), c, ws, s)
 
-def line.x(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
-  match hit:
-    case True{}:
-      Out{s, String.concat(["x ", Nat.show(Fx.aux_cap(num(ws, 1n), St.a(s))), "\n"])}
-    case False{}:
-      line.e(Char.is_eq(c, 'e'), c, ws, s)
-
-def line.o(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
-  match hit:
-    case True{}:
-      Out{s, String.concat(["o ", Nat.show(Fx.room(num(ws, 1n), num(ws, 2n), St.a(s))), "\n"])}
-    case False{}:
-      line.x(Char.is_eq(c, 'x'), c, ws, s)
-
-def line.f(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
-  match hit:
-    case True{}:
-      Out{s, fit(s, ws)}
-    case False{}:
-      line.o(Char.is_eq(c, 'o'), c, ws, s)
-
-def line.g(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
-  match hit:
-    case True{}:
-      Out{s, google(ws)}
-    case False{}:
-      line.f(Char.is_eq(c, 'f'), c, ws, s)
-
 def line.m(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
   match hit:
     case True{}:
       Out{s, model(s, If.Query{num(ws, 1n), num(ws, 2n), num(ws, 3n)}, compat(num(ws, 4n)))}
     case False{}:
-      line.g(Char.is_eq(c, 'g'), c, ws, s)
+      line.e(Char.is_eq(c, 'e'), c, ws, s)
 
 def line.d(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
   match hit:
     case True{}:
-      Out{St{St.rules(s), St.ids(s), Fx.Budgets{num(ws, 1n), num(ws, 2n), num(ws, 3n), num(ws, 4n)}, num(ws, 5n), St.prices(s)}, ""}
+      Out{St{St.rules(s), St.ids(s), Fx.Budgets{num(ws, 1n), num(ws, 2n), num(ws, 3n), num(ws, 4n)}, St.prices(s)}, ""}
     case False{}:
       line.m(Char.is_eq(c, 'm'), c, ws, s)
 
 def line.i(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
   match hit:
     case True{}:
-      Out{St{St.rules(s), [num(ws, 1n), num(ws, 2n), num(ws, 3n), num(ws, 4n), num(ws, 5n)], St.d(s), St.a(s), St.prices(s)}, ""}
+      Out{St{St.rules(s), [num(ws, 1n), num(ws, 2n), num(ws, 3n), num(ws, 4n), num(ws, 5n)], St.d(s), St.prices(s)}, ""}
     case False{}:
       line.d(Char.is_eq(c, 'd'), c, ws, s)
 
 def line.r(hit: Bool, +c: Char, +ws: List<&2, String>, +s: St) -> Out:
   match hit:
     case True{}:
-      Out{St{List.append(&2, If.Rule, St.rules(s), [rule(ws)]), St.ids(s), St.d(s), St.a(s), St.prices(s)}, ""}
+      Out{St{List.append(&2, If.Rule, St.rules(s), [rule(ws)]), St.ids(s), St.d(s), St.prices(s)}, ""}
     case False{}:
       line.i(Char.is_eq(c, 'i'), c, ws, s)
 
@@ -419,4 +326,4 @@ def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     text : String <- scenario(args)
-    IO.write(run(String.lines(text), St{Nil{}, Nil{}, Fx.Budgets{0n, 0n, 0n, 0n}, 0n, Nil{}}))
+    IO.write(run(String.lines(text), St{Nil{}, Nil{}, Fx.Budgets{0n, 0n, 0n, 0n}, Nil{}}))

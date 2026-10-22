@@ -19,8 +19,7 @@
 //!   reads as a target no rule names. Each rulebook also runs with two
 //!   adjacent rules swapped.
 //! - `bend/bridge_infer.bend` documents the other problems: the forced
-//!   call ([`ForceEscalation`], model `force`), the strict budget
-//!   ([`strict_plan`], model `strict`), the repetition guard
+//!   call ([`ForceEscalation`], model `force`), the repetition guard
 //!   ([`RepetitionGuard`], model `guard`: chunk id `x` is the line `c<x>`,
 //!   fed in deltas cut at random points; the chunks are random, a cycle of
 //!   1 to 4 chunks, the same with one chunk changed, or the observed
@@ -36,7 +35,6 @@
 
 use std::fmt::Write as _;
 
-use eukhe_ai::api::constrained_sampling::{strict_plan, StrictCandidate};
 use eukhe_ai::capabilities::Dialect;
 use eukhe_ai::quirks::{compile, Answer, Directive, Layer, Query, RawRule, ValueKind};
 use eukhe_ai::utils::stream_repeat::RepetitionGuard;
@@ -207,7 +205,7 @@ fn the_rust_quirks_rulebook_equals_the_bend_model() {
     compare("bend/bridge_quirks.bend", quirks_scenarios());
 }
 
-// The forced call, the strict budget, the guard, early compaction
+// The forced call, the guard, early compaction
 // ----------------------------------------------------------------
 
 fn bit(flag: bool) -> u8 {
@@ -245,30 +243,6 @@ fn force_problem(rng: &mut Rng, events: &mut String, transcript: &mut String) {
             ForceStep::Failed => break transcript.push_str(" missed\n"),
         }
     }
-}
-
-fn strict_problem(rng: &mut Rng, events: &mut String, transcript: &mut String) {
-    let cap = u32::try_from(rng.below(5)).unwrap();
-    let priorities: Vec<u32> = (0..rng.below(7))
-        .map(|_| u32::try_from(rng.below(3)).unwrap())
-        .collect();
-    write!(events, "s {cap}").unwrap();
-    for priority in &priorities {
-        write!(events, " {priority}").unwrap();
-    }
-    events.push('\n');
-    transcript.push('s');
-    let candidates: Vec<StrictCandidate> = priorities
-        .iter()
-        .map(|&priority| StrictCandidate {
-            priority,
-            required: false,
-        })
-        .collect();
-    for loose in strict_plan(&candidates, Some(cap)).unwrap() {
-        transcript.push_str(if loose { " 01" } else { " 10" });
-    }
-    transcript.push('\n');
 }
 
 /// The observed thinking loop (docs/inference.md S6.5) as chunk ids: 14
@@ -381,7 +355,6 @@ fn infer_scenarios() -> Vec<Scenario> {
             let (mut events, mut transcript) = (String::new(), String::new());
             for _ in 0..10 {
                 force_problem(&mut rng, &mut events, &mut transcript);
-                strict_problem(&mut rng, &mut events, &mut transcript);
                 guard_problem(&mut rng, &mut events, &mut transcript);
                 first_problem(&mut rng, &mut events, &mut transcript);
             }

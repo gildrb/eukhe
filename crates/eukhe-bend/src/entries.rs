@@ -22,14 +22,20 @@ pub enum Entry {
     DocLines = 6,
     /// `bend/ffi_doc_seen.bend`: a call.
     DocSeen = 7,
+    /// `bend/ffi_effort.bend`: a call.
+    Effort = 8,
+    /// `bend/ffi_facts.bend`: a call.
+    Facts = 9,
+    /// `bend/ffi_infer.bend`: a call.
+    Infer = 10,
     /// `bend/ffi_job.bend`: a call.
-    Job = 8,
+    Job = 11,
     /// `bend/ffi_progress.bend`: a call.
-    Progress = 9,
+    Progress = 12,
     /// `bend/ffi_sandbox.bend`: a call.
-    Sandbox = 10,
+    Sandbox = 13,
     /// `bend/ffi_workflow.bend`: a call.
-    Workflow = 11,
+    Workflow = 14,
 }
 
 impl Entry {
@@ -43,6 +49,9 @@ impl Entry {
         Entry::DefaultModel,
         Entry::DocLines,
         Entry::DocSeen,
+        Entry::Effort,
+        Entry::Facts,
+        Entry::Infer,
         Entry::Job,
         Entry::Progress,
         Entry::Sandbox,

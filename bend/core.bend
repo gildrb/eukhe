@@ -9,6 +9,9 @@ import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
+import ./ffi_effort.bend as ffi_effort
+import ./ffi_facts.bend as ffi_facts
+import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_sandbox.bend as ffi_sandbox
@@ -40,12 +43,18 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 7:
       ffi_doc_seen.ffi(input)
     case 8:
-      ffi_job.ffi(input)
+      ffi_effort.ffi(input)
     case 9:
-      ffi_progress.ffi(input)
+      ffi_facts.ffi(input)
     case 10:
-      ffi_sandbox.ffi(input)
+      ffi_infer.ffi(input)
     case 11:
+      ffi_job.ffi(input)
+    case 12:
+      ffi_progress.ffi(input)
+    case 13:
+      ffi_sandbox.ffi(input)
+    case 14:
       ffi_workflow.ffi(input)
     case _:
       W.err("unknown entry")

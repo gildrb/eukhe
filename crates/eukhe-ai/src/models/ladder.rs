@@ -23,6 +23,9 @@
 use eukhe_types::daemon::CycleDirection;
 use eukhe_types::pi_ai::{KnownProvider, Model, ModelThinkingLevel, ThinkingLevelMap};
 
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::Entry;
+
 use crate::quirks::{Quirks, Rulebook};
 
 /// The levels in ladder order: the vocabulary, weakest first. A level's
@@ -76,7 +79,7 @@ const fn registry_rung(level: eukhe_types::ai::ModelThinkingLevel) -> usize {
 
 /// The entry of one level in a ladder map (model `Ef.Ent`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Entry {
+enum MapEntry {
     /// The map names no entry for the level.
     Missing,
     /// The entry is `null`: the model does not take the level.
@@ -85,13 +88,22 @@ enum Entry {
     Wire,
 }
 
-impl Entry {
+impl MapEntry {
     /// The entry of a map lookup: `None` no entry, `Some(None)` `null`.
     const fn of<T>(entry: Option<&Option<T>>) -> Self {
         match entry {
             None => Self::Missing,
             Some(None) => Self::Null,
             Some(Some(_)) => Self::Wire,
+        }
+    }
+
+    /// The entry's tag on the wire (`bend/ffi_effort.bend`).
+    const fn tag(self) -> u32 {
+        match self {
+            Self::Missing => 0,
+            Self::Null => 1,
+            Self::Wire => 2,
         }
     }
 }
@@ -108,19 +120,19 @@ enum Reasons {
 
 /// Everything the ladder rule reads of a model (model `If.lad.model`):
 /// whether it reasons, its explicit map and the rulebook's ladder for it
-/// (each entry projected to [`Entry`]), and the rulebook's default
+/// (each entry projected to [`MapEntry`]), and the rulebook's default
 /// ladders as rungs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LadderFacts {
     reasons: Reasons,
-    explicit: Option<[Entry; 7]>,
-    rule: Option<[Entry; 7]>,
+    explicit: Option<[MapEntry; 7]>,
+    rule: Option<[MapEntry; 7]>,
     defaults_reasoning: Vec<usize>,
     defaults_plain: Vec<usize>,
 }
 
 impl LadderFacts {
-    fn new(reasons: Reasons, explicit: Option<[Entry; 7]>, rule: Option<[Entry; 7]>) -> Self {
+    fn new(reasons: Reasons, explicit: Option<[MapEntry; 7]>, rule: Option<[MapEntry; 7]>) -> Self {
         let defaults = Rulebook::shipped().thinking_defaults();
         let rungs = |levels: &[ModelThinkingLevel]| levels.iter().copied().map(rung).collect();
         Self {
@@ -131,44 +143,87 @@ impl LadderFacts {
             defaults_plain: rungs(&defaults.plain),
         }
     }
+
+    /// The facts on the wire (`bend/ffi_effort.bend` `Facts`).
+    fn write(&self, writer: &mut Writer) {
+        let (flag, by_map) = match self.reasons {
+            Reasons::ByFlag(flag) => (flag, false),
+            Reasons::ByFlagOrMap(flag) => (flag, true),
+        };
+        writer.bool(flag).bool(by_map);
+        for map in [&self.explicit, &self.rule] {
+            match map {
+                None => {
+                    writer.none();
+                }
+                Some(entries) => {
+                    writer.some();
+                    for entry in entries {
+                        writer.tag(entry.tag());
+                    }
+                }
+            }
+        }
+        for rungs in [&self.defaults_reasoning, &self.defaults_plain] {
+            writer.count(rungs.len());
+            for rung in rungs {
+                writer.count(*rung);
+            }
+        }
+    }
+}
+
+/// One call of the compiled ladder rule (`bend/ffi_effort.bend`): the
+/// request `tag` with the facts and `write`'s fields, the reply by `read`.
+fn ladder_call<T>(
+    tag: u32,
+    facts: &LadderFacts,
+    write: impl FnOnce(&mut Writer),
+    read: impl FnOnce(&mut Reader<'_>) -> Result<T, WireError>,
+) -> T {
+    let answer = || -> Result<T, eukhe_bend::Error> {
+        let mut writer = Writer::new();
+        writer.tag(tag);
+        facts.write(&mut writer);
+        write(&mut writer);
+        let reply = eukhe_bend::call(Entry::Effort, &writer.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let value = read(&mut reader)?;
+        reader.end()?;
+        Ok(value)
+    };
+    eukhe_bend::expect_core(Entry::Effort, answer())
+}
+
+/// A rung on the wire.
+fn read_rung(reader: &mut Reader<'_>) -> Result<usize, WireError> {
+    reader.tag_of(7, "a ladder level").map(|tag| tag as usize)
 }
 
 /// The rungs a model offers, in ladder order (the module docs, rule 2;
 /// LAWS.bend `quirk_ladder_offered_exact`, `quirk_ladder_plain_exact`,
 /// `quirk_ladder_reasons`).
 fn offered(facts: &LadderFacts) -> Vec<usize> {
-    let reasons = match facts.reasons {
-        Reasons::ByFlag(flag) => flag,
-        Reasons::ByFlagOrMap(flag) => {
-            flag || facts.explicit.is_some_and(|map| map.contains(&Entry::Wire))
-        }
-    };
-    let (chosen, defaults) = if reasons {
-        (
-            facts.explicit.or(facts.rule).unwrap_or([Entry::Missing; 7]),
-            &facts.defaults_reasoning,
-        )
-    } else {
-        ([Entry::Missing; 7], &facts.defaults_plain)
-    };
-    (0..LEVELS.len())
-        .filter(|rung| match chosen[*rung] {
-            Entry::Missing => defaults.contains(rung),
-            Entry::Null => false,
-            Entry::Wire => true,
-        })
-        .collect()
+    ladder_call(
+        0,
+        facts,
+        |_| {},
+        |reader| (0..reader.count()?).map(|_| read_rung(reader)).collect(),
+    )
 }
 
 /// The offered rung closest to `rung`: `rung` itself, else the next
 /// offered rung up the ladder, else the next one down; rung 0 (`off`)
 /// when the model offers none (LAWS.bend S10 `effort_clamp_*`).
 fn clamp(facts: &LadderFacts, rung: usize) -> usize {
-    let offered = offered(facts);
-    (rung..LEVELS.len())
-        .chain((0..rung).rev())
-        .find(|candidate| offered.contains(candidate))
-        .unwrap_or(0)
+    ladder_call(
+        1,
+        facts,
+        |writer| {
+            writer.count(rung);
+        },
+        read_rung,
+    )
 }
 
 /// The rung one cycle step moves to (TS `cycleThinkingLevel`): from the
@@ -176,17 +231,23 @@ fn clamp(facts: &LadderFacts, rung: usize) -> usize {
 /// `Backward`, wrapping at the ends; `None` when fewer than two rungs are
 /// offered (LAWS.bend S10 `effort_cycle_*`).
 fn cycle(facts: &LadderFacts, rung: usize, direction: CycleDirection) -> Option<usize> {
-    let offered = offered(facts);
-    if offered.len() < 2 {
-        return None;
-    }
-    let shown = clamp(facts, rung);
-    let index = offered.iter().position(|candidate| *candidate == shown)?;
-    let step = match direction {
-        CycleDirection::Forward => 1,
-        CycleDirection::Backward => offered.len() - 1,
-    };
-    Some(offered[(index + step) % offered.len()])
+    ladder_call(
+        2,
+        facts,
+        |writer| {
+            writer.count(rung).tag(match direction {
+                CycleDirection::Forward => 0,
+                CycleDirection::Backward => 1,
+            });
+        },
+        |reader| {
+            if reader.maybe()? {
+                read_rung(reader).map(Some)
+            } else {
+                Ok(None)
+            }
+        },
+    )
 }
 
 /// The rule ladder of a model (the module docs, rule 1): the rulebook's
@@ -204,8 +265,8 @@ fn rule_ladder<'a>(
 }
 
 /// The entries of a pi-ai ladder map, by rung.
-fn entries(map: &ThinkingLevelMap) -> [Entry; 7] {
-    LEVELS.map(|level| Entry::of(map.get(&level)))
+fn entries(map: &ThinkingLevelMap) -> [MapEntry; 7] {
+    LEVELS.map(|level| MapEntry::of(map.get(&level)))
 }
 
 /// The chosen ladder that the requests of `model` use (the module docs,
@@ -238,7 +299,7 @@ fn registry_facts(model: &eukhe_types::ai::Model) -> LadderFacts {
         model
             .thinking_level_map
             .as_ref()
-            .map(|map| REGISTRY_LEVELS.map(|level| Entry::of(map.get(&level)))),
+            .map(|map| REGISTRY_LEVELS.map(|level| MapEntry::of(map.get(&level)))),
         rule_ladder(model, &model.provider, model.reasoning).map(entries),
     )
 }
