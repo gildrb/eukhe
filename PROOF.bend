@@ -9747,6 +9747,668 @@ def interactive_step(s: Ad.St, o: Ad.Op, +w: Nat, ws: {Ad.waits.ia(Ad.status(s, 
 def interactive_bound(+l: Ad.Lim, +q: Nat, +pre: List<&2, Ad.Op>, +os: List<&2, Ad.Op>, +w: Nat, e: {Ad.waits.thru(os, Ad.run(pre, Ad.St.new(l, q)), w) == True{} : Bool}) -> {Ad.le(1n+Ad.frees.run(os, Ad.run(pre, Ad.St.new(l, q))), Ad.ahead(Ad.run(pre, Ad.St.new(l, q)), w)) == True{} : Bool}:
   aw.trace(os, Ad.run(pre, Ad.St.new(l, q)), w, ad.run_ok(pre, Ad.St.new(l, q), ad.new_ok(l, q)), e)
 
+# ---- admission_live ----
+
+# proof_admission_live: the live controller (Ad.Live in bend/admission.bend)
+# against the model: on any state of the model, an op of the live
+# controller on the model's live tickets gives the live tickets of the
+# model's op (LAWS.bend admission_live_step). Each part of an op commutes
+# with taking the live tickets (`Laws.adl_lives`): a count, a grant, a
+# preemption, an admit (a ticket appended, numbered by the length), and a
+# ticket found, set or dropped by its number (the numbers of the live
+# tickets from the j-th on are at least j).
+
+# Nat
+# ---
+
+def al.add_zero(a: Nat) -> {Nat.add(a, 0n) == a : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %al.add_zero(p) : {1n+Nat.add(p, 0n) == 1n+_ : Nat}
+      {==}
+
+def al.add_succ(a: Nat, -b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %al.add_succ(p, b) : {1n+Nat.add(p, 1n+b) == 1n+_ : Nat}
+      {==}
+
+def al.eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      al.eq_refl(p)
+
+# j is not a number past it
+def al.ne_add(+i: Nat, j: Nat) -> {Nat.is_eq(j, 1n+Nat.add(i, j)) == False{} : Bool}:
+  match j:
+    case 0n:
+      {==}
+    case 1n+p:
+      %Equal.sym(Nat, Nat.add(i, 1n+p), 1n+Nat.add(i, p), al.add_succ(i, p)) : {Nat.is_eq(1n+p, 1n+_) == False{} : Bool}
+      al.ne_add(i, p)
+
+def al.ne_add2(+d: Nat, j: Nat) -> {Nat.is_eq(1n+Nat.add(d, j), j) == False{} : Bool}:
+  match j:
+    case 0n:
+      {==}
+    case 1n+p:
+      %Equal.sym(Nat, Nat.add(d, 1n+p), 1n+Nat.add(d, p), al.add_succ(d, p)) : {Nat.is_eq(1n+_, 1n+p) == False{} : Bool}
+      al.ne_add2(d, p)
+
+# Counting
+# --------
+
+def al.keep_cnt(s: Ad.Sts, +m: Ad.Mode, +c: Ad.Cls, +j: Nat, +c2: Ad.Cls, +rest: List<&2, Ad.Lv>) -> {Ad.lv.cnt(m, c, Laws.adl_keep(s, j, c2, rest)) == Ad.bit(Ad.hit(m, c, Ad.Tk{c2, s}), Ad.lv.cnt(m, c, rest)) : Nat}:
+  match s:
+    case Ad.Queued{}:
+      {==}
+    case Ad.Granted{}:
+      {==}
+    case Ad.Held{}:
+      {==}
+    case Ad.Preempted{}:
+      {==}
+    case Ad.Ended{}:
+      match m:
+        case Ad.Holding{}:
+          {==}
+        case Ad.Waiting{}:
+          {==}
+
+def al.cnt(+m: Ad.Mode, +c: Ad.Cls, ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.cnt(m, c, Laws.adl_lives(ts, j)) == Ad.cnt(m, c, ts) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Ad.Tk{+c2, +s} <> +r:
+      %Equal.sym(Nat, Ad.lv.cnt(m, c, Laws.adl_keep(s, j, c2, Laws.adl_lives(r, 1n+j))), Ad.bit(Ad.hit(m, c, Ad.Tk{c2, s}), Ad.lv.cnt(m, c, Laws.adl_lives(r, 1n+j))), al.keep_cnt(s, m, c, j, c2, Laws.adl_lives(r, 1n+j))) : {_ == Ad.bit(Ad.hit(m, c, Ad.Tk{c2, s}), Ad.cnt(m, c, r)) : Nat}
+      %Equal.sym(Nat, Ad.lv.cnt(m, c, Laws.adl_lives(r, 1n+j)), Ad.cnt(m, c, r), al.cnt(m, c, r, 1n+j)) : {Ad.bit(Ad.hit(m, c, Ad.Tk{c2, s}), _) == Ad.bit(Ad.hit(m, c, Ad.Tk{c2, s}), Ad.cnt(m, c, r)) : Nat}
+      {==}
+
+# a count of the live tickets is the count of the model's tickets
+def al.cnt_s(+m: Ad.Mode, +c: Ad.Cls, +ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.cnt(m, c, ts) == Ad.lv.cnt(m, c, Laws.adl_lives(ts, j)) : Nat}:
+  Equal.sym(Nat, Ad.lv.cnt(m, c, Laws.adl_lives(ts, j)), Ad.cnt(m, c, ts), al.cnt(m, c, ts, j))
+
+def al.held(+ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.held(Laws.adl_lives(ts, j)) == Ad.held(ts) : Nat}:
+  %al.cnt_s(Ad.Holding{}, Ad.Ia{}, ts, j) : {Nat.add(_, Ad.lv.cnt(Ad.Holding{}, Ad.Bg{}, Laws.adl_lives(ts, j))) == Ad.held(ts) : Nat}
+  %al.cnt_s(Ad.Holding{}, Ad.Bg{}, ts, j) : {Nat.add(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), _) == Ad.held(ts) : Nat}
+  {==}
+
+def al.waits(+ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.waits(Laws.adl_lives(ts, j)) == Ad.waits(ts) : Nat}:
+  %al.cnt_s(Ad.Waiting{}, Ad.Ia{}, ts, j) : {Nat.add(_, Ad.lv.cnt(Ad.Waiting{}, Ad.Bg{}, Laws.adl_lives(ts, j))) == Ad.waits(ts) : Nat}
+  %al.cnt_s(Ad.Waiting{}, Ad.Bg{}, ts, j) : {Nat.add(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts), _) == Ad.waits(ts) : Nat}
+  {==}
+
+def al.pick(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.pick(l, Laws.adl_lives(ts, j)) == Ad.pick(l, ts) : Maybe<&2, Ad.Cls>}:
+  %Equal.sym(Nat, Ad.lv.held(Laws.adl_lives(ts, j)), Ad.held(ts), al.held(ts, j)) : {Ad.pick.go(Ad.room(l, _), Ad.lv.cnt(Ad.Waiting{}, Ad.Ia{}, Laws.adl_lives(ts, j)), Ad.lv.cnt(Ad.Holding{}, Ad.Ia{}, Laws.adl_lives(ts, j)), Ad.lv.cnt(Ad.Waiting{}, Ad.Bg{}, Laws.adl_lives(ts, j))) == Ad.pick(l, ts) : Maybe<&2, Ad.Cls>}
+  %al.cnt_s(Ad.Waiting{}, Ad.Ia{}, ts, j) : {Ad.pick.go(Ad.room(l, Ad.held(ts)), _, Ad.lv.cnt(Ad.Holding{}, Ad.Ia{}, Laws.adl_lives(ts, j)), Ad.lv.cnt(Ad.Waiting{}, Ad.Bg{}, Laws.adl_lives(ts, j))) == Ad.pick(l, ts) : Maybe<&2, Ad.Cls>}
+  %al.cnt_s(Ad.Holding{}, Ad.Ia{}, ts, j) : {Ad.pick.go(Ad.room(l, Ad.held(ts)), Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts), _, Ad.lv.cnt(Ad.Waiting{}, Ad.Bg{}, Laws.adl_lives(ts, j))) == Ad.pick(l, ts) : Maybe<&2, Ad.Cls>}
+  %al.cnt_s(Ad.Waiting{}, Ad.Bg{}, ts, j) : {Ad.pick.go(Ad.room(l, Ad.held(ts)), Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts), Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts), _) == Ad.pick(l, ts) : Maybe<&2, Ad.Cls>}
+  {==}
+
+# Logic
+# -----
+
+def al.Clash(b: Bool, G: Type) -> Type:
+  match b:
+    case False{}:
+      Unit
+    case True{}:
+      G
+
+# True == False proves anything
+def al.absurd(-G: Type, e: {True{} == False{} : Bool}) -> G:
+  %Equal.sym(Bool, True{}, False{}, e) : al.Clash(_, G)
+  Unit{}
+
+# Granting
+# --------
+
+def al.mark_at(b: Bool, +c: Ad.Cls, +j: Nat, +c2: Ad.Cls, s: Ad.Sts, +r: List<&2, Ad.Tk>, ne: {Ad.ended(Some{Ad.Tk{c2, s}}) == False{} : Bool}, ih: {Ad.lv.mark(c, Laws.adl_lives(r, 1n+j)) == Laws.adl_lives(Ad.mark(c, r), 1n+j) : List<&2, Ad.Lv>}) -> {Ad.lv.mark.at(b, c, Ad.Lv{j, c2, s}, Laws.adl_lives(r, 1n+j), Ad.lv.mark(c, Laws.adl_lives(r, 1n+j))) == Laws.adl_lives(Ad.mark.at(b, c, Ad.Tk{c2, s}, r, Ad.mark(c, r)), j) : List<&2, Ad.Lv>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      match s:
+        case Ad.Queued{}:
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c2, Ad.Queued{}} <> x, Ad.lv.mark(c, Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.mark(c, r), 1n+j), ih)
+        case Ad.Granted{}:
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c2, Ad.Granted{}} <> x, Ad.lv.mark(c, Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.mark(c, r), 1n+j), ih)
+        case Ad.Held{}:
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c2, Ad.Held{}} <> x, Ad.lv.mark(c, Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.mark(c, r), 1n+j), ih)
+        case Ad.Preempted{}:
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c2, Ad.Preempted{}} <> x, Ad.lv.mark(c, Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.mark(c, r), 1n+j), ih)
+        case Ad.Ended{}:
+          al.absurd({Ad.lv.mark.at(False{}, c, Ad.Lv{j, c2, Ad.Ended{}}, Laws.adl_lives(r, 1n+j), Ad.lv.mark(c, Laws.adl_lives(r, 1n+j))) == Laws.adl_lives(Ad.mark.at(False{}, c, Ad.Tk{c2, Ad.Ended{}}, r, Ad.mark(c, r)), j) : List<&2, Ad.Lv>}, ne)
+
+def al.mark(+c: Ad.Cls, ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.mark(c, Laws.adl_lives(ts, j)) == Laws.adl_lives(Ad.mark(c, ts), j) : List<&2, Ad.Lv>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Ad.Tk{+c2, s} <> +r:
+      match s:
+        case Ad.Queued{}:
+          al.mark_at(Ad.hit(Ad.Waiting{}, c, Ad.Tk{c2, Ad.Queued{}}), c, j, c2, Ad.Queued{}, r, {==}, al.mark(c, r, 1n+j))
+        case Ad.Granted{}:
+          al.mark_at(Ad.hit(Ad.Waiting{}, c, Ad.Tk{c2, Ad.Granted{}}), c, j, c2, Ad.Granted{}, r, {==}, al.mark(c, r, 1n+j))
+        case Ad.Held{}:
+          al.mark_at(Ad.hit(Ad.Waiting{}, c, Ad.Tk{c2, Ad.Held{}}), c, j, c2, Ad.Held{}, r, {==}, al.mark(c, r, 1n+j))
+        case Ad.Preempted{}:
+          al.mark_at(Ad.hit(Ad.Waiting{}, c, Ad.Tk{c2, Ad.Preempted{}}), c, j, c2, Ad.Preempted{}, r, {==}, al.mark(c, r, 1n+j))
+        case Ad.Ended{}:
+          al.mark(c, r, 1n+j)
+
+def al.grant_go(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.grant.go(n, d, l, Laws.adl_lives(ts, j)) == Laws.adl_lives(Ad.grant.go(n, d, l, ts), j) : List<&2, Ad.Lv>}:
+  match n d:
+    case 0n _:
+      {==}
+    case 1n+f None{}:
+      {==}
+    case 1n+f Some{+c}:
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.mark(c, Laws.adl_lives(ts, j)), Laws.adl_lives(Ad.mark(c, ts), j), al.mark(c, ts, j)) : {Ad.lv.grant.go(f, Ad.lv.pick(l, _), l, _) == Laws.adl_lives(Ad.grant.go(f, Ad.pick(l, Ad.mark(c, ts)), l, Ad.mark(c, ts)), j) : List<&2, Ad.Lv>}
+      %Equal.sym(Maybe<&2, Ad.Cls>, Ad.lv.pick(l, Laws.adl_lives(Ad.mark(c, ts), j)), Ad.pick(l, Ad.mark(c, ts)), al.pick(l, Ad.mark(c, ts), j)) : {Ad.lv.grant.go(f, _, l, Laws.adl_lives(Ad.mark(c, ts), j)) == Laws.adl_lives(Ad.grant.go(f, Ad.pick(l, Ad.mark(c, ts)), l, Ad.mark(c, ts)), j) : List<&2, Ad.Lv>}
+      al.grant_go(f, Ad.pick(l, Ad.mark(c, ts)), l, Ad.mark(c, ts), j)
+
+def al.grant(+l: Ad.Lim, +ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.grant(l, Laws.adl_lives(ts, j)) == Laws.adl_lives(Ad.grant(l, ts), j) : List<&2, Ad.Lv>}:
+  %Equal.sym(Nat, Ad.lv.waits(Laws.adl_lives(ts, j)), Ad.waits(ts), al.waits(ts, j)) : {Ad.lv.grant.go(_, Ad.lv.pick(l, Laws.adl_lives(ts, j)), l, Laws.adl_lives(ts, j)) == Laws.adl_lives(Ad.grant(l, ts), j) : List<&2, Ad.Lv>}
+  %Equal.sym(Maybe<&2, Ad.Cls>, Ad.lv.pick(l, Laws.adl_lives(ts, j)), Ad.pick(l, ts), al.pick(l, ts, j)) : {Ad.lv.grant.go(Ad.waits(ts), _, l, Laws.adl_lives(ts, j)) == Laws.adl_lives(Ad.grant(l, ts), j) : List<&2, Ad.Lv>}
+  al.grant_go(Ad.waits(ts), Ad.pick(l, ts), l, ts, j)
+
+# Preempting
+# ----------
+
+def al.preempt(ts: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.preempt(Laws.adl_lives(ts, j)) == Laws.adl_lives(Ad.preempt(ts), j) : List<&2, Ad.Lv>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Ad.Tk{c, s} <> +r:
+      match c:
+        case Ad.Ia{}:
+          match s:
+            case Ad.Queued{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Ia{}, Ad.Queued{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Granted{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Ia{}, Ad.Granted{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Held{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Ia{}, Ad.Held{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Preempted{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Ia{}, Ad.Preempted{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Ended{}:
+              al.preempt(r, 1n+j)
+        case Ad.Bg{}:
+          match s:
+            case Ad.Queued{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Bg{}, Ad.Queued{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Granted{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Bg{}, Ad.Queued{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Held{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Bg{}, Ad.Preempted{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Preempted{}:
+              Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, Ad.Bg{}, Ad.Preempted{}} <> x, Ad.lv.preempt(Laws.adl_lives(r, 1n+j)), Laws.adl_lives(Ad.preempt(r), 1n+j), al.preempt(r, 1n+j))
+            case Ad.Ended{}:
+              al.preempt(r, 1n+j)
+
+# Lengths
+# -------
+
+def al.len_put(ts: List<&2, Ad.Tk>, i: Nat, +x: Ad.Sts) -> {List.length(&2, Ad.Tk, Ad.put(ts, i, x)) == List.length(&2, Ad.Tk, ts) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Ad.Tk{c, s} <> r:
+      match i:
+        case 0n:
+          {==}
+        case 1n+p:
+          Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, Ad.put(r, p, x)), List.length(&2, Ad.Tk, r), al.len_put(r, p, x))
+
+def al.len_mark_at(b: Bool, c: Ad.Cls, h: Ad.Tk, +r: List<&2, Ad.Tk>, -m: List<&2, Ad.Tk>, ih: {List.length(&2, Ad.Tk, m) == List.length(&2, Ad.Tk, r) : Nat}) -> {List.length(&2, Ad.Tk, Ad.mark.at(b, c, h, r, m)) == 1n+List.length(&2, Ad.Tk, r) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, m), List.length(&2, Ad.Tk, r), ih)
+
+def al.len_mark(+c: Ad.Cls, ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.mark(c, ts)) == List.length(&2, Ad.Tk, ts) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case +h <> +r:
+      al.len_mark_at(Ad.hit(Ad.Waiting{}, c, h), c, h, r, Ad.mark(c, r), al.len_mark(c, r))
+
+def al.len_grant_go(n: Nat, d: Maybe<&2, Ad.Cls>, +l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.grant.go(n, d, l, ts)) == List.length(&2, Ad.Tk, ts) : Nat}:
+  match n d:
+    case 0n _:
+      {==}
+    case 1n+f None{}:
+      {==}
+    case 1n+f Some{+c}:
+      Equal.trans(Nat, List.length(&2, Ad.Tk, Ad.grant.go(f, Ad.pick(l, Ad.mark(c, ts)), l, Ad.mark(c, ts))), List.length(&2, Ad.Tk, Ad.mark(c, ts)), List.length(&2, Ad.Tk, ts), al.len_grant_go(f, Ad.pick(l, Ad.mark(c, ts)), l, Ad.mark(c, ts)), al.len_mark(c, ts))
+
+def al.len_grant(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.grant(l, ts)) == List.length(&2, Ad.Tk, ts) : Nat}:
+  al.len_grant_go(Ad.waits(ts), Ad.pick(l, ts), l, ts)
+
+def al.len_pre(ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.preempt(ts)) == List.length(&2, Ad.Tk, ts) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case h <> r:
+      Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, Ad.preempt(r)), List.length(&2, Ad.Tk, r), al.len_pre(r))
+
+def al.len_app1(a: List<&2, Ad.Tk>, -x: Ad.Tk) -> {List.length(&2, Ad.Tk, List.append(&2, Ad.Tk, a, [x])) == 1n+List.length(&2, Ad.Tk, a) : Nat}:
+  match a:
+    case Nil{}:
+      {==}
+    case h <> r:
+      Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, List.append(&2, Ad.Tk, r, [x])), 1n+List.length(&2, Ad.Tk, r), al.len_app1(r, x))
+
+# Admitting
+# ---------
+
+def al.fresh(s: Ad.Sts, +k: Nat, +c: Ad.Cls) -> {Laws.adl_keep(s, k, c, Nil{}) == Ad.lv.fresh(s, k, c) : List<&2, Ad.Lv>}:
+  match s:
+    case Ad.Queued{}:
+      {==}
+    case Ad.Granted{}:
+      {==}
+    case Ad.Held{}:
+      {==}
+    case Ad.Preempted{}:
+      {==}
+    case Ad.Ended{}:
+      {==}
+
+def al.keep_app(s: Ad.Sts, +k: Nat, +c: Ad.Cls, a: List<&2, Ad.Lv>, b: List<&2, Ad.Lv>) -> {List.append(&2, Ad.Lv, Laws.adl_keep(s, k, c, a), b) == Laws.adl_keep(s, k, c, List.append(&2, Ad.Lv, a, b)) : List<&2, Ad.Lv>}:
+  match s:
+    case Ad.Queued{}:
+      {==}
+    case Ad.Granted{}:
+      {==}
+    case Ad.Held{}:
+      {==}
+    case Ad.Preempted{}:
+      {==}
+    case Ad.Ended{}:
+      {==}
+
+# a ticket appended to the model's tickets is the live ticket appended
+def al.app(a: List<&2, Ad.Tk>, +c: Ad.Cls, +s: Ad.Sts, +j: Nat) -> {Laws.adl_lives(List.append(&2, Ad.Tk, a, [Ad.Tk{c, s}]), j) == List.append(&2, Ad.Lv, Laws.adl_lives(a, j), Ad.lv.fresh(s, Nat.add(List.length(&2, Ad.Tk, a), j), c)) : List<&2, Ad.Lv>}:
+  match a:
+    case Nil{}:
+      al.fresh(s, j, c)
+    case Ad.Tk{+c2, +s2} <> +r:
+      +x = {Ad.Tk{c, s} : Ad.Tk}
+      +n = {List.length(&2, Ad.Tk, r) : Nat}
+      %Equal.sym(List<&2, Ad.Lv>, Laws.adl_lives(List.append(&2, Ad.Tk, r, [x]), 1n+j), List.append(&2, Ad.Lv, Laws.adl_lives(r, 1n+j), Ad.lv.fresh(s, Nat.add(n, 1n+j), c)), al.app(r, c, s, 1n+j)) : {Laws.adl_keep(s2, j, c2, _) == List.append(&2, Ad.Lv, Laws.adl_keep(s2, j, c2, Laws.adl_lives(r, 1n+j)), Ad.lv.fresh(s, 1n+Nat.add(n, j), c)) : List<&2, Ad.Lv>}
+      %Equal.sym(Nat, Nat.add(n, 1n+j), 1n+Nat.add(n, j), al.add_succ(n, j)) : {Laws.adl_keep(s2, j, c2, List.append(&2, Ad.Lv, Laws.adl_lives(r, 1n+j), Ad.lv.fresh(s, _, c))) == List.append(&2, Ad.Lv, Laws.adl_keep(s2, j, c2, Laws.adl_lives(r, 1n+j)), Ad.lv.fresh(s, 1n+Nat.add(n, j), c)) : List<&2, Ad.Lv>}
+      Equal.sym(List<&2, Ad.Lv>, List.append(&2, Ad.Lv, Laws.adl_keep(s2, j, c2, Laws.adl_lives(r, 1n+j)), Ad.lv.fresh(s, 1n+Nat.add(n, j), c)), Laws.adl_keep(s2, j, c2, List.append(&2, Ad.Lv, Laws.adl_lives(r, 1n+j), Ad.lv.fresh(s, 1n+Nat.add(n, j), c))), al.keep_app(s2, j, c2, Laws.adl_lives(r, 1n+j), Ad.lv.fresh(s, 1n+Nat.add(n, j), c)))
+
+def al.admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {Ad.lv.admit.ia(l, q, Laws.adl_lives(ts, 0n), List.length(&2, Ad.Tk, ts)) == Laws.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}:
+  +st = {Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts))) : Ad.Sts}
+  %al.cnt_s(Ad.Waiting{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Ad.lv.preempt(Laws.adl_lives(ts, 0n)), Ad.lv.fresh(Ad.admit.ia.st(Bool.and(Ad.isz(_), Ad.room(l, Ad.lv.cnt(Ad.Holding{}, Ad.Ia{}, Laws.adl_lives(ts, 0n)))), Ad.le(q, _)), List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Laws.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
+  %al.cnt_s(Ad.Holding{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Ad.lv.preempt(Laws.adl_lives(ts, 0n)), Ad.lv.fresh(Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, _)), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts))), List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Laws.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
+  %Equal.sym(List<&2, Ad.Lv>, Ad.lv.preempt(Laws.adl_lives(ts, 0n)), Laws.adl_lives(Ad.preempt(ts), 0n), al.preempt(ts, 0n)) : {List.append(&2, Ad.Lv, _, Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == Laws.adl_lives(Ad.admit.ia(l, q, ts), 0n) : List<&2, Ad.Lv>}
+  %Equal.sym(List<&2, Ad.Lv>, Laws.adl_lives(List.append(&2, Ad.Tk, Ad.preempt(ts), [Ad.Tk{Ad.Ia{}, st}]), 0n), List.append(&2, Ad.Lv, Laws.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, Nat.add(List.length(&2, Ad.Tk, Ad.preempt(ts)), 0n), Ad.Ia{})), al.app(Ad.preempt(ts), Ad.Ia{}, st, 0n)) : {List.append(&2, Ad.Lv, Laws.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == _ : List<&2, Ad.Lv>}
+  %Equal.sym(Nat, Nat.add(List.length(&2, Ad.Tk, Ad.preempt(ts)), 0n), List.length(&2, Ad.Tk, Ad.preempt(ts)), al.add_zero(List.length(&2, Ad.Tk, Ad.preempt(ts)))) : {List.append(&2, Ad.Lv, Laws.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Ia{})) == List.append(&2, Ad.Lv, Laws.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, _, Ad.Ia{})) : List<&2, Ad.Lv>}
+  %al.len_pre(ts) : {List.append(&2, Ad.Lv, Laws.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, _, Ad.Ia{})) == List.append(&2, Ad.Lv, Laws.adl_lives(Ad.preempt(ts), 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, Ad.preempt(ts)), Ad.Ia{})) : List<&2, Ad.Lv>}
+  {==}
+
+def al.admit_bg(+l: Ad.Lim, +ts: List<&2, Ad.Tk>) -> {Ad.lv.admit.bg(l, Laws.adl_lives(ts, 0n), List.length(&2, Ad.Tk, ts)) == Laws.adl_lives(Ad.admit.bg(l, ts), 0n) : List<&2, Ad.Lv>}:
+  +st = {Ad.admit.bg.st(Bool.and(Ad.isz(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, ts)), Ad.room(l, Ad.held(ts)))))) : Ad.Sts}
+  %al.cnt_s(Ad.Holding{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(Ad.admit.bg.st(Bool.and(Ad.isz(_), Bool.and(Ad.isz(Ad.lv.cnt(Ad.Waiting{}, Ad.Ia{}, Laws.adl_lives(ts, 0n))), Bool.and(Ad.isz(Ad.lv.cnt(Ad.Waiting{}, Ad.Bg{}, Laws.adl_lives(ts, 0n))), Ad.room(l, Ad.lv.held(Laws.adl_lives(ts, 0n))))))), List.length(&2, Ad.Tk, ts), Ad.Bg{})) == Laws.adl_lives(Ad.admit.bg(l, ts), 0n) : List<&2, Ad.Lv>}
+  %al.cnt_s(Ad.Waiting{}, Ad.Ia{}, ts, 0n) : {List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(Ad.admit.bg.st(Bool.and(Ad.isz(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(_), Bool.and(Ad.isz(Ad.lv.cnt(Ad.Waiting{}, Ad.Bg{}, Laws.adl_lives(ts, 0n))), Ad.room(l, Ad.lv.held(Laws.adl_lives(ts, 0n))))))), List.length(&2, Ad.Tk, ts), Ad.Bg{})) == Laws.adl_lives(Ad.admit.bg(l, ts), 0n) : List<&2, Ad.Lv>}
+  %al.cnt_s(Ad.Waiting{}, Ad.Bg{}, ts, 0n) : {List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(Ad.admit.bg.st(Bool.and(Ad.isz(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(_), Ad.room(l, Ad.lv.held(Laws.adl_lives(ts, 0n))))))), List.length(&2, Ad.Tk, ts), Ad.Bg{})) == Laws.adl_lives(Ad.admit.bg(l, ts), 0n) : List<&2, Ad.Lv>}
+  %Equal.sym(Nat, Ad.lv.held(Laws.adl_lives(ts, 0n)), Ad.held(ts), al.held(ts, 0n)) : {List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(Ad.admit.bg.st(Bool.and(Ad.isz(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, ts)), Ad.room(l, _))))), List.length(&2, Ad.Tk, ts), Ad.Bg{})) == Laws.adl_lives(Ad.admit.bg(l, ts), 0n) : List<&2, Ad.Lv>}
+  %Equal.sym(List<&2, Ad.Lv>, Laws.adl_lives(List.append(&2, Ad.Tk, ts, [Ad.Tk{Ad.Bg{}, st}]), 0n), List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(st, Nat.add(List.length(&2, Ad.Tk, ts), 0n), Ad.Bg{})), al.app(ts, Ad.Bg{}, st, 0n)) : {List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Bg{})) == _ : List<&2, Ad.Lv>}
+  %Equal.sym(Nat, Nat.add(List.length(&2, Ad.Tk, ts), 0n), List.length(&2, Ad.Tk, ts), al.add_zero(List.length(&2, Ad.Tk, ts))) : {List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(st, List.length(&2, Ad.Tk, ts), Ad.Bg{})) == List.append(&2, Ad.Lv, Laws.adl_lives(ts, 0n), Ad.lv.fresh(st, _, Ad.Bg{})) : List<&2, Ad.Lv>}
+  {==}
+
+# Finding, setting and dropping a ticket by its number
+# ----------------------------------------------------
+
+# the status of a model ticket as the live controller finds it
+def al.st(m: Maybe<&2, Ad.Tk>) -> Maybe<&2, Ad.Sts>:
+  match m:
+    case None{}:
+      None{}
+    case Some{Ad.Tk{c, Ad.Queued{}}}:
+      Some{Ad.Queued{}}
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+      Some{Ad.Granted{}}
+    case Some{Ad.Tk{c, Ad.Held{}}}:
+      Some{Ad.Held{}}
+    case Some{Ad.Tk{c, Ad.Preempted{}}}:
+      Some{Ad.Preempted{}}
+    case Some{Ad.Tk{c, Ad.Ended{}}}:
+      None{}
+
+# a ticket numbered below the first is not found
+def al.find_none(ts: List<&2, Ad.Tk>, +d: Nat, +j: Nat) -> {Ad.lv.find(Laws.adl_lives(ts, 1n+Nat.add(d, j)), j) == None{} : Maybe<&2, Ad.Sts>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Ad.Tk{c, s} <> +r:
+      match s:
+        case Ad.Queued{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.find.at(_, Ad.Queued{}, Ad.lv.find(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == None{} : Maybe<&2, Ad.Sts>}
+          al.find_none(r, 1n+d, j)
+        case Ad.Granted{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.find.at(_, Ad.Granted{}, Ad.lv.find(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == None{} : Maybe<&2, Ad.Sts>}
+          al.find_none(r, 1n+d, j)
+        case Ad.Held{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.find.at(_, Ad.Held{}, Ad.lv.find(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == None{} : Maybe<&2, Ad.Sts>}
+          al.find_none(r, 1n+d, j)
+        case Ad.Preempted{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.find.at(_, Ad.Preempted{}, Ad.lv.find(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == None{} : Maybe<&2, Ad.Sts>}
+          al.find_none(r, 1n+d, j)
+        case Ad.Ended{}:
+          al.find_none(r, 1n+d, j)
+
+def al.set_none(ts: List<&2, Ad.Tk>, +d: Nat, +j: Nat) -> {Ad.lv.set(Laws.adl_lives(ts, 1n+Nat.add(d, j)), j, Ad.Held{}) == Laws.adl_lives(ts, 1n+Nat.add(d, j)) : List<&2, Ad.Lv>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Ad.Tk{+c, s} <> +r:
+      match s:
+        case Ad.Queued{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.set.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Queued{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Queued{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Queued{}} <> x, Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.set_none(r, 1n+d, j))
+        case Ad.Granted{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.set.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Granted{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Granted{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Granted{}} <> x, Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.set_none(r, 1n+d, j))
+        case Ad.Held{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.set.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Held{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Held{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Held{}} <> x, Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.set_none(r, 1n+d, j))
+        case Ad.Preempted{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.set.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Preempted{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Preempted{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Preempted{}} <> x, Ad.lv.set(Laws.adl_lives(r, 2n+Nat.add(d, j)), j, Ad.Held{}), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.set_none(r, 1n+d, j))
+        case Ad.Ended{}:
+          al.set_none(r, 1n+d, j)
+
+def al.drop_none(ts: List<&2, Ad.Tk>, +d: Nat, +j: Nat) -> {Ad.lv.drop(Laws.adl_lives(ts, 1n+Nat.add(d, j)), j) == Laws.adl_lives(ts, 1n+Nat.add(d, j)) : List<&2, Ad.Lv>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Ad.Tk{+c, s} <> +r:
+      match s:
+        case Ad.Queued{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.drop.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Queued{}}, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Queued{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Queued{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.drop_none(r, 1n+d, j))
+        case Ad.Granted{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.drop.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Granted{}}, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Granted{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Granted{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.drop_none(r, 1n+d, j))
+        case Ad.Held{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.drop.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Held{}}, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Held{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Held{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.drop_none(r, 1n+d, j))
+        case Ad.Preempted{}:
+          %Equal.sym(Bool, Nat.is_eq(1n+Nat.add(d, j), j), False{}, al.ne_add2(d, j)) : {Ad.lv.drop.at(_, Ad.Lv{1n+Nat.add(d, j), c, Ad.Preempted{}}, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j)) == Ad.Lv{1n+Nat.add(d, j), c, Ad.Preempted{}} <> Laws.adl_lives(r, 2n+Nat.add(d, j)) : List<&2, Ad.Lv>}
+          Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{1n+Nat.add(d, j), c, Ad.Preempted{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 2n+Nat.add(d, j)), j), Laws.adl_lives(r, 2n+Nat.add(d, j)), al.drop_none(r, 1n+d, j))
+        case Ad.Ended{}:
+          al.drop_none(r, 1n+d, j)
+
+
+def al.find0(s: Ad.Sts, c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.find(Laws.adl_lives(Ad.Tk{c, s} <> r, j), j) == al.st(Some{Ad.Tk{c, s}}) : Maybe<&2, Ad.Sts>}:
+  match s:
+    case Ad.Queued{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.find.at(_, Ad.Queued{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), j)) == Some{Ad.Queued{}} : Maybe<&2, Ad.Sts>}
+      {==}
+    case Ad.Granted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.find.at(_, Ad.Granted{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), j)) == Some{Ad.Granted{}} : Maybe<&2, Ad.Sts>}
+      {==}
+    case Ad.Held{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.find.at(_, Ad.Held{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), j)) == Some{Ad.Held{}} : Maybe<&2, Ad.Sts>}
+      {==}
+    case Ad.Preempted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.find.at(_, Ad.Preempted{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), j)) == Some{Ad.Preempted{}} : Maybe<&2, Ad.Sts>}
+      {==}
+    case Ad.Ended{}:
+      al.find_none(r, 0n, j)
+
+def al.find1(s: Ad.Sts, c: Ad.Cls, +r: List<&2, Ad.Tk>, +p: Nat, +j: Nat, ih: {Ad.lv.find(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j)) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}) -> {Ad.lv.find(Laws.adl_lives(Ad.Tk{c, s} <> r, j), 1n+Nat.add(p, j)) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}:
+  match s:
+    case Ad.Queued{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Queued{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %al.add_succ(p, j) : {Ad.lv.find(Laws.adl_lives(r, 1n+j), _) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      ih
+    case Ad.Granted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Granted{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %al.add_succ(p, j) : {Ad.lv.find(Laws.adl_lives(r, 1n+j), _) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      ih
+    case Ad.Held{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Held{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %al.add_succ(p, j) : {Ad.lv.find(Laws.adl_lives(r, 1n+j), _) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      ih
+    case Ad.Preempted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.find.at(_, Ad.Preempted{}, Ad.lv.find(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      %al.add_succ(p, j) : {Ad.lv.find(Laws.adl_lives(r, 1n+j), _) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      ih
+    case Ad.Ended{}:
+      %al.add_succ(p, j) : {Ad.lv.find(Laws.adl_lives(r, 1n+j), _) == al.st(List.get(&2, Ad.Tk, r, p)) : Maybe<&2, Ad.Sts>}
+      ih
+
+# the live controller finds ticket i of the model (numbered from j)
+def al.find(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat) -> {Ad.lv.find(Laws.adl_lives(ts, j), Nat.add(i, j)) == al.st(List.get(&2, Ad.Tk, ts, i)) : Maybe<&2, Ad.Sts>}:
+  match ts i:
+    case Nil{} _:
+      {==}
+    case Ad.Tk{c, s} <> +r 0n:
+      al.find0(s, c, r, j)
+    case Ad.Tk{c, s} <> +r 1n++p:
+      al.find1(s, c, r, p, j, al.find(r, p, 1n+j))
+
+def al.set0(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat, ne: {Ad.ended(Some{Ad.Tk{c, s}}) == False{} : Bool}) -> {Ad.lv.set(Laws.adl_lives(Ad.Tk{c, s} <> r, j), j, Ad.Held{}) == Laws.adl_lives(Ad.put(Ad.Tk{c, s} <> r, 0n, Ad.Held{}), j) : List<&2, Ad.Lv>}:
+  match s:
+    case Ad.Queued{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Queued{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Held{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}), Laws.adl_lives(r, 1n+j), al.set_none(r, 0n, j))
+    case Ad.Granted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Granted{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Held{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}), Laws.adl_lives(r, 1n+j), al.set_none(r, 0n, j))
+    case Ad.Held{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Held{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Held{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}), Laws.adl_lives(r, 1n+j), al.set_none(r, 0n, j))
+    case Ad.Preempted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Preempted{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Held{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}), Laws.adl_lives(r, 1n+j), al.set_none(r, 0n, j))
+    case Ad.Ended{}:
+      al.absurd({Ad.lv.set(Laws.adl_lives(r, 1n+j), j, Ad.Held{}) == Laws.adl_lives(Ad.Tk{c, Ad.Held{}} <> r, j) : List<&2, Ad.Lv>}, ne)
+
+def al.set1(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +p: Nat, +j: Nat, ih: {Ad.lv.set(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j), Ad.Held{}) == Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}) -> {Ad.lv.set(Laws.adl_lives(Ad.Tk{c, s} <> r, j), 1n+Nat.add(p, j), Ad.Held{}) == Laws.adl_lives(Ad.put(Ad.Tk{c, s} <> r, 1n+p, Ad.Held{}), j) : List<&2, Ad.Lv>}:
+  match s:
+    case Ad.Queued{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Queued{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j), Ad.Held{}) == Ad.Lv{j, c, Ad.Queued{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Queued{}} <> Ad.lv.set(Laws.adl_lives(r, 1n+j), _, Ad.Held{}) == Ad.Lv{j, c, Ad.Queued{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Queued{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j), Ad.Held{}), Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j), ih)
+    case Ad.Granted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Granted{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j), Ad.Held{}) == Ad.Lv{j, c, Ad.Granted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Granted{}} <> Ad.lv.set(Laws.adl_lives(r, 1n+j), _, Ad.Held{}) == Ad.Lv{j, c, Ad.Granted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Granted{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j), Ad.Held{}), Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j), ih)
+    case Ad.Held{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Held{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j), Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Held{}} <> Ad.lv.set(Laws.adl_lives(r, 1n+j), _, Ad.Held{}) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Held{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j), Ad.Held{}), Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j), ih)
+    case Ad.Preempted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.set.at(_, Ad.Lv{j, c, Ad.Preempted{}}, Ad.Held{}) <> Ad.lv.set(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j), Ad.Held{}) == Ad.Lv{j, c, Ad.Preempted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Preempted{}} <> Ad.lv.set(Laws.adl_lives(r, 1n+j), _, Ad.Held{}) == Ad.Lv{j, c, Ad.Preempted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Preempted{}} <> x, Ad.lv.set(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j), Ad.Held{}), Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j), ih)
+    case Ad.Ended{}:
+      %al.add_succ(p, j) : {Ad.lv.set(Laws.adl_lives(r, 1n+j), _, Ad.Held{}) == Laws.adl_lives(Ad.put(r, p, Ad.Held{}), 1n+j) : List<&2, Ad.Lv>}
+      ih
+
+def al.set(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat, ne: {Ad.ended(List.get(&2, Ad.Tk, ts, i)) == False{} : Bool}) -> {Ad.lv.set(Laws.adl_lives(ts, j), Nat.add(i, j), Ad.Held{}) == Laws.adl_lives(Ad.put(ts, i, Ad.Held{}), j) : List<&2, Ad.Lv>}:
+  match ts i:
+    case Nil{} _:
+      {==}
+    case Ad.Tk{+c, +s} <> +r 0n:
+      al.set0(s, c, r, j, ne)
+    case Ad.Tk{+c, +s} <> +r 1n++p:
+      al.set1(s, c, r, p, j, al.set(r, p, 1n+j, ne))
+
+def al.drop0(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +j: Nat) -> {Ad.lv.drop(Laws.adl_lives(Ad.Tk{c, s} <> r, j), j) == Laws.adl_lives(Ad.put(Ad.Tk{c, s} <> r, 0n, Ad.Ended{}), j) : List<&2, Ad.Lv>}:
+  match s:
+    case Ad.Queued{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Queued{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), j)) == Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      al.drop_none(r, 0n, j)
+    case Ad.Granted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Granted{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), j)) == Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      al.drop_none(r, 0n, j)
+    case Ad.Held{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Held{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), j)) == Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      al.drop_none(r, 0n, j)
+    case Ad.Preempted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, j), True{}, al.eq_refl(j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Preempted{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), j)) == Laws.adl_lives(r, 1n+j) : List<&2, Ad.Lv>}
+      al.drop_none(r, 0n, j)
+    case Ad.Ended{}:
+      al.drop_none(r, 0n, j)
+
+def al.drop1(s: Ad.Sts, +c: Ad.Cls, +r: List<&2, Ad.Tk>, +p: Nat, +j: Nat, ih: {Ad.lv.drop(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j)) == Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}) -> {Ad.lv.drop(Laws.adl_lives(Ad.Tk{c, s} <> r, j), 1n+Nat.add(p, j)) == Laws.adl_lives(Ad.put(Ad.Tk{c, s} <> r, 1n+p, Ad.Ended{}), j) : List<&2, Ad.Lv>}:
+  match s:
+    case Ad.Queued{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Queued{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == Ad.Lv{j, c, Ad.Queued{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Queued{}} <> Ad.lv.drop(Laws.adl_lives(r, 1n+j), _) == Ad.Lv{j, c, Ad.Queued{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Queued{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j)), Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j), ih)
+    case Ad.Granted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Granted{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == Ad.Lv{j, c, Ad.Granted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Granted{}} <> Ad.lv.drop(Laws.adl_lives(r, 1n+j), _) == Ad.Lv{j, c, Ad.Granted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Granted{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j)), Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j), ih)
+    case Ad.Held{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Held{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Held{}} <> Ad.lv.drop(Laws.adl_lives(r, 1n+j), _) == Ad.Lv{j, c, Ad.Held{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Held{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j)), Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j), ih)
+    case Ad.Preempted{}:
+      %Equal.sym(Bool, Nat.is_eq(j, 1n+Nat.add(p, j)), False{}, al.ne_add(p, j)) : {Ad.lv.drop.at(_, Ad.Lv{j, c, Ad.Preempted{}}, Ad.lv.drop(Laws.adl_lives(r, 1n+j), 1n+Nat.add(p, j))) == Ad.Lv{j, c, Ad.Preempted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      %al.add_succ(p, j) : {Ad.Lv{j, c, Ad.Preempted{}} <> Ad.lv.drop(Laws.adl_lives(r, 1n+j), _) == Ad.Lv{j, c, Ad.Preempted{}} <> Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      Equal.cong(List<&2, Ad.Lv>, List<&2, Ad.Lv>, x => Ad.Lv{j, c, Ad.Preempted{}} <> x, Ad.lv.drop(Laws.adl_lives(r, 1n+j), Nat.add(p, 1n+j)), Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j), ih)
+    case Ad.Ended{}:
+      %al.add_succ(p, j) : {Ad.lv.drop(Laws.adl_lives(r, 1n+j), _) == Laws.adl_lives(Ad.put(r, p, Ad.Ended{}), 1n+j) : List<&2, Ad.Lv>}
+      ih
+
+def al.drop(ts: List<&2, Ad.Tk>, i: Nat, +j: Nat) -> {Ad.lv.drop(Laws.adl_lives(ts, j), Nat.add(i, j)) == Laws.adl_lives(Ad.put(ts, i, Ad.Ended{}), j) : List<&2, Ad.Lv>}:
+  match ts i:
+    case Nil{} _:
+      {==}
+    case Ad.Tk{+c, +s} <> +r 0n:
+      al.drop0(s, c, r, j)
+    case Ad.Tk{+c, +s} <> +r 1n++p:
+      al.drop1(s, c, r, p, j, al.drop(r, p, 1n+j))
+
+# Lengths of an admit
+def al.len_admit_ia(+l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>) -> {List.length(&2, Ad.Tk, Ad.admit.ia(l, q, ts)) == 1n+List.length(&2, Ad.Tk, ts) : Nat}:
+  +x = {Ad.Tk{Ad.Ia{}, Ad.admit.ia.st(Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Ad.room(l, Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts))), Ad.le(q, Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)))} : Ad.Tk}
+  Equal.trans(Nat, List.length(&2, Ad.Tk, List.append(&2, Ad.Tk, Ad.preempt(ts), [x])), 1n+List.length(&2, Ad.Tk, Ad.preempt(ts)), 1n+List.length(&2, Ad.Tk, ts), al.len_app1(Ad.preempt(ts), x), Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, Ad.Tk, Ad.preempt(ts)), List.length(&2, Ad.Tk, ts), al.len_pre(ts)))
+
+# ---- the step ----
+
+def al.col(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.collect(al.st(m), Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.collect.at(m, l, q, ts, k)) : Ad.Live}:
+  match m:
+    case None{}:
+      {==}
+    case Some{Ad.Tk{c, Ad.Queued{}}}:
+{==}
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+      %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.set(Laws.adl_lives(ts, 0n), _, Ad.Held{}), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.put(ts, k, Ad.Held{})}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.set(Laws.adl_lives(ts, 0n), Nat.add(k, 0n), Ad.Held{}), Laws.adl_lives(Ad.put(ts, k, Ad.Held{}), 0n), al.set(ts, k, 0n, Equal.trans(Bool, Ad.ended(List.get(&2, Ad.Tk, ts, k)), Ad.ended(Some{Ad.Tk{c, Ad.Granted{}}}), False{}, Equal.cong(Maybe<&2, Ad.Tk>, Bool, x => Ad.ended(x), List.get(&2, Ad.Tk, ts, k), Some{Ad.Tk{c, Ad.Granted{}}}, eq), {==}))) : {Ad.Live{l, q, _, List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.put(ts, k, Ad.Held{})}) : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Held{})), List.length(&2, Ad.Tk, ts), al.len_put(ts, k, Ad.Held{})) : {Ad.Live{l, q, Laws.adl_lives(Ad.put(ts, k, Ad.Held{}), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.put(ts, k, Ad.Held{}), 0n), _} : Ad.Live}
+      {==}
+    case Some{Ad.Tk{c, Ad.Held{}}}:
+{==}
+    case Some{Ad.Tk{c, Ad.Preempted{}}}:
+{==}
+    case Some{Ad.Tk{c, Ad.Ended{}}}:
+{==}
+
+def al.rel(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.release(al.st(m), l, Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.release.at(m, l, q, ts, k)) : Ad.Live}:
+  match m:
+    case None{}:
+      {==}
+    case Some{Ad.Tk{c, Ad.Queued{}}}:
+{==}
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+{==}
+    case Some{Ad.Tk{c, Ad.Held{}}}:
+      %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.grant(l, Ad.lv.drop(Laws.adl_lives(ts, 0n), _)), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.drop(Laws.adl_lives(ts, 0n), Nat.add(k, 0n)), Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n), al.drop(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.grant(l, _), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.grant(l, Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n)), Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), al.grant(l, Ad.put(ts, k, Ad.Ended{}), 0n)) : {Ad.Live{l, q, _, List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))), List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Ended{})), al.len_grant(l, Ad.put(ts, k, Ad.Ended{}))) : {Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), _} : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Ended{})), List.length(&2, Ad.Tk, ts), al.len_put(ts, k, Ad.Ended{})) : {Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), _} : Ad.Live}
+      {==}
+    case Some{Ad.Tk{c, Ad.Preempted{}}}:
+      %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.drop(Laws.adl_lives(ts, 0n), _), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.put(ts, k, Ad.Ended{})}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.drop(Laws.adl_lives(ts, 0n), Nat.add(k, 0n)), Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n), al.drop(ts, k, 0n)) : {Ad.Live{l, q, _, List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.put(ts, k, Ad.Ended{})}) : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Ended{})), List.length(&2, Ad.Tk, ts), al.len_put(ts, k, Ad.Ended{})) : {Ad.Live{l, q, Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n), _} : Ad.Live}
+      {==}
+    case Some{Ad.Tk{c, Ad.Ended{}}}:
+{==}
+
+def al.lea(m: Maybe<&2, Ad.Tk>, +l: Ad.Lim, +q: Nat, +ts: List<&2, Ad.Tk>, +k: Nat, eq: {List.get(&2, Ad.Tk, ts, k) == m : Maybe<&2, Ad.Tk>}) -> {Ad.Live{l, q, Ad.lv.leave(al.st(m), l, Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.leave.at(m, l, q, ts, k)) : Ad.Live}:
+  match m:
+    case None{}:
+      {==}
+    case Some{Ad.Tk{c, Ad.Queued{}}}:
+      %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.grant(l, Ad.lv.drop(Laws.adl_lives(ts, 0n), _)), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.drop(Laws.adl_lives(ts, 0n), Nat.add(k, 0n)), Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n), al.drop(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.grant(l, _), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.grant(l, Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n)), Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), al.grant(l, Ad.put(ts, k, Ad.Ended{}), 0n)) : {Ad.Live{l, q, _, List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))), List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Ended{})), al.len_grant(l, Ad.put(ts, k, Ad.Ended{}))) : {Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), _} : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Ended{})), List.length(&2, Ad.Tk, ts), al.len_put(ts, k, Ad.Ended{})) : {Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), _} : Ad.Live}
+      {==}
+    case Some{Ad.Tk{c, Ad.Granted{}}}:
+      %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.grant(l, Ad.lv.drop(Laws.adl_lives(ts, 0n), _)), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.drop(Laws.adl_lives(ts, 0n), Nat.add(k, 0n)), Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n), al.drop(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.grant(l, _), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(List<&2, Ad.Lv>, Ad.lv.grant(l, Laws.adl_lives(Ad.put(ts, k, Ad.Ended{}), 0n)), Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), al.grant(l, Ad.put(ts, k, Ad.Ended{}), 0n)) : {Ad.Live{l, q, _, List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.St{l, q, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))}) : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.grant(l, Ad.put(ts, k, Ad.Ended{}))), List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Ended{})), al.len_grant(l, Ad.put(ts, k, Ad.Ended{}))) : {Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), _} : Ad.Live}
+      %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.put(ts, k, Ad.Ended{})), List.length(&2, Ad.Tk, ts), al.len_put(ts, k, Ad.Ended{})) : {Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.grant(l, Ad.put(ts, k, Ad.Ended{})), 0n), _} : Ad.Live}
+      {==}
+    case Some{Ad.Tk{c, Ad.Held{}}}:
+{==}
+    case Some{Ad.Tk{c, Ad.Preempted{}}}:
+{==}
+    case Some{Ad.Tk{c, Ad.Ended{}}}:
+{==}
+
+def al.step(s: Ad.St, o: Ad.Op) -> {Ad.Live.step(Laws.adl_live(s), o) == Laws.adl_live(Ad.step(s, o)) : Ad.Live}:
+  match s:
+    case Ad.St{+l, +q, +ts}:
+      match o:
+        case Ad.Admit{c}:
+          match c:
+            case Ad.Ia{}:
+              %Equal.sym(List<&2, Ad.Lv>, Ad.lv.admit.ia(l, q, Laws.adl_lives(ts, 0n), List.length(&2, Ad.Tk, ts)), Laws.adl_lives(Ad.admit.ia(l, q, ts), 0n), al.admit_ia(l, q, ts)) : {Ad.Live{l, q, _, 1n+List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Admit{Ad.Ia{}})) : Ad.Live}
+              %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.admit.ia(l, q, ts)), 1n+List.length(&2, Ad.Tk, ts), al.len_admit_ia(l, q, ts)) : {Ad.Live{l, q, Laws.adl_lives(Ad.admit.ia(l, q, ts), 0n), 1n+List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.admit.ia(l, q, ts), 0n), _} : Ad.Live}
+              {==}
+            case Ad.Bg{}:
+              %Equal.sym(List<&2, Ad.Lv>, Ad.lv.admit.bg(l, Laws.adl_lives(ts, 0n), List.length(&2, Ad.Tk, ts)), Laws.adl_lives(Ad.admit.bg(l, ts), 0n), al.admit_bg(l, ts)) : {Ad.Live{l, q, _, 1n+List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Admit{Ad.Bg{}})) : Ad.Live}
+              %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.admit.bg(l, ts)), 1n+List.length(&2, Ad.Tk, ts), al.len_app1(ts, Ad.Tk{Ad.Bg{}, Ad.admit.bg.st(Bool.and(Ad.isz(Ad.cnt(Ad.Holding{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Ia{}, ts)), Bool.and(Ad.isz(Ad.cnt(Ad.Waiting{}, Ad.Bg{}, ts)), Ad.room(l, Ad.held(ts))))))})) : {Ad.Live{l, q, Laws.adl_lives(Ad.admit.bg(l, ts), 0n), 1n+List.length(&2, Ad.Tk, ts)} == Ad.Live{l, q, Laws.adl_lives(Ad.admit.bg(l, ts), 0n), _} : Ad.Live}
+              {==}
+        case Ad.Collect{+k}:
+          %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.collect(Ad.lv.find(Laws.adl_lives(ts, 0n), _), Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Collect{k})) : Ad.Live}
+          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Laws.adl_lives(ts, 0n), Nat.add(k, 0n)), al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.collect(_, Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Collect{k})) : Ad.Live}
+          al.col(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
+        case Ad.Release{+k}:
+          %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.release(Ad.lv.find(Laws.adl_lives(ts, 0n), _), l, Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Release{k})) : Ad.Live}
+          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Laws.adl_lives(ts, 0n), Nat.add(k, 0n)), al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.release(_, l, Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Release{k})) : Ad.Live}
+          al.rel(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
+        case Ad.Leave{+k}:
+          %al.add_zero(k) : {Ad.Live{l, q, Ad.lv.leave(Ad.lv.find(Laws.adl_lives(ts, 0n), _), l, Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Leave{k})) : Ad.Live}
+          %Equal.sym(Maybe<&2, Ad.Sts>, Ad.lv.find(Laws.adl_lives(ts, 0n), Nat.add(k, 0n)), al.st(List.get(&2, Ad.Tk, ts, k)), al.find(ts, k, 0n)) : {Ad.Live{l, q, Ad.lv.leave(_, l, Laws.adl_lives(ts, 0n), k), List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Leave{k})) : Ad.Live}
+          al.lea(List.get(&2, Ad.Tk, ts, k), l, q, ts, k, {==})
+        case Ad.Limit{+l2, q2}:
+          %Equal.sym(List<&2, Ad.Lv>, Ad.lv.grant(l2, Laws.adl_lives(ts, 0n)), Laws.adl_lives(Ad.grant(l2, ts), 0n), al.grant(l2, ts, 0n)) : {Ad.Live{l2, q2, _, List.length(&2, Ad.Tk, ts)} == Laws.adl_live(Ad.step(Ad.St{l, q, ts}, Ad.Limit{l2, q2})) : Ad.Live}
+          %Equal.sym(Nat, List.length(&2, Ad.Tk, Ad.grant(l2, ts)), List.length(&2, Ad.Tk, ts), al.len_grant(l2, ts)) : {Ad.Live{l2, q2, Laws.adl_lives(Ad.grant(l2, ts), 0n), List.length(&2, Ad.Tk, ts)} == Ad.Live{l2, q2, Laws.adl_lives(Ad.grant(l2, ts), 0n), _} : Ad.Live}
+          {==}
+
+def al.run(os: List<&2, Ad.Op>, +t: Ad.St) -> {Ad.Live.run(os, Laws.adl_live(t)) == Laws.adl_live(Ad.run(os, t)) : Ad.Live}:
+  match os:
+    case Nil{}:
+      {==}
+    case +o <> r:
+      %Equal.sym(Ad.Live, Ad.Live.step(Laws.adl_live(t), o), Laws.adl_live(Ad.step(t, o)), al.step(t, o)) : {Ad.Live.run(r, _) == Laws.adl_live(Ad.run(r, Ad.step(t, o))) : Ad.Live}
+      al.run(r, Ad.step(t, o))
+
 # ---- tree ----
 
 # proof_tree: the session tree laws of LAWS.bend (S1), about bend/tree.bend.
@@ -20103,6 +20765,47 @@ def ppr.skill_loaded_not_failed(cs: List<&2, Sk.Cand>, +n: Nat, +d: {Sk.distinct
               +nd = Bool.not(Sk.listed(Sk.paths(rest), p))
               +dp = ppr.not_t(Sk.listed(Sk.paths(rest), p), ppr.and_l(nd, Sk.distinct(rest), d))
               ppr.bad_at(Nat.is_eq(p, n), p, n, rest, {==}, dp, ppr.skill_loaded_not_failed(rest, n, ppr.and_r(nd, Sk.distinct(rest), d)))
+
+# not (a < b) is b <= a
+def paf.nlt_le(a: Nat, b: Nat) -> {Bool.not(Nat.is_lt(a, b)) == Nat.is_le(b, a) : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+x 0n:
+      {==}
+    case 1n+x 1n+y:
+      paf.nlt_le(x, y)
+
+def paf.fits(p: Nat, s: Nat, +w: Nat, +need: Nat, fit: {Bool.or(Nat.is_eq(w, 0n), Nat.is_le(need, w)) == True{} : Bool}) -> {Af.settle(Af.Lookup{p, s}, Af.Hit{w}, need) == Af.Routed{} : Af.Route}:
+  match w:
+    case 0n:
+      {==}
+    case 1n++x:
+      %Equal.sym(Bool, Bool.not(Nat.is_lt(1n+x, need)), Nat.is_le(need, 1n+x), paf.nlt_le(1n+x, need)) : {Af.fits.route(_, p, s) == Af.Routed{} : Af.Route}
+      %Equal.sym(Bool, Nat.is_le(need, 1n+x), True{}, fit) : {Af.fits.route(_, p, s) == Af.Routed{} : Af.Route}
+      {==}
+
+def paf.small(p: Nat, s: Nat, +w: Nat, +need: Nat, small: {Nat.is_lt(1n+w, need) == True{} : Bool}) -> {Af.settle(Af.Lookup{p, s}, Af.Hit{1n+w}, need) == Af.Fallback{Af.K{p, s, 5n}} : Af.Route}:
+  %Equal.sym(Bool, Nat.is_lt(1n+w, need), True{}, small) : {Af.fits.route(Bool.not(_), p, s) == Af.Fallback{Af.K{p, s, 5n}} : Af.Route}
+  {==}
+
+def paf.noted(b: Bool, k: Af.Key, t: List<&2, Af.Ev>) -> {Af.noted(b, k, t) == List.append(&2, Af.Ev, Af.noted(b, k, Nil{}), t) : List<&2, Af.Ev>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def paf.put(r: Af.Route, +sh: List<&2, Af.Key>, t: List<&2, Af.Ev>) -> {Af.put(r, sh, t) == List.append(&2, Af.Ev, Af.put(r, sh, Nil{}), t) : List<&2, Af.Ev>}:
+  match r:
+    case Af.Session{}:
+      {==}
+    case Af.Routed{}:
+      {==}
+    case Af.Fallback{+k}:
+      Equal.cong(List<&2, Af.Ev>, List<&2, Af.Ev>, e => Af.Sub{k} <> e, Af.noted(Af.listed(sh, k), k, t), List.append(&2, Af.Ev, Af.noted(Af.listed(sh, k), k, Nil{}), t), paf.noted(Af.listed(sh, k), k, t))
 
 # ---- kernel_local ----
 
@@ -32155,6 +32858,126 @@ def pw.spares(xs: List<&2, W.Out>, +ys: List<&2, W.Out>) -> {W.results(W.cat(xs,
       %pw.spares(rest, ys) : {W.result(x) <> W.results(W.cat(rest, W.Failed{} <> ys)) == W.result(x) <> _ : List<&2, Maybe<&2, Nat>>}
       {==}
 
+def pw.add_zero(a: Nat) -> {Nat.add(a, 0n) == a : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %pw.add_zero(p) : {1n+Nat.add(p, 0n) == 1n+_ : Nat}
+      {==}
+
+def pw.eq_comm(a: Nat, b: Nat) -> {Nat.is_eq(a, b) == Nat.is_eq(b, a) : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+x 0n:
+      {==}
+    case 1n+x 1n+y:
+      pw.eq_comm(x, y)
+
+def pw.serves(s: W.Sts) -> {W.serves(s) == Laws.wf_serves(s) : Bool}:
+  match s:
+    case W.Queued{}:
+      {==}
+    case W.Running{}:
+      {==}
+    case W.Finished{}:
+      {==}
+    case W.Erred{}:
+      {==}
+    case W.Cancelled{}:
+      {==}
+    case W.Cached{}:
+      {==}
+
+def pw.again(s: W.Sts) -> {W.again(s) == Laws.wf_again(s) : W.Admit}:
+  match s:
+    case W.Queued{}:
+      {==}
+    case W.Running{}:
+      {==}
+    case W.Finished{}:
+      {==}
+    case W.Erred{}:
+      {==}
+    case W.Cancelled{}:
+      {==}
+    case W.Cached{}:
+      {==}
+
+# a first position j of the rows from the i-th
+def pw.off(i: Nat, m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match m:
+    case None{}:
+      None{}
+    case Some{j}:
+      Some{Nat.add(j, i)}
+
+def pw.found_at(h: Bool, +i: Nat, -rf: Maybe<&2, Nat>, rw: Maybe<&2, Nat>, ih: {rf == pw.off(1n+i, rw) : Maybe<&2, Nat>}) -> {W.found.at(h, i, rf) == pw.off(i, Laws.wf_first.at(h, rw)) : Maybe<&2, Nat>}:
+  match h:
+    case True{}:
+      {==}
+    case False{}:
+      match rw:
+        case None{}:
+          ih
+        case Some{j}:
+          Equal.trans(Maybe<&2, Nat>, rf, Some{Nat.add(j, 1n+i)}, Some{1n+Nat.add(j, i)}, ih, Equal.cong(Nat, Maybe<&2, Nat>, n => Some{n}, Nat.add(j, 1n+i), 1n+Nat.add(j, i), Equal.sym(Nat, 1n+Nat.add(j, i), Nat.add(j, 1n+i), pw.add_succ(j, i))))
+
+# the model's search from the i-th row is the spec's first position, i on
+def pw.found(rs: List<&2, W.Row>, +k: Nat, +i: Nat) -> {W.found(rs, k, i) == pw.off(i, Laws.wf_first(rs, k)) : Maybe<&2, Nat>}:
+  match rs:
+    case Nil{}:
+      {==}
+    case W.Row{+key, +s} <> +rest:
+      %pw.eq_comm(key, k) : {W.found.at(Bool.and(_, W.serves(s)), i, W.found(rest, k, 1n+i)) == pw.off(i, Laws.wf_first(W.Row{key, s} <> rest, k)) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, W.serves(s), Laws.wf_serves(s), pw.serves(s)) : {W.found.at(Bool.and(Nat.is_eq(key, k), _), i, W.found(rest, k, 1n+i)) == pw.off(i, Laws.wf_first(W.Row{key, s} <> rest, k)) : Maybe<&2, Nat>}
+      pw.found_at(Bool.and(Nat.is_eq(key, k), Laws.wf_serves(s)), i, W.found(rest, k, 1n+i), Laws.wf_first(rest, k), pw.found(rest, k, 1n+i))
+
+def pw.admitted(s: W.Sts, k: Nat, rs: List<&2, W.Row>, p: W.Pool) -> {W.admit(Some{s}, k, rs, p) == (Laws.wf_again(s), p) : W.Admit & W.Pool}:
+  %pw.again(s) : {(W.again(s), p) == (_, p) : W.Admit & W.Pool}
+  {==}
+
+def pw.reuses(+k: Nat, +rs: List<&2, W.Row>, p: W.Pool, +i: Nat, hit: {Laws.wf_first(rs, k) == Some{i} : Maybe<&2, Nat>}) -> {W.admit(None{}, k, rs, p) == (W.Reuse{i}, p) : W.Admit & W.Pool}:
+  %Equal.sym(Maybe<&2, Nat>, W.found(rs, k, 0n), pw.off(0n, Laws.wf_first(rs, k)), pw.found(rs, k, 0n)) : {W.admit.fresh(_, p) == (W.Reuse{i}, p) : W.Admit & W.Pool}
+  %Equal.sym(Maybe<&2, Nat>, Laws.wf_first(rs, k), Some{i}, hit) : {W.admit.fresh(pw.off(0n, _), p) == (W.Reuse{i}, p) : W.Admit & W.Pool}
+  %Equal.sym(Nat, Nat.add(i, 0n), i, pw.add_zero(i)) : {W.admit.fresh(Some{_}, p) == (W.Reuse{i}, p) : W.Admit & W.Pool}
+  {==}
+
+def pw.spawns(+k: Nat, +rs: List<&2, W.Row>, t: Nat, l: Nat, miss: {Laws.wf_first(rs, k) == None{} : Maybe<&2, Nat>}) -> {W.admit(None{}, k, rs, W.Pool{t, 1n+l}) == (W.Spawn{}, W.Pool{1n+t, l}) : W.Admit & W.Pool}:
+  %Equal.sym(Maybe<&2, Nat>, W.found(rs, k, 0n), pw.off(0n, Laws.wf_first(rs, k)), pw.found(rs, k, 0n)) : {W.admit.fresh(_, W.Pool{t, 1n+l}) == (W.Spawn{}, W.Pool{1n+t, l}) : W.Admit & W.Pool}
+  %Equal.sym(Maybe<&2, Nat>, Laws.wf_first(rs, k), None{}, miss) : {W.admit.fresh(pw.off(0n, _), W.Pool{t, 1n+l}) == (W.Spawn{}, W.Pool{1n+t, l}) : W.Admit & W.Pool}
+  {==}
+
+def pw.refused(+k: Nat, +rs: List<&2, W.Row>, t: Nat, miss: {Laws.wf_first(rs, k) == None{} : Maybe<&2, Nat>}) -> {W.admit(None{}, k, rs, W.Pool{t, 0n}) == (W.Refused{}, W.Pool{t, 0n}) : W.Admit & W.Pool}:
+  %Equal.sym(Maybe<&2, Nat>, W.found(rs, k, 0n), pw.off(0n, Laws.wf_first(rs, k)), pw.found(rs, k, 0n)) : {W.admit.fresh(_, W.Pool{t, 0n}) == (W.Refused{}, W.Pool{t, 0n}) : W.Admit & W.Pool}
+  %Equal.sym(Maybe<&2, Nat>, Laws.wf_first(rs, k), None{}, miss) : {W.admit.fresh(pw.off(0n, _), W.Pool{t, 0n}) == (W.Refused{}, W.Pool{t, 0n}) : W.Admit & W.Pool}
+  {==}
+
+def pw.capped_succ(b: Bool, a: Nat, c: Nat) -> {W.capped(b, 1n+a, 1n+c) == 1n+W.capped(b, a, c) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pw.capped_min(a: Nat, c: Nat) -> {W.capped(Nat.is_le(a, c), a, c) == Laws.wf_min(a, c) : Nat}:
+  match a c:
+    case 0n 0n:
+      {==}
+    case 0n 1n+y:
+      {==}
+    case 1n+x 0n:
+      {==}
+    case 1n++x 1n++y:
+      Equal.trans(Nat, W.capped(Nat.is_le(x, y), 1n+x, 1n+y), 1n+W.capped(Nat.is_le(x, y), x, y), 1n+Laws.wf_min(x, y), pw.capped_succ(Nat.is_le(x, y), x, y), Equal.cong(Nat, Nat, n => 1n+n, W.capped(Nat.is_le(x, y), x, y), Laws.wf_min(x, y), pw.capped_min(x, y)))
+
+def pw.capped(+c: Nat, m: Nat, +x: Nat) -> {W.effective(W.Limits{c, m}, 1n+x) == W.Limits{Laws.wf_min(c, 1n+x), m} : W.Limits}:
+  %Equal.sym(Nat, W.capped(Nat.is_le(c, 1n+x), c, 1n+x), Laws.wf_min(c, 1n+x), pw.capped_min(c, 1n+x)) : {W.Limits{_, m} == W.Limits{Laws.wf_min(c, 1n+x), m} : W.Limits}
+  {==}
+
 # ---- laws ----
 
 # (a) The view
@@ -32360,6 +33183,15 @@ def Laws.admission_end_twice_changes_nothing(s, k, e):
 
 def Laws.admission_every_ticket_ends(s, k, live):
   every_ticket_ends(s, k, live)
+
+def Laws.admission_live_step(s, o):
+  al.step(s, o)
+
+def Laws.admission_live_run(l, q, os):
+  al.run(os, Ad.St.new(l, q))
+
+def Laws.admission_live_example():
+  {==}
 
 # (S1) The session tree
 
@@ -32915,6 +33747,30 @@ def Laws.fallback_quiet_when_unset(p, ok, look, need):
 
 def Laws.fallback_quiet_when_same(p, ok, look, need):
   ppr.fallback_quiet_when_same(p, ok, look, need)
+
+def Laws.fallback_gate_then_settle(p, sel, ok, look, need):
+  {==}
+
+def Laws.fallback_known_needs_no_lookup(r, look, need):
+  {==}
+
+def Laws.fallback_gate_other(p, s):
+  {==}
+
+def Laws.fallback_gate_session(p, ok):
+  {==}
+
+def Laws.fallback_miss_keeps_reason(p, s, r, need):
+  {==}
+
+def Laws.fallback_window_fits(p, s, w, need, fit):
+  paf.fits(p, s, w, need, fit)
+
+def Laws.fallback_window_small(p, s, w, need, small):
+  paf.small(p, s, w, need, small)
+
+def Laws.fallback_pass_events(r, sh, t):
+  paf.put(r, sh, t)
 
 def Laws.skill_failure_reported(cs, c, i):
   ppr.skill_failure_reported(cs, c, i)
@@ -33584,6 +34440,30 @@ def Laws.default_quiet_when_unset(cat, key, out, next):
 
 def Laws.default_unkeyed_never_moves(m, out, next):
   pcf.default_unkeyed_never_moves(m, out, next)
+
+def Laws.default_unset_runs_pick(cat, key, out, n):
+  {==}
+
+def Laws.default_unset_without_pick(cat, key, out):
+  {==}
+
+def Laws.default_usable_runs(m, next):
+  {==}
+
+def Laws.default_uncatalogued_swaps(m, key, out, n):
+  {==}
+
+def Laws.default_uncatalogued_refused(m, key, out):
+  {==}
+
+def Laws.default_unkeyed_refused(m, out, next):
+  {==}
+
+def Laws.default_unscoped_swaps(m, n):
+  {==}
+
+def Laws.default_unscoped_refused(m):
+  {==}
 
 def Laws.untrusted_changes_nothing_guarded(g, items, k, h):
   pcf.untrusted_changes_nothing_guarded(g, items, k, h)
@@ -35542,3 +36422,23 @@ def Laws.wire_err_example(text):
 
 def Laws.wire_end_exact(s):
   {==}
+def Laws.wf_admitted_never_respawns(s, k, rs, p):
+  pw.admitted(s, k, rs, p)
+
+def Laws.wf_reuses_first_answer(k, rs, p, i, hit):
+  pw.reuses(k, rs, p, i, hit)
+
+def Laws.wf_spawns_within_budget(k, rs, t, l, miss):
+  pw.spawns(k, rs, t, l, miss)
+
+def Laws.wf_refused_when_spent(k, rs, t, miss):
+  pw.refused(k, rs, t, miss)
+
+def Laws.wf_first_example():
+  {==}
+
+def Laws.wf_limits_uncapped(c, m):
+  {==}
+
+def Laws.wf_limits_capped(c, m, x):
+  pw.capped(c, m, x)

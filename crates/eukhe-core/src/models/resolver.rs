@@ -657,6 +657,75 @@ impl std::fmt::Display for DefaultMiss {
     }
 }
 
+/// What the resolution knows of the saved default model
+/// (`bend/default_model.bend` `In`): whether the full catalog has it,
+/// whether the catalog with credentials has it, and whether a set
+/// `--models` scope (the session is not continuing) leaves it out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SavedDefaultFacts {
+    pub in_catalog: bool,
+    pub has_credentials: bool,
+    pub out_of_scope: bool,
+}
+
+/// The facts of the saved default of `options`; `None` when nothing is
+/// saved. The CLI flags of `options` are not read.
+#[must_use]
+pub fn saved_default_facts(options: &InitialModelOptions<'_>) -> Option<SavedDefaultFacts> {
+    let (provider, id) = options.default_provider.zip(options.default_model_id)?;
+    let is_saved = |model: &Model| model.provider == provider && model.id == id;
+    Some(SavedDefaultFacts {
+        in_catalog: options.all_models.iter().any(is_saved),
+        has_credentials: options.available_models.iter().any(is_saved),
+        out_of_scope: !options.scoped_models.is_empty()
+            && !options.is_continuing
+            && !options
+                .scoped_models
+                .iter()
+                .any(|scoped| is_saved(&scoped.model)),
+    })
+}
+
+/// What the startup chain resolves with no model requested
+/// (`bend/default_model.bend` `Res`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefaultResolution {
+    /// The saved default runs.
+    Saved,
+    /// The chain's pick without the saved default runs; in place of the
+    /// saved default (for this reason) when one is saved.
+    Next(Option<DefaultMiss>),
+    /// Nothing is saved and no model has credentials.
+    Nothing,
+    /// The saved default cannot run and no model runs in its place.
+    Refused(DefaultMiss),
+}
+
+/// The resolution rule: the saved default's checks in order (the catalog,
+/// the credentials, the scope), and whether the chain picks a model
+/// without it (`has_next`). A saved default without credentials never
+/// gives way to another provider.
+#[must_use]
+pub fn resolve_default(saved: Option<SavedDefaultFacts>, has_next: bool) -> DefaultResolution {
+    let swap = |reason| {
+        if has_next {
+            DefaultResolution::Next(Some(reason))
+        } else {
+            DefaultResolution::Refused(reason)
+        }
+    };
+    match saved {
+        None if has_next => DefaultResolution::Next(None),
+        None => DefaultResolution::Nothing,
+        Some(facts) if !facts.in_catalog => swap(DefaultMiss::NotInCatalog),
+        Some(facts) if !facts.has_credentials => {
+            DefaultResolution::Refused(DefaultMiss::NoCredentials)
+        }
+        Some(facts) if facts.out_of_scope => swap(DefaultMiss::NotInScope),
+        Some(_) => DefaultResolution::Saved,
+    }
+}
+
 /// The first check the saved default of `options` fails, in this order:
 /// the full catalog, the catalog with credentials, the `--models` scope
 /// (when one is set and the session is not continuing). `None` when
@@ -665,24 +734,11 @@ impl std::fmt::Display for DefaultMiss {
 /// the model.
 #[must_use]
 pub fn saved_default_miss(options: &InitialModelOptions<'_>) -> Option<DefaultMiss> {
-    let (provider, id) = options.default_provider.zip(options.default_model_id)?;
-    let is_saved = |model: &Model| model.provider == provider && model.id == id;
-    if !options.all_models.iter().any(is_saved) {
-        return Some(DefaultMiss::NotInCatalog);
+    match resolve_default(saved_default_facts(options), true) {
+        DefaultResolution::Next(miss) => miss,
+        DefaultResolution::Refused(miss) => Some(miss),
+        DefaultResolution::Saved | DefaultResolution::Nothing => None,
     }
-    if !options.available_models.iter().any(is_saved) {
-        return Some(DefaultMiss::NoCredentials);
-    }
-    let scoped = !options.scoped_models.is_empty() && !options.is_continuing;
-    if scoped
-        && !options
-            .scoped_models
-            .iter()
-            .any(|scoped| is_saved(&scoped.model))
-    {
-        return Some(DefaultMiss::NotInScope);
-    }
-    None
 }
 
 /// Why [`find_initial_model`] resolved nothing for `options`, naming the

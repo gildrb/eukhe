@@ -197,22 +197,22 @@ fn the_decision_checks_in_order() {
     let deny = ["p/other".to_owned()];
     let cases: Vec<(AuxiliaryRoute<u8>, AuxiliaryRoute<u8>)> = vec![
         (
-            decide_auxiliary_route(AuxiliarySelector::Unset, Some(&deny), None, never),
+            decide_auxiliary_route(&AuxiliarySelector::Unset, Some(&deny), None, never),
             AuxiliaryRoute::Session,
         ),
         (
-            decide_auxiliary_route(AuxiliarySelector::SessionModel, None, None, never),
+            decide_auxiliary_route(&AuxiliarySelector::SessionModel, None, None, never),
             AuxiliaryRoute::Session,
         ),
         (
-            decide_auxiliary_route(other(), Some(&deny), None, never),
+            decide_auxiliary_route(&other(), Some(&deny), None, never),
             AuxiliaryRoute::Fallback {
                 selector: "p/m".to_owned(),
                 reason: FallbackReason::NotAllowed,
             },
         ),
         (
-            decide_auxiliary_route(other(), Some(&allow), Some(9), |_| {
+            decide_auxiliary_route(&other(), Some(&allow), Some(9), |_| {
                 Err(FallbackReason::NoKey)
             }),
             AuxiliaryRoute::Fallback {
@@ -221,7 +221,7 @@ fn the_decision_checks_in_order() {
             },
         ),
         (
-            decide_auxiliary_route(other(), None, Some(9), |_| {
+            decide_auxiliary_route(&other(), None, Some(9), |_| {
                 Ok(Found {
                     model: 1,
                     context_window: 8,
@@ -233,7 +233,7 @@ fn the_decision_checks_in_order() {
             },
         ),
         (
-            decide_auxiliary_route(other(), None, Some(9), |_| {
+            decide_auxiliary_route(&other(), None, Some(9), |_| {
                 Ok(Found {
                     model: 1,
                     context_window: 0,
@@ -242,7 +242,7 @@ fn the_decision_checks_in_order() {
             AuxiliaryRoute::Routed(1),
         ),
         (
-            decide_auxiliary_route(other(), None, None, |_| {
+            decide_auxiliary_route(&other(), None, None, |_| {
                 Ok(Found {
                     model: 1,
                     context_window: 8,

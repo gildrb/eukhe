@@ -101,8 +101,9 @@ use serde_json::Value;
 
 use super::deps::ModelRequest;
 use crate::models::{
-    find_initial_model, model_allowed, resolve_cli_model, resolve_model_scope_from_models,
-    saved_default_miss, DefaultMiss, InitialModelOptions, ModelAllowlistRefusal,
+    find_initial_model, model_allowed, resolve_cli_model, resolve_default,
+    resolve_model_scope_from_models, saved_default_facts, DefaultMiss, DefaultResolution,
+    InitialModelOptions, ModelAllowlistRefusal,
 };
 use crate::settings::SettingsManager;
 
@@ -333,7 +334,7 @@ pub async fn resolve_session_model(
         };
         let default_provider = settings.get_default_provider();
         let default_model_id = settings.get_default_model();
-        let mut options = InitialModelOptions {
+        let options = InitialModelOptions {
             cli_provider: None,
             cli_model: None,
             scoped_models: &scoped,
@@ -343,32 +344,37 @@ pub async fn resolve_session_model(
             all_models: &all_legacy,
             available_models: &available_legacy,
         };
-        let substituted = saved_default_miss(&options)
-            .zip(default_provider.as_deref().zip(default_model_id.as_deref()))
-            .map(|(reason, (provider, model_id))| Substitution {
-                wanted: ModelRef {
-                    provider: provider.to_owned(),
-                    model_id: model_id.to_owned(),
-                },
-                reason,
-            });
-        if let Some(substitution) = &substituted {
-            match substitution.reason {
-                // No move to another provider.
-                DefaultMiss::NoCredentials => {
-                    return Err(ModelsError::DefaultUnusable(substitution.clone()))
+        // The chain's pick past the saved default.
+        let next = find_initial_model(&InitialModelOptions {
+            default_model_id: None,
+            ..options
+        });
+        let substitution = |reason| {
+            default_provider
+                .as_deref()
+                .zip(default_model_id.as_deref())
+                .map(|(provider, model_id)| Substitution {
+                    wanted: ModelRef {
+                        provider: provider.to_owned(),
+                        model_id: model_id.to_owned(),
+                    },
+                    reason,
+                })
+        };
+        let (picked, substituted) =
+            match resolve_default(saved_default_facts(&options), next.is_some()) {
+                DefaultResolution::Saved => (find_initial_model(&options), None),
+                DefaultResolution::Next(miss) => (next, miss.and_then(substitution)),
+                DefaultResolution::Nothing => return Ok(None),
+                DefaultResolution::Refused(miss) => {
+                    return match substitution(miss) {
+                        Some(substitution) => Err(ModelsError::DefaultUnusable(substitution)),
+                        None => Ok(None),
+                    }
                 }
-                // The chain goes on past the saved default.
-                DefaultMiss::NotInCatalog | DefaultMiss::NotInScope => {
-                    options.default_model_id = None;
-                }
-            }
-        }
-        let Some(picked) = find_initial_model(&options) else {
-            return match substituted {
-                Some(substitution) => Err(ModelsError::DefaultUnusable(substitution)),
-                None => Ok(None),
             };
+        let Some(picked) = picked else {
+            return Ok(None);
         };
         let thinking = scoped
             .iter()

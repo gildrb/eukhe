@@ -219,53 +219,126 @@ pub(super) enum Resumed<'a> {
     From(&'a RunRecord),
 }
 
+/// What the admission rule decided for one `agent()` call
+/// (`bend/workflow.bend` `Admit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Decision {
+    /// The call's ordinal has an ended row: replay its answer.
+    Ended,
+    /// The call's ordinal has a queued or running row: reattach.
+    Reattach,
+    /// The earlier run's row at this position (in ordinal order) serves it.
+    Reuse(usize),
+    /// Spawn an agent: the budget has one left.
+    Spawn,
+    /// The budget is spent.
+    Refused,
+}
+
+/// The facts the admission rule reads (`bend/workflow.bend` `admit`):
+/// the status of the call's ordinal in this run, the call's key, the
+/// earlier run's rows as (key, status) in ordinal order, and the budget.
+/// Keys are interned: equal resume keys get equal indexes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AdmitFacts {
+    pub(super) prior: Option<WorkflowAgentStatus>,
+    pub(super) key: usize,
+    pub(super) rows: Vec<(usize, WorkflowAgentStatus)>,
+    pub(super) spawned: u32,
+    pub(super) max_agents: u32,
+}
+
+/// The admission rule of one `agent()` call: a pure function of its
+/// facts.
+pub(super) fn decide(facts: &AdmitFacts) -> Decision {
+    if let Some(status) = facts.prior {
+        return if status.is_terminal() {
+            Decision::Ended
+        } else {
+            Decision::Reattach
+        };
+    }
+    let serves = |status: WorkflowAgentStatus| match status {
+        WorkflowAgentStatus::Done | WorkflowAgentStatus::Cached => true,
+        WorkflowAgentStatus::Queued
+        | WorkflowAgentStatus::Running
+        | WorkflowAgentStatus::Failed
+        | WorkflowAgentStatus::Cancelled => false,
+    };
+    if let Some(at) = facts
+        .rows
+        .iter()
+        .position(|&(key, status)| key == facts.key && serves(status))
+    {
+        return Decision::Reuse(at);
+    }
+    if facts.spawned < facts.max_agents {
+        Decision::Spawn
+    } else {
+        Decision::Refused
+    }
+}
+
 /// Decide one `agent()` call against the run `run`, which may take the
-/// cache of the run it resumes (`resumed`): the pure rule the `wf.agent`
-/// global commits, and the Bend bridge replays.
+/// cache of the run it resumes (`resumed`), and record it: the rule the
+/// `wf.agent` global commits, and the Bend bridge replays.
 pub(super) fn admit(
     run: &mut RunRecord,
     resumed: Resumed<'_>,
     ordinal: u32,
     fresh: AgentRow,
 ) -> Admission {
-    if let Some(row) = run.agents.get(&ordinal) {
-        return if row.status.is_terminal() {
-            Admission::Ended(row.clone())
-        } else {
-            Admission::Run(row.clone())
-        };
-    }
-    let earlier = match resumed {
-        Resumed::Fresh => None,
-        Resumed::From(earlier) => Some(earlier),
+    let earlier: Vec<&AgentRow> = match resumed {
+        Resumed::Fresh => Vec::new(),
+        Resumed::From(earlier) => earlier.agents.values().collect(),
     };
-    let hit = earlier.and_then(|resumed| {
-        resumed.agents.values().find(|old| {
-            old.key == fresh.key
-                && matches!(
-                    old.status,
-                    WorkflowAgentStatus::Done | WorkflowAgentStatus::Cached
-                )
-        })
-    });
-    if let Some(hit) = hit {
-        let row = AgentRow {
-            status: WorkflowAgentStatus::Cached,
-            child_name: None,
-            child_session_id: hit.child_session_id.clone(),
-            result: hit.result.clone(),
-            note: hit.note.clone(),
-            counted: false,
-            ..fresh
-        };
-        run.agents.insert(ordinal, row.clone());
-        return Admission::Cached(row);
+    let facts = {
+        let mut keys: Vec<&str> = vec![fresh.key.as_str()];
+        let rows = earlier
+            .iter()
+            .map(|row| {
+                let key = row.key.as_str();
+                let at = keys
+                    .iter()
+                    .position(|known| *known == key)
+                    .unwrap_or_else(|| {
+                        keys.push(key);
+                        keys.len() - 1
+                    });
+                (at, row.status)
+            })
+            .collect();
+        AdmitFacts {
+            prior: run.agents.get(&ordinal).map(|row| row.status),
+            key: 0,
+            rows,
+            spawned: run.spawned(),
+            max_agents: run.max_agents,
+        }
+    };
+    match decide(&facts) {
+        Decision::Ended => Admission::Ended(run.agents[&ordinal].clone()),
+        Decision::Reattach => Admission::Run(run.agents[&ordinal].clone()),
+        Decision::Reuse(at) => {
+            let hit = earlier[at];
+            let row = AgentRow {
+                status: WorkflowAgentStatus::Cached,
+                child_name: None,
+                child_session_id: hit.child_session_id.clone(),
+                result: hit.result.clone(),
+                note: hit.note.clone(),
+                counted: false,
+                ..fresh
+            };
+            run.agents.insert(ordinal, row.clone());
+            Admission::Cached(row)
+        }
+        Decision::Spawn => {
+            run.agents.insert(ordinal, fresh.clone());
+            Admission::Run(fresh)
+        }
+        Decision::Refused => Admission::Exhausted(run.max_agents),
     }
-    if run.spawned() >= run.max_agents {
-        return Admission::Exhausted(run.max_agents);
-    }
-    run.agents.insert(ordinal, fresh.clone());
-    Admission::Run(fresh)
 }
 
 fn note_of(text: &str) -> String {
