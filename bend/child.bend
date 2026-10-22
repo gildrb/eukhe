@@ -532,3 +532,91 @@ def within(+cfg: Cfg, x: Next) -> Bool:
       True{}
     case Quiet{}:
       True{}
+
+# The task's decisions
+# --------------------
+# The Rust task runs these as the compiled Bend core: the verdict on one
+# poll of the watch phase (`verdict`), the report phase's move on the
+# fate of its submission (`owe.next`) and the abort (`cut.ph`).
+
+# where a settled child's outcome goes: a report in the parent's inbox,
+# or nowhere (a silent task only settles the child's row)
+type Mode is Data:
+  Inbox{}
+  Silent{}
+
+# what the task does after one poll: watch on with clock w, report k to
+# the parent, or end with no report (why: the report a silent task does
+# not send; None when the child already replied to its parent)
+type Call is Data:
+  Watches{w: W}
+  Reports{k: Report}
+  Settles{why: Maybe<&2, Report>}
+
+def call.owe(m: Mode, k: Report) -> Call:
+  match m:
+    case Inbox{}:
+      Reports{k}
+    case Silent{}:
+      Settles{Some{k}}
+
+def call.of(x: Next, m: Mode) -> Call:
+  match x:
+    case Watch{w}:
+      Watches{w}
+    case Owe{k}:
+      call.owe(m, k)
+    case Quiet{}:
+      Settles{None{}}
+
+# the task's call on one poll that read o and took e ms since the last,
+# in mode m
+def verdict(+cfg: Cfg, +w: W, +e: Nat, o: Obs, m: Mode) -> Call:
+  call.of(look(cfg, w, e, o), m)
+
+def Call.reports(c: Call) -> Bool:
+  match c:
+    case Watches{w}:
+      False{}
+    case Reports{k}:
+      True{}
+    case Settles{why}:
+      False{}
+
+# the report phase's move on the fate of submission n of its report
+type Move is Data:
+  Submit{n: Nat}
+  Await{}
+  Resubmit{n: Nat}
+  Delivered{}
+
+def owe.next.fate(x: Fate, +n: Nat) -> Move:
+  match x:
+    case Queued{}:
+      Await{}
+    case Withdrawn{}:
+      Resubmit{1n+n}
+    case Placed{}:
+      Delivered{}
+
+# none yet: submit it under n; queued: wait; withdrawn: owe it under
+# n + 1; placed: end
+def owe.next(f: Maybe<&2, Fate>, +n: Nat) -> Move:
+  match f:
+    case None{}:
+      Submit{n}
+    case Some{x}:
+      owe.next.fate(x, n)
+
+# the task after move mv of report k owed under n (a closing parent's
+# inbox admits no submission)
+def owe.do(mv: Move, k: Report, +n: Nat, open: Bool, inbox: List<&2, Sub>) -> St:
+  match mv:
+    case Submit{m}:
+      owe.new(open, k, m, inbox)
+    case Await{}:
+      St{Owing{k, n}, None{}, open, inbox}
+    case Resubmit{m}:
+      St{Owing{k, m}, None{}, open, inbox}
+    case Delivered{}:
+      St{Ended{}, None{}, open, inbox}

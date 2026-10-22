@@ -134,6 +134,37 @@ def Repeats(segs: List<&2, List<&2, Nat>>, +hist: List<&2, Nat>) -> Type:
     case +seg <> rest:
       Within(seg, hist) & Repeats(rest, hist)
 
+# The check the Rust goal loop runs
+# ---------------------------------
+# The Rust loop keeps, per run and goal, the count of stalls and the work
+# (the ledger's count) at the last check, and compares counts: the work
+# grew when its count did. The compiled core's wire carries a Nat up to
+# 10^14 - 1, so the count is held below t = 10^14 - 1 and one more stall
+# stays within t.
+
+# the last check of the same run and goal: its count of stalls and the
+# work then
+type Prior is Data:
+  Prior{stalls: Nat, work: Nat}
+
+def Goal.stalls(g: Goal) -> Nat:
+  match g:
+    case Go{s}:
+      s
+    case Stop{s}:
+      s
+
+# the check at a continuation whose work is now `work`, after prior p
+# (None: the first check of the run or the goal starts the count)
+def judge(+t: Nat, +cap: Nat, p: Maybe<&2, Prior>, +work: Nat) -> Goal:
+  match p:
+    case None{}:
+      Go{0n}
+    case Some{x}:
+      match x:
+        case Prior{s, w}:
+          check(cap, Nat.min(s, Nat.sub(t, 1n)), Nat.is_lt(w, work))
+
 # The subagent watch
 # ------------------
 # The parent's watch polls the child; each poll reads the child unsettled

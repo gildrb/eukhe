@@ -211,6 +211,58 @@ def merge.at(child_changed: Bool, parent_changed: Bool, same: Bool, p: Maybe<&2,
 def merge1(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> One:
   merge.at(Bool.not(m.eq(c, b)), Bool.not(m.eq(p, b)), m.eq(p, c), p, c)
 
+# The plan of one path, as the Rust hand-back runs it: the parent's
+# content stays (taken: the child's change is the parent's content
+# already), a conflict, the child's file goes in (unless its place in the
+# parent is blocked: a directory there, or a file where one of its
+# directories goes; then it is a conflict), or the child removed the file
+# and the parent's goes. Contents are compared only for equality, so the
+# Rust caller passes equal contents as equal ids.
+type Plan is Data:
+  Keep{taken: Bool}
+  Clash{}
+  Take{}
+  Drop{}
+
+def plan.file(c: Maybe<&2, Nat>) -> Plan:
+  match c:
+    case None{}:
+      Drop{}
+    case Some{x}:
+      Take{}
+
+def plan.at(calm: Bool, still: Bool, same: Bool, c: Maybe<&2, Nat>) -> Plan:
+  match calm:
+    case True{}:
+      Keep{False{}}
+    case False{}:
+      match still:
+        case True{}:
+          plan.file(c)
+        case False{}:
+          match same:
+            case True{}:
+              Keep{True{}}
+            case False{}:
+              Clash{}
+
+# the plan of a path with the parent's content p, the base's b and the
+# child's c
+def plan(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> Plan:
+  plan.at(m.eq(c, b), m.eq(p, b), m.eq(p, c), c)
+
+# the merge a plan carries out
+def Plan.merge(x: Plan, p: Maybe<&2, Nat>, c: Maybe<&2, Nat>) -> One:
+  match x:
+    case Keep{t}:
+      One{p, False{}}
+    case Clash{}:
+      One{p, True{}}
+    case Take{}:
+      One{c, False{}}
+    case Drop{}:
+      One{c, False{}}
+
 # The hand-back: the parent's new workspace and the conflicts
 type Back is Data:
   Back{ws: List<&2, Doc>, clashes: List<&2, Nat>}
