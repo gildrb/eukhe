@@ -741,6 +741,12 @@ def Release.semver_parse_patch_example():
 def Release.semver_parse_two_fields_example():
   {==}
 
+def Release.semver_show_decimal(a, b, c):
+  Semver.ps.show_decimal(a, b, c)
+
+def Release.semver_dec_spec_example():
+  {==}
+
 # (A1) One refresh flight per provider
 
 def AuthFlight.flight_one_fetch(evs):

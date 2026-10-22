@@ -164,3 +164,60 @@ law semver_parse_patch_example:
 # EXCLUDES: a refusal law that holds only because every text parses
 law semver_parse_two_fields_example:
   {Sv.Ver.parse("0.10") == None{} : Maybe<&2, Sv.Ver>}
+
+# The decimal writer of the spec, independent of the model: a number's
+# text is the text of the number before it with its last digit raised,
+# a 9 becoming 0 and carrying left. It works on the text written last
+# digit first, so the carry walks from the head.
+
+def dec_pick(b: Bool, yes: Char, no: Char) -> Char:
+  match b:
+    case True{}:
+      yes
+    case False{}:
+      no
+
+# the digit after c ('0' to '8'); any other char stays
+def dec_succ(+c: Char) -> Char:
+  dec_pick(Char.is_eq(c, '0'), '1', dec_pick(Char.is_eq(c, '1'), '2', dec_pick(Char.is_eq(c, '2'), '3', dec_pick(Char.is_eq(c, '3'), '4', dec_pick(Char.is_eq(c, '4'), '5', dec_pick(Char.is_eq(c, '5'), '6', dec_pick(Char.is_eq(c, '6'), '7', dec_pick(Char.is_eq(c, '7'), '8', dec_pick(Char.is_eq(c, '8'), '9', c)))))))))
+
+# the digit c raised: a 9 becomes 0 and the raised rest follows it;
+# any other digit becomes the next one and the rest stays
+def dec_raise_at(nine: Bool, c: Char, r: String, raised: String) -> String:
+  match nine:
+    case True{}:
+      SCon{'0', raised}
+    case False{}:
+      SCon{dec_succ(c), r}
+
+# the text, last digit first, of the number after the one s writes
+def dec_raise(s: String) -> String:
+  match s:
+    case SNil{}:
+      SCon{'1', SNil{}}
+    case SCon{+c, +r}:
+      dec_raise_at(Char.is_eq(c, '9'), c, r, dec_raise(r))
+
+# n in decimal, most significant digit first, no leading zero
+def dec_spec(n: Nat) -> String:
+  match n:
+    case 0n:
+      SCon{'0', SNil{}}
+    case 1n+p:
+      String.reverse(dec_raise(String.reverse(dec_spec(p))))
+
+# LAW: a version is written as its three numbers in decimal, most
+# significant digit first, joined by dots
+# EXCLUDES: digits written in reverse ("0.01.24" for 0.10.42) by a writer
+# that its reader undoes, which semver_roundtrip alone lets pass; a
+# leading zero; fields in another order or with another separator
+law semver_show_decimal:
+  for a: Nat
+  for b: Nat
+  for c: Nat
+  {Sv.Ver.show(Sv.Ver{a, b, c}) == String.append(dec_spec(a), SCon{'.', String.append(dec_spec(b), SCon{'.', dec_spec(c)})}) : String}
+
+# LAW: the spec's writer is decimal: 109 is "109"
+# EXCLUDES: a spec writer that is wrong past one digit or past a carry
+law semver_dec_spec_example:
+  {dec_spec(109n) == "109" : String}
