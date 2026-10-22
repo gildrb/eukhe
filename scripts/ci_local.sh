@@ -15,7 +15,12 @@
 #                                 (<git common dir>/eukhe-ci-local), so
 #                                 uncommitted and untracked files do not
 #                                 change the result. The worktree keeps its
-#                                 own target/ between pushes.
+#                                 own target/ between pushes. All worktrees
+#                                 share it: one push at a time runs the
+#                                 gate (flock on eukhe-ci-local.lock), the
+#                                 others wait. A commit that passed once
+#                                 (eukhe-ci-local-passed/<sha>) pushes
+#                                 again without the gate.
 #
 # Each gate prints its name; a failed gate prints `ci-<mode>: gate <name>
 # FAILED` and the script stops with its exit code. The full gate runs the
@@ -225,7 +230,23 @@ case "${mode}" in
   pre-push)
     to="${PRE_COMMIT_TO_REF:?PRE_COMMIT_TO_REF is unset: prek gives it in the pre-push hook}"
     from="${PRE_COMMIT_FROM_REF:-}"
-    worktree="$(cd "$(git rev-parse --git-common-dir)" && pwd)/eukhe-ci-local"
+    common="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
+    worktree="${common}/eukhe-ci-local"
+    passed="${common}/eukhe-ci-local-passed"
+    if [[ -e "${passed}/${to}" ]]; then
+      echo "pre-push: ${to:0:12} passed make ci-local before"
+      exit 0
+    fi
+    command -v flock >/dev/null 2>&1 || { echo "pre-push: flock not installed (util-linux; macOS: brew install flock)" >&2; exit 1; }
+    exec 9>"${common}/eukhe-ci-local.lock"
+    if ! flock -n 9; then
+      echo "pre-push: another push runs make ci-local; waiting for it"
+      flock 9
+    fi
+    if [[ -e "${passed}/${to}" ]]; then
+      echo "pre-push: ${to:0:12} passed make ci-local before"
+      exit 0
+    fi
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
     if [[ -n "${from}" && ! "${from}" =~ ^0+$ ]] && git cat-file -e "${from}^{commit}" 2>/dev/null; then
       range="${from}..${to}"
@@ -240,10 +261,13 @@ case "${mode}" in
       git worktree add --quiet --detach --force "${worktree}" "${to}"
     fi
     echo "pre-push: make ci-local on ${to:0:12} in ${worktree}"
-    if ! CI_LOCAL_SECRETS_RANGE="${range}" make --no-print-directory -C "${worktree}" ci-local; then
+    # 9>&-: a process the gate leaves behind never holds the lock.
+    if ! CI_LOCAL_SECRETS_RANGE="${range}" make --no-print-directory -C "${worktree}" ci-local 9>&-; then
       echo "pre-push: a gate failed on ${to:0:12} (its name is above). The push stops. Fix the cause, commit, and push again." >&2
       exit 1
     fi
+    mkdir -p "${passed}"
+    : >"${passed}/${to}"
     ;;
   *)
     echo "usage: scripts/ci_local.sh fast|full|pre-push" >&2

@@ -13,7 +13,8 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - CI: the full gate runs on this machine before code leaves it. `make hooks`
   installs the prek hooks (`.pre-commit-config.yaml`): pre-commit runs
   `make ci-fast`, pre-push runs `make ci-local` (every gate of `ci.yml`) on the
-  pushed commit. On GitHub, a push to main runs only the light gate of
+  pushed commit; one push at a time runs it, the others wait. Never skip the
+  hooks (`--no-verify`). On GitHub, a push to main runs only the light gate of
   `.github/workflows/ci.yml` (fmt, deny, secrets, laws); pull requests, the merge
   queue and `workflow_dispatch` run the full gate. Bend comes from
   `.github/actions/setup-bend`. Once a day (03:17 UTC, or on dispatch)

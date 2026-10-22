@@ -41,6 +41,10 @@ The hooks (`.pre-commit-config.yaml`) run at low CPU priority
   (`web/` up to date), `bend PROOF.bend` and `--verdict`,
   `scripts/check_laws_wired.py`, the release-version bridge, cargo-deny,
   and gitleaks on the pushed commits.
+- One gate at a time: every worktree shares the pre-push worktree. A
+  push that finds the gate busy waits for it (`flock` on
+  `<git common dir>/eukhe-ci-local.lock`). A commit that passed once
+  pushes again without the gate (`<git common dir>/eukhe-ci-local-passed/`).
 - Skip rule: a push that changes only Markdown files in `docs/` or at
   the repository root does not run the pre-push gate.
 
