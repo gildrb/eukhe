@@ -540,6 +540,9 @@ impl SessionUi {
                 self.streaming_index = None;
                 self.turn_ends_seen += 1;
                 self.turn_active = false;
+                // The request ended: the compactor's work of this
+                // request is over, the `mem` gauge drops its marker.
+                self.settle_memory_gauge(view);
                 view.retry = None;
                 // The turn settled: the bash cards held above the
                 // indicator stream into the transcript (TS `turn_end`
@@ -1139,7 +1142,7 @@ impl SessionUi {
     fn begin_request(&mut self, view: &mut AgentView) {
         self.turn_active = true;
         self.turn_error_shown = false;
-        self.begin_memory_request(view);
+        self.settle_memory_gauge(view);
         // TS `agent_start` clears the pending tool map: no card
         // from a previous run settles on this one's failure.
         self.pending_tools.clear();

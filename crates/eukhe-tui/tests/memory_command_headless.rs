@@ -3,7 +3,7 @@
 //! opens the memory tree (the status header and one dated, labelled row
 //! per view line), Right drills a one-message line down to its message
 //! and a summary line down to its two halves, pushed `memory_update`s
-//! move the gauge (its size and the nodes summarized) and never make a
+//! move the gauge (its size and the working marker) and never make a
 //! transcript row, and arguments answer the usage.
 #![cfg(unix)]
 // - the futures are bounded by the surface's lifetime; boxing them would
@@ -24,9 +24,9 @@ use serde_json::{json, Value};
 const HEADER: &str = " memory: 43 messages, view 87.2 KB / 128.0 KB (floor 64.0 KB), 2 lines, \
                       2 unsummarized, 1 compaction running, model anthropic/claude-haiku-4-5";
 
-/// The two pushed summaries, folded into the gauge: three nodes, the
-/// newest view size.
-const LIVE_GAUGE: &str = "mem 91/128K ~3";
+/// The gauge after the two pushed summaries: the newest view size; no
+/// request is open, so no working marker.
+const LIVE_GAUGE: &str = "mem 91K/128K";
 
 const OCT_1: &str = "2026-10-01T09:00:00.000+02:00";
 const OCT_2: &str = "2026-10-02T10:00:00.000+02:00";
@@ -306,7 +306,7 @@ fn memory_opens_the_tree_drills_down_and_shows_live_updates() {
     let plan = HeadlessPlan {
         steps: vec![
             // The open-time status seeds the gauge.
-            wait("mem 87/128K"),
+            wait("mem 87K/128K"),
             HeadlessStep::Submit("/memory".to_string()),
             wait(HEADER),
             wait("> + 32+1  2026-10-03 08:00  user 1  (not summarized yet)"),

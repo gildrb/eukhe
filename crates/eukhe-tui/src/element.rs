@@ -5,7 +5,7 @@
 
 use crate::style::Style;
 use crate::theme::{Theme, ThemeColor};
-use crate::width::{line_width, truncate_line, wrap_line};
+use crate::width::{line_width, str_width, truncate_line, wrap_line};
 use crate::{Line, Span};
 
 /// How a run of text is colored.
@@ -28,6 +28,11 @@ pub(crate) enum Status {
     Error,
     Aborted,
 }
+
+/// The cells a status mark takes: the width of `ok`; the one-cell marks
+/// (`x`, the working icon, the queued dot) pad to it, so the names after
+/// them line up.
+pub(crate) const STATUS_MARK_WIDTH: usize = 2;
 
 /// One piece of a text row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,6 +199,8 @@ impl Painter<'_> {
         }
     }
 
+    /// The status mark, padded to the two cells of `ok` so the rows'
+    /// names line up whatever the status.
     fn status(&self, status: Status) -> Span {
         let (icon, role) = match status {
             Status::Queued => (crate::glyphs::DOT_OFF, ThemeColor::Muted),
@@ -205,7 +212,11 @@ impl Painter<'_> {
             Status::Error => (crate::glyphs::FAIL, ThemeColor::Error),
             Status::Aborted => (crate::glyphs::FAIL, ThemeColor::Warning),
         };
-        Span::styled(icon.to_string(), self.theme.fg_style(role))
+        let mut mark = icon.to_string();
+        while str_width(&mark) < STATUS_MARK_WIDTH {
+            mark.push(' ');
+        }
+        Span::styled(mark, self.theme.fg_style(role))
     }
 }
 

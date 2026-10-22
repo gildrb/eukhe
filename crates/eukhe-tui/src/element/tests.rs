@@ -6,7 +6,7 @@ fn theme() -> Theme {
 }
 
 #[test]
-fn status_icons_follow_the_status_and_the_tick() {
+fn status_icons_follow_the_status_and_the_tick_and_pad_to_two_cells() {
     let theme = theme();
     let cases = [
         (Status::Queued, crate::glyphs::DOT_OFF, ThemeColor::Muted),
@@ -24,10 +24,11 @@ fn status_icons_follow_the_status_and_the_tick() {
             Fit::Keep,
             vec![Inline::Status { status }, Inline::plain(" cell")],
         );
+        let mark = format!("{icon:<STATUS_MARK_WIDTH$}");
         assert_eq!(
             render(&element, &theme, 40, Tick(2)),
             vec![vec![
-                Span::styled(icon, theme.fg_style(role)),
+                Span::styled(mark, theme.fg_style(role)),
                 Span::raw(" cell"),
             ]],
             "{status:?}"

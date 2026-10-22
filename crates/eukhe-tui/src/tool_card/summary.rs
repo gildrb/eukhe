@@ -53,13 +53,8 @@ impl SummaryRow<'_> {
         if let Some(duration) = duration {
             tail.push((duration, ThemeColor::Dim));
         }
-        // The status mark is one or two cells (`ok`, `x`, the icon) plus
-        // the space before the name.
-        let mark_width = match status {
-            Status::Done => 2,
-            Status::Queued | Status::Running | Status::Error | Status::Aborted => 1,
-        };
-        let fixed: usize = mark_width
+        // The status mark's two cells plus the space before the name.
+        let fixed: usize = crate::element::STATUS_MARK_WIDTH
             + 1
             + str_width(name)
             + tail
@@ -245,7 +240,7 @@ mod tests {
         assert_eq!(rows.len(), 1, "{rows:?}");
         let rendered = rows[0].trim_end();
         assert!(
-            rendered.starts_with(" x bash - ls -la /t..."),
+            rendered.starts_with(" x  bash - ls -la /t..."),
             "{rendered:?}"
         );
         assert!(
@@ -253,6 +248,37 @@ mod tests {
             "{rendered:?}"
         );
         assert!(str_width(rendered) <= 60, "{rendered:?}");
+    }
+
+    /// The tool name sits in the same column under every status mark:
+    /// the one-cell `x` and the working icon pad to the width of `ok`.
+    #[test]
+    fn every_status_mark_aligns_the_tool_name() {
+        let column = |status: Status, error: Option<&str>| {
+            let rows = text(
+                &SummaryRow {
+                    status,
+                    name: "bash",
+                    argument: "ls".to_string(),
+                    results: Vec::new(),
+                    duration: None,
+                    error: error.map(str::to_string),
+                }
+                .element(60),
+                60,
+            );
+            rows[0].find("bash").unwrap_or_else(|| panic!("{rows:?}"))
+        };
+        assert_eq!(
+            [
+                column(Status::Done, None),
+                column(Status::Error, Some("ENOENT")),
+                column(Status::Running, None),
+                column(Status::Queued, None),
+                column(Status::Aborted, None),
+            ],
+            [4; 5]
+        );
     }
 
     #[test]

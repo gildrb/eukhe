@@ -1,5 +1,5 @@
 ## ipython queued width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lin\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 li\u{1b}[0m"
 ## ipython queued width=40 detail=Overview frame=0 images=false = ipython queued width=40 detail=Overview frame=0 images=true
 ## ipython queued width=40 detail=Overview frame=7 images=true = ipython queued width=40 detail=Overview frame=0 images=true
 ## ipython queued width=40 detail=Overview frame=7 images=false = ipython queued width=40 detail=Overview frame=0 images=true
@@ -8,14 +8,14 @@
 ## ipython queued width=40 detail=Details frame=7 images=true = ipython queued width=40 detail=Overview frame=0 images=true
 ## ipython queued width=40 detail=Details frame=7 images=false = ipython queued width=40 detail=Overview frame=0 images=true
 ## ipython queued width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lin\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 li\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ## ipython queued width=40 detail=All frame=0 images=false = ipython queued width=40 detail=All frame=0 images=true
 ## ipython queued width=40 detail=All frame=7 images=true = ipython queued width=40 detail=All frame=0 images=true
 ## ipython queued width=40 detail=All frame=7 images=false = ipython queued width=40 detail=All frame=0 images=true
 ## ipython queued width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 ## ipython queued width=80 detail=Overview frame=0 images=false = ipython queued width=80 detail=Overview frame=0 images=true
 ## ipython queued width=80 detail=Overview frame=7 images=true = ipython queued width=80 detail=Overview frame=0 images=true
 ## ipython queued width=80 detail=Overview frame=7 images=false = ipython queued width=80 detail=Overview frame=0 images=true
@@ -24,14 +24,14 @@
 ## ipython queued width=80 detail=Details frame=7 images=true = ipython queued width=80 detail=Overview frame=0 images=true
 ## ipython queued width=80 detail=Details frame=7 images=false = ipython queued width=80 detail=Overview frame=0 images=true
 ## ipython queued width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ## ipython queued width=80 detail=All frame=0 images=false = ipython queued width=80 detail=All frame=0 images=true
 ## ipython queued width=80 detail=All frame=7 images=true = ipython queued width=80 detail=All frame=0 images=true
 ## ipython queued width=80 detail=All frame=7 images=false = ipython queued width=80 detail=All frame=0 images=true
 ## ipython queued width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 ## ipython queued width=120 detail=Overview frame=0 images=false = ipython queued width=120 detail=Overview frame=0 images=true
 ## ipython queued width=120 detail=Overview frame=7 images=true = ipython queued width=120 detail=Overview frame=0 images=true
 ## ipython queued width=120 detail=Overview frame=7 images=false = ipython queued width=120 detail=Overview frame=0 images=true
@@ -40,14 +40,14 @@
 ## ipython queued width=120 detail=Details frame=7 images=true = ipython queued width=120 detail=Overview frame=0 images=true
 ## ipython queued width=120 detail=Details frame=7 images=false = ipython queued width=120 detail=Overview frame=0 images=true
 ## ipython queued width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ## ipython queued width=120 detail=All frame=0 images=false = ipython queued width=120 detail=All frame=0 images=true
 ## ipython queued width=120 detail=All frame=7 images=true = ipython queued width=120 detail=All frame=0 images=true
 ## ipython queued width=120 detail=All frame=7 images=false = ipython queued width=120 detail=All frame=0 images=true
 ## ipython queued no code width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
 ## ipython queued no code width=40 detail=Overview frame=0 images=false = ipython queued no code width=40 detail=Overview frame=0 images=true
 ## ipython queued no code width=40 detail=Overview frame=7 images=true = ipython queued no code width=40 detail=Overview frame=0 images=true
 ## ipython queued no code width=40 detail=Overview frame=7 images=false = ipython queued no code width=40 detail=Overview frame=0 images=true
@@ -56,13 +56,13 @@
 ## ipython queued no code width=40 detail=Details frame=7 images=true = ipython queued no code width=40 detail=Overview frame=0 images=true
 ## ipython queued no code width=40 detail=Details frame=7 images=false = ipython queued no code width=40 detail=Overview frame=0 images=true
 ## ipython queued no code width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for code\u{1b}[0m"
 ## ipython queued no code width=40 detail=All frame=0 images=false = ipython queued no code width=40 detail=All frame=0 images=true
 ## ipython queued no code width=40 detail=All frame=7 images=true = ipython queued no code width=40 detail=All frame=0 images=true
 ## ipython queued no code width=40 detail=All frame=7 images=false = ipython queued no code width=40 detail=All frame=0 images=true
 ## ipython queued no code width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
 ## ipython queued no code width=80 detail=Overview frame=0 images=false = ipython queued no code width=80 detail=Overview frame=0 images=true
 ## ipython queued no code width=80 detail=Overview frame=7 images=true = ipython queued no code width=80 detail=Overview frame=0 images=true
 ## ipython queued no code width=80 detail=Overview frame=7 images=false = ipython queued no code width=80 detail=Overview frame=0 images=true
@@ -71,13 +71,13 @@
 ## ipython queued no code width=80 detail=Details frame=7 images=true = ipython queued no code width=80 detail=Overview frame=0 images=true
 ## ipython queued no code width=80 detail=Details frame=7 images=false = ipython queued no code width=80 detail=Overview frame=0 images=true
 ## ipython queued no code width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for code\u{1b}[0m"
 ## ipython queued no code width=80 detail=All frame=0 images=false = ipython queued no code width=80 detail=All frame=0 images=true
 ## ipython queued no code width=80 detail=All frame=7 images=true = ipython queued no code width=80 detail=All frame=0 images=true
 ## ipython queued no code width=80 detail=All frame=7 images=false = ipython queued no code width=80 detail=All frame=0 images=true
 ## ipython queued no code width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
 ## ipython queued no code width=120 detail=Overview frame=0 images=false = ipython queued no code width=120 detail=Overview frame=0 images=true
 ## ipython queued no code width=120 detail=Overview frame=7 images=true = ipython queued no code width=120 detail=Overview frame=0 images=true
 ## ipython queued no code width=120 detail=Overview frame=7 images=false = ipython queued no code width=120 detail=Overview frame=0 images=true
@@ -86,150 +86,150 @@
 ## ipython queued no code width=120 detail=Details frame=7 images=true = ipython queued no code width=120 detail=Overview frame=0 images=true
 ## ipython queued no code width=120 detail=Details frame=7 images=false = ipython queued no code width=120 detail=Overview frame=0 images=true
 ## ipython queued no code width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - waiting for code\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for code\u{1b}[0m"
 ## ipython queued no code width=120 detail=All frame=0 images=false = ipython queued no code width=120 detail=All frame=0 images=true
 ## ipython queued no code width=120 detail=All frame=7 images=true = ipython queued no code width=120 detail=All frame=0 images=true
 ## ipython queued no code width=120 detail=All frame=7 images=false = ipython queued no code width=120 detail=All frame=0 images=true
 ## ipython running width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lin\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 li\u{1b}[0m"
 ## ipython running width=40 detail=Overview frame=0 images=false = ipython running width=40 detail=Overview frame=0 images=true
 ## ipython running width=40 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lin\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 li\u{1b}[0m"
 ## ipython running width=40 detail=Overview frame=7 images=false = ipython running width=40 detail=Overview frame=7 images=true
 ## ipython running width=40 detail=Details frame=0 images=true = ipython running width=40 detail=Overview frame=0 images=true
 ## ipython running width=40 detail=Details frame=0 images=false = ipython running width=40 detail=Overview frame=0 images=true
 ## ipython running width=40 detail=Details frame=7 images=true = ipython running width=40 detail=Overview frame=7 images=true
 ## ipython running width=40 detail=Details frame=7 images=false = ipython running width=40 detail=Overview frame=7 images=true
 ## ipython running width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lin\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 li\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for output...\u{1b}[0m"
 ## ipython running width=40 detail=All frame=0 images=false = ipython running width=40 detail=All frame=0 images=true
 ## ipython running width=40 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lin\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 li\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for output...\u{1b}[0m"
 ## ipython running width=40 detail=All frame=7 images=false = ipython running width=40 detail=All frame=7 images=true
 ## ipython running width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 ## ipython running width=80 detail=Overview frame=0 images=false = ipython running width=80 detail=Overview frame=0 images=true
 ## ipython running width=80 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 ## ipython running width=80 detail=Overview frame=7 images=false = ipython running width=80 detail=Overview frame=7 images=true
 ## ipython running width=80 detail=Details frame=0 images=true = ipython running width=80 detail=Overview frame=0 images=true
 ## ipython running width=80 detail=Details frame=0 images=false = ipython running width=80 detail=Overview frame=0 images=true
 ## ipython running width=80 detail=Details frame=7 images=true = ipython running width=80 detail=Overview frame=7 images=true
 ## ipython running width=80 detail=Details frame=7 images=false = ipython running width=80 detail=Overview frame=7 images=true
 ## ipython running width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for output...\u{1b}[0m"
 ## ipython running width=80 detail=All frame=0 images=false = ipython running width=80 detail=All frame=0 images=true
 ## ipython running width=80 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for output...\u{1b}[0m"
 ## ipython running width=80 detail=All frame=7 images=false = ipython running width=80 detail=All frame=7 images=true
 ## ipython running width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 ## ipython running width=120 detail=Overview frame=0 images=false = ipython running width=120 detail=Overview frame=0 images=true
 ## ipython running width=120 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 ## ipython running width=120 detail=Overview frame=7 images=false = ipython running width=120 detail=Overview frame=7 images=true
 ## ipython running width=120 detail=Details frame=0 images=true = ipython running width=120 detail=Overview frame=0 images=true
 ## ipython running width=120 detail=Details frame=0 images=false = ipython running width=120 detail=Overview frame=0 images=true
 ## ipython running width=120 detail=Details frame=7 images=true = ipython running width=120 detail=Overview frame=7 images=true
 ## ipython running width=120 detail=Details frame=7 images=false = ipython running width=120 detail=Overview frame=7 images=true
 ## ipython running width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for output...\u{1b}[0m"
 ## ipython running width=120 detail=All frame=0 images=false = ipython running width=120 detail=All frame=0 images=true
 ## ipython running width=120 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mwaiting for output...\u{1b}[0m"
 ## ipython running width=120 detail=All frame=7 images=false = ipython running width=120 detail=All frame=7 images=true
 ## ipython running output width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v \u{1b}[0m"
 ## ipython running output width=40 detail=Overview frame=0 images=false = ipython running output width=40 detail=Overview frame=0 images=true
 ## ipython running output width=40 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v \u{1b}[0m"
 ## ipython running output width=40 detail=Overview frame=7 images=false = ipython running output width=40 detail=Overview frame=7 images=true
 ## ipython running output width=40 detail=Details frame=0 images=true = ipython running output width=40 detail=Overview frame=0 images=true
 ## ipython running output width=40 detail=Details frame=0 images=false = ipython running output width=40 detail=Overview frame=0 images=true
 ## ipython running output width=40 detail=Details frame=7 images=true = ipython running output width=40 detail=Overview frame=7 images=true
 ## ipython running output width=40 detail=Details frame=7 images=false = ipython running output width=40 detail=Overview frame=7 images=true
 ## ipython running output width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mline 0\u{1b}[0m"
 ## ipython running output width=40 detail=All frame=0 images=false = ipython running output width=40 detail=All frame=0 images=true
 ## ipython running output width=40 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mline 0\u{1b}[0m"
 ## ipython running output width=40 detail=All frame=7 images=false = ipython running output width=40 detail=All frame=7 images=true
 ## ipython running output width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 ## ipython running output width=80 detail=Overview frame=0 images=false = ipython running output width=80 detail=Overview frame=0 images=true
 ## ipython running output width=80 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 ## ipython running output width=80 detail=Overview frame=7 images=false = ipython running output width=80 detail=Overview frame=7 images=true
 ## ipython running output width=80 detail=Details frame=0 images=true = ipython running output width=80 detail=Overview frame=0 images=true
 ## ipython running output width=80 detail=Details frame=0 images=false = ipython running output width=80 detail=Overview frame=0 images=true
 ## ipython running output width=80 detail=Details frame=7 images=true = ipython running output width=80 detail=Overview frame=7 images=true
 ## ipython running output width=80 detail=Details frame=7 images=false = ipython running output width=80 detail=Overview frame=7 images=true
 ## ipython running output width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mline 0\u{1b}[0m"
 ## ipython running output width=80 detail=All frame=0 images=false = ipython running output width=80 detail=All frame=0 images=true
 ## ipython running output width=80 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mline 0\u{1b}[0m"
 ## ipython running output width=80 detail=All frame=7 images=false = ipython running output width=80 detail=All frame=7 images=true
 ## ipython running output width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 ## ipython running output width=120 detail=Overview frame=0 images=false = ipython running output width=120 detail=Overview frame=0 images=true
 ## ipython running output width=120 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 ## ipython running output width=120 detail=Overview frame=7 images=false = ipython running output width=120 detail=Overview frame=7 images=true
 ## ipython running output width=120 detail=Details frame=0 images=true = ipython running output width=120 detail=Overview frame=0 images=true
 ## ipython running output width=120 detail=Details frame=0 images=false = ipython running output width=120 detail=Overview frame=0 images=true
 ## ipython running output width=120 detail=Details frame=7 images=true = ipython running output width=120 detail=Overview frame=7 images=true
 ## ipython running output width=120 detail=Details frame=7 images=false = ipython running output width=120 detail=Overview frame=7 images=true
 ## ipython running output width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mline 0\u{1b}[0m"
 ## ipython running output width=120 detail=All frame=0 images=false = ipython running output width=120 detail=All frame=0 images=true
 ## ipython running output width=120 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
@@ -350,7 +350,7 @@
 ## ipython done no output width=120 detail=All frame=7 images=true = ipython done no output width=120 detail=All frame=0 images=true
 ## ipython done no output width=120 detail=All frame=7 images=false = ipython done no output width=120 detail=All frame=0 images=true
 ## ipython error traceback width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - \u{1b}[0m"
 ## ipython error traceback width=40 detail=Overview frame=0 images=false = ipython error traceback width=40 detail=Overview frame=0 images=true
 ## ipython error traceback width=40 detail=Overview frame=7 images=true = ipython error traceback width=40 detail=Overview frame=0 images=true
 ## ipython error traceback width=40 detail=Overview frame=7 images=false = ipython error traceback width=40 detail=Overview frame=0 images=true
@@ -359,7 +359,7 @@
 ## ipython error traceback width=40 detail=Details frame=7 images=true = ipython error traceback width=40 detail=Overview frame=0 images=true
 ## ipython error traceback width=40 detail=Details frame=7 images=false = ipython error traceback width=40 detail=Overview frame=0 images=true
 ## ipython error traceback width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136m'before'\u{1b}[0m)"
 "    \u{1b}[38;2;56;189;248mraise\u{1b}[0m ValueError(\u{1b}[38;2;139;168;136m'boom'\u{1b}[0m)"
 ""
@@ -371,7 +371,7 @@
 ## ipython error traceback width=40 detail=All frame=7 images=true = ipython error traceback width=40 detail=All frame=0 images=true
 ## ipython error traceback width=40 detail=All frame=7 images=false = ipython error traceback width=40 detail=All frame=0 images=true
 ## ipython error traceback width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 ## ipython error traceback width=80 detail=Overview frame=0 images=false = ipython error traceback width=80 detail=Overview frame=0 images=true
 ## ipython error traceback width=80 detail=Overview frame=7 images=true = ipython error traceback width=80 detail=Overview frame=0 images=true
 ## ipython error traceback width=80 detail=Overview frame=7 images=false = ipython error traceback width=80 detail=Overview frame=0 images=true
@@ -380,7 +380,7 @@
 ## ipython error traceback width=80 detail=Details frame=7 images=true = ipython error traceback width=80 detail=Overview frame=0 images=true
 ## ipython error traceback width=80 detail=Details frame=7 images=false = ipython error traceback width=80 detail=Overview frame=0 images=true
 ## ipython error traceback width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136m'before'\u{1b}[0m)"
 "    \u{1b}[38;2;56;189;248mraise\u{1b}[0m ValueError(\u{1b}[38;2;139;168;136m'boom'\u{1b}[0m)"
 ""
@@ -392,7 +392,7 @@
 ## ipython error traceback width=80 detail=All frame=7 images=true = ipython error traceback width=80 detail=All frame=0 images=true
 ## ipython error traceback width=80 detail=All frame=7 images=false = ipython error traceback width=80 detail=All frame=0 images=true
 ## ipython error traceback width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 ## ipython error traceback width=120 detail=Overview frame=0 images=false = ipython error traceback width=120 detail=Overview frame=0 images=true
 ## ipython error traceback width=120 detail=Overview frame=7 images=true = ipython error traceback width=120 detail=Overview frame=0 images=true
 ## ipython error traceback width=120 detail=Overview frame=7 images=false = ipython error traceback width=120 detail=Overview frame=0 images=true
@@ -401,7 +401,7 @@
 ## ipython error traceback width=120 detail=Details frame=7 images=true = ipython error traceback width=120 detail=Overview frame=0 images=true
 ## ipython error traceback width=120 detail=Details frame=7 images=false = ipython error traceback width=120 detail=Overview frame=0 images=true
 ## ipython error traceback width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 2 v 4 lines - 9ms - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136m'before'\u{1b}[0m)"
 "    \u{1b}[38;2;56;189;248mraise\u{1b}[0m ValueError(\u{1b}[38;2;139;168;136m'boom'\u{1b}[0m)"
 ""
@@ -413,7 +413,7 @@
 ## ipython error traceback width=120 detail=All frame=7 images=true = ipython error traceback width=120 detail=All frame=0 images=true
 ## ipython error traceback width=120 detail=All frame=7 images=false = ipython error traceback width=120 detail=All frame=0 images=true
 ## ipython error summary width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - \u{1b}[0m"
 ## ipython error summary width=40 detail=Overview frame=0 images=false = ipython error summary width=40 detail=Overview frame=0 images=true
 ## ipython error summary width=40 detail=Overview frame=7 images=true = ipython error summary width=40 detail=Overview frame=0 images=true
 ## ipython error summary width=40 detail=Overview frame=7 images=false = ipython error summary width=40 detail=Overview frame=0 images=true
@@ -422,7 +422,7 @@
 ## ipython error summary width=40 detail=Details frame=7 images=true = ipython error summary width=40 detail=Overview frame=0 images=true
 ## ipython error summary width=40 detail=Details frame=7 images=false = ipython error summary width=40 detail=Overview frame=0 images=true
 ## ipython error summary width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mraise\u{1b}[0m ValueError(\u{1b}[38;2;139;168;136m'boom'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mValueError: boom\u{1b}[0m"
@@ -430,7 +430,7 @@
 ## ipython error summary width=40 detail=All frame=7 images=true = ipython error summary width=40 detail=All frame=0 images=true
 ## ipython error summary width=40 detail=All frame=7 images=false = ipython error summary width=40 detail=All frame=0 images=true
 ## ipython error summary width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 ## ipython error summary width=80 detail=Overview frame=0 images=false = ipython error summary width=80 detail=Overview frame=0 images=true
 ## ipython error summary width=80 detail=Overview frame=7 images=true = ipython error summary width=80 detail=Overview frame=0 images=true
 ## ipython error summary width=80 detail=Overview frame=7 images=false = ipython error summary width=80 detail=Overview frame=0 images=true
@@ -439,7 +439,7 @@
 ## ipython error summary width=80 detail=Details frame=7 images=true = ipython error summary width=80 detail=Overview frame=0 images=true
 ## ipython error summary width=80 detail=Details frame=7 images=false = ipython error summary width=80 detail=Overview frame=0 images=true
 ## ipython error summary width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mraise\u{1b}[0m ValueError(\u{1b}[38;2;139;168;136m'boom'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mValueError: boom\u{1b}[0m"
@@ -447,7 +447,7 @@
 ## ipython error summary width=80 detail=All frame=7 images=true = ipython error summary width=80 detail=All frame=0 images=true
 ## ipython error summary width=80 detail=All frame=7 images=false = ipython error summary width=80 detail=All frame=0 images=true
 ## ipython error summary width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 ## ipython error summary width=120 detail=Overview frame=0 images=false = ipython error summary width=120 detail=Overview frame=0 images=true
 ## ipython error summary width=120 detail=Overview frame=7 images=true = ipython error summary width=120 detail=Overview frame=0 images=true
 ## ipython error summary width=120 detail=Overview frame=7 images=false = ipython error summary width=120 detail=Overview frame=0 images=true
@@ -456,7 +456,7 @@
 ## ipython error summary width=120 detail=Details frame=7 images=true = ipython error summary width=120 detail=Overview frame=0 images=true
 ## ipython error summary width=120 detail=Details frame=7 images=false = ipython error summary width=120 detail=Overview frame=0 images=true
 ## ipython error summary width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - raise ValueError('boom') - ^ 1 lines - \u{1b}[0m\u{1b}[38;2;208;111;130mValueError\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mraise\u{1b}[0m ValueError(\u{1b}[38;2;139;168;136m'boom'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mValueError: boom\u{1b}[0m"
@@ -464,7 +464,7 @@
 ## ipython error summary width=120 detail=All frame=7 images=true = ipython error summary width=120 detail=All frame=0 images=true
 ## ipython error summary width=120 detail=All frame=7 images=false = ipython error summary width=120 detail=All frame=0 images=true
 ## ipython error stderr width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
 ## ipython error stderr width=40 detail=Overview frame=0 images=false = ipython error stderr width=40 detail=Overview frame=0 images=true
 ## ipython error stderr width=40 detail=Overview frame=7 images=true = ipython error stderr width=40 detail=Overview frame=0 images=true
 ## ipython error stderr width=40 detail=Overview frame=7 images=false = ipython error stderr width=40 detail=Overview frame=0 images=true
@@ -473,7 +473,7 @@
 ## ipython error stderr width=40 detail=Details frame=7 images=true = ipython error stderr width=40 detail=Overview frame=0 images=true
 ## ipython error stderr width=40 detail=Details frame=7 images=false = ipython error stderr width=40 detail=Overview frame=0 images=true
 ## ipython error stderr width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mfail()"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mstderr says no\u{1b}[0m"
@@ -482,7 +482,7 @@
 ## ipython error stderr width=40 detail=All frame=7 images=true = ipython error stderr width=40 detail=All frame=0 images=true
 ## ipython error stderr width=40 detail=All frame=7 images=false = ipython error stderr width=40 detail=All frame=0 images=true
 ## ipython error stderr width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
 ## ipython error stderr width=80 detail=Overview frame=0 images=false = ipython error stderr width=80 detail=Overview frame=0 images=true
 ## ipython error stderr width=80 detail=Overview frame=7 images=true = ipython error stderr width=80 detail=Overview frame=0 images=true
 ## ipython error stderr width=80 detail=Overview frame=7 images=false = ipython error stderr width=80 detail=Overview frame=0 images=true
@@ -491,7 +491,7 @@
 ## ipython error stderr width=80 detail=Details frame=7 images=true = ipython error stderr width=80 detail=Overview frame=0 images=true
 ## ipython error stderr width=80 detail=Details frame=7 images=false = ipython error stderr width=80 detail=Overview frame=0 images=true
 ## ipython error stderr width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mfail()"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mstderr says no\u{1b}[0m"
@@ -500,7 +500,7 @@
 ## ipython error stderr width=80 detail=All frame=7 images=true = ipython error stderr width=80 detail=All frame=0 images=true
 ## ipython error stderr width=80 detail=All frame=7 images=false = ipython error stderr width=80 detail=All frame=0 images=true
 ## ipython error stderr width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
 ## ipython error stderr width=120 detail=Overview frame=0 images=false = ipython error stderr width=120 detail=Overview frame=0 images=true
 ## ipython error stderr width=120 detail=Overview frame=7 images=true = ipython error stderr width=120 detail=Overview frame=0 images=true
 ## ipython error stderr width=120 detail=Overview frame=7 images=false = ipython error stderr width=120 detail=Overview frame=0 images=true
@@ -509,7 +509,7 @@
 ## ipython error stderr width=120 detail=Details frame=7 images=true = ipython error stderr width=120 detail=Overview frame=0 images=true
 ## ipython error stderr width=120 detail=Details frame=7 images=false = ipython error stderr width=120 detail=Overview frame=0 images=true
 ## ipython error stderr width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - fail() - ^ 1 v 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mfail()"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mstderr says no\u{1b}[0m"
@@ -518,7 +518,7 @@
 ## ipython error stderr width=120 detail=All frame=7 images=true = ipython error stderr width=120 detail=All frame=0 images=true
 ## ipython error stderr width=120 detail=All frame=7 images=false = ipython error stderr width=120 detail=All frame=0 images=true
 ## ipython aborted width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;245;158;11mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1\u{1b}[0m"
+" \u{1b}[38;2;245;158;11mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v \u{1b}[0m"
 ## ipython aborted width=40 detail=Overview frame=0 images=false = ipython aborted width=40 detail=Overview frame=0 images=true
 ## ipython aborted width=40 detail=Overview frame=7 images=true = ipython aborted width=40 detail=Overview frame=0 images=true
 ## ipython aborted width=40 detail=Overview frame=7 images=false = ipython aborted width=40 detail=Overview frame=0 images=true
@@ -527,7 +527,7 @@
 ## ipython aborted width=40 detail=Details frame=7 images=true = ipython aborted width=40 detail=Overview frame=0 images=true
 ## ipython aborted width=40 detail=Details frame=7 images=false = ipython aborted width=40 detail=Overview frame=0 images=true
 ## ipython aborted width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;245;158;11mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1\u{1b}[0m"
+" \u{1b}[38;2;245;158;11mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
@@ -536,7 +536,7 @@
 ## ipython aborted width=40 detail=All frame=7 images=true = ipython aborted width=40 detail=All frame=0 images=true
 ## ipython aborted width=40 detail=All frame=7 images=false = ipython aborted width=40 detail=All frame=0 images=true
 ## ipython aborted width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;245;158;11mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
+" \u{1b}[38;2;245;158;11mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
 ## ipython aborted width=80 detail=Overview frame=0 images=false = ipython aborted width=80 detail=Overview frame=0 images=true
 ## ipython aborted width=80 detail=Overview frame=7 images=true = ipython aborted width=80 detail=Overview frame=0 images=true
 ## ipython aborted width=80 detail=Overview frame=7 images=false = ipython aborted width=80 detail=Overview frame=0 images=true
@@ -545,7 +545,7 @@
 ## ipython aborted width=80 detail=Details frame=7 images=true = ipython aborted width=80 detail=Overview frame=0 images=true
 ## ipython aborted width=80 detail=Details frame=7 images=false = ipython aborted width=80 detail=Overview frame=0 images=true
 ## ipython aborted width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;245;158;11mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
+" \u{1b}[38;2;245;158;11mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
@@ -554,7 +554,7 @@
 ## ipython aborted width=80 detail=All frame=7 images=true = ipython aborted width=80 detail=All frame=0 images=true
 ## ipython aborted width=80 detail=All frame=7 images=false = ipython aborted width=80 detail=All frame=0 images=true
 ## ipython aborted width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;245;158;11mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
+" \u{1b}[38;2;245;158;11mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
 ## ipython aborted width=120 detail=Overview frame=0 images=false = ipython aborted width=120 detail=Overview frame=0 images=true
 ## ipython aborted width=120 detail=Overview frame=7 images=true = ipython aborted width=120 detail=Overview frame=0 images=true
 ## ipython aborted width=120 detail=Overview frame=7 images=false = ipython aborted width=120 detail=Overview frame=0 images=true
@@ -563,7 +563,7 @@
 ## ipython aborted width=120 detail=Details frame=7 images=true = ipython aborted width=120 detail=Overview frame=0 images=true
 ## ipython aborted width=120 detail=Details frame=7 images=false = ipython aborted width=120 detail=Overview frame=0 images=true
 ## ipython aborted width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;245;158;11mx\u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
+" \u{1b}[38;2;245;158;11mx \u{1b}[0m \u{1b}[38;2;161;161;170mpython\u{1b}[0m\u{1b}[38;2;118;118;127m - print(f'line {i}') - ^ 2 v 1 lines - 40ms\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;56;189;248mfor\u{1b}[0m i \u{1b}[38;2;56;189;248min\u{1b}[0m \u{1b}[38;2;245;158;11mrange\u{1b}[0m(\u{1b}[38;2;245;158;11m3\u{1b}[0m):"
 "        \u{1b}[38;2;245;158;11mprint\u{1b}[0m(\u{1b}[38;2;139;168;136mf'line {i}'\u{1b}[0m)"
 ""
@@ -897,7 +897,7 @@
 ## ipython images width=120 detail=All frame=7 images=true = ipython images width=120 detail=All frame=0 images=true
 ## ipython images width=120 detail=All frame=7 images=false = ipython images width=120 detail=All frame=0 images=false
 ## ipython background exit width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 1\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell \u{1b}[0m"
 ## ipython background exit width=40 detail=Overview frame=0 images=false = ipython background exit width=40 detail=Overview frame=0 images=true
 ## ipython background exit width=40 detail=Overview frame=7 images=true = ipython background exit width=40 detail=Overview frame=0 images=true
 ## ipython background exit width=40 detail=Overview frame=7 images=false = ipython background exit width=40 detail=Overview frame=0 images=true
@@ -906,7 +906,7 @@
 ## ipython background exit width=40 detail=Details frame=7 images=true = ipython background exit width=40 detail=Overview frame=0 images=true
 ## ipython background exit width=40 detail=Details frame=7 images=false = ipython background exit width=40 detail=Overview frame=0 images=true
 ## ipython background exit width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 1\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
@@ -914,7 +914,7 @@
 ## ipython background exit width=40 detail=All frame=7 images=true = ipython background exit width=40 detail=All frame=0 images=true
 ## ipython background exit width=40 detail=All frame=7 images=false = ipython background exit width=40 detail=All frame=0 images=true
 ## ipython background exit width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
 ## ipython background exit width=80 detail=Overview frame=0 images=false = ipython background exit width=80 detail=Overview frame=0 images=true
 ## ipython background exit width=80 detail=Overview frame=7 images=true = ipython background exit width=80 detail=Overview frame=0 images=true
 ## ipython background exit width=80 detail=Overview frame=7 images=false = ipython background exit width=80 detail=Overview frame=0 images=true
@@ -923,7 +923,7 @@
 ## ipython background exit width=80 detail=Details frame=7 images=true = ipython background exit width=80 detail=Overview frame=0 images=true
 ## ipython background exit width=80 detail=Details frame=7 images=false = ipython background exit width=80 detail=Overview frame=0 images=true
 ## ipython background exit width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
@@ -931,7 +931,7 @@
 ## ipython background exit width=80 detail=All frame=7 images=true = ipython background exit width=80 detail=All frame=0 images=true
 ## ipython background exit width=80 detail=All frame=7 images=false = ipython background exit width=80 detail=All frame=0 images=true
 ## ipython background exit width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
 ## ipython background exit width=120 detail=Overview frame=0 images=false = ipython background exit width=120 detail=Overview frame=0 images=true
 ## ipython background exit width=120 detail=Overview frame=7 images=true = ipython background exit width=120 detail=Overview frame=0 images=true
 ## ipython background exit width=120 detail=Overview frame=7 images=false = ipython background exit width=120 detail=Overview frame=0 images=true
@@ -940,7 +940,7 @@
 ## ipython background exit width=120 detail=Details frame=7 images=true = ipython background exit width=120 detail=Overview frame=0 images=true
 ## ipython background exit width=120 detail=Details frame=7 images=false = ipython background exit width=120 detail=Overview frame=0 images=true
 ## ipython background exit width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms - \u{1b}[0m\u{1b}[38;2;208;111;130mexit 1\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
@@ -948,67 +948,67 @@
 ## ipython background exit width=120 detail=All frame=7 images=true = ipython background exit width=120 detail=All frame=0 images=true
 ## ipython background exit width=120 detail=All frame=7 images=false = ipython background exit width=120 detail=All frame=0 images=true
 ## ipython background running width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell \u{1b}[0m"
 ## ipython background running width=40 detail=Overview frame=0 images=false = ipython background running width=40 detail=Overview frame=0 images=true
 ## ipython background running width=40 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell \u{1b}[0m"
 ## ipython background running width=40 detail=Overview frame=7 images=false = ipython background running width=40 detail=Overview frame=7 images=true
 ## ipython background running width=40 detail=Details frame=0 images=true = ipython background running width=40 detail=Overview frame=0 images=true
 ## ipython background running width=40 detail=Details frame=0 images=false = ipython background running width=40 detail=Overview frame=0 images=true
 ## ipython background running width=40 detail=Details frame=7 images=true = ipython background running width=40 detail=Overview frame=7 images=true
 ## ipython background running width=40 detail=Details frame=7 images=false = ipython background running width=40 detail=Overview frame=7 images=true
 ## ipython background running width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
 ## ipython background running width=40 detail=All frame=0 images=false = ipython background running width=40 detail=All frame=0 images=true
 ## ipython background running width=40 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 1\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell \u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
 ## ipython background running width=40 detail=All frame=7 images=false = ipython background running width=40 detail=All frame=7 images=true
 ## ipython background running width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 ## ipython background running width=80 detail=Overview frame=0 images=false = ipython background running width=80 detail=Overview frame=0 images=true
 ## ipython background running width=80 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 ## ipython background running width=80 detail=Overview frame=7 images=false = ipython background running width=80 detail=Overview frame=7 images=true
 ## ipython background running width=80 detail=Details frame=0 images=true = ipython background running width=80 detail=Overview frame=0 images=true
 ## ipython background running width=80 detail=Details frame=0 images=false = ipython background running width=80 detail=Overview frame=0 images=true
 ## ipython background running width=80 detail=Details frame=7 images=true = ipython background running width=80 detail=Overview frame=7 images=true
 ## ipython background running width=80 detail=Details frame=7 images=false = ipython background running width=80 detail=Overview frame=7 images=true
 ## ipython background running width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
 ## ipython background running width=80 detail=All frame=0 images=false = ipython background running width=80 detail=All frame=0 images=true
 ## ipython background running width=80 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
 ## ipython background running width=80 detail=All frame=7 images=false = ipython background running width=80 detail=All frame=7 images=true
 ## ipython background running width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 ## ipython background running width=120 detail=Overview frame=0 images=false = ipython background running width=120 detail=Overview frame=0 images=true
 ## ipython background running width=120 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 ## ipython background running width=120 detail=Overview frame=7 images=false = ipython background running width=120 detail=Overview frame=7 images=true
 ## ipython background running width=120 detail=Details frame=0 images=true = ipython background running width=120 detail=Overview frame=0 images=true
 ## ipython background running width=120 detail=Details frame=0 images=false = ipython background running width=120 detail=Overview frame=0 images=true
 ## ipython background running width=120 detail=Details frame=7 images=true = ipython background running width=120 detail=Overview frame=7 images=true
 ## ipython background running width=120 detail=Details frame=7 images=false = ipython background running width=120 detail=Overview frame=7 images=true
 ## ipython background running width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
 ## ipython background running width=120 detail=All frame=0 images=false = ipython background running width=120 detail=All frame=0 images=true
 ## ipython background running width=120 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - sleep 0.1 - ^ 1 lines - cell 12ms\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0mh = bash(\u{1b}[38;2;139;168;136m'sleep 0.1'\u{1b}[0m)"
 ""
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mno output\u{1b}[0m"
@@ -1077,7 +1077,7 @@
 ## ipython bash dominated width=120 detail=All frame=7 images=true = ipython bash dominated width=120 detail=All frame=0 images=true
 ## ipython bash dominated width=120 detail=All frame=7 images=false = ipython bash dominated width=120 detail=All frame=0 images=true
 ## bash queued width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash queued width=40 detail=Overview frame=0 images=false = bash queued width=40 detail=Overview frame=0 images=true
 ## bash queued width=40 detail=Overview frame=7 images=true = bash queued width=40 detail=Overview frame=0 images=true
 ## bash queued width=40 detail=Overview frame=7 images=false = bash queued width=40 detail=Overview frame=0 images=true
@@ -1086,13 +1086,13 @@
 ## bash queued width=40 detail=Details frame=7 images=true = bash queued width=40 detail=Overview frame=0 images=true
 ## bash queued width=40 detail=Details frame=7 images=false = bash queued width=40 detail=Overview frame=0 images=true
 ## bash queued width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash queued width=40 detail=All frame=0 images=false = bash queued width=40 detail=All frame=0 images=true
 ## bash queued width=40 detail=All frame=7 images=true = bash queued width=40 detail=All frame=0 images=true
 ## bash queued width=40 detail=All frame=7 images=false = bash queued width=40 detail=All frame=0 images=true
 ## bash queued width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash queued width=80 detail=Overview frame=0 images=false = bash queued width=80 detail=Overview frame=0 images=true
 ## bash queued width=80 detail=Overview frame=7 images=true = bash queued width=80 detail=Overview frame=0 images=true
 ## bash queued width=80 detail=Overview frame=7 images=false = bash queued width=80 detail=Overview frame=0 images=true
@@ -1101,13 +1101,13 @@
 ## bash queued width=80 detail=Details frame=7 images=true = bash queued width=80 detail=Overview frame=0 images=true
 ## bash queued width=80 detail=Details frame=7 images=false = bash queued width=80 detail=Overview frame=0 images=true
 ## bash queued width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash queued width=80 detail=All frame=0 images=false = bash queued width=80 detail=All frame=0 images=true
 ## bash queued width=80 detail=All frame=7 images=true = bash queued width=80 detail=All frame=0 images=true
 ## bash queued width=80 detail=All frame=7 images=false = bash queued width=80 detail=All frame=0 images=true
 ## bash queued width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash queued width=120 detail=Overview frame=0 images=false = bash queued width=120 detail=Overview frame=0 images=true
 ## bash queued width=120 detail=Overview frame=7 images=true = bash queued width=120 detail=Overview frame=0 images=true
 ## bash queued width=120 detail=Overview frame=7 images=false = bash queued width=120 detail=Overview frame=0 images=true
@@ -1116,129 +1116,129 @@
 ## bash queued width=120 detail=Details frame=7 images=true = bash queued width=120 detail=Overview frame=0 images=true
 ## bash queued width=120 detail=Details frame=7 images=false = bash queued width=120 detail=Overview frame=0 images=true
 ## bash queued width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash queued width=120 detail=All frame=0 images=false = bash queued width=120 detail=All frame=0 images=true
 ## bash queued width=120 detail=All frame=7 images=true = bash queued width=120 detail=All frame=0 images=true
 ## bash queued width=120 detail=All frame=7 images=false = bash queued width=120 detail=All frame=0 images=true
 ## bash running width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 ## bash running width=40 detail=Overview frame=0 images=false = bash running width=40 detail=Overview frame=0 images=true
 ## bash running width=40 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 ## bash running width=40 detail=Overview frame=7 images=false = bash running width=40 detail=Overview frame=7 images=true
 ## bash running width=40 detail=Details frame=0 images=true = bash running width=40 detail=Overview frame=0 images=true
 ## bash running width=40 detail=Details frame=0 images=false = bash running width=40 detail=Overview frame=0 images=true
 ## bash running width=40 detail=Details frame=7 images=true = bash running width=40 detail=Overview frame=7 images=true
 ## bash running width=40 detail=Details frame=7 images=false = bash running width=40 detail=Overview frame=7 images=true
 ## bash running width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170m1\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170m2\u{1b}[0m"
 ## bash running width=40 detail=All frame=0 images=false = bash running width=40 detail=All frame=0 images=true
 ## bash running width=40 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170m1\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170m2\u{1b}[0m"
 ## bash running width=40 detail=All frame=7 images=false = bash running width=40 detail=All frame=7 images=true
 ## bash running width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 ## bash running width=80 detail=Overview frame=0 images=false = bash running width=80 detail=Overview frame=0 images=true
 ## bash running width=80 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 ## bash running width=80 detail=Overview frame=7 images=false = bash running width=80 detail=Overview frame=7 images=true
 ## bash running width=80 detail=Details frame=0 images=true = bash running width=80 detail=Overview frame=0 images=true
 ## bash running width=80 detail=Details frame=0 images=false = bash running width=80 detail=Overview frame=0 images=true
 ## bash running width=80 detail=Details frame=7 images=true = bash running width=80 detail=Overview frame=7 images=true
 ## bash running width=80 detail=Details frame=7 images=false = bash running width=80 detail=Overview frame=7 images=true
 ## bash running width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170m1\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170m2\u{1b}[0m"
 ## bash running width=80 detail=All frame=0 images=false = bash running width=80 detail=All frame=0 images=true
 ## bash running width=80 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170m1\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170m2\u{1b}[0m"
 ## bash running width=80 detail=All frame=7 images=false = bash running width=80 detail=All frame=7 images=true
 ## bash running width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 ## bash running width=120 detail=Overview frame=0 images=false = bash running width=120 detail=Overview frame=0 images=true
 ## bash running width=120 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 ## bash running width=120 detail=Overview frame=7 images=false = bash running width=120 detail=Overview frame=7 images=true
 ## bash running width=120 detail=Details frame=0 images=true = bash running width=120 detail=Overview frame=0 images=true
 ## bash running width=120 detail=Details frame=0 images=false = bash running width=120 detail=Overview frame=0 images=true
 ## bash running width=120 detail=Details frame=7 images=true = bash running width=120 detail=Overview frame=7 images=true
 ## bash running width=120 detail=Details frame=7 images=false = bash running width=120 detail=Overview frame=7 images=true
 ## bash running width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170m1\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170m2\u{1b}[0m"
 ## bash running width=120 detail=All frame=0 images=false = bash running width=120 detail=All frame=0 images=true
 ## bash running width=120 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12 - 2 lines\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170m1\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170m2\u{1b}[0m"
 ## bash running width=120 detail=All frame=7 images=false = bash running width=120 detail=All frame=7 images=true
 ## bash running empty width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash running empty width=40 detail=Overview frame=0 images=false = bash running empty width=40 detail=Overview frame=0 images=true
 ## bash running empty width=40 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash running empty width=40 detail=Overview frame=7 images=false = bash running empty width=40 detail=Overview frame=7 images=true
 ## bash running empty width=40 detail=Details frame=0 images=true = bash running empty width=40 detail=Overview frame=0 images=true
 ## bash running empty width=40 detail=Details frame=0 images=false = bash running empty width=40 detail=Overview frame=0 images=true
 ## bash running empty width=40 detail=Details frame=7 images=true = bash running empty width=40 detail=Overview frame=7 images=true
 ## bash running empty width=40 detail=Details frame=7 images=false = bash running empty width=40 detail=Overview frame=7 images=true
 ## bash running empty width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash running empty width=40 detail=All frame=0 images=false = bash running empty width=40 detail=All frame=0 images=true
 ## bash running empty width=40 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash running empty width=40 detail=All frame=7 images=false = bash running empty width=40 detail=All frame=7 images=true
 ## bash running empty width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash running empty width=80 detail=Overview frame=0 images=false = bash running empty width=80 detail=Overview frame=0 images=true
 ## bash running empty width=80 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash running empty width=80 detail=Overview frame=7 images=false = bash running empty width=80 detail=Overview frame=7 images=true
 ## bash running empty width=80 detail=Details frame=0 images=true = bash running empty width=80 detail=Overview frame=0 images=true
 ## bash running empty width=80 detail=Details frame=0 images=false = bash running empty width=80 detail=Overview frame=0 images=true
 ## bash running empty width=80 detail=Details frame=7 images=true = bash running empty width=80 detail=Overview frame=7 images=true
 ## bash running empty width=80 detail=Details frame=7 images=false = bash running empty width=80 detail=Overview frame=7 images=true
 ## bash running empty width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash running empty width=80 detail=All frame=0 images=false = bash running empty width=80 detail=All frame=0 images=true
 ## bash running empty width=80 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash running empty width=80 detail=All frame=7 images=false = bash running empty width=80 detail=All frame=7 images=true
 ## bash running empty width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash running empty width=120 detail=Overview frame=0 images=false = bash running empty width=120 detail=Overview frame=0 images=true
 ## bash running empty width=120 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 ## bash running empty width=120 detail=Overview frame=7 images=false = bash running empty width=120 detail=Overview frame=7 images=true
 ## bash running empty width=120 detail=Details frame=0 images=true = bash running empty width=120 detail=Overview frame=0 images=true
 ## bash running empty width=120 detail=Details frame=0 images=false = bash running empty width=120 detail=Overview frame=0 images=true
 ## bash running empty width=120 detail=Details frame=7 images=true = bash running empty width=120 detail=Overview frame=7 images=true
 ## bash running empty width=120 detail=Details frame=7 images=false = bash running empty width=120 detail=Overview frame=7 images=true
 ## bash running empty width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash running empty width=120 detail=All frame=0 images=false = bash running empty width=120 detail=All frame=0 images=true
 ## bash running empty width=120 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - seq 1 12\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ seq 1 12\u{1b}[0m"
 ## bash running empty width=120 detail=All frame=7 images=false = bash running empty width=120 detail=All frame=7 images=true
 ## bash done width=40 detail=Overview frame=0 images=true
@@ -1323,7 +1323,7 @@
 ## bash done width=120 detail=All frame=7 images=true = bash done width=120 detail=All frame=0 images=true
 ## bash done width=120 detail=All frame=7 images=false = bash done width=120 detail=All frame=0 images=true
 ## bash error width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
 ## bash error width=40 detail=Overview frame=0 images=false = bash error width=40 detail=Overview frame=0 images=true
 ## bash error width=40 detail=Overview frame=7 images=true = bash error width=40 detail=Overview frame=0 images=true
 ## bash error width=40 detail=Overview frame=7 images=false = bash error width=40 detail=Overview frame=0 images=true
@@ -1332,7 +1332,7 @@
 ## bash error width=40 detail=Details frame=7 images=true = bash error width=40 detail=Overview frame=0 images=true
 ## bash error width=40 detail=Details frame=7 images=false = bash error width=40 detail=Overview frame=0 images=true
 ## bash error width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ false\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mboom\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170mexit 1\u{1b}[0m"
@@ -1340,7 +1340,7 @@
 ## bash error width=40 detail=All frame=7 images=true = bash error width=40 detail=All frame=0 images=true
 ## bash error width=40 detail=All frame=7 images=false = bash error width=40 detail=All frame=0 images=true
 ## bash error width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
 ## bash error width=80 detail=Overview frame=0 images=false = bash error width=80 detail=Overview frame=0 images=true
 ## bash error width=80 detail=Overview frame=7 images=true = bash error width=80 detail=Overview frame=0 images=true
 ## bash error width=80 detail=Overview frame=7 images=false = bash error width=80 detail=Overview frame=0 images=true
@@ -1349,7 +1349,7 @@
 ## bash error width=80 detail=Details frame=7 images=true = bash error width=80 detail=Overview frame=0 images=true
 ## bash error width=80 detail=Details frame=7 images=false = bash error width=80 detail=Overview frame=0 images=true
 ## bash error width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ false\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mboom\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170mexit 1\u{1b}[0m"
@@ -1357,7 +1357,7 @@
 ## bash error width=80 detail=All frame=7 images=true = bash error width=80 detail=All frame=0 images=true
 ## bash error width=80 detail=All frame=7 images=false = bash error width=80 detail=All frame=0 images=true
 ## bash error width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
 ## bash error width=120 detail=Overview frame=0 images=false = bash error width=120 detail=Overview frame=0 images=true
 ## bash error width=120 detail=Overview frame=7 images=true = bash error width=120 detail=Overview frame=0 images=true
 ## bash error width=120 detail=Overview frame=7 images=false = bash error width=120 detail=Overview frame=0 images=true
@@ -1366,7 +1366,7 @@
 ## bash error width=120 detail=Details frame=7 images=true = bash error width=120 detail=Overview frame=0 images=true
 ## bash error width=120 detail=Details frame=7 images=false = bash error width=120 detail=Overview frame=0 images=true
 ## bash error width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - false - 2 lines - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mboom\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- \u{1b}[0m\u{1b}[38;2;125;168;118m$ false\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mboom\u{1b}[0m"
 "    \u{1b}[38;2;161;161;170mexit 1\u{1b}[0m"
@@ -1484,7 +1484,7 @@
 ## bash truncated bytes width=120 detail=All frame=7 images=true = bash truncated bytes width=120 detail=All frame=0 images=true
 ## bash truncated bytes width=120 detail=All frame=7 images=false = bash truncated bytes width=120 detail=All frame=0 images=true
 ## bash invalid width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - [invalid arg]\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - [invalid arg]\u{1b}[0m"
 ## bash invalid width=40 detail=Overview frame=0 images=false = bash invalid width=40 detail=Overview frame=0 images=true
 ## bash invalid width=40 detail=Overview frame=7 images=true = bash invalid width=40 detail=Overview frame=0 images=true
 ## bash invalid width=40 detail=Overview frame=7 images=false = bash invalid width=40 detail=Overview frame=0 images=true
@@ -1497,7 +1497,7 @@
 ## bash invalid width=40 detail=All frame=7 images=true = bash invalid width=40 detail=Overview frame=0 images=true
 ## bash invalid width=40 detail=All frame=7 images=false = bash invalid width=40 detail=Overview frame=0 images=true
 ## bash invalid width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - [invalid arg]\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - [invalid arg]\u{1b}[0m"
 ## bash invalid width=80 detail=Overview frame=0 images=false = bash invalid width=80 detail=Overview frame=0 images=true
 ## bash invalid width=80 detail=Overview frame=7 images=true = bash invalid width=80 detail=Overview frame=0 images=true
 ## bash invalid width=80 detail=Overview frame=7 images=false = bash invalid width=80 detail=Overview frame=0 images=true
@@ -1510,7 +1510,7 @@
 ## bash invalid width=80 detail=All frame=7 images=true = bash invalid width=80 detail=Overview frame=0 images=true
 ## bash invalid width=80 detail=All frame=7 images=false = bash invalid width=80 detail=Overview frame=0 images=true
 ## bash invalid width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - [invalid arg]\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - [invalid arg]\u{1b}[0m"
 ## bash invalid width=120 detail=Overview frame=0 images=false = bash invalid width=120 detail=Overview frame=0 images=true
 ## bash invalid width=120 detail=Overview frame=7 images=true = bash invalid width=120 detail=Overview frame=0 images=true
 ## bash invalid width=120 detail=Overview frame=7 images=false = bash invalid width=120 detail=Overview frame=0 images=true
@@ -1523,7 +1523,7 @@
 ## bash invalid width=120 detail=All frame=7 images=true = bash invalid width=120 detail=Overview frame=0 images=true
 ## bash invalid width=120 detail=All frame=7 images=false = bash invalid width=120 detail=Overview frame=0 images=true
 ## bash empty width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m"
 ## bash empty width=40 detail=Overview frame=0 images=false = bash empty width=40 detail=Overview frame=0 images=true
 ## bash empty width=40 detail=Overview frame=7 images=true = bash empty width=40 detail=Overview frame=0 images=true
 ## bash empty width=40 detail=Overview frame=7 images=false = bash empty width=40 detail=Overview frame=0 images=true
@@ -1536,7 +1536,7 @@
 ## bash empty width=40 detail=All frame=7 images=true = bash empty width=40 detail=Overview frame=0 images=true
 ## bash empty width=40 detail=All frame=7 images=false = bash empty width=40 detail=Overview frame=0 images=true
 ## bash empty width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m"
 ## bash empty width=80 detail=Overview frame=0 images=false = bash empty width=80 detail=Overview frame=0 images=true
 ## bash empty width=80 detail=Overview frame=7 images=true = bash empty width=80 detail=Overview frame=0 images=true
 ## bash empty width=80 detail=Overview frame=7 images=false = bash empty width=80 detail=Overview frame=0 images=true
@@ -1549,7 +1549,7 @@
 ## bash empty width=80 detail=All frame=7 images=true = bash empty width=80 detail=Overview frame=0 images=true
 ## bash empty width=80 detail=All frame=7 images=false = bash empty width=80 detail=Overview frame=0 images=true
 ## bash empty width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m"
 ## bash empty width=120 detail=Overview frame=0 images=false = bash empty width=120 detail=Overview frame=0 images=true
 ## bash empty width=120 detail=Overview frame=7 images=true = bash empty width=120 detail=Overview frame=0 images=true
 ## bash empty width=120 detail=Overview frame=7 images=false = bash empty width=120 detail=Overview frame=0 images=true
@@ -1679,8 +1679,10 @@
 ## bash long width=120 detail=All frame=7 images=false = bash long width=120 detail=All frame=0 images=true
 ## bash images width=40 detail=Overview frame=0 images=true
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - screenshot - 1 line - 1.2s\u{1b}[0m"
+"\u{1b}[38;2;161;161;170m    `- [image/png - 64x32]\u{1b}[0m"
 ## bash images width=40 detail=Overview frame=0 images=false
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - screenshot - 2 lines - 1.2s\u{1b}[0m"
+"    \u{1b}[38;2;161;161;170m[Image: [image/png]]\u{1b}[0m"
 ## bash images width=40 detail=Overview frame=7 images=true = bash images width=40 detail=Overview frame=0 images=true
 ## bash images width=40 detail=Overview frame=7 images=false = bash images width=40 detail=Overview frame=0 images=false
 ## bash images width=40 detail=Details frame=0 images=true = bash images width=40 detail=Overview frame=0 images=true
@@ -1701,8 +1703,10 @@
 ## bash images width=40 detail=All frame=7 images=false = bash images width=40 detail=All frame=0 images=false
 ## bash images width=80 detail=Overview frame=0 images=true
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - screenshot - 1 line - 1.2s\u{1b}[0m"
+"\u{1b}[38;2;161;161;170m    `- [image/png - 64x32]\u{1b}[0m"
 ## bash images width=80 detail=Overview frame=0 images=false
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - screenshot - 2 lines - 1.2s\u{1b}[0m"
+"    \u{1b}[38;2;161;161;170m[Image: [image/png]]\u{1b}[0m"
 ## bash images width=80 detail=Overview frame=7 images=true = bash images width=80 detail=Overview frame=0 images=true
 ## bash images width=80 detail=Overview frame=7 images=false = bash images width=80 detail=Overview frame=0 images=false
 ## bash images width=80 detail=Details frame=0 images=true = bash images width=80 detail=Overview frame=0 images=true
@@ -1723,8 +1727,10 @@
 ## bash images width=80 detail=All frame=7 images=false = bash images width=80 detail=All frame=0 images=false
 ## bash images width=120 detail=Overview frame=0 images=true
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - screenshot - 1 line - 1.2s\u{1b}[0m"
+"\u{1b}[38;2;161;161;170m    `- [image/png - 64x32]\u{1b}[0m"
 ## bash images width=120 detail=Overview frame=0 images=false
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mbash\u{1b}[0m\u{1b}[38;2;118;118;127m - screenshot - 2 lines - 1.2s\u{1b}[0m"
+"    \u{1b}[38;2;161;161;170m[Image: [image/png]]\u{1b}[0m"
 ## bash images width=120 detail=Overview frame=7 images=true = bash images width=120 detail=Overview frame=0 images=true
 ## bash images width=120 detail=Overview frame=7 images=false = bash images width=120 detail=Overview frame=0 images=false
 ## bash images width=120 detail=Details frame=0 images=true = bash images width=120 detail=Overview frame=0 images=true
@@ -1744,7 +1750,7 @@
 ## bash images width=120 detail=All frame=7 images=true = bash images width=120 detail=All frame=0 images=true
 ## bash images width=120 detail=All frame=7 images=false = bash images width=120 detail=All frame=0 images=false
 ## generic queued width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
 ## generic queued width=40 detail=Overview frame=0 images=false = generic queued width=40 detail=Overview frame=0 images=true
 ## generic queued width=40 detail=Overview frame=7 images=true = generic queued width=40 detail=Overview frame=0 images=true
 ## generic queued width=40 detail=Overview frame=7 images=false = generic queued width=40 detail=Overview frame=0 images=true
@@ -1753,7 +1759,7 @@
 ## generic queued width=40 detail=Details frame=7 images=true = generic queued width=40 detail=Overview frame=0 images=true
 ## generic queued width=40 detail=Details frame=7 images=false = generic queued width=40 detail=Overview frame=0 images=true
 ## generic queued width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1763,7 +1769,7 @@
 ## generic queued width=40 detail=All frame=7 images=true = generic queued width=40 detail=All frame=0 images=true
 ## generic queued width=40 detail=All frame=7 images=false = generic queued width=40 detail=All frame=0 images=true
 ## generic queued width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
 ## generic queued width=80 detail=Overview frame=0 images=false = generic queued width=80 detail=Overview frame=0 images=true
 ## generic queued width=80 detail=Overview frame=7 images=true = generic queued width=80 detail=Overview frame=0 images=true
 ## generic queued width=80 detail=Overview frame=7 images=false = generic queued width=80 detail=Overview frame=0 images=true
@@ -1772,7 +1778,7 @@
 ## generic queued width=80 detail=Details frame=7 images=true = generic queued width=80 detail=Overview frame=0 images=true
 ## generic queued width=80 detail=Details frame=7 images=false = generic queued width=80 detail=Overview frame=0 images=true
 ## generic queued width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1782,7 +1788,7 @@
 ## generic queued width=80 detail=All frame=7 images=true = generic queued width=80 detail=All frame=0 images=true
 ## generic queued width=80 detail=All frame=7 images=false = generic queued width=80 detail=All frame=0 images=true
 ## generic queued width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
 ## generic queued width=120 detail=Overview frame=0 images=false = generic queued width=120 detail=Overview frame=0 images=true
 ## generic queued width=120 detail=Overview frame=7 images=true = generic queued width=120 detail=Overview frame=0 images=true
 ## generic queued width=120 detail=Overview frame=7 images=false = generic queued width=120 detail=Overview frame=0 images=true
@@ -1791,7 +1797,7 @@
 ## generic queued width=120 detail=Details frame=7 images=true = generic queued width=120 detail=Overview frame=0 images=true
 ## generic queued width=120 detail=Details frame=7 images=false = generic queued width=120 detail=Overview frame=0 images=true
 ## generic queued width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;161;161;170mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;161;161;170mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1801,17 +1807,17 @@
 ## generic queued width=120 detail=All frame=7 images=true = generic queued width=120 detail=All frame=0 images=true
 ## generic queued width=120 detail=All frame=7 images=false = generic queued width=120 detail=All frame=0 images=true
 ## generic running width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 ## generic running width=40 detail=Overview frame=0 images=false = generic running width=40 detail=Overview frame=0 images=true
 ## generic running width=40 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 ## generic running width=40 detail=Overview frame=7 images=false = generic running width=40 detail=Overview frame=7 images=true
 ## generic running width=40 detail=Details frame=0 images=true = generic running width=40 detail=Overview frame=0 images=true
 ## generic running width=40 detail=Details frame=0 images=false = generic running width=40 detail=Overview frame=0 images=true
 ## generic running width=40 detail=Details frame=7 images=true = generic running width=40 detail=Overview frame=7 images=true
 ## generic running width=40 detail=Details frame=7 images=false = generic running width=40 detail=Overview frame=7 images=true
 ## generic running width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1820,7 +1826,7 @@
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mone\u{1b}[0m"
 ## generic running width=40 detail=All frame=0 images=false = generic running width=40 detail=All frame=0 images=true
 ## generic running width=40 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1829,17 +1835,17 @@
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mone\u{1b}[0m"
 ## generic running width=40 detail=All frame=7 images=false = generic running width=40 detail=All frame=7 images=true
 ## generic running width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 ## generic running width=80 detail=Overview frame=0 images=false = generic running width=80 detail=Overview frame=0 images=true
 ## generic running width=80 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 ## generic running width=80 detail=Overview frame=7 images=false = generic running width=80 detail=Overview frame=7 images=true
 ## generic running width=80 detail=Details frame=0 images=true = generic running width=80 detail=Overview frame=0 images=true
 ## generic running width=80 detail=Details frame=0 images=false = generic running width=80 detail=Overview frame=0 images=true
 ## generic running width=80 detail=Details frame=7 images=true = generic running width=80 detail=Overview frame=7 images=true
 ## generic running width=80 detail=Details frame=7 images=false = generic running width=80 detail=Overview frame=7 images=true
 ## generic running width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1848,7 +1854,7 @@
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mone\u{1b}[0m"
 ## generic running width=80 detail=All frame=0 images=false = generic running width=80 detail=All frame=0 images=true
 ## generic running width=80 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1857,17 +1863,17 @@
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mone\u{1b}[0m"
 ## generic running width=80 detail=All frame=7 images=false = generic running width=80 detail=All frame=7 images=true
 ## generic running width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 ## generic running width=120 detail=Overview frame=0 images=false = generic running width=120 detail=Overview frame=0 images=true
 ## generic running width=120 detail=Overview frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 ## generic running width=120 detail=Overview frame=7 images=false = generic running width=120 detail=Overview frame=7 images=true
 ## generic running width=120 detail=Details frame=0 images=true = generic running width=120 detail=Overview frame=0 images=true
 ## generic running width=120 detail=Details frame=0 images=false = generic running width=120 detail=Overview frame=0 images=true
 ## generic running width=120 detail=Details frame=7 images=true = generic running width=120 detail=Overview frame=7 images=true
 ## generic running width=120 detail=Details frame=7 images=false = generic running width=120 detail=Overview frame=7 images=true
 ## generic running width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;125;168;118m.\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118m. \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -1876,7 +1882,7 @@
 " \u{1b}[38;2;118;118;127m > \u{1b}[0m\u{1b}[38;2;161;161;170mone\u{1b}[0m"
 ## generic running width=120 detail=All frame=0 images=false = generic running width=120 detail=All frame=0 images=true
 ## generic running width=120 detail=All frame=7 images=true
-" \u{1b}[38;2;125;168;118mo\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
+" \u{1b}[38;2;125;168;118mo \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -2011,7 +2017,7 @@
 ## generic done short width=120 detail=All frame=7 images=true = generic done short width=120 detail=All frame=0 images=true
 ## generic done short width=120 detail=All frame=7 images=false = generic done short width=120 detail=All frame=0 images=true
 ## generic error width=40 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s\u{1b}[0m"
 ## generic error width=40 detail=Overview frame=0 images=false = generic error width=40 detail=Overview frame=0 images=true
 ## generic error width=40 detail=Overview frame=7 images=true = generic error width=40 detail=Overview frame=0 images=true
 ## generic error width=40 detail=Overview frame=7 images=false = generic error width=40 detail=Overview frame=0 images=true
@@ -2020,7 +2026,7 @@
 ## generic error width=40 detail=Details frame=7 images=true = generic error width=40 detail=Overview frame=0 images=true
 ## generic error width=40 detail=Details frame=7 images=false = generic error width=40 detail=Overview frame=0 images=true
 ## generic error width=40 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -2031,7 +2037,7 @@
 ## generic error width=40 detail=All frame=7 images=true = generic error width=40 detail=All frame=0 images=true
 ## generic error width=40 detail=All frame=7 images=false = generic error width=40 detail=All frame=0 images=true
 ## generic error width=80 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
 ## generic error width=80 detail=Overview frame=0 images=false = generic error width=80 detail=Overview frame=0 images=true
 ## generic error width=80 detail=Overview frame=7 images=true = generic error width=80 detail=Overview frame=0 images=true
 ## generic error width=80 detail=Overview frame=7 images=false = generic error width=80 detail=Overview frame=0 images=true
@@ -2040,7 +2046,7 @@
 ## generic error width=80 detail=Details frame=7 images=true = generic error width=80 detail=Overview frame=0 images=true
 ## generic error width=80 detail=Details frame=7 images=false = generic error width=80 detail=Overview frame=0 images=true
 ## generic error width=80 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -2051,7 +2057,7 @@
 ## generic error width=80 detail=All frame=7 images=true = generic error width=80 detail=All frame=0 images=true
 ## generic error width=80 detail=All frame=7 images=false = generic error width=80 detail=All frame=0 images=true
 ## generic error width=120 detail=Overview frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
 ## generic error width=120 detail=Overview frame=0 images=false = generic error width=120 detail=Overview frame=0 images=true
 ## generic error width=120 detail=Overview frame=7 images=true = generic error width=120 detail=Overview frame=0 images=true
 ## generic error width=120 detail=Overview frame=7 images=false = generic error width=120 detail=Overview frame=0 images=true
@@ -2060,7 +2066,7 @@
 ## generic error width=120 detail=Details frame=7 images=true = generic error width=120 detail=Overview frame=0 images=true
 ## generic error width=120 detail=Details frame=7 images=false = generic error width=120 detail=Overview frame=0 images=true
 ## generic error width=120 detail=All frame=0 images=true
-" \u{1b}[38;2;208;111;130mx\u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
+" \u{1b}[38;2;208;111;130mx \u{1b}[0m \u{1b}[38;2;161;161;170mread\u{1b}[0m\u{1b}[38;2;118;118;127m - src/lib.rs - 1 line - 1.2s - \u{1b}[0m\u{1b}[38;2;208;111;130mno such file: src/lib.rs\u{1b}[0m"
 " \u{1b}[38;2;118;118;127m`- {\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"path\": \"src/lib.rs\",\u{1b}[0m"
 "    \u{1b}[38;2;118;118;127m  \"limit\": 20,\u{1b}[0m"
@@ -2307,8 +2313,10 @@
 ## generic grep width=120 detail=All frame=7 images=false = generic grep width=120 detail=All frame=0 images=true
 ## generic images width=40 detail=Overview frame=0 images=true
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mcustom\u{1b}[0m\u{1b}[38;2;118;118;127m - 1 line - 1.2s\u{1b}[0m"
+"\u{1b}[38;2;161;161;170m    `- [image/png - 64x32]\u{1b}[0m"
 ## generic images width=40 detail=Overview frame=0 images=false
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mcustom\u{1b}[0m\u{1b}[38;2;118;118;127m - 2 lines - 1.2s\u{1b}[0m"
+"    \u{1b}[38;2;161;161;170m[Image: [image/png]]\u{1b}[0m"
 ## generic images width=40 detail=Overview frame=7 images=true = generic images width=40 detail=Overview frame=0 images=true
 ## generic images width=40 detail=Overview frame=7 images=false = generic images width=40 detail=Overview frame=0 images=false
 ## generic images width=40 detail=Details frame=0 images=true = generic images width=40 detail=Overview frame=0 images=true
@@ -2329,8 +2337,10 @@
 ## generic images width=40 detail=All frame=7 images=false = generic images width=40 detail=All frame=0 images=false
 ## generic images width=80 detail=Overview frame=0 images=true
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mcustom\u{1b}[0m\u{1b}[38;2;118;118;127m - 1 line - 1.2s\u{1b}[0m"
+"\u{1b}[38;2;161;161;170m    `- [image/png - 64x32]\u{1b}[0m"
 ## generic images width=80 detail=Overview frame=0 images=false
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mcustom\u{1b}[0m\u{1b}[38;2;118;118;127m - 2 lines - 1.2s\u{1b}[0m"
+"    \u{1b}[38;2;161;161;170m[Image: [image/png]]\u{1b}[0m"
 ## generic images width=80 detail=Overview frame=7 images=true = generic images width=80 detail=Overview frame=0 images=true
 ## generic images width=80 detail=Overview frame=7 images=false = generic images width=80 detail=Overview frame=0 images=false
 ## generic images width=80 detail=Details frame=0 images=true = generic images width=80 detail=Overview frame=0 images=true
@@ -2351,8 +2361,10 @@
 ## generic images width=80 detail=All frame=7 images=false = generic images width=80 detail=All frame=0 images=false
 ## generic images width=120 detail=Overview frame=0 images=true
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mcustom\u{1b}[0m\u{1b}[38;2;118;118;127m - 1 line - 1.2s\u{1b}[0m"
+"\u{1b}[38;2;161;161;170m    `- [image/png - 64x32]\u{1b}[0m"
 ## generic images width=120 detail=Overview frame=0 images=false
 " \u{1b}[38;2;125;168;118mok\u{1b}[0m \u{1b}[38;2;161;161;170mcustom\u{1b}[0m\u{1b}[38;2;118;118;127m - 2 lines - 1.2s\u{1b}[0m"
+"    \u{1b}[38;2;161;161;170m[Image: [image/png]]\u{1b}[0m"
 ## generic images width=120 detail=Overview frame=7 images=true = generic images width=120 detail=Overview frame=0 images=true
 ## generic images width=120 detail=Overview frame=7 images=false = generic images width=120 detail=Overview frame=0 images=false
 ## generic images width=120 detail=Details frame=0 images=true = generic images width=120 detail=Overview frame=0 images=true

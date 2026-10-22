@@ -7,10 +7,15 @@
 //!
 //! The `mem` gauge is the only place the chat memory's compactor shows
 //! its progress (its live updates never make transcript rows): `mem
-//! 87/128K` is the view's size against its ceiling; after a live update
-//! it carries the activity since the current request began, `mem 91/128K
-//! ~3` (3 nodes summarized) or `mem 64/128K v37` (37 pairs merged); a new
-//! request clears the suffix. Never a node id.
+//! 1.1K/128K` is the view's size against its ceiling, in the context
+//! segment's size form (`format_count`); while the compactor works -- from
+//! the first live update of a request to the request's end -- it reads
+//! `mem 1.1K/128K ~`. Never a count of nodes or pairs, never a node id.
+//!
+//! When the row is short, the session title gives way first (cut with
+//! `...`), then the speed text, then the title drops; the model, its
+//! thinking level, the `mem` gauge, the detail label and the right-aligned
+//! context usage stay whole.
 
 use crate::chat::Detail;
 use crate::chrome::{ActivityDock, ActivityGroup, ChromeState};
@@ -25,6 +30,10 @@ const PATH_MAX_WIDTH: usize = 35;
 /// The narrowest cut of the speed segment worth showing; with less room
 /// the segment drops.
 const SPEED_MIN_WIDTH: usize = 12;
+
+/// The narrowest cut of the session title worth showing; with less room
+/// the title drops.
+const TITLE_MIN_WIDTH: usize = 8;
 
 /// The status line row for `width` columns: one margin column on each
 /// side, the left segments, and the context usage flush right. The left
@@ -58,9 +67,14 @@ pub fn render_status_line(
     if let Some(model) = model_segment(state, theme) {
         segments.push(model);
     }
-    // The speed segment sits after the model but yields first: it gets
-    // only the room the other segments leave (below).
-    let speed_at = segments.len();
+    // The speed segment sits after the model; it and the session title
+    // are the segments that give way when the row is short (`fit`).
+    let speed_at = state.speed.as_ref().map(|speed| {
+        segments.push(vec![
+            theme.fg(ThemeColor::Muted, speed.text(std::time::Instant::now()))
+        ]);
+        segments.len() - 1
+    });
     segments.push(vec![theme.fg(
         ThemeColor::Dim,
         path_label(&state.cwd, state.git.as_ref(), &roots),
@@ -68,11 +82,15 @@ pub fn render_status_line(
     if let Some(branch) = state.git.as_ref().and_then(|git| git.branch.as_ref()) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("@ {branch}"))]);
     }
-    if let Some(name) = state.session_name.as_deref().map(str::trim) {
-        if !name.is_empty() {
+    let title_at = state
+        .session_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| {
             segments.push(vec![theme.fg(ThemeColor::Dim, name.to_string())]);
-        }
-    }
+            segments.len() - 1
+        });
     if let Some(cost) = state.cost_usd.filter(|cost| *cost > 0.0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("${cost:.2}"))]);
     }
@@ -99,31 +117,25 @@ pub fn render_status_line(
         right.clear();
     }
     let room = inner.saturating_sub(line_width(&right) + usize::from(!right.is_empty()));
-    if let Some(speed) = &state.speed {
-        let separator = line_width(&[theme.fg(ThemeColor::Dim, crate::glyphs::SEP)]);
-        let others: usize = segments
-            .iter()
-            .map(|segment| line_width(segment))
-            .sum::<usize>()
-            + separator * segments.len().saturating_sub(1);
-        let spare = room.saturating_sub(others + separator);
-        let text = vec![theme.fg(ThemeColor::Muted, speed.text(std::time::Instant::now()))];
-        if line_width(&text) <= spare {
-            segments.insert(speed_at, text);
-        } else if spare >= SPEED_MIN_WIDTH {
-            segments.insert(
-                speed_at,
-                crate::chrome::truncate_spans_to_width(&text, spare),
-            );
-        }
-    }
+    let separator = theme.fg(ThemeColor::Dim, crate::glyphs::SEP);
+    fit(
+        &mut segments,
+        Yielding {
+            title: title_at,
+            speed: speed_at,
+        },
+        room,
+        line_width(std::slice::from_ref(&separator)),
+    );
     let mut left: Line = Vec::new();
     for (index, segment) in segments.into_iter().enumerate() {
         if index > 0 {
-            left.push(theme.fg(ThemeColor::Dim, crate::glyphs::SEP));
+            left.push(separator.clone());
         }
         left.extend(segment);
     }
+    // The last resort for a row too short even for the fixed segments:
+    // the composed left side cuts at the edge.
     let left = crate::chrome::truncate_spans_to_width(&left, room);
     let mut row: Line = vec![Span::raw(" ")];
     let used = line_width(&left) + line_width(&right);
@@ -133,6 +145,72 @@ pub fn render_status_line(
         row.extend(right);
     }
     row
+}
+
+/// The segments that give way when the row is short, as indexes into
+/// the segment list.
+#[derive(Clone, Copy)]
+struct Yielding {
+    /// The session title.
+    title: Option<usize>,
+    /// The generation speed.
+    speed: Option<usize>,
+}
+
+/// The columns `segments` take, joined by separators of `separator`
+/// columns.
+fn segments_width(segments: &[Line], separator: usize) -> usize {
+    segments
+        .iter()
+        .map(|segment| line_width(segment))
+        .sum::<usize>()
+        + separator * segments.len().saturating_sub(1)
+}
+
+/// Cut the segment at `index` (never below `min` columns) by the
+/// columns the row overflows `room`.
+fn shrink(segments: &mut [Line], index: usize, min: usize, room: usize, separator: usize) {
+    let overflow = segments_width(segments, separator).saturating_sub(room);
+    let width = line_width(&segments[index]);
+    let target = width.saturating_sub(overflow).max(min);
+    if target < width {
+        segments[index] = crate::chrome::truncate_spans_to_width(&segments[index], target);
+    }
+}
+
+/// Fit `segments` into `room` columns: the title cuts first (down to
+/// its narrowest cut), then the speed text (down to its narrowest cut),
+/// then the title drops and the speed takes the room that frees -- or
+/// drops too when that is less than its narrowest cut. The model, its
+/// thinking level, the path, the `mem` gauge, the detail label and the
+/// activity never cut here.
+fn fit(segments: &mut Vec<Line>, yielding: Yielding, room: usize, separator: usize) {
+    let speed_full = yielding.speed.map(|index| segments[index].clone());
+    if let Some(title) = yielding.title {
+        shrink(segments, title, TITLE_MIN_WIDTH, room, separator);
+    }
+    if let Some(speed) = yielding.speed {
+        shrink(segments, speed, SPEED_MIN_WIDTH, room, separator);
+    }
+    if segments_width(segments, separator) <= room {
+        return;
+    }
+    let mut speed = yielding.speed;
+    if let Some(title) = yielding.title {
+        segments.remove(title);
+        speed = speed.map(|index| if index > title { index - 1 } else { index });
+    }
+    if let (Some(index), Some(full)) = (speed, speed_full) {
+        let others = segments_width(segments, separator) - line_width(&segments[index]);
+        let spare = room.saturating_sub(others);
+        if line_width(&full) <= spare {
+            segments[index] = full;
+        } else if spare >= SPEED_MIN_WIDTH {
+            segments[index] = crate::chrome::truncate_spans_to_width(&full, spare);
+        } else {
+            segments.remove(index);
+        }
+    }
 }
 
 /// `[M] <model>`, the service-tier badge, and the thinking level in the
