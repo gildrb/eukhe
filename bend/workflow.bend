@@ -1,7 +1,9 @@
 # workflow: the scheduler of a dynamic workflow run
 # (crates/eukhe-core/src/durable/workflow): the concurrency semaphore of
-# the script prelude, the agent budget and the resume cache of `admit`
-# (globals.rs), and the per-agent results of `parallel` and `pipeline`.
+# the script prelude, the agent budget and the resume cache, the whole
+# admission of one `agent()` call (`admit` in globals.rs), the limits a
+# run works under (`effective_limits` in size.rs), and the per-agent
+# results of `parallel` and `pipeline`.
 #
 # A counter is two Nats: what is taken and what is left. An admission
 # moves one unit from left to taken, a release moves it back; with none
@@ -95,13 +97,6 @@ def member(+k: Nat, cache: List<&2, Nat>) -> Bool:
     case c <> rest:
       Bool.or(Nat.is_eq(k, c), member(k, rest))
 
-# What one agent call of a resumed run does: a cached key spawns
-# nothing, another key spawns one agent.
-type Call is Data:
-  Cached{}
-  Spawn{}
-  Refused{}
-
 def cost.go(hit: Bool) -> Nat:
   match hit:
     case True{}:
@@ -109,6 +104,8 @@ def cost.go(hit: Bool) -> Nat:
     case False{}:
       1n
 
+# the agents one call of a resumed run spawns: none for a key the earlier
+# run finished, one for another key
 def cost(+k: Nat, cache: List<&2, Nat>) -> Nat:
   cost.go(member(k, cache))
 
@@ -120,23 +117,133 @@ def resumed(+cache: List<&2, Nat>, keys: List<&2, Nat>) -> Nat:
     case k <> rest:
       Nat.add(cost(k, cache), resumed(cache, rest))
 
-# One call against the cache and the budget (`admit` in globals.rs).
-def call.take(ok: Bool, p: Pool) -> Call & Pool:
+# The admission of one agent call
+# -------------------------------
+
+# The status of an agent's row (WorkflowAgentStatus): queued, running,
+# done (`Finished`), failed (`Erred`), cancelled, or served from an earlier run's
+# answer (`Cached`).
+type Sts is Data:
+  Queued{}
+  Running{}
+  Finished{}
+  Erred{}
+  Cancelled{}
+  Cached{}
+
+# A row of the run a resumed run takes answers from: its resume key and
+# its status, in ordinal order.
+type Row is Data:
+  Row{key: Nat, s: Sts}
+
+# What one `agent()` call does: its ordinal ended in this run (the call
+# replays the answer), its ordinal runs in this run (the call reattaches),
+# the earlier run's row i serves it, it spawns an agent, or the budget
+# refuses it.
+type Admit is Data:
+  Ended{}
+  Reattach{}
+  Reuse{i: Nat}
+  Spawn{}
+  Refused{}
+
+# a row of status s holds a finished answer
+def serves(s: Sts) -> Bool:
+  match s:
+    case Queued{}:
+      False{}
+    case Running{}:
+      False{}
+    case Finished{}:
+      True{}
+    case Erred{}:
+      False{}
+    case Cancelled{}:
+      False{}
+    case Cached{}:
+      True{}
+
+# what a call does with its ordinal's row of status s in this run
+def again(s: Sts) -> Admit:
+  match s:
+    case Queued{}:
+      Reattach{}
+    case Running{}:
+      Reattach{}
+    case Finished{}:
+      Ended{}
+    case Erred{}:
+      Ended{}
+    case Cancelled{}:
+      Ended{}
+    case Cached{}:
+      Ended{}
+
+def found.at(hit: Bool, i: Nat, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match hit:
+    case True{}:
+      Some{i}
+    case False{}:
+      rest
+
+# the index of the first row of rs, counted from i, with key k and a
+# finished answer
+def found(rs: List<&2, Row>, +k: Nat, i: Nat) -> Maybe<&2, Nat>:
+  match rs:
+    case Nil{}:
+      None{}
+    case Row{key, s} <> rest:
+      +j = i
+      found.at(Bool.and(Nat.is_eq(k, key), serves(s)), j, found(rest, k, 1n+j))
+
+def admit.take(ok: Bool, p: Pool) -> Admit & Pool:
   match ok:
     case True{}:
       (Spawn{}, take(p))
     case False{}:
       (Refused{}, p)
 
-def call.go(hit: Bool, +p: Pool) -> Call & Pool:
+def admit.fresh(hit: Maybe<&2, Nat>, +p: Pool) -> Admit & Pool:
   match hit:
-    case True{}:
-      (Cached{}, p)
-    case False{}:
-      call.take(can_take(p), p)
+    case Some{i}:
+      (Reuse{i}, p)
+    case None{}:
+      admit.take(can_take(p), p)
 
-def call(+k: Nat, cache: List<&2, Nat>, p: Pool) -> Call & Pool:
-  call.go(member(k, cache), p)
+# One call: its ordinal's row in this run (none for a new ordinal), its
+# key, the earlier run's rows (none for a fresh run), and the budget (the
+# agents spawned and the agents left).
+def admit(prior: Maybe<&2, Sts>, +k: Nat, rs: List<&2, Row>, p: Pool) -> Admit & Pool:
+  match prior:
+    case Some{s}:
+      (again(s), p)
+    case None{}:
+      admit.fresh(found(rs, k, 0n), p)
+
+# The limits of a run
+# -------------------
+
+# A run's concurrency and max agents.
+type Limits is Data:
+  Limits{conc: Nat, max: Nat}
+
+def capped(le: Bool, c: Nat, cap: Nat) -> Nat:
+  match le:
+    case True{}:
+      c
+    case False{}:
+      cap
+
+# the limits l of a run's size under the subagent cap (0: no cap): the
+# concurrency at most the cap, the max agents as they are
+def effective(l: Limits, cap: Nat) -> Limits:
+  match l:
+    case Limits{+c, m}:
+      match cap:
+        case 0n:
+          Limits{c, m}
+        case 1n++x:
+          Limits{capped(Nat.is_le(c, 1n+x), c, 1n+x), m}
 
 # Results
 # -------

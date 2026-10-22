@@ -618,6 +618,66 @@ law admission_every_ticket_ends:
   for live: {Maybe.is_some(&2, Ad.Tk, Ad.status(s, k)) == True{} : Bool}
   {Ad.ended(Ad.status(Ad.step(s, Ad.finish(Ad.status(s, k), k)), k)) == True{} : Bool}
 
+# The live controller (Ad.Live, what eukhe runs) keeps only the live
+# tickets, each with its ticket number: an ended ticket leaves, so an op
+# costs the live tickets, not every ticket the provider ever admitted.
+# Spec helpers: the live tickets of the model's state, numbered.
+
+# ticket k of class c and status s before rest, when it is live
+def adl_keep(s: Ad.Sts, k: Nat, c: Ad.Cls, rest: List<&2, Ad.Lv>) -> List<&2, Ad.Lv>:
+  match s:
+    case Ad.Queued{}:
+      Ad.Lv{k, c, Ad.Queued{}} <> rest
+    case Ad.Granted{}:
+      Ad.Lv{k, c, Ad.Granted{}} <> rest
+    case Ad.Held{}:
+      Ad.Lv{k, c, Ad.Held{}} <> rest
+    case Ad.Preempted{}:
+      Ad.Lv{k, c, Ad.Preempted{}} <> rest
+    case Ad.Ended{}:
+      rest
+
+# the live tickets of ts, the first numbered k
+def adl_lives(ts: List<&2, Ad.Tk>, +k: Nat) -> List<&2, Ad.Lv>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case Ad.Tk{c, s} <> r:
+      adl_keep(s, k, c, adl_lives(r, 1n+k))
+
+# the model's state as the live controller holds it: the limits, the
+# live tickets with their numbers, and the number of the next ticket
+def adl_live(s: Ad.St) -> Ad.Live:
+  match s:
+    case Ad.St{l, q, +ts}:
+      Ad.Live{l, q, adl_lives(ts, 0n), List.length(&2, Ad.Tk, ts)}
+
+# LAW: on any state of the model, an op of the live controller does what
+# the model's op does, the ended tickets left out
+# EXCLUDES: every difference between the live controller and the model
+#   (a grant, a preemption, a rejection, a lost or renumbered ticket, an
+#   ended ticket kept or revived); with admission_live_run it carries
+#   every admission law above to the controller eukhe runs
+law admission_live_step:
+  for +s: Ad.St
+  for +o: Ad.Op
+  {Ad.Live.step(adl_live(s), o) == adl_live(Ad.step(s, o)) : Ad.Live}
+
+# LAW: after any history, the live controller holds the model's live
+# tickets, numbered as the model numbers them
+# EXCLUDES: a controller that drifts from the model over a history
+law admission_live_run:
+  for l: Ad.Lim
+  for q: Nat
+  for os: List<&2, Ad.Op>
+  {Ad.Live.run(os, Ad.Live.new(l, q)) == adl_live(Ad.run(os, Ad.St.new(l, q))) : Ad.Live}
+
+# LAW anchor: at a limit of one, a released permit leaves and its slot
+# goes to the waiter, which keeps its number
+# EXCLUDES: an ended ticket kept, tickets renumbered when one leaves
+law admission_live_example:
+  {Ad.Live.run([Ad.Admit{Ad.Ia{}}, Ad.Admit{Ad.Ia{}}, Ad.Release{0n}], Ad.Live.new(Ad.Cap{0n}, 1n)) == Ad.Live{Ad.Cap{0n}, 1n, [Ad.Lv{1n, Ad.Ia{}, Ad.Granted{}}], 2n} : Ad.Live}
+
 # (S1) The session tree
 # ---------------------
 # docs/state.md S1, the model in bend/tree.bend. One tree holds the
@@ -2366,6 +2426,89 @@ law fallback_quiet_when_same:
   for look: Af.Look
   for need: Nat
   {Af.decide(Af.Pass{p, Af.Same{}, ok, look, need}) == Af.Session{} : Af.Route}
+
+# The Rust resolver asks the gate (Af.gate) first, runs the lookups only
+# when the gate asks for them, then settles the route (Af.settle); it
+# shows, pass by pass, the events of Af.put and keeps the keys of
+# Af.after. The laws below pin that protocol to the session's model.
+
+# LAW: a pass's route is its gate settled with its lookups
+# EXCLUDES: a resolver whose two steps decide otherwise than the model
+law fallback_gate_then_settle:
+  for p: Nat
+  for sel: Af.Sel
+  for ok: Bool
+  for look: Af.Look
+  for need: Nat
+  {Af.decide(Af.Pass{p, sel, ok, look, need}) == Af.settle(Af.gate(p, sel, ok), look, need) : Af.Route}
+
+# LAW: a gate that decided reads nothing the lookups found, so they need
+# not run
+# EXCLUDES: a route that depends on lookups the resolver skipped
+law fallback_known_needs_no_lookup:
+  for r: Af.Route
+  for look: Af.Look
+  for need: Nat
+  {Af.settle(Af.Known{r}, look, need) == r : Af.Route}
+
+# LAW: a set, different selector that allowedModels admits is looked up;
+# one it does not admit falls back with the reason 0 (not allowed)
+# EXCLUDES: lookups for a disallowed model, a disallowed model run, a
+#   wrong reason
+law fallback_gate_other:
+  for p: Nat
+  for s: Nat
+  {(Af.gate(p, Af.Other{s}, True{}), Af.gate(p, Af.Other{s}, False{})) == (Af.Lookup{p, s}, Af.Known{Af.Fallback{Af.K{p, s, 0n}}}) : Af.Gate & Af.Gate}
+
+# LAW: an unset or same selector keeps the session model without a
+# lookup
+# EXCLUDES: lookups (credential reads) for a pass that runs on the
+#   session model
+law fallback_gate_session:
+  for p: Nat
+  for ok: Bool
+  {(Af.gate(p, Af.Unset{}, ok), Af.gate(p, Af.Same{}, ok)) == (Af.Known{Af.Session{}}, Af.Known{Af.Session{}}) : Af.Gate & Af.Gate}
+
+# LAW: lookups that find nothing usable fall back with their reason
+# EXCLUDES: a lookup failure run anyway, its reason replaced
+law fallback_miss_keeps_reason:
+  for p: Nat
+  for s: Nat
+  for r: Nat
+  for need: Nat
+  {Af.settle(Af.Lookup{p, s}, Af.Miss{r}, need) == Af.Fallback{Af.K{p, s, r}} : Af.Route}
+
+# LAW: a found model whose window is unknown (0) or at least the request
+# runs the pass (a window saturated at the wire's largest Nat is at
+# least every request)
+# EXCLUDES: a fitting model refused, an unknown window read as too small
+law fallback_window_fits:
+  for p: Nat
+  for s: Nat
+  for +w: Nat
+  for +need: Nat
+  for fit: {Bool.or(Nat.is_eq(w, 0n), Nat.is_le(need, w)) == True{} : Bool}
+  {Af.settle(Af.Lookup{p, s}, Af.Hit{w}, need) == Af.Routed{} : Af.Route}
+
+# LAW: a found model whose known window is smaller than the request falls
+# back with the reason 5 (window too small)
+# EXCLUDES: a request sent to a model too small for it
+law fallback_window_small:
+  for p: Nat
+  for s: Nat
+  for +w: Nat
+  for +need: Nat
+  for small: {Nat.is_lt(1n+w, need) == True{} : Bool}
+  {Af.settle(Af.Lookup{p, s}, Af.Hit{1n+w}, need) == Af.Fallback{Af.K{p, s, 5n}} : Af.Route}
+
+# LAW: the events of a pass come before the events of the passes after
+# it: a session shows each pass's own events in order
+# EXCLUDES: a pass whose shown events depend on the passes after it
+law fallback_pass_events:
+  for r: Af.Route
+  for +sh: List<&2, Af.Key>
+  for t: List<&2, Af.Ev>
+  {Af.put(r, sh, t) == List.append(&2, Af.Ev, Af.put(r, sh, Nil{}), t) : List<&2, Af.Ev>}
 
 # (L5) A skill file that fails to load is reported
 # ------------------------------------------------
@@ -4957,6 +5100,83 @@ law default_unkeyed_never_moves:
   for next: Dm.Next
   {Dm.Session.run(Dm.open(Dm.resolve(Dm.In{Dm.Default{m}, True{}, False{}, out, next}))) == Dm.Idle{} : Dm.Run}
 
+# The laws below pin every answer of the resolver (Dm.resolve, the Rust
+# `resolve_session_model` with no requested model), case by case: nothing
+# saved; the catalog, the credentials and the scope, in this order; the
+# chain's pick or none.
+
+# LAW: with nothing saved the chain's pick runs, with nothing to say
+# EXCLUDES: a notice or a substitution invented for an unset default, the
+#   chain's pick ignored
+law default_unset_runs_pick:
+  for cat: Bool
+  for key: Bool
+  for out: Bool
+  for n: Nat
+  {Dm.resolve(Dm.In{Dm.NoDefault{}, cat, key, out, Dm.Next{n}}) == Dm.Runs{Dm.Other{n}, Dm.Kept{}} : Dm.Res}
+
+# LAW: with nothing saved and no model to pick there is no model, and no
+# error
+# EXCLUDES: a typed error for an unset default
+law default_unset_without_pick:
+  for cat: Bool
+  for key: Bool
+  for out: Bool
+  {Dm.resolve(Dm.In{Dm.NoDefault{}, cat, key, out, Dm.NoNext{}}) == Dm.Nothing{} : Dm.Res}
+
+# LAW: a saved default in the catalog, with credentials and in the scope,
+# runs, with nothing to say
+# EXCLUDES: a usable saved default replaced by the chain's pick
+law default_usable_runs:
+  for m: Nat
+  for next: Dm.Next
+  {Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, False{}, next}) == Dm.Runs{Dm.Saved{}, Dm.Kept{}} : Dm.Res}
+
+# LAW: a saved default the catalog lacks gives way to the chain's pick,
+# which names it with the reason "not in the catalog"
+# EXCLUDES: a wrong reason, a silent substitution, the credentials or
+#   the scope checked before the catalog
+law default_uncatalogued_swaps:
+  for m: Nat
+  for key: Bool
+  for out: Bool
+  for n: Nat
+  {Dm.resolve(Dm.In{Dm.Default{m}, False{}, key, out, Dm.Next{n}}) == Dm.Runs{Dm.Other{n}, Dm.Swapped{Dm.K{m, Dm.NotInCatalog{}}}} : Dm.Res}
+
+# LAW: a saved default the catalog lacks, with no model to pick, is the
+# typed error with the reason "not in the catalog"
+# EXCLUDES: no model and no error (a silent idle session)
+law default_uncatalogued_refused:
+  for m: Nat
+  for key: Bool
+  for out: Bool
+  {Dm.resolve(Dm.In{Dm.Default{m}, False{}, key, out, Dm.NoNext{}}) == Dm.Refused{Dm.K{m, Dm.NotInCatalog{}}} : Dm.Res}
+
+# LAW: a saved default whose provider has no credentials is the typed
+# error with the reason "no credentials", whatever the scope and the
+# chain's pick
+# EXCLUDES: a move to another provider, a wrong reason
+law default_unkeyed_refused:
+  for m: Nat
+  for out: Bool
+  for next: Dm.Next
+  {Dm.resolve(Dm.In{Dm.Default{m}, True{}, False{}, out, next}) == Dm.Refused{Dm.K{m, Dm.NoCredentials{}}} : Dm.Res}
+
+# LAW: a saved default outside the set scope gives way to the chain's
+# pick, which names it with the reason "not in the scope"
+# EXCLUDES: a silent substitution, a wrong reason
+law default_unscoped_swaps:
+  for m: Nat
+  for n: Nat
+  {Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, True{}, Dm.Next{n}}) == Dm.Runs{Dm.Other{n}, Dm.Swapped{Dm.K{m, Dm.NotInScope{}}}} : Dm.Res}
+
+# LAW: a saved default outside the set scope, with no model to pick, is
+# the typed error with the reason "not in the scope"
+# EXCLUDES: no model and no error
+law default_unscoped_refused:
+  for m: Nat
+  {Dm.resolve(Dm.In{Dm.Default{m}, True{}, True{}, True{}, Dm.NoNext{}}) == Dm.Refused{Dm.K{m, Dm.NotInScope{}}} : Dm.Res}
+
 # (M3) An untrusted project
 # -------------------------
 
@@ -5004,11 +5224,82 @@ law global_entry_kept:
 # LAWS (WF, dynamic workflows): a run never holds more agents at once
 # than its concurrency, never spawns more than its budget, spawns only
 # the uncached keys when it resumes, and one failed agent never changes
-# its siblings' results. Each law is an open claim about the model in
+# its siblings' results. An `agent()` call is admitted by one rule
+# (W.admit, the Rust `admit` of globals.rs): a call whose ordinal the run
+# admitted before never spawns again, a call the earlier run answered
+# reuses the first such answer, and only then the budget decides. A run's
+# concurrency is its size's, at most the subagent cap (W.effective, the
+# Rust `effective_limits`). Each law is an open claim about the model in
 # bend/workflow.bend; PROOF.bend proves them (as Laws.<law>) with the
-# lemmas of PROOF.bend section workflow. The Rust bridge test
-# (crates/eukhe-core/src/durable/workflow/bridge.rs) runs `admit` and
-# `effective_limits` against bend/bridge_workflow.bend.
+# lemmas of PROOF.bend section workflow.
+
+# Spec helpers
+# ------------
+
+# a row status that holds a finished answer: done, or served from cache
+def wf_serves(s: W.Sts) -> Bool:
+  match s:
+    case W.Queued{}:
+      False{}
+    case W.Running{}:
+      False{}
+    case W.Finished{}:
+      True{}
+    case W.Erred{}:
+      False{}
+    case W.Cancelled{}:
+      False{}
+    case W.Cached{}:
+      True{}
+
+# what a repeated ordinal does: an ended row replays its answer, a
+# queued or running one is reattached
+def wf_again(s: W.Sts) -> W.Admit:
+  match s:
+    case W.Queued{}:
+      W.Reattach{}
+    case W.Running{}:
+      W.Reattach{}
+    case W.Finished{}:
+      W.Ended{}
+    case W.Erred{}:
+      W.Ended{}
+    case W.Cancelled{}:
+      W.Ended{}
+    case W.Cached{}:
+      W.Ended{}
+
+def wf_next(m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match m:
+    case None{}:
+      None{}
+    case Some{i}:
+      Some{1n+i}
+
+def wf_first.at(hit: Bool, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match hit:
+    case True{}:
+      Some{0n}
+    case False{}:
+      wf_next(rest)
+
+# the position of the first row of rs with key k and a finished answer
+def wf_first(rs: List<&2, W.Row>, +k: Nat) -> Maybe<&2, Nat>:
+  match rs:
+    case Nil{}:
+      None{}
+    case W.Row{key, s} <> rest:
+      wf_first.at(Bool.and(Nat.is_eq(key, k), wf_serves(s)), wf_first(rest, k))
+
+# the smaller of a and b
+def wf_min(a: Nat, b: Nat) -> Nat:
+  match a b:
+    case 0n _:
+      0n
+    case 1n+x 0n:
+      0n
+    case 1n+x 1n+y:
+      1n+wf_min(x, y)
 
 # LAW: after any asks and settles, the running agents and the free slots
 # still add up to the concurrency: running never goes above it
@@ -5042,3 +5333,71 @@ law wf_failure_spares_siblings:
   for xs: List<&2, W.Out>
   for ys: List<&2, W.Out>
   {W.results(W.cat(xs, W.Failed{} <> ys)) == W.rcat(W.results(xs), None{} <> W.results(ys)) : List<&2, Maybe<&2, Nat>>}
+
+# LAW: a call whose ordinal the run admitted before (a replay after a
+# restart) spawns nothing and takes no budget: an ended row replays its
+# answer, a queued or running one is reattached
+# EXCLUDES: a second agent for one ordinal, budget charged twice, a
+#   running agent reported as ended or an ended one run again
+law wf_admitted_never_respawns:
+  for s: W.Sts
+  for k: Nat
+  for rs: List<&2, W.Row>
+  for p: W.Pool
+  {W.admit(Some{s}, k, rs, p) == (wf_again(s), p) : W.Admit & W.Pool}
+
+# LAW: a new call whose key the earlier run answered reuses the first row
+# with that key and a finished answer, and takes no budget
+# EXCLUDES: a cached key spawned again, a failed or unfinished row
+#   reused, a later duplicate reused instead of the first
+law wf_reuses_first_answer:
+  for +k: Nat
+  for +rs: List<&2, W.Row>
+  for p: W.Pool
+  for i: Nat
+  for hit: {wf_first(rs, k) == Some{i} : Maybe<&2, Nat>}
+  {W.admit(None{}, k, rs, p) == (W.Reuse{i}, p) : W.Admit & W.Pool}
+
+# LAW: a new call with no earlier answer spawns while the budget has an
+# agent left, and takes one agent of it
+# EXCLUDES: refusing a call the budget allows, a spawn that takes no budget
+law wf_spawns_within_budget:
+  for +k: Nat
+  for +rs: List<&2, W.Row>
+  for t: Nat
+  for l: Nat
+  for miss: {wf_first(rs, k) == None{} : Maybe<&2, Nat>}
+  {W.admit(None{}, k, rs, W.Pool{t, 1n+l}) == (W.Spawn{}, W.Pool{1n+t, l}) : W.Admit & W.Pool}
+
+# LAW: a new call with no earlier answer and no agent left is refused,
+# and the budget stays
+# EXCLUDES: a spawn past max agents
+law wf_refused_when_spent:
+  for +k: Nat
+  for +rs: List<&2, W.Row>
+  for t: Nat
+  for miss: {wf_first(rs, k) == None{} : Maybe<&2, Nat>}
+  {W.admit(None{}, k, rs, W.Pool{t, 0n}) == (W.Refused{}, W.Pool{t, 0n}) : W.Admit & W.Pool}
+
+# LAW witness: the first answer skips rows of another key and rows
+# without a finished answer, and a key with no answer has none
+# EXCLUDES: a vacuous wf_reuses_first_answer or wf_spawns_within_budget
+law wf_first_example:
+  {(wf_first([W.Row{1n, W.Finished{}}, W.Row{2n, W.Running{}}, W.Row{2n, W.Erred{}}, W.Row{2n, W.Cached{}}, W.Row{2n, W.Finished{}}], 2n), wf_first([W.Row{1n, W.Finished{}}], 2n)) == (Some{3n}, None{}) : Maybe<&2, Nat> & Maybe<&2, Nat>}
+
+# LAW: with no subagent cap (0) a run's limits are its size's
+# EXCLUDES: a cap of 0 read as "no agents"
+law wf_limits_uncapped:
+  for c: Nat
+  for m: Nat
+  {W.effective(W.Limits{c, m}, 0n) == W.Limits{c, m} : W.Limits}
+
+# LAW: under a subagent cap a run's concurrency is the smaller of its
+# size's and the cap; its max agents stay
+# EXCLUDES: a cap that raises the concurrency, a cap ignored, a cap
+#   applied to the max agents
+law wf_limits_capped:
+  for +c: Nat
+  for m: Nat
+  for +x: Nat
+  {W.effective(W.Limits{c, m}, 1n+x) == W.Limits{wf_min(c, 1n+x), m} : W.Limits}

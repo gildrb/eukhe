@@ -63,7 +63,7 @@ fn scenario(seed: u64, passes: usize) -> (String, String) {
             vec!["faux/session".to_owned()]
         };
         let route = decide_auxiliary_route(
-            AuxiliarySelector::of(setting.as_deref(), "faux", "session"),
+            &AuxiliarySelector::of(setting.as_deref(), "faux", "session"),
             Some(&allowlist),
             (need > 0).then_some(need),
             |_| {

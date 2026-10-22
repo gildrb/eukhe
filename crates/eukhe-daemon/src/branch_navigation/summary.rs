@@ -130,7 +130,7 @@ pub(crate) async fn generate(
         AuxiliarySelector::Unset | AuxiliarySelector::SessionModel => Ok(Vec::new()),
     };
     let route = decide_auxiliary_route(
-        selector,
+        &selector,
         settings.get_allowed_models().as_deref(),
         Some(required),
         |selector| {
