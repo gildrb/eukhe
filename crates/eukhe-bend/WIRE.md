@@ -39,6 +39,12 @@ the 15th digit, so it never folds a value the runtime cannot hold. Rust
 `put_nat` writes every digit of a larger value, which every decoder
 refuses. Counts (string lengths, list lengths) are Nats too.
 
+A String has at most `STR_MAX` = 8 Mi chars (`Writer::str` refuses a
+longer one): Bend decodes a String with one stack frame per char, and the
+shim's 256 MiB evaluation stack holds about 16 Mi of them; a deeper run
+faults and ends the process. A larger text belongs in a stepper's state,
+fed in pieces.
+
 Examples of a whole request. A record `{ name: String, tries: Nat, tags:
 List<String>, cap: Maybe<U32>, on: Bool }` with `("héllo", 3, ["a", "bc"],
 Some(7), true)`:
@@ -82,6 +88,7 @@ else call the model and encode the reply.
 ```rust
 pub enum WireError {
     NatTooLarge(u64),          // Writer: a Nat above 99_999_999_999_999
+    StrTooLong(usize),         // Writer: a String above STR_MAX = 8 Mi chars
     Rejected(String),          // the reply is the error form: the text after "E "
     Malformed { at: usize, expected: &'static str }, // byte offset in the reply
     Trailing { at: usize },    // Reader::end: input left over
@@ -104,11 +111,13 @@ impl Writer {
 pub struct Reader<'a> { /* the reply and an offset */ }
 impl<'a> Reader<'a> {
     pub fn reply(reply: &'a str) -> Result<Reader<'a>, WireError>; // "E <text>" -> Rejected
+    pub fn new(src: &'a str) -> Reader<'a>;                        // a request (tests)
     pub fn nat(&mut self) -> Result<u64, WireError>;
     pub fn u32(&mut self) -> Result<u32, WireError>;
     pub fn bool(&mut self) -> Result<bool, WireError>;
     pub fn str(&mut self) -> Result<&'a str, WireError>;
     pub fn tag(&mut self) -> Result<u32, WireError>;
+    pub fn tag_of(&mut self, ctors: u32, expected: &'static str) -> Result<u32, WireError>; // Malformed for tag >= ctors
     pub fn count(&mut self) -> Result<usize, WireError>;
     pub fn maybe(&mut self) -> Result<bool, WireError>; // true: Some, the value follows
     pub fn end(self) -> Result<(), WireError>;          // Trailing if input is left
@@ -119,3 +128,28 @@ The Rust decoders follow the same grammar exactly (canonical digits, at
 most 14, U32 range, string length in chars). A decode error or a
 `Rejected` reply is an error value the caller handles: never a silent
 default, never a panic.
+
+## Calls, steppers and errors (`eukhe_bend`)
+
+```rust
+pub fn call(entry: Entry, input: &str) -> Result<String, CallError>;
+impl Stepper {
+    pub fn open(entry: Entry, input: &str) -> Result<(Stepper, String), CallError>;
+    pub fn step(&mut self, input: &str) -> Result<String, CallError>; // Drop closes
+}
+pub enum Error { Call(CallError), Wire(WireError) }   // From both: `?` works
+pub fn expect_core<T, E: Into<Error>>(entry: Entry, result: Result<T, E>) -> T;
+```
+
+An entry with a stepper (`bend/ffi_<area>.bend` exports `def open(input:
+String) -> St & String` and `def step(s: St, input: String) -> St &
+String`) keeps its state in the Bend heap: only events and replies cross
+the wire. Use it on hot paths: decoding text costs about 50-80 ns a char,
+so a call that ships a 10k-item state each time is thousands of times
+slower than a step.
+
+Error policy: a caller that encodes its own request with every number in
+range (it saturates or validates first) wraps the call in `expect_core`:
+a failure then means an inconsistent build, and `expect_core` panics with
+the entry and the error (the one place eukhe panics on the core). A caller
+that already returns a `Result` propagates `eukhe_bend::Error`.

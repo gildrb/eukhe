@@ -560,6 +560,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "eukhe-bend"
+version = "0.10.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "eukhe-build-info"
 version = "0.10.0"
 

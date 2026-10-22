@@ -49,6 +49,17 @@ laws:
 	bend PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 	bend PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 
+# The compiled Bend core (crates/eukhe-bend): bend-core regenerates
+# bend/core.bend, crates/eukhe-bend/src/entries.rs and
+# crates/eukhe-bend/c/core.c from bend/core_entries.txt and bend/ffi_*.bend;
+# bend-core-check fails when a committed one differs (or bend is not
+# $(BEND_VERSION)). Run bend-core after every change to a bend/ file.
+bend-core:
+	python3 scripts/bend_core.py generate
+
+bend-core-check:
+	python3 scripts/bend_core.py check
+
 
 # Supply-chain gates. They fail loudly when the tool is missing instead of
 # silently skipping the gate.
@@ -218,4 +229,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws bend-core bend-core-check deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates runtime-lock runtime-lock-check dashboard-ui

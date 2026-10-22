@@ -163,7 +163,10 @@ jobs:
           # here instead of as "Unable to locate package" below.
           echo 'Acquire::Retries "10";' > /etc/apt/apt.conf.d/80-retries
           apt-get update --error-on=any
-          apt-get install -y --no-install-recommends build-essential python3 git binutils
+          # clang: the compiled Bend core (crates/eukhe-bend, c/core.c) uses
+          # `musttail`, which gcc accepts only from 15; jammy's clang 14 has
+          # it, and eukhe-bend's build.rs picks clang when cc lacks it.
+          apt-get install -y --no-install-recommends build-essential clang python3 git binutils
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.version.outputs.sha }}
