@@ -14,7 +14,7 @@ use eukhe_types::pi_ai::{
     UserMessage,
 };
 
-use super::decide::{round_end, RoundEnd, Rounds};
+use super::decide::{round_end, Ending, RoundEnd, Rounds};
 use super::{
     failed, limits, GenerationCheckpoint, GenerationInput, GenerationResult, Next, Request, Runtime,
 };
@@ -508,8 +508,15 @@ pub(super) async fn finish_tool_round(
     // deferred job: no time to wait. The end decides the boundary; a queued
     // reset that the boundary applies asks again.
     let limits = limits(&runtime.settings(), 0);
-    let stops = terminate || handoff.is_some();
-    let end = round_end(rounds, stops, false, &limits);
+    let control = terminate || handoff.is_some();
+    let end = round_end(
+        rounds,
+        Ending {
+            control,
+            reset: false,
+        },
+        &limits,
+    );
     let task_id = runtime.task_id().erase();
     let generation = runtime.registry().builtins().generation.clone();
     let commit_runtime = runtime.clone();
@@ -556,7 +563,14 @@ pub(super) async fn finish_tool_round(
                 };
                 let outcome = apply_boundary(&tx, &mut boundary, at, now).await?;
                 let end = if outcome.reset {
-                    round_end(rounds, stops, true, &limits)
+                    round_end(
+                        rounds,
+                        Ending {
+                            control,
+                            reset: true,
+                        },
+                        &limits,
+                    )
                 } else {
                     end
                 };

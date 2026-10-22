@@ -6,11 +6,17 @@
 //! The Bend model is `bend/retry.bend` (§4 the deferred job, §5 the
 //! stall). `LAWS.bend` section `retry` states its laws (`deferred_pays_once`,
 //! `deferred_bounded_in_time`, `deferred_failed_poll_repolls`,
-//! `stall_retry_extends`) and `PROOF.bend` proves them. The bridge test
-//! (`retry_bridge.rs`) runs these decisions and the model on the same
-//! scenarios.
+//! `stall_retry_extends`) and `PROOF.bend` proves them. A failed poll runs
+//! as `decide.poll` of `bend/run.bend` in the compiled core; with the time
+//! check of [`after_reply`] it is the job of §4 (laws
+//! `run_failed_poll_is_the_job_model`, `run_deferred_reply_is_the_job_model`,
+//! `run_first_deferred_reply_is_the_job_model`). The stall runs as
+//! `stall.next` of `bend/retry.bend` in the compiled core
+//! (`bend/ffi_retry.bend`).
 //!
 //! [`after_reply`]: super::decide::after_reply
+
+use super::entry::{self, Ask};
 
 /// What a failed poll of a deferred job does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,9 +45,20 @@ impl PollFailure {
     /// `retry.maxRetries` (`max_retries`) failures in a row polls the
     /// same job again; any other failure cancels the job. The job's
     /// deadline still applies to the next poll: the run sends it through
-    /// `after_reply` as a deferred reply.
+    /// `after_reply` as a deferred reply. The decision is `decide.poll` of
+    /// `bend/run.bend`; with `after_reply` it is the job of
+    /// `bend/retry.bend` §4 (law `run_failed_poll_is_the_job_model`).
     pub(crate) fn next(self, max_retries: u32) -> FailedPoll {
-        if self.retryable && self.failures < max_retries {
+        let repoll = entry::ask(
+            Ask::Poll,
+            |w| {
+                w.bool(self.retryable)
+                    .nat(u64::from(self.failures))
+                    .nat(u64::from(max_retries));
+            },
+            entry::bool,
+        );
+        if repoll {
             FailedPoll::Repoll
         } else {
             FailedPoll::Cancel

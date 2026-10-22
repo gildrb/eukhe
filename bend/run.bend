@@ -12,16 +12,16 @@
 # The limits count down: c compactions, a retries and n notes left in the
 # generation, p ms left of the deferred job's time (a poll spends 1 ms),
 # r rounds left in the run. A retry spends a retry; a retry after a
-# noted reply spends a note. The Rust code counts them up; the bridge
-# prints both as counts left (bend/bridge_run.bend).
+# noted reply spends a note. The Rust code counts them up; the decisions
+# Rust calls (at the end) turn its counts into the counts left.
 # A row of the same calls with the same results gets a recovery
 # (Recoveries, H4.8), so the run has no loop guard.
 #
 # LAWS.bend (H4) states what must hold; PROOF.bend proves it through
 # PROOF.bend section run, and the laws of the requests a run sends (H4.7,
 # Reqs at the end) through PROOF.bend section retry. The Rust side is
-# crates/eukhe-durable/src/harness/generation/decide.rs: every step below
-# is one of its decisions (named at each step).
+# crates/eukhe-durable/src/harness/generation/decide.rs: it calls the
+# decisions at the end through the compiled core (bend/ffi_run.bend).
 
 import Base
 
@@ -381,7 +381,7 @@ def again(same: Nat, +last: Nat, +h: Nat) -> Nat:
     case 1n+k:
       again.eq(Nat.is_eq(last, h), k)
 
-# a counted round (Rounds::finish, then RoundEnd::reset): the cap fails
+# a counted round (decide.round; Rust's `round_end`): the cap fails
 # it, else a queued reset ends the run, else the next generation prepares
 # with fresh limits
 def round(+cfg: Cfg, reset: Bool, r: Nat, c: Nat, a: Nat, n: Nat, p: Nat) -> St:

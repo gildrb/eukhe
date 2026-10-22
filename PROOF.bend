@@ -84,6 +84,7 @@ import ./bend/ffi_retry.bend as Fr
 import ./bend/ffi_effort.bend as FEf
 import ./bend/ffi_infer.bend as FIn
 import ./bend/ffi_facts.bend as FFx
+import ./bend/ffi_run.bend as FRn
 
 # ---- cover ----
 
@@ -44655,3 +44656,255 @@ def Laws.core_facts_reply_example():
 
 def Laws.core_facts_malformed_example():
   ({==}, {==})
+
+# ---- run_ffi ----
+
+# The proofs of the codec laws of bend/ffi_run.bend (LAWS.bend section run_ffi):
+# every request and answer reads back as itself (rk.rt_*: each field's
+# encoding read back by the wire laws, in order), and the entry answers a
+# request's decision, refuses input left over and a malformed request.
+
+def rk.rt_lim(x: Rn.Lim, +rest: String, +h: {Laws.run.lim_fits(x) == True{} : Bool}) -> {FRn.get_lim(FRn.put_lim(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Lim>}:
+  match x:
+    case Rn.Lim{+rounds, +wait, +retries, +notes}:
+      +hl0 = rk.and_l(Laws.wire_fits(rounds), Bool.and(Laws.wire_fits(wait), Bool.and(Laws.wire_fits(retries), Laws.wire_fits(notes))), h)
+      +hr0 = rk.and_r(Laws.wire_fits(rounds), Bool.and(Laws.wire_fits(wait), Bool.and(Laws.wire_fits(retries), Laws.wire_fits(notes))), h)
+      +hl1 = rk.and_l(Laws.wire_fits(wait), Bool.and(Laws.wire_fits(retries), Laws.wire_fits(notes)), hr0)
+      +hr1 = rk.and_r(Laws.wire_fits(wait), Bool.and(Laws.wire_fits(retries), Laws.wire_fits(notes)), hr0)
+      +hl2 = rk.and_l(Laws.wire_fits(retries), Laws.wire_fits(notes), hr1)
+      +hr2 = rk.and_r(Laws.wire_fits(retries), Laws.wire_fits(notes), hr1)
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest))))), Wr.Got{rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest)))}, Laws.wire_nat_round_trip(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest))), hl0)) : {FRn.get_lim.f0(_) == Wr.Got{Rn.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<Rn.Lim>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest)))), Wr.Got{wait, Wr.put_nat(retries, Wr.put_nat(notes, rest))}, Laws.wire_nat_round_trip(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest)), hl1)) : {FRn.get_lim.f1(rounds, _) == Wr.Got{Rn.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<Rn.Lim>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(retries, Wr.put_nat(notes, rest))), Wr.Got{retries, Wr.put_nat(notes, rest)}, Laws.wire_nat_round_trip(retries, Wr.put_nat(notes, rest), hl2)) : {FRn.get_lim.f2(rounds, wait, _) == Wr.Got{Rn.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<Rn.Lim>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(notes, rest)), Wr.Got{notes, rest}, Laws.wire_nat_round_trip(notes, rest, hr2)) : {FRn.get_lim.f3(rounds, wait, retries, _) == Wr.Got{Rn.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<Rn.Lim>}
+      {==}
+
+def rk.rt_at(x: Rn.At, +rest: String, +h: {Laws.run.at_fits(x) == True{} : Bool}) -> {FRn.get_at(FRn.put_at(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.At>}:
+  match x:
+    case Rn.At{+attempt, +notes, +waited, +compacted}:
+      +hl0 = rk.and_l(Laws.wire_fits(attempt), Bool.and(Laws.wire_fits(notes), Laws.wire_fits(waited)), h)
+      +hr0 = rk.and_r(Laws.wire_fits(attempt), Bool.and(Laws.wire_fits(notes), Laws.wire_fits(waited)), h)
+      +hl1 = rk.and_l(Laws.wire_fits(notes), Laws.wire_fits(waited), hr0)
+      +hr1 = rk.and_r(Laws.wire_fits(notes), Laws.wire_fits(waited), hr0)
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(attempt, Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest))))), Wr.Got{attempt, Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))}, Laws.wire_nat_round_trip(attempt, Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest))), hl0)) : {FRn.get_at.f0(_) == Wr.Got{Rn.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<Rn.At>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))), Wr.Got{notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest))}, Laws.wire_nat_round_trip(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest)), hl1)) : {FRn.get_at.f1(attempt, _) == Wr.Got{Rn.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<Rn.At>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(waited, Wr.put_bool(compacted, rest))), Wr.Got{waited, Wr.put_bool(compacted, rest)}, Laws.wire_nat_round_trip(waited, Wr.put_bool(compacted, rest), hr1)) : {FRn.get_at.f2(attempt, notes, _) == Wr.Got{Rn.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<Rn.At>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(compacted, rest)), Wr.Got{compacted, rest}, Laws.wire_bool_round_trip(compacted, rest)) : {FRn.get_at.f3(attempt, notes, waited, _) == Wr.Got{Rn.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<Rn.At>}
+      {==}
+
+def rk.rt_reply(x: Rn.Reply, +rest: String) -> {FRn.get_reply(FRn.put_reply(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Reply>}:
+  match x:
+    case Rn.Plain{}:
+      {==}
+    case Rn.Calls{}:
+      {==}
+    case Rn.Deferred{}:
+      {==}
+    case Rn.Error{+retryable, +noted}:
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(retryable, Wr.put_bool(noted, rest))), Wr.Got{retryable, Wr.put_bool(noted, rest)}, Laws.wire_bool_round_trip(retryable, Wr.put_bool(noted, rest))) : {FRn.get_reply.c3.f0(_) == Wr.Got{Rn.Error{retryable, noted}, rest} : Wr.Dec<Rn.Reply>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(noted, rest)), Wr.Got{noted, rest}, Laws.wire_bool_round_trip(noted, rest)) : {FRn.get_reply.c3.f1(retryable, _) == Wr.Got{Rn.Error{retryable, noted}, rest} : Wr.Dec<Rn.Reply>}
+      {==}
+    case Rn.Overflow{+cut}:
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(cut, rest)), Wr.Got{cut, rest}, Laws.wire_bool_round_trip(cut, rest)) : {FRn.get_reply.c4.f0(_) == Wr.Got{Rn.Overflow{cut}, rest} : Wr.Dec<Rn.Reply>}
+      {==}
+
+def rk.rt_ended(x: Rn.Ended, +rest: String) -> {FRn.get_ended(FRn.put_ended(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Ended>}:
+  match x:
+    case Rn.Ended{+text, +calls}:
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(text, Wr.put_bool(calls, rest))), Wr.Got{text, Wr.put_bool(calls, rest)}, Laws.wire_bool_round_trip(text, Wr.put_bool(calls, rest))) : {FRn.get_ended.f0(_) == Wr.Got{Rn.Ended{text, calls}, rest} : Wr.Dec<Rn.Ended>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(calls, rest)), Wr.Got{calls, rest}, Laws.wire_bool_round_trip(calls, rest)) : {FRn.get_ended.f1(text, _) == Wr.Got{Rn.Ended{text, calls}, rest} : Wr.Dec<Rn.Ended>}
+      {==}
+
+def rk.rt_th(x: Rn.Th, +rest: String) -> {FRn.get_th(FRn.put_th(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Th>}:
+  match x:
+    case Rn.Under{}:
+      {==}
+    case Rn.Background{}:
+      {==}
+    case Rn.Blocking{}:
+      {==}
+
+def rk.rt_got(x: Rn.Got, +rest: String) -> {FRn.get_got(FRn.put_got(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Got>}:
+  match x:
+    case Rn.Built{}:
+      {==}
+    case Rn.Kept{}:
+      {==}
+    case Rn.Broke{}:
+      {==}
+
+def rk.rt_rcfg(x: Rn.RCfg, +rest: String, +h: {Laws.run.rcfg_fits(x) == True{} : Bool}) -> {FRn.get_rcfg(FRn.put_rcfg(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.RCfg>}:
+  match x:
+    case Rn.RCfg{+long, +leak, +redirect, +repeat}:
+      +hl0 = rk.and_l(Laws.wire_fits(long), Bool.and(Laws.wire_fits(leak), Bool.and(Laws.wire_fits(redirect), Laws.wire_fits(repeat))), h)
+      +hr0 = rk.and_r(Laws.wire_fits(long), Bool.and(Laws.wire_fits(leak), Bool.and(Laws.wire_fits(redirect), Laws.wire_fits(repeat))), h)
+      +hl1 = rk.and_l(Laws.wire_fits(leak), Bool.and(Laws.wire_fits(redirect), Laws.wire_fits(repeat)), hr0)
+      +hr1 = rk.and_r(Laws.wire_fits(leak), Bool.and(Laws.wire_fits(redirect), Laws.wire_fits(repeat)), hr0)
+      +hl2 = rk.and_l(Laws.wire_fits(redirect), Laws.wire_fits(repeat), hr1)
+      +hr2 = rk.and_r(Laws.wire_fits(redirect), Laws.wire_fits(repeat), hr1)
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(long, Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest))))), Wr.Got{long, Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest)))}, Laws.wire_nat_round_trip(long, Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest))), hl0)) : {FRn.get_rcfg.f0(_) == Wr.Got{Rn.RCfg{long, leak, redirect, repeat}, rest} : Wr.Dec<Rn.RCfg>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest)))), Wr.Got{leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest))}, Laws.wire_nat_round_trip(leak, Wr.put_nat(redirect, Wr.put_nat(repeat, rest)), hl1)) : {FRn.get_rcfg.f1(long, _) == Wr.Got{Rn.RCfg{long, leak, redirect, repeat}, rest} : Wr.Dec<Rn.RCfg>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(redirect, Wr.put_nat(repeat, rest))), Wr.Got{redirect, Wr.put_nat(repeat, rest)}, Laws.wire_nat_round_trip(redirect, Wr.put_nat(repeat, rest), hl2)) : {FRn.get_rcfg.f2(long, leak, _) == Wr.Got{Rn.RCfg{long, leak, redirect, repeat}, rest} : Wr.Dec<Rn.RCfg>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(repeat, rest)), Wr.Got{repeat, rest}, Laws.wire_nat_round_trip(repeat, rest, hr2)) : {FRn.get_rcfg.f3(long, leak, redirect, _) == Wr.Got{Rn.RCfg{long, leak, redirect, repeat}, rest} : Wr.Dec<Rn.RCfg>}
+      {==}
+
+def rk.rt_stuck(x: Rn.Stuck, +rest: String, +h: {Laws.run.stuck_fits(x) == True{} : Bool}) -> {FRn.get_stuck(FRn.put_stuck(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Stuck>}:
+  match x:
+    case Rn.Truncated{}:
+      {==}
+    case Rn.Leaked{}:
+      {==}
+    case Rn.Repeats{+before}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(before, rest)), Wr.Got{before, rest}, Laws.wire_nat_round_trip(before, rest, h)) : {FRn.get_stuck.c2.f0(_) == Wr.Got{Rn.Repeats{before}, rest} : Wr.Dec<Rn.Stuck>}
+      {==}
+
+def rk.rt_rk(x: Rn.Rk, +rest: String) -> {FRn.get_rk(FRn.put_rk(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Rk>}:
+  match x:
+    case Rn.Free{}:
+      {==}
+    case Rn.Longs{}:
+      {==}
+    case Rn.Leaks{}:
+      {==}
+    case Rn.Loops{}:
+      {==}
+
+def rk.rt_ask(x: FRn.Ask, +rest: String, +h: {Laws.run.ask_fits(x) == True{} : Bool}) -> {FRn.get_ask(FRn.put_ask(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FRn.Ask>}:
+  match x:
+    case FRn.AskReply{+l, +t, +reply}:
+      +hl0 = rk.and_l(Laws.run.lim_fits(l), Laws.run.at_fits(t), h)
+      +hr0 = rk.and_r(Laws.run.lim_fits(l), Laws.run.at_fits(t), h)
+      %Equal.sym(Wr.Dec<Rn.Lim>, FRn.get_lim(FRn.put_lim(l, FRn.put_at(t, FRn.put_reply(reply, rest)))), Wr.Got{l, FRn.put_at(t, FRn.put_reply(reply, rest))}, rk.rt_lim(l, FRn.put_at(t, FRn.put_reply(reply, rest)), hl0)) : {FRn.get_ask.c0.f0(_) == Wr.Got{FRn.AskReply{l, t, reply}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Rn.At>, FRn.get_at(FRn.put_at(t, FRn.put_reply(reply, rest))), Wr.Got{t, FRn.put_reply(reply, rest)}, rk.rt_at(t, FRn.put_reply(reply, rest), hr0)) : {FRn.get_ask.c0.f1(l, _) == Wr.Got{FRn.AskReply{l, t, reply}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Rn.Reply>, FRn.get_reply(FRn.put_reply(reply, rest)), Wr.Got{reply, rest}, rk.rt_reply(reply, rest)) : {FRn.get_ask.c0.f2(l, t, _) == Wr.Got{FRn.AskReply{l, t, reply}, rest} : Wr.Dec<FRn.Ask>}
+      {==}
+    case FRn.AskEnded{+m}:
+      %Equal.sym(Wr.Dec<Rn.Ended>, FRn.get_ended(FRn.put_ended(m, rest)), Wr.Got{m, rest}, rk.rt_ended(m, rest)) : {FRn.get_ask.c1.f0(_) == Wr.Got{FRn.AskEnded{m}, rest} : Wr.Dec<FRn.Ask>}
+      {==}
+    case FRn.AskPrepare{+compacted, +th}:
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(compacted, FRn.put_th(th, rest))), Wr.Got{compacted, FRn.put_th(th, rest)}, Laws.wire_bool_round_trip(compacted, FRn.put_th(th, rest))) : {FRn.get_ask.c2.f0(_) == Wr.Got{FRn.AskPrepare{compacted, th}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Rn.Th>, FRn.get_th(FRn.put_th(th, rest)), Wr.Got{th, rest}, rk.rt_th(th, rest)) : {FRn.get_ask.c2.f1(compacted, _) == Wr.Got{FRn.AskPrepare{compacted, th}, rest} : Wr.Dec<FRn.Ask>}
+      {==}
+    case FRn.AskCompact{+over, +got}:
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(over, FRn.put_got(got, rest))), Wr.Got{over, FRn.put_got(got, rest)}, Laws.wire_bool_round_trip(over, FRn.put_got(got, rest))) : {FRn.get_ask.c3.f0(_) == Wr.Got{FRn.AskCompact{over, got}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Rn.Got>, FRn.get_got(FRn.put_got(got, rest)), Wr.Got{got, rest}, rk.rt_got(got, rest)) : {FRn.get_ask.c3.f1(over, _) == Wr.Got{FRn.AskCompact{over, got}, rest} : Wr.Dec<FRn.Ask>}
+      {==}
+    case FRn.AskRound{+l, +count, +stops, +reset}:
+      +hl0 = rk.and_l(Laws.run.lim_fits(l), Laws.wire_fits(count), h)
+      +hr0 = rk.and_r(Laws.run.lim_fits(l), Laws.wire_fits(count), h)
+      %Equal.sym(Wr.Dec<Rn.Lim>, FRn.get_lim(FRn.put_lim(l, Wr.put_nat(count, Wr.put_bool(stops, Wr.put_bool(reset, rest))))), Wr.Got{l, Wr.put_nat(count, Wr.put_bool(stops, Wr.put_bool(reset, rest)))}, rk.rt_lim(l, Wr.put_nat(count, Wr.put_bool(stops, Wr.put_bool(reset, rest))), hl0)) : {FRn.get_ask.c4.f0(_) == Wr.Got{FRn.AskRound{l, count, stops, reset}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(count, Wr.put_bool(stops, Wr.put_bool(reset, rest)))), Wr.Got{count, Wr.put_bool(stops, Wr.put_bool(reset, rest))}, Laws.wire_nat_round_trip(count, Wr.put_bool(stops, Wr.put_bool(reset, rest)), hr0)) : {FRn.get_ask.c4.f1(l, _) == Wr.Got{FRn.AskRound{l, count, stops, reset}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(stops, Wr.put_bool(reset, rest))), Wr.Got{stops, Wr.put_bool(reset, rest)}, Laws.wire_bool_round_trip(stops, Wr.put_bool(reset, rest))) : {FRn.get_ask.c4.f2(l, count, _) == Wr.Got{FRn.AskRound{l, count, stops, reset}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(reset, rest)), Wr.Got{reset, rest}, Laws.wire_bool_round_trip(reset, rest)) : {FRn.get_ask.c4.f3(l, count, stops, _) == Wr.Got{FRn.AskRound{l, count, stops, reset}, rest} : Wr.Dec<FRn.Ask>}
+      {==}
+    case FRn.AskRecover{+rc, +s, +k, +row}:
+      +hl0 = rk.and_l(Laws.run.rcfg_fits(rc), Bool.and(Laws.run.stuck_fits(s), Laws.wire_fits(row)), h)
+      +hr0 = rk.and_r(Laws.run.rcfg_fits(rc), Bool.and(Laws.run.stuck_fits(s), Laws.wire_fits(row)), h)
+      +hl1 = rk.and_l(Laws.run.stuck_fits(s), Laws.wire_fits(row), hr0)
+      +hr1 = rk.and_r(Laws.run.stuck_fits(s), Laws.wire_fits(row), hr0)
+      %Equal.sym(Wr.Dec<Rn.RCfg>, FRn.get_rcfg(FRn.put_rcfg(rc, FRn.put_stuck(s, FRn.put_rk(k, Wr.put_nat(row, rest))))), Wr.Got{rc, FRn.put_stuck(s, FRn.put_rk(k, Wr.put_nat(row, rest)))}, rk.rt_rcfg(rc, FRn.put_stuck(s, FRn.put_rk(k, Wr.put_nat(row, rest))), hl0)) : {FRn.get_ask.c5.f0(_) == Wr.Got{FRn.AskRecover{rc, s, k, row}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Rn.Stuck>, FRn.get_stuck(FRn.put_stuck(s, FRn.put_rk(k, Wr.put_nat(row, rest)))), Wr.Got{s, FRn.put_rk(k, Wr.put_nat(row, rest))}, rk.rt_stuck(s, FRn.put_rk(k, Wr.put_nat(row, rest)), hl1)) : {FRn.get_ask.c5.f1(rc, _) == Wr.Got{FRn.AskRecover{rc, s, k, row}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Rn.Rk>, FRn.get_rk(FRn.put_rk(k, Wr.put_nat(row, rest))), Wr.Got{k, Wr.put_nat(row, rest)}, rk.rt_rk(k, Wr.put_nat(row, rest))) : {FRn.get_ask.c5.f2(rc, s, _) == Wr.Got{FRn.AskRecover{rc, s, k, row}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(row, rest)), Wr.Got{row, rest}, Laws.wire_nat_round_trip(row, rest, hr1)) : {FRn.get_ask.c5.f3(rc, s, k, _) == Wr.Got{FRn.AskRecover{rc, s, k, row}, rest} : Wr.Dec<FRn.Ask>}
+      {==}
+    case FRn.AskPoll{+retryable, +failures, +retries}:
+      +hl0 = rk.and_l(Laws.wire_fits(failures), Laws.wire_fits(retries), h)
+      +hr0 = rk.and_r(Laws.wire_fits(failures), Laws.wire_fits(retries), h)
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(retryable, Wr.put_nat(failures, Wr.put_nat(retries, rest)))), Wr.Got{retryable, Wr.put_nat(failures, Wr.put_nat(retries, rest))}, Laws.wire_bool_round_trip(retryable, Wr.put_nat(failures, Wr.put_nat(retries, rest)))) : {FRn.get_ask.c6.f0(_) == Wr.Got{FRn.AskPoll{retryable, failures, retries}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(failures, Wr.put_nat(retries, rest))), Wr.Got{failures, Wr.put_nat(retries, rest)}, Laws.wire_nat_round_trip(failures, Wr.put_nat(retries, rest), hl0)) : {FRn.get_ask.c6.f1(retryable, _) == Wr.Got{FRn.AskPoll{retryable, failures, retries}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(retries, rest)), Wr.Got{retries, rest}, Laws.wire_nat_round_trip(retries, rest, hr0)) : {FRn.get_ask.c6.f2(retryable, failures, _) == Wr.Got{FRn.AskPoll{retryable, failures, retries}, rest} : Wr.Dec<FRn.Ask>}
+      {==}
+
+def rk.rt_then(x: Rn.Then, +rest: String) -> {FRn.get_then(FRn.put_then(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Then>}:
+  match x:
+    case Rn.DoAnswer{}:
+      {==}
+    case Rn.DoTools{}:
+      {==}
+    case Rn.DoPoll{}:
+      {==}
+    case Rn.DoRetry{}:
+      {==}
+    case Rn.DoNote{}:
+      {==}
+    case Rn.DoCompact{}:
+      {==}
+    case Rn.DoFail{}:
+      {==}
+    case Rn.DoLate{}:
+      {==}
+
+def rk.rt_prepared(x: Rn.Prepared, +rest: String) -> {FRn.get_prepared(FRn.put_prepared(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Prepared>}:
+  match x:
+    case Rn.Waits{}:
+      {==}
+    case Rn.Sends{+background}:
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(background, rest)), Wr.Got{background, rest}, Laws.wire_bool_round_trip(background, rest)) : {FRn.get_prepared.c1.f0(_) == Wr.Got{Rn.Sends{background}, rest} : Wr.Dec<Rn.Prepared>}
+      {==}
+
+def rk.rt_end(x: Rn.End, +rest: String, +h: {Laws.run.end_fits(x) == True{} : Bool}) -> {FRn.get_end(FRn.put_end(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.End>}:
+  match x:
+    case Rn.EndStop{}:
+      {==}
+    case Rn.EndReset{}:
+      {==}
+    case Rn.EndCapped{}:
+      {==}
+    case Rn.EndNext{+count}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(count, rest)), Wr.Got{count, rest}, Laws.wire_nat_round_trip(count, rest, h)) : {FRn.get_end.c3.f0(_) == Wr.Got{Rn.EndNext{count}, rest} : Wr.Dec<Rn.End>}
+      {==}
+
+def rk.rt_help(x: Rn.Help, +rest: String, +h: {Laws.run.help_fits(x) == True{} : Bool}) -> {FRn.get_help(FRn.put_help(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Help>}:
+  match x:
+    case Rn.Runs{}:
+      {==}
+    case Rn.Redoes{+row}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(row, rest)), Wr.Got{row, rest}, Laws.wire_nat_round_trip(row, rest, h)) : {FRn.get_help.c1.f0(_) == Wr.Got{Rn.Redoes{row}, rest} : Wr.Dec<Rn.Help>}
+      {==}
+    case Rn.Stands{}:
+      {==}
+    case Rn.Quits{}:
+      {==}
+
+def Laws.run_ffi_ask_round_trip(a, rest, h):
+  rk.rt_ask(a, rest, h)
+
+def Laws.run_ffi_ask_fits_witness():
+  (FRn.AskEnded{Rn.Ended{False{}, False{}}}, {==})
+
+def Laws.run_ffi_answers(a, h):
+  %Equal.sym(Wr.Dec<FRn.Ask>, FRn.get_ask(FRn.put_ask(a, "")), Wr.Got{a, ""}, rk.rt_ask(a, "", h)) : {FRn.ffi.go(_) == FRn.answer(a) : String}
+  {==}
+
+def Laws.run_ffi_refuses_left_over(a, rest, h, more):
+  %Equal.sym(Wr.Dec<FRn.Ask>, FRn.get_ask(FRn.put_ask(a, rest)), Wr.Got{a, rest}, rk.rt_ask(a, rest, h)) : {FRn.ffi.go(_) == Wr.err("run: input left over after the request") : String}
+  %Equal.sym(Bool, String.is_empty(rest), False{}, more) : {FRn.ffi.end(_, a) == Wr.err("run: input left over after the request") : String}
+  {==}
+
+def Laws.run_ffi_left_over_witness():
+  ("x", {==})
+
+def Laws.run_ffi_refuses_malformed(s, bad):
+  %Equal.sym(Wr.Dec<FRn.Ask>, FRn.get_ask(s), Wr.Bad{}, bad) : {FRn.ffi.go(_) == Wr.err("run: malformed request") : String}
+  {==}
+
+def Laws.run_ffi_malformed_witness():
+  ("", {==})
+
+def Laws.run_ffi_then_round_trip(x, rest):
+  rk.rt_then(x, rest)
+
+def Laws.run_ffi_prepared_round_trip(x, rest):
+  rk.rt_prepared(x, rest)
+
+def Laws.run_ffi_end_round_trip(x, rest, h):
+  rk.rt_end(x, rest, h)
+
+def Laws.run_ffi_help_round_trip(x, rest, h):
+  rk.rt_help(x, rest, h)
+
+def Laws.run_ffi_reply_round_trip(x, rest):
+  rk.rt_reply(x, rest)
+
+def Laws.run_ffi_answer_fits_witness():
+  (Rn.EndStop{}, (Rn.Runs{}, {==}))

@@ -15,8 +15,10 @@
 
 use std::num::NonZeroU32;
 
+use eukhe_bend::wire::Writer;
 use serde::{Deserialize, Serialize};
 
+use super::entry::{self, Ask};
 use super::note::{NoteCause, Recovery, RetryNote};
 use crate::harness::types::CompactionPolicy;
 
@@ -98,39 +100,40 @@ pub(crate) enum Act {
 /// quits; leaked calls are redone under their cap, then stand as text;
 /// calls run below the repeat cap, else are redone under the redirect
 /// cap, then quit. A recovery does not read the retry policy: its note is
-/// a new request, not a transient error.
+/// a new request, not a transient error. The decision is `decide.recover`
+/// of `bend/run.bend` (law `rec_recover_is_the_rust_rule`).
 pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) -> Act {
-    let row = |recovery| {
-        note.filter(|(of, _)| *of == recovery)
-            .map_or(0, |(_, row)| row)
-    };
-    match stuck {
-        Stuck::Length => {
-            let row = row(Recovery::Length);
-            if row < caps.length {
-                Act::Redo { row: row + 1 }
-            } else {
-                Act::Quit
+    entry::ask(
+        Ask::Recover,
+        |w| {
+            w.nat(u64::from(caps.length))
+                .nat(u64::from(caps.leak))
+                .nat(u64::from(caps.redirect))
+                .nat(u64::from(caps.repeat));
+            match stuck {
+                Stuck::Length => w.tag(0),
+                Stuck::Leak => w.tag(1),
+                Stuck::Calls { rounds } => w.tag(2).nat(u64::from(rounds.get() - 1)),
+            };
+            match note {
+                None => w.tag(0).nat(0),
+                Some((Recovery::Length, row)) => w.tag(1).nat(u64::from(row)),
+                Some((Recovery::Leak, row)) => w.tag(2).nat(u64::from(row)),
+                Some((Recovery::Redirect, row)) => w.tag(3).nat(u64::from(row)),
+            };
+        },
+        |r| match r.tag_of(4, "a recovery's act")? {
+            0 => Ok(Act::Run),
+            1 => {
+                let row = r.nat()?;
+                let row = u32::try_from(row).map_err(|_| entry::mismatch("a u32 row"))?;
+                Ok(Act::Redo { row })
             }
-        }
-        Stuck::Leak => {
-            let row = row(Recovery::Leak);
-            if row < caps.leak {
-                Act::Redo { row: row + 1 }
-            } else {
-                Act::Stand
-            }
-        }
-        Stuck::Calls { rounds } if rounds.get() < caps.repeat => Act::Run,
-        Stuck::Calls { .. } => {
-            let row = row(Recovery::Redirect);
-            if row < caps.redirect {
-                Act::Redo { row: row + 1 }
-            } else {
-                Act::Quit
-            }
-        }
-    }
+            2 => Ok(Act::Stand),
+            3 => Ok(Act::Quit),
+            4..=u32::MAX => Err(entry::mismatch("a recovery's act")),
+        },
+    )
 }
 
 /// The limits the decisions read.
@@ -201,19 +204,36 @@ impl Ended {
     /// calls, whatever the stop reason (vLLM, llama.cpp and Ollama send
     /// `stop` with tool calls); else an answer when it has text. With no
     /// text and no call, the model gave no answer: the reply is a noted
-    /// model error, so it never ends the run as answered.
+    /// model error, so it never ends the run as answered. The decision is
+    /// `Ended.reply` of `bend/run.bend` (laws `run_no_answer_is_an_error`,
+    /// `run_calls_never_answer`).
     pub(crate) fn reply<D>(self) -> Reply<D> {
-        if self.calls {
-            Reply::Calls
-        } else if self.text {
-            Reply::Text
-        } else {
-            Reply::Error {
-                retryable: false,
-                noted: true,
-            }
-        }
+        entry::ask(
+            Ask::Ended,
+            |w| {
+                w.bool(self.text).bool(self.calls);
+            },
+            |r| match r.tag_of(5, "a reply")? {
+                0 => Ok(Reply::Text),
+                1 => Ok(Reply::Calls),
+                3 => {
+                    let retryable = r.bool()?;
+                    let noted = r.bool()?;
+                    Ok(Reply::Error { retryable, noted })
+                }
+                4 => Ok(Reply::Overflow { cut: r.bool()? }),
+                2 | 5..=u32::MAX => Err(entry::mismatch("the reply of a message")),
+            },
+        )
     }
+}
+
+/// The limits as the run's entry reads them (`Lim`).
+fn write_limits(w: &mut Writer, limits: &Limits) {
+    w.nat(u64::from(limits.max_rounds.get()))
+        .nat(entry::saturated(limits.max_wait))
+        .nat(u64::from(limits.max_retries))
+        .nat(u64::from(limits.max_notes));
 }
 
 /// What follows a reply.
@@ -244,22 +264,47 @@ pub(crate) enum Failure {
 
 /// The step after a reply to the request or poll counted by `at`. A noted
 /// reply spends a note and a transient error a retry: neither shrinks
-/// the other's budget.
+/// the other's budget. The decision is `decide.reply` of `bend/run.bend`
+/// (law `run_reply_is_the_rust_rule`); a poll goes on with the deferred
+/// reply's handle.
 pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> Step<D> {
-    let retries = (at.attempt - 1).saturating_sub(u64::from(at.notes));
-    match reply {
-        Reply::Text => Step::Answer,
-        Reply::Calls => Step::Tools,
-        Reply::Deferred(handle) if at.waited < limits.max_wait => Step::Poll(handle),
-        Reply::Deferred(_) => Step::Fail(Failure::Polls),
-        Reply::Error { noted: true, .. } if at.notes < limits.max_notes => Step::Note,
-        Reply::Error {
-            retryable: true,
-            noted: false,
-        } if retries < u64::from(limits.max_retries) => Step::Retry,
-        Reply::Overflow { cut: true } if !at.compacted => Step::Compact,
-        Reply::Error { .. } | Reply::Overflow { .. } => Step::Fail(Failure::Model),
-    }
+    let (shape, handle) = match reply {
+        Reply::Deferred(handle) => (Reply::Deferred(()), Some(handle)),
+        Reply::Text => (Reply::Text, None),
+        Reply::Calls => (Reply::Calls, None),
+        Reply::Error { retryable, noted } => (Reply::Error { retryable, noted }, None),
+        Reply::Overflow { cut } => (Reply::Overflow { cut }, None),
+    };
+    entry::ask(
+        Ask::Reply,
+        |w| {
+            write_limits(w, limits);
+            w.nat(entry::saturated(at.attempt))
+                .nat(u64::from(at.notes))
+                .nat(entry::saturated(at.waited))
+                .bool(at.compacted);
+            match shape {
+                Reply::Text => w.tag(0),
+                Reply::Calls => w.tag(1),
+                Reply::Deferred(()) => w.tag(2),
+                Reply::Error { retryable, noted } => w.tag(3).bool(retryable).bool(noted),
+                Reply::Overflow { cut } => w.tag(4).bool(cut),
+            };
+        },
+        |r| match r.tag_of(8, "a step")? {
+            0 => Ok(Step::Answer),
+            1 => Ok(Step::Tools),
+            2 => handle
+                .map(Step::Poll)
+                .ok_or_else(|| entry::mismatch("a poll only of a deferred reply")),
+            3 => Ok(Step::Retry),
+            4 => Ok(Step::Note),
+            5 => Ok(Step::Compact),
+            6 => Ok(Step::Fail(Failure::Model)),
+            7 => Ok(Step::Fail(Failure::Polls)),
+            8..=u32::MAX => Err(entry::mismatch("a step")),
+        },
+    )
 }
 
 /// The note the retry of the request counted by `at` ends with (H4.7): after
@@ -330,19 +375,30 @@ pub(crate) enum Prepared {
     Request { background: bool },
 }
 
-/// What preparation does before a request of a generation that compacted
-/// or not, its context over `threshold` (which compaction the context is
-/// over, given a cut exists). A generation compacts at most once, so one
-/// that compacted reads no threshold (law
-/// `run_prepare_compacted_reads_no_threshold`): the caller need not
-/// measure its context and passes `None`.
-pub(crate) fn before_request(compacted: bool, threshold: Option<Threshold>) -> Prepared {
-    match (!compacted).then_some(threshold).flatten() {
-        Some(Threshold::Blocking) => Prepared::Compact,
-        over => Prepared::Request {
-            background: over == Some(Threshold::Background),
+/// What preparation does before the request counted by `at`, its context
+/// over `threshold` (which compaction the context is over, given a cut
+/// exists). A generation compacts at most once, so one that compacted
+/// reads no threshold (law `run_prepare_compacted_reads_no_threshold`): the
+/// caller need not measure its context and passes `None`. The decision is
+/// `decide.prepare` of `bend/run.bend` (law `run_prepare_is_the_rust_rule`).
+pub(crate) fn before_request(at: Counts, threshold: Option<Threshold>) -> Prepared {
+    entry::ask(
+        Ask::Prepare,
+        |w| {
+            w.bool(at.compacted).tag(match threshold {
+                None => 0,
+                Some(Threshold::Background) => 1,
+                Some(Threshold::Blocking) => 2,
+            });
         },
-    }
+        |r| match r.tag_of(2, "a preparation")? {
+            0 => Ok(Prepared::Compact),
+            1 => Ok(Prepared::Request {
+                background: r.bool()?,
+            }),
+            2..=u32::MAX => Err(entry::mismatch("a preparation")),
+        },
+    )
 }
 
 /// The compaction a generation waited for.
@@ -369,14 +425,28 @@ pub(crate) enum Compacted {
 /// overflow's needs its entry: without one the request overflows again. A
 /// threshold one that found nothing leaves a request that may still fit;
 /// one that failed left a context it judged too large, and sending it
-/// would at best leave no room for the answer.
+/// would at best leave no room for the answer. The decision is
+/// `decide.compact` of `bend/run.bend` (law `run_compact_is_the_rust_rule`).
 pub(crate) fn after_compaction(
     compaction: Compaction,
     compacted: Compacted,
 ) -> Result<(), Failure> {
-    match (compaction, compacted) {
-        (_, Compacted::Entry) | (Compaction::Threshold, Compacted::Nothing) => Ok(()),
-        (Compaction::Overflow, Compacted::Nothing) | (_, Compacted::Failed) => Err(Failure::Model),
+    let goes = entry::ask(
+        Ask::Compact,
+        |w| {
+            w.bool(compaction == Compaction::Overflow)
+                .tag(match compacted {
+                    Compacted::Entry => 0,
+                    Compacted::Nothing => 1,
+                    Compacted::Failed => 2,
+                });
+        },
+        entry::bool,
+    );
+    if goes {
+        Ok(())
+    } else {
+        Err(Failure::Model)
     }
 }
 
@@ -414,22 +484,39 @@ impl Rounds {
     }
 }
 
+/// What may end a finished round before the cap: a control (terminate,
+/// handoff) ends the run, and a queued reset applied at the round's
+/// post-tools boundary ends a round that would hand the run on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Ending {
+    pub(crate) control: bool,
+    pub(crate) reset: bool,
+}
+
 /// How the round after `rounds` ends: [`RoundEnd::Stop`] when a control
-/// ends the run (`stops`; the round does not count), else the cap ends the
-/// run at [`Limits::max_rounds`] rounds, else a queued reset applied at the
-/// round's post-tools boundary (`reset`) ends it, else the next generation
-/// goes on with one more round. A control wins over a reset, and the cap
-/// over both.
-pub(crate) fn round_end(rounds: Rounds, stops: bool, reset: bool, limits: &Limits) -> RoundEnd {
-    if stops {
-        return RoundEnd::Stop;
-    }
-    let count = rounds.count.saturating_add(1);
-    if count >= limits.max_rounds.get() {
-        RoundEnd::Capped
-    } else if reset {
-        RoundEnd::Reset
-    } else {
-        RoundEnd::Next(Rounds { count })
-    }
+/// ends the run (the round does not count), else the cap ends the run at
+/// [`Limits::max_rounds`] rounds, else a queued reset ends it, else the
+/// next generation goes on with one more round. A control wins over a
+/// reset, and the cap over a reset. The decision is `decide.round` of
+/// `bend/run.bend` (law `run_round_is_the_rust_rule`).
+pub(crate) fn round_end(rounds: Rounds, ending: Ending, limits: &Limits) -> RoundEnd {
+    entry::ask(
+        Ask::Round,
+        |w| {
+            write_limits(w, limits);
+            w.nat(u64::from(rounds.count))
+                .bool(ending.control)
+                .bool(ending.reset);
+        },
+        |r| match r.tag_of(4, "a round's end")? {
+            0 => Ok(RoundEnd::Stop),
+            1 => Ok(RoundEnd::Reset),
+            2 => Ok(RoundEnd::Capped),
+            3 => {
+                let count = u32::try_from(r.nat()?).map_err(|_| entry::mismatch("a u32 count"))?;
+                Ok(RoundEnd::Next(Rounds { count }))
+            }
+            4..=u32::MAX => Err(entry::mismatch("a round's end")),
+        },
+    )
 }

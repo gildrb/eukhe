@@ -18,6 +18,7 @@ import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_retry.bend as ffi_retry
+import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
@@ -68,6 +69,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_sandbox.ffi(input)
     case 18:
       ffi_workflow.ffi(input)
+    case 19:
+      ffi_run.ffi(input)
     case _:
       W.err("unknown entry")
 

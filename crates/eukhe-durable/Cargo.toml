@@ -10,7 +10,8 @@ description = "Rust port of @earendil-works/pi-durable 1.0.4 with parts of 1.1 a
 eukhe-chord.workspace = true
 eukhe-ai.workspace = true
 eukhe-types.workspace = true
-# The compiled Bend core: the idle deadline after a stall (`deferred.rs`).
+# The compiled Bend core: the run's decisions (`decide.rs`, `entry.rs`) and
+# the idle deadline after a stall (`deferred.rs`).
 eukhe-bend.workspace = true
 futures.workspace = true
 serde.workspace = true

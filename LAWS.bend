@@ -83,6 +83,7 @@ import ./bend/ffi_retry.bend as Fr
 import ./bend/ffi_effort.bend as FEf
 import ./bend/ffi_infer.bend as FIn
 import ./bend/ffi_facts.bend as FFx
+import ./bend/ffi_run.bend as FRn
 
 # (a) The view
 # ------------
@@ -6703,8 +6704,9 @@ law core_facts_malformed_example:
 # the lemmas of PROOF.bend sections retry_policy and retry_ffi. The
 # classifier, the wait, the failover walk and the stall run as this model,
 # compiled (bend/ffi_retry.bend, R7; Rust calls eukhe_bend::rules::retry).
-# The deferred job and the idle deadline stay Rust: the bridge test
-# crates/eukhe-durable/src/harness/generation/retry_bridge.rs runs them
+# The deferred job runs as bend/run.bend, compiled (bend/ffi_run.bend).
+# The idle deadline stays Rust: the bridge test
+# crates/eukhe-durable/src/harness/generation/retry_bridge.rs runs it
 # against bend/bridge_retry.bend.
 
 # (R1) The classifier
@@ -10312,3 +10314,163 @@ law cvar_ffi_refused:
 # LAW: witness: a table and a command list fit
 law cvar_fits_example:
   {Bool.and(cvar_binds_fit([Cv.KeyBind{0n, [Cv.CRun{1n}, Cv.CToggle{0n}]}]), Bool.and(cvar_aliases_fit([Cv.Alias{1n, [Cv.CSet{2n, Cv.VBool{True{}}}, Cv.CGone{3n}]}]), cvar_cmds_fit([Cv.CSet{0n, Cv.VNat{7n}}]))) == True{} : Bool}
+
+# ---- run_ffi ----
+
+# LAWS (H4.10): the entry of the run's decisions in the compiled core
+# (bend/ffi_run.bend). Each law is an open claim; PROOF.bend section
+# run_ffi proves them (as Laws.<law>) from the laws of section wire.
+# bend/ffi_run.bend: Rust writes a request (the decision's tag and its
+# inputs) with eukhe_bend::wire::Writer, and reads the decision's value
+# from the answer. Its codec composes the primitives of bend/wire.bend, so
+# these laws rest on LAWS.bend section wire.
+
+# Every Nat of a request fits the wire (at most 14 digits: Rust saturates
+# its u64 counts at eukhe_bend::wire::NAT_MAX and its u32s fit)
+def run.lim_fits(l: Rn.Lim) -> Bool:
+  match l:
+    case Rn.Lim{rounds, wait, retries, notes}:
+      Bool.and(wire_fits(rounds), Bool.and(wire_fits(wait), Bool.and(wire_fits(retries), wire_fits(notes))))
+
+def run.at_fits(t: Rn.At) -> Bool:
+  match t:
+    case Rn.At{attempt, notes, waited, compacted}:
+      Bool.and(wire_fits(attempt), Bool.and(wire_fits(notes), wire_fits(waited)))
+
+def run.rcfg_fits(c: Rn.RCfg) -> Bool:
+  match c:
+    case Rn.RCfg{long, leak, redirect, repeat}:
+      Bool.and(wire_fits(long), Bool.and(wire_fits(leak), Bool.and(wire_fits(redirect), wire_fits(repeat))))
+
+def run.stuck_fits(s: Rn.Stuck) -> Bool:
+  match s:
+    case Rn.Truncated{}:
+      True{}
+    case Rn.Leaked{}:
+      True{}
+    case Rn.Repeats{before}:
+      wire_fits(before)
+
+def run.ask_fits(a: FRn.Ask) -> Bool:
+  match a:
+    case FRn.AskReply{l, t, reply}:
+      Bool.and(run.lim_fits(l), run.at_fits(t))
+    case FRn.AskEnded{m}:
+      True{}
+    case FRn.AskPrepare{compacted, th}:
+      True{}
+    case FRn.AskCompact{over, got}:
+      True{}
+    case FRn.AskRound{l, count, stops, reset}:
+      Bool.and(run.lim_fits(l), wire_fits(count))
+    case FRn.AskRecover{rc, s, k, row}:
+      Bool.and(run.rcfg_fits(rc), Bool.and(run.stuck_fits(s), wire_fits(row)))
+    case FRn.AskPoll{retryable, failures, retries}:
+      Bool.and(wire_fits(failures), wire_fits(retries))
+
+# Every Nat of an answer fits the wire
+def run.end_fits(e: Rn.End) -> Bool:
+  match e:
+    case Rn.EndStop{}:
+      True{}
+    case Rn.EndReset{}:
+      True{}
+    case Rn.EndCapped{}:
+      True{}
+    case Rn.EndNext{count}:
+      wire_fits(count)
+
+def run.help_fits(h: Rn.Help) -> Bool:
+  match h:
+    case Rn.Runs{}:
+      True{}
+    case Rn.Redoes{row}:
+      wire_fits(row)
+    case Rn.Stands{}:
+      True{}
+    case Rn.Quits{}:
+      True{}
+
+# LAW: every request whose Nats fit the wire reads back as itself, and its
+# reading consumes exactly its encoding
+# EXCLUDES: a field read into another, a wrong tag, a lost or eaten rest
+law run_ffi_ask_round_trip:
+  for +a: FRn.Ask
+  for +rest: String
+  for +h: {run.ask_fits(a) == True{} : Bool}
+  {FRn.get_ask(FRn.put_ask(a, rest)) == Wr.Got{a, rest} : Wr.Dec<FRn.Ask>}
+
+# LAW: witness: a request whose Nats fit the wire exists
+law run_ffi_ask_fits_witness:
+  exs a: FRn.Ask
+  {run.ask_fits(a) == True{} : Bool}
+
+# LAW: the entry answers a request with the value of its decision
+# EXCLUDES: an entry that answers another decision, or a default
+law run_ffi_answers:
+  for +a: FRn.Ask
+  for +h: {run.ask_fits(a) == True{} : Bool}
+  {FRn.ffi(FRn.put_ask(a, "")) == FRn.answer(a) : String}
+
+# LAW: a request with input left over after it is refused
+# EXCLUDES: trailing input read as part of a request, or ignored
+law run_ffi_refuses_left_over:
+  for +a: FRn.Ask
+  for +rest: String
+  for +h: {run.ask_fits(a) == True{} : Bool}
+  for +more: {String.is_empty(rest) == False{} : Bool}
+  {FRn.ffi(FRn.put_ask(a, rest)) == Wr.err("run: input left over after the request") : String}
+
+# LAW: witness: input is left over after a request
+law run_ffi_left_over_witness:
+  exs rest: String
+  {String.is_empty(rest) == False{} : Bool}
+
+# LAW: a malformed request answers the error form, never a decision
+# EXCLUDES: a default decision for input the entry cannot read
+law run_ffi_refuses_malformed:
+  for +s: String
+  for +bad: {FRn.get_ask(s) == Wr.Bad{} : Wr.Dec<FRn.Ask>}
+  {FRn.ffi(s) == Wr.err("run: malformed request") : String}
+
+# LAW: witness: a malformed request exists
+law run_ffi_malformed_witness:
+  exs s: String
+  {FRn.get_ask(s) == Wr.Bad{} : Wr.Dec<FRn.Ask>}
+
+# LAW: every answer reads back as itself: the step after a reply, what
+# preparation does, how a round ends, what a recovery does, the reply a
+# message makes (Rust's Reader reads the same grammar)
+# EXCLUDES: two answers with one encoding, an answer Rust misreads
+law run_ffi_then_round_trip:
+  for +x: Rn.Then
+  for +rest: String
+  {FRn.get_then(FRn.put_then(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Then>}
+
+law run_ffi_prepared_round_trip:
+  for +x: Rn.Prepared
+  for +rest: String
+  {FRn.get_prepared(FRn.put_prepared(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Prepared>}
+
+law run_ffi_end_round_trip:
+  for +x: Rn.End
+  for +rest: String
+  for +h: {run.end_fits(x) == True{} : Bool}
+  {FRn.get_end(FRn.put_end(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.End>}
+
+law run_ffi_help_round_trip:
+  for +x: Rn.Help
+  for +rest: String
+  for +h: {run.help_fits(x) == True{} : Bool}
+  {FRn.get_help(FRn.put_help(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Help>}
+
+law run_ffi_reply_round_trip:
+  for +x: Rn.Reply
+  for +rest: String
+  {FRn.get_reply(FRn.put_reply(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Rn.Reply>}
+
+# LAW: witness: answers whose Nats fit the wire exist
+law run_ffi_answer_fits_witness:
+  exs e: Rn.End
+  exs x: Rn.Help
+  {Bool.and(run.end_fits(e), run.help_fits(x)) == True{} : Bool}

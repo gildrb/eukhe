@@ -26,7 +26,8 @@
 # LAWS.bend section retry states the laws; PROOF.bend proves them (as Laws.<law>)
 # with the lemmas of PROOF.bend sections retry_policy and retry_ffi.
 # Decisions 1, 2, 3 and 5 run compiled (bend/ffi_retry.bend, crate
-# eukhe-bend); bend/bridge_retry.bend runs 4 and 6 against the Rust code.
+# eukhe-bend); 4 runs compiled as bend/run.bend's (bend/ffi_run.bend);
+# bend/bridge_retry.bend runs 6 against the Rust code.
 
 import Base
 
