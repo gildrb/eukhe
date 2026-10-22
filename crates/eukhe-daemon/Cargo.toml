@@ -8,6 +8,8 @@ description = "Session supervisor, worker processes, and wire protocol."
 
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
+# The compiled Bend core: the orphan exit and the restart budget.
+eukhe-bend = { path = "../eukhe-bend" }
 eukhe-theme = { path = "../eukhe-theme" }
 # The build identity the supervisor's hello reports (`runtime.buildId`).
 eukhe-build-info = { path = "../eukhe-build-info" }

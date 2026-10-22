@@ -1,10 +1,11 @@
 # supervise: the model of the supervisor's restart budget and of its
-# timeouts (docs/daemon.md D1). The Rust code is `RestartBudget` in
-# crates/eukhe-daemon/src/supervisor/restart_budget.rs and the constants of
+# timeouts (docs/daemon.md D1). The restart budget runs compiled as the
+# Rust rule: `restart_budget::decide`
+# (crates/eukhe-daemon/src/supervisor/restart_budget.rs) calls `decide`
+# through bend/ffi_supervise.bend. The timeouts are the constants of
 # crates/eukhe-daemon/src/timeouts.rs, eukhe-types daemon/timing.rs and
 # eukhe-core kernel/shared.rs; the bridge (bend/bridge_supervise.bend,
-# crates/eukhe-daemon/src/supervision_bridge.rs) runs both on the same
-# failures and prints the same constants.
+# crates/eukhe-daemon/src/supervision_bridge.rs) prints the same constants.
 #
 # A worker fails again and again. Each failure comes g ms after the one
 # before it (a gap; the monotonic clock never runs back, so a gap is a
@@ -127,9 +128,9 @@ def gives_up(v: Verdict) -> Bool:
       True{}
 
 # the budget after a failure and what follows it: the call the Rust
-# `RestartBudget::on_failure` makes. The Rust keeps the state (the ages
-# in ms, newest first, relative to the last failure) and passes the gap
-# in ms since the last failure.
+# `restart_budget::decide` makes (bend/ffi_supervise.bend). The Rust
+# keeps the state (the ages in ms, newest first, relative to the last
+# failure) and passes the gap in ms since the last failure.
 type Decision is Data:
   Decision{st: St, verdict: Verdict}
 

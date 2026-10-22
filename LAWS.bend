@@ -85,6 +85,8 @@ import ./bend/ffi_infer.bend as FIn
 import ./bend/ffi_facts.bend as FFx
 import ./bend/ffi_run.bend as FRn
 import ./bend/ffi_tree.bend as Ft
+import ./bend/ffi_orphan.bend as FO
+import ./bend/ffi_supervise.bend as FS
 
 # (a) The view
 # ------------
@@ -5417,6 +5419,77 @@ law restart_decide_verdict:
   for +g: Nat
   {Su.Decision.verdict(Su.decide(c, s, g)) == restart_verdict_put(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))), c, 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))) : Su.Verdict}
 
+# The restart-budget entry of the compiled core (bend/ffi_supervise.bend)
+
+# LAW: the entry reads back every request Rust writes: a configuration,
+# ages and a gap that fit the wire; the rest is untouched
+# EXCLUDES: a misread or reordered configuration field, age or gap
+law restart_wire_req:
+  for +k: Nat
+  for hk: {wire_fits(k) == True{} : Bool}
+  for +w: Nat
+  for hw: {wire_fits(w) == True{} : Bool}
+  for +b: Nat
+  for hb: {wire_fits(b) == True{} : Bool}
+  for +m: Nat
+  for hm: {wire_fits(m) == True{} : Bool}
+  for +ages: List<&2, Nat>
+  for hs: {Bool.and(wire_fits(List.length(&2, Nat, ages)), wire_nats_fit(ages)) == True{} : Bool}
+  for +g: Nat
+  for hg: {wire_fits(g) == True{} : Bool}
+  for rest: String
+  {FS.get_req(FS.put_req(FS.Req{Su.Cfg{k, w, b, m}, ages, g}, rest)) == Wr.Got{FS.Req{Su.Cfg{k, w, b, m}, ages, g}, rest} : Wr.Dec<FS.Req>}
+
+# LAW: Rust reads back every relaunch reply the entry writes
+# EXCLUDES: a misread age, failure count or pause, a verdict read as another
+law restart_wire_reply_relaunch:
+  for +ages: List<&2, Nat>
+  for hs: {Bool.and(wire_fits(List.length(&2, Nat, ages)), wire_nats_fit(ages)) == True{} : Bool}
+  for +f: Nat
+  for hf: {wire_fits(f) == True{} : Bool}
+  for +p: Nat
+  for hp: {wire_fits(p) == True{} : Bool}
+  for rest: String
+  {FS.get_reply(FS.put_reply(FS.Reply{ages, Su.Relaunch{f, p}}, rest)) == Wr.Got{FS.Reply{ages, Su.Relaunch{f, p}}, rest} : Wr.Dec<FS.Reply>}
+
+# LAW: and every give-up reply
+# EXCLUDES: a give-up read as a relaunch, a misread failure count
+law restart_wire_reply_give_up:
+  for +ages: List<&2, Nat>
+  for hs: {Bool.and(wire_fits(List.length(&2, Nat, ages)), wire_nats_fit(ages)) == True{} : Bool}
+  for +f: Nat
+  for hf: {wire_fits(f) == True{} : Bool}
+  for rest: String
+  {FS.get_reply(FS.put_reply(FS.Reply{ages, Su.GiveUp{f}}, rest)) == Wr.Got{FS.Reply{ages, Su.GiveUp{f}}, rest} : Wr.Dec<FS.Reply>}
+
+# LAW: on a whole request the entry answers the model's decision: the
+# budget's new ages and the verdict (Su.decide)
+# EXCLUDES: an entry that answers anything but the model's decision
+law restart_ffi_decides:
+  for +s: String
+  for +c: Su.Cfg
+  for +ages: List<&2, Nat>
+  for +g: Nat
+  for h: {FS.get_req(s) == Wr.Got{FS.Req{c, ages, g}, ""} : Wr.Dec<FS.Req>}
+  {FS.ffi(s) == FS.put_reply(FS.Reply{Su.St.ages(Su.Decision.st(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))), Su.Decision.verdict(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))}, "") : String}
+
+# LAW: a malformed request answers the error form, never a verdict
+# EXCLUDES: a default verdict on garbage
+law restart_ffi_malformed:
+  for +s: String
+  for h: {FS.get_req(s) == Wr.Bad{} : Wr.Dec<FS.Req>}
+  {FS.ffi(s) == Wr.err("supervise: malformed request") : String}
+
+# LAW: a request with input after it answers the error form
+# EXCLUDES: a verdict on a request with trailing garbage
+law restart_ffi_left_over:
+  for +s: String
+  for +q: FS.Req
+  for +r: String
+  for h: {FS.get_req(s) == Wr.Got{q, r} : Wr.Dec<FS.Req>}
+  for ne: {String.is_empty(r) == False{} : Bool}
+  {FS.ffi(s) == Wr.err("supervise: input left over") : String}
+
 # LAW: every timeout comes after the timeouts it waits for (Su.Tm.ordered
 # lists them), whatever the base values
 law timeouts_ordered:
@@ -5481,6 +5554,65 @@ def orphan_exit_spec(work: Or.Work) -> Or.Exit:
 law orphan_exit_by_work:
   for work: Or.Work
   {Or.orphan_exit(work) == orphan_exit_spec(work) : Or.Exit}
+
+# The orphan entry of the compiled core (bend/ffi_orphan.bend)
+
+# LAW: the entry reads back every request Rust writes: a window that fits
+# the wire, an absence that fits, the work; the rest is untouched
+# EXCLUDES: a misread window, absence or work, a lost or eaten rest
+law orphan_wire_req_window:
+  for +w: Nat
+  for hw: {wire_fits(w) == True{} : Bool}
+  for +a: Nat
+  for ha: {wire_fits(a) == True{} : Bool}
+  for +k: Or.Work
+  for rest: String
+  {FO.get_req(FO.put_req(FO.Req{Some{w}, a, k}, rest)) == Wr.Got{FO.Req{Some{w}, a, k}, rest} : Wr.Dec<FO.Req>}
+
+# LAW: and a request with no window (past the wire's range)
+# EXCLUDES: a missing window read as some window
+law orphan_wire_req_no_window:
+  for +a: Nat
+  for ha: {wire_fits(a) == True{} : Bool}
+  for +k: Or.Work
+  for rest: String
+  {FO.get_req(FO.put_req(FO.Req{None{}, a, k}, rest)) == Wr.Got{FO.Req{None{}, a, k}, rest} : Wr.Dec<FO.Req>}
+
+# LAW: Rust reads back every reply the entry writes
+# EXCLUDES: a swapped due flag or exit
+law orphan_wire_reply:
+  for +d: Bool
+  for +e: Or.Exit
+  for rest: String
+  {FO.get_reply(FO.put_reply(FO.Reply{d, e}, rest)) == Wr.Got{FO.Reply{d, e}, rest} : Wr.Dec<FO.Reply>}
+
+# LAW: on a whole request the entry answers the model's decision: whether
+# the worker exits now, and how
+# EXCLUDES: an entry that answers anything but exit_due.at and orphan_exit
+law orphan_ffi_decides:
+  for +s: String
+  for +m: Maybe<&2, Nat>
+  for +a: Nat
+  for +k: Or.Work
+  for h: {FO.get_req(s) == Wr.Got{FO.Req{m, a, k}, ""} : Wr.Dec<FO.Req>}
+  {FO.ffi(s) == FO.put_reply(FO.Reply{Or.exit_due.at(m, a, k), Or.orphan_exit(k)}, "") : String}
+
+# LAW: a malformed request answers the error form, never a decision
+# EXCLUDES: a default decision on garbage
+law orphan_ffi_malformed:
+  for +s: String
+  for h: {FO.get_req(s) == Wr.Bad{} : Wr.Dec<FO.Req>}
+  {FO.ffi(s) == Wr.err("orphan: malformed request") : String}
+
+# LAW: a request with input after it answers the error form
+# EXCLUDES: a decision on a request with trailing garbage
+law orphan_ffi_left_over:
+  for +s: String
+  for +q: FO.Req
+  for +r: String
+  for h: {FO.get_req(s) == Wr.Got{q, r} : Wr.Dec<FO.Req>}
+  for ne: {String.is_empty(r) == False{} : Bool}
+  {FO.ffi(s) == Wr.err("orphan: input left over") : String}
 
 # LAW: an idle shutdown never aborts a run, in any order of prompts, run
 # ends, quiesces, releases and commits on any workers

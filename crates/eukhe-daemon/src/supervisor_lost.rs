@@ -11,7 +11,8 @@
 //! and the registration link shows the worker to the new supervisor.
 //!
 //! When the socket stays unreachable for the lost-exit window (default
-//! [`WORKER_LOST_EXIT_DEFAULT_MS`]; [`exit_due`] gives work in flight one
+//! [`WORKER_LOST_EXIT_DEFAULT_MS`]; [`orphan_decision`], the compiled Bend
+//! model `bend/ffi_orphan.bend`, gives work in flight one
 //! more window), the worker exits. The exit never aborts work that can
 //! resume (the law `orphan_never_aborts_resumable`, LAWS.bend):
 //!
@@ -30,9 +31,10 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use eukhe_bend::wire::NAT_MAX;
 use eukhe_types::daemon::timing::{WORKER_LOST_EXIT_DEFAULT_MS, WORKER_SUPERVISOR_CHECK_MS};
 
-use crate::work_gate::{orphan_exit, OrphanExit, Work};
+use crate::work_gate::{orphan_decision, orphan_exit, OrphanExit};
 use crate::worker::{Worker, WORKER_SUPERVISOR_LOST_EXIT_MS_ENV};
 
 /// Bounded probe: a supervisor socket that answers slower than this counts
@@ -74,9 +76,17 @@ pub(crate) fn start(worker: Arc<Worker>) {
 /// The availability-check loop. A shutdown in flight or a live
 /// authenticated supervisor connection disarms the monitor, a reachable
 /// socket resets the absence timer, and a socket that stays unreachable
-/// exits the worker when [`exit_due`] says so.
+/// exits the worker when the orphan decision says so: once the whole
+/// window passed with no session work in flight, or, when work is in
+/// flight, once a second window passed too (the laws
+/// `orphan_idle_exit_due` and `orphan_work_exit_due`). The cap keeps the
+/// exit bounded: work that cannot settle without a supervisor would
+/// otherwise keep the worker alive forever.
 async fn monitor(worker: Arc<Worker>) {
-    let window_ms = Some(lost_exit_ms()).filter(|window| *window <= MS_CAP);
+    // The Bend core's wire carries Nats up to NAT_MAX (about 3170 years of
+    // ms): a window past it is `None` and never expires (the law
+    // `orphan_capped_window_never_expires`); the absence saturates at it.
+    let window_ms = Some(lost_exit_ms()).filter(|window| *window <= NAT_MAX);
     let check = Duration::from_millis(WORKER_SUPERVISOR_CHECK_MS);
     let mut checks = tokio::time::interval_at(tokio::time::Instant::now() + check, check);
     checks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -97,8 +107,8 @@ async fn monitor(worker: Arc<Worker>) {
         let work = worker.session_work().await;
         let absent_ms = u64::try_from(since.elapsed().as_millis())
             .unwrap_or(u64::MAX)
-            .min(MS_CAP);
-        if exit_due(absent_ms, window_ms, work) {
+            .min(NAT_MAX);
+        if orphan_decision(window_ms, absent_ms, work).0 {
             let exit = leave_orphaned(&worker).await;
             eprintln!(
                 "eukhe-daemon worker: supervisor {} unreachable for {}s; orphaned worker exits ({exit:?})",
@@ -107,28 +117,6 @@ async fn monitor(worker: Arc<Worker>) {
             );
             std::process::exit(0);
         }
-    }
-}
-
-/// The largest Nat the Bend core's wire carries, 10^14 - 1 ms (about 3170
-/// years): a window past it is `None` and never expires (the law
-/// `orphan_capped_window_never_expires`); the absence saturates at it.
-const MS_CAP: u64 = 99_999_999_999_999;
-
-/// Whether a worker whose supervisor has been unreachable for `absent_ms`
-/// exits now: once the whole window passed with no session work in
-/// flight, or, when work is in flight, once a second window passed too.
-/// The cap keeps the exit bounded: work that cannot settle without a
-/// supervisor would otherwise keep the worker alive forever. The model is
-/// bend/orphan.bend `exit_due.at` (the laws `orphan_idle_exit_due`,
-/// `orphan_work_exit_due` and `orphan_capped_window_never_expires`).
-pub(crate) fn exit_due(absent_ms: u64, window_ms: Option<u64>, work: Work) -> bool {
-    let Some(window_ms) = window_ms else {
-        return false;
-    };
-    match work {
-        Work::Ongoing => absent_ms.saturating_sub(window_ms) >= window_ms,
-        Work::Idle => absent_ms >= window_ms,
     }
 }
 
@@ -223,19 +211,27 @@ mod tests {
         );
     }
 
-    /// Idle workers exit at the window; in-flight work defers the exit by
-    /// exactly one more window, never indefinitely.
+    /// The Rust codec of the orphan call: the work's tag, the window's
+    /// `Maybe`, the reply's flag and exit tag reach the compiled model and
+    /// come back (the laws pin the decision itself).
     #[test]
-    fn ongoing_work_defers_the_exit_by_at_most_one_more_window() {
-        let window = 15_000;
-        let at = Some(window);
-        assert!(!exit_due(14_000, at, Work::Idle));
-        assert!(exit_due(window, at, Work::Idle));
-        assert!(!exit_due(window, at, Work::Ongoing));
-        assert!(!exit_due(29_999, at, Work::Ongoing));
-        assert!(exit_due(30_000, at, Work::Ongoing));
-        assert!(exit_due(7_200_000, at, Work::Ongoing));
-        assert!(exit_due(0, Some(0), Work::Ongoing));
-        assert!(!exit_due(MS_CAP, None, Work::Idle));
+    fn the_orphan_decision_crosses_the_core() {
+        use crate::work_gate::Work;
+        assert_eq!(
+            orphan_decision(Some(15_000), 30_000, Work::Ongoing),
+            (true, OrphanExit::Handover)
+        );
+        assert_eq!(
+            orphan_decision(Some(15_000), 29_999, Work::Ongoing),
+            (false, OrphanExit::Handover)
+        );
+        assert_eq!(
+            orphan_decision(Some(15_000), 15_000, Work::Idle),
+            (true, OrphanExit::Close)
+        );
+        assert_eq!(
+            orphan_decision(None, NAT_MAX, Work::Idle),
+            (false, OrphanExit::Close)
+        );
     }
 }

@@ -1,6 +1,6 @@
 # ffi_orphan: the compiled Bend core's entry for the orphan exit
-# (bend/orphan.bend). Rust `supervisor_lost::exit_due` and
-# `work_gate::orphan_exit` call it through `eukhe_bend::call`.
+# (bend/orphan.bend). Rust `work_gate::orphan_decision` calls it through
+# `eukhe_bend::call`.
 #
 # Request (crates/eukhe-bend/WIRE.md): a record
 #   window: Maybe<Nat>   the lost-exit window in ms; None past the wire's

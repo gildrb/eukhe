@@ -6,36 +6,10 @@ use crate::timeouts::{RESTART_GIVE_UP_AFTER, RESTART_WINDOW_MS};
 use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
 
-/// A worker that dies every 31 s is given up at its sixth failure: each
-/// failure lands inside the restart window of the ones before it. (The
-/// old count reset after any lifetime of 30 s, so this worker restarted
-/// forever.)
-#[test]
-fn a_worker_that_dies_every_31_seconds_is_given_up() {
-    let base = std::time::Instant::now();
-    let mut budget = RestartBudget::default();
-    let verdicts: Vec<RestartVerdict> = (0..6u64)
-        .map(|k| budget.on_failure(base + Duration::from_secs(31 * k)))
-        .collect();
-    let relaunch = |failure, backoff_ms| RestartVerdict::Relaunch {
-        failure,
-        backoff: Duration::from_millis(backoff_ms),
-    };
-    assert_eq!(
-        verdicts,
-        vec![
-            relaunch(1, 250),
-            relaunch(2, 500),
-            relaunch(3, 1_000),
-            relaunch(4, 2_000),
-            relaunch(5, 4_000),
-            RestartVerdict::GiveUp { failures: 6 },
-        ]
-    );
-}
-
 /// Failures spaced wider than the restart window never give the worker
-/// up: each one is the only failure in its window.
+/// up: each one is the only failure in its window. This pins the budget's
+/// clock (the laws pin the decision): a gap past the window saturates at
+/// the window before the core call, and drops every age.
 #[test]
 fn failures_wider_than_the_window_never_give_up() {
     let base = std::time::Instant::now();
