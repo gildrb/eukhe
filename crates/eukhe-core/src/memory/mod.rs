@@ -35,8 +35,6 @@ mod saved;
 mod service;
 mod store;
 mod summarizer;
-#[cfg(test)]
-pub(crate) use summarizer::thinking_output_cap;
 mod tree;
 mod view;
 

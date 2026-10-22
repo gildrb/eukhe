@@ -530,6 +530,7 @@ dependencies = [
  "base64",
  "bytes",
  "crc32fast",
+ "eukhe-bend",
  "eukhe-chord",
  "eukhe-types",
  "futures",
