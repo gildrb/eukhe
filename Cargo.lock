@@ -674,6 +674,7 @@ version = "0.10.0"
 dependencies = [
  "anyhow",
  "eukhe-ai",
+ "eukhe-bend",
  "eukhe-build-info",
  "eukhe-chord",
  "eukhe-core",

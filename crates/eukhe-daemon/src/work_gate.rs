@@ -96,10 +96,52 @@ pub(crate) enum OrphanExit {
     Handover,
 }
 
-/// The orphan exit for a worker that holds `work`.
+/// The orphan decision of the compiled Bend core (`bend/ffi_orphan.bend`,
+/// the model `bend/orphan.bend`): whether a worker whose supervisor has
+/// been unreachable for `absent_ms` exits now with the window `window_ms`
+/// (`None`: a window past the wire's range, which never expires), and how
+/// it exits with `work`. Both numbers are at most
+/// [`eukhe_bend::wire::NAT_MAX`]: the caller saturates them.
+pub(crate) fn orphan_decision(
+    window_ms: Option<u64>,
+    absent_ms: u64,
+    work: Work,
+) -> (bool, OrphanExit) {
+    eukhe_bend::expect_core(
+        eukhe_bend::Entry::Orphan,
+        orphan_call(window_ms, absent_ms, work),
+    )
+}
+
+fn orphan_call(
+    window_ms: Option<u64>,
+    absent_ms: u64,
+    work: Work,
+) -> Result<(bool, OrphanExit), eukhe_bend::Error> {
+    let mut request = eukhe_bend::wire::Writer::new();
+    match window_ms {
+        Some(window_ms) => request.some().nat(window_ms),
+        None => request.none(),
+    };
+    request.nat(absent_ms).tag(match work {
+        Work::Idle => 0,
+        Work::Ongoing => 1,
+    });
+    let reply = eukhe_bend::call(eukhe_bend::Entry::Orphan, &request.finish()?)?;
+    let mut reader = eukhe_bend::wire::Reader::reply(&reply)?;
+    let due = reader.bool()?;
+    let exit = if reader.tag_of(2, "an orphan exit")? == 0 {
+        OrphanExit::Close
+    } else {
+        OrphanExit::Handover
+    };
+    reader.end()?;
+    Ok((due, exit))
+}
+
+/// The orphan exit for a worker that holds `work`: [`OrphanExit::Close`]
+/// without work, [`OrphanExit::Handover`] with work (the law
+/// `orphan_exit_by_work`).
 pub(crate) fn orphan_exit(work: Work) -> OrphanExit {
-    match work {
-        Work::Idle => OrphanExit::Close,
-        Work::Ongoing => OrphanExit::Handover,
-    }
+    orphan_decision(None, 0, work).1
 }

@@ -1,8 +1,8 @@
 # orphan: the model of a worker whose supervisor is lost (docs/daemon.md
-# D1). The Rust code is `supervisor_lost::exit_due` and
-# `work_gate::orphan_exit` (crates/eukhe-daemon/src); the bridge
-# (bend/bridge_orphan.bend, crates/eukhe-daemon/src/supervision_bridge.rs)
-# runs both on the same events.
+# D1). It runs compiled as the Rust rule: `work_gate::orphan_decision`
+# (crates/eukhe-daemon/src) calls `exit_due.at` and `orphan_exit` through
+# bend/ffi_orphan.bend. The event machine below (`step`, `run`) is the
+# law `orphan_never_aborts_resumable`'s history.
 #
 # Any events, in any order: a run starts or ends, an input is queued or
 # drained, a compaction starts or ends, the supervisor stays unreachable

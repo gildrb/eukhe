@@ -1,20 +1,23 @@
-//! The D1 bridges: the supervisor's decision code and its Bend models
-//! (`LAWS.bend` section `supervisor`, proved in `PROOF.bend` section `supervisor`) run the
-//! same scenarios and must print the same transcript, byte for byte.
+//! The D1 bridges: the supervisor code its Bend models abstract (`LAWS.bend`
+//! section `supervisor`, proved in `PROOF.bend` section `supervisor`) and
+//! the models run the same scenarios and must print the same transcript,
+//! byte for byte.
 //!
-//! - [`RestartBudget`] and the timeouts against `bend/bridge_supervise.bend`.
+//! - The timeouts against `bend/bridge_supervise.bend` (they are `const`
+//!   expressions: no core call can replace them).
 //! - [`busy_evidence_fresh`] on the refresh schedule against
 //!   `bend/bridge_revive.bend`.
-//! - [`exit_due`] and [`orphan_exit`] against `bend/bridge_orphan.bend`.
 //! - [`WorkGate`], [`idle_shutdown_commits`] and [`adoption_verdict`]
 //!   against `bend/bridge_launcher.bend`.
+//!
+//! The restart budget and the orphan exit run as their compiled models
+//! (`bend/ffi_supervise.bend`, `bend/ffi_orphan.bend`): no bridge.
 //!
 //! Each `bend/bridge_*.bend` file documents its events and its output.
 //! [`compare`] runs them (and skips without `bend`, unless
 //! `EUKHE_REQUIRE_BEND` is set).
 
 use std::fmt::Write as _;
-use std::time::{Duration, Instant};
 
 use eukhe_core::kernel::shared::{
     HOST_REQUEST_SHUTDOWN_TIMEOUT_MS, KERNEL_KILL_VERIFY_MS, KERNEL_SHUTDOWN_TIMEOUT_MS,
@@ -28,22 +31,14 @@ use eukhe_types::daemon::timing::{
 
 use crate::revival_gate::busy_evidence_fresh;
 use crate::supervisor::adoption::{adoption_verdict, Adoption};
-use crate::supervisor::restart_budget::{RestartBudget, RestartVerdict};
-use crate::supervisor_lost::exit_due;
 use crate::timeouts::{
     BUSY_REFRESH_MS, HARNESS_CLOSE_MS, LAUNCHER_DRAIN_MARGIN_MS, LAUNCHER_SHUTDOWN_WAIT_MS,
-    QUIESCE_ANSWER_MS, QUIESCE_HOLD_MS, RESTART_BASE_BACKOFF_MS, RESTART_CRASH_LOOP_MS,
-    RESTART_GIVE_UP_AFTER, RESTART_MAX_BACKOFF_MS, RESTART_WINDOW_MS, REVIVAL_BOOT_WINDOW_MS,
+    QUIESCE_ANSWER_MS, QUIESCE_HOLD_MS, RESTART_CRASH_LOOP_MS, RESTART_GIVE_UP_AFTER,
+    RESTART_MAX_BACKOFF_MS, RESTART_WINDOW_MS, REVIVAL_BOOT_WINDOW_MS,
     REVIVAL_BUSY_EVIDENCE_MAX_AGE_MS, RLM_CHILD_KILL_TIMEOUT_MS, STOP_GRACE_MS,
     SUPERVISOR_DRAIN_MS, WORKER_KILL_VERIFY_MS, WORKER_TERM_GRACE_MS,
 };
-use crate::work_gate::{
-    idle_shutdown_commits, orphan_exit, Admission, OrphanExit, QuiesceAnswer, Work, WorkGate,
-};
-
-/// The restart model counts time in steps of this many ms (every restart
-/// constant is a multiple of it), so the model's numbers stay small.
-const RESTART_UNIT_MS: u64 = 250;
+use crate::work_gate::{idle_shutdown_commits, Admission, QuiesceAnswer, Work, WorkGate};
 
 /// The revival model counts time in seconds.
 const REVIVE_UNIT_MS: u64 = 1_000;
@@ -51,46 +46,6 @@ const REVIVE_UNIT_MS: u64 = 1_000;
 fn units(ms: u64, unit: u64) -> u64 {
     assert_eq!(ms % unit, 0, "{ms} ms is not a multiple of {unit} ms");
     ms / unit
-}
-
-/// One restart scenario: a failure after each gap (in units).
-fn restart_scenario(rng: &mut Rng) -> (String, String) {
-    let window = units(RESTART_WINDOW_MS, RESTART_UNIT_MS);
-    let mut events = format!(
-        "c {RESTART_GIVE_UP_AFTER} {window} {} {}\n",
-        units(RESTART_BASE_BACKOFF_MS, RESTART_UNIT_MS),
-        units(RESTART_MAX_BACKOFF_MS, RESTART_UNIT_MS)
-    );
-    let mut transcript = String::new();
-    let mut budget = RestartBudget::default();
-    let base = Instant::now();
-    let mut at = 0u64;
-    let mut over = false;
-    for _ in 0..rng.range(1, 12) {
-        let gap = match rng.below(4) {
-            0 => rng.range(0, 4),
-            1 => rng.range(100, 700),
-            2 => rng.range(window - 2, window + 2),
-            _ => rng.range(0, window / 2),
-        };
-        writeln!(events, "f {gap}").unwrap();
-        at += gap;
-        if over {
-            continue;
-        }
-        let now = base + Duration::from_millis(at * RESTART_UNIT_MS);
-        match budget.on_failure(now) {
-            RestartVerdict::Relaunch { failure, backoff } => {
-                let pause = units(u64::try_from(backoff.as_millis()).unwrap(), RESTART_UNIT_MS);
-                writeln!(transcript, "r {failure} {pause}").unwrap();
-            }
-            RestartVerdict::GiveUp { failures } => {
-                writeln!(transcript, "x {failures}").unwrap();
-                over = true;
-            }
-        }
-    }
-    (events, transcript)
 }
 
 /// The timeouts' base values and the derived values, as the Rust
@@ -105,25 +60,14 @@ fn timeouts_scenario() -> (String, String) {
     (events, transcript)
 }
 
-/// The restart budget on crash loops, rare crashes and window edges; the
-/// timeouts as derived.
+/// The timeouts as derived.
 #[test]
-fn the_supervisor_runs_as_its_model() {
-    let mut rng = Rng(0x5eed_d1a1);
-    let mut events = String::new();
-    let mut transcript = String::new();
-    for _ in 0..60 {
-        let (e, t) = restart_scenario(&mut rng);
-        events.push_str(&e);
-        transcript.push_str(&t);
-    }
-    let (e, t) = timeouts_scenario();
-    events.push_str(&e);
-    transcript.push_str(&t);
+fn the_timeouts_derive_as_their_model() {
+    let (events, transcript) = timeouts_scenario();
     compare(
         "bend/bridge_supervise.bend",
         [Scenario {
-            name: "restarts and timeouts".to_owned(),
+            name: "timeouts".to_owned(),
             events,
             transcript,
         }],
@@ -167,90 +111,6 @@ fn the_revival_runs_as_its_model() {
             transcript,
         }],
     );
-}
-
-/// The orphan worker: a run, queued inputs, a compaction, the absence.
-#[derive(Default)]
-struct Orphan {
-    run: bool,
-    queued: u64,
-    compacting: bool,
-    absent: u64,
-}
-
-impl Orphan {
-    fn work(&self) -> Work {
-        if self.run || self.compacting || self.queued > 0 {
-            Work::Ongoing
-        } else {
-            Work::Idle
-        }
-    }
-}
-
-fn orphan_scenario(rng: &mut Rng) -> Scenario {
-    let window = rng.range(5, 40);
-    let mut events = format!("w {window}\n");
-    let mut worker = Orphan::default();
-    let mut end = "live\n".to_owned();
-    for _ in 0..rng.range(1, 25) {
-        match rng.below(8) {
-            0 => {
-                events.push_str("s\n");
-                worker.run = true;
-            }
-            1 => {
-                events.push_str("e\n");
-                worker.run = false;
-            }
-            2 => {
-                events.push_str("q\n");
-                worker.queued += 1;
-            }
-            3 => {
-                events.push_str("d\n");
-                worker.queued = worker.queued.saturating_sub(1);
-            }
-            4 => {
-                events.push_str("c\n");
-                worker.compacting = true;
-            }
-            5 => {
-                events.push_str("k\n");
-                worker.compacting = false;
-            }
-            6 => {
-                let gone = rng.range(0, 30);
-                writeln!(events, "g {gone}").unwrap();
-                worker.absent += gone;
-            }
-            _ => {
-                events.push_str("b\n");
-                worker.absent = 0;
-            }
-        }
-        let work = worker.work();
-        if end == "live\n" && exit_due(worker.absent, Some(window), work) {
-            let (how, busy, aborted) = match orphan_exit(work) {
-                OrphanExit::Close => ("shut", 0, u8::from(work == Work::Ongoing)),
-                OrphanExit::Handover => ("handover", 1, 0),
-            };
-            end = format!("x {how} {busy} {aborted}\n");
-        }
-    }
-    Scenario {
-        name: format!("orphan window {window}"),
-        events,
-        transcript: end,
-    }
-}
-
-/// Any events on a worker whose supervisor is lost.
-#[test]
-fn the_orphan_exit_runs_as_its_model() {
-    let mut rng = Rng(0x0a7f_a11e);
-    let scenarios: Vec<Scenario> = (0..60).map(|_| orphan_scenario(&mut rng)).collect();
-    compare("bend/bridge_orphan.bend", scenarios);
 }
 
 fn bits(items: &[(bool, WorkGate)], pick: impl Fn(&(bool, WorkGate)) -> bool) -> String {

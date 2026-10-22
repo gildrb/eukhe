@@ -3,13 +3,14 @@
 //! worker up; any other failure relaunches it after a pause that doubles
 //! with each failure in the window.
 //!
-//! The rule is one pure call, [`decide`], over the model's state
-//! (bend/supervise.bend `decide`): the ages of the failures in the window,
-//! in ms, newest first, relative to the last failure, and the gap in ms
-//! since it. The laws `restart_decide_window`, `restart_decide_verdict`
-//! and `restart_gives_up` (LAWS.bend, D1) pin the decision. The budget
-//! keeps the clock: it measures every failure in whole ms from its first
-//! one, so the gaps telescope and the ages carry no rounding drift.
+//! The rule is one pure call, [`decide`], to the compiled Bend model
+//! (`bend/ffi_supervise.bend` over bend/supervise.bend `decide`): the ages
+//! of the failures in the window, in ms, newest first, relative to the
+//! last failure, and the gap in ms since it. The laws
+//! `restart_decide_window`, `restart_decide_verdict` and
+//! `restart_gives_up` (LAWS.bend, D1) pin the decision. The budget keeps
+//! the clock: it measures every failure in whole ms from its first one, so
+//! the gaps telescope and the ages carry no rounding drift.
 
 use std::time::{Duration, Instant};
 
@@ -48,31 +49,50 @@ pub(crate) const RESTART_CFG: RestartCfg = RestartCfg {
 /// The decision on a failure `gap_ms` after the last one, from the ages
 /// (ms, newest first, relative to the last failure) of the failures in
 /// the window: the new ages (this failure at age 0 in front) and the
-/// verdict. Plain data in and out (the model's `decide`).
+/// verdict. Every number fits the wire: the configuration is the
+/// supervisor's constants, an age stays below the window, and the caller
+/// saturates the gap at the window.
 pub(crate) fn decide(cfg: RestartCfg, ages: &[u64], gap_ms: u64) -> (Vec<u64>, RestartVerdict) {
-    let mut kept = Vec::with_capacity(ages.len() + 1);
-    kept.push(0);
-    kept.extend(
-        ages.iter()
-            .map(|age| age.saturating_add(gap_ms))
-            .filter(|age| *age < cfg.window_ms),
-    );
-    let failures = u32::try_from(kept.len()).unwrap_or(u32::MAX);
-    if u64::from(failures) > cfg.give_up_after {
-        return (kept, RestartVerdict::GiveUp { failures });
+    eukhe_bend::expect_core(eukhe_bend::Entry::Supervise, decide_call(cfg, ages, gap_ms))
+}
+
+fn decide_call(
+    cfg: RestartCfg,
+    ages: &[u64],
+    gap_ms: u64,
+) -> Result<(Vec<u64>, RestartVerdict), eukhe_bend::Error> {
+    let mut request = eukhe_bend::wire::Writer::new();
+    request
+        .nat(cfg.give_up_after)
+        .nat(cfg.window_ms)
+        .nat(cfg.base_backoff_ms)
+        .nat(cfg.max_backoff_ms)
+        .count(ages.len());
+    for age in ages {
+        request.nat(*age);
     }
-    let doublings = (failures - 1).min(7);
-    let backoff_ms = cfg
-        .base_backoff_ms
-        .saturating_mul(1 << doublings)
-        .min(cfg.max_backoff_ms);
-    (
-        kept,
-        RestartVerdict::Relaunch {
-            failure: failures,
-            backoff: Duration::from_millis(backoff_ms),
-        },
-    )
+    request.nat(gap_ms);
+    let reply = eukhe_bend::call(eukhe_bend::Entry::Supervise, &request.finish()?)?;
+    let mut reader = eukhe_bend::wire::Reader::reply(&reply)?;
+    let kept = (0..reader.count()?)
+        .map(|_| reader.nat())
+        .collect::<Result<Vec<u64>, _>>()?;
+    let verdict = if reader.tag_of(2, "a restart verdict")? == 0 {
+        let failure = count(reader.nat()?);
+        let backoff = Duration::from_millis(reader.nat()?);
+        RestartVerdict::Relaunch { failure, backoff }
+    } else {
+        RestartVerdict::GiveUp {
+            failures: count(reader.nat()?),
+        }
+    };
+    reader.end()?;
+    Ok((kept, verdict))
+}
+
+/// A failure count, saturated at `u32::MAX`.
+fn count(n: u64) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
 }
 
 /// The failures of one worker inside the restart window.

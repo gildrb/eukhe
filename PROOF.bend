@@ -67,6 +67,8 @@ import ./bend/default_model.bend as Dm
 import ./bend/config.bend as Cf
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/ffi_orphan.bend as FO
+import ./bend/ffi_supervise.bend as FS
 
 # ---- cover ----
 
@@ -35606,4 +35608,99 @@ def Laws.wire_err_example(text):
   {==}
 
 def Laws.wire_end_exact(s):
+  {==}
+
+# (D1) the orphan and restart-budget entries of the compiled core (they
+# follow the wire section: they build on its laws)
+
+# the wire round trips, turned to rewrite a decode of an encoding into
+# its value
+def ps.ffi_nat(+n: Nat, +r: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, r} == Wr.get_nat(Wr.put_nat(n, r)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, r)), Wr.Got{n, r}, Laws.wire_nat_round_trip(n, r, h))
+
+def ps.ffi_list(+xs: List<&2, Nat>, +r: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Nat, xs)), Laws.wire_nats_fit(xs)) == True{} : Bool}) -> {Wr.Got{xs, r} == Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, xs, r)) : Wr.Dec<List<&2, Nat>>}:
+  Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, xs, r)), Wr.Got{xs, r}, Laws.wire_list_round_trip(xs, r, h))
+
+def ps.ffi_work(k: Or.Work, +r: String) -> {Wr.Got{k, r} == FO.get_work(FO.put_work(k, r)) : Wr.Dec<Or.Work>}:
+  match k:
+    case Or.Idle{}:
+      {==}
+    case Or.Ongoing{}:
+      {==}
+
+def ps.ffi_cfg(+k: Nat, hk: {Laws.wire_fits(k) == True{} : Bool}, +w: Nat, hw: {Laws.wire_fits(w) == True{} : Bool}, +b: Nat, hb: {Laws.wire_fits(b) == True{} : Bool}, +m: Nat, hm: {Laws.wire_fits(m) == True{} : Bool}, +r: String) -> {Wr.Got{Su.Cfg{k, w, b, m}, r} == FS.get_cfg(FS.put_cfg(Su.Cfg{k, w, b, m}, r)) : Wr.Dec<Su.Cfg>}:
+  %ps.ffi_nat(k, Wr.put_nat(w, Wr.put_nat(b, Wr.put_nat(m, r))), hk) : {Wr.Got{Su.Cfg{k, w, b, m}, r} == FS.get_cfg.k(_) : Wr.Dec<Su.Cfg>}
+  %ps.ffi_nat(w, Wr.put_nat(b, Wr.put_nat(m, r)), hw) : {Wr.Got{Su.Cfg{k, w, b, m}, r} == FS.get_cfg.w(k, _) : Wr.Dec<Su.Cfg>}
+  %ps.ffi_nat(b, Wr.put_nat(m, r), hb) : {Wr.Got{Su.Cfg{k, w, b, m}, r} == FS.get_cfg.b(k, w, _) : Wr.Dec<Su.Cfg>}
+  %ps.ffi_nat(m, r, hm) : {Wr.Got{Su.Cfg{k, w, b, m}, r} == FS.get_cfg.m(k, w, b, _) : Wr.Dec<Su.Cfg>}
+  {==}
+
+def Laws.orphan_wire_req_window(w, hw, a, ha, k, rest):
+  +r = rest
+  %ps.ffi_nat(w, Wr.put_nat(a, FO.put_work(k, r)), hw) : {FO.get_req.window(FO.get_window.some(_)) == Wr.Got{FO.Req{Some{w}, a, k}, r} : Wr.Dec<FO.Req>}
+  %ps.ffi_nat(a, FO.put_work(k, r), ha) : {FO.get_req.absent(Some{w}, _) == Wr.Got{FO.Req{Some{w}, a, k}, r} : Wr.Dec<FO.Req>}
+  %ps.ffi_work(k, r) : {FO.get_req.work(Some{w}, a, _) == Wr.Got{FO.Req{Some{w}, a, k}, r} : Wr.Dec<FO.Req>}
+  {==}
+
+def Laws.orphan_wire_req_no_window(a, ha, k, rest):
+  +r = rest
+  %ps.ffi_nat(a, FO.put_work(k, r), ha) : {FO.get_req.absent(None{}, _) == Wr.Got{FO.Req{None{}, a, k}, r} : Wr.Dec<FO.Req>}
+  %ps.ffi_work(k, r) : {FO.get_req.work(None{}, a, _) == Wr.Got{FO.Req{None{}, a, k}, r} : Wr.Dec<FO.Req>}
+  {==}
+
+def Laws.orphan_wire_reply(d, e, rest):
+  match d e:
+    case True{} Or.Shut{}:
+      {==}
+    case True{} Or.Handover{}:
+      {==}
+    case False{} Or.Shut{}:
+      {==}
+    case False{} Or.Handover{}:
+      {==}
+
+def Laws.orphan_ffi_decides(s, m, a, k, h):
+  %Equal.sym(Wr.Dec<FO.Req>, FO.get_req(s), Wr.Got{FO.Req{m, a, k}, ""}, h) : {FO.ffi.go(_) == FO.put_reply(FO.Reply{Or.exit_due.at(m, a, k), Or.orphan_exit(k)}, "") : String}
+  {==}
+
+def Laws.orphan_ffi_malformed(s, h):
+  %Equal.sym(Wr.Dec<FO.Req>, FO.get_req(s), Wr.Bad{}, h) : {FO.ffi.go(_) == Wr.err("orphan: malformed request") : String}
+  {==}
+
+def Laws.orphan_ffi_left_over(s, q, r, h, ne):
+  %Equal.sym(Wr.Dec<FO.Req>, FO.get_req(s), Wr.Got{q, r}, h) : {FO.ffi.go(_) == Wr.err("orphan: input left over") : String}
+  %Equal.sym(Bool, String.is_empty(r), False{}, ne) : {FO.ffi.fin(_, q) == Wr.err("orphan: input left over") : String}
+  {==}
+
+def Laws.restart_wire_req(k, hk, w, hw, b, hb, m, hm, ages, hs, g, hg, rest):
+  +r = rest
+  %ps.ffi_cfg(k, hk, w, hw, b, hb, m, hm, FS.put_ages(ages, Wr.put_nat(g, r))) : {FS.get_req.cfg(_) == Wr.Got{FS.Req{Su.Cfg{k, w, b, m}, ages, g}, r} : Wr.Dec<FS.Req>}
+  %ps.ffi_list(ages, Wr.put_nat(g, r), hs) : {FS.get_req.ages(Su.Cfg{k, w, b, m}, _) == Wr.Got{FS.Req{Su.Cfg{k, w, b, m}, ages, g}, r} : Wr.Dec<FS.Req>}
+  %ps.ffi_nat(g, r, hg) : {FS.get_req.gap(Su.Cfg{k, w, b, m}, ages, _) == Wr.Got{FS.Req{Su.Cfg{k, w, b, m}, ages, g}, r} : Wr.Dec<FS.Req>}
+  {==}
+
+def Laws.restart_wire_reply_relaunch(ages, hs, f, hf, p, hp, rest):
+  +r = rest
+  %ps.ffi_list(ages, FS.put_verdict(Su.Relaunch{f, p}, r), hs) : {FS.get_reply.ages(_) == Wr.Got{FS.Reply{ages, Su.Relaunch{f, p}}, r} : Wr.Dec<FS.Reply>}
+  %ps.ffi_nat(f, Wr.put_nat(p, r), hf) : {FS.get_reply.verdict(ages, FS.get_verdict.relaunch(_)) == Wr.Got{FS.Reply{ages, Su.Relaunch{f, p}}, r} : Wr.Dec<FS.Reply>}
+  %ps.ffi_nat(p, r, hp) : {FS.get_reply.verdict(ages, FS.get_verdict.backoff(f, _)) == Wr.Got{FS.Reply{ages, Su.Relaunch{f, p}}, r} : Wr.Dec<FS.Reply>}
+  {==}
+
+def Laws.restart_wire_reply_give_up(ages, hs, f, hf, rest):
+  +r = rest
+  %ps.ffi_list(ages, FS.put_verdict(Su.GiveUp{f}, r), hs) : {FS.get_reply.ages(_) == Wr.Got{FS.Reply{ages, Su.GiveUp{f}}, r} : Wr.Dec<FS.Reply>}
+  %ps.ffi_nat(f, r, hf) : {FS.get_reply.verdict(ages, FS.get_verdict.give_up(_)) == Wr.Got{FS.Reply{ages, Su.GiveUp{f}}, r} : Wr.Dec<FS.Reply>}
+  {==}
+
+def Laws.restart_ffi_decides(s, c, ages, g, h):
+  %Equal.sym(Wr.Dec<FS.Req>, FS.get_req(s), Wr.Got{FS.Req{c, ages, g}, ""}, h) : {FS.ffi.go(_) == FS.put_reply(FS.Reply{Su.St.ages(Su.Decision.st(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))), Su.Decision.verdict(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))}, "") : String}
+  {==}
+
+def Laws.restart_ffi_malformed(s, h):
+  %Equal.sym(Wr.Dec<FS.Req>, FS.get_req(s), Wr.Bad{}, h) : {FS.ffi.go(_) == Wr.err("supervise: malformed request") : String}
+  {==}
+
+def Laws.restart_ffi_left_over(s, q, r, h, ne):
+  %Equal.sym(Wr.Dec<FS.Req>, FS.get_req(s), Wr.Got{q, r}, h) : {FS.ffi.go(_) == Wr.err("supervise: input left over") : String}
+  %Equal.sym(Bool, String.is_empty(r), False{}, ne) : {FS.ffi.fin(_, q) == Wr.err("supervise: input left over") : String}
   {==}
