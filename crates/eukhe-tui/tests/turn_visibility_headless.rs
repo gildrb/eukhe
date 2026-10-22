@@ -910,10 +910,21 @@ fn f13_a_completed_closure_mid_turn_says_so() {
     );
 }
 
+/// When the outcome row of a failed reply reaches the client, relative
+/// to the frames that show the reply.
+#[derive(Clone, Copy)]
+enum OutcomeRow {
+    /// Right behind the turn's end, before any frame shows the failed
+    /// reply.
+    WithTheTurnEnd,
+    /// After frames showed the failed reply: its text paced out and its
+    /// error row on screen.
+    AfterFrames,
+}
+
 /// F15: a reply that streamed text and then failed, with the failure
 /// disclosed by its outcome row, shows the failure once.
-#[test]
-fn f15_a_failed_reply_with_its_outcome_row_shows_the_error_once() {
+fn f15_failed_reply_with_outcome_row(timing: OutcomeRow) {
     let failed = assistant(text("Here is the pl"), "error", Some("529 overloaded"));
     let outcome = json!({
         "role": "custom",
@@ -927,6 +938,10 @@ fn f15_a_failed_reply_with_its_outcome_row_shows_the_error_once() {
     script.extend(user_message());
     script.extend(message(&failed));
     script.push(turn_end(&failed));
+    match timing {
+        OutcomeRow::WithTheTurnEnd => {}
+        OutcomeRow::AfterFrames => script.push(Act::Hold(300)),
+    }
     script.push(Act::Event(
         json!({ "type": "message_start", "message": outcome }),
     ));
@@ -948,6 +963,20 @@ fn f15_a_failed_reply_with_its_outcome_row_shows_the_error_once() {
         "the reply keeps its text:\n{last}"
     );
     assert_ended_with_one_row(&frames, "529 overloaded", RESEND);
+}
+
+#[test]
+fn f15_a_failed_reply_with_its_outcome_row_shows_the_error_once() {
+    f15_failed_reply_with_outcome_row(OutcomeRow::WithTheTurnEnd);
+}
+
+/// The outcome row lands after frames showed the failed reply whole: the
+/// reply stays live (its error may still retire) while it is the last
+/// entry, so the scrollback never keeps the error row the outcome row
+/// replaced.
+#[test]
+fn f15_a_failed_reply_shown_before_its_outcome_row_shows_the_error_once() {
+    f15_failed_reply_with_outcome_row(OutcomeRow::AfterFrames);
 }
 
 /// F16: a closure during a retry wait keeps the failed attempt's row, as
