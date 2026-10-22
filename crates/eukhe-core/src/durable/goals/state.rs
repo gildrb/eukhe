@@ -7,6 +7,8 @@
 //! Every write goes through [`stamp`] (the state normalization:
 //! `updated_at`, the derived `active` flag, and the creation-based timer).
 
+use eukhe_bend::wire::{Reader, Writer, NAT_MAX};
+use eukhe_bend::Entry;
 use eukhe_types::pi_ai::{AssistantMessage, StopReason, Usage};
 
 use crate::goals::{
@@ -248,12 +250,13 @@ pub(crate) fn mint(state: &GoalState) -> Option<GoalState> {
     })
 }
 
-/// Whether the session did new work since the goal's last continuation
-/// (its [`crate::durable::children::WorkLedger::count`] grew).
+/// The goal's last progress check of the same run and goal: its count of
+/// continuations in a row with no new work, and the session's work then
+/// (its [`crate::durable::children::WorkLedger::count`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Work {
-    Grew,
-    Same,
+pub(crate) struct Prior {
+    pub(crate) stalls: u64,
+    pub(crate) work: u64,
 }
 
 /// The progress check's verdict at one goal continuation: the count of
@@ -266,20 +269,39 @@ pub(crate) enum Stall {
     Stop { stalls: u64 },
 }
 
-/// The progress check (`check` in `bend/progress.bend`): new work clears
-/// the count of continuations in a row with no new work; else the count
-/// grows by one, and at `cap` the goal stops.
-#[must_use]
-pub(crate) fn stall_check(cap: u64, stalls: u64, work: Work) -> Stall {
-    match work {
-        Work::Grew => Stall::Go { stalls: 0 },
-        Work::Same => {
-            let stalls = stalls.saturating_add(1);
-            if cap <= stalls {
-                Stall::Stop { stalls }
-            } else {
-                Stall::Go { stalls }
-            }
-        }
-    }
+/// The progress check (`judge` in `bend/progress.bend`, run by the
+/// compiled Bend core; LAWS.bend section progress): the first check (no
+/// `prior`) starts the count; new work (the count grew) clears it; else it
+/// grows by one, and at `cap` the goal stops. The counts saturate at the
+/// wire's [`NAT_MAX`], below which the core holds the count of stalls
+/// (`goal_judge_held`).
+pub(crate) fn stall_check(cap: u64, prior: Option<Prior>, work: u64) -> Stall {
+    eukhe_bend::expect_core(Entry::Progress, judge(cap, prior, work))
+}
+
+fn judge(cap: u64, prior: Option<Prior>, work: u64) -> Result<Stall, eukhe_bend::Error> {
+    let mut request = Writer::new();
+    // The bound of the count of stalls: the wire's largest Nat.
+    request.nat(NAT_MAX).nat(cap.min(NAT_MAX));
+    match prior {
+        None => request.none(),
+        Some(prior) => request
+            .some()
+            .nat(prior.stalls.min(NAT_MAX))
+            .nat(prior.work.min(NAT_MAX)),
+    };
+    request.nat(work.min(NAT_MAX));
+    let reply = eukhe_bend::call(Entry::Progress, &request.finish()?)?;
+    let mut reply = Reader::reply(&reply)?;
+    let stall = match reply.tag_of(2, "a goal check")? {
+        0 => Stall::Go {
+            stalls: reply.nat()?,
+        },
+        // `tag_of` answers a tag below 2: this is 1.
+        _ => Stall::Stop {
+            stalls: reply.nat()?,
+        },
+    };
+    reply.end()?;
+    Ok(stall)
 }

@@ -132,6 +132,9 @@ any job table).
 | `stream_settle_carries_all` | The settle carries every result byte, every warning, and all usage (call 3). |
 | `rewind_stops_orphans` | After a rewind, every running job is a job of the target tree (jobs 6). |
 | `rewind_keeps_target_jobs` | A rewind leaves every job of the target tree as it was (jobs 6). |
+| `job_feed_fits`, `job_feed_no_output`, `job_feed_ended` | The step the jobs run (`feed`: the step with the bytes kept plus dropped held to the wire's largest Nat) is the step below that bound (jobs 1). |
+| `job_feed_is_a_step`, `job_feed_bounded`, `job_feed_fills` | Any output is a step on a part of it; the bytes kept plus dropped never pass the bound and fill it exactly when the output passes it (jobs 1). |
+| `job_entry` (`LAWS.bend` section `core_w6`) | The core's job entry, on the request Rust writes, answers the encoded `feed` and the ends the event reported. |
 
 Gap: in the model, `rewind` stops a job at once (`stop.at` sets `running`
 to false), and the bridge kill records the end at once. So the two rewind
@@ -150,9 +153,11 @@ Code: `eukhe-durable/src/harness/output.rs` (`Truncation`,
 (the progress board); `harness/events.rs` `watch_events`;
 `eukhe-types/src/output.rs` (the default limits);
 `eukhe-core/src/durable/bounded_output.rs` (`BoundedOutput::in_session`);
-`eukhe-core/src/durable/jobs/mod.rs` (`Job`, `JobState::step`, `JobTable`
-(`start`, `rewind`, `rewind_to`, `observe`), `wait_until`); `jobs/tree.rs` (the `eukhe.job`
-document, the writer, `stop_orphans`, `running_jobs_section`);
+`eukhe-core/src/durable/jobs/mod.rs` (`Job`, `JobState::step`: `feed`
+and `ends.of`, run as the compiled Bend core, `bend/ffi_job.bend`;
+`JobTable` (`start`, `rewind`, `rewind_to`, `observe`), `wait_until`);
+`jobs/tree.rs` (the `eukhe.job` document, the writer, `stop_orphans`,
+`running_jobs_section`);
 `durable/rlm/jobs.rs` (`CellJobs`: the cell board over `Job`;
 `jobs.list`, `jobs.wait`, `jobs.cancel`); `durable/rlm/tool.rs` (the
 `ipython` call's wait and detach); `durable/prompt.rs` (the
@@ -391,7 +396,7 @@ set it):
    returns: cells and other calls wait, and its timeout cannot fire. Do
    blocking work in a synchronous function.
 
-Model: `bend/sandbox.bend` (`serve`, `merge1`, `back`). Laws: `LAWS.bend`
+Model: `bend/sandbox.bend` (`serve`, `merge1`, `back`, `plan`). Laws: `LAWS.bend`
 section (S3). Proofs: `PROOF.bend` section `sandbox`. Every input is free:
 any frames of any length and kind, any limits, any workspaces of the
 parent, the base and the child.
@@ -406,6 +411,8 @@ parent, the base and the child.
 | `cow_takes_child` | A path only the child changed gets the child's content (workspace 4). |
 | `cow_conflict_reported` | A path both changed to different contents keeps the parent's content and is reported as a conflict: no change is lost in silence (workspace 4, 5). |
 | `cow_conflict_is_real` | A conflict is real: both changed the path, to different contents (workspace 4). |
+| `cow_plan`, `cow_plan_is_merge` | The plan of one path is the copy-on-write rule (keep, taken, conflict, the child's file, the child's removal), and it carries out the merge (workspace 4, 5). |
+| `cow_entry` (`LAWS.bend` section `core_w6`) | The core's sandbox entry, on the request Rust writes, answers the encoded plan. |
 
 Code: `eukhe-core/src/kernel/manager/frames.rs` (`FrameSplitter`,
 `Gate::admit`, `Admission`, `Refusal`, `ProtocolFault`, the limits);
@@ -421,15 +428,17 @@ Code: `eukhe-core/src/kernel/manager/frames.rs` (`FrameSplitter`,
 setting); `durable/rlm/remote.rs` (`remote.register`, the `remote/<name>`
 tools); `eukhe-runtime/src/rlm/remote.py` (`remote`) and `repl.py`
 (`_handle_call`, the stdin owner); `eukhe-core/src/child_workspace/`
-(`ChildWorkspace`: `create`, `hand_back`; `merge.rs` `merge1`;
+(`ChildWorkspace`: `create`, `hand_back`; `merge.rs` `plan`, run as the
+compiled Bend core, `bend/ffi_sandbox.bend`;
 `files.rs`: the listing, the clone, the one-rename replace);
 `durable/children/` (the `workspace` kwarg, `RlmSubagentHost::hand_back`,
 `HandbackOutcome` on the row and the report);
 `eukhe-daemon/src/rlm_children/` (the workspace at the spawn,
 `hand_back`, `delete`); `eukhe-runtime/src/rlm/__init__.py` (`spawn`).
 
-Ties: two bridge tests compare transcripts with `bend/bridge_sandbox.bend`
-byte for byte.
+Ties: the hand-back's plan is the proven model itself (the compiled core).
+One bridge test compares transcripts with `bend/bridge_sandbox.bend` byte
+for byte.
 
 - `kernel::manager::frames::bridge::the_rust_frame_gate_equals_the_bend_model`
   writes 200 generated streams of host-request frames (ids, lengths,
@@ -437,11 +446,6 @@ byte for byte.
   prints the gate's reply to each frame and the frames it served. The
   scenarios reach every rule: served, oversized, a kind not served, and a
   frame exactly at the limit.
-- `child_workspace::bridge::the_rust_hand_back_equals_the_bend_model`
-  writes 200 generated parent, base and child file maps as real
-  directories, runs the hand-back, and prints the parent's files and the
-  conflicts. The scenarios reach every rule: kept, taken, a removal
-  taken, the same change, a conflict, and a conflict with a removal.
 
 Regression tests: `kernel_protocol_frame_caps` (an oversized host
 request, an unserved type and a served one each get one reply on a real

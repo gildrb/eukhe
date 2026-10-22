@@ -49,6 +49,49 @@ fn start(table: &JobTable, id: &str, truncation: Truncation, kills: &Arc<AtomicU
     })
 }
 
+/// The core carries an exit code as the i64's two 32-bit words: every code
+/// comes back as it went, the negative ones and the extremes included.
+#[test]
+fn every_exit_code_crosses_the_core_exactly() {
+    for code in [i64::MIN, -1, 0, 1, 255, i64::from(u32::MAX) + 1, i64::MAX] {
+        let ended = JobState::Ended {
+            kept: 2,
+            dropped: 0,
+            end: JobEnd::Exited(code),
+        };
+        assert_eq!(
+            JobState::Live {
+                kept: 2,
+                dropped: 0
+            }
+            .step(None, JobEvent::Exited(code)),
+            (ended, Some(JobEnd::Exited(code)))
+        );
+        assert_eq!(ended.step(None, JobEvent::Killed), (ended, None));
+    }
+}
+
+/// Output past the wire's largest Nat saturates the bytes kept plus
+/// dropped there, as Rust counted them before (`job_feed_fills`).
+#[test]
+fn output_past_the_wire_saturates_the_counts() {
+    let near = eukhe_bend::wire::NAT_MAX - 10;
+    assert_eq!(
+        JobState::Live {
+            kept: near,
+            dropped: 0
+        }
+        .step(None, JobEvent::Output(u64::MAX)),
+        (
+            JobState::Live {
+                kept: eukhe_bend::wire::NAT_MAX,
+                dropped: 0
+            },
+            None
+        )
+    );
+}
+
 #[test]
 fn a_capped_job_keeps_the_cap_counts_the_rest_and_reports_one_end() {
     let table = JobTable::default();
