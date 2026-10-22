@@ -66,6 +66,9 @@ import ./bend/config.bend as Cf
 import ./bend/default_model.bend as Dm
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/ffi_director.bend as FDr
+import ./bend/ffi_child_env.bend as FEnv
+import ./bend/ffi_cvar.bend as FCv
 
 # (a) The view
 # ------------
@@ -1264,8 +1267,8 @@ law dir_go_push_spent:
   {Dr.decide.go(Dr.Layer{k, 0n} <> rest, Dr.Stack{n} <> vs, room, stay) == Dr.Dec{Dr.Hand{}, Dr.Layer{k, 0n} <> rest} : Dr.Dec}
 
 # LAW: the room of a decision: the whole stack (every layer, those above
-# the deciding one too) holds fewer than cap layers. A cap at 2^48-1 (the
-# saturated setting) leaves room for every stack the cap allows.
+# the deciding one too) holds fewer than cap layers. A cap the Rust code
+# saturates (at the wire's largest Nat) leaves room for every stack.
 law dir_room:
   for +s: List<&2, Dr.Layer>
   for vs: List<&2, Dr.Verdict>
@@ -5410,3 +5413,339 @@ law wf_failure_spares_siblings:
   for xs: List<&2, W.Out>
   for ys: List<&2, W.Out>
   {W.results(W.cat(xs, W.Failed{} <> ys)) == W.rcat(W.results(xs), None{} <> W.results(ys)) : List<&2, Maybe<&2, Nat>>}
+
+# ---- director_entry ----
+
+# LAWS (S5, the compiled core): the entry bend/ffi_director.bend runs the
+# Director stack's step for the Rust code. Each law is an open claim about
+# that entry; PROOF.bend proves them (as Laws.<law>) with the lemmas of
+# PROOF.bend section director_entry.
+
+# The entry of the compiled core (bend/ffi_director.bend)
+# --------------------------------------------------------
+# The Rust code sends one loop step as text and reads the loop after it.
+# Every number it sends fits the wire: it saturates the counts (the
+# budgets, the global budget, the cap) at the wire's largest Nat, 10^14-1
+# (`eukhe_bend::wire::NAT_MAX`), a count no loop runs out of.
+
+# the numbers of a layer fit the wire
+def dir_layer_fits(l: Dr.Layer) -> Bool:
+  match l:
+    case Dr.Layer{k, b}:
+      Bool.and(wire_fits(k), wire_fits(b))
+
+# every item of xs fits the wire
+def dir_layers_fit(xs: List<&2, Dr.Layer>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(dir_layer_fits(x), dir_layers_fit(t))
+
+# the numbers of a verdict fit the wire
+def dir_verdict_fits(v: Dr.Verdict) -> Bool:
+  match v:
+    case Dr.Defer{}:
+      True{}
+    case Dr.Again{}:
+      True{}
+    case Dr.Yield{}:
+      True{}
+    case Dr.Stack{l}:
+      dir_layer_fits(l)
+    case Dr.Leave{}:
+      True{}
+    case Dr.Abort{}:
+      True{}
+    case Dr.Lead{}:
+      True{}
+
+# every item of xs fits the wire
+def dir_verdicts_fit(xs: List<&2, Dr.Verdict>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(dir_verdict_fits(x), dir_verdicts_fit(t))
+
+# the numbers of a loop fit the wire
+def dir_loop_fits(l: Dr.Loop) -> Bool:
+  match l:
+    case Dr.Loop{n, +s, e}:
+      Bool.and(wire_fits(n), Bool.and(wire_fits(List.length(&2, Dr.Layer, s)), dir_layers_fit(s)))
+
+# the numbers of a request fit the wire
+def dir_req_fits(q: FDr.Req) -> Bool:
+  match q:
+    case FDr.Req{c, l, +vs}:
+      Bool.and(wire_fits(c), Bool.and(dir_loop_fits(l), Bool.and(wire_fits(List.length(&2, Dr.Verdict, vs)), dir_verdicts_fit(vs))))
+
+# LAW: a request that fits reads back whole, and the input after it stays
+# EXCLUDES: a layer, a verdict, a budget, the cap or the end lost, swapped
+#   or misread on the way to the model
+law dir_ffi_round_trip:
+  for +q: FDr.Req
+  for +rest: String
+  for h: {dir_req_fits(q) == True{} : Bool}
+  {FDr.get_req(FDr.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FDr.Req>}
+
+# LAW: the entry answers one step of the model: the loop after the tick
+# EXCLUDES: an entry that decides anything but Dr.tick (a default, a
+#   second rule), a reply that encodes another loop
+law dir_ffi_is_tick:
+  for +c: Nat
+  for +l: Dr.Loop
+  for +vs: List<&2, Dr.Verdict>
+  for h: {dir_req_fits(FDr.Req{c, l, vs}) == True{} : Bool}
+  {FDr.ffi(FDr.put_req(FDr.Req{c, l, vs}, "")) == FDr.put_loop(Dr.tick(c, l, vs), "") : String}
+
+# LAW: a malformed request answers the error form, never a loop
+# EXCLUDES: a default loop for input the decoder refuses
+law dir_ffi_malformed:
+  for +s: String
+  for h: {FDr.get_req(s) == Wr.Bad{} : Wr.Dec<FDr.Req>}
+  {FDr.ffi(s) == Wr.err("director: malformed request") : String}
+
+# LAW: a request with input left over answers the error form
+# EXCLUDES: a reply to a request followed by anything (a second request
+#   glued on, a truncated encoding read as a shorter one)
+law dir_ffi_left_over:
+  for +s: String
+  for +q: FDr.Req
+  for +r: String
+  for h: {FDr.get_req(s) == Wr.Got{q, r} : Wr.Dec<FDr.Req>}
+  for e: {String.is_empty(r) == False{} : Bool}
+  {FDr.ffi(s) == Wr.err("director: input left over") : String}
+
+# LAW: witness: a request fits (the premise of the laws above can hold)
+law dir_req_fits_example:
+  {dir_req_fits(FDr.Req{4n, Dr.Loop{3n, [Dr.Layer{0n, 5n}], Some{Dr.Hand{}}}, [Dr.Stack{Dr.Layer{1n, 1n}}, Dr.Lead{}]}) == True{} : Bool}
+
+# ---- child_env_entry ----
+
+# LAWS (G3, the compiled core): the entry bend/ffi_child_env.bend runs the
+# child environment for the Rust code. Each law is an open claim about
+# that entry; PROOF.bend proves them (as Laws.<law>) with the lemmas of
+# PROOF.bend section child_env_entry.
+
+# The entry of the compiled core (bend/ffi_child_env.bend)
+# ---------------------------------------------------------
+# The Rust code sends the registry, the keep list, the base and the
+# overlay as text, and reads the environment of the child. It sends each
+# value as a number (the model never reads a value and never invents a
+# variable: env_child_from_merge), and maps the numbers back.
+
+# the length of s fits the wire
+def env_str_fits(+s: String) -> Bool:
+  wire_fits(String.length(s))
+
+# every item of xs fits the wire
+def env_strs_fit(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(env_str_fits(x), env_strs_fit(t))
+
+# the lengths of a variable fit the wire
+def env_var_fits(v: Env.Var) -> Bool:
+  match v:
+    case Env.Var{+n, +x}:
+      Bool.and(env_str_fits(n), env_str_fits(x))
+
+# every item of xs fits the wire
+def env_vars_fit(xs: List<&2, Env.Var>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(env_var_fits(x), env_vars_fit(t))
+
+# the numbers of a request fit the wire
+def env_req_fits(q: FEnv.Req) -> Bool:
+  match q:
+    case FEnv.Req{+r, +k, +b, +o}:
+      Bool.and(Bool.and(wire_fits(List.length(&2, String, r)), env_strs_fit(r)), Bool.and(Bool.and(wire_fits(List.length(&2, String, k)), env_strs_fit(k)), Bool.and(Bool.and(wire_fits(List.length(&2, Env.Var, b)), env_vars_fit(b)), Bool.and(wire_fits(List.length(&2, Env.Var, o)), env_vars_fit(o)))))
+
+# LAW: a request that fits reads back whole, and the input after it stays
+# EXCLUDES: a name, a value, a registry or keep entry lost, swapped or
+#   misread on the way to the model
+law env_ffi_round_trip:
+  for +q: FEnv.Req
+  for +rest: String
+  for h: {env_req_fits(q) == True{} : Bool}
+  {FEnv.get_req(FEnv.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FEnv.Req>}
+
+# LAW: the entry answers the model's environment of the child
+# EXCLUDES: an entry that filters anything but Env.child (a second rule, a
+#   default environment)
+law env_ffi_is_child:
+  for +r: List<&2, String>
+  for +k: List<&2, String>
+  for +b: List<&2, Env.Var>
+  for +o: List<&2, Env.Var>
+  for h: {env_req_fits(FEnv.Req{r, k, b, o}) == True{} : Bool}
+  {FEnv.ffi(FEnv.put_req(FEnv.Req{r, k, b, o}, "")) == Wr.put_list(~Env.Var, ~FEnv.put_var, Env.child(r, k, b, o), "") : String}
+
+# LAW: a malformed request answers the error form, never an environment
+# EXCLUDES: a default (empty or unfiltered) environment for bad input
+law env_ffi_malformed:
+  for +s: String
+  for h: {FEnv.get_req(s) == Wr.Bad{} : Wr.Dec<FEnv.Req>}
+  {FEnv.ffi(s) == Wr.err("child_env: malformed request") : String}
+
+# LAW: a request with input left over answers the error form
+# EXCLUDES: a reply to a request followed by anything
+law env_ffi_left_over:
+  for +s: String
+  for +q: FEnv.Req
+  for +r: String
+  for h: {FEnv.get_req(s) == Wr.Got{q, r} : Wr.Dec<FEnv.Req>}
+  for e: {String.is_empty(r) == False{} : Bool}
+  {FEnv.ffi(s) == Wr.err("child_env: input left over") : String}
+
+# LAW: witness: a request fits
+law env_req_fits_example:
+  {env_req_fits(FEnv.Req{["OPENAI_API_KEY"], ["GITHUB_TOKEN"], [Env.Var{"PATH", "0"}], [Env.Var{"HOME", "1"}]}) == True{} : Bool}
+
+# ---- cvar_entry ----
+
+# LAWS (S4, the compiled core): the entries of bend/ffi_cvar.bend run the
+# expansion and the key presses for the Rust code. Each law is an open
+# claim about those entries; PROOF.bend proves them (as Laws.<law>) with
+# the lemmas of PROOF.bend section cvar_entry.
+
+# The entries of the compiled core (bend/ffi_cvar.bend)
+# ------------------------------------------------------
+# The Rust code (crates/eukhe-bend/src/rules/cvar.rs) numbers the aliases
+# and the keys, and keeps every command that is not a run aside: such a
+# command crosses as CToggle{its place} (the model passes it through
+# unchanged: alias_runs_body, alias_expands_in_order).
+
+# the numbers of a value fit the wire
+def cvar_val_fits(v: Cv.Val) -> Bool:
+  match v:
+    case Cv.VNat{n}:
+      wire_fits(n)
+    case Cv.VBool{b}:
+      True{}
+
+# the numbers of a command fit the wire
+def cvar_cmd_fits(c: Cv.Cmd) -> Bool:
+  match c:
+    case Cv.CSet{i, v}:
+      Bool.and(wire_fits(i), cvar_val_fits(v))
+    case Cv.CToggle{i}:
+      wire_fits(i)
+    case Cv.CRun{n}:
+      wire_fits(n)
+    case Cv.CGone{n}:
+      wire_fits(n)
+
+# every item of xs fits the wire
+def cvar_cmds_all(xs: List<&2, Cv.Cmd>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(cvar_cmd_fits(x), cvar_cmds_all(t))
+
+# a command list fits the wire
+def cvar_cmds_fit(+cs: List<&2, Cv.Cmd>) -> Bool:
+  Bool.and(wire_fits(List.length(&2, Cv.Cmd, cs)), cvar_cmds_all(cs))
+
+# an alias fits the wire
+def cvar_alias_fits(a: Cv.Alias) -> Bool:
+  match a:
+    case Cv.Alias{n, b}:
+      Bool.and(wire_fits(n), cvar_cmds_fit(b))
+
+# every item of xs fits the wire
+def cvar_aliases_all(xs: List<&2, Cv.Alias>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(cvar_alias_fits(x), cvar_aliases_all(t))
+
+# a key bind fits the wire
+def cvar_bind_fits(k: Cv.KeyBind) -> Bool:
+  match k:
+    case Cv.KeyBind{n, c}:
+      Bool.and(wire_fits(n), cvar_cmds_fit(c))
+
+# every item of xs fits the wire
+def cvar_binds_all(xs: List<&2, Cv.KeyBind>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+x, t}:
+      Bool.and(cvar_bind_fits(x), cvar_binds_all(t))
+
+# an alias table fits the wire
+def cvar_aliases_fit(+as: List<&2, Cv.Alias>) -> Bool:
+  Bool.and(wire_fits(List.length(&2, Cv.Alias, as)), cvar_aliases_all(as))
+
+# a bind table fits the wire
+def cvar_binds_fit(+bs: List<&2, Cv.KeyBind>) -> Bool:
+  Bool.and(wire_fits(List.length(&2, Cv.KeyBind, bs)), cvar_binds_all(bs))
+
+# LAW: an expand request that fits reads back whole
+# EXCLUDES: an alias, a command or a number lost, swapped or misread on
+#   the way to the model
+law cvar_ffi_round_trip:
+  for +as: List<&2, Cv.Alias>
+  for +cs: List<&2, Cv.Cmd>
+  for +rest: String
+  for h: {Bool.and(cvar_aliases_fit(as), cvar_cmds_fit(cs)) == True{} : Bool}
+  {FCv.get_xreq(FCv.put_xreq(FCv.Xreq{as, cs}, rest)) == Wr.Got{FCv.Xreq{as, cs}, rest} : Wr.Dec<FCv.Xreq>}
+
+# LAW: the expand entry answers the model's expansion
+# EXCLUDES: an entry that expands by any other rule, or answers a default
+law cvar_ffi_is_expand:
+  for +as: List<&2, Cv.Alias>
+  for +cs: List<&2, Cv.Cmd>
+  for h: {Bool.and(cvar_aliases_fit(as), cvar_cmds_fit(cs)) == True{} : Bool}
+  {FCv.ffi(FCv.put_xreq(FCv.Xreq{as, cs}, "")) == FCv.put_exp(Cv.expand(cs, as), "") : String}
+
+# LAW: a malformed expand request answers the error form
+# EXCLUDES: a default expansion (nothing to run) for bad input
+law cvar_ffi_malformed:
+  for +s: String
+  for h: {FCv.get_xreq(s) == Wr.Bad{} : Wr.Dec<FCv.Xreq>}
+  {FCv.ffi(s) == Wr.err("cvar: malformed expand request") : String}
+
+# LAW: a bind table that fits opens the press state of that table
+# EXCLUDES: a table read with a bind or an alias lost or changed
+law cvar_ffi_open:
+  for +bs: List<&2, Cv.KeyBind>
+  for +as: List<&2, Cv.Alias>
+  for h: {Bool.and(cvar_binds_fit(bs), cvar_aliases_fit(as)) == True{} : Bool}
+  {FCv.open(FCv.put_table(bs, as, "")) == (FCv.Table{bs, as}, "") : FCv.St & String}
+
+# LAW: a malformed bind table opens the refused state, with the error form
+# EXCLUDES: an empty table (every key unbound) for bad input
+law cvar_ffi_open_malformed:
+  for +s: String
+  for h: {FCv.get_table(s) == Wr.Bad{} : Wr.Dec<FCv.St>}
+  {FCv.open(s) == (FCv.Refused{}, Wr.err("cvar: malformed press table")) : FCv.St & String}
+
+# LAW: a press of a key answers the model's press, and the table stays
+# EXCLUDES: a press by any other rule, a table that changes between
+#   presses
+law cvar_ffi_press:
+  for +bs: List<&2, Cv.KeyBind>
+  for +as: List<&2, Cv.Alias>
+  for +k: Nat
+  for h: {wire_fits(k) == True{} : Bool}
+  {FCv.step(FCv.Table{bs, as}, Wr.put_nat(k, "")) == (FCv.Table{bs, as}, FCv.put_exp(Cv.press(bs, k, as), "")) : FCv.St & String}
+
+# LAW: a refused table answers every press with the error form
+# EXCLUDES: a press that runs anything after a refused open
+law cvar_ffi_refused:
+  for +s: String
+  {FCv.step(FCv.Refused{}, s) == (FCv.Refused{}, Wr.err("cvar: the press table was refused")) : FCv.St & String}
+
+# LAW: witness: a table and a command list fit
+law cvar_fits_example:
+  {Bool.and(cvar_binds_fit([Cv.KeyBind{0n, [Cv.CRun{1n}, Cv.CToggle{0n}]}]), Bool.and(cvar_aliases_fit([Cv.Alias{1n, [Cv.CSet{2n, Cv.VBool{True{}}}, Cv.CGone{3n}]}]), cvar_cmds_fit([Cv.CSet{0n, Cv.VNat{7n}}]))) == True{} : Bool}

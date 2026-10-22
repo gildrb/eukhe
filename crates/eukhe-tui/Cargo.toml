@@ -8,6 +8,8 @@ description = "Terminal UI for Eukhe."
 
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
+# The key binds' presses run as the compiled command-language model.
+eukhe-bend = { path = "../eukhe-bend" }
 # Theme files, validation, name resolution and color math.
 eukhe-theme = { path = "../eukhe-theme" }
 # The build identity a daemon's hello is compared against.

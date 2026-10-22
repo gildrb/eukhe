@@ -16,10 +16,11 @@
 //! <name>                  run the alias <name>
 //! ```
 //!
-//! [`expand`] replaces each run of an alias with its commands. It nests at
-//! most one level per alias of the table: a deeper nest repeats an alias,
-//! so it is a cycle ([`ExpandError::Cycle`]). A run of an alias that does
-//! not exist is [`ExpandError::Unknown`].
+//! The expansion of runs of aliases (`eukhe_bend::rules::cvar`, the model
+//! `bend/cvar.bend` compiled) replaces each run of an alias with its
+//! commands. It nests at most one level per alias of the table: a deeper
+//! nest repeats an alias, so it is a cycle ([`ExpandError::Cycle`]). A run
+//! of an alias that does not exist is [`ExpandError::Unknown`].
 
 use std::fmt;
 
@@ -331,53 +332,6 @@ impl fmt::Display for ExpandError {
 
 impl std::error::Error for ExpandError {}
 
-fn expand_at(
-    depth: usize,
-    commands: &[Command],
-    aliases: &Aliases,
-    out: &mut Vec<Command>,
-) -> Result<(), ExpandError> {
-    for command in commands {
-        match command {
-            Command::Run { alias } => {
-                // As the model: with no depth left any run is a cycle,
-                // known or not.
-                let Some(deeper) = depth.checked_sub(1) else {
-                    return Err(ExpandError::Cycle {
-                        alias: alias.clone(),
-                    });
-                };
-                let Some(body) = aliases.body(alias) else {
-                    return Err(ExpandError::Unknown {
-                        alias: alias.clone(),
-                    });
-                };
-                expand_at(deeper, body, aliases, out)?;
-            }
-            Command::Set { .. }
-            | Command::Toggle { .. }
-            | Command::Alias { .. }
-            | Command::Bind { .. }
-            | Command::Action { .. } => out.push(command.clone()),
-        }
-    }
-    Ok(())
-}
-
-/// `commands` with every run of an alias replaced by its commands: the
-/// top level and one level per alias of the table (`bend/cvar.bend`
-/// `expand`); the first error, left to right, stops it.
-///
-/// # Errors
-///
-/// [`ExpandError::Cycle`] for a nest deeper than the table,
-/// [`ExpandError::Unknown`] for a run of an alias that does not exist.
-pub fn expand(commands: &[Command], aliases: &Aliases) -> Result<Vec<Command>, ExpandError> {
-    let mut out = Vec::new();
-    expand_at(aliases.len() + 1, commands, aliases, &mut out)?;
-    Ok(out)
-}
-
 /// The key binds, in order: the first bind of a key wins.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Binds(Vec<(String, Vec<Command>)>);
@@ -389,29 +343,11 @@ impl Binds {
         self.0.push((key, body));
     }
 
-    /// The commands of the first bind of `key`; none when it is unbound.
-    #[must_use]
-    pub fn bound(&self, key: &str) -> &[Command] {
-        self.0
-            .iter()
-            .find(|(bound, _)| bound == key)
-            .map_or(&[], |(_, body)| body.as_slice())
-    }
-
     /// The binds, in order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &[Command])> {
         self.0
             .iter()
             .map(|(key, body)| (key.as_str(), body.as_slice()))
-    }
-
-    /// The commands a press of `key` runs: its bound commands, expanded.
-    ///
-    /// # Errors
-    ///
-    /// As [`expand`].
-    pub fn press(&self, key: &str, aliases: &Aliases) -> Result<Vec<Command>, ExpandError> {
-        expand(self.bound(key), aliases)
     }
 }
 

@@ -2,6 +2,9 @@
 # bend/ffi_*.bend: do not edit (make bend-core).
 import Base
 import ./wire.bend as W
+import ./ffi_child_env.bend as ffi_child_env
+import ./ffi_cvar.bend as ffi_cvar
+import ./ffi_director.bend as ffi_director
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_wire.bend as ffi_wire
 
@@ -19,6 +22,12 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_echo.ffi(input)
     case 1:
       ffi_wire.ffi(input)
+    case 2:
+      ffi_child_env.ffi(input)
+    case 3:
+      ffi_cvar.ffi(input)
+    case 4:
+      ffi_director.ffi(input)
     case _:
       W.err("unknown entry")
 
@@ -30,6 +39,7 @@ def ffi(+entry: U32, input: String) -> String:
 # A stepper's state, tagged with its entry; Unknown: an unknown entry.
 type State is Type:
   Echo{s: ffi_echo.St}
+  Cvar{s: ffi_cvar.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -37,10 +47,17 @@ def open.echo(r: ffi_echo.St & String) -> State & String:
     case (s, reply):
       (Echo{s}, reply)
 
+def open.cvar(r: ffi_cvar.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Cvar{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
       open.echo(ffi_echo.open(input))
+    case 3:
+      open.cvar(ffi_cvar.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -54,10 +71,17 @@ def step.echo(r: ffi_echo.St & String) -> State & String:
     case (s, reply):
       (Echo{s}, reply)
 
+def step.cvar(r: ffi_cvar.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Cvar{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
       step.echo(ffi_echo.step(s, input))
+    case Cvar{s}:
+      step.cvar(ffi_cvar.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -69,6 +93,8 @@ def step(state: State, input: String) -> State & String:
 def close.go(state: State) -> Unit:
   match state:
     case Echo{s}:
+      Unit{}
+    case Cvar{s}:
       Unit{}
     case Unknown{}:
       Unit{}

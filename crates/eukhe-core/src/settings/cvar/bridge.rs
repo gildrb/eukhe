@@ -4,9 +4,9 @@
 //! transcript, byte for byte.
 //!
 //! A scenario is a list of events (`bend/bridge_cvar.bend` documents the
-//! format). Model cvar `n` is Rust cvar `c<n>`, alias `n` is `a<n>`, key
-//! `n` is `k<n>`; a Nat is a [`CvarType::Nat`] with JSON numbers, a Bool a
-//! [`CvarType::Bool`] with JSON bools. Six kinds of scenario:
+//! format). Model cvar `n` is Rust cvar `c<n>`;
+//! a Nat is a [`CvarType::Nat`] with JSON numbers, a Bool a
+//! [`CvarType::Bool`] with JSON bools. Four kinds of scenario:
 //!
 //! - registry: declaration lists with duplicate ids and defaults of the
 //!   wrong type; [`Registry::new`] accepts exactly when the model's
@@ -22,11 +22,6 @@
 //!   the same way.
 //! - written: the sets an agent writes ([`Flag::Persist`]) and replicates
 //!   ([`Flag::Replicate`]) ([`Sets::written`]).
-//! - expand: alias tables with cycles and runs of aliases they do not hold
-//!   ([`expand`]); the model's `CGone` is a run of a name the table does
-//!   not hold.
-//! - press: key binds, some keys bound twice, and presses of bound and
-//!   unbound keys ([`Binds::press`]).
 //!
 //! A registry borrows `&'static [Decl]`, and [`Cvars`] a `&'static`
 //! registry: the scenarios are planned once into [`PLANNED`], their
@@ -40,7 +35,7 @@ use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
-use eukhe_types::cvar::{expand, render_list, Aliases, Binds, Command, ExpandError};
+use eukhe_types::cvar::{Aliases, Binds, Command};
 use serde_json::Value;
 
 use super::{
@@ -63,14 +58,6 @@ enum Case {
     WrongTypeIgnored,
     /// An agent's own set wins over its profile's set of another value.
     SetOverProfile,
-    /// An expansion nests deeper than the table: a cycle.
-    Cycle,
-    /// A run of an alias the table does not hold.
-    Unknown,
-    /// A pressed key is bound twice, to different commands.
-    FirstBind,
-    /// A pressed key is not bound.
-    Unbound,
     /// A subagent toggles a cvar whose value its family decides: the
     /// value over the family differs from the value over the agent alone.
     ToggleInherited,
@@ -287,89 +274,6 @@ impl Agent {
     }
 }
 
-/// A command of the model.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Cmd {
-    Set(u64, Val),
-    Toggle(u64),
-    /// A run of alias `n`, which the table may hold.
-    Run(u64),
-    /// A run of alias `n`, which the table does not hold.
-    Gone(u64),
-}
-
-impl Cmd {
-    /// A command over cvars `0..4` and aliases `0..6` (runs) or `6..9`
-    /// (gone: no table holds them).
-    fn random(rng: &mut Rng) -> Cmd {
-        match rng.below(10) {
-            0..=2 => {
-                let ty = Ty::random(rng);
-                Cmd::Set(rng.below(4), Val::of(rng, ty))
-            }
-            3..=4 => Cmd::Toggle(rng.below(4)),
-            5..=8 => Cmd::Run(rng.below(6)),
-            _ => Cmd::Gone(rng.range(6, 8)),
-        }
-    }
-
-    fn word(self) -> String {
-        match self {
-            Cmd::Set(cvar, val) => format!("s:{cvar}:{}", val.word()),
-            Cmd::Toggle(cvar) => format!("t:{cvar}"),
-            Cmd::Run(name) => format!("r:{name}"),
-            Cmd::Gone(name) => format!("g:{name}"),
-        }
-    }
-
-    fn command(self) -> Command {
-        match self {
-            Cmd::Set(cvar, val) => Command::Set {
-                id: id(cvar).to_string(),
-                value: val.json().to_string(),
-            },
-            Cmd::Toggle(cvar) => Command::Toggle {
-                id: id(cvar).to_string(),
-            },
-            Cmd::Run(name) | Cmd::Gone(name) => Command::Run {
-                alias: format!("a{name}"),
-            },
-        }
-    }
-}
-
-fn random_cmds(rng: &mut Rng, low: u64, high: u64) -> Vec<Cmd> {
-    (0..rng.range(low, high))
-        .map(|_| Cmd::random(rng))
-        .collect()
-}
-
-/// An alias table of up to four distinct names among `0..6`, bodies of up
-/// to three commands.
-fn random_aliases(rng: &mut Rng) -> Vec<(u64, Vec<Cmd>)> {
-    let mut names: Vec<u64> = (0..6).collect();
-    let mut aliases = Vec::new();
-    for _ in 0..rng.below(5) {
-        let Some(name) = rng.pick(&names) else {
-            break;
-        };
-        names.retain(|other| *other != name);
-        aliases.push((name, random_cmds(rng, 0, 3)));
-    }
-    aliases
-}
-
-fn words(cmds: &[Cmd]) -> String {
-    cmds.iter().fold(String::new(), |mut out, cmd| {
-        let _ = write!(out, " {}", cmd.word());
-        out
-    })
-}
-
-fn commands(cmds: &[Cmd]) -> Vec<Command> {
-    cmds.iter().map(|cmd| cmd.command()).collect()
-}
-
 /// What one scenario does.
 enum Plan {
     /// Declarations, the registry after each.
@@ -389,23 +293,12 @@ enum Plan {
     },
     /// An agent's sets; the ones it writes and replicates.
     Written { specs: Vec<Spec>, own: Vec<Bind> },
-    /// Expansions of command lists with an alias table.
-    Expand {
-        aliases: Vec<(u64, Vec<Cmd>)>,
-        lists: Vec<Vec<Cmd>>,
-    },
-    /// Key binds and presses.
-    Press {
-        aliases: Vec<(u64, Vec<Cmd>)>,
-        binds: Vec<(u64, Vec<Cmd>)>,
-        keys: Vec<u64>,
-    },
 }
 
 impl Plan {
     /// Scenario `at`: the kinds take turns.
     fn random(rng: &mut Rng, at: u64) -> Plan {
-        match at % 6 {
+        match at % 4 {
             0 => Plan::Registry {
                 specs: (0..rng.range(1, 6))
                     .map(|_| {
@@ -454,24 +347,11 @@ impl Plan {
                     toggles,
                 }
             }
-            3 => {
+            _ => {
                 let specs = registry_specs(rng);
                 let own = random_binds(rng, &specs, 6);
                 Plan::Written { specs, own }
             }
-            4 => Plan::Expand {
-                aliases: random_aliases(rng),
-                lists: (0..rng.range(1, 4))
-                    .map(|_| random_cmds(rng, 1, 4))
-                    .collect(),
-            },
-            _ => Plan::Press {
-                aliases: random_aliases(rng),
-                binds: (0..rng.range(1, 5))
-                    .map(|_| (rng.below(4), random_cmds(rng, 0, 3)))
-                    .collect(),
-                keys: (0..rng.range(1, 4)).map(|_| rng.below(5)).collect(),
-            },
         }
     }
 
@@ -481,7 +361,6 @@ impl Plan {
             | Plan::Value { specs, .. }
             | Plan::Toggle { specs, .. }
             | Plan::Written { specs, .. } => specs,
-            Plan::Expand { .. } | Plan::Press { .. } => &[],
         }
     }
 }
@@ -523,21 +402,6 @@ static REGISTRIES: LazyLock<Vec<Result<Registry, RegistryError>>> = LazyLock::ne
         .collect()
 });
 
-/// An expansion as the transcript prints it.
-fn outcome(expanded: &Result<Vec<Command>, ExpandError>, reached: &mut Reached) -> String {
-    match expanded {
-        Ok(commands) => format!("[{}]", render_list(commands)),
-        Err(ExpandError::Cycle { alias }) => {
-            reached.insert(Case::Cycle);
-            format!("cycle {alias}")
-        }
-        Err(ExpandError::Unknown { alias }) => {
-            reached.insert(Case::Unknown);
-            format!("unknown {alias}")
-        }
-    }
-}
-
 /// A value as the transcript prints it.
 fn shown(value: Option<&Value>) -> String {
     value.map_or_else(|| "none".to_string(), Value::to_string)
@@ -563,15 +427,6 @@ impl Run {
         for bind in binds {
             let _ = writeln!(self.events, "{letter} {} {}", bind.id, bind.val.word());
         }
-    }
-
-    fn aliases(&mut self, aliases: &[(u64, Vec<Cmd>)]) -> Aliases {
-        let mut table = Aliases::default();
-        for (name, body) in aliases {
-            let _ = writeln!(self.events, "l {name}{}", words(body));
-            table.define(format!("a{name}"), commands(body));
-        }
-        table
     }
 
     /// The registry after each declaration of `decls`.
@@ -695,54 +550,6 @@ impl Run {
             self.transcript.push('\n');
         }
     }
-
-    fn expand(&mut self, aliases: &[(u64, Vec<Cmd>)], lists: &[Vec<Cmd>], reached: &mut Reached) {
-        let table = self.aliases(aliases);
-        for cmds in lists {
-            let _ = writeln!(self.events, "x{}", words(cmds));
-            let expanded = expand(&commands(cmds), &table);
-            let _ = writeln!(self.transcript, "expand {}", outcome(&expanded, reached));
-        }
-    }
-
-    fn press(
-        &mut self,
-        aliases: &[(u64, Vec<Cmd>)],
-        binds: &[(u64, Vec<Cmd>)],
-        keys: &[u64],
-        reached: &mut Reached,
-    ) {
-        let table = self.aliases(aliases);
-        let mut bound = Binds::default();
-        for (key, body) in binds {
-            let _ = writeln!(self.events, "b {key}{}", words(body));
-            bound.push(format!("k{key}"), commands(body));
-        }
-        for key in keys {
-            let _ = writeln!(self.events, "k {key}");
-            let bodies: Vec<&Vec<Cmd>> = binds
-                .iter()
-                .filter(|(bound, _)| bound == key)
-                .map(|(_, body)| body)
-                .collect();
-            match bodies.as_slice() {
-                [] => {
-                    reached.insert(Case::Unbound);
-                }
-                [first, rest @ ..] => {
-                    if rest.iter().any(|body| body != first) {
-                        reached.insert(Case::FirstBind);
-                    }
-                }
-            }
-            let pressed = bound.press(&format!("k{key}"), &table);
-            let _ = writeln!(
-                self.transcript,
-                "press k{key} {}",
-                outcome(&pressed, reached)
-            );
-        }
-    }
 }
 
 /// Note the rules the value `value` of `spec`'s cvar reached.
@@ -844,18 +651,6 @@ fn the_rust_cvars_equal_the_bend_model() {
                     run.written(specs, registry.as_ref().unwrap(), own);
                     "written"
                 }
-                Plan::Expand { aliases, lists } => {
-                    run.expand(aliases, lists, &mut reached);
-                    "expand"
-                }
-                Plan::Press {
-                    aliases,
-                    binds,
-                    keys,
-                } => {
-                    run.press(aliases, binds, keys, &mut reached);
-                    "press"
-                }
             };
             Scenario {
                 name: format!("{kind} {at}"),
@@ -874,10 +669,6 @@ fn the_rust_cvars_equal_the_bend_model() {
             Case::GlobalIgnored,
             Case::WrongTypeIgnored,
             Case::SetOverProfile,
-            Case::Cycle,
-            Case::Unknown,
-            Case::FirstBind,
-            Case::Unbound,
             Case::ToggleInherited,
         ])
     );

@@ -15,6 +15,9 @@ futures.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 eukhe-types.workspace = true
+# The compiled Bend core: the Director stack, the child environment and the
+# command language run as their proven models (`eukhe_bend`).
+eukhe-bend.workspace = true
 # The theme resolver and color math the HTML export shares with the TUI.
 eukhe-theme = { path = "../eukhe-theme" }
 eukhe-models = { path = "../eukhe-models" }

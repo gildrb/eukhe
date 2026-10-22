@@ -3,3 +3,6 @@
 # a new area takes the next free id.
 0 echo
 1 wire
+2 child_env
+3 cvar
+4 director

@@ -124,7 +124,11 @@ alias table and any binds.
 | `bind_first_wins` | A key press runs the commands of the first bind of the key (S4.5). |
 
 Code: `eukhe-types/src/cvar.rs` (the command language: `parse_list`,
-`parse_script`, `Aliases`, `expand`, `Binds::press`);
+`parse_script`, `Aliases`, `Binds`, `ExpandError`);
+`eukhe-bend/src/rules/cvar.rs` (`expand` and `Presses`: the expansion and
+the key presses run as the compiled model, entry `bend/ffi_cvar.bend`,
+laws `LAWS.bend` section `cvar_entry`; a press table lives in the core, so
+a press sends only its key);
 `eukhe-core/src/settings/cvar.rs` (`Registry`, `Cvars::value`,
 `Cvars::execute`, `Sets::written`, `document_sets`) and
 `settings/cvar/table.rs` (the declarations); `settings/cfg.rs` (the
@@ -147,9 +151,11 @@ transcripts with `bend/bridge_cvar.bend` byte for byte. It runs 300
 generated scenarios: registries (with duplicate ids and wrong
 defaults), values over a config and a family (wrong types, Global
 cvars, undeclared ids, profiles and sets), toggles of the last agent of
-a family (a subagent toggles a value that it inherits), the written sets
-(`persist` and `replicate`), expansions (cycles, unknown aliases) and
-key presses. The scenarios reach every rule.
+a family (a subagent toggles a value that it inherits), and the written
+sets (`persist` and `replicate`). The scenarios reach every rule. The
+expansion and the presses have no bridge: they run as the model itself;
+`rules::cvar::tests` checks the glue (names and commands to the model's
+numbers and back).
 
 Regression tests: `a_switch_changes_only_its_own_session` (daemon: two
 workers over one agent dir; the switches of one do not change the other
@@ -358,8 +364,10 @@ step says what the adversary picks.
 | `dir_tick_goes_on`, `dir_tick_out_of_steps`, `dir_tick_hands_back`, `dir_tick_fails` | One loop step, by its outcome: it goes on with one step fewer, or it ends and the layers that lead stay (S5.1, S5.3). |
 | `dir_lead_leaves_with_the_continuation`, `dir_lead_stays_when_the_loop_ends`, `dir_lead_goes_example`, `dir_lead_stays_example` | A step that goes on is the step with every `Lead` read as `Leave`; a step that ends is the step with every `Lead` read as `Defer` (S5.4, the reminder). |
 
-Code: `eukhe-core/src/durable/directors/stack.rs` `decide`, `Loop::tick`,
-`Layer`, `LayerKind`, `Verdict`; `directors/mod.rs` `DIRECTORS_DOC`,
+Code: `eukhe-core/src/durable/directors/stack.rs` `Loop::tick` (one step,
+run as the compiled model: entry `bend/ffi_director.bend`, laws
+`LAWS.bend` section `director_entry`; kinds cross as numbers, counts are
+saturated at the wire's largest Nat), `Layer`, `LayerKind`, `Verdict`; `directors/mod.rs` `DIRECTORS_DOC`,
 `DirectorState`, `DirectorLimits` (`bound`), `push_director`,
 `DIRECTOR_NOTICE_CUSTOM_TYPE`; `durable/goals/hooks.rs` (the `on_yield`
 step: `begin`, `judge`, `commit_step`; the forced tool of
@@ -371,16 +379,7 @@ step: `begin`, `judge`, `commit_step`; the forced tool of
 set the forced tool of a request, `RequestMessages::force_tool`);
 `eukhe-core/src/settings` `directors`.
 
-Tie: the bridge test
-`durable::directors::bridge::the_rust_director_stack_equals_the_bend_model`
-runs `decide`, `Loop::tick`, and the persisted `eukhe.directors` value
-against `bend/bridge_director.bend` on 300 generated scenarios (stacks,
-verdict lists per step, caps, global budgets; the model's `decide`,
-`tick`, `run`, `encode`, and `decode`), and compares the transcripts byte
-for byte. The scenarios reach every rule of the model (a push with room,
-a push that fits only the layers below, a full stack, no budget, a
-leave, all layers defer, no step left, a tick after the end, a lead that
-leaves with the continuation, a lead that stays). Regression
+Tie: the step is the model itself (no bridge). Regression
 tests: `durable::directors::tests` (the goal layer until the goal
 completes, the global budget, a reminder, a reminder that waits on the
 stack for a continuation, a forced tool call, a forced call that is never

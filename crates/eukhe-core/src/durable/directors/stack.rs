@@ -1,8 +1,10 @@
-//! The Director stack as pure functions, rule for rule as its model
-//! (`bend/director.bend`, whose laws `PROOF.bend` proves): [`decide`] is
-//! one decision of the stack, [`Loop::tick`] one step of the loop. The
-//! bridge (`bridge.rs`) runs both on the same scenarios as the model.
+//! The Director stack: its layers, verdicts and loop, and one step of the
+//! loop ([`Loop::tick`]), which runs as the compiled model
+//! (`bend/director.bend`, whose laws `PROOF.bend` proves; entry
+//! `bend/ffi_director.bend`).
 
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
+use eukhe_bend::{call, expect_core, Entry};
 use serde::{Deserialize, Serialize};
 
 /// What a layer is (the model's `kind`).
@@ -112,100 +114,6 @@ pub enum Verdict {
     Lead,
 }
 
-/// What a decision gives the loop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Outcome {
-    /// The loop goes on.
-    Continue,
-    /// The loop stops; the user has control.
-    Hand,
-    /// The loop stops with a failure.
-    Failed,
-}
-
-/// One decision: what the loop does, and the stack after it (bottom
-/// first).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Decision {
-    pub outcome: Outcome,
-    pub stack: Vec<Layer>,
-}
-
-/// One decision of `stack` (bottom first) on `verdicts` (top first; a
-/// layer with no verdict defers), with room for `cap` layers, when the
-/// loop goes on: a layer that leads leaves ([`Verdict::Lead`]).
-#[must_use]
-pub fn decide(stack: &[Layer], verdicts: &[Verdict], cap: usize) -> Decision {
-    decide_as(stack, verdicts, cap, false)
-}
-
-/// One decision of `stack`. The top layer decides first; a layer that
-/// defers stays, a layer that leaves goes, a layer that leads stays when
-/// `stay` holds (the loop ends) and goes otherwise, and the first other
-/// verdict decides. A push needs room in the whole stack: the layers above
-/// the pushing one (those that deferred, left or led included), itself,
-/// and the layers below.
-fn decide_as(stack: &[Layer], verdicts: &[Verdict], cap: usize, stay: bool) -> Decision {
-    let room = stack.len() < cap;
-    // The layers above the deciding one that stayed, top first.
-    let mut kept: Vec<&Layer> = Vec::new();
-    for (above, layer) in stack.iter().rev().enumerate() {
-        let rest = &stack[..stack.len() - 1 - above];
-        let decided = match verdicts.get(above).unwrap_or(&Verdict::Defer) {
-            Verdict::Defer => {
-                kept.push(layer);
-                continue;
-            }
-            Verdict::Lead => {
-                if stay {
-                    kept.push(layer);
-                }
-                continue;
-            }
-            Verdict::Leave => continue,
-            Verdict::Yield => (Outcome::Hand, vec![layer.clone()]),
-            Verdict::Abort => (Outcome::Failed, vec![layer.clone()]),
-            Verdict::Again => match layer.budget {
-                0 => (Outcome::Hand, vec![layer.clone()]),
-                budget => (
-                    Outcome::Continue,
-                    vec![Layer {
-                        kind: layer.kind.clone(),
-                        budget: budget - 1,
-                    }],
-                ),
-            },
-            Verdict::Stack(pushed) => match layer.budget {
-                0 => (Outcome::Hand, vec![layer.clone()]),
-                budget => {
-                    let spent = Layer {
-                        kind: layer.kind.clone(),
-                        budget: budget - 1,
-                    };
-                    if room {
-                        (Outcome::Continue, vec![spent, pushed.clone()])
-                    } else {
-                        (Outcome::Failed, vec![spent])
-                    }
-                }
-            },
-        };
-        let (outcome, top) = decided;
-        let stack = rest
-            .iter()
-            .cloned()
-            .chain(top)
-            .chain(kept.into_iter().rev().cloned())
-            .collect();
-        return Decision { outcome, stack };
-    }
-    Decision {
-        outcome: Outcome::Hand,
-        stack: kept.into_iter().rev().cloned().collect(),
-    }
-}
-
 /// How a loop ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -226,38 +134,89 @@ pub struct Loop {
 }
 
 impl Loop {
-    /// One step: the stack decides on `verdicts`. A continue with a step
-    /// left goes on (a layer that leads leaves with it); a continue with no
-    /// step left yields; a hand back or a failure ends the loop. A loop that
-    /// ends keeps the layers that lead. An ended loop stays as it ended.
+    /// One step: the stack decides on `verdicts` (top first; a layer with
+    /// no verdict defers), with room for `cap` layers. The step is
+    /// `bend/director.bend` `tick`, run as the compiled core: the layers'
+    /// kinds cross as numbers (each layer of the stack, then each layer a
+    /// verdict pushes, numbered in turn), and `left`, the budgets and `cap`
+    /// are counts saturated at [`NAT_MAX`] (a count that large never runs
+    /// out). A continue with a step left goes on (a layer that leads leaves
+    /// with it); a continue with no step left yields; a hand back or a
+    /// failure ends the loop, and the layers that lead stay. An ended loop
+    /// stays as it ended.
     #[must_use]
     pub fn tick(self, verdicts: &[Verdict], cap: usize) -> Self {
-        if self.end.is_some() {
-            return self;
+        let count = |n: u64| n.min(NAT_MAX);
+        let mut kinds: Vec<&LayerKind> = self.stack.iter().map(|layer| &layer.kind).collect();
+        let mut w = Writer::new();
+        w.nat(u64::try_from(cap).map_or(NAT_MAX, count));
+        w.nat(count(self.left)).count(self.stack.len());
+        for (at, layer) in self.stack.iter().enumerate().rev() {
+            w.count(at).nat(count(layer.budget));
         }
-        let Decision { outcome, stack } = decide(&self.stack, verdicts, cap);
-        let kept = || decide_as(&self.stack, verdicts, cap, true).stack;
-        match (outcome, self.left) {
-            (Outcome::Continue, 0) => Self {
-                left: 0,
-                stack: kept(),
-                end: Some(End::Hand),
-            },
-            (Outcome::Continue, left) => Self {
-                left: left - 1,
-                stack,
-                end: None,
-            },
-            (Outcome::Hand, left) => Self {
-                left,
-                stack: kept(),
-                end: Some(End::Hand),
-            },
-            (Outcome::Failed, left) => Self {
-                left,
-                stack: kept(),
-                end: Some(End::Failed),
-            },
+        match self.end {
+            None => w.none(),
+            Some(End::Hand) => w.some().tag(1),
+            Some(End::Failed) => w.some().tag(2),
+        };
+        w.count(verdicts.len());
+        for verdict in verdicts {
+            match verdict {
+                Verdict::Defer => w.tag(0),
+                Verdict::Again => w.tag(1),
+                Verdict::Yield => w.tag(2),
+                Verdict::Stack(pushed) => {
+                    let at = kinds.len();
+                    kinds.push(&pushed.kind);
+                    w.tag(3).count(at).nat(count(pushed.budget))
+                }
+                Verdict::Leave => w.tag(4),
+                Verdict::Abort => w.tag(5),
+                Verdict::Lead => w.tag(6),
+            };
         }
+        let request = expect_core(Entry::Director, w.finish());
+        let reply = expect_core(Entry::Director, call(Entry::Director, &request));
+        expect_core(Entry::Director, read_loop(&reply, &kinds))
     }
+}
+
+/// The loop a reply holds, its layers' kinds numbered as in `kinds`.
+fn read_loop(reply: &str, kinds: &[&LayerKind]) -> Result<Loop, WireError> {
+    let mut r = Reader::reply(reply)?;
+    let left = r.nat()?;
+    let layers = r.count()?;
+    let mut stack = Vec::with_capacity(layers);
+    for _ in 0..layers {
+        let kind = r.count()?;
+        let budget = r.nat()?;
+        let kind = kinds.get(kind).ok_or(WireError::Malformed {
+            at: 0,
+            expected: "the number of a layer's kind",
+        })?;
+        stack.push(Layer {
+            kind: (*kind).clone(),
+            budget,
+        });
+    }
+    // The model's stack is top first.
+    stack.reverse();
+    let end = if r.maybe()? {
+        // The model ends a loop only by handing back (1) or failing (2).
+        let at = reply.len();
+        match r.tag_of(3, "an outcome")? {
+            1 => Some(End::Hand),
+            2 => Some(End::Failed),
+            _ => {
+                return Err(WireError::Malformed {
+                    at,
+                    expected: "the end of a loop (a hand back or a failure)",
+                })
+            }
+        }
+    } else {
+        None
+    };
+    r.end()?;
+    Ok(Loop { left, stack, end })
 }

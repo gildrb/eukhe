@@ -1,6 +1,7 @@
 //! Environment-variable API key discovery for auth status and resolution,
-//! and the credential names no child of the host may inherit
-//! ([`is_credential_env_var`]). Port of `env-api-keys.ts`.
+//! and the registry of the provider credentials ([`credential_env_vars`]),
+//! which no child of the host inherits (`bend/child_env.bend`, run as the
+//! compiled core by `eukhe-core`'s `child_env`). Port of `env-api-keys.ts`.
 
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
@@ -100,37 +101,6 @@ const OTHER_CREDENTIAL_ENV_VARS: &[&str] = &[
     ANTHROPIC_IDENTITY_TOKEN_FILE_ENV,
 ];
 
-/// A name whose ASCII upper case contains one of these is a credential
-/// ([`is_credential_env_var`]):
-///
-/// - `API_KEY`, `APIKEY`: API keys (`OPENAI_API_KEY`, `MY_APIKEY`).
-/// - `TOKEN`: bearer, session, OAuth and access tokens, and token files
-///   (`GITHUB_TOKEN`, `HF_TOKEN`, `AWS_WEB_IDENTITY_TOKEN_FILE`). It also
-///   matches `TOKENIZERS_PARALLELISM`; a child does not get that switch.
-/// - `SECRET`: client secrets and secret keys (`AWS_SECRET_ACCESS_KEY`).
-/// - `PASSWORD`, `PASSWD`: passwords (`PGPASSWORD`, `DB_PASSWD`).
-/// - `PASSPHRASE`: key passphrases (`GPG_PASSPHRASE`).
-/// - `CREDENTIAL`: credentials and credential files
-///   (`GOOGLE_APPLICATION_CREDENTIALS`, `AWS_SHARED_CREDENTIALS_FILE`).
-/// - `PRIVATE_KEY`: private keys and key files (`TLS_PRIVATE_KEY`).
-/// - `ACCESS_KEY`: access key pairs (`AWS_ACCESS_KEY_ID`, `S3_ACCESS_KEY`).
-///
-/// There is no `KEY`, `AUTH` or `PASS` pattern: these match names a child
-/// needs and that hold no secret (`SSH_AUTH_SOCK`, `XAUTHORITY`,
-/// `KEYTIMEOUT`, `SSH_ASKPASS`).
-const SECRET_NAME_PATTERNS: &[&str] = &[
-    "API_KEY",
-    "APIKEY",
-    "TOKEN",
-    "SECRET",
-    "PASSWORD",
-    "PASSWD",
-    "PASSPHRASE",
-    "CREDENTIAL",
-    "PRIVATE_KEY",
-    "ACCESS_KEY",
-];
-
 /// Every variable the provider and auth code reads a credential from: the
 /// API key variables of each provider, then the other credentials. All are
 /// upper case; a name can come more than once.
@@ -139,30 +109,6 @@ pub fn credential_env_vars() -> impl Iterator<Item = &'static str> {
         .iter()
         .flat_map(|(_, names)| names.iter().copied())
         .chain(OTHER_CREDENTIAL_ENV_VARS.iter().copied())
-}
-
-/// True when the ASCII upper case of `name` is a variable the provider and
-/// auth code reads a credential from ([`credential_env_vars`]): a provider
-/// credential, which no child of the host gets.
-#[must_use]
-pub fn is_provider_credential_env_var(name: &str) -> bool {
-    let upper = name.to_ascii_uppercase();
-    credential_env_vars().any(|known| known == upper)
-}
-
-/// True when `name` names a credential: a provider credential
-/// ([`is_provider_credential_env_var`]), or a name whose ASCII upper case
-/// contains a secret pattern (`API_KEY`, `APIKEY`, `TOKEN`, `SECRET`,
-/// `PASSWORD`, `PASSWD`, `PASSPHRASE`, `CREDENTIAL`, `PRIVATE_KEY`,
-/// `ACCESS_KEY`). The host strips these from the environment of every
-/// child it starts for an agent.
-#[must_use]
-pub fn is_credential_env_var(name: &str) -> bool {
-    let upper = name.to_ascii_uppercase();
-    credential_env_vars().any(|known| known == upper)
-        || SECRET_NAME_PATTERNS
-            .iter()
-            .any(|pattern| upper.contains(pattern))
 }
 
 /// Marker returned by [`get_env_api_key`] for providers configured through

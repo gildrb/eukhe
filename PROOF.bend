@@ -67,6 +67,9 @@ import ./bend/default_model.bend as Dm
 import ./bend/config.bend as Cf
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/ffi_director.bend as FDr
+import ./bend/ffi_child_env.bend as FEnv
+import ./bend/ffi_cvar.bend as FCv
 
 # ---- cover ----
 
@@ -36457,4 +36460,484 @@ def Laws.wire_err_example(text):
   {==}
 
 def Laws.wire_end_exact(s):
+  {==}
+
+# ---- director_entry ----
+
+# The entry of the compiled core (bend/ffi_director.bend): each decoder
+# reads back what its encoder wrote, one field at a time (`Equal.cong` of
+# the decoder's next step over the field's round trip, joined by
+# `Equal.trans`), from the wire laws (LAWS.bend section wire).
+
+def pdf.layer_rt(+l: Dr.Layer, +rest: String, +h: {Laws.dir_layer_fits(l) == True{} : Bool}) -> {FDr.get_layer(FDr.put_layer(l, rest)) == Wr.Got{l, rest} : Wr.Dec<Dr.Layer>}:
+  match l:
+    case Dr.Layer{+k, +b}:
+      Equal.trans(Wr.Dec<Dr.Layer>, FDr.get_layer.k(Wr.get_nat(Wr.put_nat(k, Wr.put_nat(b, rest)))), FDr.get_layer.k(Wr.Got{k, Wr.put_nat(b, rest)}), Wr.Got{Dr.Layer{k, b}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Layer>, d => FDr.get_layer.k(d), Wr.get_nat(Wr.put_nat(k, Wr.put_nat(b, rest))), Wr.Got{k, Wr.put_nat(b, rest)}, Laws.wire_nat_round_trip(k, Wr.put_nat(b, rest), wr_and_l(Laws.wire_fits(k), Laws.wire_fits(b), h))), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Layer>, d => FDr.get_layer.b(k, d), Wr.get_nat(Wr.put_nat(b, rest)), Wr.Got{b, rest}, Laws.wire_nat_round_trip(b, rest, wr_and_r(Laws.wire_fits(k), Laws.wire_fits(b), h))))
+def pdf.verdict_rt(+v: Dr.Verdict, +rest: String, +h: {Laws.dir_verdict_fits(v) == True{} : Bool}) -> {FDr.get_verdict(FDr.put_verdict(v, rest)) == Wr.Got{v, rest} : Wr.Dec<Dr.Verdict>}:
+  match v:
+    case Dr.Defer{}:
+      Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, {==}))
+    case Dr.Again{}:
+      Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(1n, rest)), Wr.Got{1n, rest}, Laws.wire_nat_round_trip(1n, rest, {==}))
+    case Dr.Yield{}:
+      Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(2n, rest)), Wr.Got{2n, rest}, Laws.wire_nat_round_trip(2n, rest, {==}))
+    case Dr.Leave{}:
+      Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(4n, rest)), Wr.Got{4n, rest}, Laws.wire_nat_round_trip(4n, rest, {==}))
+    case Dr.Abort{}:
+      Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(5n, rest)), Wr.Got{5n, rest}, Laws.wire_nat_round_trip(5n, rest, {==}))
+    case Dr.Lead{}:
+      Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(6n, rest)), Wr.Got{6n, rest}, Laws.wire_nat_round_trip(6n, rest, {==}))
+    case Dr.Stack{+l}:
+      Equal.trans(Wr.Dec<Dr.Verdict>, FDr.get_verdict.go(Wr.get_nat(Wr.put_nat(3n, FDr.put_layer(l, rest)))), FDr.get_verdict.go(Wr.Got{3n, FDr.put_layer(l, rest)}), Wr.Got{Dr.Stack{l}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.go(d), Wr.get_nat(Wr.put_nat(3n, FDr.put_layer(l, rest))), Wr.Got{3n, FDr.put_layer(l, rest)}, Laws.wire_nat_round_trip(3n, FDr.put_layer(l, rest), {==})), Equal.cong(Wr.Dec<Dr.Layer>, Wr.Dec<Dr.Verdict>, d => FDr.get_verdict.stack(d), FDr.get_layer(FDr.put_layer(l, rest)), Wr.Got{l, rest}, pdf.layer_rt(l, rest, h)))
+
+def pdf.end_rt(+e: Maybe<&2, Dr.Out>, +rest: String) -> {FDr.get_end(FDr.put_end(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Maybe<&2, Dr.Out>>}:
+  match e:
+    case None{}:
+      Equal.cong(Wr.Dec<Nat>, Wr.Dec<Maybe<&2, Dr.Out>>, d => FDr.get_end.go(d), Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, {==}))
+    case Some{o}:
+      match o:
+        case Dr.Cont{}:
+          Equal.trans(Wr.Dec<Maybe<&2, Dr.Out>>, FDr.get_end.go(Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(0n, rest)))), FDr.get_end.go(Wr.Got{1n, Wr.put_nat(0n, rest)}), Wr.Got{Some{Dr.Cont{}}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Maybe<&2, Dr.Out>>, d => FDr.get_end.go(d), Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(0n, rest))), Wr.Got{1n, Wr.put_nat(0n, rest)}, Laws.wire_nat_round_trip(1n, Wr.put_nat(0n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Maybe<&2, Dr.Out>>, d => FDr.get_end.some(d), Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, {==})))
+        case Dr.Hand{}:
+          Equal.trans(Wr.Dec<Maybe<&2, Dr.Out>>, FDr.get_end.go(Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(1n, rest)))), FDr.get_end.go(Wr.Got{1n, Wr.put_nat(1n, rest)}), Wr.Got{Some{Dr.Hand{}}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Maybe<&2, Dr.Out>>, d => FDr.get_end.go(d), Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(1n, rest))), Wr.Got{1n, Wr.put_nat(1n, rest)}, Laws.wire_nat_round_trip(1n, Wr.put_nat(1n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Maybe<&2, Dr.Out>>, d => FDr.get_end.some(d), Wr.get_nat(Wr.put_nat(1n, rest)), Wr.Got{1n, rest}, Laws.wire_nat_round_trip(1n, rest, {==})))
+        case Dr.Failed{}:
+          Equal.trans(Wr.Dec<Maybe<&2, Dr.Out>>, FDr.get_end.go(Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(2n, rest)))), FDr.get_end.go(Wr.Got{1n, Wr.put_nat(2n, rest)}), Wr.Got{Some{Dr.Failed{}}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Maybe<&2, Dr.Out>>, d => FDr.get_end.go(d), Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(2n, rest))), Wr.Got{1n, Wr.put_nat(2n, rest)}, Laws.wire_nat_round_trip(1n, Wr.put_nat(2n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Maybe<&2, Dr.Out>>, d => FDr.get_end.some(d), Wr.get_nat(Wr.put_nat(2n, rest)), Wr.Got{2n, rest}, Laws.wire_nat_round_trip(2n, rest, {==})))
+
+# the items of a list of Dr.Layer, then rest
+def pdf.ls.items(xs: List<&2, Dr.Layer>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FDr.put_layer(x, pdf.ls.items(t, rest))
+
+def pdf.ls.put_go(xs: List<&2, Dr.Layer>, -rest: String) -> {Wr.put_list.go(~Dr.Layer, ~FDr.put_layer, xs, rest) == (List.length(&2, Dr.Layer, xs), pdf.ls.items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Dr.Layer, ~FDr.put_layer, t, rest), (List.length(&2, Dr.Layer, t), pdf.ls.items(t, rest)), pdf.ls.put_go(t, rest)) : {Wr.put_list.step(~Dr.Layer, ~FDr.put_layer, x, _) == (1n+List.length(&2, Dr.Layer, t), FDr.put_layer(x, pdf.ls.items(t, rest))) : Nat & String}
+      {==}
+
+# a list of Dr.Layer is its count, then its items
+def pdf.ls.put(+xs: List<&2, Dr.Layer>, -rest: String) -> {Wr.put_list(~Dr.Layer, ~FDr.put_layer, xs, rest) == Wr.put_nat(List.length(&2, Dr.Layer, xs), pdf.ls.items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Dr.Layer, ~FDr.put_layer, xs, rest), (List.length(&2, Dr.Layer, xs), pdf.ls.items(xs, rest)), pdf.ls.put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Dr.Layer, xs), pdf.ls.items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pdf.ls.go_rt(+t: List<&2, Dr.Layer>, +x: Dr.Layer, +rest: String, +hf: {Laws.dir_layers_fit(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Dr.Layer, ~FDr.get_layer, List.length(&2, Dr.Layer, t), FDr.get_layer(FDr.put_layer(x, pdf.ls.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Dr.Layer>>}:
+  match t:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Dr.Layer>, FDr.get_layer(FDr.put_layer(x, rest)), Wr.Got{x, rest}, pdf.layer_rt(x, rest, wr_and_l(Laws.dir_layer_fits(x), True{}, hf))) : {Wr.get_list.go(~Dr.Layer, ~FDr.get_layer, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Dr.Layer>>}
+      {==}
+    case Con{+y, +u}:
+      %Equal.sym(Wr.Dec<Dr.Layer>, FDr.get_layer(FDr.put_layer(x, FDr.put_layer(y, pdf.ls.items(u, rest)))), Wr.Got{x, FDr.put_layer(y, pdf.ls.items(u, rest))}, pdf.layer_rt(x, FDr.put_layer(y, pdf.ls.items(u, rest)), wr_and_l(Laws.dir_layer_fits(x), Laws.dir_layers_fit(y <> u), hf))) : {Wr.get_list.go(~Dr.Layer, ~FDr.get_layer, 1n+List.length(&2, Dr.Layer, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dr.Layer>>}
+      %Equal.sym(Wr.Dec<List<&2, Dr.Layer>>, Wr.get_list.go(~Dr.Layer, ~FDr.get_layer, List.length(&2, Dr.Layer, u), FDr.get_layer(FDr.put_layer(y, pdf.ls.items(u, rest)))), Wr.Got{y <> u, rest}, pdf.ls.go_rt(u, y, rest, wr_and_r(Laws.dir_layer_fits(x), Laws.dir_layers_fit(y <> u), hf))) : {Wr.get_list.cons(Dr.Layer, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dr.Layer>>}
+      {==}
+
+# a list of Dr.Layer that fits reads back
+def pdf.ls.rt(+xs: List<&2, Dr.Layer>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Dr.Layer, xs)), Laws.dir_layers_fit(xs)) == True{} : Bool}) -> {Wr.get_list(~Dr.Layer, ~FDr.get_layer, Wr.put_list(~Dr.Layer, ~FDr.put_layer, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Dr.Layer>>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Dr.Layer, ~FDr.get_layer, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Dr.Layer>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Dr.Layer, ~FDr.put_layer, x <> t, r), Wr.put_nat(List.length(&2, Dr.Layer, x <> t), pdf.ls.items(x <> t, r)), pdf.ls.put(x <> t, r)) : {Wr.get_list(~Dr.Layer, ~FDr.get_layer, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Dr.Layer>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Dr.Layer, x <> t), pdf.ls.items(x <> t, r))), Wr.Got{List.length(&2, Dr.Layer, x <> t), pdf.ls.items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Dr.Layer, x <> t), pdf.ls.items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Dr.Layer, x <> t)), Laws.dir_layers_fit(x <> t), hh))) : {Wr.get_list.start(~Dr.Layer, ~FDr.get_layer, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Dr.Layer>>}
+      pdf.ls.go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Dr.Layer, x <> t)), Laws.dir_layers_fit(x <> t), hh))
+
+# the items of a list of Dr.Verdict, then rest
+def pdf.vs.items(xs: List<&2, Dr.Verdict>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FDr.put_verdict(x, pdf.vs.items(t, rest))
+
+def pdf.vs.put_go(xs: List<&2, Dr.Verdict>, -rest: String) -> {Wr.put_list.go(~Dr.Verdict, ~FDr.put_verdict, xs, rest) == (List.length(&2, Dr.Verdict, xs), pdf.vs.items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Dr.Verdict, ~FDr.put_verdict, t, rest), (List.length(&2, Dr.Verdict, t), pdf.vs.items(t, rest)), pdf.vs.put_go(t, rest)) : {Wr.put_list.step(~Dr.Verdict, ~FDr.put_verdict, x, _) == (1n+List.length(&2, Dr.Verdict, t), FDr.put_verdict(x, pdf.vs.items(t, rest))) : Nat & String}
+      {==}
+
+# a list of Dr.Verdict is its count, then its items
+def pdf.vs.put(+xs: List<&2, Dr.Verdict>, -rest: String) -> {Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, xs, rest) == Wr.put_nat(List.length(&2, Dr.Verdict, xs), pdf.vs.items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Dr.Verdict, ~FDr.put_verdict, xs, rest), (List.length(&2, Dr.Verdict, xs), pdf.vs.items(xs, rest)), pdf.vs.put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Dr.Verdict, xs), pdf.vs.items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pdf.vs.go_rt(+t: List<&2, Dr.Verdict>, +x: Dr.Verdict, +rest: String, +hf: {Laws.dir_verdicts_fit(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Dr.Verdict, ~FDr.get_verdict, List.length(&2, Dr.Verdict, t), FDr.get_verdict(FDr.put_verdict(x, pdf.vs.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Dr.Verdict>>}:
+  match t:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Dr.Verdict>, FDr.get_verdict(FDr.put_verdict(x, rest)), Wr.Got{x, rest}, pdf.verdict_rt(x, rest, wr_and_l(Laws.dir_verdict_fits(x), True{}, hf))) : {Wr.get_list.go(~Dr.Verdict, ~FDr.get_verdict, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Dr.Verdict>>}
+      {==}
+    case Con{+y, +u}:
+      %Equal.sym(Wr.Dec<Dr.Verdict>, FDr.get_verdict(FDr.put_verdict(x, FDr.put_verdict(y, pdf.vs.items(u, rest)))), Wr.Got{x, FDr.put_verdict(y, pdf.vs.items(u, rest))}, pdf.verdict_rt(x, FDr.put_verdict(y, pdf.vs.items(u, rest)), wr_and_l(Laws.dir_verdict_fits(x), Laws.dir_verdicts_fit(y <> u), hf))) : {Wr.get_list.go(~Dr.Verdict, ~FDr.get_verdict, 1n+List.length(&2, Dr.Verdict, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dr.Verdict>>}
+      %Equal.sym(Wr.Dec<List<&2, Dr.Verdict>>, Wr.get_list.go(~Dr.Verdict, ~FDr.get_verdict, List.length(&2, Dr.Verdict, u), FDr.get_verdict(FDr.put_verdict(y, pdf.vs.items(u, rest)))), Wr.Got{y <> u, rest}, pdf.vs.go_rt(u, y, rest, wr_and_r(Laws.dir_verdict_fits(x), Laws.dir_verdicts_fit(y <> u), hf))) : {Wr.get_list.cons(Dr.Verdict, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Dr.Verdict>>}
+      {==}
+
+# a list of Dr.Verdict that fits reads back
+def pdf.vs.rt(+xs: List<&2, Dr.Verdict>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Dr.Verdict, xs)), Laws.dir_verdicts_fit(xs)) == True{} : Bool}) -> {Wr.get_list(~Dr.Verdict, ~FDr.get_verdict, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Dr.Verdict>>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Dr.Verdict, ~FDr.get_verdict, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Dr.Verdict>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, x <> t, r), Wr.put_nat(List.length(&2, Dr.Verdict, x <> t), pdf.vs.items(x <> t, r)), pdf.vs.put(x <> t, r)) : {Wr.get_list(~Dr.Verdict, ~FDr.get_verdict, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Dr.Verdict>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Dr.Verdict, x <> t), pdf.vs.items(x <> t, r))), Wr.Got{List.length(&2, Dr.Verdict, x <> t), pdf.vs.items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Dr.Verdict, x <> t), pdf.vs.items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Dr.Verdict, x <> t)), Laws.dir_verdicts_fit(x <> t), hh))) : {Wr.get_list.start(~Dr.Verdict, ~FDr.get_verdict, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Dr.Verdict>>}
+      pdf.vs.go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Dr.Verdict, x <> t)), Laws.dir_verdicts_fit(x <> t), hh))
+
+def pdf.loop_rt(+l: Dr.Loop, +rest: String, +h: {Laws.dir_loop_fits(l) == True{} : Bool}) -> {FDr.get_loop(FDr.put_loop(l, rest)) == Wr.Got{l, rest} : Wr.Dec<Dr.Loop>}:
+  match l:
+    case Dr.Loop{+n, +s, +e}:
+      Equal.trans(Wr.Dec<Dr.Loop>, FDr.get_loop.left(Wr.get_nat(Wr.put_nat(n, Wr.put_list(~Dr.Layer, ~FDr.put_layer, s, FDr.put_end(e, rest))))), FDr.get_loop.left(Wr.Got{n, Wr.put_list(~Dr.Layer, ~FDr.put_layer, s, FDr.put_end(e, rest))}), Wr.Got{Dr.Loop{n, s, e}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Dr.Loop>, d => FDr.get_loop.left(d), Wr.get_nat(Wr.put_nat(n, Wr.put_list(~Dr.Layer, ~FDr.put_layer, s, FDr.put_end(e, rest)))), Wr.Got{n, Wr.put_list(~Dr.Layer, ~FDr.put_layer, s, FDr.put_end(e, rest))}, Laws.wire_nat_round_trip(n, Wr.put_list(~Dr.Layer, ~FDr.put_layer, s, FDr.put_end(e, rest)), wr_and_l(Laws.wire_fits(n), Bool.and(Laws.wire_fits(List.length(&2, Dr.Layer, s)), Laws.dir_layers_fit(s)), h))), Equal.trans(Wr.Dec<Dr.Loop>, FDr.get_loop.stack(n, Wr.get_list(~Dr.Layer, ~FDr.get_layer, Wr.put_list(~Dr.Layer, ~FDr.put_layer, s, FDr.put_end(e, rest)))), FDr.get_loop.stack(n, Wr.Got{s, FDr.put_end(e, rest)}), Wr.Got{Dr.Loop{n, s, e}, rest}, Equal.cong(Wr.Dec<List<&2, Dr.Layer>>, Wr.Dec<Dr.Loop>, d => FDr.get_loop.stack(n, d), Wr.get_list(~Dr.Layer, ~FDr.get_layer, Wr.put_list(~Dr.Layer, ~FDr.put_layer, s, FDr.put_end(e, rest))), Wr.Got{s, FDr.put_end(e, rest)}, pdf.ls.rt(s, FDr.put_end(e, rest), wr_and_r(Laws.wire_fits(n), Bool.and(Laws.wire_fits(List.length(&2, Dr.Layer, s)), Laws.dir_layers_fit(s)), h))), Equal.cong(Wr.Dec<Maybe<&2, Dr.Out>>, Wr.Dec<Dr.Loop>, d => FDr.get_loop.end(n, s, d), FDr.get_end(FDr.put_end(e, rest)), Wr.Got{e, rest}, pdf.end_rt(e, rest))))
+
+def pdf.req_rt(+q: FDr.Req, +rest: String, +h: {Laws.dir_req_fits(q) == True{} : Bool}) -> {FDr.get_req(FDr.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FDr.Req>}:
+  match q:
+    case FDr.Req{+c, +l, +vs}:
+      +h2 = wr_and_r(Laws.wire_fits(c), Bool.and(Laws.dir_loop_fits(l), Bool.and(Laws.wire_fits(List.length(&2, Dr.Verdict, vs)), Laws.dir_verdicts_fit(vs))), h)
+      Equal.trans(Wr.Dec<FDr.Req>, FDr.get_req.cap(Wr.get_nat(Wr.put_nat(c, FDr.put_loop(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest))))), FDr.get_req.cap(Wr.Got{c, FDr.put_loop(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest))}), Wr.Got{FDr.Req{c, l, vs}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<FDr.Req>, d => FDr.get_req.cap(d), Wr.get_nat(Wr.put_nat(c, FDr.put_loop(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest)))), Wr.Got{c, FDr.put_loop(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest))}, Laws.wire_nat_round_trip(c, FDr.put_loop(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest)), wr_and_l(Laws.wire_fits(c), Bool.and(Laws.dir_loop_fits(l), Bool.and(Laws.wire_fits(List.length(&2, Dr.Verdict, vs)), Laws.dir_verdicts_fit(vs))), h))), Equal.trans(Wr.Dec<FDr.Req>, FDr.get_req.loop(c, FDr.get_loop(FDr.put_loop(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest)))), FDr.get_req.loop(c, Wr.Got{l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest)}), Wr.Got{FDr.Req{c, l, vs}, rest}, Equal.cong(Wr.Dec<Dr.Loop>, Wr.Dec<FDr.Req>, d => FDr.get_req.loop(c, d), FDr.get_loop(FDr.put_loop(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest))), Wr.Got{l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest)}, pdf.loop_rt(l, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest), wr_and_l(Laws.dir_loop_fits(l), Bool.and(Laws.wire_fits(List.length(&2, Dr.Verdict, vs)), Laws.dir_verdicts_fit(vs)), h2))), Equal.cong(Wr.Dec<List<&2, Dr.Verdict>>, Wr.Dec<FDr.Req>, d => FDr.get_req.vs(c, l, d), Wr.get_list(~Dr.Verdict, ~FDr.get_verdict, Wr.put_list(~Dr.Verdict, ~FDr.put_verdict, vs, rest)), Wr.Got{vs, rest}, pdf.vs.rt(vs, rest, wr_and_r(Laws.dir_loop_fits(l), Bool.and(Laws.wire_fits(List.length(&2, Dr.Verdict, vs)), Laws.dir_verdicts_fit(vs)), h2)))))
+
+
+def Laws.dir_ffi_round_trip(q, rest, h):
+  pdf.req_rt(q, rest, h)
+
+def Laws.dir_ffi_is_tick(c, l, vs, h):
+  Equal.cong(Wr.Dec<FDr.Req>, String, d => FDr.ffi.go(d), FDr.get_req(FDr.put_req(FDr.Req{c, l, vs}, "")), Wr.Got{FDr.Req{c, l, vs}, ""}, pdf.req_rt(FDr.Req{c, l, vs}, "", h))
+
+def Laws.dir_ffi_malformed(s, h):
+  Equal.cong(Wr.Dec<FDr.Req>, String, d => FDr.ffi.go(d), FDr.get_req(s), Wr.Bad{}, h)
+
+def Laws.dir_ffi_left_over(s, q, r, h, e):
+  Equal.trans(String, FDr.ffi.go(FDr.get_req(s)), FDr.ffi.go(Wr.Got{q, r}), Wr.err("director: input left over"), Equal.cong(Wr.Dec<FDr.Req>, String, d => FDr.ffi.go(d), FDr.get_req(s), Wr.Got{q, r}, h), Equal.cong(Bool, String, b => FDr.ffi.whole(q, b), String.is_empty(r), False{}, e))
+
+def Laws.dir_req_fits_example():
+  {==}
+
+# ---- child_env_entry ----
+
+# The entry of the compiled core (bend/ffi_child_env.bend), field by field
+# as proof_director's entry.
+
+def pce.var_rt(+v: Env.Var, +rest: String, +h: {Laws.env_var_fits(v) == True{} : Bool}) -> {FEnv.get_var(FEnv.put_var(v, rest)) == Wr.Got{v, rest} : Wr.Dec<Env.Var>}:
+  match v:
+    case Env.Var{+n, +x}:
+      Equal.trans(Wr.Dec<Env.Var>, FEnv.get_var.name(Wr.get_str(Wr.put_str(n, Wr.put_str(x, rest)))), FEnv.get_var.name(Wr.Got{n, Wr.put_str(x, rest)}), Wr.Got{Env.Var{n, x}, rest}, Equal.cong(Wr.Dec<String>, Wr.Dec<Env.Var>, d => FEnv.get_var.name(d), Wr.get_str(Wr.put_str(n, Wr.put_str(x, rest))), Wr.Got{n, Wr.put_str(x, rest)}, Laws.wire_str_round_trip(n, Wr.put_str(x, rest), wr_and_l(Laws.env_str_fits(n), Laws.env_str_fits(x), h))), Equal.cong(Wr.Dec<String>, Wr.Dec<Env.Var>, d => FEnv.get_var.value(n, d), Wr.get_str(Wr.put_str(x, rest)), Wr.Got{x, rest}, Laws.wire_str_round_trip(x, rest, wr_and_r(Laws.env_str_fits(n), Laws.env_str_fits(x), h))))
+
+# the items of a list of String, then rest
+def pce.ss.items(xs: List<&2, String>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      Wr.put_str(x, pce.ss.items(t, rest))
+
+def pce.ss.put_go(xs: List<&2, String>, -rest: String) -> {Wr.put_list.go(~String, ~Wr.put_str, xs, rest) == (List.length(&2, String, xs), pce.ss.items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~String, ~Wr.put_str, t, rest), (List.length(&2, String, t), pce.ss.items(t, rest)), pce.ss.put_go(t, rest)) : {Wr.put_list.step(~String, ~Wr.put_str, x, _) == (1n+List.length(&2, String, t), Wr.put_str(x, pce.ss.items(t, rest))) : Nat & String}
+      {==}
+
+# a list of String is its count, then its items
+def pce.ss.put(+xs: List<&2, String>, -rest: String) -> {Wr.put_list(~String, ~Wr.put_str, xs, rest) == Wr.put_nat(List.length(&2, String, xs), pce.ss.items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~String, ~Wr.put_str, xs, rest), (List.length(&2, String, xs), pce.ss.items(xs, rest)), pce.ss.put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, String, xs), pce.ss.items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pce.ss.go_rt(+t: List<&2, String>, +x: String, +rest: String, +hf: {Laws.env_strs_fit(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, t), Wr.get_str(Wr.put_str(x, pce.ss.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, String>>}:
+  match t:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, rest)), Wr.Got{x, rest}, Laws.wire_str_round_trip(x, rest, wr_and_l(Laws.env_str_fits(x), True{}, hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, String>>}
+      {==}
+    case Con{+y, +u}:
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(x, Wr.put_str(y, pce.ss.items(u, rest)))), Wr.Got{x, Wr.put_str(y, pce.ss.items(u, rest))}, Laws.wire_str_round_trip(x, Wr.put_str(y, pce.ss.items(u, rest)), wr_and_l(Laws.env_str_fits(x), Laws.env_strs_fit(y <> u), hf))) : {Wr.get_list.go(~String, ~Wr.get_str, 1n+List.length(&2, String, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
+      %Equal.sym(Wr.Dec<List<&2, String>>, Wr.get_list.go(~String, ~Wr.get_str, List.length(&2, String, u), Wr.get_str(Wr.put_str(y, pce.ss.items(u, rest)))), Wr.Got{y <> u, rest}, pce.ss.go_rt(u, y, rest, wr_and_r(Laws.env_str_fits(x), Laws.env_strs_fit(y <> u), hf))) : {Wr.get_list.cons(String, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, String>>}
+      {==}
+
+# a list of String that fits reads back
+def pce.ss.rt(+xs: List<&2, String>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, String, xs)), Laws.env_strs_fit(xs)) == True{} : Bool}) -> {Wr.get_list(~String, ~Wr.get_str, Wr.put_list(~String, ~Wr.put_str, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, String>>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~String, ~Wr.get_str, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, String>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~String, ~Wr.put_str, x <> t, r), Wr.put_nat(List.length(&2, String, x <> t), pce.ss.items(x <> t, r)), pce.ss.put(x <> t, r)) : {Wr.get_list(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, String, x <> t), pce.ss.items(x <> t, r))), Wr.Got{List.length(&2, String, x <> t), pce.ss.items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, String, x <> t), pce.ss.items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, String, x <> t)), Laws.env_strs_fit(x <> t), hh))) : {Wr.get_list.start(~String, ~Wr.get_str, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, String>>}
+      pce.ss.go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, String, x <> t)), Laws.env_strs_fit(x <> t), hh))
+
+# the items of a list of Env.Var, then rest
+def pce.vs.items(xs: List<&2, Env.Var>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FEnv.put_var(x, pce.vs.items(t, rest))
+
+def pce.vs.put_go(xs: List<&2, Env.Var>, -rest: String) -> {Wr.put_list.go(~Env.Var, ~FEnv.put_var, xs, rest) == (List.length(&2, Env.Var, xs), pce.vs.items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Env.Var, ~FEnv.put_var, t, rest), (List.length(&2, Env.Var, t), pce.vs.items(t, rest)), pce.vs.put_go(t, rest)) : {Wr.put_list.step(~Env.Var, ~FEnv.put_var, x, _) == (1n+List.length(&2, Env.Var, t), FEnv.put_var(x, pce.vs.items(t, rest))) : Nat & String}
+      {==}
+
+# a list of Env.Var is its count, then its items
+def pce.vs.put(+xs: List<&2, Env.Var>, -rest: String) -> {Wr.put_list(~Env.Var, ~FEnv.put_var, xs, rest) == Wr.put_nat(List.length(&2, Env.Var, xs), pce.vs.items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Env.Var, ~FEnv.put_var, xs, rest), (List.length(&2, Env.Var, xs), pce.vs.items(xs, rest)), pce.vs.put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Env.Var, xs), pce.vs.items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pce.vs.go_rt(+t: List<&2, Env.Var>, +x: Env.Var, +rest: String, +hf: {Laws.env_vars_fit(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Env.Var, ~FEnv.get_var, List.length(&2, Env.Var, t), FEnv.get_var(FEnv.put_var(x, pce.vs.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Env.Var>>}:
+  match t:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Env.Var>, FEnv.get_var(FEnv.put_var(x, rest)), Wr.Got{x, rest}, pce.var_rt(x, rest, wr_and_l(Laws.env_var_fits(x), True{}, hf))) : {Wr.get_list.go(~Env.Var, ~FEnv.get_var, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Env.Var>>}
+      {==}
+    case Con{+y, +u}:
+      %Equal.sym(Wr.Dec<Env.Var>, FEnv.get_var(FEnv.put_var(x, FEnv.put_var(y, pce.vs.items(u, rest)))), Wr.Got{x, FEnv.put_var(y, pce.vs.items(u, rest))}, pce.var_rt(x, FEnv.put_var(y, pce.vs.items(u, rest)), wr_and_l(Laws.env_var_fits(x), Laws.env_vars_fit(y <> u), hf))) : {Wr.get_list.go(~Env.Var, ~FEnv.get_var, 1n+List.length(&2, Env.Var, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Env.Var>>}
+      %Equal.sym(Wr.Dec<List<&2, Env.Var>>, Wr.get_list.go(~Env.Var, ~FEnv.get_var, List.length(&2, Env.Var, u), FEnv.get_var(FEnv.put_var(y, pce.vs.items(u, rest)))), Wr.Got{y <> u, rest}, pce.vs.go_rt(u, y, rest, wr_and_r(Laws.env_var_fits(x), Laws.env_vars_fit(y <> u), hf))) : {Wr.get_list.cons(Env.Var, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Env.Var>>}
+      {==}
+
+# a list of Env.Var that fits reads back
+def pce.vs.rt(+xs: List<&2, Env.Var>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Env.Var, xs)), Laws.env_vars_fit(xs)) == True{} : Bool}) -> {Wr.get_list(~Env.Var, ~FEnv.get_var, Wr.put_list(~Env.Var, ~FEnv.put_var, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Env.Var>>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Env.Var, ~FEnv.get_var, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Env.Var>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Env.Var, ~FEnv.put_var, x <> t, r), Wr.put_nat(List.length(&2, Env.Var, x <> t), pce.vs.items(x <> t, r)), pce.vs.put(x <> t, r)) : {Wr.get_list(~Env.Var, ~FEnv.get_var, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Env.Var>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Env.Var, x <> t), pce.vs.items(x <> t, r))), Wr.Got{List.length(&2, Env.Var, x <> t), pce.vs.items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Env.Var, x <> t), pce.vs.items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Env.Var, x <> t)), Laws.env_vars_fit(x <> t), hh))) : {Wr.get_list.start(~Env.Var, ~FEnv.get_var, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Env.Var>>}
+      pce.vs.go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Env.Var, x <> t)), Laws.env_vars_fit(x <> t), hh))
+
+def pce.req_rt(+q: FEnv.Req, +rest: String, +h: {Laws.env_req_fits(q) == True{} : Bool}) -> {FEnv.get_req(FEnv.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FEnv.Req>}:
+  match q:
+    case FEnv.Req{+r, +k, +b, +o}:
+      +h1 = wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, String, r)), Laws.env_strs_fit(r)), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, String, k)), Laws.env_strs_fit(k)), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Env.Var, b)), Laws.env_vars_fit(b)), Bool.and(Laws.wire_fits(List.length(&2, Env.Var, o)), Laws.env_vars_fit(o)))), h)
+      +h2 = wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, String, k)), Laws.env_strs_fit(k)), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Env.Var, b)), Laws.env_vars_fit(b)), Bool.and(Laws.wire_fits(List.length(&2, Env.Var, o)), Laws.env_vars_fit(o))), h1)
+      Equal.trans(Wr.Dec<FEnv.Req>, FEnv.get_req.reg(Wr.get_list(~String, ~Wr.get_str, Wr.put_list(~String, ~Wr.put_str, r, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)))))), FEnv.get_req.reg(Wr.Got{r, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)))}), Wr.Got{FEnv.Req{r, k, b, o}, rest}, Equal.cong(Wr.Dec<List<&2, String>>, Wr.Dec<FEnv.Req>, d => FEnv.get_req.reg(d), Wr.get_list(~String, ~Wr.get_str, Wr.put_list(~String, ~Wr.put_str, r, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest))))), Wr.Got{r, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)))}, pce.ss.rt(r, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest))), wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, String, r)), Laws.env_strs_fit(r)), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, String, k)), Laws.env_strs_fit(k)), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Env.Var, b)), Laws.env_vars_fit(b)), Bool.and(Laws.wire_fits(List.length(&2, Env.Var, o)), Laws.env_vars_fit(o)))), h))), Equal.trans(Wr.Dec<FEnv.Req>, FEnv.get_req.keep(r, Wr.get_list(~String, ~Wr.get_str, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest))))), FEnv.get_req.keep(r, Wr.Got{k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest))}), Wr.Got{FEnv.Req{r, k, b, o}, rest}, Equal.cong(Wr.Dec<List<&2, String>>, Wr.Dec<FEnv.Req>, d => FEnv.get_req.keep(r, d), Wr.get_list(~String, ~Wr.get_str, Wr.put_list(~String, ~Wr.put_str, k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)))), Wr.Got{k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest))}, pce.ss.rt(k, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)), wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, String, k)), Laws.env_strs_fit(k)), Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Env.Var, b)), Laws.env_vars_fit(b)), Bool.and(Laws.wire_fits(List.length(&2, Env.Var, o)), Laws.env_vars_fit(o))), h1))), Equal.trans(Wr.Dec<FEnv.Req>, FEnv.get_req.base(r, k, Wr.get_list(~Env.Var, ~FEnv.get_var, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)))), FEnv.get_req.base(r, k, Wr.Got{b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)}), Wr.Got{FEnv.Req{r, k, b, o}, rest}, Equal.cong(Wr.Dec<List<&2, Env.Var>>, Wr.Dec<FEnv.Req>, d => FEnv.get_req.base(r, k, d), Wr.get_list(~Env.Var, ~FEnv.get_var, Wr.put_list(~Env.Var, ~FEnv.put_var, b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest))), Wr.Got{b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)}, pce.vs.rt(b, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest), wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, Env.Var, b)), Laws.env_vars_fit(b)), Bool.and(Laws.wire_fits(List.length(&2, Env.Var, o)), Laws.env_vars_fit(o)), h2))), Equal.cong(Wr.Dec<List<&2, Env.Var>>, Wr.Dec<FEnv.Req>, d => FEnv.get_req.over(r, k, b, d), Wr.get_list(~Env.Var, ~FEnv.get_var, Wr.put_list(~Env.Var, ~FEnv.put_var, o, rest)), Wr.Got{o, rest}, pce.vs.rt(o, rest, wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, Env.Var, b)), Laws.env_vars_fit(b)), Bool.and(Laws.wire_fits(List.length(&2, Env.Var, o)), Laws.env_vars_fit(o)), h2))))))
+
+
+def Laws.env_ffi_round_trip(q, rest, h):
+  pce.req_rt(q, rest, h)
+
+def Laws.env_ffi_is_child(r, k, b, o, h):
+  Equal.cong(Wr.Dec<FEnv.Req>, String, d => FEnv.ffi.go(d), FEnv.get_req(FEnv.put_req(FEnv.Req{r, k, b, o}, "")), Wr.Got{FEnv.Req{r, k, b, o}, ""}, pce.req_rt(FEnv.Req{r, k, b, o}, "", h))
+
+def Laws.env_ffi_malformed(s, h):
+  Equal.cong(Wr.Dec<FEnv.Req>, String, d => FEnv.ffi.go(d), FEnv.get_req(s), Wr.Bad{}, h)
+
+def Laws.env_ffi_left_over(s, q, r, h, e):
+  Equal.trans(String, FEnv.ffi.go(FEnv.get_req(s)), FEnv.ffi.go(Wr.Got{q, r}), Wr.err("child_env: input left over"), Equal.cong(Wr.Dec<FEnv.Req>, String, d => FEnv.ffi.go(d), FEnv.get_req(s), Wr.Got{q, r}, h), Equal.cong(Bool, String, b => FEnv.ffi.whole(q, b), String.is_empty(r), False{}, e))
+
+def Laws.env_req_fits_example():
+  {==}
+
+# ---- cvar_entry ----
+
+# The entries of the compiled core (bend/ffi_cvar.bend), field by field
+# as proof_director's entry.
+
+def pvf.val_rt(+v: Cv.Val, +rest: String, +h: {Laws.cvar_val_fits(v) == True{} : Bool}) -> {FCv.get_val(FCv.put_val(v, rest)) == Wr.Got{v, rest} : Wr.Dec<Cv.Val>}:
+  match v:
+    case Cv.VNat{+n}:
+      Equal.trans(Wr.Dec<Cv.Val>, FCv.get_val.go(Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(n, rest)))), FCv.get_val.go(Wr.Got{0n, Wr.put_nat(n, rest)}), Wr.Got{Cv.VNat{n}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Val>, d => FCv.get_val.go(d), Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(n, rest))), Wr.Got{0n, Wr.put_nat(n, rest)}, Laws.wire_nat_round_trip(0n, Wr.put_nat(n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Val>, d => FCv.get_val.nat(d), Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h)))
+    case Cv.VBool{+b}:
+      Equal.trans(Wr.Dec<Cv.Val>, FCv.get_val.go(Wr.get_nat(Wr.put_nat(1n, Wr.put_bool(b, rest)))), FCv.get_val.go(Wr.Got{1n, Wr.put_bool(b, rest)}), Wr.Got{Cv.VBool{b}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Val>, d => FCv.get_val.go(d), Wr.get_nat(Wr.put_nat(1n, Wr.put_bool(b, rest))), Wr.Got{1n, Wr.put_bool(b, rest)}, Laws.wire_nat_round_trip(1n, Wr.put_bool(b, rest), {==})), Equal.cong(Wr.Dec<Bool>, Wr.Dec<Cv.Val>, d => FCv.get_val.bool(d), Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Laws.wire_bool_round_trip(b, rest)))
+
+def pvf.cmd_rt(+c: Cv.Cmd, +rest: String, +h: {Laws.cvar_cmd_fits(c) == True{} : Bool}) -> {FCv.get_cmd(FCv.put_cmd(c, rest)) == Wr.Got{c, rest} : Wr.Dec<Cv.Cmd>}:
+  match c:
+    case Cv.CSet{+i, +v}:
+      Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.go(Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(i, FCv.put_val(v, rest))))), FCv.get_cmd.go(Wr.Got{0n, Wr.put_nat(i, FCv.put_val(v, rest))}), Wr.Got{Cv.CSet{i, v}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.go(d), Wr.get_nat(Wr.put_nat(0n, Wr.put_nat(i, FCv.put_val(v, rest)))), Wr.Got{0n, Wr.put_nat(i, FCv.put_val(v, rest))}, Laws.wire_nat_round_trip(0n, Wr.put_nat(i, FCv.put_val(v, rest)), {==})), Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.set(Wr.get_nat(Wr.put_nat(i, FCv.put_val(v, rest)))), FCv.get_cmd.set(Wr.Got{i, FCv.put_val(v, rest)}), Wr.Got{Cv.CSet{i, v}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.set(d), Wr.get_nat(Wr.put_nat(i, FCv.put_val(v, rest))), Wr.Got{i, FCv.put_val(v, rest)}, Laws.wire_nat_round_trip(i, FCv.put_val(v, rest), wr_and_l(Laws.wire_fits(i), Laws.cvar_val_fits(v), h))), Equal.cong(Wr.Dec<Cv.Val>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.set.v(i, d), FCv.get_val(FCv.put_val(v, rest)), Wr.Got{v, rest}, pvf.val_rt(v, rest, wr_and_r(Laws.wire_fits(i), Laws.cvar_val_fits(v), h)))))
+    case Cv.CToggle{+n}:
+      Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.go(Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(n, rest)))), FCv.get_cmd.go(Wr.Got{1n, Wr.put_nat(n, rest)}), Wr.Got{Cv.CToggle{n}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.go(d), Wr.get_nat(Wr.put_nat(1n, Wr.put_nat(n, rest))), Wr.Got{1n, Wr.put_nat(n, rest)}, Laws.wire_nat_round_trip(1n, Wr.put_nat(n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.toggle(d), Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h)))
+    case Cv.CRun{+n}:
+      Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.go(Wr.get_nat(Wr.put_nat(2n, Wr.put_nat(n, rest)))), FCv.get_cmd.go(Wr.Got{2n, Wr.put_nat(n, rest)}), Wr.Got{Cv.CRun{n}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.go(d), Wr.get_nat(Wr.put_nat(2n, Wr.put_nat(n, rest))), Wr.Got{2n, Wr.put_nat(n, rest)}, Laws.wire_nat_round_trip(2n, Wr.put_nat(n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.run(d), Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h)))
+    case Cv.CGone{+n}:
+      Equal.trans(Wr.Dec<Cv.Cmd>, FCv.get_cmd.go(Wr.get_nat(Wr.put_nat(3n, Wr.put_nat(n, rest)))), FCv.get_cmd.go(Wr.Got{3n, Wr.put_nat(n, rest)}), Wr.Got{Cv.CGone{n}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.go(d), Wr.get_nat(Wr.put_nat(3n, Wr.put_nat(n, rest))), Wr.Got{3n, Wr.put_nat(n, rest)}, Laws.wire_nat_round_trip(3n, Wr.put_nat(n, rest), {==})), Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Cmd>, d => FCv.get_cmd.gone(d), Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h)))
+
+# the items of a list of Cv.Cmd, then rest
+def pvf.cs.items(xs: List<&2, Cv.Cmd>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FCv.put_cmd(x, pvf.cs.items(t, rest))
+
+def pvf.cs.put_go(xs: List<&2, Cv.Cmd>, -rest: String) -> {Wr.put_list.go(~Cv.Cmd, ~FCv.put_cmd, xs, rest) == (List.length(&2, Cv.Cmd, xs), pvf.cs.items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Cv.Cmd, ~FCv.put_cmd, t, rest), (List.length(&2, Cv.Cmd, t), pvf.cs.items(t, rest)), pvf.cs.put_go(t, rest)) : {Wr.put_list.step(~Cv.Cmd, ~FCv.put_cmd, x, _) == (1n+List.length(&2, Cv.Cmd, t), FCv.put_cmd(x, pvf.cs.items(t, rest))) : Nat & String}
+      {==}
+
+# a list of Cv.Cmd is its count, then its items
+def pvf.cs.put(+xs: List<&2, Cv.Cmd>, -rest: String) -> {Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, xs, rest) == Wr.put_nat(List.length(&2, Cv.Cmd, xs), pvf.cs.items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Cv.Cmd, ~FCv.put_cmd, xs, rest), (List.length(&2, Cv.Cmd, xs), pvf.cs.items(xs, rest)), pvf.cs.put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Cv.Cmd, xs), pvf.cs.items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pvf.cs.go_rt(+t: List<&2, Cv.Cmd>, +x: Cv.Cmd, +rest: String, +hf: {Laws.cvar_cmds_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, List.length(&2, Cv.Cmd, t), FCv.get_cmd(FCv.put_cmd(x, pvf.cs.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Cv.Cmd>>}:
+  match t:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Cv.Cmd>, FCv.get_cmd(FCv.put_cmd(x, rest)), Wr.Got{x, rest}, pvf.cmd_rt(x, rest, wr_and_l(Laws.cvar_cmd_fits(x), True{}, hf))) : {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      {==}
+    case Con{+y, +u}:
+      %Equal.sym(Wr.Dec<Cv.Cmd>, FCv.get_cmd(FCv.put_cmd(x, FCv.put_cmd(y, pvf.cs.items(u, rest)))), Wr.Got{x, FCv.put_cmd(y, pvf.cs.items(u, rest))}, pvf.cmd_rt(x, FCv.put_cmd(y, pvf.cs.items(u, rest)), wr_and_l(Laws.cvar_cmd_fits(x), Laws.cvar_cmds_all(y <> u), hf))) : {Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, 1n+List.length(&2, Cv.Cmd, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      %Equal.sym(Wr.Dec<List<&2, Cv.Cmd>>, Wr.get_list.go(~Cv.Cmd, ~FCv.get_cmd, List.length(&2, Cv.Cmd, u), FCv.get_cmd(FCv.put_cmd(y, pvf.cs.items(u, rest)))), Wr.Got{y <> u, rest}, pvf.cs.go_rt(u, y, rest, wr_and_r(Laws.cvar_cmd_fits(x), Laws.cvar_cmds_all(y <> u), hf))) : {Wr.get_list.cons(Cv.Cmd, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      {==}
+
+# a list of Cv.Cmd that fits reads back
+def pvf.cs.rt(+xs: List<&2, Cv.Cmd>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Cv.Cmd, xs)), Laws.cvar_cmds_all(xs)) == True{} : Bool}) -> {Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Cv.Cmd>>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Cv.Cmd>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, x <> t, r), Wr.put_nat(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r)), pvf.cs.put(x <> t, r)) : {Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Cmd>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r))), Wr.Got{List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Cv.Cmd, x <> t), pvf.cs.items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Cv.Cmd, x <> t)), Laws.cvar_cmds_all(x <> t), hh))) : {Wr.get_list.start(~Cv.Cmd, ~FCv.get_cmd, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Cmd>>}
+      pvf.cs.go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Cv.Cmd, x <> t)), Laws.cvar_cmds_all(x <> t), hh))
+
+def pvf.alias_rt(+a: Cv.Alias, +rest: String, +h: {Laws.cvar_alias_fits(a) == True{} : Bool}) -> {FCv.get_alias(FCv.put_alias(a, rest)) == Wr.Got{a, rest} : Wr.Dec<Cv.Alias>}:
+  match a:
+    case Cv.Alias{+n, +b}:
+      Equal.trans(Wr.Dec<Cv.Alias>, FCv.get_alias.name(Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest)))), FCv.get_alias.name(Wr.Got{n, FCv.put_cmds(b, rest)}), Wr.Got{Cv.Alias{n, b}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.Alias>, d => FCv.get_alias.name(d), Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest))), Wr.Got{n, FCv.put_cmds(b, rest)}, Laws.wire_nat_round_trip(n, FCv.put_cmds(b, rest), wr_and_l(Laws.wire_fits(n), Laws.cvar_cmds_fit(b), h))), Equal.cong(Wr.Dec<List<&2, Cv.Cmd>>, Wr.Dec<Cv.Alias>, d => FCv.get_alias.body(n, d), Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, b, rest)), Wr.Got{b, rest}, pvf.cs.rt(b, rest, wr_and_r(Laws.wire_fits(n), Laws.cvar_cmds_fit(b), h))))
+
+def pvf.bind_rt(+a: Cv.KeyBind, +rest: String, +h: {Laws.cvar_bind_fits(a) == True{} : Bool}) -> {FCv.get_bind(FCv.put_bind(a, rest)) == Wr.Got{a, rest} : Wr.Dec<Cv.KeyBind>}:
+  match a:
+    case Cv.KeyBind{+n, +b}:
+      Equal.trans(Wr.Dec<Cv.KeyBind>, FCv.get_bind.key(Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest)))), FCv.get_bind.key(Wr.Got{n, FCv.put_cmds(b, rest)}), Wr.Got{Cv.KeyBind{n, b}, rest}, Equal.cong(Wr.Dec<Nat>, Wr.Dec<Cv.KeyBind>, d => FCv.get_bind.key(d), Wr.get_nat(Wr.put_nat(n, FCv.put_cmds(b, rest))), Wr.Got{n, FCv.put_cmds(b, rest)}, Laws.wire_nat_round_trip(n, FCv.put_cmds(b, rest), wr_and_l(Laws.wire_fits(n), Laws.cvar_cmds_fit(b), h))), Equal.cong(Wr.Dec<List<&2, Cv.Cmd>>, Wr.Dec<Cv.KeyBind>, d => FCv.get_bind.cmds(n, d), Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, b, rest)), Wr.Got{b, rest}, pvf.cs.rt(b, rest, wr_and_r(Laws.wire_fits(n), Laws.cvar_cmds_fit(b), h))))
+
+# the items of a list of Cv.Alias, then rest
+def pvf.as.items(xs: List<&2, Cv.Alias>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FCv.put_alias(x, pvf.as.items(t, rest))
+
+def pvf.as.put_go(xs: List<&2, Cv.Alias>, -rest: String) -> {Wr.put_list.go(~Cv.Alias, ~FCv.put_alias, xs, rest) == (List.length(&2, Cv.Alias, xs), pvf.as.items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Cv.Alias, ~FCv.put_alias, t, rest), (List.length(&2, Cv.Alias, t), pvf.as.items(t, rest)), pvf.as.put_go(t, rest)) : {Wr.put_list.step(~Cv.Alias, ~FCv.put_alias, x, _) == (1n+List.length(&2, Cv.Alias, t), FCv.put_alias(x, pvf.as.items(t, rest))) : Nat & String}
+      {==}
+
+# a list of Cv.Alias is its count, then its items
+def pvf.as.put(+xs: List<&2, Cv.Alias>, -rest: String) -> {Wr.put_list(~Cv.Alias, ~FCv.put_alias, xs, rest) == Wr.put_nat(List.length(&2, Cv.Alias, xs), pvf.as.items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Cv.Alias, ~FCv.put_alias, xs, rest), (List.length(&2, Cv.Alias, xs), pvf.as.items(xs, rest)), pvf.as.put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Cv.Alias, xs), pvf.as.items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pvf.as.go_rt(+t: List<&2, Cv.Alias>, +x: Cv.Alias, +rest: String, +hf: {Laws.cvar_aliases_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, List.length(&2, Cv.Alias, t), FCv.get_alias(FCv.put_alias(x, pvf.as.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Cv.Alias>>}:
+  match t:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Cv.Alias>, FCv.get_alias(FCv.put_alias(x, rest)), Wr.Got{x, rest}, pvf.alias_rt(x, rest, wr_and_l(Laws.cvar_alias_fits(x), True{}, hf))) : {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      {==}
+    case Con{+y, +u}:
+      %Equal.sym(Wr.Dec<Cv.Alias>, FCv.get_alias(FCv.put_alias(x, FCv.put_alias(y, pvf.as.items(u, rest)))), Wr.Got{x, FCv.put_alias(y, pvf.as.items(u, rest))}, pvf.alias_rt(x, FCv.put_alias(y, pvf.as.items(u, rest)), wr_and_l(Laws.cvar_alias_fits(x), Laws.cvar_aliases_all(y <> u), hf))) : {Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, 1n+List.length(&2, Cv.Alias, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      %Equal.sym(Wr.Dec<List<&2, Cv.Alias>>, Wr.get_list.go(~Cv.Alias, ~FCv.get_alias, List.length(&2, Cv.Alias, u), FCv.get_alias(FCv.put_alias(y, pvf.as.items(u, rest)))), Wr.Got{y <> u, rest}, pvf.as.go_rt(u, y, rest, wr_and_r(Laws.cvar_alias_fits(x), Laws.cvar_aliases_all(y <> u), hf))) : {Wr.get_list.cons(Cv.Alias, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      {==}
+
+# a list of Cv.Alias that fits reads back
+def pvf.as.rt(+xs: List<&2, Cv.Alias>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Cv.Alias, xs)), Laws.cvar_aliases_all(xs)) == True{} : Bool}) -> {Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Cv.Alias>>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Cv.Alias>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Cv.Alias, ~FCv.put_alias, x <> t, r), Wr.put_nat(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r)), pvf.as.put(x <> t, r)) : {Wr.get_list(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Alias>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r))), Wr.Got{List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Cv.Alias, x <> t), pvf.as.items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Cv.Alias, x <> t)), Laws.cvar_aliases_all(x <> t), hh))) : {Wr.get_list.start(~Cv.Alias, ~FCv.get_alias, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.Alias>>}
+      pvf.as.go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Cv.Alias, x <> t)), Laws.cvar_aliases_all(x <> t), hh))
+
+# the items of a list of Cv.KeyBind, then rest
+def pvf.bs.items(xs: List<&2, Cv.KeyBind>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FCv.put_bind(x, pvf.bs.items(t, rest))
+
+def pvf.bs.put_go(xs: List<&2, Cv.KeyBind>, -rest: String) -> {Wr.put_list.go(~Cv.KeyBind, ~FCv.put_bind, xs, rest) == (List.length(&2, Cv.KeyBind, xs), pvf.bs.items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Cv.KeyBind, ~FCv.put_bind, t, rest), (List.length(&2, Cv.KeyBind, t), pvf.bs.items(t, rest)), pvf.bs.put_go(t, rest)) : {Wr.put_list.step(~Cv.KeyBind, ~FCv.put_bind, x, _) == (1n+List.length(&2, Cv.KeyBind, t), FCv.put_bind(x, pvf.bs.items(t, rest))) : Nat & String}
+      {==}
+
+# a list of Cv.KeyBind is its count, then its items
+def pvf.bs.put(+xs: List<&2, Cv.KeyBind>, -rest: String) -> {Wr.put_list(~Cv.KeyBind, ~FCv.put_bind, xs, rest) == Wr.put_nat(List.length(&2, Cv.KeyBind, xs), pvf.bs.items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Cv.KeyBind, ~FCv.put_bind, xs, rest), (List.length(&2, Cv.KeyBind, xs), pvf.bs.items(xs, rest)), pvf.bs.put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Cv.KeyBind, xs), pvf.bs.items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t
+def pvf.bs.go_rt(+t: List<&2, Cv.KeyBind>, +x: Cv.KeyBind, +rest: String, +hf: {Laws.cvar_binds_all(x <> t) == True{} : Bool}) -> {Wr.get_list.go(~Cv.KeyBind, ~FCv.get_bind, List.length(&2, Cv.KeyBind, t), FCv.get_bind(FCv.put_bind(x, pvf.bs.items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Cv.KeyBind>>}:
+  match t:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Cv.KeyBind>, FCv.get_bind(FCv.put_bind(x, rest)), Wr.Got{x, rest}, pvf.bind_rt(x, rest, wr_and_l(Laws.cvar_bind_fits(x), True{}, hf))) : {Wr.get_list.go(~Cv.KeyBind, ~FCv.get_bind, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Cv.KeyBind>>}
+      {==}
+    case Con{+y, +u}:
+      %Equal.sym(Wr.Dec<Cv.KeyBind>, FCv.get_bind(FCv.put_bind(x, FCv.put_bind(y, pvf.bs.items(u, rest)))), Wr.Got{x, FCv.put_bind(y, pvf.bs.items(u, rest))}, pvf.bind_rt(x, FCv.put_bind(y, pvf.bs.items(u, rest)), wr_and_l(Laws.cvar_bind_fits(x), Laws.cvar_binds_all(y <> u), hf))) : {Wr.get_list.go(~Cv.KeyBind, ~FCv.get_bind, 1n+List.length(&2, Cv.KeyBind, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.KeyBind>>}
+      %Equal.sym(Wr.Dec<List<&2, Cv.KeyBind>>, Wr.get_list.go(~Cv.KeyBind, ~FCv.get_bind, List.length(&2, Cv.KeyBind, u), FCv.get_bind(FCv.put_bind(y, pvf.bs.items(u, rest)))), Wr.Got{y <> u, rest}, pvf.bs.go_rt(u, y, rest, wr_and_r(Laws.cvar_bind_fits(x), Laws.cvar_binds_all(y <> u), hf))) : {Wr.get_list.cons(Cv.KeyBind, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Cv.KeyBind>>}
+      {==}
+
+# a list of Cv.KeyBind that fits reads back
+def pvf.bs.rt(+xs: List<&2, Cv.KeyBind>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Cv.KeyBind, xs)), Laws.cvar_binds_all(xs)) == True{} : Bool}) -> {Wr.get_list(~Cv.KeyBind, ~FCv.get_bind, Wr.put_list(~Cv.KeyBind, ~FCv.put_bind, xs, rest)) == Wr.Got{xs, rest} : Wr.Dec<List<&2, Cv.KeyBind>>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Cv.KeyBind, ~FCv.get_bind, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Cv.KeyBind>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Cv.KeyBind, ~FCv.put_bind, x <> t, r), Wr.put_nat(List.length(&2, Cv.KeyBind, x <> t), pvf.bs.items(x <> t, r)), pvf.bs.put(x <> t, r)) : {Wr.get_list(~Cv.KeyBind, ~FCv.get_bind, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.KeyBind>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Cv.KeyBind, x <> t), pvf.bs.items(x <> t, r))), Wr.Got{List.length(&2, Cv.KeyBind, x <> t), pvf.bs.items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Cv.KeyBind, x <> t), pvf.bs.items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Cv.KeyBind, x <> t)), Laws.cvar_binds_all(x <> t), hh))) : {Wr.get_list.start(~Cv.KeyBind, ~FCv.get_bind, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Cv.KeyBind>>}
+      pvf.bs.go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Cv.KeyBind, x <> t)), Laws.cvar_binds_all(x <> t), hh))
+
+def pvf.xreq_rt(+as: List<&2, Cv.Alias>, +cs: List<&2, Cv.Cmd>, +rest: String, +h: {Bool.and(Laws.cvar_aliases_fit(as), Laws.cvar_cmds_fit(cs)) == True{} : Bool}) -> {FCv.get_xreq(FCv.put_xreq(FCv.Xreq{as, cs}, rest)) == Wr.Got{FCv.Xreq{as, cs}, rest} : Wr.Dec<FCv.Xreq>}:
+  Equal.trans(Wr.Dec<FCv.Xreq>, FCv.get_xreq.aliases(Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, FCv.put_cmds(cs, rest)))), FCv.get_xreq.aliases(Wr.Got{as, FCv.put_cmds(cs, rest)}), Wr.Got{FCv.Xreq{as, cs}, rest}, Equal.cong(Wr.Dec<List<&2, Cv.Alias>>, Wr.Dec<FCv.Xreq>, d => FCv.get_xreq.aliases(d), Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, FCv.put_cmds(cs, rest))), Wr.Got{as, FCv.put_cmds(cs, rest)}, pvf.as.rt(as, FCv.put_cmds(cs, rest), wr_and_l(Laws.cvar_aliases_fit(as), Laws.cvar_cmds_fit(cs), h))), Equal.cong(Wr.Dec<List<&2, Cv.Cmd>>, Wr.Dec<FCv.Xreq>, d => FCv.get_xreq.cmds(as, d), Wr.get_list(~Cv.Cmd, ~FCv.get_cmd, Wr.put_list(~Cv.Cmd, ~FCv.put_cmd, cs, rest)), Wr.Got{cs, rest}, pvf.cs.rt(cs, rest, wr_and_r(Laws.cvar_aliases_fit(as), Laws.cvar_cmds_fit(cs), h))))
+
+def pvf.table_rt(+bs: List<&2, Cv.KeyBind>, +as: List<&2, Cv.Alias>, +rest: String, +h: {Bool.and(Laws.cvar_binds_fit(bs), Laws.cvar_aliases_fit(as)) == True{} : Bool}) -> {FCv.get_table(FCv.put_table(bs, as, rest)) == Wr.Got{FCv.Table{bs, as}, rest} : Wr.Dec<FCv.St>}:
+  Equal.trans(Wr.Dec<FCv.St>, FCv.get_table.binds(Wr.get_list(~Cv.KeyBind, ~FCv.get_bind, Wr.put_list(~Cv.KeyBind, ~FCv.put_bind, bs, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, rest)))), FCv.get_table.binds(Wr.Got{bs, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, rest)}), Wr.Got{FCv.Table{bs, as}, rest}, Equal.cong(Wr.Dec<List<&2, Cv.KeyBind>>, Wr.Dec<FCv.St>, d => FCv.get_table.binds(d), Wr.get_list(~Cv.KeyBind, ~FCv.get_bind, Wr.put_list(~Cv.KeyBind, ~FCv.put_bind, bs, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, rest))), Wr.Got{bs, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, rest)}, pvf.bs.rt(bs, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, rest), wr_and_l(Laws.cvar_binds_fit(bs), Laws.cvar_aliases_fit(as), h))), Equal.cong(Wr.Dec<List<&2, Cv.Alias>>, Wr.Dec<FCv.St>, d => FCv.get_table.aliases(bs, d), Wr.get_list(~Cv.Alias, ~FCv.get_alias, Wr.put_list(~Cv.Alias, ~FCv.put_alias, as, rest)), Wr.Got{as, rest}, pvf.as.rt(as, rest, wr_and_r(Laws.cvar_binds_fit(bs), Laws.cvar_aliases_fit(as), h))))
+
+
+def Laws.cvar_ffi_round_trip(as, cs, rest, h):
+  pvf.xreq_rt(as, cs, rest, h)
+
+def Laws.cvar_ffi_is_expand(as, cs, h):
+  Equal.cong(Wr.Dec<FCv.Xreq>, String, d => FCv.ffi.go(d), FCv.get_xreq(FCv.put_xreq(FCv.Xreq{as, cs}, "")), Wr.Got{FCv.Xreq{as, cs}, ""}, pvf.xreq_rt(as, cs, "", h))
+
+def Laws.cvar_ffi_malformed(s, h):
+  Equal.cong(Wr.Dec<FCv.Xreq>, String, d => FCv.ffi.go(d), FCv.get_xreq(s), Wr.Bad{}, h)
+
+def Laws.cvar_ffi_open(bs, as, h):
+  Equal.cong(Wr.Dec<FCv.St>, FCv.St & String, d => FCv.open.go(d), FCv.get_table(FCv.put_table(bs, as, "")), Wr.Got{FCv.Table{bs, as}, ""}, pvf.table_rt(bs, as, "", h))
+
+def Laws.cvar_ffi_open_malformed(s, h):
+  Equal.cong(Wr.Dec<FCv.St>, FCv.St & String, d => FCv.open.go(d), FCv.get_table(s), Wr.Bad{}, h)
+
+def Laws.cvar_ffi_press(bs, as, k, h):
+  Equal.cong(Wr.Dec<Nat>, FCv.St & String, d => FCv.step.key(bs, as, d), Wr.get_nat(Wr.put_nat(k, "")), Wr.Got{k, ""}, Laws.wire_nat_round_trip(k, "", h))
+
+def Laws.cvar_ffi_refused(s):
+  {==}
+
+def Laws.cvar_fits_example():
   {==}

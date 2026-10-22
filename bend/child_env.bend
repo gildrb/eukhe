@@ -1,7 +1,7 @@
 # child_env: the environment of a child the host starts for an agent.
-# The Rust code is crates/eukhe-core/src/kernel/manager/startup.rs
-# (`child_env`, with `is_credential_env_var` and
-# `is_provider_credential_env_var` of crates/eukhe-ai/src/env_api_keys.rs).
+# It runs as the compiled core (bend/ffi_child_env.bend), called by
+# crates/eukhe-core/src/kernel/manager/startup.rs `child_env` with the
+# registry `credential_env_vars` of crates/eukhe-ai/src/env_api_keys.rs.
 #
 # An environment is a list of variables (a name and a value). The child
 # environment is the overlay over the base (a name of the overlay hides
@@ -47,7 +47,21 @@ def up(s: String) -> String:
     case SCon{c, t}:
       SCon{Char.to_upper(c), up(t)}
 
-# A name whose upper case contains one of these is a credential.
+# A name whose upper case contains one of these is a credential:
+# - API_KEY, APIKEY: API keys (OPENAI_API_KEY, MY_APIKEY).
+# - TOKEN: bearer, session, OAuth and access tokens, and token files
+#   (GITHUB_TOKEN, HF_TOKEN, AWS_WEB_IDENTITY_TOKEN_FILE). It also matches
+#   TOKENIZERS_PARALLELISM; a child does not get that switch.
+# - SECRET: client secrets and secret keys (AWS_SECRET_ACCESS_KEY).
+# - PASSWORD, PASSWD: passwords (PGPASSWORD, DB_PASSWD).
+# - PASSPHRASE: key passphrases (GPG_PASSPHRASE).
+# - CREDENTIAL: credentials and credential files
+#   (GOOGLE_APPLICATION_CREDENTIALS, AWS_SHARED_CREDENTIALS_FILE).
+# - PRIVATE_KEY: private keys and key files (TLS_PRIVATE_KEY).
+# - ACCESS_KEY: access key pairs (AWS_ACCESS_KEY_ID, S3_ACCESS_KEY).
+# There is no KEY, AUTH or PASS pattern: these match names a child needs
+# and that hold no secret (SSH_AUTH_SOCK, XAUTHORITY, KEYTIMEOUT,
+# SSH_ASKPASS).
 def patterns() -> List<&2, String>:
   ["API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASSPHRASE", "CREDENTIAL", "PRIVATE_KEY", "ACCESS_KEY"]
 

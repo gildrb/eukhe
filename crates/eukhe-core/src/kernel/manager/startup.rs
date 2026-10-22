@@ -1,6 +1,7 @@
 //! Startup and child wiring: kernel process spawn, python resolution, stderr
 //! capture, and readiness handshake.
 
+use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 
 use super::frames::{
@@ -13,7 +14,9 @@ use super::{
     MAX_KERNEL_STDERR_CHARS, MAX_KERNEL_STDERR_LOG_BYTES, READY_TIMEOUT_MS, REPL_PROTOCOL_VERSION,
 };
 
-use eukhe_ai::env_api_keys::{is_credential_env_var, is_provider_credential_env_var};
+use eukhe_ai::env_api_keys::credential_env_vars;
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{call, expect_core, Entry};
 
 use crate::kernel::shared::KeptCredentials;
 use crate::kernel::transport::{KernelTransport, KernelWrapper};
@@ -40,29 +43,80 @@ pub(crate) fn local_env(overlay: &HashMap<String, String>) -> HashMap<String, St
     child_env(std::env::vars(), overlay, &KeptCredentials::default())
 }
 
-/// The environment of a child the host starts for an agent (the model is
-/// `bend/child_env.bend`, the laws are (G3) in `LAWS.bend` section `child_env`):
-/// `base` with `overlay` over it, less every credential name
-/// ([`is_credential_env_var`]) that `kept` does not hold. A provider
-/// credential ([`is_provider_credential_env_var`]) never stays, even when
-/// kept. The filter runs after the overlay, so no overlay adds a
-/// credential back.
+/// The environment of a child the host starts for an agent: `base` with
+/// `overlay` over it, less every credential name that `kept` does not hold;
+/// a provider credential (a name of [`credential_env_vars`], in any case)
+/// never stays, even when kept. The rule is `bend/child_env.bend` `child`
+/// (laws (G3), `LAWS.bend` sections `child_env` and `child_env_entry`), run
+/// as the compiled core: a name of `base` that comes twice keeps its last
+/// value (an environment holds one value per name), the variables cross in
+/// name order, and the values cross as their numbers (the model never reads
+/// a value and never invents a variable, `env_child_from_merge`), so a large
+/// value costs nothing on the wire. The core's reply to the last request is
+/// kept: the next child of the same environment (every external step of a
+/// session) reuses it.
 pub(crate) fn child_env(
     base: impl IntoIterator<Item = (String, String)>,
     overlay: &HashMap<String, String>,
     kept: &KeptCredentials,
 ) -> HashMap<String, String> {
-    let mut env: HashMap<String, String> = base.into_iter().collect();
-    env.extend(
-        overlay
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone())),
-    );
-    env.retain(|name, _| {
-        !is_credential_env_var(name)
-            || (kept.0.contains(name) && !is_provider_credential_env_var(name))
-    });
-    env
+    static LAST: Mutex<Option<(String, String)>> = Mutex::new(None);
+    let base: BTreeMap<String, String> = base.into_iter().collect();
+    let overlay: BTreeMap<&String, &String> = overlay.iter().collect();
+    let mut values: Vec<&str> = Vec::with_capacity(base.len() + overlay.len());
+    let mut w = Writer::new();
+    w.count(credential_env_vars().count());
+    for name in credential_env_vars() {
+        w.str(name);
+    }
+    w.count(kept.0.len());
+    for name in &kept.0 {
+        w.str(name);
+    }
+    w.count(base.len());
+    for (name, value) in &base {
+        w.str(name).str(&values.len().to_string());
+        values.push(value);
+    }
+    w.count(overlay.len());
+    for (name, value) in &overlay {
+        w.str(name).str(&values.len().to_string());
+        values.push(value);
+    }
+    let request = expect_core(Entry::ChildEnv, w.finish());
+    let mut last = lock(&LAST);
+    let reply = match last.as_ref() {
+        Some((asked, answered)) if *asked == request => answered.clone(),
+        Some(_) | None => {
+            let reply = expect_core(Entry::ChildEnv, call(Entry::ChildEnv, &request));
+            *last = Some((request, reply.clone()));
+            reply
+        }
+    };
+    drop(last);
+    expect_core(Entry::ChildEnv, read_env(&reply, &values))
+}
+
+/// The variables a reply holds, each value given by its number in `values`.
+fn read_env(reply: &str, values: &[&str]) -> Result<HashMap<String, String>, WireError> {
+    let mut r = Reader::reply(reply)?;
+    let count = r.count()?;
+    let mut env = HashMap::with_capacity(count);
+    for _ in 0..count {
+        let name = r.str()?;
+        let value = r
+            .str()?
+            .parse::<usize>()
+            .ok()
+            .and_then(|at| values.get(at))
+            .ok_or(WireError::Malformed {
+                at: 0,
+                expected: "the number of a value",
+            })?;
+        env.insert(name.to_owned(), (*value).to_owned());
+    }
+    r.end()?;
+    Ok(env)
 }
 
 impl Inner {
@@ -666,9 +720,6 @@ impl Inner {
 }
 
 #[cfg(test)]
-mod bridge;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::kernel::manager::ReplKernelManager;
@@ -685,49 +736,95 @@ mod tests {
         dir
     }
 
-    fn vars(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs
+    /// The registry the rule gets is the provider and auth code's
+    /// (`credential_env_vars`, data the laws leave free): which names are
+    /// credentials and which are provider credentials, in any case, through
+    /// the real call. A credential leaves a child with no kept name; a
+    /// provider credential leaves even when kept; a large value and a name
+    /// of the base that comes twice cross whole.
+    #[test]
+    fn the_real_registry_names_the_credentials_of_a_child() {
+        let names = [
+            "OPENAI_API_KEY",
+            "openai_api_key",
+            "Aws_Session_Token",
+            "GOOGLE_API_KEY",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "GITHUB_TOKEN",
+            "TOKENIZERS_PARALLELISM",
+            "MY_APIKEY",
+            "client_secret",
+            "PGPASSWORD",
+            "DB_PASSWD",
+            "GPG_PASSPHRASE",
+            "TLS_PRIVATE_KEY",
+            "S3_ACCESS_KEY",
+            "PATH",
+            "HOME",
+            "SSH_AUTH_SOCK",
+            "XAUTHORITY",
+            "SSH_ASKPASS",
+            "KEYTIMEOUT",
+            "AWS_PROFILE",
+            "AWS_REGION",
+            "PRIME_TEAM_ID",
+        ];
+        let big = "é".repeat(100_000);
+        let base: Vec<(String, String)> = names
             .iter()
-            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-            .collect()
+            .map(|name| ((*name).to_owned(), big.clone()))
+            .chain([("HOME".to_owned(), "/home/user".to_owned())])
+            .collect();
+        let none = child_env(base.clone(), &HashMap::new(), &KeptCredentials::default());
+        let all = child_env(
+            base,
+            &HashMap::new(),
+            &KeptCredentials::new(names.iter().map(|name| (*name).to_owned())),
+        );
+        // (name, credential, provider credential)
+        let found: Vec<(&str, bool, bool)> = names
+            .into_iter()
+            .map(|name| (name, !none.contains_key(name), !all.contains_key(name)))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("OPENAI_API_KEY", true, true),
+                ("openai_api_key", true, true),
+                ("Aws_Session_Token", true, true),
+                ("GOOGLE_API_KEY", true, true),
+                ("GOOGLE_APPLICATION_CREDENTIALS", true, true),
+                ("GITHUB_TOKEN", true, false),
+                ("TOKENIZERS_PARALLELISM", true, false),
+                ("MY_APIKEY", true, false),
+                ("client_secret", true, false),
+                ("PGPASSWORD", true, false),
+                ("DB_PASSWD", true, false),
+                ("GPG_PASSPHRASE", true, false),
+                ("TLS_PRIVATE_KEY", true, false),
+                ("S3_ACCESS_KEY", true, false),
+                ("PATH", false, false),
+                ("HOME", false, false),
+                ("SSH_AUTH_SOCK", false, false),
+                ("XAUTHORITY", false, false),
+                ("SSH_ASKPASS", false, false),
+                ("KEYTIMEOUT", false, false),
+                ("AWS_PROFILE", false, false),
+                ("AWS_REGION", false, false),
+                ("PRIME_TEAM_ID", false, false),
+            ]
+        );
+        assert_eq!(none.get("PATH"), Some(&big));
+        assert_eq!(none.get("HOME").map(String::as_str), Some("/home/user"));
     }
 
+    /// Every name of the registry is a provider credential in any case.
     #[test]
-    fn no_credential_of_the_base_or_the_overlay_reaches_an_external_step() {
-        let base = vars(&[
-            ("PATH", "/bin"),
-            ("OPENAI_API_KEY", "sk-fake"),
-            ("db_password", "hunter2"),
-            ("HOME", "/home/user"),
-        ]);
-        let overlay = vars(&[
-            ("GITHUB_TOKEN", "ghp-fake"),
-            ("PATH", "/usr/bin"),
-            ("EUKHE_CODING_AGENT_DIR", "/agent"),
-        ]);
-        assert_eq!(
-            child_env(base, &overlay, &KeptCredentials::default()),
-            vars(&[
-                ("PATH", "/usr/bin"),
-                ("HOME", "/home/user"),
-                ("EUKHE_CODING_AGENT_DIR", "/agent"),
-            ])
-        );
-    }
-
-    #[test]
-    fn a_kernel_keeps_only_the_kept_credentials_that_are_no_provider_key() {
-        let base = vars(&[
-            ("PATH", "/bin"),
-            ("OPENAI_API_KEY", "sk-fake"),
-            ("GITHUB_TOKEN", "ghp-fake"),
-            ("SLACK_SECRET", "xoxb-fake"),
-        ]);
-        let kept = KeptCredentials::new(["GITHUB_TOKEN".to_owned(), "OPENAI_API_KEY".to_owned()]);
-        assert_eq!(
-            child_env(base, &HashMap::new(), &kept),
-            vars(&[("PATH", "/bin"), ("GITHUB_TOKEN", "ghp-fake")])
-        );
+    fn every_registry_name_leaves_a_child_in_any_case() {
+        let names: Vec<String> = credential_env_vars().map(str::to_ascii_lowercase).collect();
+        let base = names.iter().map(|name| (name.clone(), "x".to_owned()));
+        let env = child_env(base, &HashMap::new(), &KeptCredentials::new(names.clone()));
+        assert_eq!(env, HashMap::new());
     }
 
     #[test]
