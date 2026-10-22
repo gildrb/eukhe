@@ -7,6 +7,22 @@ check:
 	$(MAKE) runtime-test
 	cargo build --release --workspace --locked
 
+# The local CI gates (scripts/ci_local.sh). ci-fast is the pre-commit gate:
+# rustfmt, the secrets scan of the staged diff (when gitleaks is installed),
+# clippy on the crates the staged change touches (scripts/ci_pr_crates.py).
+# ci-local is the pre-push gate: every gate of .github/workflows/ci.yml.
+# `make hooks` makes git run them through prek (.pre-commit-config.yaml;
+# the hooks are in the git common dir, so every worktree shares them).
+ci-fast:
+	@scripts/ci_local.sh fast
+
+ci-local:
+	@scripts/ci_local.sh full
+
+hooks:
+	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (docs/develop.md: mise use -g github:j178/prek@0.5.7)"; exit 1; }
+	prek install --hook-type pre-commit --hook-type pre-push
+
 # The eukhe-runtime Python suite on the uv-locked kernel env (the env the
 # real-kernel cargo tests build: crates/eukhe-core/tests/support/kernel_runtime.rs).
 runtime-test:
@@ -201,4 +217,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates shard-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local hooks runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates shard-gates runtime-lock runtime-lock-check dashboard-ui
