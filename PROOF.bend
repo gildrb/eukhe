@@ -66,6 +66,10 @@ import ./bend/doc_lines.bend as Dl
 import ./bend/default_model.bend as Dm
 import ./bend/config.bend as Cf
 import ./bend/workflow.bend as W
+import ./bend/ffi_admission.bend as FAd
+import ./bend/ffi_workflow.bend as FW
+import ./bend/ffi_default_model.bend as FDm
+import ./bend/ffi_aux_fallback.bend as FAf
 import ./bend/wire.bend as Wr
 
 # ---- cover ----
@@ -36424,3 +36428,915 @@ def Laws.wf_limits_uncapped(c, m):
 
 def Laws.wf_limits_capped(c, m, x):
   pw.capped(c, m, x)
+
+# ---- admission_wire ----
+
+# Place after PROOF.bend section wire: the proofs use its Laws.wire_*
+# fills and wr_and_l / wr_and_r.
+
+# a Nat that fits reads back (Laws.wire_nat_round_trip, turned around)
+def paw.nat(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+
+def Laws.adw_cls_round_trip(c, rest):
+  match c:
+    case Ad.Ia{}:
+      {==}
+    case Ad.Bg{}:
+      {==}
+
+def Laws.adw_sts_round_trip(s, rest):
+  match s:
+    case Ad.Queued{}:
+      {==}
+    case Ad.Granted{}:
+      {==}
+    case Ad.Held{}:
+      {==}
+    case Ad.Preempted{}:
+      {==}
+    case Ad.Ended{}:
+      {==}
+
+def Laws.adw_lim_round_trip(l, rest, h):
+  match l:
+    case Ad.Unl{}:
+      {==}
+    case Ad.Cap{+p}:
+      %paw.nat(p, rest, h) : {FAd.get_lim.cap(_) == Wr.Got{Ad.Cap{p}, rest} : Wr.Dec<Ad.Lim>}
+      {==}
+
+# a cls reads back (turned around for rewriting)
+def paw.cls(+c: Ad.Cls, +rest: String) -> {Wr.Got{c, rest} == FAd.get_cls(FAd.put_cls(c, rest)) : Wr.Dec<Ad.Cls>}:
+  Equal.sym(Wr.Dec<Ad.Cls>, FAd.get_cls(FAd.put_cls(c, rest)), Wr.Got{c, rest}, Laws.adw_cls_round_trip(c, rest))
+
+# a sts reads back (turned around for rewriting)
+def paw.sts(+s: Ad.Sts, +rest: String) -> {Wr.Got{s, rest} == FAd.get_sts(FAd.put_sts(s, rest)) : Wr.Dec<Ad.Sts>}:
+  Equal.sym(Wr.Dec<Ad.Sts>, FAd.get_sts(FAd.put_sts(s, rest)), Wr.Got{s, rest}, Laws.adw_sts_round_trip(s, rest))
+
+# a lim reads back (turned around for rewriting)
+def paw.lim(+l: Ad.Lim, +rest: String, h: {Laws.adw_lim_fits(l) == True{} : Bool}) -> {Wr.Got{l, rest} == FAd.get_lim(FAd.put_lim(l, rest)) : Wr.Dec<Ad.Lim>}:
+  Equal.sym(Wr.Dec<Ad.Lim>, FAd.get_lim(FAd.put_lim(l, rest)), Wr.Got{l, rest}, Laws.adw_lim_round_trip(l, rest, h))
+
+def Laws.adw_lv_round_trip(t, rest, h):
+  match t:
+    case Ad.Lv{+k, +c, +s}:
+      +r = rest
+      %paw.nat(k, FAd.put_cls(c, FAd.put_sts(s, r)), h) : {FAd.get_lv.go(_) == Wr.Got{Ad.Lv{k, c, s}, r} : Wr.Dec<Ad.Lv>}
+      %paw.cls(c, FAd.put_sts(s, r)) : {FAd.get_lv.cls(k, _) == Wr.Got{Ad.Lv{k, c, s}, r} : Wr.Dec<Ad.Lv>}
+      %paw.sts(s, r) : {FAd.get_lv.sts(k, c, _) == Wr.Got{Ad.Lv{k, c, s}, r} : Wr.Dec<Ad.Lv>}
+      {==}
+
+# a lv reads back (turned around for rewriting)
+def paw.lv(+t: Ad.Lv, +rest: String, h: {Laws.adw_lv_fits(t) == True{} : Bool}) -> {Wr.Got{t, rest} == FAd.get_lv(FAd.put_lv(t, rest)) : Wr.Dec<Ad.Lv>}:
+  Equal.sym(Wr.Dec<Ad.Lv>, FAd.get_lv(FAd.put_lv(t, rest)), Wr.Got{t, rest}, Laws.adw_lv_round_trip(t, rest, h))
+
+# the items of xs, then rest (Ad.Lv; a copy of PROOF.bend wire's wr_items)
+def paw.lv_items(xs: List<&2, Ad.Lv>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FAd.put_lv(x, paw.lv_items(t, rest))
+
+def paw.lv_put_go(xs: List<&2, Ad.Lv>, -rest: String) ->
+  {Wr.put_list.go(~Ad.Lv, ~FAd.put_lv, xs, rest) == (List.length(&2, Ad.Lv, xs), paw.lv_items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Ad.Lv, ~FAd.put_lv, t, rest), (List.length(&2, Ad.Lv, t), paw.lv_items(t, rest)), paw.lv_put_go(t, rest)) : {Wr.put_list.step(~Ad.Lv, ~FAd.put_lv, x, _) == (1n+List.length(&2, Ad.Lv, t), FAd.put_lv(x, paw.lv_items(t, rest))) : Nat & String}
+      {==}
+
+# a list is its count, then its items
+def paw.lv_put(+xs: List<&2, Ad.Lv>, -rest: String) ->
+  {Wr.put_list(~Ad.Lv, ~FAd.put_lv, xs, rest) == Wr.put_nat(List.length(&2, Ad.Lv, xs), paw.lv_items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Ad.Lv, ~FAd.put_lv, xs, rest), (List.length(&2, Ad.Lv, xs), paw.lv_items(xs, rest)), paw.lv_put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Ad.Lv, xs), paw.lv_items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t (wr_list_go_rt for Ad.Lv)
+def paw.lv_go_rt(+t: List<&2, Ad.Lv>, +x: Ad.Lv, +rest: String,
+  +hf: {Laws.adw_lvs_fit(x <> t) == True{} : Bool}) ->
+  {Wr.get_list.go(~Ad.Lv, ~FAd.get_lv, List.length(&2, Ad.Lv, t), FAd.get_lv(FAd.put_lv(x, paw.lv_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Ad.Lv>>}:
+  match t:
+    case Nil{}:
+      %paw.lv(x, rest, wr_and_l(Laws.adw_lv_fits(x), True{}, hf)) : {Wr.get_list.go(~Ad.Lv, ~FAd.get_lv, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Ad.Lv>>}
+      {==}
+    case Con{+y, +u}:
+      %paw.lv(x, FAd.put_lv(y, paw.lv_items(u, rest)), wr_and_l(Laws.adw_lv_fits(x), Laws.adw_lvs_fit(y <> u), hf)) : {Wr.get_list.go(~Ad.Lv, ~FAd.get_lv, 1n+List.length(&2, Ad.Lv, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ad.Lv>>}
+      %Equal.sym(Wr.Dec<List<&2, Ad.Lv>>, Wr.get_list.go(~Ad.Lv, ~FAd.get_lv, List.length(&2, Ad.Lv, u), FAd.get_lv(FAd.put_lv(y, paw.lv_items(u, rest)))), Wr.Got{y <> u, rest}, paw.lv_go_rt(u, y, rest, wr_and_r(Laws.adw_lv_fits(x), Laws.adw_lvs_fit(y <> u), hf))) : {Wr.get_list.cons(Ad.Lv, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Ad.Lv>>}
+      {==}
+
+def Laws.adw_lvs_round_trip(xs, rest, h):
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Ad.Lv, ~FAd.get_lv, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Ad.Lv>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Ad.Lv, ~FAd.put_lv, x <> t, r), Wr.put_nat(List.length(&2, Ad.Lv, x <> t), paw.lv_items(x <> t, r)), paw.lv_put(x <> t, r)) : {Wr.get_list(~Ad.Lv, ~FAd.get_lv, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Ad.Lv>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Ad.Lv, x <> t), paw.lv_items(x <> t, r))), Wr.Got{List.length(&2, Ad.Lv, x <> t), paw.lv_items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Ad.Lv, x <> t), paw.lv_items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Ad.Lv, x <> t)), Laws.adw_lvs_fit(x <> t), hh))) : {Wr.get_list.start(~Ad.Lv, ~FAd.get_lv, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Ad.Lv>>}
+      paw.lv_go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Ad.Lv, x <> t)), Laws.adw_lvs_fit(x <> t), hh))
+
+# a list that fits reads back (turned around for rewriting)
+def paw.lvs(+xs: List<&2, Ad.Lv>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Ad.Lv, xs)), Laws.adw_lvs_fit(xs)) == True{} : Bool}) ->
+  {Wr.Got{xs, rest} == Wr.get_list(~Ad.Lv, ~FAd.get_lv, Wr.put_list(~Ad.Lv, ~FAd.put_lv, xs, rest)) : Wr.Dec<List<&2, Ad.Lv>>}:
+  Equal.sym(Wr.Dec<List<&2, Ad.Lv>>, Wr.get_list(~Ad.Lv, ~FAd.get_lv, Wr.put_list(~Ad.Lv, ~FAd.put_lv, xs, rest)), Wr.Got{xs, rest}, Laws.adw_lvs_round_trip(xs, rest, h))
+
+def Laws.adw_live_round_trip(x, rest, h):
+  match x:
+    case Ad.Live{+l, +q, +ts, +n}:
+      +r = rest
+      +hh = h
+      +lt = Bool.and(Laws.wire_fits(List.length(&2, Ad.Lv, ts)), Laws.adw_lvs_fit(ts))
+      +h1 = wr_and_r(Laws.adw_lim_fits(l), Bool.and(Laws.wire_fits(q), Bool.and(lt, Laws.wire_fits(n))), hh)
+      +h2 = wr_and_r(Laws.wire_fits(q), Bool.and(lt, Laws.wire_fits(n)), h1)
+      %paw.lim(l, Wr.put_nat(q, Wr.put_list(~Ad.Lv, ~FAd.put_lv, ts, Wr.put_nat(n, r))), wr_and_l(Laws.adw_lim_fits(l), Bool.and(Laws.wire_fits(q), Bool.and(lt, Laws.wire_fits(n))), hh)) : {FAd.get_live.go(_) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      %paw.nat(q, Wr.put_list(~Ad.Lv, ~FAd.put_lv, ts, Wr.put_nat(n, r)), wr_and_l(Laws.wire_fits(q), Bool.and(lt, Laws.wire_fits(n)), h1)) : {FAd.get_live.q(l, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      %paw.lvs(ts, Wr.put_nat(n, r), wr_and_l(lt, Laws.wire_fits(n), h2)) : {FAd.get_live.ts(l, q, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      %paw.nat(n, r, wr_and_r(lt, Laws.wire_fits(n), h2)) : {FAd.get_live.next(l, q, ts, _) == Wr.Got{Ad.Live{l, q, ts, n}, r} : Wr.Dec<Ad.Live>}
+      {==}
+
+def Laws.adw_op_round_trip(o, rest, h):
+  match o:
+    case Ad.Admit{+c}:
+      %paw.cls(c, rest) : {FAd.get_op.admit(_) == Wr.Got{Ad.Admit{c}, rest} : Wr.Dec<Ad.Op>}
+      {==}
+    case Ad.Collect{+k}:
+      %paw.nat(k, rest, h) : {FAd.get_op.k(_, 0n) == Wr.Got{Ad.Collect{k}, rest} : Wr.Dec<Ad.Op>}
+      {==}
+    case Ad.Release{+k}:
+      %paw.nat(k, rest, h) : {FAd.get_op.k(_, 1n) == Wr.Got{Ad.Release{k}, rest} : Wr.Dec<Ad.Op>}
+      {==}
+    case Ad.Leave{+k}:
+      %paw.nat(k, rest, h) : {FAd.get_op.k(_, 2n) == Wr.Got{Ad.Leave{k}, rest} : Wr.Dec<Ad.Op>}
+      {==}
+    case Ad.Limit{+l, +q}:
+      +r = rest
+      +hh = h
+      %paw.lim(l, Wr.put_nat(q, r), wr_and_l(Laws.adw_lim_fits(l), Laws.wire_fits(q), hh)) : {FAd.get_op.limit(_) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
+      %paw.nat(q, r, wr_and_r(Laws.adw_lim_fits(l), Laws.wire_fits(q), hh)) : {FAd.get_op.q(l, _) == Wr.Got{Ad.Limit{l, q}, r} : Wr.Dec<Ad.Op>}
+      {==}
+
+# a op reads back (turned around for rewriting)
+def paw.op(+o: Ad.Op, +rest: String, h: {Laws.adw_op_fits(o) == True{} : Bool}) -> {Wr.Got{o, rest} == FAd.get_op(FAd.put_op(o, rest)) : Wr.Dec<Ad.Op>}:
+  Equal.sym(Wr.Dec<Ad.Op>, FAd.get_op(FAd.put_op(o, rest)), Wr.Got{o, rest}, Laws.adw_op_round_trip(o, rest, h))
+
+def Laws.adw_open_round_trip(l, q, rest, h):
+  +r = rest
+  +hh = h
+  %paw.lim(l, Wr.put_nat(q, r), wr_and_l(Laws.adw_lim_fits(l), Laws.wire_fits(q), hh)) : {FAd.get_open.go(_) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+  %paw.nat(q, r, wr_and_r(Laws.adw_lim_fits(l), Laws.wire_fits(q), hh)) : {FAd.get_open.q(l, _) == Wr.Got{(l, q), r} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+  {==}
+
+# an open request that fits reads back (turned around for rewriting)
+def paw.open(+l: Ad.Lim, +q: Nat, +rest: String, h: {Bool.and(Laws.adw_lim_fits(l), Laws.wire_fits(q)) == True{} : Bool}) ->
+  {Wr.Got{(l, q), rest} == FAd.get_open(FAd.put_lim(l, Wr.put_nat(q, rest))) : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}:
+  Equal.sym(Wr.Dec<+Sigma<Ad.Lim, x => Nat>>, FAd.get_open(FAd.put_lim(l, Wr.put_nat(q, rest))), Wr.Got{(l, q), rest}, Laws.adw_open_round_trip(l, q, rest, h))
+
+def Laws.adw_open_answers(l, q, h):
+  %paw.open(l, q, "", h) : {FAd.open.go(_) == (FAd.Running{Ad.Live.new(l, q)}, FAd.put_live(Ad.Live.new(l, q), "")) : FAd.St & String}
+  {==}
+
+def Laws.adw_step_answers(x, o, h):
+  %paw.op(o, "", h) : {FAd.step.op(x, _) == (FAd.Running{Ad.Live.step(x, o)}, FAd.put_live(Ad.Live.step(x, o), "")) : FAd.St & String}
+  {==}
+
+def Laws.adw_open_malformed(s, h):
+  %Equal.sym(Wr.Dec<+Sigma<Ad.Lim, x => Nat>>, FAd.get_open(s), Wr.Bad{}, h) : {FAd.open.go(_) == (FAd.Shut{}, Wr.err("admission: malformed open")) : FAd.St & String}
+  {==}
+
+def Laws.adw_open_left_over(l, q, c, rest, h):
+  %paw.open(l, q, SCon{c, rest}, h) : {FAd.open.go(_) == (FAd.Shut{}, Wr.err("admission: input left over")) : FAd.St & String}
+  {==}
+
+def Laws.adw_step_malformed(x, s, h):
+  %Equal.sym(Wr.Dec<Ad.Op>, FAd.get_op(s), Wr.Bad{}, h) : {FAd.step.op(x, _) == (FAd.Running{x}, Wr.err("admission: malformed op")) : FAd.St & String}
+  {==}
+
+def Laws.adw_step_left_over(x, o, c, rest, h):
+  %paw.op(o, SCon{c, rest}, h) : {FAd.step.op(x, _) == (FAd.Running{x}, Wr.err("admission: input left over")) : FAd.St & String}
+  {==}
+
+def Laws.adw_shut_refuses(s):
+  {==}
+
+def Laws.adw_tags_example():
+  ({==}, {==})
+
+def Laws.adw_lim_example():
+  ({==}, {==})
+
+def Laws.adw_lv_example():
+  ({==}, {==})
+
+def Laws.adw_lvs_example():
+  ({==}, {==})
+
+def Laws.adw_live_example():
+  ({==}, {==})
+
+def Laws.adw_op_example():
+  ({==}, {==})
+
+def Laws.adw_open_example():
+  ({==}, {==})
+
+def Laws.adw_malformed_example():
+  ({==}, {==})
+
+# ---- workflow_wire ----
+
+# Place after PROOF.bend section wire: the proofs use its Laws.wire_*
+# fills and wr_and_l / wr_and_r.
+
+# a Nat that fits reads back (Laws.wire_nat_round_trip, turned around)
+def pww.nat(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+
+def Laws.wfw_sts_round_trip(s, rest):
+  match s:
+    case W.Queued{}:
+      {==}
+    case W.Running{}:
+      {==}
+    case W.Finished{}:
+      {==}
+    case W.Erred{}:
+      {==}
+    case W.Cancelled{}:
+      {==}
+    case W.Cached{}:
+      {==}
+
+# a sts reads back (turned around for rewriting)
+def pww.sts(+s: W.Sts, +rest: String) -> {Wr.Got{s, rest} == FW.get_sts(FW.put_sts(s, rest)) : Wr.Dec<W.Sts>}:
+  Equal.sym(Wr.Dec<W.Sts>, FW.get_sts(FW.put_sts(s, rest)), Wr.Got{s, rest}, Laws.wfw_sts_round_trip(s, rest))
+
+def Laws.wfw_prior_round_trip(m, rest):
+  match m:
+    case None{}:
+      {==}
+    case Some{+s}:
+      %pww.sts(s, rest) : {FW.get_prior.some(_) == Wr.Got{Some{s}, rest} : Wr.Dec<Maybe<&2, W.Sts>>}
+      {==}
+
+# a prior reads back (turned around for rewriting)
+def pww.prior(+m: Maybe<&2, W.Sts>, +rest: String) -> {Wr.Got{m, rest} == FW.get_prior(FW.put_prior(m, rest)) : Wr.Dec<Maybe<&2, W.Sts>>}:
+  Equal.sym(Wr.Dec<Maybe<&2, W.Sts>>, FW.get_prior(FW.put_prior(m, rest)), Wr.Got{m, rest}, Laws.wfw_prior_round_trip(m, rest))
+
+def Laws.wfw_row_round_trip(r, rest, h):
+  match r:
+    case W.Row{+k, +s}:
+      +z = rest
+      %pww.nat(k, FW.put_sts(s, z), h) : {FW.get_row.go(_) == Wr.Got{W.Row{k, s}, z} : Wr.Dec<W.Row>}
+      %pww.sts(s, z) : {FW.get_row.sts(k, _) == Wr.Got{W.Row{k, s}, z} : Wr.Dec<W.Row>}
+      {==}
+
+# a row reads back (turned around for rewriting)
+def pww.row(+r: W.Row, +rest: String, h: {Laws.wfw_row_fits(r) == True{} : Bool}) -> {Wr.Got{r, rest} == FW.get_row(FW.put_row(r, rest)) : Wr.Dec<W.Row>}:
+  Equal.sym(Wr.Dec<W.Row>, FW.get_row(FW.put_row(r, rest)), Wr.Got{r, rest}, Laws.wfw_row_round_trip(r, rest, h))
+
+# the items of xs, then rest (W.Row; a copy of PROOF.bend wire's wr_items)
+def pww.row_items(xs: List<&2, W.Row>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FW.put_row(x, pww.row_items(t, rest))
+
+def pww.row_put_go(xs: List<&2, W.Row>, -rest: String) ->
+  {Wr.put_list.go(~W.Row, ~FW.put_row, xs, rest) == (List.length(&2, W.Row, xs), pww.row_items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~W.Row, ~FW.put_row, t, rest), (List.length(&2, W.Row, t), pww.row_items(t, rest)), pww.row_put_go(t, rest)) : {Wr.put_list.step(~W.Row, ~FW.put_row, x, _) == (1n+List.length(&2, W.Row, t), FW.put_row(x, pww.row_items(t, rest))) : Nat & String}
+      {==}
+
+# a list is its count, then its items
+def pww.row_put(+xs: List<&2, W.Row>, -rest: String) ->
+  {Wr.put_list(~W.Row, ~FW.put_row, xs, rest) == Wr.put_nat(List.length(&2, W.Row, xs), pww.row_items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~W.Row, ~FW.put_row, xs, rest), (List.length(&2, W.Row, xs), pww.row_items(xs, rest)), pww.row_put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, W.Row, xs), pww.row_items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t (wr_list_go_rt for W.Row)
+def pww.row_go_rt(+t: List<&2, W.Row>, +x: W.Row, +rest: String,
+  +hf: {Laws.wfw_rows_fit(x <> t) == True{} : Bool}) ->
+  {Wr.get_list.go(~W.Row, ~FW.get_row, List.length(&2, W.Row, t), FW.get_row(FW.put_row(x, pww.row_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, W.Row>>}:
+  match t:
+    case Nil{}:
+      %pww.row(x, rest, wr_and_l(Laws.wfw_row_fits(x), True{}, hf)) : {Wr.get_list.go(~W.Row, ~FW.get_row, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, W.Row>>}
+      {==}
+    case Con{+y, +u}:
+      %pww.row(x, FW.put_row(y, pww.row_items(u, rest)), wr_and_l(Laws.wfw_row_fits(x), Laws.wfw_rows_fit(y <> u), hf)) : {Wr.get_list.go(~W.Row, ~FW.get_row, 1n+List.length(&2, W.Row, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, W.Row>>}
+      %Equal.sym(Wr.Dec<List<&2, W.Row>>, Wr.get_list.go(~W.Row, ~FW.get_row, List.length(&2, W.Row, u), FW.get_row(FW.put_row(y, pww.row_items(u, rest)))), Wr.Got{y <> u, rest}, pww.row_go_rt(u, y, rest, wr_and_r(Laws.wfw_row_fits(x), Laws.wfw_rows_fit(y <> u), hf))) : {Wr.get_list.cons(W.Row, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, W.Row>>}
+      {==}
+
+def Laws.wfw_rows_round_trip(xs, rest, h):
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~W.Row, ~FW.get_row, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, W.Row>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~W.Row, ~FW.put_row, x <> t, r), Wr.put_nat(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r)), pww.row_put(x <> t, r)) : {Wr.get_list(~W.Row, ~FW.get_row, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, W.Row>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r))), Wr.Got{List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, W.Row, x <> t), pww.row_items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, W.Row, x <> t)), Laws.wfw_rows_fit(x <> t), hh))) : {Wr.get_list.start(~W.Row, ~FW.get_row, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, W.Row>>}
+      pww.row_go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, W.Row, x <> t)), Laws.wfw_rows_fit(x <> t), hh))
+
+# a list that fits reads back (turned around for rewriting)
+def pww.rows(+xs: List<&2, W.Row>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, W.Row, xs)), Laws.wfw_rows_fit(xs)) == True{} : Bool}) ->
+  {Wr.Got{xs, rest} == Wr.get_list(~W.Row, ~FW.get_row, Wr.put_list(~W.Row, ~FW.put_row, xs, rest)) : Wr.Dec<List<&2, W.Row>>}:
+  Equal.sym(Wr.Dec<List<&2, W.Row>>, Wr.get_list(~W.Row, ~FW.get_row, Wr.put_list(~W.Row, ~FW.put_row, xs, rest)), Wr.Got{xs, rest}, Laws.wfw_rows_round_trip(xs, rest, h))
+
+def Laws.wfw_pool_round_trip(p, rest, h):
+  match p:
+    case W.Pool{+t, +l}:
+      +z = rest
+      +hh = h
+      %pww.nat(t, Wr.put_nat(l, z), wr_and_l(Laws.wire_fits(t), Laws.wire_fits(l), hh)) : {FW.get_pool.go(_) == Wr.Got{W.Pool{t, l}, z} : Wr.Dec<W.Pool>}
+      %pww.nat(l, z, wr_and_r(Laws.wire_fits(t), Laws.wire_fits(l), hh)) : {FW.get_pool.left(t, _) == Wr.Got{W.Pool{t, l}, z} : Wr.Dec<W.Pool>}
+      {==}
+
+# a pool reads back (turned around for rewriting)
+def pww.pool(+p: W.Pool, +rest: String, h: {Laws.wfw_pool_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == FW.get_pool(FW.put_pool(p, rest)) : Wr.Dec<W.Pool>}:
+  Equal.sym(Wr.Dec<W.Pool>, FW.get_pool(FW.put_pool(p, rest)), Wr.Got{p, rest}, Laws.wfw_pool_round_trip(p, rest, h))
+
+def Laws.wfw_req_round_trip(r, rest, h):
+  match r:
+    case FW.AdmitReq{+prior, +k, +rows, +p}:
+      +z = rest
+      +hh = h
+      +lt = Bool.and(Laws.wire_fits(List.length(&2, W.Row, rows)), Laws.wfw_rows_fit(rows))
+      +h1 = wr_and_r(Laws.wire_fits(k), Bool.and(lt, Laws.wfw_pool_fits(p)), hh)
+      %pww.prior(prior, Wr.put_nat(k, Wr.put_list(~W.Row, ~FW.put_row, rows, FW.put_pool(p, z)))) : {FW.get_req.admit(_) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
+      %pww.nat(k, Wr.put_list(~W.Row, ~FW.put_row, rows, FW.put_pool(p, z)), wr_and_l(Laws.wire_fits(k), Bool.and(lt, Laws.wfw_pool_fits(p)), hh)) : {FW.get_req.key(prior, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
+      %pww.rows(rows, FW.put_pool(p, z), wr_and_l(lt, Laws.wfw_pool_fits(p), h1)) : {FW.get_req.rows(prior, k, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
+      %pww.pool(p, z, wr_and_r(lt, Laws.wfw_pool_fits(p), h1)) : {FW.get_req.pool(prior, k, rows, _) == Wr.Got{FW.AdmitReq{prior, k, rows, p}, z} : Wr.Dec<FW.Req>}
+      {==}
+    case FW.LimitsReq{+c, +m, +cap}:
+      +z = rest
+      +hh = h
+      +h1 = wr_and_r(Laws.wire_fits(c), Bool.and(Laws.wire_fits(m), Laws.wire_fits(cap)), hh)
+      %pww.nat(c, Wr.put_nat(m, Wr.put_nat(cap, z)), wr_and_l(Laws.wire_fits(c), Bool.and(Laws.wire_fits(m), Laws.wire_fits(cap)), hh)) : {FW.get_req.limits(_) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
+      %pww.nat(m, Wr.put_nat(cap, z), wr_and_l(Laws.wire_fits(m), Laws.wire_fits(cap), h1)) : {FW.get_req.max(c, _) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
+      %pww.nat(cap, z, wr_and_r(Laws.wire_fits(m), Laws.wire_fits(cap), h1)) : {FW.get_req.cap(c, m, _) == Wr.Got{FW.LimitsReq{c, m, cap}, z} : Wr.Dec<FW.Req>}
+      {==}
+
+# a req reads back (turned around for rewriting)
+def pww.req(+r: FW.Req, +rest: String, h: {Laws.wfw_req_fits(r) == True{} : Bool}) -> {Wr.Got{r, rest} == FW.get_req(FW.put_req(r, rest)) : Wr.Dec<FW.Req>}:
+  Equal.sym(Wr.Dec<FW.Req>, FW.get_req(FW.put_req(r, rest)), Wr.Got{r, rest}, Laws.wfw_req_round_trip(r, rest, h))
+
+def Laws.wfw_admit_round_trip(a, rest, h):
+  match a:
+    case W.Ended{}:
+      {==}
+    case W.Reattach{}:
+      {==}
+    case W.Reuse{+i}:
+      %pww.nat(i, rest, h) : {FW.get_admit.reuse(_) == Wr.Got{W.Reuse{i}, rest} : Wr.Dec<W.Admit>}
+      {==}
+    case W.Spawn{}:
+      {==}
+    case W.Refused{}:
+      {==}
+
+# a admit reads back (turned around for rewriting)
+def pww.admit(+a: W.Admit, +rest: String, h: {Laws.wfw_admit_fits(a) == True{} : Bool}) -> {Wr.Got{a, rest} == FW.get_admit(FW.put_admit(a, rest)) : Wr.Dec<W.Admit>}:
+  Equal.sym(Wr.Dec<W.Admit>, FW.get_admit(FW.put_admit(a, rest)), Wr.Got{a, rest}, Laws.wfw_admit_round_trip(a, rest, h))
+
+def Laws.wfw_decision_round_trip(a, p, rest, h):
+  +z = rest
+  +hh = h
+  %pww.admit(a, FW.put_pool(p, z), wr_and_l(Laws.wfw_admit_fits(a), Laws.wfw_pool_fits(p), hh)) : {FW.get_decision.go(_) == Wr.Got{(a, p), z} : Wr.Dec<+Sigma<W.Admit, x => W.Pool>>}
+  %pww.pool(p, z, wr_and_r(Laws.wfw_admit_fits(a), Laws.wfw_pool_fits(p), hh)) : {FW.get_decision.pool(a, _) == Wr.Got{(a, p), z} : Wr.Dec<+Sigma<W.Admit, x => W.Pool>>}
+  {==}
+
+def Laws.wfw_limits_round_trip(l, rest, h):
+  match l:
+    case W.Limits{+c, +m}:
+      +z = rest
+      +hh = h
+      %pww.nat(c, Wr.put_nat(m, z), wr_and_l(Laws.wire_fits(c), Laws.wire_fits(m), hh)) : {FW.get_limits.go(_) == Wr.Got{W.Limits{c, m}, z} : Wr.Dec<W.Limits>}
+      %pww.nat(m, z, wr_and_r(Laws.wire_fits(c), Laws.wire_fits(m), hh)) : {FW.get_limits.max(c, _) == Wr.Got{W.Limits{c, m}, z} : Wr.Dec<W.Limits>}
+      {==}
+
+def Laws.wfw_answers_admit(prior, k, rows, p, h):
+  %pww.req(FW.AdmitReq{prior, k, rows, p}, "", h) : {FW.ffi.go(_) == FW.put_decision(W.admit(prior, k, rows, p), "") : String}
+  {==}
+
+def Laws.wfw_answers_limits(c, m, cap, h):
+  %pww.req(FW.LimitsReq{c, m, cap}, "", h) : {FW.ffi.go(_) == FW.put_limits(W.effective(W.Limits{c, m}, cap), "") : String}
+  {==}
+
+def Laws.wfw_malformed(s, h):
+  %Equal.sym(Wr.Dec<FW.Req>, FW.get_req(s), Wr.Bad{}, h) : {FW.ffi.go(_) == Wr.err("workflow: malformed request") : String}
+  {==}
+
+def Laws.wfw_left_over(r, c, rest, h):
+  %pww.req(r, SCon{c, rest}, h) : {FW.ffi.go(_) == Wr.err("workflow: input left over") : String}
+  {==}
+
+def Laws.wfw_tags_example():
+  ({==}, {==})
+
+def Laws.wfw_prior_example():
+  {==}
+
+def Laws.wfw_row_example():
+  ({==}, {==})
+
+def Laws.wfw_rows_example():
+  ({==}, {==})
+
+def Laws.wfw_pool_example():
+  ({==}, {==})
+
+def Laws.wfw_admit_req_example():
+  ({==}, {==})
+
+def Laws.wfw_limits_req_example():
+  ({==}, {==})
+
+def Laws.wfw_admit_example():
+  ({==}, {==})
+
+def Laws.wfw_decision_example():
+  ({==}, {==})
+
+def Laws.wfw_limits_example():
+  ({==}, {==})
+
+def Laws.wfw_ffi_example():
+  {==}
+
+def Laws.wfw_malformed_example():
+  ({==}, {==})
+
+# ---- default_model_wire ----
+
+# Place after PROOF.bend section wire: the proofs use its Laws.wire_*
+# fills and wr_and_l / wr_and_r.
+
+# a Nat that fits reads back (Laws.wire_nat_round_trip, turned around)
+def pdw.nat(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+
+# a Bool reads back (Laws.wire_bool_round_trip, turned around)
+def pdw.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
+  Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Laws.wire_bool_round_trip(b, rest))
+
+def Laws.dmw_reason_round_trip(r, rest):
+  match r:
+    case Dm.NotInCatalog{}:
+      {==}
+    case Dm.NoCredentials{}:
+      {==}
+    case Dm.NotInScope{}:
+      {==}
+
+# a reason reads back (turned around for rewriting)
+def pdw.reason(+r: Dm.Reason, +rest: String) -> {Wr.Got{r, rest} == FDm.get_reason(FDm.put_reason(r, rest)) : Wr.Dec<Dm.Reason>}:
+  Equal.sym(Wr.Dec<Dm.Reason>, FDm.get_reason(FDm.put_reason(r, rest)), Wr.Got{r, rest}, Laws.dmw_reason_round_trip(r, rest))
+
+def Laws.dmw_saved_round_trip(x, rest, h):
+  match x:
+    case Dm.NoDefault{}:
+      {==}
+    case Dm.Default{+m}:
+      %pdw.nat(m, rest, h) : {FDm.get_saved.m(_) == Wr.Got{Dm.Default{m}, rest} : Wr.Dec<Dm.Saved>}
+      {==}
+
+# a saved reads back (turned around for rewriting)
+def pdw.saved(+x: Dm.Saved, +rest: String, h: {Laws.dmw_saved_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FDm.get_saved(FDm.put_saved(x, rest)) : Wr.Dec<Dm.Saved>}:
+  Equal.sym(Wr.Dec<Dm.Saved>, FDm.get_saved(FDm.put_saved(x, rest)), Wr.Got{x, rest}, Laws.dmw_saved_round_trip(x, rest, h))
+
+def Laws.dmw_next_round_trip(x, rest, h):
+  match x:
+    case Dm.NoNext{}:
+      {==}
+    case Dm.Next{+n}:
+      %pdw.nat(n, rest, h) : {FDm.get_next.n(_) == Wr.Got{Dm.Next{n}, rest} : Wr.Dec<Dm.Next>}
+      {==}
+
+# a next reads back (turned around for rewriting)
+def pdw.next(+x: Dm.Next, +rest: String, h: {Laws.dmw_next_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FDm.get_next(FDm.put_next(x, rest)) : Wr.Dec<Dm.Next>}:
+  Equal.sym(Wr.Dec<Dm.Next>, FDm.get_next(FDm.put_next(x, rest)), Wr.Got{x, rest}, Laws.dmw_next_round_trip(x, rest, h))
+
+def Laws.dmw_in_round_trip(x, rest, h):
+  match x:
+    case Dm.In{+saved, +cat, +key, +out, +next}:
+      +z = rest
+      +hh = h
+      %pdw.saved(saved, Wr.put_bool(cat, Wr.put_bool(key, Wr.put_bool(out, FDm.put_next(next, z)))), wr_and_l(Laws.dmw_saved_fits(saved), Laws.dmw_next_fits(next), hh)) : {FDm.get_in.go(_) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
+      %pdw.bool(cat, Wr.put_bool(key, Wr.put_bool(out, FDm.put_next(next, z)))) : {FDm.get_in.cat(saved, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
+      %pdw.bool(key, Wr.put_bool(out, FDm.put_next(next, z))) : {FDm.get_in.key(saved, cat, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
+      %pdw.bool(out, FDm.put_next(next, z)) : {FDm.get_in.out(saved, cat, key, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
+      %pdw.next(next, z, wr_and_r(Laws.dmw_saved_fits(saved), Laws.dmw_next_fits(next), hh)) : {FDm.get_in.next(saved, cat, key, out, _) == Wr.Got{Dm.In{saved, cat, key, out, next}, z} : Wr.Dec<Dm.In>}
+      {==}
+
+# a in reads back (turned around for rewriting)
+def pdw.in(+x: Dm.In, +rest: String, h: {Laws.dmw_in_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FDm.get_in(FDm.put_in(x, rest)) : Wr.Dec<Dm.In>}:
+  Equal.sym(Wr.Dec<Dm.In>, FDm.get_in(FDm.put_in(x, rest)), Wr.Got{x, rest}, Laws.dmw_in_round_trip(x, rest, h))
+
+def Laws.dmw_key_round_trip(k, rest, h):
+  match k:
+    case Dm.K{+m, +r}:
+      +z = rest
+      %pdw.nat(m, FDm.put_reason(r, z), h) : {FDm.get_key.go(_) == Wr.Got{Dm.K{m, r}, z} : Wr.Dec<Dm.Key>}
+      %pdw.reason(r, z) : {FDm.get_key.r(m, _) == Wr.Got{Dm.K{m, r}, z} : Wr.Dec<Dm.Key>}
+      {==}
+
+# a key reads back (turned around for rewriting)
+def pdw.key(+k: Dm.Key, +rest: String, h: {Laws.dmw_key_fits(k) == True{} : Bool}) -> {Wr.Got{k, rest} == FDm.get_key(FDm.put_key(k, rest)) : Wr.Dec<Dm.Key>}:
+  Equal.sym(Wr.Dec<Dm.Key>, FDm.get_key(FDm.put_key(k, rest)), Wr.Got{k, rest}, Laws.dmw_key_round_trip(k, rest, h))
+
+def Laws.dmw_pick_round_trip(p, rest, h):
+  match p:
+    case Dm.Saved{}:
+      {==}
+    case Dm.Other{+n}:
+      %pdw.nat(n, rest, h) : {FDm.get_pick.n(_) == Wr.Got{Dm.Other{n}, rest} : Wr.Dec<Dm.Pick>}
+      {==}
+
+# a pick reads back (turned around for rewriting)
+def pdw.pick(+p: Dm.Pick, +rest: String, h: {Laws.dmw_pick_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == FDm.get_pick(FDm.put_pick(p, rest)) : Wr.Dec<Dm.Pick>}:
+  Equal.sym(Wr.Dec<Dm.Pick>, FDm.get_pick(FDm.put_pick(p, rest)), Wr.Got{p, rest}, Laws.dmw_pick_round_trip(p, rest, h))
+
+def Laws.dmw_sub_round_trip(s, rest, h):
+  match s:
+    case Dm.Kept{}:
+      {==}
+    case Dm.Swapped{+k}:
+      %pdw.key(k, rest, h) : {FDm.get_sub.k(_) == Wr.Got{Dm.Swapped{k}, rest} : Wr.Dec<Dm.Sub>}
+      {==}
+
+# a sub reads back (turned around for rewriting)
+def pdw.sub(+s: Dm.Sub, +rest: String, h: {Laws.dmw_sub_fits(s) == True{} : Bool}) -> {Wr.Got{s, rest} == FDm.get_sub(FDm.put_sub(s, rest)) : Wr.Dec<Dm.Sub>}:
+  Equal.sym(Wr.Dec<Dm.Sub>, FDm.get_sub(FDm.put_sub(s, rest)), Wr.Got{s, rest}, Laws.dmw_sub_round_trip(s, rest, h))
+
+def Laws.dmw_res_round_trip(r, rest, h):
+  match r:
+    case Dm.Runs{+p, +s}:
+      +z = rest
+      +hh = h
+      %pdw.pick(p, FDm.put_sub(s, z), wr_and_l(Laws.dmw_pick_fits(p), Laws.dmw_sub_fits(s), hh)) : {FDm.get_res.pick(_) == Wr.Got{Dm.Runs{p, s}, z} : Wr.Dec<Dm.Res>}
+      %pdw.sub(s, z, wr_and_r(Laws.dmw_pick_fits(p), Laws.dmw_sub_fits(s), hh)) : {FDm.get_res.sub(p, _) == Wr.Got{Dm.Runs{p, s}, z} : Wr.Dec<Dm.Res>}
+      {==}
+    case Dm.Nothing{}:
+      {==}
+    case Dm.Refused{+k}:
+      %pdw.key(k, rest, h) : {FDm.get_res.refused(_) == Wr.Got{Dm.Refused{k}, rest} : Wr.Dec<Dm.Res>}
+      {==}
+
+def Laws.dmw_answers(x, h):
+  %pdw.in(x, "", h) : {FDm.ffi.go(_) == FDm.put_res(Dm.resolve(x), "") : String}
+  {==}
+
+def Laws.dmw_malformed(s, h):
+  %Equal.sym(Wr.Dec<Dm.In>, FDm.get_in(s), Wr.Bad{}, h) : {FDm.ffi.go(_) == Wr.err("default_model: malformed request") : String}
+  {==}
+
+def Laws.dmw_left_over(x, c, rest, h):
+  %pdw.in(x, SCon{c, rest}, h) : {FDm.ffi.go(_) == Wr.err("default_model: input left over") : String}
+  {==}
+
+def Laws.dmw_reason_example():
+  {==}
+
+def Laws.dmw_saved_example():
+  ({==}, {==})
+
+def Laws.dmw_next_example():
+  ({==}, {==})
+
+def Laws.dmw_in_example():
+  ({==}, {==})
+
+def Laws.dmw_key_example():
+  ({==}, {==})
+
+def Laws.dmw_pick_example():
+  ({==}, {==})
+
+def Laws.dmw_sub_example():
+  ({==}, {==})
+
+def Laws.dmw_res_example():
+  ({==}, {==})
+
+def Laws.dmw_ffi_example():
+  {==}
+
+def Laws.dmw_malformed_example():
+  ({==}, {==})
+
+# ---- aux_fallback_wire ----
+
+# Place after PROOF.bend section wire: the proofs use its Laws.wire_*
+# fills and wr_and_l / wr_and_r.
+
+# a Nat that fits reads back (Laws.wire_nat_round_trip, turned around)
+def pfw.nat(+n: Nat, +rest: String, h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+
+# a Bool reads back (Laws.wire_bool_round_trip, turned around)
+def pfw.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
+  Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Laws.wire_bool_round_trip(b, rest))
+
+def Laws.afw_key_round_trip(k, rest, h):
+  match k:
+    case Af.K{+p, +s, +r}:
+      +z = rest
+      +hh = h
+      +h1 = wr_and_r(Laws.wire_fits(p), Bool.and(Laws.wire_fits(s), Laws.wire_fits(r)), hh)
+      %pfw.nat(p, Wr.put_nat(s, Wr.put_nat(r, z)), wr_and_l(Laws.wire_fits(p), Bool.and(Laws.wire_fits(s), Laws.wire_fits(r)), hh)) : {FAf.get_key.go(_) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
+      %pfw.nat(s, Wr.put_nat(r, z), wr_and_l(Laws.wire_fits(s), Laws.wire_fits(r), h1)) : {FAf.get_key.s(p, _) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
+      %pfw.nat(r, z, wr_and_r(Laws.wire_fits(s), Laws.wire_fits(r), h1)) : {FAf.get_key.r(p, s, _) == Wr.Got{Af.K{p, s, r}, z} : Wr.Dec<Af.Key>}
+      {==}
+
+# a key reads back (turned around for rewriting)
+def pfw.key(+k: Af.Key, +rest: String, h: {Laws.afw_key_fits(k) == True{} : Bool}) -> {Wr.Got{k, rest} == FAf.get_key(FAf.put_key(k, rest)) : Wr.Dec<Af.Key>}:
+  Equal.sym(Wr.Dec<Af.Key>, FAf.get_key(FAf.put_key(k, rest)), Wr.Got{k, rest}, Laws.afw_key_round_trip(k, rest, h))
+
+# the items of xs, then rest (Af.Key; a copy of PROOF.bend wire's wr_items)
+def pfw.key_items(xs: List<&2, Af.Key>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FAf.put_key(x, pfw.key_items(t, rest))
+
+def pfw.key_put_go(xs: List<&2, Af.Key>, -rest: String) ->
+  {Wr.put_list.go(~Af.Key, ~FAf.put_key, xs, rest) == (List.length(&2, Af.Key, xs), pfw.key_items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Af.Key, ~FAf.put_key, t, rest), (List.length(&2, Af.Key, t), pfw.key_items(t, rest)), pfw.key_put_go(t, rest)) : {Wr.put_list.step(~Af.Key, ~FAf.put_key, x, _) == (1n+List.length(&2, Af.Key, t), FAf.put_key(x, pfw.key_items(t, rest))) : Nat & String}
+      {==}
+
+# a list is its count, then its items
+def pfw.key_put(+xs: List<&2, Af.Key>, -rest: String) ->
+  {Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest) == Wr.put_nat(List.length(&2, Af.Key, xs), pfw.key_items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Af.Key, ~FAf.put_key, xs, rest), (List.length(&2, Af.Key, xs), pfw.key_items(xs, rest)), pfw.key_put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Af.Key, xs), pfw.key_items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t (wr_list_go_rt for Af.Key)
+def pfw.key_go_rt(+t: List<&2, Af.Key>, +x: Af.Key, +rest: String,
+  +hf: {Laws.afw_keys_fit(x <> t) == True{} : Bool}) ->
+  {Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, t), FAf.get_key(FAf.put_key(x, pfw.key_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Af.Key>>}:
+  match t:
+    case Nil{}:
+      %pfw.key(x, rest, wr_and_l(Laws.afw_key_fits(x), True{}, hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Af.Key>>}
+      {==}
+    case Con{+y, +u}:
+      %pfw.key(x, FAf.put_key(y, pfw.key_items(u, rest)), wr_and_l(Laws.afw_key_fits(x), Laws.afw_keys_fit(y <> u), hf)) : {Wr.get_list.go(~Af.Key, ~FAf.get_key, 1n+List.length(&2, Af.Key, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
+      %Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list.go(~Af.Key, ~FAf.get_key, List.length(&2, Af.Key, u), FAf.get_key(FAf.put_key(y, pfw.key_items(u, rest)))), Wr.Got{y <> u, rest}, pfw.key_go_rt(u, y, rest, wr_and_r(Laws.afw_key_fits(x), Laws.afw_keys_fit(y <> u), hf))) : {Wr.get_list.cons(Af.Key, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Key>>}
+      {==}
+
+def Laws.afw_keys_round_trip(xs, rest, h):
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Af.Key>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Af.Key, ~FAf.put_key, x <> t, r), Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)), pfw.key_put(x <> t, r)) : {Wr.get_list(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r))), Wr.Got{List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Af.Key, x <> t), pfw.key_items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Af.Key, x <> t)), Laws.afw_keys_fit(x <> t), hh))) : {Wr.get_list.start(~Af.Key, ~FAf.get_key, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Key>>}
+      pfw.key_go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Af.Key, x <> t)), Laws.afw_keys_fit(x <> t), hh))
+
+# a list that fits reads back (turned around for rewriting)
+def pfw.keys(+xs: List<&2, Af.Key>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Af.Key, xs)), Laws.afw_keys_fit(xs)) == True{} : Bool}) ->
+  {Wr.Got{xs, rest} == Wr.get_list(~Af.Key, ~FAf.get_key, Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest)) : Wr.Dec<List<&2, Af.Key>>}:
+  Equal.sym(Wr.Dec<List<&2, Af.Key>>, Wr.get_list(~Af.Key, ~FAf.get_key, Wr.put_list(~Af.Key, ~FAf.put_key, xs, rest)), Wr.Got{xs, rest}, Laws.afw_keys_round_trip(xs, rest, h))
+
+def Laws.afw_route_round_trip(r, rest, h):
+  match r:
+    case Af.Session{}:
+      {==}
+    case Af.Routed{}:
+      {==}
+    case Af.Fallback{+k}:
+      %pfw.key(k, rest, h) : {FAf.get_route.fallback(_) == Wr.Got{Af.Fallback{k}, rest} : Wr.Dec<Af.Route>}
+      {==}
+
+# a route reads back (turned around for rewriting)
+def pfw.route(+r: Af.Route, +rest: String, h: {Laws.afw_route_fits(r) == True{} : Bool}) -> {Wr.Got{r, rest} == FAf.get_route(FAf.put_route(r, rest)) : Wr.Dec<Af.Route>}:
+  Equal.sym(Wr.Dec<Af.Route>, FAf.get_route(FAf.put_route(r, rest)), Wr.Got{r, rest}, Laws.afw_route_round_trip(r, rest, h))
+
+def Laws.afw_gate_round_trip(g, rest, h):
+  match g:
+    case Af.Known{+r}:
+      %pfw.route(r, rest, h) : {FAf.get_gate.known(_) == Wr.Got{Af.Known{r}, rest} : Wr.Dec<Af.Gate>}
+      {==}
+    case Af.Lookup{+p, +s}:
+      +z = rest
+      +hh = h
+      %pfw.nat(p, Wr.put_nat(s, z), wr_and_l(Laws.wire_fits(p), Laws.wire_fits(s), hh)) : {FAf.get_gate.p(_) == Wr.Got{Af.Lookup{p, s}, z} : Wr.Dec<Af.Gate>}
+      %pfw.nat(s, z, wr_and_r(Laws.wire_fits(p), Laws.wire_fits(s), hh)) : {FAf.get_gate.s(p, _) == Wr.Got{Af.Lookup{p, s}, z} : Wr.Dec<Af.Gate>}
+      {==}
+
+# a gate reads back (turned around for rewriting)
+def pfw.gate(+g: Af.Gate, +rest: String, h: {Laws.afw_gate_fits(g) == True{} : Bool}) -> {Wr.Got{g, rest} == FAf.get_gate(FAf.put_gate(g, rest)) : Wr.Dec<Af.Gate>}:
+  Equal.sym(Wr.Dec<Af.Gate>, FAf.get_gate(FAf.put_gate(g, rest)), Wr.Got{g, rest}, Laws.afw_gate_round_trip(g, rest, h))
+
+def Laws.afw_sel_round_trip(x, rest, h):
+  match x:
+    case Af.Unset{}:
+      {==}
+    case Af.Same{}:
+      {==}
+    case Af.Other{+s}:
+      %pfw.nat(s, rest, h) : {FAf.get_sel.other(_) == Wr.Got{Af.Other{s}, rest} : Wr.Dec<Af.Sel>}
+      {==}
+
+# a sel reads back (turned around for rewriting)
+def pfw.sel(+x: Af.Sel, +rest: String, h: {Laws.afw_sel_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_sel(FAf.put_sel(x, rest)) : Wr.Dec<Af.Sel>}:
+  Equal.sym(Wr.Dec<Af.Sel>, FAf.get_sel(FAf.put_sel(x, rest)), Wr.Got{x, rest}, Laws.afw_sel_round_trip(x, rest, h))
+
+def Laws.afw_look_round_trip(x, rest, h):
+  match x:
+    case Af.Miss{+r}:
+      %pfw.nat(r, rest, h) : {FAf.get_look.tag(_, 0n) == Wr.Got{Af.Miss{r}, rest} : Wr.Dec<Af.Look>}
+      {==}
+    case Af.Hit{+w}:
+      %pfw.nat(w, rest, h) : {FAf.get_look.tag(_, 1n) == Wr.Got{Af.Hit{w}, rest} : Wr.Dec<Af.Look>}
+      {==}
+
+# a look reads back (turned around for rewriting)
+def pfw.look(+x: Af.Look, +rest: String, h: {Laws.afw_look_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_look(FAf.put_look(x, rest)) : Wr.Dec<Af.Look>}:
+  Equal.sym(Wr.Dec<Af.Look>, FAf.get_look(FAf.put_look(x, rest)), Wr.Got{x, rest}, Laws.afw_look_round_trip(x, rest, h))
+
+def Laws.afw_ev_round_trip(e, rest, h):
+  match e:
+    case Af.Stay{}:
+      {==}
+    case Af.Went{}:
+      {==}
+    case Af.Sub{+k}:
+      %pfw.key(k, rest, h) : {FAf.get_ev.sub(_) == Wr.Got{Af.Sub{k}, rest} : Wr.Dec<Af.Ev>}
+      {==}
+    case Af.Note{+k}:
+      %pfw.key(k, rest, h) : {FAf.get_ev.note(_) == Wr.Got{Af.Note{k}, rest} : Wr.Dec<Af.Ev>}
+      {==}
+
+# a ev reads back (turned around for rewriting)
+def pfw.ev(+e: Af.Ev, +rest: String, h: {Laws.afw_ev_fits(e) == True{} : Bool}) -> {Wr.Got{e, rest} == FAf.get_ev(FAf.put_ev(e, rest)) : Wr.Dec<Af.Ev>}:
+  Equal.sym(Wr.Dec<Af.Ev>, FAf.get_ev(FAf.put_ev(e, rest)), Wr.Got{e, rest}, Laws.afw_ev_round_trip(e, rest, h))
+
+# the items of xs, then rest (Af.Ev; a copy of PROOF.bend wire's wr_items)
+def pfw.ev_items(xs: List<&2, Af.Ev>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      FAf.put_ev(x, pfw.ev_items(t, rest))
+
+def pfw.ev_put_go(xs: List<&2, Af.Ev>, -rest: String) ->
+  {Wr.put_list.go(~Af.Ev, ~FAf.put_ev, xs, rest) == (List.length(&2, Af.Ev, xs), pfw.ev_items(xs, rest)) : Nat & String}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, +t}:
+      %Equal.sym(Nat & String, Wr.put_list.go(~Af.Ev, ~FAf.put_ev, t, rest), (List.length(&2, Af.Ev, t), pfw.ev_items(t, rest)), pfw.ev_put_go(t, rest)) : {Wr.put_list.step(~Af.Ev, ~FAf.put_ev, x, _) == (1n+List.length(&2, Af.Ev, t), FAf.put_ev(x, pfw.ev_items(t, rest))) : Nat & String}
+      {==}
+
+# a list is its count, then its items
+def pfw.ev_put(+xs: List<&2, Af.Ev>, -rest: String) ->
+  {Wr.put_list(~Af.Ev, ~FAf.put_ev, xs, rest) == Wr.put_nat(List.length(&2, Af.Ev, xs), pfw.ev_items(xs, rest)) : String}:
+  %Equal.sym(Nat & String, Wr.put_list.go(~Af.Ev, ~FAf.put_ev, xs, rest), (List.length(&2, Af.Ev, xs), pfw.ev_items(xs, rest)), pfw.ev_put_go(xs, rest)) : {Wr.put_list.fin(_) == Wr.put_nat(List.length(&2, Af.Ev, xs), pfw.ev_items(xs, rest)) : String}
+  {==}
+
+# the item loop reads back x then t (wr_list_go_rt for Af.Ev)
+def pfw.ev_go_rt(+t: List<&2, Af.Ev>, +x: Af.Ev, +rest: String,
+  +hf: {Laws.afw_evs_fit(x <> t) == True{} : Bool}) ->
+  {Wr.get_list.go(~Af.Ev, ~FAf.get_ev, List.length(&2, Af.Ev, t), FAf.get_ev(FAf.put_ev(x, pfw.ev_items(t, rest)))) == Wr.Got{x <> t, rest} : Wr.Dec<List<&2, Af.Ev>>}:
+  match t:
+    case Nil{}:
+      %pfw.ev(x, rest, wr_and_l(Laws.afw_ev_fits(x), True{}, hf)) : {Wr.get_list.go(~Af.Ev, ~FAf.get_ev, 0n, _) == Wr.Got{[x], rest} : Wr.Dec<List<&2, Af.Ev>>}
+      {==}
+    case Con{+y, +u}:
+      %pfw.ev(x, FAf.put_ev(y, pfw.ev_items(u, rest)), wr_and_l(Laws.afw_ev_fits(x), Laws.afw_evs_fit(y <> u), hf)) : {Wr.get_list.go(~Af.Ev, ~FAf.get_ev, 1n+List.length(&2, Af.Ev, u), _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Ev>>}
+      %Equal.sym(Wr.Dec<List<&2, Af.Ev>>, Wr.get_list.go(~Af.Ev, ~FAf.get_ev, List.length(&2, Af.Ev, u), FAf.get_ev(FAf.put_ev(y, pfw.ev_items(u, rest)))), Wr.Got{y <> u, rest}, pfw.ev_go_rt(u, y, rest, wr_and_r(Laws.afw_ev_fits(x), Laws.afw_evs_fit(y <> u), hf))) : {Wr.get_list.cons(Af.Ev, x, _) == Wr.Got{x <> y <> u, rest} : Wr.Dec<List<&2, Af.Ev>>}
+      {==}
+
+def Laws.afw_evs_round_trip(xs, rest, h):
+  match xs:
+    case Nil{}:
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(0n, rest)), Wr.Got{0n, rest}, Laws.wire_nat_round_trip(0n, rest, wr_and_l(Laws.wire_fits(0n), True{}, h))) : {Wr.get_list.start(~Af.Ev, ~FAf.get_ev, _) == Wr.Got{Nil{}, rest} : Wr.Dec<List<&2, Af.Ev>>}
+      {==}
+    case Con{+x, +t}:
+      +r = rest
+      +hh = h
+      %Equal.sym(String, Wr.put_list(~Af.Ev, ~FAf.put_ev, x <> t, r), Wr.put_nat(List.length(&2, Af.Ev, x <> t), pfw.ev_items(x <> t, r)), pfw.ev_put(x <> t, r)) : {Wr.get_list(~Af.Ev, ~FAf.get_ev, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Ev>>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(List.length(&2, Af.Ev, x <> t), pfw.ev_items(x <> t, r))), Wr.Got{List.length(&2, Af.Ev, x <> t), pfw.ev_items(x <> t, r)}, Laws.wire_nat_round_trip(List.length(&2, Af.Ev, x <> t), pfw.ev_items(x <> t, r), wr_and_l(Laws.wire_fits(List.length(&2, Af.Ev, x <> t)), Laws.afw_evs_fit(x <> t), hh))) : {Wr.get_list.start(~Af.Ev, ~FAf.get_ev, _) == Wr.Got{x <> t, r} : Wr.Dec<List<&2, Af.Ev>>}
+      pfw.ev_go_rt(t, x, r, wr_and_r(Laws.wire_fits(List.length(&2, Af.Ev, x <> t)), Laws.afw_evs_fit(x <> t), hh))
+
+# a list that fits reads back (turned around for rewriting)
+def pfw.evs(+xs: List<&2, Af.Ev>, +rest: String, h: {Bool.and(Laws.wire_fits(List.length(&2, Af.Ev, xs)), Laws.afw_evs_fit(xs)) == True{} : Bool}) ->
+  {Wr.Got{xs, rest} == Wr.get_list(~Af.Ev, ~FAf.get_ev, Wr.put_list(~Af.Ev, ~FAf.put_ev, xs, rest)) : Wr.Dec<List<&2, Af.Ev>>}:
+  Equal.sym(Wr.Dec<List<&2, Af.Ev>>, Wr.get_list(~Af.Ev, ~FAf.get_ev, Wr.put_list(~Af.Ev, ~FAf.put_ev, xs, rest)), Wr.Got{xs, rest}, Laws.afw_evs_round_trip(xs, rest, h))
+
+def Laws.afw_req_round_trip(x, rest, h):
+  match x:
+    case FAf.GateReq{+p, +sel, +ok}:
+      +z = rest
+      +hh = h
+      %pfw.nat(p, FAf.put_sel(sel, Wr.put_bool(ok, z)), wr_and_l(Laws.wire_fits(p), Laws.afw_sel_fits(sel), hh)) : {FAf.get_req.gate(_) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
+      %pfw.sel(sel, Wr.put_bool(ok, z), wr_and_r(Laws.wire_fits(p), Laws.afw_sel_fits(sel), hh)) : {FAf.get_req.sel(p, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
+      %pfw.bool(ok, z) : {FAf.get_req.ok(p, sel, _) == Wr.Got{FAf.GateReq{p, sel, ok}, z} : Wr.Dec<FAf.Req>}
+      {==}
+    case FAf.SettleReq{+g, +look, +need}:
+      +z = rest
+      +hh = h
+      +h1 = wr_and_r(Laws.afw_gate_fits(g), Bool.and(Laws.afw_look_fits(look), Laws.wire_fits(need)), hh)
+      %pfw.gate(g, FAf.put_look(look, Wr.put_nat(need, z)), wr_and_l(Laws.afw_gate_fits(g), Bool.and(Laws.afw_look_fits(look), Laws.wire_fits(need)), hh)) : {FAf.get_req.settle(_) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      %pfw.look(look, Wr.put_nat(need, z), wr_and_l(Laws.afw_look_fits(look), Laws.wire_fits(need), h1)) : {FAf.get_req.look(g, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      %pfw.nat(need, z, wr_and_r(Laws.afw_look_fits(look), Laws.wire_fits(need), h1)) : {FAf.get_req.need(g, look, _) == Wr.Got{FAf.SettleReq{g, look, need}, z} : Wr.Dec<FAf.Req>}
+      {==}
+    case FAf.PassReq{+r, +sh}:
+      +z = rest
+      +hh = h
+      +lt = Bool.and(Laws.wire_fits(List.length(&2, Af.Key, sh)), Laws.afw_keys_fit(sh))
+      %pfw.route(r, Wr.put_list(~Af.Key, ~FAf.put_key, sh, z), wr_and_l(Laws.afw_route_fits(r), lt, hh)) : {FAf.get_req.pass(_) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
+      %pfw.keys(sh, z, wr_and_r(Laws.afw_route_fits(r), lt, hh)) : {FAf.get_req.shown(r, _) == Wr.Got{FAf.PassReq{r, sh}, z} : Wr.Dec<FAf.Req>}
+      {==}
+
+# a req reads back (turned around for rewriting)
+def pfw.req(+x: FAf.Req, +rest: String, h: {Laws.afw_req_fits(x) == True{} : Bool}) -> {Wr.Got{x, rest} == FAf.get_req(FAf.put_req(x, rest)) : Wr.Dec<FAf.Req>}:
+  Equal.sym(Wr.Dec<FAf.Req>, FAf.get_req(FAf.put_req(x, rest)), Wr.Got{x, rest}, Laws.afw_req_round_trip(x, rest, h))
+
+def Laws.afw_pass_round_trip(es, ks, rest, h):
+  +z = rest
+  +hh = h
+  +le = Bool.and(Laws.wire_fits(List.length(&2, Af.Ev, es)), Laws.afw_evs_fit(es))
+  +lk = Bool.and(Laws.wire_fits(List.length(&2, Af.Key, ks)), Laws.afw_keys_fit(ks))
+  %pfw.evs(es, Wr.put_list(~Af.Key, ~FAf.put_key, ks, z), wr_and_l(le, lk, hh)) : {FAf.get_pass.go(_) == Wr.Got{(es, ks), z} : Wr.Dec<+Sigma<List<&2, Af.Ev>, x => List<&2, Af.Key>>>}
+  %pfw.keys(ks, z, wr_and_r(le, lk, hh)) : {FAf.get_pass.keys(es, _) == Wr.Got{(es, ks), z} : Wr.Dec<+Sigma<List<&2, Af.Ev>, x => List<&2, Af.Key>>>}
+  {==}
+
+def Laws.afw_answers_gate(p, sel, ok, h):
+  %pfw.req(FAf.GateReq{p, sel, ok}, "", h) : {FAf.ffi.go(_) == FAf.put_gate(Af.gate(p, sel, ok), "") : String}
+  {==}
+
+def Laws.afw_answers_settle(g, look, need, h):
+  %pfw.req(FAf.SettleReq{g, look, need}, "", h) : {FAf.ffi.go(_) == FAf.put_route(Af.settle(g, look, need), "") : String}
+  {==}
+
+def Laws.afw_answers_pass(r, sh, h):
+  %pfw.req(FAf.PassReq{r, sh}, "", h) : {FAf.ffi.go(_) == FAf.put_pass((Af.put(r, sh, Nil{}), Af.after(r, sh)), "") : String}
+  {==}
+
+def Laws.afw_malformed(s, h):
+  %Equal.sym(Wr.Dec<FAf.Req>, FAf.get_req(s), Wr.Bad{}, h) : {FAf.ffi.go(_) == Wr.err("aux_fallback: malformed request") : String}
+  {==}
+
+def Laws.afw_left_over(x, c, rest, h):
+  %pfw.req(x, SCon{c, rest}, h) : {FAf.ffi.go(_) == Wr.err("aux_fallback: input left over") : String}
+  {==}
+
+def Laws.afw_key_example():
+  ({==}, {==})
+
+def Laws.afw_keys_example():
+  ({==}, {==})
+
+def Laws.afw_route_example():
+  ({==}, {==})
+
+def Laws.afw_gate_example():
+  ({==}, {==})
+
+def Laws.afw_sel_example():
+  ({==}, {==})
+
+def Laws.afw_look_example():
+  ({==}, {==})
+
+def Laws.afw_ev_example():
+  ({==}, {==})
+
+def Laws.afw_evs_example():
+  ({==}, {==})
+
+def Laws.afw_gate_req_example():
+  ({==}, {==})
+
+def Laws.afw_settle_req_example():
+  ({==}, {==})
+
+def Laws.afw_pass_req_example():
+  ({==}, {==})
+
+def Laws.afw_pass_example():
+  ({==}, {==})
+
+def Laws.afw_malformed_example():
+  ({==}, {==})
+
+def Laws.afw_ffi_example():
+  {==}
