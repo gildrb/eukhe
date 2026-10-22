@@ -101,8 +101,14 @@ impl SessionUi {
             turn_error_shown: false,
             run_open: false,
             run_rounds: 0,
-            run_showed_reply: false,
-            resynced_phase: TurnPhase::Requesting,
+            run_awaits_turn: false,
+            session_closed: false,
+            resynced_phase: None,
+            rebuild_keeps_clock: false,
+            carried_rows: Vec::new(),
+            maybe_sent: None,
+            last_user_text: None,
+            retry_popped_attempt: None,
             pending_tools: HashSet::default(),
             aborted_tools: HashSet::default(),
             last_assistant_text: None,
@@ -385,7 +391,16 @@ impl SessionUi {
         let reconstructed = reconstruct(&attach)?;
         self.restore_notices
             .record(session_id, &attach.snapshot.messages);
-        let mounted_session_changes = previous != attach.active_session_id;
+        // The mounted session changes when the durable session does: a
+        // worker replacement (`session_binding`) moves the same session to
+        // a new active id, and its stream keeps counting the same turns.
+        // A snapshot without a durable id falls back to the active id.
+        let mounted_session_changes =
+            if reconstructed.session_id.is_empty() || self.session_id.is_empty() {
+                previous != attach.active_session_id
+            } else {
+                self.session_id != reconstructed.session_id
+            };
         self.active_session_id = attach.active_session_id;
         // The new attachment exists (the snapshot above rebuilt from it):
         // retire the superseded id's subscription now, addressed by the
@@ -518,27 +533,7 @@ impl SessionUi {
             });
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
-        self.loader_anchor_ms = reconstructed.last_user_prompt_ms;
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
-        // The resynced state owns the loader (TS `renderResyncedSession`
-        // rebuilds from the snapshot): a turn that is still live behind the
-        // re-attach keeps the spinner, one that died with the old link (or
-        // never ran) does not.
-        let flag = |name: &str| {
-            attach
-                .snapshot
-                .state
-                .get(name)
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        };
-        let compacting = flag("isCompacting");
-        self.turn_active = flag("isStreaming") || compacting;
-        self.resynced_phase = if compacting {
-            TurnPhase::Compacting
-        } else {
-            TurnPhase::Requesting
-        };
         self.streaming_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
@@ -549,17 +544,69 @@ impl SessionUi {
         // re-arm `turn_active` against an end count that can never catch
         // up, and the idle gates would wait for an end that will never
         // come (the submit-outlived wedge). A SAME-SESSION rebind
-        // (recovery, reconnect) keeps the counters: its stream counts ends
-        // for the same session, and a prompt note that straddled the
-        // recovery still carries comparable values -- resetting there would
-        // orphan in-flight acks the same way (a turn that already ended
-        // before the idle snapshot would re-arm `turn_active` with no
-        // `TurnEnded` left to clear it). The mounted snapshot's
-        // `streaming` flag carries the live-turn state across the attach.
+        // (recovery, reconnect, worker replacement) keeps the counters:
+        // its stream counts ends for the same session, and a prompt note
+        // that straddled the recovery still carries comparable values --
+        // resetting there would orphan in-flight acks the same way (a turn
+        // that already ended before the idle snapshot would re-arm
+        // `turn_active` with no `TurnEnded` left to clear it). The rows
+        // only this view holds belong to the session they were written
+        // for.
         if mounted_session_changes {
             self.turn_ends_seen = 0;
             self.last_prompt_turn_end = 0;
+            self.carried_rows.clear();
+            self.maybe_sent = None;
         }
+        self.session_closed = false;
+        self.retry_popped_attempt = None;
+        // The resynced state owns the loader (TS `renderResyncedSession`
+        // rebuilds from the snapshot), and it is on exactly while work
+        // runs (laws/turn_visibility.bend `tv_indicator_tracks_work`):
+        // - a turn of the open run is unanswered: the snapshot's newest
+        //   message does not settle it, or (same session) the run this
+        //   view followed still owes its answer -- its prompt may not be
+        //   stored yet. Between the answer's `turn_end` and the run's
+        //   `agent_end` nothing works.
+        // - this view's admitted prompt still waits for its turn: the run
+        //   streams, or the prompt sits in the queue (a queue that is empty
+        //   with no run open means its turn ended behind the re-attach);
+        // - a compaction runs: its loader shows, and its `compaction_end`
+        //   takes it down unless a turn goes on (it never makes a turn);
+        // - a submit still travels: the send loader stays up for its ack.
+        let same_session = !mounted_session_changes;
+        self.run_awaits_turn = reconstructed.run_open
+            && (reconstructed.turn_running
+                || (same_session && self.run_open && self.run_awaits_turn));
+        self.run_open = reconstructed.run_open;
+        let prompt_owed = same_session
+            && self.prompt_in_flight == 0
+            && self.turn_ends_seen < self.last_prompt_turn_end;
+        let queued = self
+            .pending_queue
+            .as_ref()
+            .is_some_and(|queue| !queue.is_empty() || queue.starting.is_some());
+        let prompt_waits = prompt_owed && (self.run_open || queued);
+        if prompt_owed && !prompt_waits {
+            self.last_prompt_turn_end = self.turn_ends_seen;
+        }
+        self.turn_active = self.run_awaits_turn || prompt_waits;
+        self.resynced_phase = if reconstructed.compacting {
+            Some(TurnPhase::Compacting)
+        } else if self.turn_active && self.run_open {
+            Some(TurnPhase::Requesting)
+        } else if self.turn_active {
+            Some(TurnPhase::Queued)
+        } else if self.prompt_in_flight > 0 {
+            Some(TurnPhase::Sending)
+        } else {
+            None
+        };
+        self.rebuild_keeps_clock = same_session;
+        self.loader_anchor_ms = reconstructed
+            .turn_running
+            .then_some(reconstructed.last_user_prompt_ms)
+            .flatten();
         // TS `applyConnectionStateSnapshot` -> `bindPromptStashSession`: the
         // stash state follows the stable id of the session now rendered.
         // The initial attach and every in-place switch (`/switch`, `/new`)
@@ -667,6 +714,12 @@ impl SessionUi {
                 view.push_entry(entry);
             }
         }
+        // The latest prompt's end rows that only this view holds follow
+        // the stored transcript: a same-session rebuild never wipes how
+        // the turn ended (laws/turn_visibility.bend Q3).
+        for row in &self.carried_rows {
+            view.push_entry(row.clone());
+        }
         // The rebuild re-registers the live tool cards the way TS
         // `restoreStreamingMessageFromSnapshot` does (the resumed turn's
         // streamed calls re-enter the pending map): a post-reconnect
@@ -759,30 +812,33 @@ impl SessionUi {
                 }
             }
         }
-        // The rebuilt chat follows the session's live state: an attached
-        // turn that survived the re-attach keeps its loader (TS
-        // `renderResyncedSession`), and no stale loader survives a rebuild.
-        // The re-mounted loader anchors at the LAST HUMAN PROMPT (the
-        // operator's 2026-09-28 rule: the waiting/executing timer never
-        // resets on a view transition -- an agents-view round trip
-        // re-attaches mid-turn and the clock keeps counting from the
-        // prompt that started the turn), so the elapsed readout picks up
-        // where it left off instead of restarting at the re-attach
-        // instant. The live paths (a submit's ack, a turn's engine
-        // start) keep their own anchors; only the rebuild re-derives one.
-        // A retry countdown or a compaction loader belongs to the stream
-        // the rebuild replaced: the snapshot's own state re-derives the
-        // phase, and the next live frame restores either overlay.
+        // The rebuilt chat follows the session's live state (the attach
+        // derived it, `resynced_phase`): work that survived the re-attach
+        // keeps its loader (TS `renderResyncedSession`), and no loader
+        // survives a rebuild once nothing runs. A same-session rebuild
+        // keeps the live loader's clock (it started at the Enter); any
+        // other re-mounted loader of a running turn anchors at its
+        // prompt (the operator's 2026-09-28 rule: the waiting/executing
+        // timer never resets on a view transition -- an agents-view
+        // round trip re-attaches mid-turn and the clock keeps counting
+        // from the prompt that started the turn), else at the re-attach
+        // instant. A retry countdown or a compaction loader belongs to
+        // the stream the rebuild replaced: the snapshot's own state
+        // re-derives the phase, and the next live frame restores either
+        // overlay.
         view.retry = None;
         view.compaction = None;
-        if self.turn_active {
-            let anchor = self
-                .loader_anchor_ms
-                .and_then(Self::loader_anchor_instant)
-                .unwrap_or_else(std::time::Instant::now);
-            self.start_loader_at(view, self.resynced_phase, anchor);
-        } else {
-            Self::stop_loader(view);
+        match self.resynced_phase {
+            Some(phase) => {
+                let anchor = self
+                    .rebuild_keeps_clock
+                    .then_some(view.working_since)
+                    .flatten()
+                    .or_else(|| self.loader_anchor_ms.and_then(Self::loader_anchor_instant))
+                    .unwrap_or_else(std::time::Instant::now);
+                self.start_loader_at(view, phase, anchor);
+            }
+            None => Self::stop_loader(view),
         }
         // An open `/heartbeats` picker follows the rebuilt session's
         // catalog (the channel fold's `apply_catalog` path): without this

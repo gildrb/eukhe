@@ -9,6 +9,7 @@ use super::{
     PromptStash, RebuildKind, Result, SessionUi, SlashCommandRegistry, StatusKind, Value,
     UI_REQUEST_TIMEOUT_MS,
 };
+use crate::glyphs::SEP;
 /// How a submitted prompt travels to the session (TS `streamingBehavior`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SubmitBehavior {
@@ -719,11 +720,22 @@ impl SessionUi {
             // connection is closed, so nothing dispatches. The error row
             // surfaces the terminal cause and the draft returns to the
             // editor (TS keeps the input buffer on a failed submit).
-            self.error_row(&format!("Daemon reconnection failed: {error}"), view);
+            self.error_row(
+                &format!(
+                    "Daemon reconnection failed: {error}{SEP}Next: restart Eukhe, then send the message again (it is back in the editor)."
+                ),
+                view,
+            );
             view.editor.set_text(text);
             return Ok(());
         }
         let images = self.collect_images_for(text, view);
+        // A new prompt: the previous prompt's client-only end rows stay in
+        // this chat but no longer ride a rebuild, and its lost-ack row is
+        // no longer retired by a user message.
+        self.carried_rows.clear();
+        self.maybe_sent = None;
+        self.last_user_text = None;
         // TS `onSubmit` resolves the submit off the render path: the
         // cleared editor paints THIS iteration's frame -- the submit's
         // daemon round trip never gates the first frame after Enter -- and
@@ -945,7 +957,15 @@ impl SessionUi {
         // session's link, so the ack can lose the race on a loaded box
         // while the daemon admits the turn -- that is not a refusal, and
         // retaining the draft would invite a duplicate.
-        if note.active_session_id != self.active_session_id {
+        // A worker replacement moves the same durable session to a new
+        // active id: its stream goes on under the new id, so the submit
+        // still belongs to the mounted session.
+        let outlived = if note.session_id.is_empty() || self.session_id.is_empty() {
+            note.active_session_id != self.active_session_id
+        } else {
+            note.session_id != self.session_id
+        };
+        if outlived {
             // Borrow the settled result here: the ladder below owns it.
             if let Some(error) = note
                 .result
@@ -954,15 +974,17 @@ impl SessionUi {
                 .filter(|error| !sent_before_link_closed(error))
             {
                 let rendered = format!("{error:#}");
-                self.error_row(&rendered, view);
-                self.retain_rejected_draft(
+                let in_editor = self.retain_rejected_draft(
                     &note.text,
                     &note.session_id,
                     note.generation,
                     note.stashed_images.clone(),
                     view,
                 );
+                self.error_row(&refused_row_text(&rendered, in_editor), view);
             }
+            // The outlived submit holds no loader of the mounted session.
+            self.settle_send_loader(view);
             return Ok(());
         }
         match note.result {
@@ -972,9 +994,10 @@ impl SessionUi {
                 // the idle state; re-arming it would strand WaitIdle until
                 // timeout. The per-submit end watermark also keeps a prior
                 // turn's end from settling a queued later prompt.
-                if note
-                    .expected_turn_end
-                    .is_some_and(|expected| self.turn_ends_seen < expected)
+                if !self.session_closed
+                    && note
+                        .expected_turn_end
+                        .is_some_and(|expected| self.turn_ends_seen < expected)
                 {
                     self.turn_active = true;
                     // An up loader keeps its clock and phase (the run may
@@ -999,8 +1022,18 @@ impl SessionUi {
                     self.dirty = true;
                 } else {
                     // The admitted prompt's turn already ended (it
-                    // streamed before the ack), or it was a session
-                    // command that settled: the send loader comes down.
+                    // streamed before the ack, or its run ended before
+                    // any request), it was a session command that
+                    // settled, or the session closed: the turn the ack
+                    // would wait for is over. A run that ended while the
+                    // ack traveled kept the turn for it; nothing else
+                    // holds it now.
+                    if !self.run_awaits_turn
+                        && self.prompt_in_flight == 0
+                        && self.turn_ends_seen >= self.last_prompt_turn_end
+                    {
+                        self.turn_active = false;
+                    }
                     self.settle_send_loader(view);
                 }
                 // TS `onSubmit`'s finally: the current submit's admitted prompt
@@ -1066,34 +1099,34 @@ impl SessionUi {
                 // fate is unknown -- a live turn raises its own loader at
                 // `agent_start`): the send loader comes down.
                 self.settle_send_loader(view);
-                if crate::daemon_client::is_daemon_timeout(&error) {
-                    // Sent but unanswered: the submission was on the
-                    // wire, so the turn may already be admitted and
-                    // running -- restoring the draft would invite a
-                    // duplicate submission. The error row names the
-                    // uncertainty; the transcript's live turn (or the
-                    // next daemon answer) settles the truth.
+                if crate::daemon_client::is_daemon_timeout(&error)
+                    || sent_before_link_closed(&error)
+                {
+                    // Sent but unanswered (a timeout), or the DIRECT link
+                    // died after the frame was queued: the daemon may have
+                    // admitted the turn -- restoring the draft would invite
+                    // a duplicate submission, so the draft stays consumed.
+                    // A turn whose prompt already showed has its own rows;
+                    // otherwise the row names the uncertainty and what to
+                    // do, and retires once the prompt shows after all.
+                    if self.last_user_text.as_deref() == Some(note.text.as_str()) {
+                        return Ok(());
+                    }
+                    let uncertainty = if sent_before_link_closed(&error) {
+                        "the request may have been sent; the turn may still start"
+                    } else {
+                        "the request was sent; the turn may still be in flight"
+                    };
                     self.error_row(
                         &format!(
-                            "{rendered} -- the request was sent; the turn may still be in flight"
+                            "{rendered} -- {uncertainty}{SEP}Next: wait for the turn to show here; if it does not, send the message again."
                         ),
                         view,
                     );
-                    return Ok(());
-                }
-                // A DIRECT-link transport failure happened after the
-                // frame was queued (`request_direct` sent it, the link
-                // died answering): the daemon may have admitted the
-                // turn -- restoring the draft would invite a duplicate
-                // submission, so the draft stays consumed (the timeout
-                // arm's contract).
-                if sent_before_link_closed(&error) {
-                    self.error_row(
-                        &format!(
-                            "{rendered} -- the request may have been sent; the turn may still start"
-                        ),
-                        view,
-                    );
+                    if let Some(row) = view.chat.last() {
+                        self.carried_rows.push(row.clone());
+                        self.maybe_sent = Some((note.text.clone(), row.clone()));
+                    }
                     return Ok(());
                 }
                 if crate::daemon_client::is_daemon_rejection(&error)
@@ -1104,18 +1137,21 @@ impl SessionUi {
                     // capacity, a superseded session the rebind could
                     // not recover), or the connection refused the send
                     // (nothing reached the daemon) -- the `! Error` row
-                    // surfaces it and the draft returns to the editor
-                    // (the submission never landed); a failed prompt
-                    // never exits the UI (the reconnect driver owns
-                    // the connection's recovery).
-                    self.error_row(&rendered, view);
-                    self.retain_rejected_draft(
+                    // surfaces it with the way out and the draft returns
+                    // to the editor (the submission never landed); a
+                    // failed prompt never exits the UI (the reconnect
+                    // driver owns the connection's recovery).
+                    let in_editor = self.retain_rejected_draft(
                         &note.text,
                         &self.stash_session_id.clone(),
                         note.generation,
                         note.stashed_images.clone(),
                         view,
                     );
+                    self.error_row(&refused_row_text(&rendered, in_editor), view);
+                    if let Some(row) = view.chat.last() {
+                        self.carried_rows.push(row.clone());
+                    }
                     return Ok(());
                 }
                 Err(error)
@@ -1124,12 +1160,13 @@ impl SessionUi {
     }
 
     /// The send loader after a submit settled without a turn to wait for:
-    /// it comes down unless other work holds it up (a turn, a run, a
-    /// compaction, a retry, another submit still traveling).
+    /// it comes down unless other work holds it up (a turn, a run that
+    /// owes its answer, a compaction, a retry, another submit still
+    /// traveling).
     fn settle_send_loader(&mut self, view: &mut AgentView) {
         if !self.turn_active
-            && !self.run_open
-            && view.compaction.is_none()
+            && !self.run_awaits_turn
+            && !super::apply::compaction_runs(view)
             && view.retry.is_none()
             && self.prompt_in_flight == 0
         {
@@ -1151,13 +1188,13 @@ impl SessionUi {
         generation: u64,
         stashed_images: Vec<(u64, LoadedImage)>,
         view: &mut AgentView,
-    ) {
+    ) -> RetainedDraft {
         if view.editor.get_text().trim().is_empty()
             && stash_session_id == self.stash_session_id
             && generation == self.input_submission_generation
         {
             view.editor.set_text(text);
-            return;
+            return RetainedDraft::InEditor;
         }
         // The retained-draft stash write: the rejected prompt becomes the
         // session's restore-on-open head with its submit-time image
@@ -1176,7 +1213,32 @@ impl SessionUi {
             .lock()
             .expect("prompt stash store poisoned");
         store.for_session(stash_session_id).stash_draft_head(stash);
+        RetainedDraft::Stashed
     }
+}
+
+/// Where a refused prompt's draft went.
+#[derive(Clone, Copy)]
+enum RetainedDraft {
+    /// Back into the empty editor.
+    InEditor,
+    /// Into the session's stash: it returns when the session opens with an
+    /// empty editor.
+    Stashed,
+}
+
+/// The row of a refused submit (`rendered`): the refusal and the user's
+/// next step (`laws/turn_visibility.bend` R5).
+fn refused_row_text(rendered: &str, draft: RetainedDraft) -> String {
+    let step = match draft {
+        RetainedDraft::InEditor => {
+            "Next: the message is back in the editor; send it again, or change it first."
+        }
+        RetainedDraft::Stashed => {
+            "Next: the message is kept and returns to the editor when this session opens with an empty editor; send it again then."
+        }
+    };
+    format!("{rendered}{SEP}{step}")
 }
 
 /// The submit frame went out on the session's direct link and the link

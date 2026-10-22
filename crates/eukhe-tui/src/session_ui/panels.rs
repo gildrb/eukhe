@@ -404,17 +404,18 @@ impl SessionUi {
 /// ruling 2026-09-23): pop the trailing failed-attempt error row the
 /// retry supersedes, so the ONE line the episode shows while it runs is
 /// the transient loader (updated in place) and the ONE line it leaves is
-/// the durable outcome row. No-op when the trailing entry is anything
-/// else (an abort row, tool-call-carrying failures, a settled reply).
-pub(crate) fn pop_superseded_attempt_row(view: &mut AgentView) -> bool {
+/// the durable outcome row. Returns the popped row; `None` when the
+/// trailing entry is anything else (an abort row, tool-call-carrying
+/// failures, a settled reply).
+pub(crate) fn pop_superseded_attempt_row(view: &mut AgentView) -> Option<crate::chat::ChatEntry> {
     if view
         .chat
         .last()
         .is_some_and(crate::snapshot::is_superseded_attempt_row)
     {
-        view.pop_chat_entry().is_some()
+        view.pop_chat_entry()
     } else {
-        false
+        None
     }
 }
 
@@ -550,14 +551,17 @@ mod retry_collapse_tests {
             },
             failed_attempt("429 Too many concurrent requests"),
         ]);
-        assert!(pop_superseded_attempt_row(&mut view));
+        assert_eq!(
+            pop_superseded_attempt_row(&mut view),
+            Some(failed_attempt("429 Too many concurrent requests"))
+        );
         assert_eq!(view.chat_len(), 1, "only the user row remains");
         // A second pop finds nothing: exactly one row per attempt.
-        assert!(!pop_superseded_attempt_row(&mut view));
+        assert_eq!(pop_superseded_attempt_row(&mut view), None);
 
         // An abort row never pops (aborts are not retried).
         let mut view = view_with(vec![aborted_attempt()]);
-        assert!(!pop_superseded_attempt_row(&mut view));
+        assert_eq!(pop_superseded_attempt_row(&mut view), None);
 
         // A tool-carrying failure never pops (the cards carry the failure).
         let mut view = view_with(vec![ChatEntry::Assistant(Box::new(
@@ -569,13 +573,13 @@ mod retry_collapse_tests {
                 aborted: false,
             },
         ))]);
-        assert!(!pop_superseded_attempt_row(&mut view));
+        assert_eq!(pop_superseded_attempt_row(&mut view), None);
 
         // A status row (the episode outcome) never pops.
         let mut view = view_with(vec![ChatEntry::Status {
             text: "Recovered after 2 retries: provider down".to_string(),
             kind: StatusKind::Info,
         }]);
-        assert!(!pop_superseded_attempt_row(&mut view));
+        assert_eq!(pop_superseded_attempt_row(&mut view), None);
     }
 }
