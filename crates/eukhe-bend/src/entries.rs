@@ -12,12 +12,12 @@ pub enum Entry {
     Wire = 1,
     /// `bend/ffi_admission.bend`: a stepper.
     Admission = 2,
-    /// `bend/ffi_workflow.bend`: a call.
-    Workflow = 3,
+    /// `bend/ffi_aux_fallback.bend`: a call.
+    AuxFallback = 3,
     /// `bend/ffi_default_model.bend`: a call.
     DefaultModel = 4,
-    /// `bend/ffi_aux_fallback.bend`: a call.
-    AuxFallback = 5,
+    /// `bend/ffi_workflow.bend`: a call.
+    Workflow = 5,
 }
 
 impl Entry {
@@ -26,9 +26,9 @@ impl Entry {
         Entry::Echo,
         Entry::Wire,
         Entry::Admission,
-        Entry::Workflow,
-        Entry::DefaultModel,
         Entry::AuxFallback,
+        Entry::DefaultModel,
+        Entry::Workflow,
     ];
 
     /// The id `bend/core.bend` dispatches on.

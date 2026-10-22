@@ -24,11 +24,11 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 1:
       ffi_wire.ffi(input)
     case 3:
-      ffi_workflow.ffi(input)
+      ffi_aux_fallback.ffi(input)
     case 4:
       ffi_default_model.ffi(input)
     case 5:
-      ffi_aux_fallback.ffi(input)
+      ffi_workflow.ffi(input)
     case _:
       W.err("unknown entry")
 
