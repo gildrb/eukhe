@@ -7,7 +7,7 @@
 //! level, image setting, or code indent applies to the live area and to
 //! the rows committed after it; the scrollback keeps what it holds.
 
-use super::AgentView;
+use super::{ledger, AgentView};
 use crate::inline_term::LiveCursor;
 use crate::style::Modifier;
 use crate::Line;
@@ -139,18 +139,20 @@ impl AgentView {
             Scrollback::Written => (FrameStart::Continue, Vec::new()),
         };
         self.scrollback = Scrollback::Written;
+        let mut events = Vec::new();
         if self.ledger.width() != width {
-            self.ledger.resize(width);
+            events.push(ledger::Event::Resize(width));
         }
         self.advance_paces();
-        self.ledger.open_to(self.chat.len());
+        events.extend((self.ledger.len()..self.chat.len()).map(|_| ledger::Event::Open));
         for index in self.ledger.committed()..self.chat.len() {
             if !self.entry_settled(index) {
                 break;
             }
-            self.ledger.finish(index);
+            events.push(ledger::Event::Finish(index));
         }
-        for index in self.ledger.flush() {
+        events.push(ledger::Event::Flush);
+        for index in self.ledger.apply(&events) {
             history.extend(self.render_entry_at(index, width));
             self.paces.remove(&index);
         }
