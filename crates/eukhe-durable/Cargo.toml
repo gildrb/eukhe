@@ -10,6 +10,7 @@ description = "Rust port of @earendil-works/pi-durable 1.0.4 with parts of 1.1 a
 eukhe-chord.workspace = true
 eukhe-ai.workspace = true
 eukhe-types.workspace = true
+eukhe-bend.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

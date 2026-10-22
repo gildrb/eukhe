@@ -1,19 +1,13 @@
-//! The bridge between the deferred job's, the stall's and the idle
-//! deadline's decisions and their Bend model (`bend/retry.bend` §4, §5 and
-//! §6, whose laws `LAWS.bend` section `retry` states and `PROOF.bend` proves): both
-//! run the same scenarios and must print the same transcript, byte for
-//! byte. `bend/bridge_retry.bend` documents the scenario format (its `d`,
-//! `s` and `i` lines).
+//! The bridge between the stall's and the idle deadline's decisions and
+//! their Bend model (`bend/retry.bend` §5 and §6, whose laws `LAWS.bend`
+//! section `retry` states and `PROOF.bend` proves): both run the same
+//! scenarios and must print the same transcript, byte for byte.
+//! `bend/bridge_retry.bend` documents the scenario format (its `s` and `i`
+//! lines). The deferred job (§4) has no bridge: its decisions run as
+//! `bend/run.bend` in the compiled core (laws
+//! `run_failed_poll_is_the_job_model` and the like).
 //!
-//! A `d` case is the replies to one request, from its first: each act is
-//! what `classify` decides with the real decisions. A request's reply and
-//! a poll's reply that is still deferred go through [`after_reply`] (its
-//! time check of the job's deadline); a failed poll goes through
-//! [`PollFailure::next`], and a poll again through [`after_reply`]. The
-//! clock is the model's: a request's reply comes 0 ms after it was sent,
-//! and the next reply of a job comes `gap + 1` ms after the one before.
-//! After a send, a cancel, a quit or a settle, the next reply is the reply
-//! of a new request. An `s` case is [`idle_after_stall`].
+//! An `s` case is [`idle_after_stall`].
 //!
 //! An `i` case runs the real idle deadline (`StreamIdle::within` behind
 //! [`Models::complete_simple`]) on a stream whose provider sends an event
@@ -25,7 +19,6 @@
 //! `EUKHE_REQUIRE_BEND` is set).
 
 use std::fmt::Write as _;
-use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,159 +32,8 @@ use eukhe_ai::utils::retry::stalled_idle_ms;
 use eukhe_types::pi_ai::{AssistantMessageEvent, Context, DoneReason, StopReason};
 use tokio::time::Instant;
 
-use super::decide::{after_reply, Counts, Failure, Limits, Reply, Step, MAX_NOTES};
-use super::deferred::{idle_after_stall, FailedPoll, PollFailure};
+use super::deferred::idle_after_stall;
 use crate::testing::bridge::{compare, Rng, Scenario};
-
-/// What a call that is out answers, as the model reads it.
-#[derive(Clone, Copy)]
-enum Got {
-    /// The end of the turn.
-    Answer,
-    /// Still deferred; the next reply `gap + 1` ms later.
-    Later { gap: u64 },
-    /// A failure (retryable or not); the next reply `gap + 1` ms later.
-    Broke { retryable: bool, gap: u64 },
-}
-
-/// The request's deferred job, as `classify` reads its poll.
-#[derive(Clone, Copy)]
-struct Job {
-    /// The ms since the request was sent, at the job's next reply.
-    waited: u64,
-    /// The fetches of the job that failed in a row.
-    failures: u32,
-}
-
-/// The acts of one request's replies. `fails` is `retry.maxRetries`, the
-/// fetch failures a job may have in a row; `budget` the ms its job may
-/// run. The request's own failures are below the retry budget: the model
-/// counts no request retries (`bend/run.bend` does).
-fn acts(fails: u32, budget: u64, gots: &[Got]) -> String {
-    let limits = Limits {
-        max_rounds: NonZeroU32::MIN,
-        max_wait: budget,
-        max_retries: u32::MAX,
-        max_notes: MAX_NOTES,
-    };
-    let at = |waited| Counts {
-        attempt: 1,
-        notes: 0,
-        waited,
-        compacted: false,
-    };
-    let mut job: Option<Job> = None;
-    let mut out = String::new();
-    for got in gots {
-        let (act, next) = match (job, *got) {
-            (None | Some(_), Got::Answer) => match after_reply(at(0), Reply::<()>::Text, &limits) {
-                Step::Answer => ("settle", None),
-                step @ (Step::Tools
-                | Step::Poll(())
-                | Step::Retry
-                | Step::Note
-                | Step::Compact
-                | Step::Fail(Failure::Model | Failure::Polls)) => {
-                    panic!("a text reply makes {step:?}")
-                }
-            },
-            (None, Got::Later { gap }) => {
-                poll(after_reply(at(0), Reply::Deferred(()), &limits), 0, 0, gap)
-            }
-            (None, Got::Broke { retryable, gap: _ }) => {
-                let reply = Reply::<()>::Error {
-                    retryable,
-                    noted: false,
-                };
-                match after_reply(at(0), reply, &limits) {
-                    Step::Retry => ("send", None),
-                    Step::Fail(Failure::Model) => ("quit", None),
-                    step @ (Step::Answer
-                    | Step::Tools
-                    | Step::Poll(())
-                    | Step::Note
-                    | Step::Compact
-                    | Step::Fail(Failure::Polls)) => {
-                        panic!("a request's failure makes {step:?}")
-                    }
-                }
-            }
-            (Some(Job { waited, .. }), Got::Later { gap }) => poll(
-                after_reply(at(waited), Reply::Deferred(()), &limits),
-                waited,
-                0,
-                gap,
-            ),
-            (Some(Job { waited, failures }), Got::Broke { retryable, gap }) => {
-                let failure = PollFailure {
-                    retryable,
-                    failures,
-                };
-                match failure.next(fails) {
-                    FailedPoll::Repoll => poll(
-                        after_reply(at(waited), Reply::Deferred(()), &limits),
-                        waited,
-                        failures + 1,
-                        gap,
-                    ),
-                    FailedPoll::Cancel => ("cancel", None),
-                }
-            }
-        };
-        job = next;
-        let _ = write!(out, " {act}");
-    }
-    out
-}
-
-/// The act of a job's deferred reply `waited` ms after its request: a
-/// poll whose reply comes `gap + 1` ms later with `failures` in a row, or
-/// a cancel at the deadline.
-fn poll(step: Step<()>, waited: u64, failures: u32, gap: u64) -> (&'static str, Option<Job>) {
-    match step {
-        Step::Poll(()) => (
-            "poll",
-            Some(Job {
-                waited: waited + 1 + gap,
-                failures,
-            }),
-        ),
-        Step::Fail(Failure::Polls) => ("cancel", None),
-        step @ (Step::Answer
-        | Step::Tools
-        | Step::Retry
-        | Step::Note
-        | Step::Compact
-        | Step::Fail(Failure::Model)) => panic!("a deferred reply makes {step:?}"),
-    }
-}
-
-fn deferred_case(rng: &mut Rng, events: &mut String, transcript: &mut String) {
-    let fails = u32::try_from(rng.range(0, 3)).unwrap();
-    let budget = rng.range(0, 40);
-    let gots: Vec<Got> = (0..rng.range(1, 12))
-        .map(|_| match rng.below(10) {
-            0 => Got::Answer,
-            1..=5 => Got::Later {
-                gap: rng.range(0, 9),
-            },
-            _ => Got::Broke {
-                retryable: rng.chance(70),
-                gap: rng.range(0, 9),
-            },
-        })
-        .collect();
-    let shown: String = gots
-        .iter()
-        .map(|got| match got {
-            Got::Answer => " a".to_owned(),
-            Got::Later { gap } => format!(" l{gap}"),
-            Got::Broke { retryable, gap } => format!(" b{}:{gap}", u8::from(*retryable)),
-        })
-        .collect();
-    writeln!(events, "d {fails} {budget}{shown}").unwrap();
-    writeln!(transcript, "d{}", acts(fails, budget, &gots)).unwrap();
-}
 
 fn stall_case(rng: &mut Rng, events: &mut String, transcript: &mut String) {
     let idle = [0, 1, 200, 300_000][usize::try_from(rng.below(4)).unwrap()] + rng.range(0, 1_000);
@@ -290,8 +132,7 @@ fn the_rust_deferred_decisions_equal_the_bend_model() {
         let mut transcript = String::new();
         for _ in 0..40 {
             match rng.below(10) {
-                0..=6 => deferred_case(&mut rng, &mut events, &mut transcript),
-                7 => stall_case(&mut rng, &mut events, &mut transcript),
+                0..=6 => stall_case(&mut rng, &mut events, &mut transcript),
                 _ => idle_case(&mut rng, &mut events, &mut transcript),
             }
         }

@@ -461,21 +461,21 @@ checkpoint ends aborted); `generation/round.rs` `start_tool_round` (a
 `maxToolRounds`; `eukhe-ai/src/utils/retry.rs` `repeated_lines` (the
 period and the line that `stream_repeating_failure` records).
 
-Tie: the bridge test `harness::generation::bridge::the_rust_decisions_equal_the_bend_model`
-calls, at each phase, the production decision that phase calls
-(`before_request`, `after_compaction`, `Ended::reply`, `after_reply`,
-`retry_note`, `Rounds::finish`, `RoundEnd::reset`), keeps the counters
-and the note the checkpoints carry, and runs `bend/bridge_run.bend` on
-413 scenarios: 401 generated ones (1 with the production limits, 400
-with random small ones, notes included; every reply, noted errors and errors
-that are not noted, every message that ends the model's turn with or
-without text and with or without tool calls, threshold, compaction
-result, round end, and abort) and 12 with a cut after each request
-until the notes run out (a noted error or a message with no answer).
-After each input it compares the request sent or cut (its context
-version and the attempt of its note), then the phase and the counts
-left (retries, notes, polls, compactions, rounds), byte for byte. Not in
-the bridge: the abort itself (the `abort` handler has one outcome; H4.6's race is
+Tie: the code that runs is the model. `before_request`, `after_compaction`,
+`Ended::reply`, `after_reply`, `round_end` and `PollFailure::next` call
+`decide.prepare`, `decide.compact`, `Ended.reply`, `decide.reply`,
+`decide.round` and `decide.poll` of `bend/run.bend` through the compiled
+core (`bend/ffi_run.bend`, `generation/entry.rs`). Each decision turns
+Rust's counters (they count up) into the counts left the model reads and
+takes the model's step; `LAWS.bend` (H4.9) proves each equal to the rule
+`decide.rs` wrote, for every input (`run_*_is_the_rust_rule`), the counts
+left lossless (`run_counts_lossless`, `run_rounds_lossless`) and counting
+down as Rust counts up (`run_*_counts_down`), the saturation of Rust's
+u64s at the wire's largest Nat exact (`run_reply_saturates_the_*`), and a
+failed poll with its time check the job of `bend/retry.bend` §4
+(`run_failed_poll_is_the_job_model`); section `run_ffi` proves the codec.
+Not in the model: `retry_note` (data: the note's attempt and spent are
+one more than the request's), the abort itself (the `abort` handler has one outcome; H4.6's race is
 `Inner::run`), the run's other failures (no model, a failed request
 hook), which only end it, and the retry of a forced call (`bend/infer.bend`
 §2), whose kept answer grows the context. Regression tests
@@ -597,16 +597,12 @@ leaked calls, the stuck reply, `recover`, the cause of the note and the
 error text); `generation/round.rs` `start_tool_round` (the `truncated`
 results of a `length` reply, H4.1).
 
-Tie: the bridge test
-`harness::generation::recover_bridge::the_rust_recoveries_equal_the_bend_model`
-drives `recover`, `rounds_in_a_row` and `retry_note` as `classify` does,
-keeps the note of the next request and the context of the run (each
-round that ran is a tool-use reply and its results, each answer a text
-reply, each user message a user message), changes the intent and the key
-order of each call at random (they are no part of a call's identity),
-and runs `bend/bridge_recover.bend` on the same 302 scenarios of replies. After each reply
-it compares the act, the recovery and row of the next note, and the
-rounds in a row that the run ran with the last calls, byte for byte.
+Tie: `recover` calls `decide.recover` of `bend/run.bend` (the recoveries
+`Rec` reading the stuck reply and the note's row as Rust has them)
+through the compiled core; `rec_recover_is_the_rust_rule` proves it equal
+to the rule `decide.rs` wrote, so every `rec_*` law is a law of the code
+that runs. `rounds_in_a_row` (the hashing of calls and results) stays in
+Rust and is tested in `repeat::tests`.
 Regression tests (`harness::generation`):
 `tests::recoveries::a_length_stop_while_reasoning_is_retried_with_a_length_note_and_answers`,
 `length_stops_while_reasoning_fail_the_run_after_three_length_notes`,

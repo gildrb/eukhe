@@ -7,17 +7,14 @@
 //! `appendAssistant` live in [`crate::harness::live::run`] so admission and
 //! conversations do not depend on this module.
 
-#[cfg(test)]
-mod bridge;
 mod decide;
 mod deferred;
+mod entry;
 mod force;
 #[cfg(test)]
 mod infer_bridge;
 mod leak;
 mod note;
-#[cfg(test)]
-mod recover_bridge;
 mod repeat;
 #[cfg(test)]
 mod retry_bridge;
@@ -392,27 +389,32 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let desired = render_sections(&agent.sections, &input, &shown, &report, &cx).await?;
     let tools: Vec<_> = agent.tools.iter().map(|tool| tool.tool()).collect();
     let entries = plan_system_entries(&view, &desired, &tools, timestamp(runtime.now()?)?);
-    let once = compacted.is_some();
+    let at = Counts {
+        attempt,
+        notes: note.as_ref().map_or(0, |note| note.spent),
+        waited: 0,
+        compacted: compacted.is_some(),
+    };
     let policy = &settings.compaction;
     // A generation that compacted reads no threshold (law
     // `run_prepare_compacted_reads_no_threshold`), so its context is not
     // measured. The provider's count costs one request, so it runs only
     // when the threshold check runs.
-    let checks = !once && policy.enabled && resolved.context_window != 0;
+    let checks = !at.compacted && policy.enabled && resolved.context_window != 0;
     let counted = match policy.token_count {
         ThresholdTokens::Provider if checks => {
             Some(provider_tokens(&runtime, &resolved, &settings.stream, &view, &entries).await)
         }
         ThresholdTokens::Provider | ThresholdTokens::Estimate => None,
     };
-    let threshold = if once {
+    let threshold = if at.compacted {
         None
     } else {
         threshold_compaction(&view, resolved.context_window, policy, || {
             counted.unwrap_or_else(|| estimate_context(&view, &planned_messages(&entries)))
         })
     };
-    let prepared = before_request(once, threshold);
+    let prepared = before_request(at, threshold);
     let compaction = runtime.registry().builtins().compaction.clone();
     let task_id = runtime.task_id().erase();
     if prepared == Prepared::Compact {

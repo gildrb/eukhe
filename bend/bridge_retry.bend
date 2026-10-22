@@ -3,7 +3,7 @@
 # bridge tests print the Rust code
 # (crates/eukhe-core/src/durable/models/retry_bridge.rs for the c, w and f
 # lines; crates/eukhe-durable/src/harness/generation/retry_bridge.rs for
-# the d, s and i lines). Build it with
+# the s and i lines). Build it with
 #
 #   bend bend/bridge_retry.bend -o <out>
 #
@@ -22,11 +22,6 @@
 #                        base delay, max delay, then the failed attempts,
 #                        oldest first, each its chain index and server
 #                        wait
-#   d F B G ...          the deferred job: fetch failures allowed, the
-#                        time budget, then the replies, each `a` (the end
-#                        of the turn), `lG` (still deferred; the next
-#                        reply G+1 ms later) or `bR:G` (failed, R 1 when
-#                        retryable; the next reply G+1 ms later)
 #   s I                  the stall: the idle deadline a stream stalled
 #                        under
 #   i D G ...            the idle deadline: the deadline, then the gaps
@@ -40,7 +35,6 @@
 #   c 1 | c 0            retried or not
 #   w after MS | w refused S C
 #   f none | f TO D      no switch, or the next provider's index and wait
-#   d ACT ACT ...        per reply: send, poll, cancel, settle or quit
 #   s I                  the retry's idle deadline
 #   i stalled T | i done the stream stalled T ms after the deadline was
 #                        armed, or its provider ended it
@@ -95,31 +89,12 @@ def trieds(ws: List<&2, String>) -> List<&2, R.Tried>:
     case w <> rest:
       tried.of(w) <> trieds(rest)
 
-def got.broke(+parts: List<&2, String>) -> R.Got:
-  R.Broke{flag(tok.nat(tok.at(parts, 0n))), tok.nat(tok.at(parts, 1n))}
-
-def got.of(w: String) -> R.Got:
-  match w:
-    case SCon{'l', rest}:
-      R.Later{tok.nat(rest)}
-    case SCon{'b', rest}:
-      got.broke(String.split(rest, ':'))
-    case other:
-      R.Answer{}
-
 def nats(ws: List<&2, String>) -> List<&2, Nat>:
   match ws:
     case Nil{}:
       Nil{}
     case w <> rest:
       tok.nat(w) <> nats(rest)
-
-def gots(ws: List<&2, String>) -> List<&2, R.Got>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case w <> rest:
-      got.of(w) <> gots(rest)
 
 # Writing
 # -------
@@ -147,33 +122,12 @@ def show.switch(m: Maybe<&2, R.Switch>) -> String:
         case R.Switch{to, delay}:
           String.concat(["f ", Nat.show(to), " ", Nat.show(delay), "\n"])
 
-def show.act(a: R.Act) -> String:
-  match a:
-    case R.Send{}:
-      "send"
-    case R.Poll{}:
-      "poll"
-    case R.Cancel{}:
-      "cancel"
-    case R.Settle{}:
-      "settle"
-    case R.Quit{}:
-      "quit"
-
 def show.idle(i: R.Idle) -> String:
   match i:
     case R.IdleStall{at}:
       String.concat(["i stalled ", Nat.show(at), "\n"])
     case R.IdleClose{at}:
       "i done\n"
-
-def acts(gs: List<&2, R.Got>, +fails: Nat, +budget: Nat, +job: R.Job) -> String:
-  match gs:
-    case Nil{}:
-      ""
-    case g <> rest:
-      +st = R.step(fails, budget, job, g)
-      String.concat([" ", show.act(R.Step.act(st)), acts(rest, fails, budget, R.Step.job(st))])
 
 # one case; h is its first word, ws all its words
 def line(h: String, +ws: List<&2, String>) -> String:
@@ -184,8 +138,6 @@ def line(h: String, +ws: List<&2, String>) -> String:
       show.delay(R.wait(arg(ws, 1n), opt(ws, 2n), arg(ws, 3n)))
     case SCon{'f', r}:
       show.switch(R.next(arg(ws, 1n), trieds(after(ws, 5n)), R.Policy{arg(ws, 2n), arg(ws, 3n), arg(ws, 4n)}))
-    case SCon{'d', r}:
-      String.concat(["d", acts(gots(after(ws, 3n)), arg(ws, 1n), arg(ws, 2n), R.NoJob{}), "\n"])
     case SCon{'s', r}:
       String.concat(["s ", Nat.show(R.stall.next(arg(ws, 1n))), "\n"])
     case SCon{'i', r}:
