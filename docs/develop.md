@@ -36,8 +36,10 @@ The hooks (`.pre-commit-config.yaml`) run at low CPU priority
 - pre-push: `make ci-local` on the pushed commit, in a separate worktree
   (`<git common dir>/eukhe-ci-local`), so local changes do not change the
   result. It runs every gate of `.github/workflows/ci.yml`: fmt, cargo
-  check and clippy, `cargo test --workspace` in a clean environment with
-  `EUKHE_REQUIRE_BEND=1`, the eukhe-runtime suite, the dashboard UI
+  check and clippy, `cargo test --workspace` as the test shards of
+  `ci.yml` (all shards at the same time, then the shard audit) in a clean
+  environment with `EUKHE_REQUIRE_BEND=1`, the eukhe-runtime suite, the
+  dashboard UI
   (`web/` up to date), `bend PROOF.bend` and `--verdict`,
   `scripts/check_laws_wired.py`, the release-version bridge, cargo-deny,
   and gitleaks on the pushed commits.
