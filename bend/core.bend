@@ -5,7 +5,10 @@ import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_child.bend as ffi_child
+import ./ffi_child_env.bend as ffi_child_env
+import ./ffi_cvar.bend as ffi_cvar
 import ./ffi_default_model.bend as ffi_default_model
+import ./ffi_director.bend as ffi_director
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
@@ -37,24 +40,30 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 4:
       ffi_child.ffi(input)
     case 5:
-      ffi_default_model.ffi(input)
+      ffi_child_env.ffi(input)
     case 6:
-      ffi_doc_lines.ffi(input)
+      ffi_cvar.ffi(input)
     case 7:
-      ffi_doc_seen.ffi(input)
+      ffi_default_model.ffi(input)
     case 8:
-      ffi_effort.ffi(input)
+      ffi_director.ffi(input)
     case 9:
-      ffi_facts.ffi(input)
+      ffi_doc_lines.ffi(input)
     case 10:
-      ffi_infer.ffi(input)
+      ffi_doc_seen.ffi(input)
     case 11:
-      ffi_job.ffi(input)
+      ffi_effort.ffi(input)
     case 12:
-      ffi_progress.ffi(input)
+      ffi_facts.ffi(input)
     case 13:
-      ffi_sandbox.ffi(input)
+      ffi_infer.ffi(input)
     case 14:
+      ffi_job.ffi(input)
+    case 15:
+      ffi_progress.ffi(input)
+    case 16:
+      ffi_sandbox.ffi(input)
+    case 17:
       ffi_workflow.ffi(input)
     case _:
       W.err("unknown entry")
@@ -68,6 +77,7 @@ def ffi(+entry: U32, input: String) -> String:
 type State is Type:
   Echo{s: ffi_echo.St}
   Admission{s: ffi_admission.St}
+  Cvar{s: ffi_cvar.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -80,12 +90,19 @@ def open.admission(r: ffi_admission.St & String) -> State & String:
     case (s, reply):
       (Admission{s}, reply)
 
+def open.cvar(r: ffi_cvar.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Cvar{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
       open.echo(ffi_echo.open(input))
     case 2:
       open.admission(ffi_admission.open(input))
+    case 6:
+      open.cvar(ffi_cvar.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -104,12 +121,19 @@ def step.admission(r: ffi_admission.St & String) -> State & String:
     case (s, reply):
       (Admission{s}, reply)
 
+def step.cvar(r: ffi_cvar.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Cvar{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
       step.echo(ffi_echo.step(s, input))
     case Admission{s}:
       step.admission(ffi_admission.step(s, input))
+    case Cvar{s}:
+      step.cvar(ffi_cvar.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -123,6 +147,8 @@ def close.go(state: State) -> Unit:
     case Echo{s}:
       Unit{}
     case Admission{s}:
+      Unit{}
+    case Cvar{s}:
       Unit{}
     case Unknown{}:
       Unit{}

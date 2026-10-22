@@ -565,6 +565,7 @@ name = "eukhe-bend"
 version = "0.10.0"
 dependencies = [
  "cc",
+ "eukhe-types",
 ]
 
 [[package]]
@@ -866,6 +867,7 @@ dependencies = [
  "base64",
  "clap",
  "crossterm",
+ "eukhe-bend",
  "eukhe-build-info",
  "eukhe-theme",
  "eukhe-types",

@@ -88,8 +88,10 @@ tools behind `dyn`, the internal URLs and the shell.
    `ACCESS_KEY`. A local kernel gets the same environment, but it keeps the
    credentials that the MCP config of the user reads (a `bearerTokenEnvVar`,
    a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that
-   names a variable). It never keeps a provider credential. The laws (G3)
-   in `LAWS.bend` section `child_env` state this. The
+   names a variable). It never keeps a provider credential. The rule runs
+   as the compiled model `bend/child_env.bend` (`kernel::manager::child_env`
+   calls the entry `bend/ffi_child_env.bend`); the laws (G3) in `LAWS.bend`
+   sections `child_env` and `child_env_entry` state it. The
    commands of a pipeline run at the same time. OS pipes connect them, and
    the pipe buffer of the kernel limits each pipe. When a command stops,
    its input pipe closes. The command that writes to that pipe then stops

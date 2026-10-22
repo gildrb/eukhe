@@ -7,6 +7,11 @@ publish.workspace = true
 description = "the compiled Bend core: every rule with a Bend model, called through one C entry"
 links = "eukhe_bend"
 
+[dependencies]
+# The command language's vocabulary (`rules::cvar`): eukhe-types holds no
+# behavior and no C; the rule over its types lives here.
+eukhe-types.workspace = true
+
 [build-dependencies]
 # Compiles c/shim.c (which includes the generated c/core.c). Already in the
 # graph (Cargo.lock). MIT OR Apache-2.0.

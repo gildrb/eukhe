@@ -16,26 +16,32 @@ pub enum Entry {
     AuxFallback = 3,
     /// `bend/ffi_child.bend`: a call.
     Child = 4,
+    /// `bend/ffi_child_env.bend`: a call.
+    ChildEnv = 5,
+    /// `bend/ffi_cvar.bend`: a call and a stepper.
+    Cvar = 6,
     /// `bend/ffi_default_model.bend`: a call.
-    DefaultModel = 5,
+    DefaultModel = 7,
+    /// `bend/ffi_director.bend`: a call.
+    Director = 8,
     /// `bend/ffi_doc_lines.bend`: a call.
-    DocLines = 6,
+    DocLines = 9,
     /// `bend/ffi_doc_seen.bend`: a call.
-    DocSeen = 7,
+    DocSeen = 10,
     /// `bend/ffi_effort.bend`: a call.
-    Effort = 8,
+    Effort = 11,
     /// `bend/ffi_facts.bend`: a call.
-    Facts = 9,
+    Facts = 12,
     /// `bend/ffi_infer.bend`: a call.
-    Infer = 10,
+    Infer = 13,
     /// `bend/ffi_job.bend`: a call.
-    Job = 11,
+    Job = 14,
     /// `bend/ffi_progress.bend`: a call.
-    Progress = 12,
+    Progress = 15,
     /// `bend/ffi_sandbox.bend`: a call.
-    Sandbox = 13,
+    Sandbox = 16,
     /// `bend/ffi_workflow.bend`: a call.
-    Workflow = 14,
+    Workflow = 17,
 }
 
 impl Entry {
@@ -46,7 +52,10 @@ impl Entry {
         Entry::Admission,
         Entry::AuxFallback,
         Entry::Child,
+        Entry::ChildEnv,
+        Entry::Cvar,
         Entry::DefaultModel,
+        Entry::Director,
         Entry::DocLines,
         Entry::DocSeen,
         Entry::Effort,

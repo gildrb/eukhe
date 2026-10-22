@@ -92,36 +92,6 @@ fn a_rendered_list_parses_back_to_itself() {
 }
 
 #[test]
-fn expansion_runs_bodies_and_reports_cycles_and_unknown_aliases() {
-    let mut aliases = Aliases::default();
-    aliases.define("a".to_string(), vec![set("x", "1"), run("b")]);
-    aliases.define("b".to_string(), vec![set("y", "2")]);
-    aliases.define("loop".to_string(), vec![run("loop2")]);
-    aliases.define("loop2".to_string(), vec![run("loop")]);
-    aliases.define("gone".to_string(), vec![run("missing")]);
-    assert_eq!(
-        [
-            expand(&[run("a"), set("z", "3")], &aliases),
-            expand(&[run("loop")], &aliases),
-            expand(&[run("gone")], &aliases),
-            expand(&[set("q", "1"), run("loop"), run("missing")], &aliases),
-        ],
-        [
-            Ok(vec![set("x", "1"), set("y", "2"), set("z", "3")]),
-            Err(ExpandError::Cycle {
-                alias: "loop".to_string()
-            }),
-            Err(ExpandError::Unknown {
-                alias: "missing".to_string()
-            }),
-            Err(ExpandError::Cycle {
-                alias: "loop".to_string()
-            }),
-        ]
-    );
-}
-
-#[test]
 fn a_redefined_alias_keeps_its_place_and_takes_the_new_body() {
     let mut aliases = Aliases::default();
     aliases.define("a".to_string(), vec![set("x", "1")]);
@@ -131,17 +101,4 @@ fn a_redefined_alias_keeps_its_place_and_takes_the_new_body() {
     expected.define("a".to_string(), vec![set("x", "2")]);
     expected.define("b".to_string(), vec![]);
     assert_eq!(aliases, expected);
-}
-
-#[test]
-fn a_press_runs_the_first_bind_of_its_key() {
-    let mut aliases = Aliases::default();
-    aliases.define("fast".to_string(), vec![set("transport", "sse")]);
-    let mut binds = Binds::default();
-    binds.push("f1".to_string(), vec![run("fast")]);
-    binds.push("f1".to_string(), vec![set("ignored", "1")]);
-    assert_eq!(
-        [binds.press("f1", &aliases), binds.press("f2", &aliases)],
-        [Ok(vec![set("transport", "sse")]), Ok(vec![])]
-    );
 }

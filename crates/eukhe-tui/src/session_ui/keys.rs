@@ -262,9 +262,10 @@ impl SessionUi {
         let Some(id) = key_event_to_id(&key) else {
             return Ok(());
         };
-        // The key's bind (`binds.cfg` over the defaults, `Binds::press`):
-        // its `set`/`toggle`/`alias` commands go to the session's daemon;
-        // its `action` commands run through the ladder below (each
+        // The key's bind (`binds.cfg` over the defaults,
+        // `KeybindingsManager::press`): its `set`/`toggle`/`alias`
+        // commands go to the session's daemon; its `action` commands run
+        // through the ladder below (each
         // `matches` reads the same bind), and a bind of cvar commands
         // only ends here. A bind that fails to expand (an alias cycle or
         // an unknown alias) runs nothing and says why.
