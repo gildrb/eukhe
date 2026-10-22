@@ -105,44 +105,69 @@ pub enum AuxiliaryRoute<T> {
     },
 }
 
+/// What the decision knows before the resolver's lookups
+/// (`bend/aux_fallback.bend` `Gate`): the route, or that the lookups of
+/// the named selector must run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Gate<'a> {
+    /// The session model runs, with nothing to say.
+    Session,
+    /// The session model runs in place of the named selector.
+    Fallback(&'a str, FallbackReason),
+    /// The lookups of the named selector decide.
+    Lookup(&'a str),
+}
+
+/// The selector, then `allowedModels` (`allowed`: whether it admits the
+/// selector; read only for another model).
+pub(crate) fn gate(selector: &AuxiliarySelector, allowed: bool) -> Gate<'_> {
+    match selector {
+        AuxiliarySelector::Unset | AuxiliarySelector::SessionModel => Gate::Session,
+        AuxiliarySelector::Other(name) if allowed => Gate::Lookup(name),
+        AuxiliarySelector::Other(name) => Gate::Fallback(name, FallbackReason::NotAllowed),
+    }
+}
+
+/// A found model's context window (`0`: unknown) fits the request
+/// (`None`: unknown): `bend/aux_fallback.bend` `settle` of a found model.
+pub(crate) fn fits(context_window: u64, required_context_tokens: Option<u64>) -> bool {
+    required_context_tokens.is_none_or(|required| context_window == 0 || context_window >= required)
+}
+
 /// Decide where a summarizer pass runs, with the checks in their order:
 /// the selector (unset or the session model keeps the session), then
 /// `allowedModels`, then `find` (the resolver's own lookups: catalog, key,
 /// collection), then the context window against `required_context_tokens`
 /// (a known window smaller than the request falls back; an unknown window
-/// or an unknown request keeps the route). `find` runs only for another
-/// model that `allowedModels` admits.
+/// or an unknown request keeps the route). `find` runs only when the gate
+/// asks for the lookups.
 pub fn decide_auxiliary_route<T>(
-    selector: AuxiliarySelector,
+    selector: &AuxiliarySelector,
     allowlist: Option<&[String]>,
     required_context_tokens: Option<u64>,
     find: impl FnOnce(&str) -> Result<Found<T>, FallbackReason>,
 ) -> AuxiliaryRoute<T> {
-    let selector = match selector {
-        AuxiliarySelector::Unset | AuxiliarySelector::SessionModel => {
-            return AuxiliaryRoute::Session
+    let allowed = match selector {
+        AuxiliarySelector::Other(name) => {
+            allowlist.is_none_or(|allowlist| crate::models::model_allowed(name, allowlist))
         }
-        AuxiliarySelector::Other(selector) => selector,
+        AuxiliarySelector::Unset | AuxiliarySelector::SessionModel => true,
     };
-    if allowlist.is_some_and(|allowlist| !crate::models::model_allowed(&selector, allowlist)) {
-        return AuxiliaryRoute::Fallback {
-            selector,
-            reason: FallbackReason::NotAllowed,
-        };
-    }
-    let found = match find(&selector) {
-        Ok(found) => found,
-        Err(reason) => return AuxiliaryRoute::Fallback { selector, reason },
+    let (name, reason) = match gate(selector, allowed) {
+        Gate::Session => return AuxiliaryRoute::Session,
+        Gate::Fallback(name, reason) => (name, reason),
+        Gate::Lookup(name) => match find(name) {
+            Ok(found) if fits(found.context_window, required_context_tokens) => {
+                return AuxiliaryRoute::Routed(found.model)
+            }
+            Ok(_) => (name, FallbackReason::WindowTooSmall),
+            Err(reason) => (name, reason),
+        },
     };
-    if let Some(required) = required_context_tokens {
-        if found.context_window > 0 && found.context_window < required {
-            return AuxiliaryRoute::Fallback {
-                selector,
-                reason: FallbackReason::WindowTooSmall,
-            };
-        }
+    AuxiliaryRoute::Fallback {
+        selector: name.to_owned(),
+        reason,
     }
-    AuxiliaryRoute::Routed(found.model)
 }
 
 /// The fallbacks one session has shown. Each distinct purpose, selector
@@ -276,7 +301,7 @@ pub fn resolve_auxiliary_model(
     let mut registry =
         crate::models::ModelRegistry::create(auth, context.agent_dir.join("models.json"));
     let route = decide_auxiliary_route(
-        selector,
+        &selector,
         settings.get_allowed_models().as_deref(),
         required_context_tokens,
         |selector| {

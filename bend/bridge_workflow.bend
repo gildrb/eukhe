@@ -30,31 +30,29 @@ def arg(+ws: List<&2, String>, k: Nat) -> Nat:
   tok.nat(tok.at(ws, k))
 
 # The size table: (concurrency, max agents).
-def limits(s: Nat) -> Nat & Nat:
+def limits(s: Nat) -> W.Limits:
   match s:
     case 0n:
-      (3n, 5n)
+      W.Limits{3n, 5n}
     case 1n+a:
       match a:
         case 0n:
-          (6n, 10n)
+          W.Limits{6n, 10n}
         case 1n+b:
-          (12n, 25n)
+          W.Limits{12n, 25n}
 
-def capped(+c: Nat, cap: Nat) -> Nat:
-  match cap:
-    case 0n:
-      c
-    case 1n+m:
-      Nat.min(c, 1n+m)
+def show.limits(l: W.Limits) -> String:
+  match l:
+    case W.Limits{c, m}:
+      String.concat(["l ", Nat.show(c), " ", Nat.show(m), "\n"])
 
-def show.limits(l: Nat & Nat, cap: Nat) -> String:
-  (+c, m) = l
-  String.concat(["l ", Nat.show(capped(c, cap)), " ", Nat.show(m), "\n"])
-
-def show.call(c: W.Call) -> String:
+def show.call(c: W.Admit) -> String:
   match c:
-    case W.Cached{}:
+    case W.Ended{}:
+      "g ended\n"
+    case W.Reattach{}:
+      "g spawn\n"
+    case W.Reuse{i}:
       "g cached\n"
     case W.Spawn{}:
       "g spawn\n"
@@ -62,9 +60,9 @@ def show.call(c: W.Call) -> String:
       "g refused\n"
 
 type St is Data:
-  St{pool: W.Pool, cache: List<&2, Nat>, out: List<&2, String>}
+  St{pool: W.Pool, cache: List<&2, W.Row>, out: List<&2, String>}
 
-def called(r: W.Call & W.Pool, cache: List<&2, Nat>, out: List<&2, String>) -> St:
+def called(r: W.Admit & W.Pool, cache: List<&2, W.Row>, out: List<&2, String>) -> St:
   (c, p) = r
   St{p, cache, show.call(c) <> out}
 
@@ -73,7 +71,7 @@ def line(h: String, +ws: List<&2, String>, s: St) -> St:
     case SCon{'l', r}:
       match s:
         case St{p, cache, out}:
-          St{p, cache, show.limits(limits(arg(ws, 1n)), arg(ws, 2n)) <> out}
+          St{p, cache, show.limits(W.effective(limits(arg(ws, 1n)), arg(ws, 2n))) <> out}
     case SCon{'b', r}:
       match s:
         case St{p, cache, out}:
@@ -81,11 +79,11 @@ def line(h: String, +ws: List<&2, String>, s: St) -> St:
     case SCon{'c', r}:
       match s:
         case St{p, cache, out}:
-          St{p, arg(ws, 1n) <> cache, out}
+          St{p, List.append(&2, W.Row, cache, [W.Row{arg(ws, 1n), W.Finished{}}]), out}
     case SCon{'g', r}:
       match s:
         case St{p, +cache, out}:
-          called(W.call(arg(ws, 1n), cache, p), cache, out)
+          called(W.admit(None{}, arg(ws, 1n), cache, p), cache, out)
     case r:
       s
 

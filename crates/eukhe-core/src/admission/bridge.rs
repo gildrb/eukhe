@@ -25,6 +25,7 @@ use std::task::{Context, Poll, Waker};
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 use eukhe_types::daemon::AdmissionPriority;
 
+use super::live::{Status, Ticket};
 use super::{Admission, AdmissionController, AdmissionLimits, ProviderPermit, QueuedPermit};
 
 /// What the scenario holds of one ticket.
@@ -70,15 +71,26 @@ impl Run {
     fn state(&mut self, outcome: &str) {
         let snapshot = self.controller.snapshot();
         let state = self.controller.lock();
-        let mut background: Vec<u64> = state.background.keys().copied().collect();
-        background.sort_unstable();
-        let mut granted: Vec<u64> = state
-            .slots
-            .iter()
-            .filter(|(_, slot)| slot.granted.is_some())
-            .map(|(ticket, _)| *ticket)
-            .collect();
-        granted.sort_unstable();
+        let numbers = |pick: fn(&Ticket) -> bool| {
+            state
+                .live
+                .tickets
+                .iter()
+                .filter(|ticket| pick(ticket))
+                .map(|ticket| ticket.number)
+                .collect::<Vec<u64>>()
+        };
+        let interactive_queue = numbers(|ticket| {
+            ticket.class == AdmissionPriority::Interactive && ticket.status == Status::Queued
+        });
+        let background = numbers(|ticket| {
+            ticket.class == AdmissionPriority::Background
+                && matches!(ticket.status, Status::Granted | Status::Held)
+        });
+        let background_queue = numbers(|ticket| {
+            ticket.class == AdmissionPriority::Background && ticket.status == Status::Queued
+        });
+        let granted = numbers(|ticket| ticket.status == Status::Granted);
         let preempted = self
             .hands
             .iter()
@@ -94,9 +106,9 @@ impl Run {
             snapshot.waiting,
             snapshot.background_active,
             snapshot.background_waiting,
-            join(state.interactive_queue.iter().copied()),
+            join(interactive_queue.into_iter()),
             join(background.into_iter()),
-            join(state.background_queue.iter().copied()),
+            join(background_queue.into_iter()),
             join(granted.into_iter()),
             join(preempted),
         );

@@ -375,6 +375,232 @@ def run(os: List<&2, Op>, s: St) -> St:
 def St.new(l: Lim, q: Nat) -> St:
   St{l, q, Nil{}}
 
+# The live controller
+# -------------------
+# What eukhe runs (the Rust `ControllerState` keeps this state and asks
+# `Live.step` for each op). The model above keeps every ticket ever
+# admitted, so its ticket k is its k-th entry; this one keeps only the
+# live tickets (an ended ticket leaves), each with its ticket number, and
+# the number the next ticket gets. LAWS.bend (`admission_live_step`)
+# states that it is the model above with the ended tickets left out.
+
+# a live ticket: its number, class and status
+type Lv is Data:
+  Lv{k: Nat, c: Cls, s: Sts}
+
+# the limit, providerMaxQueued, the live tickets (oldest first) and the
+# next ticket's number
+type Live is Data:
+  Live{lim: Lim, q: Nat, ts: List<&2, Lv>, next: Nat}
+
+def lv.hit(+m: Mode, +c: Cls, t: Lv) -> Bool:
+  match t:
+    case Lv{k, tc, s}:
+      hit(m, c, Tk{tc, s})
+
+def lv.cnt(+m: Mode, +c: Cls, ts: List<&2, Lv>) -> Nat:
+  match ts:
+    case Nil{}:
+      0n
+    case h <> r:
+      bit(lv.hit(m, c, h), lv.cnt(m, c, r))
+
+def lv.held(+ts: List<&2, Lv>) -> Nat:
+  Nat.add(lv.cnt(Holding{}, Ia{}, ts), lv.cnt(Holding{}, Bg{}, ts))
+
+def lv.waits(+ts: List<&2, Lv>) -> Nat:
+  Nat.add(lv.cnt(Waiting{}, Ia{}, ts), lv.cnt(Waiting{}, Bg{}, ts))
+
+def lv.pick(+l: Lim, +ts: List<&2, Lv>) -> Maybe<&2, Cls>:
+  pick.go(room(l, lv.held(ts)), lv.cnt(Waiting{}, Ia{}, ts), lv.cnt(Holding{}, Ia{}, ts), lv.cnt(Waiting{}, Bg{}, ts))
+
+def lv.mark.at(b: Bool, c: Cls, h: Lv, r: List<&2, Lv>, m: List<&2, Lv>) -> List<&2, Lv>:
+  match b:
+    case True{}:
+      match h:
+        case Lv{k, hc, s}:
+          Lv{k, c, Granted{}} <> r
+    case False{}:
+      h <> m
+
+# grant the oldest waiter of class c
+def lv.mark(+c: Cls, ts: List<&2, Lv>) -> List<&2, Lv>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case +h <> +r:
+      lv.mark.at(lv.hit(Waiting{}, c, h), c, h, r, lv.mark(c, r))
+
+def lv.grant.go(n: Nat, d: Maybe<&2, Cls>, +l: Lim, +ts: List<&2, Lv>) -> List<&2, Lv>:
+  match n d:
+    case 0n _:
+      ts
+    case 1n+f None{}:
+      ts
+    case 1n+f Some{c}:
+      +t2 = lv.mark(c, ts)
+      lv.grant.go(f, lv.pick(l, t2), l, t2)
+
+def lv.grant(+l: Lim, +ts: List<&2, Lv>) -> List<&2, Lv>:
+  lv.grant.go(lv.waits(ts), lv.pick(l, ts), l, ts)
+
+def lv.of(k: Nat, t: Tk) -> Lv:
+  match t:
+    case Tk{c, s}:
+      Lv{k, c, s}
+
+def lv.preempt.one(t: Lv) -> Lv:
+  match t:
+    case Lv{k, c, s}:
+      lv.of(k, Tk.preempt(Tk{c, s}))
+
+def lv.preempt(ts: List<&2, Lv>) -> List<&2, Lv>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case h <> r:
+      lv.preempt.one(h) <> lv.preempt(r)
+
+# the new ticket k of class c with status s: it stays only when live
+def lv.fresh(s: Sts, k: Nat, c: Cls) -> List<&2, Lv>:
+  match s:
+    case Queued{}:
+      [Lv{k, c, Queued{}}]
+    case Granted{}:
+      [Lv{k, c, Granted{}}]
+    case Held{}:
+      [Lv{k, c, Held{}}]
+    case Preempted{}:
+      [Lv{k, c, Preempted{}}]
+    case Ended{}:
+      Nil{}
+
+def lv.admit.ia(+l: Lim, +q: Nat, +ts: List<&2, Lv>, k: Nat) -> List<&2, Lv>:
+  List.append(&2, Lv, lv.preempt(ts), lv.fresh(admit.ia.st(Bool.and(isz(lv.cnt(Waiting{}, Ia{}, ts)), room(l, lv.cnt(Holding{}, Ia{}, ts))), le(q, lv.cnt(Waiting{}, Ia{}, ts))), k, Ia{}))
+
+def lv.admit.bg(+l: Lim, +ts: List<&2, Lv>, k: Nat) -> List<&2, Lv>:
+  List.append(&2, Lv, ts, lv.fresh(admit.bg.st(Bool.and(isz(lv.cnt(Holding{}, Ia{}, ts)), Bool.and(isz(lv.cnt(Waiting{}, Ia{}, ts)), Bool.and(isz(lv.cnt(Waiting{}, Bg{}, ts)), room(l, lv.held(ts)))))), k, Bg{}))
+
+def lv.find.at(b: Bool, s: Sts, r: Maybe<&2, Sts>) -> Maybe<&2, Sts>:
+  match b:
+    case True{}:
+      Some{s}
+    case False{}:
+      r
+
+# the status of live ticket k (none: ended, or never admitted)
+def lv.find(ts: List<&2, Lv>, +k: Nat) -> Maybe<&2, Sts>:
+  match ts:
+    case Nil{}:
+      None{}
+    case Lv{+j, c, s} <> r:
+      lv.find.at(Nat.is_eq(j, k), s, lv.find(r, k))
+
+def lv.set.at(b: Bool, t: Lv, x: Sts) -> Lv:
+  match b:
+    case True{}:
+      match t:
+        case Lv{k, c, s}:
+          Lv{k, c, x}
+    case False{}:
+      t
+
+# ticket k gets status x
+def lv.set(ts: List<&2, Lv>, +k: Nat, +x: Sts) -> List<&2, Lv>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case Lv{+j, c, s} <> r:
+      lv.set.at(Nat.is_eq(j, k), Lv{j, c, s}, x) <> lv.set(r, k, x)
+
+def lv.drop.at(b: Bool, t: Lv, r: List<&2, Lv>) -> List<&2, Lv>:
+  match b:
+    case True{}:
+      r
+    case False{}:
+      t <> r
+
+# ticket k ends: it leaves
+def lv.drop(ts: List<&2, Lv>, +k: Nat) -> List<&2, Lv>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case Lv{+j, c, s} <> r:
+      lv.drop.at(Nat.is_eq(j, k), Lv{j, c, s}, lv.drop(r, k))
+
+def lv.collect(m: Maybe<&2, Sts>, +ts: List<&2, Lv>, k: Nat) -> List<&2, Lv>:
+  match m:
+    case Some{Granted{}}:
+      lv.set(ts, k, Held{})
+    case Some{Queued{}}:
+      ts
+    case Some{Held{}}:
+      ts
+    case Some{Preempted{}}:
+      ts
+    case Some{Ended{}}:
+      ts
+    case None{}:
+      ts
+
+def lv.release(m: Maybe<&2, Sts>, +l: Lim, +ts: List<&2, Lv>, k: Nat) -> List<&2, Lv>:
+  match m:
+    case Some{Held{}}:
+      lv.grant(l, lv.drop(ts, k))
+    case Some{Preempted{}}:
+      lv.drop(ts, k)
+    case Some{Queued{}}:
+      ts
+    case Some{Granted{}}:
+      ts
+    case Some{Ended{}}:
+      ts
+    case None{}:
+      ts
+
+def lv.leave(m: Maybe<&2, Sts>, +l: Lim, +ts: List<&2, Lv>, k: Nat) -> List<&2, Lv>:
+  match m:
+    case Some{Queued{}}:
+      lv.grant(l, lv.drop(ts, k))
+    case Some{Granted{}}:
+      lv.grant(l, lv.drop(ts, k))
+    case Some{Held{}}:
+      ts
+    case Some{Preempted{}}:
+      ts
+    case Some{Ended{}}:
+      ts
+    case None{}:
+      ts
+
+# one op on the live controller
+def Live.step(x: Live, o: Op) -> Live:
+  match x:
+    case Live{+l, +q, +ts, +n}:
+      match o:
+        case Admit{Ia{}}:
+          Live{l, q, lv.admit.ia(l, q, ts, n), 1n+n}
+        case Admit{Bg{}}:
+          Live{l, q, lv.admit.bg(l, ts, n), 1n+n}
+        case Collect{+k}:
+          Live{l, q, lv.collect(lv.find(ts, k), ts, k), n}
+        case Release{+k}:
+          Live{l, q, lv.release(lv.find(ts, k), l, ts, k), n}
+        case Leave{+k}:
+          Live{l, q, lv.leave(lv.find(ts, k), l, ts, k), n}
+        case Limit{+l2, q2}:
+          Live{l2, q2, lv.grant(l2, ts), n}
+
+def Live.run(os: List<&2, Op>, x: Live) -> Live:
+  match os:
+    case Nil{}:
+      x
+    case o <> r:
+      Live.run(r, Live.step(x, o))
+
+def Live.new(l: Lim, q: Nat) -> Live:
+  Live{l, q, Nil{}, 0n}
+
 # What the laws speak of
 # ----------------------
 

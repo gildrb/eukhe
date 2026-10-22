@@ -87,25 +87,42 @@ def found(+p: Nat, +s: Nat, look: Look, +need: Nat) -> Route:
     case Hit{w}:
       fits.route(fits(w, need), p, s)
 
-# the allowedModels check, then the lookups
-def admitted(ok: Bool, +p: Nat, +s: Nat, look: Look, +need: Nat) -> Route:
-  match ok:
-    case True{}:
+# What the decision knows before the resolver's lookups (which read the
+# catalog, the credentials and the session's models, so they run only
+# when needed): the route, or that the lookups of the selector s for the
+# purpose p must run.
+type Gate is Data:
+  Known{r: Route}
+  Lookup{p: Nat, s: Nat}
+
+# the selector, then the allowedModels check
+def gate(p: Nat, sel: Sel, ok: Bool) -> Gate:
+  match sel:
+    case Unset{}:
+      Known{Session{}}
+    case Same{}:
+      Known{Session{}}
+    case Other{s}:
+      match ok:
+        case True{}:
+          Lookup{p, s}
+        case False{}:
+          Known{Fallback{K{p, s, 0n}}}
+
+# the route, given the gate and what the lookups found (read only when
+# the gate asked for them)
+def settle(g: Gate, look: Look, +need: Nat) -> Route:
+  match g:
+    case Known{r}:
+      r
+    case Lookup{p, s}:
       found(p, s, look, need)
-    case False{}:
-      Fallback{K{p, s, 0n}}
 
 # where the pass x runs
 def decide(x: Pass) -> Route:
   match x:
     case Pass{p, sel, ok, look, need}:
-      match sel:
-        case Unset{}:
-          Session{}
-        case Same{}:
-          Session{}
-        case Other{s}:
-          admitted(ok, p, s, look, need)
+      settle(gate(p, sel, ok), look, need)
 
 # The session
 # -----------

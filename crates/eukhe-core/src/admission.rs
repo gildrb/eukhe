@@ -21,7 +21,7 @@
 //! [`ProviderAdmission`]; a run without a daemon uses
 //! [`local_admission`], the same semantics in this process.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::pin::Pin;
@@ -166,123 +166,91 @@ fn count(len: usize) -> u32 {
     u32::try_from(len).unwrap_or(u32::MAX)
 }
 
-#[derive(Debug)]
-struct WaitSlot {
-    /// The grant's preemption token, once granted. A background grant its
-    /// waiter has not collected yet goes back to the queue on preemption.
-    granted: Option<CancellationToken>,
-    waker: Option<Waker>,
+/// What one op asks of the world once the lock is released: waiters to
+/// wake, preemption tokens to cancel.
+#[derive(Debug, Default)]
+struct Effects {
+    wake: Vec<Waker>,
+    cancel: Vec<CancellationToken>,
 }
 
+impl Effects {
+    fn fire(self) {
+        self.wake.into_iter().for_each(Waker::wake);
+        for token in self.cancel {
+            token.cancel();
+        }
+    }
+}
+
+/// One provider's admission: the live tickets the rule decides on
+/// ([`live::step`]), and what the rule cannot hold: each slot's preemption
+/// token and each waiter's waker.
 #[derive(Debug)]
 struct ControllerState {
-    limit: Option<NonZeroU32>,
-    queue_limit: u32,
-    /// Interactive permits held (granted waiters included).
-    interactive: u32,
-    /// Background permits held (granted waiters included), by ticket: a
-    /// preemption frees their slots and cancels their tokens.
-    background: HashMap<u64, CancellationToken>,
-    next_ticket: u64,
-    /// Waiting interactive tickets. Tickets count up, so ticket order is
-    /// arrival order: the first is the oldest.
-    interactive_queue: BTreeSet<u64>,
-    /// Waiting background tickets, oldest first. `providerMaxQueued` does
-    /// not apply to them: the compactor bounds its own calls.
-    background_queue: BTreeSet<u64>,
-    /// Every ticket not yet collected by its waiter: queued ones and
-    /// granted ones whose waiter has not polled since the grant.
-    slots: HashMap<u64, WaitSlot>,
+    live: live::Live,
+    /// The preemption token of each ticket holding a slot, made when its
+    /// holder first takes it (an admit or a collect); a preemption cancels
+    /// a collected background permit's.
+    tokens: HashMap<u64, CancellationToken>,
+    /// The waker of each waiter that polled before its grant.
+    wakers: HashMap<u64, Waker>,
 }
 
 impl ControllerState {
-    fn has_room(&self) -> bool {
-        let active = self
-            .interactive
-            .saturating_add(count(self.background.len()));
-        self.limit.is_none_or(|limit| active < limit.get())
+    /// The preemption token of ticket `number`.
+    fn token(&mut self, number: u64) -> CancellationToken {
+        self.tokens.entry(number).or_default().clone()
     }
 
-    /// Whether an interactive request holds or waits for a slot: background
-    /// requests wait meanwhile.
-    fn interactive_busy(&self) -> bool {
-        self.interactive > 0 || !self.interactive_queue.is_empty()
-    }
-
-    /// Take a slot for `ticket` (the caller made sure there is room).
-    /// Returns its preemption token, which only a preemption of a
-    /// background slot cancels.
-    fn hold(&mut self, ticket: u64, priority: AdmissionPriority) -> CancellationToken {
-        let token = CancellationToken::new();
-        match priority {
-            AdmissionPriority::Interactive => self.interactive += 1,
-            AdmissionPriority::Background => {
-                self.background.insert(ticket, token.clone());
+    /// Run `op` through the rule and carry out what changed: a waiter
+    /// granted a slot is woken, a background grant an interactive request
+    /// took back loses its token (the next grant makes another), a
+    /// collected background permit that was preempted has its token
+    /// cancelled, and an ended ticket leaves the tables.
+    fn apply(&mut self, op: live::Op) -> Effects {
+        let after = live::step(&self.live, op);
+        let before = std::mem::replace(&mut self.live, after);
+        let mut effects = Effects::default();
+        let mut was = before.tickets.iter().peekable();
+        for ticket in &self.live.tickets {
+            while let Some(ended) = was.next_if(|old| old.number < ticket.number) {
+                self.tokens.remove(&ended.number);
+                self.wakers.remove(&ended.number);
             }
-        }
-        token
-    }
-
-    /// Hand free slots to the oldest waiters (FIFO within each class):
-    /// interactive ones first, background ones only while no interactive
-    /// request holds a slot. Returns the wakers to fire once the lock is
-    /// released.
-    fn grant_waiters(&mut self) -> Vec<Waker> {
-        let mut wake = Vec::new();
-        while self.has_room() {
-            let next = match self.interactive_queue.pop_first() {
-                Some(ticket) => Some((ticket, AdmissionPriority::Interactive)),
-                None if self.interactive == 0 => self
-                    .background_queue
-                    .pop_first()
-                    .map(|ticket| (ticket, AdmissionPriority::Background)),
-                None => None,
-            };
-            let Some((ticket, priority)) = next else {
-                break;
-            };
-            let token = self.hold(ticket, priority);
-            if let Some(slot) = self.slots.get_mut(&ticket) {
-                slot.granted = Some(token);
-                wake.extend(slot.waker.take());
-            }
-        }
-        wake
-    }
-
-    /// An interactive request came: every background slot frees at once. A
-    /// granted background waiter that has not collected its permit waits
-    /// again, in its ticket's place (ahead of the requests that never had
-    /// a slot); the tokens of collected permits are returned, to cancel
-    /// once the lock is released.
-    fn preempt_background(&mut self) -> Vec<CancellationToken> {
-        let mut preempted = Vec::new();
-        for (ticket, token) in self.background.drain() {
-            match self.slots.get_mut(&ticket) {
-                Some(slot) => {
-                    slot.granted = None;
-                    self.background_queue.insert(ticket);
+            let prior = was
+                .next_if(|old| old.number == ticket.number)
+                .map(|old| old.status);
+            match (prior, ticket.status) {
+                (Some(live::Status::Queued) | None, live::Status::Granted) => {
+                    effects.wake.extend(self.wakers.remove(&ticket.number));
                 }
-                None => preempted.push(token),
-            }
-        }
-        preempted
-    }
-
-    /// The permit of `ticket` returns: its slot goes to the waiters. A
-    /// preempted background permit's slot was freed by the preemption.
-    fn release(&mut self, ticket: u64, priority: AdmissionPriority) -> Vec<Waker> {
-        match priority {
-            AdmissionPriority::Interactive => {
-                self.interactive = self.interactive.saturating_sub(1);
-            }
-            AdmissionPriority::Background => {
-                if self.background.remove(&ticket).is_none() {
-                    return Vec::new();
+                (Some(live::Status::Granted), live::Status::Queued) => {
+                    self.tokens.remove(&ticket.number);
                 }
+                (Some(live::Status::Held), live::Status::Preempted) => {
+                    effects.cancel.extend(self.tokens.remove(&ticket.number));
+                }
+                (
+                    Some(
+                        live::Status::Queued
+                        | live::Status::Granted
+                        | live::Status::Held
+                        | live::Status::Preempted,
+                    )
+                    | None,
+                    live::Status::Queued
+                    | live::Status::Granted
+                    | live::Status::Held
+                    | live::Status::Preempted,
+                ) => {}
             }
         }
-        self.grant_waiters()
+        for ended in was {
+            self.tokens.remove(&ended.number);
+            self.wakers.remove(&ended.number);
+        }
+        effects
     }
 }
 
@@ -312,14 +280,9 @@ impl AdmissionController {
         let provider_id = provider_id.into();
         Arc::new(Self {
             state: Mutex::new(ControllerState {
-                limit: limits.max_in_flight(&provider_id),
-                queue_limit: limits.max_queued(),
-                interactive: 0,
-                background: HashMap::new(),
-                next_ticket: 0,
-                interactive_queue: BTreeSet::new(),
-                background_queue: BTreeSet::new(),
-                slots: HashMap::new(),
+                live: live::Live::new(limits.max_in_flight(&provider_id), limits.max_queued()),
+                tokens: HashMap::new(),
+                wakers: HashMap::new(),
             }),
             provider_id,
         })
@@ -327,6 +290,12 @@ impl AdmissionController {
 
     fn lock(&self) -> MutexGuard<'_, ControllerState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Run `op` and carry out its effects once the lock is released.
+    fn apply(&self, op: live::Op) {
+        let effects = self.lock().apply(op);
+        effects.fire();
     }
 
     /// Take a permit of class `priority` if a slot is free for it, else
@@ -342,76 +311,39 @@ impl AdmissionController {
         priority: AdmissionPriority,
     ) -> Result<Admission, AdmissionRejected> {
         let mut state = self.lock();
-        let preempted = match priority {
-            AdmissionPriority::Interactive => state.preempt_background(),
-            AdmissionPriority::Background => Vec::new(),
-        };
-        let free = state.has_room()
-            && match priority {
-                AdmissionPriority::Interactive => state.interactive_queue.is_empty(),
-                AdmissionPriority::Background => {
-                    !state.interactive_busy() && state.background_queue.is_empty()
-                }
-            };
-        let ticket = state.next_ticket;
-        state.next_ticket += 1;
-        let admission = if free {
-            Ok(Admission::Granted(ProviderPermit {
+        let ticket = state.live.next;
+        let effects = state.apply(live::Op::Admit(priority));
+        let admission = match state.live.status(ticket) {
+            Some(live::Status::Held) => Ok(Admission::Granted(ProviderPermit {
                 controller: Arc::clone(self),
                 ticket,
-                priority,
-                preempted: state.hold(ticket, priority),
-            }))
-        } else {
-            let queued = match priority {
-                AdmissionPriority::Interactive => {
-                    if count(state.interactive_queue.len()) >= state.queue_limit {
-                        Err(AdmissionRejected {
-                            provider_id: self.provider_id.clone(),
-                            queue_limit: state.queue_limit,
-                        })
-                    } else {
-                        state.interactive_queue.insert(ticket);
-                        Ok(())
-                    }
-                }
-                AdmissionPriority::Background => {
-                    state.background_queue.insert(ticket);
-                    Ok(())
-                }
-            };
-            queued.map(|()| {
-                state.slots.insert(
-                    ticket,
-                    WaitSlot {
-                        granted: None,
-                        waker: None,
-                    },
-                );
-                Admission::Queued(QueuedPermit {
+                preempted: state.token(ticket),
+            })),
+            // A new ticket waits, or (never at once) holds a grant its
+            // waiter collects on its first poll.
+            Some(live::Status::Queued | live::Status::Granted) => {
+                Ok(Admission::Queued(QueuedPermit {
                     controller: Arc::clone(self),
                     ticket,
-                    priority,
                     collected: false,
-                })
-            })
+                }))
+            }
+            Some(live::Status::Preempted) | None => Err(AdmissionRejected {
+                provider_id: self.provider_id.clone(),
+                queue_limit: state.live.queue_limit,
+            }),
         };
         drop(state);
-        for token in preempted {
-            token.cancel();
-        }
+        effects.fire();
         admission
     }
 
     /// Apply new limits; waiters a raised limit makes room for are granted.
     pub fn set_limits(&self, limits: &AdmissionLimits) {
-        let wake = {
-            let mut state = self.lock();
-            state.limit = limits.max_in_flight(&self.provider_id);
-            state.queue_limit = limits.max_queued();
-            state.grant_waiters()
-        };
-        wake.into_iter().for_each(Waker::wake);
+        self.apply(live::Op::Limit(
+            limits.max_in_flight(&self.provider_id),
+            limits.max_queued(),
+        ));
     }
 
     /// The current counters.
@@ -419,16 +351,11 @@ impl AdmissionController {
     pub fn snapshot(&self) -> AdmissionSnapshot {
         let state = self.lock();
         AdmissionSnapshot {
-            active: state.interactive,
-            waiting: count(state.interactive_queue.len()),
-            background_active: count(state.background.len()),
-            background_waiting: count(state.background_queue.len()),
+            active: count(state.live.count(AdmissionPriority::Interactive, true)),
+            waiting: count(state.live.count(AdmissionPriority::Interactive, false)),
+            background_active: count(state.live.count(AdmissionPriority::Background, true)),
+            background_waiting: count(state.live.count(AdmissionPriority::Background, false)),
         }
-    }
-
-    fn release(&self, ticket: u64, priority: AdmissionPriority) {
-        let wake = self.lock().release(ticket, priority);
-        wake.into_iter().for_each(Waker::wake);
     }
 }
 
@@ -437,7 +364,6 @@ impl AdmissionController {
 pub struct ProviderPermit {
     controller: Arc<AdmissionController>,
     ticket: u64,
-    priority: AdmissionPriority,
     preempted: CancellationToken,
 }
 
@@ -453,7 +379,7 @@ impl ProviderPermit {
 
 impl Drop for ProviderPermit {
     fn drop(&mut self) {
-        self.controller.release(self.ticket, self.priority);
+        self.controller.apply(live::Op::Release(self.ticket));
     }
 }
 
@@ -464,7 +390,6 @@ impl Drop for ProviderPermit {
 pub struct QueuedPermit {
     controller: Arc<AdmissionController>,
     ticket: u64,
-    priority: AdmissionPriority,
     collected: bool,
 }
 
@@ -474,55 +399,35 @@ impl Future for QueuedPermit {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<ProviderPermit> {
         let this = self.get_mut();
         let mut state = this.controller.lock();
-        let Some(slot) = state.slots.get_mut(&this.ticket) else {
-            // Only `poll` and `drop` remove a slot, and a collected permit
-            // is never polled again.
-            return Poll::Pending;
-        };
-        let Some(preempted) = slot.granted.take() else {
-            slot.waker = Some(cx.waker().clone());
-            return Poll::Pending;
-        };
-        state.slots.remove(&this.ticket);
-        drop(state);
-        this.collected = true;
-        Poll::Ready(ProviderPermit {
-            controller: Arc::clone(&this.controller),
-            ticket: this.ticket,
-            priority: this.priority,
-            preempted,
-        })
+        match state.live.status(this.ticket) {
+            Some(live::Status::Granted) => {
+                let effects = state.apply(live::Op::Collect(this.ticket));
+                let preempted = state.token(this.ticket);
+                drop(state);
+                effects.fire();
+                this.collected = true;
+                Poll::Ready(ProviderPermit {
+                    controller: Arc::clone(&this.controller),
+                    ticket: this.ticket,
+                    preempted,
+                })
+            }
+            Some(live::Status::Queued) => {
+                state.wakers.insert(this.ticket, cx.waker().clone());
+                Poll::Pending
+            }
+            // Only a collected permit holds or was preempted, and it is
+            // never polled again.
+            Some(live::Status::Held | live::Status::Preempted) | None => Poll::Pending,
+        }
     }
 }
 
 impl Drop for QueuedPermit {
     fn drop(&mut self) {
-        if self.collected {
-            return;
+        if !self.collected {
+            self.controller.apply(live::Op::Leave(self.ticket));
         }
-        let wake = {
-            let mut state = self.controller.lock();
-            let granted = state
-                .slots
-                .remove(&self.ticket)
-                .is_some_and(|slot| slot.granted.is_some());
-            if granted {
-                state.release(self.ticket, self.priority)
-            } else {
-                match self.priority {
-                    AdmissionPriority::Interactive => {
-                        state.interactive_queue.remove(&self.ticket);
-                    }
-                    AdmissionPriority::Background => {
-                        state.background_queue.remove(&self.ticket);
-                    }
-                }
-                // The last interactive waiter leaving may let background
-                // waiters through.
-                state.grant_waiters()
-            }
-        };
-        wake.into_iter().for_each(Waker::wake);
     }
 }
 
@@ -774,6 +679,8 @@ pub fn local_admission(
         limits,
     )))
 }
+
+mod live;
 
 #[cfg(test)]
 mod bridge;
