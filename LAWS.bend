@@ -1,7 +1,10 @@
-# LAWS: what eukhe's chat memory must do, after Victor Taelin's OptChat
-# gist. Each law is an open claim about the model in bend/optchat.bend;
-# PROOF.bend proves them all. docs/memory.md maps each gist rule to the
-# Rust code and to the law (or test) that secures it.
+# LAWS: every law of eukhe, one section per area. The first section is
+# what eukhe's chat memory must do, after Victor Taelin's OptChat gist:
+# each law is an open claim about the model in bend/optchat.bend.
+# docs/memory.md maps each gist rule to the Rust code and to the law (or
+# test) that secures it. Each later section starts with `# ---- <area> ----`
+# and its requirement table. The models live in bend/<area>.bend;
+# PROOF.bend proves every law, as Laws.<law>.
 #
 #   bend PROOF.bend             checks every proof
 #   bend PROOF.bend --verdict   checks them again with the proven kernel
@@ -25,32 +28,43 @@ import ./bend/tools.bend as Tl
 import ./bend/screen.bend as Sc
 import ./bend/tiny.bend as Tn
 import ./bend/effort.bend as Ef
-import ./laws/release.bend as Release
-import ./laws/auth_flight.bend as AuthFlight
-import ./laws/themes.bend as Themes
-import ./laws/dashboard_tokens.bend as DashTokens
-import ./laws/progress.bend as Prg
-import ./laws/ladder.bend as Ladder
-import ./laws/kernel_local.bend as KernelLocal
-import ./laws/storage.bend as Storage
-import ./laws/recover.bend as Rec
-import ./laws/catalog_union.bend as CatalogUnion
-import ./laws/cron.bend as Cronl
-import ./laws/supervisor.bend as Sup
-import ./laws/gateway_width.bend as GatewayWidth
-import ./laws/tui_color.bend as TuiColor
-import ./laws/fsmode.bend as Fm
-import ./laws/path_policy.bend as Pg
-import ./laws/child_env.bend as Ce
-import ./laws/shell_classification.bend as Sg
-import ./laws/runners.bend as Ru
-import ./laws/approvals.bend as Ap
-import ./laws/retry.bend as Rt
-import ./laws/model_facts.bend as ModelFacts
-import ./laws/dashboard_auth.bend as DashAuth
-import ./laws/documents.bend as Docs
-import ./laws/config.bend as Cfg
-import ./laws/workflow.bend as Wf
+import ./bend/semver.bend as Sv
+import ./bend/auth_flight.bend as F
+import ./bend/theme.bend as T
+import ./bend/color.bend as Co
+import ./bend/tokens.bend as Tk
+import ./bend/progress.bend as Pr
+import ./bend/aux_fallback.bend as Af
+import ./bend/skill_load.bend as Sk
+import ./bend/kernel_local.bend as KL
+import ./bend/log.bend as Lg
+import ./bend/staging.bend as Sg
+import ./bend/catalog_union.bend as CU
+import ./bend/cron.bend as Cr
+import ./bend/supervise.bend as Su
+import ./bend/revive.bend as Rv
+import ./bend/orphan.bend as Or
+import ./bend/launcher.bend as La
+import ./bend/replace.bend as Rp
+import ./bend/notice.bend as No
+import ./bend/gateway_width.bend as Gw
+import ./bend/tui_color.bend as TC
+import ./bend/fsmode.bend as Fs
+import ./bend/path_policy.bend as Pp
+import ./bend/child_env.bend as Env
+import ./bend/runners.bend as Ru
+import ./bend/approvals.bend as Am
+import ./bend/retry.bend as R
+import ./bend/facts.bend as Fx
+import ./bend/dash.bend as Da
+import ./bend/doc_seen.bend as Ds
+import ./bend/doc_commit.bend as Cm
+import ./bend/doc_search.bend as Sr
+import ./bend/doc_lines.bend as Dl
+import ./bend/doc_tags.bend as Dt
+import ./bend/config.bend as Cf
+import ./bend/default_model.bend as Dm
+import ./bend/workflow.bend as W
 
 # (a) The view
 # ------------
@@ -1791,3 +1805,2977 @@ law run_note_is_never_logged:
 
 # maxToolRounds, the ms a deferred job may run (a poll spends 1 ms),
 # retry.maxRetries, MAX_NOTES and one
+
+# ---- release ----
+
+# LAWS (R1): eukhe's release versions. Each law is an open claim about
+# the model in bend/semver.bend; PROOF.bend proves them (as Laws.<law>)
+# with the lemmas of PROOF.bend section semver.
+
+# (R1) Release versions
+# ---------------------
+# docs/develop.md "Releases", the model in bend/semver.bend; the script
+# scripts/release/next_version.py implements it and its bridge test runs
+# both on the same cases. Every input is free: any version, any tags (any
+# text, in any order: other series, other prefixes, no version at all),
+# any workspace version.
+
+# LAW: reading a written version gives it back
+law semver_roundtrip:
+  for v: Sv.Ver
+  {Sv.Ver.parse(Sv.Ver.show(v)) == Some{v} : Maybe<&2, Sv.Ver>}
+
+# LAW: the order is reflexive
+law semver_le_refl:
+  for v: Sv.Ver
+  {Sv.Ver.le(v, v) == True{} : Bool}
+
+# LAW: the order is antisymmetric
+law semver_le_antisym:
+  for u: Sv.Ver
+  for v: Sv.Ver
+  for uv: {Sv.Ver.le(u, v) == True{} : Bool}
+  for vu: {Sv.Ver.le(v, u) == True{} : Bool}
+  {u == v : Sv.Ver}
+
+# LAW: the order is transitive
+law semver_le_trans:
+  for u: Sv.Ver
+  for v: Sv.Ver
+  for w: Sv.Ver
+  for uv: {Sv.Ver.le(u, v) == True{} : Bool}
+  for vw: {Sv.Ver.le(v, w) == True{} : Bool}
+  {Sv.Ver.le(u, w) == True{} : Bool}
+
+# LAW: the order is total
+law semver_le_total:
+  for u: Sv.Ver
+  for v: Sv.Ver
+  {Bool.or(Sv.Ver.le(u, v), Sv.Ver.le(v, u)) == True{} : Bool}
+
+# LAW: the next release is newer than every tag of its series
+law semver_next_newer:
+  for s: Sv.Ver
+  for +xs: List<&2, String>
+  for +t: String
+  for +ys: List<&2, String>
+  for v: Sv.Ver
+  for parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}
+  for ins: {Sv.Ver.in_series(s, v) == True{} : Bool}
+  {Sv.Ver.lt(v, Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))) == True{} : Bool}
+
+# LAW: the next release is no version a tag names, of any series
+law semver_next_not_tagged:
+  for +s: Sv.Ver
+  for +xs: List<&2, String>
+  for +t: String
+  for +ys: List<&2, String>
+  for +v: Sv.Ver
+  for parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}
+  {v != Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)) : Sv.Ver}
+
+# LAW: the tag of the next release is none of the tags
+law semver_next_tag_new:
+  for +s: Sv.Ver
+  for +xs: List<&2, String>
+  for +t: String
+  for +ys: List<&2, String>
+  {Sv.Tag.of(Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))) != t : String}
+
+# LAW: a series with no tag starts at patch 0
+law semver_fresh_series:
+  for +a: Nat
+  for +b: Nat
+  for +c: Nat
+  for +tags: List<&2, String>
+  for none: {Sv.Rel.none(Sv.Ver{a, b, c}, tags) == True{} : Bool}
+  {Sv.Rel.next(Sv.Ver{a, b, c}, tags) == Sv.Ver{a, b, 0n} : Sv.Ver}
+
+# LAW: a tag that names no version of the series does not change the
+# next release
+law semver_other_series:
+  for s: Sv.Ver
+  for +xs: List<&2, String>
+  for +t: String
+  for +ys: List<&2, String>
+  for other: {Sv.Rel.ofs(s, t) == False{} : Bool}
+  {Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)) == Sv.Rel.next(s, List.append(&2, String, xs, ys)) : Sv.Ver}
+
+# LAW: the release of v is titled `Eukhe v` ++ show(v)
+law semver_title:
+  for v: Sv.Ver
+  {Sv.Rel.title(v) == String.append("Eukhe v", Sv.Ver.show(v)) : String}
+
+# LAW: the tag of v names v
+law semver_tag_roundtrip:
+  for v: Sv.Ver
+  {Sv.Tag.ver(Sv.Tag.of(v)) == Some{v} : Maybe<&2, Sv.Ver>}
+
+# LAW: a release is newer than every version tag, of any series
+law semver_release_newest:
+  for c: String
+  for +xs: List<&2, String>
+  for +t: String
+  for +ys: List<&2, String>
+  for r: Sv.Ver
+  for rel: {Sv.Rel.release(c, List.append(&2, String, xs, t <> ys)) == Some{r} : Maybe<&2, Sv.Ver>}
+  for +v: Sv.Ver
+  for parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}
+  {Sv.Ver.lt(v, r) == True{} : Bool}
+
+# LAW: with the workspace version X.Y.0 and no version tag of another
+# series, the release is the next release of X.Y
+law semver_release_progress:
+  for c: String
+  for +a: Nat
+  for +b: Nat
+  for +tags: List<&2, String>
+  for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 0n}} : Maybe<&2, Sv.Ver>}
+  for only: {Sv.Rel.only(Sv.Ver{a, b, 0n}, tags) == True{} : Bool}
+  {Sv.Rel.release(c, tags) == Some{Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)} : Maybe<&2, Sv.Ver>}
+
+# LAW: a workspace version X.Y.(1+z) gives no release, with any tags
+# EXCLUDES: a workspace version that is no series start (0.10.3 instead of
+# 0.10.0) releases anyway; a release whose number ignores the workspace
+# version's patch
+# LEAVES FREE: the error the script prints
+law semver_release_refuses_patch_workspace:
+  for c: String
+  for +a: Nat
+  for +b: Nat
+  for +z: Nat
+  for +tags: List<&2, String>
+  for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 1n+z}} : Maybe<&2, Sv.Ver>}
+  {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}
+
+# LAW: a workspace version that is no version gives no release, with any
+# tags
+# EXCLUDES: a broken Cargo.toml version ("0.10", "0.10.0-dev", "") falls
+# back to a default series and releases
+# LEAVES FREE: the error the script prints
+law semver_release_refuses_unparsed_workspace:
+  for c: String
+  for +tags: List<&2, String>
+  for unparsed: {Sv.Ver.parse(c) == None{} : Maybe<&2, Sv.Ver>}
+  {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}
+
+# LAW: the premise of semver_release_refuses_patch_workspace holds for a
+# real text: "0.10.1" reads as 0.10.1
+# EXCLUDES: a refusal law that holds only because no text ever parses to
+# a patch above 0
+law semver_parse_patch_example:
+  {Sv.Ver.parse("0.10.1") == Some{Sv.Ver{0n, 10n, 1n}} : Maybe<&2, Sv.Ver>}
+
+# LAW: the premise of semver_release_refuses_unparsed_workspace holds for
+# a real text: "0.10" is no version
+# EXCLUDES: a refusal law that holds only because every text parses
+law semver_parse_two_fields_example:
+  {Sv.Ver.parse("0.10") == None{} : Maybe<&2, Sv.Ver>}
+
+# The decimal writer of the spec, independent of the model: a number's
+# text is the text of the number before it with its last digit raised,
+# a 9 becoming 0 and carrying left. It works on the text written last
+# digit first, so the carry walks from the head.
+
+def dec_pick(b: Bool, yes: Char, no: Char) -> Char:
+  match b:
+    case True{}:
+      yes
+    case False{}:
+      no
+
+# the digit after c ('0' to '8'); any other char stays
+def dec_succ(+c: Char) -> Char:
+  dec_pick(Char.is_eq(c, '0'), '1', dec_pick(Char.is_eq(c, '1'), '2', dec_pick(Char.is_eq(c, '2'), '3', dec_pick(Char.is_eq(c, '3'), '4', dec_pick(Char.is_eq(c, '4'), '5', dec_pick(Char.is_eq(c, '5'), '6', dec_pick(Char.is_eq(c, '6'), '7', dec_pick(Char.is_eq(c, '7'), '8', dec_pick(Char.is_eq(c, '8'), '9', c)))))))))
+
+# the digit c raised: a 9 becomes 0 and the raised rest follows it;
+# any other digit becomes the next one and the rest stays
+def dec_raise_at(nine: Bool, c: Char, r: String, raised: String) -> String:
+  match nine:
+    case True{}:
+      SCon{'0', raised}
+    case False{}:
+      SCon{dec_succ(c), r}
+
+# the text, last digit first, of the number after the one s writes
+def dec_raise(s: String) -> String:
+  match s:
+    case SNil{}:
+      SCon{'1', SNil{}}
+    case SCon{+c, +r}:
+      dec_raise_at(Char.is_eq(c, '9'), c, r, dec_raise(r))
+
+# n in decimal, most significant digit first, no leading zero
+def dec_spec(n: Nat) -> String:
+  match n:
+    case 0n:
+      SCon{'0', SNil{}}
+    case 1n+p:
+      String.reverse(dec_raise(String.reverse(dec_spec(p))))
+
+# LAW: a version is written as its three numbers in decimal, most
+# significant digit first, joined by dots
+# EXCLUDES: digits written in reverse ("0.01.24" for 0.10.42) by a writer
+# that its reader undoes, which semver_roundtrip alone lets pass; a
+# leading zero; fields in another order or with another separator
+law semver_show_decimal:
+  for a: Nat
+  for b: Nat
+  for c: Nat
+  {Sv.Ver.show(Sv.Ver{a, b, c}) == String.append(dec_spec(a), SCon{'.', String.append(dec_spec(b), SCon{'.', dec_spec(c)})}) : String}
+
+# LAW: the spec's writer is decimal: 109 is "109"
+# EXCLUDES: a spec writer that is wrong past one digit or past a carry
+law semver_dec_spec_example:
+  {dec_spec(109n) == "109" : String}
+
+# ---- auth_flight ----
+
+# LAWS (A1): the OAuth refresh flight. Each law is an open claim about the
+# model in bend/auth_flight.bend; PROOF.bend proves them (as
+# Laws.<law>) with the lemmas of PROOF.bend section auth_flight.
+
+# (A1) One refresh flight per provider
+# ------------------------------------
+# The OAuth refresh of an expired stored credential
+# (crates/eukhe-core/src/auth/flight.rs): the callers of one provider share
+# one token fetch. The bridge test crates/eukhe-core/src/auth/flight/bridge.rs
+# runs the Rust state machine and the model on the same interleavings.
+# Every input is free: any callers, their steps in any order, any fetch
+# results, peer writes and expiries at any time.
+
+# LAW: at most one fetch is in flight
+law flight_one_fetch:
+  for +evs: List<&2, F.Ev>
+  {F.le(F.fetching(F.St.cs(F.run(evs))), 1n) == True{} : Bool}
+
+# LAW: a caller that boards while flight f is in flight (caller j leads
+# it) joins flight f
+law flight_board_joins:
+  for +evs: List<&2, F.Ev>
+  for +j: Nat
+  for +lj: F.Leg
+  for +f: Nat
+  for leads: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), j) == Some{lj} : Maybe<&2, F.Leg>}
+  for flight: {F.led(lj) == Some{f} : Maybe<&2, Nat>}
+  for +k: Nat
+  for +ok: Bool
+  for boards: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}
+  {List.get(&2, F.Leg, F.St.cs(F.step(F.run(evs), F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}
+
+# LAW: every caller of flight f (its leader, and each caller that joined
+# it) gets the outcome flight f landed with
+law flight_callers_get_its_outcome:
+  for +evs: List<&2, F.Ev>
+  for +k: Nat
+  for +f: Nat
+  for +o: F.Out
+  for served: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Served{Some{f}, o}} : Maybe<&2, F.Leg>}
+  {List.get(&2, F.Out, F.W.landed(F.St.w(F.run(evs))), f) == Some{o} : Maybe<&2, F.Out>}
+
+# LAW: a caller that joined flight f takes its outcome at its next step
+# once flight f landed
+law flight_landed_serves:
+  for +s: F.St
+  for +k: Nat
+  for +f: Nat
+  for +o: F.Out
+  for +ok: Bool
+  for waits: {List.get(&2, F.Leg, F.St.cs(s), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}
+  for landed: {List.get(&2, F.Out, F.W.landed(F.St.w(s)), f) == Some{o} : Maybe<&2, F.Out>}
+  {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Served{Some{f}, o}} : Maybe<&2, F.Leg>}
+
+# LAW: a flight ends after its credential is stored: once caller k lands
+# flight f with credential c, the store holds c or a newer credential, so a
+# caller after the end sees the stored credential
+law flight_after_end_stored:
+  for +evs: List<&2, F.Ev>
+  for +k: Nat
+  for +f: Nat
+  for +c: Nat
+  for lands: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Land{f, F.Ok{c}}} : Maybe<&2, F.Leg>}
+  for +ok: Bool
+  {F.le(c, F.Sto.c(F.W.sto(F.St.w(F.step(F.run(evs), F.Step{k, ok}))))) == True{} : Bool}
+
+# LAW: a caller after the end sees the stored credential: once caller k
+# lands flight f with credential c, a caller that arrives while the store
+# is fresh is served the stored credential, c or a newer one
+law flight_after_end_served:
+  for +evs: List<&2, F.Ev>
+  for +k: Nat
+  for +f: Nat
+  for +c: Nat
+  for lands: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Land{f, F.Ok{c}}} : Maybe<&2, F.Leg>}
+  for +ok: Bool
+  for +ok2: Bool
+  for fresh: {F.Sto.fresh(F.W.sto(F.St.w(F.step(F.run(evs), F.Step{k, ok})))) == True{} : Bool}
+  F.After(c, F.step(F.run(evs), F.Step{k, ok}), ok2)
+
+# ---- themes ----
+
+# LAWS (T1): themes. Each law is an open claim about the models in
+# bend/theme.bend and bend/color.bend; PROOF.bend proves them (as
+# Laws.<law>) with the lemmas of PROOF.bend section themes.
+
+# (T1) Themes
+# -----------
+# docs/interface.md "Themes", the model in bend/theme.bend: the one theme
+# validator and name resolver of crates/eukhe-theme, which the terminal UI
+# and the HTML export share. Every input is free: any registered, builtin
+# and custom candidates in any order, valid or not; any name; any theme
+# file (any colors, variables and export page). The shipped themes are
+# the tables of bend/theme.bend; the bridge test
+# crates/eukhe-core/src/export_html/theme_bridge.rs checks that they equal
+# crates/eukhe-theme/themes/*.json and that the Rust code and the model
+# agree on generated files, names and colors.
+
+# LAW: the empty name resolves to the default theme, with no warning
+law theme_resolve_empty:
+  for src: List<&2, T.Cand>
+  {T.resolve.name(src, "") == T.Res{T.dflt(), False{}} : T.Res}
+
+# LAW: a name resolves to the first valid theme that advertises it, with
+# no warning: a registered file before a builtin before a custom file
+law theme_resolve_first:
+  for +pre: List<&2, T.Cand>
+  for +nm: String
+  for +id: U32
+  for +post: List<&2, T.Cand>
+  for +n: String
+  for ne: {String.is_empty(n) == False{} : Bool}
+  for miss: {T.hit(pre, n) == False{} : Bool}
+  for same: {String.eq(nm, n) == True{} : Bool}
+  {T.resolve.name(List.append(&2, T.Cand, pre, T.Cand{nm, True{}, id} <> post), n) == T.Res{id, False{}} : T.Res}
+
+# LAW: a name that no valid theme advertises (missing, or only in invalid
+# files) resolves to the default theme, with a warning: resolution never
+# fails
+law theme_resolve_missing:
+  for +src: List<&2, T.Cand>
+  for +n: String
+  for ne: {String.is_empty(n) == False{} : Bool}
+  for miss: {T.hit(src, n) == False{} : Bool}
+  {T.resolve.name(src, n) == T.Res{T.dflt(), True{}} : T.Res}
+
+# LAW: a theme file loads only when it is valid (every color resolves and
+# every required token is written)
+law theme_load_valid:
+  for r: T.RFile
+  for -f: T.Th
+  for loaded: {T.load(r) == Some{f} : Maybe<&2, T.Th>}
+  {T.valid(f) == True{} : Bool}
+
+# LAW: the palette of a valid theme file defines every token
+law theme_tokens_complete:
+  for f: T.Th
+  for v: {T.valid(f) == True{} : Bool}
+  {T.complete(T.palette(f)) == True{} : Bool}
+
+# LAW: two theme files with the same background have the same mode, light
+# or dark
+law theme_mode_background:
+  for f: T.Th
+  for g: T.Th
+  for same: {T.bg(f) == T.bg(g) : Co.Rgb}
+  {T.light(f) == T.light(g) : Bool}
+
+# LAW: the name of a theme file never changes its palette
+law theme_palette_name_free:
+  for f: T.Th
+  for n: String
+  {T.palette(T.rename(f, n)) == T.palette(f) : List<&2, Maybe<&2, T.Val>>}
+
+# LAW: the name of a theme file never changes its mode
+law theme_mode_name_free:
+  for f: T.Th
+  for n: String
+  {T.light(T.rename(f, n)) == T.light(f) : Bool}
+
+# LAW: in every shipped theme, every ink token meets its WCAG contrast:
+# text 4.5:1, non-text parts 3:1, as exact rationals
+law theme_shipped_legible:
+  for s: T.Shipped
+  {T.legible(T.table(s)) == True{} : Bool}
+
+# LAW: in every shipped theme, the status colors (accent, success,
+# warning, error) stay pairwise distinct in a 256-color terminal
+law theme_shipped_status_distinct:
+  for s: T.Shipped
+  {T.status_distinct(T.table(s)) == True{} : Bool}
+
+# ---- dashboard_tokens ----
+
+# LAWS (T2): the dashboard's presentation tokens. Each law is an open
+# claim about the model in bend/tokens.bend; PROOF.bend proves them (as
+# Laws.<law>) with the lemmas of PROOF.bend section tokens.
+
+# (T2) Dashboard tokens
+# ---------------------
+# docs/dashboard.md "Tokens", the model in bend/tokens.bend. The web app
+# writes every presentation value once, in
+# crates/eukhe-dashboard/ui/src/tokens.stylex.ts; its test
+# src/tokens.test.ts checks that the token values there equal the tables
+# of bend/tokens.bend (through bend/bridge_tokens.bend).
+
+# LAW: every color token has a value in both modes, light and dark
+law tokens_paired:
+  for t: Tk.Tone
+  for m: Tk.Mode
+  {Maybe.is_some(&2, Tk.Col, Tk.find(t, Tk.palette(m))) == True{} : Bool}
+
+# LAW: in both modes, every text pair meets the contrast it needs (4.5:1
+# for text, 3:1 for a caption on a fill), as exact rationals
+law tokens_legible:
+  for m: Tk.Mode
+  for +pre: List<&2, Tk.Ink>
+  for p: Tk.Ink
+  for +post: List<&2, Tk.Ink>
+  for split: {Tk.pairs() == List.append(&2, Tk.Ink, pre, p <> post) : List<&2, Tk.Ink>}
+  {Tk.readable(m, p) == True{} : Bool}
+
+# LAW: the stacking layers are strictly ordered, bottom to top
+law tokens_layers_ordered:
+  {Tk.ascends(Tk.layers()) == True{} : Bool}
+
+# LAW: the spacing scale strictly ascends
+law tokens_space_ascends:
+  {Tk.ascends(Tk.space()) == True{} : Bool}
+
+# LAW: the type sizes strictly ascend, and so do the line heights
+law tokens_type_ascends:
+  {Bool.and(Tk.ascends(Tk.sizes()), Tk.ascends(Tk.lines())) == True{} : Bool}
+
+# ---- progress ----
+
+# LAWS (audit H6, H7, M5, L5): when the harness checks a loop, progress
+# is new work, a loop of the same work stops in time, and what the harness
+# changes or drops on its own reaches the user. Each law is an open claim
+# about the models in bend/progress.bend (and bend/child.bend for the
+# subagent watch); PROOF.bend proves them (as Laws.<law>) with the lemmas of
+# PROOF.bend section progress.
+
+# (H7) A subagent's progress is new work
+# --------------------------------------
+# The child's progress token is the work of its acts (Pr.work: its
+# distinct tool calls with their results, and its accepted progress
+# notes), so events alone (streamed deltas, retries, answers) are no
+# progress. The watch of bend/child.bend reads the token.
+
+# LAW: acts the session did before add no work: a child that repeats the
+# same calls with the same results keeps its token
+law child_repeat_is_no_work:
+  for +seen: List<&2, Nat>
+  for +loop: List<&2, Nat>
+  for within: Pr.Within(loop, seen)
+  {Pr.work(List.append(&2, Nat, seen, loop)) == Pr.work(seen) : Nat}
+
+# LAW: a child that loops is a stall: polls of a child whose acts since
+# the watch last saw progress are all acts it did before, at least as many
+# as the ms left on the clock, end the watch (each poll takes 1 ms or more)
+law child_loop_is_a_stall:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +hist: List<&2, Nat>
+  for p: Pr.Peek
+  for +ps: List<&2, Pr.Peek>
+  for loops: Pr.Loops(p <> ps, hist)
+  for tok: {Ch.W.tok(w) == Some{Pr.work(hist)} : Maybe<&2, Nat>}
+  for long: {Nat.is_le(Ch.W.left(w), List.length(&2, Pr.Peek, p <> ps)) == True{} : Bool}
+  {Ch.Next.watching(Pr.watch(p <> ps, cfg, hist, Ch.Watch{w})) == False{} : Bool}
+
+# LAW: new work is progress: a poll after an act the child never did
+# before goes on with a full clock
+law child_new_work_is_progress:
+  for +cfg: Ch.Cfg
+  for +w: Ch.W
+  for +e: Nat
+  for +seen: List<&2, Nat>
+  for +seg: List<&2, Nat>
+  for +x: Nat
+  for fresh: {Pr.mem(x, seen) == False{} : Bool}
+  for news: Pr.In(x, seg)
+  for tok: {Ch.W.tok(w) == Some{Pr.work(seen)} : Maybe<&2, Nat>}
+  {Ch.look(cfg, w, e, Ch.Busy{Some{Pr.work(List.append(&2, Nat, seen, seg))}}) == Ch.Watch{Ch.W.fresh(cfg, Some{Pr.work(List.append(&2, Nat, seen, seg))})} : Ch.Next}
+
+# (H6) A goal without progress stops
+# ----------------------------------
+# At each goal continuation the progress check asks whether the work grew
+# since the last continuation (Pr.check, cap: directors.stallSteps).
+
+# LAW: continuations in a row whose acts are all acts the session did
+# before, at least as many as the cap, stop the goal, whatever count of
+# stalls it starts from
+law goal_stops_without_progress:
+  for +cap: Nat
+  for +s: Nat
+  for +hist: List<&2, Nat>
+  for +seg: List<&2, Nat>
+  for +segs: List<&2, List<&2, Nat>>
+  for repeats: Pr.Repeats(seg <> segs, hist)
+  for long: {Nat.is_le(cap, List.length(&2, List<&2, Nat>, seg <> segs)) == True{} : Bool}
+  {Pr.Goal.stopped(Pr.goal(seg <> segs, cap, hist, Pr.Go{s})) == True{} : Bool}
+
+# LAW: a continuation with an act the session never did before clears
+# the count: the goal goes on
+law goal_progress_continues:
+  for +cap: Nat
+  for +s: Nat
+  for +hist: List<&2, Nat>
+  for +seg: List<&2, Nat>
+  for +x: Nat
+  for fresh: {Pr.mem(x, hist) == False{} : Bool}
+  for news: Pr.In(x, seg)
+  {Pr.check(cap, s, Pr.grew(hist, seg)) == Pr.Go{0n} : Pr.Goal}
+
+# (M5) A model the harness substitutes is reported
+# ------------------------------------------------
+# bend/aux_fallback.bend: the routing of a background summary pass
+# through the `auxiliaryModel` setting (`decide_auxiliary_route`) and the
+# session's notices (`run`): a pass with a set selector that differs from
+# the session model and cannot be used runs on the session model, and the
+# user sees a notice row, once per purpose, selector and reason.
+
+# LAW: every substitution of the session model for a set auxiliary
+# selector has a notice
+law fallback_is_reported:
+  for ps: List<&2, Af.Pass>
+  for +k: Af.Key
+  for h: {Af.listed(Af.subs(Af.run(ps)), k) == True{} : Bool}
+  {Af.listed(Af.notes(Af.run(ps)), k) == True{} : Bool}
+
+# LAW: a notice comes only from a substitution
+law fallback_quiet_when_routed:
+  for ps: List<&2, Af.Pass>
+  for +k: Af.Key
+  for h: {Af.listed(Af.notes(Af.run(ps)), k) == True{} : Bool}
+  {Af.listed(Af.subs(Af.run(ps)), k) == True{} : Bool}
+
+# LAW: an unset selector runs on the session model with no notice
+law fallback_quiet_when_unset:
+  for p: Nat
+  for ok: Bool
+  for look: Af.Look
+  for need: Nat
+  {Af.decide(Af.Pass{p, Af.Unset{}, ok, look, need}) == Af.Session{} : Af.Route}
+
+# LAW: a selector that names the session model runs on it with no notice
+law fallback_quiet_when_same:
+  for p: Nat
+  for ok: Bool
+  for look: Af.Look
+  for need: Nat
+  {Af.decide(Af.Pass{p, Af.Same{}, ok, look, need}) == Af.Session{} : Af.Route}
+
+# (L5) A skill file that fails to load is reported
+# ------------------------------------------------
+# bend/skill_load.bend: the skill and prompt-template loaders over their
+# candidate files (`load`): each file loads, or a diagnostic names its
+# path and error.
+
+# LAW: every candidate file is loaded or named by a diagnostic
+law skill_failure_reported:
+  for cs: List<&2, Sk.Cand>
+  for +c: Sk.Cand
+  for i: Sk.In(c, cs)
+  {Bool.or(Sk.listed(Sk.loaded(cs), Sk.Cand.path(c)), Sk.listed(Sk.named(Sk.diags(cs)), Sk.Cand.path(c))) == True{} : Bool}
+
+# LAW: of distinct candidates, no file both loads and fails
+law skill_loaded_not_failed:
+  for cs: List<&2, Sk.Cand>
+  for +n: Nat
+  for +d: {Sk.distinct(cs) == True{} : Bool}
+  {Bool.and(Sk.listed(Sk.loaded(cs), n), Sk.listed(Sk.named(Sk.diags(cs)), n)) == False{} : Bool}
+
+# ---- ladder ----
+
+# LAWS (S6.9): the thinking ladder of a model is rulebook data. Each law
+# is an open claim about the model in bend/infer.bend section 6;
+# PROOF.bend proves them (as Laws.<law>) with the lemmas of
+# PROOF.bend section quirks.
+
+# (S6.9) The thinking ladder
+# --------------------------
+# docs/inference.md S6.9 and S10 (the ladder 0), the model in
+# bend/infer.bend section 6. Every input is free: any explicit map, any
+# rulebook ladder, any default ladders, any level.
+
+# LAW: a model's explicit thinking-level map is its chosen ladder, over
+# any ladder of the rulebook
+law quirk_ladder_explicit_first:
+  for +e: Ef.LvMap
+  for +rule: Maybe<&2, Ef.LvMap>
+  {If.lad.chosen(Some{e}, rule) == e : Ef.LvMap}
+
+# LAW: with no explicit map, the rulebook's ladder is the chosen ladder
+law quirk_ladder_rule_second:
+  for +l: Ef.LvMap
+  {If.lad.chosen(None{}, Some{l}) == l : Ef.LvMap}
+
+# LAW: with no explicit map and no rulebook ladder, the chosen ladder has
+# no entry: the default ladder gives every level
+law quirk_ladder_default_last:
+  {If.lad.chosen(None{}, None{}) == Ef.LvMap.none() : Ef.LvMap}
+
+# LAW: a reasoning model offers a level exactly when its chosen ladder
+# gives the level a wire string, or gives it no entry and the default
+# ladder lists it; no other path offers a level
+law quirk_ladder_offered_exact:
+  for +explicit: Maybe<&2, Ef.LvMap>
+  for +rule: Maybe<&2, Ef.LvMap>
+  for +d: If.Defaults
+  for +l: Ef.Lv
+  {Ef.has(If.lad.offered(True{}, explicit, rule, d), l) == If.lad.keep(l, Ef.entry(l, If.lad.chosen(explicit, rule)), If.Defaults.reasoning(d)) : Bool}
+
+# LAW: a model without reasoning offers exactly the levels of the plain
+# default ladder, whatever its maps
+law quirk_ladder_plain_exact:
+  for +explicit: Maybe<&2, Ef.LvMap>
+  for +rule: Maybe<&2, Ef.LvMap>
+  for +d: If.Defaults
+  for +l: Ef.Lv
+  {Ef.has(If.lad.offered(False{}, explicit, rule, d), l) == Ef.has(If.Defaults.plain(d), l) : Bool}
+
+# LAW: with the shipped default ladders, the levels a model offers are the
+# S10 ladder of its chosen map, so every law of S10 holds for them
+law quirk_ladder_shipped_is_s10:
+  for r: Bool
+  for +map: Ef.LvMap
+  {If.lad.offered.of(r, map, If.lad.shipped()) == Ef.offered(Ef.Mdl{r, map}) : List<&2, Ef.Lv>}
+
+# ---- kernel_local ----
+
+# LAWS (K1): the kernel environment is local. A session never downloads;
+# `eukhe kernel install` is the only download, and it checks every file
+# against its hash before the kernel uses it; a missing kernel never
+# blocks the other tools; a bootstrap lock candidate never outlives its
+# attempt. Each law is an open claim about the model in
+# bend/kernel_local.bend; PROOF.bend proves them (as Laws.<law>)
+# with the lemmas of PROOF.bend section kernel_local.
+
+# (K1.1) The setup
+# ----------------
+# crates/eukhe-core/src/kernel/bootstrap/setup.rs `setup_step` and
+# venv.rs `venv_build_commands`. Every input is free: any venv found,
+# either setup.
+
+# LAW: a session (any path but `eukhe kernel install`) fetches nothing,
+# whatever kernel venv it finds
+law kernel_session_never_downloads:
+  for f: KL.Found
+  {KL.acts.fetching(KL.plan(f, KL.Local{})) == False{} : Bool}
+
+# LAW: a setup that fetches is `eukhe kernel install`
+law kernel_download_only_on_install:
+  for f: KL.Found
+  for s: KL.Setup
+  for fetches: {KL.acts.fetching(KL.plan(f, s)) == True{} : Bool}
+  {s == KL.Install{} : KL.Setup}
+
+# LAW: every fetch is checked against a pinned hash, and the kernel starts
+# only after a check of the venv that came after the last fetch
+law kernel_fetch_verified_before_use:
+  for f: KL.Found
+  for s: KL.Setup
+  {KL.acts.verified(KL.plan(f, s), True{}) == True{} : Bool}
+
+# LAW: every setup ends with the kernel started: no setup is a no-op
+law kernel_setup_runs:
+  for f: KL.Found
+  for s: KL.Setup
+  {KL.acts.runs(KL.plan(f, s)) == True{} : Bool}
+
+# LAW: an install of a missing or out-of-date venv fetches
+law kernel_install_fetches:
+  {KL.acts.fetching(KL.plan(KL.Stale{}, KL.Install{})) == True{} : Bool}
+
+# (K1.2) The session's tools
+# --------------------------
+# crates/eukhe-core/src/kernel/bootstrap/mod.rs `format_setup_failure`
+# and the ipython tool (durable/rlm/tool.rs), which answers with the
+# kernel's start error.
+
+# LAW: a missing kernel never blocks another tool: it runs whatever the
+# setup found and whether the setup worked
+law kernel_missing_spares_tools:
+  for n: Nat
+  for f: KL.Found
+  for ok: Bool
+  {KL.answer(KL.Other{n}, KL.start(f, ok)) == KL.Ran{} : KL.Answer}
+
+# LAW: when the setup of a venv that is not current fails, the ipython
+# tool answers with the install command
+law kernel_missing_names_install:
+  for f: KL.Found
+  for failed: {KL.start(f, False{}) == KL.Missing{} : KL.Kernel}
+  {KL.answer(KL.Python{}, KL.start(f, False{})) == KL.NamesInstall{} : KL.Answer}
+
+# (K1.3) The bootstrap lock
+# -------------------------
+# crates/eukhe-core/src/kernel/bootstrap/dir_lock.rs
+# `try_acquire_dir_lock` and `sweep_leftovers`.
+
+# LAW: an attempt on any lock leaves no candidate of its own
+law kernel_lock_attempt_leaves_none:
+  for l: KL.Lock
+  {KL.own_left(KL.attempt(l)) == 0n : Nat}
+
+# LAW: the sweep removes every leftover of a dead attempt (a process that
+# died inside its attempt)
+law kernel_lock_sweep_removes_dead:
+  for ls: List<&2, KL.Left>
+  {KL.lefts.dead(KL.sweep(ls)) == 0n : Nat}
+
+# LAW: the sweep keeps every leftover of a live attempt and every other
+# file
+law kernel_lock_sweep_keeps_live:
+  for ls: List<&2, KL.Left>
+  {KL.lefts.live(KL.sweep(ls)) == KL.lefts.live(ls) : Nat}
+
+# ---- storage ----
+
+# LAWS (D2): the durable storage of a session. Each law is an open claim
+# about the models in bend/log.bend and bend/staging.bend; PROOF.bend
+# proves them (as Laws.<law>) with the lemmas of PROOF.bend section log
+# and PROOF.bend section staging.
+
+# (D2) Storage
+# ------------
+# docs/state.md D2. The commit log `main.jsonl` (bend/log.bend): every
+# input is free: any disk (any bytes, a torn tail, no file), any commits,
+# any crash point, any number of bytes not flushed that the crash keeps,
+# and whether the crash drops the directory entries not flushed.
+
+# LAW: open reads exactly the complete lines, in order; a torn tail (the
+# bytes after the last newline) is never read as an entry
+law log_reads_lines:
+  for +ls: List<&2, List<&2, Nat>>
+  for +t: List<&2, Nat>
+  {Lg.recover(List.append(&2, Nat, Lg.render(ls), Lg.data(t))) == ls : List<&2, List<&2, Nat>>}
+
+# LAW: a crash at any point never loses a commit: after an epoch the log
+# is the log before it, then every commit it acknowledged, then maybe more
+law log_ack_durable:
+  for d: Lg.Disk
+  for e: Lg.Epoch
+  exs rest: List<&2, List<&2, Nat>>
+  {Lg.Disk.log(Lg.after(d, e)) == List.append(&2, List<&2, Nat>, List.append(&2, List<&2, Nat>, Lg.Disk.log(d), Lg.acked(d, e)), rest) : List<&2, List<&2, Nat>>}
+
+# LAW: after an epoch the log is the log before it, then a prefix of the
+# commits it tried, in order: nothing torn, nothing out of order, nothing
+# twice
+law log_only_commits:
+  for d: Lg.Disk
+  for e: Lg.Epoch
+  exs n: Nat
+  {Lg.Disk.log(Lg.after(d, e)) == List.append(&2, List<&2, Nat>, Lg.Disk.log(d), List.take(&2, List<&2, Nat>, Lg.Epoch.cs(e), n)) : List<&2, List<&2, Nat>>}
+
+# Staging, sweep and listing (bend/staging.bend): every input is free: any
+# directory entries with any names, any nodes a sweep may meet (held or
+# not, stale or not, reached or not, of any sort), any sessions directory.
+
+# LAW: a publish to a name that an entry has fails and changes nothing:
+# a rename never replaces an existing target, not even an empty directory
+law publish_never_overwrites:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  for taken: {Sg.has(t, es) == True{} : Bool}
+  {Sg.publish(s, t, es) == Sg.Pub{False{}, es} : Sg.Pub}
+
+# LAW: a publish to a free name moves the storage
+law publish_moves:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Sg.Entry>
+  for free: {Sg.has(t, es) == False{} : Bool}
+  {Sg.Pub.ok(Sg.publish(s, t, es)) == True{} : Bool}
+
+# LAW: a sweep never removes an entry a live process holds the lock of
+law sweep_never_live:
+  for +pre: List<&2, Sg.Node>
+  for +i: Nat
+  for +k: Sg.Sort
+  for +s: Bool
+  for +o: Bool
+  for +post: List<&2, Sg.Node>
+  {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, k, True{}, s, o} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>}
+
+# LAW: a sweep never removes an entry touched within the day
+law sweep_never_young:
+  for +pre: List<&2, Sg.Node>
+  for +i: Nat
+  for +k: Sg.Sort
+  for +h: Bool
+  for +o: Bool
+  for +post: List<&2, Sg.Node>
+  {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, k, h, False{}, o} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>}
+
+# LAW: a sweep never removes an entry it does not reach (inside a storage
+# or a leftover, behind a symlink)
+law sweep_stays_out:
+  for +pre: List<&2, Sg.Node>
+  for +i: Nat
+  for +k: Sg.Sort
+  for +h: Bool
+  for +s: Bool
+  for +post: List<&2, Sg.Node>
+  {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, k, h, s, False{}} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.sweep(post)) : List<&2, Sg.Node>}
+
+# LAW: a sweep removes every free, stale leftover it reaches, at any depth
+law sweep_reaches_every_depth:
+  for +pre: List<&2, Sg.Node>
+  for +i: Nat
+  for +k: Sg.Sort
+  for +post: List<&2, Sg.Node>
+  for sw: {Sg.Sort.swept(k) == True{} : Bool}
+  {Sg.sweep(List.append(&2, Sg.Node, pre, Sg.Node{i, k, False{}, True{}, True{}} <> post)) == List.append(&2, Sg.Node, Sg.sweep(pre), Sg.Node{i, k, False{}, True{}, True{}} <> Sg.sweep(post)) : List<&2, Sg.Node>}
+
+# LAW: a session never shows twice: no name is listed both as a storage
+# and as a legacy file
+law list_one_location:
+  for +es: List<&2, Sg.Ent>
+  for +n: Nat
+  {Bool.and(Sg.mem(n, Sg.durables(es)), Sg.mem(n, Sg.legacies(es, es))) == False{} : Bool}
+
+# LAW: after the import of the legacy file with stem s, s is listed as a
+# storage (and so, by list_one_location, no more as a legacy file)
+law list_import_lists_storage:
+  for +es: List<&2, Sg.Ent>
+  for +s: Nat
+  {Sg.mem(s, Sg.durables(Sg.imported(s, es))) == True{} : Bool}
+
+# LAW: an import changes the listing of no other name
+law list_import_keeps_others:
+  for +es: List<&2, Sg.Ent>
+  for +s: Nat
+  for +n: Nat
+  for ne: {Nat.is_eq(s, n) == False{} : Bool}
+  {Sg.mem(n, Sg.listing(Sg.imported(s, es))) == Sg.mem(n, Sg.listing(es)) : Bool}
+
+# ---- recover ----
+
+# LAWS (H4.8): a stuck model gets a recovery. Each law is an open claim
+# about the model in bend/run.bend; PROOF.bend proves them (as Laws.<law>)
+# with the lemmas of PROOF.bend section recover.
+
+# (H4.8) A stuck model gets a recovery, each with a cap
+# -----------------------------------------------------
+# docs/harness.md H4.8, the recoveries of bend/run.bend (Rec): a length
+# stop while the model still reasons, tool calls leaked as text, the same
+# tool calls with the same results round after round. Every reply is
+# free, in any order. A Redo is a noted error, so its retry ends its
+# request with a new note (H4.7); the laws of H4 hold for every reply, so
+# they hold for the reply a recovery makes. A recovery does not depend on
+# the retry policy: a note is a new request, not a transient error.
+
+# LAW: a length stop with no answer under the cap (fewer than `long`
+# length notes in a row) is retried with the next length note
+law rec_length_retries_with_a_note:
+  for +rc: Rn.RCfg
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for under: {Rn.below(Rn.Rk.longs(k, row), Rn.RCfg.long(rc)) == True{} : Bool}
+  {Rn.Rec.step(rc, Rn.Long{}, Rn.Rec{k, row, same, last}) == Rn.Dec{Rn.Redo{}, Rn.Rec{Rn.Longs{}, 1n+Rn.Rk.longs(k, row), same, last}} : Rn.Dec}
+
+# LAW: after `long` length notes in a row, a length stop fails the run
+law rec_length_gives_up:
+  for +rc: Rn.RCfg
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for over: {Rn.below(Rn.Rk.longs(k, row), Rn.RCfg.long(rc)) == False{} : Bool}
+  {Rn.Dec.act(Rn.Rec.step(rc, Rn.Long{}, Rn.Rec{k, row, same, last})) == Rn.Quit{} : Rn.Act}
+
+# LAW: leaked calls that every parse and name an offered tool are rebuilt:
+# the run reads them as the same calls made as tool calls
+law rec_leak_rebuilt_is_calls:
+  for +rc: Rn.RCfg
+  for +h: Nat
+  for kept: Bool
+  for r: Rn.Rec
+  {Rn.Rec.step(rc, Rn.Leak{True{}, h, kept}, r) == Rn.Rec.step(rc, Rn.Ran{h, kept}, r) : Rn.Dec}
+
+# LAW: leaked calls that were not rebuilt, under the cap, are retried with
+# the next leak note
+law rec_leak_retries_with_a_note:
+  for +rc: Rn.RCfg
+  for +h: Nat
+  for kept: Bool
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for under: {Rn.below(Rn.Rk.leaks(k, row), Rn.RCfg.leak(rc)) == True{} : Bool}
+  {Rn.Rec.step(rc, Rn.Leak{False{}, h, kept}, Rn.Rec{k, row, same, last}) == Rn.Dec{Rn.Redo{}, Rn.Rec{Rn.Leaks{}, 1n+Rn.Rk.leaks(k, row), same, last}} : Rn.Dec}
+
+# LAW: after `leak` leak notes in a row, the reply answers as text
+law rec_leak_stands:
+  for +rc: Rn.RCfg
+  for +h: Nat
+  for kept: Bool
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for over: {Rn.below(Rn.Rk.leaks(k, row), Rn.RCfg.leak(rc)) == False{} : Bool}
+  {Rn.Dec.act(Rn.Rec.step(rc, Rn.Leak{False{}, h, kept}, Rn.Rec{k, row, same, last})) == Rn.Stand{} : Rn.Act}
+
+# LAW: tool calls that make fewer than `repeat` rounds in a row run: the
+# recoveries never stop a call that is not a repeat. The rounds in a row
+# grow when the results are those of the last round; when the results
+# change (a poll of a job that makes progress), a new row of 1 starts
+law rec_calls_run:
+  for +rc: Rn.RCfg
+  for +h: Nat
+  for +kept: Bool
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for fresh: {Rn.below(Rn.again(same, last, h), Rn.RCfg.repeat(rc)) == True{} : Bool}
+  {Rn.Rec.step(rc, Rn.Ran{h, kept}, Rn.Rec{k, row, same, last}) == Rn.Dec{Rn.Exec{}, Rn.Rec{Rn.Free{}, 0n, Rn.ran.same(kept, Rn.again(same, last, h)), h}} : Rn.Dec}
+
+# LAW: tool calls that would make `repeat` rounds in a row with the same
+# results never run
+law rec_repeat_never_runs:
+  for +rc: Rn.RCfg
+  for +h: Nat
+  for kept: Bool
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for rep: {Rn.below(Rn.again(same, last, h), Rn.RCfg.repeat(rc)) == False{} : Bool}
+  {Rn.Act.runs(Rn.Dec.act(Rn.Rec.step(rc, Rn.Ran{h, kept}, Rn.Rec{k, row, same, last}))) == False{} : Bool}
+
+# LAW: such a repeat, under the cap, is retried with the next redirect
+# note
+law rec_repeat_redirects:
+  for +rc: Rn.RCfg
+  for +h: Nat
+  for kept: Bool
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for rep: {Rn.below(Rn.again(same, last, h), Rn.RCfg.repeat(rc)) == False{} : Bool}
+  for under: {Rn.below(Rn.Rk.loops(k, row), Rn.RCfg.redirect(rc)) == True{} : Bool}
+  {Rn.Rec.step(rc, Rn.Ran{h, kept}, Rn.Rec{k, row, same, last}) == Rn.Dec{Rn.Redo{}, Rn.Rec{Rn.Loops{}, 1n+Rn.Rk.loops(k, row), same, last}} : Rn.Dec}
+
+# LAW: after `redirect` redirect notes in a row, a repeat fails the run
+law rec_repeat_gives_up:
+  for +rc: Rn.RCfg
+  for +h: Nat
+  for kept: Bool
+  for +k: Rn.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for rep: {Rn.below(Rn.again(same, last, h), Rn.RCfg.repeat(rc)) == False{} : Bool}
+  for over: {Rn.below(Rn.Rk.loops(k, row), Rn.RCfg.redirect(rc)) == False{} : Bool}
+  {Rn.Dec.act(Rn.Rec.step(rc, Rn.Ran{h, kept}, Rn.Rec{k, row, same, last})) == Rn.Quit{} : Rn.Act}
+
+# LAW: a user message ends the row: after it, no call is a repeat of a
+# call before it
+law rec_user_breaks_the_row:
+  for +rc: Rn.RCfg
+  for +k: Rn.Rk
+  for +row: Nat
+  for same: Nat
+  for +last: Nat
+  {Rn.Dec.r(Rn.Rec.step(rc, Rn.Said{}, Rn.Rec{k, row, same, last})) == Rn.Rec{k, row, 0n, last} : Rn.Rec}
+
+# LAW: after any replies, the notes of a recovery in a row are at most
+# its cap: every recovery stops at its cap
+law rec_notes_capped:
+  for +rc: Rn.RCfg
+  for +os: List<&2, Rn.Out>
+  {Rn.Rec.capped(rc, Rn.Rec.run(rc, os)) == True{} : Bool}
+
+# LAW: after any replies, the run has not run the same calls with the
+# same results max(repeat, 1) rounds in a row. This replaces the loop
+# guard of H4.3 (a run failed after LOOP_ROUNDS = 6 such rounds): it is
+# stronger, as no such row ever reaches `repeat` (5) rounds
+law rec_never_runs_a_repeat:
+  for +rc: Rn.RCfg
+  for +os: List<&2, Rn.Out>
+  {Rn.below(Rn.Rec.same(Rn.Rec.run(rc, os)), Nat.max(Rn.RCfg.repeat(rc), 1n)) == True{} : Bool}
+
+# LAW: the harness never just watches a stuck model: a stuck reply (a
+# length stop with no answer, leaked tool calls, tool calls) always gets
+# an act that does something: its calls run (no repeat), a retry with a
+# note, an answer, or the end of the run. It is never passed on as it is
+law rec_stuck_gets_help:
+  for +rc: Rn.RCfg
+  for o: Rn.Out
+  for r: Rn.Rec
+  {Bool.or(Bool.not(Rn.Out.stuck(o)), Rn.Act.helps(Rn.Dec.act(Rn.Rec.step(rc, o, r)))) == True{} : Bool}
+
+# LAW: a recovery's retry is a noted error, so its request ends with the
+# note of the next attempt (run_cut_names_the_request): it never sends
+# the request again (run_retry_sends_a_new_request)
+law rec_redo_is_noted:
+  for -pass: Rn.Reply
+  {Rn.Act.reply(Rn.Redo{}, pass) == Rn.Error{False{}, True{}} : Rn.Reply}
+
+# LAW: a recovery at its cap fails the run on the model, at once
+law rec_quit_fails:
+  for +cfg: Rn.Cfg
+  for -pass: Rn.Reply
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  {Rn.call(cfg, Rn.Act.reply(Rn.Quit{}, pass), r, c, a, n, p) == Rn.St{Rn.Failed{Rn.Model{}}, r, c, a, n, p} : Rn.St}
+
+# ---- catalog_union ----
+
+# LAWS (C1): the built-in model catalog is one list, the union of the
+# bundled snapshot and the compiled catalog. No source hides a model the
+# other has; a model in both takes each field from one stated source; the
+# result does not depend on the order the sources are read. Each law is
+# an open claim about the model in bend/catalog_union.bend; PROOF.bend
+# proves them (as Laws.<law>) with the lemmas of
+# PROOF.bend section catalog_union.
+
+# (C1) The catalog union
+# ----------------------
+# crates/eukhe-models/src/effective.rs `effective_catalog`, served by
+# chain.rs `ModelCatalog::models`. bs is the bundled snapshot (pinned),
+# cs the compiled catalog, k a model's key (its provider and id). Every
+# input is free: any entries, any order.
+
+# LAW: no source hides a model: the built-in catalog has a model exactly
+# when the bundle or the compiled catalog has it
+law union_hides_nothing:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  {CU.has(CU.union(bs, cs), k) == Bool.or(CU.has(bs, k), CU.has(cs, k)) : Bool}
+
+# LAW: one model list: when each source lists a model at most once, so
+# does the built-in catalog
+law union_lists_each_model_once:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for ub: {Nat.is_le(CU.count(bs, k), 1n) == True{} : Bool}
+  for uc: {Nat.is_le(CU.count(cs, k), 1n) == True{} : Bool}
+  {Nat.is_le(CU.count(CU.union(bs, cs), k), 1n) == True{} : Bool}
+
+# LAW: a model that only the bundle has is the bundled entry
+law union_bundled_only:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for +b: CU.Ent
+  for hb: {CU.find(bs, k) == Some{b} : Maybe<&2, CU.Ent>}
+  for hc: {CU.find(cs, k) == None{} : Maybe<&2, CU.Ent>}
+  {CU.find(CU.union(bs, cs), k) == Some{b} : Maybe<&2, CU.Ent>}
+
+# LAW: a model that only the compiled catalog has is the compiled entry
+law union_compiled_only:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for +c: CU.Ent
+  for hb: {CU.find(bs, k) == None{} : Maybe<&2, CU.Ent>}
+  for hc: {CU.find(cs, k) == Some{c} : Maybe<&2, CU.Ent>}
+  {CU.find(CU.union(bs, cs), k) == Some{c} : Maybe<&2, CU.Ent>}
+
+# LAW: a model in both sources takes its api and its data from the
+# bundled entry, and the optional field too when the bundled entry
+# states it
+law union_both_keeps_bundled:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for +b: CU.Ent
+  for +c: CU.Ent
+  for +v: Nat
+  for hb: {CU.find(bs, k) == Some{b} : Maybe<&2, CU.Ent>}
+  for hc: {CU.find(cs, k) == Some{c} : Maybe<&2, CU.Ent>}
+  for hv: {CU.Ent.opt(b) == Some{v} : Maybe<&2, Nat>}
+  {CU.find(CU.union(bs, cs), k) == Some{CU.Ent{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), Some{v}}} : Maybe<&2, CU.Ent>}
+
+# LAW: an optional field that the bundled entry leaves out comes from the
+# compiled entry when both use the same api
+law union_both_fills_from_compiled:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for +b: CU.Ent
+  for +c: CU.Ent
+  for hb: {CU.find(bs, k) == Some{b} : Maybe<&2, CU.Ent>}
+  for hc: {CU.find(cs, k) == Some{c} : Maybe<&2, CU.Ent>}
+  for hn: {CU.Ent.opt(b) == None{} : Maybe<&2, Nat>}
+  for ha: {Nat.is_eq(CU.Ent.api(b), CU.Ent.api(c)) == True{} : Bool}
+  {CU.find(CU.union(bs, cs), k) == Some{CU.Ent{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), CU.Ent.opt(c)}} : Maybe<&2, CU.Ent>}
+
+# LAW: and stays out when they use different apis
+law union_both_other_api:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +k: Nat
+  for +b: CU.Ent
+  for +c: CU.Ent
+  for hb: {CU.find(bs, k) == Some{b} : Maybe<&2, CU.Ent>}
+  for hc: {CU.find(cs, k) == Some{c} : Maybe<&2, CU.Ent>}
+  for hn: {CU.Ent.opt(b) == None{} : Maybe<&2, Nat>}
+  for ha: {Nat.is_eq(CU.Ent.api(b), CU.Ent.api(c)) == False{} : Bool}
+  {CU.find(CU.union(bs, cs), k) == Some{CU.Ent{CU.Ent.key(b), CU.Ent.api(b), CU.Ent.data(b), None{}}} : Maybe<&2, CU.Ent>}
+
+# LAW: the result does not depend on the order the sources are read: the
+# bundle first or the compiled catalog first, each source with its
+# entries in any order (any two lists that agree at k), the model with
+# key k comes out the same
+law union_order_free:
+  for +k: Nat
+  for +xs: List<&2, CU.Ent>
+  for +xs2: List<&2, CU.Ent>
+  for +ys: List<&2, CU.Ent>
+  for +ys2: List<&2, CU.Ent>
+  for sx: {CU.find(xs, k) == CU.find(xs2, k) : Maybe<&2, CU.Ent>}
+  for sy: {CU.find(ys, k) == CU.find(ys2, k) : Maybe<&2, CU.Ent>}
+  {CU.find(CU.read(CU.Cat{CU.Bundled{}, xs}, CU.Cat{CU.Compiled{}, ys}), k) == CU.find(CU.read(CU.Cat{CU.Compiled{}, ys2}, CU.Cat{CU.Bundled{}, xs2}), k) : Maybe<&2, CU.Ent>}
+
+# ---- cron ----
+
+# LAWS (D2): the cron store shared by processes. Each law is an open claim
+# about the model in bend/cron.bend; PROOF.bend proves them (as
+# Laws.<law>) with the lemmas of PROOF.bend section cron.
+
+# (D2) Cron
+# ---------
+# docs/state.md D2. The cron jobs file `cron-jobs.json` (bend/cron.bend),
+# shared by any number of processes. Every input is free: any events of
+# any processes in any order (make a job, claim the due jobs, recover
+# claims, finish a run good, failed or skipped, unwind a pass, die), any
+# user actions (cancel, resume), any time, any records this build cannot
+# read, a corrupt file at any point.
+
+# LAW: after any events, each job is run by at most one process, and that
+# run holds the claim on record; no occurrence of a job starts twice (the
+# occurrences that started fall strictly, the newest first); a one-shot
+# starts at most once
+law cron_fires_once:
+  for +evs: List<&2, Cr.Ev>
+  Cr.FiresAll(Cr.S.recs(Cr.run(evs)))
+
+# LAW: after any events, a finished one-shot has no run: it is finished
+# only after its run ended
+law cron_once_finished_after_end:
+  for +evs: List<&2, Cr.Ev>
+  Cr.EndsAll(Cr.S.recs(Cr.run(evs)))
+
+# LAW: from any file (records read or not, corrupt or not), a step that
+# is not the file's corruption keeps every record: each job record this
+# build cannot read with the same bytes, each job, each claim record this
+# build cannot read, the corrupt file (in place or moved aside, never
+# written over), each file moved aside
+law cron_never_drops:
+  for +s: Cr.S
+  for +e: Cr.Ev
+  for +t: Nat
+  for +i: Nat
+  {Cr.Ev.is_corrupt(e) == False{} : Bool} -> Cr.Keeps(t, i, s, Cr.step(s, e))
+
+# LAW: from any state, a step of process p removes the claim of process o
+# on job i only when o is p or o is dead; no other step (but the file's
+# corruption) removes a claim
+law cron_claim_owned:
+  for +s: Cr.S
+  for +e: Cr.Ev
+  for +i: Nat
+  for +x: Nat
+  for +o: Nat
+  {Cr.Ev.is_corrupt(e) == False{} : Bool} -> {Cr.claim_of(i, Cr.S.recs(s)) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>} -> Or({Cr.claim_of(i, Cr.S.recs(Cr.step(s, e))) == Some{Cr.Claim{x, o}} : Maybe<&2, Cr.Claim>}, Or({Cr.Ev.by(e) == Some{o} : Maybe<&2, Nat>}, {Cr.has(o, Cr.S.dead(s)) == True{} : Bool}))
+
+# LAW: after any events, a job counted at most CAP failed runs in a row,
+# and an active job fewer: so the CAP-th failure in a row stops it; a
+# stopped (paused) job stays stopped through every step that is not a user
+# action; the pause after the k-th failure is never shorter than after the
+# (k-1)-th, and a failure never moves the next run before its pause ends
+law cron_backoff_bounded:
+  for +evs: List<&2, Cr.Ev>
+  for +s: Cr.S
+  for +e: Cr.Ev
+  for +i: Nat
+  for +k: Nat
+  for +c: Nat
+  for +nx: Maybe<&2, Nat>
+  (Cr.StopsAll(Cr.S.recs(Cr.run(evs))) & (({Cr.Ev.is_user(e) == False{} : Bool} -> Cr.StaysPaused(i, s, Cr.step(s, e))) & ({Nat.is_le(Cr.delay(k), Cr.delay(1n+k)) == True{} : Bool} & {Nat.is_le(Nat.add(c, Cr.delay(k)), Cr.later(nx, Nat.add(c, Cr.delay(k)))) == True{} : Bool})))
+
+# ---- supervisor ----
+
+# (D1) Supervisor
+# ---------------
+# docs/daemon.md D1: the supervisor, its workers, a lost supervisor, a
+# daemon replacement, the attaches after a restart. The models are
+# bend/supervise.bend (the restart budget and the timeouts),
+# bend/revive.bend (busy evidence), bend/orphan.bend (a lost supervisor's
+# worker), bend/launcher.bend (the idle shutdown and adoption),
+# bend/replace.bend (the launcher's replacement verdict) and
+# bend/notice.bend (the kernel restore notices a view shows); the bridge
+# tests crates/eukhe-daemon/src/supervision_bridge.rs,
+# crates/eukhe-tui/src/daemon_build/bridge.rs and
+# crates/eukhe-tui/src/restore_notices.rs run the Rust code and each
+# model on the same scenarios. Every input is free: any configuration, any
+# gaps between failures, any run length, any events and operations in any
+# order, any builds.
+
+# LAW: a crash loop is given up. After any earlier failures, a failure
+# followed by k more failures, all inside the window, gives the worker up
+law restart_gives_up:
+  for +c: Su.Cfg
+  for +pre: List<&2, Nat>
+  for +g: Nat
+  for +gs: List<&2, Nat>
+  for many: {List.length(&2, Nat, gs) == Su.Cfg.k(c) : Nat}
+  for fast: {Nat.is_lt(Su.span(gs), Su.Cfg.w(c)) == True{} : Bool}
+  {Su.gives_up(Su.verdict(c, Su.failures(c, List.append(&2, Nat, pre, g <> gs)))) == True{} : Bool}
+
+# LAW: every timeout comes after the timeouts it waits for (Su.Tm.ordered
+# lists them), whatever the base values
+law timeouts_ordered:
+  for +t: Su.Tm
+  {Su.Tm.ordered(t) == True{} : Bool}
+
+# LAW: a run of any length revives: a boot within the boot window b after
+# the crash finds its busy evidence fresh, with a refresh every h > 0 ms
+# and the max age h + b
+law revive_after_refresh:
+  for +h: Nat
+  for pos: {Nat.is_lt(0n, h) == True{} : Bool}
+  for +b: Nat
+  for +c: Nat
+  for +d: Nat
+  for soon: {Nat.is_le(d, b) == True{} : Bool}
+  {Rv.fresh(Nat.add(h, b), Rv.age(h, c, d)) == True{} : Bool}
+
+# LAW: a lost supervisor's worker never aborts work a later supervisor can
+# resume: its exit aborts nothing and records the session busy exactly
+# when it held work
+law orphan_never_aborts_resumable:
+  for +window: Nat
+  for +evs: List<&2, Or.Ev>
+  Or.Sound(Or.run(window, evs))
+
+# LAW: an idle shutdown never aborts a run, in any order of prompts, run
+# ends, quiesces, releases and commits on any workers
+law idle_shutdown_never_aborts:
+  for +bs: List<&2, Bool>
+  for +ops: List<&2, La.Op>
+  {La.St.aborted(La.run(bs, ops)) == 0n : Nat}
+
+# LAW: a supervisor adopts a worker only when the worker reports the
+# supervisor's build
+law adopt_same_build:
+  for +sup: Nat
+  for +w: Maybe<&2, Nat>
+  for adopted: {La.adoption(sup, w) == La.Adopt{} : La.Adoption}
+  {w == Some{sup} : Maybe<&2, Nat>}
+
+# LAW: client starts never take the daemon back to a lower build. For any
+# client starts (any builds, interactive or background), no daemon ranks
+# below a daemon that ran before it
+law replace_never_downgrades:
+  for +ss: List<&2, Rp.Start>
+  {Rp.never_back(Rp.daemons(ss)) == True{} : Bool}
+
+# LAW: replacements stop. Client starts whose builds are all in bs (k
+# builds) replace the daemon k - 1 times at most
+law replacement_terminates:
+  for +bs: List<&2, Rp.Build>
+  for +ss: List<&2, Rp.Start>
+  for cover: {Rp.covers(bs, ss) == True{} : Bool}
+  {Nat.is_le(Rp.replaced(ss), Nat.sub(List.length(&2, Rp.Build, bs), 1n)) == True{} : Bool}
+
+# LAW: a background client (the dashboard, the gateway, ACP, a reconnect)
+# never replaces a running daemon
+law background_never_replaces:
+  for +c: Rp.Build
+  for +d: Rp.Build
+  {Rp.after(Rp.Start{c, Rp.Background{}}, Some{d}) == d : Rp.Build}
+
+# LAW: an attach never shows a kernel restore notice again. After any
+# restores, live notices and attaches (reconnects, worker restarts), in
+# any order, each stored notice showed at most once (bend/notice.bend;
+# the bridge is crates/eukhe-tui/src/restore_notices.rs)
+law notice_shown_once:
+  for +evs: List<&2, No.Ev>
+  {No.once(No.run(evs)) == True{} : Bool}
+
+# LAW: restore notices do not accumulate. After any events and one more
+# attach, the restore rows the view showed equal the restores
+law notice_per_restore:
+  for +evs: List<&2, No.Ev>
+  {No.total(No.run(List.append(&2, No.Ev, evs, [No.Reconnect{}]))) == No.restores(evs) : Nat}
+
+# ---- gateway_width ----
+
+# LAWS: the Signal gateway aligns a table by display width. Each law is an
+# open claim about the model in bend/gateway_width.bend (the formatter
+# `push_table` of crates/eukhe-gateway/src/style.rs); PROOF.bend proves
+# them (as Laws.<law>) with the lemmas of
+# PROOF.bend section gateway_width.
+
+# LAW: every row of a formatted table has the same display width per
+# column: each row of the table (pre, row, post) renders as the widths of
+# the columns, then its own last cell (the last column is not padded)
+law table_aligned:
+  for +pre: List<&2, List<&2, List<&2, Nat>>>
+  for +row: List<&2, List<&2, Nat>>
+  for +post: List<&2, List<&2, List<&2, Nat>>>
+  {Gw.line(Nat.sub(Gw.cols(List.append(&2, List<&2, List<&2, Nat>>, pre, row <> post)), 1n), Gw.Display{}, List.append(&2, List<&2, List<&2, Nat>>, pre, row <> post), row, 0n) == List.append(&2, Nat, Gw.widths(Nat.sub(Gw.cols(List.append(&2, List<&2, List<&2, Nat>>, pre, row <> post)), 1n), Gw.Display{}, List.append(&2, List<&2, List<&2, Nat>>, pre, row <> post), 0n), [Gw.get.w(row, Gw.Display{}, Nat.sub(Gw.cols(List.append(&2, List<&2, List<&2, Nat>>, pre, row <> post)), 1n))]) : List<&2, Nat>}
+
+# LAW: an ASCII table (every glyph 1 wide) renders as the old formatter
+# rendered it, which counted the characters of a cell
+law ascii_unchanged:
+  for +rows: List<&2, List<&2, List<&2, Nat>>>
+  for +ones: Gw.Ones.rows(rows)
+  {Gw.table(Gw.Display{}, rows) == Gw.table(Gw.Chars{}, rows) : List<&2, List<&2, Nat>>}
+
+# ---- tui_color ----
+
+# LAWS (T3): terminal colors. Each law is an open claim about the model
+# in bend/tui_color.bend (with the theme tables of bend/theme.bend);
+# PROOF.bend proves them (as Laws.<law>) with the lemmas of
+# PROOF.bend section tui_color.
+
+# (T3) Terminal colors
+# --------------------
+# docs/interface.md "Terminal colors", the model in bend/tui_color.bend:
+# the effort ramp, the usage bands and the color roles of
+# crates/eukhe-tui. Every input is free: any ramp ends and any ladder
+# length, any token count and any window. The bridge test
+# crates/eukhe-tui/src/theme/bridge.rs checks that the Rust ramp, the Rust
+# bands and the Rust roles equal the model.
+
+# LAW: the effort ramp has one rung for each level the model offers
+law tui_effort_ramp_length:
+  for lo: TC.Px
+  for hi: TC.Px
+  for n: Nat
+  {List.length(&2, TC.Px, TC.ramp(lo, hi, n)) == n : Nat}
+
+# LAW: for any ladder length, along the effort ramp every channel moves
+# from the low end toward the high end, never back
+law tui_effort_ramp_ordered:
+  for lo: TC.Px
+  for hi: TC.Px
+  for n: Nat
+  {TC.ordered(lo, hi, TC.ramp(lo, hi, n)) == True{} : Bool}
+
+# LAW: for any ladder length up to the widest channel distance of the
+# ends, no two rungs of the effort ramp have the same color
+law tui_effort_ramp_distinct:
+  for lo: TC.Px
+  for hi: TC.Px
+  for n: Nat
+  for fits: {Nat.is_le(n, TC.span(lo, hi)) == True{} : Bool}
+  {TC.distinct(TC.ramp(lo, hi, n)) == True{} : Bool}
+
+# LAW: in every shipped theme, no two rungs of the effort ramp have the
+# same color, for any ladder of the level vocabulary
+law tui_effort_shipped_distinct:
+  for s: T.Shipped
+  for n: Nat
+  for fits: {Nat.is_le(n, TC.ladder.max()) == True{} : Bool}
+  {TC.distinct(TC.ramp(TC.shipped.lo(s), TC.shipped.hi(s), n)) == True{} : Bool}
+
+# LAW: every usage band is a fraction of the window above zero and at
+# most one, and each band is above the band before it
+law tui_usage_bands_ascend:
+  {TC.ascend(TC.bands()) == True{} : Bool}
+
+# LAW: more tokens in the same window never give a lower usage band
+law tui_usage_band_monotone:
+  for t: Nat
+  for e: Nat
+  for w: Nat
+  {Nat.is_le(TC.band(t, w), TC.band(Nat.add(t, e), w)) == True{} : Bool}
+
+# LAW: the usage band depends only on the fraction of the window in use:
+# the same fraction of a window k times as large gives the same band
+law tui_usage_band_fraction:
+  for k: Nat
+  for t: Nat
+  for w: Nat
+  {TC.band(Nat.mul(1n+k, t), Nat.mul(1n+k, w)) == TC.band(t, w) : Nat}
+
+# LAW: every color role of the terminal UI resolves in the palette of
+# every valid theme file
+law tui_roles_resolve:
+  for f: T.Th
+  for v: {T.valid(f) == True{} : Bool}
+  {TC.resolves(T.palette(f), TC.roles()) == True{} : Bool}
+
+# LAW: every color role of the terminal UI paints a color in every
+# shipped theme
+law tui_roles_shipped:
+  for s: T.Shipped
+  {TC.paints(T.table(s), TC.roles()) == True{} : Bool}
+
+# ---- fsmode ----
+
+# LAWS (G1, file modes, the socket dir and the working dir): who
+# reaches eukhe's own state. Each law is an open claim about the model in
+# bend/fsmode.bend; PROOF.bend proves them (as Laws.<law>) with the lemmas
+# of PROOF.bend section fsmode.
+
+# (G1) Path policy
+# ----------------
+
+# File modes, the socket dir and the working dir
+# ----------------------------------------------
+# docs/runtime.md "Local access", the model in bend/fsmode.bend; the Rust
+# bridge test crates/eukhe-daemon/src/fsmode_bridge.rs runs the real
+# socket-dir check, the peer rule, the real creation paths and the real
+# session cwd check against bend/bridge_fsmode.bend.
+
+# LAW: the daemon binds in a socket dir only when the dir is a real
+# directory (not a link), this uid owns it, and no group or other user
+# may write in it
+law socket_dir_owned:
+  for d: Fs.Seen
+  for used: {Fs.socket_dir(d) == Fs.Use{} : Fs.Verdict}
+  {Fs.Seen.safe(d) == True{} : Bool}
+
+# LAW: a safe socket dir is used (the check refuses nothing it must not)
+law socket_dir_progress:
+  for d: Fs.Seen
+  for safe: {Fs.Seen.safe(d) == True{} : Bool}
+  {Fs.socket_dir(d) == Fs.Use{} : Fs.Verdict}
+
+# LAW: a missing socket dir is created with mode 0700
+law socket_dir_created:
+  for mine: Bool
+  for loose: Bool
+  {Fs.socket_dir(Fs.Seen{Fs.Missing{}, mine, loose}) == Fs.Create{Fs.dir_mode()} : Fs.Verdict}
+
+# LAW: the dir the daemon creates with mode 0700 is then used
+law socket_dir_created_used:
+  {Fs.socket_dir(Fs.made(Fs.dir_mode())) == Fs.Use{} : Fs.Verdict}
+
+# LAW: a socket peer is accepted only when its uid is this process's uid
+law peer_same_uid:
+  for p: Nat
+  for own: Nat
+  for ok: {Fs.peer(p, own) == Fs.Accept{} : Fs.Peer}
+  {p == own : Nat}
+
+# LAW: a peer of this process's uid is accepted
+law peer_own_accepted:
+  for own: Nat
+  {Fs.peer(own, own) == Fs.Accept{} : Fs.Peer}
+
+# LAW: every file and dir eukhe creates under its home has no group or
+# other permission bit
+law private_on_create:
+  for k: Fs.Made
+  {Fs.Mode.loose(Fs.made_mode(k)) == False{} : Bool}
+
+# LAW: an accepted session create runs in the dir it named, and that dir
+# exists
+law cwd_is_explicit:
+  for c: Fs.Cwd
+  for p: Nat
+  for ok: {Fs.open(c) == Fs.Opened{p} : Fs.Open}
+  {c == Fs.DirCwd{p} : Fs.Cwd}
+
+# LAW: a create that names no working dir is refused
+law cwd_none_refused:
+  {Fs.open(Fs.NoCwd{}) == Fs.NeedsCwd{} : Fs.Open}
+
+# LAW: a create whose working dir is gone is refused, and the refusal
+# names that dir
+law cwd_gone_refused:
+  for p: Nat
+  {Fs.open(Fs.GoneCwd{p}) == Fs.Gone{p} : Fs.Open}
+
+# LAW: a create whose working dir is a file is refused, and the refusal
+# names that path
+law cwd_file_refused:
+  for p: Nat
+  {Fs.open(Fs.FileCwd{p}) == Fs.NotDir{p} : Fs.Open}
+
+# LAW: a create that names an existing dir runs in it
+law cwd_dir_opens:
+  for p: Nat
+  {Fs.open(Fs.DirCwd{p}) == Fs.Opened{p} : Fs.Open}
+
+# ---- path_policy ----
+
+# LAWS (G1): the path policy. Each law is an open claim about the model
+# in bend/path_policy.bend; PROOF.bend proves them (as Laws.<law>) with the
+# lemmas of PROOF.bend section path_policy.
+
+# (G1) Path policy
+# ----------------
+# docs/tools.md S7: one policy for the `bash` tool and the document
+# tools (crates/eukhe-types/src/path_policy.rs). A path is a list of
+# segments from `/`; the symlinks are free (any location, any target,
+# from `/` or from the link's directory, loops included); the policy is
+# free (any roots, protected rules and secret entries). An access is
+# judged on the real path; its effects run unasked only when the auto
+# set (`shell.autoEffects`, any value) allows each of them. The user's
+# answer is free: yes, no, or none (no client answered).
+
+# LAW: a path is judged by its real path: unless its links looped, no
+# prefix of the path a resolution reaches is a symlink (each link it met
+# was replaced by its target)
+law path_real_has_no_link:
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  {Bool.or(Pp.Res.looped(Pp.real(ls, segs)), Pp.linkfree(ls, Pp.Res.at(Pp.real(ls, segs)))) == True{} : Bool}
+
+# LAW: a path whose real path is under a secret entry is Secret, whatever
+# else covers it
+law path_secret_wins:
+  for +pol: Pp.Pol
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for hit: {Pp.any_under(Pp.Pol.secret(pol), Pp.Res.at(Pp.real(ls, segs))) == True{} : Bool}
+  {Pp.class(pol, ls, segs) == Pp.Secret{} : Pp.Cls}
+
+# LAW: a path is Inside only when its links did not loop, no secret
+# covers its real path, no rule protects it, it is no ancestor of a
+# protected or secret entry, and a workspace root holds it
+law path_inside_is_safe:
+  for +pol: Pp.Pol
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for inside: {Pp.class(pol, ls, segs) == Pp.Inside{} : Pp.Cls}
+  {Pp.safe(pol, Pp.real(ls, segs)) == True{} : Bool}
+
+# LAW: an ancestor of a protected or secret entry (a move or a removal of
+# it moves or removes the entry) is Protected or Secret
+law path_ancestor_guarded:
+  for +pol: Pp.Pol
+  for +ls: List<&2, Pp.Link>
+  for +segs: List<&2, Tl.Seg>
+  for anc: {Pp.any_ancestor(List.append(&2, List<&2, Nat>, Pp.entries(Pp.Pol.rules(pol)), Pp.Pol.secret(pol)), Pp.Res.at(Pp.real(ls, segs))) == True{} : Bool}
+  {Pp.Cls.guarded(Pp.class(pol, ls, segs)) == True{} : Bool}
+
+# LAW: a write runs without the user's yes only Inside the workspace:
+# never Outside, never to eukhe's config or credentials, never to a
+# secret, whatever the auto set holds
+law gate_write_auto_only_inside:
+  for c: Pp.Cls
+  for +auto: List<&2, Nat>
+  for ans: Pp.Ans
+  for ran: {Pp.runs(c, Pp.Wr{}, auto, ans) == True{} : Bool}
+  for no: {Pp.Ans.yes(ans) == False{} : Bool}
+  {c == Pp.Inside{} : Pp.Cls}
+
+# LAW: a read of a secret (a read or a list of one, a search of a
+# directory that holds one) runs only on the user's yes, whatever the auto
+# set holds
+law gate_secret_read_needs_yes:
+  for c: Pp.Cls
+  for a: Pp.Acc
+  for +auto: List<&2, Nat>
+  for ans: Pp.Ans
+  for s: {Pp.secret_read(c, a) == True{} : Bool}
+  for ran: {Pp.runs(c, a, auto, ans) == True{} : Bool}
+  {Pp.Ans.yes(ans) == True{} : Bool}
+
+# LAW: the user's yes runs any access
+law gate_yes_runs:
+  for c: Pp.Cls
+  for a: Pp.Acc
+  for +auto: List<&2, Nat>
+  {Pp.runs(c, a, auto, Pp.Yes{}) == True{} : Bool}
+
+# LAW: with writes in the auto set, a write Inside runs without a
+# question
+law gate_inside_write_runs:
+  for +auto: List<&2, Nat>
+  for ans: Pp.Ans
+  for w: {Tl.elem(auto, 1n) == True{} : Bool}
+  {Pp.runs(Pp.Inside{}, Pp.Wr{}, auto, ans) == True{} : Bool}
+
+# LAW: no sequence of agent writes through any paths, each judged by the
+# gate on its real path and landing there, without a yes of the user,
+# changes a guarded location: eukhe's config (where the auto set,
+# ssh.hosts and mcpServers live) and the secrets stay as they were,
+# whatever the auto set holds
+law config_needs_yes:
+  for es: List<&2, Pp.Put>
+  for +pol: Pp.Pol
+  for +ls: List<&2, Pp.Link>
+  for +auto: List<&2, Nat>
+  for +cs: List<&2, Pp.Cell>
+  for no: {Pp.any_yes(es) == False{} : Bool}
+  {Pp.guarded(Pp.run(es, pol, ls, auto, cs), pol) == Pp.guarded(cs, pol) : List<&2, Pp.Cell>}
+
+# ---- child_env ----
+
+# LAWS (G3): no credential reaches a child. Each law is an open claim
+# about the model in bend/child_env.bend; PROOF.bend proves them (as
+# Laws.<law>) with the lemmas of PROOF.bend section child_env.
+
+# (G3) No credential reaches a child
+# ----------------------------------
+# The environment of a child the host starts for an agent: the overlay
+# over the base, less the credential names (bend/child_env.bend). The
+# `bash` tool's external steps get an empty keep list; a local kernel gets
+# the names the user's own MCP config reads a credential from. Every input
+# is free: any registry, any keep list, any base, any overlay (so no
+# overlay can add a credential back).
+
+# LAW: no variable of the environment of an external step of the `bash`
+# tool has a credential name
+law env_drops_credentials:
+  for +reg: List<&2, String>
+  for base: List<&2, Env.Var>
+  for over: List<&2, Env.Var>
+  for +v: Env.Var
+  for i: Env.In(v, Env.child(reg, Nil{}, base, over))
+  {Env.cred(reg, Env.Var.name(v)) == False{} : Bool}
+
+# LAW: a variable of the environment of a kernel has a credential name
+# only when the keep list holds that name and it is no provider name
+law env_kernel_keeps_only_listed:
+  for +reg: List<&2, String>
+  for +keep: List<&2, String>
+  for base: List<&2, Env.Var>
+  for over: List<&2, Env.Var>
+  for +v: Env.Var
+  for i: Env.In(v, Env.child(reg, keep, base, over))
+  for c: {Env.cred(reg, Env.Var.name(v)) == True{} : Bool}
+  ({Env.listed(keep, Env.Var.name(v)) == True{} : Bool} & {Env.registered(reg, Env.Var.name(v)) == False{} : Bool})
+
+# LAW: every variable of the overlay over the base whose name is not a
+# credential reaches the child, with its value
+law env_keeps_the_rest:
+  for +reg: List<&2, String>
+  for +keep: List<&2, String>
+  for base: List<&2, Env.Var>
+  for over: List<&2, Env.Var>
+  for +v: Env.Var
+  for i: Env.In(v, Env.merge(base, over))
+  for c: {Env.cred(reg, Env.Var.name(v)) == False{} : Bool}
+  Env.In(v, Env.child(reg, keep, base, over))
+
+# LAW: every variable of the overlay over the base whose name the keep
+# list holds, and that is no provider name, reaches the kernel, with its
+# value
+law env_keeps_listed:
+  for +reg: List<&2, String>
+  for +keep: List<&2, String>
+  for base: List<&2, Env.Var>
+  for over: List<&2, Env.Var>
+  for +v: Env.Var
+  for i: Env.In(v, Env.merge(base, over))
+  for k: {Env.listed(keep, Env.Var.name(v)) == True{} : Bool}
+  for r: {Env.registered(reg, Env.Var.name(v)) == False{} : Bool}
+  Env.In(v, Env.child(reg, keep, base, over))
+
+# ---- shell_classification ----
+
+# shell_classification: the laws of section G2 (PROOF.bend proves them
+# as Laws.<law>).
+
+# (G2) Shell classification
+# -------------------------
+# docs/tools.md S7, the gate model of bend/tools.bend part 4. A step has a
+# set of effects (codes: 0 read, 1 write, 2 exec, 3 net, 4 outside, 5
+# protected, 6 secret): every effect of every part of it (its command,
+# each redirection, each path it names; every command an external script
+# holds). A part names a path that is or holds a secret, or not; only such
+# a part gives the secret effect. Every input is free: any parts, any
+# effects, any auto set (codes 4 to 6 in it too), any answers of the user.
+
+# LAW: a step made of parts has every effect of every part
+law step_holds_every_part:
+  for +pre: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +post: List<&2, List<&2, Nat>>
+  for +c: Nat
+  for has: {Tl.elem(p, c) == True{} : Bool}
+  {Tl.elem(Tl.join(List.append(&2, List<&2, Nat>, pre, p <> post)), c) == True{} : Bool}
+
+# LAW: a step has the secret effect (6) only when one of its parts names
+# a path that is or holds a secret (an operand, an option value, a
+# redirection target, the working directory of a command that reads it
+# because it names no path): a step whose parts name none has no secret
+# effect, whatever else they hold
+law secret_needs_a_secret_path:
+  for +ps: List<&2, Tl.Part>
+  for has: {Tl.elem(Tl.join(Tl.parts.effs(ps)), 6n) == True{} : Bool}
+  {Tl.parts.secret(ps) == True{} : Bool}
+
+# LAW: a part that names a path that is or holds a secret gives its step
+# the secret effect (6)
+law secret_path_gives_secret:
+  for +pre: List<&2, Tl.Part>
+  for +p: Tl.Part
+  for +post: List<&2, Tl.Part>
+  for named: {Tl.Part.secret(p) == True{} : Bool}
+  {Tl.elem(Tl.join(Tl.parts.effs(List.append(&2, Tl.Part, pre, p <> post))), 6n) == True{} : Bool}
+
+# LAW: a step with one effect that is not in the auto set, or that no auto
+# set may hold, does not run without a question
+law auto_needs_every_effect:
+  for +s: Tl.Step
+  for +auto: List<&2, Nat>
+  for +c: Nat
+  for has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}
+  for out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}
+  {Tl.auto.at(auto, s) == False{} : Bool}
+
+# LAW: a write outside the workspace (4), a write to a protected place (5)
+# and a read of a secret (6) never run without a question, whatever the
+# auto set holds
+law auto_never_sensitive:
+  for +s: Tl.Step
+  for +auto: List<&2, Nat>
+  for +c: Nat
+  for has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}
+  for held: {Nat.is_le(4n, c) == True{} : Bool}
+  {Tl.auto.at(auto, s) == False{} : Bool}
+
+# LAW: a step made of parts runs without a question only when every effect
+# of every part is within the auto set
+law composed_needs_every_part:
+  for +i: Nat
+  for +pre: List<&2, List<&2, Nat>>
+  for +p: List<&2, Nat>
+  for +post: List<&2, List<&2, Nat>>
+  for +auto: List<&2, Nat>
+  for +c: Nat
+  for has: {Tl.elem(p, c) == True{} : Bool}
+  for out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}
+  {Tl.auto.at(auto, Tl.Step{i, Tl.join(List.append(&2, List<&2, Nat>, pre, p <> post))}) == False{} : Bool}
+
+# LAW: a step whose effects are within the auto set runs without a
+# question: it uses no answer of the user
+law auto_runs_within:
+  for +s: Tl.Step
+  for +post: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for ans: List<&2, Bool>
+  for w: {Tl.within(Tl.Step.effs(s), auto) == True{} : Bool}
+  {Tl.exec(s <> post, auto, ans) == Tl.ran.add(s, Tl.exec(post, auto, ans)) : Tl.Ran}
+
+# LAW: a step whose effects are not within the auto set runs only with
+# the user's yes: with no answer it does not run, and the script stops
+law held_needs_a_yes:
+  for +s: Tl.Step
+  for +post: List<&2, Tl.Step>
+  for +auto: List<&2, Nat>
+  for w: {Tl.within(Tl.Step.effs(s), auto) == False{} : Bool}
+  {Tl.exec(s <> post, auto, Nil{}) == Tl.Ran{Nil{}, Tl.Denied{Tl.Step.id(s)}} : Tl.Ran}
+
+# ---- runners ----
+
+# LAWS (G4): every runner of code goes through the gate. Each law is an
+# open claim about the model in bend/runners.bend; PROOF.bend proves them
+# (as Laws.<law>) with the lemmas of PROOF.bend section runners.
+
+# (G4) Every runner of code goes through the gate
+# -----------------------------------------------
+# docs/tools.md S7, the model in bend/runners.bend. `Rn.registry` is the
+# registry a session installs (crates/eukhe-core/src/durable/registry.rs);
+# the bridge test in crates/eukhe-core/src/durable/runner/tests.rs dumps
+# the real registry and runs the `ipython` gate on the scenarios of
+# bend/bridge_runners.bend, and both must print what the model prints.
+
+# LAW: every tool of a session's registry (with or without chat memory)
+# that runs code that may run a program is gated
+law gate_covers_every_runner:
+  for +chat: Bool
+  for +i: Nat
+  for +t: Ru.Tool
+  for at: {List.get(&2, Ru.Tool, Ru.registry(chat), i) == Some{t} : Maybe<&2, Ru.Tool>}
+  for runs: {Ru.runs(t) == True{} : Bool}
+  {Ru.gated(t) == True{} : Bool}
+
+# LAW: the `ipython` tool runs code that may run a program, and the gate
+# covers each of its calls
+law ipython_gated_each_call:
+  for +chat: Bool
+  {Ru.find(Ru.registry(chat), "ipython") == Some{Ru.Tool{"ipython", [Ru.exec()], Ru.EachCall{}}} : Maybe<&2, Ru.Tool>}
+
+# LAW: a gated call runs only when its caps are within the auto set or the
+# user approves it
+law cell_runs_only_within_or_approved:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for +a: Ru.Asker
+  for ran: {Ru.ran(Ru.cell(caps, auto, a)) == True{} : Bool}
+  {Bool.or(Ru.within(caps, auto), Ru.Asker.yes(a)) == True{} : Bool}
+
+# LAW: a call whose caps are within the auto set runs, unasked
+law cell_within_runs_unasked:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for a: Ru.Asker
+  for free: {Ru.within(caps, auto) == True{} : Bool}
+  {Ru.cell(caps, auto, a) == Ru.Out{False{}, Ru.Ran{Ru.Auto{}}} : Ru.Out}
+
+# LAW: a call outside the auto set that the user approves runs, asked
+law cell_approved_runs:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for held: {Ru.within(caps, auto) == False{} : Bool}
+  {Ru.cell(caps, auto, Ru.Says{True{}}) == Ru.Out{True{}, Ru.Ran{Ru.Approved{}}} : Ru.Out}
+
+# LAW: a call outside the auto set without the user's approval (a denial,
+# no answer, no client) does not run
+law cell_no_yes_stops:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for +a: Ru.Asker
+  for held: {Ru.within(caps, auto) == False{} : Bool}
+  for no: {Ru.Asker.yes(a) == False{} : Bool}
+  {Ru.ran(Ru.cell(caps, auto, a)) == False{} : Bool}
+
+# LAW: code that may run a program is never within an auto set without
+# `exec`
+law cell_exec_asks:
+  for +caps: List<&2, Nat>
+  for +auto: List<&2, Nat>
+  for has: {Ru.elem(caps, Ru.exec()) == True{} : Bool}
+  for lacks: {Ru.elem(auto, Ru.exec()) == False{} : Bool}
+  {Ru.within(caps, auto) == False{} : Bool}
+
+# ---- approvals ----
+
+# LAWS (G5): a child's question reaches its root's user, a session that
+# runs only from the phone gateway never waits, and the default auto set
+# runs every step but the never-auto ones. Each law is an open claim about
+# the model in bend/approvals.bend; PROOF.bend proves them (as Laws.<law>)
+# with the lemmas of PROOF.bend section approvals.
+
+# (G5) A child's question reaches its root's user
+# ------------------------------------------------
+# docs/tools.md G5, the model in bend/approvals.bend. A chain lists the
+# sessions from the one that asks (a subagent, or a root) up to its root.
+# The bridge test in crates/eukhe-daemon/src/shell_approval/bridge.rs
+# runs the real approvals of a chain of sessions (clients attached or
+# not, answering, denying or leaving, the phone gateway attached alone or
+# beside them) on the scenarios of bend/bridge_approvals.bend, and both
+# must print what the model prints.
+
+# LAW: when no session below the root has clients that answer, a
+# subagent's question reaches the root's clients, and their answer is the
+# verdict
+law child_answered_by_root:
+  for +below: List<&2, Am.Desk>
+  for quiet: {Am.quiet(below) == True{} : Bool}
+  for +yes: Bool
+  {Am.Out.end(Am.route(List.append(&2, Am.Desk, below, [Am.Says{yes}]))) == Am.Answered{List.length(&2, Am.Desk, below), yes} : Am.End}
+
+# LAW: the first session up the chain whose clients answer gives the
+# verdict, whatever the sessions above it
+law nearest_answer_wins:
+  for +below: List<&2, Am.Desk>
+  for quiet: {Am.quiet(below) == True{} : Bool}
+  for +yes: Bool
+  for +above: List<&2, Am.Desk>
+  {Am.Out.end(Am.route(List.append(&2, Am.Desk, below, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, below), yes} : Am.End}
+
+# LAW: a question is unanswered (a denial) only when no session of the
+# whole chain has clients that answer
+law unanswered_only_when_quiet:
+  for +ds: List<&2, Am.Desk>
+  for none: {Am.Out.end(Am.route(ds)) == Am.Unanswered{} : Am.End}
+  {Am.quiet(ds) == True{} : Bool}
+
+# LAW: and then it is unanswered: no session invents an answer
+law quiet_is_unanswered:
+  for +ds: List<&2, Am.Desk>
+  for quiet: {Am.quiet(ds) == True{} : Bool}
+  {Am.Out.end(Am.route(ds)) == Am.Unanswered{} : Am.End}
+
+# (G5) A session that runs only from the phone gateway never waits
+# -----------------------------------------------------------------
+# The phone gateway shows no question. A step is guarded when it writes a
+# protected path (effect 5: eukhe's own config and credentials, a .git or
+# .eukhe dir, a PATH dir) or reads or writes a secret (effect 6).
+
+# LAW: a step of a session whose only clients are the phone gateway never
+# waits: no client gets a frame, the question does not go up the chain,
+# and the session's gateway rule answers at once
+law gateway_never_waits:
+  for +above: List<&2, Am.Desk>
+  {Am.route(Am.Phone{} <> above) == Am.Out{Nil{}, Am.Ruled{0n}} : Am.Out}
+
+# LAW: the gateway rule refuses a step that writes a protected path
+law gateway_refuses_protected:
+  for +es: List<&2, Nat>
+  for protected: {Tl.elem(es, 5n) == True{} : Bool}
+  for +above: List<&2, Am.Desk>
+  {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.GatewayRefused{} : Am.Fate}
+
+# LAW: the gateway rule refuses a step that reads or writes a secret
+law gateway_refuses_secret:
+  for +es: List<&2, Nat>
+  for secret: {Tl.elem(es, 6n) == True{} : Bool}
+  for +above: List<&2, Am.Desk>
+  {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.GatewayRefused{} : Am.Fate}
+
+# LAW: the gateway rule runs every other step unasked (a write, a run of
+# a program, the network, a write outside the workspace)
+law gateway_runs_the_rest:
+  for +es: List<&2, Nat>
+  for not_protected: {Tl.elem(es, 5n) == False{} : Bool}
+  for not_secret: {Tl.elem(es, 6n) == False{} : Bool}
+  for +above: List<&2, Am.Desk>
+  {Am.fate(es, Am.Out.end(Am.route(Am.Phone{} <> above))) == Am.Runs{} : Am.Fate}
+
+# LAW: a question the interactive clients leave unanswered while the
+# phone gateway stays falls to the gateway rule, not up the chain
+law left_to_the_gateway:
+  for +above: List<&2, Am.Desk>
+  {Am.route(Am.PhoneLeft{} <> above) == Am.Out{[0n], Am.Ruled{0n}} : Am.Out}
+
+# LAW: a subagent's question that reaches a session whose only clients
+# are the phone gateway (no session below it has clients that answer)
+# fares as that session's own step: the same rule answers it
+law gateway_rules_a_subagent:
+  for +below: List<&2, Am.Desk>
+  for quiet: {Am.quiet(below) == True{} : Bool}
+  for +es: List<&2, Nat>
+  for +above: List<&2, Am.Desk>
+  {Am.fate(es, Am.Out.end(Am.route(List.append(&2, Am.Desk, below, Am.Phone{} <> above)))) == Am.fate(es, Am.Out.end(Am.route([Am.Phone{}]))) : Am.Fate}
+
+# (G5) The default auto set; the never-auto effects
+# --------------------------------------------------
+# A step runs unasked when its effects are within the auto set
+# (`shell.autoEffects`, bend/tools.bend `within`). The bridge test
+# crates/eukhe-core/src/durable/shell/tests.rs
+# `the_default_auto_set_is_its_model` reads the real auto set of a
+# session with no settings and compares, with bend/bridge_approvals.bend,
+# the effects it holds and `gate` on every step of one to seven effects.
+
+# LAW: the auto set of a session whose user sets none holds exactly the
+# grantable effects: read, write, exec and net
+law default_auto_is_grantable:
+  for +c: Nat
+  {Tl.elem(Am.default_auto(), c) == Tl.grantable(c) : Bool}
+
+# LAW: a step with an effect that no auto set may hold (4: a write
+# outside the workspace, 5: a protected write, 6: a secret) never runs
+# unasked through the auto set, in any session: its question goes its
+# route
+law never_auto_is_routed:
+  for +auto: List<&2, Nat>
+  for +es: List<&2, Nat>
+  for +c: Nat
+  for has: {Tl.elem(es, c) == True{} : Bool}
+  for held: {Nat.is_le(4n, c) == True{} : Bool}
+  for +ds: List<&2, Am.Desk>
+  {Am.gate(auto, es, ds) == Am.routed(es, Am.route(ds)) : Am.Gated}
+
+# LAW: so in a session whose client answers (the TUI, the dashboard), such
+# a step asks that client, and its answer decides
+law never_auto_asks_the_client:
+  for +auto: List<&2, Nat>
+  for +es: List<&2, Nat>
+  for +c: Nat
+  for has: {Tl.elem(es, c) == True{} : Bool}
+  for held: {Nat.is_le(4n, c) == True{} : Bool}
+  for +yes: Bool
+  for +above: List<&2, Am.Desk>
+  {Am.gate(auto, es, Am.Says{yes} <> above) == Am.Routed{Am.Out{[0n], Am.Answered{0n, yes}}, Am.yes.fate(yes)} : Am.Gated}
+
+# LAW: in a session whose only clients are the phone gateway, a write
+# outside the workspace that is not protected and touches no secret runs,
+# and only by the gateway rule, never through the auto set
+law outside_runs_only_by_the_gateway:
+  for +auto: List<&2, Nat>
+  for +es: List<&2, Nat>
+  for outside: {Tl.elem(es, 4n) == True{} : Bool}
+  for not_protected: {Tl.elem(es, 5n) == False{} : Bool}
+  for not_secret: {Tl.elem(es, 6n) == False{} : Bool}
+  for +above: List<&2, Am.Desk>
+  {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.Runs{}} : Am.Gated}
+
+# LAW: and there a protected write or a secret is refused at once,
+# whatever the auto set
+law guarded_refused_from_the_phone:
+  for +auto: List<&2, Nat>
+  for +es: List<&2, Nat>
+  for guarded: {Bool.or(Tl.elem(es, 5n), Tl.elem(es, 6n)) == True{} : Bool}
+  for +above: List<&2, Am.Desk>
+  {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.GatewayRefused{}} : Am.Gated}
+
+# ---- retry ----
+
+# LAWS (R, retries): when the harness sends a failed request again
+# (audit H2, H3, H4, H5, H10, M3, M4). Each law is an open claim about
+# the model in bend/retry.bend; PROOF.bend proves them (as Laws.<law>) with
+# the lemmas of PROOF.bend section retry_policy. The Rust bridge tests run
+# the real code against bend/bridge_retry.bend:
+# crates/eukhe-core/src/durable/models/retry_bridge.rs the classifier, the
+# wait and the failover walk; crates/eukhe-durable/src/harness/generation/
+# retry_bridge.rs the deferred decisions, the stall and the idle deadline.
+
+# (R1) The classifier
+# -------------------
+# crates/eukhe-ai/src/utils/retry.rs `FailureFacts::retryable`. Every
+# input is free: any status, any kind, any text.
+
+# LAW: a failure the quota park ended is never retried
+law retry_never_parked:
+  for limit: Bool
+  for status: Maybe<&2, Nat>
+  for kind: Maybe<&2, R.Cause>
+  for text: Bool
+  {R.retryable(R.Facts{True{}, limit, status, kind, text}) == False{} : Bool}
+
+# LAW: a quota, billing or admission limit, or a refused server wait, is
+# never retried
+law retry_never_limit:
+  for parked: Bool
+  for status: Maybe<&2, Nat>
+  for kind: Maybe<&2, R.Cause>
+  for text: Bool
+  {R.retryable(R.Facts{parked, True{}, status, kind, text}) == False{} : Bool}
+
+# LAW: a recorded status below 500 that is not 408, 409 or 429 (a client
+# error such as 400) is never retried, whatever the kind and the text say
+law retry_never_client_error:
+  for parked: Bool
+  for limit: Bool
+  for kind: Maybe<&2, R.Cause>
+  for text: Bool
+  for s: Nat
+  for below: {Nat.is_lt(s, 500n) == True{} : Bool}
+  for not408: {Nat.is_eq(s, 408n) == False{} : Bool}
+  for not409: {Nat.is_eq(s, 409n) == False{} : Bool}
+  for not429: {Nat.is_eq(s, 429n) == False{} : Bool}
+  {R.retryable(R.Facts{parked, limit, Some{s}, kind, text}) == False{} : Bool}
+
+# LAW: a retried failure that recorded a status recorded a server error
+# or 408, 409 or 429
+law retry_only_retryable:
+  for parked: Bool
+  for limit: Bool
+  for kind: Maybe<&2, R.Cause>
+  for text: Bool
+  for s: Nat
+  for retried: {R.retryable(R.Facts{parked, limit, Some{s}, kind, text}) == True{} : Bool}
+  {Bool.or(Nat.is_ge(s, 500n), R.status.listed(s)) == True{} : Bool}
+
+# LAW: a recorded status decides alone: the kind and the text change
+# nothing
+law retry_status_first:
+  for parked: Bool
+  for limit: Bool
+  for s: Nat
+  for k1: Maybe<&2, R.Cause>
+  for t1: Bool
+  for k2: Maybe<&2, R.Cause>
+  for t2: Bool
+  {R.retryable(R.Facts{parked, limit, Some{s}, k1, t1}) == R.retryable(R.Facts{parked, limit, Some{s}, k2, t2}) : Bool}
+
+# LAW: with no status, a known kind decides alone: the text changes
+# nothing
+law retry_kind_before_text:
+  for parked: Bool
+  for limit: Bool
+  for k: R.Cause
+  for known: {R.Cause.known(k) == True{} : Bool}
+  for t1: Bool
+  for t2: Bool
+  {R.retryable(R.Facts{parked, limit, None{}, Some{k}, t1}) == R.retryable(R.Facts{parked, limit, None{}, Some{k}, t2}) : Bool}
+
+# LAW: a server error (status 500 or more) is retried when no park and no
+# limit stop it
+law retry_server_errors:
+  for kind: Maybe<&2, R.Cause>
+  for text: Bool
+  for s: Nat
+  for server: {Nat.is_lt(s, 500n) == False{} : Bool}
+  {R.retryable(R.Facts{False{}, False{}, Some{s}, kind, text}) == True{} : Bool}
+
+# (R2) The wait
+# -------------
+# crates/eukhe-ai/src/utils/retry.rs `RetryWait::of`.
+
+# LAW: a retry never goes out before the server's requested wait
+law retry_after_respected:
+  for jitter: Nat
+  for s: Nat
+  for cap: Nat
+  {R.Delay.respects(R.wait(jitter, Some{s}, cap), s) == True{} : Bool}
+
+# LAW: a server wait above a cap refuses the retry and names the server's
+# time
+law retry_refuses_past_cap:
+  for jitter: Nat
+  for s: Nat
+  for cap: Nat
+  for capped: {Nat.is_gt(cap, 0n) == True{} : Bool}
+  for over: {Nat.is_gt(s, cap) == True{} : Bool}
+  {R.wait(jitter, Some{s}, cap) == R.Refused{s, cap} : R.Delay}
+
+# (R3) The failover walk
+# ----------------------
+# crates/eukhe-core/src/durable/models/failover.rs `next_switch`. Every
+# input is free: any chain, any failed attempts, any policy.
+
+# LAW: a request goes back to a provider it tried only after it tried
+# every provider of its chain
+law failover_visits_once:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.fresh_first(R.next(len, ts, p), len, ts) == True{} : Bool}
+
+# LAW: the next attempt never goes to the provider that just failed
+law failover_never_twice_in_a_row:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.not_last(R.next(len, ts, p), ts) == True{} : Bool}
+
+# LAW: a return to a provider the request tried waits a positive time,
+# never less than the server's wait of that provider's last failure
+law failover_return_waits:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.return_waits(R.next(len, ts, p), ts) == True{} : Bool}
+
+# LAW: no switch waits longer than retry.failover.maxDelayMs
+law failover_delay_capped:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.capped(R.next(len, ts, p), R.Policy.max(p)) == True{} : Bool}
+
+# LAW: a request makes at most retry.failover.maxRetries switches
+law failover_bounded:
+  for len: Nat
+  for ts: List<&2, R.Tried>
+  for p: R.Policy
+  {R.Switch.within(R.next(len, ts, p), ts, p) == True{} : Bool}
+
+# (R4) The deferred job
+# ---------------------
+# crates/eukhe-durable/src/harness/generation/deferred.rs and the poll
+# decisions of generation.rs `classify`. Every input is free: any
+# replies, in any order.
+
+# LAW: no request goes out while the request's deferred job is live: a
+# failed poll polls the same job again or cancels it
+law deferred_pays_once:
+  for fails: Nat
+  for budget: Nat
+  for gots: List<&2, R.Got>
+  {R.Tally.sends(R.run(fails, budget, gots)) == 0n : Nat}
+
+# LAW: no poll goes out at or after the job's deadline
+law deferred_bounded_in_time:
+  for fails: Nat
+  for budget: Nat
+  for gots: List<&2, R.Got>
+  {R.Tally.late(R.run(fails, budget, gots)) == 0n : Nat}
+
+# LAW: a retryable failed poll, with fetch failures and time left, polls
+# the same job again
+law deferred_failed_poll_repolls:
+  for fails: Nat
+  for budget: Nat
+  for failed: Nat
+  for left: Nat
+  for gap: Nat
+  for below: {Nat.is_lt(failed, fails) == True{} : Bool}
+  for live: {Nat.is_gt(left, 0n) == True{} : Bool}
+  {R.step(fails, budget, R.Live{failed, left}, R.Broke{True{}, gap}) == R.Step{R.Poll{}, R.Live{1n+failed, Nat.sub(left, 1n+gap)}} : R.Step}
+
+# (R5) The stall
+# --------------
+# crates/eukhe-durable/src/harness/generation/deferred.rs
+# `idle_after_stall`.
+
+# LAW: the retry of a stalled stream gets a longer idle deadline than the
+# one it stalled under
+law stall_retry_extends:
+  for idle: Nat
+  for positive: {Nat.is_gt(idle, 0n) == True{} : Bool}
+  {Nat.is_lt(idle, R.stall.next(idle)) == True{} : Bool}
+
+# (R6) The idle deadline
+# ----------------------
+# crates/eukhe-ai/src/utils/stream_idle.rs `StreamIdle::within`. Every
+# input is free: any deadline, any gaps between the events.
+
+# LAW: a watched stream ends no later than its last event before the
+# deadline plus the deadline: a stall is detected in bounded time
+law stall_detection_bounded:
+  for gs: List<&2, Nat>
+  for d: Nat
+  {Nat.is_le(R.Idle.at(R.idle(gs, d)), Nat.add(R.idle.life(gs, d), d)) == True{} : Bool}
+
+# LAW: a stream that sends no event ends as stalled at the deadline
+law stall_silent_ends_at_deadline:
+  for d: Nat
+  {R.idle(Nil{}, d) == R.IdleStall{d} : R.Idle}
+
+# ---- model_facts ----
+
+# LAWS (S6.10): model and provider facts are data. A wire API decides a
+# fact of a model only from the quirks rulebook's answer (and the model's
+# explicit compat flag or the user's setting), the thinking budgets stay
+# inside the model's limits, and where a fact moved from code into data the
+# data gives the answers the code gave. Each law is an open claim about the
+# model in bend/facts.bend; PROOF.bend proves them (as Laws.<law>)
+# with the lemmas of PROOF.bend section facts; bend/bridge_facts.bend runs the
+# model against the Rust code (crates/eukhe-core/src/durable/facts_bridge.rs).
+
+# (S6.10.1) Decisions are rulebook lookups
+# ----------------------------------------
+
+# LAW: when a rule of a compiled rulebook applies to a model and no rule of
+# a higher layer applies with its directive, the decision of that directive
+# is the rule's value: the table decides, whatever the wire API's default
+law facts_rulebook_decides:
+  for +known: List<&2, Nat>
+  for +pre: List<&2, If.Rule>
+  for +r: If.Rule
+  for +post: List<&2, If.Rule>
+  for +q: If.Query
+  for dflt: Bool
+  for ok: {If.compiles(known, List.append(&2, If.Rule, pre, r <> post)) == True{} : Bool}
+  for hit: {If.applies(q, r) == True{} : Bool}
+  for top: {If.any_at(List.append(&2, If.Rule, pre, r <> post), q, If.Rule.dir(r), 1n+If.Rule.rank(r)) == False{} : Bool}
+  {Fx.decide(List.append(&2, If.Rule, pre, r <> post), q, If.Rule.dir(r), dflt) == Nat.is_eq(If.Rule.val(r), 1n) : Bool}
+
+# LAW: with no rule that applies, the decision is the wire API's stated
+# default, never a guess from the model's id
+law facts_rulebook_default:
+  for +rs: List<&2, If.Rule>
+  for +q: If.Query
+  for +d: Nat
+  for dflt: Bool
+  for none: {If.any_at(rs, q, d, 0n) == False{} : Bool}
+  {Fx.decide(rs, q, d, dflt) == dflt : Bool}
+
+# LAW: two models with one rulebook answer get one decision: a model's id
+# reaches a decision only through the rulebook
+law facts_only_the_rulebook_decides:
+  for +rs: List<&2, If.Rule>
+  for +q1: If.Query
+  for +q2: If.Query
+  for +d: Nat
+  for dflt: Bool
+  for same: {If.lookup(rs, q1, d) == If.lookup(rs, q2, d) : If.Ans}
+  {Fx.decide(rs, q1, d, dflt) == Fx.decide(rs, q2, d, dflt) : Bool}
+
+# LAW: a model's explicit compat flag decides adaptive thinking, over the
+# rulebook
+law facts_adaptive_compat_first:
+  for b: Bool
+  for a: If.Ans
+  {Fx.adaptive(Some{b}, a) == b : Bool}
+
+# LAW: with no compat flag, adaptive thinking is the rulebook's answer,
+# false where no rule applies; one rule for Anthropic Messages and Bedrock
+law facts_adaptive_rulebook_second:
+  for a: If.Ans
+  {Fx.adaptive(None{}, a) == Fx.flag(a, False{}) : Bool}
+
+# (S6.10.2) Budgets stay within the model's limits
+# ------------------------------------------------
+
+# LAW: a Google budget of a model with a budget rule is at most the rule's
+# high budget, whatever the user's budgets
+law facts_google_budget_at_most_high:
+  for +b: Fx.Budgets
+  for c: Fx.Customs
+  for +l: Fx.Lv
+  for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
+  {Nat.is_le(Fx.gtokens(b, c, l), Fx.Budgets.high(b)) == True{} : Bool}
+
+# LAW: and at least the rule's minimal budget
+law facts_google_budget_at_least_minimal:
+  for +b: Fx.Budgets
+  for c: Fx.Customs
+  for +l: Fx.Lv
+  for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
+  {Nat.is_le(Fx.Budgets.minimal(b), Fx.gtokens(b, c, l)) == True{} : Bool}
+
+# LAW: with no user budget, a Google budget is the rule's budget of the
+# level, unchanged: the rule is the table
+law facts_google_rule_is_the_table:
+  for +b: Fx.Budgets
+  for +l: Fx.Lv
+  for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
+  {Fx.gtokens(b, Fx.Customs.none(), l) == Fx.Budgets.at(b, l) : Nat}
+
+# LAW: a fitted thinking budget is never above the response ceiling
+law facts_fit_budget_under_ceiling:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  {Nat.is_le(Fx.Fit.budget(Fx.fit(base, mm, b, a)), Fx.Fit.max(Fx.fit(base, mm, b, a))) == True{} : Bool}
+
+# LAW: and the response ceiling is never above the model's output cap
+law facts_fit_ceiling_under_model:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  {Nat.is_le(Fx.Fit.max(Fx.fit(base, mm, b, a)), mm) == True{} : Bool}
+
+# LAW: a budget capped for answer room leaves the answer its tokens under
+# the ceiling
+law facts_room_leaves_the_answer:
+  for +b: Nat
+  for +m: Nat
+  for +a: Nat
+  for fits: {Nat.is_le(a, m) == True{} : Bool}
+  {Nat.is_le(Nat.add(Fx.room(b, m, a), a), m) == True{} : Bool}
+
+# LAW: an auxiliary call's cap leaves its answer room over the thinking
+# budget in use, whatever the user's budget
+law facts_aux_cap_answer_room:
+  for +b: Nat
+  for +a: Nat
+  {Nat.sub(Fx.aux_cap(b, a), b) == a : Nat}
+
+# (S6.10.3) Oracles: the data gives the answers the code gave
+# -----------------------------------------------------------
+
+# LAW: the Bedrock effort from the thinking-level map is the effort of the
+# old id list, for every model whose map keeps the catalog's promise (a
+# native-xhigh model's map sends xhigh at xhigh)
+law facts_bedrock_effort_oracle:
+  for native: Bool
+  for +m: Fx.EMap
+  for +l: Fx.ELv
+  for ok: {Fx.native_ok(native, m) == True{} : Bool}
+  {Fx.effort.old(native, m, l) == Fx.effort(m, l) : Nat}
+
+# LAW: the budget of budget-based Claude from the rulebook's default
+# budgets is the budget of the old Bedrock table, for every user budget
+law facts_bedrock_budget_oracle:
+  for c: Fx.Customs
+  for +l: Fx.Lv
+  {Fx.budget(c, Fx.budgets.shipped(), l) == Fx.budget.old(c, l) : Nat}
+
+# (S6.10.4) Prices are data
+# -------------------------
+
+# LAW: a price row of the model wins over the row of every model: the
+# gpt-5.5 priority price is a row, not an id test in code
+law facts_tier_price_model_row_first:
+  for +rows: List<&2, Fx.PRow>
+  for +m: Nat
+  for +t: Nat
+  for +k: Nat
+  for hit: {Fx.price.find(rows, m, t, True{}) == Some{k} : Maybe<&2, Nat>}
+  {Fx.price(rows, m, t) == Some{k} : Maybe<&2, Nat>}
+
+# LAW: a tier that no row prices leaves the base price (a provider that does
+# not sell the tier is not billed OpenAI's multiplier)
+law facts_tier_price_no_row_base:
+  for +rows: List<&2, Fx.PRow>
+  for +m: Nat
+  for +t: Nat
+  for +base: Nat
+  for none: {Fx.price(rows, m, t) == None{} : Maybe<&2, Nat>}
+  {Fx.tier_cost(base, Fx.price(rows, m, t)) == Nat.mul(base, 100n) : Nat}
+
+# LAW: the shipped OpenAI rows give the multiplier of the old OpenAI
+# function for every model and tier
+law facts_tier_price_openai_oracle:
+  for m: Nat
+  for t: Nat
+  {Maybe.default(&2, Nat, Fx.price(Fx.prices.openai(), m, t), 100n) == Fx.price.old.openai(m, t) : Nat}
+
+# LAW: the shipped Codex rows give the multiplier of the old Codex
+# function for every model and tier
+law facts_tier_price_codex_oracle:
+  for m: Nat
+  for t: Nat
+  {Maybe.default(&2, Nat, Fx.price(Fx.prices.codex(), m, t), 100n) == Fx.price.old.codex(m, t) : Nat}
+
+# LAW: a 1h cache write of a model that no row prices costs the model's own
+# cache write rate, never a price borrowed from another provider
+law facts_cache_write_1h_own_rate:
+  for +input: Nat
+  for +write: Nat
+  {Fx.rate_1h(None{}, input, write) == write : Nat}
+
+# ---- dashboard_auth ----
+
+# LAWS (D1): the dashboard's pairing gate. Each law is an open claim about
+# the model in bend/dash.bend; PROOF.bend proves them (as Laws.<law>)
+# with the lemmas of PROOF.bend section dashboard_auth.
+
+# (D1) Pairing
+# ------------
+# docs/dashboard.md "Pairing", the model in bend/dash.bend; the Rust gate
+# (crates/eukhe-dashboard/src/pairing.rs, http.rs, bridge.rs) and the
+# model run the same events in the bridge test
+# pairing::tests::the_gate_pairs_as_its_model. Every input is free: any
+# state, any connection, any token, any events before and after.
+
+# LAW: a frame runs (a daemon command) only when its connection holds the
+# current token
+law dash_frame_runs_only_current:
+  for +s: Da.St
+  for +c: Nat
+  for ran: {Da.ran(c, Da.out(s, Da.Frame{c})) == True{} : Bool}
+  {Da.held(c, Da.St.conns(s)) == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
+
+# LAW: a frame of a connection that holds the current token runs
+law dash_current_frame_runs:
+  for +s: Da.St
+  for +c: Nat
+  for cur: {Da.held(c, Da.St.conns(s)) == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
+  {Da.out(s, Da.Frame{c}) == Da.Ran{c} : Da.Out}
+
+# LAW: a connection pairs only when it presents the current token
+law dash_open_pairs_only_current:
+  for +s: Da.St
+  for +c: Nat
+  for +shown: Maybe<&2, Nat>
+  for paired: {Da.is_paired(Da.out(s, Da.Open{c, shown})) == True{} : Bool}
+  {shown == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
+
+# LAW: a connection that presents the current token pairs
+law dash_current_open_pairs:
+  for +s: Da.St
+  for +c: Nat
+  {Da.out(s, Da.Open{c, Some{Da.St.cur(s)}}) == Da.Paired{c} : Da.Out}
+
+# LAW: a paired connection holds the token it presented
+law dash_paired_holds_token:
+  for +s: Da.St
+  for +c: Nat
+  {Da.held(c, Da.St.conns(Da.next(s, Da.Open{c, Some{Da.St.cur(s)}}))) == Some{Da.St.cur(s)} : Maybe<&2, Nat>}
+
+# LAW: a connection that is not open runs no frame, whatever comes, until
+# it opens again
+law dash_closed_runs_nothing:
+  for +s: Da.St
+  for +c: Nat
+  for +evs: List<&2, Da.Ev>
+  for closed: {Da.held(c, Da.St.conns(s)) == None{} : Maybe<&2, Nat>}
+  for again: {Da.any_opens(c, evs) == False{} : Bool}
+  {Da.any_ran(c, Da.run(evs, s)) == False{} : Bool}
+
+# LAW: a rejected connection runs no frame, whatever comes, until it
+# opens again
+law dash_rejected_runs_nothing:
+  for +s: Da.St
+  for +c: Nat
+  for +shown: Maybe<&2, Nat>
+  for +evs: List<&2, Da.Ev>
+  for rejected: {Da.is_paired(Da.out(s, Da.Open{c, shown})) == False{} : Bool}
+  for again: {Da.any_opens(c, evs) == False{} : Bool}
+  {Da.any_ran(c, Da.run(Da.Open{c, shown} <> evs, s)) == False{} : Bool}
+
+# LAW: after any history, a rotation ends every connection: none runs a
+# frame, whatever comes, until it opens again
+law dash_rotation_ends_connections:
+  for +hist: List<&2, Da.Ev>
+  for +c: Nat
+  for +evs: List<&2, Da.Ev>
+  for again: {Da.any_opens(c, evs) == False{} : Bool}
+  {Da.any_ran(c, Da.run(Da.Rotate{} <> evs, Da.state(hist, Da.init()))) == False{} : Bool}
+
+# LAW: after any history, a rotation invalidates every token made before
+# it: an open that presents one is rejected, whatever comes after
+law dash_rotation_rejects_old_tokens:
+  for +hist: List<&2, Da.Ev>
+  for +more: List<&2, Da.Ev>
+  for +c: Nat
+  for +t: Nat
+  for old: {Nat.is_le(t, Da.St.cur(Da.state(hist, Da.init()))) == True{} : Bool}
+  {Da.out(Da.state(Da.Rotate{} <> more, Da.state(hist, Da.init())), Da.Open{c, Some{t}}) == Da.Rejected{c} : Da.Out}
+
+# ---- documents ----
+
+# LAWS: the documents tools (crates/eukhe-docs and the documents tools of
+# crates/eukhe-core): edits, writes, moves, temporary files, line endings,
+# tags, seen lines, grep and glob. Each law is an open claim about a model
+# in bend/doc_*.bend; PROOF.bend proves them (as Laws.<law>) with the
+# lemmas of PROOF.bend section documents and, for lines and their endings,
+# PROOF.bend section doc_lines. A Rust bridge test runs the real
+# code and the model on the same generated scenarios and requires the same
+# transcript.
+
+# (F1, F9) An edit of many files
+# ------------------------------
+# bend/doc_commit.bend: every input is free: any files, each an update or
+# a move, changed since the edit staged it or not, with any fault (none,
+# a failed directory sync, a failed publish, a failed source removal).
+
+# LAW: the reply calls a file applied exactly when its new content is on
+# disk: after a conflict, a publish that fails at any file, or a publish
+# that lands with a warning
+law edit_reports_what_landed:
+  for +fs: List<&2, Cm.Doc>
+  {Cm.reported(Cm.reply(fs)) == Cm.landed(fs) : List<&2, Nat>}
+
+# LAW: when one file changed since the edit staged it, no file lands
+law edit_all_or_nothing_on_conflict:
+  for +pre: List<&2, Cm.Doc>
+  for +k: Cm.Op
+  for +x: Cm.Fault
+  for +post: List<&2, Cm.Doc>
+  {Cm.landed(List.append(&2, Cm.Doc, pre, Cm.Doc{k, True{}, x} <> post)) == Nil{} : List<&2, Nat>}
+
+# LAW: an edit with no changed file and no failed publish lands every
+# file
+law edit_lands_every_file:
+  for +fs: List<&2, Cm.Doc>
+  for same: {Cm.conflict(fs) == False{} : Bool}
+  for sound: {Cm.failing(fs) == False{} : Bool}
+  {Cm.landed(fs) == Cm.ids(fs, 0n) : List<&2, Nat>}
+
+# (F2) The write tool
+# -------------------
+# bend/doc_commit.bend: every input is free: any disk (a version or no
+# file), any versions the session saw, any new content.
+
+# LAW: a write over a version the session did not see is refused and
+# changes nothing: a write never loses a change the session did not see
+law write_never_loses_unseen:
+  for +d: Maybe<&2, Nat>
+  for +s: List<&2, Nat>
+  for +c: Nat
+  for lost: {Cm.unseen(d, s) == True{} : Bool}
+  {Cm.write(d, s, c) == Cm.Wt{False{}, d, s} : Cm.Wt}
+
+# LAW: a write over no file or over a version the session saw writes,
+# and the session then knows the new version
+law write_writes_seen:
+  for +d: Maybe<&2, Nat>
+  for +s: List<&2, Nat>
+  for +c: Nat
+  for kept: {Cm.unseen(d, s) == False{} : Bool}
+  {Cm.write(d, s, c) == Cm.Wt{True{}, Some{c}, Cm.saw(c, s)} : Cm.Wt}
+
+# (F5) A move
+# -----------
+# bend/doc_commit.bend: every input is free: any files with any names
+# and contents, any source and destination names.
+
+# LAW: a move to a name that a file has is refused and changes nothing:
+# an MV never replaces a file
+law move_never_overwrites:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Cm.Entry>
+  for taken: {Cm.has(t, es) == True{} : Bool}
+  {Cm.move(s, t, es) == Cm.Mv{False{}, es} : Cm.Mv}
+
+# LAW: a move of a file to a free name moves it: the move is done, the
+# source name is gone, and the destination holds the source's content
+law move_moves:
+  for +s: Nat
+  for +t: Nat
+  for +es: List<&2, Cm.Entry>
+  for free: {Cm.has(t, es) == False{} : Bool}
+  for from: {Cm.has(s, es) == True{} : Bool}
+  {Cm.Mv.ok(Cm.move(s, t, es)) == True{} : Bool} & {Cm.has(s, Cm.Mv.es(Cm.move(s, t, es))) == False{} : Bool} & {Cm.get(t, Cm.Mv.es(Cm.move(s, t, es))) == Cm.get(s, es) : Maybe<&2, Nat>}
+
+# (F10) Temporary files
+# ---------------------
+# bend/doc_commit.bend: every input is free: any entries in the target's
+# directory (a temporary file of the target, of another target, or
+# another file), held by a live writer or not.
+
+# LAW: a sweep never removes a temporary file that a live writer holds
+law temp_sweep_never_held:
+  for +pre: List<&2, Cm.Temp>
+  for +i: Nat
+  for +k: Cm.Sort
+  for +post: List<&2, Cm.Temp>
+  {Cm.sweep(List.append(&2, Cm.Temp, pre, Cm.Temp{i, k, True{}} <> post)) == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.sweep(post)) : List<&2, Cm.Temp>}
+
+# LAW: a sweep never removes a temporary file of another target, or a
+# file that is not a temporary file
+law temp_sweep_only_own:
+  for +pre: List<&2, Cm.Temp>
+  for +i: Nat
+  for +k: Cm.Sort
+  for +h: Bool
+  for +post: List<&2, Cm.Temp>
+  for other: {Cm.Sort.own(k) == False{} : Bool}
+  {Cm.sweep(List.append(&2, Cm.Temp, pre, Cm.Temp{i, k, h} <> post)) == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.sweep(post)) : List<&2, Cm.Temp>}
+
+# LAW: a sweep removes every temporary file of the target that no live
+# writer holds
+law temp_sweep_removes_free:
+  for +pre: List<&2, Cm.Temp>
+  for +i: Nat
+  for +post: List<&2, Cm.Temp>
+  {Cm.sweep(List.append(&2, Cm.Temp, pre, Cm.Temp{i, Cm.Own{}, False{}} <> post)) == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.Temp{i, Cm.Own{}, False{}} <> Cm.sweep(post)) : List<&2, Cm.Temp>}
+
+# (F4) Lines and their endings
+# ----------------------------
+# bend/doc_lines.bend: every input is free: any body of bytes (content,
+# `\r`, `\n` in any order), with or without a BOM; any edit that replaces
+# any run of whole lines with any new lines.
+
+# LAW: a file loaded and persisted with no edit is the same bytes: every
+# line keeps its own ending, a lone `\r` stays content, the BOM stays
+law load_persist_roundtrip:
+  for +f: Dl.Doc
+  {Dl.persist(Dl.load(f)) == f : Dl.Doc}
+
+# LAW: an edit of the lines [s, s+k) keeps every byte outside them: the
+# bytes of the lines before s, and the bytes after line s+k (its later
+# lines with their own endings, and the last piece), are the same in the
+# persisted file
+law edit_keeps_untouched_bytes:
+  for +bom: Bool
+  for +bs: List<&2, Dl.B>
+  for +s: Nat
+  for +k: Nat
+  for +xs: List<&2, List<&2, Dl.B>>
+  for fits: {Nat.is_le(Nat.add(s, k), Dl.lfs(bs)) == True{} : Bool}
+  exs x: List<&2, Dl.B>
+  {Dl.persist(Dl.edit(Dl.load(Dl.Doc{bom, bs}), s, k, xs)) == Dl.Doc{bom, List.append(&2, Dl.B, Dl.upto(bs, s), List.append(&2, Dl.B, x, Dl.from(bs, Nat.add(s, k))))} : Dl.Doc}
+
+# LAW: grep and read number the lines of a text the same way and show
+# the same text for each line (a text that is not empty: grep shows no
+# row of an empty text, read shows one empty row)
+law grep_line_is_read_line:
+  for +b: Dl.B
+  for +bs: List<&2, Dl.B>
+  {Dl.grep_rows(b <> bs) == Dl.read_rows(b <> bs) : List<&2, List<&2, Dl.B>>}
+
+
+# (F3) Tags
+# ---------
+# bend/doc_tags.bend: every input is free: any text, any lines shown, a
+# read or a grep, and any text the file holds when grep records its
+# result.
+
+# LAW: the tag of a read or grep result names the text its rows come
+# from: the tag is the identity of that text, and every row (n, x) is
+# line n of it
+law tag_names_shown_text:
+  for +t: List<&2, Nat>
+  for +op: Dt.Op
+  {Dt.Shown.tag(Dt.show(t, op)) == t : List<&2, Nat>} & {Dt.from_text(t, Dt.Shown.rows(Dt.show(t, op))) == True{} : Bool}
+
+
+# (F11) Seen lines
+# ----------------
+# bend/doc_seen.bend: every input is free: any seen lines of a snapshot
+# tagged by a read or a mismatch error, any anchors.
+
+# LAW: an edit applies only when every anchor is a seen line: a line
+# number the model never saw is never an address
+law edit_only_seen_lines:
+  for +seen: List<&2, Nat>
+  for +anchors: List<&2, Nat>
+  for ok: {Ds.Step.applied(Ds.edit(seen, anchors)) == True{} : Bool}
+  {Ds.subset(anchors, seen) == True{} : Bool}
+
+# LAW: an edit whose anchors are all seen applies (the guard rejects
+# nothing more)
+law edit_seen_applies:
+  for +seen: List<&2, Nat>
+  for +anchors: List<&2, Nat>
+  for all: {Ds.subset(anchors, seen) == True{} : Bool}
+  {Ds.Step.applied(Ds.edit(seen, anchors)) == True{} : Bool}
+
+# LAW: a rejection shows its unseen anchors and marks them seen, so the
+# same edit applies on a straight retry (when it has at most `cap`
+# anchors)
+law reveal_then_retry:
+  for +seen: List<&2, Nat>
+  for +anchors: List<&2, Nat>
+  for few: {Nat.is_le(List.length(&2, Nat, anchors), Ds.cap) == True{} : Bool}
+  {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit(seen, anchors)), anchors)) == True{} : Bool}
+
+# (F6) What grep searched
+# -----------------------
+# bend/doc_search.bend: every input is free: any walk (text files with
+# any number of matches, over the size limit or not; binary files, files
+# that do not open, excluded directories, symlinks, walk errors, in any
+# order), any match cap of a file, any total match cap, any page.
+
+# LAW: every walked entry is in exactly one class (no match, shown,
+# paged out, not searched, or skipped with its reason): the classes add
+# up to the walk
+law grep_accounts_every_file:
+  for +es: List<&2, Sr.Ent>
+  for +p: Nat
+  for +s: Nat
+  for +k: Nat
+  for +rem: Nat
+  for +n: Nat
+  {Sr.Count.total(Sr.account(Sr.run(es, p, s, k, rem, n))) == List.length(&2, Sr.Ent, es) : Nat}
+
+# LAW: a result has the notice of a class of entries it did not search,
+# skipped, or searched only in part exactly when that class is not empty
+law grep_notes_every_gap:
+  for +os: List<&2, Sr.Out>
+  for +t: Sr.Note
+  {Sr.noted(t, os) == Bool.not(Nat.is_eq(Sr.Note.count(Sr.account(os), t), 0n)) : Bool}
+
+# LAW: a shown file whose matches were cut has its own notice
+law grep_notes_every_cut:
+  for +pre: List<&2, Sr.Out>
+  for +i: Nat
+  for +pa: Bool
+  for +post: List<&2, Sr.Out>
+  {Sr.mem(i, Sr.cuts(List.append(&2, Sr.Out, pre, Sr.Out{i, Sr.Shown{}, True{}, pa} <> post))) == True{} : Bool}
+
+# (F7) Continuations
+# ------------------
+# bend/doc_search.bend: every input is free: any ordered list (the
+# matching files of grep, the ranked paths of glob), any skip, any page
+# size, and the continuation the page gives.
+
+# LAW: a continuation gives a page that is not empty
+law continuation_progresses:
+  for +ps: List<&2, Nat>
+  for +s: Nat
+  for +k: Nat
+  for +c: Nat
+  for h: {Sr.next(ps, s, k) == Some{c} : Maybe<&2, Nat>}
+  {List.is_empty(&2, Nat, Sr.page(ps, c, k)) == False{} : Bool}
+
+# LAW: a page and the page of its continuation are, together, the start
+# of the list after the skip: nothing left out between them, nothing
+# twice
+law continuation_contiguous:
+  for +ps: List<&2, Nat>
+  for +s: Nat
+  for +k: Nat
+  for +c: Nat
+  for h: {Sr.next(ps, s, k) == Some{c} : Maybe<&2, Nat>}
+  exs rest: List<&2, Nat>
+  {List.append(&2, Nat, Sr.page(ps, s, k), List.append(&2, Nat, Sr.page(ps, c, k), rest)) == List.drop(&2, Nat, ps, s) : List<&2, Nat>}
+
+# LAW: in a list with no item twice, a page and the page of its
+# continuation have no item in common
+law continuation_disjoint:
+  for +ps: List<&2, Nat>
+  for +s: Nat
+  for +k: Nat
+  for +c: Nat
+  for +x: Nat
+  for h: {Sr.next(ps, s, k) == Some{c} : Maybe<&2, Nat>}
+  for nd: {Sr.nodup(ps) == True{} : Bool}
+  {Bool.and(Sr.mem(x, Sr.page(ps, s, k)), Sr.mem(x, Sr.page(ps, c, k))) == False{} : Bool}
+
+# ---- config ----
+
+# LAWS (config audit H1-H4, M3, M7): no config input is lost in silence.
+# A writer never replaces a document it could not read and keeps every
+# entry it does not change; a setter writes the document on disk, not
+# the copy it loaded; each leaf of a settings document applies or is
+# named; a malformed limit fails closed; a saved default model runs or
+# its substitution is shown; an untrusted project changes no limit,
+# prompt or credential; a project MCP entry never takes the keys of a
+# global one. Each law is an open claim about the models in
+# bend/config.bend and bend/default_model.bend; PROOF.bend proves them
+# (as Laws.<law>) with the lemmas of PROOF.bend section config.
+
+# (H1) A read/modify/write of a config document
+# ---------------------------------------------
+# settings.json (`eukhe mcp add`, the resource arrays, every setter),
+# mcp-connections.json (`remove`, verify) and auth.json (`set`,
+# `remove`): the writer reads the document under its lock.
+
+# LAW: a document that could not be read or parsed (or has a version
+# the writer does not know) is never written
+law rmw_refuses_broken:
+  for e: Cf.Edit
+  {Cf.rmw(Cf.Broken{}, e) == Cf.Refused{} : Cf.Write}
+
+# LAW: when it writes, every key the edit does not touch keeps the value
+# it had in the document read
+law rmw_keeps_others:
+  for +d: List<&2, Cf.Entry>
+  for +e: Cf.Edit
+  for +j: Nat
+  for +h: {Cf.touches(e, j) == False{} : Bool}
+  {Cf.kept(Cf.rmw(Cf.Parsed{d}, e), j) == Cf.lookup(d, j) : Maybe<&2, Nat>}
+
+# LAW: the key the edit sets has the value it sets
+law rmw_applies_change:
+  for +d: List<&2, Cf.Entry>
+  for +k: Nat
+  for +v: Nat
+  {Cf.kept(Cf.rmw(Cf.Parsed{d}, Cf.Set{k, v}), k) == Some{v} : Maybe<&2, Nat>}
+
+# (H2) A settings setter
+# ----------------------
+
+# LAW: a setter of key k to v writes D[k := v], where D is the document
+# on disk at write time, whatever copy the setter loaded before (a copy
+# without a key that failed to load, or without a key another writer
+# added since)
+law settings_save_preserves:
+  for loaded: List<&2, Cf.Entry>
+  for d: List<&2, Cf.Entry>
+  for +k: Nat
+  for v: Nat
+  {Cf.save(loaded, Cf.Parsed{d}, k, v) == Cf.Wrote{Cf.set(d, k, v)} : Cf.Write}
+
+# (H3) The leaves of a settings document
+# --------------------------------------
+# settings.json, through the leaf load (`settings::load`): the same
+# report path as config.cfg (`CvarError`, a settings-error row).
+
+# LAW: every leaf applies or is named by a diagnostic
+law leaf_applied_or_reported:
+  for ls: List<&2, Cf.Leaf>
+  for +l: Cf.Leaf
+  for i: Cf.In(l, ls)
+  {Bool.or(Cf.listed(Cf.applied(ls), Cf.Leaf.path(l)), Cf.listed(Cf.reported(ls), Cf.Leaf.path(l))) == True{} : Bool}
+
+# LAW: of distinct leaves, none both applies and is named
+law leaf_not_both:
+  for ls: List<&2, Cf.Leaf>
+  for +n: Nat
+  for +d: {Cf.distinct(ls) == True{} : Bool}
+  {Bool.and(Cf.listed(Cf.applied(ls), n), Cf.listed(Cf.reported(ls), n)) == False{} : Bool}
+
+# LAW: a malformed in-flight limit never reads as no limit: it caps its
+# provider at 1 (a value that is not a map caps every provider)
+law limit_malformed_fails_closed:
+  for s: Cf.InFlight
+  for +p: Nat
+  for h: {Cf.malformed_at(s, p) == True{} : Bool}
+  {Cf.limit(s, p) == Cf.Cap{1n} : Cf.Lim}
+
+# LAW: a well-formed entry is the provider's limit
+law limit_number_applies:
+  for es: List<&2, Cf.Slot>
+  for +p: Nat
+  for +n: Nat
+  for h: {Cf.slot(es, p) == Some{Cf.Num{n}} : Maybe<&2, Cf.Val>}
+  {Cf.limit(Cf.Entries{es}, p) == Cf.val_limit(Cf.Num{n}) : Cf.Lim}
+
+# (H4) The saved default model
+# ----------------------------
+# bend/default_model.bend: the session-model resolution at open.
+
+# LAW: a session started with a saved default runs on it, or its notices
+# name the saved default and the reason it did not run
+law default_honoured_or_reported:
+  for x: Dm.In
+  {Dm.reported(x, Dm.open(Dm.resolve(x))) == True{} : Bool}
+
+# LAW: a session that runs on its saved default has no notice
+law default_quiet_when_honoured:
+  for x: Dm.In
+  for h: {Dm.on_saved(Dm.Session.run(Dm.open(Dm.resolve(x)))) == True{} : Bool}
+  {Dm.none(Dm.Session.notes(Dm.open(Dm.resolve(x)))) == True{} : Bool}
+
+# LAW: with no saved default the session has no notice
+law default_quiet_when_unset:
+  for cat: Bool
+  for key: Bool
+  for out: Bool
+  for next: Dm.Next
+  {Dm.Session.notes(Dm.open(Dm.resolve(Dm.In{Dm.NoDefault{}, cat, key, out, next}))) == Nil{} : List<&2, Dm.Key>}
+
+# LAW: a saved default whose provider has no credentials opens the
+# session with no model: no other provider runs in its place
+law default_unkeyed_never_moves:
+  for m: Nat
+  for out: Bool
+  for next: Dm.Next
+  {Dm.Session.run(Dm.open(Dm.resolve(Dm.In{Dm.Default{m}, True{}, False{}, out, next}))) == Dm.Idle{} : Dm.Run}
+
+# (M3) An untrusted project
+# -------------------------
+
+# LAW: an untrusted project changes no limit, system prompt or
+# credential: a key that no preference item of the project sets keeps
+# its global value
+law untrusted_changes_nothing_guarded:
+  for +g: List<&2, Cf.Entry>
+  for items: List<&2, Cf.Item>
+  for +k: Nat
+  for +h: {Cf.only_guarded(items, k) == True{} : Bool}
+  {Cf.lookup(Cf.effective(Cf.Untrusted{}, g, items), k) == Cf.lookup(g, k) : Maybe<&2, Nat>}
+
+# LAW: a trusted project's item applies, whatever it is
+law trusted_project_applies:
+  for g: List<&2, Cf.Entry>
+  for +k: Nat
+  for kind: Cf.Class
+  for v: Nat
+  for items: List<&2, Cf.Item>
+  {Cf.lookup(Cf.effective(Cf.Trusted{}, g, Cf.Item{k, kind, v} <> items), k) == Some{v} : Maybe<&2, Nat>}
+
+# (M7) Named entries
+# ------------------
+
+# LAW: a project MCP entry is the entry that applies, whole: it never
+# takes a key (a URL, a credential) from the global entry of its name
+law project_entry_never_merges:
+  for +g: List<&2, Cf.Named>
+  for p: List<&2, Cf.Named>
+  for +n: Nat
+  for h: {Cf.has(p, n) == True{} : Bool}
+  {Cf.find(Cf.merge(g, p), n) == Cf.find(p, n) : Maybe<&2, List<&2, Cf.Entry>>}
+
+# LAW: a global entry the project does not name stays whole
+law global_entry_kept:
+  for +g: List<&2, Cf.Named>
+  for p: List<&2, Cf.Named>
+  for +n: Nat
+  for h: {Cf.has(p, n) == False{} : Bool}
+  {Cf.find(Cf.merge(g, p), n) == Cf.find(g, n) : Maybe<&2, List<&2, Cf.Entry>>}
+
+# ---- workflow ----
+
+# LAWS (WF, dynamic workflows): a run never holds more agents at once
+# than its concurrency, never spawns more than its budget, spawns only
+# the uncached keys when it resumes, and one failed agent never changes
+# its siblings' results. Each law is an open claim about the model in
+# bend/workflow.bend; PROOF.bend proves them (as Laws.<law>) with the
+# lemmas of PROOF.bend section workflow. The Rust bridge test
+# (crates/eukhe-core/src/durable/workflow/bridge.rs) runs `admit` and
+# `effective_limits` against bend/bridge_workflow.bend.
+
+# LAW: after any asks and settles, the running agents and the free slots
+# still add up to the concurrency: running never goes above it
+law wf_running_within_concurrency:
+  for cap: Nat
+  for es: List<&2, W.Ev>
+  {W.size(W.run(es, W.pool(cap))) == cap : Nat}
+
+# LAW: after any number of spawn attempts, the spawned agents and the
+# budget left add up to the run's max agents: spawned never goes above it
+law wf_spawned_within_budget:
+  for max: Nat
+  for n: Nat
+  {W.size(W.spawns(n, W.pool(max))) == max : Nat}
+
+# LAW: a resumed call whose key the earlier run finished spawns nothing
+law wf_cached_key_spawns_nothing:
+  for k: Nat
+  for cache: List<&2, Nat>
+  for hit: {W.member(k, cache) == True{} : Bool}
+  {W.cost(k, cache) == 0n : Nat}
+
+# LAW: a resume with nothing cached spawns every key
+law wf_empty_cache_spawns_all:
+  for keys: List<&2, Nat>
+  {W.resumed([], keys) == List.length(&2, Nat, keys) : Nat}
+
+# LAW: a failed agent gives null in its own slot and leaves every
+# sibling's result as it was
+law wf_failure_spares_siblings:
+  for xs: List<&2, W.Out>
+  for ys: List<&2, W.Out>
+  {W.results(W.cat(xs, W.Failed{} <> ys)) == W.rcat(W.results(xs), None{} <> W.results(ys)) : List<&2, Maybe<&2, Nat>>}
