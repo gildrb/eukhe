@@ -212,8 +212,16 @@ dashboard_ui() {
 # same time on one build, then scripts/ci_test_shard_summary.py audits that
 # the shards ran every unit exactly once. The environment is the clean one
 # of AGENTS.md: inherited EUKHE_* variables would point test daemons at
-# real state.
+# real state. Each shard's test binaries get an equal share of the cores
+# (RUST_TEST_THREADS = cores / TEST_SHARDS, at least 1): with the default
+# (one thread per core in every shard) 8 shards ran 8x the cores, and the
+# tests with a real-time window (the kitty answer, the teardown bound)
+# missed it under that load.
 TEST_SHARDS=8
+TEST_THREADS_PER_SHARD=$(( $(nproc) / TEST_SHARDS ))
+if (( TEST_THREADS_PER_SHARD < 1 )); then
+  TEST_THREADS_PER_SHARD=1
+fi
 
 clean_env() {
   env -i HOME="${HOME}" PATH="${PATH}" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" \
@@ -229,7 +237,7 @@ workspace_tests() {
   clean_env cargo build --workspace --bins --locked
   echo "running ${total} test shards at the same time (logs: ${dir})"
   for shard in $(seq 1 "${total}"); do
-    (trap - INT; clean_env python3 scripts/ci_test_shard.py --shard "${shard}" --total "${total}" \
+    (trap - INT; clean_env RUST_TEST_THREADS="${TEST_THREADS_PER_SHARD}" python3 scripts/ci_test_shard.py --shard "${shard}" --total "${total}" \
       --artifacts "${dir}/artifacts.jsonl" --manifest "${dir}/shard-manifest-${shard}.json") </dev/null >"${dir}/shard-${shard}.log" 2>&1 &
     pids+=("$!")
   done
