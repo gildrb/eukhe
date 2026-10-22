@@ -19050,24 +19050,25 @@ def pt.load_end(+name: String, +es: List<&2, T.Ent>, p: T.Bg, c: T.Bg, i: T.Bg, 
       %themes.pt.some_inj(T.Th, T.Th{name, es, pc, cc, ic}, f, h) : {T.valid(_) == True{} : Bool}
       hv
 
-def pt.load_full(+name: String, +vars: List<&2, T.Var>, +es: List<&2, T.Ent>, miss: List<&2, U32>, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, -f: T.Th, +hm: {T.missing(es) == miss : List<&2, U32>}, h: {T.load.of(T.read.full(name, vars, es, miss, pg, cd, io)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
+def pt.load_full(+name: String, +ix: T.Ix, +es: List<&2, T.Ent>, miss: List<&2, U32>, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, -f: T.Th, +hm: {T.missing(es) == miss : List<&2, U32>}, h: {T.load.of(T.read.full(name, ix, es, miss, pg, cd, io)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
   match miss:
     case Nil{}:
-      pt.load_end(name, es, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io), f, pt.valid_of(es, hm), h)
+      pt.load_end(name, es, T.surf(ix, T.OnPage{}, pg), T.surf(ix, T.OnCard{}, cd), T.surf(ix, T.OnInfo{}, io), f, pt.valid_of(es, hm), h)
     case Con{t, rest}:
       themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
 
-def pt.load_cols(+name: String, +vars: List<&2, T.Var>, r: T.Ents, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, -f: T.Th, h: {T.load.of(T.read.cols(name, vars, r, pg, cd, io)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
+def pt.load_cols(+name: String, +ix: T.Ix, r: T.Ents, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, -f: T.Th, h: {T.load.of(T.read.cols(name, ix, r, pg, cd, io)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
   match r:
     case T.Stuck{x}:
       themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
     case T.All{+es}:
-      pt.load_full(name, vars, es, T.missing(es), pg, cd, io, f, {==}, h)
+      pt.load_full(name, ix, es, T.missing(es), pg, cd, io, f, {==}, h)
 
 def theme_load_valid(r: T.RFile, -f: T.Th, loaded: {T.load(r) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
   match r:
-    case T.RFile{name, +vars, cols, page, card, info}:
-      pt.load_cols(name, vars, T.ents(vars, cols), page, card, info, f, loaded)
+    case T.RFile{name, vars, cols, page, card, info}:
+      +ix = T.index(vars)
+      pt.load_cols(name, ix, T.ents(ix, cols), page, card, info, f, loaded)
 
 def pt.or_some(a: Maybe<&2, T.Val>, +b: Maybe<&2, T.Val>, h: {Bool.or(Maybe.is_some(&2, T.Val, a), Maybe.is_some(&2, T.Val, b)) == True{} : Bool})
   -> {Maybe.is_some(&2, T.Val, T.or(T.Val, a, b)) == True{} : Bool}:
@@ -19244,9 +19245,8 @@ def Laws.theme_hex_shape(s, c, h):
 
 # Values
 # ------
-# The model and the rule take the same steps: the seen check is the
-# membership, the variable lookup is the list lookup, and each step maps
-# to the rule's step; the walk follows them for the same fuel.
+# The model and the rule take the same steps: the seen check of a leaf
+# is the membership, the variable lookup of a leaf the list lookup.
 
 def pt.has_mem(xs: List<&2, Nat>, +i: Nat, hit: Bool) -> {T.seen.has(xs, i, hit) == Bool.or(hit, Laws.th.mem(xs, i)) : Bool}:
   match xs:
@@ -19286,53 +19286,297 @@ def pt.numgot(m: Maybe<&2, U32>, s: String) -> {T.num.got(m, s) == Laws.th.num(m
     case Some{i}:
       {==}
 
-def pt.next_eq(m: Maybe<&2, T.Json>, seen: List<&2, Nat>, s: String, i: Nat) -> {T.step.next(m, i <> seen, s) == Laws.th.ref(False{}, m, seen, s, i) : T.Step}:
+# The indexed chase
+# -----------------
+# The variable tree answers as the list (pt.vt_at), the seen tree as the
+# list of variables met (pt.st_sset), so each step over the trees is the
+# rule's step (pt.look_step) and the walks agree for any fuel
+# (pt.look_walk).
+
+# below the split, the first h variables answer as all of them
+def pt.val_take(xs: List<&2, T.Var>, +h: Nat, +i: Nat, lt: {Nat.is_lt(i, h) == True{} : Bool}) -> {T.var.val(List.take(&2, T.Var, xs, h), i) == T.var.val(xs, i) : Maybe<&2, T.Json>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, rest}:
+      match x:
+        case T.Var{nm, v}:
+          match h:
+            case 0n:
+              match i:
+                case 0n:
+                  themes.pt.absurdF({T.var.val(Nil{}, 0n) == T.var.val(T.Var{nm, v} <> rest, 0n) : Maybe<&2, T.Json>}, lt)
+                case 1n+ip:
+                  themes.pt.absurdF({T.var.val(Nil{}, 1n+ip) == T.var.val(T.Var{nm, v} <> rest, 1n+ip) : Maybe<&2, T.Json>}, lt)
+            case 1n+hp:
+              match i:
+                case 0n:
+                  {==}
+                case 1n+ip:
+                  pt.val_take(rest, hp, ip, lt)
+
+# from the split on, the variables past the first h answer as all of them
+def pt.val_drop(xs: List<&2, T.Var>, +h: Nat, +i: Nat, ge: {Nat.is_lt(i, h) == False{} : Bool}) -> {T.var.val(List.drop(&2, T.Var, xs, h), Nat.sub(i, h)) == T.var.val(xs, i) : Maybe<&2, T.Json>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, rest}:
+      match x:
+        case T.Var{nm, v}:
+          match h:
+            case 0n:
+              match i:
+                case 0n:
+                  {==}
+                case 1n+ip:
+                  {==}
+            case 1n+hp:
+              match i:
+                case 0n:
+                  themes.pt.absurdT({T.var.val(List.drop(&2, T.Var, T.Var{nm, v} <> rest, 1n+hp), Nat.sub(0n, 1n+hp)) == T.var.val(T.Var{nm, v} <> rest, 0n) : Maybe<&2, T.Json>}, ge)
+                case 1n+ip:
+                  pt.val_drop(rest, hp, ip, ge)
+
+def pt.vt_node(+h: Nat, +a: T.VT, +b: T.VT, +xs: List<&2, T.Var>, +i: Nat, c: Bool, e: {Nat.is_lt(i, h) == c : Bool},
+  ia: {T.vt.at(a, i) == T.var.val(List.take(&2, T.Var, xs, h), i) : Maybe<&2, T.Json>},
+  ib: {T.vt.at(b, Nat.sub(i, h)) == T.var.val(List.drop(&2, T.Var, xs, h), Nat.sub(i, h)) : Maybe<&2, T.Json>})
+  -> {T.vt.get(T.VN{h, a, b}, c, i) == T.var.val(xs, i) : Maybe<&2, T.Json>}:
+  match c:
+    case True{}:
+      Equal.trans(Maybe<&2, T.Json>, T.vt.at(a, i), T.var.val(List.take(&2, T.Var, xs, h), i), T.var.val(xs, i), ia, pt.val_take(xs, h, i, e))
+    case False{}:
+      Equal.trans(Maybe<&2, T.Json>, T.vt.at(b, Nat.sub(i, h)), T.var.val(List.drop(&2, T.Var, xs, h), Nat.sub(i, h)), T.var.val(xs, i), ib, pt.val_drop(xs, h, i, e))
+
+# the tree of the variables answers as their list, whatever its splits
+def pt.vt_build(fuel: Nat, small: Bool, +xs: List<&2, T.Var>, +n: Nat, +i: Nat) -> {T.vt.at(T.vt.build(fuel, small, xs, n), i) == T.var.val(xs, i) : Maybe<&2, T.Json>}:
+  match fuel:
+    case 0n:
+      {==}
+    case 1n++f:
+      match small:
+        case True{}:
+          {==}
+        case False{}:
+          +h = Nat.div(n, 2n)
+          +r = Nat.sub(n, h)
+          +ta = List.take(&2, T.Var, xs, h)
+          +tb = List.drop(&2, T.Var, xs, h)
+          +a = T.vt.build(f, Nat.is_le(h, 1n), ta, h)
+          +b = T.vt.build(f, Nat.is_le(r, 1n), tb, r)
+          pt.vt_node(h, a, b, xs, i, Nat.is_lt(i, h), {==}, pt.vt_build(f, Nat.is_le(h, 1n), ta, h, i), pt.vt_build(f, Nat.is_le(r, 1n), tb, r, Nat.sub(i, h)))
+
+# Nat facts on both sides of a split
+def pt.split_lo_ne(+h: Nat, +a: Nat, +b: Nat, la: {Nat.is_lt(a, h) == True{} : Bool}, lb: {Nat.is_lt(b, h) == False{} : Bool}) -> {Nat.is_eq(a, b) == False{} : Bool}:
+  match h:
+    case 0n:
+      match a:
+        case 0n:
+          themes.pt.absurdF({Nat.is_eq(0n, b) == False{} : Bool}, la)
+        case 1n+ap:
+          themes.pt.absurdF({Nat.is_eq(1n+ap, b) == False{} : Bool}, la)
+    case 1n+hp:
+      match a:
+        case 0n:
+          match b:
+            case 0n:
+              themes.pt.absurdT({Nat.is_eq(0n, 0n) == False{} : Bool}, lb)
+            case 1n+bp:
+              {==}
+        case 1n+ap:
+          match b:
+            case 0n:
+              themes.pt.absurdT({Nat.is_eq(1n+ap, 0n) == False{} : Bool}, lb)
+            case 1n+bp:
+              pt.split_lo_ne(hp, ap, bp, la, lb)
+
+def pt.split_hi_ne(+h: Nat, +a: Nat, +b: Nat, la: {Nat.is_lt(a, h) == False{} : Bool}, lb: {Nat.is_lt(b, h) == True{} : Bool}) -> {Nat.is_eq(a, b) == False{} : Bool}:
+  match h:
+    case 0n:
+      match b:
+        case 0n:
+          themes.pt.absurdF({Nat.is_eq(a, 0n) == False{} : Bool}, lb)
+        case 1n+bp:
+          themes.pt.absurdF({Nat.is_eq(a, 1n+bp) == False{} : Bool}, lb)
+    case 1n+hp:
+      match a:
+        case 0n:
+          themes.pt.absurdT({Nat.is_eq(0n, b) == False{} : Bool}, la)
+        case 1n+ap:
+          match b:
+            case 0n:
+              {==}
+            case 1n+bp:
+              pt.split_hi_ne(hp, ap, bp, la, lb)
+
+def pt.split_hi_eq(+h: Nat, +a: Nat, +b: Nat, la: {Nat.is_lt(a, h) == False{} : Bool}, lb: {Nat.is_lt(b, h) == False{} : Bool}) -> {Nat.is_eq(Nat.sub(a, h), Nat.sub(b, h)) == Nat.is_eq(a, b) : Bool}:
+  match h:
+    case 0n:
+      match a:
+        case 0n:
+          match b:
+            case 0n:
+              {==}
+            case 1n+bp:
+              {==}
+        case 1n+ap:
+          match b:
+            case 0n:
+              {==}
+            case 1n+bp:
+              {==}
+    case 1n+hp:
+      match a:
+        case 0n:
+          themes.pt.absurdT({Nat.is_eq(Nat.sub(0n, 1n+hp), Nat.sub(b, 1n+hp)) == Nat.is_eq(0n, b) : Bool}, la)
+        case 1n+ap:
+          match b:
+            case 0n:
+              themes.pt.absurdT({Nat.is_eq(Nat.sub(1n+ap, 1n+hp), Nat.sub(0n, 1n+hp)) == Nat.is_eq(1n+ap, 0n) : Bool}, lb)
+            case 1n+bp:
+              pt.split_hi_eq(hp, ap, bp, la, lb)
+
+# the empty seen tree has met no variable
+def pt.st_empty_node(+h: Nat, +lo: T.ST, +hi: T.ST, +i: Nat, c: Bool, il: {T.st.mem(lo, i) == False{} : Bool}, ih: {T.st.mem(hi, Nat.sub(i, h)) == False{} : Bool}) -> {T.st.has(T.SN{h, lo, hi}, c, i) == False{} : Bool}:
+  match c:
+    case True{}:
+      il
+    case False{}:
+      ih
+
+def pt.st_empty(t: T.VT, +i: Nat) -> {T.st.mem(T.st.of(t), i) == False{} : Bool}:
+  match t:
+    case T.VL{xs}:
+      {==}
+    case T.VN{+h, +lo, +hi}:
+      pt.st_empty_node(h, T.st.of(lo), T.st.of(hi), i, Nat.is_lt(i, h), pt.st_empty(lo, i), pt.st_empty(hi, Nat.sub(i, h)))
+
+# a variable added is met, and every one met before stays met
+def pt.st_add_node(+h: Nat, +lo: T.ST, +hi: T.ST, +k: Nat, +i: Nat, ck: Bool, ci: Bool, ek: {Nat.is_lt(k, h) == ck : Bool}, ei: {Nat.is_lt(i, h) == ci : Bool},
+  il: {T.st.mem(T.st.add(lo, k), i) == Bool.or(Nat.is_eq(k, i), T.st.mem(lo, i)) : Bool},
+  ih: {T.st.mem(T.st.add(hi, Nat.sub(k, h)), Nat.sub(i, h)) == Bool.or(Nat.is_eq(Nat.sub(k, h), Nat.sub(i, h)), T.st.mem(hi, Nat.sub(i, h))) : Bool})
+  -> {T.st.has(T.st.ins(T.SN{h, lo, hi}, ck, k), ci, i) == Bool.or(Nat.is_eq(k, i), T.st.has(T.SN{h, lo, hi}, ci, i)) : Bool}:
+  match ck ci:
+    case True{} True{}:
+      il
+    case True{} False{}:
+      %Equal.sym(Bool, Nat.is_eq(k, i), False{}, pt.split_lo_ne(h, k, i, ek, ei)) : {T.st.mem(hi, Nat.sub(i, h)) == Bool.or(_, T.st.mem(hi, Nat.sub(i, h))) : Bool}
+      {==}
+    case False{} True{}:
+      %Equal.sym(Bool, Nat.is_eq(k, i), False{}, pt.split_hi_ne(h, k, i, ek, ei)) : {T.st.mem(lo, i) == Bool.or(_, T.st.mem(lo, i)) : Bool}
+      {==}
+    case False{} False{}:
+      %pt.split_hi_eq(h, k, i, ek, ei) : {T.st.mem(T.st.add(hi, Nat.sub(k, h)), Nat.sub(i, h)) == Bool.or(_, T.st.mem(hi, Nat.sub(i, h))) : Bool}
+      ih
+
+# adding a variable keeps the split
+def pt.ins_h(t: T.ST, c: Bool, +k: Nat) -> {T.st.h(T.st.ins(t, c, k)) == T.st.h(t) : Nat}:
+  match t:
+    case T.SL{xs}:
+      {==}
+    case T.SN{h, lo, hi}:
+      match c:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+
+def pt.st_add(t: T.ST, +k: Nat, +i: Nat) -> {T.st.mem(T.st.add(t, k), i) == Bool.or(Nat.is_eq(k, i), T.st.mem(t, i)) : Bool}:
+  match t:
+    case T.SL{+xs}:
+      %Equal.sym(Bool, T.seen.has(xs, i, Nat.is_eq(k, i)), Bool.or(Nat.is_eq(k, i), Laws.th.mem(xs, i)), pt.has_mem(xs, i, Nat.is_eq(k, i))) : {_ == Bool.or(Nat.is_eq(k, i), T.seen.has(xs, i, False{})) : Bool}
+      %Equal.sym(Bool, T.seen.has(xs, i, False{}), Bool.or(False{}, Laws.th.mem(xs, i)), pt.has_mem(xs, i, False{})) : {Bool.or(Nat.is_eq(k, i), Laws.th.mem(xs, i)) == Bool.or(Nat.is_eq(k, i), _) : Bool}
+      {==}
+    case T.SN{+h, +lo, +hi}:
+      +sn = {T.SN{h, lo, hi} : T.ST}
+      +ck = Nat.is_lt(k, h)
+      %Equal.sym(Nat, T.st.h(T.st.ins(sn, ck, k)), T.st.h(sn), pt.ins_h(sn, ck, k)) : {T.st.has(T.st.ins(sn, ck, k), Nat.is_lt(i, _), i) == Bool.or(Nat.is_eq(k, i), T.st.mem(sn, i)) : Bool}
+      pt.st_add_node(h, lo, hi, k, i, ck, Nat.is_lt(i, h), {==}, {==}, pt.st_add(lo, k, i), pt.st_add(hi, Nat.sub(k, h), Nat.sub(i, h)))
+
+# the seen tree of t's shape with the variables xs met (the last met first)
+def pt.sset(+t: T.VT, xs: List<&2, Nat>) -> T.ST:
+  match xs:
+    case Nil{}:
+      T.st.of(t)
+    case Con{k, rest}:
+      T.st.add(pt.sset(t, rest), k)
+
+# the seen tree has met exactly the variables of the list
+def pt.st_sset(+t: T.VT, seen: List<&2, Nat>, +i: Nat) -> {T.st.mem(pt.sset(t, seen), i) == Laws.th.mem(seen, i) : Bool}:
+  match seen:
+    case Nil{}:
+      pt.st_empty(t, i)
+    case Con{+k, +rest}:
+      +r = pt.sset(t, rest)
+      %Equal.sym(Bool, T.st.mem(T.st.add(r, k), i), Bool.or(Nat.is_eq(k, i), T.st.mem(r, i)), pt.st_add(r, k, i)) : {_ == Bool.or(Nat.is_eq(k, i), Laws.th.mem(rest, i)) : Bool}
+      %Equal.sym(Bool, T.st.mem(r, i), Laws.th.mem(rest, i), pt.st_sset(t, rest, i)) : {Bool.or(Nat.is_eq(k, i), _) == Bool.or(Nat.is_eq(k, i), Laws.th.mem(rest, i)) : Bool}
+      {==}
+
+# the variable tree of a file and the steps over the trees
+def pt.vt(+vars: List<&2, T.Var>, +n: Nat) -> T.VT:
+  T.vt.build(n, Nat.is_le(n, 1n), vars, n)
+
+def pt.vt_at(+vars: List<&2, T.Var>, +n: Nat, +i: Nat) -> {T.vt.at(pt.vt(vars, n), i) == Laws.th.var(vars, i) : Maybe<&2, T.Json>}:
+  Equal.trans(Maybe<&2, T.Json>, T.vt.at(pt.vt(vars, n), i), T.var.val(vars, i), Laws.th.var(vars, i), pt.vt_build(n, Nat.is_le(n, 1n), vars, n, i), pt.var_val(vars, i))
+
+# a rule's step as a step over the trees
+def pt.conv(+t: T.VT, s: T.Step) -> T.FStep:
+  match s:
+    case T.Stop{g}:
+      T.FStop{g}
+    case T.Go{seen, j}:
+      T.FGo{pt.sset(t, seen), j}
+
+def pt.look_next(+t: T.VT, m: Maybe<&2, T.Json>, +seen: List<&2, Nat>, s: String, +i: Nat) -> {T.look.next(m, T.st.add(pt.sset(t, seen), i), s) == pt.conv(t, Laws.th.ref(False{}, m, seen, s, i)) : T.FStep}:
   match m:
     case None{}:
       {==}
     case Some{j}:
       {==}
 
-def pt.step_var(b: Bool, +vars: List<&2, T.Var>, +seen: List<&2, Nat>, +s: String, +i: Nat) -> {T.step.var(b, vars, seen, s, i) == Laws.th.ref(b, Laws.th.var(vars, i), seen, s, i) : T.Step}:
+def pt.look_var(b: Bool, +vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, +i: Nat) -> {T.look.var(b, pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, i) == pt.conv(pt.vt(vars, n), Laws.th.ref(b, Laws.th.var(vars, i), seen, s, i)) : T.FStep}:
   match b:
     case True{}:
       {==}
     case False{}:
-      %Equal.sym(Maybe<&2, T.Json>, T.var.val(vars, i), Laws.th.var(vars, i), pt.var_val(vars, i)) : {T.step.next(_, i <> seen, s) == Laws.th.ref(False{}, Laws.th.var(vars, i), seen, s, i) : T.Step}
-      pt.next_eq(Laws.th.var(vars, i), seen, s, i)
+      +V = pt.vt(vars, n)
+      %Equal.sym(Maybe<&2, T.Json>, T.vt.at(V, i), Laws.th.var(vars, i), pt.vt_at(vars, n, i)) : {T.look.next(_, T.st.add(pt.sset(V, seen), i), s) == pt.conv(V, Laws.th.ref(False{}, Laws.th.var(vars, i), seen, s, i)) : T.FStep}
+      pt.look_next(V, Laws.th.var(vars, i), seen, s, i)
 
-def pt.step_ref(+vars: List<&2, T.Var>, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.step.ref(vars, seen, s, at) == Laws.th.name(vars, seen, s, at) : T.Step}:
+def pt.look_ref(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.look.ref(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Laws.th.name(vars, seen, s, at)) : T.FStep}:
   match at:
     case None{}:
       {==}
     case Some{+i}:
-      %Equal.sym(Bool, T.seen.has(seen, i, False{}), Bool.or(False{}, Laws.th.mem(seen, i)), pt.has_mem(seen, i, False{})) : {T.step.var(_, vars, seen, s, i) == Laws.th.ref(Laws.th.mem(seen, i), Laws.th.var(vars, i), seen, s, i) : T.Step}
-      pt.step_var(Laws.th.mem(seen, i), vars, seen, s, i)
+      +V = pt.vt(vars, n)
+      %Equal.sym(Bool, T.st.mem(pt.sset(V, seen), i), Laws.th.mem(seen, i), pt.st_sset(V, seen, i)) : {T.look.var(_, V, pt.sset(V, seen), s, i) == pt.conv(V, Laws.th.ref(Laws.th.mem(seen, i), Laws.th.var(vars, i), seen, s, i)) : T.FStep}
+      pt.look_var(Laws.th.mem(seen, i), vars, n, seen, s, i)
 
-def pt.step_sym(sharp: Bool, +vars: List<&2, T.Var>, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.step.sym(sharp, vars, seen, s, at) == Laws.th.text.c(sharp, vars, seen, s, at) : T.Step}:
+def pt.look_sym(sharp: Bool, +vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.look.sym(sharp, pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Laws.th.text.c(sharp, vars, seen, s, at)) : T.FStep}:
   match sharp:
     case True{}:
-      Equal.cong(T.Got, T.Step, g => T.Stop{g}, T.hex.got(Co.hex(s), s), Laws.th.hex(Co.hex(s), s), pt.hexgot(Co.hex(s), s))
+      Equal.cong(T.Got, T.FStep, g => T.FStop{g}, T.hex.got(Co.hex(s), s), Laws.th.hex(Co.hex(s), s), pt.hexgot(Co.hex(s), s))
     case False{}:
-      pt.step_ref(vars, seen, s, at)
+      pt.look_ref(vars, n, seen, s, at)
 
-def pt.step_str(+vars: List<&2, T.Var>, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> {T.step.str(vars, seen, s, at) == Laws.th.text(vars, seen, s, at) : T.Step}:
+def pt.look_str(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> {T.look.str(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), s, at) == pt.conv(pt.vt(vars, n), Laws.th.text(vars, seen, s, at)) : T.FStep}:
   match s:
     case SNil{}:
       {==}
     case SCon{+c, rest}:
-      pt.step_sym(Char.is_eq(c, '#'), vars, seen, SCon{c, rest}, at)
+      pt.look_sym(Char.is_eq(c, '#'), vars, n, seen, SCon{c, rest}, at)
 
-def pt.step_next(+vars: List<&2, T.Var>, +seen: List<&2, Nat>, j: T.Json) -> {T.step(vars, seen, j) == Laws.th.next(vars, seen, j) : T.Step}:
+# a step over the trees is the rule's step
+def pt.look_step(+vars: List<&2, T.Var>, +n: Nat, +seen: List<&2, Nat>, j: T.Json) -> {T.look.step(pt.vt(vars, n), pt.sset(pt.vt(vars, n), seen), j) == pt.conv(pt.vt(vars, n), Laws.th.next(vars, seen, j)) : T.FStep}:
   match j:
     case T.JStr{s, at}:
-      pt.step_str(vars, seen, s, at)
+      pt.look_str(vars, n, seen, s, at)
     case T.JNum{+t}:
-      Equal.cong(T.Got, T.Step, g => T.Stop{g}, T.num.got(Co.num(t), t), Laws.th.num(Co.num(t), t), pt.numgot(Co.num(t), t))
+      Equal.cong(T.Got, T.FStep, g => T.FStop{g}, T.num.got(Co.num(t), t), Laws.th.num(Co.num(t), t), pt.numgot(Co.num(t), t))
     case T.JOther{t}:
       {==}
 
-def pt.walk(fuel: Nat, +vars: List<&2, T.Var>, st: T.Step) -> {T.walk(fuel, vars, st) == Laws.th.follow(fuel, vars, st) : T.Got}:
+# the walk over the trees is the rule's walk, for any fuel
+def pt.look_walk(fuel: Nat, +vars: List<&2, T.Var>, +n: Nat, st: T.Step) -> {T.look.walk(fuel, pt.vt(vars, n), pt.conv(pt.vt(vars, n), st)) == Laws.th.follow(fuel, vars, st) : T.Got}:
   match fuel:
     case 0n:
       match st:
@@ -19345,11 +19589,12 @@ def pt.walk(fuel: Nat, +vars: List<&2, T.Var>, st: T.Step) -> {T.walk(fuel, vars
         case T.Stop{g}:
           {==}
         case T.Go{+seen, +j}:
-          %Equal.sym(T.Step, T.step(vars, seen, j), Laws.th.next(vars, seen, j), pt.step_next(vars, seen, j)) : {T.walk(f, vars, _) == Laws.th.follow(f, vars, Laws.th.next(vars, seen, j)) : T.Got}
-          pt.walk(f, vars, Laws.th.next(vars, seen, j))
+          +V = pt.vt(vars, n)
+          %Equal.sym(T.FStep, T.look.step(V, pt.sset(V, seen), j), pt.conv(V, Laws.th.next(vars, seen, j)), pt.look_step(vars, n, seen, j)) : {T.look.walk(f, V, _) == Laws.th.follow(f, vars, Laws.th.next(vars, seen, j)) : T.Got}
+          pt.look_walk(f, vars, n, Laws.th.next(vars, seen, j))
 
 def Laws.theme_chase_rule(vars, j):
-  pt.walk(1n+List.length(&2, T.Var, vars), vars, T.Go{Nil{}, j})
+  pt.look_walk(1n+List.length(&2, T.Var, vars), vars, List.length(&2, T.Var, vars), T.Go{Nil{}, j})
 
 def Laws.theme_chase_example():
   {==}
@@ -19379,19 +19624,19 @@ def pt.cons_stuck(r: T.EntR, -f: T.Fault, hg: {Laws.th.good(r) == True{} : Bool}
       themes.pt.absurdF({T.ents.cons(T.Bad{x}, T.Stuck{f}) == T.Stuck{f} : T.Ents}, hg)
 
 def pt.ents_first(+vars: List<&2, T.Var>, +pre: List<&2, T.REnt>, +e: T.REnt, +post: List<&2, T.REnt>, +f: T.Fault, +ok: {Laws.th.clean(vars, pre) == True{} : Bool}, +bad: {T.entry(vars, e) == T.Bad{f} : T.EntR})
-  -> {T.ents(vars, List.append(&2, T.REnt, pre, e <> post)) == T.Stuck{f} : T.Ents}:
+  -> {T.ents(T.index(vars), List.append(&2, T.REnt, pre, e <> post)) == T.Stuck{f} : T.Ents}:
   match pre:
     case Nil{}:
-      %Equal.sym(T.EntR, T.entry(vars, e), T.Bad{f}, bad) : {T.ents.cons(_, T.ents(vars, post)) == T.Stuck{f} : T.Ents}
+      %Equal.sym(T.EntR, T.entry(vars, e), T.Bad{f}, bad) : {T.ents.cons(_, T.ents(T.index(vars), post)) == T.Stuck{f} : T.Ents}
       {==}
     case Con{+x, rest}:
       +hg = themes.pt.and_l(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok)
       +ih = pt.ents_first(vars, rest, e, post, f, themes.pt.and_r(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok), bad)
-      %Equal.sym(T.Ents, T.ents(vars, List.append(&2, T.REnt, rest, e <> post)), T.Stuck{f}, ih) : {T.ents.cons(T.entry(vars, x), _) == T.Stuck{f} : T.Ents}
+      %Equal.sym(T.Ents, T.ents(T.index(vars), List.append(&2, T.REnt, rest, e <> post)), T.Stuck{f}, ih) : {T.ents.cons(T.entry(vars, x), _) == T.Stuck{f} : T.Ents}
       pt.cons_stuck(T.entry(vars, x), f, hg)
 
 def Laws.theme_read_first_error(nm, vars, pre, e, post, pg, cd, io, f, ok, bad):
-  %Equal.sym(T.Ents, T.ents(vars, List.append(&2, T.REnt, pre, e <> post)), T.Stuck{f}, pt.ents_first(vars, pre, e, post, f, ok, bad)) : {T.read.cols(nm, vars, _, pg, cd, io) == T.Failed{f} : T.Read}
+  %Equal.sym(T.Ents, T.ents(T.index(vars), List.append(&2, T.REnt, pre, e <> post)), T.Stuck{f}, pt.ents_first(vars, pre, e, post, f, ok, bad)) : {T.read.cols(nm, T.index(vars), _, pg, cd, io) == T.Failed{f} : T.Read}
   {==}
 
 def pt.cons_all(r: T.EntR, es: List<&2, T.Ent>, hg: {Laws.th.good(r) == True{} : Bool}) -> {T.ents.cons(r, T.All{es}) == T.All{Laws.th.ent(r) <> es} : T.Ents}:
@@ -19401,14 +19646,14 @@ def pt.cons_all(r: T.EntR, es: List<&2, T.Ent>, hg: {Laws.th.good(r) == True{} :
     case T.Bad{x}:
       themes.pt.absurdF({T.ents.cons(T.Bad{x}, T.All{es}) == T.All{Laws.th.ent(T.Bad{x}) <> es} : T.Ents}, hg)
 
-def pt.ents_all(+vars: List<&2, T.Var>, +cols: List<&2, T.REnt>, +ok: {Laws.th.clean(vars, cols) == True{} : Bool}) -> {T.ents(vars, cols) == T.All{Laws.th.goods(vars, cols)} : T.Ents}:
+def pt.ents_all(+vars: List<&2, T.Var>, +cols: List<&2, T.REnt>, +ok: {Laws.th.clean(vars, cols) == True{} : Bool}) -> {T.ents(T.index(vars), cols) == T.All{Laws.th.goods(vars, cols)} : T.Ents}:
   match cols:
     case Nil{}:
       {==}
     case Con{+x, rest}:
       +hg = themes.pt.and_l(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok)
       +ih = pt.ents_all(vars, rest, themes.pt.and_r(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok))
-      %Equal.sym(T.Ents, T.ents(vars, rest), T.All{Laws.th.goods(vars, rest)}, ih) : {T.ents.cons(T.entry(vars, x), _) == T.All{Laws.th.ent(T.entry(vars, x)) <> Laws.th.goods(vars, rest)} : T.Ents}
+      %Equal.sym(T.Ents, T.ents(T.index(vars), rest), T.All{Laws.th.goods(vars, rest)}, ih) : {T.ents.cons(T.entry(vars, x), _) == T.All{Laws.th.ent(T.entry(vars, x)) <> Laws.th.goods(vars, rest)} : T.Ents}
       pt.cons_all(T.entry(vars, x), Laws.th.goods(vars, rest), hg)
 
 def pt.keeps(c: Bool, +t: U32, -m: List<&2, U32>, -a: List<&2, U32>, ih: {m == a : List<&2, U32>}) -> {T.missing.keep(c, t, m) == Laws.th.keep(c, t, a) : List<&2, U32>}:
@@ -19447,19 +19692,19 @@ def Laws.theme_required_tokens():
 # a file whose entries read and whose required tokens are written reads
 # to its export backgrounds
 def pt.read_end(+nm: String, +vars: List<&2, T.Var>, +cols: List<&2, T.REnt>, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, +ok: {Laws.th.clean(vars, cols) == True{} : Bool}, +all: {Laws.th.absent(Laws.th.goods(vars, cols)) == [] : List<&2, U32>})
-  -> {T.read(T.RFile{nm, vars, cols, pg, cd, io}) == T.read.end(nm, Laws.th.goods(vars, cols), T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)) : T.Read}:
+  -> {T.read(T.RFile{nm, vars, cols, pg, cd, io}) == T.read.end(nm, Laws.th.goods(vars, cols), T.surf(T.index(vars), T.OnPage{}, pg), T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, io)) : T.Read}:
   +gs = Laws.th.goods(vars, cols)
-  +rhs = T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io))
+  +rhs = T.read.end(nm, gs, T.surf(T.index(vars), T.OnPage{}, pg), T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, io))
   +mn = Equal.trans(List<&2, U32>, T.missing(gs), Laws.th.absent(gs), Nil{}, pt.missing_absent(gs), all)
-  %Equal.sym(T.Ents, T.ents(vars, cols), T.All{gs}, pt.ents_all(vars, cols, ok)) : {T.read.cols(nm, vars, _, pg, cd, io) == rhs : T.Read}
-  %Equal.sym(List<&2, U32>, T.missing(gs), Nil{}, mn) : {T.read.full(nm, vars, gs, _, pg, cd, io) == rhs : T.Read}
+  %Equal.sym(T.Ents, T.ents(T.index(vars), cols), T.All{gs}, pt.ents_all(vars, cols, ok)) : {T.read.cols(nm, T.index(vars), _, pg, cd, io) == rhs : T.Read}
+  %Equal.sym(List<&2, U32>, T.missing(gs), Nil{}, mn) : {T.read.full(nm, T.index(vars), gs, _, pg, cd, io) == rhs : T.Read}
   {==}
 
 def Laws.theme_read_missing(nm, vars, cols, pg, cd, io, t, ts, ok, miss):
   +gs = Laws.th.goods(vars, cols)
   +mt = Equal.trans(List<&2, U32>, T.missing(gs), Laws.th.absent(gs), t <> ts, pt.missing_absent(gs), miss)
-  %Equal.sym(T.Ents, T.ents(vars, cols), T.All{gs}, pt.ents_all(vars, cols, ok)) : {T.read.cols(nm, vars, _, pg, cd, io) == T.Failed{T.Missing{t <> ts}} : T.Read}
-  %Equal.sym(List<&2, U32>, T.missing(gs), t <> ts, mt) : {T.read.full(nm, vars, gs, _, pg, cd, io) == T.Failed{T.Missing{t <> ts}} : T.Read}
+  %Equal.sym(T.Ents, T.ents(T.index(vars), cols), T.All{gs}, pt.ents_all(vars, cols, ok)) : {T.read.cols(nm, T.index(vars), _, pg, cd, io) == T.Failed{T.Missing{t <> ts}} : T.Read}
+  %Equal.sym(List<&2, U32>, T.missing(gs), t <> ts, mt) : {T.read.full(nm, T.index(vars), gs, _, pg, cd, io) == T.Failed{T.Missing{t <> ts}} : T.Read}
   {==}
 
 def pt.surf_hit(at: T.Surf, g: T.Got, h: {Laws.th.hit(g) == True{} : Bool}) -> {T.surf.got(at, g) == T.BgOk{Laws.th.hitc(g)} : T.Bg}:
@@ -19469,7 +19714,7 @@ def pt.surf_hit(at: T.Surf, g: T.Got, h: {Laws.th.hit(g) == True{} : Bool}) -> {
     case T.Miss{why}:
       themes.pt.absurdF({T.surf.got(at, T.Miss{why}) == T.BgOk{Laws.th.hitc(T.Miss{why})} : T.Bg}, h)
 
-def pt.surf_fine(+vars: List<&2, T.Var>, at: T.Surf, m: Maybe<&2, T.Json>, h: {Laws.th.fine(vars, m) == True{} : Bool}) -> {T.surf(vars, at, m) == T.BgOk{Laws.th.bgv(vars, m)} : T.Bg}:
+def pt.surf_fine(+vars: List<&2, T.Var>, at: T.Surf, m: Maybe<&2, T.Json>, h: {Laws.th.fine(vars, m) == True{} : Bool}) -> {T.surf(T.index(vars), at, m) == T.BgOk{Laws.th.bgv(vars, m)} : T.Bg}:
   match m:
     case None{}:
       {==}
@@ -19479,34 +19724,34 @@ def pt.surf_fine(+vars: List<&2, T.Var>, at: T.Surf, m: Maybe<&2, T.Json>, h: {L
 def Laws.theme_read_page(nm, vars, cols, j, cd, io, why, ok, all, bad):
   +gs = Laws.th.goods(vars, cols)
   +want = {T.Failed{T.InExport{T.OnPage{}, why}} : T.Read}
-  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, Some{j}, cd, io}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, Some{j}), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)), pt.read_end(nm, vars, cols, Some{j}, cd, io, ok, all)) : {_ == want : T.Read}
-  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.surf.got(T.OnPage{}, _), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, Some{j}, cd, io}), T.read.end(nm, gs, T.surf(T.index(vars), T.OnPage{}, Some{j}), T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, io)), pt.read_end(nm, vars, cols, Some{j}, cd, io, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.surf.got(T.OnPage{}, _), T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, io)) == want : T.Read}
   {==}
 
 def Laws.theme_read_card(nm, vars, cols, pg, j, io, why, ok, all, fine, bad):
   +gs = Laws.th.goods(vars, cols)
   +want = {T.Failed{T.InExport{T.OnCard{}, why}} : T.Read}
-  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, Some{j}, io}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, Some{j}), T.surf(vars, T.OnInfo{}, io)), pt.read_end(nm, vars, cols, pg, Some{j}, io, ok, all)) : {_ == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(vars, T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine)) : {T.read.end(nm, gs, _, T.surf(vars, T.OnCard{}, Some{j}), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
-  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.surf.got(T.OnCard{}, _), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, Some{j}, io}), T.read.end(nm, gs, T.surf(T.index(vars), T.OnPage{}, pg), T.surf(T.index(vars), T.OnCard{}, Some{j}), T.surf(T.index(vars), T.OnInfo{}, io)), pt.read_end(nm, vars, cols, pg, Some{j}, io, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine)) : {T.read.end(nm, gs, _, T.surf(T.index(vars), T.OnCard{}, Some{j}), T.surf(T.index(vars), T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.surf.got(T.OnCard{}, _), T.surf(T.index(vars), T.OnInfo{}, io)) == want : T.Read}
   {==}
 
 def Laws.theme_read_info(nm, vars, cols, pg, cd, j, why, ok, all, fine1, fine2, bad):
   +gs = Laws.th.goods(vars, cols)
   +want = {T.Failed{T.InExport{T.OnInfo{}, why}} : T.Read}
-  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, cd, Some{j}}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, Some{j})), pt.read_end(nm, vars, cols, pg, cd, Some{j}, ok, all)) : {_ == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(vars, T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine1)) : {T.read.end(nm, gs, _, T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, Some{j})) == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(vars, T.OnCard{}, cd), T.BgOk{Laws.th.bgv(vars, cd)}, pt.surf_fine(vars, T.OnCard{}, cd, fine2)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, _, T.surf(vars, T.OnInfo{}, Some{j})) == want : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, cd, Some{j}}), T.read.end(nm, gs, T.surf(T.index(vars), T.OnPage{}, pg), T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, Some{j})), pt.read_end(nm, vars, cols, pg, cd, Some{j}, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine1)) : {T.read.end(nm, gs, _, T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, Some{j})) == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnCard{}, cd), T.BgOk{Laws.th.bgv(vars, cd)}, pt.surf_fine(vars, T.OnCard{}, cd, fine2)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, _, T.surf(T.index(vars), T.OnInfo{}, Some{j})) == want : T.Read}
   %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.BgOk{Laws.th.bgv(vars, cd)}, T.surf.got(T.OnInfo{}, _)) == want : T.Read}
   {==}
 
 def Laws.theme_read_loaded(nm, vars, cols, pg, cd, io, ok, all, fine1, fine2, fine3):
   +gs = Laws.th.goods(vars, cols)
   +want = {T.Loaded{T.Th{nm, gs, Laws.th.bgv(vars, pg), Laws.th.bgv(vars, cd), Laws.th.bgv(vars, io)}} : T.Read}
-  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, cd, io}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)), pt.read_end(nm, vars, cols, pg, cd, io, ok, all)) : {_ == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(vars, T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine1)) : {T.read.end(nm, gs, _, T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(vars, T.OnCard{}, cd), T.BgOk{Laws.th.bgv(vars, cd)}, pt.surf_fine(vars, T.OnCard{}, cd, fine2)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, _, T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
-  %Equal.sym(T.Bg, T.surf(vars, T.OnInfo{}, io), T.BgOk{Laws.th.bgv(vars, io)}, pt.surf_fine(vars, T.OnInfo{}, io, fine3)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.BgOk{Laws.th.bgv(vars, cd)}, _) == want : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, cd, io}), T.read.end(nm, gs, T.surf(T.index(vars), T.OnPage{}, pg), T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, io)), pt.read_end(nm, vars, cols, pg, cd, io, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine1)) : {T.read.end(nm, gs, _, T.surf(T.index(vars), T.OnCard{}, cd), T.surf(T.index(vars), T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnCard{}, cd), T.BgOk{Laws.th.bgv(vars, cd)}, pt.surf_fine(vars, T.OnCard{}, cd, fine2)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, _, T.surf(T.index(vars), T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(T.index(vars), T.OnInfo{}, io), T.BgOk{Laws.th.bgv(vars, io)}, pt.surf_fine(vars, T.OnInfo{}, io, fine3)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.BgOk{Laws.th.bgv(vars, cd)}, _) == want : T.Read}
   {==}
 
 # Completion

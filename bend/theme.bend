@@ -97,8 +97,9 @@ type Got is Data:
   Hit{v: Val}
   Miss{why: Why}
 
-# one step along a chain of variables: its end, or the next value to read
-# with the variables met so far
+# one step along a chain of variables, as the rule (LAWS.bend th.next)
+# takes it: its end, or the next value to read with the variables met so
+# far
 type Step is Data:
   Stop{g: Got}
   Go{seen: List<&2, Nat>, j: Json}
@@ -125,27 +126,6 @@ def var.val(xs: List<&2, Var>, n: Nat) -> Maybe<&2, Json>:
     case Con{x, rest} 1n+p:
       var.val(rest, p)
 
-def step.next(m: Maybe<&2, Json>, seen: List<&2, Nat>, s: String) -> Step:
-  match m:
-    case None{}:
-      Stop{Miss{NotFound{s}}}
-    case Some{j}:
-      Go{seen, j}
-
-def step.var(looped: Bool, +vars: List<&2, Var>, seen: List<&2, Nat>, s: String, +i: Nat) -> Step:
-  match looped:
-    case True{}:
-      Stop{Miss{Circular{s}}}
-    case False{}:
-      step.next(var.val(vars, i), i <> seen, s)
-
-def step.ref(+vars: List<&2, Var>, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> Step:
-  match at:
-    case None{}:
-      Stop{Miss{NotFound{s}}}
-    case Some{+i}:
-      step.var(seen.has(seen, i, False{}), vars, seen, s, i)
-
 def hex.got(m: Maybe<&2, Co.Rgb>, s: String) -> Got:
   match m:
     case None{}:
@@ -160,53 +140,199 @@ def num.got(m: Maybe<&2, U32>, text: String) -> Got:
     case Some{i}:
       Hit{Idx{i}}
 
-def step.sym(sharp: Bool, +vars: List<&2, Var>, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> Step:
+# The variables, indexed
+# ----------------------
+# The variables sit in a tree split by index (a node keeps the first h of
+# its variables on its lo side), so a lookup costs a step per level, not
+# a step per variable before it; the variables met so far sit in a tree of
+# the same shape. Any split answers as the list does (only the speed
+# depends on it): the build halves.
+
+type VT is Data:
+  VL{xs: List<&2, Var>}
+  VN{h: Nat, lo: VT, hi: VT}
+
+def vt.h(t: VT) -> Nat:
+  match t:
+    case VL{xs}:
+      0n
+    case VN{h, lo, hi}:
+      h
+
+# the value of variable i, lt telling whether i is below t's split
+def vt.get(t: VT, lt: Bool, +i: Nat) -> Maybe<&2, Json>:
+  match t:
+    case VL{xs}:
+      var.val(xs, i)
+    case VN{+h, +lo, +hi}:
+      match lt:
+        case True{}:
+          vt.get(lo, Nat.is_lt(i, vt.h(lo)), i)
+        case False{}:
+          +k = Nat.sub(i, h)
+          vt.get(hi, Nat.is_lt(k, vt.h(hi)), k)
+
+# the value of variable i
+def vt.at(+t: VT, +i: Nat) -> Maybe<&2, Json>:
+  vt.get(t, Nat.is_lt(i, vt.h(t)), i)
+
+# the n variables xs as a tree; small: n is at most 1; fuel bounds the
+# depth
+def vt.build(fuel: Nat, small: Bool, +xs: List<&2, Var>, +n: Nat) -> VT:
+  match fuel:
+    case 0n:
+      VL{xs}
+    case 1n++f:
+      match small:
+        case True{}:
+          VL{xs}
+        case False{}:
+          +h = Nat.div(n, 2n)
+          +r = Nat.sub(n, h)
+          VN{h, vt.build(f, Nat.is_le(h, 1n), List.take(&2, Var, xs, h), h), vt.build(f, Nat.is_le(r, 1n), List.drop(&2, Var, xs, h), r)}
+
+type ST is Data:
+  SL{xs: List<&2, Nat>}
+  SN{h: Nat, lo: ST, hi: ST}
+
+def st.h(t: ST) -> Nat:
+  match t:
+    case SL{xs}:
+      0n
+    case SN{h, lo, hi}:
+      h
+
+# no variable met, in a tree of t's shape
+def st.of(t: VT) -> ST:
+  match t:
+    case VL{xs}:
+      SL{Nil{}}
+    case VN{h, lo, hi}:
+      SN{h, st.of(lo), st.of(hi)}
+
+# variable i was met, lt telling whether i is below t's split
+def st.has(t: ST, lt: Bool, +i: Nat) -> Bool:
+  match t:
+    case SL{xs}:
+      seen.has(xs, i, False{})
+    case SN{+h, +lo, +hi}:
+      match lt:
+        case True{}:
+          st.has(lo, Nat.is_lt(i, st.h(lo)), i)
+        case False{}:
+          +k = Nat.sub(i, h)
+          st.has(hi, Nat.is_lt(k, st.h(hi)), k)
+
+def st.mem(+t: ST, +i: Nat) -> Bool:
+  st.has(t, Nat.is_lt(i, st.h(t)), i)
+
+# variable i met too, lt telling whether i is below t's split
+def st.ins(t: ST, lt: Bool, +i: Nat) -> ST:
+  match t:
+    case SL{xs}:
+      SL{i <> xs}
+    case SN{+h, +lo, +hi}:
+      match lt:
+        case True{}:
+          SN{h, st.ins(lo, Nat.is_lt(i, st.h(lo)), i), hi}
+        case False{}:
+          +k = Nat.sub(i, h)
+          SN{h, lo, st.ins(hi, Nat.is_lt(k, st.h(hi)), k)}
+
+def st.add(+t: ST, +i: Nat) -> ST:
+  st.ins(t, Nat.is_lt(i, st.h(t)), i)
+
+# one step along a chain of variables over the trees: its end, or the
+# next value to read with the variables met so far
+type FStep is Data:
+  FStop{g: Got}
+  FGo{seen: ST, j: Json}
+
+def look.next(m: Maybe<&2, Json>, seen: ST, s: String) -> FStep:
+  match m:
+    case None{}:
+      FStop{Miss{NotFound{s}}}
+    case Some{j}:
+      FGo{seen, j}
+
+def look.var(looped: Bool, +vt: VT, +seen: ST, s: String, +i: Nat) -> FStep:
+  match looped:
+    case True{}:
+      FStop{Miss{Circular{s}}}
+    case False{}:
+      look.next(vt.at(vt, i), st.add(seen, i), s)
+
+def look.ref(+vt: VT, +seen: ST, s: String, at: Maybe<&2, Nat>) -> FStep:
+  match at:
+    case None{}:
+      FStop{Miss{NotFound{s}}}
+    case Some{+i}:
+      look.var(st.mem(seen, i), vt, seen, s, i)
+
+def look.sym(sharp: Bool, +vt: VT, +seen: ST, +s: String, at: Maybe<&2, Nat>) -> FStep:
   match sharp:
     case True{}:
-      Stop{hex.got(Co.hex(s), s)}
+      FStop{hex.got(Co.hex(s), s)}
     case False{}:
-      step.ref(vars, seen, s, at)
+      look.ref(vt, seen, s, at)
 
-def step.str(+vars: List<&2, Var>, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> Step:
+def look.str(+vt: VT, +seen: ST, s: String, at: Maybe<&2, Nat>) -> FStep:
   match s:
     case SNil{}:
-      Stop{Hit{Dflt{}}}
+      FStop{Hit{Dflt{}}}
     case SCon{+c, rest}:
-      step.sym(Char.is_eq(c, '#'), vars, seen, SCon{c, rest}, at)
+      look.sym(Char.is_eq(c, '#'), vt, seen, SCon{c, rest}, at)
 
 # read one value: "" is the terminal default, a #-string a hex color, any
 # other string names a variable (met before: a cycle); a number is an
 # index; anything else is no color
-def step(+vars: List<&2, Var>, +seen: List<&2, Nat>, j: Json) -> Step:
+def look.step(+vt: VT, +seen: ST, j: Json) -> FStep:
   match j:
     case JStr{s, at}:
-      step.str(vars, seen, s, at)
+      look.str(vt, seen, s, at)
     case JNum{+text}:
-      Stop{num.got(Co.num(text), text)}
+      FStop{num.got(Co.num(text), text)}
     case JOther{text}:
-      Stop{Miss{BadValue{text}}}
+      FStop{Miss{BadValue{text}}}
 
 # follow the steps for at most fuel of them
-def walk(fuel: Nat, +vars: List<&2, Var>, st: Step) -> Got:
+def look.walk(fuel: Nat, +vt: VT, fs: FStep) -> Got:
   match fuel:
     case 0n:
-      match st:
-        case Stop{g}:
+      match fs:
+        case FStop{g}:
           g
-        case Go{seen, j}:
+        case FGo{seen, j}:
           Miss{Circular{""}}
     case 1n+f:
-      match st:
-        case Stop{g}:
+      match fs:
+        case FStop{g}:
           g
-        case Go{seen, j}:
-          walk(f, vars, step(vars, seen, j))
+        case FGo{seen, j}:
+          look.walk(f, vt, look.step(vt, seen, j))
 
-# the color a value resolves to through the variables. Each step past the
-# first meets a new variable, so one step more than there are variables
-# always reaches the end.
+# a file's variables, indexed: their tree, the empty seen tree of its
+# shape, and the steps a chase may take (one more than there are
+# variables: each step past the first meets a new variable)
+type Ix is Data:
+  Ix{vt: VT, seen: ST, fuel: Nat}
+
+def index.of(+vt: VT, n: Nat) -> Ix:
+  Ix{vt, st.of(vt), 1n+n}
+
+def index(+vars: List<&2, Var>) -> Ix:
+  +n = List.length(&2, Var, vars)
+  index.of(vt.build(n, Nat.is_le(n, 1n), vars, n), n)
+
+# the color a value resolves to through the indexed variables
+def look(ix: Ix, j: Json) -> Got:
+  match ix:
+    case Ix{vt, seen, fuel}:
+      look.walk(fuel, vt, FGo{seen, j})
+
+# the color a value resolves to through the variables
 def chase(+vars: List<&2, Var>, j: Json) -> Got:
-  walk(1n+List.length(&2, Var, vars), vars, Go{Nil{}, j})
+  look(index(vars), j)
 
 # Colors
 # ------
@@ -223,14 +349,19 @@ def entry.got(key: String, t: U32, g: Got) -> EntR:
     case Miss{why}:
       Bad{InColor{key, why}}
 
-def entry(+vars: List<&2, Var>, e: REnt) -> EntR:
+# an entry read over the indexed variables
+def entry.at(+ix: Ix, e: REnt) -> EntR:
   match e:
     case REnt{key, t, val}:
       match t:
         case None{}:
           Bad{Unknown{key}}
         case Some{x}:
-          entry.got(key, x, chase(vars, val))
+          entry.got(key, x, look(ix, val))
+
+# an entry read
+def entry(+vars: List<&2, Var>, e: REnt) -> EntR:
+  entry.at(index(vars), e)
 
 # the entries read, or the first one's error
 type Ents is Data:
@@ -246,12 +377,12 @@ def ents.cons(r: EntR, rest: Ents) -> Ents:
     case Good{x} Stuck{f}:
       Stuck{f}
 
-def ents(+vars: List<&2, Var>, cols: List<&2, REnt>) -> Ents:
+def ents(+ix: Ix, cols: List<&2, REnt>) -> Ents:
   match cols:
     case Nil{}:
       All{Nil{}}
     case Con{e, rest}:
-      ents.cons(entry(vars, e), ents(vars, rest))
+      ents.cons(entry.at(ix, e), ents(ix, rest))
 
 # Tokens
 # ------
@@ -412,12 +543,12 @@ def surf.got(at: Surf, g: Got) -> Bg:
     case Miss{why}:
       BgBad{InExport{at, why}}
 
-def surf(+vars: List<&2, Var>, at: Surf, m: Maybe<&2, Json>) -> Bg:
+def surf(+ix: Ix, at: Surf, m: Maybe<&2, Json>) -> Bg:
   match m:
     case None{}:
       BgOk{None{}}
     case Some{j}:
-      surf.got(at, chase(vars, j))
+      surf.got(at, look(ix, j))
 
 # a theme file read: its resolved colors, or why it is invalid
 type Read is Data:
@@ -435,26 +566,27 @@ def read.end(name: String, es: List<&2, Ent>, p: Bg, c: Bg, i: Bg) -> Read:
     case BgOk{pc} BgOk{cc} BgOk{ic}:
       Loaded{Th{name, es, pc, cc, ic}}
 
-def read.full(name: String, +vars: List<&2, Var>, es: List<&2, Ent>, miss: List<&2, U32>, page: Maybe<&2, Json>, card: Maybe<&2, Json>, info: Maybe<&2, Json>) -> Read:
+def read.full(name: String, +ix: Ix, es: List<&2, Ent>, miss: List<&2, U32>, page: Maybe<&2, Json>, card: Maybe<&2, Json>, info: Maybe<&2, Json>) -> Read:
   match miss:
     case Nil{}:
-      read.end(name, es, surf(vars, OnPage{}, page), surf(vars, OnCard{}, card), surf(vars, OnInfo{}, info))
+      read.end(name, es, surf(ix, OnPage{}, page), surf(ix, OnCard{}, card), surf(ix, OnInfo{}, info))
     case Con{t, rest}:
       Failed{Missing{t <> rest}}
 
-def read.cols(name: String, +vars: List<&2, Var>, r: Ents, page: Maybe<&2, Json>, card: Maybe<&2, Json>, info: Maybe<&2, Json>) -> Read:
+def read.cols(name: String, +ix: Ix, r: Ents, page: Maybe<&2, Json>, card: Maybe<&2, Json>, info: Maybe<&2, Json>) -> Read:
   match r:
     case Stuck{f}:
       Failed{f}
     case All{+es}:
-      read.full(name, vars, es, missing(es), page, card, info)
+      read.full(name, ix, es, missing(es), page, card, info)
 
 # read a theme file: the colors in key order (the first error wins), then
 # the required tokens, then the export page, card and info backgrounds
 def read(f: RFile) -> Read:
   match f:
-    case RFile{name, +vars, cols, page, card, info}:
-      read.cols(name, vars, ents(vars, cols), page, card, info)
+    case RFile{name, vars, cols, page, card, info}:
+      +ix = index(vars)
+      read.cols(name, ix, ents(ix, cols), page, card, info)
 
 def load.of(r: Read) -> Maybe<&2, Th>:
   match r:
