@@ -14,14 +14,22 @@ pub enum Entry {
     Admission = 2,
     /// `bend/ffi_aux_fallback.bend`: a call.
     AuxFallback = 3,
+    /// `bend/ffi_child.bend`: a call.
+    Child = 4,
     /// `bend/ffi_default_model.bend`: a call.
-    DefaultModel = 4,
+    DefaultModel = 5,
     /// `bend/ffi_doc_lines.bend`: a call.
-    DocLines = 5,
+    DocLines = 6,
     /// `bend/ffi_doc_seen.bend`: a call.
-    DocSeen = 6,
+    DocSeen = 7,
+    /// `bend/ffi_job.bend`: a call.
+    Job = 8,
+    /// `bend/ffi_progress.bend`: a call.
+    Progress = 9,
+    /// `bend/ffi_sandbox.bend`: a call.
+    Sandbox = 10,
     /// `bend/ffi_workflow.bend`: a call.
-    Workflow = 7,
+    Workflow = 11,
 }
 
 impl Entry {
@@ -31,9 +39,13 @@ impl Entry {
         Entry::Wire,
         Entry::Admission,
         Entry::AuxFallback,
+        Entry::Child,
         Entry::DefaultModel,
         Entry::DocLines,
         Entry::DocSeen,
+        Entry::Job,
+        Entry::Progress,
+        Entry::Sandbox,
         Entry::Workflow,
     ];
 

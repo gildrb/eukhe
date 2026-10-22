@@ -4,10 +4,14 @@ import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
+import ./ffi_child.bend as ffi_child
 import ./ffi_default_model.bend as ffi_default_model
 import ./ffi_doc_lines.bend as ffi_doc_lines
 import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
+import ./ffi_job.bend as ffi_job
+import ./ffi_progress.bend as ffi_progress
+import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -28,12 +32,20 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 3:
       ffi_aux_fallback.ffi(input)
     case 4:
-      ffi_default_model.ffi(input)
+      ffi_child.ffi(input)
     case 5:
-      ffi_doc_lines.ffi(input)
+      ffi_default_model.ffi(input)
     case 6:
-      ffi_doc_seen.ffi(input)
+      ffi_doc_lines.ffi(input)
     case 7:
+      ffi_doc_seen.ffi(input)
+    case 8:
+      ffi_job.ffi(input)
+    case 9:
+      ffi_progress.ffi(input)
+    case 10:
+      ffi_sandbox.ffi(input)
+    case 11:
       ffi_workflow.ffi(input)
     case _:
       W.err("unknown entry")

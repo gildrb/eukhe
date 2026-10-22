@@ -73,6 +73,10 @@ import ./bend/ffi_aux_fallback.bend as FAf
 import ./bend/wire.bend as Wr
 import ./bend/ffi_doc_seen.bend as Fds
 import ./bend/ffi_doc_lines.bend as Fdl
+import ./bend/ffi_child.bend as FCh
+import ./bend/ffi_job.bend as FJb
+import ./bend/ffi_progress.bend as FPr
+import ./bend/ffi_sandbox.bend as FSb
 
 # ---- cover ----
 
@@ -38205,4 +38209,269 @@ def Laws.seen_wire_fits_example():
   {==}
 
 def Laws.lines_wire_fits_example():
+  {==}
+
+# ---- core_w6 ----
+
+# proof_core_w6: the entries of the child task, the jobs, the goal's check
+# and the hand-back (LAWS.bend section core_w6). Each decoder reads back
+# what its encoder wrote (pw6.*, from the wire laws), so the entry runs
+# the model on the request's values.
+
+def pw6.nat(+n: Nat, +rest: String, +h: {Laws.wire_fits(n) == True{} : Bool}) -> {Wr.Got{n, rest} == Wr.get_nat(Wr.put_nat(n, rest)) : Wr.Dec<Nat>}:
+  Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(n, rest)), Wr.Got{n, rest}, Laws.wire_nat_round_trip(n, rest, h))
+
+def pw6.u32(+x: U32, +rest: String) -> {Wr.Got{x, rest} == Wr.get_u32(Wr.put_u32(x, rest)) : Wr.Dec<U32>}:
+  Equal.sym(Wr.Dec<U32>, Wr.get_u32(Wr.put_u32(x, rest)), Wr.Got{x, rest}, Laws.wire_u32_round_trip(x, rest))
+
+def pw6.bool(+b: Bool, +rest: String) -> {Wr.Got{b, rest} == Wr.get_bool(Wr.put_bool(b, rest)) : Wr.Dec<Bool>}:
+  Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(b, rest)), Wr.Got{b, rest}, Laws.wire_bool_round_trip(b, rest))
+
+# Sandbox
+# -------
+
+def pw6.doc(m: Maybe<&2, Nat>, +rest: String, +h: {Laws.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FSb.get_doc(FSb.put_doc(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+  match m:
+    case None{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FSb.get_doc.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+    case Some{+x}:
+      %pw6.nat(1n, Wr.put_nat(x, rest), {==}) : {Wr.Got{Some{x}, rest} == FSb.get_doc.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      %pw6.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == FSb.get_doc.some(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+
+def Laws.cow_entry(p, b, c, hp, hb, hc):
+  %pw6.doc(p, FSb.put_doc(b, FSb.put_doc(c, "")), hp) : {FSb.run.p(_) == FSb.put_plan(Sb.plan(p, b, c), "") : String}
+  %pw6.doc(b, FSb.put_doc(c, ""), hb) : {FSb.run.b(p, _) == FSb.put_plan(Sb.plan(p, b, c), "") : String}
+  %pw6.doc(c, "", hc) : {FSb.run.c(p, b, _) == FSb.put_plan(Sb.plan(p, b, c), "") : String}
+  {==}
+
+# Progress
+# --------
+
+def pw6.prior(p: Maybe<&2, Pr.Prior>, +rest: String, +h: {Laws.wire_prior_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == FPr.get_prior(FPr.put_prior(p, rest)) : Wr.Dec<Maybe<&2, Pr.Prior>>}:
+  match p:
+    case None{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FPr.get_prior.go(_) : Wr.Dec<Maybe<&2, Pr.Prior>>}
+      {==}
+    case Some{x}:
+      match x:
+        case Pr.Prior{+s, +w}:
+          %pw6.nat(1n, Wr.put_nat(s, Wr.put_nat(w, rest)), {==}) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.go(_) : Wr.Dec<Maybe<&2, Pr.Prior>>}
+          %pw6.nat(s, Wr.put_nat(w, rest), wr_and_l(Laws.wire_fits(s), Laws.wire_fits(w), h)) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.s(_) : Wr.Dec<Maybe<&2, Pr.Prior>>}
+          %pw6.nat(w, rest, wr_and_r(Laws.wire_fits(s), Laws.wire_fits(w), h)) : {Wr.Got{Some{Pr.Prior{s, w}}, rest} == FPr.get_prior.w(s, _) : Wr.Dec<Maybe<&2, Pr.Prior>>}
+          {==}
+
+def Laws.goal_entry(t, cap, p, work, ht, hc, hp, hw):
+  +R = FPr.put_goal(Pr.judge(t, cap, p, work), "")
+  %pw6.nat(t, Wr.put_nat(cap, FPr.put_prior(p, Wr.put_nat(work, ""))), ht) : {FPr.run.t(_) == R : String}
+  %pw6.nat(cap, FPr.put_prior(p, Wr.put_nat(work, "")), hc) : {FPr.run.cap(t, _) == R : String}
+  %pw6.prior(p, Wr.put_nat(work, ""), hp) : {FPr.run.prior(t, cap, _) == R : String}
+  %pw6.nat(work, "", hw) : {FPr.run.work(t, cap, p, _) == R : String}
+  {==}
+
+# Job
+# ---
+
+def pw6.cap(m: Maybe<&2, Nat>, +rest: String, +h: {Laws.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FJb.get_cap(FJb.put_cap(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+  match m:
+    case None{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FJb.get_cap.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+    case Some{+x}:
+      %pw6.nat(1n, Wr.put_nat(x, rest), {==}) : {Wr.Got{Some{x}, rest} == FJb.get_cap.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      %pw6.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == FJb.get_cap.some(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+
+def pw6.code(c: Jb.Code, +rest: String) -> {Wr.Got{c, rest} == FJb.get_code(FJb.put_code(c, rest)) : Wr.Dec<Jb.Code>}:
+  match c:
+    case Jb.Code{+hi, +lo}:
+      %pw6.u32(hi, Wr.put_u32(lo, rest)) : {Wr.Got{Jb.Code{hi, lo}, rest} == FJb.get_code.hi(_) : Wr.Dec<Jb.Code>}
+      %pw6.u32(lo, rest) : {Wr.Got{Jb.Code{hi, lo}, rest} == FJb.get_code.lo(hi, _) : Wr.Dec<Jb.Code>}
+      {==}
+
+def pw6.end(e: Jb.End, +rest: String) -> {Wr.Got{e, rest} == FJb.get_end(FJb.put_end(e, rest)) : Wr.Dec<Jb.End>}:
+  match e:
+    case Jb.Exited{+c}:
+      %pw6.nat(0n, FJb.put_code(c, rest), {==}) : {Wr.Got{Jb.Exited{c}, rest} == FJb.get_end.go(_) : Wr.Dec<Jb.End>}
+      %pw6.code(c, rest) : {Wr.Got{Jb.Exited{c}, rest} == FJb.get_end.code(_) : Wr.Dec<Jb.End>}
+      {==}
+    case Jb.Killed{}:
+      %pw6.nat(1n, rest, {==}) : {Wr.Got{Jb.Killed{}, rest} == FJb.get_end.go(_) : Wr.Dec<Jb.End>}
+      {==}
+
+def pw6.job(j: Jb.J, +rest: String, +h: {Laws.wire_job_fits(j) == True{} : Bool}) -> {Wr.Got{j, rest} == FJb.get_job(FJb.put_job(j, rest)) : Wr.Dec<Jb.J>}:
+  match j:
+    case Jb.Live{+k, +d}:
+      %pw6.nat(0n, Wr.put_nat(k, Wr.put_nat(d, rest)), {==}) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.go(_) : Wr.Dec<Jb.J>}
+      %pw6.nat(k, Wr.put_nat(d, rest), wr_and_l(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.k(_) : Wr.Dec<Jb.J>}
+      %pw6.nat(d, rest, wr_and_r(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Live{k, d}, rest} == FJb.get_job.d(k, _) : Wr.Dec<Jb.J>}
+      {==}
+    case Jb.Ended{+k, +d, +x}:
+      %pw6.nat(1n, Wr.put_nat(k, Wr.put_nat(d, FJb.put_end(x, rest))), {==}) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.go(_) : Wr.Dec<Jb.J>}
+      %pw6.nat(k, Wr.put_nat(d, FJb.put_end(x, rest)), wr_and_l(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ek(_) : Wr.Dec<Jb.J>}
+      %pw6.nat(d, FJb.put_end(x, rest), wr_and_r(Laws.wire_fits(k), Laws.wire_fits(d), h)) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.ed(k, _) : Wr.Dec<Jb.J>}
+      %pw6.end(x, rest) : {Wr.Got{Jb.Ended{k, d, x}, rest} == FJb.get_job.e(k, d, _) : Wr.Dec<Jb.J>}
+      {==}
+
+def pw6.ev(e: Jb.JEv, +rest: String, +h: {Laws.wire_ev_fits(e) == True{} : Bool}) -> {Wr.Got{e, rest} == FJb.get_ev(FJb.put_ev(e, rest)) : Wr.Dec<Jb.JEv>}:
+  match e:
+    case Jb.Out{+n}:
+      %pw6.nat(0n, Wr.put_nat(n, rest), {==}) : {Wr.Got{Jb.Out{n}, rest} == FJb.get_ev.go(_) : Wr.Dec<Jb.JEv>}
+      %pw6.nat(n, rest, h) : {Wr.Got{Jb.Out{n}, rest} == FJb.get_ev.out(_) : Wr.Dec<Jb.JEv>}
+      {==}
+    case Jb.Quit{+c}:
+      %pw6.nat(1n, FJb.put_code(c, rest), {==}) : {Wr.Got{Jb.Quit{c}, rest} == FJb.get_ev.go(_) : Wr.Dec<Jb.JEv>}
+      %pw6.code(c, rest) : {Wr.Got{Jb.Quit{c}, rest} == FJb.get_ev.quit(_) : Wr.Dec<Jb.JEv>}
+      {==}
+    case Jb.Kill{}:
+      %pw6.nat(2n, rest, {==}) : {Wr.Got{Jb.Kill{}, rest} == FJb.get_ev.go(_) : Wr.Dec<Jb.JEv>}
+      {==}
+    case Jb.Tick{}:
+      %pw6.nat(3n, rest, {==}) : {Wr.Got{Jb.Tick{}, rest} == FJb.get_ev.go(_) : Wr.Dec<Jb.JEv>}
+      {==}
+
+def Laws.job_entry(t, cap, j, e, ht, hc, hj, he):
+  +R = FJb.put_reply(Jb.feed(t, cap, j, e), Jb.ends.of(j, e))
+  %pw6.nat(t, FJb.put_cap(cap, FJb.put_job(j, FJb.put_ev(e, ""))), ht) : {FJb.run.t(_) == R : String}
+  %pw6.cap(cap, FJb.put_job(j, FJb.put_ev(e, "")), hc) : {FJb.run.cap(t, _) == R : String}
+  %pw6.job(j, FJb.put_ev(e, ""), hj) : {FJb.run.job(t, cap, _) == R : String}
+  %pw6.ev(e, "", he) : {FJb.run.ev(t, cap, j, _) == R : String}
+  {==}
+
+# Child
+# -----
+
+def pw6.mnat(m: Maybe<&2, Nat>, +rest: String, +h: {Laws.wire_mfits(m) == True{} : Bool}) -> {Wr.Got{m, rest} == FCh.get_maybe_nat(FCh.put_maybe_nat(m, rest)) : Wr.Dec<Maybe<&2, Nat>>}:
+  match m:
+    case None{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FCh.get_maybe_nat.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+    case Some{+x}:
+      %pw6.nat(1n, Wr.put_nat(x, rest), {==}) : {Wr.Got{Some{x}, rest} == FCh.get_maybe_nat.go(_) : Wr.Dec<Maybe<&2, Nat>>}
+      %pw6.nat(x, rest, h) : {Wr.Got{Some{x}, rest} == FCh.get_maybe_nat.some(_) : Wr.Dec<Maybe<&2, Nat>>}
+      {==}
+
+def pw6.cfg(c: Ch.Cfg, +rest: String, +h: {Laws.wire_cfg_fits(c) == True{} : Bool}) -> {Wr.Got{c, rest} == FCh.get_cfg(FCh.put_cfg(c, rest)) : Wr.Dec<Ch.Cfg>}:
+  match c:
+    case Ch.Cfg{+s, +f}:
+      %pw6.nat(s, Wr.put_nat(f, rest), wr_and_l(Laws.wire_fits(s), Laws.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.s(_) : Wr.Dec<Ch.Cfg>}
+      %pw6.nat(f, rest, wr_and_r(Laws.wire_fits(s), Laws.wire_fits(f), h)) : {Wr.Got{Ch.Cfg{s, f}, rest} == FCh.get_cfg.f(s, _) : Wr.Dec<Ch.Cfg>}
+      {==}
+
+def pw6.w(w: Ch.W, +rest: String, +h: {Laws.wire_w_fits(w) == True{} : Bool}) -> {Wr.Got{w, rest} == FCh.get_w(FCh.put_w(w, rest)) : Wr.Dec<Ch.W>}:
+  match w:
+    case Ch.W{+t, +l, +n}:
+      +ln = wr_and_r(Laws.wire_mfits(t), Bool.and(Laws.wire_fits(l), Laws.wire_fits(n)), h)
+      %pw6.mnat(t, Wr.put_nat(l, Wr.put_nat(n, rest)), wr_and_l(Laws.wire_mfits(t), Bool.and(Laws.wire_fits(l), Laws.wire_fits(n)), h)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.t(_) : Wr.Dec<Ch.W>}
+      %pw6.nat(l, Wr.put_nat(n, rest), wr_and_l(Laws.wire_fits(l), Laws.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.l(t, _) : Wr.Dec<Ch.W>}
+      %pw6.nat(n, rest, wr_and_r(Laws.wire_fits(l), Laws.wire_fits(n), ln)) : {Wr.Got{Ch.W{t, l, n}, rest} == FCh.get_w.n(t, l, _) : Wr.Dec<Ch.W>}
+      {==}
+
+def pw6.obs(o: Ch.Obs, +rest: String, +h: {Laws.wire_obs_fits(o) == True{} : Bool}) -> {Wr.Got{o, rest} == FCh.get_obs(FCh.put_obs(o, rest)) : Wr.Dec<Ch.Obs>}:
+  match o:
+    case Ch.Busy{+t}:
+      %pw6.nat(0n, FCh.put_maybe_nat(t, rest), {==}) : {Wr.Got{Ch.Busy{t}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      %pw6.mnat(t, rest, h) : {Wr.Got{Ch.Busy{t}, rest} == FCh.get_obs.busy(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Lost{}:
+      %pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Lost{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Answered{+r}:
+      %pw6.nat(2n, Wr.put_bool(r, rest), {==}) : {Wr.Got{Ch.Answered{r}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      %pw6.bool(r, rest) : {Wr.Got{Ch.Answered{r}, rest} == FCh.get_obs.answered(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Broke{}:
+      %pw6.nat(3n, rest, {==}) : {Wr.Got{Ch.Broke{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      {==}
+    case Ch.Gone{}:
+      %pw6.nat(4n, rest, {==}) : {Wr.Got{Ch.Gone{}, rest} == FCh.get_obs.go(_) : Wr.Dec<Ch.Obs>}
+      {==}
+
+def pw6.mode(m: Ch.Mode, +rest: String) -> {Wr.Got{m, rest} == FCh.get_mode(FCh.put_mode(m, rest)) : Wr.Dec<Ch.Mode>}:
+  match m:
+    case Ch.Inbox{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{Ch.Inbox{}, rest} == FCh.get_mode.go(_) : Wr.Dec<Ch.Mode>}
+      {==}
+    case Ch.Silent{}:
+      %pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Silent{}, rest} == FCh.get_mode.go(_) : Wr.Dec<Ch.Mode>}
+      {==}
+
+def pw6.fate(f: Ch.Fate, +rest: String) -> {Wr.Got{f, rest} == FCh.get_fate(FCh.put_fate(f, rest)) : Wr.Dec<Ch.Fate>}:
+  match f:
+    case Ch.Queued{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{Ch.Queued{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+    case Ch.Withdrawn{}:
+      %pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Withdrawn{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+    case Ch.Placed{}:
+      %pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Placed{}, rest} == FCh.get_fate.go(_) : Wr.Dec<Ch.Fate>}
+      {==}
+
+def pw6.mfate(f: Maybe<&2, Ch.Fate>, +rest: String) -> {Wr.Got{f, rest} == FCh.get_mfate(FCh.put_mfate(f, rest)) : Wr.Dec<Maybe<&2, Ch.Fate>>}:
+  match f:
+    case None{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{None{}, rest} == FCh.get_mfate.go(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+      {==}
+    case Some{+x}:
+      %pw6.nat(1n, FCh.put_fate(x, rest), {==}) : {Wr.Got{Some{x}, rest} == FCh.get_mfate.go(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+      %pw6.fate(x, rest) : {Wr.Got{Some{x}, rest} == FCh.get_mfate.some(_) : Wr.Dec<Maybe<&2, Ch.Fate>>}
+      {==}
+
+def pw6.report(k: Ch.Report, +rest: String) -> {Wr.Got{k, rest} == FCh.get_report(FCh.put_report(k, rest)) : Wr.Dec<Ch.Report>}:
+  match k:
+    case Ch.Completed{}:
+      %pw6.nat(0n, rest, {==}) : {Wr.Got{Ch.Completed{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Failed{}:
+      %pw6.nat(1n, rest, {==}) : {Wr.Got{Ch.Failed{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Cancelled{}:
+      %pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Cancelled{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Stalled{}:
+      %pw6.nat(3n, rest, {==}) : {Wr.Got{Ch.Stalled{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+    case Ch.Unreachable{}:
+      %pw6.nat(4n, rest, {==}) : {Wr.Got{Ch.Unreachable{}, rest} == FCh.get_report.go(_) : Wr.Dec<Ch.Report>}
+      {==}
+
+def pw6.ph(p: Ch.Ph, +rest: String, +h: {Laws.wire_ph_fits(p) == True{} : Bool}) -> {Wr.Got{p, rest} == FCh.get_ph(FCh.put_ph(p, rest)) : Wr.Dec<Ch.Ph>}:
+  match p:
+    case Ch.Watching{+w}:
+      %pw6.nat(0n, FCh.put_w(w, rest), {==}) : {Wr.Got{Ch.Watching{w}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
+      %pw6.w(w, rest, h) : {Wr.Got{Ch.Watching{w}, rest} == FCh.get_ph.watching(_) : Wr.Dec<Ch.Ph>}
+      {==}
+    case Ch.Owing{+k, +n}:
+      %pw6.nat(1n, FCh.put_report(k, Wr.put_nat(n, rest)), {==}) : {Wr.Got{Ch.Owing{k, n}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
+      %pw6.report(k, Wr.put_nat(n, rest)) : {Wr.Got{Ch.Owing{k, n}, rest} == FCh.get_ph.owing(_) : Wr.Dec<Ch.Ph>}
+      %pw6.nat(n, rest, h) : {Wr.Got{Ch.Owing{k, n}, rest} == FCh.get_ph.n(k, _) : Wr.Dec<Ch.Ph>}
+      {==}
+    case Ch.Ended{}:
+      %pw6.nat(2n, rest, {==}) : {Wr.Got{Ch.Ended{}, rest} == FCh.get_ph.go(_) : Wr.Dec<Ch.Ph>}
+      {==}
+
+def Laws.child_entry_verdict(c, w, e, o, m, hc, hw, he, ho):
+  +R = FCh.put_call(Ch.verdict(c, w, e, o, m), "")
+  %pw6.nat(0n, FCh.put_cfg(c, FCh.put_w(w, Wr.put_nat(e, FCh.put_obs(o, FCh.put_mode(m, ""))))), {==}) : {FCh.run(_) == R : String}
+  %pw6.cfg(c, FCh.put_w(w, Wr.put_nat(e, FCh.put_obs(o, FCh.put_mode(m, "")))), hc) : {FCh.verdict.c(_) == R : String}
+  %pw6.w(w, Wr.put_nat(e, FCh.put_obs(o, FCh.put_mode(m, ""))), hw) : {FCh.verdict.w(c, _) == R : String}
+  %pw6.nat(e, FCh.put_obs(o, FCh.put_mode(m, "")), he) : {FCh.verdict.e(c, w, _) == R : String}
+  %pw6.obs(o, FCh.put_mode(m, ""), ho) : {FCh.verdict.o(c, w, e, _) == R : String}
+  %pw6.mode(m, "") : {FCh.verdict.m(c, w, e, o, _) == R : String}
+  {==}
+
+def Laws.child_entry_move(f, n, hn):
+  +R = FCh.put_move(Ch.owe.next(f, n), "")
+  %pw6.nat(1n, FCh.put_mfate(f, Wr.put_nat(n, "")), {==}) : {FCh.run(_) == R : String}
+  %pw6.mfate(f, Wr.put_nat(n, "")) : {FCh.move.f(_) == R : String}
+  %pw6.nat(n, "", hn) : {FCh.move.n(f, _) == R : String}
+  {==}
+
+def Laws.child_entry_abort(p, d, hp):
+  +R = FCh.put_ph(Ch.cut.ph(p, d), "")
+  %pw6.nat(2n, FCh.put_ph(p, Wr.put_bool(d, "")), {==}) : {FCh.run(_) == R : String}
+  %pw6.ph(p, Wr.put_bool(d, ""), hp) : {FCh.abort.ph(_) == R : String}
+  %pw6.bool(d, "") : {FCh.abort.d(p, _) == R : String}
   {==}

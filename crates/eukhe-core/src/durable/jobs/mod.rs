@@ -5,11 +5,13 @@
 //! under the session's output cap, reports exactly one end, and has a kill.
 //!
 //! The Bend model `bend/job.bend` is the specification. `LAWS.bend` section
-//! (S2) states its laws and `PROOF.bend` section `job` proves them. The bridge
-//! test (`bridge.rs`, with `bend/bridge_job.bend`) runs this code and the
-//! model on the same scenarios and requires the same transcript:
-//! [`JobState::step`] is the model's `step`, [`wait_until`] its `wait`, and
-//! [`JobTable::rewind`] its `rewind`.
+//! (S2) states its laws and `PROOF.bend` section `job` proves them.
+//! [`JobState::step`] runs the model's `feed` as the compiled Bend core. The
+//! bridge test (`bridge.rs`, with `bend/bridge_job.bend`) runs the jobs and
+//! the model on the same scenarios and requires the same transcript:
+//! [`Job::record`] and its writer against the model's `step` and `ends`,
+//! [`wait_until`] against its `wait`, and [`JobTable::rewind`] against its
+//! `rewind`.
 //!
 //! The session's [`JobTable`] holds its jobs. The table commits the start
 //! and the end of each job (never its output) as a session document, so
@@ -31,6 +33,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
+use eukhe_bend::Entry;
 use eukhe_durable::harness::Truncation;
 use eukhe_durable::types::{CommitChange, CommitPublication, EntryId, Seq};
 use eukhe_types::job::JobId;
@@ -110,39 +114,71 @@ impl JobState {
         dropped: 0,
     };
 
-    /// The state after `event`, and the end the event reported (the
-    /// model's `step` and `ends.of`). Under the cap `Some(c)` a job keeps at
-    /// most `c` bytes and counts the rest as dropped; `None` (the opt-out)
-    /// keeps all. An ended job ignores every event.
+    /// The state after `event`, and the end the event reported: `feed`
+    /// and `ends.of` in `bend/job.bend` (LAWS.bend section S2), run by the
+    /// compiled Bend core. Under the cap `Some(c)` a job keeps at most `c`
+    /// bytes and counts the rest as dropped; `None` (the opt-out) keeps
+    /// all; the bytes kept plus dropped saturate at the wire's
+    /// [`NAT_MAX`] (`job_feed_fills`). An ended job ignores every event.
     #[must_use]
     pub fn step(self, cap: Option<u64>, event: JobEvent) -> (Self, Option<JobEnd>) {
+        eukhe_bend::expect_core(Entry::Job, self.feed(cap, event))
+    }
+
+    fn feed(
+        self,
+        cap: Option<u64>,
+        event: JobEvent,
+    ) -> Result<(Self, Option<JobEnd>), eukhe_bend::Error> {
+        let mut request = Writer::new();
+        // The bound of the bytes kept plus dropped: the wire's largest Nat.
+        request.nat(NAT_MAX);
+        match cap {
+            None => request.none(),
+            Some(cap) => request.some().nat(cap.min(NAT_MAX)),
+        };
         match self {
-            Self::Ended { .. } => (self, None),
-            Self::Live { kept, dropped } => match event {
-                JobEvent::Output(bytes) => {
-                    let take = cap.map_or(bytes, |cap| bytes.min(cap.saturating_sub(kept)));
-                    (
-                        Self::Live {
-                            kept: kept.saturating_add(take),
-                            dropped: dropped.saturating_add(bytes - take),
-                        },
-                        None,
-                    )
-                }
-                JobEvent::Exited(code) => {
-                    let end = JobEnd::Exited(code);
-                    (Self::Ended { kept, dropped, end }, Some(end))
-                }
-                JobEvent::Killed => (
-                    Self::Ended {
-                        kept,
-                        dropped,
-                        end: JobEnd::Killed,
-                    },
-                    Some(JobEnd::Killed),
-                ),
-            },
+            Self::Live { kept, dropped } => {
+                request.tag(0).nat(kept).nat(dropped);
+            }
+            Self::Ended { kept, dropped, end } => {
+                request.tag(1).nat(kept).nat(dropped);
+                put_end(&mut request, end);
+            }
         }
+        match event {
+            JobEvent::Output(bytes) => {
+                request.tag(0).nat(bytes.min(NAT_MAX));
+            }
+            JobEvent::Exited(code) => {
+                let (hi, lo) = code_words(code);
+                request.tag(1).u32(hi).u32(lo);
+            }
+            JobEvent::Killed => {
+                request.tag(2);
+            }
+        }
+        let reply = eukhe_bend::call(Entry::Job, &request.finish()?)?;
+        let mut reply = Reader::reply(&reply)?;
+        let next = match reply.tag_of(2, "a job")? {
+            0 => Self::Live {
+                kept: reply.nat()?,
+                dropped: reply.nat()?,
+            },
+            // `tag_of` answers a tag below 2: this is 1.
+            _ => Self::Ended {
+                kept: reply.nat()?,
+                dropped: reply.nat()?,
+                end: get_end(&mut reply)?,
+            },
+        };
+        // The ends the event reported: none, or its one end.
+        let end = match reply.tag_of(2, "at most one job end")? {
+            0 => None,
+            _ => Some(get_end(&mut reply)?),
+        };
+        reply.end()?;
+        Ok((next, end))
     }
 
     /// The job still runs.
@@ -153,6 +189,39 @@ impl JobState {
             Self::Ended { .. } => false,
         }
     }
+}
+
+/// An exit code as the core's `Code`: the i64's two 32-bit words, high
+/// first (two's complement), so every code crosses exactly.
+fn code_words(code: i64) -> (u32, u32) {
+    let bits = u64::from_ne_bytes(code.to_ne_bytes());
+    ((bits >> 32) as u32, bits as u32)
+}
+
+fn put_end(request: &mut Writer, end: JobEnd) {
+    match end {
+        JobEnd::Exited(code) => {
+            let (hi, lo) = code_words(code);
+            request.tag(0).u32(hi).u32(lo);
+        }
+        JobEnd::Killed => {
+            request.tag(1);
+        }
+    }
+}
+
+fn get_end(reply: &mut Reader<'_>) -> Result<JobEnd, WireError> {
+    Ok(match reply.tag_of(2, "a job end")? {
+        0 => {
+            let hi = reply.u32()?;
+            let lo = reply.u32()?;
+            JobEnd::Exited(i64::from_ne_bytes(
+                ((u64::from(hi) << 32) | u64::from(lo)).to_ne_bytes(),
+            ))
+        }
+        // `tag_of` answers a tag below 2: this is 1.
+        _ => JobEnd::Killed,
+    })
 }
 
 /// The kill of a job: it sends the kill signal to what runs (a process, a
@@ -348,8 +417,7 @@ impl JobTable {
         let cap = truncation
             .max_bytes()
             .map(|cap| u64::try_from(cap).unwrap_or(u64::MAX));
-        let (seeded, _) = JobState::START.step(cap, JobEvent::Output(written));
-        let (state, _) = watch::channel(seeded);
+        let (state, _) = watch::channel(JobState::START);
         let job = Job {
             inner: Arc::new(JobInner {
                 id: id.clone(),
@@ -364,6 +432,7 @@ impl JobTable {
             }),
         };
         let _ = self.records.send(JobRecord::Start { id, kind, label });
+        job.record(JobEvent::Output(written));
         let mut jobs = lock(&self.jobs);
         while jobs.len() >= ENDED_HISTORY {
             let Some(oldest_ended) = jobs.iter().position(|job| !job.is_running()) else {
