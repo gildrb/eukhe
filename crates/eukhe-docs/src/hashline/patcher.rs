@@ -19,6 +19,7 @@ use super::{
     },
     mismatch::{mismatch_error, MismatchDetails},
     recovery::try_recover,
+    seen,
     types::{ApplyResult, Cursor, Edit, FileOp, Landing, PasteTarget},
 };
 use crate::{
@@ -29,9 +30,6 @@ use crate::{
     store::{file_hash, payload_hash, Clipboard, EditStore},
     text::{encoding_name, line_endings, normalize_to_lf, strip_bom, LineEnding},
 };
-
-const SEEN_LINE_REVEAL_CAP: usize = 40;
-const SEEN_LINE_REVEAL_MAX_COLUMNS: usize = 512;
 
 /// Where authored paths resolve.
 pub(crate) struct Workspace<'a> {
@@ -293,7 +291,9 @@ fn mismatch(
 
 /// Reject anchors on lines the tagged read never displayed, revealing their
 /// content so a straight retry can succeed. With no snapshot of `text`, or
-/// one with no seen lines, no line counts as seen.
+/// one with no seen lines, no line counts as seen. [`seen::check`] decides;
+/// this reads the store and the line widths, records the reveal and renders
+/// the message.
 fn assert_seen_lines(
     display: &str,
     anchor_lines: &[u32],
@@ -304,61 +304,48 @@ fn assert_seen_lines(
 ) -> Result<(), EditError> {
     let snapshot = store.by_content(canonical, text);
     let held = snapshot.is_some();
-    let seen = snapshot
+    let runs = snapshot
         .and_then(|snapshot| snapshot.seen_lines)
+        .map(|lines| seen::runs(&lines))
         .unwrap_or_default();
-    let unseen = anchor_lines
-        .iter()
-        .copied()
-        .filter(|line| !seen.contains(line))
-        .collect::<Vec<_>>();
-    if unseen.is_empty() {
+    let verdict = seen::check(&runs, &seen::anchors(text, anchor_lines));
+    if verdict.unseen.is_empty() {
         return Ok(());
     }
-    let source = text.split('\n').collect::<Vec<_>>();
-    let mut revealed = Vec::new();
-    let mut column_truncated = false;
-    for &line in unseen.iter().take(SEEN_LINE_REVEAL_CAP) {
-        let Some(value) = usize::try_from(line)
-            .ok()
-            .and_then(|n| n.checked_sub(1))
-            .and_then(|n| source.get(n))
-        else {
-            continue;
-        };
-        let chars = value.chars().collect::<Vec<_>>();
-        if chars.len() > SEEN_LINE_REVEAL_MAX_COLUMNS {
-            revealed.push(RevealedLine {
-                line,
-                text: chars[..SEEN_LINE_REVEAL_MAX_COLUMNS]
-                    .iter()
-                    .collect::<String>()
-                    + "…",
-            });
-            column_truncated = true;
-        } else {
-            revealed.push(RevealedLine {
-                line,
-                text: (*value).to_owned(),
-            });
-        }
-    }
-    let truncated = unseen.len() > revealed.len() || column_truncated;
-    if !truncated {
-        let lines = revealed.iter().map(|item| item.line).collect::<Vec<_>>();
+    if verdict.whole {
         if held {
-            store.record_seen_lines(canonical, expected, &lines);
+            store.record_seen_lines(canonical, expected, &verdict.unseen);
         } else {
-            store.record(canonical, text, Some(&lines));
+            store.record(canonical, text, Some(&verdict.unseen));
         }
     }
+    let source = text.split('\n').collect::<Vec<_>>();
+    let lines = verdict
+        .shown
+        .iter()
+        .map(|shown| {
+            let row = usize::try_from(shown.line)
+                .ok()
+                .and_then(|n| n.checked_sub(1))
+                .and_then(|n| source.get(n))
+                .copied()
+                .unwrap_or_default();
+            RevealedLine {
+                line: shown.line,
+                text: match shown.cut {
+                    Some(keep) => row.chars().take(keep).collect::<String>() + "…",
+                    None => row.to_owned(),
+                },
+            }
+        })
+        .collect();
     Err(EditError::matched(unseen_lines_message(
         display,
-        &unseen,
+        &verdict.unseen,
         expected,
         &UnseenLinesReveal {
-            lines: revealed,
-            truncated,
+            lines,
+            truncated: !verdict.whole,
         },
     )))
 }

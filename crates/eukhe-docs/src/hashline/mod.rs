@@ -32,6 +32,7 @@ mod parser;
 mod patcher;
 mod prefixes;
 mod recovery;
+mod seen;
 mod tokenizer;
 mod types;
 
