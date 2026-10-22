@@ -65,6 +65,10 @@ import ./bend/doc_tags.bend as Dt
 import ./bend/config.bend as Cf
 import ./bend/default_model.bend as Dm
 import ./bend/workflow.bend as W
+import ./bend/ffi_admission.bend as FAd
+import ./bend/ffi_workflow.bend as FW
+import ./bend/ffi_default_model.bend as FDm
+import ./bend/ffi_aux_fallback.bend as FAf
 import ./bend/wire.bend as Wr
 
 # (a) The view
@@ -5219,6 +5223,201 @@ law global_entry_kept:
   for h: {Cf.has(p, n) == False{} : Bool}
   {Cf.find(Cf.merge(g, p), n) == Cf.find(g, n) : Maybe<&2, List<&2, Cf.Entry>>}
 
+# The wire codec of bend/ffi_default_model.bend (grammar: that file's
+# header, crates/eukhe-bend/WIRE.md). R1: the request and every reply
+# read back; R2: a well-formed request answers the resolver's answer
+# (Dm.resolve), encoded; R3: a malformed or overlong request answers the
+# error form, never a model. Every input is free.
+
+# what fits the wire: every Nat at most 14 digits
+def dmw_saved_fits(x: Dm.Saved) -> Bool:
+  match x:
+    case Dm.NoDefault{}:
+      True{}
+    case Dm.Default{m}:
+      wire_fits(m)
+
+def dmw_next_fits(x: Dm.Next) -> Bool:
+  match x:
+    case Dm.NoNext{}:
+      True{}
+    case Dm.Next{n}:
+      wire_fits(n)
+
+def dmw_in_fits(x: Dm.In) -> Bool:
+  match x:
+    case Dm.In{saved, cat, key, out, next}:
+      Bool.and(dmw_saved_fits(saved), dmw_next_fits(next))
+
+def dmw_key_fits(k: Dm.Key) -> Bool:
+  match k:
+    case Dm.K{m, r}:
+      wire_fits(m)
+
+def dmw_pick_fits(p: Dm.Pick) -> Bool:
+  match p:
+    case Dm.Saved{}:
+      True{}
+    case Dm.Other{n}:
+      wire_fits(n)
+
+def dmw_sub_fits(s: Dm.Sub) -> Bool:
+  match s:
+    case Dm.Kept{}:
+      True{}
+    case Dm.Swapped{k}:
+      dmw_key_fits(k)
+
+def dmw_res_fits(r: Dm.Res) -> Bool:
+  match r:
+    case Dm.Runs{p, s}:
+      Bool.and(dmw_pick_fits(p), dmw_sub_fits(s))
+    case Dm.Nothing{}:
+      True{}
+    case Dm.Refused{k}:
+      dmw_key_fits(k)
+
+# LAW R1 a reason reads back, and the rest is untouched
+# EXCLUDES: one reason read as another
+law dmw_reason_round_trip:
+  for r: Dm.Reason
+  for rest: String
+  {FDm.get_reason(FDm.put_reason(r, rest)) == Wr.Got{r, rest} : Wr.Dec<Dm.Reason>}
+
+# LAW R1 a saved default that fits reads back
+# EXCLUDES: no default read as one, a misread model
+law dmw_saved_round_trip:
+  for +x: Dm.Saved
+  for rest: String
+  for h: {dmw_saved_fits(x) == True{} : Bool}
+  {FDm.get_saved(FDm.put_saved(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Dm.Saved>}
+
+# LAW R1 the chain's pick that fits reads back
+# EXCLUDES: no pick read as one, a misread model
+law dmw_next_round_trip:
+  for +x: Dm.Next
+  for rest: String
+  for h: {dmw_next_fits(x) == True{} : Bool}
+  {FDm.get_next(FDm.put_next(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Dm.Next>}
+
+# LAW R1 a request that fits reads back
+# EXCLUDES: a fact (catalog, credentials, scope) lost, swapped or misread
+law dmw_in_round_trip:
+  for +x: Dm.In
+  for rest: String
+  for h: {dmw_in_fits(x) == True{} : Bool}
+  {FDm.get_in(FDm.put_in(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Dm.In>}
+
+# LAW R1 a notice's key that fits reads back
+# EXCLUDES: the model or the reason lost or misread
+law dmw_key_round_trip:
+  for +k: Dm.Key
+  for rest: String
+  for h: {dmw_key_fits(k) == True{} : Bool}
+  {FDm.get_key(FDm.put_key(k, rest)) == Wr.Got{k, rest} : Wr.Dec<Dm.Key>}
+
+# LAW R1 a pick that fits reads back
+# EXCLUDES: the saved default read as another model, or the reverse
+law dmw_pick_round_trip:
+  for +p: Dm.Pick
+  for rest: String
+  for h: {dmw_pick_fits(p) == True{} : Bool}
+  {FDm.get_pick(FDm.put_pick(p, rest)) == Wr.Got{p, rest} : Wr.Dec<Dm.Pick>}
+
+# LAW R1 a substitution that fits reads back
+# EXCLUDES: a swap read as kept (a silent substitution), or the reverse
+law dmw_sub_round_trip:
+  for +s: Dm.Sub
+  for rest: String
+  for h: {dmw_sub_fits(s) == True{} : Bool}
+  {FDm.get_sub(FDm.put_sub(s, rest)) == Wr.Got{s, rest} : Wr.Dec<Dm.Sub>}
+
+# LAW R1 the reply, a resolution that fits, reads back
+# EXCLUDES: a refusal read as a run or as no model, a field lost
+law dmw_res_round_trip:
+  for +r: Dm.Res
+  for rest: String
+  for h: {dmw_res_fits(r) == True{} : Bool}
+  {FDm.get_res(FDm.put_res(r, rest)) == Wr.Got{r, rest} : Wr.Dec<Dm.Res>}
+
+# LAW R2 an encoded request answers the resolver's answer, encoded
+# EXCLUDES: an entry that resolves other than Dm.resolve, or drops a fact
+#   on the way in or out
+law dmw_answers:
+  for +x: Dm.In
+  for h: {dmw_in_fits(x) == True{} : Bool}
+  {FDm.ffi(FDm.put_in(x, "")) == FDm.put_res(Dm.resolve(x), "") : String}
+
+# LAW R3 a malformed request answers the error form
+# EXCLUDES: a default model for a request it cannot read
+law dmw_malformed:
+  for +s: String
+  for h: {FDm.get_in(s) == Wr.Bad{} : Wr.Dec<Dm.In>}
+  {FDm.ffi(s) == Wr.err("default_model: malformed request") : String}
+
+# LAW R3 a request with input left over answers the error form
+# EXCLUDES: an entry that answers a request followed by garbage
+law dmw_left_over:
+  for +x: Dm.In
+  for c: Char
+  for rest: String
+  for h: {dmw_in_fits(x) == True{} : Bool}
+  {FDm.ffi(FDm.put_in(x, SCon{c, rest})) == Wr.err("default_model: input left over") : String}
+
+# LAW R1 anchor: the reasons' tags (0 not in the catalog | 1 no
+# credentials | 2 not in the scope)
+# EXCLUDES: tags in another order than the grammar's
+law dmw_reason_example:
+  {FDm.put_reason(Dm.NotInCatalog{}, FDm.put_reason(Dm.NoCredentials{}, FDm.put_reason(Dm.NotInScope{}, ""))) == "0,1,2," : String}
+
+# LAW R1 anchor and witness: a saved default is 0 (none) or 1, then it
+# EXCLUDES: a vacuous dmw_saved_round_trip, another spelling
+law dmw_saved_example:
+  {dmw_saved_fits(Dm.Default{5n}) == True{} : Bool} & {FDm.put_saved(Dm.NoDefault{}, FDm.put_saved(Dm.Default{5n}, "")) == "0,1,5," : String}
+
+# LAW R1 anchor and witness: the chain's pick is 0 (none) or 1, then it
+# EXCLUDES: a vacuous dmw_next_round_trip, another spelling
+law dmw_next_example:
+  {dmw_next_fits(Dm.Next{9n}) == True{} : Bool} & {FDm.put_next(Dm.NoNext{}, FDm.put_next(Dm.Next{9n}, "")) == "0,1,9," : String}
+
+# LAW R1 anchor and witness: a request is saved, cat, key, out, next
+# EXCLUDES: a vacuous dmw_in_round_trip or dmw_answers, facts in another
+#   order
+law dmw_in_example:
+  {dmw_in_fits(Dm.In{Dm.Default{5n}, True{}, True{}, False{}, Dm.Next{9n}}) == True{} : Bool} & {FDm.put_in(Dm.In{Dm.Default{5n}, True{}, True{}, False{}, Dm.Next{9n}}, "") == "1,5,TTF1,9," : String}
+
+# LAW R1 anchor and witness: a key is the model, then the reason
+# EXCLUDES: a vacuous dmw_key_round_trip, fields in another order
+law dmw_key_example:
+  {dmw_key_fits(Dm.K{5n, Dm.NoCredentials{}}) == True{} : Bool} & {FDm.put_key(Dm.K{5n, Dm.NoCredentials{}}, "") == "5,1," : String}
+
+# LAW R1 anchor and witness: a pick is 0 (the saved default) or 1, then
+# the other model
+# EXCLUDES: a vacuous dmw_pick_round_trip, tags swapped
+law dmw_pick_example:
+  {dmw_pick_fits(Dm.Other{3n}) == True{} : Bool} & {FDm.put_pick(Dm.Saved{}, FDm.put_pick(Dm.Other{3n}, "")) == "0,1,3," : String}
+
+# LAW R1 anchor and witness: a substitution is 0 (kept) or 1, then a key
+# EXCLUDES: a vacuous dmw_sub_round_trip, tags swapped
+law dmw_sub_example:
+  {dmw_sub_fits(Dm.Swapped{Dm.K{5n, Dm.NotInCatalog{}}}) == True{} : Bool} & {FDm.put_sub(Dm.Kept{}, FDm.put_sub(Dm.Swapped{Dm.K{5n, Dm.NotInCatalog{}}}, "")) == "0,1,5,0," : String}
+
+# LAW R1 anchor and witness: a reply is 0 pick sub (runs) | 1 (no model) |
+# 2 key (refused)
+# EXCLUDES: a vacuous dmw_res_round_trip, tags in another order
+law dmw_res_example:
+  {dmw_res_fits(Dm.Runs{Dm.Other{3n}, Dm.Swapped{Dm.K{5n, Dm.NotInScope{}}}}) == True{} : Bool} & {FDm.put_res(Dm.Runs{Dm.Other{3n}, Dm.Swapped{Dm.K{5n, Dm.NotInScope{}}}}, FDm.put_res(Dm.Nothing{}, FDm.put_res(Dm.Refused{Dm.K{5n, Dm.NoCredentials{}}}, ""))) == "0,1,3,1,5,2,1,2,5,1," : String}
+
+# LAW R2 anchor: a usable saved default runs, end to end
+# EXCLUDES: an entry that answers other bytes than the grammar's
+law dmw_ffi_example:
+  {FDm.ffi("1,5,TTF1,9,") == "0,0,0," : String}
+
+# LAW R3 witness: a saved default with an unknown tag is malformed
+# EXCLUDES: a vacuous dmw_malformed
+law dmw_malformed_example:
+  {FDm.get_in("2,") == Wr.Bad{} : Wr.Dec<Dm.In>} & {FDm.ffi("2,") == Wr.err("default_model: malformed request") : String}
+
 # ---- workflow ----
 
 # LAWS (WF, dynamic workflows): a run never holds more agents at once
@@ -5401,3 +5600,723 @@ law wf_limits_capped:
   for m: Nat
   for +x: Nat
   {W.effective(W.Limits{c, m}, 1n+x) == W.Limits{wf_min(c, 1n+x), m} : W.Limits}
+
+# The wire codec of bend/ffi_workflow.bend (grammar: that file's header,
+# crates/eukhe-bend/WIRE.md). R1: every request and reply reads back; R2:
+# a well-formed request answers the model's answer (W.admit, W.effective),
+# encoded; R3: a malformed or overlong request answers the error form,
+# never a model answer. Every input is free.
+
+# what fits the wire: every Nat (and every list length) at most 14 digits
+def wfw_row_fits(r: W.Row) -> Bool:
+  match r:
+    case W.Row{k, s}:
+      wire_fits(k)
+
+def wfw_rows_fit(rs: List<&2, W.Row>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case Con{r, t}:
+      Bool.and(wfw_row_fits(r), wfw_rows_fit(t))
+
+def wfw_pool_fits(p: W.Pool) -> Bool:
+  match p:
+    case W.Pool{t, l}:
+      Bool.and(wire_fits(t), wire_fits(l))
+
+def wfw_req_fits(r: FW.Req) -> Bool:
+  match r:
+    case FW.AdmitReq{prior, k, +rows, p}:
+      Bool.and(wire_fits(k), Bool.and(Bool.and(wire_fits(List.length(&2, W.Row, rows)), wfw_rows_fit(rows)), wfw_pool_fits(p)))
+    case FW.LimitsReq{c, m, cap}:
+      Bool.and(wire_fits(c), Bool.and(wire_fits(m), wire_fits(cap)))
+
+def wfw_admit_fits(a: W.Admit) -> Bool:
+  match a:
+    case W.Ended{}:
+      True{}
+    case W.Reattach{}:
+      True{}
+    case W.Reuse{i}:
+      wire_fits(i)
+    case W.Spawn{}:
+      True{}
+    case W.Refused{}:
+      True{}
+
+def wfw_limits_fits(l: W.Limits) -> Bool:
+  match l:
+    case W.Limits{c, m}:
+      Bool.and(wire_fits(c), wire_fits(m))
+
+# LAW R1 a row's status reads back, and the rest is untouched
+# EXCLUDES: two statuses with one tag, a status read as another
+law wfw_sts_round_trip:
+  for s: W.Sts
+  for rest: String
+  {FW.get_sts(FW.put_sts(s, rest)) == Wr.Got{s, rest} : Wr.Dec<W.Sts>}
+
+# LAW R1 the prior row's status (none or one) reads back
+# EXCLUDES: a missing prior read as a status, or a status dropped
+law wfw_prior_round_trip:
+  for m: Maybe<&2, W.Sts>
+  for rest: String
+  {FW.get_prior(FW.put_prior(m, rest)) == Wr.Got{m, rest} : Wr.Dec<Maybe<&2, W.Sts>>}
+
+# LAW R1 a row that fits reads back
+# EXCLUDES: a row's key or status lost or misread
+law wfw_row_round_trip:
+  for +r: W.Row
+  for rest: String
+  for h: {wfw_row_fits(r) == True{} : Bool}
+  {FW.get_row(FW.put_row(r, rest)) == Wr.Got{r, rest} : Wr.Dec<W.Row>}
+
+# LAW R1 a list of rows that fit, of a length that fits, reads back
+# EXCLUDES: rows lost, added, reordered or misread, a wrong count
+law wfw_rows_round_trip:
+  for +rs: List<&2, W.Row>
+  for rest: String
+  for h: {Bool.and(wire_fits(List.length(&2, W.Row, rs)), wfw_rows_fit(rs)) == True{} : Bool}
+  {Wr.get_list(~W.Row, ~FW.get_row, Wr.put_list(~W.Row, ~FW.put_row, rs, rest)) == Wr.Got{rs, rest} : Wr.Dec<List<&2, W.Row>>}
+
+# LAW R1 a pool that fits reads back (request and reply)
+# EXCLUDES: taken and left swapped or misread
+law wfw_pool_round_trip:
+  for +p: W.Pool
+  for rest: String
+  for h: {wfw_pool_fits(p) == True{} : Bool}
+  {FW.get_pool(FW.put_pool(p, rest)) == Wr.Got{p, rest} : Wr.Dec<W.Pool>}
+
+# LAW R1 a request that fits reads back, of either kind
+# EXCLUDES: one kind read as the other, a field lost, swapped or misread
+law wfw_req_round_trip:
+  for +r: FW.Req
+  for rest: String
+  for h: {wfw_req_fits(r) == True{} : Bool}
+  {FW.get_req(FW.put_req(r, rest)) == Wr.Got{r, rest} : Wr.Dec<FW.Req>}
+
+# LAW R1 an admission decision that fits reads back
+# EXCLUDES: two decisions with one tag, a reused row's index misread
+law wfw_admit_round_trip:
+  for +a: W.Admit
+  for rest: String
+  for h: {wfw_admit_fits(a) == True{} : Bool}
+  {FW.get_admit(FW.put_admit(a, rest)) == Wr.Got{a, rest} : Wr.Dec<W.Admit>}
+
+# LAW R1 the reply to an Admit, the decision then the pool, reads back
+# EXCLUDES: a reply that drops the pool or puts it before the decision
+law wfw_decision_round_trip:
+  for +a: W.Admit
+  for +p: W.Pool
+  for rest: String
+  for h: {Bool.and(wfw_admit_fits(a), wfw_pool_fits(p)) == True{} : Bool}
+  {FW.get_decision(FW.put_decision((a, p), rest)) == Wr.Got{(a, p), rest} : Wr.Dec<+Sigma<W.Admit, x => W.Pool>>}
+
+# LAW R1 the reply to a Limits request reads back
+# EXCLUDES: concurrency and max agents swapped or misread
+law wfw_limits_round_trip:
+  for +l: W.Limits
+  for rest: String
+  for h: {wfw_limits_fits(l) == True{} : Bool}
+  {FW.get_limits(FW.put_limits(l, rest)) == Wr.Got{l, rest} : Wr.Dec<W.Limits>}
+
+# LAW R2 an encoded Admit request answers the model's admission, encoded
+# EXCLUDES: an entry that decides other than W.admit, or drops a field
+#   on the way in or out
+law wfw_answers_admit:
+  for prior: Maybe<&2, W.Sts>
+  for +k: Nat
+  for +rows: List<&2, W.Row>
+  for p: W.Pool
+  for h: {wfw_req_fits(FW.AdmitReq{prior, k, rows, p}) == True{} : Bool}
+  {FW.ffi(FW.put_req(FW.AdmitReq{prior, k, rows, p}, "")) == FW.put_decision(W.admit(prior, k, rows, p), "") : String}
+
+# LAW R2 an encoded Limits request answers the model's limits, encoded
+# EXCLUDES: an entry that ignores the cap or the run's size
+law wfw_answers_limits:
+  for +c: Nat
+  for +m: Nat
+  for +cap: Nat
+  for h: {wfw_req_fits(FW.LimitsReq{c, m, cap}) == True{} : Bool}
+  {FW.ffi(FW.put_req(FW.LimitsReq{c, m, cap}, "")) == FW.put_limits(W.effective(W.Limits{c, m}, cap), "") : String}
+
+# LAW R3 a malformed request answers the error form
+# EXCLUDES: a default answer (a spawn, a limit) for a request it cannot read
+law wfw_malformed:
+  for +s: String
+  for h: {FW.get_req(s) == Wr.Bad{} : Wr.Dec<FW.Req>}
+  {FW.ffi(s) == Wr.err("workflow: malformed request") : String}
+
+# LAW R3 a request with input left over answers the error form
+# EXCLUDES: an entry that answers a request followed by garbage
+law wfw_left_over:
+  for +r: FW.Req
+  for c: Char
+  for rest: String
+  for h: {wfw_req_fits(r) == True{} : Bool}
+  {FW.ffi(FW.put_req(r, SCon{c, rest})) == Wr.err("workflow: input left over") : String}
+
+# LAW R1 anchor: the tags of the header (Sts 0 queued | 1 running | 2 done
+# | 3 failed | 4 cancelled | 5 cached; the decision 0 ended | 1 reattach |
+# 2 i reuse | 3 spawn | 4 refused)
+# EXCLUDES: tags in another order than the grammar's
+law wfw_tags_example:
+  {FW.put_sts(W.Queued{}, FW.put_sts(W.Running{}, FW.put_sts(W.Finished{}, FW.put_sts(W.Erred{}, FW.put_sts(W.Cancelled{}, FW.put_sts(W.Cached{}, "")))))) == "0,1,2,3,4,5," : String} & {FW.put_admit(W.Ended{}, FW.put_admit(W.Reattach{}, FW.put_admit(W.Reuse{9n}, FW.put_admit(W.Spawn{}, FW.put_admit(W.Refused{}, ""))))) == "0,1,2,9,3,4," : String}
+
+# LAW R1 anchor: a prior status is 0 (none) or 1, then the status
+# EXCLUDES: another spelling of a missing prior row
+law wfw_prior_example:
+  {FW.put_prior(None{}, FW.put_prior(Some{W.Finished{}}, "")) == "0,1,2," : String}
+
+# LAW R1 anchor and witness: a row is its key, then its status
+# EXCLUDES: a vacuous wfw_row_round_trip, fields in another order
+law wfw_row_example:
+  {wfw_row_fits(W.Row{3n, W.Erred{}}) == True{} : Bool} & {FW.put_row(W.Row{3n, W.Erred{}}, "") == "3,3," : String}
+
+# LAW R1 anchor and witness: rows are their count, then each row
+# EXCLUDES: a vacuous wfw_rows_round_trip
+law wfw_rows_example:
+  {Bool.and(wire_fits(List.length(&2, W.Row, [W.Row{3n, W.Erred{}}, W.Row{4n, W.Cached{}}])), wfw_rows_fit([W.Row{3n, W.Erred{}}, W.Row{4n, W.Cached{}}])) == True{} : Bool} & {Wr.put_list(~W.Row, ~FW.put_row, [W.Row{3n, W.Erred{}}, W.Row{4n, W.Cached{}}], "") == "2,3,3,4,5," : String}
+
+# LAW R1 anchor and witness: a pool is taken, then left
+# EXCLUDES: a vacuous wfw_pool_round_trip, fields in another order
+law wfw_pool_example:
+  {wfw_pool_fits(W.Pool{1n, 2n}) == True{} : Bool} & {FW.put_pool(W.Pool{1n, 2n}, "") == "1,2," : String}
+
+# LAW R1 anchor and witness: an Admit request is 0, prior, key, rows, pool
+# EXCLUDES: a vacuous wfw_req_round_trip or wfw_answers_admit, fields in
+#   another order
+law wfw_admit_req_example:
+  {wfw_req_fits(FW.AdmitReq{Some{W.Cached{}}, 7n, [W.Row{3n, W.Erred{}}], W.Pool{1n, 2n}}) == True{} : Bool} & {FW.put_req(FW.AdmitReq{Some{W.Cached{}}, 7n, [W.Row{3n, W.Erred{}}], W.Pool{1n, 2n}}, "") == "0,1,5,7,1,3,3,1,2," : String}
+
+# LAW R1 anchor and witness: a Limits request is 1, concurrency, max
+# agents, cap
+# EXCLUDES: a vacuous wfw_answers_limits, fields in another order
+law wfw_limits_req_example:
+  {wfw_req_fits(FW.LimitsReq{4n, 9n, 2n}) == True{} : Bool} & {FW.put_req(FW.LimitsReq{4n, 9n, 2n}, "") == "1,4,9,2," : String}
+
+# LAW R1 anchor and witness: a reused row's decision carries its index
+# EXCLUDES: a vacuous wfw_admit_round_trip
+law wfw_admit_example:
+  {wfw_admit_fits(W.Reuse{2n}) == True{} : Bool} & {FW.put_admit(W.Reuse{2n}, "") == "2,2," : String}
+
+# LAW R1 anchor and witness: the reply to an Admit is the decision, then
+# the pool
+# EXCLUDES: a vacuous wfw_decision_round_trip
+law wfw_decision_example:
+  {Bool.and(wfw_admit_fits(W.Reuse{2n}), wfw_pool_fits(W.Pool{1n, 0n})) == True{} : Bool} & {FW.put_decision((W.Reuse{2n}, W.Pool{1n, 0n}), "") == "2,2,1,0," : String}
+
+# LAW R1 anchor and witness: the reply to Limits is concurrency, max agents
+# EXCLUDES: a vacuous wfw_limits_round_trip
+law wfw_limits_example:
+  {wfw_limits_fits(W.Limits{2n, 9n}) == True{} : Bool} & {FW.put_limits(W.Limits{2n, 9n}, "") == "2,9," : String}
+
+# LAW R2 anchor: a run of concurrency 4 and 9 agents capped at 2 runs 2
+# at once, 9 agents, end to end
+# EXCLUDES: an entry that answers other bytes than the grammar's
+law wfw_ffi_example:
+  {FW.ffi("1,4,9,2,") == "2,9," : String}
+
+# LAW R3 witness: a request with an unknown kind is malformed
+# EXCLUDES: a vacuous wfw_malformed
+law wfw_malformed_example:
+  {FW.get_req("2,") == Wr.Bad{} : Wr.Dec<FW.Req>} & {FW.ffi("2,") == Wr.err("workflow: malformed request") : String}
+
+# ---- admission_wire ----
+
+# The wire codec of bend/ffi_admission.bend (the stepper of the compiled
+# Bend core; grammar: that file's header, crates/eukhe-bend/WIRE.md). R1:
+# every value the stepper and Rust exchange reads back; R2: a well-formed
+# open or step answers the model's new controller, encoded; R3: a
+# malformed or overlong input answers the error form and changes nothing.
+# Every input is free: any limits, any op, any controller, any text.
+
+# what fits the wire: every Nat (and every list length) at most 14 digits
+def adw_lim_fits(l: Ad.Lim) -> Bool:
+  match l:
+    case Ad.Unl{}:
+      True{}
+    case Ad.Cap{p}:
+      wire_fits(p)
+
+def adw_lv_fits(t: Ad.Lv) -> Bool:
+  match t:
+    case Ad.Lv{k, c, s}:
+      wire_fits(k)
+
+def adw_lvs_fit(ts: List<&2, Ad.Lv>) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case Con{t, u}:
+      Bool.and(adw_lv_fits(t), adw_lvs_fit(u))
+
+def adw_live_fits(x: Ad.Live) -> Bool:
+  match x:
+    case Ad.Live{l, q, +ts, n}:
+      Bool.and(adw_lim_fits(l), Bool.and(wire_fits(q), Bool.and(Bool.and(wire_fits(List.length(&2, Ad.Lv, ts)), adw_lvs_fit(ts)), wire_fits(n))))
+
+def adw_op_fits(o: Ad.Op) -> Bool:
+  match o:
+    case Ad.Admit{c}:
+      True{}
+    case Ad.Collect{k}:
+      wire_fits(k)
+    case Ad.Release{k}:
+      wire_fits(k)
+    case Ad.Leave{k}:
+      wire_fits(k)
+    case Ad.Limit{l, q}:
+      Bool.and(adw_lim_fits(l), wire_fits(q))
+
+# LAW R1 a ticket's class reads back, and the rest is untouched
+# EXCLUDES: swapped class tags, a class that eats the rest
+law adw_cls_round_trip:
+  for c: Ad.Cls
+  for rest: String
+  {FAd.get_cls(FAd.put_cls(c, rest)) == Wr.Got{c, rest} : Wr.Dec<Ad.Cls>}
+
+# LAW R1 a ticket's status reads back, and the rest is untouched
+# EXCLUDES: two statuses with one tag, a status read as another
+law adw_sts_round_trip:
+  for s: Ad.Sts
+  for rest: String
+  {FAd.get_sts(FAd.put_sts(s, rest)) == Wr.Got{s, rest} : Wr.Dec<Ad.Sts>}
+
+# LAW R1 a limit that fits reads back, and the rest is untouched
+# EXCLUDES: a cap read as unlimited, a misread slot count
+law adw_lim_round_trip:
+  for +l: Ad.Lim
+  for rest: String
+  for h: {adw_lim_fits(l) == True{} : Bool}
+  {FAd.get_lim(FAd.put_lim(l, rest)) == Wr.Got{l, rest} : Wr.Dec<Ad.Lim>}
+
+# LAW R1 a live ticket that fits reads back, and the rest is untouched
+# EXCLUDES: a ticket's number, class or status lost or misread
+law adw_lv_round_trip:
+  for +t: Ad.Lv
+  for rest: String
+  for h: {adw_lv_fits(t) == True{} : Bool}
+  {FAd.get_lv(FAd.put_lv(t, rest)) == Wr.Got{t, rest} : Wr.Dec<Ad.Lv>}
+
+# LAW R1 a list of live tickets that fit, of a length that fits, reads back
+# EXCLUDES: tickets lost, added, reordered or misread, a wrong count
+law adw_lvs_round_trip:
+  for +ts: List<&2, Ad.Lv>
+  for rest: String
+  for h: {Bool.and(wire_fits(List.length(&2, Ad.Lv, ts)), adw_lvs_fit(ts)) == True{} : Bool}
+  {Wr.get_list(~Ad.Lv, ~FAd.get_lv, Wr.put_list(~Ad.Lv, ~FAd.put_lv, ts, rest)) == Wr.Got{ts, rest} : Wr.Dec<List<&2, Ad.Lv>>}
+
+# LAW R1 the reply, a controller that fits, reads back
+# EXCLUDES: a reply that drops or misreads the limits, a ticket or the
+#   next ticket's number
+law adw_live_round_trip:
+  for +x: Ad.Live
+  for rest: String
+  for h: {adw_live_fits(x) == True{} : Bool}
+  {FAd.get_live(FAd.put_live(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Ad.Live>}
+
+# LAW R1 the request of a step, an op that fits, reads back
+# EXCLUDES: one op read as another, a misread ticket number or limit
+law adw_op_round_trip:
+  for +o: Ad.Op
+  for rest: String
+  for h: {adw_op_fits(o) == True{} : Bool}
+  {FAd.get_op(FAd.put_op(o, rest)) == Wr.Got{o, rest} : Wr.Dec<Ad.Op>}
+
+# LAW R1 the request of an open, limits that fit, reads back
+# EXCLUDES: the limit and providerMaxQueued swapped or misread
+law adw_open_round_trip:
+  for +l: Ad.Lim
+  for +q: Nat
+  for rest: String
+  for h: {Bool.and(adw_lim_fits(l), wire_fits(q)) == True{} : Bool}
+  {FAd.get_open(FAd.put_lim(l, Wr.put_nat(q, rest))) == Wr.Got{(l, q), rest} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+
+# LAW R2 an encoded open runs the model's open: the new controller, and
+# its encoding as the reply
+# EXCLUDES: an open that ignores or misreads its limits, a reply that is
+#   not the state kept
+law adw_open_answers:
+  for +l: Ad.Lim
+  for +q: Nat
+  for h: {Bool.and(adw_lim_fits(l), wire_fits(q)) == True{} : Bool}
+  {FAd.open(FAd.put_lim(l, Wr.put_nat(q, ""))) == (FAd.Running{Ad.Live.new(l, q)}, FAd.put_live(Ad.Live.new(l, q), "")) : FAd.St & String}
+
+# LAW R2 an encoded op runs the model's step on the kept controller: the
+# new controller, and its encoding as the reply
+# EXCLUDES: a step that drops or reorders ops, a state that drifts from
+#   the model, a reply that is not the state kept
+law adw_step_answers:
+  for +x: Ad.Live
+  for +o: Ad.Op
+  for h: {adw_op_fits(o) == True{} : Bool}
+  {FAd.step(FAd.Running{x}, FAd.put_op(o, "")) == (FAd.Running{Ad.Live.step(x, o)}, FAd.put_live(Ad.Live.step(x, o), "")) : FAd.St & String}
+
+# LAW R3 a malformed open opens the refused state, with the error form
+# EXCLUDES: a default controller for malformed limits
+law adw_open_malformed:
+  for +s: String
+  for h: {FAd.get_open(s) == Wr.Bad{} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>}
+  {FAd.open(s) == (FAd.Shut{}, Wr.err("admission: malformed open")) : FAd.St & String}
+
+# LAW R3 an open with input left over is refused too
+# EXCLUDES: an open that ignores trailing input
+law adw_open_left_over:
+  for +l: Ad.Lim
+  for +q: Nat
+  for c: Char
+  for rest: String
+  for h: {Bool.and(adw_lim_fits(l), wire_fits(q)) == True{} : Bool}
+  {FAd.open(FAd.put_lim(l, Wr.put_nat(q, SCon{c, rest}))) == (FAd.Shut{}, Wr.err("admission: input left over")) : FAd.St & String}
+
+# LAW R3 a malformed op answers the error form and keeps the controller
+# EXCLUDES: a guessed op, a controller lost or changed by a bad input
+law adw_step_malformed:
+  for x: Ad.Live
+  for +s: String
+  for h: {FAd.get_op(s) == Wr.Bad{} : Wr.Dec<Ad.Op>}
+  {FAd.step(FAd.Running{x}, s) == (FAd.Running{x}, Wr.err("admission: malformed op")) : FAd.St & String}
+
+# LAW R3 an op with input left over answers the error form and keeps the
+# controller
+# EXCLUDES: a step that runs an op followed by garbage
+law adw_step_left_over:
+  for x: Ad.Live
+  for +o: Ad.Op
+  for c: Char
+  for rest: String
+  for h: {adw_op_fits(o) == True{} : Bool}
+  {FAd.step(FAd.Running{x}, FAd.put_op(o, SCon{c, rest})) == (FAd.Running{x}, Wr.err("admission: input left over")) : FAd.St & String}
+
+# LAW R3 the refused state answers every step with the error form
+# EXCLUDES: a refused open that later runs ops on a made-up controller
+law adw_shut_refuses:
+  for s: String
+  {FAd.step(FAd.Shut{}, s) == (FAd.Shut{}, Wr.err("admission: the open was refused")) : FAd.St & String}
+
+# LAW R1 anchor: the tags of the header (Cls 0 interactive | 1 background;
+# Sts 0 queued | 1 granted | 2 held | 3 preempted | 4 ended)
+# EXCLUDES: tags in another order than the grammar's
+law adw_tags_example:
+  {FAd.put_cls(Ad.Ia{}, FAd.put_cls(Ad.Bg{}, "")) == "0,1," : String} & {FAd.put_sts(Ad.Queued{}, FAd.put_sts(Ad.Granted{}, FAd.put_sts(Ad.Held{}, FAd.put_sts(Ad.Preempted{}, FAd.put_sts(Ad.Ended{}, ""))))) == "0,1,2,3,4," : String}
+
+# LAW R1 anchor and witness: a cap of 1 + 2 slots is 1, 2
+# EXCLUDES: a vacuous adw_lim_round_trip, a cap spelled otherwise
+law adw_lim_example:
+  {adw_lim_fits(Ad.Cap{2n}) == True{} : Bool} & {FAd.put_lim(Ad.Cap{2n}, FAd.put_lim(Ad.Unl{}, "")) == "1,2,0," : String}
+
+# LAW R1 anchor and witness: a live ticket is its number, class, status
+# EXCLUDES: a vacuous adw_lv_round_trip, fields in another order
+law adw_lv_example:
+  {adw_lv_fits(Ad.Lv{3n, Ad.Bg{}, Ad.Preempted{}}) == True{} : Bool} & {FAd.put_lv(Ad.Lv{3n, Ad.Bg{}, Ad.Preempted{}}, "") == "3,1,3," : String}
+
+# LAW R1 anchor and witness: a list of tickets is its count, then them
+# EXCLUDES: a vacuous adw_lvs_round_trip
+law adw_lvs_example:
+  {Bool.and(wire_fits(List.length(&2, Ad.Lv, [Ad.Lv{0n, Ad.Ia{}, Ad.Queued{}}, Ad.Lv{1n, Ad.Bg{}, Ad.Ended{}}])), adw_lvs_fit([Ad.Lv{0n, Ad.Ia{}, Ad.Queued{}}, Ad.Lv{1n, Ad.Bg{}, Ad.Ended{}}])) == True{} : Bool} & {Wr.put_list(~Ad.Lv, ~FAd.put_lv, [Ad.Lv{0n, Ad.Ia{}, Ad.Queued{}}, Ad.Lv{1n, Ad.Bg{}, Ad.Ended{}}], "") == "2,0,0,0,1,1,4," : String}
+
+# LAW R1 anchor and witness: a controller is its limit, providerMaxQueued,
+# live tickets and next ticket's number
+# EXCLUDES: a vacuous adw_live_round_trip, fields in another order
+law adw_live_example:
+  {adw_live_fits(Ad.Live{Ad.Cap{0n}, 1n, [Ad.Lv{1n, Ad.Ia{}, Ad.Granted{}}], 2n}) == True{} : Bool} & {FAd.put_live(Ad.Live{Ad.Cap{0n}, 1n, [Ad.Lv{1n, Ad.Ia{}, Ad.Granted{}}], 2n}, "") == "1,0,1,1,1,0,1,2," : String}
+
+# LAW R1 anchor and witness: every op's tag and fields
+# EXCLUDES: a vacuous adw_op_round_trip, op tags in another order
+law adw_op_example:
+  {adw_op_fits(Ad.Limit{Ad.Cap{2n}, 3n}) == True{} : Bool} & {FAd.put_op(Ad.Admit{Ad.Bg{}}, FAd.put_op(Ad.Collect{5n}, FAd.put_op(Ad.Release{6n}, FAd.put_op(Ad.Leave{7n}, FAd.put_op(Ad.Limit{Ad.Cap{2n}, 3n}, ""))))) == "0,1,1,5,2,6,3,7,4,1,2,3," : String}
+
+# LAW R2 anchor and witness: open on 0, 3 (unlimited, 3 queued) answers
+# the controller with no ticket
+# EXCLUDES: a vacuous adw_open_answers, an open that grants or numbers
+#   tickets before any op
+law adw_open_example:
+  {Bool.and(adw_lim_fits(Ad.Unl{}), wire_fits(3n)) == True{} : Bool} & {FAd.open("0,3,") == (FAd.Running{Ad.Live{Ad.Unl{}, 3n, Nil{}, 0n}}, "0,3,0,0,") : FAd.St & String}
+
+# LAW R3 witness: malformed inputs exist (an unknown limit tag, an
+# unknown op tag)
+# EXCLUDES: a vacuous adw_open_malformed or adw_step_malformed
+law adw_malformed_example:
+  {FAd.get_open("2,0,") == Wr.Bad{} : Wr.Dec<+Sigma<Ad.Lim, x => Nat>>} & {FAd.get_op("5,") == Wr.Bad{} : Wr.Dec<Ad.Op>}
+
+# ---- aux_fallback_wire ----
+
+# The wire codec of bend/ffi_aux_fallback.bend (grammar: that file's
+# header, crates/eukhe-bend/WIRE.md). R1: every request and reply reads
+# back; R2: a well-formed request answers the model's answer (Af.gate,
+# Af.settle, Af.put and Af.after), encoded; R3: a malformed or overlong
+# request answers the error form, never a route. Every input is free.
+
+# what fits the wire: every Nat (and every list length) at most 14 digits
+def afw_key_fits(k: Af.Key) -> Bool:
+  match k:
+    case Af.K{p, s, r}:
+      Bool.and(wire_fits(p), Bool.and(wire_fits(s), wire_fits(r)))
+
+def afw_keys_fit(ks: List<&2, Af.Key>) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case Con{k, t}:
+      Bool.and(afw_key_fits(k), afw_keys_fit(t))
+
+def afw_route_fits(r: Af.Route) -> Bool:
+  match r:
+    case Af.Session{}:
+      True{}
+    case Af.Routed{}:
+      True{}
+    case Af.Fallback{k}:
+      afw_key_fits(k)
+
+def afw_gate_fits(g: Af.Gate) -> Bool:
+  match g:
+    case Af.Known{r}:
+      afw_route_fits(r)
+    case Af.Lookup{p, s}:
+      Bool.and(wire_fits(p), wire_fits(s))
+
+def afw_sel_fits(x: Af.Sel) -> Bool:
+  match x:
+    case Af.Unset{}:
+      True{}
+    case Af.Same{}:
+      True{}
+    case Af.Other{s}:
+      wire_fits(s)
+
+def afw_look_fits(x: Af.Look) -> Bool:
+  match x:
+    case Af.Miss{r}:
+      wire_fits(r)
+    case Af.Hit{w}:
+      wire_fits(w)
+
+def afw_ev_fits(e: Af.Ev) -> Bool:
+  match e:
+    case Af.Stay{}:
+      True{}
+    case Af.Went{}:
+      True{}
+    case Af.Sub{k}:
+      afw_key_fits(k)
+    case Af.Note{k}:
+      afw_key_fits(k)
+
+def afw_evs_fit(es: List<&2, Af.Ev>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case Con{e, t}:
+      Bool.and(afw_ev_fits(e), afw_evs_fit(t))
+
+def afw_req_fits(x: FAf.Req) -> Bool:
+  match x:
+    case FAf.GateReq{p, sel, ok}:
+      Bool.and(wire_fits(p), afw_sel_fits(sel))
+    case FAf.SettleReq{g, look, need}:
+      Bool.and(afw_gate_fits(g), Bool.and(afw_look_fits(look), wire_fits(need)))
+    case FAf.PassReq{r, +sh}:
+      Bool.and(afw_route_fits(r), Bool.and(wire_fits(List.length(&2, Af.Key, sh)), afw_keys_fit(sh)))
+
+# the reply to a pass fits: both lists and their lengths
+def afw_pass_fits(+es: List<&2, Af.Ev>, +ks: List<&2, Af.Key>) -> Bool:
+  Bool.and(Bool.and(wire_fits(List.length(&2, Af.Ev, es)), afw_evs_fit(es)), Bool.and(wire_fits(List.length(&2, Af.Key, ks)), afw_keys_fit(ks)))
+
+# LAW R1 a fallback's key that fits reads back
+# EXCLUDES: purpose, selector or reason lost, swapped or misread
+law afw_key_round_trip:
+  for +k: Af.Key
+  for rest: String
+  for h: {afw_key_fits(k) == True{} : Bool}
+  {FAf.get_key(FAf.put_key(k, rest)) == Wr.Got{k, rest} : Wr.Dec<Af.Key>}
+
+# LAW R1 a list of keys that fit, of a length that fits, reads back
+# EXCLUDES: shown keys lost, added, reordered or misread, a wrong count
+law afw_keys_round_trip:
+  for +ks: List<&2, Af.Key>
+  for rest: String
+  for h: {Bool.and(wire_fits(List.length(&2, Af.Key, ks)), afw_keys_fit(ks)) == True{} : Bool}
+  {Wr.get_list(~Af.Key, ~FAf.get_key, Wr.put_list(~Af.Key, ~FAf.put_key, ks, rest)) == Wr.Got{ks, rest} : Wr.Dec<List<&2, Af.Key>>}
+
+# LAW R1 a route that fits reads back (request and reply)
+# EXCLUDES: one route read as another, a fallback's key misread
+law afw_route_round_trip:
+  for +r: Af.Route
+  for rest: String
+  for h: {afw_route_fits(r) == True{} : Bool}
+  {FAf.get_route(FAf.put_route(r, rest)) == Wr.Got{r, rest} : Wr.Dec<Af.Route>}
+
+# LAW R1 a gate's answer that fits reads back (request and reply)
+# EXCLUDES: a decided route read as a lookup, or the reverse
+law afw_gate_round_trip:
+  for +g: Af.Gate
+  for rest: String
+  for h: {afw_gate_fits(g) == True{} : Bool}
+  {FAf.get_gate(FAf.put_gate(g, rest)) == Wr.Got{g, rest} : Wr.Dec<Af.Gate>}
+
+# LAW R1 a selector that fits reads back
+# EXCLUDES: unset read as the session model, a misread selector
+law afw_sel_round_trip:
+  for +x: Af.Sel
+  for rest: String
+  for h: {afw_sel_fits(x) == True{} : Bool}
+  {FAf.get_sel(FAf.put_sel(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Af.Sel>}
+
+# LAW R1 a lookup's result that fits reads back
+# EXCLUDES: a miss read as a hit, or the reverse; a misread window
+law afw_look_round_trip:
+  for +x: Af.Look
+  for rest: String
+  for h: {afw_look_fits(x) == True{} : Bool}
+  {FAf.get_look(FAf.put_look(x, rest)) == Wr.Got{x, rest} : Wr.Dec<Af.Look>}
+
+# LAW R1 an event that fits reads back
+# EXCLUDES: a substitution read as a notice, or the reverse
+law afw_ev_round_trip:
+  for +e: Af.Ev
+  for rest: String
+  for h: {afw_ev_fits(e) == True{} : Bool}
+  {FAf.get_ev(FAf.put_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Af.Ev>}
+
+# LAW R1 a list of events that fit, of a length that fits, reads back
+# EXCLUDES: events lost, added, reordered or misread, a wrong count
+law afw_evs_round_trip:
+  for +es: List<&2, Af.Ev>
+  for rest: String
+  for h: {Bool.and(wire_fits(List.length(&2, Af.Ev, es)), afw_evs_fit(es)) == True{} : Bool}
+  {Wr.get_list(~Af.Ev, ~FAf.get_ev, Wr.put_list(~Af.Ev, ~FAf.put_ev, es, rest)) == Wr.Got{es, rest} : Wr.Dec<List<&2, Af.Ev>>}
+
+# LAW R1 a request that fits reads back, of every kind
+# EXCLUDES: one kind read as another, a field lost, swapped or misread
+law afw_req_round_trip:
+  for +x: FAf.Req
+  for rest: String
+  for h: {afw_req_fits(x) == True{} : Bool}
+  {FAf.get_req(FAf.put_req(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FAf.Req>}
+
+# LAW R1 the reply to a pass, its events then the shown keys, reads back
+# EXCLUDES: the two lists swapped, merged or cut
+law afw_pass_round_trip:
+  for +es: List<&2, Af.Ev>
+  for +ks: List<&2, Af.Key>
+  for rest: String
+  for h: {afw_pass_fits(es, ks) == True{} : Bool}
+  {FAf.get_pass(FAf.put_pass((es, ks), rest)) == Wr.Got{(es, ks), rest} : Wr.Dec<+Sigma<List<&2, Af.Ev>, x => List<&2, Af.Key>>>}
+
+# LAW R2 an encoded Gate request answers the model's gate, encoded
+# EXCLUDES: an entry that gates other than Af.gate, or drops a field
+law afw_answers_gate:
+  for +p: Nat
+  for +sel: Af.Sel
+  for +ok: Bool
+  for h: {afw_req_fits(FAf.GateReq{p, sel, ok}) == True{} : Bool}
+  {FAf.ffi(FAf.put_req(FAf.GateReq{p, sel, ok}, "")) == FAf.put_gate(Af.gate(p, sel, ok), "") : String}
+
+# LAW R2 an encoded Settle request answers the model's route, encoded
+# EXCLUDES: an entry that settles other than Af.settle, or drops a field
+law afw_answers_settle:
+  for +g: Af.Gate
+  for +look: Af.Look
+  for +need: Nat
+  for h: {afw_req_fits(FAf.SettleReq{g, look, need}) == True{} : Bool}
+  {FAf.ffi(FAf.put_req(FAf.SettleReq{g, look, need}, "")) == FAf.put_route(Af.settle(g, look, need), "") : String}
+
+# LAW R2 an encoded Pass request answers the model's events and shown
+# keys, encoded
+# EXCLUDES: a notice shown twice or lost on the way out, the shown keys
+#   of another route
+law afw_answers_pass:
+  for +r: Af.Route
+  for +sh: List<&2, Af.Key>
+  for h: {afw_req_fits(FAf.PassReq{r, sh}) == True{} : Bool}
+  {FAf.ffi(FAf.put_req(FAf.PassReq{r, sh}, "")) == FAf.put_pass((Af.put(r, sh, Nil{}), Af.after(r, sh)), "") : String}
+
+# LAW R3 a malformed request answers the error form
+# EXCLUDES: a default route for a request it cannot read
+law afw_malformed:
+  for +s: String
+  for h: {FAf.get_req(s) == Wr.Bad{} : Wr.Dec<FAf.Req>}
+  {FAf.ffi(s) == Wr.err("aux_fallback: malformed request") : String}
+
+# LAW R3 a request with input left over answers the error form
+# EXCLUDES: an entry that answers a request followed by garbage
+law afw_left_over:
+  for +x: FAf.Req
+  for c: Char
+  for rest: String
+  for h: {afw_req_fits(x) == True{} : Bool}
+  {FAf.ffi(FAf.put_req(x, SCon{c, rest})) == Wr.err("aux_fallback: input left over") : String}
+
+# LAW R1 anchor and witness: a key is purpose, selector, reason
+# EXCLUDES: a vacuous afw_key_round_trip, fields in another order
+law afw_key_example:
+  {afw_key_fits(Af.K{1n, 2n, 3n}) == True{} : Bool} & {FAf.put_key(Af.K{1n, 2n, 3n}, "") == "1,2,3," : String}
+
+# LAW R1 anchor and witness: keys are their count, then each key
+# EXCLUDES: a vacuous afw_keys_round_trip
+law afw_keys_example:
+  {Bool.and(wire_fits(List.length(&2, Af.Key, [Af.K{1n, 2n, 3n}])), afw_keys_fit([Af.K{1n, 2n, 3n}])) == True{} : Bool} & {Wr.put_list(~Af.Key, ~FAf.put_key, [Af.K{1n, 2n, 3n}], "") == "1,1,2,3," : String}
+
+# LAW R1 anchor and witness: a route is 0 session | 1 routed | 2 key
+# EXCLUDES: a vacuous afw_route_round_trip, tags in another order
+law afw_route_example:
+  {afw_route_fits(Af.Fallback{Af.K{1n, 2n, 3n}}) == True{} : Bool} & {FAf.put_route(Af.Session{}, FAf.put_route(Af.Routed{}, FAf.put_route(Af.Fallback{Af.K{1n, 2n, 3n}}, ""))) == "0,1,2,1,2,3," : String}
+
+# LAW R1 anchor and witness: a gate's answer is 0 route | 1 p s
+# EXCLUDES: a vacuous afw_gate_round_trip, tags swapped
+law afw_gate_example:
+  {afw_gate_fits(Af.Lookup{3n, 8n}) == True{} : Bool} & {FAf.put_gate(Af.Known{Af.Routed{}}, FAf.put_gate(Af.Lookup{3n, 8n}, "")) == "0,1,1,3,8," : String}
+
+# LAW R1 anchor and witness: a selector is 0 unset | 1 session | 2 s
+# EXCLUDES: a vacuous afw_sel_round_trip, tags in another order
+law afw_sel_example:
+  {afw_sel_fits(Af.Other{8n}) == True{} : Bool} & {FAf.put_sel(Af.Unset{}, FAf.put_sel(Af.Same{}, FAf.put_sel(Af.Other{8n}, ""))) == "0,1,2,8," : String}
+
+# LAW R1 anchor and witness: a lookup is 0 r (nothing usable) | 1 w (found)
+# EXCLUDES: a vacuous afw_look_round_trip, tags swapped
+law afw_look_example:
+  {afw_look_fits(Af.Hit{10n}) == True{} : Bool} & {FAf.put_look(Af.Miss{4n}, FAf.put_look(Af.Hit{10n}, "")) == "0,4,1,10," : String}
+
+# LAW R1 anchor and witness: an event is 0 stay | 1 went | 2 key | 3 key
+# EXCLUDES: a vacuous afw_ev_round_trip, tags in another order
+law afw_ev_example:
+  {afw_ev_fits(Af.Note{Af.K{1n, 2n, 3n}}) == True{} : Bool} & {FAf.put_ev(Af.Stay{}, FAf.put_ev(Af.Went{}, FAf.put_ev(Af.Sub{Af.K{1n, 2n, 3n}}, FAf.put_ev(Af.Note{Af.K{4n, 5n, 6n}}, "")))) == "0,1,2,1,2,3,3,4,5,6," : String}
+
+# LAW R1 anchor and witness: events are their count, then each event
+# EXCLUDES: a vacuous afw_evs_round_trip
+law afw_evs_example:
+  {Bool.and(wire_fits(List.length(&2, Af.Ev, [Af.Stay{}, Af.Sub{Af.K{1n, 2n, 3n}}])), afw_evs_fit([Af.Stay{}, Af.Sub{Af.K{1n, 2n, 3n}}])) == True{} : Bool} & {Wr.put_list(~Af.Ev, ~FAf.put_ev, [Af.Stay{}, Af.Sub{Af.K{1n, 2n, 3n}}], "") == "2,0,2,1,2,3," : String}
+
+# LAW R1 anchor and witness: a Gate request is 0, p, Sel, ok
+# EXCLUDES: a vacuous afw_answers_gate, fields in another order
+law afw_gate_req_example:
+  {afw_req_fits(FAf.GateReq{3n, Af.Other{8n}, True{}}) == True{} : Bool} & {FAf.put_req(FAf.GateReq{3n, Af.Other{8n}, True{}}, "") == "0,3,2,8,T" : String}
+
+# LAW R1 anchor and witness: a Settle request is 1, GateR, Look, need
+# EXCLUDES: a vacuous afw_answers_settle, fields in another order
+law afw_settle_req_example:
+  {afw_req_fits(FAf.SettleReq{Af.Lookup{3n, 8n}, Af.Hit{10n}, 5n}) == True{} : Bool} & {FAf.put_req(FAf.SettleReq{Af.Lookup{3n, 8n}, Af.Hit{10n}, 5n}, "") == "1,1,3,8,1,10,5," : String}
+
+# LAW R1 anchor and witness: a Pass request is 2, Route, shown keys
+# EXCLUDES: a vacuous afw_answers_pass, fields in another order
+law afw_pass_req_example:
+  {afw_req_fits(FAf.PassReq{Af.Fallback{Af.K{1n, 2n, 3n}}, [Af.K{1n, 2n, 3n}]}) == True{} : Bool} & {FAf.put_req(FAf.PassReq{Af.Fallback{Af.K{1n, 2n, 3n}}, [Af.K{1n, 2n, 3n}]}, "") == "2,2,1,2,3,1,1,2,3," : String}
+
+# LAW R1 anchor and witness: a pass's reply is its events, then its keys
+# EXCLUDES: a vacuous afw_pass_round_trip, the lists swapped
+law afw_pass_example:
+  {afw_pass_fits([Af.Stay{}], [Af.K{1n, 2n, 3n}]) == True{} : Bool} & {FAf.put_pass(([Af.Stay{}], [Af.K{1n, 2n, 3n}]), "") == "1,0,1,1,2,3," : String}
+
+# LAW R2 anchor: a fallback pass with no key shown substitutes and shows
+# its notice, end to end
+# EXCLUDES: an entry that answers other bytes than the grammar's
+law afw_ffi_example:
+  {FAf.ffi("2,2,1,2,3,0,") == "2,2,1,2,3,3,1,2,3,1,1,2,3," : String}
+
+# LAW R3 witness: a request of an unknown kind is malformed
+# EXCLUDES: a vacuous afw_malformed
+law afw_malformed_example:
+  {FAf.get_req("3,") == Wr.Bad{} : Wr.Dec<FAf.Req>} & {FAf.ffi("3,") == Wr.err("aux_fallback: malformed request") : String}
