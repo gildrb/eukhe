@@ -30,6 +30,7 @@ mod browse;
 mod chat;
 mod compactor;
 mod import;
+mod plan;
 mod prompts;
 mod saved;
 mod service;

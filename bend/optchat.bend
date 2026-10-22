@@ -966,3 +966,492 @@ def ctx.go(v: List<&2, Node>, +info: Info, +bound: List<&2, Bool>) -> List<&2, N
 # the view a compaction of node n sees
 def ctx(+s: St, +n: Node) -> List<&2, Node>:
   ctx.go(St.cview(s), St.info(s), ctx.bound(n))
+
+# The shipped batch
+# -----------------
+# fit with the Last measure, fast: on a view that tiles the messages it is
+# fit itself (law fitx_is_fit). A merge always makes its parent's pair less
+# due than the pair it merged, so no pair can become mergeable after a less
+# due one: the batch takes, in one sort, every pair that could ever merge
+# (each line's built ancestors), most due first (of equal ones the older),
+# and merges each in turn whose two halves are lines then, while the view
+# is over budget. O(L log L) instead of O(L) per merge.
+#
+# A map from nodes to sizes: per level (lowest first), a trie on the index
+# bits. Used linearly (never shared).
+type Mt is Data:
+  MtTip{}
+  MtBin{v: Maybe<&2, Nat>, lo: Mt, hi: Mt}
+
+type Sizes is Data:
+  SzEnd{}
+  SzLv{t: Mt, rest: Sizes}
+
+def mt.get(k: List<&2, Bool>, t: Mt) -> Maybe<&2, Nat>:
+  match k t:
+    case _ MtTip{}:
+      None{}
+    case Nil{} MtBin{v, lo, hi}:
+      v
+    case False{} <> r MtBin{v, lo, hi}:
+      mt.get(r, lo)
+    case True{} <> r MtBin{v, lo, hi}:
+      mt.get(r, hi)
+
+def mt.put(k: List<&2, Bool>, t: Mt, +z: Nat) -> Mt:
+  match k t:
+    case Nil{} MtTip{}:
+      MtBin{Some{z}, MtTip{}, MtTip{}}
+    case Nil{} MtBin{v, lo, hi}:
+      MtBin{Some{z}, lo, hi}
+    case False{} <> r MtTip{}:
+      MtBin{None{}, mt.put(r, MtTip{}, z), MtTip{}}
+    case True{} <> r MtTip{}:
+      MtBin{None{}, MtTip{}, mt.put(r, MtTip{}, z)}
+    case False{} <> r MtBin{v, lo, hi}:
+      MtBin{v, mt.put(r, lo, z), hi}
+    case True{} <> r MtBin{v, lo, hi}:
+      MtBin{v, lo, mt.put(r, hi, z)}
+
+def sizes.get(l: Nat, k: List<&2, Bool>, s: Sizes) -> Maybe<&2, Nat>:
+  match l s:
+    case _ SzEnd{}:
+      None{}
+    case 0n SzLv{t, rest}:
+      mt.get(k, t)
+    case 1n+p SzLv{t, rest}:
+      sizes.get(p, k, rest)
+
+def sizes.put(l: Nat, k: List<&2, Bool>, s: Sizes, +z: Nat) -> Sizes:
+  match l s:
+    case 0n SzEnd{}:
+      SzLv{mt.put(k, MtTip{}, z), SzEnd{}}
+    case 0n SzLv{t, rest}:
+      SzLv{mt.put(k, t, z), rest}
+    case 1n+p SzEnd{}:
+      SzLv{MtTip{}, sizes.put(p, k, SzEnd{}, z)}
+    case 1n+p SzLv{t, rest}:
+      SzLv{t, sizes.put(p, k, rest, z)}
+
+def fitx.get(+s: Sizes, n: Node) -> Maybe<&2, Nat>:
+  match n:
+    case Node{l, i}:
+      sizes.get(l, i, s)
+
+def fitx.put(s: Sizes, n: Node, +z: Nat) -> Sizes:
+  match n:
+    case Node{l, i}:
+      sizes.put(l, i, s, z)
+
+def fitx.has(+s: Sizes, n: Node) -> Bool:
+  Maybe.is_some(&2, Nat, fitx.get(s, n))
+
+# 2i in bits, without a high zero bit
+def fitx.dbl(i: List<&2, Bool>) -> List<&2, Bool>:
+  match i:
+    case Nil{}:
+      Nil{}
+    case h <> t:
+      False{} <> h <> t
+
+# the first line of the pair whose parent is p
+def fitx.head(p: Node) -> Node:
+  match p:
+    case Node{l, i}:
+      match l:
+        case 0n:
+          Node{0n, fitx.dbl(i)}
+        case 1n+k:
+          Node{k, fitx.dbl(i)}
+
+# the pair's second line (h has low bit 0)
+def fitx.second(h: Node) -> Node:
+  match h:
+    case Node{l, i}:
+      Node{l, Bits.inc(i)}
+
+# The lines: their sizes (a map) and the view's size, in one pass.
+def fitx.lines(v: List<&2, Node>, +ph: Nat, +info: Info, s: Sizes, z: Nat) -> Sizes & Nat:
+  match v:
+    case Nil{}:
+      (s, z)
+    case +x <> rest:
+      +sz = line_size(ph, info, x)
+      fitx.lines(rest, ph, info, fitx.put(s, x, sz), Nat.add(z, sz))
+
+# A pair that may merge: its first line and its parent's size.
+type Cand is Data:
+  Cand{h: Node, z: Nat}
+
+# from p up: every built ancestor not seen yet
+def fitx.up(fuel: Nat, got: Maybe<&2, Nat>, there: Bool, +info: Info, +p: Node, xs: List<&2, Cand>, seen: Sizes) -> List<&2, Cand> & Sizes:
+  match fuel got there:
+    case 0n _ _:
+      (xs, seen)
+    case 1n+f None{} _:
+      (xs, seen)
+    case 1n+f Some{z} True{}:
+      (xs, seen)
+    case 1n+f Some{+z} False{}:
+      +q = Node.parent(p)
+      +seen2 = fitx.put(seen, p, z)
+      fitx.up(f, Info.get(info, q), fitx.has(seen2, q), info, q, Cand{fitx.head(p), z} <> xs, seen2)
+
+def fitx.all.step(+fuel: Nat, +info: Info, +x: Node, r: List<&2, Cand> & Sizes) -> List<&2, Cand> & Sizes:
+  (xs, seen) = r
+  +s = seen
+  +p = Node.parent(x)
+  fitx.up(fuel, Info.get(info, p), fitx.has(s, p), info, p, xs, s)
+
+def fitx.all(v: List<&2, Node>, +fuel: Nat, +info: Info, r: List<&2, Cand> & Sizes) -> List<&2, Cand> & Sizes:
+  match v:
+    case Nil{}:
+      r
+    case x <> rest:
+      fitx.all(rest, fuel, info, fitx.all.step(fuel, info, x, r))
+
+# Keys. The pair from h = (l, i) is due (u - e)/2^l, with u = T + 1 and
+# e = (i+2)·2^l its end: the whole number q = (u >> l) - i - 2 plus the
+# fraction (u mod 2^l)/2^l, kept as f = (u mod 2^l)·2^(H - l) for the
+# highest level H. Every number here is at most u.
+
+# the value of bits (2x as x + x: native)
+def fitx.val(bs: List<&2, Bool>) -> Nat:
+  match bs:
+    case Nil{}:
+      0n
+    case h <> t:
+      +v = fitx.val(t)
+      bit(h, Nat.add(v, v))
+
+# x·2^k
+def fitx.shl(k: Nat, x: Nat) -> Nat:
+  match k:
+    case 0n:
+      x
+    case 1n+j:
+      +y = x
+      fitx.shl(j, Nat.add(y, y))
+
+def fitx.take(k: Nat, bs: List<&2, Bool>) -> List<&2, Bool>:
+  match k bs:
+    case 0n _:
+      Nil{}
+    case 1n+j Nil{}:
+      Nil{}
+    case 1n+j h <> t:
+      h <> fitx.take(j, t)
+
+def fitx.drop(k: Nat, bs: List<&2, Bool>) -> List<&2, Bool>:
+  match k bs:
+    case 0n bs:
+      bs
+    case 1n+j Nil{}:
+      Nil{}
+    case 1n+j h <> t:
+      fitx.drop(j, t)
+
+type Due is Data:
+  Due{q: Nat, f: Nat, s: Nat, p: Cand}
+
+def Due.c(x: Due) -> Cand:
+  match x:
+    case Due{q, f, s, p}:
+      p
+
+def fitx.key(+u: List<&2, Bool>, +top: Nat, p: Cand) -> Due:
+  match p:
+    case Cand{h, z}:
+      match h:
+        case Node{+l, +i}:
+          +iv = fitx.val(i)
+          Due{Nat.sub(fitx.val(fitx.drop(l, u)), Nat.add(iv, 2n)), fitx.shl(Nat.sub(top, l), fitx.val(fitx.take(l, u))), fitx.shl(l, iv), Cand{Node{l, i}, z}}
+
+def fitx.keys(ps: List<&2, Cand>, +u: List<&2, Bool>, +top: Nat) -> List<&2, Due>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      fitx.key(u, top, p) <> fitx.keys(rest, u, top)
+
+def fitx.hi(ps: List<&2, Cand>, acc: Nat) -> Nat:
+  match ps:
+    case Nil{}:
+      acc
+    case Cand{h, z} <> rest:
+      fitx.hi(rest, Nat.max(acc, Node.lvl(h)))
+
+def fitx.tie2(c: Cmp, +sa: Nat, +sb: Nat) -> Bool:
+  match c:
+    case GT{}:
+      True{}
+    case LT{}:
+      False{}
+    case EQ{}:
+      Nat.is_lt(sa, sb)
+
+def fitx.tie(c: Cmp, +fa: Nat, +fb: Nat, +sa: Nat, +sb: Nat) -> Bool:
+  match c:
+    case GT{}:
+      True{}
+    case LT{}:
+      False{}
+    case EQ{}:
+      fitx.tie2(Nat.cmp(fa, fb), sa, sb)
+
+# a before b: more due, or as due and older
+def fitx.before(+a: Due, +b: Due) -> Bool:
+  match a b:
+    case Due{+qa, +fa, +sa, pa} Due{+qb, +fb, +sb, pb}:
+      fitx.tie(Nat.cmp(qa, qb), fa, fb, sa, sb)
+
+# merge sort (the binary counter of the skill's sort example)
+type KTree is Data:
+  KTip{}
+  KLeaf{n: Due}
+  KNode{l: KTree, r: KTree}
+
+type KDigits is Data:
+  KEnd{}
+  KZero{rest: KDigits}
+  KOne{tree: KTree, rest: KDigits}
+
+def kd.push(ds: KDigits, t: KTree) -> KDigits:
+  match ds:
+    case KEnd{}:
+      KOne{t, KEnd{}}
+    case KZero{rest}:
+      KOne{t, rest}
+    case KOne{t2, rest}:
+      KZero{kd.push(rest, KNode{t2, t})}
+
+def kd.build(xs: List<&2, Due>, ds: KDigits) -> KDigits:
+  match xs:
+    case Nil{}:
+      ds
+    case h <> t:
+      kd.build(t, kd.push(ds, KLeaf{h}))
+
+def kd.join(ds: KDigits, acc: KTree) -> KTree:
+  match ds:
+    case KEnd{}:
+      acc
+    case KZero{rest}:
+      kd.join(rest, acc)
+    case KOne{t, rest}:
+      kd.join(rest, KNode{t, acc})
+
+def kmerge.go(xt: List<&2, Due>, yt: List<&2, Due>, +x: Due, +y: Due, x_first: Bool) -> List<&2, Due>:
+  match xt yt x_first:
+    case Nil{} Nil{} True{}:
+      x <> y <> Nil{}
+    case Nil{} Nil{} False{}:
+      y <> x <> Nil{}
+    case Nil{} +y2 <> yt2 True{}:
+      x <> y <> y2 <> yt2
+    case Nil{} +y2 <> yt2 False{}:
+      y <> kmerge.go(Nil{}, yt2, x, y2, fitx.before(x, y2))
+    case +x2 <> xt2 Nil{} True{}:
+      x <> kmerge.go(xt2, Nil{}, x2, y, fitx.before(x2, y))
+    case +x2 <> xt2 Nil{} False{}:
+      y <> x <> x2 <> xt2
+    case +x2 <> xt2 +y2 <> yt2 True{}:
+      x <> kmerge.go(xt2, y2 <> yt2, x2, y, fitx.before(x2, y))
+    case +x2 <> xt2 +y2 <> yt2 False{}:
+      y <> kmerge.go(x2 <> xt2, yt2, x, y2, fitx.before(x, y2))
+
+def kmerge(xs: List<&2, Due>, ys: List<&2, Due>) -> List<&2, Due>:
+  match xs ys:
+    case Nil{} Nil{}:
+      Nil{}
+    case Nil{} +y <> yt:
+      y <> yt
+    case +x <> xt Nil{}:
+      x <> xt
+    case +x <> xt +y <> yt:
+      kmerge.go(xt, yt, x, y, fitx.before(x, y))
+
+def ksort(tr: KTree) -> List<&2, Due>:
+  match tr:
+    case KTip{}:
+      Nil{}
+    case KLeaf{n}:
+      [n]
+    case KNode{l, r}:
+      kmerge(ksort(l), ksort(r))
+
+def fitx.pairs(ks: List<&2, Due>) -> List<&2, Cand>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case k <> rest:
+      Due.c(k) <> fitx.pairs(rest)
+
+def fitx.sort(+t: List<&2, Bool>, +ps: List<&2, Cand>) -> List<&2, Cand>:
+  fitx.pairs(ksort(kd.join(kd.build(fitx.keys(ps, Bits.inc(t), fitx.hi(ps, 0n)), KEnd{}), KTip{})))
+
+# The pass: in that order, merge each pair whose two halves are lines now,
+# while the view is over budget. lines: the line sizes (merged parents
+# included), size: the view's bytes, acc: the merged parents, newest first.
+type Pass is Data:
+  Pass{lines: Sizes, size: Nat, acc: List<&2, Node>}
+
+def fitx.hit(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>, +h: Node, +z: Nat, s: Pass) -> Pass:
+  match a b:
+    case Some{x} Some{y}:
+      match s:
+        case Pass{lines, size, acc}:
+          +p = Node.parent(h)
+          Pass{fitx.put(lines, p, z), Nat.add(Nat.sub(size, Nat.add(x, y)), z), p <> acc}
+    case _ _:
+      s
+
+def fitstepx(p: Cand, s: Pass) -> Pass:
+  match p s:
+    case Cand{+h, +z} Pass{+lines, size, acc}:
+      fitx.hit(fitx.get(lines, h), fitx.get(lines, fitx.second(h)), h, z, Pass{lines, size, acc})
+
+def fitx.size(s: Pass) -> Nat:
+  match s:
+    case Pass{l, z, a}:
+      z
+
+def fitx.pass(ps: List<&2, Cand>, over: Bool, +budget: Nat, s: Pass) -> Pass:
+  match ps over:
+    case Nil{} _:
+      s
+    case h <> rest False{}:
+      s
+    case h <> rest True{}:
+      +s2 = fitstepx(h, s)
+      fitx.pass(rest, Nat.is_gt(fitx.size(s2), budget), budget, s2)
+
+# The view after the merges: a line stays unless merged; a merged parent
+# takes the place of its first line.
+def fitx.low(x: Node) -> Bool:
+  match x:
+    case Node{l, i}:
+      Bits.low(i)
+
+def fitx.top(fuel: Nat, up: Bool, +mg: Sizes, +x: Node, left: Bool) -> Maybe<&2, Node>:
+  match fuel up:
+    case 0n _:
+      Some{x}
+    case 1n+f False{}:
+      match left:
+        case True{}:
+          Some{x}
+        case False{}:
+          None{}
+    case 1n+f True{}:
+      +p = Node.parent(x)
+      fitx.top(f, fitx.has(mg, Node.parent(p)), mg, p, Bool.and(left, Bool.not(fitx.low(x))))
+
+def fitx.lay.put(m: Maybe<&2, Node>, rest: List<&2, Node>) -> List<&2, Node>:
+  match m:
+    case None{}:
+      rest
+    case Some{x}:
+      x <> rest
+
+def fitx.lay(v: List<&2, Node>, +fuel: Nat, +mg: Sizes) -> List<&2, Node>:
+  match v:
+    case Nil{}:
+      Nil{}
+    case +x <> rest:
+      fitx.lay.put(fitx.top(fuel, fitx.has(mg, Node.parent(x)), mg, x, True{}), fitx.lay(rest, fuel, mg))
+
+def fitx.done(+fuel: Nat, v: List<&2, Node>, s: Pass) -> List<&2, Node> & List<&2, Node>:
+  match s:
+    case Pass{lines, size, acc}:
+      (List.reverse(&2, Node, acc), fitx.lay(v, fuel, lines))
+
+# the fuel of a walk up the tree: a node of a tiling of T messages has a
+# level below the bits of T
+def fitx.run(+t: List<&2, Bool>, +budget: Nat, +info: Info, +v: List<&2, Node>, lines: Sizes, +size: Nat) -> List<&2, Node> & List<&2, Node>:
+  +fuel = List.length(&2, Bool, t)
+  +ps = fitx.sort(t, Pair.fst(List<&2, Cand>, Sizes, fitx.all(v, fuel, info, (Nil{}, SzEnd{}))))
+  fitx.done(fuel, v, fitx.pass(ps, True{}, budget, Pass{lines, size, Nil{}}))
+
+def fitx.if(over: Bool, +t: List<&2, Bool>, +budget: Nat, +info: Info, +v: List<&2, Node>, lines: Sizes, +size: Nat) -> List<&2, Node> & List<&2, Node>:
+  match over:
+    case False{}:
+      (Nil{}, v)
+    case True{}:
+      fitx.run(t, budget, info, v, lines, size)
+
+def fitx.go(+t: List<&2, Bool>, +budget: Nat, +info: Info, +v: List<&2, Node>, r: Sizes & Nat) -> List<&2, Node> & List<&2, Node>:
+  (lines, size) = r
+  +z = size
+  fitx.if(Nat.is_gt(z, budget), t, budget, info, v, lines, z)
+
+# = fit(Last{}, t, budget, ph, info, v) on a view that tiles 0..T
+def fitx(+t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: Info, +v: List<&2, Node>) -> List<&2, Node> & List<&2, Node>:
+  fitx.go(t, budget, info, v, fitx.lines(v, ph, info, SzEnd{}, 0n))
+
+# the view after fitx
+def fitx.view(+t: List<&2, Bool>, +budget: Nat, +ph: Nat, +info: Info, +v: List<&2, Node>) -> List<&2, Node>:
+  Pair.snd(List<&2, Node>, List<&2, Node>, fitx(t, budget, ph, info, v))
+
+# The shipped step
+# ----------------
+# step with the fast batch: on a state whose two views tile the messages it
+# is step itself (law stepx_is_step); the message's grown view is built
+# once.
+
+def fitcx.if(over: Bool, +cfg: Cfg, +t: List<&2, Bool>, +info: Info, +cv: List<&2, Node>) -> List<&2, Node>:
+  match over:
+    case False{}:
+      cv
+    case True{}:
+      fitx.view(t, Cfg.cfloor(cfg), Cfg.ph(cfg), info, cv)
+
+def fitcx(+cfg: Cfg, +t: List<&2, Bool>, +info: Info, +cv: List<&2, Node>) -> List<&2, Node>:
+  fitcx.if(Nat.is_gt(view_size(Cfg.ph(cfg), info, cv), Cfg.cceil(cfg)), cfg, t, info, cv)
+
+def msgx.cview(merged: List<&2, Node>, +cfg: Cfg, +t: List<&2, Bool>, +info: Info, +view: List<&2, Node>, +cv: List<&2, Node>) -> List<&2, Node>:
+  match merged:
+    case Nil{}:
+      fitcx(cfg, t, info, cv)
+    case h <> rest:
+      fitx.view(t, Cfg.cfloor(cfg), Cfg.ph(cfg), info, view)
+
+def msgx.after(+merged: List<&2, Node>, +view: List<&2, Node>, +cfg: Cfg, +t: List<&2, Bool>, +info: Info, +cv: List<&2, Node>, ready: List<&2, Node>, busy: List<&2, Node>) -> St & List<&2, Node>:
+  (St{t, info, view, Nat.is_gt(view_size(Cfg.ph(cfg), info, view), Cfg.floor(cfg)), msgx.cview(merged, cfg, t, info, view, cv), ready, busy}, merged)
+
+def msgx.batch(r: List<&2, Node> & List<&2, Node>, +cfg: Cfg, +t: List<&2, Bool>, +info: Info, +cv: List<&2, Node>, ready: List<&2, Node>, busy: List<&2, Node>) -> St & List<&2, Node>:
+  (merged, view) = r
+  msgx.after(merged, view, cfg, t, info, cv, ready, busy)
+
+def msgx.go(grow: Bool, +cfg: Cfg, +t: List<&2, Bool>, +info: Info, +view: List<&2, Node>, +cv: List<&2, Node>, ready: List<&2, Node>, busy: List<&2, Node>) -> St & List<&2, Node>:
+  match grow:
+    case False{}:
+      (St{t, info, view, False{}, fitcx(cfg, t, info, cv), ready, busy}, Nil{})
+    case True{}:
+      msgx.batch(fitx(t, Cfg.floor(cfg), Cfg.ph(cfg), info, view), cfg, t, info, cv, ready, busy)
+
+def msgx(+cfg: Cfg, s: St) -> St & List<&2, Node>:
+  match s:
+    case St{+t, +info, view, shrink, cview, ready, busy}:
+      +leaf = Node.leaf(t)
+      +g = List.append(&2, Node, view, [leaf])
+      msgx.go(Bool.or(shrink, Nat.is_gt(view_size(Cfg.ph(cfg), info, g), Cfg.ceil(cfg))), cfg, Bits.inc(t), info, g, List.append(&2, Node, cview, [leaf]), ready, busy)
+
+def buildx.go(+cfg: Cfg, +n: Node, +info: Info, s: St) -> St:
+  match s:
+    case St{+t, i0, view, shrink, cview, ready, busy}:
+      St{t, info, view, shrink, fitcx(cfg, t, info, cview), ready.note(info, n, Nodes.del(ready, n)), Nodes.del(busy, n)}
+
+def buildx(+cfg: Cfg, +s: St, +n: Node, +size: Nat) -> St:
+  buildx.go(cfg, n, Info.set(St.info(s), n, size), s)
+
+def stepx(+cfg: Cfg, +s: St, e: Ev) -> St & List<&2, Node>:
+  match e:
+    case Msg{}:
+      msgx(cfg, s)
+    case Build{n, size}:
+      (buildx(cfg, s, n, size), Nil{})
+    case Start{n}:
+      (busy.set(s, Nodes.add(St.busy(s), n)), Nil{})
+    case Free{n}:
+      (busy.set(s, Nodes.del(St.busy(s), n)), Nil{})

@@ -124,9 +124,10 @@ pub(crate) async fn build_line(
         })],
         tools: (!prompt.tools.is_empty()).then(|| prompt.tools.clone()),
     };
-    // The shortest line so far: each follow-up must be shorter.
-    let mut best: Option<String> = None;
-    for tried in 1..=TRIES {
+    let mut line = Line::open(TRIES);
+    // The shortest reply so far: each follow-up must be shorter.
+    let mut best = String::new();
+    loop {
         let call = summarizer.complete(context.clone(), std::mem::take(&mut started));
         let reply = tokio::time::timeout(CALL_DEADLINE, call)
             .await
@@ -144,34 +145,95 @@ pub(crate) async fn build_line(
             );
         }
         let text = reply_text(&reply);
-        let line = text.trim();
-        if line.is_empty() {
-            // A try that left nothing to cut: asking again asks the same.
-            break;
+        let said = text.trim();
+        match line.read(said) {
+            Read::Ends(Fin::Whole) => return Ok(said.to_string()),
+            Read::Ends(Fin::CutReply) => return Ok(cut(said).to_string()),
+            Read::Ends(Fin::CutBest) => return Ok(cut(&best).to_string()),
+            Read::Ends(Fin::CutInput) => return Ok(cut(&request.input).to_string()),
+            Read::Asks(next) => {
+                line = next;
+                best = said.to_string();
+                // The request's end moves to the follow-up: one end mark only.
+                unmark_request_end(&mut context.messages);
+                context.messages.push(Message::Assistant(reply));
+                context.messages.push(Message::User(UserMessage {
+                    content: UserContent::Blocks(vec![text_block(
+                        cut_follow_up(&best),
+                        Some(CacheBreakpoint::Ephemeral),
+                    )]),
+                    timestamp,
+                }));
+            }
         }
-        if line.len() <= NODE {
-            return Ok(line.to_string());
-        }
-        if best.as_ref().is_some_and(|best| line.len() >= best.len()) {
-            break;
-        }
-        let follow_up = (tried < TRIES).then(|| cut_follow_up(line));
-        best = Some(line.to_string());
-        let Some(follow_up) = follow_up else {
-            break;
-        };
-        // The request's end moves to the follow-up: one end mark only.
-        unmark_request_end(&mut context.messages);
-        context.messages.push(Message::Assistant(reply));
-        context.messages.push(Message::User(UserMessage {
-            content: UserContent::Blocks(vec![text_block(
-                follow_up,
-                Some(CacheBreakpoint::Ephemeral),
-            )]),
-            timestamp,
-        }));
     }
-    Ok(cut(best.as_deref().unwrap_or(&request.input)).to_string())
+}
+
+/// A line being written (`Lst` of `bend/compactor.bend`): the calls it may
+/// still make, and the length of the shortest reply so far (each follow-up
+/// must be shorter). The owner keeps the replies' texts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Line {
+    left: usize,
+    best: Option<usize>,
+}
+
+/// How a line ends (`Fin`): the reply just read, whole, or cut to [`NODE`]
+/// bytes (the last try); the shortest reply before it cut so; the input cut
+/// so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fin {
+    Whole,
+    CutReply,
+    CutBest,
+    CutInput,
+}
+
+/// What a reply did to a line (`Next`): it ends, or the follow-up goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Read {
+    Ends(Fin),
+    Asks(Line),
+}
+
+impl Line {
+    /// A line of at most `tries` model calls (`line.open`).
+    fn open(tries: usize) -> Line {
+        Line {
+            left: tries,
+            best: None,
+        }
+    }
+
+    /// The decision on one reply's text, thinking dropped and trimmed
+    /// (`line.step`): a reply within [`NODE`] bytes is the line; an empty
+    /// one, or one not shorter than the best, ends the line with the best
+    /// (else the input) cut; else the follow-up goes while calls are left,
+    /// and the last reply ends it cut.
+    fn read(self, said: &str) -> Read {
+        let len = said.len();
+        let cut_end = if self.best.is_some() {
+            Fin::CutBest
+        } else {
+            Fin::CutInput
+        };
+        if len == 0 {
+            return Read::Ends(cut_end);
+        }
+        if len <= NODE {
+            return Read::Ends(Fin::Whole);
+        }
+        if self.best.is_some_and(|best| len >= best) {
+            return Read::Ends(cut_end);
+        }
+        match self.left.saturating_sub(1) {
+            0 => Read::Ends(Fin::CutReply),
+            left => Read::Asks(Line {
+                left,
+                best: Some(len),
+            }),
+        }
+    }
 }
 
 /// A node not built yet, as the failure cap counts it (H1.5; `Pend` in

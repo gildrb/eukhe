@@ -123,6 +123,7 @@ fn node(l: u32, i: u64, text: &str) -> NodeRecord {
 fn an_old_chat_imports_its_saved_view_as_merges() {
     let mut problems = Vec::new();
     let (chat, unlogged) = Chat::from_loaded(
+        Budgets::default(),
         loaded(
             5,
             vec![
@@ -166,8 +167,12 @@ fn the_view_folds_from_the_logged_merges() {
     ]
     .into_iter()
     .map(|saved| {
-        let (chat, unlogged) =
-            Chat::from_loaded(loaded(3, nodes(), merges()), saved, &mut problems);
+        let (chat, unlogged) = Chat::from_loaded(
+            Budgets::default(),
+            loaded(3, nodes(), merges()),
+            saved,
+            &mut problems,
+        );
         (chat.view().parts().to_vec(), unlogged)
     })
     .collect();
@@ -193,10 +198,7 @@ fn a_restart_keeps_a_shrinking_view_shrinking() {
         jobs: 8,
     };
     let text = "x".repeat(500);
-    let mut live = Chat {
-        budgets,
-        ..Chat::default()
-    };
+    let mut live = Chat::from_loaded(budgets, Loaded::default(), None, &mut Vec::new()).0;
     let mut nodes = Vec::new();
     let mut records = Vec::new();
     let build = |chat: &mut Chat, nodes: &mut Vec<NodeRecord>, l: u32, i: u64| {
@@ -222,12 +224,12 @@ fn a_restart_keeps_a_shrinking_view_shrinking() {
         }]
     );
     let mut problems = Vec::new();
-    let (reloaded, unlogged) =
-        Chat::from_loaded(loaded(5, nodes, records.clone()), None, &mut problems);
-    let mut reloaded = Chat {
+    let (mut reloaded, unlogged) = Chat::from_loaded(
         budgets,
-        ..reloaded
-    };
+        loaded(5, nodes, records.clone()),
+        None,
+        &mut problems,
+    );
     let live_next = live.push_message(meta(Kind::User)).1;
     let reloaded_next = reloaded.push_message(meta(Kind::User)).1;
     assert_eq!(
