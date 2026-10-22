@@ -10,13 +10,18 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   If a commit fails for a missing identity, report it. Allowed: `*_DATE` variables
   (the golden corpus pins them) and throwaway repos created by tests.
 - Never add `Co-authored-by` trailers.
-- CI: `.github/workflows/ci.yml` on pushes and PRs; Bend comes from
-  `.github/actions/setup-bend`. After each green `ci.yml` run of a push to main,
-  `eukhe-release.yml` releases that commit as `eukhe-v<X.Y.P>` (title
-  `Eukhe v<X.Y.P>`, the next patch of the `Cargo.toml` series `X.Y.0`) and writes
-  `nix/release.json`. Every week `catalog-pin.yml` moves
-  `scripts/release/catalog-pin.json` to the catalog repo's newest commit and
-  opens a PR (it starts `ci.yml` on it).
+- CI: the full gate runs on this machine before code leaves it. `make hooks`
+  installs the prek hooks (`.pre-commit-config.yaml`): pre-commit runs
+  `make ci-fast`, pre-push runs `make ci-local` (every gate of `ci.yml`) on the
+  pushed commit. On GitHub, a push to main runs only the light gate of
+  `.github/workflows/ci.yml` (fmt, deny, secrets, laws); pull requests, the merge
+  queue and `workflow_dispatch` run the full gate. Bend comes from
+  `.github/actions/setup-bend`. Once a day (03:17 UTC, or on dispatch)
+  `eukhe-release.yml` releases the newest commit of main with a green `ci.yml`
+  push run and no `eukhe-v*` tag as `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, the
+  next patch of the `Cargo.toml` series `X.Y.0`) and writes `nix/release.json`.
+  Every week `catalog-pin.yml` moves `scripts/release/catalog-pin.json` to the
+  catalog repo's newest commit and opens a PR (it starts `ci.yml` on it).
 - Prime Intellect stays as a third-party service: provider `prime-inference`,
   `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`,
   the model catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Everything that
@@ -104,6 +109,8 @@ background bookkeeping.
 
 - `make check`: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+- Before a push: `make ci-local` passes (the pre-push hook runs it). Do not
+  bypass the hooks.
 - `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs` and
   `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled
   model catalog. The built-in catalog is its union with the bundled snapshot
