@@ -4,6 +4,7 @@ import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
+import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_child.bend as ffi_child
 import ./ffi_child_env.bend as ffi_child_env
 import ./ffi_cvar.bend as ffi_cvar
@@ -14,9 +15,11 @@ import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_effort.bend as ffi_effort
 import ./ffi_facts.bend as ffi_facts
+import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_job.bend as ffi_job
 import ./ffi_orphan.bend as ffi_orphan
+import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_progress.bend as ffi_progress
 import ./ffi_replace.bend as ffi_replace
 import ./ffi_retry.bend as ffi_retry
@@ -24,6 +27,8 @@ import ./ffi_run.bend as ffi_run
 import ./ffi_sandbox.bend as ffi_sandbox
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_supervise.bend as ffi_supervise
+import ./ffi_tiny.bend as ffi_tiny
+import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_workflow.bend as ffi_workflow
@@ -84,6 +89,16 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_replace.ffi(input)
     case 24:
       ffi_screen.ffi(input)
+    case 25:
+      ffi_tools.ffi(input)
+    case 26:
+      ffi_tiny.ffi(input)
+    case 27:
+      ffi_catalog_union.ffi(input)
+    case 28:
+      ffi_gateway_width.ffi(input)
+    case 29:
+      ffi_path_policy.ffi(input)
     case _:
       W.err("unknown entry")
 

@@ -56,6 +56,16 @@ pub enum Entry {
     Replace = 23,
     /// `bend/ffi_screen.bend`: a call.
     Screen = 24,
+    /// `bend/ffi_tools.bend`: a call.
+    Tools = 25,
+    /// `bend/ffi_tiny.bend`: a call.
+    Tiny = 26,
+    /// `bend/ffi_catalog_union.bend`: a call.
+    CatalogUnion = 27,
+    /// `bend/ffi_gateway_width.bend`: a call.
+    GatewayWidth = 28,
+    /// `bend/ffi_path_policy.bend`: a call.
+    PathPolicy = 29,
 }
 
 impl Entry {
@@ -86,6 +96,11 @@ impl Entry {
         Entry::Supervise,
         Entry::Replace,
         Entry::Screen,
+        Entry::Tools,
+        Entry::Tiny,
+        Entry::CatalogUnion,
+        Entry::GatewayWidth,
+        Entry::PathPolicy,
     ];
 
     /// The id `bend/core.bend` dispatches on.

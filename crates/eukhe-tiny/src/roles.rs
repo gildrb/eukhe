@@ -7,6 +7,9 @@
 //! for a text role). A task uses the first available candidate; with none
 //! available it is [`Pick::Unavailable`], never a model outside the chain.
 
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{call, expect_core, Entry, Error};
+
 use crate::catalog::{CatalogModel, CATALOG};
 
 /// The prefix of a local model selector (`local/lfm2.5-230m`).
@@ -111,13 +114,47 @@ pub enum Pick<T> {
     Unavailable,
 }
 
-/// The first model of `chain` that `up` holds (`pick` in bend/tiny.bend).
+/// The first model of `chain` that `up` holds (`pick` in `bend/tiny.bend`,
+/// run as the compiled Bend core: a model crosses as the index of its
+/// first equal one in `chain` then `up`).
 #[must_use]
 pub fn pick<'a, T: PartialEq>(chain: &'a [T], up: &[T]) -> Pick<&'a T> {
-    match chain.iter().find(|model| up.contains(model)) {
-        Some(model) => Pick::Use(model),
-        None => Pick::Unavailable,
+    expect_core(Entry::Tiny, decide(chain, up))
+}
+
+fn decide<'a, T: PartialEq>(chain: &'a [T], up: &[T]) -> Result<Pick<&'a T>, Error> {
+    let all: Vec<&T> = chain.iter().chain(up).collect();
+    let mut writer = Writer::new();
+    for models in [chain, up] {
+        writer.count(models.len());
+        for model in models {
+            let id = all
+                .iter()
+                .position(|other| *other == model)
+                .unwrap_or(all.len());
+            writer.count(id);
+        }
     }
+    let reply = call(Entry::Tiny, &writer.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let picked = match reader.tag_of(2, "a pick")? {
+        0 => {
+            let bound = u32::try_from(chain.len()).unwrap_or(u32::MAX);
+            let at = reader.tag_of(bound, "a model of the chain")?;
+            match usize::try_from(at).ok().and_then(|at| chain.get(at)) {
+                Some(model) => Pick::Use(model),
+                None => {
+                    return Err(Error::Wire(WireError::Malformed {
+                        at: 0,
+                        expected: "a model of the chain",
+                    }));
+                }
+            }
+        }
+        1.. => Pick::Unavailable,
+    };
+    reader.end()?;
+    Ok(picked)
 }
 
 /// The catalog model the `translate` role's built-in priority takes first:

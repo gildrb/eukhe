@@ -8,6 +8,8 @@ description = "Signal gateway for Eukhe: chat with the CLI session from a phone.
 
 [dependencies]
 eukhe-types = { path = "../eukhe-types" }
+# The table layout runs as the compiled Bend core (bend/ffi_gateway_width.bend).
+eukhe-bend.workspace = true
 # The public daemon-wire client (`eukhe_tui::daemon_client::DaemonClient`).
 eukhe-tui = { path = "../eukhe-tui" }
 serde = { workspace = true }
@@ -17,10 +19,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 # A fresh admission id per prompt.
 uuid = { version = "1", features = ["v4"] }
-
-[dev-dependencies]
-# The bridge test's temp dir (`testing::compare`).
-tempfile = "3"
 
 [lints]
 workspace = true

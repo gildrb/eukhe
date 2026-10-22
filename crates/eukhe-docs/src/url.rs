@@ -10,6 +10,9 @@
 
 use std::path::PathBuf;
 
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{call, expect_core, Entry, Error};
+
 /// The schemes the `read` tool serves.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Scheme {
@@ -209,19 +212,54 @@ impl<'a> Url<'a> {
 }
 
 /// The names `path` reaches under its root, root first; `None` when a
-/// `..` goes above the root.
+/// `..` goes above the root (`resolve` in `bend/tools.bend` section 3, run
+/// as the compiled Bend core: a name crosses as its segment's index).
 fn walk(path: &str) -> Option<Vec<&str>> {
-    let mut at = Vec::new();
-    for segment in segments(path) {
-        match segment {
-            Segment::Name(name) => at.push(name),
-            Segment::Here => {}
-            Segment::Up => {
-                at.pop()?;
+    let segments: Vec<Segment<'_>> = segments(path).collect();
+    expect_core(Entry::Tools, resolve(&segments))
+}
+
+fn resolve<'a>(segments: &[Segment<'a>]) -> Result<Option<Vec<&'a str>>, Error> {
+    let mut writer = Writer::new();
+    writer.count(segments.len());
+    for (index, segment) in (0u64..).zip(segments) {
+        writer.nat(match segment {
+            Segment::Up => 0,
+            Segment::Here => 1,
+            Segment::Name(_) => 2 + index,
+        });
+    }
+    let reply = call(Entry::Tools, &writer.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    if !reader.maybe()? {
+        reader.end()?;
+        return Ok(None);
+    }
+    let count = reader.count()?;
+    let bound = u32::try_from(segments.len()).unwrap_or(u32::MAX);
+    let mut names = Vec::with_capacity(count);
+    for _ in 0..count {
+        let at = reader.tag_of(bound, "a segment index")?;
+        let name = usize::try_from(at)
+            .ok()
+            .and_then(|at| segments.get(at))
+            .and_then(|segment| match segment {
+                Segment::Name(name) => Some(*name),
+                Segment::Up | Segment::Here => None,
+            });
+        match name {
+            Some(name) => names.push(name),
+            None => {
+                return Err(Error::Wire(WireError::Malformed {
+                    at: 0,
+                    expected: "the index of a name segment",
+                }));
             }
         }
     }
-    Some(at)
+    reader.end()?;
+    names.reverse();
+    Ok(Some(names))
 }
 
 /// The segments of a URL path, in order.
@@ -243,9 +281,6 @@ pub(crate) fn scheme_of(input: &str) -> Option<String> {
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-'));
     valid.then(|| scheme.to_ascii_lowercase())
 }
-
-#[cfg(test)]
-mod bridge;
 
 #[cfg(test)]
 mod tests {

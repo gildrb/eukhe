@@ -2,6 +2,8 @@
 //! (`start:length:STYLE`, UTF-16 code units), and long replies split into
 //! chunks Signal accepts.
 
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
+use eukhe_bend::{call, expect_core, Entry, Error};
 use eukhe_tui::width::str_width;
 
 #[cfg(test)]
@@ -165,30 +167,45 @@ struct Layout {
 }
 
 /// The layout of a table whose cells have these display widths, row by
-/// row: a column is as wide as its widest cell (a missing cell is 0
-/// wide), and a cell's pad is its column's width less its own.
+/// row (`layout` in `bend/gateway_width.bend`, run as the compiled Bend
+/// core): a column is as wide as its widest cell (a missing cell is 0
+/// wide), and a cell's pad is its column's width less its own. A width
+/// above the wire's largest Nat is that Nat (no cell is that wide).
 fn layout(rows: &[Vec<usize>]) -> Layout {
-    let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
-    let widths: Vec<usize> = (0..columns)
-        .map(|column| {
-            rows.iter()
-                .filter_map(|row| row.get(column).copied())
-                .max()
-                .unwrap_or(0)
-        })
-        .collect();
-    let pads = rows
-        .iter()
-        .map(|row| {
-            widths
-                .iter()
-                .take(columns.saturating_sub(1))
-                .enumerate()
-                .map(|(column, width)| width - row.get(column).copied().unwrap_or(0))
-                .collect()
-        })
-        .collect();
-    Layout { widths, pads }
+    expect_core(Entry::GatewayWidth, decide(rows))
+}
+
+fn decide(rows: &[Vec<usize>]) -> Result<Layout, Error> {
+    let mut writer = Writer::new();
+    writer.count(rows.iter().map(|row| row.len() + 1).sum());
+    for row in rows {
+        for width in row {
+            let width = u64::try_from(*width).map_or(NAT_MAX - 1, |width| width.min(NAT_MAX - 1));
+            writer.nat(width + 1);
+        }
+        writer.nat(0);
+    }
+    let reply = call(Entry::GatewayWidth, &writer.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let widths = (0..reader.count()?)
+        .map(|_| reader.count())
+        .collect::<Result<Vec<usize>, WireError>>()?;
+    let mut pads = Vec::with_capacity(rows.len());
+    let mut row = Vec::new();
+    for _ in 0..reader.count()? {
+        match reader.count()?.checked_sub(1) {
+            Some(pad) => row.push(pad),
+            None => pads.push(std::mem::take(&mut row)),
+        }
+    }
+    reader.end()?;
+    if !row.is_empty() {
+        return Err(Error::Wire(WireError::Malformed {
+            at: reply.len(),
+            expected: "the end of the last row's pads",
+        }));
+    }
+    Ok(Layout { widths, pads })
 }
 
 impl Rendered {
