@@ -16,8 +16,12 @@ pub enum Entry {
     AuxFallback = 3,
     /// `bend/ffi_default_model.bend`: a call.
     DefaultModel = 4,
+    /// `bend/ffi_doc_lines.bend`: a call.
+    DocLines = 5,
+    /// `bend/ffi_doc_seen.bend`: a call.
+    DocSeen = 6,
     /// `bend/ffi_workflow.bend`: a call.
-    Workflow = 5,
+    Workflow = 7,
 }
 
 impl Entry {
@@ -28,6 +32,8 @@ impl Entry {
         Entry::Admission,
         Entry::AuxFallback,
         Entry::DefaultModel,
+        Entry::DocLines,
+        Entry::DocSeen,
         Entry::Workflow,
     ];
 
