@@ -372,7 +372,10 @@ async fn run_request(
             out.end(None);
             return;
         };
-        if message.stop_reason == StopReason::Error {
+        // An error and a `pending` terminal both end the request as a
+        // failure (`finish_failure`): a backup's records one as tried.
+        let failed = matches!(message.stop_reason, StopReason::Error | StopReason::Pending);
+        if failed {
             if serving.provider == primary.provider {
                 primary_failure = Some(message.clone());
             } else {
@@ -410,9 +413,8 @@ async fn run_request(
             None
         };
         let Some(Switch { to, delay_ms }) = next else {
-            if switches > 0
-                && !matches!(message.stop_reason, StopReason::Error | StopReason::Aborted)
-            {
+            // A switched request reports recovered only for a real answer.
+            if switches > 0 && !failed && message.stop_reason != StopReason::Aborted {
                 let _ = inner.events.send(ProviderWireEvent::AutoRetryEnd {
                     success: true,
                     attempt: switches,
@@ -420,14 +422,12 @@ async fn run_request(
                     restored_model: Some(model_reference(&primary)),
                 });
             }
-            if matches!(message.stop_reason, StopReason::Error | StopReason::Pending) {
-                // Only an error after a backup failed takes the primary's
-                // failure; a `pending` terminal and a failure that never
-                // left the primary surface as they are.
-                let gave_up_after_failover =
-                    message.stop_reason == StopReason::Error && !backup_failures.is_empty();
+            if failed {
+                // A failure after a backup failed surfaces the primary's
+                // latest failure, as the primary's, with the backups named;
+                // a failure that never left the primary surfaces as it is.
                 let (message, backups) = match primary_failure {
-                    Some(primary_failure) if gave_up_after_failover => {
+                    Some(primary_failure) if !backup_failures.is_empty() => {
                         (primary_failure, failover_note(&backup_failures))
                     }
                     Some(_) | None => (message, None),
@@ -647,7 +647,8 @@ fn final_error_of(message: &AssistantMessage) -> String {
 }
 
 /// The one-line note of a failed failover: each backup the request tried,
-/// in the order it first went there, with that backup's latest error;
+/// in the order it first went there, with that backup's latest error:
+/// `(failover to <provider/model> failed too: <error>; failover to ...)`;
 /// `None` when it tried none.
 fn failover_note(backups: &[(String, String)]) -> Option<String> {
     if backups.is_empty() {
@@ -655,9 +656,9 @@ fn failover_note(backups: &[(String, String)]) -> Option<String> {
     }
     let tried: Vec<String> = backups
         .iter()
-        .map(|(reference, error)| format!("{reference}: {error}"))
+        .map(|(reference, error)| format!("failover to {reference} failed too: {error}"))
         .collect();
-    Some(format!("(failover failed too: {})", tried.join("; ")))
+    Some(format!("({})", tried.join("; ")))
 }
 
 /// The `requestTiming` settings flag of the session.
@@ -1539,7 +1540,7 @@ mod tests {
                 StopReason::Error,
                 "faux-a",
                 Some(
-                    "503 Service Unavailable (failover failed too: faux-b/shared-1: 401 invalid x-api-key)"
+                    "503 Service Unavailable (failover to faux-b/shared-1 failed too: 401 invalid x-api-key)"
                 )
             )
         );
@@ -1566,7 +1567,8 @@ mod tests {
         assert!(
             fixture.runtime.quota_park().is_some()
                 && text.contains("429 rate limit")
-                && text.ends_with("(failover failed too: faux-b/shared-1: 401 invalid x-api-key)"),
+                && text
+                    .ends_with("(failover to faux-b/shared-1 failed too: 401 invalid x-api-key)"),
             "{text}"
         );
     }
@@ -1599,8 +1601,49 @@ mod tests {
             ),
             (
                 true,
-                Some("503 still down (failover failed too: faux-b/shared-1: 429 rate limit)")
+                Some("503 still down (failover to faux-b/shared-1 failed too: 429 rate limit)")
             )
+        );
+    }
+
+    /// Regression (FLOW's law drill on a1a682254): the primary's quota
+    /// block switched to a backup whose `pending` terminal ended the
+    /// request; the backup's terminal surfaced with no backup named, no
+    /// park, and an `auto_retry_end {success: true}`. A `pending` terminal
+    /// after a switch ends like a failure: the primary's quota parks, the
+    /// backup is named, and no recovery is reported.
+    #[tokio::test]
+    async fn a_pending_backup_after_a_switch_parks_on_the_primary_quota() {
+        let fixture = fixture(/*text_only*/ false);
+        let model = fixture.faux_a.get_model();
+        fixture.faux_a.set_responses(vec![quota_step(3_600_000)]);
+        let mut pending = faux_assistant_message("", FauxAssistantMessageOptions::default());
+        pending.stop_reason = StopReason::Pending;
+        fixture
+            .faux_b
+            .set_responses(vec![FauxResponseStep::Message(Box::new(pending))]);
+        let mut events = fixture.runtime.subscribe();
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        let mut recovered = false;
+        while let Ok(event) = events.try_recv() {
+            if let ProviderWireEvent::AutoRetryEnd { success: true, .. } = event {
+                recovered = true;
+            }
+        }
+        let text = message.error_message.as_deref().unwrap_or_default();
+        assert!(
+            fixture.runtime.quota_park().is_some()
+                && !recovered
+                && text.contains("429 rate limit")
+                && text.contains(" (failover to faux-b/shared-1 failed too: ")
+                && text.ends_with(')'),
+            "parked {:?}, recovered {recovered}: {text}",
+            fixture.runtime.quota_park().is_some()
         );
     }
 
