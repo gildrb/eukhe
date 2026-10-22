@@ -185,6 +185,13 @@ pub struct AgentView {
     pace_detail: Detail,
     /// How fast a frame reveals streamed text (`terminal.streamPace`).
     pub pace_rate: crate::pace::PaceRate,
+    /// The loader row kept up after the work ended while the answer's
+    /// text still shows at its pace: the working state as the stop left
+    /// it (its clock stops there), gone once all the text shows
+    /// (`advance_paces`). The indicator is on while the reply streams,
+    /// and to the user the reply streams until its last character is on
+    /// screen (docs/interface.md S8 pacing, "Turn visibility").
+    loader_held_by_pace: Option<WorkingState>,
     /// Per-streaming-assistant-entry render state (`streaming`): the
     /// markdown block cache (TS `Markdown.blockCache`, one per component
     /// instance) replays settled blocks while the final one grows, and
@@ -365,6 +372,7 @@ impl AgentView {
             paces: std::collections::HashMap::new(),
             pace_detail: Detail::Overview,
             pace_rate: crate::pace::PaceRate::DEFAULT,
+            loader_held_by_pace: None,
             md_caches: std::cell::RefCell::new(std::collections::HashMap::new()),
             toasts: crate::toast::Toasts::default(),
             screen_mode: crate::screen_mode::ScreenMode::Inline,
@@ -549,6 +557,31 @@ impl AgentView {
     #[must_use]
     pub fn is_pacing(&self) -> bool {
         self.paces.values().any(|pace| !pace.drained())
+    }
+
+    /// The loader starts (or restarts) at `working`, anchored at `since`:
+    /// a row held up by a reveal gives way to it.
+    pub fn start_loader(&mut self, working: WorkingState, since: std::time::Instant) {
+        self.working = Some(working);
+        self.working_since = Some(since);
+        self.loader_held_by_pace = None;
+    }
+
+    /// Take the loader down: the turn and everything it ran settled. A
+    /// reply still showing at its pace keeps the row up, as the stop
+    /// left it, until all its text shows; a later stop with no loader up
+    /// (the run's end after the turn's) leaves that row to the reveal.
+    pub fn stop_loader(&mut self) {
+        if let Some(working) = self.working.take() {
+            self.loader_held_by_pace = self.is_pacing().then_some(working);
+        }
+        self.working_since = None;
+    }
+
+    /// The loader row to render: the running turn's, or the one a
+    /// reveal holds up after the turn ended.
+    pub(crate) fn loader_row(&self) -> Option<&WorkingState> {
+        self.working.as_ref().or(self.loader_held_by_pace.as_ref())
     }
 
     /// The Ctrl+O cycle (`app.tools.expand`, TS
