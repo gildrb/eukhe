@@ -249,6 +249,43 @@ Code: `eukhe-tui/src/keybindings/definitions.rs` (the defaults);
 `cycle_thinking_level`, `show_thinking_level`. Tests:
 `tests/effort_tray_label_headless.rs`.
 
+#### Turn visibility
+
+From the Enter to the end of the turn the working indicator is on, and
+only while work runs: the prompt travels or waits for its turn, a turn
+of its run is unanswered, or a compaction runs. One clock counts from
+the Enter through the run's requests, retries, compactions and a
+re-attach. A rebuild of the chat (a re-attach, a worker replacement, a
+reconnect) derives the indicator from the snapshot and this window's own
+prompt: a prompt still traveling or queued keeps it, a turn whose answer
+is stored does not raise it, and a compaction outside a turn shows and
+then ends. A late prompt ack never raises it again (the run already
+ended, or the session closed).
+
+A turn that ends without an answer leaves exactly one row that says so
+and names the next step: the failure (with `/login`, the provider's key
+or `/model` for a missing key), the retry episode's outcome line, `The
+turn ended without a reply` (a blank answer, a turn the engine reported
+nothing for, a run that ended before its first request or after a tool
+round), the refused or lost prompt (the draft returns to the editor, or
+wait and resend), or the closed session (reopen it from Agents View). A
+lost prompt's row retires when the turn shows after all. A reopened chat
+folds the same rows from the stored transcript (`snapshot::fold_transcript`
+with `TurnTail`): the end row of each ended turn, one line per retry
+episode whichever order its rows were stored in, and a reply that
+streamed text before its failure keeps the text, not a second error. The
+rows only this window holds (a refused or lost prompt, a closed session)
+survive a rebuild of the same session. The `Primary provider recovered`
+notice is a toast, since no transcript records it.
+
+Laws (a draft): `laws/turn_visibility.bend` on the model in
+`bend/turn_visibility.bend`. Code: `session_ui/apply.rs`
+(`apply_update`), `session_ui/prompt.rs` (`apply_prompt_outcome`),
+`session_ui/lifecycle.rs` (`attach_session`, `rebuild_view`),
+`snapshot.rs` (`fold_transcript`, `reconstruct`), `snapshot/turn_end.rs`.
+Tests: `tests/turn_visibility_headless.rs` (the findings' live histories),
+`snapshot::tests::turn_end`, `tests/failed_turn_visible_headless.rs`.
+
 ### T1. Themes
 
 One theme source serves the terminal UI and the HTML export (`/export`,
