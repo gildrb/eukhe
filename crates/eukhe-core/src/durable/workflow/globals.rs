@@ -8,6 +8,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{expect_core, Entry};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::codemode::CodemodeGlobal;
@@ -248,40 +250,72 @@ pub(super) struct AdmitFacts {
     pub(super) max_agents: u32,
 }
 
-/// The admission rule of one `agent()` call: a pure function of its
-/// facts.
+/// A row status's wire tag (`bend/ffi_workflow.bend`).
+fn status_tag(status: WorkflowAgentStatus) -> u32 {
+    match status {
+        WorkflowAgentStatus::Queued => 0,
+        WorkflowAgentStatus::Running => 1,
+        WorkflowAgentStatus::Done => 2,
+        WorkflowAgentStatus::Failed => 3,
+        WorkflowAgentStatus::Cancelled => 4,
+        WorkflowAgentStatus::Cached => 5,
+    }
+}
+
+/// The admission rule of one `agent()` call: the Bend model's `admit`
+/// (`bend/workflow.bend`), run by the compiled core.
 pub(super) fn decide(facts: &AdmitFacts) -> Decision {
-    if let Some(status) = facts.prior {
-        return if status.is_terminal() {
-            Decision::Ended
-        } else {
-            Decision::Reattach
+    let decided = (|| -> Result<Decision, eukhe_bend::Error> {
+        let mut request = Writer::new();
+        request.tag(0);
+        match facts.prior {
+            None => request.none(),
+            Some(status) => request.some().tag(status_tag(status)),
         };
-    }
-    let serves = |status: WorkflowAgentStatus| match status {
-        WorkflowAgentStatus::Done | WorkflowAgentStatus::Cached => true,
-        WorkflowAgentStatus::Queued
-        | WorkflowAgentStatus::Running
-        | WorkflowAgentStatus::Failed
-        | WorkflowAgentStatus::Cancelled => false,
-    };
-    if let Some(at) = facts
-        .rows
-        .iter()
-        .position(|&(key, status)| key == facts.key && serves(status))
-    {
-        return Decision::Reuse(at);
-    }
-    if facts.spawned < facts.max_agents {
-        Decision::Spawn
-    } else {
-        Decision::Refused
-    }
+        request.count(facts.key).count(facts.rows.len());
+        for &(key, status) in &facts.rows {
+            request.count(key).tag(status_tag(status));
+        }
+        request
+            .u32(facts.spawned)
+            .u32(facts.max_agents.saturating_sub(facts.spawned));
+        let reply = eukhe_bend::call(Entry::Workflow, &request.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let decision = match reader.tag_of(5, "an admission")? {
+            0 => Decision::Ended,
+            1 => Decision::Reattach,
+            2 => {
+                let at = reader.count()?;
+                if at >= facts.rows.len() {
+                    return Err(WireError::Malformed {
+                        at: 0,
+                        expected: "a row of the earlier run",
+                    }
+                    .into());
+                }
+                Decision::Reuse(at)
+            }
+            3 => Decision::Spawn,
+            4 => Decision::Refused,
+            tag => {
+                return Err(WireError::Malformed {
+                    at: usize::try_from(tag).unwrap_or(usize::MAX),
+                    expected: "an admission",
+                }
+                .into())
+            }
+        };
+        reader.nat()?;
+        reader.nat()?;
+        reader.end()?;
+        Ok(decision)
+    })();
+    expect_core(Entry::Workflow, decided)
 }
 
 /// Decide one `agent()` call against the run `run`, which may take the
 /// cache of the run it resumes (`resumed`), and record it: the rule the
-/// `wf.agent` global commits, and the Bend bridge replays.
+/// `wf.agent` global commits.
 pub(super) fn admit(
     run: &mut RunRecord,
     resumed: Resumed<'_>,

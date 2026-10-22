@@ -183,11 +183,12 @@ impl Effects {
     }
 }
 
-/// One provider's admission: the live tickets the rule decides on
-/// ([`live::step`]), and what the rule cannot hold: each slot's preemption
-/// token and each waiter's waker.
+/// One provider's admission: the rule's state in the Bend heap
+/// ([`live::Rule`]), the live tickets its last reply gave, and what the
+/// rule cannot hold: each slot's preemption token and each waiter's waker.
 #[derive(Debug)]
 struct ControllerState {
+    rule: live::Rule,
     live: live::Live,
     /// The preemption token of each ticket holding a slot, made when its
     /// holder first takes it (an admit or a collect); a preemption cancels
@@ -209,7 +210,7 @@ impl ControllerState {
     /// collected background permit that was preempted has its token
     /// cancelled, and an ended ticket leaves the tables.
     fn apply(&mut self, op: live::Op) -> Effects {
-        let after = live::step(&self.live, op);
+        let after = self.rule.step(op);
         let before = std::mem::replace(&mut self.live, after);
         let mut effects = Effects::default();
         let mut was = before.tickets.iter().peekable();
@@ -278,9 +279,12 @@ impl AdmissionController {
     #[must_use]
     pub fn new(provider_id: impl Into<String>, limits: &AdmissionLimits) -> Arc<Self> {
         let provider_id = provider_id.into();
+        let (rule, live) =
+            live::Rule::open(limits.max_in_flight(&provider_id), limits.max_queued());
         Arc::new(Self {
             state: Mutex::new(ControllerState {
-                live: live::Live::new(limits.max_in_flight(&provider_id), limits.max_queued()),
+                rule,
+                live,
                 tokens: HashMap::new(),
                 wakers: HashMap::new(),
             }),
@@ -681,9 +685,6 @@ pub fn local_admission(
 }
 
 mod live;
-
-#[cfg(test)]
-mod bridge;
 
 #[cfg(test)]
 mod tests;
