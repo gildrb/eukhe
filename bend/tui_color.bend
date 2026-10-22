@@ -45,22 +45,6 @@ def px.eq(a: Px, b: Px) -> Bool:
 # The effort ramp
 # ---------------
 
-# floor(x / n) for n >= 1, by taking n off x while n fits; fuel is x
-def dv.go(fuel: Nat, ok: Bool, +x: Nat, +n: Nat) -> Nat:
-  match fuel:
-    case 0n:
-      0n
-    case 1n+f:
-      match ok:
-        case True{}:
-          +y = Nat.sub(x, n)
-          1n+dv.go(f, Nat.is_le(n, y), y, n)
-        case False{}:
-          0n
-
-def dv(+x: Nat, +n: Nat) -> Nat:
-  dv.go(x, Nat.is_le(n, x), x, n)
-
 # the distance from a to b
 def gap.pick(up: Bool, +a: Nat, +b: Nat) -> Nat:
   match up:
@@ -73,13 +57,14 @@ def gap(+a: Nat, +b: Nat) -> Nat:
   gap.pick(Nat.is_le(a, b), a, b)
 
 # one channel of a rung: the lower end plus floor(d * w / n), w = wu when
-# the channel rises (a <= b), else wd
+# the channel rises (a <= b), else wd (Nat.div runs native: one step,
+# whatever the width)
 def chan.pick(up: Bool, +a: Nat, +b: Nat, +wu: Nat, +wd: Nat, +n: Nat) -> Nat:
   match up:
     case True{}:
-      Nat.add(a, dv(Nat.mul(wu, Nat.sub(b, a)), n))
+      Nat.add(a, Nat.div(Nat.mul(wu, Nat.sub(b, a)), n))
     case False{}:
-      Nat.add(b, dv(Nat.mul(wd, Nat.sub(a, b)), n))
+      Nat.add(b, Nat.div(Nat.mul(wd, Nat.sub(a, b)), n))
 
 def chan(+a: Nat, +b: Nat, +wu: Nat, +wd: Nat, +n: Nat) -> Nat:
   chan.pick(Nat.is_le(a, b), a, b, wu, wd, n)

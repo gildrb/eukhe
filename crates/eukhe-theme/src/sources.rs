@@ -32,64 +32,226 @@ pub struct ResolvedPalette {
     pub warnings: Vec<String>,
 }
 
-/// Every theme file the sources reach, loaded.
+/// A theme file the sources reach, loaded.
+struct Load {
+    path: PathBuf,
+    /// From the custom directory (else registered).
+    custom: bool,
+    outcome: Result<Palette, LoadFailure>,
+}
+
+impl Load {
+    fn palette(&self) -> &Palette {
+        self.outcome
+            .as_ref()
+            .expect("the pick names a file that loaded")
+    }
+
+    fn failure(&self) -> String {
+        match &self.outcome {
+            Err(failure) => failure.message.clone(),
+            Ok(palette) => panic!("the pick names {} as failed", palette.name()),
+        }
+    }
+}
+
+/// Every theme file the sources reach, in load order (the registered
+/// files, then the custom directory's), and the unusable paths.
 struct Catalog {
-    /// Valid registered files, the first per name.
-    registered: Vec<Palette>,
-    /// Valid custom-directory files, the first per name.
-    custom: Vec<Palette>,
-    /// Files that did not load, with their paths.
-    failures: Vec<(PathBuf, LoadFailure)>,
-    /// Unusable paths and name collisions.
+    loads: Vec<Load>,
+    /// Unusable paths and directories.
     warnings: Vec<String>,
+}
+
+/// A loaded file as the pick sees it (`bend/theme.bend` `Ld`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Reached<'a> {
+    /// A valid file, by the name it advertises.
+    Fine { name: &'a str, custom: bool },
+    /// A file that did not load: the name it advertises when it is a theme
+    /// object, and its file stem when that is text.
+    Broke {
+        name: Option<&'a str>,
+        stem: Option<&'a str>,
+    },
+}
+
+/// The theme a name picks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Choice {
+    /// The builtin at this index of [`BUILTIN_THEME_NAMES`] (0: the default
+    /// theme, also for the empty name and a name that picks nothing).
+    Builtin(usize),
+    /// The loaded file at this index.
+    File(usize),
+}
+
+/// Why a name picks no theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cause {
+    /// The loaded file at this index did not load and blames the name.
+    Failed(usize),
+    NotFound,
+}
+
+/// What a name picks (`bend/theme.bend` `pick`): the theme, the cause of
+/// its warning (none when it does not warn), the clashes (a file and the
+/// earlier file whose name it repeats) and the other files that did not
+/// load, each in load order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Pick {
+    theme: Choice,
+    cause: Option<Cause>,
+    clashes: Vec<(usize, usize)>,
+    broken: Vec<usize>,
+}
+
+/// The rule `bend/theme.bend` `pick` states: a name resolves to the first
+/// valid registered file, else the builtin, else the first valid custom
+/// file advertising it; the empty name is the default theme; a name no
+/// valid file advertises is the default theme with a warning whose cause
+/// is the first failed file that advertises it (or, no theme object, is
+/// named after it).
+fn pick(reached: &[Reached<'_>], name: &str) -> Pick {
+    let fine = |want_custom: bool| {
+        reached
+            .iter()
+            .enumerate()
+            .filter_map(move |(at, load)| match load {
+                Reached::Fine { name, custom } if *custom == want_custom => Some((at, *name)),
+                Reached::Fine { .. } | Reached::Broke { .. } => None,
+            })
+    };
+    let theme = if name.is_empty() {
+        Some(Choice::Builtin(0))
+    } else {
+        fine(false)
+            .find(|(_, advertised)| *advertised == name)
+            .map(|(at, _)| Choice::File(at))
+            .or_else(|| {
+                BUILTIN_THEME_NAMES
+                    .iter()
+                    .position(|builtin| *builtin == name)
+                    .map(Choice::Builtin)
+            })
+            .or_else(|| {
+                fine(true)
+                    .find(|(_, advertised)| *advertised == name)
+                    .map(|(at, _)| Choice::File(at))
+            })
+    };
+    let cause = match theme {
+        Some(_) => None,
+        None => Some(
+            reached
+                .iter()
+                .position(|load| match load {
+                    Reached::Broke {
+                        name: Some(advertised),
+                        ..
+                    } => *advertised == name,
+                    Reached::Broke { name: None, stem } => *stem == Some(name),
+                    Reached::Fine { .. } => false,
+                })
+                .map_or(Cause::NotFound, Cause::Failed),
+        ),
+    };
+    let clashes = reached
+        .iter()
+        .enumerate()
+        .filter_map(|(at, load)| match load {
+            Reached::Fine { name, .. } => reached
+                .iter()
+                .position(|other| match other {
+                    Reached::Fine { name: first, .. } => first == name,
+                    Reached::Broke { .. } => false,
+                })
+                .filter(|winner| *winner != at)
+                .map(|winner| (at, winner)),
+            Reached::Broke { .. } => None,
+        })
+        .collect();
+    let skip = match cause {
+        Some(Cause::Failed(at)) => Some(at),
+        Some(Cause::NotFound) | None => None,
+    };
+    let broken = reached
+        .iter()
+        .enumerate()
+        .filter(|(at, load)| matches!(load, Reached::Broke { .. }) && Some(*at) != skip)
+        .map(|(at, _)| at)
+        .collect();
+    Pick {
+        theme: theme.unwrap_or(Choice::Builtin(0)),
+        cause,
+        clashes,
+        broken,
+    }
 }
 
 impl ThemeSources {
     /// Resolve `name` (empty: the default theme). Every file is read
     /// again, so edited files and settings apply.
+    ///
+    /// # Panics
+    ///
+    /// Never: the pick names a builtin by its index, a cause or a broken
+    /// file among the files that failed, and a clash or a theme among the
+    /// files that loaded.
     #[must_use]
     pub fn resolve(&self, name: &str) -> ResolvedPalette {
-        let mut catalog = self.catalog();
-        let mut warnings = Vec::new();
-        let palette = if name.is_empty() {
-            Palette::default_theme()
-        } else if let Some(found) = catalog
-            .registered
+        let catalog = self.catalog();
+        let reached: Vec<Reached<'_>> = catalog
+            .loads
             .iter()
-            .find(|palette| palette.name() == name)
-        {
-            found.clone()
-        } else if let Some(builtin) = Palette::builtin(name) {
-            builtin
-        } else if let Some(found) = catalog.custom.iter().find(|palette| palette.name() == name) {
-            found.clone()
-        } else {
-            // The reason: a failed file advertising the name (or, when it is
-            // not a theme object, named `<name>.json`), else not found.
-            let reason = catalog
-                .failures
-                .iter()
-                .position(|(path, failure)| match &failure.name {
-                    Some(advertised) => advertised == name,
-                    None => path.file_stem().is_some_and(|stem| stem == name),
-                })
-                .map_or_else(
-                    || format!("Theme not found: {name}"),
-                    |at| catalog.failures.remove(at).1.message,
-                );
+            .map(|load| match &load.outcome {
+                Ok(palette) => Reached::Fine {
+                    name: palette.name(),
+                    custom: load.custom,
+                },
+                Err(failure) => Reached::Broke {
+                    name: failure.name.as_deref(),
+                    stem: load.path.file_stem().and_then(std::ffi::OsStr::to_str),
+                },
+            })
+            .collect();
+        let picked = pick(&reached, name);
+        let mut warnings = Vec::new();
+        if let Some(cause) = picked.cause {
+            let reason = match cause {
+                Cause::Failed(at) => catalog.loads[at].failure(),
+                Cause::NotFound => format!("Theme not found: {name}"),
+            };
             warnings.push(format!(
                 "Theme \"{name}\" unavailable, using \"{DEFAULT_THEME_NAME}\": {reason}"
             ));
-            Palette::default_theme()
-        };
+        }
         warnings.extend(self.diagnostics.iter().cloned());
         warnings.extend(catalog.warnings);
+        // A clash (the model's: a name an earlier valid file took) warns
+        // only when its colors differ: the same theme twice (a config
+        // mirrored into a project, a copy) loses silently.
         warnings.extend(
-            catalog
-                .failures
-                .into_iter()
-                .map(|(_, failure)| failure.message),
+            picked
+                .clashes
+                .iter()
+                .filter(|&&(at, winner)| catalog.loads[at].palette() != catalog.loads[winner].palette())
+                .map(|&(at, winner)| {
+                    let clash = &catalog.loads[at];
+                    format!(
+                        "Theme name \"{}\" collision: {} (using {})",
+                        clash.palette().name(),
+                        clash.path.display(),
+                        catalog.loads[winner].path.display()
+                    )
+                }),
         );
+        warnings.extend(picked.broken.iter().map(|&at| catalog.loads[at].failure()));
+        let palette = match picked.theme {
+            Choice::Builtin(at) => Palette::builtin(BUILTIN_THEME_NAMES[at])
+                .expect("the pick names a builtin by its index"),
+            Choice::File(at) => catalog.loads[at].palette().clone(),
+        };
         ResolvedPalette { palette, warnings }
     }
 
@@ -97,16 +259,15 @@ impl ThemeSources {
     /// valid files' names, sorted.
     #[must_use]
     pub fn available_names(&self) -> Vec<String> {
-        let catalog = self.catalog();
         let mut names: BTreeSet<String> = BUILTIN_THEME_NAMES
             .iter()
             .map(ToString::to_string)
             .collect();
         names.extend(
-            catalog
-                .registered
+            self.catalog()
+                .loads
                 .iter()
-                .chain(&catalog.custom)
+                .filter_map(|load| load.outcome.as_ref().ok())
                 .map(|palette| palette.name().to_string()),
         );
         names.into_iter().collect()
@@ -131,54 +292,17 @@ impl ThemeSources {
             },
             None => Vec::new(),
         };
-        let mut catalog = Catalog {
-            registered: Vec::new(),
-            custom: Vec::new(),
-            failures: Vec::new(),
-            warnings,
-        };
-        // Each winner: its path, whether it is custom, its index in that list.
-        let mut winners: Vec<(PathBuf, bool, usize)> = Vec::new();
-        for (path, custom) in registered_files
+        let loads = registered_files
             .into_iter()
             .map(|path| (path, false))
             .chain(custom_files.into_iter().map(|path| (path, true)))
-        {
-            match Palette::load(&path) {
-                Ok(palette) => {
-                    let taken = winners.iter().find_map(|(winner, in_custom, at)| {
-                        let kept = if *in_custom {
-                            &catalog.custom[*at]
-                        } else {
-                            &catalog.registered[*at]
-                        };
-                        (kept.name() == palette.name()).then_some((winner, *kept == palette))
-                    });
-                    if let Some((winner, same)) = taken {
-                        // The same theme twice (a config mirrored into a
-                        // project, a copy) collides with nothing.
-                        if !same {
-                            catalog.warnings.push(format!(
-                                "Theme name \"{}\" collision: {} (using {})",
-                                palette.name(),
-                                path.display(),
-                                winner.display()
-                            ));
-                        }
-                        continue;
-                    }
-                    if custom {
-                        winners.push((path, true, catalog.custom.len()));
-                        catalog.custom.push(palette);
-                    } else {
-                        winners.push((path, false, catalog.registered.len()));
-                        catalog.registered.push(palette);
-                    }
-                }
-                Err(failure) => catalog.failures.push((path, failure)),
-            }
-        }
-        catalog
+            .map(|(path, custom)| Load {
+                outcome: Palette::load(&path),
+                path,
+                custom,
+            })
+            .collect();
+        Catalog { loads, warnings }
     }
 }
 

@@ -20851,29 +20851,115 @@ def themes.pt.none_some(-A: Type, -B: Data, -b: B, e: {None{} == Some{b} : Maybe
   %e : themes.pt.BD(Maybe.is_some(&2, B, _), A, Unit)
   Unit{}
 
-def pt.keep(ok: Bool, +g: T.Th, -f: T.Th, eo: {T.valid(g) == ok : Bool}, h: {T.load.keep(ok, g) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
-  match ok:
+def themes.pt.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
+  themes.pt.absurdF(A, Equal.sym(Bool, True{}, False{}, e))
+
+def pt.con_nil(-G: Type, -x: U32, -xs: List<&2, U32>, e: {x <> xs == Nil{} : List<&2, U32>}) -> G:
+  %e : themes.pt.BD(List.is_empty(&2, U32, _), G, Unit)
+  Unit{}
+
+# an empty missing list: no keep took its token
+def pt.keep_nil(c: Bool, +t: U32, +rest: List<&2, U32>, h: {T.missing.keep(c, t, rest) == Nil{} : List<&2, U32>}) -> {c == False{} : Bool}:
+  match c:
     case True{}:
-      %themes.pt.some_inj(T.Th, g, f, h) : {T.valid(_) == True{} : Bool}
-      eo
+      pt.con_nil({True{} == False{} : Bool}, t, rest, h)
     case False{}:
+      {==}
+
+def pt.keep_rest(c: Bool, +t: U32, +rest: List<&2, U32>, h: {T.missing.keep(c, t, rest) == Nil{} : List<&2, U32>}) -> {rest == Nil{} : List<&2, U32>}:
+  match c:
+    case True{}:
+      pt.con_nil({rest == Nil{} : List<&2, U32>}, t, rest, h)
+    case False{}:
+      h
+
+def pt.not_false(b: Bool, h: {Bool.not(b) == False{} : Bool}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      themes.pt.absurdT({False{} == True{} : Bool}, h)
+
+def pt.or_true_r(a: Bool, -b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+# a token the missing list does not take is ok, when text is written
+def pt.ok_of(k: T.Role, +cols: List<&2, T.Ent>, +t: U32, +h9: {T.has(cols, 9) == True{} : Bool}, +hc: {Bool.and(T.required.k(k), Bool.not(T.has(cols, t))) == False{} : Bool}) -> {T.ok.k(k, cols, t) == True{} : Bool}:
+  match k:
+    case T.Req{}:
+      pt.not_false(T.has(cols, t), hc)
+    case T.MdBody{}:
+      pt.or_true_r(T.has(cols, t), T.has(cols, 9), h9)
+    case T.RefHeader{}:
+      {==}
+    case T.RefSummary{}:
+      {==}
+    case T.Background{}:
+      {==}
+    case T.Foreground{}:
+      {==}
+
+def pt.valid_go(+cols: List<&2, T.Ent>, +ts: List<&2, U32>, +h9: {T.has(cols, 9) == True{} : Bool}, +hm: {T.missing.go(cols, ts) == Nil{} : List<&2, U32>}) -> {T.valid.go(cols, ts) == True{} : Bool}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Con{+t, rest}:
+      +c = Bool.and(T.required(t), Bool.not(T.has(cols, t)))
+      +more = pt.valid_go(cols, rest, h9, pt.keep_rest(c, t, T.missing.go(cols, rest), hm))
+      +here = pt.ok_of(T.kind(t), cols, t, h9, pt.keep_nil(c, t, T.missing.go(cols, rest), hm))
+      themes.pt.and_t(T.ok(cols, t), T.valid.go(cols, rest), here, more)
+
+# a required token at index k of ts is written when the missing list of
+# ts is empty
+def pt.miss_at(+cols: List<&2, T.Ent>, +ts: List<&2, U32>, +k: Nat, +t: U32, +hm: {T.missing.go(cols, ts) == Nil{} : List<&2, U32>}, +hg: {List.get(&2, U32, ts, k) == Some{t} : Maybe<&2, U32>}, +hr: {T.required(t) == True{} : Bool}) -> {T.has(cols, t) == True{} : Bool}:
+  match ts k:
+    case Nil{} q:
+      themes.pt.none_some({T.has(cols, t) == True{} : Bool}, U32, t, hg)
+    case Con{+x, rest} 0n:
+      +cx = pt.keep_nil(Bool.and(T.required(x), Bool.not(T.has(cols, x))), x, T.missing.go(cols, rest), hm)
+      +ct = {%themes.pt.some_inj(U32, x, t, hg) : {Bool.and(T.required(_), Bool.not(T.has(cols, _))) == False{} : Bool}; cx : {Bool.and(T.required(t), Bool.not(T.has(cols, t))) == False{} : Bool}}
+      pt.not_false(T.has(cols, t), {%hr : {Bool.and(_, Bool.not(T.has(cols, t))) == False{} : Bool}; ct : {Bool.not(T.has(cols, t)) == False{} : Bool}})
+    case Con{+x, rest} 1n+p:
+      pt.miss_at(cols, rest, p, t, pt.keep_rest(Bool.and(T.required(x), Bool.not(T.has(cols, x))), x, T.missing.go(cols, rest), hm), hg, hr)
+
+# a file with no missing token is valid
+def pt.valid_of(+es: List<&2, T.Ent>, +hm: {T.missing(es) == Nil{} : List<&2, U32>}) -> {T.valid.go(es, T.toks()) == True{} : Bool}:
+  pt.valid_go(es, T.toks(), pt.miss_at(es, T.toks(), 9n, 9, hm, {==}, {==}), hm)
+
+def pt.load_end(+name: String, +es: List<&2, T.Ent>, p: T.Bg, c: T.Bg, i: T.Bg, -f: T.Th, +hv: {T.valid.go(es, T.toks()) == True{} : Bool}, h: {T.load.of(T.read.end(name, es, p, c, i)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
+  match p c i:
+    case T.BgBad{x} q r:
+      themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+    case T.BgOk{pc} T.BgBad{x} r:
+      themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+    case T.BgOk{pc} T.BgOk{cc} T.BgBad{x}:
+      themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+    case T.BgOk{pc} T.BgOk{cc} T.BgOk{ic}:
+      %themes.pt.some_inj(T.Th, T.Th{name, es, pc, cc, ic}, f, h) : {T.valid(_) == True{} : Bool}
+      hv
+
+def pt.load_full(+name: String, +vars: List<&2, T.Var>, +es: List<&2, T.Ent>, miss: List<&2, U32>, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, -f: T.Th, +hm: {T.missing(es) == miss : List<&2, U32>}, h: {T.load.of(T.read.full(name, vars, es, miss, pg, cd, io)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
+  match miss:
+    case Nil{}:
+      pt.load_end(name, es, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io), f, pt.valid_of(es, hm), h)
+    case Con{t, rest}:
       themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
 
-def pt.check(+name: String, +cs: Maybe<&2, List<&2, T.Ent>>, +pg: Maybe<&2, Maybe<&2, Co.Rgb>>, -f: T.Th, h: {T.load.check(name, cs, pg) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
-  match cs pg:
-    case Some{c} Some{p}:
-      pt.keep(T.valid(T.Th{name, c, p}), T.Th{name, c, p}, f, {==}, h)
-    case Some{c} None{}:
+def pt.load_cols(+name: String, +vars: List<&2, T.Var>, r: T.Ents, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, -f: T.Th, h: {T.load.of(T.read.cols(name, vars, r, pg, cd, io)) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
+  match r:
+    case T.Stuck{x}:
       themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
-    case None{} Some{p}:
-      themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
-    case None{} None{}:
-      themes.pt.none_some({T.valid(f) == True{} : Bool}, T.Th, f, h)
+    case T.All{+es}:
+      pt.load_full(name, vars, es, T.missing(es), pg, cd, io, f, {==}, h)
 
 def theme_load_valid(r: T.RFile, -f: T.Th, loaded: {T.load(r) == Some{f} : Maybe<&2, T.Th>}) -> {T.valid(f) == True{} : Bool}:
   match r:
-    case T.RFile{name, +vars, cols, page}:
-      pt.check(name, T.resolve.cols(vars, cols), T.load.page(vars, page), f, loaded)
+    case T.RFile{name, +vars, cols, page, card, info}:
+      pt.load_cols(name, vars, T.ents(vars, cols), page, card, info, f, loaded)
 
 def pt.or_some(a: Maybe<&2, T.Val>, +b: Maybe<&2, T.Val>, h: {Bool.or(Maybe.is_some(&2, T.Val, a), Maybe.is_some(&2, T.Val, b)) == True{} : Bool})
   -> {Maybe.is_some(&2, T.Val, T.or(T.Val, a, b)) == True{} : Bool}:
@@ -20911,7 +20997,7 @@ def pt.complete(+cols: List<&2, T.Ent>, +bg: Co.Rgb, +ts: List<&2, U32>, +h: {T.
 
 def theme_tokens_complete(f: T.Th, v: {T.valid(f) == True{} : Bool}) -> {T.complete(T.palette(f)) == True{} : Bool}:
   match f:
-    case T.Th{name, +cols, +page}:
+    case T.Th{name, +cols, +page, card, info}:
       pt.complete(cols, T.background(cols, page), T.toks(), v)
 
 # Modes and names
@@ -20919,7 +21005,7 @@ def theme_tokens_complete(f: T.Th, v: {T.valid(f) == True{} : Bool}) -> {T.compl
 
 def pt.light_bg(f: T.Th) -> {T.light(f) == Co.light(T.bg(f)) : Bool}:
   match f:
-    case T.Th{name, cols, page}:
+    case T.Th{name, cols, page, card, info}:
       {==}
 
 def theme_mode_background(f: T.Th, g: T.Th, same: {T.bg(f) == T.bg(g) : Co.Rgb}) -> {T.light(f) == T.light(g) : Bool}:
@@ -20931,12 +21017,12 @@ def theme_mode_background(f: T.Th, g: T.Th, same: {T.bg(f) == T.bg(g) : Co.Rgb})
 
 def theme_palette_name_free(f: T.Th, n: String) -> {T.palette(T.rename(f, n)) == T.palette(f) : List<&2, Maybe<&2, T.Val>>}:
   match f:
-    case T.Th{name, cols, page}:
+    case T.Th{name, cols, page, card, info}:
       {==}
 
 def theme_mode_name_free(f: T.Th, n: String) -> {T.light(T.rename(f, n)) == T.light(f) : Bool}:
   match f:
-    case T.Th{name, cols, page}:
+    case T.Th{name, cols, page, card, info}:
       {==}
 
 # Shipped themes
@@ -20959,6 +21045,618 @@ def theme_shipped_status_distinct(s: T.Shipped) -> {T.status_distinct(T.table(s)
       {==}
     case T.Light{}:
       {==}
+
+# Color text
+# ----------
+# The byte, index and palette tables are finite: the checker computes
+# them. A text Co.hex reads has the seven characters of #rrggbb: any
+# other length falls through to None.
+
+def Laws.theme_hex_example():
+  {==}
+
+def Laws.theme_hex_digits():
+  {==}
+
+def Laws.theme_hex_value(a1, a2, a3, a4, a5, a6, x1, x2, x3, x4, x5, x6, h1, h2, h3, h4, h5, h6):
+  +want = {Some{Co.Rgb{(x1 * 16 + x2 : U32), (x3 * 16 + x4 : U32), (x5 * 16 + x6 : U32)}} : Maybe<&2, Co.Rgb>}
+  %Equal.sym(Maybe<&2, U32>, Co.hexd(a1), Some{x1}, h1) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, _, Co.hexd(a2)), Co.join(16, Co.hexd(a3), Co.hexd(a4)), Co.join(16, Co.hexd(a5), Co.hexd(a6)))) == want : Maybe<&2, Co.Rgb>}
+  %Equal.sym(Maybe<&2, U32>, Co.hexd(a2), Some{x2}, h2) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, Some{x1}, _), Co.join(16, Co.hexd(a3), Co.hexd(a4)), Co.join(16, Co.hexd(a5), Co.hexd(a6)))) == want : Maybe<&2, Co.Rgb>}
+  %Equal.sym(Maybe<&2, U32>, Co.hexd(a3), Some{x3}, h3) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, Some{x1}, Some{x2}), Co.join(16, _, Co.hexd(a4)), Co.join(16, Co.hexd(a5), Co.hexd(a6)))) == want : Maybe<&2, Co.Rgb>}
+  %Equal.sym(Maybe<&2, U32>, Co.hexd(a4), Some{x4}, h4) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, Some{x1}, Some{x2}), Co.join(16, Some{x3}, _), Co.join(16, Co.hexd(a5), Co.hexd(a6)))) == want : Maybe<&2, Co.Rgb>}
+  %Equal.sym(Maybe<&2, U32>, Co.hexd(a5), Some{x5}, h5) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, Some{x1}, Some{x2}), Co.join(16, Some{x3}, Some{x4}), Co.join(16, _, Co.hexd(a6)))) == want : Maybe<&2, Co.Rgb>}
+  %Equal.sym(Maybe<&2, U32>, Co.hexd(a6), Some{x6}, h6) : {Co.hex.sharp(True{}, Co.hex.rgb(Co.join(16, Some{x1}, Some{x2}), Co.join(16, Some{x3}, Some{x4}), Co.join(16, Some{x5}, _))) == want : Maybe<&2, Co.Rgb>}
+  {==}
+
+def Laws.theme_num_bytes():
+  {==}
+
+def Laws.theme_num_bytes_128():
+  {==}
+
+def Laws.theme_num_example():
+  {==}
+
+def Laws.theme_to256_palette_16():
+  {==}
+
+def Laws.theme_to256_palette_76():
+  {==}
+
+def Laws.theme_to256_palette_136():
+  {==}
+
+def Laws.theme_to256_palette_196():
+  {==}
+
+def Laws.theme_contrast_example():
+  {==}
+
+def pt.sharp_some(+b: Bool, +m: Maybe<&2, Co.Rgb>, -c: Co.Rgb, h: {Co.hex.sharp(b, m) == Some{c} : Maybe<&2, Co.Rgb>}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+
+def Laws.theme_hex_shape(s, c, h):
+  match s:
+    case SNil{}:
+      themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+    case SCon{h0, s1}:
+      match s1:
+        case SNil{}:
+          themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+        case SCon{a1, s2}:
+          match s2:
+            case SNil{}:
+              themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+            case SCon{a2, s3}:
+              match s3:
+                case SNil{}:
+                  themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+                case SCon{a3, s4}:
+                  match s4:
+                    case SNil{}:
+                      themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+                    case SCon{a4, s5}:
+                      match s5:
+                        case SNil{}:
+                          themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+                        case SCon{a5, s6}:
+                          match s6:
+                            case SNil{}:
+                              themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+                            case SCon{a6, s7}:
+                              match s7:
+                                case SNil{}:
+                                  pt.sharp_some(Char.is_eq(h0, '#'), Co.hex.rgb(Co.join(16, Co.hexd(a1), Co.hexd(a2)), Co.join(16, Co.hexd(a3), Co.hexd(a4)), Co.join(16, Co.hexd(a5), Co.hexd(a6))), c, h)
+                                case SCon{a7, s8}:
+                                  themes.pt.none_some({False{} == True{} : Bool}, Co.Rgb, c, h)
+
+# Values
+# ------
+# The model and the rule take the same steps: the seen check is the
+# membership, the variable lookup is the list lookup, and each step maps
+# to the rule's step; the walk follows them for the same fuel.
+
+def pt.has_mem(xs: List<&2, Nat>, +i: Nat, hit: Bool) -> {T.seen.has(xs, i, hit) == Bool.or(hit, Laws.th.mem(xs, i)) : Bool}:
+  match xs:
+    case Nil{}:
+      match hit:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case Con{x, rest}:
+      match hit:
+        case True{}:
+          {==}
+        case False{}:
+          pt.has_mem(rest, i, Nat.is_eq(x, i))
+
+def pt.var_val(xs: List<&2, T.Var>, n: Nat) -> {T.var.val(xs, n) == Laws.th.var(xs, n) : Maybe<&2, T.Json>}:
+  match xs n:
+    case Nil{} q:
+      {==}
+    case Con{T.Var{nm, v}, rest} 0n:
+      {==}
+    case Con{x, rest} 1n+p:
+      pt.var_val(rest, p)
+
+def pt.hexgot(m: Maybe<&2, Co.Rgb>, s: String) -> {T.hex.got(m, s) == Laws.th.hex(m, s) : T.Got}:
+  match m:
+    case None{}:
+      {==}
+    case Some{c}:
+      {==}
+
+def pt.numgot(m: Maybe<&2, U32>, s: String) -> {T.num.got(m, s) == Laws.th.num(m, s) : T.Got}:
+  match m:
+    case None{}:
+      {==}
+    case Some{i}:
+      {==}
+
+def pt.next_eq(m: Maybe<&2, T.Json>, seen: List<&2, Nat>, s: String, i: Nat) -> {T.step.next(m, i <> seen, s) == Laws.th.ref(False{}, m, seen, s, i) : T.Step}:
+  match m:
+    case None{}:
+      {==}
+    case Some{j}:
+      {==}
+
+def pt.step_var(b: Bool, +vars: List<&2, T.Var>, +seen: List<&2, Nat>, +s: String, +i: Nat) -> {T.step.var(b, vars, seen, s, i) == Laws.th.ref(b, Laws.th.var(vars, i), seen, s, i) : T.Step}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      %Equal.sym(Maybe<&2, T.Json>, T.var.val(vars, i), Laws.th.var(vars, i), pt.var_val(vars, i)) : {T.step.next(_, i <> seen, s) == Laws.th.ref(False{}, Laws.th.var(vars, i), seen, s, i) : T.Step}
+      pt.next_eq(Laws.th.var(vars, i), seen, s, i)
+
+def pt.step_ref(+vars: List<&2, T.Var>, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.step.ref(vars, seen, s, at) == Laws.th.name(vars, seen, s, at) : T.Step}:
+  match at:
+    case None{}:
+      {==}
+    case Some{+i}:
+      %Equal.sym(Bool, T.seen.has(seen, i, False{}), Bool.or(False{}, Laws.th.mem(seen, i)), pt.has_mem(seen, i, False{})) : {T.step.var(_, vars, seen, s, i) == Laws.th.ref(Laws.th.mem(seen, i), Laws.th.var(vars, i), seen, s, i) : T.Step}
+      pt.step_var(Laws.th.mem(seen, i), vars, seen, s, i)
+
+def pt.step_sym(sharp: Bool, +vars: List<&2, T.Var>, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> {T.step.sym(sharp, vars, seen, s, at) == Laws.th.text.c(sharp, vars, seen, s, at) : T.Step}:
+  match sharp:
+    case True{}:
+      Equal.cong(T.Got, T.Step, g => T.Stop{g}, T.hex.got(Co.hex(s), s), Laws.th.hex(Co.hex(s), s), pt.hexgot(Co.hex(s), s))
+    case False{}:
+      pt.step_ref(vars, seen, s, at)
+
+def pt.step_str(+vars: List<&2, T.Var>, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> {T.step.str(vars, seen, s, at) == Laws.th.text(vars, seen, s, at) : T.Step}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, rest}:
+      pt.step_sym(Char.is_eq(c, '#'), vars, seen, SCon{c, rest}, at)
+
+def pt.step_next(+vars: List<&2, T.Var>, +seen: List<&2, Nat>, j: T.Json) -> {T.step(vars, seen, j) == Laws.th.next(vars, seen, j) : T.Step}:
+  match j:
+    case T.JStr{s, at}:
+      pt.step_str(vars, seen, s, at)
+    case T.JNum{+t}:
+      Equal.cong(T.Got, T.Step, g => T.Stop{g}, T.num.got(Co.num(t), t), Laws.th.num(Co.num(t), t), pt.numgot(Co.num(t), t))
+    case T.JOther{t}:
+      {==}
+
+def pt.walk(fuel: Nat, +vars: List<&2, T.Var>, st: T.Step) -> {T.walk(fuel, vars, st) == Laws.th.follow(fuel, vars, st) : T.Got}:
+  match fuel:
+    case 0n:
+      match st:
+        case T.Stop{g}:
+          {==}
+        case T.Go{seen, j}:
+          {==}
+    case 1n+f:
+      match st:
+        case T.Stop{g}:
+          {==}
+        case T.Go{+seen, +j}:
+          %Equal.sym(T.Step, T.step(vars, seen, j), Laws.th.next(vars, seen, j), pt.step_next(vars, seen, j)) : {T.walk(f, vars, _) == Laws.th.follow(f, vars, Laws.th.next(vars, seen, j)) : T.Got}
+          pt.walk(f, vars, Laws.th.next(vars, seen, j))
+
+def Laws.theme_chase_rule(vars, j):
+  pt.walk(1n+List.length(&2, T.Var, vars), vars, T.Go{Nil{}, j})
+
+def Laws.theme_chase_example():
+  {==}
+
+# Reading a file
+# --------------
+# The entries read in order and the first that does not read stops the
+# file; every entry reads, so the entries are their colors; the missing
+# list is the rule's absent list; then the export backgrounds decide.
+
+def Laws.theme_entry_unknown(vars, k, j):
+  {==}
+
+def Laws.theme_entry_color(vars, k, t, j, v, h):
+  %Equal.sym(T.Got, T.chase(vars, j), T.Hit{v}, h) : {T.entry.got(k, t, _) == T.Good{T.Ent{t, v}} : T.EntR}
+  {==}
+
+def Laws.theme_entry_invalid(vars, k, t, j, why, h):
+  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, h) : {T.entry.got(k, t, _) == T.Bad{T.InColor{k, why}} : T.EntR}
+  {==}
+
+def pt.cons_stuck(r: T.EntR, -f: T.Fault, hg: {Laws.th.good(r) == True{} : Bool}) -> {T.ents.cons(r, T.Stuck{f}) == T.Stuck{f} : T.Ents}:
+  match r:
+    case T.Good{e}:
+      {==}
+    case T.Bad{x}:
+      themes.pt.absurdF({T.ents.cons(T.Bad{x}, T.Stuck{f}) == T.Stuck{f} : T.Ents}, hg)
+
+def pt.ents_first(+vars: List<&2, T.Var>, +pre: List<&2, T.REnt>, +e: T.REnt, +post: List<&2, T.REnt>, +f: T.Fault, +ok: {Laws.th.clean(vars, pre) == True{} : Bool}, +bad: {T.entry(vars, e) == T.Bad{f} : T.EntR})
+  -> {T.ents(vars, List.append(&2, T.REnt, pre, e <> post)) == T.Stuck{f} : T.Ents}:
+  match pre:
+    case Nil{}:
+      %Equal.sym(T.EntR, T.entry(vars, e), T.Bad{f}, bad) : {T.ents.cons(_, T.ents(vars, post)) == T.Stuck{f} : T.Ents}
+      {==}
+    case Con{+x, rest}:
+      +hg = themes.pt.and_l(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok)
+      +ih = pt.ents_first(vars, rest, e, post, f, themes.pt.and_r(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok), bad)
+      %Equal.sym(T.Ents, T.ents(vars, List.append(&2, T.REnt, rest, e <> post)), T.Stuck{f}, ih) : {T.ents.cons(T.entry(vars, x), _) == T.Stuck{f} : T.Ents}
+      pt.cons_stuck(T.entry(vars, x), f, hg)
+
+def Laws.theme_read_first_error(nm, vars, pre, e, post, pg, cd, io, f, ok, bad):
+  %Equal.sym(T.Ents, T.ents(vars, List.append(&2, T.REnt, pre, e <> post)), T.Stuck{f}, pt.ents_first(vars, pre, e, post, f, ok, bad)) : {T.read.cols(nm, vars, _, pg, cd, io) == T.Failed{f} : T.Read}
+  {==}
+
+def pt.cons_all(r: T.EntR, es: List<&2, T.Ent>, hg: {Laws.th.good(r) == True{} : Bool}) -> {T.ents.cons(r, T.All{es}) == T.All{Laws.th.ent(r) <> es} : T.Ents}:
+  match r:
+    case T.Good{e}:
+      {==}
+    case T.Bad{x}:
+      themes.pt.absurdF({T.ents.cons(T.Bad{x}, T.All{es}) == T.All{Laws.th.ent(T.Bad{x}) <> es} : T.Ents}, hg)
+
+def pt.ents_all(+vars: List<&2, T.Var>, +cols: List<&2, T.REnt>, +ok: {Laws.th.clean(vars, cols) == True{} : Bool}) -> {T.ents(vars, cols) == T.All{Laws.th.goods(vars, cols)} : T.Ents}:
+  match cols:
+    case Nil{}:
+      {==}
+    case Con{+x, rest}:
+      +hg = themes.pt.and_l(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok)
+      +ih = pt.ents_all(vars, rest, themes.pt.and_r(Laws.th.good(T.entry(vars, x)), Laws.th.clean(vars, rest), ok))
+      %Equal.sym(T.Ents, T.ents(vars, rest), T.All{Laws.th.goods(vars, rest)}, ih) : {T.ents.cons(T.entry(vars, x), _) == T.All{Laws.th.ent(T.entry(vars, x)) <> Laws.th.goods(vars, rest)} : T.Ents}
+      pt.cons_all(T.entry(vars, x), Laws.th.goods(vars, rest), hg)
+
+def pt.keeps(c: Bool, +t: U32, -m: List<&2, U32>, -a: List<&2, U32>, ih: {m == a : List<&2, U32>}) -> {T.missing.keep(c, t, m) == Laws.th.keep(c, t, a) : List<&2, U32>}:
+  match c:
+    case True{}:
+      Equal.cong(List<&2, U32>, List<&2, U32>, xs => t <> xs, m, a, ih)
+    case False{}:
+      ih
+
+def pt.miss_case(r: Bool, +es: List<&2, T.Ent>, +t: U32, +rest: List<&2, U32>, ih: {T.missing.go(es, rest) == Laws.th.absent.go(es, Laws.th.reqs(rest)) : List<&2, U32>})
+  -> {T.missing.keep(Bool.and(r, Bool.not(T.has(es, t))), t, T.missing.go(es, rest)) == Laws.th.absent.go(es, Laws.th.keep(r, t, Laws.th.reqs(rest))) : List<&2, U32>}:
+  match r:
+    case True{}:
+      pt.keeps(Bool.not(T.has(es, t)), t, T.missing.go(es, rest), Laws.th.absent.go(es, Laws.th.reqs(rest)), ih)
+    case False{}:
+      ih
+
+def pt.miss_step(+r: Bool, +es: List<&2, T.Ent>, +t: U32, +rest: List<&2, U32>, er: {T.required(t) == r : Bool}, ih: {T.missing.go(es, rest) == Laws.th.absent.go(es, Laws.th.reqs(rest)) : List<&2, U32>})
+  -> {T.missing.go(es, t <> rest) == Laws.th.absent.go(es, Laws.th.reqs(t <> rest)) : List<&2, U32>}:
+  %Equal.sym(Bool, T.required(t), r, er) : {T.missing.keep(Bool.and(_, Bool.not(T.has(es, t))), t, T.missing.go(es, rest)) == Laws.th.absent.go(es, Laws.th.keep(_, t, Laws.th.reqs(rest))) : List<&2, U32>}
+  pt.miss_case(r, es, t, rest, ih)
+
+def pt.miss_go(+es: List<&2, T.Ent>, +ts: List<&2, U32>) -> {T.missing.go(es, ts) == Laws.th.absent.go(es, Laws.th.reqs(ts)) : List<&2, U32>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case Con{+t, rest}:
+      pt.miss_step(T.required(t), es, t, rest, {==}, pt.miss_go(es, rest))
+
+def pt.missing_absent(+es: List<&2, T.Ent>) -> {T.missing(es) == Laws.th.absent(es) : List<&2, U32>}:
+  pt.miss_go(es, T.toks())
+
+def Laws.theme_required_tokens():
+  {==}
+
+# a file whose entries read and whose required tokens are written reads
+# to its export backgrounds
+def pt.read_end(+nm: String, +vars: List<&2, T.Var>, +cols: List<&2, T.REnt>, +pg: Maybe<&2, T.Json>, +cd: Maybe<&2, T.Json>, +io: Maybe<&2, T.Json>, +ok: {Laws.th.clean(vars, cols) == True{} : Bool}, +all: {Laws.th.absent(Laws.th.goods(vars, cols)) == [] : List<&2, U32>})
+  -> {T.read(T.RFile{nm, vars, cols, pg, cd, io}) == T.read.end(nm, Laws.th.goods(vars, cols), T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)) : T.Read}:
+  +gs = Laws.th.goods(vars, cols)
+  +rhs = T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io))
+  +mn = Equal.trans(List<&2, U32>, T.missing(gs), Laws.th.absent(gs), Nil{}, pt.missing_absent(gs), all)
+  %Equal.sym(T.Ents, T.ents(vars, cols), T.All{gs}, pt.ents_all(vars, cols, ok)) : {T.read.cols(nm, vars, _, pg, cd, io) == rhs : T.Read}
+  %Equal.sym(List<&2, U32>, T.missing(gs), Nil{}, mn) : {T.read.full(nm, vars, gs, _, pg, cd, io) == rhs : T.Read}
+  {==}
+
+def Laws.theme_read_missing(nm, vars, cols, pg, cd, io, t, ts, ok, miss):
+  +gs = Laws.th.goods(vars, cols)
+  +mt = Equal.trans(List<&2, U32>, T.missing(gs), Laws.th.absent(gs), t <> ts, pt.missing_absent(gs), miss)
+  %Equal.sym(T.Ents, T.ents(vars, cols), T.All{gs}, pt.ents_all(vars, cols, ok)) : {T.read.cols(nm, vars, _, pg, cd, io) == T.Failed{T.Missing{t <> ts}} : T.Read}
+  %Equal.sym(List<&2, U32>, T.missing(gs), t <> ts, mt) : {T.read.full(nm, vars, gs, _, pg, cd, io) == T.Failed{T.Missing{t <> ts}} : T.Read}
+  {==}
+
+def pt.surf_hit(at: T.Surf, g: T.Got, h: {Laws.th.hit(g) == True{} : Bool}) -> {T.surf.got(at, g) == T.BgOk{Laws.th.hitc(g)} : T.Bg}:
+  match g:
+    case T.Hit{v}:
+      {==}
+    case T.Miss{why}:
+      themes.pt.absurdF({T.surf.got(at, T.Miss{why}) == T.BgOk{Laws.th.hitc(T.Miss{why})} : T.Bg}, h)
+
+def pt.surf_fine(+vars: List<&2, T.Var>, at: T.Surf, m: Maybe<&2, T.Json>, h: {Laws.th.fine(vars, m) == True{} : Bool}) -> {T.surf(vars, at, m) == T.BgOk{Laws.th.bgv(vars, m)} : T.Bg}:
+  match m:
+    case None{}:
+      {==}
+    case Some{j}:
+      pt.surf_hit(at, T.chase(vars, j), h)
+
+def Laws.theme_read_page(nm, vars, cols, j, cd, io, why, ok, all, bad):
+  +gs = Laws.th.goods(vars, cols)
+  +want = {T.Failed{T.InExport{T.OnPage{}, why}} : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, Some{j}, cd, io}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, Some{j}), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)), pt.read_end(nm, vars, cols, Some{j}, cd, io, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.surf.got(T.OnPage{}, _), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
+  {==}
+
+def Laws.theme_read_card(nm, vars, cols, pg, j, io, why, ok, all, fine, bad):
+  +gs = Laws.th.goods(vars, cols)
+  +want = {T.Failed{T.InExport{T.OnCard{}, why}} : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, Some{j}, io}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, Some{j}), T.surf(vars, T.OnInfo{}, io)), pt.read_end(nm, vars, cols, pg, Some{j}, io, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(vars, T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine)) : {T.read.end(nm, gs, _, T.surf(vars, T.OnCard{}, Some{j}), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.surf.got(T.OnCard{}, _), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
+  {==}
+
+def Laws.theme_read_info(nm, vars, cols, pg, cd, j, why, ok, all, fine1, fine2, bad):
+  +gs = Laws.th.goods(vars, cols)
+  +want = {T.Failed{T.InExport{T.OnInfo{}, why}} : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, cd, Some{j}}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, Some{j})), pt.read_end(nm, vars, cols, pg, cd, Some{j}, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(vars, T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine1)) : {T.read.end(nm, gs, _, T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, Some{j})) == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(vars, T.OnCard{}, cd), T.BgOk{Laws.th.bgv(vars, cd)}, pt.surf_fine(vars, T.OnCard{}, cd, fine2)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, _, T.surf(vars, T.OnInfo{}, Some{j})) == want : T.Read}
+  %Equal.sym(T.Got, T.chase(vars, j), T.Miss{why}, bad) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.BgOk{Laws.th.bgv(vars, cd)}, T.surf.got(T.OnInfo{}, _)) == want : T.Read}
+  {==}
+
+def Laws.theme_read_loaded(nm, vars, cols, pg, cd, io, ok, all, fine1, fine2, fine3):
+  +gs = Laws.th.goods(vars, cols)
+  +want = {T.Loaded{T.Th{nm, gs, Laws.th.bgv(vars, pg), Laws.th.bgv(vars, cd), Laws.th.bgv(vars, io)}} : T.Read}
+  %Equal.sym(T.Read, T.read(T.RFile{nm, vars, cols, pg, cd, io}), T.read.end(nm, gs, T.surf(vars, T.OnPage{}, pg), T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)), pt.read_end(nm, vars, cols, pg, cd, io, ok, all)) : {_ == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(vars, T.OnPage{}, pg), T.BgOk{Laws.th.bgv(vars, pg)}, pt.surf_fine(vars, T.OnPage{}, pg, fine1)) : {T.read.end(nm, gs, _, T.surf(vars, T.OnCard{}, cd), T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(vars, T.OnCard{}, cd), T.BgOk{Laws.th.bgv(vars, cd)}, pt.surf_fine(vars, T.OnCard{}, cd, fine2)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, _, T.surf(vars, T.OnInfo{}, io)) == want : T.Read}
+  %Equal.sym(T.Bg, T.surf(vars, T.OnInfo{}, io), T.BgOk{Laws.th.bgv(vars, io)}, pt.surf_fine(vars, T.OnInfo{}, io, fine3)) : {T.read.end(nm, gs, T.BgOk{Laws.th.bgv(vars, pg)}, T.BgOk{Laws.th.bgv(vars, cd)}, _) == want : T.Read}
+  {==}
+
+# Completion
+# ----------
+
+def Laws.theme_parse_rejected(f, x, h):
+  %Equal.sym(T.Read, T.read(f), T.Failed{x}, h) : {T.parse.of(_) == T.Rejected{x} : T.Parsed}
+  {==}
+
+def pt.own(m: Maybe<&2, T.Val>) -> {T.declared.of(m) == Laws.th.own(m) : Maybe<&2, Co.Rgb>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{v}:
+      match v:
+        case T.Dflt{}:
+          {==}
+        case T.Idx{i}:
+          {==}
+        case T.Hex{c}:
+          {==}
+
+def Laws.theme_parse_painted(f, nm, cols, pg, cd, io, h):
+  +rhs = {T.Painted{T.vals(T.palette(T.Th{nm, cols, pg, cd, io})), T.light(T.Th{nm, cols, pg, cd, io}), Laws.th.own(T.get(cols, 57)), pg, cd, io} : T.Parsed}
+  %Equal.sym(T.Read, T.read(f), T.Loaded{T.Th{nm, cols, pg, cd, io}}, h) : {T.parse.of(_) == rhs : T.Parsed}
+  %Equal.sym(Maybe<&2, Co.Rgb>, T.declared.of(T.get(cols, 57)), Laws.th.own(T.get(cols, 57)), pt.own(T.get(cols, 57))) : {T.Painted{T.vals(T.palette.go(cols, pg)), Co.light(T.background(cols, pg)), _, pg, cd, io} == rhs : T.Parsed}
+  {==}
+
+def Laws.theme_palette_tokens(nm, cols, pg, cd, io):
+  {==}
+
+def pt.fill_req(k: T.Role, +cols: List<&2, T.Ent>, +bg: Co.Rgb, +t: U32, h: {T.required.k(k) == True{} : Bool}) -> {T.fill.k(k, cols, bg, t) == T.get(cols, t) : Maybe<&2, T.Val>}:
+  match k:
+    case T.Req{}:
+      {==}
+    case T.MdBody{}:
+      themes.pt.absurdF({T.fill.k(T.MdBody{}, cols, bg, t) == T.get(cols, t) : Maybe<&2, T.Val>}, h)
+    case T.RefHeader{}:
+      themes.pt.absurdF({T.fill.k(T.RefHeader{}, cols, bg, t) == T.get(cols, t) : Maybe<&2, T.Val>}, h)
+    case T.RefSummary{}:
+      themes.pt.absurdF({T.fill.k(T.RefSummary{}, cols, bg, t) == T.get(cols, t) : Maybe<&2, T.Val>}, h)
+    case T.Background{}:
+      themes.pt.absurdF({T.fill.k(T.Background{}, cols, bg, t) == T.get(cols, t) : Maybe<&2, T.Val>}, h)
+    case T.Foreground{}:
+      themes.pt.absurdF({T.fill.k(T.Foreground{}, cols, bg, t) == T.get(cols, t) : Maybe<&2, T.Val>}, h)
+
+def Laws.theme_fill_required(cols, bg, t, r):
+  pt.fill_req(T.kind(t), cols, bg, t, r)
+
+def Laws.theme_fill_md(cols, bg):
+  {==}
+
+def Laws.theme_fill_refinement(cols, bg):
+  {==}
+
+def Laws.theme_fill_canvas(cols, bg):
+  {==}
+
+def Laws.theme_defaults_shipped():
+  {==}
+
+def Laws.theme_background_order(cols, pg):
+  {==}
+
+# Picking a theme
+# ---------------
+# The model's candidates, cause, broken list and clashes are the rule's,
+# step by step; the theme picked is the resolution over the candidates.
+
+def pt.cand(l: T.Ld, +c: Bool, +at: Nat, rest: List<&2, T.Cand>) -> {T.cands.of(l, c, at, rest) == List.append(&2, T.Cand, Laws.th.cand(l, c, at), rest) : List<&2, T.Cand>}:
+  match l:
+    case T.Fine{nm, k}:
+      match k:
+        case True{}:
+          match c:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+        case False{}:
+          match c:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+    case T.Broke{nm, st}:
+      {==}
+
+def pt.cands(ls: List<&2, T.Ld>, +c: Bool, +at: Nat) -> {T.cands(ls, c, at) == Laws.th.cands(ls, c, at) : List<&2, T.Cand>}:
+  match ls:
+    case Nil{}:
+      {==}
+    case Con{+l, +rest}:
+      %Equal.sym(List<&2, T.Cand>, T.cands(rest, c, 1n+at), Laws.th.cands(rest, c, 1n+at), pt.cands(rest, c, 1n+at)) : {T.cands.of(l, c, at, _) == List.append(&2, T.Cand, Laws.th.cand(l, c, at), Laws.th.cands(rest, c, 1n+at)) : List<&2, T.Cand>}
+      pt.cand(l, c, at, Laws.th.cands(rest, c, 1n+at))
+
+def pt.pickres(+ls: List<&2, T.Ld>, +n: String) -> {T.pick.res(ls, n) == Laws.th.pick(ls, n) : T.Res}:
+  %Equal.sym(List<&2, T.Cand>, T.cands(ls, False{}, 0n), Laws.th.cands(ls, False{}, 0n), pt.cands(ls, False{}, 0n)) : {T.resolve.name(T.sources(_, T.cands(ls, True{}, 0n)), n) == Laws.th.pick(ls, n) : T.Res}
+  %Equal.sym(List<&2, T.Cand>, T.cands(ls, True{}, 0n), Laws.th.cands(ls, True{}, 0n), pt.cands(ls, True{}, 0n)) : {T.resolve.name(T.sources(Laws.th.cands(ls, False{}, 0n), _), n) == Laws.th.pick(ls, n) : T.Res}
+  {==}
+
+def pt.res_go(r: T.Res, +ls: List<&2, T.Ld>, +n: String) -> {Laws.th.res(T.pick.go(r, ls, n)) == r : T.Res}:
+  match r:
+    case T.Res{id, w}:
+      match w:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+
+def Laws.theme_pick_res(ls, n):
+  Equal.trans(T.Res, Laws.th.res(T.pick(ls, n)), T.pick.res(ls, n), Laws.th.pick(ls, n), pt.res_go(T.pick.res(ls, n), ls, n), pt.pickres(ls, n))
+
+def pt.blames(l: T.Ld, +n: String) -> {T.blames(l, n) == Laws.th.blames(l, n) : Bool}:
+  match l:
+    case T.Fine{nm, c}:
+      {==}
+    case T.Broke{nm, st}:
+      match nm:
+        case Some{x}:
+          {==}
+        case None{}:
+          match st:
+            case Some{s}:
+              {==}
+            case None{}:
+              {==}
+
+def pt.first_if(hit: Bool, at: Nat, -a: Maybe<&2, Nat>, -b: Maybe<&2, Nat>, e: {a == b : Maybe<&2, Nat>}) -> {T.first.pick(hit, at, a) == Laws.th.at.if(hit, at, b) : Maybe<&2, Nat>}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      e
+
+def pt.cause_go(ls: List<&2, T.Ld>, +n: String, +at: Nat) -> {T.cause.go(ls, n, at) == Laws.th.blame(ls, n, at) : Maybe<&2, Nat>}:
+  match ls:
+    case Nil{}:
+      {==}
+    case Con{+l, +rest}:
+      %Equal.sym(Bool, T.blames(l, n), Laws.th.blames(l, n), pt.blames(l, n)) : {T.first.pick(_, at, T.cause.go(rest, n, 1n+at)) == Laws.th.at.if(Laws.th.blames(l, n), at, Laws.th.blame(rest, n, 1n+at)) : Maybe<&2, Nat>}
+      pt.first_if(Laws.th.blames(l, n), at, T.cause.go(rest, n, 1n+at), Laws.th.blame(rest, n, 1n+at), pt.cause_go(rest, n, 1n+at))
+
+def pt.cause_of(m: Maybe<&2, Nat>) -> {T.cause.of(m) == Laws.th.cause.of(m) : T.Cause}:
+  match m:
+    case None{}:
+      {==}
+    case Some{at}:
+      {==}
+
+def pt.pick_w(+ls: List<&2, T.Ld>, +n: String, +id: U32, +w: Bool, +h: {Laws.th.pick(ls, n) == T.Res{id, w} : T.Res}) -> {T.pick(ls, n) == T.pick.warn(w, id, ls, n) : T.Pick}:
+  +e = Equal.trans(T.Res, T.pick.res(ls, n), Laws.th.pick(ls, n), T.Res{id, w}, pt.pickres(ls, n), h)
+  %Equal.sym(T.Res, T.pick.res(ls, n), T.Res{id, w}, e) : {T.pick.go(_, ls, n) == T.pick.warn(w, id, ls, n) : T.Pick}
+  {==}
+
+def Laws.theme_pick_cause(ls, n, id, w):
+  +want = {Some{Laws.th.cause.of(Laws.th.blame(ls, n, 0n))} : Maybe<&2, T.Cause>}
+  %Equal.sym(T.Pick, T.pick(ls, n), T.pick.warn(True{}, id, ls, n), pt.pick_w(ls, n, id, True{}, w)) : {Laws.th.cause(_) == want : Maybe<&2, T.Cause>}
+  %Equal.sym(Maybe<&2, Nat>, T.cause.go(ls, n, 0n), Laws.th.blame(ls, n, 0n), pt.cause_go(ls, n, 0n)) : {Some{T.cause.of(_)} == want : Maybe<&2, T.Cause>}
+  Equal.cong(T.Cause, Maybe<&2, T.Cause>, x => Some{x}, T.cause.of(Laws.th.blame(ls, n, 0n)), Laws.th.cause.of(Laws.th.blame(ls, n, 0n)), pt.cause_of(Laws.th.blame(ls, n, 0n)))
+
+def Laws.theme_pick_quiet(ls, n, id, w):
+  %Equal.sym(T.Pick, T.pick(ls, n), T.pick.warn(False{}, id, ls, n), pt.pick_w(ls, n, id, False{}, w)) : {Laws.th.cause(_) == None{} : Maybe<&2, T.Cause>}
+  {==}
+
+def pt.keepn(c: Bool, at: Nat, -r: List<&2, Nat>, -s: List<&2, Nat>, e: {r == s : List<&2, Nat>}) -> {T.broken.keep(c, at, r) == List.append(&2, Nat, Laws.th.keepn(c, at), s) : List<&2, Nat>}:
+  match c:
+    case True{}:
+      Equal.cong(List<&2, Nat>, List<&2, Nat>, xs => at <> xs, r, s, e)
+    case False{}:
+      e
+
+def pt.broken_of(l: T.Ld, +skip: Maybe<&2, Nat>, +at: Nat, -r: List<&2, Nat>, -s: List<&2, Nat>, e: {r == s : List<&2, Nat>})
+  -> {T.broken.of(l, skip, at, r) == List.append(&2, Nat, Laws.th.keepn(Bool.and(Laws.th.broke(l), Bool.not(Laws.th.is.at(skip, at))), at), s) : List<&2, Nat>}:
+  match l:
+    case T.Fine{nm, c}:
+      e
+    case T.Broke{nm, st}:
+      match skip:
+        case None{}:
+          pt.keepn(True{}, at, r, s, e)
+        case Some{x}:
+          pt.keepn(Bool.not(Nat.is_eq(x, at)), at, r, s, e)
+
+def pt.broken(ls: List<&2, T.Ld>, +skip: Maybe<&2, Nat>, +at: Nat) -> {T.broken(ls, skip, at) == Laws.th.broken(ls, skip, at) : List<&2, Nat>}:
+  match ls:
+    case Nil{}:
+      {==}
+    case Con{l, +rest}:
+      pt.broken_of(l, skip, at, T.broken(rest, skip, 1n+at), Laws.th.broken(rest, skip, 1n+at), pt.broken(rest, skip, 1n+at))
+
+def pt.broken_w(w: Bool, +id: U32, +ls: List<&2, T.Ld>, +n: String) -> {Laws.th.broken.of(T.pick.warn(w, id, ls, n)) == Laws.th.broken(ls, Laws.th.skip(w, Laws.th.blame(ls, n, 0n)), 0n) : List<&2, Nat>}:
+  match w:
+    case True{}:
+      %Equal.sym(Maybe<&2, Nat>, T.cause.go(ls, n, 0n), Laws.th.blame(ls, n, 0n), pt.cause_go(ls, n, 0n)) : {T.broken(ls, _, 0n) == Laws.th.broken(ls, Laws.th.blame(ls, n, 0n), 0n) : List<&2, Nat>}
+      pt.broken(ls, Laws.th.blame(ls, n, 0n), 0n)
+    case False{}:
+      pt.broken(ls, None{}, 0n)
+
+def Laws.theme_pick_broken(ls, n, id, w, r):
+  %Equal.sym(T.Pick, T.pick(ls, n), T.pick.warn(w, id, ls, n), pt.pick_w(ls, n, id, w, r)) : {Laws.th.broken.of(_) == Laws.th.broken(ls, Laws.th.skip(w, Laws.th.blame(ls, n, 0n)), 0n) : List<&2, Nat>}
+  pt.broken_w(w, id, ls, n)
+
+def pt.named(l: T.Ld, +n: String) -> {T.fine.named(l, n) == Laws.th.named(l, n) : Bool}:
+  match l:
+    case T.Fine{nm, c}:
+      {==}
+    case T.Broke{nm, st}:
+      {==}
+
+def pt.ffirst(ls: List<&2, T.Ld>, +n: String, +at: Nat) -> {T.fine.first(ls, n, at) == Laws.th.first(ls, n, at) : Maybe<&2, Nat>}:
+  match ls:
+    case Nil{}:
+      {==}
+    case Con{+l, +rest}:
+      %Equal.sym(Bool, T.fine.named(l, n), Laws.th.named(l, n), pt.named(l, n)) : {T.first.pick(_, at, T.fine.first(rest, n, 1n+at)) == Laws.th.at.if(Laws.th.named(l, n), at, Laws.th.first(rest, n, 1n+at)) : Maybe<&2, Nat>}
+      pt.first_if(Laws.th.named(l, n), at, T.fine.first(rest, n, 1n+at), Laws.th.first(rest, n, 1n+at), pt.ffirst(rest, n, 1n+at))
+
+def pt.clash_if(c: Bool, w: Nat, at: Nat, -r: List<&2, T.Clash>, -s: List<&2, T.Clash>, e: {r == s : List<&2, T.Clash>}) -> {T.clash.cons(T.clash.if(c, w, at), r) == List.append(&2, T.Clash, Laws.th.clash.if(c, w, at), s) : List<&2, T.Clash>}:
+  match c:
+    case True{}:
+      e
+    case False{}:
+      Equal.cong(List<&2, T.Clash>, List<&2, T.Clash>, xs => T.Clash{at, w} <> xs, r, s, e)
+
+def pt.clash_of(m: Maybe<&2, Nat>, +at: Nat, -r: List<&2, T.Clash>, -s: List<&2, T.Clash>, e: {r == s : List<&2, T.Clash>}) -> {T.clash.cons(T.clash.of(m, at), r) == List.append(&2, T.Clash, Laws.th.clash(m, at), s) : List<&2, T.Clash>}:
+  match m:
+    case None{}:
+      e
+    case Some{+w}:
+      pt.clash_if(Nat.is_eq(w, at), w, at, r, s, e)
+
+def pt.clashes(+all: List<&2, T.Ld>, ls: List<&2, T.Ld>, +at: Nat) -> {T.clashes.go(all, ls, at) == Laws.th.clashes.go(all, ls, at) : List<&2, T.Clash>}:
+  match ls:
+    case Nil{}:
+      {==}
+    case Con{l, +rest}:
+      match l:
+        case T.Fine{+nm, c}:
+          %Equal.sym(Maybe<&2, Nat>, T.fine.first(all, nm, 0n), Laws.th.first(all, nm, 0n), pt.ffirst(all, nm, 0n)) : {T.clash.cons(T.clash.of(_, at), T.clashes.go(all, rest, 1n+at)) == List.append(&2, T.Clash, Laws.th.clash(Laws.th.first(all, nm, 0n), at), Laws.th.clashes.go(all, rest, 1n+at)) : List<&2, T.Clash>}
+          pt.clash_of(Laws.th.first(all, nm, 0n), at, T.clashes.go(all, rest, 1n+at), Laws.th.clashes.go(all, rest, 1n+at), pt.clashes(all, rest, 1n+at))
+        case T.Broke{nm, st}:
+          pt.clashes(all, rest, 1n+at)
+
+def pt.clashes_go(r: T.Res, +ls: List<&2, T.Ld>, +n: String) -> {Laws.th.clashes.of(T.pick.go(r, ls, n)) == T.clashes(ls) : List<&2, T.Clash>}:
+  match r:
+    case T.Res{id, w}:
+      match w:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+
+def Laws.theme_pick_clashes(ls, n):
+  Equal.trans(List<&2, T.Clash>, Laws.th.clashes.of(T.pick(ls, n)), T.clashes(ls), Laws.th.clashes(ls), pt.clashes_go(T.pick.res(ls, n), ls, n), pt.clashes(ls, ls, 0n))
+
+def Laws.theme_pick_example():
+  {==}
 
 # ---- tokens ----
 
@@ -27428,8 +28126,9 @@ def ascii_unchanged(+rows: List<&2, List<&2, List<&2, Nat>>>, +ones: Gw.Ones.row
 # proof_tui_color: the T3 laws (docs/interface.md "Terminal colors") of
 # the model in bend/tui_color.bend.
 #
-# The division takes n off x while n fits, so n times the quotient is at
-# most x, and every q with n * q at most x is at most the quotient. So
+# Nat.divmod adds one to q * n + r per step and keeps r below n, so n
+# times the quotient is at most x, and every q with n * q at most x is at
+# most the quotient. So
 # adding d to x never lowers the quotient, and raises it when d is at
 # least n. A rung moves each channel from the last rung by such a step:
 # the rising channels count the weight up, the falling ones count it
@@ -27659,72 +28358,162 @@ def pu.sub_fuel(+x: Nat, +f: Nat, +n: Nat, +ex: {Nat.is_le(x, 1n+f) == True{} : 
     case 1n+p 1n+q:
       pu.le_trans(Nat.sub(p, q), p, f, pu.sub_le_self(p, q), ex)
 
+def pu.le_succ_of_lt(+a: Nat, +b: Nat, +e: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(1n+a, b) == True{} : Bool}:
+  match a b:
+    case p 0n:
+      pu.absurd_ft({Nat.is_le(1n+p, 0n) == True{} : Bool}, Equal.trans(Bool, False{}, Nat.is_lt(p, 0n), True{}, pu.lt_zero_f(p), e))
+    case 0n 1n+q:
+      pu.le_zero(q)
+    case 1n+p 1n+q:
+      pu.le_succ_of_lt(p, q, e)
+
+def pu.not_le_lt(+x: Nat, +y: Nat, +h: {Nat.is_le(x, y) == False{} : Bool}) -> {Nat.is_lt(y, x) == True{} : Bool}:
+  match x y:
+    case 0n 0n:
+      pu.absurd_tf({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
+    case 0n 1n+q:
+      pu.absurd_tf({Nat.is_lt(1n+q, 0n) == True{} : Bool}, h)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      pu.not_le_lt(p, q, h)
+
+def pu.lt_not_le(+a: Nat, +b: Nat, +e: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(b, a) == False{} : Bool}:
+  match a b:
+    case 0n 0n:
+      pu.absurd_ft({True{} == False{} : Bool}, e)
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      pu.absurd_ft({True{} == False{} : Bool}, e)
+    case 1n+p 1n+q:
+      pu.lt_not_le(p, q, e)
+
 # Division
 # --------
 
-# n times the quotient is at most x
-def pu.dv_low(+fuel: Nat, +ok: Bool, +x: Nat, +n: Nat, +eo: {Nat.is_le(n, x) == ok : Bool}) -> {Nat.is_le(Nat.mul(TC.dv.go(fuel, ok, x, n), n), x) == True{} : Bool}:
-  match fuel:
+# a step of Nat.divmod (n = 1 + bp) adds one to q * n + r, and r stays
+# at most bp: so q * n + r is x and r < n
+def pu.go_eq(+a: Nat, +m: Nat, +d: Nat, +r: Nat, +bp: Nat, +h: {Nat.add(m, r) == bp : Nat})
+  -> {Nat.add(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(a, m, d, r)), 1n+bp), Pair.snd(Nat, Nat, Nat.divmod.go(a, m, d, r))) == Nat.add(a, Nat.add(Nat.mul(d, 1n+bp), r)) : Nat}:
+  match a:
     case 0n:
-      pu.le_zero(x)
-    case 1n+f:
-      match ok:
-        case True{}:
-          +y = Nat.sub(x, n)
-          +q = TC.dv.go(f, Nat.is_le(n, y), y, n)
-          +ih = pu.dv_low(f, Nat.is_le(n, y), y, n, {==})
-          %pu.sub_add(n, x, eo) : {Nat.is_le(Nat.add(n, Nat.mul(q, n)), _) == True{} : Bool}
-          pu.le_add_l(n, Nat.mul(q, n), y, ih)
-        case False{}:
-          pu.le_zero(x)
-
-# a q with n * q at most x is at most the quotient (n >= 1, x <= fuel)
-def pu.dv_max(+fuel: Nat, +ok: Bool, +x: Nat, +n: Nat, +q: Nat, +eo: {Nat.is_le(n, x) == ok : Bool}, +ef: {Nat.is_le(x, fuel) == True{} : Bool}, +en: {Nat.is_le(1n, n) == True{} : Bool}, +eq: {Nat.is_le(Nat.mul(q, n), x) == True{} : Bool}) -> {Nat.is_le(q, TC.dv.go(fuel, ok, x, n)) == True{} : Bool}:
-  match fuel:
-    case 0n:
-      match n:
+      {==}
+    case 1n+ap:
+      match m:
         case 0n:
-          match q:
-            case 0n:
-              {==}
-            case 1n+r:
-              pu.absurd_ft({Nat.is_le(1n+r, 0n) == True{} : Bool}, en)
-        case 1n+m:
-          match q:
-            case 0n:
-              {==}
-            case 1n+r:
-              pu.absurd_ft({Nat.is_le(1n+r, 0n) == True{} : Bool}, pu.le_trans(Nat.mul(1n+r, 1n+m), x, 0n, eq, ef))
-    case 1n+f:
-      match ok:
-        case True{}:
-          match q:
-            case 0n:
-              {==}
-            case 1n+r:
-              +y = Nat.sub(x, n)
-              pu.dv_max(f, Nat.is_le(n, y), y, n, r, {==}, pu.sub_fuel(x, f, n, ef, en), en, pu.le_sub(n, Nat.mul(r, n), x, eq))
-        case False{}:
-          match q:
-            case 0n:
-              {==}
-            case 1n+r:
-              +fits = pu.le_add_left(n, Nat.mul(r, n), x, eq)
-              pu.absurd_tf({Nat.is_le(1n+r, 0n) == True{} : Bool}, Equal.trans(Bool, True{}, Nat.is_le(n, x), False{}, Equal.sym(Bool, Nat.is_le(n, x), True{}, fits), eo))
+          +lhs = Nat.add(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(ap, r, 1n+d, 0n)), 1n+bp), Pair.snd(Nat, Nat, Nat.divmod.go(ap, r, 1n+d, 0n)))
+          +dm = Nat.mul(d, 1n+bp)
+          +h2 = {%Equal.sym(Nat, Nat.add(r, 0n), r, pa.add_zero(r)) : {_ == bp : Nat}; h : {Nat.add(r, 0n) == bp : Nat}}
+          +ih = pu.go_eq(ap, r, 1n+d, 0n, bp, h2)
+          +y = Nat.add(bp, dm)
+          %Equal.sym(Nat, r, bp, h) : {lhs == 1n+Nat.add(ap, Nat.add(dm, _)) : Nat}
+          %pa.add_comm(bp, dm) : {lhs == 1n+Nat.add(ap, _) : Nat}
+          %pa.add_succ(ap, y) : {lhs == _ : Nat}
+          %pa.add_zero(y) : {lhs == Nat.add(ap, 1n+_) : Nat}
+          ih
+        case 1n+mp:
+          +lhs = Nat.add(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(ap, mp, d, 1n+r)), 1n+bp), Pair.snd(Nat, Nat, Nat.divmod.go(ap, mp, d, 1n+r)))
+          +dm = Nat.mul(d, 1n+bp)
+          +h3 = Equal.trans(Nat, Nat.add(mp, 1n+r), 1n+Nat.add(mp, r), bp, pa.add_succ(mp, r), h)
+          +ih = pu.go_eq(ap, mp, d, 1n+r, bp, h3)
+          %pa.add_succ(ap, Nat.add(dm, r)) : {lhs == _ : Nat}
+          %pa.add_succ(dm, r) : {lhs == Nat.add(ap, _) : Nat}
+          ih
+
+def pu.go_le(+a: Nat, +m: Nat, +d: Nat, +r: Nat, +bp: Nat, +h: {Nat.add(m, r) == bp : Nat})
+  -> {Nat.is_le(Pair.snd(Nat, Nat, Nat.divmod.go(a, m, d, r)), bp) == True{} : Bool}:
+  match a:
+    case 0n:
+      %h : {Nat.is_le(r, _) == True{} : Bool}
+      pu.le_add(m, r)
+    case 1n+ap:
+      match m:
+        case 0n:
+          pu.go_le(ap, r, 1n+d, 0n, bp, {%Equal.sym(Nat, Nat.add(r, 0n), r, pa.add_zero(r)) : {_ == bp : Nat}; h : {Nat.add(r, 0n) == bp : Nat}})
+        case 1n+mp:
+          pu.go_le(ap, mp, d, 1n+r, bp, Equal.trans(Nat, Nat.add(mp, 1n+r), 1n+Nat.add(mp, r), bp, pa.add_succ(mp, r), h))
+
+# x = (x / n) * n + x mod n, for n = 1 + bp
+def pu.div_eq(+x: Nat, +bp: Nat) -> {Nat.add(Nat.mul(Nat.div(x, 1n+bp), 1n+bp), Nat.mod(x, 1n+bp)) == x : Nat}:
+  %pa.add_zero(x) : {Nat.add(Nat.mul(Nat.div(x, 1n+bp), 1n+bp), Nat.mod(x, 1n+bp)) == _ : Nat}
+  pu.go_eq(x, bp, 0n, 0n, bp, pa.add_zero(bp))
+
+# x mod n < n, for n = 1 + bp
+def pu.mod_le(+x: Nat, +bp: Nat) -> {Nat.is_le(Nat.mod(x, 1n+bp), bp) == True{} : Bool}:
+  pu.go_le(x, bp, 0n, 0n, bp, pa.add_zero(bp))
+
+def pu.mul_le_mono_l(+x: Nat, +y: Nat, +k: Nat, +h: {Nat.is_le(x, y) == True{} : Bool}) -> {Nat.is_le(Nat.mul(x, k), Nat.mul(y, k)) == True{} : Bool}:
+  match x y:
+    case 0n q:
+      pu.le_zero(Nat.mul(q, k))
+    case 1n+p 0n:
+      pu.absurd_ft({Nat.is_le(Nat.mul(1n+p, k), Nat.mul(0n, k)) == True{} : Bool}, h)
+    case 1n+p 1n+q:
+      pu.le_add_l(k, Nat.mul(p, k), Nat.mul(q, k), pu.mul_le_mono_l(p, q, k, h))
+
+def pu.le_add_cancel_l(+c: Nat, -x: Nat, -y: Nat, +h: {Nat.is_le(Nat.add(c, x), Nat.add(c, y)) == True{} : Bool}) -> {Nat.is_le(x, y) == True{} : Bool}:
+  match c:
+    case 0n:
+      h
+    case 1n+p:
+      pu.le_add_cancel_l(p, x, y, h)
+
+def pu.lt_succ(+b: Nat) -> {Nat.is_lt(b, 1n+b) == True{} : Bool}:
+  match b:
+    case 0n:
+      {==}
+    case 1n+p:
+      pu.lt_succ(p)
+
+# n times the quotient is at most x
+def pu.div_low(+x: Nat, +n: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool}) -> {Nat.is_le(Nat.mul(Nat.div(x, n), n), x) == True{} : Bool}:
+  match n:
+    case 0n:
+      pu.absurd_ft({Nat.is_le(Nat.mul(Nat.div(x, 0n), 0n), x) == True{} : Bool}, en)
+    case 1n+bp:
+      +qn = Nat.mul(Nat.div(x, 1n+bp), 1n+bp)
+      %pu.div_eq(x, bp) : {Nat.is_le(qn, _) == True{} : Bool}
+      pu.le_add_r(qn, Nat.mod(x, 1n+bp))
+
+def pu.div_max.pick(+b: Bool, +x: Nat, +bp: Nat, +q: Nat, +eb: {Nat.is_le(q, Nat.div(x, 1n+bp)) == b : Bool}, +eq: {Nat.is_le(Nat.mul(q, 1n+bp), x) == True{} : Bool})
+  -> {Nat.is_le(q, Nat.div(x, 1n+bp)) == True{} : Bool}:
+  match b:
+    case True{}:
+      eb
+    case False{}:
+      +n = {1n+bp : Nat}
+      +dq = Nat.div(x, n)
+      +dn = Nat.mul(dq, n)
+      +r = Nat.mod(x, n)
+      +up = pu.mul_le_mono_l(1n+dq, q, n, pu.le_succ_of_lt(dq, q, pu.not_le_lt(q, dq, eb)))
+      +over = pu.le_trans(Nat.add(n, dn), Nat.mul(q, n), x, up, eq)
+      +over2 = {%Equal.sym(Nat, Nat.add(dn, r), x, pu.div_eq(x, bp)) : {Nat.is_le(Nat.add(n, dn), _) == True{} : Bool}; over : {Nat.is_le(Nat.add(n, dn), Nat.add(dn, r)) == True{} : Bool}}
+      +over3 = {%pa.add_comm(n, dn) : {Nat.is_le(_, Nat.add(dn, r)) == True{} : Bool}; over2 : {Nat.is_le(Nat.add(dn, n), Nat.add(dn, r)) == True{} : Bool}}
+      +big = pu.le_trans(n, r, bp, pu.le_add_cancel_l(dn, n, r, over3), pu.mod_le(x, bp))
+      pu.absurd_tf({Nat.is_le(q, dq) == True{} : Bool}, Equal.trans(Bool, True{}, Nat.is_le(n, bp), False{}, Equal.sym(Bool, Nat.is_le(n, bp), True{}, big), pu.lt_not_le(bp, n, pu.lt_succ(bp))))
+
+# a q with q * n at most x is at most the quotient (n >= 1)
+def pu.div_max(+x: Nat, +n: Nat, +q: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool}, +eq: {Nat.is_le(Nat.mul(q, n), x) == True{} : Bool}) -> {Nat.is_le(q, Nat.div(x, n)) == True{} : Bool}:
+  match n:
+    case 0n:
+      pu.absurd_ft({Nat.is_le(q, Nat.div(x, 0n)) == True{} : Bool}, en)
+    case 1n+bp:
+      pu.div_max.pick(Nat.is_le(q, Nat.div(x, 1n+bp)), x, bp, q, {==}, eq)
 
 # adding d never lowers the quotient
-def pu.dv_le_add(+x: Nat, +d: Nat, +n: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool}) -> {Nat.is_le(TC.dv(x, n), TC.dv(Nat.add(d, x), n)) == True{} : Bool}:
+def pu.dv_le_add(+x: Nat, +d: Nat, +n: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool}) -> {Nat.is_le(Nat.div(x, n), Nat.div(Nat.add(d, x), n)) == True{} : Bool}:
   +y = Nat.add(d, x)
-  +q = TC.dv(x, n)
-  +low = pu.le_trans(Nat.mul(q, n), x, y, pu.dv_low(x, Nat.is_le(n, x), x, n, {==}), pu.le_add(d, x))
-  pu.dv_max(y, Nat.is_le(n, y), y, n, q, {==}, pu.le_refl(y), en, low)
+  +q = Nat.div(x, n)
+  +low = pu.le_trans(Nat.mul(q, n), x, y, pu.div_low(x, n, en), pu.le_add(d, x))
+  pu.div_max(y, n, q, en, low)
 
 # adding d >= n raises the quotient
-def pu.dv_lt_add(+x: Nat, +d: Nat, +n: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool}, +ed: {Nat.is_le(n, d) == True{} : Bool}) -> {Nat.is_lt(TC.dv(x, n), TC.dv(Nat.add(d, x), n)) == True{} : Bool}:
+def pu.dv_lt_add(+x: Nat, +d: Nat, +n: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool}, +ed: {Nat.is_le(n, d) == True{} : Bool}) -> {Nat.is_lt(Nat.div(x, n), Nat.div(Nat.add(d, x), n)) == True{} : Bool}:
   +y = Nat.add(d, x)
-  +q = TC.dv(x, n)
-  +low = pu.le_add_both(n, d, Nat.mul(q, n), x, ed, pu.dv_low(x, Nat.is_le(n, x), x, n, {==}))
-  pu.lt_of_le_succ(q, TC.dv(y, n), pu.dv_max(y, Nat.is_le(n, y), y, n, 1n+q, {==}, pu.le_refl(y), en, low))
+  +q = Nat.div(x, n)
+  +low = pu.le_add_both(n, d, Nat.mul(q, n), x, ed, pu.div_low(x, n, en))
+  pu.lt_of_le_succ(q, Nat.div(y, n), pu.div_max(y, n, 1n+q, en, low))
 
 # The effort ramp
 # ---------------
@@ -27735,10 +28524,10 @@ def pu.chan_le(+u: Bool, +a: Nat, +b: Nat, +k: Nat, +l: Nat, +n: Nat, +en: {Nat.
   match u:
     case True{}:
       +d = Nat.sub(b, a)
-      pu.le_add_l(a, TC.dv(Nat.mul(k, d), n), TC.dv(Nat.add(d, Nat.mul(k, d)), n), pu.dv_le_add(Nat.mul(k, d), d, n, en))
+      pu.le_add_l(a, Nat.div(Nat.mul(k, d), n), Nat.div(Nat.add(d, Nat.mul(k, d)), n), pu.dv_le_add(Nat.mul(k, d), d, n, en))
     case False{}:
       +d = Nat.sub(a, b)
-      pu.le_add_l(b, TC.dv(Nat.mul(l, d), n), TC.dv(Nat.add(d, Nat.mul(l, d)), n), pu.dv_le_add(Nat.mul(l, d), d, n, en))
+      pu.le_add_l(b, Nat.div(Nat.mul(l, d), n), Nat.div(Nat.add(d, Nat.mul(l, d)), n), pu.dv_le_add(Nat.mul(l, d), d, n, en))
 
 # x is strictly beyond y toward the high end
 def pu.rel(u: Bool, +x: Nat, +y: Nat) -> Bool:
@@ -27754,10 +28543,10 @@ def pu.chan_lt(+u: Bool, +a: Nat, +b: Nat, +k: Nat, +l: Nat, +n: Nat, +en: {Nat.
   match u:
     case True{}:
       +d = Nat.sub(b, a)
-      pu.lt_add_l(a, TC.dv(Nat.mul(k, d), n), TC.dv(Nat.add(d, Nat.mul(k, d)), n), pu.dv_lt_add(Nat.mul(k, d), d, n, en, ed))
+      pu.lt_add_l(a, Nat.div(Nat.mul(k, d), n), Nat.div(Nat.add(d, Nat.mul(k, d)), n), pu.dv_lt_add(Nat.mul(k, d), d, n, en, ed))
     case False{}:
       +d = Nat.sub(a, b)
-      pu.lt_add_l(b, TC.dv(Nat.mul(l, d), n), TC.dv(Nat.add(d, Nat.mul(l, d)), n), pu.dv_lt_add(Nat.mul(l, d), d, n, en, ed))
+      pu.lt_add_l(b, Nat.div(Nat.mul(l, d), n), Nat.div(Nat.add(d, Nat.mul(l, d)), n), pu.dv_lt_add(Nat.mul(l, d), d, n, en, ed))
 
 # the rungs after rung done move every channel on from it
 def pu.ordered_go(+left: Nat, +done: Nat, +lr: Nat, +lg: Nat, +lb: Nat, +hr: Nat, +hg: Nat, +hb: Nat, +n: Nat, +en: {Nat.is_le(1n, n) == True{} : Bool})
@@ -27850,15 +28639,6 @@ def pu.ne_px(+c: pu.Ch, +x: TC.Px, +y: TC.Px, +h: {Nat.is_eq(pu.ch(c, x), pu.ch(
     case ChB{} TC.Px{xr, xg, xb} TC.Px{yr, yg, yb}:
       %Equal.sym(Bool, Nat.is_eq(xb, yb), False{}, h) : {Bool.not(Bool.and(Nat.is_eq(xr, yr), Bool.and(Nat.is_eq(xg, yg), _))) == True{} : Bool}
       pu.not_and2_f(Nat.is_eq(xr, yr), Nat.is_eq(xg, yg))
-
-def pu.le_succ_of_lt(+a: Nat, +b: Nat, +e: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(1n+a, b) == True{} : Bool}:
-  match a b:
-    case p 0n:
-      pu.absurd_ft({Nat.is_le(1n+p, 0n) == True{} : Bool}, Equal.trans(Bool, False{}, Nat.is_lt(p, 0n), True{}, pu.lt_zero_f(p), e))
-    case 0n 1n+q:
-      pu.le_zero(q)
-    case 1n+p 1n+q:
-      pu.le_succ_of_lt(p, q, e)
 
 def pu.lt_le_trans(+a: Nat, +b: Nat, +c: Nat, +ab: {Nat.is_lt(a, b) == True{} : Bool}, +bc: {Nat.is_le(b, c) == True{} : Bool}) -> {Nat.is_lt(a, c) == True{} : Bool}:
   pu.lt_of_le_succ(a, c, pu.le_trans(1n+a, b, c, pu.le_succ_of_lt(a, b, ab), bc))
@@ -28079,28 +28859,6 @@ def pu.lt_add_both(+a: Nat, +b: Nat, +c: Nat, +d: Nat, +ab: {Nat.is_lt(a, b) == 
 def pu.mul_lt_mono(+k: Nat, +x: Nat, +y: Nat, +h: {Nat.is_lt(x, y) == True{} : Bool}) -> {Nat.is_lt(Nat.mul(1n+k, x), Nat.mul(1n+k, y)) == True{} : Bool}:
   pu.lt_add_both(x, y, Nat.mul(k, x), Nat.mul(k, y), h, pu.mul_le_mono_r(k, x, y, pu.lt_le(x, y, h)))
 
-def pu.not_le_lt(+x: Nat, +y: Nat, +h: {Nat.is_le(x, y) == False{} : Bool}) -> {Nat.is_lt(y, x) == True{} : Bool}:
-  match x y:
-    case 0n 0n:
-      pu.absurd_tf({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
-    case 0n 1n+q:
-      pu.absurd_tf({Nat.is_lt(1n+q, 0n) == True{} : Bool}, h)
-    case 1n+p 0n:
-      {==}
-    case 1n+p 1n+q:
-      pu.not_le_lt(p, q, h)
-
-def pu.lt_not_le(+a: Nat, +b: Nat, +e: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(b, a) == False{} : Bool}:
-  match a b:
-    case 0n 0n:
-      pu.absurd_ft({True{} == False{} : Bool}, e)
-    case 0n 1n+q:
-      {==}
-    case 1n+p 0n:
-      pu.absurd_ft({True{} == False{} : Bool}, e)
-    case 1n+p 1n+q:
-      pu.lt_not_le(p, q, e)
-
 def pu.cancel.pick(+b: Bool, +k: Nat, +x: Nat, +y: Nat, +eb: {Nat.is_le(x, y) == b : Bool}) -> {Nat.is_le(Nat.mul(1n+k, x), Nat.mul(1n+k, y)) == b : Bool}:
   match b:
     case True{}:
@@ -28137,6 +28895,28 @@ def pu.band_scale(+fs: List<&2, TC.Frac>, +k: Nat, +t: Nat, +w: Nat) -> {TC.band
 
 def tui_usage_band_fraction(+k: Nat, +t: Nat, +w: Nat) -> {TC.band(Nat.mul(1n+k, t), Nat.mul(1n+k, w)) == TC.band(t, w) : Nat}:
   pu.band_scale(TC.bands(), k, t, w)
+
+# tokens past the window reach a band of num <= den as the full window
+# does: w * num <= w * den <= t * den
+def pu.reach_full(+num: Nat, +den: Nat, +t: Nat, +w: Nat, +hnd: {Nat.is_le(num, den) == True{} : Bool}, +past: {Nat.is_le(w, t) == True{} : Bool}) -> {TC.reached(TC.Frac{num, den}, t, w) == TC.reached(TC.Frac{num, den}, w, w) : Bool}:
+  +wn = Nat.mul(w, num)
+  +a = pu.mul_le_mono_r(w, num, den, hnd)
+  +c = pu.le_trans(wn, Nat.mul(w, den), Nat.mul(t, den), a, pu.mul_le_mono_l(w, t, den, past))
+  %Equal.sym(Bool, Nat.is_le(wn, Nat.mul(t, den)), True{}, c) : {Bool.and(Nat.is_lt(0n, w), _) == Bool.and(Nat.is_lt(0n, w), Nat.is_le(wn, Nat.mul(w, den))) : Bool}
+  %Equal.sym(Bool, Nat.is_le(wn, Nat.mul(w, den)), True{}, a) : {Bool.and(Nat.is_lt(0n, w), True{}) == Bool.and(Nat.is_lt(0n, w), _) : Bool}
+  {==}
+
+def Laws.tui_usage_band_full(t, w, past):
+  +f1 = {TC.Frac{1n, 2n} : TC.Frac}
+  +f2 = {TC.Frac{7n, 10n} : TC.Frac}
+  +f3 = {TC.Frac{9n, 10n} : TC.Frac}
+  +r1 = TC.reached(f1, w, w)
+  +r2 = TC.reached(f2, w, w)
+  +r3 = TC.reached(f3, w, w)
+  %Equal.sym(Bool, TC.reached(f1, t, w), r1, pu.reach_full(1n, 2n, t, w, {==}, past)) : {Nat.add(TC.one(_), Nat.add(TC.one(TC.reached(f2, t, w)), Nat.add(TC.one(TC.reached(f3, t, w)), 0n))) == TC.band(w, w) : Nat}
+  %Equal.sym(Bool, TC.reached(f2, t, w), r2, pu.reach_full(7n, 10n, t, w, {==}, past)) : {Nat.add(TC.one(r1), Nat.add(TC.one(_), Nat.add(TC.one(TC.reached(f3, t, w)), 0n))) == TC.band(w, w) : Nat}
+  %Equal.sym(Bool, TC.reached(f3, t, w), r3, pu.reach_full(9n, 10n, t, w, {==}, past)) : {Nat.add(TC.one(r1), Nat.add(TC.one(r2), Nat.add(TC.one(_), 0n))) == TC.band(w, w) : Nat}
+  {==}
 
 # The roles
 # ---------
@@ -28180,10 +28960,10 @@ def pu.resolves_go(+p: List<&2, Maybe<&2, T.Val>>, +rs: List<&2, Nat>, +hc: {T.c
 
 def tui_roles_resolve(+f: T.Th, +v: {T.valid(f) == True{} : Bool}) -> {TC.resolves(T.palette(f), TC.roles()) == True{} : Bool}:
   match f:
-    case T.Th{name, cols, page}:
+    case T.Th{name, cols, page, card, info}:
       +bg = T.background(cols, page)
       +p = T.fill.map(cols, bg, T.toks())
-      +hc = theme_tokens_complete(T.Th{name, cols, page}, v)
+      +hc = theme_tokens_complete(T.Th{name, cols, page, card, info}, v)
       +hl = {%Equal.sym(Nat, List.length(&2, Maybe<&2, T.Val>, p), List.length(&2, U32, T.toks()), pu.fill_len(cols, bg, T.toks())) : {pu.all_lt(TC.roles(), _) == True{} : Bool}; {==} : {pu.all_lt(TC.roles(), List.length(&2, Maybe<&2, T.Val>, p)) == True{} : Bool}}
       pu.resolves_go(p, TC.roles(), hc, hl)
 

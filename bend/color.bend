@@ -16,6 +16,10 @@
 # - light(c): lum(c) is above one half.
 # - ansi256(i): the color of xterm-256 index i; to256(c): the index a
 #   256-color terminal paints for c.
+# - hex(s): the color s writes as `#rrggbb`, exactly: a `#` and six hex
+#   digits, either case; None for any other text.
+# - num(s): the xterm-256 index s writes in decimal: 0 to 255, no sign,
+#   no leading zero, no fraction; None for any other text.
 
 import Base
 
@@ -217,3 +221,102 @@ def to256(+c: Rgb) -> U32:
       +spread = (U32.max(r, U32.max(g, b)) - U32.min(r, U32.min(g, b)) : U32)
       +ci = (16 + 36 * ri + 6 * gi + bi : U32)
       to256.pick(Bool.and(U32.is_lt(spread, 10), U32.is_lt(dist(Rgb{r, g, b}, gray), dist(Rgb{r, g, b}, cube))), slot, ci)
+
+# Color text
+# ----------
+
+def digit.pick(ok: Bool, +x: U32, +base: U32) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      Some{(x - base : U32)}
+    case False{}:
+      None{}
+
+def in(+x: U32, lo: U32, hi: U32) -> Bool:
+  Bool.and(U32.is_ge(x, lo), U32.is_le(x, hi))
+
+# the value of a decimal digit
+def dec(c: Char) -> Maybe<&2, U32>:
+  match c:
+    case Chr{+x}:
+      digit.pick(in(x, 48, 57), x, 48)
+
+# the value of a leading decimal digit: 1 to 9
+def dec.lead(c: Char) -> Maybe<&2, U32>:
+  match c:
+    case Chr{+x}:
+      digit.pick(in(x, 49, 57), x, 48)
+
+def hexd.up(ok: Bool, +x: U32) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      Some{(x - 55 : U32)}
+    case False{}:
+      None{}
+
+def hexd.low(ok: Bool, +x: U32) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      Some{(x - 87 : U32)}
+    case False{}:
+      hexd.up(in(x, 65, 70), x)
+
+def hexd.dec(ok: Bool, +x: U32) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      Some{(x - 48 : U32)}
+    case False{}:
+      hexd.low(in(x, 97, 102), x)
+
+# the value of a hex digit: 0-9, a-f, A-F
+def hexd(c: Char) -> Maybe<&2, U32>:
+  match c:
+    case Chr{+x}:
+      hexd.dec(in(x, 48, 57), x)
+
+# the number two digits of base b write, most significant first
+def join(+b: U32, hi: Maybe<&2, U32>, lo: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match hi lo:
+    case Some{x} Some{y}:
+      Some{(x * b + y : U32)}
+    case _ _:
+      None{}
+
+def hex.rgb(r: Maybe<&2, U32>, g: Maybe<&2, U32>, b: Maybe<&2, U32>) -> Maybe<&2, Rgb>:
+  match r g b:
+    case Some{x} Some{y} Some{z}:
+      Some{Rgb{x, y, z}}
+    case _ _ _:
+      None{}
+
+def hex.sharp(ok: Bool, m: Maybe<&2, Rgb>) -> Maybe<&2, Rgb>:
+  match ok:
+    case True{}:
+      m
+    case False{}:
+      None{}
+
+def hex(s: String) -> Maybe<&2, Rgb>:
+  match s:
+    case SCon{h, SCon{a, SCon{b, SCon{c, SCon{d, SCon{e, SCon{f, SNil{}}}}}}}}:
+      hex.sharp(Char.is_eq(h, '#'), hex.rgb(join(16, hexd(a), hexd(b)), join(16, hexd(c), hexd(d)), join(16, hexd(e), hexd(f))))
+    case _:
+      None{}
+
+def num.cap(m: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match m:
+    case None{}:
+      None{}
+    case Some{+x}:
+      digit.pick(U32.is_le(x, 255), x, 0)
+
+def num(s: String) -> Maybe<&2, U32>:
+  match s:
+    case SCon{a, SNil{}}:
+      dec(a)
+    case SCon{a, SCon{b, SNil{}}}:
+      join(10, dec.lead(a), dec(b))
+    case SCon{a, SCon{b, SCon{c, SNil{}}}}:
+      num.cap(join(10, join(10, dec.lead(a), dec(b)), dec(c)))
+    case _:
+      None{}
