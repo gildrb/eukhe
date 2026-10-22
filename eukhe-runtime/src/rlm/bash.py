@@ -269,6 +269,11 @@ class BashHandle:
         self._callbacks: list[Callable[[], None]] = []
         self._reap_callback: Callable[[], None] | None = None
         self._result_consumed = False
+        # Who asked this command to stop before it settled ("agent": the
+        # handle's kill(); "user": the bash view's kill; "interrupt": a
+        # cancelled one-shot await). A nonzero exit after a stop request is
+        # that stop, not a failure; the first stopper wins.
+        self._stopped_by: str | None = None
         self._consumed_notice: Callable[[], None] | None = None
         self._callback_lock = threading.Lock()
         self._started = time.monotonic()
@@ -385,11 +390,17 @@ class BashHandle:
         return self._result if self._done.is_set() else None
 
     def kill(self, sig: int = signal.SIGTERM, grace: float = 5.0) -> None:
+        self._stop("agent", sig, grace)
+
+    def _stop(self, stopper: str, sig: int = signal.SIGTERM, grace: float = 5.0) -> None:
         # Guard on group death, not _done: kill() must still reach a lingering
         # background group after the foreground result was already delivered.
         self._released = True
         if self._reaped:
             return
+        with self._callback_lock:
+            if self._stopped_by is None and not self._done.is_set():
+                self._stopped_by = stopper
         _signal_group(self._pid, sig)
         if sig == signal.SIGTERM:
             timer = threading.Timer(grace, self._force_kill)
@@ -666,14 +677,16 @@ class BashHandle:
             if self._awaited_by_creating_cell or self._result_consumed or not repl.is_active():
                 return
             command = _capped(self.command)
-            reply = await repl.host_request(
-                {
-                    "type": "bash.completed",
-                    "pid": self._pid,
-                    "command": command,
-                    "exitCode": result.exit_code,
-                }
-            )
+            completion: dict[str, Any] = {
+                "type": "bash.completed",
+                "pid": self._pid,
+                "command": command,
+                "exitCode": result.exit_code,
+            }
+            # A stopped command that still exited 0 finished on its own terms.
+            if self._stopped_by is not None and result.exit_code != 0:
+                completion["stoppedBy"] = self._stopped_by
+            reply = await repl.host_request(completion)
             if isinstance(reply, dict) and reply.get("status") == "ok":
                 # Notice accepted by the host; later reads must ask it to withdraw.
                 self._arm_consumed_notice(command)
@@ -776,7 +789,7 @@ class BashHandle:
             # cancels of this task cannot skip it (they re-raise into awaits
             # inside this except block); the loop re-awaits until it finishes
             # (the confirm coroutine itself is bounded).
-            self.kill(grace=_CANCEL_TERM_GRACE)
+            self._stop("interrupt", grace=_CANCEL_TERM_GRACE)
             confirm = asyncio.ensure_future(self._confirm_group_exit())
             while not confirm.done():
                 try:
@@ -1149,6 +1162,6 @@ def activity_request(action: str, activity_id: str | None = None, lines: int = 5
     if action == "kill":
         if handle._reaped:
             return {"activityId": activity_id, "killed": False}
-        handle.kill()
+        handle._stop("user")
         return {"activityId": activity_id, "killed": True}
     raise ValueError("Unknown kernel bash action")

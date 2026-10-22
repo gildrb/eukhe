@@ -39,6 +39,7 @@ fn bash_done(text: &str) -> QueuedItem {
     let report = Report::BashDone {
         pid: 7,
         exit_code: 0,
+        stopped_by: None,
     };
     internal(text, InputOrigin::Report { report })
 }

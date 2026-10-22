@@ -630,6 +630,7 @@ fn shell_completion_row() -> ChatEntry {
     ChatEntry::ShellCompletion(Box::new(crate::custom_message::ShellCompletionRow {
         pid: Some(1),
         exit_code: Some(0),
+        stopped_by: None,
         content: "[bash-done]".to_string(),
     }))
 }

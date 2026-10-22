@@ -246,9 +246,10 @@ pub fn create_heartbeat_prompt_message(
 /// daemon's one job-settled wake; ADR 0010):
 /// - a background kernel `bash()` command (TS
 ///   `createAsyncBashCompletionMessage`): an `async_bash_completion` row
-///   carrying `[bash-done pid:N exit:M]` plus the JSON-encoded command, with
-///   `{pid, command, exitCode}` in details; a later kernel read that
-///   reaches the model first withdraws it through its details
+///   carrying `[bash-done pid:N exit:M]` (`... stopped-by:S]` when a stop
+///   ended it) plus the JSON-encoded command, with
+///   `{pid, command, exitCode[, stoppedBy]}` in details; a later kernel
+///   read that reaches the model first withdraws it through its details
 ///   (`bash.consumed`);
 /// - a detached `ipython` cell or `bash` tool script: a `job_settled` row
 ///   carrying `[job-settled job:ID status:S]` plus its bounded output,
@@ -264,17 +265,22 @@ pub fn create_job_settled_message(
             pid,
             command,
             exit_code,
+            stopped_by,
         } => {
             // TS `JSON.stringify(details.command)`: the quoted, escaped command.
             let encoded_command = serde_json::to_string(command).unwrap_or_default();
+            let mut details = serde_json::json!({
+                "pid": pid,
+                "command": command,
+                "exitCode": exit_code,
+            });
+            if let Some(stopper) = stopped_by {
+                details["stoppedBy"] = serde_json::Value::from(stopper.label());
+            }
             (
                 ASYNC_BASH_COMPLETION_CUSTOM_TYPE,
                 report.render(&format!("Command: {encoded_command}")),
-                serde_json::json!({
-                    "pid": pid,
-                    "command": command,
-                    "exitCode": exit_code,
-                }),
+                details,
             )
         }
         JobSettled::Cell {
@@ -669,6 +675,7 @@ mod tests {
             pid,
             command: command.to_owned(),
             exit_code,
+            stopped_by: None,
         };
         let message =
             create_job_settled_message(&bash(4321, "sleep 12; echo RW_WAKE_DONE", 0), 1_000);
@@ -693,6 +700,34 @@ mod tests {
             if text.starts_with("[bash-done pid:11 exit:2]\n\nCommand: \"echo \\\"done\\\" && exit 2\"")));
         let details = message.details.unwrap();
         assert_eq!(details["exitCode"], 2);
+    }
+
+    #[test]
+    fn a_stopped_bash_completion_names_its_stopper() {
+        // The agent's `srv.kill()` on its own server: the SIGTERM exit
+        // carries who stopped it, in the header and the details.
+        let settled = JobSettled::Bash {
+            pid: 77,
+            command: "python -m http.server 8774".to_owned(),
+            exit_code: -15,
+            stopped_by: Some(eukhe_types::job::BashStopper::Agent),
+        };
+        let message = create_job_settled_message(&settled, 3_000);
+        assert_eq!(
+            (message.content, message.details),
+            (
+                UserContent::Text(
+                    "[bash-done pid:77 exit:-15 stopped-by:agent]\n\nCommand: \"python -m http.server 8774\""
+                        .to_string()
+                ),
+                Some(serde_json::json!({
+                    "pid": 77,
+                    "command": "python -m http.server 8774",
+                    "exitCode": -15,
+                    "stoppedBy": "agent",
+                })),
+            )
+        );
     }
 
     #[test]

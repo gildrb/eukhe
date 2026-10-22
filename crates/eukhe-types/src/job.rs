@@ -92,6 +92,31 @@ impl CellStatus {
     }
 }
 
+/// Who stopped a background kernel `bash()` command before it settled. A
+/// command that exits nonzero after a stop was stopped, not failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BashStopper {
+    /// The agent's own code (`handle.kill()`).
+    Agent,
+    /// The user, from the bash view.
+    User,
+    /// A cancelled one-shot `await bash(...)` (an interrupt).
+    Interrupt,
+}
+
+impl BashStopper {
+    /// The stopper as a report header value.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::User => "user",
+            Self::Interrupt => "interrupt",
+        }
+    }
+}
+
 /// One settled job: the row that wakes the session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -113,12 +138,15 @@ pub enum JobSettled {
         output: String,
     },
     /// A background kernel `bash()` command exited; its output stays with
-    /// the handle.
+    /// the handle. `stopped_by` is set when its nonzero exit followed a
+    /// stop request.
     #[serde(rename_all = "camelCase")]
     Bash {
         pid: u32,
         command: String,
         exit_code: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stopped_by: Option<BashStopper>,
     },
 }
 
@@ -133,9 +161,15 @@ impl JobSettled {
                     status: *status,
                 }
             }
-            Self::Bash { pid, exit_code, .. } => Report::BashDone {
+            Self::Bash {
+                pid,
+                exit_code,
+                stopped_by,
+                ..
+            } => Report::BashDone {
                 pid: *pid,
                 exit_code: *exit_code,
+                stopped_by: *stopped_by,
             },
         }
     }
@@ -185,6 +219,7 @@ mod tests {
             pid: 7,
             command: "sleep 1".to_owned(),
             exit_code: 2,
+            stopped_by: None,
         };
         assert_eq!(settled.report().header(), "[bash-done pid:7 exit:2]");
     }

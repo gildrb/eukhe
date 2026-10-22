@@ -44,6 +44,7 @@ use crate::chat::{ChatEntry, StatusKind};
 use crate::theme::ThemeColor;
 use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
+use eukhe_types::job::BashStopper;
 use serde_json::Value;
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,9 @@ pub struct AgentMessageRow {
 pub struct ShellCompletionRow {
     pub pid: Option<i64>,
     pub exit_code: Option<i64>,
+    /// `details.stoppedBy`: who stopped the command (its nonzero exit is
+    /// that stop, not a failure).
+    pub stopped_by: Option<BashStopper>,
     /// Raw content (`[bash-done pid:N exit:M] ...`).
     pub content: String,
 }
@@ -395,8 +399,9 @@ fn rlm_child_session_name(details: &Value) -> String {
 
 /// TS `readShellCompletion` + `ShellCompletionComponent.render`: a valid
 /// completion needs an object details block with a positive-integer `pid`,
-/// a string `command`, and an integer `exitCode`; anything else renders the
-/// default finished row. The expanded raw text follows the same validity:
+/// a string `command`, an integer `exitCode`, and a `stoppedBy` that is
+/// absent or a known stopper; anything else renders the default finished
+/// row. The expanded raw text follows the same validity:
 /// `shellCompletionText` for a valid completion (content string or text
 /// blocks joined with newlines, images as `[image]`), the content string or
 /// its JSON form otherwise.
@@ -404,25 +409,29 @@ fn shell_completion_row(content: &UserContent, details: &Value) -> ShellCompleti
     let pid = details.get("pid").and_then(Value::as_i64);
     let command = details.get("command").and_then(Value::as_str);
     let exit_code = details.get("exitCode").and_then(Value::as_i64);
+    let stopped_by = details.get("stoppedBy").map_or(Ok(None), |stopper| {
+        serde_json::from_value::<BashStopper>(stopper.clone()).map(Some)
+    });
     let valid = details.is_object()
         && pid.is_some_and(|pid| pid > 0)
         && command.is_some()
         && exit_code.is_some();
-    if valid {
-        ShellCompletionRow {
+    match (valid, stopped_by) {
+        (true, Ok(stopped_by)) => ShellCompletionRow {
             pid,
             exit_code,
+            stopped_by,
             content: custom_content_text(content),
-        }
-    } else {
-        ShellCompletionRow {
+        },
+        (false, _) | (true, Err(_)) => ShellCompletionRow {
             pid: None,
             exit_code: None,
+            stopped_by: None,
             content: match content {
                 UserContent::Text(text) => text.clone(),
                 UserContent::Blocks(blocks) => serde_json::to_string(blocks).unwrap_or_default(),
             },
-        }
+        },
     }
 }
 
@@ -808,6 +817,38 @@ mod tests {
     }
 
     #[test]
+    fn shell_completion_decodes_its_stopper() {
+        let stopped = |stopper: serde_json::Value| {
+            decoded(&json!({
+                "role": "custom",
+                "customType": "async_bash_completion",
+                "content": "[bash-done pid:12 exit:-15 stopped-by:agent]",
+                "display": true,
+                "details": { "pid": 12, "command": "sleep 30", "exitCode": -15, "stoppedBy": stopper },
+            }))
+        };
+        assert_eq!(
+            stopped(json!("agent")),
+            vec![ChatEntry::ShellCompletion(Box::new(ShellCompletionRow {
+                pid: Some(12),
+                exit_code: Some(-15),
+                stopped_by: Some(BashStopper::Agent),
+                content: "[bash-done pid:12 exit:-15 stopped-by:agent]".to_string(),
+            }))]
+        );
+        // An unknown stopper is an invalid details block: the default row.
+        assert_eq!(
+            stopped(json!("someone")),
+            vec![ChatEntry::ShellCompletion(Box::new(ShellCompletionRow {
+                pid: None,
+                exit_code: None,
+                stopped_by: None,
+                content: "[bash-done pid:12 exit:-15 stopped-by:agent]".to_string(),
+            }))]
+        );
+    }
+
+    #[test]
     fn agent_message_accepts_empty_string_details() {
         // TS `isAgentSessionMessage` checks only `typeof id === "string"`
         // and `typeof message === "string"`; empty strings still decode as
@@ -932,6 +973,7 @@ mod tests {
         let shell = ShellCompletionRow {
             pid: None,
             exit_code: Some(0),
+            stopped_by: None,
             content: body.clone(),
         };
         let panel = CustomPanelRow {

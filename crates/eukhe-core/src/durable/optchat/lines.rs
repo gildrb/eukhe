@@ -324,9 +324,21 @@ fn report_line(report: &Report, body: &str) -> String {
         Report::Heartbeat { schedule, run } => {
             ("heartbeat".to_owned(), format!("{schedule} run#{run}"))
         }
-        Report::BashDone { pid, exit_code } => (
+        Report::BashDone {
+            pid,
+            exit_code,
+            stopped_by: None,
+        } => (
             "bash".to_owned(),
             format!("done pid:{pid} exit:{exit_code}"),
+        ),
+        Report::BashDone {
+            pid,
+            exit_code,
+            stopped_by: Some(stopper),
+        } => (
+            "bash".to_owned(),
+            format!("stopped by {} pid:{pid} exit:{exit_code}", stopper.label()),
         ),
         Report::JobSettled { job, status } => (
             format!("job:{job}"),

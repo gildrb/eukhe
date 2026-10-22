@@ -14,6 +14,7 @@ use crate::style::Style;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::{pad_line, str_width, truncate_line, wrap_line, wrap_text};
 use crate::{Line, Span};
+use eukhe_types::job::BashStopper;
 
 /// One blank row (`Spacer(1)`).
 pub(crate) fn spacer() -> Line {
@@ -185,7 +186,9 @@ pub(crate) fn truncate_text(text: &str, width: usize, ellipsis: &str) -> String 
 
 /// One shell-completion row (TS `ShellCompletionComponent`, standalone
 /// form): the header mark, then the raw content under the branch gutter
-/// when expanded (TS #2779 `guttered(width, Text(raw, 0, 0))`).
+/// when expanded (TS #2779 `guttered(width, Text(raw, 0, 0))`). A nonzero
+/// exit is a failure unless a stopper ended the command: then the row
+/// names who stopped it.
 pub(crate) fn render_shell_completion(
     row: &ShellCompletionRow,
     detail: Detail,
@@ -193,16 +196,25 @@ pub(crate) fn render_shell_completion(
     width: usize,
     leading: bool,
 ) -> Vec<Line> {
-    let failed = matches!(row.exit_code, Some(code) if code != 0);
+    let (failed, label) = match (row.exit_code, row.stopped_by) {
+        (Some(0) | None, _) => (false, "Background shell command finished".to_string()),
+        (Some(code), Some(stopper)) => (
+            false,
+            format!(
+                "Background shell command stopped by {} - {}",
+                stopper_name(stopper),
+                exit_name(code)
+            ),
+        ),
+        (Some(code), None) => (
+            true,
+            format!("Background shell command failed - exit {code}"),
+        ),
+    };
     let color = if failed {
         theme.fg_style(ThemeColor::Error)
     } else {
         theme.fg_style(ThemeColor::Muted)
-    };
-    let label = if let (Some(code), true) = (row.exit_code, failed) {
-        format!("Background shell command failed - exit {code}")
-    } else {
-        "Background shell command finished".to_string()
     };
     let mark = if failed {
         crate::glyphs::FAIL
@@ -227,6 +239,27 @@ pub(crate) fn render_shell_completion(
         ));
     }
     out
+}
+
+/// Who stopped a background command, as the row's prose.
+fn stopper_name(stopper: BashStopper) -> &'static str {
+    match stopper {
+        BashStopper::Agent => "the agent",
+        BashStopper::User => "the user",
+        BashStopper::Interrupt => "an interrupt",
+    }
+}
+
+/// A stopped command's exit: the signal name for the stop signals
+/// (`kill()` sends TERM, then KILL past its grace), the exit code
+/// otherwise.
+fn exit_name(code: i64) -> String {
+    match code {
+        -2 => "SIGINT".to_string(),
+        -9 => "SIGKILL".to_string(),
+        -15 => "SIGTERM".to_string(),
+        other => format!("exit {other}"),
+    }
 }
 
 /// Pad a rendered line to the full width with a base style (TS
@@ -379,6 +412,7 @@ mod tests {
         let ok = ShellCompletionRow {
             pid: Some(4371),
             exit_code: Some(0),
+            stopped_by: None,
             content: "[bash-done pid:4371 exit:0]".to_string(),
         };
         let rows = render_shell_completion(&ok, Detail::Overview, &theme(), 60, true);
@@ -392,6 +426,7 @@ mod tests {
         let failed = ShellCompletionRow {
             pid: Some(11),
             exit_code: Some(2),
+            stopped_by: None,
             content: "[bash-done pid:11 exit:2]".to_string(),
         };
         let rows = render_shell_completion(&failed, Detail::Overview, &theme(), 60, false);
@@ -405,6 +440,22 @@ mod tests {
             theme().fg_style(ThemeColor::Error),
             "error when failed"
         );
+        // The agent's own `srv.kill()`: the SIGTERM exit is its stop, a
+        // muted row naming who stopped it, never a failure.
+        let stopped = ShellCompletionRow {
+            pid: Some(12),
+            exit_code: Some(-15),
+            stopped_by: Some(BashStopper::Agent),
+            content: "[bash-done pid:12 exit:-15 stopped-by:agent]".to_string(),
+        };
+        let rows = render_shell_completion(&stopped, Detail::Overview, &theme(), 80, false);
+        assert_eq!(
+            rows,
+            vec![vec![Span::styled(
+                " ok Background shell command stopped by the agent - SIGTERM".to_string(),
+                theme().fg_style(ThemeColor::Muted),
+            )]]
+        );
         // The expanded body is the raw content under the branch gutter
         // (TS #2193's expectation, the same layout #2779 mandates): the
         // gutter on the first content row, the four-column continuation
@@ -412,6 +463,7 @@ mod tests {
         let row = ShellCompletionRow {
             pid: Some(99),
             exit_code: Some(0),
+            stopped_by: None,
             content: "[bash-done pid:99 exit:0]\n\nCommand: \"printf done\"".to_string(),
         };
         let rows = render_shell_completion(&row, Detail::All, &theme(), 60, true);
