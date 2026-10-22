@@ -79,10 +79,16 @@ pub(crate) fn check(seen: &[Run], anchors: &[Anchor]) -> Verdict {
     }
 }
 
-/// The seen lines as maximal runs of consecutive lines.
-pub(crate) fn runs(lines: &BTreeSet<u32>) -> Vec<Run> {
+/// The seen lines between the first and the last anchor, as maximal runs of
+/// consecutive lines. The guard asks only whether each anchor is seen, so
+/// the seen lines outside that span change no verdict; leaving them out
+/// keeps an edit of a few lines cheap in a file whose every line was seen.
+pub(crate) fn runs(lines: &BTreeSet<u32>, anchors: &[u32]) -> Vec<Run> {
+    let (Some(&first), Some(&last)) = (anchors.iter().min(), anchors.iter().max()) else {
+        return Vec::new();
+    };
     let mut runs = Vec::<Run>::new();
-    for &line in lines {
+    for &line in lines.range(first..=last) {
         match runs.last_mut() {
             Some(run) if run.hi.checked_add(1) == Some(line) => run.hi = line,
             Some(_) | None => runs.push(Run { lo: line, hi: line }),
@@ -93,23 +99,33 @@ pub(crate) fn runs(lines: &BTreeSet<u32>) -> Vec<Run> {
 
 /// Each anchor line with the width of that line of `text` (1-based; line
 /// 0 and lines past the end have none). Reads `text` only up to the last
-/// anchor.
+/// anchor, in one pass.
 pub(crate) fn anchors(text: &str, lines: &[u32]) -> Vec<Anchor> {
-    let last = lines.iter().copied().max().unwrap_or(0);
-    let rows = text
-        .split('\n')
-        .take(usize::try_from(last).unwrap_or(usize::MAX))
-        .collect::<Vec<_>>();
-    lines
+    let mut wanted = lines
         .iter()
-        .map(|&line| Anchor {
-            line,
-            width: usize::try_from(line)
+        .enumerate()
+        .filter_map(|(at, &line)| {
+            usize::try_from(line)
                 .ok()
                 .and_then(|n| n.checked_sub(1))
-                .and_then(|n| rows.get(n))
-                .map(|row| row.chars().count()),
+                .map(|row| (row, at))
         })
+        .collect::<Vec<_>>();
+    wanted.sort_unstable();
+    let mut widths = vec![None; lines.len()];
+    let mut want = wanted.into_iter().peekable();
+    for (row, piece) in text.split('\n').enumerate() {
+        while let Some((_, at)) = want.next_if(|&(wanted, _)| wanted == row) {
+            widths[at] = Some(piece.chars().count());
+        }
+        if want.peek().is_none() {
+            break;
+        }
+    }
+    lines
+        .iter()
+        .zip(widths)
+        .map(|(&line, width)| Anchor { line, width })
         .collect()
 }
 
@@ -121,7 +137,7 @@ mod tests {
     fn runs_merge_consecutive_lines() {
         let lines = BTreeSet::from([1, 2, 3, 7, 9, 10, u32::MAX]);
         assert_eq!(
-            runs(&lines),
+            runs(&lines, &[1, u32::MAX]),
             [
                 Run { lo: 1, hi: 3 },
                 Run { lo: 7, hi: 7 },
@@ -132,14 +148,23 @@ mod tests {
                 },
             ]
         );
+        assert_eq!(
+            runs(&lines, &[2, 8]),
+            [Run { lo: 2, hi: 3 }, Run { lo: 7, hi: 7 }]
+        );
+        assert_eq!(runs(&lines, &[]), []);
     }
 
     #[test]
     fn anchors_read_the_width_of_their_line() {
         let text = format!("a\n{}\nééé\n", "x".repeat(600));
         assert_eq!(
-            anchors(&text, &[0, 1, 2, 3, 4, 5]),
+            anchors(&text, &[5, 0, 1, 2, 3, 4, 2]),
             [
+                Anchor {
+                    line: 5,
+                    width: None
+                },
                 Anchor {
                     line: 0,
                     width: None
@@ -161,8 +186,8 @@ mod tests {
                     width: Some(0)
                 },
                 Anchor {
-                    line: 5,
-                    width: None
+                    line: 2,
+                    width: Some(600)
                 },
             ]
         );
