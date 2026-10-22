@@ -106,6 +106,10 @@ pub enum Verdict {
     Leave,
     /// The loop stops with a failure.
     Abort,
+    /// A reminder that leads the next continuation: it leaves with the
+    /// continuation (the loop goes on), and stays when the loop ends. Either
+    /// way the next layer down decides.
+    Lead,
 }
 
 /// What a decision gives the loop.
@@ -129,20 +133,34 @@ pub struct Decision {
 }
 
 /// One decision of `stack` (bottom first) on `verdicts` (top first; a
-/// layer with no verdict defers), with room for `cap` layers. The top
-/// layer decides first; a layer that defers stays, a layer that leaves
-/// goes, and the first other verdict decides. A push needs room in the
-/// whole stack: the layers above the pushing one (those that deferred or
-/// left included), itself, and the layers below.
+/// layer with no verdict defers), with room for `cap` layers, when the
+/// loop goes on: a layer that leads leaves ([`Verdict::Lead`]).
 #[must_use]
 pub fn decide(stack: &[Layer], verdicts: &[Verdict], cap: usize) -> Decision {
-    // The layers above the deciding one that deferred, top first.
+    decide_as(stack, verdicts, cap, false)
+}
+
+/// One decision of `stack`. The top layer decides first; a layer that
+/// defers stays, a layer that leaves goes, a layer that leads stays when
+/// `stay` holds (the loop ends) and goes otherwise, and the first other
+/// verdict decides. A push needs room in the whole stack: the layers above
+/// the pushing one (those that deferred, left or led included), itself,
+/// and the layers below.
+fn decide_as(stack: &[Layer], verdicts: &[Verdict], cap: usize, stay: bool) -> Decision {
+    let room = stack.len() < cap;
+    // The layers above the deciding one that stayed, top first.
     let mut kept: Vec<&Layer> = Vec::new();
     for (above, layer) in stack.iter().rev().enumerate() {
         let rest = &stack[..stack.len() - 1 - above];
         let decided = match verdicts.get(above).unwrap_or(&Verdict::Defer) {
             Verdict::Defer => {
                 kept.push(layer);
+                continue;
+            }
+            Verdict::Lead => {
+                if stay {
+                    kept.push(layer);
+                }
                 continue;
             }
             Verdict::Leave => continue,
@@ -165,7 +183,7 @@ pub fn decide(stack: &[Layer], verdicts: &[Verdict], cap: usize) -> Decision {
                         kind: layer.kind.clone(),
                         budget: budget - 1,
                     };
-                    if above + 1 + rest.len() < cap {
+                    if room {
                         (Outcome::Continue, vec![spent, pushed.clone()])
                     } else {
                         (Outcome::Failed, vec![spent])
@@ -208,18 +226,21 @@ pub struct Loop {
 }
 
 impl Loop {
-    /// One step: the stack decides on `verdicts`. A continue with no step
-    /// left yields; an ended loop stays as it ended.
+    /// One step: the stack decides on `verdicts`. A continue with a step
+    /// left goes on (a layer that leads leaves with it); a continue with no
+    /// step left yields; a hand back or a failure ends the loop. A loop that
+    /// ends keeps the layers that lead. An ended loop stays as it ended.
     #[must_use]
     pub fn tick(self, verdicts: &[Verdict], cap: usize) -> Self {
         if self.end.is_some() {
             return self;
         }
         let Decision { outcome, stack } = decide(&self.stack, verdicts, cap);
+        let kept = || decide_as(&self.stack, verdicts, cap, true).stack;
         match (outcome, self.left) {
             (Outcome::Continue, 0) => Self {
                 left: 0,
-                stack,
+                stack: kept(),
                 end: Some(End::Hand),
             },
             (Outcome::Continue, left) => Self {
@@ -229,12 +250,12 @@ impl Loop {
             },
             (Outcome::Hand, left) => Self {
                 left,
-                stack,
+                stack: kept(),
                 end: Some(End::Hand),
             },
             (Outcome::Failed, left) => Self {
                 left,
-                stack,
+                stack: kept(),
                 end: Some(End::Failed),
             },
         }

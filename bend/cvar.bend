@@ -13,8 +13,11 @@
 #
 # Commands share one language: set, toggle, and run of an alias. An alias
 # names a list of commands. A key bind names the commands a key press
-# runs; a press expands them like any command list. Expansion nests at most as many aliases deep
-# as the table holds: a deeper nest repeats an alias, so it is a cycle.
+# runs; a press expands them like any command list. Expansion nests at
+# most as many aliases deep as the table holds: a deeper nest repeats an
+# alias, so it is a cycle. An error names its alias (the run at which the
+# nesting ran out, or the alias that does not exist), and the first error,
+# left to right, stops the expansion.
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
@@ -409,60 +412,114 @@ def body(+as: List<&2, Alias>, +n: Nat) -> List<&2, Cmd>:
 # The outcome of an expansion
 type Exp is Data:
   Flat{cmds: List<&2, Cmd>}  # the commands to run; no alias left
-  Cycle{}                    # an alias runs itself
-  Unknown{}                  # a run of an alias that does not exist
+  Cycle{name: Nat}           # an alias runs itself: the run at which the
+                             # nesting ran out
+  Unknown{name: Nat}         # a run of alias name, which does not exist
 
-def cat(a: Exp, b: Exp) -> Exp:
-  match a:
-    case Flat{x}:
-      match b:
-        case Flat{y}:
-          Flat{List.append(&2, Cmd, x, y)}
-        case Cycle{}:
-          Cycle{}
-        case Unknown{}:
-          Unknown{}
-    case Cycle{}:
-      Cycle{}
-    case Unknown{}:
-      Unknown{}
+# xs reversed onto acc
+def rev(xs: List<&2, Cmd>, acc: List<&2, Cmd>) -> List<&2, Cmd>:
+  match xs:
+    case Nil{}:
+      acc
+    case x <> rest:
+      rev(rest, x <> acc)
 
-# expand cs with d levels of alias nesting left
-def expand.go(d: Nat, cs: List<&2, Cmd>, +as: List<&2, Alias>) -> Exp:
+# expand cs with d levels of alias nesting left, onto acc: the commands
+# so far, last first, or the first error, which stops the expansion (no
+# command after it is looked at)
+def expand.go(d: Nat, cs: List<&2, Cmd>, +as: List<&2, Alias>, acc: Exp) -> Exp:
   match d:
     case 0n:
       match cs:
         case Nil{}:
-          Flat{Nil{}}
+          acc
         case c <> rest:
           match c:
             case CSet{i, v}:
-              cat(Flat{[CSet{i, v}]}, expand.go(0n, rest, as))
+              match acc:
+                case Flat{out}:
+                  expand.go(0n, rest, as, Flat{CSet{i, v} <> out})
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
             case CToggle{i}:
-              cat(Flat{[CToggle{i}]}, expand.go(0n, rest, as))
+              match acc:
+                case Flat{out}:
+                  expand.go(0n, rest, as, Flat{CToggle{i} <> out})
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
             case CRun{n}:
-              Cycle{}
+              match acc:
+                case Flat{out}:
+                  Cycle{n}
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
             case CGone{n}:
-              Unknown{}
+              match acc:
+                case Flat{out}:
+                  Unknown{n}
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
     case 1n+(+e):
       match cs:
         case Nil{}:
-          Flat{Nil{}}
+          acc
         case c <> rest:
           match c:
             case CSet{i, v}:
-              cat(Flat{[CSet{i, v}]}, expand.go(1n+e, rest, as))
+              match acc:
+                case Flat{out}:
+                  expand.go(1n+e, rest, as, Flat{CSet{i, v} <> out})
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
             case CToggle{i}:
-              cat(Flat{[CToggle{i}]}, expand.go(1n+e, rest, as))
+              match acc:
+                case Flat{out}:
+                  expand.go(1n+e, rest, as, Flat{CToggle{i} <> out})
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
             case CRun{n}:
-              cat(expand.go(e, body(as, n), as), expand.go(1n+e, rest, as))
+              match acc:
+                case Flat{out}:
+                  expand.go(1n+e, rest, as, expand.go(e, body(as, n), as, Flat{out}))
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
             case CGone{n}:
-              Unknown{}
+              match acc:
+                case Flat{out}:
+                  Unknown{n}
+                case Cycle{m}:
+                  Cycle{m}
+                case Unknown{m}:
+                  Unknown{m}
+
+# the commands of an expansion in order (they were gathered last first)
+def fin(e: Exp) -> Exp:
+  match e:
+    case Flat{out}:
+      Flat{rev(out, Nil{})}
+    case Cycle{n}:
+      Cycle{n}
+    case Unknown{n}:
+      Unknown{n}
 
 # expand cs with the alias table as: the top level and one level per
 # alias; nesting deeper than that repeats an alias, so it is a cycle
 def expand(cs: List<&2, Cmd>, +as: List<&2, Alias>) -> Exp:
-  expand.go(1n+List.length(&2, Alias, as), cs, as)
+  fin(expand.go(1n+List.length(&2, Alias, as), cs, as, Flat{Nil{}}))
 
 # cs holds no run of an alias
 def plain(cs: List<&2, Cmd>) -> Bool:
@@ -484,9 +541,9 @@ def Exp.plain(e: Exp) -> Bool:
   match e:
     case Flat{cs}:
       plain(cs)
-    case Cycle{}:
+    case Cycle{n}:
       True{}
-    case Unknown{}:
+    case Unknown{n}:
       True{}
 
 # Key binds
