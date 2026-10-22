@@ -1,8 +1,16 @@
 //! The status line under the prompt (omp `statusLine`, ascii preset,
 //! transparent): the model and its thinking level, the cwd, the git
 //! branch, then the segments that show only while they carry something
-//! (a hint, the session name and spend, the detail level, live activity);
-//! the context usage sits on the right.
+//! (a hint, the session name and spend, the detail level, the chat
+//! memory's `mem` gauge, live activity); the context usage sits on the
+//! right.
+//!
+//! The `mem` gauge is the only place the chat memory's compactor shows
+//! its progress (its live updates never make transcript rows): `mem
+//! 87/128K` is the view's size against its ceiling; after a live update
+//! it carries the activity since the current request began, `mem 91/128K
+//! ~3` (3 nodes summarized) or `mem 64/128K v37` (37 pairs merged); a new
+//! request clears the suffix. Never a node id.
 
 use crate::chat::Detail;
 use crate::chrome::{ActivityDock, ActivityGroup, ChromeState};
@@ -71,10 +79,8 @@ pub fn render_status_line(
     if let Some(depth) = state.tray_depth.filter(|depth| *depth > 0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("depth {depth}"))]);
     }
-    if let Some(bytes) = state.memory_view_bytes {
-        segments.push(vec![
-            theme.fg(ThemeColor::Dim, crate::memory_block::memory_gauge(bytes))
-        ]);
+    if let Some(memory) = &state.memory {
+        segments.push(vec![theme.fg(ThemeColor::Dim, memory.text())]);
     }
     match detail {
         Detail::Overview => {}

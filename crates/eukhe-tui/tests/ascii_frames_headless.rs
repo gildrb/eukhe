@@ -165,7 +165,7 @@ fn attach_data() -> Value {
 
 fn tool_calls() -> Value {
     json!([
-        { "type": "toolCall", "id": "tc-ls", "name": "bash", "arguments": { "command": "ls -la" } },
+        { "type": "toolCall", "id": "tc-ls", "name": "bash", "arguments": { "script": "ls -la" } },
         { "type": "toolCall", "id": "tc-read", "name": "read", "arguments": { "path": "/tmp/missing.txt" } },
     ])
 }
@@ -238,7 +238,7 @@ fn stream_turn(writer: &mut UnixStream) {
             "type": "tool_execution_start",
             "toolCallId": "tc-ls",
             "toolName": "bash",
-            "args": { "command": "ls -la" },
+            "args": { "script": "ls -la" },
         })),
     );
     write_json(
@@ -247,7 +247,7 @@ fn stream_turn(writer: &mut UnixStream) {
             "type": "tool_execution_update",
             "toolCallId": "tc-ls",
             "toolName": "bash",
-            "args": { "command": "ls -la" },
+            "args": { "script": "ls -la" },
             "partialResult": { "content": [{ "type": "text", "text": "total 8\n" }] },
         })),
     );
@@ -410,7 +410,7 @@ fn assert_ascii_turn(frames: &[String]) {
     let all = frames.join("\n---frame---\n");
     for needle in [
         "list and read",
-        "listing output done",
+        "ok bash - ls -la - 4 lines",
         "ENOENT",
         "See the docs",
     ] {
@@ -440,7 +440,9 @@ fn a_tool_turn_renders_only_ascii_frames() {
 
 #[test]
 fn a_fullscreen_tool_turn_fills_the_screen_and_scrolls() {
-    const HEIGHT: u16 = 24;
+    // The dense transcript (one-row tool cards, no block spacers) must
+    // still overflow the screen for the scroll checks.
+    const HEIGHT: u16 = 18;
     const MORE_BELOW: &str = "more below - Ctrl+End to follow";
     let key = |code, modifiers| HeadlessStep::Key(KeyEvent::new(code, modifiers));
     let mut steps = turn_steps();

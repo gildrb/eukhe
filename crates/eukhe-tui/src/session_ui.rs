@@ -441,10 +441,10 @@ pub(crate) struct SessionUi {
     dictation_takes: u64,
     /// Where a take reports its steps (the run loop folds them).
     dictation_updates: mpsc::UnboundedSender<crate::dictation::DictationUpdate>,
-    /// The chat memory's view size, once a `get_memory` reply or a
-    /// `memory_update` reported it for this session (the status line's
-    /// `mem` gauge); `None` until then.
-    memory_view_bytes: Option<u64>,
+    /// The chat memory's gauge, once a `get_memory` reply or a
+    /// `memory_update` reported the view's size for this session (the
+    /// status line's `mem` segment); `None` until then.
+    memory: Option<crate::memory_block::MemoryGauge>,
     /// The current Python `bash()` registry snapshot from the owning kernel.
     bash_activities: Value,
     /// Monotonic id of the latest issued kernel-bash list request; a late

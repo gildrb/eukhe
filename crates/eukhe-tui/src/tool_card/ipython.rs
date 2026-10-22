@@ -21,7 +21,7 @@ use crate::code_preview::{
     CodePreviewLanguage,
 };
 use crate::custom_message::AgentMessageDirection;
-use crate::element::{self, Element, Fit, Inline, Mark, Status, Tick};
+use crate::element::{self, Element, Fit, Inline, Status, Tick};
 use crate::error_summary::{normalize_error_details, summarize_error_details};
 use crate::theme::{Theme, ThemeColor};
 use crate::width::str_width;
@@ -136,7 +136,6 @@ fn collapsed_line(
     let mut parts: Vec<Inline> = vec![
         Inline::Status {
             status: cell_status(card, details),
-            mark: Mark::Icon,
         },
         Inline::plain(" "),
         Inline::role(language_label, ThemeColor::Muted),

@@ -176,7 +176,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
         .map(|n| n.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    let command = json!({ "command": "seq 1 12", "timeout": 30 });
+    let command = json!({ "script": "seq 1 12", "timeout": 30 });
     vec![
         (
             "bash queued",
@@ -198,7 +198,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash error",
             card(
                 "bash",
-                json!({ "command": "false" }),
+                json!({ "script": "false" }),
                 &Phase::Error,
                 "boom\nexit 1",
                 json!({}),
@@ -208,7 +208,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash truncated lines",
             card(
                 "bash",
-                json!({ "command": "cat big.txt" }),
+                json!({ "script": "cat big.txt" }),
                 &Phase::Done,
                 "line1\nline2",
                 json!({
@@ -221,7 +221,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash truncated bytes",
             card(
                 "bash",
-                json!({ "command": "cat big.bin" }),
+                json!({ "script": "cat big.bin" }),
                 &Phase::Done,
                 "x",
                 json!({ "truncation": { "truncated": true, "truncatedBy": "bytes", "outputLines": 3, "totalLines": 9 } }),
@@ -231,7 +231,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash invalid",
             card(
                 "bash",
-                json!({ "command": 5 }),
+                json!({ "script": 5 }),
                 &Phase::Queued,
                 "",
                 Value::Null,
@@ -241,7 +241,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash empty",
             card(
                 "bash",
-                json!({ "command": "" }),
+                json!({ "script": "" }),
                 &Phase::Queued,
                 "",
                 Value::Null,
@@ -251,7 +251,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash python",
             card(
                 "bash",
-                json!({ "command": "python3 -c \"print(1)\"" }),
+                json!({ "script": "python3 -c \"print(1)\"" }),
                 &Phase::Done,
                 "1",
                 json!({}),
@@ -261,7 +261,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash long",
             card(
                 "bash",
-                json!({ "command": "find . -name '*.rs' -not -path './target/*' -exec grep -l 'render_tool_card' {} +" }),
+                json!({ "script": "find . -name '*.rs' -not -path './target/*' -exec grep -l 'render_tool_card' {} +" }),
                 &Phase::Done,
                 &format!(
                     "{}\nshort\n{}",
@@ -275,7 +275,7 @@ fn bash_cases() -> Vec<(&'static str, ToolCallCard)> {
             "bash images",
             with_image(card(
                 "bash",
-                json!({ "command": "screenshot" }),
+                json!({ "script": "screenshot" }),
                 &Phase::Done,
                 "saved",
                 json!({}),
@@ -325,6 +325,26 @@ fn generic_cases() -> Vec<(&'static str, ToolCallCard)> {
                 json!({ "query": "a long query ".repeat(12) }),
                 &Phase::Done,
                 &"x".repeat(150),
+                json!({}),
+            ),
+        ),
+        (
+            "generic edit",
+            card(
+                "edit",
+                json!({ "input": "[src/media.ts#AA10]\nPUT >45:\n+  \"heph-forge\": {\n+    width: 2952,\n+  },\nCUT 50.=51", "i": "Registering the wallpaper" }),
+                &Phase::Done,
+                "[src/media.ts#2F60]\n38:  \"ben-davis-site-tour\": {\n... 11 more lines",
+                json!({}),
+            ),
+        ),
+        (
+            "generic grep",
+            card(
+                "grep",
+                json!({ "pattern": "fn main", "path": "src", "i": "Finding main" }),
+                &Phase::Done,
+                "[src/main.rs#1234]\n*1:fn main() {}",
                 json!({}),
             ),
         ),

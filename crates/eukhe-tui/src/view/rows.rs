@@ -1,98 +1,70 @@
-//! The per-entry transcript row builders: the assistant message spacing
-//! classification (TS `getSpacingContent`), the leading-space scan (TS
-//! `shouldAddLeadingSpace`), and `render_entry` -- the one producer of a
-//! chat entry's rows.
+//! The per-entry transcript row builders: the leading-blank rules (one
+//! blank row marks a turn boundary or the reply after the turn's tool
+//! rows; the rows within a turn stay flush) and `render_entry` -- the
+//! one producer of a chat entry's rows.
 
 use super::AgentView;
-use crate::chat::{render_assistant, render_text_rows, render_user_block, ChatEntry};
+use crate::chat::{
+    render_assistant, render_text_rows, render_user_block, AssistantLead, AssistantMessage,
+    ChatEntry,
+};
 use crate::theme::ThemeColor;
 use crate::Line;
 
-/// TS `getSpacingContent`: an assistant message's conversation-spacing
-/// classification at the current detail level.
-enum SpacingContent {
-    Visible,
-    ToolOnly,
-    Hidden,
-}
-
 impl AgentView {
-    /// TS `createConversationSpacing.shouldAddLeadingSpace` for one
-    /// spacing-driven custom row (agent message, shell completion): scan
-    /// back over entries that contribute no rows at this detail level
-    /// (hidden thinking-only and tool-only assistant messages), then apply
-    /// the trailing-space and compact-neighbor rules. `expanded` follows
-    /// the TS `shouldAddLeadingSpace(expanded)` call shape.
-    pub(super) fn conversation_leading(&self, index: usize, expanded: bool) -> bool {
-        let mut idx = index;
-        let mut tool_separator = false;
-        while idx > 0 {
-            idx -= 1;
-            match &self.chat[idx] {
-                ChatEntry::Assistant(message) => {
-                    match self.assistant_spacing_content(message) {
-                        SpacingContent::Hidden => {}
-                        SpacingContent::ToolOnly => {
-                            tool_separator = true;
-                        }
-                        SpacingContent::Visible => {
-                            // TS `hasTrailingSpace` on the visible body
-                            // (`precededByToolActivity` is the full compact
-                            // set: a tool call, agent message, bash
-                            // execution, or shell completion).
-                            let preceded_by_tool =
-                                idx > 0 && Self::is_compact_neighbor(&self.chat[idx - 1]);
-                            if tool_separator
-                                || message.has_trailing_space(self.detail, preceded_by_tool)
-                            {
-                                return false;
-                            }
-                            // An assistant message is never a compact
-                            // neighbor; the collapsed and expanded rules
-                            // both add the leading blank here.
-                            return true;
-                        }
-                    }
-                }
-                preceding => {
-                    if tool_separator && !Self::is_compact_neighbor(preceding) {
-                        return false;
-                    }
-                    if expanded {
-                        return true;
-                    }
-                    return !Self::is_compact_neighbor(preceding);
-                }
-            }
-        }
-        // The scan exhausted the transcript (only hidden or tool-only
-        // assistant rows): TS keeps the tool separator with a trailing
-        // space (no leading blank); with nothing preceding at all, the
-        // expanded form sits flush against the top of the chat while the
-        // collapsed form still leads with a blank
-        // (`!isCompactAgentMessageNeighbor(undefined)`).
-        if tool_separator {
-            return false;
-        }
-        !expanded
+    /// The nearest entry above `index` that renders rows: an assistant
+    /// message whose blocks are all hidden at this detail level (and
+    /// that carries no error) contributes nothing, so the scan skips it.
+    fn visible_predecessor(&self, index: usize) -> Option<&ChatEntry> {
+        self.chat[..index].iter().rev().find(|entry| match entry {
+            ChatEntry::Assistant(message) => message.renders_rows(self.detail),
+            ChatEntry::Status { .. }
+            | ChatEntry::User { .. }
+            | ChatEntry::SlashCommand { .. }
+            | ChatEntry::CompactionSummary { .. }
+            | ChatEntry::Tool(_)
+            | ChatEntry::AgentMessage(_)
+            | ChatEntry::SkillInvocation(_)
+            | ChatEntry::InjectedPrompt(_)
+            | ChatEntry::BashExecution(_)
+            | ChatEntry::ShellCompletion(_)
+            | ChatEntry::RefinementOutcome(_)
+            | ChatEntry::CustomPanel(_)
+            | ChatEntry::ChatView(_)
+            | ChatEntry::Swarm(_) => true,
+        })
     }
 
-    /// TS `getSpacingContent`: an assistant message's contribution to
-    /// conversation spacing at the current detail level.
-    fn assistant_spacing_content(&self, message: &crate::chat::AssistantMessage) -> SpacingContent {
-        let visible_body = message.blocks.iter().any(|block| match block {
-            crate::chat::MessageBlock::Thinking(text) => {
-                self.detail.show_thinking() && !text.trim().is_empty()
+    /// The blank row before the assistant message at `index`: the first
+    /// rows of a turn lead with one (nothing or a non-turn row above), as
+    /// does a settled reply (a message without tool calls) that follows
+    /// tool rows, so the answer stands apart from the activity above it.
+    /// A message that follows another assistant message, or that follows
+    /// tool rows while it still streams or carries its own tool calls,
+    /// stays flush: the turn reads as one dense trace.
+    pub(super) fn assistant_lead(&self, index: usize, message: &AssistantMessage) -> AssistantLead {
+        match self.visible_predecessor(index) {
+            Some(ChatEntry::Assistant(_)) => AssistantLead::Flush,
+            Some(preceding) if Self::is_compact_neighbor(preceding) => {
+                if message.has_tool_calls || message.streaming {
+                    AssistantLead::Flush
+                } else {
+                    AssistantLead::Spaced
+                }
             }
-            crate::chat::MessageBlock::Text(text) => !text.trim().is_empty(),
-        });
-        if visible_body || message.aborted || (message.error.is_some() && !message.has_tool_calls) {
-            return SpacingContent::Visible;
+            Some(_) | None => AssistantLead::Spaced,
         }
-        if message.has_tool_calls {
-            SpacingContent::ToolOnly
-        } else {
-            SpacingContent::Hidden
+    }
+
+    /// The blank row before a tool row (tool card, agent message, shell
+    /// completion) at `index`: only when it opens the turn's visible rows
+    /// (nothing or a non-turn row above); after an assistant message or
+    /// another tool row it stays flush.
+    pub(super) fn conversation_leading(&self, index: usize) -> bool {
+        match self.visible_predecessor(index) {
+            Some(ChatEntry::Assistant(_)) => false,
+            Some(preceding) => !Self::is_compact_neighbor(preceding),
+            None => true,
         }
     }
 
@@ -104,7 +76,6 @@ impl AgentView {
         entry: &ChatEntry,
         width: usize,
         first: bool,
-        preceded_by_tool_activity: bool,
     ) -> Vec<Line> {
         let detail = self.detail;
         match entry {
@@ -209,19 +180,18 @@ impl AgentView {
                             &self.theme,
                             &self.code_block_indent,
                             width,
-                            preceded_by_tool_activity,
+                            self.assistant_lead(index, message),
                             &mut settled,
                         )
                     }
                 }
             }
             ChatEntry::Tool(card) => {
-                // TS `ToolExecutionComponent`: the leading spacer rides on
-                // `createConversationSpacing(...).shouldAddLeadingSpace`
-                // (the same spacing the assistant and agent-message rows
-                // use; consecutive tool cards stay flush).
+                // The leading blank row follows the turn rule
+                // (`conversation_leading`): consecutive tool rows and
+                // tool rows under an assistant message stay flush.
                 let mut rows: Vec<Line> = Vec::new();
-                if self.conversation_leading(index, detail.tool_output_expanded()) {
+                if self.conversation_leading(index) {
                     rows.push(Vec::new());
                 }
                 rows.extend(crate::tool_card::render_tool_card(
@@ -260,7 +230,7 @@ impl AgentView {
                 detail,
                 &self.theme,
                 width,
-                self.conversation_leading(index, detail.tool_output_expanded()),
+                self.conversation_leading(index),
             ),
             // TS `addMessageToChat`'s user case: `Spacer(1)` when the chat
             // is non-empty, then the card (the conversation-spacing scan the
@@ -289,7 +259,7 @@ impl AgentView {
                     detail,
                     &self.theme,
                     width,
-                    self.conversation_leading(index, detail.tool_output_expanded()),
+                    self.conversation_leading(index),
                 )
             }
             ChatEntry::RefinementOutcome(row) => {
@@ -306,15 +276,6 @@ impl AgentView {
             ChatEntry::ChatView(view) => {
                 crate::chat_view_block::render_chat_view(view, detail, &self.theme, width, !first)
             }
-            // Consecutive live memory rows stay flush: a burst of updates
-            // reads as one block.
-            ChatEntry::MemoryUpdate(update) => crate::memory_block::render_memory_update(
-                update,
-                detail,
-                &self.theme,
-                width,
-                !first && !matches!(self.chat[index - 1], ChatEntry::MemoryUpdate(_)),
-            ),
             // Consecutive relayed peer messages stay flush: a burst of
             // mesh traffic reads as one block.
             ChatEntry::Swarm(row) => {

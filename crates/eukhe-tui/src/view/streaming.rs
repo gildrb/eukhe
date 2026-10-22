@@ -8,7 +8,9 @@
 //! streaming stays live until all of it shows.
 
 use super::AgentView;
-use crate::chat::{render_assistant, AssistantMessage, ChatEntry, Detail, MessageBlock};
+use crate::chat::{
+    render_assistant, AssistantLead, AssistantMessage, ChatEntry, Detail, MessageBlock,
+};
 use crate::markdown::MarkdownBlockCache;
 use crate::Line;
 
@@ -27,7 +29,7 @@ struct LastRender {
     theme_generation: u64,
     code_block_indent: String,
     width: usize,
-    preceded_by_tool_activity: bool,
+    lead: AssistantLead,
     rows: Vec<Line>,
 }
 
@@ -166,8 +168,7 @@ impl AgentView {
         width: usize,
         read: impl FnOnce(&[Line]) -> R,
     ) -> R {
-        let preceded_by_tool_activity =
-            index > 0 && Self::is_compact_neighbor(&self.chat[index - 1]);
+        let lead = self.assistant_lead(index, message);
         let theme_generation = self.theme.generation();
         let mut caches = self.md_caches.borrow_mut();
         let state = caches.entry(index).or_default();
@@ -175,7 +176,7 @@ impl AgentView {
             last.width == width
                 && last.detail == self.detail
                 && last.theme_generation == theme_generation
-                && last.preceded_by_tool_activity == preceded_by_tool_activity
+                && last.lead == lead
                 && last.code_block_indent == self.code_block_indent
                 && last.message == *message
         });
@@ -189,7 +190,7 @@ impl AgentView {
                 &self.theme,
                 &self.code_block_indent,
                 width,
-                preceded_by_tool_activity,
+                lead,
                 &mut state.blocks,
             ),
             message: message.clone(),
@@ -197,7 +198,7 @@ impl AgentView {
             theme_generation,
             code_block_indent: self.code_block_indent.clone(),
             width,
-            preceded_by_tool_activity,
+            lead,
         });
         read(&last.rows)
     }

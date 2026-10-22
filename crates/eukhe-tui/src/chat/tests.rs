@@ -340,7 +340,7 @@ fn assistant_markers_skip_tool_call_messages() {
         &theme(),
         "  ",
         60,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert!(crate::osc133::row_markers(&rows[0]).start);
@@ -359,7 +359,7 @@ fn assistant_markers_skip_tool_call_messages() {
         &theme(),
         "  ",
         60,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert_eq!(crate::osc133::row_markers(&rows[0]), RowMarkers::default());
@@ -391,7 +391,7 @@ fn code_block_indent_rides_the_render_calls() {
         &theme(),
         "    ",
         60,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -410,7 +410,7 @@ fn code_block_indent_rides_the_render_calls() {
         &theme(),
         "  ",
         60,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -465,7 +465,7 @@ fn assistant_error_row_and_spacers() {
         &theme(),
         "  ",
         60,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -480,7 +480,8 @@ fn assistant_error_row_and_spacers() {
         flat.iter().any(|row| row.contains("Error: request failed")),
         "got: {flat:?}"
     );
-    // A tool-carrying message keeps its trailing spacer.
+    // A tool-carrying message mid-turn renders flush: no leading blank,
+    // and no trailing blank before its tool rows.
     let message = AssistantMessage {
         blocks: vec![MessageBlock::Text("body".into())],
         has_tool_calls: true,
@@ -494,11 +495,12 @@ fn assistant_error_row_and_spacers() {
         &theme(),
         "  ",
         60,
-        true,
+        AssistantLead::Flush,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
-    assert_eq!(rows.last().unwrap().len(), 0, "trailing spacer");
-    // A tool-only message after tool activity renders no spacers.
+    assert_eq!(rows.len(), 1, "one body row, no blanks: {rows:?}");
+    assert!(!rows[0].is_empty());
+    // A tool-only message renders nothing, whatever its lead.
     let message = AssistantMessage {
         blocks: Vec::new(),
         has_tool_calls: true,
@@ -506,16 +508,18 @@ fn assistant_error_row_and_spacers() {
         error: None,
         aborted: false,
     };
-    let rows = render_assistant(
-        &message,
-        Detail::Overview,
-        &theme(),
-        "  ",
-        60,
-        true,
-        &mut crate::markdown::MarkdownBlockCache::default(),
-    );
-    assert!(rows.is_empty(), "got: {rows:?}");
+    for lead in [AssistantLead::Spaced, AssistantLead::Flush] {
+        let rows = render_assistant(
+            &message,
+            Detail::Overview,
+            &theme(),
+            "  ",
+            60,
+            lead,
+            &mut crate::markdown::MarkdownBlockCache::default(),
+        );
+        assert!(rows.is_empty(), "got: {rows:?}");
+    }
 }
 
 /// TS `createErrorComponent` + `formatInlineLoginRecoveryMessage`: an
@@ -542,7 +546,7 @@ fn login_recovery_error_renders_one_merged_inline_line() {
             &theme,
             "  ",
             60,
-            false,
+            AssistantLead::Spaced,
             &mut crate::markdown::MarkdownBlockCache::default(),
         );
         assert_eq!(
@@ -588,7 +592,7 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
         &theme,
         "  ",
         140,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert_eq!(
@@ -610,7 +614,7 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
         &theme,
         "  ",
         60,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -656,7 +660,7 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
             &theme,
             "  ",
             60,
-            false,
+            AssistantLead::Spaced,
             &mut crate::markdown::MarkdownBlockCache::default(),
         )
     };
@@ -747,8 +751,7 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
 /// TS `AssistantMessageComponent.rebuild`'s aborted arm: the aborted
 /// message renders its "Operation aborted" row inside the component,
 /// in the theme's error color with no "Error: " prefix, behind a
-/// spacer; a non-generic errorMessage renders itself; the abort also
-/// keeps the tool-call trailing spacer (TS `hasTrailingSpace`).
+/// spacer; a non-generic errorMessage renders itself.
 #[test]
 fn aborted_assistant_message_renders_the_red_abort_row() {
     let theme = theme();
@@ -765,7 +768,7 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
         &theme,
         "  ",
         60,
-        true,
+        AssistantLead::Flush,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let abort_row_index = rows
@@ -776,9 +779,9 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
         })
         .expect("the aborted row never rendered");
     // The row before is the spacer TS `rebuild` adds, the row is
-    // error-colored with the plain text (no "Error: " prefix), and
-    // the trailing tool spacer follows (hasTrailingSpace's aborted
-    // arm, even after tool activity).
+    // error-colored with the plain text (no "Error: " prefix), and the
+    // abort row closes the message (no trailing blank before the tool
+    // rows).
     assert_eq!(
         rows[abort_row_index - 1].len(),
         0,
@@ -799,7 +802,7 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
             .any(|span| span.content.contains("Error: ")),
         "unexpected error prefix"
     );
-    assert_eq!(rows.last().unwrap().len(), 0, "trailing spacer");
+    assert_eq!(abort_row_index + 1, rows.len(), "no trailing spacer");
     // A provider-supplied abort reason renders instead of the generic
     // text (TS: every errorMessage but "Request was aborted" wins).
     let message = AssistantMessage {
@@ -815,7 +818,7 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
         &theme,
         "  ",
         60,
-        false,
+        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert!(

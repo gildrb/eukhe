@@ -20,12 +20,10 @@ pub(super) fn visible_blocks(message: &AssistantMessage, detail: Detail) -> Vec<
         .collect()
 }
 
-pub(super) fn trailing_space(
-    message: &AssistantMessage,
-    has_visible_content: bool,
-    preceded_by_tool_activity: bool,
-) -> bool {
-    message.has_tool_calls && (has_visible_content || message.aborted || !preceded_by_tool_activity)
+/// A rendered markdown row with nothing visible on it: the blank rows
+/// markdown puts between blocks, which the dense thinking block drops.
+pub(super) fn is_blank_row(line: &[crate::Span]) -> bool {
+    line.iter().all(|span| span.content.trim().is_empty())
 }
 
 /// The cache tag the dim thinking block renders under.

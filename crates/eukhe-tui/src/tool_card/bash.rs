@@ -1,23 +1,21 @@
-//! The `bash` tool-call card, a port of the TS `bash.ts` renderCall /
-//! renderResult components composed inside the `ToolPanel`: a `label -
-//! status` header, the dim `$ command` call row, the command's output
-//! (collapsed: the last five visual lines with an `... N earlier lines`
-//! hint; expanded: everything), the truncation warning, and the live
-//! `Took`/`Elapsed` duration row.
+//! The `bash` tool-call card: one summary row at the default detail
+//! (`ok bash - <script's first line> - <N lines> - <duration>`, `x` with
+//! `exit N` or the refusal on failure, the working icon while running);
+//! the expanded detail hangs the whole script, its output and the
+//! truncation warning below the same row.
 
 use serde_json::Value;
 
-use super::layout::{images, wrapped_text};
-use super::{format_bash_duration, ToolCallCard, ToolResultView};
+use super::layout::images;
+use super::summary::{
+    body_row, duration, first_line, line_count, output_rows, string_arg, SummaryRow,
+};
+use super::{panel_status, ToolCallCard, ToolResultView};
 use crate::chat::Detail;
-use crate::code_preview::{preview_bash_command, CodePreviewLanguage};
-use crate::element::{self, Element, Fit, Inline, Tick};
+use crate::element::{self, Element, Inline, Status, Tick};
+use crate::error_summary::summarize_error_details;
 use crate::theme::{Theme, ThemeColor};
-use crate::width::{wrap_text, wrapped_text_count};
 use crate::Line;
-
-/// Collapsed preview length in visual lines (TS `BASH_PREVIEW_LINES`).
-const BASH_PREVIEW_LINES: usize = 5;
 
 #[must_use]
 pub fn render(
@@ -28,130 +26,126 @@ pub fn render(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    let mut panel = super::panel(card);
-    let content_width = panel.content_width(width);
-    let rows = &mut panel.children;
-    rows.push(Element::text(Fit::Wrap, format_bash_call(card)));
-    if let Some(result) = &card.result {
-        bash_result_rows(
-            card,
-            result,
-            detail.tool_output_expanded(),
-            content_width,
-            rows,
-        );
-    }
-    rows.extend(images(card.result.as_ref(), show_images, theme));
-    element::render(&Element::Panel(panel), theme, width, Tick(frame))
-}
-
-/// The `$ command` call row (TS `formatBashCall`): dim, with the command
-/// preview (a non-bash language prefixes its label) and the timeout suffix.
-fn format_bash_call(card: &ToolCallCard) -> Vec<Inline> {
-    let command = card.args.get("command");
-    // `str(value)`: a missing or non-string command is invalid; a null or
-    // empty string renders the `...` placeholder.
-    let invalid = command.is_some_and(|value| !value.is_string());
-    let command = command.and_then(Value::as_str);
-    let mut row = vec![Inline::role("$ ", ThemeColor::Dim)];
-    if invalid {
-        row.push(Inline::role("[invalid arg]", ThemeColor::Error));
-    } else if command.unwrap_or_default().is_empty() {
-        row.push(Inline::role(
-            crate::glyphs::ELLIPSIS,
-            ThemeColor::ToolOutput,
-        ));
-    } else {
-        let command = command.unwrap_or_default();
-        let preview = preview_bash_command(command);
-        let display = if preview.text.is_empty() {
-            command.to_string()
-        } else {
-            match preview.language {
-                CodePreviewLanguage::Bash => preview.text,
-                CodePreviewLanguage::Python => format!("python: {}", preview.text),
-            }
-        };
-        row.push(Inline::role(display, ThemeColor::Dim));
-    }
-    if let Some(timeout) = card.args.get("timeout").and_then(Value::as_f64) {
-        row.push(Inline::role(
-            format!(" (timeout {timeout:.0}s)"),
-            ThemeColor::Dim,
-        ));
-    }
-    row
-}
-
-/// The result rows (TS `rebuildBashResultRenderComponent`): output rows,
-/// the truncation warning, the duration row.
-fn bash_result_rows(
-    card: &ToolCallCard,
-    result: &ToolResultView,
-    expanded: bool,
-    content_width: usize,
-    rows: &mut Vec<Element>,
-) {
-    let output_row =
-        |text: String| Element::text(Fit::Keep, vec![Inline::role(text, ThemeColor::ToolOutput)]);
-    let output = result.text_output(true);
+    let script = script(card);
+    let output = card
+        .result
+        .as_ref()
+        .map(|result| result.text_output(show_images))
+        .unwrap_or_default();
     let output = output.trim();
-    if !output.is_empty() {
-        rows.push(Element::blank());
-        if expanded {
-            rows.extend(output.split('\n').map(|line| output_row(line.to_string())));
-        } else {
-            let total: usize = output
-                .split('\n')
-                .map(|line| wrapped_text_count(line, content_width).max(1))
-                .sum();
-            let skipped = total.saturating_sub(BASH_PREVIEW_LINES);
-            if skipped > 0 {
-                rows.push(Element::text(
-                    Fit::Keep,
-                    vec![Inline::role(
-                        format!("{} {skipped} earlier lines", crate::glyphs::ELLIPSIS),
-                        ThemeColor::Dim,
-                    )],
-                ));
+    let mut rows = vec![summary_row(card, script, output).element(width)];
+    if detail.tool_output_expanded() {
+        let mut first = true;
+        for line in script
+            .filter(|script| !script.is_empty())
+            .into_iter()
+            .flat_map(|script| script.split('\n'))
+        {
+            let text = if first {
+                format!("$ {line}")
+            } else {
+                line.to_string()
+            };
+            rows.push(body_row(
+                first,
+                vec![Inline::role(text, ThemeColor::BashMode)],
+            ));
+            first = false;
+        }
+        if !output.is_empty() {
+            output_rows(&mut rows, output, ThemeColor::ToolOutput);
+        }
+        if let Some(warning) = card.result.as_ref().and_then(truncation_warning) {
+            rows.push(body_row(
+                false,
+                vec![Inline::role(warning, ThemeColor::Warning)],
+            ));
+        }
+        rows.extend(images(card.result.as_ref(), show_images, theme));
+    }
+    element::render(&Element::Column(rows), theme, width, Tick(frame))
+}
+
+/// The script argument: eukhe's `bash@1` sends `script`; sessions
+/// recorded by the pi-era tool carry `command`. `None` when neither is a
+/// string (the streamed call has not filled it yet, or the arg is invalid).
+fn script(card: &ToolCallCard) -> Option<&str> {
+    string_arg(&card.args, "script").or_else(|| string_arg(&card.args, "command"))
+}
+
+/// The script's exit status from the result details (`end.status`), the
+/// refusal word when a step was refused, and `detached` when the script
+/// outlived the blocking budget and went on as a job.
+enum Outcome {
+    Exited(i64),
+    Refused(String),
+    Detached,
+    Unknown,
+}
+
+fn outcome(result: &ToolResultView) -> Outcome {
+    if result.details.get("status").and_then(Value::as_str) == Some("detached") {
+        return Outcome::Detached;
+    }
+    let Some(end) = result.details.get("end") else {
+        return Outcome::Unknown;
+    };
+    match end.get("kind").and_then(Value::as_str) {
+        Some("refused") => Outcome::Refused(
+            end.get("refusal")
+                .and_then(Value::as_str)
+                .unwrap_or("refused")
+                .replace('_', " "),
+        ),
+        Some("finished" | "exited") => end
+            .get("status")
+            .and_then(Value::as_i64)
+            .map_or(Outcome::Unknown, Outcome::Exited),
+        Some(_) | None => Outcome::Unknown,
+    }
+}
+
+/// The one-row summary (the whole card at the default detail).
+fn summary_row<'a>(card: &'a ToolCallCard, script: Option<&str>, output: &str) -> SummaryRow<'a> {
+    let argument = match script {
+        Some(script) => first_line(script).to_string(),
+        None if card.args.get("script").is_some() || card.args.get("command").is_some() => {
+            "[invalid arg]".to_string()
+        }
+        None => String::new(),
+    };
+    let mut status = panel_status(card);
+    let mut results = Vec::new();
+    let mut error = None;
+    if let Some(result) = &card.result {
+        if let Some(count) = line_count(output) {
+            results.push((count, ThemeColor::Dim));
+        }
+        if !card.result_partial {
+            match outcome(result) {
+                Outcome::Exited(0) | Outcome::Unknown => {}
+                Outcome::Exited(code) => {
+                    status = Status::Error;
+                    results.push((format!("exit {code}"), ThemeColor::Error));
+                }
+                Outcome::Refused(refusal) => {
+                    status = Status::Error;
+                    results.push((refusal, ThemeColor::Error));
+                }
+                Outcome::Detached => results.push(("detached".to_string(), ThemeColor::Dim)),
             }
-            let mut remaining = skipped;
-            for line in output.split('\n') {
-                let count = wrapped_text_count(line, content_width).max(1);
-                if remaining >= count {
-                    remaining -= count;
-                    continue;
-                }
-                let wrapped = wrap_text(line, content_width);
-                if wrapped.is_empty() {
-                    rows.push(output_row(String::new()));
-                } else {
-                    for row in wrapped.into_iter().skip(remaining) {
-                        rows.push(output_row(
-                            row.iter()
-                                .map(|span| span.content.as_str())
-                                .collect::<String>(),
-                        ));
-                    }
-                }
-                remaining = 0;
+            if result.is_error && results.iter().all(|(_, role)| *role != ThemeColor::Error) {
+                error = Some(summarize_error_details(output));
             }
         }
     }
-    if let Some(warning) = truncation_warning(result) {
-        rows.push(Element::blank());
-        rows.extend(wrapped_text(&warning, ThemeColor::Warning));
-    }
-    if let Some(started) = card.started_at {
-        let label = if card.result_partial {
-            "Elapsed"
-        } else {
-            "Took"
-        };
-        let elapsed = card.ended_at.unwrap_or_else(std::time::Instant::now) - started;
-        let text = format!("{label} {}", format_bash_duration(elapsed.as_millis()));
-        rows.push(Element::blank());
-        rows.extend(wrapped_text(&text, ThemeColor::Dim));
+    SummaryRow {
+        status,
+        name: "bash",
+        argument,
+        results,
+        duration: duration(card),
+        error,
     }
 }
 
@@ -207,6 +201,8 @@ fn truncation_warning(result: &ToolResultView) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
     use crate::theme::{ColorMode, Theme};
     use serde_json::json;
@@ -215,17 +211,18 @@ mod tests {
         Theme::builtin("eukhe", ColorMode::TrueColor)
     }
 
-    fn done_card(command: &str, output: &str) -> ToolCallCard {
+    fn done_card(script: &str, output: &str, details: Value) -> ToolCallCard {
+        let start = Instant::now();
         ToolCallCard {
             id: "toolu_1".into(),
             name: "bash".into(),
-            args: json!({ "command": command }),
+            args: json!({ "script": script }),
             started: true,
-            started_at: Some(std::time::Instant::now()),
-            ended_at: Some(std::time::Instant::now()),
+            started_at: Some(start),
+            ended_at: Some(start + Duration::from_millis(120)),
             result: Some(ToolResultView {
                 content: vec![json!({ "type": "text", "text": output })],
-                details: json!({}),
+                details,
                 is_error: false,
             }),
             result_partial: false,
@@ -233,67 +230,104 @@ mod tests {
         }
     }
 
-    fn text_of(line: &Line) -> String {
-        line.iter().map(|s| s.content.as_str()).collect()
+    fn finished(status: i64) -> Value {
+        json!({ "version": "bash@1", "steps": [], "end": { "kind": "finished", "status": status } })
+    }
+
+    fn flat(rows: &[Line]) -> Vec<String> {
+        rows.iter()
+            .map(|row| {
+                row.iter()
+                    .map(|s| s.content.as_str())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
     }
 
     #[test]
-    fn collapsed_preview_truncates_from_the_end() {
+    fn the_default_detail_is_one_row_with_the_real_script() {
+        // The brief's capture: the pi-era card read `command`, so eukhe's
+        // `script` argument rendered as `$ ...` plus a 5-line output tail
+        // under a `bash - done` header. The one row names the script.
+        let output = "$ grep -n width src/media.ts\n".to_string()
+            + &(1..=82)
+                .map(|n| format!("{n}-    width: 1682,"))
+                .collect::<Vec<_>>()
+                .join("\n");
+        let card = done_card("grep -n width src/media.ts", &output, finished(0));
+        for detail in [Detail::Overview, Detail::Details] {
+            assert_eq!(
+                flat(&render(&card, 0, detail, &theme(), 120, true)),
+                vec![" ok bash - grep -n width src/media.ts - 83 lines - 120ms"]
+            );
+        }
+    }
+
+    #[test]
+    fn the_first_script_line_is_the_argument_summary() {
+        let card = done_card("\ncd /tmp\nls -la\n", "a\nb", finished(0));
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
+            vec![" ok bash - cd /tmp - 2 lines - 120ms"]
+        );
+    }
+
+    #[test]
+    fn a_non_zero_exit_is_an_error_row() {
+        let card = done_card("false", "$ false\n[step 1 exited 1]", finished(1));
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
+            vec![" x bash - false - 2 lines - exit 1 - 120ms"]
+        );
+    }
+
+    #[test]
+    fn a_refused_step_names_the_refusal() {
+        let mut card = done_card(
+            "rm -rf /",
+            "[stopped at step 1 (write): `rm -rf /` and the steps after it did not run: the user denied it. Do not try it again unless the user asks for it.]",
+            json!({ "version": "bash@1", "steps": [], "end": { "kind": "refused", "step": 1, "command": "rm -rf /", "effects": ["write"], "refusal": "denied" } }),
+        );
+        card.result.as_mut().expect("result").is_error = true;
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
+            vec![" x bash - rm -rf / - 1 line - denied - 120ms"]
+        );
+    }
+
+    #[test]
+    fn an_error_result_without_an_end_summarizes_the_text() {
+        let mut card = done_card("ls", "bash needs a `script` string", json!({}));
+        card.result.as_mut().expect("result").is_error = true;
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
+            vec![" x bash - ls - 1 line - 120ms - bash needs a `script` string"]
+        );
+    }
+
+    #[test]
+    fn the_expanded_detail_hangs_the_script_and_the_whole_output_below() {
         let output = (1..=12)
             .map(|n| n.to_string())
             .collect::<Vec<_>>()
             .join("\n");
-        let card = done_card("seq 1 12", &output);
-        let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert!(
-            flat.iter().any(|r| r.contains("bash - done")),
-            "got: {flat:?}"
-        );
-        assert!(
-            flat.iter().any(|r| r.contains("$ seq 1 12")),
-            "got: {flat:?}"
-        );
-        assert!(
-            flat.iter().any(|r| r.contains("... 7 earlier lines")),
-            "got: {flat:?}"
-        );
-        assert!(flat.iter().any(|r| r.contains("12")), "got: {flat:?}");
+        let card = done_card("seq 1 12", &output, finished(0));
+        let rows = flat(&render(&card, 0, Detail::All, &theme(), 120, true));
+        assert_eq!(rows[0], " ok bash - seq 1 12 - 12 lines - 120ms");
+        assert_eq!(rows[1], " `- $ seq 1 12");
+        assert_eq!(rows[2], "  > 1");
+        assert_eq!(rows[13], "    12");
+        assert_eq!(rows.len(), 14, "{rows:?}");
     }
 
     #[test]
-    fn expanded_shows_all_output() {
-        let output = (1..=12)
-            .map(|n| n.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let card = done_card("seq 1 12", &output);
-        let rows = render(&card, 0, Detail::All, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert!(
-            flat.iter().any(|r| r.trim_end().ends_with('1')),
-            "got: {flat:?}"
-        );
-        assert!(
-            !flat.iter().any(|r| r.contains("earlier lines")),
-            "got: {flat:?}"
-        );
-    }
-
-    #[test]
-    fn duration_row_rendered() {
-        let card = done_card("echo hi", "hi");
-        let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert!(flat.iter().any(|r| r.contains("Took ")), "got: {flat:?}");
-    }
-
-    #[test]
-    fn truncation_warning_rendered() {
-        let mut card = done_card("cat big.txt", "line1\nline2");
-        card.result = Some(ToolResultView {
-            content: vec![json!({ "type": "text", "text": "line1\nline2" })],
-            details: json!({
+    fn truncation_warning_renders_expanded_only() {
+        let card = done_card(
+            "cat big.txt",
+            "line1\nline2",
+            json!({
                 "truncation": {
                     "truncated": true,
                     "truncatedBy": "lines",
@@ -302,24 +336,25 @@ mod tests {
                 },
                 "fullOutputPath": "/tmp/pi-bash-abc",
             }),
-            is_error: false,
-        });
-        let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
+        );
+        let collapsed = flat(&render(&card, 0, Detail::Overview, &theme(), 120, true));
+        assert_eq!(collapsed.len(), 1, "{collapsed:?}");
+        let expanded = flat(&render(&card, 0, Detail::All, &theme(), 120, true));
         assert!(
-            flat.iter()
+            expanded
+                .iter()
                 .any(|r| r
                     .contains("[Full output: /tmp/pi-bash-abc. Truncated: showing 2 of 10 lines]")),
-            "got: {flat:?}"
+            "got: {expanded:?}"
         );
     }
 
     #[test]
     fn byte_truncation_warning_shape() {
-        let mut card = done_card("cat big.txt", "x");
-        card.result = Some(ToolResultView {
-            content: vec![json!({ "type": "text", "text": "x" })],
-            details: json!({
+        let card = done_card(
+            "cat big.txt",
+            "x",
+            json!({
                 "truncation": {
                     "truncated": true,
                     "truncatedBy": "bytes",
@@ -327,62 +362,83 @@ mod tests {
                     "totalLines": 9,
                 },
             }),
-            is_error: false,
-        });
-        let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
+        );
+        let rows = flat(&render(&card, 0, Detail::All, &theme(), 120, true));
         assert!(
-            flat.iter()
+            rows.iter()
                 .any(|r| r.contains("Truncated: 3 lines shown (50.0KB limit)")),
-            "got: {flat:?}"
+            "got: {rows:?}"
         );
     }
 
     #[test]
-    fn running_header_animates() {
+    fn a_running_card_is_one_row_with_the_working_icon_and_no_duration() {
         // The bash tool emits an empty partial result the moment it starts,
         // so a running card carries an (empty) partial result.
         let card = ToolCallCard {
             id: "t".into(),
             name: "bash".into(),
-            args: json!({ "command": "sleep 1" }),
+            args: json!({ "script": "sleep 1" }),
             started: true,
-            started_at: Some(std::time::Instant::now()),
+            started_at: Some(Instant::now()),
             result: Some(ToolResultView::default()),
             result_partial: true,
             ..Default::default()
         };
-        let rows = render(&card, 3, Detail::Overview, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert!(flat.iter().any(|r| r.contains("running")), "got: {flat:?}");
-        assert!(flat.iter().any(|r| r.contains("Elapsed ")), "got: {flat:?}");
+        let rows = flat(&render(&card, 3, Detail::Overview, &theme(), 120, true));
+        assert_eq!(rows, vec![" o bash - sleep 1"]);
+        // Settling the same card turns the row into the settled row.
+        let settled = ToolCallCard {
+            ended_at: Some(card.started_at.expect("started") + Duration::from_millis(1000)),
+            result: Some(ToolResultView {
+                content: vec![json!({ "type": "text", "text": "$ sleep 1" })],
+                details: finished(0),
+                is_error: false,
+            }),
+            result_partial: false,
+            ..card
+        };
+        assert_eq!(
+            flat(&render(&settled, 3, Detail::Overview, &theme(), 120, true)),
+            vec![" ok bash - sleep 1 - 1 line - 1.0s"]
+        );
     }
 
     #[test]
-    fn invalid_and_missing_command_shapes() {
+    fn invalid_and_missing_script_shapes() {
         let card = ToolCallCard {
             id: "t".into(),
             name: "bash".into(),
-            args: json!({ "command": 5 }),
+            args: json!({ "script": 5 }),
             started: false,
             ..Default::default()
         };
-        let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert!(
-            flat.iter().any(|r| r.contains("$ [invalid arg]")),
-            "got: {flat:?}"
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
+            vec![" o bash - [invalid arg]"]
         );
-
         let card = ToolCallCard {
             id: "t".into(),
             name: "bash".into(),
-            args: json!({ "command": "" }),
+            args: json!({ "script": "" }),
             started: false,
             ..Default::default()
         };
-        let rows = render(&card, 0, Detail::Overview, &theme(), 120, true);
-        let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert!(flat.iter().any(|r| r.contains("$ ...")), "got: {flat:?}");
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
+            vec![" o bash"]
+        );
+        // A pi-era session's `command` still names the command.
+        let card = ToolCallCard {
+            id: "t".into(),
+            name: "bash".into(),
+            args: json!({ "command": "ls" }),
+            started: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
+            vec![" o bash - ls"]
+        );
     }
 }

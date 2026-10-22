@@ -1,9 +1,9 @@
 //! Tool-call card rendering, the TUI side of the TS `tool-execution.ts` /
-//! `tool-panel.ts` / `ipython-cell.ts` / `bash.ts` renderer stack. The card
-//! model mirrors the TS component state (args, execution start, partial
-//! results, live timing); each tool builds its card as `crate::element`
-//! elements (`ipython` as bare rows, `bash` and the generic fallback inside
-//! a tool `Panel`) and the element renderer draws them.
+//! `ipython-cell.ts` renderer stack. The card model mirrors the TS
+//! component state (args, execution start, partial results, live timing);
+//! every tool builds its card as `crate::element` rows -- one summary row
+//! at the default detail, the body hanging below it when expanded -- and
+//! the element renderer draws them.
 
 pub mod bash;
 pub mod generic;
@@ -13,14 +13,15 @@ pub mod highlight;
 pub mod ipython;
 pub mod ipython_details;
 mod layout;
+mod summary;
 
 use std::time::Instant;
 
 use serde_json::Value;
 
 use crate::chat::Detail;
-use crate::element::{Panel, Status};
-use crate::theme::{Theme, ThemeBg, ThemeColor};
+use crate::element::Status;
+use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 
 /// One tool call and its execution state (TS `ToolExecutionComponent`
@@ -179,23 +180,6 @@ pub(crate) fn panel_status(card: &ToolCallCard) -> Status {
     } else {
         Status::Queued
     }
-}
-
-/// The tool panel a `bash` or generic card sits in (TS `ToolPanel`): the
-/// `name - status` header on the tool panel fill, padded by 2.
-fn panel(card: &ToolCallCard) -> Panel {
-    Panel {
-        title: card.name.clone(),
-        status: panel_status(card),
-        fill: ThemeBg::ToolPanelBg,
-        padding: 2,
-        children: Vec::new(),
-    }
-}
-
-/// `formatDuration` for the bash panel: tenths of a second.
-pub(crate) fn format_bash_duration(ms: u128) -> String {
-    format!("{:.1}s", ms as f64 / 1000.0)
 }
 
 /// `formatSize` (TS `truncate.ts`): `512B`, `50.0KB`, `1.2MB`.
