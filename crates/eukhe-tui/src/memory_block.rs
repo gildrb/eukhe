@@ -1,16 +1,15 @@
-//! The chat memory in the transcript (`OptChat`): the live `memory_update`
-//! rows the compactor's progress shows as, plus the status header and the
-//! sanitizing helpers the `/memory` tree ([`crate::memory_tree`]) shares.
-//! Client-side display only: never logged into the chat, never replayed.
-//! Line text is raw, never markdown.
+//! The chat memory in the chrome (`OptChat`): the status line's `mem`
+//! gauge the compactor's live `memory_update`s move, plus the status
+//! header and the sanitizing helpers the `/memory` tree
+//! ([`crate::memory_tree`]) shares. Client-side display only: never
+//! logged into the chat, never replayed, never a transcript row. Line
+//! text is raw, never markdown.
 
 use eukhe_types::daemon::{
     MemoryStatusSnapshot, MemoryUpdate, MEMORY_VIEW_CEILING, MEMORY_VIEW_FLOOR,
 };
 
-use crate::chat::Detail;
 use crate::style::Style;
-use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 
 /// A size in kilobytes (1000 bytes) to one decimal, rounded: `87.2 KB`.
@@ -27,89 +26,113 @@ fn count(n: u64, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
-/// How many of a coalesced row's newest node ids the summary names; older
-/// ones read as `... +N more`.
-const SHOWN_IDS: usize = 8;
+/// What the compactor did since the current request began, as the
+/// gauge's suffix. Folded from each live update like the compactor's own
+/// batches: summaries accumulate their nodes; a merge replaces whatever
+/// came before (the view dropped, the earlier nodes are in it) and later
+/// merges add their pairs; a summary after a merge starts a fresh count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryActivity {
+    /// Nodes built: `~N`.
+    Summarized { nodes: u64 },
+    /// Pairs merged down: `vN`.
+    Merged { pairs: u64 },
+}
 
-/// The live row's text: `memory: summarized 41+1, 42+1 (view 87.2 KB)`
-/// (past [`SHOWN_IDS`] nodes, `memory: summarized ... +12 more, 6+2, ...`)
-/// or `memory: merged 37 pairs, view 128.4 KB -> 63.9 KB`.
-#[must_use]
-pub(crate) fn memory_update_summary(update: &MemoryUpdate) -> String {
-    match update {
-        MemoryUpdate::Summarized { lines, view_bytes } => {
-            let hidden = lines.len().saturating_sub(SHOWN_IDS);
-            let more = (hidden > 0).then(|| format!("{} +{hidden} more", crate::glyphs::ELLIPSIS));
-            let ids = more
-                .into_iter()
-                .chain(
-                    lines[hidden..]
-                        .iter()
-                        .map(|line| format!("{}+{}", line.id, line.count)),
-                )
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("memory: summarized {ids} (view {})", format_kb(*view_bytes))
+impl MemoryActivity {
+    /// `previous` folded with `update`.
+    #[must_use]
+    fn fold(previous: Option<Self>, update: &MemoryUpdate) -> Self {
+        match (previous, update) {
+            (Some(Self::Summarized { nodes }), MemoryUpdate::Summarized { lines, .. }) => {
+                Self::Summarized {
+                    nodes: nodes.saturating_add(lines.len() as u64),
+                }
+            }
+            (None | Some(Self::Merged { .. }), MemoryUpdate::Summarized { lines, .. }) => {
+                Self::Summarized {
+                    nodes: lines.len() as u64,
+                }
+            }
+            (Some(Self::Merged { pairs }), MemoryUpdate::Merged { pairs: more, .. }) => {
+                Self::Merged {
+                    pairs: pairs.saturating_add(*more),
+                }
+            }
+            (None | Some(Self::Summarized { .. }), MemoryUpdate::Merged { pairs, .. }) => {
+                Self::Merged { pairs: *pairs }
+            }
         }
-        MemoryUpdate::Merged {
-            pairs,
-            before_bytes,
-            after_bytes,
-        } => format!(
-            "memory: merged {}, view {} {} {}",
-            count(*pairs, "pair", "pairs"),
-            format_kb(*before_bytes),
-            crate::glyphs::ARROW,
-            format_kb(*after_bytes),
-        ),
+    }
+
+    /// The gauge suffix: `~3` (nodes summarized), `v37` (pairs merged).
+    fn suffix(self) -> String {
+        match self {
+            Self::Summarized { nodes } => format!("{}{nodes}", crate::glyphs::DOT_HALF),
+            Self::Merged { pairs } => format!("{}{pairs}", crate::glyphs::DOWN),
+        }
     }
 }
 
-/// Fold `update` into the live row `row` when both are the same kind:
-/// summaries accumulate their nodes and take the newest view size; merges
-/// add their pairs and span the first size to the last. A different kind
-/// comes back unfolded (it starts its own row).
-pub(crate) fn fold_memory_update(
-    row: &mut MemoryUpdate,
-    update: MemoryUpdate,
-) -> Option<MemoryUpdate> {
-    match (row, update) {
-        (
-            MemoryUpdate::Summarized { lines, view_bytes },
-            MemoryUpdate::Summarized {
-                lines: more,
-                view_bytes: newest,
-            },
-        ) => {
-            lines.extend(more);
-            *view_bytes = newest;
-            None
-        }
-        (
-            MemoryUpdate::Merged {
-                pairs, after_bytes, ..
-            },
-            MemoryUpdate::Merged {
-                pairs: more,
-                after_bytes: newest,
-                ..
-            },
-        ) => {
-            *pairs = pairs.saturating_add(more);
-            *after_bytes = newest;
-            None
-        }
-        (MemoryUpdate::Summarized { .. }, update @ MemoryUpdate::Merged { .. })
-        | (MemoryUpdate::Merged { .. }, update @ MemoryUpdate::Summarized { .. }) => Some(update),
-    }
+/// The status line's `mem` gauge: the view's size, and what the compactor
+/// did to it since the current request began.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryGauge {
+    /// The view's size, in bytes of line text.
+    pub view_bytes: u64,
+    /// The compactor's activity since the request began; `None` once a
+    /// request begins, until the next update.
+    pub activity: Option<MemoryActivity>,
 }
 
-/// The view's size after `update`, for the status gauge.
-#[must_use]
-pub(crate) fn memory_update_view_bytes(update: &MemoryUpdate) -> u64 {
-    match update {
-        MemoryUpdate::Summarized { view_bytes, .. } => *view_bytes,
-        MemoryUpdate::Merged { after_bytes, .. } => *after_bytes,
+impl MemoryGauge {
+    /// The gauge a `get_memory` status seeds: the size, no activity yet.
+    #[must_use]
+    pub fn seeded(view_bytes: u64) -> Self {
+        Self {
+            view_bytes,
+            activity: None,
+        }
+    }
+
+    /// `gauge` after one live `update`: the view's new size, the activity
+    /// folded in. A gauge the status never seeded starts here.
+    #[must_use]
+    pub fn after(gauge: Option<Self>, update: &MemoryUpdate) -> Self {
+        let view_bytes = match update {
+            MemoryUpdate::Summarized { view_bytes, .. } => *view_bytes,
+            MemoryUpdate::Merged { after_bytes, .. } => *after_bytes,
+        };
+        Self {
+            view_bytes,
+            activity: Some(MemoryActivity::fold(
+                gauge.and_then(|gauge| gauge.activity),
+                update,
+            )),
+        }
+    }
+
+    /// A request began: the activity count starts over.
+    pub fn begin_request(&mut self) {
+        self.activity = None;
+    }
+
+    /// `mem 87/128K`: the view's size against the ceiling in whole
+    /// kilobytes; then, after a live update, the activity: `mem 91/128K
+    /// ~3` (3 nodes summarized since the request began), `mem 64/128K
+    /// v37` (37 pairs merged). Never a node id.
+    #[must_use]
+    pub fn text(&self) -> String {
+        let mut text = format!(
+            "mem {}/{}K",
+            self.view_bytes.saturating_add(500) / 1000,
+            MEMORY_VIEW_CEILING / 1000
+        );
+        if let Some(activity) = self.activity {
+            text.push(' ');
+            text.push_str(&activity.suffix());
+        }
+        text
     }
 }
 
@@ -166,51 +189,6 @@ pub(crate) fn one_line(text: &str) -> String {
             c => c,
         })
         .collect()
-}
-
-/// One live `memory_update` row: an optional leading blank, the summary,
-/// and -- at the `all` level only -- each summarized line as an indented
-/// `id+n|text` row (its text on one line).
-pub(crate) fn render_memory_update(
-    update: &MemoryUpdate,
-    detail: Detail,
-    theme: &Theme,
-    width: usize,
-    leading: bool,
-) -> Vec<Line> {
-    let mut out = Vec::new();
-    if leading {
-        out.push(Vec::new());
-    }
-    let muted = theme.fg_style(ThemeColor::Muted);
-    out.extend(wrapped(&memory_update_summary(update), 1, muted, width));
-    let show_lines = match detail {
-        Detail::Overview | Detail::Details => false,
-        Detail::All => true,
-    };
-    match update {
-        MemoryUpdate::Summarized { lines, .. } if show_lines => {
-            let dim = theme.fg_style(ThemeColor::Dim);
-            for line in lines {
-                let flat = one_line(&line.text);
-                let text = format!("{}+{}|{flat}", line.id, line.count);
-                out.extend(wrapped(&text, 3, dim, width));
-            }
-        }
-        MemoryUpdate::Summarized { .. } | MemoryUpdate::Merged { .. } => {}
-    }
-    out
-}
-
-/// The status line's gauge: `mem 87/128K`, the view's size against the
-/// ceiling in whole kilobytes.
-#[must_use]
-pub(crate) fn memory_gauge(view_bytes: u64) -> String {
-    format!(
-        "mem {}/{}K",
-        view_bytes.saturating_add(500) / 1000,
-        MEMORY_VIEW_CEILING / 1000
-    )
 }
 
 #[cfg(test)]

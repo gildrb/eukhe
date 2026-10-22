@@ -111,8 +111,8 @@ pub enum TurnUpdate {
     /// the prompt (llama.cpp); the status line's prefill segment shows it.
     PromptProgress(eukhe_types::pi_ai::PromptProgress),
     /// `memory_update`: the chat memory's compactor summarized lines or
-    /// merged the view. A live transcript row (display only) and the
-    /// status gauge's view size.
+    /// merged the view. Moves the status line's `mem` gauge only; never
+    /// a transcript row.
     MemoryUpdate(MemoryUpdate),
     /// `agent_relay`: two non-root agents of this session's family
     /// exchanged a message. A display-only transcript row; never sent to

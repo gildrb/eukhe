@@ -2,9 +2,9 @@
 //! line's `mem` gauge seeds from the open-time `get_memory`, `/memory`
 //! opens the memory tree (the status header and one dated, labelled row
 //! per view line), Right drills a one-message line down to its message
-//! and a summary line down to its two halves, a pushed `memory_update`
-//! lands as a live row (no turn running) and moves the gauge, and
-//! arguments answer the usage.
+//! and a summary line down to its two halves, pushed `memory_update`s
+//! move the gauge (its size and the nodes summarized) and never make a
+//! transcript row, and arguments answer the usage.
 #![cfg(unix)]
 // - the futures are bounded by the surface's lifetime; boxing them would
 //   add an allocation to the steady-state loop.
@@ -24,8 +24,9 @@ use serde_json::{json, Value};
 const HEADER: &str = " memory: 43 messages, view 87.2 KB / 128.0 KB (floor 64.0 KB), 2 lines, \
                       2 unsummarized, 1 compaction running, model anthropic/claude-haiku-4-5";
 
-/// The two pushed summaries, coalesced into one live row.
-const LIVE_ROW: &str = "memory: summarized 41+1, 42+1, 40+2 (view 91.0 KB)";
+/// The two pushed summaries, folded into the gauge: three nodes, the
+/// newest view size.
+const LIVE_GAUGE: &str = "mem 91/128K ~3";
 
 const OCT_1: &str = "2026-10-01T09:00:00.000+02:00";
 const OCT_2: &str = "2026-10-02T10:00:00.000+02:00";
@@ -316,15 +317,15 @@ fn memory_opens_the_tree_drills_down_and_shows_live_updates() {
             key(KeyCode::Up),
             key(KeyCode::Right),
             wait("+ 16+16"),
-            // The update pushed after the expansion: a live row while no
-            // turn runs; Esc closes the tree and the gauge follows it.
-            wait(LIVE_ROW),
+            // The updates pushed after the expansion move the gauge while
+            // the tree is open; Esc closes the tree, the gauge stays.
+            wait(LIVE_GAUGE),
             key(KeyCode::Esc),
             HeadlessStep::WaitGone {
                 needle: HEADER.to_string(),
                 timeout_ms: 10_000,
             },
-            wait("mem 91/128K"),
+            wait(LIVE_GAUGE),
             HeadlessStep::Submit("/memory zoom 40".to_string()),
             wait("Usage: /memory"),
         ],
@@ -370,8 +371,8 @@ fn memory_opens_the_tree_drills_down_and_shows_live_updates() {
     assert!(
         frames
             .iter()
-            .all(|frame| !frame.contains("memory: summarized 40+2")),
-        "the second update folds into the live row, never a row of its own:\n{}",
+            .all(|frame| !frame.contains("memory: summarized") && !frame.contains("41+1, 42+1")),
+        "a memory update is never a transcript row:\n{}",
         all()
     );
 }

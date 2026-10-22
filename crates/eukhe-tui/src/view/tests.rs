@@ -1,5 +1,5 @@
 use super::*;
-use crate::chat::{AssistantMessage, MessageBlock};
+use crate::chat::{AssistantLead, AssistantMessage, MessageBlock};
 use crate::style::Modifier;
 use crate::theme::{ColorMode, Theme, ThemeBg, ThemeColor};
 use crate::tool_card::{ToolCallCard, ToolResultView};
@@ -25,7 +25,7 @@ fn settled_tool_card(id: &str) -> ChatEntry {
     ChatEntry::Tool(Box::new(ToolCallCard {
         id: id.to_string(),
         name: "bash".to_string(),
-        args: serde_json::json!({"command": "echo done"}),
+        args: serde_json::json!({"script": "echo done"}),
         started: true,
         started_at: Some(std::time::Instant::now()),
         ended_at: Some(std::time::Instant::now()),
@@ -497,7 +497,7 @@ fn running_card_is_not_cached_and_settled_card_is() {
     let running = ChatEntry::Tool(Box::new(ToolCallCard {
         id: "call_r".to_string(),
         name: "bash".to_string(),
-        args: serde_json::json!({"command": "sleep 1"}),
+        args: serde_json::json!({"script": "sleep 1"}),
         started: true,
         started_at: Some(std::time::Instant::now()),
         ended_at: None,
@@ -656,18 +656,19 @@ fn tool_card_after_user_message_has_one_blank_seam() {
         .expect("user row");
     assert_eq!(flat[user + 1], "", "tool leading spacer row");
     assert!(
-        flat[user + 2].trim().starts_with("bash"),
+        flat[user + 2].trim().starts_with("ok bash - echo done"),
         "card after the one blank: {:?}",
         &flat[user + 2..]
     );
 }
 
-/// TS `createConversationSpacing.shouldAddLeadingSpace` for one
-/// spacing-driven row: scan back over hidden assistant rows, honor the
-/// trailing space of a visible assistant, and sit flush against compact
-/// neighbors (tool cards, agent messages, shell completions).
+/// The leading blank of a tool row (tool card, agent message, shell
+/// completion): only when it opens the turn's visible rows. Under an
+/// assistant message or another tool row it sits flush; an assistant
+/// message that renders nothing (hidden thinking, tool-only) is
+/// skipped.
 #[test]
-fn conversation_leading_matches_ts_spacing_rules() {
+fn tool_rows_lead_with_a_blank_only_at_the_turn_start() {
     let visible_assistant = || {
         ChatEntry::Assistant(Box::new(AssistantMessage {
             blocks: vec![MessageBlock::Text("done".to_string())],
@@ -690,67 +691,41 @@ fn conversation_leading_matches_ts_spacing_rules() {
         text: "hello".to_string(),
     };
 
-    // Nothing preceding: the collapsed form leads with a blank, the
-    // expanded form sits flush against the top of the chat.
+    // Nothing preceding, or a user row: the tool row opens the turn.
     let view = view_with(vec![agent_message_row()]);
-    assert!(view.conversation_leading(0, false));
-    assert!(!view.conversation_leading(0, true));
-
-    // A user row is never a compact neighbor: both forms lead.
+    assert!(view.conversation_leading(0));
     let view = view_with(vec![user(), agent_message_row()]);
-    assert!(view.conversation_leading(1, false));
-    assert!(view.conversation_leading(1, true));
+    assert!(view.conversation_leading(1));
 
-    // A visible assistant with tool calls carries the trailing space:
-    // the next agent message sits flush in both forms.
+    // Under a visible assistant message: flush.
     let view = view_with(vec![visible_assistant(), agent_message_row()]);
-    assert!(!view.conversation_leading(1, false));
-    assert!(!view.conversation_leading(1, true));
+    assert!(!view.conversation_leading(1));
 
-    // A compact neighbor (tool card, shell completion, agent message):
-    // flush collapsed, blank expanded.
+    // Under a compact neighbor (tool card, shell completion, agent
+    // message): flush.
     for neighbor in [
         settled_tool_card("c1"),
         shell_completion_row(),
         agent_message_row(),
     ] {
         let view = view_with(vec![neighbor, agent_message_row()]);
-        assert!(!view.conversation_leading(1, false), "flush collapsed");
-        assert!(view.conversation_leading(1, true), "blank expanded");
+        assert!(!view.conversation_leading(1), "flush under a tool row");
     }
 
-    // A tool-only assistant (no visible body) is a separator: the row
-    // after it keeps the trailing-space spacing in both forms.
+    // A tool-only assistant renders nothing: the scan looks past it.
     let view = view_with(vec![tool_only_assistant(), agent_message_row()]);
-    assert!(!view.conversation_leading(1, false));
-    assert!(!view.conversation_leading(1, true));
-
-    // The backward scan returns at the first non-skippable row it
-    // meets: a user row NEWER than the tool-only assistant ends the
-    // scan, so the agent message leads (the separator is never
-    // reached).
-    let view = view_with(vec![tool_only_assistant(), user(), agent_message_row()]);
-    assert!(view.conversation_leading(2, false));
-    assert!(view.conversation_leading(2, true));
-    // With the separator NEWER than the non-compact row, the
-    // separator dominates (TS returns the tool separator with a
-    // trailing space), so the agent message renders flush.
+    assert!(view.conversation_leading(1));
     let view = view_with(vec![user(), tool_only_assistant(), agent_message_row()]);
-    assert!(!view.conversation_leading(2, false));
-    assert!(!view.conversation_leading(2, true));
-    // A compact row older than the separator ends the scan WITHOUT the
-    // separator (TS falls through the `toolSeparator` branch to the
-    // compact row): flush collapsed, blank expanded.
+    assert!(view.conversation_leading(2));
     let view = view_with(vec![
         settled_tool_card("c2"),
         tool_only_assistant(),
         agent_message_row(),
     ]);
-    assert!(!view.conversation_leading(2, false));
-    assert!(view.conversation_leading(2, true));
+    assert!(!view.conversation_leading(2));
 
-    // A hidden thinking-only assistant contributes nothing to spacing:
-    // the scan skips it to the user row.
+    // A hidden thinking-only assistant renders nothing at overview: the
+    // scan looks past it to the user row.
     let hidden_assistant = || {
         ChatEntry::Assistant(Box::new(AssistantMessage {
             blocks: vec![MessageBlock::Thinking("quiet".to_string())],
@@ -762,7 +737,187 @@ fn conversation_leading_matches_ts_spacing_rules() {
     };
     let mut view = view_with(vec![user(), hidden_assistant(), agent_message_row()]);
     view.detail = Detail::Overview;
-    assert!(view.conversation_leading(2, false));
+    assert!(view.conversation_leading(2));
+}
+
+/// The leading blank of an assistant message: the turn's first rows
+/// and the settled reply after tool rows lead with one; a message under
+/// another assistant message, or under tool rows while it streams or
+/// carries tool calls of its own, sits flush.
+#[test]
+fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
+    let message = |has_tool_calls: bool, streaming: bool| AssistantMessage {
+        blocks: vec![MessageBlock::Text("body".to_string())],
+        has_tool_calls,
+        streaming,
+        error: None,
+        aborted: false,
+    };
+    let entry =
+        |has_tool_calls: bool| ChatEntry::Assistant(Box::new(message(has_tool_calls, false)));
+    let reply = message(false, false);
+    let streaming_reply = message(false, true);
+    let tool_message = message(true, false);
+
+    // Nothing preceding, or a user row: the turn starts.
+    let view = view_with(vec![entry(true)]);
+    assert_eq!(view.assistant_lead(0, &tool_message), AssistantLead::Spaced);
+    let view = view_with(vec![user_row(), entry(true)]);
+    assert_eq!(view.assistant_lead(1, &tool_message), AssistantLead::Spaced);
+    assert_eq!(view.assistant_lead(1, &reply), AssistantLead::Spaced);
+
+    // Under another assistant message: flush, reply or not.
+    let view = view_with(vec![user_row(), entry(true), entry(true)]);
+    assert_eq!(view.assistant_lead(2, &tool_message), AssistantLead::Flush);
+    assert_eq!(view.assistant_lead(2, &reply), AssistantLead::Flush);
+
+    // Under tool rows: the settled reply stands apart; a message with
+    // tool calls of its own, or one still streaming, stays flush.
+    let view = view_with(vec![
+        user_row(),
+        entry(true),
+        settled_tool_card("c1"),
+        entry(false),
+    ]);
+    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Spaced);
+    assert_eq!(
+        view.assistant_lead(3, &streaming_reply),
+        AssistantLead::Flush
+    );
+    assert_eq!(view.assistant_lead(3, &tool_message), AssistantLead::Flush);
+
+    // A hidden thinking-only message between the tool row and the reply
+    // renders nothing: the reply still follows the tool row.
+    let hidden = ChatEntry::Assistant(Box::new(AssistantMessage {
+        blocks: vec![MessageBlock::Thinking("quiet".to_string())],
+        has_tool_calls: true,
+        streaming: false,
+        error: None,
+        aborted: false,
+    }));
+    let mut view = view_with(vec![
+        user_row(),
+        settled_tool_card("c1"),
+        hidden,
+        entry(false),
+    ]);
+    view.detail = Detail::Overview;
+    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Spaced);
+    assert_eq!(view.assistant_lead(3, &tool_message), AssistantLead::Flush);
+}
+
+/// The dense turn: the thinking renders dim with its paragraphs on
+/// consecutive rows, the text block follows without a blank, the tool
+/// card follows the text without a blank, and only the settled reply
+/// (no tool calls) after the tool rows leads with one blank row -- its
+/// own thinking and text then sit flush. The reply keeps its markdown
+/// rendering.
+#[test]
+fn a_turn_renders_dense_thinking_and_flush_blocks() {
+    let theme = Theme::builtin("eukhe", ColorMode::Color256);
+    let dim = theme.fg_style(ThemeColor::Dim);
+    let code = crate::markdown::MarkdownStyle::from_theme(&theme).code;
+    let mut view = view_with(vec![
+        user_row(),
+        ChatEntry::Assistant(Box::new(AssistantMessage {
+            blocks: vec![
+                MessageBlock::Thinking(
+                    "First thought about the task.\n\nSecond thought follows.\n\n\nThird one closes."
+                        .to_string(),
+                ),
+                MessageBlock::Text("Looking at the reference first.".to_string()),
+            ],
+            has_tool_calls: true,
+            streaming: false,
+            error: None,
+            aborted: false,
+        })),
+        settled_tool_card("c1"),
+        ChatEntry::Assistant(Box::new(AssistantMessage {
+            blocks: vec![
+                MessageBlock::Thinking("It is a client-rendered page.".to_string()),
+                MessageBlock::Text("The page is `client-rendered`.".to_string()),
+            ],
+            has_tool_calls: false,
+            streaming: false,
+            error: None,
+            aborted: false,
+        })),
+    ]);
+    view.detail = Detail::Details;
+    let rows = view.render_transcript(60);
+    let plain: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            row_text(row)
+                .replace(crate::osc133::ZONE_START, "")
+                .replace(crate::osc133::ZONE_END_PREFIX, "")
+                .replace(crate::osc133::ZONE_END, "")
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    let prompt = plain
+        .iter()
+        .position(|row| row == "  hello")
+        .expect("the user row renders");
+    let card = plain
+        .iter()
+        .position(|row| row.contains("bash"))
+        .expect("the tool card renders");
+    assert_eq!(
+        plain[prompt..card],
+        [
+            "  hello",
+            "",
+            " First thought about the task.",
+            " Second thought follows.",
+            " Third one closes.",
+            " Looking at the reference first.",
+        ],
+        "{plain:?}"
+    );
+    let reply_thinking = plain
+        .iter()
+        .position(|row| row == " It is a client-rendered page.")
+        .expect("the reply's thinking renders");
+    // The card's rows follow the text flush; the settled reply (no tool
+    // calls) after the tool rows leads with exactly one blank row.
+    assert!(
+        plain[card..reply_thinking - 1]
+            .iter()
+            .all(|row| !row.is_empty()),
+        "the card follows the text flush: {plain:?}"
+    );
+    assert_eq!(plain[reply_thinking - 1], "", "{plain:?}");
+    assert_eq!(
+        plain[reply_thinking..],
+        [
+            " It is a client-rendered page.",
+            " The page is client-rendered."
+        ],
+        "{plain:?}"
+    );
+    // The thinking rows are dim (inline code included); the reply keeps
+    // its markdown rendering (the inline code in the code color).
+    for index in [prompt + 2, prompt + 3, prompt + 4, reply_thinking] {
+        assert!(
+            rows[index]
+                .iter()
+                .filter(|span| !span.content.trim().is_empty())
+                .all(|span| span.style == dim),
+            "dim thinking row {index}: {:?}",
+            rows[index]
+        );
+    }
+    let inline_code = rows
+        .last()
+        .expect("the reply row")
+        .iter()
+        .find(|span| span.content == "client-rendered")
+        .expect("the inline code span");
+    assert_eq!(inline_code.style, code);
+    assert_ne!(code, dim);
 }
 
 /// TS `AgentMessageComponent` is a compact neighbor
@@ -787,12 +942,11 @@ fn hidden_thinking_after_an_agent_message_renders_zero_height() {
         .iter()
         .position(|line| line.contains("Agent message - v lane"))
         .expect("the agent-message row renders");
-    // The card's panel header is its FIRST row; the seam check must
-    // look above it, never inside the panel's own padding.
+    // The card is one row; the seam check looks above it.
     let header_row = lines
         .iter()
-        .position(|line| line.contains("bash - done"))
-        .expect("the tool card header renders");
+        .position(|line| line.contains("ok bash - echo done"))
+        .expect("the tool card row renders");
     // Flush: the row directly above the card header is the agent
     // message block's own last row (its body), never the hidden
     // thinking's trailing spacer (the pre-fix gap).
@@ -839,11 +993,11 @@ fn hidden_thinking_after_a_bash_card_renders_zero_height() {
         .iter()
         .position(|line| line.contains("echo hi"))
         .expect("the bash card renders");
-    // The tool panel's header is its first row; the seam sits above it.
+    // The tool card is one row; the seam sits above it.
     let header_row = lines
         .iter()
-        .position(|line| line.contains("bash - done"))
-        .expect("the tool card header renders");
+        .position(|line| line.contains("ok bash - echo done"))
+        .expect("the tool card row renders");
     // Flush: the row directly above the tool card header is the bash
     // card's own closing border, never a hidden-thinking spacer.
     assert!(
@@ -856,10 +1010,10 @@ fn hidden_thinking_after_a_bash_card_renders_zero_height() {
     );
 }
 
-/// A visible assistant body after a compact neighbor keeps its own
-/// spacers (the collapsed fix only flattens the invisible body).
+/// A visible assistant body with tool calls after a compact neighbor
+/// sits flush, and its tool card follows it flush: one dense trace.
 #[test]
-fn a_visible_assistant_after_an_agent_message_keeps_its_spacers() {
+fn a_visible_assistant_after_an_agent_message_stays_flush() {
     let mut view = view_with(vec![
         user_row(),
         agent_message_row(),
@@ -880,13 +1034,9 @@ fn a_visible_assistant_after_an_agent_message_keeps_its_spacers() {
         .position(|line| line.contains("Agent message - v lane"))
         .expect("the agent-message row renders");
     // In overview the agent message renders its header alone; the
-    // visible assistant body then leads with its blank, renders, and
-    // keeps the tool separator before the card (TS `hasTrailingSpace`
-    // with a visible body).
-    assert!(lines[agent_row + 1].trim().is_empty(), "{text}");
-    assert!(lines[agent_row + 2].contains("answer body"), "{text}");
-    assert!(lines[agent_row + 3].trim().is_empty(), "{text}");
-    assert!(lines[agent_row + 4].contains("bash - done"), "{text}");
+    // assistant body follows it directly, and the card follows the body.
+    assert!(lines[agent_row + 1].contains("answer body"), "{text}");
+    assert!(lines[agent_row + 2].contains("bash"), "{text}");
 }
 
 /// The custom rows render through the transcript path: the agent
@@ -1098,8 +1248,8 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
     let mut view = collapsed_view(entries);
     let text = transcript_text(&mut view, 80);
     assert!(
-        text.matches("bash - done").count() == 5,
-        "every tool card renders its own panel rows: {text}"
+        text.matches("ok bash - echo done").count() == 5,
+        "every tool card renders its own row: {text}"
     );
     assert!(
         text.contains("Agent message - v lane"),
@@ -1124,7 +1274,7 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
     assert_eq!(view.detail, Detail::Details);
     let details = transcript_text(&mut view, 80);
     assert!(
-        details.matches("bash - done").count() == 5,
+        details.matches("ok bash - echo done").count() == 5,
         "every card keeps its own rows at details: {details}"
     );
     assert!(
@@ -1148,7 +1298,7 @@ fn a_running_card_updates_between_frames() {
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: "run_r".to_string(),
         name: "bash".to_string(),
-        args: serde_json::json!({"command": "sleep 1"}),
+        args: serde_json::json!({"script": "sleep 1"}),
         started: true,
         started_at: Some(std::time::Instant::now()),
         ended_at: None,
@@ -1159,8 +1309,8 @@ fn a_running_card_updates_between_frames() {
     view.pulse_frame = 0;
     let frame0 = transcript_text(&mut view, 80);
     assert!(
-        frame0.contains("running"),
-        "the running card renders its own rows: {frame0}"
+        frame0.contains(" . bash - sleep 1"),
+        "the running card renders its own row with the working icon: {frame0}"
     );
     view.pulse_frame = 1;
     let frame1 = transcript_text(&mut view, 80);
@@ -1183,7 +1333,7 @@ fn streamed_cards_render_their_own_rows_immediately() {
         ChatEntry::Tool(Box::new(ToolCallCard {
             id: id.to_string(),
             name: "bash".to_string(),
-            args: serde_json::json!({"command": "ls"}),
+            args: serde_json::json!({"script": "ls"}),
             started: true,
             started_at: Some(std::time::Instant::now()),
             ..Default::default()
@@ -1196,14 +1346,14 @@ fn streamed_cards_render_their_own_rows_immediately() {
     view.push_entry(streamed("c0"));
     let one = transcript_text(&mut view, 80);
     assert!(
-        one.contains("running"),
+        one.contains(" . bash - ls"),
         "the first streamed card renders at once: {one}"
     );
     view.push_entry(streamed("c1"));
     view.push_entry(streamed("c2"));
     let three = transcript_text(&mut view, 80);
     assert_eq!(
-        three.matches("running").count(),
+        three.matches(" . bash - ls").count(),
         3,
         "every streamed card keeps its own row: {three}"
     );
@@ -1281,8 +1431,7 @@ fn settled_rows_survive_a_cache_roundtrip() {
     let mut fresh = collapsed_view(settled_cards(3));
     let fresh_text = transcript_text(&mut fresh, 80);
     assert_eq!(
-        first.replace("0s", "").replace("0.0s", ""),
-        fresh_text.replace("0s", "").replace("0.0s", ""),
-        "a fresh view renders the same rows (the Took clock may move)"
+        first, fresh_text,
+        "a fresh view renders the same rows (the cards' sub-millisecond clocks round to 0ms)"
     );
 }

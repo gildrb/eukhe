@@ -1,10 +1,10 @@
 //! Typed elements for tool cards and the one renderer that turns them into
-//! rows. A card says what to show: text in a theme role, a status, a
-//! panel. Only this renderer picks the status glyphs and colors, the panel
-//! fill, the padding and the width cuts.
+//! rows. A card says what to show: text in a theme role, a status mark, a
+//! guttered row, an inset column. Only this renderer picks the status
+//! glyphs and colors and the width cuts.
 
 use crate::style::Style;
-use crate::theme::{Theme, ThemeBg, ThemeColor};
+use crate::theme::{Theme, ThemeColor};
 use crate::width::{line_width, truncate_line, wrap_line};
 use crate::{Line, Span};
 
@@ -29,22 +29,14 @@ pub(crate) enum Status {
     Aborted,
 }
 
-/// How a status shows inline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mark {
-    /// The status glyph; the working icon while running.
-    Icon,
-    /// The status word; the working icon leads it while running.
-    Word,
-}
-
 /// One piece of a text row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Inline {
     /// Text in one ink.
     Run { text: String, ink: Ink },
-    /// A status mark in the status color.
-    Status { status: Status, mark: Mark },
+    /// A status mark in the status color: the status glyph, the working
+    /// icon while running.
+    Status { status: Status },
 }
 
 impl Inline {
@@ -78,10 +70,8 @@ impl From<Span> for Inline {
 /// How a text row fits the width it gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Fit {
-    /// As is; an enclosing inset or panel cuts it.
+    /// As is; an enclosing inset cuts it.
     Keep,
-    /// Word-wrapped into as many rows as it needs.
-    Wrap,
     /// Cut to the width, ending in an ellipsis when cut.
     Ellipsis,
 }
@@ -102,9 +92,6 @@ pub(crate) enum Element {
     /// The child moved right by `left` blank columns; every row is cut at
     /// the width.
     Inset { left: usize, child: Box<Element> },
-    /// A filled panel: the `title - status` header, then a blank row and
-    /// the children when there are any.
-    Panel(Panel),
 }
 
 impl Element {
@@ -127,25 +114,6 @@ impl Element {
             inlines: line.into_iter().map(Inline::from).collect(),
             fit: Fit::Keep,
         }
-    }
-}
-
-/// A panel's props: the header, its fill and padding, and its rows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Panel {
-    pub(crate) title: String,
-    pub(crate) status: Status,
-    /// The background every panel row is filled with.
-    pub(crate) fill: ThemeBg,
-    /// Blank columns on each side of every row.
-    pub(crate) padding: usize,
-    pub(crate) children: Vec<Element>,
-}
-
-impl Panel {
-    /// The width the children get inside the padding.
-    pub(crate) fn content_width(&self, width: usize) -> usize {
-        width.saturating_sub(2 * self.padding).max(1)
     }
 }
 
@@ -172,7 +140,6 @@ impl Painter<'_> {
                 let line = self.line(inlines);
                 match fit {
                     Fit::Keep => rows.push(line),
-                    Fit::Wrap => rows.extend(wrap_line(&line, width)),
                     Fit::Ellipsis => {
                         rows.push(truncate_line(&line, width, crate::glyphs::ELLIPSIS));
                     }
@@ -206,33 +173,6 @@ impl Painter<'_> {
                     rows.push(truncate_line(&line, width, ""));
                 }
             }
-            Element::Panel(panel) => self.panel(panel, width, rows),
-        }
-    }
-
-    fn panel(&self, panel: &Panel, width: usize, rows: &mut Vec<Line>) {
-        let fill = Fill {
-            style: self.theme.bg_style(panel.fill),
-            padding: panel.padding,
-            content_width: panel.content_width(width),
-            width,
-        };
-        let header = vec![
-            Span::styled(panel.title.clone(), self.theme.fg_style(ThemeColor::Muted)),
-            Span::styled(
-                crate::glyphs::SEP.to_string(),
-                self.theme.fg_style(ThemeColor::Dim),
-            ),
-            self.status(panel.status, Mark::Word),
-        ];
-        rows.push(fill.row(header));
-        let mut children = Vec::new();
-        for child in &panel.children {
-            self.paint(child, fill.content_width, &mut children);
-        }
-        if !children.is_empty() {
-            rows.push(fill.row(Vec::new()));
-            rows.extend(children.into_iter().map(|child| fill.row(child)));
         }
     }
 
@@ -241,7 +181,7 @@ impl Painter<'_> {
             .iter()
             .map(|inline| match inline {
                 Inline::Run { text, ink } => Span::styled(text.clone(), self.ink(*ink)),
-                Inline::Status { status, mark } => self.status(*status, *mark),
+                Inline::Status { status } => self.status(*status),
             })
             .collect()
     }
@@ -254,7 +194,7 @@ impl Painter<'_> {
         }
     }
 
-    fn status(&self, status: Status, mark: Mark) -> Span {
+    fn status(&self, status: Status) -> Span {
         let (icon, role) = match status {
             Status::Queued => (crate::glyphs::DOT_OFF, ThemeColor::Muted),
             Status::Running => (
@@ -265,48 +205,7 @@ impl Painter<'_> {
             Status::Error => (crate::glyphs::FAIL, ThemeColor::Error),
             Status::Aborted => (crate::glyphs::FAIL, ThemeColor::Warning),
         };
-        let text = match mark {
-            Mark::Icon => icon.to_string(),
-            Mark::Word => match status {
-                Status::Queued => "queued".to_string(),
-                Status::Running => format!("{icon} running"),
-                Status::Done => "done".to_string(),
-                Status::Error => "error".to_string(),
-                Status::Aborted => "aborted".to_string(),
-            },
-        };
-        Span::styled(text, self.theme.fg_style(role))
-    }
-}
-
-/// How one panel row is padded and filled.
-struct Fill {
-    style: Style,
-    padding: usize,
-    content_width: usize,
-    width: usize,
-}
-
-impl Fill {
-    /// The content after the left padding, on the fill, padded out to the
-    /// full width; content wider than the panel is cut at the width.
-    fn row(&self, content: Line) -> Line {
-        let used = line_width(&content);
-        let mut line: Line = vec![Span::styled(" ".repeat(self.padding), self.style)];
-        line.extend(
-            content
-                .into_iter()
-                .map(|span| Span::styled(span.content, self.style.patch(span.style))),
-        );
-        if used > self.content_width {
-            return truncate_line(&line, self.width, "");
-        }
-        line.push(Span::styled(
-            " ".repeat(self.content_width - used),
-            self.style,
-        ));
-        line.push(Span::styled(" ".repeat(self.padding), self.style));
-        line
+        Span::styled(icon.to_string(), self.theme.fg_style(role))
     }
 }
 

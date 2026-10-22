@@ -1,41 +1,6 @@
 use eukhe_types::daemon::MemoryLine;
 
 use super::*;
-use crate::theme::ColorMode;
-
-fn plain(rows: &[Line]) -> Vec<String> {
-    rows.iter()
-        .map(|row| {
-            row.iter()
-                .map(|span| span.content.as_str())
-                .collect::<String>()
-                .trim_end()
-                .to_string()
-        })
-        .collect()
-}
-
-fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
-}
-
-fn summarized() -> MemoryUpdate {
-    MemoryUpdate::Summarized {
-        lines: vec![
-            MemoryLine {
-                id: 41,
-                count: 1,
-                text: "user: fix the\nflaky test".to_string(),
-            },
-            MemoryLine {
-                id: 42,
-                count: 1,
-                text: "talk: done".to_string(),
-            },
-        ],
-        view_bytes: 87_200,
-    }
-}
 
 fn status() -> MemoryStatusSnapshot {
     MemoryStatusSnapshot {
@@ -49,48 +14,6 @@ fn status() -> MemoryStatusSnapshot {
     }
 }
 
-#[test]
-fn sizes_read_in_decimal_kilobytes() {
-    assert_eq!(
-        [0, 49, 87_200, 63_949, 128_000].map(format_kb),
-        ["0.0 KB", "0.0 KB", "87.2 KB", "63.9 KB", "128.0 KB"].map(str::to_string)
-    );
-}
-
-/// Collapsed and at `details`, a summarized update is its one summary row;
-/// at `all` each built line follows, its text on one line, wrapped under
-/// the row.
-#[test]
-fn a_summarized_update_lists_its_lines_only_at_all() {
-    let update = summarized();
-    for detail in [Detail::Overview, Detail::Details] {
-        assert_eq!(
-            plain(&render_memory_update(&update, detail, &theme(), 80, true)),
-            vec![
-                String::new(),
-                " memory: summarized 41+1, 42+1 (view 87.2 KB)".to_string(),
-            ]
-        );
-    }
-    assert_eq!(
-        plain(&render_memory_update(
-            &update,
-            Detail::All,
-            &theme(),
-            24,
-            false
-        )),
-        vec![
-            " memory: summarized",
-            "   41+1, 42+1 (view 87.2",
-            "   KB)",
-            "   41+1|user: fix the",
-            "     flaky test",
-            "   42+1|talk: done",
-        ]
-    );
-}
-
 fn line(id: u64, count: u64) -> MemoryLine {
     MemoryLine {
         id,
@@ -99,93 +22,67 @@ fn line(id: u64, count: u64) -> MemoryLine {
     }
 }
 
-/// Summaries fold into one growing row (nodes accumulate, the newest view
-/// size wins); merges fold among themselves; a different kind starts a
-/// new row.
-#[test]
-fn updates_of_one_kind_fold_into_one_row() {
-    let mut row = MemoryUpdate::Summarized {
-        lines: vec![line(6, 1)],
-        view_bytes: 1_000,
-    };
-    let folded = fold_memory_update(
-        &mut row,
-        MemoryUpdate::Summarized {
-            lines: vec![line(7, 1), line(6, 2)],
-            view_bytes: 2_600,
-        },
-    );
-    assert_eq!(folded, None);
-    assert_eq!(
-        row,
-        MemoryUpdate::Summarized {
-            lines: vec![line(6, 1), line(7, 1), line(6, 2)],
-            view_bytes: 2_600,
-        }
-    );
-    let merge = MemoryUpdate::Merged {
-        pairs: 3,
-        before_bytes: 130_000,
-        after_bytes: 64_000,
-    };
-    assert_eq!(
-        fold_memory_update(&mut row, merge.clone()),
-        Some(merge.clone())
-    );
-    let mut merged = merge;
-    assert_eq!(
-        fold_memory_update(
-            &mut merged,
-            MemoryUpdate::Merged {
-                pairs: 2,
-                before_bytes: 64_000,
-                after_bytes: 60_000,
-            },
-        ),
-        None
-    );
-    assert_eq!(
-        merged,
-        MemoryUpdate::Merged {
-            pairs: 5,
-            before_bytes: 130_000,
-            after_bytes: 60_000,
-        }
-    );
+fn summarized(lines: Vec<MemoryLine>, view_bytes: u64) -> MemoryUpdate {
+    MemoryUpdate::Summarized { lines, view_bytes }
 }
 
-/// A long coalesced row names only its newest node ids.
+fn merged(pairs: u64, before_bytes: u64, after_bytes: u64) -> MemoryUpdate {
+    MemoryUpdate::Merged {
+        pairs,
+        before_bytes,
+        after_bytes,
+    }
+}
+
 #[test]
-fn a_long_row_keeps_the_newest_ids_and_counts_the_rest() {
-    let update = MemoryUpdate::Summarized {
-        lines: (0..20).map(|id| line(id, 1)).collect(),
-        view_bytes: 2_600,
-    };
+fn sizes_read_in_decimal_kilobytes() {
     assert_eq!(
-        memory_update_summary(&update),
-        "memory: summarized ... +12 more, 12+1, 13+1, 14+1, 15+1, 16+1, 17+1, 18+1, 19+1 (view 2.6 KB)"
+        [0, 49, 87_200, 63_949, 128_000].map(format_kb),
+        ["0.0 KB", "0.0 KB", "87.2 KB", "63.9 KB", "128.0 KB"].map(str::to_string)
     );
 }
 
 #[test]
-fn a_merge_shows_the_view_before_and_after() {
-    let update = MemoryUpdate::Merged {
-        pairs: 37,
-        before_bytes: 128_400,
-        after_bytes: 63_900,
-    };
+fn the_gauge_reads_whole_kilobytes_against_the_ceiling() {
     assert_eq!(
-        plain(&render_memory_update(
-            &update,
-            Detail::All,
-            &theme(),
-            80,
-            false
-        )),
-        vec![" memory: merged 37 pairs, view 128.4 KB -> 63.9 KB"]
+        [87_200, 0, 130_600].map(|bytes| MemoryGauge::seeded(bytes).text()),
+        ["mem 87/128K", "mem 0/128K", "mem 131/128K"].map(str::to_string)
     );
-    assert_eq!(memory_update_view_bytes(&update), 63_900);
-    assert_eq!(memory_update_view_bytes(&summarized()), 87_200);
+}
+
+/// Summaries accumulate their nodes behind the newest view size; a merge
+/// replaces them with its pairs and later merges add theirs; a summary
+/// after a merge counts afresh. The ids never reach the gauge.
+#[test]
+fn live_updates_move_the_gauge_and_fold_their_activity() {
+    let gauge = MemoryGauge::after(None, &summarized(vec![line(41, 1), line(42, 1)], 90_100));
+    assert_eq!(gauge.text(), "mem 90/128K ~2");
+    let gauge = MemoryGauge::after(
+        Some(MemoryGauge::seeded(87_200)),
+        &summarized(vec![line(41, 1), line(42, 1)], 90_100),
+    );
+    assert_eq!(gauge.text(), "mem 90/128K ~2");
+    let gauge = MemoryGauge::after(Some(gauge), &summarized(vec![line(40, 2)], 91_000));
+    assert_eq!(gauge.text(), "mem 91/128K ~3");
+    let gauge = MemoryGauge::after(Some(gauge), &merged(37, 128_400, 63_900));
+    assert_eq!(gauge.text(), "mem 64/128K v37");
+    let gauge = MemoryGauge::after(Some(gauge), &merged(2, 63_900, 60_000));
+    assert_eq!(gauge.text(), "mem 60/128K v39");
+    let gauge = MemoryGauge::after(Some(gauge), &summarized(vec![line(6, 2)], 60_400));
+    assert_eq!(gauge.text(), "mem 60/128K ~1");
+    assert_eq!(
+        MemoryGauge::after(None, &merged(1, 2_000, 1_000)).text(),
+        "mem 1/128K v1"
+    );
+}
+
+/// A new request clears the activity; the view's size stays.
+#[test]
+fn a_request_begin_clears_the_activity_and_keeps_the_size() {
+    let mut gauge = MemoryGauge::after(None, &summarized(vec![line(41, 1)], 90_100));
+    gauge.begin_request();
+    assert_eq!(gauge, MemoryGauge::seeded(90_100));
+    assert_eq!(gauge.text(), "mem 90/128K");
 }
 
 #[test]
@@ -200,14 +97,18 @@ fn a_default_model_and_plural_compactions_read_naturally() {
         }),
         "memory: 1 message, view 87.2 KB / 128.0 KB (floor 64.0 KB), 1 line, 2 unsummarized, 2 compactions running, model default"
     );
+    assert_eq!(
+        memory_status_header(&status()),
+        "memory: 43 messages, view 87.2 KB / 128.0 KB (floor 64.0 KB), 2 lines, 2 unsummarized, 1 compaction running, model anthropic/claude-haiku-4-5"
+    );
 }
 
-/// A live row's node text carrying escape sequences or control characters
-/// (a lone `\r`, a tab, a backspace, a vertical tab) prints as one row
-/// that keeps its `id+n|` prefix: each reads as a space, and none reaches
-/// the terminal to move its cursor.
+/// Node text carrying escape sequences or control characters (a lone
+/// `\r`, a tab, a backspace, a vertical tab, a line break) prints as one
+/// row: each reads as a space, and none reaches the terminal to move its
+/// cursor.
 #[test]
-fn control_characters_in_a_live_line_print_as_spaces() {
+fn control_characters_in_a_line_print_as_spaces() {
     assert_eq!(
         one_line("user: run \u{1b}[2Kit\tnow"),
         "user: run it now".to_string()
@@ -216,33 +117,8 @@ fn control_characters_in_a_live_line_print_as_spaces() {
         one_line("\u{1b}[31mred\u{1b}[0m\u{8}done\u{b}x\u{2028}y"),
         "red done x y".to_string()
     );
-    let update = MemoryUpdate::Summarized {
-        lines: vec![MemoryLine {
-            id: 2,
-            count: 1,
-            text: "talk: set\rh.model)\"}\nnext".to_string(),
-        }],
-        view_bytes: 100,
-    };
     assert_eq!(
-        plain(&render_memory_update(
-            &update,
-            Detail::All,
-            &theme(),
-            80,
-            false
-        )),
-        vec![
-            " memory: summarized 2+1 (view 0.1 KB)",
-            "   2+1|talk: set h.model)\"} next",
-        ]
-    );
-}
-
-#[test]
-fn the_gauge_reads_whole_kilobytes_against_the_ceiling() {
-    assert_eq!(
-        [memory_gauge(87_200), memory_gauge(0), memory_gauge(130_600)],
-        ["mem 87/128K", "mem 0/128K", "mem 131/128K"].map(str::to_string)
+        one_line("talk: set\rh.model)\"}\nnext\r\nend"),
+        "talk: set h.model)\"} next end".to_string()
     );
 }

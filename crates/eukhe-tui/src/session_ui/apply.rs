@@ -773,7 +773,7 @@ impl SessionUi {
                 self.speed_clock.prompt_progress(progress);
             }
             TurnUpdate::MemoryUpdate(update) => {
-                self.apply_memory_update(update, view);
+                self.apply_memory_update(&update, view);
             }
             TurnUpdate::AgentRelay(relay) => {
                 self.apply_agent_relay(relay, view);
@@ -1139,6 +1139,7 @@ impl SessionUi {
     fn begin_request(&mut self, view: &mut AgentView) {
         self.turn_active = true;
         self.turn_error_shown = false;
+        self.begin_memory_request(view);
         // TS `agent_start` clears the pending tool map: no card
         // from a previous run settles on this one's failure.
         self.pending_tools.clear();

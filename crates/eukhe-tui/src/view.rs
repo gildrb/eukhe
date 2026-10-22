@@ -429,25 +429,6 @@ impl AgentView {
         true
     }
 
-    /// Show one live `memory_update`: folded into the transcript's last
-    /// entry when that is a memory row of the same kind (a burst of
-    /// compactor progress reads as one row that grows in place), else a
-    /// new row.
-    pub fn push_memory_update(&mut self, update: eukhe_types::daemon::MemoryUpdate) {
-        let last = self.chat.len().checked_sub(1);
-        if let Some(index) = last {
-            if let Some(ChatEntry::MemoryUpdate(row)) = self.chat.get_mut(index) {
-                let Some(update) = crate::memory_block::fold_memory_update(row, update) else {
-                    self.mark_entry_stale(index);
-                    return;
-                };
-                self.chat.push(ChatEntry::MemoryUpdate(Box::new(update)));
-                return;
-            }
-        }
-        self.chat.push(ChatEntry::MemoryUpdate(Box::new(update)));
-    }
-
     /// Append a replay transcript item (mapped onto chat components).
     ///
     /// A tool result completes the pending tool card with the same id

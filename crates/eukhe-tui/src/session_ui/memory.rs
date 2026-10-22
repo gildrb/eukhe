@@ -8,7 +8,7 @@ use eukhe_types::daemon::{MemoryTreeReply, MemoryUpdate, MemoryZoom, MEMORY_TREE
 
 use super::chat_view::fetch;
 use super::{key_event_to_id, AgentView, DaemonCommand, KeyEvent, Map, Result, SessionUi};
-use crate::memory_block::memory_update_view_bytes;
+use crate::memory_block::MemoryGauge;
 use crate::memory_tree::{MemoryTreeAction, MemoryTreeFetch, MemoryTreeView};
 
 /// One landed `get_memory_tree` level for the tree opened under `epoch`.
@@ -119,20 +119,24 @@ impl SessionUi {
         Ok(())
     }
 
-    /// One live `memory_update`: its transcript row (whether or not a turn
-    /// runs; folded into the previous memory row while that is still the
-    /// transcript's last entry) and the gauge's new view size.
-    pub(super) fn apply_memory_update(&mut self, update: MemoryUpdate, view: &mut AgentView) {
-        self.set_memory_view_bytes(memory_update_view_bytes(&update), view);
-        view.push_memory_update(update);
-        self.last_status_index = None;
-        self.dirty = true;
+    /// One live `memory_update`: never a transcript row, only the gauge's
+    /// new view size and activity (whether or not a turn runs).
+    pub(super) fn apply_memory_update(&mut self, update: &MemoryUpdate, view: &mut AgentView) {
+        self.set_memory_gauge(MemoryGauge::after(self.memory, update), view);
     }
 
     /// The gauge's reading for this session, mirrored into the chrome.
-    pub(super) fn set_memory_view_bytes(&mut self, bytes: u64, view: &mut AgentView) {
-        self.memory_view_bytes = Some(bytes);
-        view.chrome.memory_view_bytes = Some(bytes);
+    pub(super) fn set_memory_gauge(&mut self, gauge: MemoryGauge, view: &mut AgentView) {
+        self.memory = Some(gauge);
+        view.chrome.memory = Some(gauge);
         self.dirty = true;
+    }
+
+    /// A request began: the gauge's activity count starts over.
+    pub(super) fn begin_memory_request(&mut self, view: &mut AgentView) {
+        if let Some(mut gauge) = self.memory {
+            gauge.begin_request();
+            self.set_memory_gauge(gauge, view);
+        }
     }
 }

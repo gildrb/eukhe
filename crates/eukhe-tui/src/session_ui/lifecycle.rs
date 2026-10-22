@@ -133,7 +133,7 @@ impl SessionUi {
             dictation_take: None,
             dictation_takes: 0,
             dictation_updates: activity_updates.dictation,
-            memory_view_bytes: None,
+            memory: None,
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,
             bash_updates: activity_updates.bash,
@@ -491,7 +491,7 @@ impl SessionUi {
         // reading drops here); the fetch runs in the background, after
         // the first-frame fetches above, so neither the attach nor the
         // first paint waits on it.
-        self.memory_view_bytes = None;
+        self.memory = None;
         self.spawn_chat_view_fetch();
         self.pending_model = reconstructed.model_id;
         self.pending_model_provider = reconstructed.model_provider;
@@ -700,7 +700,7 @@ impl SessionUi {
         view.queue_selected = None;
         view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
-        view.chrome.memory_view_bytes = self.memory_view_bytes;
+        view.chrome.memory = self.memory;
         self.update_subagent_summary(view);
         // The rebuilt transcript invalidates the announcement row tracking;
         // the goal state itself carries over (seeded at attach).

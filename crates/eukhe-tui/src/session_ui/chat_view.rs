@@ -133,7 +133,10 @@ impl SessionUi {
             }
         }
         match update.memory {
-            Some(Ok(Some(status))) => self.set_memory_view_bytes(status.view_bytes, view),
+            Some(Ok(Some(status))) => self.set_memory_gauge(
+                crate::memory_block::MemoryGauge::seeded(status.view_bytes),
+                view,
+            ),
             Some(Ok(None)) | None => {}
             Some(Err(error)) => {
                 self.note_as(

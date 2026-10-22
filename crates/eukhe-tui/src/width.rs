@@ -505,11 +505,6 @@ pub fn wrap_line(line: &Line, width: usize) -> Vec<Line> {
     wrapping::render(line, width)
 }
 
-/// Exact row count of [`wrap_text`] without constructing output lines or spans.
-pub(crate) fn wrapped_text_count(text: &str, width: usize) -> usize {
-    wrapping::count_text(text, width)
-}
-
 /// Wrap plain text (may contain \n) into lines of styled raw spans.
 #[must_use]
 pub fn wrap_text(text: &str, width: usize) -> Vec<Line> {

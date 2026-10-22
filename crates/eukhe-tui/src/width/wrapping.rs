@@ -106,19 +106,3 @@ pub(super) fn render(line: &Line, width: usize) -> Vec<Line> {
     );
     rows
 }
-
-pub(super) fn count_text(text: &str, width: usize) -> usize {
-    text.split('\n')
-        .map(|paragraph| {
-            if width == 0 || str_width(paragraph) <= width {
-                1
-            } else {
-                traverse(
-                    std::iter::once((paragraph, Style::default())),
-                    width,
-                    |_| {},
-                )
-            }
-        })
-        .sum()
-}

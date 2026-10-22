@@ -225,14 +225,24 @@ fn optional_segments_show_only_while_they_carry_something() {
         session_name: Some("refactor".to_string()),
         cost_usd: Some(0.126),
         tray_depth: Some(1),
-        memory_view_bytes: Some(87_200),
+        memory: Some(crate::memory_block::MemoryGauge::after(
+            Some(crate::memory_block::MemoryGauge::seeded(87_200)),
+            &eukhe_types::daemon::MemoryUpdate::Summarized {
+                lines: vec![eukhe_types::daemon::MemoryLine {
+                    id: 41,
+                    count: 1,
+                    text: "user: ship it".to_string(),
+                }],
+                view_bytes: 90_100,
+            },
+        )),
         context: None,
         ..base()
     };
     let line = render_status_line(&state, Detail::All, &theme(), 120);
     assert_eq!(
         text(&line),
-        " Press Ctrl+C again to exit - [M] mock - [D] eukhe - @ main - refactor - $0.13 - depth 1 - mem 87/128K - expanded"
+        " Press Ctrl+C again to exit - [M] mock - [D] eukhe - @ main - refactor - $0.13 - depth 1 - mem 90/128K ~1 - expanded"
     );
     let quiet = ChromeState {
         session_name: Some(String::new()),

@@ -1,8 +1,11 @@
 //! Transcript component rendering: status rows, the user-message block,
-//! assistant messages (text, thinking, and their error rows), and the
-//! working loader line. Ports the TS chat components' row geometry:
-//! `user-message.ts` (Box 2x1 on `userMessageBg`), `assistant-message.ts`
-//! block spacers, and `loader.ts` (`Loader` + `agent-activity.ts` labels).
+//! assistant messages (markdown text, dense dim thinking, and their
+//! error rows), and the working loader line. Ports the TS chat
+//! components' row geometry (`user-message.ts` Box 2x1 on
+//! `userMessageBg`, `loader.ts` `Loader` + `agent-activity.ts` labels);
+//! the blank rows between entries follow the transcript's turn rule
+//! (`crate::view` rows: a blank before a user prompt, before a turn's
+//! first row, and before the reply after tool rows, nowhere else).
 //! Tool-call cards live in `crate::tool_card`.
 
 mod geometry;
@@ -137,10 +140,6 @@ pub enum ChatEntry {
     /// print; rendered by the `chat_view_block` module): one collapsed
     /// summary row, the full `<chat>` text when expanded.
     ChatView(Box<eukhe_types::daemon::ChatViewSnapshot>),
-    /// One live `memory_update` (rendered by the `memory_block` module):
-    /// the compactor summarized lines or merged the view. Display only:
-    /// never part of the session's replayed transcript.
-    MemoryUpdate(Box<eukhe_types::daemon::MemoryUpdate>),
     /// One agent-family row (rendered by the `swarm_block` module): an
     /// `@name` message the user sent to another agent, a relayed peer
     /// message, or the `/agents` roster. Display only.
@@ -160,7 +159,8 @@ pub use crate::compaction_row::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssistantMessage {
     pub blocks: Vec<MessageBlock>,
-    /// `toolUse` when the message carried tool calls (drives spacers).
+    /// `toolUse` when the message carried tool calls (a message without
+    /// them is the turn's reply).
     pub has_tool_calls: bool,
     /// The message is still streaming (an update may replace its blocks).
     pub streaming: bool,
@@ -168,23 +168,30 @@ pub struct AssistantMessage {
     /// text inside the message component): `aborted` always renders,
     /// `error` only without tool calls (their cards carry the failure).
     pub error: Option<String>,
-    /// `stopReason: "aborted"` (drives the tool-call trailing spacer).
+    /// `stopReason: "aborted"`.
     pub aborted: bool,
 }
 
 impl AssistantMessage {
-    /// TS `AssistantMessageComponent.hasTrailingSpace`: the tool-call
-    /// separator renders for visible bodies, aborted messages, and messages
-    /// not following tool activity (the same condition `render_assistant`
-    /// applies).
+    /// The message contributes rows at `detail`: a visible block (text,
+    /// or thinking when the level shows it) or an error row.
     #[must_use]
-    pub fn has_trailing_space(&self, detail: Detail, preceded_by_tool_activity: bool) -> bool {
-        let has_visible_content = self.blocks.iter().any(|block| match block {
-            MessageBlock::Thinking(text) => detail.show_thinking() && !text.trim().is_empty(),
-            MessageBlock::Text(text) => !text.trim().is_empty(),
-        });
-        self.has_tool_calls && (has_visible_content || self.aborted || !preceded_by_tool_activity)
+    pub fn renders_rows(&self, detail: Detail) -> bool {
+        !geometry::visible_blocks(self, detail).is_empty() || self.error.is_some()
     }
+}
+
+/// Where an assistant message's rows sit in the transcript. The blank
+/// row before a message marks a boundary the reader needs: the start of
+/// a turn, or the reply that follows the turn's tool rows. Blocks within
+/// a turn (the next thinking or text after an assistant message or a
+/// tool row) stay flush, so the thinking reads as one dense trace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssistantLead {
+    /// One blank row leads the message's first row.
+    Spaced,
+    /// The message's first row follows the previous row directly.
+    Flush,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -397,42 +404,41 @@ pub fn render_user_block(
     rows
 }
 
-/// One assistant message (TS `AssistantMessageComponent`): a leading spacer
-/// when a visible body exists, markdown blocks separated by spacers (text in
-/// `mdBody`, thinking in `dim`), and a trailing spacer before its tool calls.
+/// One assistant message: its leading blank row when `lead` asks for one
+/// and the message renders anything, then its visible blocks flush
+/// against each other (text as `mdBody` markdown, thinking as dim dense
+/// rows), then its error row set off by one blank row.
 pub fn render_assistant(
     message: &AssistantMessage,
     detail: Detail,
     theme: &Theme,
     code_block_indent: &str,
     width: usize,
-    preceded_by_tool_activity: bool,
+    lead: AssistantLead,
     cache: &mut crate::markdown::MarkdownBlockCache,
 ) -> Vec<Line> {
     let visible_blocks = geometry::visible_blocks(message, detail);
     let has_visible_content = !visible_blocks.is_empty();
     let mut out: Vec<Line> = Vec::new();
-    if has_visible_content {
+    if lead == AssistantLead::Spaced && (has_visible_content || message.error.is_some()) {
         out.push(spacer());
     }
     let mut md = crate::markdown::MarkdownStyle::from_theme(theme);
     md.code_block_indent = code_block_indent.to_string();
-    for (index, block) in visible_blocks.iter().enumerate() {
+    for block in visible_blocks {
         match block {
             MessageBlock::Text(text) => {
                 out.extend(render_markdown_block(text, &md, width, cache));
             }
             MessageBlock::Thinking(text) => {
                 out.extend(render_thinking_block(text, theme, &md, width, cache));
-                // Thinking adds spacing only when another visible block follows.
-                if index + 1 < visible_blocks.len() {
-                    out.push(spacer());
-                }
             }
         }
     }
     if let Some(error) = &message.error {
-        out.push(spacer());
+        if has_visible_content {
+            out.push(spacer());
+        }
         // TS `createErrorComponent`: an error whose text ends with the
         // login-recovery suffix renders as one merged inline line.
         let merged = crate::error_summary::format_inline_login_recovery_message(error);
@@ -459,12 +465,6 @@ pub fn render_assistant(
                 ));
             }
         }
-    }
-    // TS `AssistantMessageComponent.hasTrailingSpace`: the tool-call
-    // separator renders for visible bodies, aborted messages, and messages
-    // not following tool activity.
-    if geometry::trailing_space(message, has_visible_content, preceded_by_tool_activity) {
-        out.push(spacer());
     }
     // Zone markers on message bodies without tool calls (TS
     // `AssistantMessageComponent.render`: tool-call messages return
@@ -505,7 +505,9 @@ pub(crate) fn render_markdown_block(
     out
 }
 
-/// The thinking block: markdown with every style collapsed to `dim`.
+/// The thinking block: markdown with every style collapsed to `dim`,
+/// dense -- the blank rows markdown puts between its blocks are dropped,
+/// so each paragraph starts on the row after the previous one.
 fn render_thinking_block(
     text: &str,
     theme: &Theme,
@@ -524,6 +526,9 @@ fn render_thinking_block(
     );
     let mut out = Vec::new();
     for line in rendered {
+        if geometry::is_blank_row(&line) {
+            continue;
+        }
         // The markdown margin sits outside the styled content (default fg).
         let mut row: Line = vec![Span::raw(" ")];
         row.extend(line);

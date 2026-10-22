@@ -19,8 +19,8 @@ pub enum TranscriptItem {
     /// the transcript gates them on the detail level like the live path.
     Assistant {
         blocks: Vec<crate::chat::MessageBlock>,
-        /// `toolUse` when the message carried tool calls (drives the
-        /// trailing spacer before its tool cards).
+        /// `toolUse` when the message carried tool calls (a message
+        /// without them is the turn's reply, set off by a blank row).
         has_tool_calls: bool,
     },
     ToolCall {

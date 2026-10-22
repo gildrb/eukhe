@@ -18,9 +18,7 @@ impl AgentView {
     pub(super) fn entry_settled(&self, index: usize) -> bool {
         let last = index + 1 == self.chat.len();
         match &self.chat[index] {
-            // The live memory row grows in place while it is the last
-            // entry (`push_memory_update` folds the next update into it).
-            ChatEntry::Status { .. } | ChatEntry::MemoryUpdate(_) => !last,
+            ChatEntry::Status { .. } => !last,
             ChatEntry::User { .. }
             | ChatEntry::SlashCommand { .. }
             | ChatEntry::CompactionSummary { .. }
@@ -52,18 +50,7 @@ impl AgentView {
     /// One entry's rows at its transcript position (the spacing rules
     /// read the entries before it).
     pub(super) fn render_entry_at(&self, index: usize, width: usize) -> Vec<Line> {
-        // TS `precededByToolActivity` = `isCompactAgentMessageNeighbor` of
-        // the previous row: a tool call, agent message, bash execution, or
-        // shell completion all count.
-        let preceded_by_tool_activity =
-            index > 0 && Self::is_compact_neighbor(&self.chat[index - 1]);
-        self.render_entry(
-            index,
-            &self.chat[index],
-            width,
-            index == 0,
-            preceded_by_tool_activity,
-        )
+        self.render_entry(index, &self.chat[index], width, index == 0)
     }
 
     /// The last `rows` rows of the entry at `index` (the live area's

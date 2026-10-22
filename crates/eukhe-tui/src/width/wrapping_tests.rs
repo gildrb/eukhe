@@ -45,7 +45,6 @@ fn shared_wrap_matches_original_output_and_counts() {
                 .split('\n')
                 .map(|paragraph| reference_wrap_line(&vec![Span::raw(paragraph)], width).len())
                 .sum();
-            assert_eq!(wrapped_text_count(text, width), reference_count);
             assert_eq!(wrap_text(text, width).len(), reference_count);
         }
     }
