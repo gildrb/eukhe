@@ -54,15 +54,14 @@ The gates need bend and Lean at the versions that
 A gate that fails prints its name; fix the cause and run the command
 again.
 
-On GitHub, a push to main runs only fmt, cargo-deny, the secrets scan and
-the laws. Pull requests, the merge queue and `workflow_dispatch` run the
-full gate.
+On GitHub, a push to main runs nothing. Pull requests, the merge queue
+and `workflow_dispatch` run the full gate.
 
 ## Releases
 
 Once a day (03:17 UTC), `.github/workflows/eukhe-release.yml` releases
-the newest commit of `main` whose `ci.yml` push run passed and that has
-no `eukhe-v*` tag. Run the workflow by hand (`workflow_dispatch`) for an
+the newest commit of `main` that has no `eukhe-v*` tag. It runs no gate:
+the pre-push hook ran every gate. Run the workflow by hand (`workflow_dispatch`) for an
 urgent release. The version is the next patch of
 the series in `Cargo.toml` (`[workspace.package] version = "X.Y.0"`): 1 +
 the highest patch among the tags `eukhe-vX.Y.P`, or 0 for the first

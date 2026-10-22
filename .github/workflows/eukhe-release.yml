@@ -3,9 +3,9 @@
 #
 # At most one release a day: a daily schedule (03:17 UTC) and
 # workflow_dispatch (an urgent release) release the newest commit of main
-# (first-parent history) whose ci.yml run of its push to main succeeded.
-# A push runs the light gate on GitHub (fmt, deny, secrets, laws); the full
-# gate ran before the push in the local pre-push hook. When that commit, or
+# (first-parent history). GitHub runs no gate on it: every gate of ci.yml
+# ran before the push, in the local pre-push hook (prek: `make ci-local`).
+# When that commit, or
 # a newer one, already has an `eukhe-v*` tag, nothing is released (a re-run
 # of a published release changes nothing). The build jobs build that exact
 # commit. The version is the next patch of the workspace series (Cargo.toml
@@ -51,11 +51,9 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: read
     outputs:
       release: ${{ steps.version.outputs.release }}
       sha: ${{ steps.version.outputs.sha }}
-      ci_run: ${{ steps.version.outputs.ci_run }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       title: ${{ steps.version.outputs.title }}
@@ -67,42 +65,33 @@ jobs:
           persist-credentials: false
       - id: version
         name: The commit to release and its version (the next patch of the workspace series)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           git ls-remote --tags --refs origin > "${RUNNER_TEMP}/tags"
-          # The newest first-parent commit of main with a successful ci run
-          # of its push. A tagged commit ends the search: it and every older
-          # commit are released.
+          # The newest first-parent commit of main. A tagged commit ends the
+          # search: it and every older commit are released.
           sha=""
-          ci_run=""
           while read -r commit; do
             released="$(awk -v sha="${commit}" '$1 == sha && $2 ~ /^refs\/tags\/eukhe-v/ { sub(/^refs\/tags\//, "", $2); print $2 }' "${RUNNER_TEMP}/tags")"
             if [[ -n "${released}" ]]; then
-              echo "::notice::${commit} is already released (${released//$'\n'/, }); no newer commit of main passed ci"
+              echo "::notice::${commit} is already released (${released//$'\n'/, }); main has no newer commit"
               break
             fi
             [[ "$(git log -1 --format=%s "${commit}")" == "nix: release.json for "* ]] && continue
-            ci_run="$(gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?head_sha=${commit}&event=push&branch=main&status=success&per_page=1" --jq '.workflow_runs[0].html_url // ""')"
-            if [[ -n "${ci_run}" ]]; then
-              sha="${commit}"
-              break
-            fi
+            sha="${commit}"
+            break
           done < <(git rev-list --first-parent --max-count=500 HEAD)
           if [[ -z "${sha}" ]]; then
             echo "release=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          echo "releasing ${sha} (ci: ${ci_run})"
+          echo "releasing ${sha}"
           git checkout --quiet --detach "${sha}"
           cut -f2 "${RUNNER_TEMP}/tags" | sed 's|^refs/tags/||' | python3 scripts/release/next_version.py > "${RUNNER_TEMP}/version"
           cat "${RUNNER_TEMP}/version"
           {
             cat "${RUNNER_TEMP}/version"
             echo "sha=${sha}"
-            echo "ci_run=${ci_run}"
             echo "release=true"
           } >> "${GITHUB_OUTPUT}"
 
@@ -330,7 +319,6 @@ jobs:
       TAG: ${{ needs.version.outputs.tag }}
       TITLE: ${{ needs.version.outputs.title }}
       VERSION: ${{ needs.version.outputs.version }}
-      CI_RUN: ${{ needs.version.outputs.ci_run }}
       HEAD_SHA: ${{ needs.version.outputs.sha }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -389,7 +377,7 @@ jobs:
             release-out/*
             release.json
       - name: Create the GitHub release (tagged at the released commit, marked latest)
-        run: gh release create "${TAG}" release-out/* release.json --target "${HEAD_SHA}" --latest --title "${TITLE}" --notes "eukhe ${VERSION}, built from ${HEAD_SHA} after ci passed on it (${CI_RUN})."
+        run: gh release create "${TAG}" release-out/* release.json --target "${HEAD_SHA}" --latest --title "${TITLE}" --notes "eukhe ${VERSION}, built from ${HEAD_SHA}; every ci.yml gate passed on it in the local pre-push hook."
       - name: Pin the release for the Nix flake (nix/release.json on main)
         run: |
           set -euo pipefail

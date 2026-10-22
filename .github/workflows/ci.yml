@@ -4,11 +4,10 @@
 # the Bend laws (`bend PROOF.bend`, `--verdict`) and the release-version
 # bridge, the cargo-deny gate, and the secrets scan (gitleaks).
 #
-#   push to main — the light gate only: fmt, deny, secrets, laws. The
-#   other gates ran before the push, in the local pre-push hook
-#   (.githooks/pre-push: `make ci-local`, every gate of this file; `make
-#   hooks` installs it). eukhe-release.yml releases, once a day, the newest
-#   commit of main whose run of this workflow succeeded.
+#   A push to main runs nothing here: every gate of this file ran before the
+#   push, in the local pre-push hook (prek: `make ci-local`; `make hooks`
+#   installs it). eukhe-release.yml releases main once a day and runs no
+#   gate.
 #
 #   pull_request against main — the full gate set on the merge candidate.
 #
@@ -18,9 +17,6 @@
 #   workflow_dispatch — the full gate set on a branch: catalog-pin.yml
 #   starts it on the pull request it opens (a pull request the workflow
 #   token opens starts no pull_request run).
-#
-# The full-gate jobs (changes, dashboard-ui, clippy-test, test-shard,
-# test-summary, runtime-test) carry `github.event_name != 'push'`.
 #
 # THE PR SMOKE MODEL (the touched-crate path filter): the PR wave narrows
 # the TEST phase to touched crates and their reverse dependents' units
@@ -59,8 +55,6 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -74,8 +68,7 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # PRs: a newer push supersedes stale gates. Queue entries use their own
-  # merge-group ref; a superseded entry's gates can be cancelled. Pushes:
-  # the newest tip supersedes the older run instead of billing stale tips.
+  # merge-group ref; a superseded entry's gates can be cancelled.
   cancel-in-progress: true
 
 env:
@@ -108,7 +101,7 @@ jobs:
     name: touched crates (PR) / full selection (queue + dispatch)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     outputs:
       crates: ${{ steps.select.outputs.crates }}
       scope: ${{ steps.select.outputs.scope }}
@@ -177,7 +170,7 @@ jobs:
     name: dashboard UI (vp check + build, web/ up to date)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -197,7 +190,7 @@ jobs:
     name: check + clippy (workspace)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -237,7 +230,7 @@ jobs:
     name: test shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     strategy:
       # One red shard must not cancel the others: their own conclusions are
       # the per-shard signal the summary merges.
@@ -331,7 +324,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: test-shard
-    if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -396,7 +389,7 @@ jobs:
     name: runtime tests (eukhe-runtime)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -412,7 +405,7 @@ jobs:
 
   deny:
     name: deny (cargo-deny advisories + bans + licenses + sources)
-    if: (github.event_name == 'push' || !github.event.pull_request.draft)
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -468,7 +461,6 @@ jobs:
       - name: Scan the new commits
         env:
           EVENT_NAME: ${{ github.event_name }}
-          PUSH_BEFORE: ${{ github.event.before }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
@@ -476,7 +468,6 @@ jobs:
           set -euo pipefail
           head="$(git rev-parse HEAD)"
           case "${EVENT_NAME}" in
-            push) base="${PUSH_BEFORE}" ;;
             pull_request) base="${PR_BASE}"; head="${PR_HEAD}" ;;
             merge_group) base="${QUEUE_BASE}" ;;
             *) base="" ;;

@@ -14,12 +14,12 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   installs the prek hooks (`.pre-commit-config.yaml`): pre-commit runs
   `make ci-fast`, pre-push runs `make ci-local` (every gate of `ci.yml`) on the
   pushed commit; one push at a time runs it, the others wait. Never skip the
-  hooks (`--no-verify`). On GitHub, a push to main runs only the light gate of
-  `.github/workflows/ci.yml` (fmt, deny, secrets, laws); pull requests, the merge
-  queue and `workflow_dispatch` run the full gate. Bend comes from
+  hooks (`--no-verify`). A push to main runs nothing on GitHub; pull requests,
+  the merge queue and `workflow_dispatch` run the full gate of
+  `.github/workflows/ci.yml`. Bend comes from
   `.github/actions/setup-bend`. Once a day (03:17 UTC, or on dispatch)
-  `eukhe-release.yml` releases the newest commit of main with a green `ci.yml`
-  push run and no `eukhe-v*` tag as `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, the
+  `eukhe-release.yml` releases the newest commit of main with no `eukhe-v*`
+  tag as `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, the
   next patch of the `Cargo.toml` series `X.Y.0`) and writes `nix/release.json`.
   Every week `catalog-pin.yml` moves `scripts/release/catalog-pin.json` to the
   catalog repo's newest commit and opens a PR (it starts `ci.yml` on it).
