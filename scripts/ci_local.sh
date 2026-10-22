@@ -193,8 +193,10 @@ case "${mode}" in
     gate "bend version" check_bend
     gate "lean version" check_lean
     gate fmt cargo fmt --all --check
-    # Background jobs ignore Ctrl+C; on an interrupt, stop both lanes.
-    trap 'trap - INT TERM; kill 0' INT TERM
+    # Job control: each lane runs in its own process group with the default
+    # SIGINT action (a plain background job ignores SIGINT, and the
+    # eukhe-runtime and pty tests send it). On an interrupt, stop both lanes.
+    set -m
     log="$(mktemp)"
     side_lane >"${log}" 2>&1 &
     side=$!
@@ -204,10 +206,12 @@ case "${mode}" in
       gate test workspace_tests
     ) &
     rust=$!
+    trap 'trap - INT TERM; kill -TERM -- "-${rust}" "-${side}" 2>/dev/null; exit 130' INT TERM
     rust_rc=0
     wait "${rust}" || rust_rc=$?
     side_rc=0
     wait "${side}" || side_rc=$?
+    set +m
     echo "==> ci-full: secrets, deny, laws, runtime-test, dashboard-ui log"
     cat "${log}"
     rm -f "${log}"
