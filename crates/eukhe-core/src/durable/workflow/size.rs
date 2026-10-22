@@ -1,7 +1,11 @@
 //! The limits a run works under: the size's, with the concurrency capped
 //! by `subagentMaxConcurrency` (the family-wide spawn cap, which refuses a
-//! spawn over it).
+//! spawn over it). The rule is the Bend model's `effective`
+//! (`bend/workflow.bend`, laws `wf_limits_uncapped` and `wf_limits_capped`),
+//! run by the compiled core.
 
+use eukhe_bend::wire::{Reader, Writer};
+use eukhe_bend::{expect_core, Entry};
 use eukhe_types::workflow::{WorkflowLimits, WorkflowSize};
 
 /// The limits of a run of `size` in a session whose
@@ -11,42 +15,22 @@ use eukhe_types::workflow::{WorkflowLimits, WorkflowSize};
 #[must_use]
 pub fn effective_limits(size: WorkflowSize, subagent_max_concurrency: u32) -> WorkflowLimits {
     let limits = size.limits();
-    let concurrency = match subagent_max_concurrency {
-        0 => limits.concurrency,
-        cap => limits.concurrency.min(cap),
-    };
-    WorkflowLimits {
-        concurrency,
-        max_agents: limits.max_agents,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_zero_cap_keeps_the_size_and_a_smaller_cap_bounds_it() {
-        assert_eq!(
-            effective_limits(WorkflowSize::Large, 0),
-            WorkflowLimits {
-                concurrency: 12,
-                max_agents: 25
-            }
-        );
-        assert_eq!(
-            effective_limits(WorkflowSize::Medium, 4),
-            WorkflowLimits {
-                concurrency: 4,
-                max_agents: 10
-            }
-        );
-        assert_eq!(
-            effective_limits(WorkflowSize::Small, 8),
-            WorkflowLimits {
-                concurrency: 3,
-                max_agents: 5
-            }
-        );
-    }
+    let decided = (|| -> Result<WorkflowLimits, eukhe_bend::Error> {
+        let request = Writer::new()
+            .tag(1)
+            .u32(limits.concurrency)
+            .u32(limits.max_agents)
+            .u32(subagent_max_concurrency)
+            .finish()?;
+        let reply = eukhe_bend::call(Entry::Workflow, &request)?;
+        let mut reader = Reader::reply(&reply)?;
+        let concurrency = reader.u32()?;
+        let max_agents = reader.u32()?;
+        reader.end()?;
+        Ok(WorkflowLimits {
+            concurrency,
+            max_agents,
+        })
+    })();
+    expect_core(Entry::Workflow, decided)
 }

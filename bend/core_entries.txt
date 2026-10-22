@@ -3,3 +3,7 @@
 # a new area takes the next free id.
 0 echo
 1 wire
+2 admission
+3 workflow
+4 default_model
+5 aux_fallback

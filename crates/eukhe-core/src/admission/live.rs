@@ -1,11 +1,15 @@
-//! The admission rule of one provider as one pure step over its live
-//! tickets: the Bend model's live controller (`Live.step` in
-//! `bend/admission.bend`, which `LAWS.bend` `admission_live_step` pins to
-//! the model of rule H3). A ticket that ends leaves; the others keep their
-//! numbers, in ticket order, and `next` numbers the next ticket.
+//! The admission rule of one provider runs as its Bend model: the live
+//! controller of `bend/admission.bend` (`Live.step`, which `LAWS.bend`
+//! `admission_live_step` pins to the model of rule H3), kept in the Bend
+//! heap by a [`Stepper`] of `bend/ffi_admission.bend`. Each op crosses the
+//! wire; the reply is the controller's new state, which [`Live`] mirrors:
+//! the live tickets (an ended ticket leaves; the others keep their
+//! numbers), in ticket order, and the number of the next ticket.
 
 use std::num::NonZeroU32;
 
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{expect_core, Entry, Stepper};
 use eukhe_types::daemon::AdmissionPriority;
 
 /// A live ticket's status: it waits, holds a slot its waiter has not
@@ -27,11 +31,10 @@ pub(super) struct Ticket {
     pub(super) status: Status,
 }
 
-/// The limits and the live tickets of one provider.
+/// The limits and the live tickets of one provider, as the last reply of
+/// the rule gave them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Live {
-    /// `providerMaxInFlight`; `None` is unlimited.
-    pub(super) limit: Option<NonZeroU32>,
     /// `providerMaxQueued`.
     pub(super) queue_limit: u32,
     /// The live tickets, oldest first.
@@ -53,15 +56,6 @@ pub(super) enum Op {
 }
 
 impl Live {
-    pub(super) fn new(limit: Option<NonZeroU32>, queue_limit: u32) -> Self {
-        Self {
-            limit,
-            queue_limit,
-            tickets: Vec::new(),
-            next: 0,
-        }
-    }
-
     /// The status of ticket `number`; `None` once it ended.
     pub(super) fn status(&self, number: u64) -> Option<Status> {
         self.tickets
@@ -70,143 +64,131 @@ impl Live {
             .map(|at| self.tickets[at].status)
     }
 
-    /// The tickets of `class` that hold a slot (`holding`) or wait.
+    /// The tickets of `class` that hold a slot (`holding`: granted or
+    /// collected) or wait (queued).
     pub(super) fn count(&self, class: AdmissionPriority, holding: bool) -> usize {
         self.tickets
             .iter()
             .filter(|ticket| {
                 ticket.class == class
-                    && holds(ticket.status) == holding
-                    && ticket.status != Status::Preempted
+                    && match ticket.status {
+                        Status::Granted | Status::Held => holding,
+                        Status::Queued => !holding,
+                        Status::Preempted => false,
+                    }
             })
             .count()
     }
+}
 
-    fn room(&self, held: usize) -> bool {
-        self.limit
-            .is_none_or(|limit| held < usize::try_from(limit.get()).unwrap_or(usize::MAX))
+/// The rule's state of one provider in the Bend heap.
+#[derive(Debug)]
+pub(super) struct Rule {
+    stepper: Stepper,
+}
+
+impl Rule {
+    /// A provider with these limits and no ticket, and its state.
+    pub(super) fn open(limit: Option<NonZeroU32>, queue_limit: u32) -> (Rule, Live) {
+        let opened = (|| -> Result<(Rule, Live), eukhe_bend::Error> {
+            let mut request = Writer::new();
+            write_limit(&mut request, limit);
+            let input = request.u32(queue_limit).finish()?;
+            let (stepper, reply) = Stepper::open(Entry::Admission, &input)?;
+            Ok((Rule { stepper }, read_live(&reply)?))
+        })();
+        expect_core(Entry::Admission, opened)
     }
 
-    /// Grant free slots to the oldest waiters: interactive ones first,
-    /// background ones only while no interactive request holds or waits.
-    fn grant(&mut self) {
-        loop {
-            let interactive_waiting = self.count(AdmissionPriority::Interactive, false);
-            let interactive_holding = self.count(AdmissionPriority::Interactive, true);
-            let held = interactive_holding + self.count(AdmissionPriority::Background, true);
-            let class = if !self.room(held) {
-                None
-            } else if interactive_waiting > 0 {
-                Some(AdmissionPriority::Interactive)
-            } else if interactive_holding == 0
-                && self.count(AdmissionPriority::Background, false) > 0
-            {
-                Some(AdmissionPriority::Background)
-            } else {
-                None
+    /// One op; the provider's new state.
+    pub(super) fn step(&mut self, op: Op) -> Live {
+        let stepped = (|| -> Result<Live, eukhe_bend::Error> {
+            let mut request = Writer::new();
+            match op {
+                Op::Admit(class) => write_class(request.tag(0), class),
+                Op::Collect(number) => request.tag(1).nat(number),
+                Op::Release(number) => request.tag(2).nat(number),
+                Op::Leave(number) => request.tag(3).nat(number),
+                Op::Limit(limit, queue_limit) => {
+                    write_limit(request.tag(4), limit);
+                    request.u32(queue_limit)
+                }
             };
-            let Some(class) = class else {
-                return;
-            };
-            let Some(oldest) = self
-                .tickets
-                .iter_mut()
-                .find(|ticket| ticket.class == class && ticket.status == Status::Queued)
-            else {
-                return;
-            };
-            oldest.status = Status::Granted;
-        }
-    }
-
-    fn remove(&mut self, number: u64) {
-        self.tickets.retain(|ticket| ticket.number != number);
+            let reply = self.stepper.step(&request.finish()?)?;
+            Ok(read_live(&reply)?)
+        })();
+        expect_core(Entry::Admission, stepped)
     }
 }
 
-/// Whether a status holds a slot (a preempted permit's slot is free).
-fn holds(status: Status) -> bool {
-    match status {
-        Status::Granted | Status::Held => true,
-        Status::Queued | Status::Preempted => false,
+fn write_class(request: &mut Writer, class: AdmissionPriority) -> &mut Writer {
+    request.tag(match class {
+        AdmissionPriority::Interactive => 0,
+        AdmissionPriority::Background => 1,
+    })
+}
+
+/// `providerMaxInFlight`: unlimited, or `1 + p` slots.
+fn write_limit(request: &mut Writer, limit: Option<NonZeroU32>) -> &mut Writer {
+    match limit {
+        None => request.tag(0),
+        Some(limit) => request.tag(1).u32(limit.get() - 1),
     }
 }
 
-/// One op on the live tickets.
-pub(super) fn step(live: &Live, op: Op) -> Live {
-    let mut next = live.clone();
-    match op {
-        Op::Admit(class) => {
-            let interactive_waiting = live.count(AdmissionPriority::Interactive, false);
-            let interactive_holding = live.count(AdmissionPriority::Interactive, true);
-            let status = match class {
-                AdmissionPriority::Interactive => {
-                    for ticket in &mut next.tickets {
-                        if ticket.class == AdmissionPriority::Background {
-                            ticket.status = match ticket.status {
-                                Status::Granted | Status::Queued => Status::Queued,
-                                Status::Held | Status::Preempted => Status::Preempted,
-                            };
-                        }
-                    }
-                    if interactive_waiting == 0 && live.room(interactive_holding) {
-                        Some(Status::Held)
-                    } else if usize::try_from(live.queue_limit).unwrap_or(usize::MAX)
-                        <= interactive_waiting
-                    {
-                        None
-                    } else {
-                        Some(Status::Queued)
-                    }
-                }
-                AdmissionPriority::Background => {
-                    let held =
-                        interactive_holding + live.count(AdmissionPriority::Background, true);
-                    let free = interactive_holding == 0
-                        && interactive_waiting == 0
-                        && live.count(AdmissionPriority::Background, false) == 0
-                        && live.room(held);
-                    Some(if free { Status::Held } else { Status::Queued })
-                }
-            };
-            if let Some(status) = status {
-                next.tickets.push(Ticket {
-                    number: live.next,
-                    class,
-                    status,
-                });
-            }
-            next.next = live.next + 1;
-        }
-        Op::Collect(number) => {
-            if let Some(ticket) = next
-                .tickets
-                .iter_mut()
-                .find(|ticket| ticket.number == number && ticket.status == Status::Granted)
-            {
-                ticket.status = Status::Held;
-            }
-        }
-        Op::Release(number) => match live.status(number) {
-            Some(Status::Held) => {
-                next.remove(number);
-                next.grant();
-            }
-            Some(Status::Preempted) => next.remove(number),
-            Some(Status::Queued | Status::Granted) | None => {}
-        },
-        Op::Leave(number) => match live.status(number) {
-            Some(Status::Queued | Status::Granted) => {
-                next.remove(number);
-                next.grant();
-            }
-            Some(Status::Held | Status::Preempted) | None => {}
-        },
-        Op::Limit(limit, queue_limit) => {
-            next.limit = limit;
-            next.queue_limit = queue_limit;
-            next.grant();
-        }
+/// The classes by their wire tags.
+const CLASSES: [AdmissionPriority; 2] = [
+    AdmissionPriority::Interactive,
+    AdmissionPriority::Background,
+];
+
+/// The statuses of a live ticket by their wire tags (tag 4, ended, never
+/// comes back: an ended ticket leaves).
+const STATUSES: [Status; 4] = [
+    Status::Queued,
+    Status::Granted,
+    Status::Held,
+    Status::Preempted,
+];
+
+/// The value whose wire tag comes next, of the values `all` in tag order.
+fn read_tag<T: Copy>(
+    reader: &mut Reader<'_>,
+    all: &[T],
+    expected: &'static str,
+) -> Result<T, WireError> {
+    let tags = u32::try_from(all.len()).unwrap_or(u32::MAX);
+    let tag = reader.tag_of(tags, expected)?;
+    usize::try_from(tag)
+        .ok()
+        .and_then(|at| all.get(at).copied())
+        .ok_or(WireError::Malformed { at: 0, expected })
+}
+
+fn read_live(reply: &str) -> Result<Live, WireError> {
+    let mut reader = Reader::reply(reply)?;
+    // The limit comes back as it went out; the controller keeps its own.
+    if reader.tag_of(2, "a limit")? == 1 {
+        reader.u32()?;
     }
-    next
+    let queue_limit = reader.u32()?;
+    let count = reader.count()?;
+    let mut tickets = Vec::with_capacity(count);
+    for _ in 0..count {
+        let number = reader.nat()?;
+        let class = read_tag(&mut reader, &CLASSES, "a request class")?;
+        let status = read_tag(&mut reader, &STATUSES, "a live ticket's status")?;
+        tickets.push(Ticket {
+            number,
+            class,
+            status,
+        });
+    }
+    let next = reader.nat()?;
+    reader.end()?;
+    Ok(Live {
+        queue_limit,
+        tickets,
+        next,
+    })
 }
