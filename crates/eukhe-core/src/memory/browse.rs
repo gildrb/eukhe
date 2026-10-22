@@ -10,6 +10,7 @@ use std::path::Path;
 
 use super::chat::Chat;
 use super::labeled;
+use super::plan::Budgets;
 use super::saved::load_view;
 use super::store::{LoadMode, Store};
 use super::view::{line_text, NodeTexts, Part};
@@ -227,7 +228,7 @@ fn load(dir: &Path) -> anyhow::Result<(Store, Chat, Vec<String>)> {
             None
         }
     };
-    let (chat, _unlogged) = Chat::from_loaded(loaded, saved, &mut problems);
+    let (chat, _unlogged) = Chat::from_loaded(Budgets::default(), loaded, saved, &mut problems);
     Ok((store, chat, problems))
 }
 

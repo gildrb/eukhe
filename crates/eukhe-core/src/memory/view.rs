@@ -31,6 +31,22 @@ impl Part {
     pub(crate) fn end(self) -> u64 {
         (self.i + 1) << self.l
     }
+
+    /// The node over this one and its sibling.
+    pub(crate) fn parent(self) -> Part {
+        Part {
+            l: self.l + 1,
+            i: self.i / 2,
+        }
+    }
+
+    /// The other half of this node's parent.
+    pub(crate) fn sibling(self) -> Part {
+        Part {
+            l: self.l,
+            i: self.i ^ 1,
+        }
+    }
 }
 
 /// Read access to the built node texts.
@@ -80,9 +96,13 @@ impl View {
             by_start.remove(&right.start());
             by_start.insert(left.start(), parent);
         }
-        let parts: Vec<Part> = by_start.into_values().collect();
+        (View::of(by_start.into_values().collect(), tree), skipped)
+    }
+
+    /// The view of `parts`, with its size.
+    pub(crate) fn of(parts: Vec<Part>, tree: &impl NodeTexts) -> View {
         let size = parts.iter().map(|part| line_text(*part, tree).len()).sum();
-        (View { parts, size }, skipped)
+        View { parts, size }
     }
 
     pub(crate) fn parts(&self) -> &[Part] {
@@ -116,58 +136,6 @@ impl View {
         }
     }
 
-    /// Merge the most due built pair until the view fits `budget` bytes or
-    /// no pair has a built parent. `total` is the number of messages.
-    /// Returns the merged parents, in merge order.
-    ///
-    /// A pair is due by how long ago it ended in its own line size,
-    /// `(T - last) / 2^l`, written as `(T + 1)/2^l - i` (same order, shifted
-    /// by 2); of equal pairs the oldest merges first. This picks the merges
-    /// of Taelin's rollback `push`. Measuring from the pair's first message
-    /// rewrites old lines near ties.
-    pub(crate) fn fit(&mut self, total: u64, budget: usize, tree: &impl NodeTexts) -> Vec<Part> {
-        let mut merged = Vec::new();
-        while self.size > budget {
-            let mut best: Option<(usize, u64, u32)> = None;
-            for (at, pair) in self.parts.windows(2).enumerate() {
-                let (left, right) = (pair[0], pair[1]);
-                let parent = Part {
-                    l: left.l + 1,
-                    i: left.i / 2,
-                };
-                if left.l == right.l
-                    && left.i % 2 == 0
-                    && right.i == left.i + 1
-                    && tree.node_text(parent).is_some()
-                {
-                    // `T + 1 - first`: the pair ends at `first + 2^(l+1) - 1`
-                    // and `right` exists, so this is at least `2^(l+1)`.
-                    let age = total + 1 - left.start();
-                    let more_due = best.is_none_or(|(_, best_age, best_l)| {
-                        more_due(age, left.l, best_age, best_l)
-                    });
-                    if more_due {
-                        best = Some((at, age, left.l));
-                    }
-                }
-            }
-            let Some((at, _, _)) = best else {
-                break;
-            };
-            let left = self.parts[at];
-            let parent = Part {
-                l: left.l + 1,
-                i: left.i / 2,
-            };
-            let removed = line_text(left, tree).len() + line_text(self.parts[at + 1], tree).len();
-            self.parts[at] = parent;
-            self.parts.remove(at + 1);
-            self.size = self.size - removed + line_text(parent, tree).len();
-            merged.push(parent);
-        }
-        merged
-    }
-
     /// The first message whose view line is not built; `total` when every
     /// line is a summary.
     pub(crate) fn first_unbuilt(&self, total: u64, tree: &impl NodeTexts) -> u64 {
@@ -184,38 +152,27 @@ impl View {
             .all(|part| tree.node_text(*part).is_some())
     }
 
-    /// The agent's rendering: `<chat>`, one `id+n|text` line per part
-    /// (newlines shown as spaces), `</chat>`.
+    /// The agent's rendering ([`render_parts`]).
     pub(crate) fn render(&self, tree: &impl NodeTexts) -> String {
-        let mut out = String::with_capacity(self.size + self.parts.len() * 16 + 16);
-        out.push_str("<chat>\n");
-        for part in &self.parts {
-            let _ = writeln!(
-                out,
-                "{}+{}|{}",
-                part.start(),
-                part.count(),
-                flatten(line_text(*part, tree))
-            );
-        }
-        out.push_str("</chat>");
-        out
+        render_parts(&self.parts, tree)
     }
+}
 
-    /// A compaction's view (§4): `<chat>`, one `id+n|text` line per part
-    /// that ends by `end`, `</chat>`; it stops at the first unbuilt line,
-    /// so no call sees a placeholder or half a message.
-    pub(crate) fn render_built_until(&self, end: u64, tree: &impl NodeTexts) -> String {
-        let mut out = String::from("<chat>\n");
-        for part in self.parts.iter().take_while(|part| part.end() <= end) {
-            let Some(text) = tree.node_text(*part) else {
-                break;
-            };
-            let _ = writeln!(out, "{}+{}|{}", part.start(), part.count(), flatten(text));
-        }
-        out.push_str("</chat>");
-        out
+/// `<chat>`, one `id+n|text` line per part (newlines shown as spaces),
+/// `</chat>`.
+pub(crate) fn render_parts(parts: &[Part], tree: &impl NodeTexts) -> String {
+    let mut out = String::from("<chat>\n");
+    for part in parts {
+        let _ = writeln!(
+            out,
+            "{}+{}|{}",
+            part.start(),
+            part.count(),
+            flatten(line_text(*part, tree))
+        );
     }
+    out.push_str("</chat>");
+    out
 }
 
 /// Whether `parts` tile `[0, end)` for some `end <= total`, oldest first,
@@ -232,14 +189,6 @@ pub(crate) fn tiled_end(parts: &[Part], total: u64) -> Option<u64> {
         end = start.checked_add(count).filter(|end| *end <= total)?;
     }
     Some(end)
-}
-
-/// `age_a / 2^l_a > age_b / 2^l_b`, exactly: both sides scale by the
-/// smaller power, so the shift is at most 63 and fits in `u128`. Strict:
-/// of equal pairs, the earlier (older) one stays the best.
-fn more_due(age_a: u64, l_a: u32, age_b: u64, l_b: u32) -> bool {
-    let low = l_a.min(l_b);
-    (u128::from(age_a) << (l_b - low)) > (u128::from(age_b) << (l_a - low))
 }
 
 /// A part's line text: its summary, or the placeholder.

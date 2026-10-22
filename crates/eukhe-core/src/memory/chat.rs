@@ -7,12 +7,13 @@ mod bridge;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::plan::{Budgets, Demand, Grown, Planner};
 use super::store::{Loaded, MergeRecord, MessageMeta, NodeRecord};
-use super::view::{flatten, line_text, tiled_end, NodeTexts, Part, View};
-use super::{labeled, Kind, COMPACTION_CEILING, COMPACTION_FLOOR, JOBS, VIEW_CEILING, VIEW_FLOOR};
+use super::view::{flatten, line_text, render_parts, tiled_end, NodeTexts, Part, View};
+use super::{labeled, Kind};
 
 /// The built nodes by part.
 #[derive(Debug, Default)]
@@ -59,16 +60,6 @@ impl Step {
     }
 }
 
-/// Who the compactor's next calls serve (H2.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Demand {
-    /// No turn waits: the gist's order (§4).
-    Background,
-    /// A turn waits for the view: only the view's unbuilt lines start; the
-    /// ready merges wait until the view settles.
-    Turn,
-}
-
 /// What `zoom(id, n)` resolves to before any disk read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Zoom {
@@ -104,46 +95,16 @@ impl Batch {
     }
 }
 
-/// The byte budgets of the two sawtooths and the compactor's job slots
-/// (§3.2, §4). Only the bridge test sets other values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Budgets {
-    pub ceiling: usize,
-    pub floor: usize,
-    pub compaction_ceiling: usize,
-    pub compaction_floor: usize,
-    pub jobs: usize,
-}
-
-impl Default for Budgets {
-    fn default() -> Budgets {
-        Budgets {
-            ceiling: VIEW_CEILING,
-            floor: VIEW_FLOOR,
-            compaction_ceiling: COMPACTION_CEILING,
-            compaction_floor: COMPACTION_FLOOR,
-            jobs: JOBS,
-        }
-    }
-}
-
-/// The chat state.
+/// The chat state: the message index, the built nodes and the view, as
+/// the planner ([`Planner`]) decides it.
 #[derive(Debug, Default)]
 pub(crate) struct Chat {
-    budgets: Budgets,
     messages: Vec<MessageMeta>,
     nodes: Nodes,
+    /// The planner's view, with its size: it appends each message's line
+    /// and takes the planner's view after each batch.
     view: View,
-    /// The compactions' view (§4): the view merged further, to
-    /// [`COMPACTION_FLOOR`]..[`COMPACTION_CEILING`] bytes.
-    compaction: View,
-    /// A batch could not reach [`VIEW_FLOOR`] yet (unbuilt parents): each
-    /// new message merges what it can until it does.
-    shrinking: bool,
-    /// Merges whose children are built and that are not built yet,
-    /// ordered by level, then index.
-    ready: BTreeSet<Part>,
-    busy: HashSet<Part>,
+    planner: Planner,
 }
 
 impl Chat {
@@ -158,6 +119,7 @@ impl Chat {
     /// - a shrinking view whose last message has no batch line (the owner
     ///   died between the two writes) runs that batch now.
     pub(crate) fn from_loaded(
+        budgets: Budgets,
         loaded: Loaded,
         saved: Option<Vec<Part>>,
         problems: &mut Vec<String>,
@@ -187,18 +149,14 @@ impl Chat {
             }
             chat.nodes.0.insert(part, Arc::from(text));
         }
-        let built: Vec<Part> = chat.nodes.0.keys().copied().collect();
-        for part in built {
-            chat.note_ready_parent(part);
-        }
         let logged: Vec<Part> = loaded
             .merges
             .iter()
             .flat_map(|record| record.merge.iter().map(|&(l, i)| Part { l, i }))
             .collect();
         let last = loaded.merges.last();
-        chat.shrinking = last.is_some_and(|record| record.open);
-        let missed = chat.shrinking && last.and_then(|record| record.t) < Some(total);
+        let shrinking = last.is_some_and(|record| record.open);
+        let missed = shrinking && last.and_then(|record| record.t) < Some(total);
         let mut unlogged = Vec::new();
         let mut imported = Vec::new();
         if logged.is_empty() {
@@ -221,15 +179,24 @@ impl Chat {
                 part.count()
             ));
         }
+        let sizes = chat
+            .nodes
+            .iter()
+            .map(|(part, text)| (part, text.len()))
+            .collect();
+        let (planner, grown) = Planner::open(
+            budgets,
+            total,
+            sizes,
+            view.parts().to_vec(),
+            shrinking,
+            missed,
+        );
         chat.view = view;
-        if missed {
-            let batch = chat.batch(total);
+        chat.planner = planner;
+        if let Some(batch) = chat.took(grown, total) {
             unlogged.push(batch.record());
         }
-        // The compaction view starts from the view, merged down once.
-        chat.compaction = chat.view.clone();
-        chat.compaction
-            .fit(total, chat.budgets.compaction_floor, &chat.nodes);
         (chat, unlogged)
     }
 
@@ -252,7 +219,7 @@ impl Chat {
     }
 
     pub(crate) fn busy_count(&self) -> usize {
-        self.busy.len()
+        self.planner.busy_count()
     }
 
     /// The first message whose view line is not built (`T` when none).
@@ -269,155 +236,56 @@ impl Chat {
     pub(crate) fn push_message(&mut self, meta: MessageMeta) -> (u64, Option<Batch>) {
         let id = self.total();
         self.messages.push(meta);
-        (id, self.grow(id))
-    }
-
-    /// Message `id` (already indexed) appends its line to both views; the
-    /// view merges in batches (§3.2): once it passes its ceiling, down to
-    /// its floor, and while that floor is out of reach (unbuilt parents),
-    /// as far as it can at every message after. The compaction view merges
-    /// with it, else on its own past its ceiling.
-    fn grow(&mut self, id: u64) -> Option<Batch> {
-        let total = id + 1;
         self.view.append(id, &self.nodes);
-        self.compaction.append(id, &self.nodes);
-        if !self.shrinking && self.view.size() <= self.budgets.ceiling {
-            self.fit_compaction(total);
-            return None;
-        }
-        Some(self.batch(total))
+        let grown = self.planner.message();
+        (id, self.took(grown, id + 1))
     }
 
-    /// One batch at `total` messages: merge the view down to its floor as
-    /// far as built parents allow. When it merged, the compaction view
-    /// starts again from it, merged down to its own floor.
-    fn batch(&mut self, total: u64) -> Batch {
+    /// The view after the planner's batch, if one ran, and the batch as the
+    /// log keeps it.
+    fn took(&mut self, grown: Grown, total: u64) -> Option<Batch> {
+        let Grown { batch, shrinking } = grown;
+        let (merged, parts) = batch?;
         let before = self.view.size();
-        let merged = self.view.fit(total, self.budgets.floor, &self.nodes);
-        self.shrinking = self.view.size() > self.budgets.floor;
-        if merged.is_empty() {
-            self.fit_compaction(total);
-        } else {
-            self.compaction = self.view.clone();
-            self.compaction
-                .fit(total, self.budgets.compaction_floor, &self.nodes);
-        }
-        Batch {
+        self.view = View::of(parts, &self.nodes);
+        Some(Batch {
             merged,
             before,
             after: self.view.size(),
-            open: self.shrinking,
+            open: shrinking,
             total,
-        }
+        })
     }
 
-    /// The compaction view's own sawtooth: past its ceiling, down to its
-    /// floor.
-    fn fit_compaction(&mut self, total: u64) {
-        if self.compaction.size() > self.budgets.compaction_ceiling {
-            self.compaction
-                .fit(total, self.budgets.compaction_floor, &self.nodes);
-        }
-    }
-
-    /// A node was built and saved: index it and release it. Neither view
-    /// merges here: the view merges only when a message comes.
+    /// A node was built and saved: index it and tell the planner. Neither
+    /// view merges here: the view merges only when a message comes.
     pub(crate) fn insert_node(&mut self, part: Part, text: &str) {
         self.nodes.0.insert(part, Arc::from(text));
-        self.ready.remove(&part);
-        self.busy.remove(&part);
-        self.note_ready_parent(part);
+        self.planner.built(part, text.len());
         self.view.part_built(part, &self.nodes);
-        self.compaction.part_built(part, &self.nodes);
-        self.fit_compaction(self.total());
     }
 
-    /// The parent of a built part becomes ready once its sibling is built.
-    fn note_ready_parent(&mut self, part: Part) {
-        if part.l >= 62 {
-            return;
-        }
-        let sibling = Part {
-            l: part.l,
-            i: part.i ^ 1,
-        };
-        let parent = Part {
-            l: part.l + 1,
-            i: part.i / 2,
-        };
-        if self.nodes.0.contains_key(&sibling) && !self.nodes.0.contains_key(&parent) {
-            self.ready.insert(parent);
-        }
-    }
-
-    /// The nodes to start now, within the free job slots (§4 "The order"):
-    /// a message's node once fewer than [`JOBS`] view lines before it are
-    /// unbuilt, oldest first; then, unless a turn waits ([`Demand::Turn`]),
-    /// the ready merges (both halves built), from the queue, never from a
-    /// scan of the tree.
+    /// The nodes to start now, within the free job slots (§4 "The order",
+    /// [`Planner::candidates`]).
     pub(crate) fn candidates(&self, demand: Demand) -> Vec<Part> {
-        let jobs = self.budgets.jobs;
-        let room = jobs.saturating_sub(self.busy.len());
-        let mut out = Vec::new();
-        if room == 0 {
-            return out;
-        }
-        let parts = self.view.parts();
-        let first = self.first();
-        let from = parts.partition_point(|part| part.start() < first);
-        let mut unbuilt_before = 0;
-        for part in &parts[from..] {
-            if unbuilt_before >= jobs || out.len() >= room {
-                break;
-            }
-            if self.nodes.node_text(*part).is_some() {
-                continue;
-            }
-            if !self.busy.contains(part) {
-                out.push(*part);
-            }
-            unbuilt_before += 1;
-        }
-        match demand {
-            Demand::Turn => return out,
-            Demand::Background => {}
-        }
-        for part in &self.ready {
-            if out.len() >= room {
-                break;
-            }
-            if !self.busy.contains(part) {
-                out.push(*part);
-            }
-        }
-        out
+        self.planner.candidates(demand)
     }
 
     /// The node is running (or failed, waiting to be tried again).
     pub(crate) fn mark_busy(&mut self, part: Part) {
-        self.busy.insert(part);
+        self.planner.started(part);
     }
 
     /// The node may start again.
     pub(crate) fn release(&mut self, part: Part) {
-        self.busy.remove(&part);
+        self.planner.freed(part);
     }
 
     /// A turn starts to wait (H2.1): every busy node that is not a view
-    /// line still unbuilt goes back to the queue, and every one that is
-    /// stays (`St.wait` in `bend/optchat.bend`; `wait_keeps_needed`).
+    /// line still unbuilt goes back to the queue ([`Planner::hold`]).
     /// Returns those that went back, so the owner stops their calls.
     pub(crate) fn hold_for_turn(&mut self) -> Vec<Part> {
-        let (view, nodes) = (&self.view, &self.nodes);
-        let mut held = Vec::new();
-        self.busy.retain(|part| {
-            let needed = view.contains(*part) && nodes.node_text(*part).is_none();
-            if !needed {
-                held.push(*part);
-            }
-            needed
-        });
-        held
+        self.planner.hold()
     }
 
     /// How the node is built.
@@ -443,12 +311,7 @@ impl Chat {
     /// before the message (it comes whole in the task), or up to a merge's
     /// last message, stopping at the first unbuilt line.
     pub(crate) fn context(&self, part: Part) -> String {
-        let end = if part.l == 0 {
-            part.start()
-        } else {
-            part.end()
-        };
-        self.compaction.render_built_until(end, &self.nodes)
+        render_parts(&self.planner.context(part), &self.nodes)
     }
 
     /// The agent's view.

@@ -14,8 +14,9 @@ use super::owner::Command;
 use super::prefix_gate::{prefix_key, PrefixGate};
 use super::turn::{Origin, Turns, TURN_FILE};
 use super::{ImportItem, MemoryStatus, Outcome, RenderedView, Reply, Request, Summarizer, Zoomed};
-use crate::memory::chat::{Batch, Chat, Demand, Nodes, Step, Zoom};
+use crate::memory::chat::{Batch, Chat, Nodes, Step, Zoom};
 use crate::memory::compactor::{build_line, CallEnd, NodeRequest, Pend, ResponseStarted};
+use crate::memory::plan::{Budgets, Demand};
 use crate::memory::prompts::{compress_task, merge_task};
 use crate::memory::saved::{self, CompactionPrompt};
 use crate::memory::store::{note_scope, LoadMode, MessageRecord, NodeRecord, ScopeMark, Store};
@@ -121,7 +122,12 @@ impl Actor {
         let saved_view = readable(saved::load_view(dir), saved::VIEW_FILE, &mut problems)?;
         let prompt = readable(saved::load_prompt(dir), saved::PROMPT_FILE, &mut problems)?
             .unwrap_or_else(CompactionPrompt::memory_layer);
-        let (chat, unlogged) = Chat::from_loaded(loaded, saved_view.clone(), &mut problems);
+        let (chat, unlogged) = Chat::from_loaded(
+            Budgets::default(),
+            loaded,
+            saved_view.clone(),
+            &mut problems,
+        );
         if !unlogged.is_empty() {
             let day = crate::platform::local_time(SystemTime::now())?.date();
             for record in &unlogged {

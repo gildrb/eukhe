@@ -17,6 +17,7 @@ use std::fmt::Write as _;
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 
 use super::{Budgets, Chat, Demand};
+use crate::memory::store::Loaded;
 use crate::memory::store::MessageMeta;
 use crate::memory::view::Part;
 use crate::memory::{Kind, PLACEHOLDER};
@@ -73,10 +74,7 @@ struct Run {
 impl Run {
     fn new(budgets: Budgets) -> Run {
         Run {
-            chat: Chat {
-                budgets,
-                ..Chat::default()
-            },
+            chat: Chat::from_loaded(budgets, Loaded::default(), None, &mut Vec::new()).0,
             events: format!(
                 "9 {} {} {} {} {} {}\n",
                 PLACEHOLDER.len(),
@@ -95,8 +93,8 @@ impl Run {
             self.transcript,
             "v={} c={} s={} b={} q={} n={}",
             parts(self.chat.view.parts()),
-            parts(self.chat.compaction.parts()),
-            u8::from(self.chat.shrinking),
+            parts(self.chat.planner.compaction()),
+            u8::from(self.chat.planner.shrinking()),
             parts(batch),
             parts(&self.chat.candidates(Demand::Background)),
             parts(&self.chat.candidates(Demand::Turn))

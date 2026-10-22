@@ -81,6 +81,30 @@ def Prefix(p: List<&2, O.Node>, v: List<&2, O.Node>) -> Type:
     case +x <> pr +y <> vr:
       ({x == y : O.Node} & Prefix(pr, vr))
 
+# bs has no high zero bit (as Bits.inc and Bits.up make bits): its last
+# bit, if any, is True
+def Bits.canon.go(t: List<&2, Bool>, h: Bool) -> Bool:
+  match t:
+    case Nil{}:
+      h
+    case x <> r:
+      Bits.canon.go(r, x)
+
+def Bits.canon(bs: List<&2, Bool>) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case h <> t:
+      Bits.canon.go(t, h)
+
+# every line of v has an index without a high zero bit
+def Canon(v: List<&2, O.Node>) -> Bool:
+  match v:
+    case Nil{}:
+      True{}
+    case O.Node{l, i} <> rest:
+      Bool.and(Bits.canon(i), Canon(rest))
+
 def view.of(+cfg: O.Cfg, +evs: List<&2, O.Ev>) -> List<&2, O.Node>:
   O.St.view(O.run(cfg, evs))
 

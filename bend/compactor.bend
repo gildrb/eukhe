@@ -94,6 +94,25 @@ def cut(t: List<&2, W>, room: Nat) -> List<&2, W>:
         case _ _:
           Nil{}
 
+# the start of t a cut of room bytes reads: every character that fits,
+# then the next one (all the compactor sends of a long input)
+def Text.lead(t: List<&2, W>, room: Nat) -> List<&2, W>:
+  match t:
+    case Nil{}:
+      Nil{}
+    case c <> rest:
+      match c room:
+        case W1{} 1n+r:
+          W1{} <> Text.lead(rest, r)
+        case W2{} 2n+r:
+          W2{} <> Text.lead(rest, r)
+        case W3{} 3n+r:
+          W3{} <> Text.lead(rest, r)
+        case W4{} 4n+r:
+          W4{} <> Text.lead(rest, r)
+        case c _:
+          [c]
+
 # A line (H1)
 # -----------
 
@@ -174,6 +193,113 @@ def line.go(tries: Nat, +node: Nat, +best: Maybe<&2, List<&2, W>>, +bl: Nat, rs:
 # the line of a node: input, at most tries calls, node bytes
 def line(tries: Nat, +node: Nat, +input: List<&2, W>, rs: List<&2, Reply>) -> Line:
   line.go(tries, node, None{}, 0n, rs, input)
+
+# The line, one reply at a time
+# ------------------------------
+# The shipped decision: the compactor asks the model, and before it asks
+# again it hands the reply to line.step, which ends the line or asks for
+# the next reply. Driven over the replies, the steps are `line` itself
+# (law line_steps), so every law of `line` holds for them.
+
+# a line being written: tries left, calls made, its size, the shortest
+# reply so far and its length, the input
+type Lst is Data:
+  Lst{left: Nat, made: Nat, node: Nat, best: Maybe<&2, List<&2, W>>, bl: Nat, input: List<&2, W>}
+
+# how a line ends: the reply just read, whole, or cut to the node (the last
+# try); the best reply before it cut so; the input cut so; a failed call
+type Fin is Data:
+  Whole{text: List<&2, W>}
+  CutReply{text: List<&2, W>}
+  CutBest{text: List<&2, W>}
+  CutInput{text: List<&2, W>}
+  Lost{}
+
+# after a reply: the line ends after so many calls, or the next call goes
+type Next is Data:
+  Ends{calls: Nat, end: Fin}
+  Asks{st: Lst}
+
+def Lst.made(st: Lst) -> Nat:
+  match st:
+    case Lst{left, made, node, best, bl, input}:
+      made
+
+def end.of(best: Maybe<&2, List<&2, W>>, input: List<&2, W>) -> Fin:
+  match best:
+    case None{}:
+      CutInput{input}
+    case Some{b}:
+      CutBest{b}
+
+# the line an end stands for
+def Fin.line(+node: Nat, e: Fin) -> Maybe<&2, List<&2, W>>:
+  match e:
+    case Whole{ws}:
+      Some{ws}
+    case CutReply{ws}:
+      Some{cut(ws, node)}
+    case CutBest{b}:
+      Some{cut(b, node)}
+    case CutInput{i}:
+      Some{cut(i, node)}
+    case Lost{}:
+      None{}
+
+# with tries left, the next call goes; with none, the line ends
+def line.again(left: Nat, st: Lst) -> Next:
+  match left st:
+    case 0n Lst{l, made, node, best, bl, input}:
+      Ends{made, end.of(best, input)}
+    case 1n+q st:
+      Asks{st}
+
+def line.says(fit: Bool, less: Bool, +p: Nat, +made: Nat, +node: Nat, best: Maybe<&2, List<&2, W>>, input: List<&2, W>, ws: List<&2, W>, +len: Nat) -> Next:
+  match fit less:
+    case True{} _:
+      Ends{1n+made, Whole{ws}}
+    case False{} False{}:
+      Ends{1n+made, end.of(best, input)}
+    case False{} True{}:
+      match p:
+        case 0n:
+          Ends{1n+made, CutReply{ws}}
+        case 1n+q:
+          Asks{Lst{1n+q, 1n+made, node, Some{ws}, len, input}}
+
+# one reply of a line with tries left
+def line.step(st: Lst, r: Reply) -> Next:
+  match st:
+    case Lst{left, made, +node, best, +bl, input}:
+      match left:
+        case 0n:
+          Ends{made, end.of(best, input)}
+        case 1n+p:
+          match r:
+            case Erred{}:
+              Ends{1n+made, Lost{}}
+            case Says{ws}:
+              match ws:
+                case Nil{}:
+                  Ends{1n+made, end.of(best, input)}
+                case +w <> +t:
+                  +len = Text.len(w <> t)
+                  +b = best
+                  line.says(Nat.is_le(len, node), shorter(len, b, bl), p, made, node, b, input, w <> t, len)
+
+# a line starts: with no tries, it is the input cut
+def line.open(+tries: Nat, node: Nat, input: List<&2, W>) -> Next:
+  line.again(tries, Lst{tries, 0n, node, None{}, 0n, input})
+
+# the steps over the replies, in order (a missing reply fails the call)
+def line.drive(rs: List<&2, Reply>, n: Next, +node: Nat) -> Line:
+  match rs n:
+    case _ Ends{c, e}:
+      Line{c, Fin.line(node, e)}
+    case Nil{} Asks{st}:
+      Line{1n+Lst.made(st), None{}}
+    case r <> rest Asks{st}:
+      line.drive(rest, line.step(st, r), node)
 
 # the first n replies: the ones a line of n calls read
 def read(n: Nat, rs: List<&2, Reply>) -> List<&2, Reply>:
