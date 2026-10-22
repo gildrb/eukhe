@@ -353,11 +353,11 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define CID_admission_Preempted 41
 #define CID_admission_Ended 42
 #define CID_default_model_In 43
-#define CID_ffi_aux_fallback_GateReq 44
-#define CID_ffi_aux_fallback_SettleReq 45
-#define CID_ffi_aux_fallback_PassReq 46
-#define CID_ffi_workflow_AdmitReq 47
-#define CID_ffi_workflow_LimitsReq 48
+#define CID_ffi_workflow_AdmitReq 44
+#define CID_ffi_workflow_LimitsReq 45
+#define CID_ffi_aux_fallback_GateReq 46
+#define CID_ffi_aux_fallback_SettleReq 47
+#define CID_ffi_aux_fallback_PassReq 48
 #define CID_admission_Admit 49
 #define CID_admission_Collect 50
 #define CID_admission_Release 51
@@ -370,25 +370,25 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define CID_wire_Dig 58
 #define CID_wire_Comma 59
 #define CID_wire_Other 60
-#define CID_aux_fallback_Unset 61
-#define CID_aux_fallback_Same 62
-#define CID_aux_fallback_Other 63
-#define CID_aux_fallback_Known 64
-#define CID_aux_fallback_Lookup 65
-#define CID_aux_fallback_Miss 66
-#define CID_aux_fallback_Hit 67
-#define CID_aux_fallback_Session 68
-#define CID_aux_fallback_Routed 69
-#define CID_aux_fallback_Fallback 70
-#define CID_aux_fallback_K 71
-#define CID_workflow_Queued 72
-#define CID_workflow_Running 73
-#define CID_workflow_Finished 74
-#define CID_workflow_Erred 75
-#define CID_workflow_Cancelled 76
-#define CID_workflow_Cached 77
-#define CID_workflow_Row 78
-#define CID_workflow_Pool 79
+#define CID_workflow_Queued 61
+#define CID_workflow_Running 62
+#define CID_workflow_Finished 63
+#define CID_workflow_Erred 64
+#define CID_workflow_Cancelled 65
+#define CID_workflow_Cached 66
+#define CID_workflow_Row 67
+#define CID_workflow_Pool 68
+#define CID_aux_fallback_Unset 69
+#define CID_aux_fallback_Same 70
+#define CID_aux_fallback_Other 71
+#define CID_aux_fallback_Known 72
+#define CID_aux_fallback_Lookup 73
+#define CID_aux_fallback_Miss 74
+#define CID_aux_fallback_Hit 75
+#define CID_aux_fallback_Session 76
+#define CID_aux_fallback_Routed 77
+#define CID_aux_fallback_Fallback 78
+#define CID_aux_fallback_K 79
 #define CID_default_model_Runs 80
 #define CID_default_model_Nothing 81
 #define CID_default_model_Refused 82
@@ -397,16 +397,16 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define CID_default_model_Kept 85
 #define CID_default_model_Swapped 86
 #define CID_default_model_K 87
-#define CID_aux_fallback_Stay 88
-#define CID_aux_fallback_Went 89
-#define CID_aux_fallback_Sub 90
-#define CID_aux_fallback_Note 91
-#define CID_workflow_Ended 92
-#define CID_workflow_Reattach 93
-#define CID_workflow_Reuse 94
-#define CID_workflow_Spawn 95
-#define CID_workflow_Refused 96
-#define CID_workflow_Limits 97
+#define CID_workflow_Ended 88
+#define CID_workflow_Reattach 89
+#define CID_workflow_Reuse 90
+#define CID_workflow_Spawn 91
+#define CID_workflow_Refused 92
+#define CID_workflow_Limits 93
+#define CID_aux_fallback_Stay 94
+#define CID_aux_fallback_Went 95
+#define CID_aux_fallback_Sub 96
+#define CID_aux_fallback_Note 97
 #define CID_default_model_NotInCatalog 98
 #define CID_default_model_NoCredentials 99
 #define CID_default_model_NotInScope 100
@@ -416,23 +416,23 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define CID_IO_args 104
 #define CID_IO_print 105
 #define FID_ffi_workflow_get_row 0
-#define FID_ffi_workflow_get_row_k15 1
-#define FID_ffi_workflow_get_row_k16 2
+#define FID_ffi_workflow_get_row_k21 1
+#define FID_ffi_workflow_get_row_k22 2
 #define FID_wire_get_list_go_4 3
-#define FID_wire_get_list_go_4_k18 4
-#define FID_wire_get_list_go_4_k19 5
-#define FID_ffi_workflow_get_sts 6
-#define FID_ffi_workflow_get_sts_k39 7
-#define FID_ffi_workflow_get_pool 8
-#define FID_ffi_workflow_get_pool_k44 9
-#define FID_ffi_workflow_get_pool_k45 10
-#define FID_ffi_aux_fallback_get_key 11
-#define FID_ffi_aux_fallback_get_key_k50 12
-#define FID_ffi_aux_fallback_get_key_k51 13
-#define FID_ffi_aux_fallback_get_key_k52 14
-#define FID_wire_get_list_go_1 15
-#define FID_wire_get_list_go_1_k54 16
-#define FID_wire_get_list_go_1_k55 17
+#define FID_wire_get_list_go_4_k24 4
+#define FID_wire_get_list_go_4_k25 5
+#define FID_ffi_aux_fallback_get_key 6
+#define FID_ffi_aux_fallback_get_key_k40 7
+#define FID_ffi_aux_fallback_get_key_k41 8
+#define FID_ffi_aux_fallback_get_key_k42 9
+#define FID_wire_get_list_go_1 10
+#define FID_wire_get_list_go_1_k44 11
+#define FID_wire_get_list_go_1_k45 12
+#define FID_ffi_workflow_get_sts 13
+#define FID_ffi_workflow_get_sts_k56 14
+#define FID_ffi_workflow_get_pool 15
+#define FID_ffi_workflow_get_pool_k61 16
+#define FID_ffi_workflow_get_pool_k62 17
 #define FID_wire_get_list_go_3 18
 #define FID_wire_get_list_go_3_k67 19
 #define FID_wire_get_list_go_3_k68 20
@@ -442,13 +442,13 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_wire_put_str_go_k72 24
 #define FID_admission_lv_mark 25
 #define FID_admission_lv_mark_k80 26
-#define FID_wire_get_list_4 27
-#define FID_wire_get_list_4_k90 28
-#define FID_wire_get_list_4_k91 29
-#define FID_wire_put_list_go_1 30
-#define FID_wire_put_list_go_1_k116 31
-#define FID_wire_put_list_go_2 32
-#define FID_wire_put_list_go_2_k118 33
+#define FID_wire_put_list_go_1 27
+#define FID_wire_put_list_go_1_k103 28
+#define FID_wire_put_list_go_2 29
+#define FID_wire_put_list_go_2_k105 30
+#define FID_wire_get_list_4 31
+#define FID_wire_get_list_4_k112 32
+#define FID_wire_get_list_4_k113 33
 #define FID_wire_take 34
 #define FID_wire_take_k122 35
 #define FID_wire_put_list_3 36
@@ -484,22 +484,22 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_admission_lv_preempt_k172 66
 #define FID_List_append 67
 #define FID_List_append_k174 68
-#define FID_workflow_found 69
-#define FID_workflow_found_k185 70
-#define FID_wire_get_list_1 71
-#define FID_wire_get_list_1_k193 72
-#define FID_wire_get_list_1_k194 73
-#define FID_ffi_aux_fallback_get_look 74
-#define FID_ffi_aux_fallback_get_look_k201 75
-#define FID_ffi_aux_fallback_get_look_k202 76
-#define FID_ffi_aux_fallback_get_look_k203 77
-#define FID_ffi_aux_fallback_get_sel 78
-#define FID_ffi_aux_fallback_get_sel_k207 79
-#define FID_ffi_aux_fallback_get_sel_k208 80
-#define FID_aux_fallback_listed 81
-#define FID_aux_fallback_listed_k212 82
-#define FID_wire_put_list_1 83
-#define FID_wire_put_list_1_k215 84
+#define FID_wire_get_list_1 69
+#define FID_wire_get_list_1_k178 70
+#define FID_wire_get_list_1_k179 71
+#define FID_ffi_aux_fallback_get_look 72
+#define FID_ffi_aux_fallback_get_look_k186 73
+#define FID_ffi_aux_fallback_get_look_k187 74
+#define FID_ffi_aux_fallback_get_look_k188 75
+#define FID_ffi_aux_fallback_get_sel 76
+#define FID_ffi_aux_fallback_get_sel_k192 77
+#define FID_ffi_aux_fallback_get_sel_k193 78
+#define FID_aux_fallback_listed 79
+#define FID_aux_fallback_listed_k197 80
+#define FID_wire_put_list_1 81
+#define FID_wire_put_list_1_k200 82
+#define FID_workflow_found 83
+#define FID_workflow_found_k215 84
 #define FID_wire_value 85
 #define FID_wire_value_k223 86
 #define FID_wire_get_list_3 87
@@ -530,23 +530,23 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_admission_lv_admit_ia_k271 112
 #define FID_admission_lv_admit_ia_k272 113
 #define FID_admission_lv_admit_ia_k273 114
-#define FID_ffi_workflow_get_prior 115
-#define FID_ffi_workflow_get_prior_k278 116
-#define FID_ffi_workflow_get_prior_k279 117
-#define FID_workflow_admit 118
-#define FID_workflow_admit_k287 119
-#define FID_ffi_aux_fallback_get_route 120
-#define FID_ffi_aux_fallback_get_route_k290 121
-#define FID_ffi_aux_fallback_get_route_k291 122
-#define FID_ffi_aux_fallback_get_gate 123
-#define FID_ffi_aux_fallback_get_gate_k295 124
-#define FID_ffi_aux_fallback_get_gate_k296 125
-#define FID_ffi_aux_fallback_get_gate_k297 126
-#define FID_ffi_aux_fallback_get_gate_k298 127
-#define FID_aux_fallback_after 128
-#define FID_aux_fallback_after_k305 129
-#define FID_aux_fallback_put 130
-#define FID_aux_fallback_put_k307 131
+#define FID_ffi_aux_fallback_get_route 115
+#define FID_ffi_aux_fallback_get_route_k275 116
+#define FID_ffi_aux_fallback_get_route_k276 117
+#define FID_ffi_aux_fallback_get_gate 118
+#define FID_ffi_aux_fallback_get_gate_k280 119
+#define FID_ffi_aux_fallback_get_gate_k281 120
+#define FID_ffi_aux_fallback_get_gate_k282 121
+#define FID_ffi_aux_fallback_get_gate_k283 122
+#define FID_aux_fallback_after 123
+#define FID_aux_fallback_after_k290 124
+#define FID_aux_fallback_put 125
+#define FID_aux_fallback_put_k292 126
+#define FID_ffi_workflow_get_prior 127
+#define FID_ffi_workflow_get_prior_k304 128
+#define FID_ffi_workflow_get_prior_k305 129
+#define FID_workflow_admit 130
+#define FID_workflow_admit_k313 131
 #define FID_wire_cdig_go 132
 #define FID_wire_cdig_go_k317 133
 #define FID_wire_get_nat_go 134
@@ -594,24 +594,24 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_Nat_show 176
 #define FID_String_append 177
 #define FID_String_append_k488 178
-#define FID_ffi_workflow_get_req 179
-#define FID_ffi_workflow_get_req_k490 180
-#define FID_ffi_workflow_get_req_k491 181
-#define FID_ffi_workflow_get_req_k492 182
-#define FID_ffi_workflow_get_req_k493 183
-#define FID_ffi_workflow_get_req_k494 184
-#define FID_ffi_workflow_get_req_k495 185
-#define FID_ffi_workflow_get_req_k496 186
-#define FID_ffi_workflow_get_req_k497 187
-#define FID_ffi_aux_fallback_get_req 188
-#define FID_ffi_aux_fallback_get_req_k501 189
-#define FID_ffi_aux_fallback_get_req_k502 190
-#define FID_ffi_aux_fallback_get_req_k503 191
-#define FID_ffi_aux_fallback_get_req_k504 192
-#define FID_ffi_aux_fallback_get_req_k505 193
-#define FID_ffi_aux_fallback_get_req_k506 194
-#define FID_ffi_aux_fallback_get_req_k507 195
-#define FID_ffi_aux_fallback_get_req_k508 196
+#define FID_ffi_aux_fallback_get_req 179
+#define FID_ffi_aux_fallback_get_req_k490 180
+#define FID_ffi_aux_fallback_get_req_k491 181
+#define FID_ffi_aux_fallback_get_req_k492 182
+#define FID_ffi_aux_fallback_get_req_k493 183
+#define FID_ffi_aux_fallback_get_req_k494 184
+#define FID_ffi_aux_fallback_get_req_k495 185
+#define FID_ffi_aux_fallback_get_req_k496 186
+#define FID_ffi_aux_fallback_get_req_k497 187
+#define FID_ffi_workflow_get_req 188
+#define FID_ffi_workflow_get_req_k504 189
+#define FID_ffi_workflow_get_req_k505 190
+#define FID_ffi_workflow_get_req_k506 191
+#define FID_ffi_workflow_get_req_k507 192
+#define FID_ffi_workflow_get_req_k508 193
+#define FID_ffi_workflow_get_req_k509 194
+#define FID_ffi_workflow_get_req_k510 195
+#define FID_ffi_workflow_get_req_k511 196
 #define FID_wire_get_nat 197
 #define FID_wire_get_nat_k515 198
 #define FID_wire_get_nat_k516 199
@@ -692,8 +692,8 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_Clo_apply 274
 #define FID_EXIT 275
 #define FID_ENTER 276
-CONSTV Fid FID_T[] = { { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 0, 0, 1 }, { 9, 5, 0, 1 }, { 6, 3, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 5, 4, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 2, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 4, 0, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 6, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 5, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 6, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 6, 0, 0, 1 }, { 4, 1, 0, 1 }, { 9, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 8, 4, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 5, 4, 0, 1 }, { 7, 7, 0, 1 }, { 9, 4, 0, 1 }, { 10, 3, 0, 1 }, { 6, 6, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 4, 0, 1 }, { 9, 4, 0, 1 }, { 1, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 7, 0, 0, 1 }, { 11, 6, 0, 1 }, { 5, 5, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 5, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 4, 4, 0, 1 }, { 7, 7, 0, 1 }, { 2, 0, 0, 1 }, { 9, 9, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 11, 11, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 9, 9, 0, 1 }, { 4, 4, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 7, 7, 0, 1 }, { 8, 0, 0, 1 }, { 8, 8, 0, 1 }, { 7, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 8, 8, 0, 1 }, { 9, 0, 0, 1 }, { 2, 1, 0, 1 }, { 10, 8, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 9, 8, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 } };
-CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 0, 0 }, { 6, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 3, 1, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 0, 0 }, { 4, 0, 0 }, { 8, 0, 0 }, { 5, 0, 0 }, { 6, 0, 0 }, { 3, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 4, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 0, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 2, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
+CONSTV Fid FID_T[] = { { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 0, 0, 1 }, { 9, 5, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 5, 4, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 6, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 2, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 4, 0, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 5, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 6, 6, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 6, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 6, 0, 0, 1 }, { 4, 1, 0, 1 }, { 9, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 5, 4, 0, 1 }, { 7, 7, 0, 1 }, { 9, 4, 0, 1 }, { 10, 3, 0, 1 }, { 6, 6, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 8, 4, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 4, 0, 1 }, { 9, 4, 0, 1 }, { 1, 0, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 7, 0, 0, 1 }, { 11, 6, 0, 1 }, { 5, 5, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 5, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 4, 4, 0, 1 }, { 7, 7, 0, 1 }, { 2, 0, 0, 1 }, { 9, 9, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 9, 9, 0, 1 }, { 4, 4, 0, 1 }, { 11, 11, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 7, 7, 0, 1 }, { 8, 0, 0, 1 }, { 8, 8, 0, 1 }, { 7, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 8, 8, 0, 1 }, { 9, 0, 0, 1 }, { 2, 1, 0, 1 }, { 10, 8, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 9, 8, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 } };
+CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 0, 0 }, { 6, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 3, 1, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 0, 0 }, { 6, 0, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 8, 0, 0 }, { 5, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 4, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 3, 1, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
 #define STAT_LEN 710
 
 #define WL_RESW 11
@@ -750,7 +750,7 @@ CONSTV Cid CID_T[] = { { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 
 
 #define WL_ALL e, sp, seq, rn, r0, r1, r2, r3, r4, r5, rp, r6, r7, r8, r9, r10
 
-#define WL_TABLE WL_X(FID_ffi_workflow_get_row) WL_X(FID_ffi_workflow_get_row_k15) WL_X(FID_ffi_workflow_get_row_k16) WL_X(FID_wire_get_list_go_4) WL_X(FID_wire_get_list_go_4_k18) WL_X(FID_wire_get_list_go_4_k19) WL_X(FID_ffi_workflow_get_sts) WL_X(FID_ffi_workflow_get_sts_k39) WL_X(FID_ffi_workflow_get_pool) WL_X(FID_ffi_workflow_get_pool_k44) WL_X(FID_ffi_workflow_get_pool_k45) WL_X(FID_ffi_aux_fallback_get_key) WL_X(FID_ffi_aux_fallback_get_key_k50) WL_X(FID_ffi_aux_fallback_get_key_k51) WL_X(FID_ffi_aux_fallback_get_key_k52) WL_X(FID_wire_get_list_go_1) WL_X(FID_wire_get_list_go_1_k54) WL_X(FID_wire_get_list_go_1_k55) WL_X(FID_wire_get_list_go_3) WL_X(FID_wire_get_list_go_3_k67) WL_X(FID_wire_get_list_go_3_k68) WL_X(FID_wire_put_list_go_3) WL_X(FID_wire_put_list_go_3_k70) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k72) WL_X(FID_admission_lv_mark) WL_X(FID_admission_lv_mark_k80) WL_X(FID_wire_get_list_4) WL_X(FID_wire_get_list_4_k90) WL_X(FID_wire_get_list_4_k91) WL_X(FID_wire_put_list_go_1) WL_X(FID_wire_put_list_go_1_k116) WL_X(FID_wire_put_list_go_2) WL_X(FID_wire_put_list_go_2_k118) WL_X(FID_wire_take) WL_X(FID_wire_take_k122) WL_X(FID_wire_put_list_3) WL_X(FID_wire_put_list_3_k126) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k128) WL_X(FID_ffi_default_model_get_next) WL_X(FID_ffi_default_model_get_next_k132) WL_X(FID_ffi_default_model_get_next_k133) WL_X(FID_wire_put_list_go_0) WL_X(FID_wire_put_list_go_0_k141) WL_X(FID_admission_lv_pick) WL_X(FID_admission_lv_pick_k144) WL_X(FID_admission_lv_pick_k145) WL_X(FID_admission_lv_pick_k146) WL_X(FID_admission_lv_pick_k147) WL_X(FID_admission_lv_waits) WL_X(FID_admission_lv_waits_k149) WL_X(FID_admission_lv_waits_k150) WL_X(FID_admission_lv_grant_go) WL_X(FID_admission_lv_grant_go_k152) WL_X(FID_admission_lv_grant_go_k153) WL_X(FID_admission_lv_drop) WL_X(FID_admission_lv_drop_k155) WL_X(FID_admission_lv_set) WL_X(FID_admission_lv_set_k158) WL_X(FID_admission_lv_held) WL_X(FID_admission_lv_held_k160) WL_X(FID_admission_lv_held_k161) WL_X(FID_admission_lv_cnt) WL_X(FID_admission_lv_cnt_k166) WL_X(FID_admission_lv_preempt) WL_X(FID_admission_lv_preempt_k172) WL_X(FID_List_append) WL_X(FID_List_append_k174) WL_X(FID_workflow_found) WL_X(FID_workflow_found_k185) WL_X(FID_wire_get_list_1) WL_X(FID_wire_get_list_1_k193) WL_X(FID_wire_get_list_1_k194) WL_X(FID_ffi_aux_fallback_get_look) WL_X(FID_ffi_aux_fallback_get_look_k201) WL_X(FID_ffi_aux_fallback_get_look_k202) WL_X(FID_ffi_aux_fallback_get_look_k203) WL_X(FID_ffi_aux_fallback_get_sel) WL_X(FID_ffi_aux_fallback_get_sel_k207) WL_X(FID_ffi_aux_fallback_get_sel_k208) WL_X(FID_aux_fallback_listed) WL_X(FID_aux_fallback_listed_k212) WL_X(FID_wire_put_list_1) WL_X(FID_wire_put_list_1_k215) WL_X(FID_wire_value) WL_X(FID_wire_value_k223) WL_X(FID_wire_get_list_3) WL_X(FID_wire_get_list_3_k226) WL_X(FID_wire_get_list_3_k227) WL_X(FID_ffi_admission_get_cls) WL_X(FID_ffi_admission_get_cls_k248) WL_X(FID_wire_put_list_0) WL_X(FID_wire_put_list_0_k251) WL_X(FID_admission_lv_grant) WL_X(FID_admission_lv_grant_k254) WL_X(FID_admission_lv_grant_k255) WL_X(FID_admission_lv_leave) WL_X(FID_admission_lv_leave_k257) WL_X(FID_admission_lv_leave_k258) WL_X(FID_admission_lv_release) WL_X(FID_admission_lv_release_k260) WL_X(FID_admission_lv_find) WL_X(FID_admission_lv_find_k262) WL_X(FID_admission_lv_collect) WL_X(FID_admission_lv_admit_bg) WL_X(FID_admission_lv_admit_bg_k265) WL_X(FID_admission_lv_admit_bg_k266) WL_X(FID_admission_lv_admit_bg_k267) WL_X(FID_admission_lv_admit_bg_k268) WL_X(FID_admission_lv_admit_ia) WL_X(FID_admission_lv_admit_ia_k270) WL_X(FID_admission_lv_admit_ia_k271) WL_X(FID_admission_lv_admit_ia_k272) WL_X(FID_admission_lv_admit_ia_k273) WL_X(FID_ffi_workflow_get_prior) WL_X(FID_ffi_workflow_get_prior_k278) WL_X(FID_ffi_workflow_get_prior_k279) WL_X(FID_workflow_admit) WL_X(FID_workflow_admit_k287) WL_X(FID_ffi_aux_fallback_get_route) WL_X(FID_ffi_aux_fallback_get_route_k290) WL_X(FID_ffi_aux_fallback_get_route_k291) WL_X(FID_ffi_aux_fallback_get_gate) WL_X(FID_ffi_aux_fallback_get_gate_k295) WL_X(FID_ffi_aux_fallback_get_gate_k296) WL_X(FID_ffi_aux_fallback_get_gate_k297) WL_X(FID_ffi_aux_fallback_get_gate_k298) WL_X(FID_aux_fallback_after) WL_X(FID_aux_fallback_after_k305) WL_X(FID_aux_fallback_put) WL_X(FID_aux_fallback_put_k307) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k317) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k320) WL_X(FID_wire_get_nat_go_k321) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k323) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k327) WL_X(FID_U32_show_go) WL_X(FID_ffi_admission_put_live) WL_X(FID_ffi_admission_put_live_k355) WL_X(FID_admission_Live_step) WL_X(FID_admission_Live_step_k357) WL_X(FID_admission_Live_step_k358) WL_X(FID_admission_Live_step_k359) WL_X(FID_admission_Live_step_k360) WL_X(FID_admission_Live_step_k361) WL_X(FID_admission_Live_step_k362) WL_X(FID_admission_Live_step_k363) WL_X(FID_admission_Live_step_k364) WL_X(FID_admission_Live_step_k365) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k391) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k449) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k454) WL_X(FID_ffi_default_model_get_saved) WL_X(FID_ffi_default_model_get_saved_k461) WL_X(FID_ffi_default_model_get_saved_k462) WL_X(FID_ffi_admission_get_lim) WL_X(FID_ffi_admission_get_lim_k467) WL_X(FID_ffi_admission_get_lim_k468) WL_X(FID_U32_show) WL_X(FID_ffi_admission_get_op) WL_X(FID_ffi_admission_get_op_k476) WL_X(FID_ffi_admission_get_op_k477) WL_X(FID_ffi_admission_get_op_k478) WL_X(FID_ffi_admission_get_op_k479) WL_X(FID_ffi_admission_get_op_k480) WL_X(FID_ffi_admission_get_op_k481) WL_X(FID_ffi_admission_get_op_k482) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k488) WL_X(FID_ffi_workflow_get_req) WL_X(FID_ffi_workflow_get_req_k490) WL_X(FID_ffi_workflow_get_req_k491) WL_X(FID_ffi_workflow_get_req_k492) WL_X(FID_ffi_workflow_get_req_k493) WL_X(FID_ffi_workflow_get_req_k494) WL_X(FID_ffi_workflow_get_req_k495) WL_X(FID_ffi_workflow_get_req_k496) WL_X(FID_ffi_workflow_get_req_k497) WL_X(FID_ffi_aux_fallback_get_req) WL_X(FID_ffi_aux_fallback_get_req_k501) WL_X(FID_ffi_aux_fallback_get_req_k502) WL_X(FID_ffi_aux_fallback_get_req_k503) WL_X(FID_ffi_aux_fallback_get_req_k504) WL_X(FID_ffi_aux_fallback_get_req_k505) WL_X(FID_ffi_aux_fallback_get_req_k506) WL_X(FID_ffi_aux_fallback_get_req_k507) WL_X(FID_ffi_aux_fallback_get_req_k508) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k515) WL_X(FID_wire_get_nat_k516) WL_X(FID_ffi_default_model_get_in) WL_X(FID_ffi_default_model_get_in_k524) WL_X(FID_ffi_default_model_get_in_k525) WL_X(FID_ffi_admission_get_open) WL_X(FID_ffi_admission_get_open_k528) WL_X(FID_ffi_admission_get_open_k529) WL_X(FID_ffi_admission_step) WL_X(FID_ffi_admission_step_k535) WL_X(FID_ffi_admission_step_k536) WL_X(FID_ffi_admission_step_k537) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k540) WL_X(FID_ffi_echo_step_k541) WL_X(FID_ffi_echo_step_k542) WL_X(FID_ffi_admission_open) WL_X(FID_ffi_admission_open_k564) WL_X(FID_ffi_admission_open_k565) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k569) WL_X(FID_ffi_echo_open_k570) WL_X(FID_step_go) WL_X(FID_step_go_k573) WL_X(FID_step_go_k574) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k577) WL_X(FID_ffi_go_k578) WL_X(FID_ffi_go_k579) WL_X(FID_ffi_go_k580) WL_X(FID_ffi_go_k581) WL_X(FID_ffi_go_k582) WL_X(FID_ffi_go_k583) WL_X(FID_ffi_go_k584) WL_X(FID_ffi_go_k585) WL_X(FID_ffi_go_k586) WL_X(FID_ffi_go_k587) WL_X(FID_ffi_go_k588) WL_X(FID_ffi_go_k589) WL_X(FID_ffi_go_k590) WL_X(FID_open_go) WL_X(FID_open_go_k594) WL_X(FID_open_go_k595) WL_X(FID_step) WL_X(FID_step_k597) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k601) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k606) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k608) WL_X(FID_cli_steps_k609) WL_X(FID_cli_steps_k610) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c622) WL_X(FID_cli_print_c623) WL_X(FID_cli_print_c624) WL_X(FID_cli_args) WL_X(FID_cli_args_k626) WL_X(FID_cli_args_k627) WL_X(FID_cli_args_k628) WL_X(FID_cli_args_k629) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c633) WL_X(FID_IO_bind_k634) WL_X(FID_main) WL_X(FID_main_c636) WL_X(FID_main_c637) WL_X(FID_main_k638) WL_X(FID_main_c639) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
+#define WL_TABLE WL_X(FID_ffi_workflow_get_row) WL_X(FID_ffi_workflow_get_row_k21) WL_X(FID_ffi_workflow_get_row_k22) WL_X(FID_wire_get_list_go_4) WL_X(FID_wire_get_list_go_4_k24) WL_X(FID_wire_get_list_go_4_k25) WL_X(FID_ffi_aux_fallback_get_key) WL_X(FID_ffi_aux_fallback_get_key_k40) WL_X(FID_ffi_aux_fallback_get_key_k41) WL_X(FID_ffi_aux_fallback_get_key_k42) WL_X(FID_wire_get_list_go_1) WL_X(FID_wire_get_list_go_1_k44) WL_X(FID_wire_get_list_go_1_k45) WL_X(FID_ffi_workflow_get_sts) WL_X(FID_ffi_workflow_get_sts_k56) WL_X(FID_ffi_workflow_get_pool) WL_X(FID_ffi_workflow_get_pool_k61) WL_X(FID_ffi_workflow_get_pool_k62) WL_X(FID_wire_get_list_go_3) WL_X(FID_wire_get_list_go_3_k67) WL_X(FID_wire_get_list_go_3_k68) WL_X(FID_wire_put_list_go_3) WL_X(FID_wire_put_list_go_3_k70) WL_X(FID_wire_put_str_go) WL_X(FID_wire_put_str_go_k72) WL_X(FID_admission_lv_mark) WL_X(FID_admission_lv_mark_k80) WL_X(FID_wire_put_list_go_1) WL_X(FID_wire_put_list_go_1_k103) WL_X(FID_wire_put_list_go_2) WL_X(FID_wire_put_list_go_2_k105) WL_X(FID_wire_get_list_4) WL_X(FID_wire_get_list_4_k112) WL_X(FID_wire_get_list_4_k113) WL_X(FID_wire_take) WL_X(FID_wire_take_k122) WL_X(FID_wire_put_list_3) WL_X(FID_wire_put_list_3_k126) WL_X(FID_wire_put_str) WL_X(FID_wire_put_str_k128) WL_X(FID_ffi_default_model_get_next) WL_X(FID_ffi_default_model_get_next_k132) WL_X(FID_ffi_default_model_get_next_k133) WL_X(FID_wire_put_list_go_0) WL_X(FID_wire_put_list_go_0_k141) WL_X(FID_admission_lv_pick) WL_X(FID_admission_lv_pick_k144) WL_X(FID_admission_lv_pick_k145) WL_X(FID_admission_lv_pick_k146) WL_X(FID_admission_lv_pick_k147) WL_X(FID_admission_lv_waits) WL_X(FID_admission_lv_waits_k149) WL_X(FID_admission_lv_waits_k150) WL_X(FID_admission_lv_grant_go) WL_X(FID_admission_lv_grant_go_k152) WL_X(FID_admission_lv_grant_go_k153) WL_X(FID_admission_lv_drop) WL_X(FID_admission_lv_drop_k155) WL_X(FID_admission_lv_set) WL_X(FID_admission_lv_set_k158) WL_X(FID_admission_lv_held) WL_X(FID_admission_lv_held_k160) WL_X(FID_admission_lv_held_k161) WL_X(FID_admission_lv_cnt) WL_X(FID_admission_lv_cnt_k166) WL_X(FID_admission_lv_preempt) WL_X(FID_admission_lv_preempt_k172) WL_X(FID_List_append) WL_X(FID_List_append_k174) WL_X(FID_wire_get_list_1) WL_X(FID_wire_get_list_1_k178) WL_X(FID_wire_get_list_1_k179) WL_X(FID_ffi_aux_fallback_get_look) WL_X(FID_ffi_aux_fallback_get_look_k186) WL_X(FID_ffi_aux_fallback_get_look_k187) WL_X(FID_ffi_aux_fallback_get_look_k188) WL_X(FID_ffi_aux_fallback_get_sel) WL_X(FID_ffi_aux_fallback_get_sel_k192) WL_X(FID_ffi_aux_fallback_get_sel_k193) WL_X(FID_aux_fallback_listed) WL_X(FID_aux_fallback_listed_k197) WL_X(FID_wire_put_list_1) WL_X(FID_wire_put_list_1_k200) WL_X(FID_workflow_found) WL_X(FID_workflow_found_k215) WL_X(FID_wire_value) WL_X(FID_wire_value_k223) WL_X(FID_wire_get_list_3) WL_X(FID_wire_get_list_3_k226) WL_X(FID_wire_get_list_3_k227) WL_X(FID_ffi_admission_get_cls) WL_X(FID_ffi_admission_get_cls_k248) WL_X(FID_wire_put_list_0) WL_X(FID_wire_put_list_0_k251) WL_X(FID_admission_lv_grant) WL_X(FID_admission_lv_grant_k254) WL_X(FID_admission_lv_grant_k255) WL_X(FID_admission_lv_leave) WL_X(FID_admission_lv_leave_k257) WL_X(FID_admission_lv_leave_k258) WL_X(FID_admission_lv_release) WL_X(FID_admission_lv_release_k260) WL_X(FID_admission_lv_find) WL_X(FID_admission_lv_find_k262) WL_X(FID_admission_lv_collect) WL_X(FID_admission_lv_admit_bg) WL_X(FID_admission_lv_admit_bg_k265) WL_X(FID_admission_lv_admit_bg_k266) WL_X(FID_admission_lv_admit_bg_k267) WL_X(FID_admission_lv_admit_bg_k268) WL_X(FID_admission_lv_admit_ia) WL_X(FID_admission_lv_admit_ia_k270) WL_X(FID_admission_lv_admit_ia_k271) WL_X(FID_admission_lv_admit_ia_k272) WL_X(FID_admission_lv_admit_ia_k273) WL_X(FID_ffi_aux_fallback_get_route) WL_X(FID_ffi_aux_fallback_get_route_k275) WL_X(FID_ffi_aux_fallback_get_route_k276) WL_X(FID_ffi_aux_fallback_get_gate) WL_X(FID_ffi_aux_fallback_get_gate_k280) WL_X(FID_ffi_aux_fallback_get_gate_k281) WL_X(FID_ffi_aux_fallback_get_gate_k282) WL_X(FID_ffi_aux_fallback_get_gate_k283) WL_X(FID_aux_fallback_after) WL_X(FID_aux_fallback_after_k290) WL_X(FID_aux_fallback_put) WL_X(FID_aux_fallback_put_k292) WL_X(FID_ffi_workflow_get_prior) WL_X(FID_ffi_workflow_get_prior_k304) WL_X(FID_ffi_workflow_get_prior_k305) WL_X(FID_workflow_admit) WL_X(FID_workflow_admit_k313) WL_X(FID_wire_cdig_go) WL_X(FID_wire_cdig_go_k317) WL_X(FID_wire_get_nat_go) WL_X(FID_wire_get_nat_go_k320) WL_X(FID_wire_get_nat_go_k321) WL_X(FID_wire_get_nat_end) WL_X(FID_wire_get_nat_end_k323) WL_X(FID_wire_get_str) WL_X(FID_wire_get_str_k327) WL_X(FID_U32_show_go) WL_X(FID_ffi_admission_put_live) WL_X(FID_ffi_admission_put_live_k355) WL_X(FID_admission_Live_step) WL_X(FID_admission_Live_step_k357) WL_X(FID_admission_Live_step_k358) WL_X(FID_admission_Live_step_k359) WL_X(FID_admission_Live_step_k360) WL_X(FID_admission_Live_step_k361) WL_X(FID_admission_Live_step_k362) WL_X(FID_admission_Live_step_k363) WL_X(FID_admission_Live_step_k364) WL_X(FID_admission_Live_step_k365) WL_X(FID_wire_tok) WL_X(FID_wire_tok_k391) WL_X(FID_Nat_show_fin) WL_X(FID_wire_peek) WL_X(FID_wire_peek_k449) WL_X(FID_wire_get_u32) WL_X(FID_wire_get_u32_k454) WL_X(FID_ffi_default_model_get_saved) WL_X(FID_ffi_default_model_get_saved_k461) WL_X(FID_ffi_default_model_get_saved_k462) WL_X(FID_ffi_admission_get_lim) WL_X(FID_ffi_admission_get_lim_k467) WL_X(FID_ffi_admission_get_lim_k468) WL_X(FID_U32_show) WL_X(FID_ffi_admission_get_op) WL_X(FID_ffi_admission_get_op_k476) WL_X(FID_ffi_admission_get_op_k477) WL_X(FID_ffi_admission_get_op_k478) WL_X(FID_ffi_admission_get_op_k479) WL_X(FID_ffi_admission_get_op_k480) WL_X(FID_ffi_admission_get_op_k481) WL_X(FID_ffi_admission_get_op_k482) WL_X(FID_Nat_show) WL_X(FID_String_append) WL_X(FID_String_append_k488) WL_X(FID_ffi_aux_fallback_get_req) WL_X(FID_ffi_aux_fallback_get_req_k490) WL_X(FID_ffi_aux_fallback_get_req_k491) WL_X(FID_ffi_aux_fallback_get_req_k492) WL_X(FID_ffi_aux_fallback_get_req_k493) WL_X(FID_ffi_aux_fallback_get_req_k494) WL_X(FID_ffi_aux_fallback_get_req_k495) WL_X(FID_ffi_aux_fallback_get_req_k496) WL_X(FID_ffi_aux_fallback_get_req_k497) WL_X(FID_ffi_workflow_get_req) WL_X(FID_ffi_workflow_get_req_k504) WL_X(FID_ffi_workflow_get_req_k505) WL_X(FID_ffi_workflow_get_req_k506) WL_X(FID_ffi_workflow_get_req_k507) WL_X(FID_ffi_workflow_get_req_k508) WL_X(FID_ffi_workflow_get_req_k509) WL_X(FID_ffi_workflow_get_req_k510) WL_X(FID_ffi_workflow_get_req_k511) WL_X(FID_wire_get_nat) WL_X(FID_wire_get_nat_k515) WL_X(FID_wire_get_nat_k516) WL_X(FID_ffi_default_model_get_in) WL_X(FID_ffi_default_model_get_in_k524) WL_X(FID_ffi_default_model_get_in_k525) WL_X(FID_ffi_admission_get_open) WL_X(FID_ffi_admission_get_open_k528) WL_X(FID_ffi_admission_get_open_k529) WL_X(FID_ffi_admission_step) WL_X(FID_ffi_admission_step_k535) WL_X(FID_ffi_admission_step_k536) WL_X(FID_ffi_admission_step_k537) WL_X(FID_ffi_echo_step) WL_X(FID_ffi_echo_step_k540) WL_X(FID_ffi_echo_step_k541) WL_X(FID_ffi_echo_step_k542) WL_X(FID_ffi_admission_open) WL_X(FID_ffi_admission_open_k564) WL_X(FID_ffi_admission_open_k565) WL_X(FID_ffi_echo_open) WL_X(FID_ffi_echo_open_k569) WL_X(FID_ffi_echo_open_k570) WL_X(FID_step_go) WL_X(FID_step_go_k573) WL_X(FID_step_go_k574) WL_X(FID_ffi_go) WL_X(FID_ffi_go_k577) WL_X(FID_ffi_go_k578) WL_X(FID_ffi_go_k579) WL_X(FID_ffi_go_k580) WL_X(FID_ffi_go_k581) WL_X(FID_ffi_go_k582) WL_X(FID_ffi_go_k583) WL_X(FID_ffi_go_k584) WL_X(FID_ffi_go_k585) WL_X(FID_ffi_go_k586) WL_X(FID_ffi_go_k587) WL_X(FID_ffi_go_k588) WL_X(FID_ffi_go_k589) WL_X(FID_ffi_go_k590) WL_X(FID_open_go) WL_X(FID_open_go_k594) WL_X(FID_open_go_k595) WL_X(FID_step) WL_X(FID_step_k597) WL_X(FID_close) WL_X(FID_ffi) WL_X(FID_ffi_k601) WL_X(FID_U32_read_go) WL_X(FID_open) WL_X(FID_open_k606) WL_X(FID_cli_steps) WL_X(FID_cli_steps_k608) WL_X(FID_cli_steps_k609) WL_X(FID_cli_steps_k610) WL_X(FID_U32_read) WL_X(FID_cli_print) WL_X(FID_cli_print_c622) WL_X(FID_cli_print_c623) WL_X(FID_cli_print_c624) WL_X(FID_cli_args) WL_X(FID_cli_args_k626) WL_X(FID_cli_args_k627) WL_X(FID_cli_args_k628) WL_X(FID_cli_args_k629) WL_X(FID_IO_bind) WL_X(FID_IO_bind_c633) WL_X(FID_IO_bind_k634) WL_X(FID_main) WL_X(FID_main_c636) WL_X(FID_main_c637) WL_X(FID_main_k638) WL_X(FID_main_c639) WL_X(FID_IO_args) WL_X(FID_IO_print) WL_X(FID_IO_emit) WL_X(FID_Clo_apply) WL_X(FID_EXIT)
 #define MAIN_FID FID_main
 #define MAIN_PURE 0
 #define BLK_SHR 0
@@ -1641,32 +1641,9 @@ static u32 root_take(DEV u64* H, THR Term* v) {
 // Spins
 // =====
 
-CONSTV u64 STAT_IMG[] = { 116ull, term_pak(CID_SNil, 0), 115ull, term_ctr(CID_SCon, STAT_OFF + 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 2), 117ull, term_ctr(CID_SCon, STAT_OFF + 4), 113ull, term_ctr(CID_SCon, STAT_OFF + 6), 101ull, term_ctr(CID_SCon, STAT_OFF + 8), 114ull, term_ctr(CID_SCon, STAT_OFF + 10), 32ull, term_ctr(CID_SCon, STAT_OFF + 12), 101ull, term_ctr(CID_SCon, STAT_OFF + 14), 114ull, term_ctr(CID_SCon, STAT_OFF + 16), 105ull, term_ctr(CID_SCon, STAT_OFF + 18), 119ull, term_ctr(CID_SCon, STAT_OFF + 20), 32ull, term_ctr(CID_SCon, STAT_OFF + 22), 100ull, term_ctr(CID_SCon, STAT_OFF + 24), 101ull, term_ctr(CID_SCon, STAT_OFF + 26), 109ull, term_ctr(CID_SCon, STAT_OFF + 28), 114ull, term_ctr(CID_SCon, STAT_OFF + 30), 111ull, term_ctr(CID_SCon, STAT_OFF + 32), 102ull, term_ctr(CID_SCon, STAT_OFF + 34), 108ull, term_ctr(CID_SCon, STAT_OFF + 36), 97ull, term_ctr(CID_SCon, STAT_OFF + 38), 109ull, term_ctr(CID_SCon, STAT_OFF + 40), 57ull, term_pak(CID_Nil, 0), 56ull, term_ctr(CID_Con, STAT_OFF + 44), 55ull, term_ctr(CID_Con, STAT_OFF + 46), 54ull, term_ctr(CID_Con, STAT_OFF + 48), 53ull, term_ctr(CID_Con, STAT_OFF + 50), 52ull, term_ctr(CID_Con, STAT_OFF + 52), 51ull, term_ctr(CID_Con, STAT_OFF + 54), 50ull, term_ctr(CID_Con, STAT_OFF + 56), 49ull, term_ctr(CID_Con, STAT_OFF + 58), 48ull, term_ctr(CID_Con, STAT_OFF + 60), 0, term_pak(CID_Nil, 0), 114ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 66), 118ull, term_ctr(CID_SCon, STAT_OFF + 68), 111ull, term_ctr(CID_SCon, STAT_OFF + 70), 32ull, term_ctr(CID_SCon, STAT_OFF + 72), 116ull, term_ctr(CID_SCon, STAT_OFF + 74), 102ull, term_ctr(CID_SCon, STAT_OFF + 76), 101ull, term_ctr(CID_SCon, STAT_OFF + 78), 108ull, term_ctr(CID_SCon, STAT_OFF + 80), 32ull, term_ctr(CID_SCon, STAT_OFF + 82), 116ull, term_ctr(CID_SCon, STAT_OFF + 84), 117ull, term_ctr(CID_SCon, STAT_OFF + 86), 112ull, term_ctr(CID_SCon, STAT_OFF + 88), 110ull, term_ctr(CID_SCon, STAT_OFF + 90), 105ull, term_ctr(CID_SCon, STAT_OFF + 92), 32ull, term_ctr(CID_SCon, STAT_OFF + 94), 58ull, term_ctr(CID_SCon, STAT_OFF + 96), 110ull, term_ctr(CID_SCon, STAT_OFF + 98), 111ull, term_ctr(CID_SCon, STAT_OFF + 100), 105ull, term_ctr(CID_SCon, STAT_OFF + 102), 115ull, term_ctr(CID_SCon, STAT_OFF + 104), 115ull, term_ctr(CID_SCon, STAT_OFF + 106), 105ull, term_ctr(CID_SCon, STAT_OFF + 108), 109ull, term_ctr(CID_SCon, STAT_OFF + 110), 100ull, term_ctr(CID_SCon, STAT_OFF + 112), 97ull, term_ctr(CID_SCon, STAT_OFF + 114), 32ull, term_ctr(CID_SCon, STAT_OFF + 116), 69ull, term_ctr(CID_SCon, STAT_OFF + 118), 48ull, term_pak(CID_SNil, 0), 119ull, term_ctr(CID_SCon, STAT_OFF + 98), 111ull, term_ctr(CID_SCon, STAT_OFF + 124), 108ull, term_ctr(CID_SCon, STAT_OFF + 126), 102ull, term_ctr(CID_SCon, STAT_OFF + 128), 107ull, term_ctr(CID_SCon, STAT_OFF + 130), 114ull, term_ctr(CID_SCon, STAT_OFF + 132), 111ull, term_ctr(CID_SCon, STAT_OFF + 134), 119ull, term_ctr(CID_SCon, STAT_OFF + 136), 107ull, term_ctr(CID_SCon, STAT_OFF + 98), 99ull, term_ctr(CID_SCon, STAT_OFF + 140), 97ull, term_ctr(CID_SCon, STAT_OFF + 142), 98ull, term_ctr(CID_SCon, STAT_OFF + 144), 108ull, term_ctr(CID_SCon, STAT_OFF + 146), 108ull, term_ctr(CID_SCon, STAT_OFF + 148), 97ull, term_ctr(CID_SCon, STAT_OFF + 150), 102ull, term_ctr(CID_SCon, STAT_OFF + 152), 95ull, term_ctr(CID_SCon, STAT_OFF + 154), 120ull, term_ctr(CID_SCon, STAT_OFF + 156), 117ull, term_ctr(CID_SCon, STAT_OFF + 158), 97ull, term_ctr(CID_SCon, STAT_OFF + 160), 108ull, term_ctr(CID_SCon, STAT_OFF + 98), 101ull, term_ctr(CID_SCon, STAT_OFF + 164), 100ull, term_ctr(CID_SCon, STAT_OFF + 166), 111ull, term_ctr(CID_SCon, STAT_OFF + 168), 109ull, term_ctr(CID_SCon, STAT_OFF + 170), 95ull, term_ctr(CID_SCon, STAT_OFF + 172), 116ull, term_ctr(CID_SCon, STAT_OFF + 174), 108ull, term_ctr(CID_SCon, STAT_OFF + 176), 117ull, term_ctr(CID_SCon, STAT_OFF + 178), 97ull, term_ctr(CID_SCon, STAT_OFF + 180), 102ull, term_ctr(CID_SCon, STAT_OFF + 182), 101ull, term_ctr(CID_SCon, STAT_OFF + 184), 100ull, term_ctr(CID_SCon, STAT_OFF + 186), 112ull, term_pak(CID_SNil, 0), 111ull, term_ctr(CID_SCon, STAT_OFF + 190), 32ull, term_ctr(CID_SCon, STAT_OFF + 192), 100ull, term_ctr(CID_SCon, STAT_OFF + 194), 101ull, term_ctr(CID_SCon, STAT_OFF + 196), 109ull, term_ctr(CID_SCon, STAT_OFF + 198), 114ull, term_ctr(CID_SCon, STAT_OFF + 200), 111ull, term_ctr(CID_SCon, STAT_OFF + 202), 102ull, term_ctr(CID_SCon, STAT_OFF + 204), 108ull, term_ctr(CID_SCon, STAT_OFF + 206), 97ull, term_ctr(CID_SCon, STAT_OFF + 208), 109ull, term_ctr(CID_SCon, STAT_OFF + 210), 32ull, term_ctr(CID_SCon, STAT_OFF + 212), 58ull, term_ctr(CID_SCon, STAT_OFF + 214), 110ull, term_ctr(CID_SCon, STAT_OFF + 216), 111ull, term_ctr(CID_SCon, STAT_OFF + 218), 105ull, term_ctr(CID_SCon, STAT_OFF + 220), 115ull, term_ctr(CID_SCon, STAT_OFF + 222), 115ull, term_ctr(CID_SCon, STAT_OFF + 224), 105ull, term_ctr(CID_SCon, STAT_OFF + 226), 109ull, term_ctr(CID_SCon, STAT_OFF + 228), 100ull, term_ctr(CID_SCon, STAT_OFF + 230), 97ull, term_ctr(CID_SCon, STAT_OFF + 232), 32ull, term_ctr(CID_SCon, STAT_OFF + 234), 69ull, term_ctr(CID_SCon, STAT_OFF + 236), 100ull, term_ctr(CID_SCon, STAT_OFF + 14), 101ull, term_ctr(CID_SCon, STAT_OFF + 240), 109ull, term_ctr(CID_SCon, STAT_OFF + 242), 114ull, term_ctr(CID_SCon, STAT_OFF + 244), 111ull, term_ctr(CID_SCon, STAT_OFF + 246), 102ull, term_ctr(CID_SCon, STAT_OFF + 248), 108ull, term_ctr(CID_SCon, STAT_OFF + 250), 97ull, term_ctr(CID_SCon, STAT_OFF + 252), 109ull, term_ctr(CID_SCon, STAT_OFF + 254), 32ull, term_ctr(CID_SCon, STAT_OFF + 256), 58ull, term_ctr(CID_SCon, STAT_OFF + 258), 119ull, term_ctr(CID_SCon, STAT_OFF + 260), 111ull, term_ctr(CID_SCon, STAT_OFF + 262), 108ull, term_ctr(CID_SCon, STAT_OFF + 264), 102ull, term_ctr(CID_SCon, STAT_OFF + 266), 107ull, term_ctr(CID_SCon, STAT_OFF + 268), 114ull, term_ctr(CID_SCon, STAT_OFF + 270), 111ull, term_ctr(CID_SCon, STAT_OFF + 272), 119ull, term_ctr(CID_SCon, STAT_OFF + 274), 107ull, term_ctr(CID_SCon, STAT_OFF + 260), 99ull, term_ctr(CID_SCon, STAT_OFF + 278), 97ull, term_ctr(CID_SCon, STAT_OFF + 280), 98ull, term_ctr(CID_SCon, STAT_OFF + 282), 108ull, term_ctr(CID_SCon, STAT_OFF + 284), 108ull, term_ctr(CID_SCon, STAT_OFF + 286), 97ull, term_ctr(CID_SCon, STAT_OFF + 288), 102ull, term_ctr(CID_SCon, STAT_OFF + 290), 95ull, term_ctr(CID_SCon, STAT_OFF + 292), 120ull, term_ctr(CID_SCon, STAT_OFF + 294), 117ull, term_ctr(CID_SCon, STAT_OFF + 296), 97ull, term_ctr(CID_SCon, STAT_OFF + 298), 108ull, term_ctr(CID_SCon, STAT_OFF + 260), 101ull, term_ctr(CID_SCon, STAT_OFF + 302), 100ull, term_ctr(CID_SCon, STAT_OFF + 304), 111ull, term_ctr(CID_SCon, STAT_OFF + 306), 109ull, term_ctr(CID_SCon, STAT_OFF + 308), 95ull, term_ctr(CID_SCon, STAT_OFF + 310), 116ull, term_ctr(CID_SCon, STAT_OFF + 312), 108ull, term_ctr(CID_SCon, STAT_OFF + 314), 117ull, term_ctr(CID_SCon, STAT_OFF + 316), 97ull, term_ctr(CID_SCon, STAT_OFF + 318), 102ull, term_ctr(CID_SCon, STAT_OFF + 320), 101ull, term_ctr(CID_SCon, STAT_OFF + 322), 100ull, term_ctr(CID_SCon, STAT_OFF + 324), 110ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 328), 112ull, term_ctr(CID_SCon, STAT_OFF + 330), 111ull, term_ctr(CID_SCon, STAT_OFF + 332), 32ull, term_ctr(CID_SCon, STAT_OFF + 334), 100ull, term_ctr(CID_SCon, STAT_OFF + 336), 101ull, term_ctr(CID_SCon, STAT_OFF + 338), 109ull, term_ctr(CID_SCon, STAT_OFF + 340), 114ull, term_ctr(CID_SCon, STAT_OFF + 342), 111ull, term_ctr(CID_SCon, STAT_OFF + 344), 102ull, term_ctr(CID_SCon, STAT_OFF + 346), 108ull, term_ctr(CID_SCon, STAT_OFF + 348), 97ull, term_ctr(CID_SCon, STAT_OFF + 350), 109ull, term_ctr(CID_SCon, STAT_OFF + 352), 32ull, term_ctr(CID_SCon, STAT_OFF + 354), 58ull, term_ctr(CID_SCon, STAT_OFF + 356), 110ull, term_ctr(CID_SCon, STAT_OFF + 358), 111ull, term_ctr(CID_SCon, STAT_OFF + 360), 105ull, term_ctr(CID_SCon, STAT_OFF + 362), 115ull, term_ctr(CID_SCon, STAT_OFF + 364), 115ull, term_ctr(CID_SCon, STAT_OFF + 366), 105ull, term_ctr(CID_SCon, STAT_OFF + 368), 109ull, term_ctr(CID_SCon, STAT_OFF + 370), 100ull, term_ctr(CID_SCon, STAT_OFF + 372), 97ull, term_ctr(CID_SCon, STAT_OFF + 374), 32ull, term_ctr(CID_SCon, STAT_OFF + 376), 69ull, term_ctr(CID_SCon, STAT_OFF + 378), 50ull, term_pak(CID_SNil, 0), 51ull, term_ctr(CID_SCon, STAT_OFF + 382), 85ull, term_ctr(CID_SCon, STAT_OFF + 384), 32ull, term_ctr(CID_SCon, STAT_OFF + 386), 108ull, term_ctr(CID_SCon, STAT_OFF + 388), 97ull, term_ctr(CID_SCon, STAT_OFF + 390), 109ull, term_ctr(CID_SCon, STAT_OFF + 392), 105ull, term_ctr(CID_SCon, STAT_OFF + 394), 99ull, term_ctr(CID_SCon, STAT_OFF + 396), 101ull, term_ctr(CID_SCon, STAT_OFF + 398), 100ull, term_ctr(CID_SCon, STAT_OFF + 400), 32ull, term_ctr(CID_SCon, STAT_OFF + 402), 97ull, term_ctr(CID_SCon, STAT_OFF + 404), 32ull, term_ctr(CID_SCon, STAT_OFF + 406), 115ull, term_ctr(CID_SCon, STAT_OFF + 408), 116ull, term_ctr(CID_SCon, STAT_OFF + 410), 110ull, term_ctr(CID_SCon, STAT_OFF + 412), 97ull, term_ctr(CID_SCon, STAT_OFF + 414), 119ull, term_ctr(CID_SCon, STAT_OFF + 416), 32ull, term_ctr(CID_SCon, STAT_OFF + 418), 110ull, term_ctr(CID_SCon, STAT_OFF + 420), 101ull, term_ctr(CID_SCon, STAT_OFF + 422), 112ull, term_ctr(CID_SCon, STAT_OFF + 424), 111ull, term_ctr(CID_SCon, STAT_OFF + 426), 32ull, term_ctr(CID_SCon, STAT_OFF + 428), 58ull, term_ctr(CID_SCon, STAT_OFF + 430), 111ull, term_ctr(CID_SCon, STAT_OFF + 432), 104ull, term_ctr(CID_SCon, STAT_OFF + 434), 99ull, term_ctr(CID_SCon, STAT_OFF + 436), 101ull, term_ctr(CID_SCon, STAT_OFF + 438), 32ull, term_ctr(CID_SCon, STAT_OFF + 440), 69ull, term_ctr(CID_SCon, STAT_OFF + 442), 100ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 446), 115ull, term_ctr(CID_SCon, STAT_OFF + 448), 117ull, term_ctr(CID_SCon, STAT_OFF + 450), 102ull, term_ctr(CID_SCon, STAT_OFF + 452), 101ull, term_ctr(CID_SCon, STAT_OFF + 454), 114ull, term_ctr(CID_SCon, STAT_OFF + 456), 32ull, term_ctr(CID_SCon, STAT_OFF + 458), 115ull, term_ctr(CID_SCon, STAT_OFF + 460), 97ull, term_ctr(CID_SCon, STAT_OFF + 462), 119ull, term_ctr(CID_SCon, STAT_OFF + 464), 32ull, term_ctr(CID_SCon, STAT_OFF + 466), 110ull, term_ctr(CID_SCon, STAT_OFF + 468), 101ull, term_ctr(CID_SCon, STAT_OFF + 470), 112ull, term_ctr(CID_SCon, STAT_OFF + 472), 111ull, term_ctr(CID_SCon, STAT_OFF + 474), 32ull, term_ctr(CID_SCon, STAT_OFF + 476), 101ull, term_ctr(CID_SCon, STAT_OFF + 478), 104ull, term_ctr(CID_SCon, STAT_OFF + 480), 116ull, term_ctr(CID_SCon, STAT_OFF + 482), 32ull, term_ctr(CID_SCon, STAT_OFF + 484), 58ull, term_ctr(CID_SCon, STAT_OFF + 486), 110ull, term_ctr(CID_SCon, STAT_OFF + 488), 111ull, term_ctr(CID_SCon, STAT_OFF + 490), 105ull, term_ctr(CID_SCon, STAT_OFF + 492), 115ull, term_ctr(CID_SCon, STAT_OFF + 494), 115ull, term_ctr(CID_SCon, STAT_OFF + 496), 105ull, term_ctr(CID_SCon, STAT_OFF + 498), 109ull, term_ctr(CID_SCon, STAT_OFF + 500), 100ull, term_ctr(CID_SCon, STAT_OFF + 502), 97ull, term_ctr(CID_SCon, STAT_OFF + 504), 32ull, term_ctr(CID_SCon, STAT_OFF + 506), 69ull, term_ctr(CID_SCon, STAT_OFF + 508), 32ull, term_pak(CID_SNil, 0), 111ull, term_ctr(CID_SCon, STAT_OFF + 488), 104ull, term_ctr(CID_SCon, STAT_OFF + 514), 99ull, term_ctr(CID_SCon, STAT_OFF + 516), 101ull, term_ctr(CID_SCon, STAT_OFF + 518), 32ull, term_ctr(CID_SCon, STAT_OFF + 520), 69ull, term_ctr(CID_SCon, STAT_OFF + 522), 121ull, term_pak(CID_SNil, 0), 114ull, term_ctr(CID_SCon, STAT_OFF + 526), 116ull, term_ctr(CID_SCon, STAT_OFF + 528), 110ull, term_ctr(CID_SCon, STAT_OFF + 530), 101ull, term_ctr(CID_SCon, STAT_OFF + 532), 32ull, term_ctr(CID_SCon, STAT_OFF + 534), 110ull, term_ctr(CID_SCon, STAT_OFF + 536), 119ull, term_ctr(CID_SCon, STAT_OFF + 538), 111ull, term_ctr(CID_SCon, STAT_OFF + 540), 110ull, term_ctr(CID_SCon, STAT_OFF + 542), 107ull, term_ctr(CID_SCon, STAT_OFF + 544), 110ull, term_ctr(CID_SCon, STAT_OFF + 546), 117ull, term_ctr(CID_SCon, STAT_OFF + 548), 32ull, term_ctr(CID_SCon, STAT_OFF + 550), 69ull, term_ctr(CID_SCon, STAT_OFF + 552), 108ull, term_pak(CID_SNil, 0), 108ull, term_ctr(CID_SCon, STAT_OFF + 556), 97ull, term_ctr(CID_SCon, STAT_OFF + 558), 99ull, term_ctr(CID_SCon, STAT_OFF + 560), 93ull, term_pak(CID_SNil, 0), 46ull, term_ctr(CID_SCon, STAT_OFF + 564), 46ull, term_ctr(CID_SCon, STAT_OFF + 566), 46ull, term_ctr(CID_SCon, STAT_OFF + 568), 62ull, term_ctr(CID_SCon, STAT_OFF + 570), 116ull, term_ctr(CID_SCon, STAT_OFF + 572), 110ull, term_ctr(CID_SCon, STAT_OFF + 574), 101ull, term_ctr(CID_SCon, STAT_OFF + 576), 118ull, term_ctr(CID_SCon, STAT_OFF + 578), 101ull, term_ctr(CID_SCon, STAT_OFF + 580), 60ull, term_ctr(CID_SCon, STAT_OFF + 582), 91ull, term_ctr(CID_SCon, STAT_OFF + 584), 32ull, term_ctr(CID_SCon, STAT_OFF + 586), 62ull, term_ctr(CID_SCon, STAT_OFF + 588), 116ull, term_ctr(CID_SCon, STAT_OFF + 590), 117ull, term_ctr(CID_SCon, STAT_OFF + 592), 112ull, term_ctr(CID_SCon, STAT_OFF + 594), 110ull, term_ctr(CID_SCon, STAT_OFF + 596), 105ull, term_ctr(CID_SCon, STAT_OFF + 598), 60ull, term_ctr(CID_SCon, STAT_OFF + 600), 32ull, term_ctr(CID_SCon, STAT_OFF + 602), 62ull, term_ctr(CID_SCon, STAT_OFF + 604), 121ull, term_ctr(CID_SCon, STAT_OFF + 606), 114ull, term_ctr(CID_SCon, STAT_OFF + 608), 116ull, term_ctr(CID_SCon, STAT_OFF + 610), 110ull, term_ctr(CID_SCon, STAT_OFF + 612), 101ull, term_ctr(CID_SCon, STAT_OFF + 614), 60ull, term_ctr(CID_SCon, STAT_OFF + 616), 32ull, term_ctr(CID_SCon, STAT_OFF + 618), 110ull, term_ctr(CID_SCon, STAT_OFF + 620), 101ull, term_ctr(CID_SCon, STAT_OFF + 622), 112ull, term_ctr(CID_SCon, STAT_OFF + 624), 111ull, term_ctr(CID_SCon, STAT_OFF + 626), 32ull, term_ctr(CID_SCon, STAT_OFF + 628), 101ull, term_ctr(CID_SCon, STAT_OFF + 630), 114ull, term_ctr(CID_SCon, STAT_OFF + 632), 111ull, term_ctr(CID_SCon, STAT_OFF + 634), 99ull, term_ctr(CID_SCon, STAT_OFF + 636), 32ull, term_ctr(CID_SCon, STAT_OFF + 638), 124ull, term_ctr(CID_SCon, STAT_OFF + 640), 32ull, term_ctr(CID_SCon, STAT_OFF + 642), 62ull, term_ctr(CID_SCon, STAT_OFF + 644), 116ull, term_ctr(CID_SCon, STAT_OFF + 646), 117ull, term_ctr(CID_SCon, STAT_OFF + 648), 112ull, term_ctr(CID_SCon, STAT_OFF + 650), 110ull, term_ctr(CID_SCon, STAT_OFF + 652), 105ull, term_ctr(CID_SCon, STAT_OFF + 654), 60ull, term_ctr(CID_SCon, STAT_OFF + 656), 32ull, term_ctr(CID_SCon, STAT_OFF + 658), 62ull, term_ctr(CID_SCon, STAT_OFF + 660), 121ull, term_ctr(CID_SCon, STAT_OFF + 662), 114ull, term_ctr(CID_SCon, STAT_OFF + 664), 116ull, term_ctr(CID_SCon, STAT_OFF + 666), 110ull, term_ctr(CID_SCon, STAT_OFF + 668), 101ull, term_ctr(CID_SCon, STAT_OFF + 670), 60ull, term_ctr(CID_SCon, STAT_OFF + 672), 32ull, term_ctr(CID_SCon, STAT_OFF + 674), 108ull, term_ctr(CID_SCon, STAT_OFF + 676), 108ull, term_ctr(CID_SCon, STAT_OFF + 678), 97ull, term_ctr(CID_SCon, STAT_OFF + 680), 99ull, term_ctr(CID_SCon, STAT_OFF + 682), 32ull, term_ctr(CID_SCon, STAT_OFF + 684), 101ull, term_ctr(CID_SCon, STAT_OFF + 686), 114ull, term_ctr(CID_SCon, STAT_OFF + 688), 111ull, term_ctr(CID_SCon, STAT_OFF + 690), 99ull, term_ctr(CID_SCon, STAT_OFF + 692), 32ull, term_ctr(CID_SCon, STAT_OFF + 694), 58ull, term_ctr(CID_SCon, STAT_OFF + 696), 101ull, term_ctr(CID_SCon, STAT_OFF + 698), 103ull, term_ctr(CID_SCon, STAT_OFF + 700), 97ull, term_ctr(CID_SCon, STAT_OFF + 702), 115ull, term_ctr(CID_SCon, STAT_OFF + 704), 117ull, term_ctr(CID_SCon, STAT_OFF + 706) };
+CONSTV u64 STAT_IMG[] = { 116ull, term_pak(CID_SNil, 0), 115ull, term_ctr(CID_SCon, STAT_OFF + 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 2), 117ull, term_ctr(CID_SCon, STAT_OFF + 4), 113ull, term_ctr(CID_SCon, STAT_OFF + 6), 101ull, term_ctr(CID_SCon, STAT_OFF + 8), 114ull, term_ctr(CID_SCon, STAT_OFF + 10), 32ull, term_ctr(CID_SCon, STAT_OFF + 12), 101ull, term_ctr(CID_SCon, STAT_OFF + 14), 114ull, term_ctr(CID_SCon, STAT_OFF + 16), 105ull, term_ctr(CID_SCon, STAT_OFF + 18), 119ull, term_ctr(CID_SCon, STAT_OFF + 20), 32ull, term_ctr(CID_SCon, STAT_OFF + 22), 100ull, term_ctr(CID_SCon, STAT_OFF + 24), 101ull, term_ctr(CID_SCon, STAT_OFF + 26), 109ull, term_ctr(CID_SCon, STAT_OFF + 28), 114ull, term_ctr(CID_SCon, STAT_OFF + 30), 111ull, term_ctr(CID_SCon, STAT_OFF + 32), 102ull, term_ctr(CID_SCon, STAT_OFF + 34), 108ull, term_ctr(CID_SCon, STAT_OFF + 36), 97ull, term_ctr(CID_SCon, STAT_OFF + 38), 109ull, term_ctr(CID_SCon, STAT_OFF + 40), 57ull, term_pak(CID_Nil, 0), 56ull, term_ctr(CID_Con, STAT_OFF + 44), 55ull, term_ctr(CID_Con, STAT_OFF + 46), 54ull, term_ctr(CID_Con, STAT_OFF + 48), 53ull, term_ctr(CID_Con, STAT_OFF + 50), 52ull, term_ctr(CID_Con, STAT_OFF + 52), 51ull, term_ctr(CID_Con, STAT_OFF + 54), 50ull, term_ctr(CID_Con, STAT_OFF + 56), 49ull, term_ctr(CID_Con, STAT_OFF + 58), 48ull, term_ctr(CID_Con, STAT_OFF + 60), 0, term_pak(CID_Nil, 0), 114ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 66), 118ull, term_ctr(CID_SCon, STAT_OFF + 68), 111ull, term_ctr(CID_SCon, STAT_OFF + 70), 32ull, term_ctr(CID_SCon, STAT_OFF + 72), 116ull, term_ctr(CID_SCon, STAT_OFF + 74), 102ull, term_ctr(CID_SCon, STAT_OFF + 76), 101ull, term_ctr(CID_SCon, STAT_OFF + 78), 108ull, term_ctr(CID_SCon, STAT_OFF + 80), 32ull, term_ctr(CID_SCon, STAT_OFF + 82), 116ull, term_ctr(CID_SCon, STAT_OFF + 84), 117ull, term_ctr(CID_SCon, STAT_OFF + 86), 112ull, term_ctr(CID_SCon, STAT_OFF + 88), 110ull, term_ctr(CID_SCon, STAT_OFF + 90), 105ull, term_ctr(CID_SCon, STAT_OFF + 92), 32ull, term_ctr(CID_SCon, STAT_OFF + 94), 58ull, term_ctr(CID_SCon, STAT_OFF + 96), 110ull, term_ctr(CID_SCon, STAT_OFF + 98), 111ull, term_ctr(CID_SCon, STAT_OFF + 100), 105ull, term_ctr(CID_SCon, STAT_OFF + 102), 115ull, term_ctr(CID_SCon, STAT_OFF + 104), 115ull, term_ctr(CID_SCon, STAT_OFF + 106), 105ull, term_ctr(CID_SCon, STAT_OFF + 108), 109ull, term_ctr(CID_SCon, STAT_OFF + 110), 100ull, term_ctr(CID_SCon, STAT_OFF + 112), 97ull, term_ctr(CID_SCon, STAT_OFF + 114), 32ull, term_ctr(CID_SCon, STAT_OFF + 116), 69ull, term_ctr(CID_SCon, STAT_OFF + 118), 48ull, term_pak(CID_SNil, 0), 107ull, term_ctr(CID_SCon, STAT_OFF + 98), 99ull, term_ctr(CID_SCon, STAT_OFF + 124), 97ull, term_ctr(CID_SCon, STAT_OFF + 126), 98ull, term_ctr(CID_SCon, STAT_OFF + 128), 108ull, term_ctr(CID_SCon, STAT_OFF + 130), 108ull, term_ctr(CID_SCon, STAT_OFF + 132), 97ull, term_ctr(CID_SCon, STAT_OFF + 134), 102ull, term_ctr(CID_SCon, STAT_OFF + 136), 95ull, term_ctr(CID_SCon, STAT_OFF + 138), 120ull, term_ctr(CID_SCon, STAT_OFF + 140), 117ull, term_ctr(CID_SCon, STAT_OFF + 142), 97ull, term_ctr(CID_SCon, STAT_OFF + 144), 119ull, term_ctr(CID_SCon, STAT_OFF + 98), 111ull, term_ctr(CID_SCon, STAT_OFF + 148), 108ull, term_ctr(CID_SCon, STAT_OFF + 150), 102ull, term_ctr(CID_SCon, STAT_OFF + 152), 107ull, term_ctr(CID_SCon, STAT_OFF + 154), 114ull, term_ctr(CID_SCon, STAT_OFF + 156), 111ull, term_ctr(CID_SCon, STAT_OFF + 158), 119ull, term_ctr(CID_SCon, STAT_OFF + 160), 108ull, term_ctr(CID_SCon, STAT_OFF + 98), 101ull, term_ctr(CID_SCon, STAT_OFF + 164), 100ull, term_ctr(CID_SCon, STAT_OFF + 166), 111ull, term_ctr(CID_SCon, STAT_OFF + 168), 109ull, term_ctr(CID_SCon, STAT_OFF + 170), 95ull, term_ctr(CID_SCon, STAT_OFF + 172), 116ull, term_ctr(CID_SCon, STAT_OFF + 174), 108ull, term_ctr(CID_SCon, STAT_OFF + 176), 117ull, term_ctr(CID_SCon, STAT_OFF + 178), 97ull, term_ctr(CID_SCon, STAT_OFF + 180), 102ull, term_ctr(CID_SCon, STAT_OFF + 182), 101ull, term_ctr(CID_SCon, STAT_OFF + 184), 100ull, term_ctr(CID_SCon, STAT_OFF + 186), 112ull, term_pak(CID_SNil, 0), 111ull, term_ctr(CID_SCon, STAT_OFF + 190), 32ull, term_ctr(CID_SCon, STAT_OFF + 192), 100ull, term_ctr(CID_SCon, STAT_OFF + 194), 101ull, term_ctr(CID_SCon, STAT_OFF + 196), 109ull, term_ctr(CID_SCon, STAT_OFF + 198), 114ull, term_ctr(CID_SCon, STAT_OFF + 200), 111ull, term_ctr(CID_SCon, STAT_OFF + 202), 102ull, term_ctr(CID_SCon, STAT_OFF + 204), 108ull, term_ctr(CID_SCon, STAT_OFF + 206), 97ull, term_ctr(CID_SCon, STAT_OFF + 208), 109ull, term_ctr(CID_SCon, STAT_OFF + 210), 32ull, term_ctr(CID_SCon, STAT_OFF + 212), 58ull, term_ctr(CID_SCon, STAT_OFF + 214), 110ull, term_ctr(CID_SCon, STAT_OFF + 216), 111ull, term_ctr(CID_SCon, STAT_OFF + 218), 105ull, term_ctr(CID_SCon, STAT_OFF + 220), 115ull, term_ctr(CID_SCon, STAT_OFF + 222), 115ull, term_ctr(CID_SCon, STAT_OFF + 224), 105ull, term_ctr(CID_SCon, STAT_OFF + 226), 109ull, term_ctr(CID_SCon, STAT_OFF + 228), 100ull, term_ctr(CID_SCon, STAT_OFF + 230), 97ull, term_ctr(CID_SCon, STAT_OFF + 232), 32ull, term_ctr(CID_SCon, STAT_OFF + 234), 69ull, term_ctr(CID_SCon, STAT_OFF + 236), 100ull, term_ctr(CID_SCon, STAT_OFF + 14), 101ull, term_ctr(CID_SCon, STAT_OFF + 240), 109ull, term_ctr(CID_SCon, STAT_OFF + 242), 114ull, term_ctr(CID_SCon, STAT_OFF + 244), 111ull, term_ctr(CID_SCon, STAT_OFF + 246), 102ull, term_ctr(CID_SCon, STAT_OFF + 248), 108ull, term_ctr(CID_SCon, STAT_OFF + 250), 97ull, term_ctr(CID_SCon, STAT_OFF + 252), 109ull, term_ctr(CID_SCon, STAT_OFF + 254), 32ull, term_ctr(CID_SCon, STAT_OFF + 256), 58ull, term_ctr(CID_SCon, STAT_OFF + 258), 107ull, term_ctr(CID_SCon, STAT_OFF + 260), 99ull, term_ctr(CID_SCon, STAT_OFF + 262), 97ull, term_ctr(CID_SCon, STAT_OFF + 264), 98ull, term_ctr(CID_SCon, STAT_OFF + 266), 108ull, term_ctr(CID_SCon, STAT_OFF + 268), 108ull, term_ctr(CID_SCon, STAT_OFF + 270), 97ull, term_ctr(CID_SCon, STAT_OFF + 272), 102ull, term_ctr(CID_SCon, STAT_OFF + 274), 95ull, term_ctr(CID_SCon, STAT_OFF + 276), 120ull, term_ctr(CID_SCon, STAT_OFF + 278), 117ull, term_ctr(CID_SCon, STAT_OFF + 280), 97ull, term_ctr(CID_SCon, STAT_OFF + 282), 119ull, term_ctr(CID_SCon, STAT_OFF + 260), 111ull, term_ctr(CID_SCon, STAT_OFF + 286), 108ull, term_ctr(CID_SCon, STAT_OFF + 288), 102ull, term_ctr(CID_SCon, STAT_OFF + 290), 107ull, term_ctr(CID_SCon, STAT_OFF + 292), 114ull, term_ctr(CID_SCon, STAT_OFF + 294), 111ull, term_ctr(CID_SCon, STAT_OFF + 296), 119ull, term_ctr(CID_SCon, STAT_OFF + 298), 108ull, term_ctr(CID_SCon, STAT_OFF + 260), 101ull, term_ctr(CID_SCon, STAT_OFF + 302), 100ull, term_ctr(CID_SCon, STAT_OFF + 304), 111ull, term_ctr(CID_SCon, STAT_OFF + 306), 109ull, term_ctr(CID_SCon, STAT_OFF + 308), 95ull, term_ctr(CID_SCon, STAT_OFF + 310), 116ull, term_ctr(CID_SCon, STAT_OFF + 312), 108ull, term_ctr(CID_SCon, STAT_OFF + 314), 117ull, term_ctr(CID_SCon, STAT_OFF + 316), 97ull, term_ctr(CID_SCon, STAT_OFF + 318), 102ull, term_ctr(CID_SCon, STAT_OFF + 320), 101ull, term_ctr(CID_SCon, STAT_OFF + 322), 100ull, term_ctr(CID_SCon, STAT_OFF + 324), 110ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 328), 112ull, term_ctr(CID_SCon, STAT_OFF + 330), 111ull, term_ctr(CID_SCon, STAT_OFF + 332), 32ull, term_ctr(CID_SCon, STAT_OFF + 334), 100ull, term_ctr(CID_SCon, STAT_OFF + 336), 101ull, term_ctr(CID_SCon, STAT_OFF + 338), 109ull, term_ctr(CID_SCon, STAT_OFF + 340), 114ull, term_ctr(CID_SCon, STAT_OFF + 342), 111ull, term_ctr(CID_SCon, STAT_OFF + 344), 102ull, term_ctr(CID_SCon, STAT_OFF + 346), 108ull, term_ctr(CID_SCon, STAT_OFF + 348), 97ull, term_ctr(CID_SCon, STAT_OFF + 350), 109ull, term_ctr(CID_SCon, STAT_OFF + 352), 32ull, term_ctr(CID_SCon, STAT_OFF + 354), 58ull, term_ctr(CID_SCon, STAT_OFF + 356), 110ull, term_ctr(CID_SCon, STAT_OFF + 358), 111ull, term_ctr(CID_SCon, STAT_OFF + 360), 105ull, term_ctr(CID_SCon, STAT_OFF + 362), 115ull, term_ctr(CID_SCon, STAT_OFF + 364), 115ull, term_ctr(CID_SCon, STAT_OFF + 366), 105ull, term_ctr(CID_SCon, STAT_OFF + 368), 109ull, term_ctr(CID_SCon, STAT_OFF + 370), 100ull, term_ctr(CID_SCon, STAT_OFF + 372), 97ull, term_ctr(CID_SCon, STAT_OFF + 374), 32ull, term_ctr(CID_SCon, STAT_OFF + 376), 69ull, term_ctr(CID_SCon, STAT_OFF + 378), 50ull, term_pak(CID_SNil, 0), 51ull, term_ctr(CID_SCon, STAT_OFF + 382), 85ull, term_ctr(CID_SCon, STAT_OFF + 384), 32ull, term_ctr(CID_SCon, STAT_OFF + 386), 108ull, term_ctr(CID_SCon, STAT_OFF + 388), 97ull, term_ctr(CID_SCon, STAT_OFF + 390), 109ull, term_ctr(CID_SCon, STAT_OFF + 392), 105ull, term_ctr(CID_SCon, STAT_OFF + 394), 99ull, term_ctr(CID_SCon, STAT_OFF + 396), 101ull, term_ctr(CID_SCon, STAT_OFF + 398), 100ull, term_ctr(CID_SCon, STAT_OFF + 400), 32ull, term_ctr(CID_SCon, STAT_OFF + 402), 97ull, term_ctr(CID_SCon, STAT_OFF + 404), 32ull, term_ctr(CID_SCon, STAT_OFF + 406), 115ull, term_ctr(CID_SCon, STAT_OFF + 408), 116ull, term_ctr(CID_SCon, STAT_OFF + 410), 110ull, term_ctr(CID_SCon, STAT_OFF + 412), 97ull, term_ctr(CID_SCon, STAT_OFF + 414), 119ull, term_ctr(CID_SCon, STAT_OFF + 416), 32ull, term_ctr(CID_SCon, STAT_OFF + 418), 110ull, term_ctr(CID_SCon, STAT_OFF + 420), 101ull, term_ctr(CID_SCon, STAT_OFF + 422), 112ull, term_ctr(CID_SCon, STAT_OFF + 424), 111ull, term_ctr(CID_SCon, STAT_OFF + 426), 32ull, term_ctr(CID_SCon, STAT_OFF + 428), 58ull, term_ctr(CID_SCon, STAT_OFF + 430), 111ull, term_ctr(CID_SCon, STAT_OFF + 432), 104ull, term_ctr(CID_SCon, STAT_OFF + 434), 99ull, term_ctr(CID_SCon, STAT_OFF + 436), 101ull, term_ctr(CID_SCon, STAT_OFF + 438), 32ull, term_ctr(CID_SCon, STAT_OFF + 440), 69ull, term_ctr(CID_SCon, STAT_OFF + 442), 100ull, term_pak(CID_SNil, 0), 101ull, term_ctr(CID_SCon, STAT_OFF + 446), 115ull, term_ctr(CID_SCon, STAT_OFF + 448), 117ull, term_ctr(CID_SCon, STAT_OFF + 450), 102ull, term_ctr(CID_SCon, STAT_OFF + 452), 101ull, term_ctr(CID_SCon, STAT_OFF + 454), 114ull, term_ctr(CID_SCon, STAT_OFF + 456), 32ull, term_ctr(CID_SCon, STAT_OFF + 458), 115ull, term_ctr(CID_SCon, STAT_OFF + 460), 97ull, term_ctr(CID_SCon, STAT_OFF + 462), 119ull, term_ctr(CID_SCon, STAT_OFF + 464), 32ull, term_ctr(CID_SCon, STAT_OFF + 466), 110ull, term_ctr(CID_SCon, STAT_OFF + 468), 101ull, term_ctr(CID_SCon, STAT_OFF + 470), 112ull, term_ctr(CID_SCon, STAT_OFF + 472), 111ull, term_ctr(CID_SCon, STAT_OFF + 474), 32ull, term_ctr(CID_SCon, STAT_OFF + 476), 101ull, term_ctr(CID_SCon, STAT_OFF + 478), 104ull, term_ctr(CID_SCon, STAT_OFF + 480), 116ull, term_ctr(CID_SCon, STAT_OFF + 482), 32ull, term_ctr(CID_SCon, STAT_OFF + 484), 58ull, term_ctr(CID_SCon, STAT_OFF + 486), 110ull, term_ctr(CID_SCon, STAT_OFF + 488), 111ull, term_ctr(CID_SCon, STAT_OFF + 490), 105ull, term_ctr(CID_SCon, STAT_OFF + 492), 115ull, term_ctr(CID_SCon, STAT_OFF + 494), 115ull, term_ctr(CID_SCon, STAT_OFF + 496), 105ull, term_ctr(CID_SCon, STAT_OFF + 498), 109ull, term_ctr(CID_SCon, STAT_OFF + 500), 100ull, term_ctr(CID_SCon, STAT_OFF + 502), 97ull, term_ctr(CID_SCon, STAT_OFF + 504), 32ull, term_ctr(CID_SCon, STAT_OFF + 506), 69ull, term_ctr(CID_SCon, STAT_OFF + 508), 32ull, term_pak(CID_SNil, 0), 111ull, term_ctr(CID_SCon, STAT_OFF + 488), 104ull, term_ctr(CID_SCon, STAT_OFF + 514), 99ull, term_ctr(CID_SCon, STAT_OFF + 516), 101ull, term_ctr(CID_SCon, STAT_OFF + 518), 32ull, term_ctr(CID_SCon, STAT_OFF + 520), 69ull, term_ctr(CID_SCon, STAT_OFF + 522), 121ull, term_pak(CID_SNil, 0), 114ull, term_ctr(CID_SCon, STAT_OFF + 526), 116ull, term_ctr(CID_SCon, STAT_OFF + 528), 110ull, term_ctr(CID_SCon, STAT_OFF + 530), 101ull, term_ctr(CID_SCon, STAT_OFF + 532), 32ull, term_ctr(CID_SCon, STAT_OFF + 534), 110ull, term_ctr(CID_SCon, STAT_OFF + 536), 119ull, term_ctr(CID_SCon, STAT_OFF + 538), 111ull, term_ctr(CID_SCon, STAT_OFF + 540), 110ull, term_ctr(CID_SCon, STAT_OFF + 542), 107ull, term_ctr(CID_SCon, STAT_OFF + 544), 110ull, term_ctr(CID_SCon, STAT_OFF + 546), 117ull, term_ctr(CID_SCon, STAT_OFF + 548), 32ull, term_ctr(CID_SCon, STAT_OFF + 550), 69ull, term_ctr(CID_SCon, STAT_OFF + 552), 108ull, term_pak(CID_SNil, 0), 108ull, term_ctr(CID_SCon, STAT_OFF + 556), 97ull, term_ctr(CID_SCon, STAT_OFF + 558), 99ull, term_ctr(CID_SCon, STAT_OFF + 560), 93ull, term_pak(CID_SNil, 0), 46ull, term_ctr(CID_SCon, STAT_OFF + 564), 46ull, term_ctr(CID_SCon, STAT_OFF + 566), 46ull, term_ctr(CID_SCon, STAT_OFF + 568), 62ull, term_ctr(CID_SCon, STAT_OFF + 570), 116ull, term_ctr(CID_SCon, STAT_OFF + 572), 110ull, term_ctr(CID_SCon, STAT_OFF + 574), 101ull, term_ctr(CID_SCon, STAT_OFF + 576), 118ull, term_ctr(CID_SCon, STAT_OFF + 578), 101ull, term_ctr(CID_SCon, STAT_OFF + 580), 60ull, term_ctr(CID_SCon, STAT_OFF + 582), 91ull, term_ctr(CID_SCon, STAT_OFF + 584), 32ull, term_ctr(CID_SCon, STAT_OFF + 586), 62ull, term_ctr(CID_SCon, STAT_OFF + 588), 116ull, term_ctr(CID_SCon, STAT_OFF + 590), 117ull, term_ctr(CID_SCon, STAT_OFF + 592), 112ull, term_ctr(CID_SCon, STAT_OFF + 594), 110ull, term_ctr(CID_SCon, STAT_OFF + 596), 105ull, term_ctr(CID_SCon, STAT_OFF + 598), 60ull, term_ctr(CID_SCon, STAT_OFF + 600), 32ull, term_ctr(CID_SCon, STAT_OFF + 602), 62ull, term_ctr(CID_SCon, STAT_OFF + 604), 121ull, term_ctr(CID_SCon, STAT_OFF + 606), 114ull, term_ctr(CID_SCon, STAT_OFF + 608), 116ull, term_ctr(CID_SCon, STAT_OFF + 610), 110ull, term_ctr(CID_SCon, STAT_OFF + 612), 101ull, term_ctr(CID_SCon, STAT_OFF + 614), 60ull, term_ctr(CID_SCon, STAT_OFF + 616), 32ull, term_ctr(CID_SCon, STAT_OFF + 618), 110ull, term_ctr(CID_SCon, STAT_OFF + 620), 101ull, term_ctr(CID_SCon, STAT_OFF + 622), 112ull, term_ctr(CID_SCon, STAT_OFF + 624), 111ull, term_ctr(CID_SCon, STAT_OFF + 626), 32ull, term_ctr(CID_SCon, STAT_OFF + 628), 101ull, term_ctr(CID_SCon, STAT_OFF + 630), 114ull, term_ctr(CID_SCon, STAT_OFF + 632), 111ull, term_ctr(CID_SCon, STAT_OFF + 634), 99ull, term_ctr(CID_SCon, STAT_OFF + 636), 32ull, term_ctr(CID_SCon, STAT_OFF + 638), 124ull, term_ctr(CID_SCon, STAT_OFF + 640), 32ull, term_ctr(CID_SCon, STAT_OFF + 642), 62ull, term_ctr(CID_SCon, STAT_OFF + 644), 116ull, term_ctr(CID_SCon, STAT_OFF + 646), 117ull, term_ctr(CID_SCon, STAT_OFF + 648), 112ull, term_ctr(CID_SCon, STAT_OFF + 650), 110ull, term_ctr(CID_SCon, STAT_OFF + 652), 105ull, term_ctr(CID_SCon, STAT_OFF + 654), 60ull, term_ctr(CID_SCon, STAT_OFF + 656), 32ull, term_ctr(CID_SCon, STAT_OFF + 658), 62ull, term_ctr(CID_SCon, STAT_OFF + 660), 121ull, term_ctr(CID_SCon, STAT_OFF + 662), 114ull, term_ctr(CID_SCon, STAT_OFF + 664), 116ull, term_ctr(CID_SCon, STAT_OFF + 666), 110ull, term_ctr(CID_SCon, STAT_OFF + 668), 101ull, term_ctr(CID_SCon, STAT_OFF + 670), 60ull, term_ctr(CID_SCon, STAT_OFF + 672), 32ull, term_ctr(CID_SCon, STAT_OFF + 674), 108ull, term_ctr(CID_SCon, STAT_OFF + 676), 108ull, term_ctr(CID_SCon, STAT_OFF + 678), 97ull, term_ctr(CID_SCon, STAT_OFF + 680), 99ull, term_ctr(CID_SCon, STAT_OFF + 682), 32ull, term_ctr(CID_SCon, STAT_OFF + 684), 101ull, term_ctr(CID_SCon, STAT_OFF + 686), 114ull, term_ctr(CID_SCon, STAT_OFF + 688), 111ull, term_ctr(CID_SCon, STAT_OFF + 690), 99ull, term_ctr(CID_SCon, STAT_OFF + 692), 32ull, term_ctr(CID_SCon, STAT_OFF + 694), 58ull, term_ctr(CID_SCon, STAT_OFF + 696), 101ull, term_ctr(CID_SCon, STAT_OFF + 698), 103ull, term_ctr(CID_SCon, STAT_OFF + 700), 97ull, term_ctr(CID_SCon, STAT_OFF + 702), 115ull, term_ctr(CID_SCon, STAT_OFF + 704), 117ull, term_ctr(CID_SCon, STAT_OFF + 706) };
 
-INLINE Term spin_0(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3) {
-  u32 wpoll = 0;
-  Term _k_0 = r0;
-  u32 _r_4 = r1;
-  u32 _r_5 = r2;
-  Term _r_6 = r3;
-  WL_SPIN
-    if (_r_4 == 0) {
-      o[0] = 0;
-      o[1] = _k_0;
-      o[2] = _r_5;
-      o[3] = _r_6;
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_1(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
+INLINE Term spin_0(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
   u32 wpoll = 0;
   Term _p_2 = r0;
   Term _s_0 = r1;
@@ -1686,6 +1663,29 @@ INLINE Term spin_1(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r
       o[2] = 0;
       o[3] = 0;
       o[4] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_1(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3) {
+  u32 wpoll = 0;
+  Term _k_0 = r0;
+  u32 _r_4 = r1;
+  u32 _r_5 = r2;
+  Term _r_6 = r3;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = _k_0;
+      o[2] = _r_5;
+      o[3] = _r_6;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
     }
   break;
   }
@@ -1870,7 +1870,36 @@ INLINE Term spin_2(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_9(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_9(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  Term _k_0 = r0;
+  Term _k_1 = r1;
+  Term _k_2 = r2;
+  Term _rest_1 = r3;
+  WL_SPIN
+    Term _v_1 = 0;
+    Term _v_2 = 0;
+    Term _o_2[1];
+    if (spin_2(e, _o_2, _k_2, _rest_1) == 0) {
+      return 0;
+    }
+    _v_2 = _o_2[0];
+    Term _o_3[1];
+    if (spin_2(e, _o_3, _k_1, _v_2) == 0) {
+      return 0;
+    }
+    _v_1 = _o_3[0];
+    Term _o_4[1];
+    if (spin_2(e, _o_4, _k_0, _v_1) == 0) {
+      return 0;
+    }
+    o[0] = _o_4[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_10(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _n_0 = r0;
   Term _s_0 = r1;
@@ -1911,7 +1940,7 @@ INLINE Term spin_9(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_10(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3, Term r4) {
+INLINE Term spin_11(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3, Term r4) {
   u32 wpoll = 0;
   Term _x_0 = r0;
   u32 _x_1 = r1;
@@ -1939,7 +1968,7 @@ INLINE Term spin_10(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3, Term r
   return 1;
 }
 
-INLINE Term spin_11(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_12(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   Term _t_2 = r0;
   u32 _r_4 = r1;
@@ -1957,35 +1986,6 @@ INLINE Term spin_11(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
       o[2] = 0;
       o[3] = 0;
     }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_12(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3) {
-  u32 wpoll = 0;
-  Term _k_0 = r0;
-  Term _k_1 = r1;
-  Term _k_2 = r2;
-  Term _rest_1 = r3;
-  WL_SPIN
-    Term _v_1 = 0;
-    Term _v_2 = 0;
-    Term _o_2[1];
-    if (spin_2(e, _o_2, _k_2, _rest_1) == 0) {
-      return 0;
-    }
-    _v_2 = _o_2[0];
-    Term _o_3[1];
-    if (spin_2(e, _o_3, _k_1, _v_2) == 0) {
-      return 0;
-    }
-    _v_1 = _o_3[0];
-    Term _o_4[1];
-    if (spin_2(e, _o_4, _k_0, _v_1) == 0) {
-      return 0;
-    }
-    o[0] = _o_4[0];
   break;
   }
   return 1;
@@ -2150,31 +2150,7 @@ INLINE Term spin_18(Env e, THR Term* o, u32 r0, u32 r1) {
   return 1;
 }
 
-INLINE Term spin_19(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
-  u32 wpoll = 0;
-  u32 _r_0 = r0;
-  Term _r_1 = r1;
-  Term _r_2 = r2;
-  WL_SPIN
-    if (_r_0 == 0) {
-      Term _o_0[3];
-      if (spin_9(e, _o_0, _r_1, _r_2) == 0) {
-        return 0;
-      }
-      o[0] = (u32)_o_0[0];
-      o[1] = (u32)_o_0[1];
-      o[2] = _o_0[2];
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_20(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5) {
+INLINE Term spin_19(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5) {
   u32 wpoll = 0;
   Term _x_0 = r0;
   Term _x_1 = r1;
@@ -2204,7 +2180,7 @@ INLINE Term spin_20(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term 
   return 1;
 }
 
-INLINE Term spin_21(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
+INLINE Term spin_20(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   u32 wpoll = 0;
   Term _p_0 = r0;
   u32 _d_4 = r1;
@@ -2233,7 +2209,7 @@ INLINE Term spin_21(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_22(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_21(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _d_0 = r0;
   Term _d_1 = r1;
@@ -2255,7 +2231,7 @@ INLINE Term spin_22(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_23(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+INLINE Term spin_22(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
   u32 _e_0 = r0;
   Term _e_1 = r1;
@@ -2278,7 +2254,7 @@ INLINE Term spin_23(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
     } else if (_e_0 == 2) {
       Term _v_1 = 0;
       Term _o_2[1];
-      if (spin_12(e, _o_2, _e_1, _e_2, _e_3, _rest_0) == 0) {
+      if (spin_9(e, _o_2, _e_1, _e_2, _e_3, _rest_0) == 0) {
         return 0;
       }
       _v_1 = _o_2[0];
@@ -2290,7 +2266,7 @@ INLINE Term spin_23(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
     } else {
       Term _v_2 = 0;
       Term _o_4[1];
-      if (spin_12(e, _o_4, _e_1, _e_2, _e_3, _rest_0) == 0) {
+      if (spin_9(e, _o_4, _e_1, _e_2, _e_3, _rest_0) == 0) {
         return 0;
       }
       _v_2 = _o_4[0];
@@ -2299,6 +2275,30 @@ INLINE Term spin_23(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
         return 0;
       }
       o[0] = _o_5[0];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_23(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _r_1 = r1;
+  Term _r_2 = r2;
+  WL_SPIN
+    if (_r_0 == 0) {
+      Term _o_0[3];
+      if (spin_10(e, _o_0, _r_1, _r_2) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_0[0];
+      o[1] = (u32)_o_0[1];
+      o[2] = _o_0[2];
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
     }
   break;
   }
@@ -2521,7 +2521,183 @@ INLINE Term spin_32(Env e, THR Term* o, Term r0, u32 r1, u32 r2) {
   return 1;
 }
 
-INLINE Term spin_33(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+INLINE Term spin_33(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  u32 _d_0 = r0;
+  Term _d_1 = r1;
+  Term _d_2 = r2;
+  Term _d_3 = r3;
+  Term _d_4 = r4;
+  WL_SPIN
+    if (_d_0 == 0) {
+      o[0] = 0;
+      o[1] = 2;
+      o[2] = _d_1;
+      o[3] = _d_2;
+      o[4] = _d_3;
+      o[5] = _d_4;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_34(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4, Term r5) {
+  u32 wpoll = 0;
+  u32 _d_0 = r0;
+  u32 _d_1 = r1;
+  Term _d_2 = r2;
+  Term _d_3 = r3;
+  Term _d_4 = r4;
+  Term _d_5 = r5;
+  WL_SPIN
+    if (_d_0 == 0) {
+      o[0] = 0;
+      o[1] = 0;
+      o[2] = _d_1;
+      o[3] = _d_2;
+      o[4] = _d_3;
+      o[5] = _d_4;
+      o[6] = _d_5;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_35(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+  u32 wpoll = 0;
+  u32 _d_3 = r0;
+  Term _d_4 = r1;
+  Term _d_5 = r2;
+  Term _n_0 = r3;
+  WL_SPIN
+    if (_d_3 == 0) {
+      if (_n_0 == 0) {
+        o[0] = 0;
+        o[1] = 0;
+        o[2] = _d_4;
+        o[3] = _d_5;
+      } else {
+        Term _a_0 = (_n_0 - 1);
+        o[0] = 0;
+        o[1] = 1;
+        o[2] = _d_4;
+        o[3] = _d_5;
+      }
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_37(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _c_0 = r0;
+  WL_SPIN
+    if (_c_0 == 1) {
+      o[0] = 1;
+    } else {
+      o[0] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_36(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _a_3 = r0;
+  Term _b_3 = r1;
+  WL_SPIN
+    Term _o_0[1];
+    if (spin_37(e, _o_0, ((_a_3 > _b_3) + (_a_3 >= _b_3))) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_0[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_38(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _x_0 = r0;
+  Term _x_1 = r1;
+  Term _x_2 = r2;
+  Term _r_0 = r3;
+  Term _r_1 = r4;
+  WL_SPIN
+    Term _v_0 = 0;
+    Term _o_0[1];
+    if (spin_9(e, _o_0, _x_0, _x_1, _x_2, _r_1) == 0) {
+      return 0;
+    }
+    _v_0 = _o_0[0];
+    o[0] = nat_chk(e, _r_0 + 1);
+    o[1] = _v_0;
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_39(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
+  u32 wpoll = 0;
+  u32 _x_0 = r0;
+  Term _x_1 = r1;
+  Term _x_2 = r2;
+  Term _x_3 = r3;
+  Term _r_0 = r4;
+  Term _r_1 = r5;
+  WL_SPIN
+    Term _v_0 = 0;
+    Term _o_8[1];
+    if (spin_22(e, _o_8, _x_0, _x_1, _x_2, _x_3, _r_1) == 0) {
+      return 0;
+    }
+    _v_0 = _o_8[0];
+    o[0] = nat_chk(e, _r_0 + 1);
+    o[1] = _v_0;
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_40(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _b_0 = r0;
+  WL_SPIN
+    if (_b_0 == 0) {
+      o[0] = 1;
+    } else {
+      o[0] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_41(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   u32 _r_1 = r1;
@@ -2543,7 +2719,7 @@ INLINE Term spin_33(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_34(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, u32 r4, Term r5, Term r6, Term r7) {
+INLINE Term spin_42(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, u32 r4, Term r5, Term r6, Term r7) {
   u32 wpoll = 0;
   u32 _prior_4 = r0;
   u32 _prior_5 = r1;
@@ -2581,7 +2757,7 @@ INLINE Term spin_34(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, u32 r4
   return 1;
 }
 
-INLINE Term spin_35(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_43(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _p_2 = r0;
   Term _p_3 = r1;
@@ -2593,182 +2769,6 @@ INLINE Term spin_35(Env e, THR Term* o, Term r0, Term r1) {
       Term _m_0 = (_p_3 - 1);
       o[0] = nat_chk(e, _p_2 + 1);
       o[1] = _m_0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_36(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  u32 _d_0 = r0;
-  Term _d_1 = r1;
-  Term _d_2 = r2;
-  Term _d_3 = r3;
-  Term _d_4 = r4;
-  WL_SPIN
-    if (_d_0 == 0) {
-      o[0] = 0;
-      o[1] = 2;
-      o[2] = _d_1;
-      o[3] = _d_2;
-      o[4] = _d_3;
-      o[5] = _d_4;
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
-      o[4] = 0;
-      o[5] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_37(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4, Term r5) {
-  u32 wpoll = 0;
-  u32 _d_0 = r0;
-  u32 _d_1 = r1;
-  Term _d_2 = r2;
-  Term _d_3 = r3;
-  Term _d_4 = r4;
-  Term _d_5 = r5;
-  WL_SPIN
-    if (_d_0 == 0) {
-      o[0] = 0;
-      o[1] = 0;
-      o[2] = _d_1;
-      o[3] = _d_2;
-      o[4] = _d_3;
-      o[5] = _d_4;
-      o[6] = _d_5;
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
-      o[4] = 0;
-      o[5] = 0;
-      o[6] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_38(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
-  u32 wpoll = 0;
-  u32 _d_3 = r0;
-  Term _d_4 = r1;
-  Term _d_5 = r2;
-  Term _n_0 = r3;
-  WL_SPIN
-    if (_d_3 == 0) {
-      if (_n_0 == 0) {
-        o[0] = 0;
-        o[1] = 0;
-        o[2] = _d_4;
-        o[3] = _d_5;
-      } else {
-        Term _a_0 = (_n_0 - 1);
-        o[0] = 0;
-        o[1] = 1;
-        o[2] = _d_4;
-        o[3] = _d_5;
-      }
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_40(Env e, THR Term* o, u32 r0) {
-  u32 wpoll = 0;
-  u32 _c_0 = r0;
-  WL_SPIN
-    if (_c_0 == 1) {
-      o[0] = 1;
-    } else {
-      o[0] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_39(Env e, THR Term* o, Term r0, Term r1) {
-  u32 wpoll = 0;
-  Term _a_3 = r0;
-  Term _b_3 = r1;
-  WL_SPIN
-    Term _o_0[1];
-    if (spin_40(e, _o_0, ((_a_3 > _b_3) + (_a_3 >= _b_3))) == 0) {
-      return 0;
-    }
-    o[0] = (u32)_o_0[0];
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_41(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  Term _x_0 = r0;
-  Term _x_1 = r1;
-  Term _x_2 = r2;
-  Term _r_0 = r3;
-  Term _r_1 = r4;
-  WL_SPIN
-    Term _v_0 = 0;
-    Term _o_0[1];
-    if (spin_12(e, _o_0, _x_0, _x_1, _x_2, _r_1) == 0) {
-      return 0;
-    }
-    _v_0 = _o_0[0];
-    o[0] = nat_chk(e, _r_0 + 1);
-    o[1] = _v_0;
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_42(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
-  u32 wpoll = 0;
-  u32 _x_0 = r0;
-  Term _x_1 = r1;
-  Term _x_2 = r2;
-  Term _x_3 = r3;
-  Term _r_0 = r4;
-  Term _r_1 = r5;
-  WL_SPIN
-    Term _v_0 = 0;
-    Term _o_8[1];
-    if (spin_23(e, _o_8, _x_0, _x_1, _x_2, _x_3, _r_1) == 0) {
-      return 0;
-    }
-    _v_0 = _o_8[0];
-    o[0] = nat_chk(e, _r_0 + 1);
-    o[1] = _v_0;
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_43(Env e, THR Term* o, u32 r0) {
-  u32 wpoll = 0;
-  u32 _b_0 = r0;
-  WL_SPIN
-    if (_b_0 == 0) {
-      o[0] = 1;
-    } else {
-      o[0] = 0;
     }
   break;
   }
@@ -3072,142 +3072,7 @@ INLINE Term spin_56(Env e, THR Term* o, Term r0, u32 r1, u32 r2) {
   return 1;
 }
 
-INLINE Term spin_57(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  Term _c_2 = r0;
-  Term _m_0 = r1;
-  u32 _r_4 = r2;
-  Term _r_5 = r3;
-  Term _r_6 = r4;
-  WL_SPIN
-    if (_r_4 == 0) {
-      o[0] = 0;
-      o[1] = 1;
-      o[2] = _c_2;
-      o[3] = _m_0;
-      o[4] = _r_5;
-      o[5] = 0;
-      o[6] = 0;
-      o[7] = 0;
-      o[8] = _r_6;
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
-      o[4] = 0;
-      o[5] = 0;
-      o[6] = 0;
-      o[7] = 0;
-      o[8] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_58(Env e, THR Term* o, u32 r0) {
-  u32 wpoll = 0;
-  u32 _c_0 = r0;
-  WL_SPIN
-    if (_c_0 == 2) {
-      o[0] = 0;
-    } else {
-      o[0] = 1;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_59(Env e, THR Term* o, u32 r0) {
-  u32 wpoll = 0;
-  u32 _s_0 = r0;
-  WL_SPIN
-    if (_s_0 == 0) {
-      o[0] = 0;
-    } else if (_s_0 == 1) {
-      o[0] = 0;
-    } else if (_s_0 == 2) {
-      o[0] = 1;
-    } else if (_s_0 == 3) {
-      o[0] = 0;
-    } else if (_s_0 == 4) {
-      o[0] = 0;
-    } else {
-      o[0] = 1;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_60(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3) {
-  u32 wpoll = 0;
-  u32 _hit_0 = r0;
-  Term _i_2 = r1;
-  u32 _rest_0 = r2;
-  Term _rest_1 = r3;
-  WL_SPIN
-    if (_hit_0 == 1) {
-      o[0] = 1;
-      o[1] = _i_2;
-    } else {
-      o[0] = _rest_0;
-      o[1] = _rest_1;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_61(Env e, THR Term* o, Term r0, Term r1) {
-  u32 wpoll = 0;
-  Term _p_2 = r0;
-  Term _p_3 = r1;
-  WL_SPIN
-    if (_p_3 == 0) {
-      o[0] = 0;
-    } else {
-      Term _m_0 = (_p_3 - 1);
-      o[0] = 1;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_62(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
-  u32 wpoll = 0;
-  u32 _ok_0 = r0;
-  Term _p_4 = r1;
-  Term _p_5 = r2;
-  WL_SPIN
-    if (_ok_0 == 1) {
-      Term _v_1 = 0;
-      Term _v_2 = 0;
-      Term _o_1[2];
-      if (spin_35(e, _o_1, _p_4, _p_5) == 0) {
-        return 0;
-      }
-      _v_1 = _o_1[0];
-      _v_2 = _o_1[1];
-      o[0] = 3;
-      o[1] = 0;
-      o[2] = _v_1;
-      o[3] = _v_2;
-    } else {
-      o[0] = 4;
-      o[1] = 0;
-      o[2] = _p_4;
-      o[3] = _p_5;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_63(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, u32 r5, Term r6, u32 r7, Term r8, Term r9) {
+INLINE Term spin_57(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, u32 r5, Term r6, u32 r7, Term r8, Term r9) {
   u32 wpoll = 0;
   u32 _g_10 = r0;
   Term _g_11 = r1;
@@ -3250,7 +3115,7 @@ INLINE Term spin_63(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term 
   return 1;
 }
 
-INLINE Term spin_66(Env e, THR Term* o, u32 r0, Term r1) {
+INLINE Term spin_60(Env e, THR Term* o, u32 r0, Term r1) {
   u32 wpoll = 0;
   u32 _f_3 = r0;
   Term _s_2 = r1;
@@ -3270,7 +3135,7 @@ INLINE Term spin_66(Env e, THR Term* o, u32 r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_65(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
+INLINE Term spin_59(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   u32 wpoll = 0;
   u32 _t_0 = r0;
   u32 _f_2 = r1;
@@ -3282,7 +3147,7 @@ INLINE Term spin_65(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
       o[2] = _s_1;
     } else {
       Term _o_0[3];
-      if (spin_66(e, _o_0, _f_2, _s_1) == 0) {
+      if (spin_60(e, _o_0, _f_2, _s_1) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -3294,7 +3159,7 @@ INLINE Term spin_65(Env e, THR Term* o, u32 r0, u32 r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_64(Env e, THR Term* o, Term r0) {
+INLINE Term spin_58(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _s_0 = r0;
   WL_SPIN
@@ -3308,7 +3173,7 @@ INLINE Term spin_64(Env e, THR Term* o, Term r0) {
       u32 _f_0 = _fb_0[0];
       Term _f_1 = _fb_0[1];
       Term _o_1[3];
-      if (spin_65(e, _o_1, U32_BIN(_f_0, ==, 84ull), U32_BIN(_f_0, ==, 70ull), _f_1) == 0) {
+      if (spin_59(e, _o_1, U32_BIN(_f_0, ==, 84ull), U32_BIN(_f_0, ==, 70ull), _f_1) == 0) {
         return 0;
       }
       o[0] = (u32)_o_1[0];
@@ -3321,7 +3186,7 @@ INLINE Term spin_64(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_67(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3, u32 r4, Term r5) {
+INLINE Term spin_61(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3, u32 r4, Term r5) {
   u32 wpoll = 0;
   Term _p_1 = r0;
   u32 _sel_0 = r1;
@@ -3360,7 +3225,7 @@ INLINE Term spin_67(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3, u32 r4
   return 1;
 }
 
-INLINE Term spin_68(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
+INLINE Term spin_62(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
   u32 wpoll = 0;
   Term _a_0 = r0;
   Term _a_1 = r1;
@@ -3371,20 +3236,20 @@ INLINE Term spin_68(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term
   WL_SPIN
     u32 _v_1 = 0;
     Term _o_0[1];
-    if (spin_39(e, _o_0, _a_0, _b_0) == 0) {
+    if (spin_36(e, _o_0, _a_0, _b_0) == 0) {
       return 0;
     }
     _v_1 = (u32)_o_0[0];
     u32 _v_2 = 0;
     u32 _v_3 = 0;
     Term _o_1[1];
-    if (spin_39(e, _o_1, _a_1, _b_1) == 0) {
+    if (spin_36(e, _o_1, _a_1, _b_1) == 0) {
       return 0;
     }
     _v_3 = (u32)_o_1[0];
     u32 _v_4 = 0;
     Term _o_2[1];
-    if (spin_39(e, _o_2, _a_2, _b_2) == 0) {
+    if (spin_36(e, _o_2, _a_2, _b_2) == 0) {
       return 0;
     }
     _v_4 = (u32)_o_2[0];
@@ -3403,7 +3268,7 @@ INLINE Term spin_68(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term
   return 1;
 }
 
-INLINE Term spin_69(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_63(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _w_0 = r0;
   Term _need_1 = r1;
@@ -3413,7 +3278,7 @@ INLINE Term spin_69(Env e, THR Term* o, Term r0, Term r1) {
     } else {
       Term _x_0 = (_w_0 - 1);
       Term _o_0[1];
-      if (spin_43(e, _o_0, (nat_chk(e, _x_0 + 1) < _need_1)) == 0) {
+      if (spin_40(e, _o_0, (nat_chk(e, _x_0 + 1) < _need_1)) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -3423,7 +3288,7 @@ INLINE Term spin_69(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_70(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_64(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _b_0 = r0;
   Term _p_1 = r1;
@@ -3439,6 +3304,141 @@ INLINE Term spin_70(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
       o[1] = _p_1;
       o[2] = _s_1;
       o[3] = 5ull;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_65(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _c_2 = r0;
+  Term _m_0 = r1;
+  u32 _r_4 = r2;
+  Term _r_5 = r3;
+  Term _r_6 = r4;
+  WL_SPIN
+    if (_r_4 == 0) {
+      o[0] = 0;
+      o[1] = 1;
+      o[2] = _c_2;
+      o[3] = _m_0;
+      o[4] = _r_5;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+      o[8] = _r_6;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+      o[8] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_66(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _c_0 = r0;
+  WL_SPIN
+    if (_c_0 == 2) {
+      o[0] = 0;
+    } else {
+      o[0] = 1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_67(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _s_0 = r0;
+  WL_SPIN
+    if (_s_0 == 0) {
+      o[0] = 0;
+    } else if (_s_0 == 1) {
+      o[0] = 0;
+    } else if (_s_0 == 2) {
+      o[0] = 1;
+    } else if (_s_0 == 3) {
+      o[0] = 0;
+    } else if (_s_0 == 4) {
+      o[0] = 0;
+    } else {
+      o[0] = 1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_68(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3) {
+  u32 wpoll = 0;
+  u32 _hit_0 = r0;
+  Term _i_2 = r1;
+  u32 _rest_0 = r2;
+  Term _rest_1 = r3;
+  WL_SPIN
+    if (_hit_0 == 1) {
+      o[0] = 1;
+      o[1] = _i_2;
+    } else {
+      o[0] = _rest_0;
+      o[1] = _rest_1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_69(Env e, THR Term* o, Term r0, Term r1) {
+  u32 wpoll = 0;
+  Term _p_2 = r0;
+  Term _p_3 = r1;
+  WL_SPIN
+    if (_p_3 == 0) {
+      o[0] = 0;
+    } else {
+      Term _m_0 = (_p_3 - 1);
+      o[0] = 1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_70(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _ok_0 = r0;
+  Term _p_4 = r1;
+  Term _p_5 = r2;
+  WL_SPIN
+    if (_ok_0 == 1) {
+      Term _v_1 = 0;
+      Term _v_2 = 0;
+      Term _o_1[2];
+      if (spin_43(e, _o_1, _p_4, _p_5) == 0) {
+        return 0;
+      }
+      _v_1 = _o_1[0];
+      _v_2 = _o_1[1];
+      o[0] = 3;
+      o[1] = 0;
+      o[2] = _v_1;
+      o[3] = _v_2;
+    } else {
+      o[0] = 4;
+      o[1] = 0;
+      o[2] = _p_4;
+      o[3] = _p_5;
     }
   break;
   }
@@ -3748,13 +3748,227 @@ INLINE Term spin_83(Env e, THR Term* o, u32 r0, u32 r1) {
   return 1;
 }
 
-INLINE Term spin_84(Env e, THR Term* o, Term r0, Term r1) {
+INLINE Term spin_84(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, u32 r4, Term r5, Term r6) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _r_1 = r1;
+  Term _r_2 = r2;
+  Term _r_3 = r3;
+  u32 _d_10 = r4;
+  Term _d_11 = r5;
+  Term _d_12 = r6;
+  WL_SPIN
+    if (_d_10 == 0) {
+      o[0] = 0;
+      o[1] = 2;
+      o[2] = _r_0;
+      o[3] = _r_1;
+      o[4] = _r_2;
+      o[5] = _r_3;
+      o[6] = _d_11;
+      o[7] = 0;
+      o[8] = 0;
+      o[9] = 0;
+      o[10] = _d_12;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+      o[8] = 0;
+      o[9] = 0;
+      o[10] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_85(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _p_0 = r0;
+  u32 _d_4 = r1;
+  u32 _d_5 = r2;
+  Term _d_6 = r3;
+  Term _d_7 = r4;
+  WL_SPIN
+    if (_d_4 == 0) {
+      u32 _v_0 = 0;
+      u32 _v_1 = 0;
+      Term _v_2 = 0;
+      Term _o_0[3];
+      if (spin_58(e, _o_0, _d_7) == 0) {
+        return 0;
+      }
+      _v_0 = (u32)_o_0[0];
+      _v_1 = (u32)_o_0[1];
+      _v_2 = _o_0[2];
+      Term _o_1[11];
+      if (spin_61(e, _o_1, _p_0, _d_5, _d_6, _v_0, _v_1, _v_2) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_1[0];
+      o[1] = (u32)_o_1[1];
+      o[2] = _o_1[2];
+      o[3] = _o_1[3];
+      o[4] = _o_1[4];
+      o[5] = _o_1[5];
+      o[6] = _o_1[6];
+      o[7] = (u32)_o_1[7];
+      o[8] = _o_1[8];
+      o[9] = _o_1[9];
+      o[10] = _o_1[10];
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+      o[8] = 0;
+      o[9] = 0;
+      o[10] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_86(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  u32 _seen_0 = r0;
+  Term _k_0 = r1;
+  Term _k_1 = r2;
+  Term _k_2 = r3;
+  Term _sh_2 = r4;
+  WL_SPIN
+    if (_seen_0 == 1) {
+      o[0] = _sh_2;
+    } else {
+      u64 _nd_0 = heap_alloc(e, cls_fit(3));
+      e.mem[_nd_0 + 0] = rfc_seal(e, _k_0);
+      e.mem[_nd_0 + 1] = rfc_seal(e, _k_1);
+      e.mem[_nd_0 + 2] = rfc_seal(e, _k_2);
+      u64 _nd_1 = heap_alloc(e, cls_fit(2));
+      e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_aux_fallback_K, _nd_0));
+      e.mem[_nd_1 + 1] = rfc_seal(e, _sh_2);
+      o[0] = term_ctr(CID_Con, _nd_1);
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_87(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  u32 _seen_0 = r0;
+  Term _k_0 = r1;
+  Term _k_1 = r2;
+  Term _k_2 = r3;
+  Term _t_4 = r4;
+  WL_SPIN
+    if (_seen_0 == 1) {
+      o[0] = _t_4;
+    } else {
+      u64 _nd_3 = heap_alloc(e, cls_fit(3));
+      e.mem[_nd_3 + 0] = rfc_seal(e, _k_0);
+      e.mem[_nd_3 + 1] = rfc_seal(e, _k_1);
+      e.mem[_nd_3 + 2] = rfc_seal(e, _k_2);
+      u64 _nd_4 = heap_alloc(e, cls_fit(2));
+      e.mem[_nd_4 + 0] = rfc_seal(e, term_ctr(CID_aux_fallback_Note, _nd_3));
+      e.mem[_nd_4 + 1] = rfc_seal(e, _t_4);
+      o[0] = term_ctr(CID_Con, _nd_4);
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_88(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  Term _p_0 = r0;
+  Term _s_0 = r1;
+  u32 _look_2 = r2;
+  Term _look_3 = r3;
+  Term _need_1 = r4;
+  WL_SPIN
+    if (_look_2 == 0) {
+      o[0] = 2;
+      o[1] = _p_0;
+      o[2] = _s_0;
+      o[3] = _look_3;
+    } else {
+      u32 _v_0 = 0;
+      Term _o_0[1];
+      if (spin_63(e, _o_0, _look_3, _need_1) == 0) {
+        return 0;
+      }
+      _v_0 = (u32)_o_0[0];
+      Term _o_1[4];
+      if (spin_64(e, _o_1, _v_0, _p_0, _s_0) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_1[0];
+      o[1] = _o_1[1];
+      o[2] = _o_1[2];
+      o[3] = _o_1[3];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_89(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _r_1 = r1;
+  Term _r_2 = r2;
+  Term _r_3 = r3;
+  Term _rest_1 = r4;
+  WL_SPIN
+    if (_r_0 == 0) {
+      Term _o_0[1];
+      if (spin_2(e, _o_0, 0, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_0[0];
+    } else if (_r_0 == 1) {
+      Term _o_1[1];
+      if (spin_2(e, _o_1, 1ull, _rest_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_1[0];
+    } else {
+      Term _v_1 = 0;
+      Term _o_2[1];
+      if (spin_9(e, _o_2, _r_1, _r_2, _r_3, _rest_1) == 0) {
+        return 0;
+      }
+      _v_1 = _o_2[0];
+      Term _o_3[1];
+      if (spin_2(e, _o_3, 2ull, _v_1) == 0) {
+        return 0;
+      }
+      o[0] = _o_3[0];
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_90(Env e, THR Term* o, Term r0, Term r1) {
   u32 wpoll = 0;
   Term _a_0 = r0;
   Term _b_0 = r1;
   WL_SPIN
     Term _o_0[1];
-    if (spin_58(e, _o_0, ((_a_0 > _b_0) + (_a_0 >= _b_0))) == 0) {
+    if (spin_66(e, _o_0, ((_a_0 > _b_0) + (_a_0 >= _b_0))) == 0) {
       return 0;
     }
     o[0] = (u32)_o_0[0];
@@ -3763,7 +3977,7 @@ INLINE Term spin_84(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_85(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_91(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _le_0 = r0;
   Term _c_0 = r1;
@@ -3779,7 +3993,7 @@ INLINE Term spin_85(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_86(Env e, THR Term* o, u32 r0) {
+INLINE Term spin_92(Env e, THR Term* o, u32 r0) {
   u32 wpoll = 0;
   u32 _s_0 = r0;
   WL_SPIN
@@ -3807,7 +4021,7 @@ INLINE Term spin_86(Env e, THR Term* o, u32 r0) {
   return 1;
 }
 
-INLINE Term spin_87(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_93(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
   u32 _hit_0 = r0;
   Term _hit_1 = r1;
@@ -3822,12 +4036,12 @@ INLINE Term spin_87(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
     } else {
       u32 _v_2 = 0;
       Term _o_1[1];
-      if (spin_61(e, _o_1, _p_4, _p_5) == 0) {
+      if (spin_69(e, _o_1, _p_4, _p_5) == 0) {
         return 0;
       }
       _v_2 = (u32)_o_1[0];
       Term _o_2[4];
-      if (spin_62(e, _o_2, _v_2, _p_4, _p_5) == 0) {
+      if (spin_70(e, _o_2, _v_2, _p_4, _p_5) == 0) {
         return 0;
       }
       o[0] = (u32)_o_2[0];
@@ -3840,7 +4054,7 @@ INLINE Term spin_87(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   return 1;
 }
 
-INLINE Term spin_88(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+INLINE Term spin_94(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   u32 wpoll = 0;
   Term _p_0 = r0;
   Term _p_1 = r1;
@@ -3862,7 +4076,7 @@ INLINE Term spin_88(Env e, THR Term* o, Term r0, Term r1, Term r2) {
   return 1;
 }
 
-INLINE Term spin_89(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+INLINE Term spin_95(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
   u32 wpoll = 0;
   u32 _a_0 = r0;
   Term _a_1 = r1;
@@ -3904,220 +4118,6 @@ INLINE Term spin_89(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
         return 0;
       }
       o[0] = _o_8[0];
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_90(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, u32 r4, Term r5, Term r6) {
-  u32 wpoll = 0;
-  u32 _r_0 = r0;
-  Term _r_1 = r1;
-  Term _r_2 = r2;
-  Term _r_3 = r3;
-  u32 _d_10 = r4;
-  Term _d_11 = r5;
-  Term _d_12 = r6;
-  WL_SPIN
-    if (_d_10 == 0) {
-      o[0] = 0;
-      o[1] = 2;
-      o[2] = _r_0;
-      o[3] = _r_1;
-      o[4] = _r_2;
-      o[5] = _r_3;
-      o[6] = _d_11;
-      o[7] = 0;
-      o[8] = 0;
-      o[9] = 0;
-      o[10] = _d_12;
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
-      o[4] = 0;
-      o[5] = 0;
-      o[6] = 0;
-      o[7] = 0;
-      o[8] = 0;
-      o[9] = 0;
-      o[10] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_91(Env e, THR Term* o, Term r0, u32 r1, u32 r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  Term _p_0 = r0;
-  u32 _d_4 = r1;
-  u32 _d_5 = r2;
-  Term _d_6 = r3;
-  Term _d_7 = r4;
-  WL_SPIN
-    if (_d_4 == 0) {
-      u32 _v_0 = 0;
-      u32 _v_1 = 0;
-      Term _v_2 = 0;
-      Term _o_0[3];
-      if (spin_64(e, _o_0, _d_7) == 0) {
-        return 0;
-      }
-      _v_0 = (u32)_o_0[0];
-      _v_1 = (u32)_o_0[1];
-      _v_2 = _o_0[2];
-      Term _o_1[11];
-      if (spin_67(e, _o_1, _p_0, _d_5, _d_6, _v_0, _v_1, _v_2) == 0) {
-        return 0;
-      }
-      o[0] = (u32)_o_1[0];
-      o[1] = (u32)_o_1[1];
-      o[2] = _o_1[2];
-      o[3] = _o_1[3];
-      o[4] = _o_1[4];
-      o[5] = _o_1[5];
-      o[6] = _o_1[6];
-      o[7] = (u32)_o_1[7];
-      o[8] = _o_1[8];
-      o[9] = _o_1[9];
-      o[10] = _o_1[10];
-    } else {
-      o[0] = 1;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
-      o[4] = 0;
-      o[5] = 0;
-      o[6] = 0;
-      o[7] = 0;
-      o[8] = 0;
-      o[9] = 0;
-      o[10] = 0;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_92(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  u32 _seen_0 = r0;
-  Term _k_0 = r1;
-  Term _k_1 = r2;
-  Term _k_2 = r3;
-  Term _sh_2 = r4;
-  WL_SPIN
-    if (_seen_0 == 1) {
-      o[0] = _sh_2;
-    } else {
-      u64 _nd_0 = heap_alloc(e, cls_fit(3));
-      e.mem[_nd_0 + 0] = rfc_seal(e, _k_0);
-      e.mem[_nd_0 + 1] = rfc_seal(e, _k_1);
-      e.mem[_nd_0 + 2] = rfc_seal(e, _k_2);
-      u64 _nd_1 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_1 + 0] = rfc_seal(e, term_ctr(CID_aux_fallback_K, _nd_0));
-      e.mem[_nd_1 + 1] = rfc_seal(e, _sh_2);
-      o[0] = term_ctr(CID_Con, _nd_1);
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_93(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  u32 _seen_0 = r0;
-  Term _k_0 = r1;
-  Term _k_1 = r2;
-  Term _k_2 = r3;
-  Term _t_4 = r4;
-  WL_SPIN
-    if (_seen_0 == 1) {
-      o[0] = _t_4;
-    } else {
-      u64 _nd_3 = heap_alloc(e, cls_fit(3));
-      e.mem[_nd_3 + 0] = rfc_seal(e, _k_0);
-      e.mem[_nd_3 + 1] = rfc_seal(e, _k_1);
-      e.mem[_nd_3 + 2] = rfc_seal(e, _k_2);
-      u64 _nd_4 = heap_alloc(e, cls_fit(2));
-      e.mem[_nd_4 + 0] = rfc_seal(e, term_ctr(CID_aux_fallback_Note, _nd_3));
-      e.mem[_nd_4 + 1] = rfc_seal(e, _t_4);
-      o[0] = term_ctr(CID_Con, _nd_4);
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_94(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  Term _p_0 = r0;
-  Term _s_0 = r1;
-  u32 _look_2 = r2;
-  Term _look_3 = r3;
-  Term _need_1 = r4;
-  WL_SPIN
-    if (_look_2 == 0) {
-      o[0] = 2;
-      o[1] = _p_0;
-      o[2] = _s_0;
-      o[3] = _look_3;
-    } else {
-      u32 _v_0 = 0;
-      Term _o_0[1];
-      if (spin_69(e, _o_0, _look_3, _need_1) == 0) {
-        return 0;
-      }
-      _v_0 = (u32)_o_0[0];
-      Term _o_1[4];
-      if (spin_70(e, _o_1, _v_0, _p_0, _s_0) == 0) {
-        return 0;
-      }
-      o[0] = (u32)_o_1[0];
-      o[1] = _o_1[1];
-      o[2] = _o_1[2];
-      o[3] = _o_1[3];
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_95(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  u32 _r_0 = r0;
-  Term _r_1 = r1;
-  Term _r_2 = r2;
-  Term _r_3 = r3;
-  Term _rest_1 = r4;
-  WL_SPIN
-    if (_r_0 == 0) {
-      Term _o_0[1];
-      if (spin_2(e, _o_0, 0, _rest_1) == 0) {
-        return 0;
-      }
-      o[0] = _o_0[0];
-    } else if (_r_0 == 1) {
-      Term _o_1[1];
-      if (spin_2(e, _o_1, 1ull, _rest_1) == 0) {
-        return 0;
-      }
-      o[0] = _o_1[0];
-    } else {
-      Term _v_1 = 0;
-      Term _o_2[1];
-      if (spin_12(e, _o_2, _r_1, _r_2, _r_3, _rest_1) == 0) {
-        return 0;
-      }
-      _v_1 = _o_2[0];
-      Term _o_3[1];
-      if (spin_2(e, _o_3, 2ull, _v_1) == 0) {
-        return 0;
-      }
-      o[0] = _o_3[0];
     }
   break;
   }
@@ -4398,84 +4398,7 @@ INLINE Term spin_106(Env e, THR Term* o, Term r0, Term r1) {
   return 1;
 }
 
-INLINE Term spin_107(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
-  u32 wpoll = 0;
-  u32 _d_0 = r0;
-  Term _d_1 = r1;
-  Term _d_2 = r2;
-  Term _d_3 = r3;
-  Term _rest_0 = r4;
-  WL_SPIN
-    Term _v_0 = 0;
-    Term _o_0[1];
-    if (spin_88(e, _o_0, _d_2, _d_3, _rest_0) == 0) {
-      return 0;
-    }
-    _v_0 = _o_0[0];
-    Term _o_1[1];
-    if (spin_89(e, _o_1, _d_0, _d_1, _v_0) == 0) {
-      return 0;
-    }
-    o[0] = _o_1[0];
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_108(Env e, THR Term* o, Term r0, Term r1, Term r2) {
-  u32 wpoll = 0;
-  Term _l_0 = r0;
-  Term _l_1 = r1;
-  Term _cap_0 = r2;
-  WL_SPIN
-    if (_cap_0 == 0) {
-      o[0] = _l_0;
-      o[1] = _l_1;
-    } else {
-      Term _x_0 = (_cap_0 - 1);
-      Term _v_3 = 0;
-      u32 _v_4 = 0;
-      Term _o_3[1];
-      if (spin_84(e, _o_3, _l_0, nat_chk(e, _x_0 + 1)) == 0) {
-        return 0;
-      }
-      _v_4 = (u32)_o_3[0];
-      Term _o_4[1];
-      if (spin_85(e, _o_4, _v_4, _l_0, nat_chk(e, _x_0 + 1)) == 0) {
-        return 0;
-      }
-      _v_3 = _o_4[0];
-      o[0] = _v_3;
-      o[1] = _l_1;
-    }
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_109(Env e, THR Term* o, Term r0, Term r1, Term r2) {
-  u32 wpoll = 0;
-  Term _l_2 = r0;
-  Term _l_3 = r1;
-  Term _rest_1 = r2;
-  WL_SPIN
-    Term _v_5 = 0;
-    Term _o_6[1];
-    if (spin_2(e, _o_6, _l_3, _rest_1) == 0) {
-      return 0;
-    }
-    _v_5 = _o_6[0];
-    Term _o_7[1];
-    if (spin_2(e, _o_7, _l_2, _v_5) == 0) {
-      return 0;
-    }
-    o[0] = _o_7[0];
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_110(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3) {
+INLINE Term spin_107(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3) {
   u32 wpoll = 0;
   Term _p_0 = r0;
   u32 _sel_0 = r1;
@@ -4514,7 +4437,7 @@ INLINE Term spin_110(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3) {
   return 1;
 }
 
-INLINE Term spin_111(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
+INLINE Term spin_108(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, Term r5) {
   u32 wpoll = 0;
   u32 _g_0 = r0;
   Term _g_1 = r1;
@@ -4526,7 +4449,7 @@ INLINE Term spin_111(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term
     if (_g_0 == 0) {
       Term _v_5 = 0;
       Term _o_1[1];
-      if (spin_95(e, _o_1, _g_1, _g_2, _g_3, _g_4, _rest_0) == 0) {
+      if (spin_89(e, _o_1, _g_1, _g_2, _g_3, _g_4, _rest_0) == 0) {
         return 0;
       }
       _v_5 = _o_1[0];
@@ -4559,7 +4482,7 @@ INLINE Term spin_111(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term
   return 1;
 }
 
-INLINE Term spin_112(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, u32 r5, Term r6, Term r7) {
+INLINE Term spin_109(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, u32 r5, Term r6, Term r7) {
   u32 wpoll = 0;
   u32 _g_5 = r0;
   Term _g_6 = r1;
@@ -4577,7 +4500,7 @@ INLINE Term spin_112(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term
       o[3] = _g_9;
     } else {
       Term _o_7[4];
-      if (spin_94(e, _o_7, _g_6, _g_7, _look_0, _look_1, _need_0) == 0) {
+      if (spin_88(e, _o_7, _g_6, _g_7, _look_0, _look_1, _need_0) == 0) {
         return 0;
       }
       o[0] = (u32)_o_7[0];
@@ -4585,6 +4508,83 @@ INLINE Term spin_112(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term
       o[2] = _o_7[2];
       o[3] = _o_7[3];
     }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_110(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+  u32 wpoll = 0;
+  u32 _d_0 = r0;
+  Term _d_1 = r1;
+  Term _d_2 = r2;
+  Term _d_3 = r3;
+  Term _rest_0 = r4;
+  WL_SPIN
+    Term _v_0 = 0;
+    Term _o_0[1];
+    if (spin_94(e, _o_0, _d_2, _d_3, _rest_0) == 0) {
+      return 0;
+    }
+    _v_0 = _o_0[0];
+    Term _o_1[1];
+    if (spin_95(e, _o_1, _d_0, _d_1, _v_0) == 0) {
+      return 0;
+    }
+    o[0] = _o_1[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_111(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  Term _l_0 = r0;
+  Term _l_1 = r1;
+  Term _cap_0 = r2;
+  WL_SPIN
+    if (_cap_0 == 0) {
+      o[0] = _l_0;
+      o[1] = _l_1;
+    } else {
+      Term _x_0 = (_cap_0 - 1);
+      Term _v_3 = 0;
+      u32 _v_4 = 0;
+      Term _o_3[1];
+      if (spin_90(e, _o_3, _l_0, nat_chk(e, _x_0 + 1)) == 0) {
+        return 0;
+      }
+      _v_4 = (u32)_o_3[0];
+      Term _o_4[1];
+      if (spin_91(e, _o_4, _v_4, _l_0, nat_chk(e, _x_0 + 1)) == 0) {
+        return 0;
+      }
+      _v_3 = _o_4[0];
+      o[0] = _v_3;
+      o[1] = _l_1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_112(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  Term _l_2 = r0;
+  Term _l_3 = r1;
+  Term _rest_1 = r2;
+  WL_SPIN
+    Term _v_5 = 0;
+    Term _o_6[1];
+    if (spin_2(e, _o_6, _l_3, _rest_1) == 0) {
+      return 0;
+    }
+    _v_5 = _o_6[0];
+    Term _o_7[1];
+    if (spin_2(e, _o_7, _l_2, _v_5) == 0) {
+      return 0;
+    }
+    o[0] = _o_7[0];
   break;
   }
   return 1;
@@ -4782,7 +4782,7 @@ INLINE Term spin_120(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
       u32 _x_0 = ((u64)(u32)(_r_1));
       u32 _v_0 = 0;
       Term _o_0[1];
-      if (spin_39(e, _o_0, ((u64)_x_0), _r_1) == 0) {
+      if (spin_36(e, _o_0, ((u64)_x_0), _r_1) == 0) {
         return 0;
       }
       _v_0 = (u32)_o_0[0];
@@ -5254,7 +5254,7 @@ INLINE Term spin_137(Env e, THR Term* o, Term r0, Term r1) {
     }
     _v_1 = (u32)_o_0[0];
     Term _o_1[1];
-    if (spin_40(e, _o_1, _v_1) == 0) {
+    if (spin_37(e, _o_1, _v_1) == 0) {
       return 0;
     }
     o[0] = (u32)_o_1[0];
@@ -5348,11 +5348,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_workflow_get_row_k15;
+      STK(0) = FID_ffi_workflow_get_row_k21;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_workflow_get_row_k15, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_workflow_get_row_k15, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_workflow_get_row_k21, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_workflow_get_row_k21, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -5366,7 +5366,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_row_k15)
+  WL_CASE(FID_ffi_workflow_get_row_k21)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -5375,12 +5375,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_1;
-        STK(1) = FID_ffi_workflow_get_row_k16;
+        STK(1) = FID_ffi_workflow_get_row_k22;
         WL_PUSHN(2);
       } else {
-        u64 _t_2 = task_node(e, FID_ffi_workflow_get_row_k16, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_ffi_workflow_get_row_k22, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_ffi_workflow_get_row_k16, _t_2);
+        WL_CONT = term_tsk(FID_ffi_workflow_get_row_k22, _t_2);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_sts)) {
@@ -5401,7 +5401,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_row_k16)
+  WL_CASE(FID_ffi_workflow_get_row_k22)
     WL_POPN(1);
     Term _h_6 = STK(0);
     u32 _h_3 = r0;
@@ -5409,7 +5409,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_5 = r2;
     WL_OPEN
     Term _o_0[4];
-    if (spin_0(e, _o_0, _h_6, _h_3, _h_4, _h_5) == 0) {
+    if (spin_1(e, _o_0, _h_6, _h_3, _h_4, _h_5) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -5454,14 +5454,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           STK(0) = _m_0;
           STK(1) = _cur_1;
           STK(2) = _cur_2;
-          STK(3) = FID_wire_get_list_go_4_k18;
+          STK(3) = FID_wire_get_list_go_4_k24;
           WL_PUSHN(4);
         } else {
-          u64 _t_0 = task_node(e, FID_wire_get_list_go_4_k18, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_wire_get_list_go_4_k24, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _m_0;
           e.mem[_t_0 + 1] = _cur_1;
           e.mem[_t_0 + 2] = _cur_2;
-          WL_CONT = term_tsk(FID_wire_get_list_go_4_k18, _t_0);
+          WL_CONT = term_tsk(FID_wire_get_list_go_4_k24, _t_0);
           WL_IDX = 3;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_row)) {
@@ -5482,7 +5482,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_4_k18)
+  WL_CASE(FID_wire_get_list_go_4_k24)
     WL_POPN(3);
     Term _m_1 = STK(0);
     Term _cur_4 = STK(1);
@@ -5496,13 +5496,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       WL_ROOM(3, 0);
       STK(0) = _cur_4;
       STK(1) = _cur_5;
-      STK(2) = FID_wire_get_list_go_4_k19;
+      STK(2) = FID_wire_get_list_go_4_k25;
       WL_PUSHN(3);
     } else {
-      u64 _t_2 = task_node(e, FID_wire_get_list_go_4_k19, WL_CONT, WL_IDX, 1);
+      u64 _t_2 = task_node(e, FID_wire_get_list_go_4_k25, WL_CONT, WL_IDX, 1);
       e.mem[_t_2 + 0] = _cur_4;
       e.mem[_t_2 + 1] = _cur_5;
-      WL_CONT = term_tsk(FID_wire_get_list_go_4_k19, _t_2);
+      WL_CONT = term_tsk(FID_wire_get_list_go_4_k25, _t_2);
       WL_IDX = 2;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_4)) {
@@ -5524,7 +5524,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_4_k19)
+  WL_CASE(FID_wire_get_list_go_4_k25)
     WL_POPN(2);
     Term _cur_6 = STK(0);
     u32 _cur_7 = STK(1);
@@ -5533,131 +5533,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_6 = r2;
     WL_OPEN
     Term _o_0[3];
-    if (spin_10(e, _o_0, _cur_6, _cur_7, _h_4, _h_5, _h_6) == 0) {
+    if (spin_11(e, _o_0, _cur_6, _cur_7, _h_4, _h_5, _h_6) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
     r1 = _o_0[1];
     r2 = _o_0[2];
     WL_RETN(3);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_sts)
-    Term _s_0 = r0;
-    WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_ffi_workflow_get_sts_k39;
-      WL_PUSHN(1);
-    } else {
-      u64 _t_0 = task_node(e, FID_ffi_workflow_get_sts_k39, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_workflow_get_sts_k39, _t_0);
-      WL_IDX = 0;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-      e.mem[_t_1 + 0] = _s_0;
-      return term_tsk(FID_wire_get_nat, _t_1);
-    }
-    r0 = _s_0;
-    WL_JMP(FID_wire_get_nat);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_sts_k39)
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    Term _h_2 = r2;
-    WL_OPEN
-    Term _o_1[3];
-    if (spin_19(e, _o_1, _h_0, _h_1, _h_2) == 0) {
-      return 0;
-    }
-    r0 = (u32)_o_1[0];
-    r1 = (u32)_o_1[1];
-    r2 = _o_1[2];
-    WL_RETN(3);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_pool)
-    Term _s_0 = r0;
-    WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_ffi_workflow_get_pool_k44;
-      WL_PUSHN(1);
-    } else {
-      u64 _t_0 = task_node(e, FID_ffi_workflow_get_pool_k44, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_workflow_get_pool_k44, _t_0);
-      WL_IDX = 0;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-      e.mem[_t_1 + 0] = _s_0;
-      return term_tsk(FID_wire_get_nat, _t_1);
-    }
-    r0 = _s_0;
-    WL_JMP(FID_wire_get_nat);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_pool_k44)
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    Term _h_2 = r2;
-    WL_OPEN
-    if (_h_0 == 0) {
-      if (seq) {
-        WL_ROOM(2, 0);
-        STK(0) = _h_1;
-        STK(1) = FID_ffi_workflow_get_pool_k45;
-        WL_PUSHN(2);
-      } else {
-        u64 _t_2 = task_node(e, FID_ffi_workflow_get_pool_k45, WL_CONT, WL_IDX, 1);
-        e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_ffi_workflow_get_pool_k45, _t_2);
-        WL_IDX = 1;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-        u64 _t_3 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-        e.mem[_t_3 + 0] = _h_2;
-        return term_tsk(FID_wire_get_nat, _t_3);
-      }
-      r0 = _h_2;
-      WL_JMP(FID_wire_get_nat);
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      WL_RETN(4);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_pool_k45)
-    WL_POPN(1);
-    Term _h_6 = STK(0);
-    u32 _h_3 = r0;
-    Term _h_4 = r1;
-    Term _h_5 = r2;
-    WL_OPEN
-    Term _o_0[4];
-    if (spin_11(e, _o_0, _h_6, _h_3, _h_4, _h_5) == 0) {
-      return 0;
-    }
-    r0 = (u32)_o_0[0];
-    r1 = _o_0[1];
-    r2 = _o_0[2];
-    r3 = _o_0[3];
-    WL_RETN(4);
   }}
 #endif
 
@@ -5667,11 +5549,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_aux_fallback_get_key_k50;
+      STK(0) = FID_ffi_aux_fallback_get_key_k40;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_key_k50, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_key_k50, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_key_k40, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_key_k40, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -5685,7 +5567,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_key_k50)
+  WL_CASE(FID_ffi_aux_fallback_get_key_k40)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -5694,12 +5576,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_1;
-        STK(1) = FID_ffi_aux_fallback_get_key_k51;
+        STK(1) = FID_ffi_aux_fallback_get_key_k41;
         WL_PUSHN(2);
       } else {
-        u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_key_k51, WL_CONT, WL_IDX, 1);
+        u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_key_k41, WL_CONT, WL_IDX, 1);
         e.mem[_t_2 + 0] = _h_1;
-        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_key_k51, _t_2);
+        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_key_k41, _t_2);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -5721,7 +5603,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_key_k51)
+  WL_CASE(FID_ffi_aux_fallback_get_key_k41)
     WL_POPN(1);
     Term _h_6 = STK(0);
     u32 _h_3 = r0;
@@ -5733,13 +5615,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_ROOM(3, 0);
         STK(0) = _h_6;
         STK(1) = _h_4;
-        STK(2) = FID_ffi_aux_fallback_get_key_k52;
+        STK(2) = FID_ffi_aux_fallback_get_key_k42;
         WL_PUSHN(3);
       } else {
-        u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_key_k52, WL_CONT, WL_IDX, 1);
+        u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_key_k42, WL_CONT, WL_IDX, 1);
         e.mem[_t_4 + 0] = _h_6;
         e.mem[_t_4 + 1] = _h_4;
-        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_key_k52, _t_4);
+        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_key_k42, _t_4);
         WL_IDX = 2;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -5761,7 +5643,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_key_k52)
+  WL_CASE(FID_ffi_aux_fallback_get_key_k42)
     WL_POPN(2);
     Term _h_10 = STK(0);
     Term _h_11 = STK(1);
@@ -5770,7 +5652,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_9 = r2;
     WL_OPEN
     Term _o_0[5];
-    if (spin_1(e, _o_0, _h_10, _h_11, _h_7, _h_8, _h_9) == 0) {
+    if (spin_0(e, _o_0, _h_10, _h_11, _h_7, _h_8, _h_9) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -5819,15 +5701,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           STK(1) = _cur_1;
           STK(2) = _cur_2;
           STK(3) = _cur_3;
-          STK(4) = FID_wire_get_list_go_1_k54;
+          STK(4) = FID_wire_get_list_go_1_k44;
           WL_PUSHN(5);
         } else {
-          u64 _t_0 = task_node(e, FID_wire_get_list_go_1_k54, WL_CONT, WL_IDX, 1);
+          u64 _t_0 = task_node(e, FID_wire_get_list_go_1_k44, WL_CONT, WL_IDX, 1);
           e.mem[_t_0 + 0] = _m_0;
           e.mem[_t_0 + 1] = _cur_1;
           e.mem[_t_0 + 2] = _cur_2;
           e.mem[_t_0 + 3] = _cur_3;
-          WL_CONT = term_tsk(FID_wire_get_list_go_1_k54, _t_0);
+          WL_CONT = term_tsk(FID_wire_get_list_go_1_k44, _t_0);
           WL_IDX = 4;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_key)) {
@@ -5848,7 +5730,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_1_k54)
+  WL_CASE(FID_wire_get_list_go_1_k44)
     WL_POPN(4);
     Term _m_1 = STK(0);
     Term _cur_5 = STK(1);
@@ -5865,14 +5747,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       STK(0) = _cur_5;
       STK(1) = _cur_6;
       STK(2) = _cur_7;
-      STK(3) = FID_wire_get_list_go_1_k55;
+      STK(3) = FID_wire_get_list_go_1_k45;
       WL_PUSHN(4);
     } else {
-      u64 _t_2 = task_node(e, FID_wire_get_list_go_1_k55, WL_CONT, WL_IDX, 1);
+      u64 _t_2 = task_node(e, FID_wire_get_list_go_1_k45, WL_CONT, WL_IDX, 1);
       e.mem[_t_2 + 0] = _cur_5;
       e.mem[_t_2 + 1] = _cur_6;
       e.mem[_t_2 + 2] = _cur_7;
-      WL_CONT = term_tsk(FID_wire_get_list_go_1_k55, _t_2);
+      WL_CONT = term_tsk(FID_wire_get_list_go_1_k45, _t_2);
       WL_IDX = 3;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_1)) {
@@ -5896,7 +5778,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_go_1_k55)
+  WL_CASE(FID_wire_get_list_go_1_k45)
     WL_POPN(3);
     Term _cur_8 = STK(0);
     Term _cur_9 = STK(1);
@@ -5906,13 +5788,131 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_7 = r2;
     WL_OPEN
     Term _o_0[3];
-    if (spin_20(e, _o_0, _cur_8, _cur_9, _cur_10, _h_5, _h_6, _h_7) == 0) {
+    if (spin_19(e, _o_0, _cur_8, _cur_9, _cur_10, _h_5, _h_6, _h_7) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
     r1 = _o_0[1];
     r2 = _o_0[2];
     WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_sts)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_workflow_get_sts_k56;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_workflow_get_sts_k56, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_workflow_get_sts_k56, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_sts_k56)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    Term _o_1[3];
+    if (spin_23(e, _o_1, _h_0, _h_1, _h_2) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_1[0];
+    r1 = (u32)_o_1[1];
+    r2 = _o_1[2];
+    WL_RETN(3);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_pool)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_workflow_get_pool_k61;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_workflow_get_pool_k61, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_workflow_get_pool_k61, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_pool_k61)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_1;
+        STK(1) = FID_ffi_workflow_get_pool_k62;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_2 = task_node(e, FID_ffi_workflow_get_pool_k62, WL_CONT, WL_IDX, 1);
+        e.mem[_t_2 + 0] = _h_1;
+        WL_CONT = term_tsk(FID_ffi_workflow_get_pool_k62, _t_2);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_3 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_3 + 0] = _h_2;
+        return term_tsk(FID_wire_get_nat, _t_3);
+      }
+      r0 = _h_2;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      WL_RETN(4);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_pool_k62)
+    WL_POPN(1);
+    Term _h_6 = STK(0);
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    Term _o_0[4];
+    if (spin_12(e, _o_0, _h_6, _h_3, _h_4, _h_5) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = _o_0[1];
+    r2 = _o_0[2];
+    r3 = _o_0[3];
+    WL_RETN(4);
   }}
 #endif
 
@@ -6211,98 +6211,6 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_4)
-    Term _s_0 = r0;
-    WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_list_4_k90;
-      WL_PUSHN(1);
-    } else {
-      u64 _t_0 = task_node(e, FID_wire_get_list_4_k90, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_list_4_k90, _t_0);
-      WL_IDX = 0;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-      e.mem[_t_1 + 0] = _s_0;
-      return term_tsk(FID_wire_get_nat, _t_1);
-    }
-    r0 = _s_0;
-    WL_JMP(FID_wire_get_nat);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_wire_get_list_4_k90)
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    Term _h_2 = r2;
-    WL_OPEN
-    if (_h_0 == 0) {
-      if (_h_1 == 0) {
-        r0 = 0;
-        r1 = term_pak(CID_Nil, 0);
-        r2 = _h_2;
-        WL_RETN(3);
-      } else {
-        Term _m_0 = (_h_1 - 1);
-        if (seq) {
-          WL_ROOM(2, 0);
-          STK(0) = _m_0;
-          STK(1) = FID_wire_get_list_4_k91;
-          WL_PUSHN(2);
-        } else {
-          u64 _t_2 = task_node(e, FID_wire_get_list_4_k91, WL_CONT, WL_IDX, 1);
-          e.mem[_t_2 + 0] = _m_0;
-          WL_CONT = term_tsk(FID_wire_get_list_4_k91, _t_2);
-          WL_IDX = 1;
-        }
-        if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_row)) {
-          u64 _t_3 = task_node(e, FID_ffi_workflow_get_row, WL_CONT, WL_IDX, 0);
-          e.mem[_t_3 + 0] = _h_2;
-          return term_tsk(FID_ffi_workflow_get_row, _t_3);
-        }
-        r0 = _h_2;
-        WL_JMP(FID_ffi_workflow_get_row);
-      }
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      WL_RETN(3);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_wire_get_list_4_k91)
-    WL_POPN(1);
-    Term _m_1 = STK(0);
-    u32 _h_3 = r0;
-    Term _h_4 = r1;
-    u32 _h_5 = r2;
-    Term _h_6 = r3;
-    WL_OPEN
-    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_4)) {
-      u64 _t_4 = task_node(e, FID_wire_get_list_go_4, WL_CONT, WL_IDX, 0);
-      e.mem[_t_4 + 0] = _m_1;
-      e.mem[_t_4 + 1] = _h_3;
-      e.mem[_t_4 + 2] = _h_4;
-      e.mem[_t_4 + 3] = _h_5;
-      e.mem[_t_4 + 4] = _h_6;
-      return term_tsk(FID_wire_get_list_go_4, _t_4);
-    }
-    r0 = _m_1;
-    r1 = _h_3;
-    r2 = _h_4;
-    r3 = _h_5;
-    r4 = _h_6;
-    WL_JMP(FID_wire_get_list_go_4);
-  }}
-#endif
-
-#if !DEVICE
   WL_CASE(FID_wire_put_list_go_1)
     Term _xs_0 = r0;
     Term _rest_0 = r1;
@@ -6329,14 +6237,14 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(0) = _f_2;
         STK(1) = _f_3;
         STK(2) = _f_4;
-        STK(3) = FID_wire_put_list_go_1_k116;
+        STK(3) = FID_wire_put_list_go_1_k103;
         WL_PUSHN(4);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_list_go_1_k116, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_1_k103, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_2;
         e.mem[_t_0 + 1] = _f_3;
         e.mem[_t_0 + 2] = _f_4;
-        WL_CONT = term_tsk(FID_wire_put_list_go_1_k116, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_list_go_1_k103, _t_0);
         WL_IDX = 3;
       }
       r0 = _f_1;
@@ -6350,7 +6258,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_1_k116)
+  WL_CASE(FID_wire_put_list_go_1_k103)
     WL_POPN(3);
     Term _f_5 = STK(0);
     Term _f_6 = STK(1);
@@ -6359,7 +6267,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_1 = r1;
     WL_OPEN
     Term _o_1[2];
-    if (spin_41(e, _o_1, _f_5, _f_6, _f_7, _h_0, _h_1) == 0) {
+    if (spin_38(e, _o_1, _f_5, _f_6, _f_7, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_1[0];
@@ -6421,15 +6329,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _o_1;
         STK(2) = _o_2;
         STK(3) = _o_3;
-        STK(4) = FID_wire_put_list_go_2_k118;
+        STK(4) = FID_wire_put_list_go_2_k105;
         WL_PUSHN(5);
       } else {
-        u64 _t_0 = task_node(e, FID_wire_put_list_go_2_k118, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_wire_put_list_go_2_k105, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _o_0;
         e.mem[_t_0 + 1] = _o_1;
         e.mem[_t_0 + 2] = _o_2;
         e.mem[_t_0 + 3] = _o_3;
-        WL_CONT = term_tsk(FID_wire_put_list_go_2_k118, _t_0);
+        WL_CONT = term_tsk(FID_wire_put_list_go_2_k105, _t_0);
         WL_IDX = 4;
       }
       r0 = _f_1;
@@ -6443,7 +6351,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_go_2_k118)
+  WL_CASE(FID_wire_put_list_go_2_k105)
     WL_POPN(4);
     u32 _o_4 = STK(0);
     Term _o_5 = STK(1);
@@ -6453,12 +6361,104 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_1 = r1;
     WL_OPEN
     Term _o_9[2];
-    if (spin_42(e, _o_9, _o_4, _o_5, _o_6, _o_7, _h_0, _h_1) == 0) {
+    if (spin_39(e, _o_9, _o_4, _o_5, _o_6, _o_7, _h_0, _h_1) == 0) {
       return 0;
     }
     r0 = _o_9[0];
     r1 = _o_9[1];
     WL_RETN(2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_4)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_wire_get_list_4_k112;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_wire_get_list_4_k112, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_list_4_k112, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_4_k112)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        r0 = 0;
+        r1 = term_pak(CID_Nil, 0);
+        r2 = _h_2;
+        WL_RETN(3);
+      } else {
+        Term _m_0 = (_h_1 - 1);
+        if (seq) {
+          WL_ROOM(2, 0);
+          STK(0) = _m_0;
+          STK(1) = FID_wire_get_list_4_k113;
+          WL_PUSHN(2);
+        } else {
+          u64 _t_2 = task_node(e, FID_wire_get_list_4_k113, WL_CONT, WL_IDX, 1);
+          e.mem[_t_2 + 0] = _m_0;
+          WL_CONT = term_tsk(FID_wire_get_list_4_k113, _t_2);
+          WL_IDX = 1;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_row)) {
+          u64 _t_3 = task_node(e, FID_ffi_workflow_get_row, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_ffi_workflow_get_row, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_ffi_workflow_get_row);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      WL_RETN(3);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_wire_get_list_4_k113)
+    WL_POPN(1);
+    Term _m_1 = STK(0);
+    u32 _h_3 = r0;
+    Term _h_4 = r1;
+    u32 _h_5 = r2;
+    Term _h_6 = r3;
+    WL_OPEN
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_go_4)) {
+      u64 _t_4 = task_node(e, FID_wire_get_list_go_4, WL_CONT, WL_IDX, 0);
+      e.mem[_t_4 + 0] = _m_1;
+      e.mem[_t_4 + 1] = _h_3;
+      e.mem[_t_4 + 2] = _h_4;
+      e.mem[_t_4 + 3] = _h_5;
+      e.mem[_t_4 + 4] = _h_6;
+      return term_tsk(FID_wire_get_list_go_4, _t_4);
+    }
+    r0 = _m_1;
+    r1 = _h_3;
+    r2 = _h_4;
+    r3 = _h_5;
+    r4 = _h_6;
+    WL_JMP(FID_wire_get_list_go_4);
   }}
 #endif
 
@@ -7186,7 +7186,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _v_0 = 0;
     Term _o_0[1];
-    if (spin_39(e, _o_0, _f_5, _k_1) == 0) {
+    if (spin_36(e, _o_0, _f_5, _k_1) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_0[0];
@@ -7267,7 +7267,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     u32 _v_2 = 0;
     u32 _v_3 = 0;
     Term _o_0[1];
-    if (spin_39(e, _o_0, _f_5, _k_1) == 0) {
+    if (spin_36(e, _o_0, _f_5, _k_1) == 0) {
       return 0;
     }
     _v_3 = (u32)_o_0[0];
@@ -7555,105 +7555,16 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_workflow_found)
-    Term _rs_0 = r0;
-    Term _k_0 = r1;
-    Term _i_0 = r2;
-    WL_OPEN
-    WL_SPIN
-    if (term_aux(_rs_0) == CID_Nil) {
-      r0 = 0;
-      r1 = 0;
-      WL_RETN(2);
-    } else {
-      Term _fb_0[2];
-      u64 _sp_0 = ctr_take(e, _rs_0, 2, _fb_0);
-      Term _f_0 = _fb_0[0];
-      Term _f_1 = _fb_0[1];
-      Term _fb_1[2];
-      u64 _sp_1 = ctr_take(e, _f_0, 2, _fb_1);
-      Term _f_2 = _fb_1[0];
-      u32 _f_3 = _fb_1[1];
-      spare_free(e, cls_fit(2), _sp_1);
-      spare_free(e, cls_fit(2), _sp_0);
-      if (seq) {
-        WL_ROOM(5, 0);
-        STK(0) = _f_2;
-        STK(1) = _f_3;
-        STK(2) = _k_0;
-        STK(3) = _i_0;
-        STK(4) = FID_workflow_found_k185;
-        WL_PUSHN(5);
-      } else {
-        u64 _t_0 = task_node(e, FID_workflow_found_k185, WL_CONT, WL_IDX, 1);
-        e.mem[_t_0 + 0] = _f_2;
-        e.mem[_t_0 + 1] = _f_3;
-        e.mem[_t_0 + 2] = _k_0;
-        e.mem[_t_0 + 3] = _i_0;
-        WL_CONT = term_tsk(FID_workflow_found_k185, _t_0);
-        WL_IDX = 4;
-      }
-      r0 = _f_1;
-      r1 = _k_0;
-      r2 = nat_chk(e, _i_0 + 1);
-      _rs_0 = r0;
-      _k_0 = r1;
-      _i_0 = r2;
-      WL_AGAIN(FID_workflow_found);
-    }
-    WL_SPUN
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_workflow_found_k185)
-    WL_POPN(4);
-    Term _f_4 = STK(0);
-    u32 _f_5 = STK(1);
-    Term _k_1 = STK(2);
-    Term _i_1 = STK(3);
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    WL_OPEN
-    u32 _v_0 = 0;
-    u32 _v_1 = 0;
-    Term _o_0[1];
-    if (spin_39(e, _o_0, _k_1, _f_4) == 0) {
-      return 0;
-    }
-    _v_1 = (u32)_o_0[0];
-    u32 _v_2 = 0;
-    Term _o_1[1];
-    if (spin_59(e, _o_1, _f_5) == 0) {
-      return 0;
-    }
-    _v_2 = (u32)_o_1[0];
-    Term _o_2[1];
-    if (spin_18(e, _o_2, _v_1, _v_2) == 0) {
-      return 0;
-    }
-    _v_0 = (u32)_o_2[0];
-    Term _o_3[2];
-    if (spin_60(e, _o_3, _v_0, _i_1, _h_0, _h_1) == 0) {
-      return 0;
-    }
-    r0 = (u32)_o_3[0];
-    r1 = _o_3[1];
-    WL_RETN(2);
-  }}
-#endif
-
-#if !DEVICE
   WL_CASE(FID_wire_get_list_1)
     Term _s_0 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_get_list_1_k193;
+      STK(0) = FID_wire_get_list_1_k178;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_get_list_1_k193, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_get_list_1_k193, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_get_list_1_k178, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_get_list_1_k178, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -7667,7 +7578,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_1_k193)
+  WL_CASE(FID_wire_get_list_1_k178)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -7683,12 +7594,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         if (seq) {
           WL_ROOM(2, 0);
           STK(0) = _m_0;
-          STK(1) = FID_wire_get_list_1_k194;
+          STK(1) = FID_wire_get_list_1_k179;
           WL_PUSHN(2);
         } else {
-          u64 _t_2 = task_node(e, FID_wire_get_list_1_k194, WL_CONT, WL_IDX, 1);
+          u64 _t_2 = task_node(e, FID_wire_get_list_1_k179, WL_CONT, WL_IDX, 1);
           e.mem[_t_2 + 0] = _m_0;
-          WL_CONT = term_tsk(FID_wire_get_list_1_k194, _t_2);
+          WL_CONT = term_tsk(FID_wire_get_list_1_k179, _t_2);
           WL_IDX = 1;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_key)) {
@@ -7709,7 +7620,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_get_list_1_k194)
+  WL_CASE(FID_wire_get_list_1_k179)
     WL_POPN(1);
     Term _m_1 = STK(0);
     u32 _h_3 = r0;
@@ -7744,11 +7655,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_aux_fallback_get_look_k201;
+      STK(0) = FID_ffi_aux_fallback_get_look_k186;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_look_k201, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_look_k201, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_look_k186, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_look_k186, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -7762,7 +7673,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_look_k201)
+  WL_CASE(FID_ffi_aux_fallback_get_look_k186)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -7771,11 +7682,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (_h_1 == 0) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_look_k202;
+          STK(0) = FID_ffi_aux_fallback_get_look_k187;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_look_k202, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_look_k202, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_look_k187, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_look_k187, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -7788,11 +7699,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 1) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_look_k203;
+          STK(0) = FID_ffi_aux_fallback_get_look_k188;
           WL_PUSHN(1);
         } else {
-          u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_look_k203, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_look_k203, _t_4);
+          u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_look_k188, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_look_k188, _t_4);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -7822,13 +7733,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_look_k202)
+  WL_CASE(FID_ffi_aux_fallback_get_look_k187)
     u32 _h_3 = r0;
     Term _h_4 = r1;
     Term _h_5 = r2;
     WL_OPEN
     Term _o_0[4];
-    if (spin_38(e, _o_0, _h_3, _h_4, _h_5, 0) == 0) {
+    if (spin_35(e, _o_0, _h_3, _h_4, _h_5, 0) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -7840,13 +7751,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_look_k203)
+  WL_CASE(FID_ffi_aux_fallback_get_look_k188)
     u32 _h_6 = r0;
     Term _h_7 = r1;
     Term _h_8 = r2;
     WL_OPEN
     Term _o_1[4];
-    if (spin_38(e, _o_1, _h_6, _h_7, _h_8, 1ull) == 0) {
+    if (spin_35(e, _o_1, _h_6, _h_7, _h_8, 1ull) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -7863,11 +7774,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_aux_fallback_get_sel_k207;
+      STK(0) = FID_ffi_aux_fallback_get_sel_k192;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_sel_k207, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_sel_k207, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_sel_k192, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_sel_k192, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -7881,7 +7792,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_sel_k207)
+  WL_CASE(FID_ffi_aux_fallback_get_sel_k192)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -7902,11 +7813,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 2) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_sel_k208;
+          STK(0) = FID_ffi_aux_fallback_get_sel_k193;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_sel_k208, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_sel_k208, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_sel_k193, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_sel_k193, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -7936,13 +7847,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_sel_k208)
+  WL_CASE(FID_ffi_aux_fallback_get_sel_k193)
     u32 _h_3 = r0;
     Term _h_4 = r1;
     Term _h_5 = r2;
     WL_OPEN
     Term _o_0[4];
-    if (spin_22(e, _o_0, _h_3, _h_4, _h_5) == 0) {
+    if (spin_21(e, _o_0, _h_3, _h_4, _h_5) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -7980,17 +7891,17 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(3) = _k_0;
         STK(4) = _k_1;
         STK(5) = _k_2;
-        STK(6) = FID_aux_fallback_listed_k212;
+        STK(6) = FID_aux_fallback_listed_k197;
         WL_PUSHN(7);
       } else {
-        u64 _t_0 = task_node(e, FID_aux_fallback_listed_k212, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_aux_fallback_listed_k197, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _f_2;
         e.mem[_t_0 + 1] = _f_3;
         e.mem[_t_0 + 2] = _f_4;
         e.mem[_t_0 + 3] = _k_0;
         e.mem[_t_0 + 4] = _k_1;
         e.mem[_t_0 + 5] = _k_2;
-        WL_CONT = term_tsk(FID_aux_fallback_listed_k212, _t_0);
+        WL_CONT = term_tsk(FID_aux_fallback_listed_k197, _t_0);
         WL_IDX = 6;
       }
       r0 = _f_1;
@@ -8008,7 +7919,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_aux_fallback_listed_k212)
+  WL_CASE(FID_aux_fallback_listed_k197)
     WL_POPN(6);
     Term _f_5 = STK(0);
     Term _f_6 = STK(1);
@@ -8020,7 +7931,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _v_0 = 0;
     Term _o_5[1];
-    if (spin_68(e, _o_5, _f_5, _f_6, _f_7, _k_3, _k_4, _k_5) == 0) {
+    if (spin_62(e, _o_5, _f_5, _f_6, _f_7, _k_3, _k_4, _k_5) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_5[0];
@@ -8036,11 +7947,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_wire_put_list_1_k215;
+      STK(0) = FID_wire_put_list_1_k200;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_wire_put_list_1_k215, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_wire_put_list_1_k215, _t_0);
+      u64 _t_0 = task_node(e, FID_wire_put_list_1_k200, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_wire_put_list_1_k200, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_1)) {
@@ -8056,7 +7967,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_wire_put_list_1_k215)
+  WL_CASE(FID_wire_put_list_1_k200)
     Term _h_0 = r0;
     Term _h_1 = r1;
     WL_OPEN
@@ -8066,6 +7977,95 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     }
     r0 = _o_0[0];
     WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_workflow_found)
+    Term _rs_0 = r0;
+    Term _k_0 = r1;
+    Term _i_0 = r2;
+    WL_OPEN
+    WL_SPIN
+    if (term_aux(_rs_0) == CID_Nil) {
+      r0 = 0;
+      r1 = 0;
+      WL_RETN(2);
+    } else {
+      Term _fb_0[2];
+      u64 _sp_0 = ctr_take(e, _rs_0, 2, _fb_0);
+      Term _f_0 = _fb_0[0];
+      Term _f_1 = _fb_0[1];
+      Term _fb_1[2];
+      u64 _sp_1 = ctr_take(e, _f_0, 2, _fb_1);
+      Term _f_2 = _fb_1[0];
+      u32 _f_3 = _fb_1[1];
+      spare_free(e, cls_fit(2), _sp_1);
+      spare_free(e, cls_fit(2), _sp_0);
+      if (seq) {
+        WL_ROOM(5, 0);
+        STK(0) = _f_2;
+        STK(1) = _f_3;
+        STK(2) = _k_0;
+        STK(3) = _i_0;
+        STK(4) = FID_workflow_found_k215;
+        WL_PUSHN(5);
+      } else {
+        u64 _t_0 = task_node(e, FID_workflow_found_k215, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _f_2;
+        e.mem[_t_0 + 1] = _f_3;
+        e.mem[_t_0 + 2] = _k_0;
+        e.mem[_t_0 + 3] = _i_0;
+        WL_CONT = term_tsk(FID_workflow_found_k215, _t_0);
+        WL_IDX = 4;
+      }
+      r0 = _f_1;
+      r1 = _k_0;
+      r2 = nat_chk(e, _i_0 + 1);
+      _rs_0 = r0;
+      _k_0 = r1;
+      _i_0 = r2;
+      WL_AGAIN(FID_workflow_found);
+    }
+    WL_SPUN
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_workflow_found_k215)
+    WL_POPN(4);
+    Term _f_4 = STK(0);
+    u32 _f_5 = STK(1);
+    Term _k_1 = STK(2);
+    Term _i_1 = STK(3);
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    WL_OPEN
+    u32 _v_0 = 0;
+    u32 _v_1 = 0;
+    Term _o_0[1];
+    if (spin_36(e, _o_0, _k_1, _f_4) == 0) {
+      return 0;
+    }
+    _v_1 = (u32)_o_0[0];
+    u32 _v_2 = 0;
+    Term _o_1[1];
+    if (spin_67(e, _o_1, _f_5) == 0) {
+      return 0;
+    }
+    _v_2 = (u32)_o_1[0];
+    Term _o_2[1];
+    if (spin_18(e, _o_2, _v_1, _v_2) == 0) {
+      return 0;
+    }
+    _v_0 = (u32)_o_2[0];
+    Term _o_3[2];
+    if (spin_68(e, _o_3, _v_0, _i_1, _h_0, _h_1) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_3[0];
+    r1 = _o_3[1];
+    WL_RETN(2);
   }}
 #endif
 
@@ -8632,7 +8632,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     u32 _v_0 = 0;
     Term _o_0[1];
-    if (spin_39(e, _o_0, _f_5, _k_1) == 0) {
+    if (spin_36(e, _o_0, _f_5, _k_1) == 0) {
       return 0;
     }
     _v_0 = (u32)_o_0[0];
@@ -9177,179 +9177,16 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_prior)
-    Term _s_0 = r0;
-    WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_ffi_workflow_get_prior_k278;
-      WL_PUSHN(1);
-    } else {
-      u64 _t_0 = task_node(e, FID_ffi_workflow_get_prior_k278, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_workflow_get_prior_k278, _t_0);
-      WL_IDX = 0;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-      e.mem[_t_1 + 0] = _s_0;
-      return term_tsk(FID_wire_get_nat, _t_1);
-    }
-    r0 = _s_0;
-    WL_JMP(FID_wire_get_nat);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_prior_k278)
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    Term _h_2 = r2;
-    WL_OPEN
-    if (_h_0 == 0) {
-      if (_h_1 == 0) {
-        r0 = 0;
-        r1 = 0;
-        r2 = 0;
-        r3 = _h_2;
-        WL_RETN(4);
-      } else if (_h_1 == 1) {
-        if (seq) {
-          WL_ROOM(1, 0);
-          STK(0) = FID_ffi_workflow_get_prior_k279;
-          WL_PUSHN(1);
-        } else {
-          u64 _t_2 = task_node(e, FID_ffi_workflow_get_prior_k279, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_workflow_get_prior_k279, _t_2);
-          WL_IDX = 0;
-        }
-        if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_sts)) {
-          u64 _t_3 = task_node(e, FID_ffi_workflow_get_sts, WL_CONT, WL_IDX, 0);
-          e.mem[_t_3 + 0] = _h_2;
-          return term_tsk(FID_ffi_workflow_get_sts, _t_3);
-        }
-        r0 = _h_2;
-        WL_JMP(FID_ffi_workflow_get_sts);
-      } else {
-        Term _x_0 = (_h_1 - 2);
-        term_sink(e, _h_2);
-        r0 = 1;
-        r1 = 0;
-        r2 = 0;
-        r3 = 0;
-        WL_RETN(4);
-      }
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      WL_RETN(4);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_prior_k279)
-    u32 _h_3 = r0;
-    u32 _h_4 = r1;
-    Term _h_5 = r2;
-    WL_OPEN
-    Term _o_0[4];
-    if (spin_33(e, _o_0, _h_3, _h_4, _h_5) == 0) {
-      return 0;
-    }
-    r0 = (u32)_o_0[0];
-    r1 = (u32)_o_0[1];
-    r2 = (u32)_o_0[2];
-    r3 = _o_0[3];
-    WL_RETN(4);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_workflow_admit)
-    u32 _prior_0 = r0;
-    u32 _prior_1 = r1;
-    Term _k_0 = r2;
-    Term _rs_0 = r3;
-    Term _p_0 = r4;
-    Term _p_1 = r5;
-    WL_OPEN
-    if (_prior_0 == 1) {
-      term_sink(e, _rs_0);
-      u32 _v_0 = 0;
-      Term _v_1 = 0;
-      Term _o_0[2];
-      if (spin_86(e, _o_0, _prior_1) == 0) {
-        return 0;
-      }
-      _v_0 = (u32)_o_0[0];
-      _v_1 = _o_0[1];
-      r0 = _v_0;
-      r1 = _v_1;
-      r2 = _p_0;
-      r3 = _p_1;
-      WL_RETN(4);
-    } else {
-      if (seq) {
-        WL_ROOM(3, 0);
-        STK(0) = _p_0;
-        STK(1) = _p_1;
-        STK(2) = FID_workflow_admit_k287;
-        WL_PUSHN(3);
-      } else {
-        u64 _t_0 = task_node(e, FID_workflow_admit_k287, WL_CONT, WL_IDX, 1);
-        e.mem[_t_0 + 0] = _p_0;
-        e.mem[_t_0 + 1] = _p_1;
-        WL_CONT = term_tsk(FID_workflow_admit_k287, _t_0);
-        WL_IDX = 2;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_workflow_found)) {
-        u64 _t_1 = task_node(e, FID_workflow_found, WL_CONT, WL_IDX, 0);
-        e.mem[_t_1 + 0] = _rs_0;
-        e.mem[_t_1 + 1] = _k_0;
-        e.mem[_t_1 + 2] = 0;
-        return term_tsk(FID_workflow_found, _t_1);
-      }
-      r0 = _rs_0;
-      r1 = _k_0;
-      r2 = 0;
-      WL_JMP(FID_workflow_found);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_workflow_admit_k287)
-    WL_POPN(2);
-    Term _p_2 = STK(0);
-    Term _p_3 = STK(1);
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    WL_OPEN
-    Term _o_3[4];
-    if (spin_87(e, _o_3, _h_0, _h_1, _p_2, _p_3) == 0) {
-      return 0;
-    }
-    r0 = (u32)_o_3[0];
-    r1 = _o_3[1];
-    r2 = _o_3[2];
-    r3 = _o_3[3];
-    WL_RETN(4);
-  }}
-#endif
-
-#if !DEVICE
   WL_CASE(FID_ffi_aux_fallback_get_route)
     Term _s_0 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_aux_fallback_get_route_k290;
+      STK(0) = FID_ffi_aux_fallback_get_route_k275;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_route_k290, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_route_k290, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_route_k275, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_route_k275, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -9363,7 +9200,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_route_k290)
+  WL_CASE(FID_ffi_aux_fallback_get_route_k275)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -9388,11 +9225,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 2) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_route_k291;
+          STK(0) = FID_ffi_aux_fallback_get_route_k276;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_route_k291, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_route_k291, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_route_k276, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_route_k276, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_key)) {
@@ -9426,7 +9263,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_route_k291)
+  WL_CASE(FID_ffi_aux_fallback_get_route_k276)
     u32 _h_3 = r0;
     Term _h_4 = r1;
     Term _h_5 = r2;
@@ -9434,7 +9271,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_7 = r4;
     WL_OPEN
     Term _o_0[6];
-    if (spin_36(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7) == 0) {
+    if (spin_33(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -9453,11 +9290,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_aux_fallback_get_gate_k295;
+      STK(0) = FID_ffi_aux_fallback_get_gate_k280;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_gate_k295, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k295, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_gate_k280, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k280, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -9471,7 +9308,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_gate_k295)
+  WL_CASE(FID_ffi_aux_fallback_get_gate_k280)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -9480,11 +9317,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (_h_1 == 0) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_gate_k296;
+          STK(0) = FID_ffi_aux_fallback_get_gate_k281;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_gate_k296, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k296, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_gate_k281, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k281, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_route)) {
@@ -9497,11 +9334,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 1) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_gate_k297;
+          STK(0) = FID_ffi_aux_fallback_get_gate_k282;
           WL_PUSHN(1);
         } else {
-          u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_gate_k297, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k297, _t_4);
+          u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_gate_k282, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k282, _t_4);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -9537,7 +9374,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_gate_k296)
+  WL_CASE(FID_ffi_aux_fallback_get_gate_k281)
     u32 _h_3 = r0;
     u32 _h_4 = r1;
     Term _h_5 = r2;
@@ -9546,7 +9383,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_8 = r5;
     WL_OPEN
     Term _o_0[7];
-    if (spin_37(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
+    if (spin_34(e, _o_0, _h_3, _h_4, _h_5, _h_6, _h_7, _h_8) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -9561,7 +9398,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_gate_k297)
+  WL_CASE(FID_ffi_aux_fallback_get_gate_k282)
     u32 _h_9 = r0;
     Term _h_10 = r1;
     Term _h_11 = r2;
@@ -9570,12 +9407,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_10;
-        STK(1) = FID_ffi_aux_fallback_get_gate_k298;
+        STK(1) = FID_ffi_aux_fallback_get_gate_k283;
         WL_PUSHN(2);
       } else {
-        u64 _t_6 = task_node(e, FID_ffi_aux_fallback_get_gate_k298, WL_CONT, WL_IDX, 1);
+        u64 _t_6 = task_node(e, FID_ffi_aux_fallback_get_gate_k283, WL_CONT, WL_IDX, 1);
         e.mem[_t_6 + 0] = _h_10;
-        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k298, _t_6);
+        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_gate_k283, _t_6);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -9599,7 +9436,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_gate_k298)
+  WL_CASE(FID_ffi_aux_fallback_get_gate_k283)
     WL_POPN(1);
     Term _h_15 = STK(0);
     u32 _h_12 = r0;
@@ -9607,7 +9444,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_14 = r2;
     WL_OPEN
     Term _o_1[7];
-    if (spin_21(e, _o_1, _h_15, _h_12, _h_13, _h_14) == 0) {
+    if (spin_20(e, _o_1, _h_15, _h_12, _h_13, _h_14) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -9642,15 +9479,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _r_2;
         STK(2) = _r_3;
         STK(3) = _sh_0;
-        STK(4) = FID_aux_fallback_after_k305;
+        STK(4) = FID_aux_fallback_after_k290;
         WL_PUSHN(5);
       } else {
-        u64 _t_0 = task_node(e, FID_aux_fallback_after_k305, WL_CONT, WL_IDX, 1);
+        u64 _t_0 = task_node(e, FID_aux_fallback_after_k290, WL_CONT, WL_IDX, 1);
         e.mem[_t_0 + 0] = _r_1;
         e.mem[_t_0 + 1] = _r_2;
         e.mem[_t_0 + 2] = _r_3;
         e.mem[_t_0 + 3] = _sh_0;
-        WL_CONT = term_tsk(FID_aux_fallback_after_k305, _t_0);
+        WL_CONT = term_tsk(FID_aux_fallback_after_k290, _t_0);
         WL_IDX = 4;
       }
       if (!DEVICE && !seq && fid_nofk(FID_aux_fallback_listed)) {
@@ -9671,7 +9508,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_aux_fallback_after_k305)
+  WL_CASE(FID_aux_fallback_after_k290)
     WL_POPN(4);
     Term _r_4 = STK(0);
     Term _r_5 = STK(1);
@@ -9680,7 +9517,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     u32 _h_0 = r0;
     WL_OPEN
     Term _o_0[1];
-    if (spin_92(e, _o_0, _h_0, _r_4, _r_5, _r_6, _sh_1) == 0) {
+    if (spin_86(e, _o_0, _h_0, _r_4, _r_5, _r_6, _sh_1) == 0) {
       return 0;
     }
     r0 = _o_0[0];
@@ -9716,15 +9553,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _r_2;
         STK(2) = _r_3;
         STK(3) = _t_0;
-        STK(4) = FID_aux_fallback_put_k307;
+        STK(4) = FID_aux_fallback_put_k292;
         WL_PUSHN(5);
       } else {
-        u64 _t_1 = task_node(e, FID_aux_fallback_put_k307, WL_CONT, WL_IDX, 1);
+        u64 _t_1 = task_node(e, FID_aux_fallback_put_k292, WL_CONT, WL_IDX, 1);
         e.mem[_t_1 + 0] = _r_1;
         e.mem[_t_1 + 1] = _r_2;
         e.mem[_t_1 + 2] = _r_3;
         e.mem[_t_1 + 3] = _t_0;
-        WL_CONT = term_tsk(FID_aux_fallback_put_k307, _t_1);
+        WL_CONT = term_tsk(FID_aux_fallback_put_k292, _t_1);
         WL_IDX = 4;
       }
       if (!DEVICE && !seq && fid_nofk(FID_aux_fallback_listed)) {
@@ -9745,7 +9582,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_aux_fallback_put_k307)
+  WL_CASE(FID_aux_fallback_put_k292)
     WL_POPN(4);
     Term _r_4 = STK(0);
     Term _r_5 = STK(1);
@@ -9759,7 +9596,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     e.mem[_nd_2 + 2] = rfc_seal(e, _r_6);
     Term _v_0 = 0;
     Term _o_0[1];
-    if (spin_93(e, _o_0, _h_0, _r_4, _r_5, _r_6, _t_3) == 0) {
+    if (spin_87(e, _o_0, _h_0, _r_4, _r_5, _r_6, _t_3) == 0) {
       return 0;
     }
     _v_0 = _o_0[0];
@@ -9768,6 +9605,169 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     e.mem[_nd_5 + 1] = rfc_seal(e, _v_0);
     r0 = term_ctr(CID_Con, _nd_5);
     WL_RETN(1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_prior)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_workflow_get_prior_k304;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_workflow_get_prior_k304, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_workflow_get_prior_k304, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_prior_k304)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        r0 = 0;
+        r1 = 0;
+        r2 = 0;
+        r3 = _h_2;
+        WL_RETN(4);
+      } else if (_h_1 == 1) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_workflow_get_prior_k305;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_2 = task_node(e, FID_ffi_workflow_get_prior_k305, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_workflow_get_prior_k305, _t_2);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_sts)) {
+          u64 _t_3 = task_node(e, FID_ffi_workflow_get_sts, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_ffi_workflow_get_sts, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_ffi_workflow_get_sts);
+      } else {
+        Term _x_0 = (_h_1 - 2);
+        term_sink(e, _h_2);
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        r3 = 0;
+        WL_RETN(4);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      WL_RETN(4);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_prior_k305)
+    u32 _h_3 = r0;
+    u32 _h_4 = r1;
+    Term _h_5 = r2;
+    WL_OPEN
+    Term _o_0[4];
+    if (spin_41(e, _o_0, _h_3, _h_4, _h_5) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = (u32)_o_0[1];
+    r2 = (u32)_o_0[2];
+    r3 = _o_0[3];
+    WL_RETN(4);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_workflow_admit)
+    u32 _prior_0 = r0;
+    u32 _prior_1 = r1;
+    Term _k_0 = r2;
+    Term _rs_0 = r3;
+    Term _p_0 = r4;
+    Term _p_1 = r5;
+    WL_OPEN
+    if (_prior_0 == 1) {
+      term_sink(e, _rs_0);
+      u32 _v_0 = 0;
+      Term _v_1 = 0;
+      Term _o_0[2];
+      if (spin_92(e, _o_0, _prior_1) == 0) {
+        return 0;
+      }
+      _v_0 = (u32)_o_0[0];
+      _v_1 = _o_0[1];
+      r0 = _v_0;
+      r1 = _v_1;
+      r2 = _p_0;
+      r3 = _p_1;
+      WL_RETN(4);
+    } else {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _p_0;
+        STK(1) = _p_1;
+        STK(2) = FID_workflow_admit_k313;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_0 = task_node(e, FID_workflow_admit_k313, WL_CONT, WL_IDX, 1);
+        e.mem[_t_0 + 0] = _p_0;
+        e.mem[_t_0 + 1] = _p_1;
+        WL_CONT = term_tsk(FID_workflow_admit_k313, _t_0);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_workflow_found)) {
+        u64 _t_1 = task_node(e, FID_workflow_found, WL_CONT, WL_IDX, 0);
+        e.mem[_t_1 + 0] = _rs_0;
+        e.mem[_t_1 + 1] = _k_0;
+        e.mem[_t_1 + 2] = 0;
+        return term_tsk(FID_workflow_found, _t_1);
+      }
+      r0 = _rs_0;
+      r1 = _k_0;
+      r2 = 0;
+      WL_JMP(FID_workflow_found);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_workflow_admit_k313)
+    WL_POPN(2);
+    Term _p_2 = STK(0);
+    Term _p_3 = STK(1);
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    WL_OPEN
+    Term _o_3[4];
+    if (spin_93(e, _o_3, _h_0, _h_1, _p_2, _p_3) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_3[0];
+    r1 = _o_3[1];
+    r2 = _o_3[2];
+    r3 = _o_3[3];
+    WL_RETN(4);
   }}
 #endif
 
@@ -11374,388 +11374,16 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req)
-    Term _s_0 = r0;
-    WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_ffi_workflow_get_req_k490;
-      WL_PUSHN(1);
-    } else {
-      u64 _t_0 = task_node(e, FID_ffi_workflow_get_req_k490, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_workflow_get_req_k490, _t_0);
-      WL_IDX = 0;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-      e.mem[_t_1 + 0] = _s_0;
-      return term_tsk(FID_wire_get_nat, _t_1);
-    }
-    r0 = _s_0;
-    WL_JMP(FID_wire_get_nat);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k490)
-    u32 _h_0 = r0;
-    Term _h_1 = r1;
-    Term _h_2 = r2;
-    WL_OPEN
-    if (_h_0 == 0) {
-      if (_h_1 == 0) {
-        if (seq) {
-          WL_ROOM(1, 0);
-          STK(0) = FID_ffi_workflow_get_req_k491;
-          WL_PUSHN(1);
-        } else {
-          u64 _t_2 = task_node(e, FID_ffi_workflow_get_req_k491, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_workflow_get_req_k491, _t_2);
-          WL_IDX = 0;
-        }
-        if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_prior)) {
-          u64 _t_3 = task_node(e, FID_ffi_workflow_get_prior, WL_CONT, WL_IDX, 0);
-          e.mem[_t_3 + 0] = _h_2;
-          return term_tsk(FID_ffi_workflow_get_prior, _t_3);
-        }
-        r0 = _h_2;
-        WL_JMP(FID_ffi_workflow_get_prior);
-      } else if (_h_1 == 1) {
-        if (seq) {
-          WL_ROOM(1, 0);
-          STK(0) = FID_ffi_workflow_get_req_k495;
-          WL_PUSHN(1);
-        } else {
-          u64 _t_10 = task_node(e, FID_ffi_workflow_get_req_k495, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_workflow_get_req_k495, _t_10);
-          WL_IDX = 0;
-        }
-        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-          u64 _t_11 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-          e.mem[_t_11 + 0] = _h_2;
-          return term_tsk(FID_wire_get_nat, _t_11);
-        }
-        r0 = _h_2;
-        WL_JMP(FID_wire_get_nat);
-      } else {
-        Term _x_0 = (_h_1 - 2);
-        term_sink(e, _h_2);
-        r0 = 1;
-        r1 = 0;
-        r2 = 0;
-        r3 = 0;
-        r4 = 0;
-        r5 = 0;
-        r6 = 0;
-        r7 = 0;
-        r8 = 0;
-        WL_RETN(9);
-      }
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      r4 = 0;
-      r5 = 0;
-      r6 = 0;
-      r7 = 0;
-      r8 = 0;
-      WL_RETN(9);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k491)
-    u32 _h_3 = r0;
-    u32 _h_4 = r1;
-    u32 _h_5 = r2;
-    Term _h_6 = r3;
-    WL_OPEN
-    if (_h_3 == 0) {
-      if (seq) {
-        WL_ROOM(3, 0);
-        STK(0) = _h_4;
-        STK(1) = _h_5;
-        STK(2) = FID_ffi_workflow_get_req_k492;
-        WL_PUSHN(3);
-      } else {
-        u64 _t_4 = task_node(e, FID_ffi_workflow_get_req_k492, WL_CONT, WL_IDX, 1);
-        e.mem[_t_4 + 0] = _h_4;
-        e.mem[_t_4 + 1] = _h_5;
-        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k492, _t_4);
-        WL_IDX = 2;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-        u64 _t_5 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-        e.mem[_t_5 + 0] = _h_6;
-        return term_tsk(FID_wire_get_nat, _t_5);
-      }
-      r0 = _h_6;
-      WL_JMP(FID_wire_get_nat);
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      r4 = 0;
-      r5 = 0;
-      r6 = 0;
-      r7 = 0;
-      r8 = 0;
-      WL_RETN(9);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k492)
-    WL_POPN(2);
-    u32 _h_10 = STK(0);
-    u32 _h_11 = STK(1);
-    u32 _h_7 = r0;
-    Term _h_8 = r1;
-    Term _h_9 = r2;
-    WL_OPEN
-    if (_h_7 == 0) {
-      if (seq) {
-        WL_ROOM(4, 0);
-        STK(0) = _h_10;
-        STK(1) = _h_11;
-        STK(2) = _h_8;
-        STK(3) = FID_ffi_workflow_get_req_k493;
-        WL_PUSHN(4);
-      } else {
-        u64 _t_6 = task_node(e, FID_ffi_workflow_get_req_k493, WL_CONT, WL_IDX, 1);
-        e.mem[_t_6 + 0] = _h_10;
-        e.mem[_t_6 + 1] = _h_11;
-        e.mem[_t_6 + 2] = _h_8;
-        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k493, _t_6);
-        WL_IDX = 3;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_4)) {
-        u64 _t_7 = task_node(e, FID_wire_get_list_4, WL_CONT, WL_IDX, 0);
-        e.mem[_t_7 + 0] = _h_9;
-        return term_tsk(FID_wire_get_list_4, _t_7);
-      }
-      r0 = _h_9;
-      WL_JMP(FID_wire_get_list_4);
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      r4 = 0;
-      r5 = 0;
-      r6 = 0;
-      r7 = 0;
-      r8 = 0;
-      WL_RETN(9);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k493)
-    WL_POPN(3);
-    u32 _h_15 = STK(0);
-    u32 _h_16 = STK(1);
-    Term _h_17 = STK(2);
-    u32 _h_12 = r0;
-    Term _h_13 = r1;
-    Term _h_14 = r2;
-    WL_OPEN
-    if (_h_12 == 0) {
-      if (seq) {
-        WL_ROOM(5, 0);
-        STK(0) = _h_15;
-        STK(1) = _h_16;
-        STK(2) = _h_17;
-        STK(3) = _h_13;
-        STK(4) = FID_ffi_workflow_get_req_k494;
-        WL_PUSHN(5);
-      } else {
-        u64 _t_8 = task_node(e, FID_ffi_workflow_get_req_k494, WL_CONT, WL_IDX, 1);
-        e.mem[_t_8 + 0] = _h_15;
-        e.mem[_t_8 + 1] = _h_16;
-        e.mem[_t_8 + 2] = _h_17;
-        e.mem[_t_8 + 3] = _h_13;
-        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k494, _t_8);
-        WL_IDX = 4;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_pool)) {
-        u64 _t_9 = task_node(e, FID_ffi_workflow_get_pool, WL_CONT, WL_IDX, 0);
-        e.mem[_t_9 + 0] = _h_14;
-        return term_tsk(FID_ffi_workflow_get_pool, _t_9);
-      }
-      r0 = _h_14;
-      WL_JMP(FID_ffi_workflow_get_pool);
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      r4 = 0;
-      r5 = 0;
-      r6 = 0;
-      r7 = 0;
-      r8 = 0;
-      WL_RETN(9);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k494)
-    WL_POPN(4);
-    u32 _h_22 = STK(0);
-    u32 _h_23 = STK(1);
-    Term _h_24 = STK(2);
-    Term _h_25 = STK(3);
-    u32 _h_18 = r0;
-    Term _h_19 = r1;
-    Term _h_20 = r2;
-    Term _h_21 = r3;
-    WL_OPEN
-    Term _o_0[9];
-    if (spin_34(e, _o_0, _h_22, _h_23, _h_24, _h_25, _h_18, _h_19, _h_20, _h_21) == 0) {
-      return 0;
-    }
-    r0 = (u32)_o_0[0];
-    r1 = (u32)_o_0[1];
-    r2 = _o_0[2];
-    r3 = _o_0[3];
-    r4 = _o_0[4];
-    r5 = _o_0[5];
-    r6 = _o_0[6];
-    r7 = _o_0[7];
-    r8 = _o_0[8];
-    WL_RETN(9);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k495)
-    u32 _h_26 = r0;
-    Term _h_27 = r1;
-    Term _h_28 = r2;
-    WL_OPEN
-    if (_h_26 == 0) {
-      if (seq) {
-        WL_ROOM(2, 0);
-        STK(0) = _h_27;
-        STK(1) = FID_ffi_workflow_get_req_k496;
-        WL_PUSHN(2);
-      } else {
-        u64 _t_12 = task_node(e, FID_ffi_workflow_get_req_k496, WL_CONT, WL_IDX, 1);
-        e.mem[_t_12 + 0] = _h_27;
-        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k496, _t_12);
-        WL_IDX = 1;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-        u64 _t_13 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-        e.mem[_t_13 + 0] = _h_28;
-        return term_tsk(FID_wire_get_nat, _t_13);
-      }
-      r0 = _h_28;
-      WL_JMP(FID_wire_get_nat);
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      r4 = 0;
-      r5 = 0;
-      r6 = 0;
-      r7 = 0;
-      r8 = 0;
-      WL_RETN(9);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k496)
-    WL_POPN(1);
-    Term _h_32 = STK(0);
-    u32 _h_29 = r0;
-    Term _h_30 = r1;
-    Term _h_31 = r2;
-    WL_OPEN
-    if (_h_29 == 0) {
-      if (seq) {
-        WL_ROOM(3, 0);
-        STK(0) = _h_32;
-        STK(1) = _h_30;
-        STK(2) = FID_ffi_workflow_get_req_k497;
-        WL_PUSHN(3);
-      } else {
-        u64 _t_14 = task_node(e, FID_ffi_workflow_get_req_k497, WL_CONT, WL_IDX, 1);
-        e.mem[_t_14 + 0] = _h_32;
-        e.mem[_t_14 + 1] = _h_30;
-        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k497, _t_14);
-        WL_IDX = 2;
-      }
-      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
-        u64 _t_15 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
-        e.mem[_t_15 + 0] = _h_31;
-        return term_tsk(FID_wire_get_nat, _t_15);
-      }
-      r0 = _h_31;
-      WL_JMP(FID_wire_get_nat);
-    } else {
-      r0 = 1;
-      r1 = 0;
-      r2 = 0;
-      r3 = 0;
-      r4 = 0;
-      r5 = 0;
-      r6 = 0;
-      r7 = 0;
-      r8 = 0;
-      WL_RETN(9);
-    }
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_workflow_get_req_k497)
-    WL_POPN(2);
-    Term _h_36 = STK(0);
-    Term _h_37 = STK(1);
-    u32 _h_33 = r0;
-    Term _h_34 = r1;
-    Term _h_35 = r2;
-    WL_OPEN
-    Term _o_1[9];
-    if (spin_57(e, _o_1, _h_36, _h_37, _h_33, _h_34, _h_35) == 0) {
-      return 0;
-    }
-    r0 = (u32)_o_1[0];
-    r1 = (u32)_o_1[1];
-    r2 = _o_1[2];
-    r3 = _o_1[3];
-    r4 = _o_1[4];
-    r5 = _o_1[5];
-    r6 = _o_1[6];
-    r7 = _o_1[7];
-    r8 = _o_1[8];
-    WL_RETN(9);
-  }}
-#endif
-
-#if !DEVICE
   WL_CASE(FID_ffi_aux_fallback_get_req)
     Term _s_0 = r0;
     WL_OPEN
     if (seq) {
       WL_ROOM(1, 0);
-      STK(0) = FID_ffi_aux_fallback_get_req_k501;
+      STK(0) = FID_ffi_aux_fallback_get_req_k490;
       WL_PUSHN(1);
     } else {
-      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_req_k501, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k501, _t_0);
+      u64 _t_0 = task_node(e, FID_ffi_aux_fallback_get_req_k490, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k490, _t_0);
       WL_IDX = 0;
     }
     if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -11769,7 +11397,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k501)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k490)
     u32 _h_0 = r0;
     Term _h_1 = r1;
     Term _h_2 = r2;
@@ -11778,11 +11406,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (_h_1 == 0) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_req_k502;
+          STK(0) = FID_ffi_aux_fallback_get_req_k491;
           WL_PUSHN(1);
         } else {
-          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_req_k502, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k502, _t_2);
+          u64 _t_2 = task_node(e, FID_ffi_aux_fallback_get_req_k491, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k491, _t_2);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -11795,11 +11423,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 1) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_req_k504;
+          STK(0) = FID_ffi_aux_fallback_get_req_k493;
           WL_PUSHN(1);
         } else {
-          u64 _t_6 = task_node(e, FID_ffi_aux_fallback_get_req_k504, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k504, _t_6);
+          u64 _t_6 = task_node(e, FID_ffi_aux_fallback_get_req_k493, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k493, _t_6);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_gate)) {
@@ -11812,11 +11440,11 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       } else if (_h_1 == 2) {
         if (seq) {
           WL_ROOM(1, 0);
-          STK(0) = FID_ffi_aux_fallback_get_req_k507;
+          STK(0) = FID_ffi_aux_fallback_get_req_k496;
           WL_PUSHN(1);
         } else {
-          u64 _t_12 = task_node(e, FID_ffi_aux_fallback_get_req_k507, WL_CONT, WL_IDX, 1);
-          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k507, _t_12);
+          u64 _t_12 = task_node(e, FID_ffi_aux_fallback_get_req_k496, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k496, _t_12);
           WL_IDX = 0;
         }
         if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_route)) {
@@ -11860,7 +11488,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k502)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k491)
     u32 _h_3 = r0;
     Term _h_4 = r1;
     Term _h_5 = r2;
@@ -11869,12 +11497,12 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       if (seq) {
         WL_ROOM(2, 0);
         STK(0) = _h_4;
-        STK(1) = FID_ffi_aux_fallback_get_req_k503;
+        STK(1) = FID_ffi_aux_fallback_get_req_k492;
         WL_PUSHN(2);
       } else {
-        u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_req_k503, WL_CONT, WL_IDX, 1);
+        u64 _t_4 = task_node(e, FID_ffi_aux_fallback_get_req_k492, WL_CONT, WL_IDX, 1);
         e.mem[_t_4 + 0] = _h_4;
-        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k503, _t_4);
+        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k492, _t_4);
         WL_IDX = 1;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_sel)) {
@@ -11902,7 +11530,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k503)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k492)
     WL_POPN(1);
     Term _h_10 = STK(0);
     u32 _h_6 = r0;
@@ -11911,7 +11539,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_9 = r3;
     WL_OPEN
     Term _o_0[11];
-    if (spin_91(e, _o_0, _h_10, _h_6, _h_7, _h_8, _h_9) == 0) {
+    if (spin_85(e, _o_0, _h_10, _h_6, _h_7, _h_8, _h_9) == 0) {
       return 0;
     }
     r0 = (u32)_o_0[0];
@@ -11930,7 +11558,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k504)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k493)
     u32 _h_11 = r0;
     u32 _h_12 = r1;
     Term _h_13 = r2;
@@ -11947,16 +11575,16 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(2) = _h_14;
         STK(3) = _h_15;
         STK(4) = _h_16;
-        STK(5) = FID_ffi_aux_fallback_get_req_k505;
+        STK(5) = FID_ffi_aux_fallback_get_req_k494;
         WL_PUSHN(6);
       } else {
-        u64 _t_8 = task_node(e, FID_ffi_aux_fallback_get_req_k505, WL_CONT, WL_IDX, 1);
+        u64 _t_8 = task_node(e, FID_ffi_aux_fallback_get_req_k494, WL_CONT, WL_IDX, 1);
         e.mem[_t_8 + 0] = _h_12;
         e.mem[_t_8 + 1] = _h_13;
         e.mem[_t_8 + 2] = _h_14;
         e.mem[_t_8 + 3] = _h_15;
         e.mem[_t_8 + 4] = _h_16;
-        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k505, _t_8);
+        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k494, _t_8);
         WL_IDX = 5;
       }
       if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_look)) {
@@ -11984,7 +11612,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k505)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k494)
     WL_POPN(5);
     u32 _h_22 = STK(0);
     Term _h_23 = STK(1);
@@ -12006,10 +11634,10 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(4) = _h_26;
         STK(5) = _h_19;
         STK(6) = _h_20;
-        STK(7) = FID_ffi_aux_fallback_get_req_k506;
+        STK(7) = FID_ffi_aux_fallback_get_req_k495;
         WL_PUSHN(8);
       } else {
-        u64 _t_10 = task_node(e, FID_ffi_aux_fallback_get_req_k506, WL_CONT, WL_IDX, 1);
+        u64 _t_10 = task_node(e, FID_ffi_aux_fallback_get_req_k495, WL_CONT, WL_IDX, 1);
         e.mem[_t_10 + 0] = _h_22;
         e.mem[_t_10 + 1] = _h_23;
         e.mem[_t_10 + 2] = _h_24;
@@ -12017,7 +11645,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         e.mem[_t_10 + 4] = _h_26;
         e.mem[_t_10 + 5] = _h_19;
         e.mem[_t_10 + 6] = _h_20;
-        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k506, _t_10);
+        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k495, _t_10);
         WL_IDX = 7;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
@@ -12045,7 +11673,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k506)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k495)
     WL_POPN(7);
     u32 _h_30 = STK(0);
     Term _h_31 = STK(1);
@@ -12059,7 +11687,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_29 = r2;
     WL_OPEN
     Term _o_1[11];
-    if (spin_63(e, _o_1, _h_30, _h_31, _h_32, _h_33, _h_34, _h_35, _h_36, _h_27, _h_28, _h_29) == 0) {
+    if (spin_57(e, _o_1, _h_30, _h_31, _h_32, _h_33, _h_34, _h_35, _h_36, _h_27, _h_28, _h_29) == 0) {
       return 0;
     }
     r0 = (u32)_o_1[0];
@@ -12078,7 +11706,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k507)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k496)
     u32 _h_37 = r0;
     u32 _h_38 = r1;
     Term _h_39 = r2;
@@ -12093,15 +11721,15 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         STK(1) = _h_39;
         STK(2) = _h_40;
         STK(3) = _h_41;
-        STK(4) = FID_ffi_aux_fallback_get_req_k508;
+        STK(4) = FID_ffi_aux_fallback_get_req_k497;
         WL_PUSHN(5);
       } else {
-        u64 _t_14 = task_node(e, FID_ffi_aux_fallback_get_req_k508, WL_CONT, WL_IDX, 1);
+        u64 _t_14 = task_node(e, FID_ffi_aux_fallback_get_req_k497, WL_CONT, WL_IDX, 1);
         e.mem[_t_14 + 0] = _h_38;
         e.mem[_t_14 + 1] = _h_39;
         e.mem[_t_14 + 2] = _h_40;
         e.mem[_t_14 + 3] = _h_41;
-        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k508, _t_14);
+        WL_CONT = term_tsk(FID_ffi_aux_fallback_get_req_k497, _t_14);
         WL_IDX = 4;
       }
       if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_1)) {
@@ -12129,7 +11757,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_aux_fallback_get_req_k508)
+  WL_CASE(FID_ffi_aux_fallback_get_req_k497)
     WL_POPN(4);
     u32 _h_46 = STK(0);
     Term _h_47 = STK(1);
@@ -12140,7 +11768,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_45 = r2;
     WL_OPEN
     Term _o_2[11];
-    if (spin_90(e, _o_2, _h_46, _h_47, _h_48, _h_49, _h_43, _h_44, _h_45) == 0) {
+    if (spin_84(e, _o_2, _h_46, _h_47, _h_48, _h_49, _h_43, _h_44, _h_45) == 0) {
       return 0;
     }
     r0 = (u32)_o_2[0];
@@ -12155,6 +11783,378 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     r9 = _o_2[9];
     r10 = _o_2[10];
     WL_RETN(11);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req)
+    Term _s_0 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_workflow_get_req_k504;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_0 = task_node(e, FID_ffi_workflow_get_req_k504, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_workflow_get_req_k504, _t_0);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+      u64 _t_1 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+      e.mem[_t_1 + 0] = _s_0;
+      return term_tsk(FID_wire_get_nat, _t_1);
+    }
+    r0 = _s_0;
+    WL_JMP(FID_wire_get_nat);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k504)
+    u32 _h_0 = r0;
+    Term _h_1 = r1;
+    Term _h_2 = r2;
+    WL_OPEN
+    if (_h_0 == 0) {
+      if (_h_1 == 0) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_workflow_get_req_k505;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_2 = task_node(e, FID_ffi_workflow_get_req_k505, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_workflow_get_req_k505, _t_2);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_prior)) {
+          u64 _t_3 = task_node(e, FID_ffi_workflow_get_prior, WL_CONT, WL_IDX, 0);
+          e.mem[_t_3 + 0] = _h_2;
+          return term_tsk(FID_ffi_workflow_get_prior, _t_3);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_ffi_workflow_get_prior);
+      } else if (_h_1 == 1) {
+        if (seq) {
+          WL_ROOM(1, 0);
+          STK(0) = FID_ffi_workflow_get_req_k509;
+          WL_PUSHN(1);
+        } else {
+          u64 _t_10 = task_node(e, FID_ffi_workflow_get_req_k509, WL_CONT, WL_IDX, 1);
+          WL_CONT = term_tsk(FID_ffi_workflow_get_req_k509, _t_10);
+          WL_IDX = 0;
+        }
+        if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+          u64 _t_11 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+          e.mem[_t_11 + 0] = _h_2;
+          return term_tsk(FID_wire_get_nat, _t_11);
+        }
+        r0 = _h_2;
+        WL_JMP(FID_wire_get_nat);
+      } else {
+        Term _x_0 = (_h_1 - 2);
+        term_sink(e, _h_2);
+        r0 = 1;
+        r1 = 0;
+        r2 = 0;
+        r3 = 0;
+        r4 = 0;
+        r5 = 0;
+        r6 = 0;
+        r7 = 0;
+        r8 = 0;
+        WL_RETN(9);
+      }
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      r8 = 0;
+      WL_RETN(9);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k505)
+    u32 _h_3 = r0;
+    u32 _h_4 = r1;
+    u32 _h_5 = r2;
+    Term _h_6 = r3;
+    WL_OPEN
+    if (_h_3 == 0) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _h_4;
+        STK(1) = _h_5;
+        STK(2) = FID_ffi_workflow_get_req_k506;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_4 = task_node(e, FID_ffi_workflow_get_req_k506, WL_CONT, WL_IDX, 1);
+        e.mem[_t_4 + 0] = _h_4;
+        e.mem[_t_4 + 1] = _h_5;
+        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k506, _t_4);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_5 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_5 + 0] = _h_6;
+        return term_tsk(FID_wire_get_nat, _t_5);
+      }
+      r0 = _h_6;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      r8 = 0;
+      WL_RETN(9);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k506)
+    WL_POPN(2);
+    u32 _h_10 = STK(0);
+    u32 _h_11 = STK(1);
+    u32 _h_7 = r0;
+    Term _h_8 = r1;
+    Term _h_9 = r2;
+    WL_OPEN
+    if (_h_7 == 0) {
+      if (seq) {
+        WL_ROOM(4, 0);
+        STK(0) = _h_10;
+        STK(1) = _h_11;
+        STK(2) = _h_8;
+        STK(3) = FID_ffi_workflow_get_req_k507;
+        WL_PUSHN(4);
+      } else {
+        u64 _t_6 = task_node(e, FID_ffi_workflow_get_req_k507, WL_CONT, WL_IDX, 1);
+        e.mem[_t_6 + 0] = _h_10;
+        e.mem[_t_6 + 1] = _h_11;
+        e.mem[_t_6 + 2] = _h_8;
+        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k507, _t_6);
+        WL_IDX = 3;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_list_4)) {
+        u64 _t_7 = task_node(e, FID_wire_get_list_4, WL_CONT, WL_IDX, 0);
+        e.mem[_t_7 + 0] = _h_9;
+        return term_tsk(FID_wire_get_list_4, _t_7);
+      }
+      r0 = _h_9;
+      WL_JMP(FID_wire_get_list_4);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      r8 = 0;
+      WL_RETN(9);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k507)
+    WL_POPN(3);
+    u32 _h_15 = STK(0);
+    u32 _h_16 = STK(1);
+    Term _h_17 = STK(2);
+    u32 _h_12 = r0;
+    Term _h_13 = r1;
+    Term _h_14 = r2;
+    WL_OPEN
+    if (_h_12 == 0) {
+      if (seq) {
+        WL_ROOM(5, 0);
+        STK(0) = _h_15;
+        STK(1) = _h_16;
+        STK(2) = _h_17;
+        STK(3) = _h_13;
+        STK(4) = FID_ffi_workflow_get_req_k508;
+        WL_PUSHN(5);
+      } else {
+        u64 _t_8 = task_node(e, FID_ffi_workflow_get_req_k508, WL_CONT, WL_IDX, 1);
+        e.mem[_t_8 + 0] = _h_15;
+        e.mem[_t_8 + 1] = _h_16;
+        e.mem[_t_8 + 2] = _h_17;
+        e.mem[_t_8 + 3] = _h_13;
+        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k508, _t_8);
+        WL_IDX = 4;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_pool)) {
+        u64 _t_9 = task_node(e, FID_ffi_workflow_get_pool, WL_CONT, WL_IDX, 0);
+        e.mem[_t_9 + 0] = _h_14;
+        return term_tsk(FID_ffi_workflow_get_pool, _t_9);
+      }
+      r0 = _h_14;
+      WL_JMP(FID_ffi_workflow_get_pool);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      r8 = 0;
+      WL_RETN(9);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k508)
+    WL_POPN(4);
+    u32 _h_22 = STK(0);
+    u32 _h_23 = STK(1);
+    Term _h_24 = STK(2);
+    Term _h_25 = STK(3);
+    u32 _h_18 = r0;
+    Term _h_19 = r1;
+    Term _h_20 = r2;
+    Term _h_21 = r3;
+    WL_OPEN
+    Term _o_0[9];
+    if (spin_42(e, _o_0, _h_22, _h_23, _h_24, _h_25, _h_18, _h_19, _h_20, _h_21) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_0[0];
+    r1 = (u32)_o_0[1];
+    r2 = _o_0[2];
+    r3 = _o_0[3];
+    r4 = _o_0[4];
+    r5 = _o_0[5];
+    r6 = _o_0[6];
+    r7 = _o_0[7];
+    r8 = _o_0[8];
+    WL_RETN(9);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k509)
+    u32 _h_26 = r0;
+    Term _h_27 = r1;
+    Term _h_28 = r2;
+    WL_OPEN
+    if (_h_26 == 0) {
+      if (seq) {
+        WL_ROOM(2, 0);
+        STK(0) = _h_27;
+        STK(1) = FID_ffi_workflow_get_req_k510;
+        WL_PUSHN(2);
+      } else {
+        u64 _t_12 = task_node(e, FID_ffi_workflow_get_req_k510, WL_CONT, WL_IDX, 1);
+        e.mem[_t_12 + 0] = _h_27;
+        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k510, _t_12);
+        WL_IDX = 1;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_13 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_13 + 0] = _h_28;
+        return term_tsk(FID_wire_get_nat, _t_13);
+      }
+      r0 = _h_28;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      r8 = 0;
+      WL_RETN(9);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k510)
+    WL_POPN(1);
+    Term _h_32 = STK(0);
+    u32 _h_29 = r0;
+    Term _h_30 = r1;
+    Term _h_31 = r2;
+    WL_OPEN
+    if (_h_29 == 0) {
+      if (seq) {
+        WL_ROOM(3, 0);
+        STK(0) = _h_32;
+        STK(1) = _h_30;
+        STK(2) = FID_ffi_workflow_get_req_k511;
+        WL_PUSHN(3);
+      } else {
+        u64 _t_14 = task_node(e, FID_ffi_workflow_get_req_k511, WL_CONT, WL_IDX, 1);
+        e.mem[_t_14 + 0] = _h_32;
+        e.mem[_t_14 + 1] = _h_30;
+        WL_CONT = term_tsk(FID_ffi_workflow_get_req_k511, _t_14);
+        WL_IDX = 2;
+      }
+      if (!DEVICE && !seq && fid_nofk(FID_wire_get_nat)) {
+        u64 _t_15 = task_node(e, FID_wire_get_nat, WL_CONT, WL_IDX, 0);
+        e.mem[_t_15 + 0] = _h_31;
+        return term_tsk(FID_wire_get_nat, _t_15);
+      }
+      r0 = _h_31;
+      WL_JMP(FID_wire_get_nat);
+    } else {
+      r0 = 1;
+      r1 = 0;
+      r2 = 0;
+      r3 = 0;
+      r4 = 0;
+      r5 = 0;
+      r6 = 0;
+      r7 = 0;
+      r8 = 0;
+      WL_RETN(9);
+    }
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_workflow_get_req_k511)
+    WL_POPN(2);
+    Term _h_36 = STK(0);
+    Term _h_37 = STK(1);
+    u32 _h_33 = r0;
+    Term _h_34 = r1;
+    Term _h_35 = r2;
+    WL_OPEN
+    Term _o_1[9];
+    if (spin_65(e, _o_1, _h_36, _h_37, _h_33, _h_34, _h_35) == 0) {
+      return 0;
+    }
+    r0 = (u32)_o_1[0];
+    r1 = (u32)_o_1[1];
+    r2 = _o_1[2];
+    r3 = _o_1[3];
+    r4 = _o_1[4];
+    r5 = _o_1[5];
+    r6 = _o_1[6];
+    r7 = _o_1[7];
+    r8 = _o_1[8];
+    WL_RETN(9);
   }}
 #endif
 
@@ -12303,7 +12303,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       u32 _v_1 = 0;
       Term _v_2 = 0;
       Term _o_0[3];
-      if (spin_64(e, _o_0, _h_3) == 0) {
+      if (spin_58(e, _o_0, _h_3) == 0) {
         return 0;
       }
       _v_0 = (u32)_o_0[0];
@@ -12314,7 +12314,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         u32 _v_4 = 0;
         Term _v_5 = 0;
         Term _o_1[3];
-        if (spin_64(e, _o_1, _v_2) == 0) {
+        if (spin_58(e, _o_1, _v_2) == 0) {
           return 0;
         }
         _v_3 = (u32)_o_1[0];
@@ -12325,7 +12325,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
           u32 _v_7 = 0;
           Term _v_8 = 0;
           Term _o_2[3];
-          if (spin_64(e, _o_2, _v_5) == 0) {
+          if (spin_58(e, _o_2, _v_5) == 0) {
             return 0;
           }
           _v_6 = (u32)_o_2[0];
@@ -13307,13 +13307,13 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
         WL_CONT = term_tsk(FID_ffi_go_k584, _t_14);
         WL_IDX = 0;
       }
-      if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_req)) {
-        u64 _t_15 = task_node(e, FID_ffi_aux_fallback_get_req, WL_CONT, WL_IDX, 0);
+      if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_req)) {
+        u64 _t_15 = task_node(e, FID_ffi_workflow_get_req, WL_CONT, WL_IDX, 0);
         e.mem[_t_15 + 0] = _input_0;
-        return term_tsk(FID_ffi_aux_fallback_get_req, _t_15);
+        return term_tsk(FID_ffi_workflow_get_req, _t_15);
       }
       r0 = _input_0;
-      WL_JMP(FID_ffi_aux_fallback_get_req);
+      WL_JMP(FID_ffi_workflow_get_req);
     } else if ((_entry_0 & 7) == 5) {
       u32 _192_0 = ((_entry_0 >> 3) & 1);
       u32 _193_0 = ((_entry_0 >> 4) & 1);
@@ -13345,29 +13345,29 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       u32 _193_26 = ((_entry_0 >> 30) & 1);
       u32 _193_27 = ((_entry_0 >> 31) & 1);
       term_sink(e, _input_0);
-      Term _o_22[1];
-      if (spin_74(e, _o_22, term_ctr(CID_SCon, STAT_OFF + 550)) == 0) {
+      Term _o_20[1];
+      if (spin_74(e, _o_20, term_ctr(CID_SCon, STAT_OFF + 550)) == 0) {
         return 0;
       }
-      r0 = _o_22[0];
+      r0 = _o_20[0];
       WL_RETN(1);
     } else if (_entry_0 == 3) {
       if (seq) {
         WL_ROOM(1, 0);
-        STK(0) = FID_ffi_go_k589;
+        STK(0) = FID_ffi_go_k586;
         WL_PUSHN(1);
       } else {
-        u64 _t_24 = task_node(e, FID_ffi_go_k589, WL_CONT, WL_IDX, 1);
-        WL_CONT = term_tsk(FID_ffi_go_k589, _t_24);
+        u64 _t_18 = task_node(e, FID_ffi_go_k586, WL_CONT, WL_IDX, 1);
+        WL_CONT = term_tsk(FID_ffi_go_k586, _t_18);
         WL_IDX = 0;
       }
-      if (!DEVICE && !seq && fid_nofk(FID_ffi_workflow_get_req)) {
-        u64 _t_25 = task_node(e, FID_ffi_workflow_get_req, WL_CONT, WL_IDX, 0);
-        e.mem[_t_25 + 0] = _input_0;
-        return term_tsk(FID_ffi_workflow_get_req, _t_25);
+      if (!DEVICE && !seq && fid_nofk(FID_ffi_aux_fallback_get_req)) {
+        u64 _t_19 = task_node(e, FID_ffi_aux_fallback_get_req, WL_CONT, WL_IDX, 0);
+        e.mem[_t_19 + 0] = _input_0;
+        return term_tsk(FID_ffi_aux_fallback_get_req, _t_19);
       }
       r0 = _input_0;
-      WL_JMP(FID_ffi_workflow_get_req);
+      WL_JMP(FID_ffi_aux_fallback_get_req);
     } else {
       u32 _250_0 = ((_entry_0 >> 2) & 1);
       u32 _251_0 = ((_entry_0 >> 3) & 1);
@@ -13480,7 +13480,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       u32 _v_1 = 0;
       Term _v_2 = 0;
       Term _o_3[3];
-      if (spin_64(e, _o_3, _h_14) == 0) {
+      if (spin_58(e, _o_3, _h_14) == 0) {
         return 0;
       }
       _v_0 = (u32)_o_3[0];
@@ -13715,112 +13715,75 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
     Term _h_38 = r4;
     Term _h_39 = r5;
     Term _h_40 = r6;
-    u32 _h_41 = r7;
+    Term _h_41 = r7;
     Term _h_42 = r8;
-    Term _h_43 = r9;
-    Term _h_44 = r10;
     WL_OPEN
     if (_h_34 == 0) {
       u32 _v_9 = 0;
       Term _o_14[1];
-      if (spin_125(e, _o_14, _h_44) == 0) {
+      if (spin_125(e, _o_14, _h_42) == 0) {
         return 0;
       }
       _v_9 = (u32)_o_14[0];
       if (_v_9 == 1) {
         if (_h_35 == 0) {
-          u32 _v_10 = 0;
-          Term _v_11 = 0;
-          Term _v_12 = 0;
-          Term _v_13 = 0;
-          Term _v_14 = 0;
-          Term _o_15[5];
-          if (spin_110(e, _o_15, _h_36, _h_37, _h_38, _h_39) == 0) {
-            return 0;
-          }
-          _v_10 = (u32)_o_15[0];
-          _v_11 = _o_15[1];
-          _v_12 = _o_15[2];
-          _v_13 = _o_15[3];
-          _v_14 = _o_15[4];
-          Term _o_16[1];
-          if (spin_111(e, _o_16, _v_10, _v_11, _v_12, _v_13, _v_14, term_pak(CID_SNil, 0)) == 0) {
-            return 0;
-          }
-          r0 = _o_16[0];
-          WL_RETN(1);
-        } else if (_h_35 == 1) {
-          u32 _v_15 = 0;
-          Term _v_16 = 0;
-          Term _v_17 = 0;
-          Term _v_18 = 0;
-          Term _o_17[4];
-          if (spin_112(e, _o_17, _h_36, _h_37, _h_38, _h_39, _h_40, _h_41, _h_42, _h_43) == 0) {
-            return 0;
-          }
-          _v_15 = (u32)_o_17[0];
-          _v_16 = _o_17[1];
-          _v_17 = _o_17[2];
-          _v_18 = _o_17[3];
-          Term _o_18[1];
-          if (spin_95(e, _o_18, _v_15, _v_16, _v_17, _v_18, term_pak(CID_SNil, 0)) == 0) {
-            return 0;
-          }
-          r0 = _o_18[0];
-          WL_RETN(1);
-        } else {
           if (seq) {
-            WL_ROOM(6, 0);
-            STK(0) = _h_36;
-            STK(1) = _h_37;
-            STK(2) = _h_38;
-            STK(3) = _h_39;
-            STK(4) = _h_40;
-            STK(5) = FID_ffi_go_k585;
-            WL_PUSHN(6);
+            WL_ROOM(1, 0);
+            STK(0) = FID_ffi_go_k585;
+            WL_PUSHN(1);
           } else {
             u64 _t_16 = task_node(e, FID_ffi_go_k585, WL_CONT, WL_IDX, 1);
-            e.mem[_t_16 + 0] = _h_36;
-            e.mem[_t_16 + 1] = _h_37;
-            e.mem[_t_16 + 2] = _h_38;
-            e.mem[_t_16 + 3] = _h_39;
-            e.mem[_t_16 + 4] = _h_40;
             WL_CONT = term_tsk(FID_ffi_go_k585, _t_16);
-            WL_IDX = 5;
+            WL_IDX = 0;
           }
-          if (!DEVICE && !seq && fid_nofk(FID_aux_fallback_put)) {
-            u64 _t_17 = task_node(e, FID_aux_fallback_put, WL_CONT, WL_IDX, 0);
+          if (!DEVICE && !seq && fid_nofk(FID_workflow_admit)) {
+            u64 _t_17 = task_node(e, FID_workflow_admit, WL_CONT, WL_IDX, 0);
             e.mem[_t_17 + 0] = _h_36;
             e.mem[_t_17 + 1] = _h_37;
             e.mem[_t_17 + 2] = _h_38;
             e.mem[_t_17 + 3] = _h_39;
             e.mem[_t_17 + 4] = _h_40;
-            e.mem[_t_17 + 5] = term_pak(CID_Nil, 0);
-            return term_tsk(FID_aux_fallback_put, _t_17);
+            e.mem[_t_17 + 5] = _h_41;
+            return term_tsk(FID_workflow_admit, _t_17);
           }
           r0 = _h_36;
           r1 = _h_37;
           r2 = _h_38;
           r3 = _h_39;
           r4 = _h_40;
-          r5 = term_pak(CID_Nil, 0);
-          WL_JMP(FID_aux_fallback_put);
+          r5 = _h_41;
+          WL_JMP(FID_workflow_admit);
+        } else {
+          Term _v_10 = 0;
+          Term _v_11 = 0;
+          Term _o_16[2];
+          if (spin_111(e, _o_16, _h_36, _h_37, _h_38) == 0) {
+            return 0;
+          }
+          _v_10 = _o_16[0];
+          _v_11 = _o_16[1];
+          Term _o_17[1];
+          if (spin_112(e, _o_17, _v_10, _v_11, term_pak(CID_SNil, 0)) == 0) {
+            return 0;
+          }
+          r0 = _o_17[0];
+          WL_RETN(1);
         }
       } else {
-        term_sink(e, _h_40);
-        Term _o_20[1];
-        if (spin_74(e, _o_20, term_ctr(CID_SCon, STAT_OFF + 162)) == 0) {
+        term_sink(e, _h_39);
+        Term _o_18[1];
+        if (spin_74(e, _o_18, term_ctr(CID_SCon, STAT_OFF + 162)) == 0) {
           return 0;
         }
-        r0 = _o_20[0];
+        r0 = _o_18[0];
         WL_RETN(1);
       }
     } else {
-      Term _o_21[1];
-      if (spin_74(e, _o_21, term_ctr(CID_SCon, STAT_OFF + 300)) == 0) {
+      Term _o_19[1];
+      if (spin_74(e, _o_19, term_ctr(CID_SCon, STAT_OFF + 300)) == 0) {
         return 0;
       }
-      r0 = _o_21[0];
+      r0 = _o_19[0];
       WL_RETN(1);
     }
   }}
@@ -13828,181 +13791,124 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 
 #if !DEVICE
   WL_CASE(FID_ffi_go_k585)
-    WL_POPN(5);
-    u32 _h_46 = STK(0);
-    Term _h_47 = STK(1);
-    Term _h_48 = STK(2);
-    Term _h_49 = STK(3);
-    Term _h_50 = STK(4);
-    Term _h_45 = r0;
+    u32 _h_43 = r0;
+    Term _h_44 = r1;
+    Term _h_45 = r2;
+    Term _h_46 = r3;
     WL_OPEN
-    if (seq) {
-      WL_ROOM(2, 0);
-      STK(0) = _h_45;
-      STK(1) = FID_ffi_go_k586;
-      WL_PUSHN(2);
-    } else {
-      u64 _t_18 = task_node(e, FID_ffi_go_k586, WL_CONT, WL_IDX, 1);
-      e.mem[_t_18 + 0] = _h_45;
-      WL_CONT = term_tsk(FID_ffi_go_k586, _t_18);
-      WL_IDX = 1;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_aux_fallback_after)) {
-      u64 _t_19 = task_node(e, FID_aux_fallback_after, WL_CONT, WL_IDX, 0);
-      e.mem[_t_19 + 0] = _h_46;
-      e.mem[_t_19 + 1] = _h_47;
-      e.mem[_t_19 + 2] = _h_48;
-      e.mem[_t_19 + 3] = _h_49;
-      e.mem[_t_19 + 4] = _h_50;
-      return term_tsk(FID_aux_fallback_after, _t_19);
-    }
-    r0 = _h_46;
-    r1 = _h_47;
-    r2 = _h_48;
-    r3 = _h_49;
-    r4 = _h_50;
-    WL_JMP(FID_aux_fallback_after);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_go_k586)
-    WL_POPN(1);
-    Term _h_52 = STK(0);
-    Term _h_51 = r0;
-    WL_OPEN
-    Term _rest_0 = term_pak(CID_SNil, 0);
-    if (seq) {
-      WL_ROOM(2, 0);
-      STK(0) = _h_52;
-      STK(1) = FID_ffi_go_k587;
-      WL_PUSHN(2);
-    } else {
-      u64 _t_20 = task_node(e, FID_ffi_go_k587, WL_CONT, WL_IDX, 1);
-      e.mem[_t_20 + 0] = _h_52;
-      WL_CONT = term_tsk(FID_ffi_go_k587, _t_20);
-      WL_IDX = 1;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_1)) {
-      u64 _t_21 = task_node(e, FID_wire_put_list_1, WL_CONT, WL_IDX, 0);
-      e.mem[_t_21 + 0] = _h_51;
-      e.mem[_t_21 + 1] = _rest_0;
-      return term_tsk(FID_wire_put_list_1, _t_21);
-    }
-    r0 = _h_51;
-    r1 = _rest_0;
-    WL_JMP(FID_wire_put_list_1);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_go_k587)
-    WL_POPN(1);
-    Term _h_54 = STK(0);
-    Term _h_53 = r0;
-    WL_OPEN
-    if (seq) {
-      WL_ROOM(1, 0);
-      STK(0) = FID_ffi_go_k588;
-      WL_PUSHN(1);
-    } else {
-      u64 _t_22 = task_node(e, FID_ffi_go_k588, WL_CONT, WL_IDX, 1);
-      WL_CONT = term_tsk(FID_ffi_go_k588, _t_22);
-      WL_IDX = 0;
-    }
-    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_2)) {
-      u64 _t_23 = task_node(e, FID_wire_put_list_go_2, WL_CONT, WL_IDX, 0);
-      e.mem[_t_23 + 0] = _h_54;
-      e.mem[_t_23 + 1] = _h_53;
-      return term_tsk(FID_wire_put_list_go_2, _t_23);
-    }
-    r0 = _h_54;
-    r1 = _h_53;
-    WL_JMP(FID_wire_put_list_go_2);
-  }}
-#endif
-
-#if !DEVICE
-  WL_CASE(FID_ffi_go_k588)
-    Term _h_55 = r0;
-    Term _h_56 = r1;
-    WL_OPEN
-    Term _o_19[1];
-    if (spin_45(e, _o_19, _h_55, _h_56) == 0) {
+    Term _o_15[1];
+    if (spin_110(e, _o_15, _h_43, _h_44, _h_45, _h_46, term_pak(CID_SNil, 0)) == 0) {
       return 0;
     }
-    r0 = _o_19[0];
+    r0 = _o_15[0];
     WL_RETN(1);
   }}
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k589)
-    u32 _h_57 = r0;
-    u32 _h_58 = r1;
-    Term _h_59 = r2;
-    Term _h_60 = r3;
-    Term _h_61 = r4;
-    Term _h_62 = r5;
-    Term _h_63 = r6;
-    Term _h_64 = r7;
-    Term _h_65 = r8;
+  WL_CASE(FID_ffi_go_k586)
+    u32 _h_47 = r0;
+    u32 _h_48 = r1;
+    Term _h_49 = r2;
+    Term _h_50 = r3;
+    Term _h_51 = r4;
+    Term _h_52 = r5;
+    Term _h_53 = r6;
+    u32 _h_54 = r7;
+    Term _h_55 = r8;
+    Term _h_56 = r9;
+    Term _h_57 = r10;
     WL_OPEN
-    if (_h_57 == 0) {
-      u32 _v_19 = 0;
-      Term _o_23[1];
-      if (spin_125(e, _o_23, _h_65) == 0) {
+    if (_h_47 == 0) {
+      u32 _v_12 = 0;
+      Term _o_21[1];
+      if (spin_125(e, _o_21, _h_57) == 0) {
         return 0;
       }
-      _v_19 = (u32)_o_23[0];
-      if (_v_19 == 1) {
-        if (_h_58 == 0) {
-          if (seq) {
-            WL_ROOM(1, 0);
-            STK(0) = FID_ffi_go_k590;
-            WL_PUSHN(1);
-          } else {
-            u64 _t_26 = task_node(e, FID_ffi_go_k590, WL_CONT, WL_IDX, 1);
-            WL_CONT = term_tsk(FID_ffi_go_k590, _t_26);
-            WL_IDX = 0;
+      _v_12 = (u32)_o_21[0];
+      if (_v_12 == 1) {
+        if (_h_48 == 0) {
+          u32 _v_13 = 0;
+          Term _v_14 = 0;
+          Term _v_15 = 0;
+          Term _v_16 = 0;
+          Term _v_17 = 0;
+          Term _o_22[5];
+          if (spin_107(e, _o_22, _h_49, _h_50, _h_51, _h_52) == 0) {
+            return 0;
           }
-          if (!DEVICE && !seq && fid_nofk(FID_workflow_admit)) {
-            u64 _t_27 = task_node(e, FID_workflow_admit, WL_CONT, WL_IDX, 0);
-            e.mem[_t_27 + 0] = _h_59;
-            e.mem[_t_27 + 1] = _h_60;
-            e.mem[_t_27 + 2] = _h_61;
-            e.mem[_t_27 + 3] = _h_62;
-            e.mem[_t_27 + 4] = _h_63;
-            e.mem[_t_27 + 5] = _h_64;
-            return term_tsk(FID_workflow_admit, _t_27);
+          _v_13 = (u32)_o_22[0];
+          _v_14 = _o_22[1];
+          _v_15 = _o_22[2];
+          _v_16 = _o_22[3];
+          _v_17 = _o_22[4];
+          Term _o_23[1];
+          if (spin_108(e, _o_23, _v_13, _v_14, _v_15, _v_16, _v_17, term_pak(CID_SNil, 0)) == 0) {
+            return 0;
           }
-          r0 = _h_59;
-          r1 = _h_60;
-          r2 = _h_61;
-          r3 = _h_62;
-          r4 = _h_63;
-          r5 = _h_64;
-          WL_JMP(FID_workflow_admit);
-        } else {
+          r0 = _o_23[0];
+          WL_RETN(1);
+        } else if (_h_48 == 1) {
+          u32 _v_18 = 0;
+          Term _v_19 = 0;
           Term _v_20 = 0;
           Term _v_21 = 0;
-          Term _o_25[2];
-          if (spin_108(e, _o_25, _h_59, _h_60, _h_61) == 0) {
+          Term _o_24[4];
+          if (spin_109(e, _o_24, _h_49, _h_50, _h_51, _h_52, _h_53, _h_54, _h_55, _h_56) == 0) {
             return 0;
           }
-          _v_20 = _o_25[0];
-          _v_21 = _o_25[1];
-          Term _o_26[1];
-          if (spin_109(e, _o_26, _v_20, _v_21, term_pak(CID_SNil, 0)) == 0) {
+          _v_18 = (u32)_o_24[0];
+          _v_19 = _o_24[1];
+          _v_20 = _o_24[2];
+          _v_21 = _o_24[3];
+          Term _o_25[1];
+          if (spin_89(e, _o_25, _v_18, _v_19, _v_20, _v_21, term_pak(CID_SNil, 0)) == 0) {
             return 0;
           }
-          r0 = _o_26[0];
+          r0 = _o_25[0];
           WL_RETN(1);
+        } else {
+          if (seq) {
+            WL_ROOM(6, 0);
+            STK(0) = _h_49;
+            STK(1) = _h_50;
+            STK(2) = _h_51;
+            STK(3) = _h_52;
+            STK(4) = _h_53;
+            STK(5) = FID_ffi_go_k587;
+            WL_PUSHN(6);
+          } else {
+            u64 _t_20 = task_node(e, FID_ffi_go_k587, WL_CONT, WL_IDX, 1);
+            e.mem[_t_20 + 0] = _h_49;
+            e.mem[_t_20 + 1] = _h_50;
+            e.mem[_t_20 + 2] = _h_51;
+            e.mem[_t_20 + 3] = _h_52;
+            e.mem[_t_20 + 4] = _h_53;
+            WL_CONT = term_tsk(FID_ffi_go_k587, _t_20);
+            WL_IDX = 5;
+          }
+          if (!DEVICE && !seq && fid_nofk(FID_aux_fallback_put)) {
+            u64 _t_21 = task_node(e, FID_aux_fallback_put, WL_CONT, WL_IDX, 0);
+            e.mem[_t_21 + 0] = _h_49;
+            e.mem[_t_21 + 1] = _h_50;
+            e.mem[_t_21 + 2] = _h_51;
+            e.mem[_t_21 + 3] = _h_52;
+            e.mem[_t_21 + 4] = _h_53;
+            e.mem[_t_21 + 5] = term_pak(CID_Nil, 0);
+            return term_tsk(FID_aux_fallback_put, _t_21);
+          }
+          r0 = _h_49;
+          r1 = _h_50;
+          r2 = _h_51;
+          r3 = _h_52;
+          r4 = _h_53;
+          r5 = term_pak(CID_Nil, 0);
+          WL_JMP(FID_aux_fallback_put);
         }
       } else {
-        term_sink(e, _h_62);
+        term_sink(e, _h_53);
         Term _o_27[1];
-        if (spin_74(e, _o_27, term_ctr(CID_SCon, STAT_OFF + 138)) == 0) {
+        if (spin_74(e, _o_27, term_ctr(CID_SCon, STAT_OFF + 146)) == 0) {
           return 0;
         }
         r0 = _o_27[0];
@@ -14010,7 +13916,7 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
       }
     } else {
       Term _o_28[1];
-      if (spin_74(e, _o_28, term_ctr(CID_SCon, STAT_OFF + 276)) == 0) {
+      if (spin_74(e, _o_28, term_ctr(CID_SCon, STAT_OFF + 284)) == 0) {
         return 0;
       }
       r0 = _o_28[0];
@@ -14020,17 +13926,111 @@ static Term work_loop(Env e, DEV Term* sp, Term t, u32 seq) {
 #endif
 
 #if !DEVICE
-  WL_CASE(FID_ffi_go_k590)
-    u32 _h_66 = r0;
-    Term _h_67 = r1;
-    Term _h_68 = r2;
-    Term _h_69 = r3;
+  WL_CASE(FID_ffi_go_k587)
+    WL_POPN(5);
+    u32 _h_59 = STK(0);
+    Term _h_60 = STK(1);
+    Term _h_61 = STK(2);
+    Term _h_62 = STK(3);
+    Term _h_63 = STK(4);
+    Term _h_58 = r0;
     WL_OPEN
-    Term _o_24[1];
-    if (spin_107(e, _o_24, _h_66, _h_67, _h_68, _h_69, term_pak(CID_SNil, 0)) == 0) {
+    if (seq) {
+      WL_ROOM(2, 0);
+      STK(0) = _h_58;
+      STK(1) = FID_ffi_go_k588;
+      WL_PUSHN(2);
+    } else {
+      u64 _t_22 = task_node(e, FID_ffi_go_k588, WL_CONT, WL_IDX, 1);
+      e.mem[_t_22 + 0] = _h_58;
+      WL_CONT = term_tsk(FID_ffi_go_k588, _t_22);
+      WL_IDX = 1;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_aux_fallback_after)) {
+      u64 _t_23 = task_node(e, FID_aux_fallback_after, WL_CONT, WL_IDX, 0);
+      e.mem[_t_23 + 0] = _h_59;
+      e.mem[_t_23 + 1] = _h_60;
+      e.mem[_t_23 + 2] = _h_61;
+      e.mem[_t_23 + 3] = _h_62;
+      e.mem[_t_23 + 4] = _h_63;
+      return term_tsk(FID_aux_fallback_after, _t_23);
+    }
+    r0 = _h_59;
+    r1 = _h_60;
+    r2 = _h_61;
+    r3 = _h_62;
+    r4 = _h_63;
+    WL_JMP(FID_aux_fallback_after);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k588)
+    WL_POPN(1);
+    Term _h_65 = STK(0);
+    Term _h_64 = r0;
+    WL_OPEN
+    Term _rest_0 = term_pak(CID_SNil, 0);
+    if (seq) {
+      WL_ROOM(2, 0);
+      STK(0) = _h_65;
+      STK(1) = FID_ffi_go_k589;
+      WL_PUSHN(2);
+    } else {
+      u64 _t_24 = task_node(e, FID_ffi_go_k589, WL_CONT, WL_IDX, 1);
+      e.mem[_t_24 + 0] = _h_65;
+      WL_CONT = term_tsk(FID_ffi_go_k589, _t_24);
+      WL_IDX = 1;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_1)) {
+      u64 _t_25 = task_node(e, FID_wire_put_list_1, WL_CONT, WL_IDX, 0);
+      e.mem[_t_25 + 0] = _h_64;
+      e.mem[_t_25 + 1] = _rest_0;
+      return term_tsk(FID_wire_put_list_1, _t_25);
+    }
+    r0 = _h_64;
+    r1 = _rest_0;
+    WL_JMP(FID_wire_put_list_1);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k589)
+    WL_POPN(1);
+    Term _h_67 = STK(0);
+    Term _h_66 = r0;
+    WL_OPEN
+    if (seq) {
+      WL_ROOM(1, 0);
+      STK(0) = FID_ffi_go_k590;
+      WL_PUSHN(1);
+    } else {
+      u64 _t_26 = task_node(e, FID_ffi_go_k590, WL_CONT, WL_IDX, 1);
+      WL_CONT = term_tsk(FID_ffi_go_k590, _t_26);
+      WL_IDX = 0;
+    }
+    if (!DEVICE && !seq && fid_nofk(FID_wire_put_list_go_2)) {
+      u64 _t_27 = task_node(e, FID_wire_put_list_go_2, WL_CONT, WL_IDX, 0);
+      e.mem[_t_27 + 0] = _h_67;
+      e.mem[_t_27 + 1] = _h_66;
+      return term_tsk(FID_wire_put_list_go_2, _t_27);
+    }
+    r0 = _h_67;
+    r1 = _h_66;
+    WL_JMP(FID_wire_put_list_go_2);
+  }}
+#endif
+
+#if !DEVICE
+  WL_CASE(FID_ffi_go_k590)
+    Term _h_68 = r0;
+    Term _h_69 = r1;
+    WL_OPEN
+    Term _o_26[1];
+    if (spin_45(e, _o_26, _h_68, _h_69) == 0) {
       return 0;
     }
-    r0 = _o_24[0];
+    r0 = _o_26[0];
     WL_RETN(1);
   }}
 #endif
