@@ -29,7 +29,7 @@ pub enum TreeCursor {
 /// The tree, while it is live.
 enum Slot {
     Building,
-    Ready(StateTree),
+    Ready(Box<StateTree>),
     Failed,
 }
 
@@ -191,7 +191,7 @@ async fn record_commits(
         let mut slot = lock(&guard.slot);
         // Sent under the slot lock: a later batch sends a later cursor.
         guard.cursor.send_replace(TreeCursor::Ready(tree.cursor()));
-        *slot = Slot::Ready(tree);
+        *slot = Slot::Ready(Box::new(tree));
     }
     let mut batch = Vec::new();
     while commits.recv_many(&mut batch, 256).await > 0 {

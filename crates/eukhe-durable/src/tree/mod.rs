@@ -7,29 +7,30 @@
 //! the live tree. A replay of the records makes the tree again; a replay
 //! of a prefix is a snapshot.
 //!
-//! The Bend model `bend/tree.bend` is the specification. `LAWS.bend`
-//! section (S1) states its laws and `PROOF.bend` proves them. The bridge
-//! test (`bridge.rs`, with `bend/bridge_tree.bend`) runs this code and the
-//! model on the same scenarios and requires the same transcript.
+//! The rule (which record the tree takes, what a delete removes, what a
+//! rewind does) is the Bend model `bend/tree.bend`: `LAWS.bend` section
+//! (S1) states its laws and `PROOF.bend` proves them. The journal's core
+//! (`rule.rs`) runs that rule as a stepper whose state is the live tree and
+//! the journal, so a record costs its change and a lookup, not the tree;
+//! node values reach the core as the journal's value indexes. The
+//! [`SessionTree`] here is the journal's copy of the live tree with its
+//! values: the journal changes it only as the core answers.
 //!
 //! [`StateTree`] (`state.rs`) is the session tree of a storage: the
 //! commits make its records.
 //!
 //! This module does no I/O.
 
-#[cfg(test)]
-mod bridge;
-mod diff;
 mod journal;
+mod rule;
 mod state;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub use diff::RewindEffect;
-pub use journal::Journal;
-pub use state::{CursorAhead, StateError, StateKey, StateKind, StateNode, StateTree};
+pub use journal::{CoreError, Journal};
+pub use state::{CursorAhead, CursorError, StateError, StateKey, StateKind, StateNode, StateTree};
 
 /// The id of a node. The ids of a tree are unique.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -85,13 +86,24 @@ pub enum TreeRecord<V> {
     Rewind(Vec<TreeOp<V>>),
 }
 
-/// The result of [`SessionTree::apply`].
+/// The result of [`Journal::push`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Applied {
     /// The tree accepted the record and applied it.
     Accepted,
     /// The tree rejected the record and did not change.
     Rejected,
+}
+
+/// What a rewind does to the work of one node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RewindEffect {
+    /// The node is new: start its work.
+    Start(NodeId),
+    /// The node goes: stop its work.
+    Stop(NodeId),
+    /// The node changes: restore its earlier state.
+    Restore(NodeId),
 }
 
 /// The tree of a session: nodes in ascending id order.
@@ -106,81 +118,6 @@ impl<V> Default for SessionTree<V> {
         Self {
             nodes: BTreeMap::new(),
         }
-    }
-}
-
-impl<V: Clone + Eq> SessionTree<V> {
-    /// An empty tree.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Apply one record. A rejected record does not change the tree.
-    pub fn apply(&mut self, record: &TreeRecord<V>) -> Applied {
-        match record {
-            TreeRecord::Do(TreeOp::Put { id, parent, value }) => {
-                if !self.may_hang(*id, *parent) {
-                    return Applied::Rejected;
-                }
-                self.nodes.insert(
-                    *id,
-                    Node {
-                        parent: *parent,
-                        value: value.clone(),
-                    },
-                );
-                Applied::Accepted
-            }
-            TreeRecord::Do(TreeOp::Del { id }) => {
-                if *id == NodeId::ROOT {
-                    return Applied::Rejected;
-                }
-                self.prune(*id);
-                Applied::Accepted
-            }
-            TreeRecord::Rewind(ops) => {
-                let mut next = self.nodes.clone();
-                for op in ops {
-                    match op {
-                        TreeOp::Put { id, parent, value } => {
-                            next.insert(
-                                *id,
-                                Node {
-                                    parent: *parent,
-                                    value: value.clone(),
-                                },
-                            );
-                        }
-                        TreeOp::Del { id } => {
-                            next.remove(id);
-                        }
-                    }
-                }
-                let next = Self { nodes: next };
-                if !next.is_sound() {
-                    return Applied::Rejected;
-                }
-                *self = next;
-                Applied::Accepted
-            }
-        }
-    }
-
-    /// Remove node `id` and every node below it. One pass in id order: a
-    /// node goes when its id or its parent is gone, and then its id is
-    /// gone. A parent comes before its children in id order. When `id`
-    /// is not a node, the nodes whose parent is `id` go all the same.
-    fn prune(&mut self, id: NodeId) {
-        let mut gone = BTreeSet::from([id]);
-        self.nodes.retain(|key, node| {
-            if gone.contains(key) || gone.contains(&node.parent) {
-                gone.insert(*key);
-                false
-            } else {
-                true
-            }
-        });
     }
 }
 
@@ -219,18 +156,13 @@ impl<V> SessionTree<V> {
         self.nodes.is_empty()
     }
 
-    /// Every node hangs under the root or a node with a smaller id. The
-    /// ids are in ascending order by construction.
-    #[must_use]
-    pub fn is_sound(&self) -> bool {
-        self.nodes
-            .iter()
-            .all(|(id, node)| self.may_hang(*id, node.parent))
+    /// Set node `id` (the journal, as the core took a record).
+    fn insert(&mut self, id: NodeId, node: Node<V>) {
+        self.nodes.insert(id, node);
     }
 
-    /// A node `id` may hang under `parent`: the parent is less than the
-    /// id, and it is the root or a node.
-    fn may_hang(&self, id: NodeId, parent: NodeId) -> bool {
-        parent < id && (parent == NodeId::ROOT || self.nodes.contains_key(&parent))
+    /// Remove node `id` (the journal, as the core took a record).
+    fn remove(&mut self, id: NodeId) {
+        self.nodes.remove(&id);
     }
 }

@@ -887,6 +887,122 @@ law tree_put_keeps_others:
   for other: {Nat.is_eq(x, k) == False{} : Bool}
   {Tr.get(Tr.apply(t, Tr.Do{Tr.Put{k, p, v}}), x) == Tr.get(t, x) : Maybe<&2, Tr.Ent>}
 
+# The compiled core: the Rust tree runs the stepper of bend/tree.bend
+# (`Tr.core.step`, its state a key map and the journal). Every journal is
+# free: any records, valid or not; the halves hs that place the map's
+# splits are free too (the Rust tree opens with Tr.KMap.halves()).
+
+# the keys of the nodes of a that b does not hold, in key order
+def tree.lost.at(held: Bool, k: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match held:
+    case True{}:
+      rest
+    case False{}:
+      k <> rest
+
+def tree.lost(a: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>) -> List<&2, Nat>:
+  match a:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      tree.lost.at(Tr.has(b, Tr.Ent.k(e)), Tr.Ent.k(e), tree.lost(rest, b))
+
+def tree.took(good: Bool) -> Tr.Ans:
+  match good:
+    case True{}:
+      Tr.Took{}
+    case False{}:
+      Tr.Kept{}
+
+# the model's answer to record r on tree t: a put or a rewind is taken
+# when the tree accepts it, else kept; a delete of the root is kept; a
+# delete of any other key cuts the keys of the nodes it removes
+def tree.answer(+t: List<&2, Tr.Ent>, r: Tr.Rec) -> Tr.Ans:
+  match r:
+    case Tr.Do{o}:
+      match o:
+        case Tr.Put{+k, +p, v}:
+          tree.took(Tr.ok(t, k, p))
+        case Tr.Del{x}:
+          match x:
+            case 0n:
+              Tr.Kept{}
+            case 1n++y:
+              Tr.Cut{tree.lost(t, Tr.prune(t, 1n+y))}
+    case Tr.Rewind{ops}:
+      tree.took(Tr.sound(Tr.patch(ops, t)))
+
+def tree.effect(held: Bool, k: Nat) -> Tr.Eff:
+  match held:
+    case True{}:
+      Tr.Restore{k}
+    case False{}:
+      Tr.Start{k}
+
+# what the ops of a rewind of t do to the work of each node: a Del stops
+# it; a Put restores a node t has and starts one t does not have
+def tree.effects(ops: List<&2, Tr.Op>, +t: List<&2, Tr.Ent>) -> List<&2, Tr.Eff>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case o <> rest:
+      match o:
+        case Tr.Del{k}:
+          Tr.Stop{k} <> tree.effects(rest, t)
+        case Tr.Put{+k, p, v}:
+          tree.effect(Tr.has(t, k), k) <> tree.effects(rest, t)
+
+# LAW: the core's tree after any journal is the tree the journal makes
+law tree_core_tree:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  {Tr.KMap.read(Tr.St.m(Tr.core.feed(hs, rs))) == Tr.replay(rs) : List<&2, Tr.Ent>}
+
+# LAW: after any journal, the core answers a record as the model decides
+# it: taken or kept, and a delete cuts exactly the nodes it removes
+law tree_core_answer:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  for +r: Tr.Rec
+  {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Note{r})) == tree.answer(Tr.replay(rs), r) : Tr.Ans}
+
+# LAW: a record steps the core to the core of the journal with the record
+# at its end, so the laws on core.feed hold for the live core
+law tree_core_note:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  for +r: Tr.Rec
+  {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Note{r})) == Tr.core.feed(hs, List.append(&2, Tr.Rec, rs, [r])) : Tr.St}
+
+# LAW: the core's rewind plan to the tree after the first n records is
+# what diff(live tree, that tree) does to the work of each node
+law tree_core_plan:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  for +n: Nat
+  {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Plan{n})) == Tr.Effects{tree.effects(Tr.diff(Tr.replay(rs), Tr.replay(List.take(&2, Tr.Rec, rs, n))), Tr.replay(rs))} : Tr.Ans}
+
+# LAW: the core's snapshot after the first n records is their replay
+law tree_core_snap:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  for +n: Nat
+  {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Snap{n})) == Tr.Nodes{Tr.replay(List.take(&2, Tr.Rec, rs, n))} : Tr.Ans}
+
+# LAW: a rewind plan leaves the core as it was
+law tree_core_plan_keeps:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  for +n: Nat
+  {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Plan{n})) == Tr.core.feed(hs, rs) : Tr.St}
+
+# LAW: a snapshot leaves the core as it was
+law tree_core_snap_keeps:
+  for +hs: List<&2, Nat>
+  for +rs: List<&2, Tr.Rec>
+  for +n: Nat
+  {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(Tr.core.feed(hs, rs), Tr.Snap{n})) == Tr.core.feed(hs, rs) : Tr.St}
+
 # (S2) Jobs and limits
 # --------------------
 # docs/runtime.md S2, the model in bend/job.bend. Every event is free:

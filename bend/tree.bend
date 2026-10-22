@@ -22,8 +22,8 @@
 # A recursive scan takes the test of its first node as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
 #
-# The Rust tree (crates/eukhe-durable/src/tree/) is checked against this
-# model by the bridge (bend/bridge_tree.bend).
+# The Rust tree (crates/eukhe-durable/src/tree/) runs the compiled core
+# below (`core.step`); LAWS.bend (S1) proves it is this model.
 
 import Base
 
@@ -370,3 +370,475 @@ def within(r: List<&2, Ent>, +t: List<&2, Ent>) -> Bool:
       True{}
     case +e <> rest:
       Bool.and(same(get(t, Ent.k(e)), Some{e}), within(rest, t))
+
+# The compiled core
+# -----------------
+# The Rust tree (crates/eukhe-durable/src/tree/) holds one stepper of the
+# compiled Bend core (bend/ffi_tree.bend). Its state is the live tree as a
+# key map and the journal, so a record costs its change and a lookup, not
+# the tree. A node's value is the Rust index of the value: equal values
+# get equal indexes. LAWS.bend (S1) states that the core's tree after any
+# journal is replay's, that it answers each record as the model decides
+# it, and that its rewind plan and snapshot are the model's.
+
+# A key map: a search tree of nodes. A fork holds a split key: its left
+# nodes have keys below it, its right nodes keys at or above it. A new
+# split halves the key range of its place, from [0, 2^48), so a path has at
+# most 48 forks, whatever the order of the puts. A fork also holds the
+# largest parent key of its nodes, so a delete skips the places where no
+# node can hang under it.
+type KMap is Data:
+  KNil{}
+  KOne{e: Ent}
+  KFork{mid: Nat, mp: Nat, l: KMap, r: KMap}
+
+# the largest parent key of the nodes of m (0 for none)
+def KMap.mp(+m: KMap) -> Nat:
+  match m:
+    case KNil{}:
+      0n
+    case KOne{e}:
+      Ent.p(e)
+    case KFork{mid, mp, l, r}:
+      mp
+
+# a fork, with the largest parent key of its sides
+def KMap.fork(+mid: Nat, +l: KMap, +r: KMap) -> KMap:
+  KFork{mid, Nat.max(KMap.mp(l), KMap.mp(r)), l, r}
+
+# the nodes of m in key order
+def KMap.read(m: KMap) -> List<&2, Ent>:
+  match m:
+    case KNil{}:
+      Nil{}
+    case KOne{e}:
+      [e]
+    case KFork{mid, mp, l, r}:
+      List.append(&2, Ent, KMap.read(l), KMap.read(r))
+
+# the nodes of m in key order, then acc
+def KMap.onto(m: KMap, acc: List<&2, Ent>) -> List<&2, Ent>:
+  match m:
+    case KNil{}:
+      acc
+    case KOne{e}:
+      e <> acc
+    case KFork{mid, mp, l, r}:
+      KMap.onto(l, KMap.onto(r, acc))
+
+# the test of one step down m for key x: at a node, its key is x; at a
+# fork, x goes left
+def KMap.at(+m: KMap, +x: Nat) -> Bool:
+  match m:
+    case KNil{}:
+      False{}
+    case KOne{e}:
+      Nat.is_eq(Ent.k(e), x)
+    case KFork{mid, mp, l, r}:
+      Nat.is_lt(x, mid)
+
+# the node with key x; b is KMap.at(m, x)
+def KMap.get.go(m: KMap, +x: Nat, b: Bool) -> Maybe<&2, Ent>:
+  match m b:
+    case KNil{} True{}:
+      None{}
+    case KNil{} False{}:
+      None{}
+    case KOne{e} True{}:
+      Some{e}
+    case KOne{e} False{}:
+      None{}
+    case KFork{mid, mp, +l, r} True{}:
+      KMap.get.go(l, x, KMap.at(l, x))
+    case KFork{mid, mp, l, +r} False{}:
+      KMap.get.go(r, x, KMap.at(r, x))
+
+def KMap.get(+m: KMap, +x: Nat) -> Maybe<&2, Ent>:
+  KMap.get.go(m, x, KMap.at(m, x))
+
+def KMap.has(+m: KMap, +x: Nat) -> Bool:
+  Maybe.is_some(&2, Ent, KMap.get(m, x))
+
+# the halves of the key range [0, 2^48) at each depth: 2^47, ..., 2, 1
+def KMap.halves.go(n: Nat, +x: Nat, acc: List<&2, Nat>) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      acc
+    case 1n+q:
+      KMap.halves.go(q, Nat.add(x, x), x <> acc)
+
+def KMap.halves() -> List<&2, Nat>:
+  KMap.halves.go(48n, 1n, Nil{})
+
+def KMap.half(hs: List<&2, Nat>) -> Nat:
+  match hs:
+    case Nil{}:
+      0n
+    case h <> rest:
+      h
+
+def KMap.below(hs: List<&2, Nat>) -> List<&2, Nat>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case h <> rest:
+      rest
+
+# two nodes with different keys, split at the larger key; lt: the key of
+# a is below the key of b
+def KMap.split(+a: Ent, +b: Ent, lt: Bool) -> KMap:
+  match lt:
+    case True{}:
+      KMap.fork(Ent.k(b), KOne{a}, KOne{b})
+    case False{}:
+      KMap.fork(Ent.k(a), KOne{b}, KOne{a})
+
+# a place for two nodes with different keys. Its keys run from lo below
+# lo + 2h, where h is the first of hs (the halves of the places below it
+# follow); ca and cb: the key of a, of b is below lo + h. With no half
+# left it splits at the larger key.
+def KMap.two(hs: List<&2, Nat>, +lo: Nat, +a: Ent, +b: Ent, ca: Bool, cb: Bool) -> KMap:
+  match hs:
+    case Nil{}:
+      KMap.split(a, b, Nat.is_lt(Ent.k(a), Ent.k(b)))
+    case +h <> +rest:
+      match ca cb:
+        case True{} True{}:
+          +g = KMap.half(rest)
+          KMap.fork(Nat.add(lo, h), KMap.two(rest, lo, a, b, Nat.is_lt(Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Ent.k(b), Nat.add(lo, g))), KNil{})
+        case True{} False{}:
+          KMap.fork(Nat.add(lo, h), KOne{a}, KOne{b})
+        case False{} True{}:
+          KMap.fork(Nat.add(lo, h), KOne{b}, KOne{a})
+        case False{} False{}:
+          +g = KMap.half(rest)
+          +n = Nat.add(lo, h)
+          KMap.fork(n, KNil{}, KMap.two(rest, n, a, b, Nat.is_lt(Ent.k(a), Nat.add(n, g)), Nat.is_lt(Ent.k(b), Nat.add(n, g))))
+
+# set node e (insert it, or replace the node with its key); hs and lo as
+# in two; b is KMap.at(m, key of e)
+def KMap.put(m: KMap, +hs: List<&2, Nat>, +lo: Nat, +e: Ent, b: Bool) -> KMap:
+  match m b:
+    case KNil{} True{}:
+      KOne{e}
+    case KNil{} False{}:
+      KOne{e}
+    case KOne{f} True{}:
+      KOne{e}
+    case KOne{+f} False{}:
+      KMap.two(hs, lo, f, e, Nat.is_lt(Ent.k(f), Nat.add(lo, KMap.half(hs))), Nat.is_lt(Ent.k(e), Nat.add(lo, KMap.half(hs))))
+    case KFork{mid, mp, +l, r} True{}:
+      KMap.fork(mid, KMap.put(l, KMap.below(hs), lo, e, KMap.at(l, Ent.k(e))), r)
+    case KFork{+mid, mp, l, +r} False{}:
+      KMap.fork(mid, l, KMap.put(r, KMap.below(hs), mid, e, KMap.at(r, Ent.k(e))))
+
+# set node e in m; hs are the halves of the key range, from the top
+def KMap.set(+m: KMap, +hs: List<&2, Nat>, +e: Ent) -> KMap:
+  KMap.put(m, hs, 0n, e, KMap.at(m, Ent.k(e)))
+
+# remove node x (only that node); b is KMap.at(m, x)
+def KMap.unset(m: KMap, +x: Nat, b: Bool) -> KMap:
+  match m b:
+    case KNil{} True{}:
+      KNil{}
+    case KNil{} False{}:
+      KNil{}
+    case KOne{e} True{}:
+      KNil{}
+    case KOne{e} False{}:
+      KOne{e}
+    case KFork{mid, mp, +l, r} True{}:
+      KMap.fork(mid, KMap.unset(l, x, KMap.at(l, x)), r)
+    case KFork{mid, mp, l, +r} False{}:
+      KMap.fork(mid, l, KMap.unset(r, x, KMap.at(r, x)))
+
+def KMap.del(+m: KMap, +x: Nat) -> KMap:
+  KMap.unset(m, x, KMap.at(m, x))
+
+# remove the nodes of keys ks, one by one
+def KMap.drop(ks: List<&2, Nat>, m: KMap) -> KMap:
+  match ks:
+    case Nil{}:
+      m
+    case k <> rest:
+      KMap.drop(rest, KMap.del(m, k))
+
+# the tests of ups at m: at a node, its key is x or its parent is x or
+# more (the node may go); at a fork, gl: x is below the split or a left
+# parent is x or more, gr: x is at or above the split or a right parent is
+# x or more (the side may hold a node that goes)
+def KMap.gl(+m: KMap, +x: Nat) -> Bool:
+  match m:
+    case KNil{}:
+      True{}
+    case KOne{e}:
+      Bool.or(Nat.is_eq(Ent.k(e), x), Bool.not(Nat.is_lt(Ent.p(e), x)))
+    case KFork{mid, mp, l, r}:
+      Bool.or(Nat.is_lt(x, mid), Bool.not(Nat.is_lt(KMap.mp(l), x)))
+
+def KMap.gr(+m: KMap, +x: Nat) -> Bool:
+  match m:
+    case KNil{}:
+      True{}
+    case KOne{e}:
+      True{}
+    case KFork{mid, mp, l, r}:
+      Bool.or(Bool.not(Nat.is_lt(x, mid)), Bool.not(Nat.is_lt(KMap.mp(r), x)))
+
+# the nodes of m that a delete of x may remove (its node, and the nodes
+# with a parent of x or more), in key order, then acc; gl and gr are
+# KMap.gl(m, x) and KMap.gr(m, x)
+def KMap.ups(m: KMap, +x: Nat, acc: List<&2, Ent>, gl: Bool, gr: Bool) -> List<&2, Ent>:
+  match m gl gr:
+    case KNil{} _ _:
+      acc
+    case KOne{e} True{} _:
+      e <> acc
+    case KOne{e} False{} _:
+      acc
+    case KFork{mid, mp, +l, +r} True{} True{}:
+      KMap.ups(l, x, KMap.ups(r, x, acc, KMap.gl(r, x), KMap.gr(r, x)), KMap.gl(l, x), KMap.gr(l, x))
+    case KFork{mid, mp, +l, r} True{} False{}:
+      KMap.ups(l, x, acc, KMap.gl(l, x), KMap.gr(l, x))
+    case KFork{mid, mp, l, +r} False{} True{}:
+      KMap.ups(r, x, acc, KMap.gl(r, x), KMap.gr(r, x))
+    case KFork{mid, mp, l, r} False{} False{}:
+      acc
+
+# the keys of the nodes that prune.go removes from s, in order
+def drops.go(s: List<&2, Ent>, +gone: List<&2, Nat>, hit: Bool) -> List<&2, Nat>:
+  match s:
+    case Nil{}:
+      Nil{}
+    case +e <> +rest:
+      match hit:
+        case True{}:
+          Ent.k(e) <> drops.go(rest, Ent.k(e) <> gone, gone.at(rest, Ent.k(e) <> gone))
+        case False{}:
+          drops.go(rest, gone, gone.at(rest, gone))
+
+# one exact op of a rewind, on a key map
+def KMap.exact(+m: KMap, +hs: List<&2, Nat>, o: Op) -> KMap:
+  match o:
+    case Put{k, p, v}:
+      KMap.set(m, hs, Ent{k, p, v})
+    case Del{x}:
+      KMap.del(m, x)
+
+# a rewind's ops, each exact, in order, from m
+def KMap.patch(ops: List<&2, Op>, +hs: List<&2, Nat>, m: KMap) -> KMap:
+  match ops:
+    case Nil{}:
+      m
+    case o <> rest:
+      KMap.patch(rest, hs, KMap.exact(m, hs, o))
+
+# every node of s hangs under the root or a node of m
+def KMap.hangs(s: List<&2, Ent>, +m: KMap) -> Bool:
+  match s:
+    case Nil{}:
+      True{}
+    case +e <> rest:
+      Bool.and(Bool.and(Nat.is_lt(Ent.p(e), Ent.k(e)), Bool.or(Nat.is_eq(Ent.p(e), 0n), KMap.has(m, Ent.p(e)))), KMap.hangs(rest, m))
+
+# The answer to a record, or to a question
+type Eff is Data:
+  Start{k: Nat}
+  Stop{k: Nat}
+  Restore{k: Nat}
+
+type Ans is Data:
+  Kept{}
+  Took{}
+  Cut{keys: List<&2, Nat>}
+  Effects{es: List<&2, Eff>}
+  Nodes{es: List<&2, Ent>}
+
+def put.ans(good: Bool, +m: KMap, +hs: List<&2, Nat>, +e: Ent) -> KMap & Ans:
+  match good:
+    case True{}:
+      (KMap.set(m, hs, e), Took{})
+    case False{}:
+      (m, Kept{})
+
+def keep.ans(good: Bool, m: KMap, n: KMap) -> KMap & Ans:
+  match good:
+    case True{}:
+      (n, Took{})
+    case False{}:
+      (m, Kept{})
+
+def cut.ans(m: KMap, +ks: List<&2, Nat>) -> KMap & Ans:
+  (KMap.drop(ks, m), Cut{ks})
+
+# a delete: key 0 is the root (no change); else the walk over the nodes
+# it may remove
+def del.ans(+m: KMap, x: Nat) -> KMap & Ans:
+  match x:
+    case 0n:
+      (m, Kept{})
+    case 1n++y:
+      +rows = KMap.ups(m, 1n+y, Nil{}, KMap.gl(m, 1n+y), KMap.gr(m, 1n+y))
+      cut.ans(m, drops.go(rows, [1n+y], gone.at(rows, [1n+y])))
+
+# one record on a key map, and its answer
+def KMap.rec(+m: KMap, +hs: List<&2, Nat>, r: Rec) -> KMap & Ans:
+  match r:
+    case Do{o}:
+      match o:
+        case Put{+k, +p, v}:
+          put.ans(Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), KMap.has(m, p))), m, hs, Ent{k, p, v})
+        case Del{x}:
+          del.ans(m, x)
+    case Rewind{ops}:
+      +n = KMap.patch(ops, hs, m)
+      keep.ans(KMap.hangs(KMap.onto(n, Nil{}), n), m, n)
+
+# the key map after the records rs, from m
+def KMap.go(rs: List<&2, Rec>, +hs: List<&2, Nat>, m: KMap) -> KMap:
+  match rs:
+    case Nil{}:
+      m
+    case r <> rest:
+      KMap.go(rest, hs, Pair.fst(KMap, Ans, KMap.rec(m, hs, r)))
+
+# The rewind plan: a merge of two trees in key order
+# the first key of s is below k
+def below.at(+s: List<&2, Ent>, +k: Nat) -> Bool:
+  match s:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      Nat.is_lt(Ent.k(e), k)
+
+# s from its first node with a key of k or more; lo is below.at(s, k)
+def from.go(s: List<&2, Ent>, +k: Nat, lo: Bool) -> List<&2, Ent>:
+  match s:
+    case Nil{}:
+      Nil{}
+    case +e <> +rest:
+      match lo:
+        case True{}:
+          from.go(rest, k, below.at(rest, k))
+        case False{}:
+          e <> rest
+
+def from.k(+s: List<&2, Ent>, +k: Nat) -> List<&2, Ent>:
+  from.go(s, k, below.at(s, k))
+
+def dels.m.at(hit: Bool, +k: Nat, rest: List<&2, Op>) -> List<&2, Op>:
+  match hit:
+    case True{}:
+      rest
+    case False{}:
+      Del{k} <> rest
+
+# dels(a, b) for a and b in key order: one pass over each
+def dels.m(a: List<&2, Ent>, +b: List<&2, Ent>) -> List<&2, Op>:
+  match a:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      +c = from.k(b, Ent.k(e))
+      dels.m.at(key.at(c, Ent.k(e)), Ent.k(e), dels.m(rest, c))
+
+# the first node of s is e
+def head.same(+s: List<&2, Ent>, +e: Ent) -> Bool:
+  match s:
+    case Nil{}:
+      False{}
+    case f <> rest:
+      Ent.eq(f, e)
+
+def puts.m.at(hit: Bool, +e: Ent, rest: List<&2, Op>) -> List<&2, Op>:
+  match hit:
+    case True{}:
+      rest
+    case False{}:
+      Put{Ent.k(e), Ent.p(e), Ent.v(e)} <> rest
+
+# puts(a, b) for a and b in key order: one pass over each
+def puts.m(b: List<&2, Ent>, +a: List<&2, Ent>) -> List<&2, Op>:
+  match b:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      +c = from.k(a, Ent.k(e))
+      puts.m.at(head.same(c, e), e, puts.m(rest, c))
+
+# diff(a, b) for a and b in key order
+def diff.m(+a: List<&2, Ent>, +b: List<&2, Ent>) -> List<&2, Op>:
+  List.append(&2, Op, dels.m(a, b), puts.m(b, a))
+
+def eff.put(held: Bool, k: Nat) -> Eff:
+  match held:
+    case True{}:
+      Restore{k}
+    case False{}:
+      Start{k}
+
+# what each op of a rewind of m does to the work of its node: a Del stops
+# it; a Put restores a node m has and starts one it does not have
+def effects(ops: List<&2, Op>, +m: KMap) -> List<&2, Eff>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case o <> rest:
+      match o:
+        case Del{k}:
+          Stop{k} <> effects(rest, m)
+        case Put{+k, p, v}:
+          eff.put(KMap.has(m, k), k) <> effects(rest, m)
+
+# The stepper
+# the live key map, the journal (newest record first), and the halves of
+# the key range (the stepper of the Rust tree opens with KMap.halves(); the
+# laws hold for any halves)
+type St is Data:
+  St{m: KMap, log: List<&2, Rec>, hs: List<&2, Nat>}
+
+# an event: a record, or a question about the tree after the first n
+# records (the rewind plan to it, its nodes)
+type Ask is Data:
+  Note{r: Rec}
+  Plan{n: Nat}
+  Snap{n: Nat}
+
+def St.note(log: List<&2, Rec>, +r: Rec, hs: List<&2, Nat>, ma: KMap & Ans) -> St & Ans:
+  (m2, a) = ma
+  (St{m2, r <> log, hs}, a)
+
+# the key map after the first n records of the journal log
+def St.at(+log: List<&2, Rec>, +hs: List<&2, Nat>, n: Nat) -> KMap:
+  KMap.go(List.take(&2, Rec, List.reverse(&2, Rec, log), n), hs, KNil{})
+
+def core.step(s: St, q: Ask) -> St & Ans:
+  match s:
+    case St{+m, +log, +hs}:
+      match q:
+        case Note{+r}:
+          St.note(log, r, hs, KMap.rec(m, hs, r))
+        case Plan{n}:
+          +a = KMap.onto(m, Nil{})
+          (St{m, log, hs}, Effects{effects(diff.m(a, KMap.onto(St.at(log, hs, n), Nil{})), m)})
+        case Snap{n}:
+          (St{m, log, hs}, Nodes{KMap.onto(St.at(log, hs, n), Nil{})})
+
+def core.start(hs: List<&2, Nat>) -> St:
+  St{KNil{}, Nil{}, hs}
+
+# the stepper after the records rs, from s
+def core.feed.go(rs: List<&2, Rec>, s: St) -> St:
+  match rs:
+    case Nil{}:
+      s
+    case r <> rest:
+      core.feed.go(rest, Pair.fst(St, Ans, core.step(s, Note{r})))
+
+def core.feed(hs: List<&2, Nat>, rs: List<&2, Rec>) -> St:
+  core.feed.go(rs, core.start(hs))
+
+def St.m(s: St) -> KMap:
+  match s:
+    case St{m, log, hs}:
+      m
