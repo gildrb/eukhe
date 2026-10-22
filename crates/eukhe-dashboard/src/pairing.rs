@@ -63,9 +63,11 @@ impl PairingToken {
             return None;
         }
         let mut bytes = [0; TOKEN_BYTES];
-        for (byte, pair) in bytes.iter_mut().zip(digits.as_chunks::<2>().0) {
-            let pair = std::str::from_utf8(pair).ok()?;
-            *byte = u8::from_str_radix(pair, 16).ok()?;
+        for (byte, &[high, low]) in bytes.iter_mut().zip(digits.as_chunks::<2>().0) {
+            // One hex digit per character: `u8::from_str_radix` on a pair
+            // also takes a sign ("+a" read as 0x0a).
+            let digit = |c: u8| char::from(c).to_digit(16);
+            *byte = u8::try_from(digit(high)? * 16 + digit(low)?).ok()?;
         }
         Some(Self(bytes))
     }
@@ -567,6 +569,9 @@ mod tests {
             hex[..62].to_string(),
             format!("{hex}0"),
             format!("{}zz", &hex[..62]),
+            // Regression (laws/dashboard_policy.bend F1): a sign in a pair
+            // spelled a byte ("+a" as 0x0a).
+            format!("+a{}", &hex[2..]),
             format!("{}é", &hex[..62]),
             String::new(),
         ]
@@ -578,6 +583,7 @@ mod tests {
             [
                 Some(token.clone()),
                 Some(token),
+                None,
                 None,
                 None,
                 None,
