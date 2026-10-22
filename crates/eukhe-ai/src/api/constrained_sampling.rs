@@ -463,31 +463,43 @@ pub struct StrictSupport {
     pub cap: Option<u32>,
 }
 
-/// The strict schema budget (docs/inference.md S6.3; model `bend/infer.bend`
-/// `strict`): of the tools that would get strict schemas, with
-/// `priorities`, which keep them when a request takes at most `cap`. The
-/// highest priorities keep them; among equal priorities the earlier tool
-/// comes first (the model's `rank` inserts each tool before its equals, a
-/// stable order). With no cap every tool keeps its strict schema.
-#[must_use]
-pub fn strict_budget(priorities: &[u32], cap: Option<u32>) -> Vec<bool> {
-    let Some(cap) = cap else {
-        return vec![true; priorities.len()];
-    };
-    let mut ranked: Vec<usize> = (0..priorities.len()).collect();
-    // Stable: equal priorities keep their given order.
-    ranked.sort_by(|&left, &right| priorities[right].cmp(&priorities[left]));
-    let mut keeps = vec![false; priorities.len()];
-    for index in ranked
-        .into_iter()
-        .take(usize::try_from(cap).unwrap_or(usize::MAX))
-    {
-        keeps[index] = true;
-    }
-    keeps
+/// A tool that would get a strict schema, as the strict plan sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrictCandidate {
+    pub priority: u32,
+    /// Its schema config requires strict sampling: it may not go loose.
+    pub required: bool,
 }
 
-/// The strict schemas of one request under its budget ([`strict_budget`]
+/// The strict plan of a request (docs/inference.md S6.3; model
+/// `bend/infer.bend` `plan`): of the `candidates` (in request order),
+/// which go loose under the cap: the highest priorities keep their strict
+/// schemas, and among equal priorities the earlier tool. With no cap every
+/// tool keeps its strict schema.
+///
+/// # Errors
+///
+/// The index of a loose candidate that is `required` (the first, highest
+/// priority first), when there is one (LAWS.bend `plan_*`).
+pub fn strict_plan(candidates: &[StrictCandidate], cap: Option<u32>) -> Result<Vec<bool>, usize> {
+    let mut loose = vec![false; candidates.len()];
+    let Some(cap) = cap else {
+        return Ok(loose);
+    };
+    let mut ranked: Vec<usize> = (0..candidates.len()).collect();
+    // Stable: equal priorities keep their given order.
+    ranked.sort_by(|&left, &right| candidates[right].priority.cmp(&candidates[left].priority));
+    let kept = usize::try_from(cap).map_or(ranked.len(), |cap| cap.min(ranked.len()));
+    for &index in &ranked[kept..] {
+        if candidates[index].required {
+            return Err(index);
+        }
+        loose[index] = true;
+    }
+    Ok(loose)
+}
+
+/// The strict schemas of one request under its budget ([`strict_plan`]
 /// by [`Tool::priority`]). [`StrictPlan::new`] sees every tool of the
 /// request (a mid-conversation tool addition counts too); a tool past the
 /// cap goes loose and keeps the client-side validation and repair of its
@@ -522,22 +534,29 @@ impl StrictPlan {
                 strict.push(tool);
             }
         }
-        let priorities: Vec<u32> = strict.iter().map(|tool| tool.priority).collect();
-        let mut loose = HashSet::new();
-        for (tool, keep) in strict.iter().zip(strict_budget(&priorities, support.cap)) {
-            if keep {
-                continue;
-            }
-            if json_schema_config(tool) == Some(JsonSchemaStrictness::Require) {
+        let candidates: Vec<StrictCandidate> = strict
+            .iter()
+            .map(|tool| StrictCandidate {
+                priority: tool.priority,
+                required: json_schema_config(tool) == Some(JsonSchemaStrictness::Require),
+            })
+            .collect();
+        let loose = match strict_plan(&candidates, support.cap) {
+            Ok(loose) => strict
+                .iter()
+                .zip(loose)
+                .filter(|(_, loose)| *loose)
+                .map(|(tool, _)| tool.name.clone())
+                .collect(),
+            Err(index) => {
                 return Err(ConstrainedSamplingError::Invalid(format!(
                     "Tool \"{}\" requires JSON-schema constrained sampling, but the provider \
                      takes at most {} strict tools per request.",
-                    tool.name,
+                    strict[index].name,
                     support.cap.unwrap_or(u32::MAX)
                 )));
             }
-            loose.insert(tool.name.clone());
-        }
+        };
         Ok(Self {
             supported: support.supported,
             loose,
@@ -660,15 +679,33 @@ mod tests {
     }
 
     #[test]
-    fn the_strict_budget_keeps_the_highest_priorities_and_the_earlier_of_equals() {
-        assert_eq!(strict_budget(&[1, 3, 3, 2], None), vec![true; 4]);
+    fn the_strict_plan_keeps_the_highest_priorities_and_the_earlier_of_equals() {
+        let prefer = |priorities: &[u32]| -> Vec<StrictCandidate> {
+            priorities
+                .iter()
+                .map(|&priority| StrictCandidate {
+                    priority,
+                    required: false,
+                })
+                .collect()
+        };
         assert_eq!(
-            strict_budget(&[1, 3, 3, 2], Some(2)),
-            vec![false, true, true, false]
+            strict_plan(&prefer(&[1, 3, 3, 2]), None),
+            Ok(vec![false; 4])
         );
-        assert_eq!(strict_budget(&[0, 0, 0], Some(1)), vec![true, false, false]);
-        assert_eq!(strict_budget(&[1, 2, 1], Some(2)), vec![true, true, false]);
-        assert_eq!(strict_budget(&[5, 4], Some(0)), vec![false, false]);
+        assert_eq!(
+            strict_plan(&prefer(&[1, 3, 3, 2]), Some(2)),
+            Ok(vec![true, false, false, true])
+        );
+        assert_eq!(
+            strict_plan(&prefer(&[0, 0, 0]), Some(1)),
+            Ok(vec![false, true, true])
+        );
+        assert_eq!(
+            strict_plan(&prefer(&[1, 2, 1]), Some(2)),
+            Ok(vec![false, false, true])
+        );
+        assert_eq!(strict_plan(&prefer(&[5, 4]), Some(0)), Ok(vec![true, true]));
     }
 
     #[test]

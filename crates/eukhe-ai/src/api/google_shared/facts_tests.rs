@@ -138,7 +138,8 @@ fn the_budgets_are_the_rulebook_answer_of_the_gemini_api_table() {
         .chain(&crafted)
         .flat_map(|model| LEVELS.map(|level| (model, level)))
         .filter(|(model, level)| {
-            old_generative_ai_budget(model, *level) != google_thinking_budget(model, *level, None)
+            old_generative_ai_budget(model, *level)
+                != google_thinking_budget(model, *level, None).unwrap()
         })
         .map(|(model, level)| format!("{}/{} {level:?}", model.provider, model.id))
         .collect();
@@ -161,13 +162,13 @@ fn vertex_flash_lite_takes_the_flash_lite_minimum() {
         .chain(&crafted)
         .flat_map(|model| LEVELS.map(|level| (model, level)))
         .filter(|(model, level)| {
-            old_vertex_budget(model, *level) != google_thinking_budget(model, *level, None)
+            old_vertex_budget(model, *level) != google_thinking_budget(model, *level, None).unwrap()
         })
         .map(|(model, level)| {
             (
                 model.id.clone(),
                 old_vertex_budget(model, level),
-                google_thinking_budget(model, level, None),
+                google_thinking_budget(model, level, None).unwrap(),
             )
         })
         .collect();
@@ -193,8 +194,9 @@ fn a_custom_budget_stays_inside_the_range_of_the_model() {
         medium: None,
         high: Some(100_000),
     };
-    let budgets =
-        |model: &Model| LEVELS.map(|level| google_thinking_budget(model, level, Some(&custom)));
+    let budgets = |model: &Model| {
+        LEVELS.map(|level| google_thinking_budget(model, level, Some(&custom)).unwrap())
+    };
     assert_eq!(
         (budgets(&lite), budgets(&other)),
         ([512, 4096, 8192, 24576], [64, 4096, -1, 100_000])

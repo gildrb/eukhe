@@ -12,8 +12,10 @@
 #    it is free (no cache cost). Each retry sets the flag when the provider
 #    supports it. After the retries, the call fails and says so.
 # 3. The strict schema budget. A provider takes at most `cap` strict
-#    schemas. The tools of highest priority get them; the other tools are
-#    loose: the client repairs their output.
+#    schemas (no cap: every tool keeps its schema). The tools of highest
+#    priority get them; the other tools are loose: the client repairs
+#    their output. A tool that requires a strict schema is never sent
+#    loose: the plan refuses the request and names such a tool.
 # 4. The repetition guard. A stream whose last k chunks are periodic,
 #    with a period of at most k/4 (at least 1), is cut.
 # 5. Early compaction. Compaction starts when the context reaches the
@@ -24,7 +26,10 @@
 #    offers each level whose chosen entry is a wire string, and each
 #    level with no chosen entry that the default ladder lists; a null
 #    entry removes the level. A model without reasoning offers the levels
-#    that the plain default ladder lists.
+#    that the plain default ladder lists. A model reasons when its flag
+#    says so; a registry model also reasons when its explicit map gives a
+#    level a wire string (#2858). The offered levels are the S10 ladder of
+#    one model (`lad.model`), so the S10 clamp and cycle apply to them.
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
@@ -298,37 +303,100 @@ def Tool.prio(t: Tool) -> Nat:
     case Tool{i, p}:
       p
 
-# the first tool of ts has a priority no higher than t
-def low.at(+ts: List<&2, Tool>, +t: Tool) -> Bool:
+# rank is a stable merge sort, highest priority first; among equal
+# priorities the earlier tool comes first (it wins a tie). tbuild deals
+# the tools into a binary counter of perfect trees, tjoin folds the
+# counter into one tree whose leaves keep the given order, and tsort
+# merges the sorted halves at every node: O(n log n).
+
+# a tree of tools; TTip is the empty tree
+type TTree is Data:
+  TTip{}
+  TLeaf{tool: Tool}
+  TNode{left: TTree, right: TTree}
+
+# a binary counter of trees, lowest digit first: digit k is empty (T0) or
+# holds one tree of 2^k tools (T1)
+type TDig is Data:
+  TEnd{}
+  T0{rest: TDig}
+  T1{tree: TTree, rest: TDig}
+
+# add the tree t at the lowest digit of ds, carrying into the next digit
+# when it is taken; the older tree goes left
+def tpush(ds: TDig, t: TTree) -> TDig:
+  match ds:
+    case TEnd{}:
+      T1{t, TEnd{}}
+    case T0{rest}:
+      T1{t, rest}
+    case T1{t2, rest}:
+      T0{tpush(rest, TNode{t2, t})}
+
+# push every tool of ts into the counter ds, in order
+def tbuild(ts: List<&2, Tool>, ds: TDig) -> TDig:
   match ts:
     case Nil{}:
-      False{}
-    case u <> rest:
-      Nat.is_le(Tool.prio(u), Tool.prio(t))
+      ds
+    case t <> rest:
+      tbuild(rest, tpush(ds, TLeaf{t}))
 
-# insert t into ts (by priority, highest first; before its equals, so
-# rank keeps the given order among equals: the earlier tool wins a tie);
-# hit is low.at(ts, t)
-def ins.go(ts: List<&2, Tool>, +t: Tool, hit: Bool) -> List<&2, Tool>:
-  match ts:
-    case Nil{}:
-      [t]
-    case +u <> +rest:
-      match hit:
-        case True{}:
-          t <> u <> rest
-        case False{}:
-          u <> ins.go(rest, t, low.at(rest, t))
+# fold the digits, lowest first, into one tree; a higher digit holds
+# earlier tools, so it goes left
+def tjoin(ds: TDig, acc: TTree) -> TTree:
+  match ds:
+    case TEnd{}:
+      acc
+    case T0{rest}:
+      tjoin(rest, acc)
+    case T1{t, rest}:
+      tjoin(rest, TNode{t, acc})
 
-def ins(+ts: List<&2, Tool>, +t: Tool) -> List<&2, Tool>:
-  ins.go(ts, t, low.at(ts, t))
+# merge x <> xt and y <> yt (each by priority, highest first); y_le_x is
+# Nat.is_le(Tool.prio(y), Tool.prio(x)), so on a tie x goes first
+def tmerge.go(xt: List<&2, Tool>, yt: List<&2, Tool>, +x: Tool, +y: Tool, y_le_x: Bool) -> List<&2, Tool>:
+  match xt yt y_le_x:
+    case Nil{} Nil{} True{}:
+      x <> y <> Nil{}
+    case Nil{} Nil{} False{}:
+      y <> x <> Nil{}
+    case Nil{} y2 <> yt2 True{}:
+      x <> y <> y2 <> yt2
+    case Nil{} +y2 <> yt2 False{}:
+      y <> tmerge.go(Nil{}, yt2, x, y2, Nat.is_le(Tool.prio(y2), Tool.prio(x)))
+    case +x2 <> xt2 Nil{} True{}:
+      x <> tmerge.go(xt2, Nil{}, x2, y, Nat.is_le(Tool.prio(y), Tool.prio(x2)))
+    case x2 <> xt2 Nil{} False{}:
+      y <> x <> x2 <> xt2
+    case +x2 <> xt2 y2 <> yt2 True{}:
+      x <> tmerge.go(xt2, y2 <> yt2, x2, y, Nat.is_le(Tool.prio(y), Tool.prio(x2)))
+    case x2 <> xt2 +y2 <> yt2 False{}:
+      y <> tmerge.go(x2 <> xt2, yt2, x, y2, Nat.is_le(Tool.prio(y2), Tool.prio(x)))
+
+# merge xs and ys (each by priority, highest first); xs wins a tie
+def tmerge(xs: List<&2, Tool>, ys: List<&2, Tool>) -> List<&2, Tool>:
+  match xs ys:
+    case Nil{} Nil{}:
+      Nil{}
+    case Nil{} y <> yt:
+      y <> yt
+    case x <> xt Nil{}:
+      x <> xt
+    case +x <> xt +y <> yt:
+      tmerge.go(xt, yt, x, y, Nat.is_le(Tool.prio(y), Tool.prio(x)))
+
+# the leaves of t by priority, highest first; the left half wins a tie
+def tsort(t: TTree) -> List<&2, Tool>:
+  match t:
+    case TTip{}:
+      Nil{}
+    case TLeaf{u}:
+      u <> Nil{}
+    case TNode{l, r}:
+      tmerge(tsort(l), tsort(r))
 
 def rank(ts: List<&2, Tool>) -> List<&2, Tool>:
-  match ts:
-    case Nil{}:
-      Nil{}
-    case t <> rest:
-      ins(rank(rest), t)
+  tsort(tjoin(tbuild(ts, TEnd{}), TTip{}))
 
 # the tools that get strict schemas (at most cap) and the loose ones
 def strict(+cap: Nat, +ts: List<&2, Tool>) -> List<&2, Tool> & List<&2, Tool>:
@@ -378,6 +446,66 @@ def count.go(ts: List<&2, Tool>, +i: Nat, hit: Bool) -> Nat:
 
 def count(+ts: List<&2, Tool>, +i: Nat) -> Nat:
   count.go(ts, i, tid.at(ts, i))
+
+# the strict and the loose tools under the cap of a request
+# (`strict_budget`): with no cap, every tool is strict
+def strict.of(cap: Maybe<&2, Nat>, +ts: List<&2, Tool>) -> List<&2, Tool> & List<&2, Tool>:
+  match cap:
+    case None{}:
+      (ts, Nil{})
+    case Some{+c}:
+      strict(c, ts)
+
+# the ids of the tools of ts, in order
+def ids(ts: List<&2, Tool>) -> List<&2, Nat>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> rest:
+      Tool.id(t) <> ids(rest)
+
+# what a request does with its strict schemas
+type Plan is Data:
+  Fits{loose: List<&2, Nat>}  # every tool fits: the ids of the loose tools
+  Over{id: Nat}               # tool id requires a strict schema, but is past the cap
+
+# the first tool of ls requires a strict schema (need: the ids of the
+# tools that require one)
+def needs.at(ls: List<&2, Tool>, +need: List<&2, Nat>) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case t <> rest:
+      elem(need, Tool.id(t))
+
+# the id of the first tool of ls that requires a strict schema; hit is
+# needs.at(ls, need)
+def needs.go(ls: List<&2, Tool>, +need: List<&2, Nat>, hit: Bool) -> Maybe<&2, Nat>:
+  match ls:
+    case Nil{}:
+      None{}
+    case t <> +rest:
+      match hit:
+        case True{}:
+          Some{Tool.id(t)}
+        case False{}:
+          needs.go(rest, need, needs.at(rest, need))
+
+def plan.of(m: Maybe<&2, Nat>, loose: List<&2, Tool>) -> Plan:
+  match m:
+    case Some{i}:
+      Over{i}
+    case None{}:
+      Fits{ids(loose)}
+
+def plan.loose(+loose: List<&2, Tool>, +need: List<&2, Nat>) -> Plan:
+  plan.of(needs.go(loose, need, needs.at(loose, need)), loose)
+
+# the plan of a request (`StrictPlan::new`): the loose tools under the
+# cap, or the first loose tool (highest priority first) that requires a
+# strict schema; need holds the ids of the tools that require one
+def plan(cap: Maybe<&2, Nat>, +ts: List<&2, Tool>, +need: List<&2, Nat>) -> Plan:
+  plan.loose(Pair.snd(List<&2, Tool>, List<&2, Tool>, strict.of(cap, ts)), need)
 
 # 4. The repetition guard
 # -----------------------
@@ -701,3 +829,54 @@ def lad.offered.of(r: Bool, map: Ef.LvMap, d: Defaults) -> List<&2, Ef.Lv>:
 # rulebook's ladder for it, the default ladders
 def lad.offered(r: Bool, explicit: Maybe<&2, Ef.LvMap>, rule: Maybe<&2, Ef.LvMap>, d: Defaults) -> List<&2, Ef.Lv>:
   lad.offered.of(r, lad.chosen(explicit, rule), d)
+
+# the entry is a wire string
+def lad.wired.e(e: Ef.Ent) -> Bool:
+  match e:
+    case Ef.Missing{}:
+      False{}
+    case Ef.Null{}:
+      False{}
+    case Ef.Wire{}:
+      True{}
+
+# the map gives some level a wire string
+def lad.wired(map: Ef.LvMap) -> Bool:
+  match map:
+    case Ef.LvMap{o, mi, lo, me, hi, xh, mx}:
+      Bool.or(lad.wired.e(o), Bool.or(lad.wired.e(mi), Bool.or(lad.wired.e(lo), Bool.or(lad.wired.e(me), Bool.or(lad.wired.e(hi), Bool.or(lad.wired.e(xh), lad.wired.e(mx)))))))
+
+def lad.wired.m(explicit: Maybe<&2, Ef.LvMap>) -> Bool:
+  match explicit:
+    case Some{e}:
+      lad.wired(e)
+    case None{}:
+      False{}
+
+# whether a model reasons: its flag; with by_map (a registry model, #2858)
+# also an explicit map that gives some level a wire string
+def lad.reasons(flag: Bool, by_map: Bool, explicit: Maybe<&2, Ef.LvMap>) -> Bool:
+  match flag:
+    case True{}:
+      True{}
+    case False{}:
+      match by_map:
+        case True{}:
+          lad.wired.m(explicit)
+        case False{}:
+          False{}
+
+# the chosen ladder map with the default ladder of r filled in: a model
+# without reasoning reads only the plain default ladder
+def lad.map(r: Bool, map: Ef.LvMap, d: Defaults) -> Ef.LvMap:
+  match r:
+    case True{}:
+      lad.fill(map, Defaults.reasoning(d))
+    case False{}:
+      lad.fill(Ef.LvMap.none(), Defaults.plain(d))
+
+# the S10 model whose ladder a model offers: a reasoning model with the
+# filled map (it has no missing entry, so the S10 rule for missing xhigh
+# and max never applies)
+def lad.model(r: Bool, explicit: Maybe<&2, Ef.LvMap>, rule: Maybe<&2, Ef.LvMap>, d: Defaults) -> Ef.Mdl:
+  Ef.Mdl{True{}, lad.map(r, lad.chosen(explicit, rule), d)}

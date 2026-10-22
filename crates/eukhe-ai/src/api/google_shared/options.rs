@@ -152,7 +152,7 @@ pub(crate) fn simple_request_options(
                 model,
                 resolved,
                 thinking_budgets.as_ref(),
-            )),
+            )?),
             level: None,
         }
     };
@@ -183,17 +183,24 @@ pub(crate) fn pi_headers(
     provider_headers_to_record(&[Some(&spread)])
 }
 
-/// The `thinkingBudget` of `level` (docs/inference.md S10.3): the user's
-/// custom budget of the level, else the quirks rulebook's budget of the
-/// model (`thinking_budgets`), held inside the model's range (the rule's
-/// `minimal` to its `high`). A model that the rulebook gives no budgets
-/// takes the custom budget, else `-1` (dynamic: the server decides).
-#[must_use]
+/// The `thinkingBudget` of `level` (docs/inference.md S10.3; model
+/// `bend/facts.bend` `gbudget`): the user's custom budget of the level,
+/// else the quirks rulebook's budget of the model (`thinking_budgets`),
+/// held inside the model's range (the rule's `minimal` to its `high`). A
+/// model that the rulebook gives no budgets takes the custom budget, else
+/// `-1` (dynamic: the server decides).
+///
+/// # Errors
+///
+/// A budget rule that is not ordered (`minimal <= low <= medium <= high`)
+/// has no range to hold a budget in (LAWS.bend
+/// `facts_google_unordered_refused`; the rulebook compiler refuses such a
+/// rule, so a shipped or loaded rulebook never has one).
 pub fn google_thinking_budget(
     model: &Model,
     level: ResolvedGoogleThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
-) -> i64 {
+) -> Result<i64, Thrown> {
     let custom = custom_budgets.and_then(|budgets| match level {
         ResolvedGoogleThinkingLevel::Minimal => budgets.minimal,
         ResolvedGoogleThinkingLevel::Low => budgets.low,
@@ -208,6 +215,13 @@ pub fn google_thinking_budget(
                 medium,
                 high,
             } = *rule;
+            if !(minimal <= low && low <= medium && medium <= high) {
+                return Err(ErrorObject::new(format!(
+                    "The thinking_budgets rule of {}/{} is not ordered (minimal <= low <= medium <= high)",
+                    model.provider, model.id
+                ))
+                .thrown());
+            }
             let wanted = custom.unwrap_or(match level {
                 ResolvedGoogleThinkingLevel::Minimal => minimal,
                 ResolvedGoogleThinkingLevel::Low => low,
@@ -217,7 +231,7 @@ pub fn google_thinking_budget(
             wanted.clamp(minimal, high)
         }
         (None, Some(custom)) => custom,
-        (None, None) => return -1,
+        (None, None) => return Ok(-1),
     };
-    i64::try_from(budget).unwrap_or(i64::MAX)
+    i64::try_from(budget).map_err(|error| ErrorObject::new(error.to_string()).thrown())
 }

@@ -323,7 +323,7 @@ fn budget_scenario() -> Scenario {
             writeln!(
                 transcript,
                 "g {}",
-                google_thinking_budget(model, level, Some(&budgets))
+                google_thinking_budget(model, level, Some(&budgets)).unwrap()
             )
             .unwrap();
         }

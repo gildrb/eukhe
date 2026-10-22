@@ -59,7 +59,8 @@ what a request may ask of a provider.
    The tools of highest `priority` get them (default `0`: all equal; of
    equal tools, the earlier one first). The other tools are loose: the
    client validates and repairs their arguments. No tool is dropped. A
-   tool that requires a strict schema and is past the cap is an error.
+   tool that requires a strict schema and is past the cap is an error;
+   when several are, it names the one of highest priority.
 5. The repetition guard reads the text and thinking deltas of every
    stream. A chunk is one complete, non-blank output line. A line longer
    than 4096 bytes (`MAX_CHUNK_BYTES`) ends a chunk at that length, on a
@@ -246,7 +247,9 @@ what a request may ask of a provider.
      512, 2048, 8192, 24576): the Google budget of each level, on the
      Gemini API and on Vertex alike. The user's `thinkingBudgets` wins,
      held inside the rule's `minimal` to `high`. A model with no rule
-     sends the user's budget, else `-1` (dynamic).
+     sends the user's budget, else `-1` (dynamic). A rule whose budgets
+     are not ordered (`minimal` ≤ `low` ≤ `medium` ≤ `high`) is an error,
+     never a clamp (the rulebook compiler refuses it).
    - `thinking_defaults.budgets` (1024, 2048, 8192, 16384): the budget
      of a level where neither the user nor a rule gives one, for every
      wire API that sends a token budget.
