@@ -12,11 +12,13 @@
 #   scripts/ci_local.sh pre-push  the pre-push gate: `make ci-local` on the
 #                                 pushed commit (PRE_COMMIT_TO_REF, from
 #                                 prek) in a separate worktree of it
-#                                 (<git common dir>/eukhe-ci-local), so
-#                                 uncommitted and untracked files do not
-#                                 change the result. The worktree keeps its
-#                                 own target/ between pushes. All worktrees
-#                                 share it: one push at a time runs the
+#                                 (<repo>-ci beside the main checkout: a
+#                                 path under .git hides the tests from
+#                                 vitest and makes test socket paths too
+#                                 long), so uncommitted and untracked files
+#                                 do not change the result. The worktree
+#                                 keeps its own target/ between pushes. All
+#                                 worktrees share it: one push at a time runs the
 #                                 gate (flock on eukhe-ci-local.lock), the
 #                                 others wait. A commit that passed once
 #                                 (eukhe-ci-local-passed/<sha>) pushes
@@ -231,7 +233,7 @@ case "${mode}" in
     to="${PRE_COMMIT_TO_REF:?PRE_COMMIT_TO_REF is unset: prek gives it in the pre-push hook}"
     from="${PRE_COMMIT_FROM_REF:-}"
     common="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
-    worktree="${common}/eukhe-ci-local"
+    worktree="$(dirname "${common}")-ci"
     passed="${common}/eukhe-ci-local-passed"
     if [[ -e "${passed}/${to}" ]]; then
       echo "pre-push: ${to:0:12} passed make ci-local before"

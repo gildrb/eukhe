@@ -34,7 +34,8 @@ The hooks (`.pre-commit-config.yaml`) run at low CPU priority
   touches and their dependents (`scripts/ci_pr_crates.py`; a path
   outside `crates/<crate>/` selects the workspace).
 - pre-push: `make ci-local` on the pushed commit, in a separate worktree
-  (`<git common dir>/eukhe-ci-local`), so local changes do not change the
+  (`<repo>-ci` beside the main checkout, for example `~/Repos/eukhe-ci`;
+  not under `.git`, where vitest ignores the tests), so local changes do not change the
   result. It runs every gate of `.github/workflows/ci.yml`: fmt, cargo
   check and clippy, `cargo test --workspace` in a clean environment with
   `EUKHE_REQUIRE_BEND=1`, the eukhe-runtime suite, the dashboard UI
