@@ -28,12 +28,13 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::{Applied, Journal, NodeId, RewindEffect, SessionTree, TreeOp, TreeRecord};
+use super::{Applied, CoreError, Journal, NodeId, RewindEffect, SessionTree, TreeOp, TreeRecord};
 use crate::storage::jsonl::HistoryCommit;
 use crate::types::{
     AnyTaskRecord, CommitChange, CommitPublication, ConversationRecord, DocumentCommitChange,
@@ -134,6 +135,39 @@ pub struct StateNode {
     pub value: Arc<Value>,
 }
 
+/// Equal nodes hash the same: JSON objects are equal whatever the order of
+/// their keys, so an object hashes its entries in any order.
+impl Hash for StateNode {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        hash_json(&self.value, state);
+    }
+}
+
+fn hash_json<H: Hasher>(value: &Value, state: &mut H) {
+    match value {
+        Value::Null => 0u8.hash(state),
+        Value::Bool(b) => (1u8, b).hash(state),
+        Value::Number(n) => (2u8, n).hash(state),
+        Value::String(s) => (3u8, s).hash(state),
+        Value::Array(items) => {
+            (4u8, items.len()).hash(state);
+            for item in items {
+                hash_json(item, state);
+            }
+        }
+        Value::Object(map) => {
+            let entries = map.iter().fold(0u64, |sum, (key, item)| {
+                let mut entry = DefaultHasher::new();
+                key.hash(&mut entry);
+                hash_json(item, &mut entry);
+                sum.wrapping_add(entry.finish())
+            });
+            (5u8, map.len(), entries).hash(state);
+        }
+    }
+}
+
 /// A change of a commit that the state tree cannot record.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum StateError {
@@ -165,6 +199,17 @@ pub struct CursorAhead {
     pub cursor: usize,
     /// The cursor of the tree.
     pub current: usize,
+}
+
+/// A question about the tree at a cursor that the tree cannot answer.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum CursorError {
+    /// The cursor is more than the cursor of the tree.
+    #[error(transparent)]
+    Ahead(#[from] CursorAhead),
+    /// The tree core answered something the journal cannot read.
+    #[error(transparent)]
+    Core(#[from] CoreError),
 }
 
 /// One planned change of a commit, before the ids are known.
@@ -476,21 +521,24 @@ impl StateTree {
     /// The tree after the first `cursor` records.
     ///
     /// # Errors
-    /// The cursor is more than [`Self::cursor`].
-    pub fn snapshot_at(&self, cursor: usize) -> Result<SessionTree<StateNode>, CursorAhead> {
+    /// The cursor is more than [`Self::cursor`], or the tree core answered
+    /// something the journal cannot read.
+    pub fn snapshot_at(&self, cursor: usize) -> Result<SessionTree<StateNode>, CursorError> {
         if cursor > self.cursor() {
-            return Err(self.ahead(cursor));
+            return Err(self.ahead(cursor).into());
         }
-        Ok(self.journal.snapshot_at(cursor))
+        Ok(self.journal.snapshot_at(cursor)?)
     }
 
     /// What a rewind from the live tree to the snapshot at `cursor` does.
     ///
     /// # Errors
     /// The cursor is more than [`Self::cursor`].
-    pub fn rewind_plan(&self, cursor: usize) -> Result<Vec<RewindEffect>, CursorAhead> {
-        let target = self.snapshot_at(cursor)?;
-        Ok(self.tree().rewind_effects(&target))
+    pub fn rewind_plan(&self, cursor: usize) -> Result<Vec<RewindEffect>, CursorError> {
+        if cursor > self.cursor() {
+            return Err(self.ahead(cursor).into());
+        }
+        Ok(self.journal.rewind_plan(cursor))
     }
 
     fn ahead(&self, cursor: usize) -> CursorAhead {

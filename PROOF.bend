@@ -11288,6 +11288,1823 @@ def delete_only_below(+t: List<&2, Tr.Ent>, +good: {Tr.sound(t) == True{} : Bool
     case 1n+y:
       pt.only_below_nz(t, good, 1n+y, {==})
 
+# The compiled core
+# -----------------
+# The key map refines the sorted list: a fork's left keys are below its
+# split and its right keys at or above it (`tc.bst`), so its nodes in
+# order are sorted (`tc.sorted_read`), a lookup down the map is the list
+# lookup (`tc.get`), and a put, an unset and a drop are the list's set,
+# unset and unset of each key (`tc.put_read`, `tc.unset_read`). A record
+# on the map is apply on the list (`tc.rec_read`), with the model's answer
+# (`tc.rec_ans`); a delete walks only the nodes from its key on, and the
+# nodes before them never go (`tc.drops_ge`). The plan merges two sorted
+# lists; the merge is diff (`tc.diff_m`).
+
+# Numbers
+
+def tc.lt_le(a: Nat, b: Nat, c: Nat, +ab: {Nat.is_lt(a, b) == True{} : Bool}, +cb: {Nat.is_lt(c, b) == False{} : Bool}) -> {Nat.is_lt(a, c) == True{} : Bool}:
+  match a b c:
+    case _ 0n _:
+      tree.pt.absurdF({Nat.is_lt(a, c) == True{} : Bool}, ab)
+    case _ 1n+q 0n:
+      pt.absurd({Nat.is_lt(a, 0n) == True{} : Bool}, cb)
+    case 0n 1n+q 1n+r:
+      {==}
+    case 1n+p 1n+q 1n+r:
+      tc.lt_le(p, q, r, ab, cb)
+
+def tc.lt_asym(a: Nat, b: Nat, +h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_lt(b, a) == False{} : Bool}:
+  match a b:
+    case _ 0n:
+      tree.pt.absurdF({Nat.is_lt(0n, a) == False{} : Bool}, h)
+    case 0n 1n+q:
+      {==}
+    case 1n+p 1n+q:
+      tc.lt_asym(p, q, h)
+
+def tc.lt_total(a: Nat, b: Nat, +nl: {Nat.is_lt(a, b) == False{} : Bool}, +ne: {Nat.is_eq(a, b) == False{} : Bool}) -> {Nat.is_lt(b, a) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      pt.absurd({Nat.is_lt(0n, 0n) == True{} : Bool}, ne)
+    case 0n 1n+q:
+      pt.absurd({Nat.is_lt(1n+q, 0n) == True{} : Bool}, nl)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      tc.lt_total(p, q, nl, ne)
+
+def tc.cmp_lt(a: Nat, b: Nat, +h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.cmp(a, b) == LT{} : Cmp}:
+  match a b:
+    case _ 0n:
+      tree.pt.absurdF({Nat.cmp(a, 0n) == LT{} : Cmp}, h)
+    case 0n 1n+q:
+      {==}
+    case 1n+p 1n+q:
+      tc.cmp_lt(p, q, h)
+
+def tc.cmp_gt(a: Nat, b: Nat, +h: {Nat.is_lt(b, a) == True{} : Bool}) -> {Nat.cmp(a, b) == GT{} : Cmp}:
+  match a b:
+    case 0n 0n:
+      tree.pt.absurdF({Nat.cmp(0n, 0n) == GT{} : Cmp}, h)
+    case 0n 1n+q:
+      tree.pt.absurdF({Nat.cmp(0n, 1n+q) == GT{} : Cmp}, h)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      tc.cmp_gt(p, q, h)
+
+def tc.cmp_eq(a: Nat, b: Nat, +h: {Nat.is_eq(a, b) == True{} : Bool}) -> {Nat.cmp(a, b) == EQ{} : Cmp}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      tree.pt.absurdF({Nat.cmp(0n, 1n+q) == EQ{} : Cmp}, h)
+    case 1n+p 0n:
+      tree.pt.absurdF({Nat.cmp(1n+p, 0n) == EQ{} : Cmp}, h)
+    case 1n+p 1n+q:
+      tc.cmp_eq(p, q, h)
+
+# Bounds
+
+# every key of t is below b
+def tc.lt(t: List<&2, Tr.Ent>, +b: Nat) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case +e <> r:
+      Bool.and(Nat.is_lt(Tr.Ent.k(e), b), tc.lt(r, b))
+
+# every key of t is b or more
+def tc.ge(t: List<&2, Tr.Ent>, +b: Nat) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case +e <> r:
+      Bool.and(Bool.not(Nat.is_lt(Tr.Ent.k(e), b)), tc.ge(r, b))
+
+# a fork's left keys are below its split, its right keys at or above it
+def tc.bst(m: Tr.KMap) -> Bool:
+  match m:
+    case Tr.KNil{}:
+      True{}
+    case Tr.KOne{e}:
+      True{}
+    case Tr.KFork{+mid, +mp, +l, +r}:
+      Bool.and(tc.bst(l), Bool.and(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid))))
+
+def tc.bst_l(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.bst(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {tc.bst(l) == True{} : Bool}:
+  tree.pt.and_l(tc.bst(l), Bool.and(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid))), h)
+
+def tc.bst_rest(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.bst(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {Bool.and(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid))) == True{} : Bool}:
+  tree.pt.and_r(tc.bst(l), Bool.and(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid))), h)
+
+def tc.bst_r(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.bst(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {tc.bst(r) == True{} : Bool}:
+  tree.pt.and_l(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid)), tc.bst_rest(mid, mp, l, r, h))
+
+def tc.bst_lt(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.bst(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {tc.lt(Tr.KMap.read(l), mid) == True{} : Bool}:
+  +h2 = tree.pt.and_r(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid)), tc.bst_rest(mid, mp, l, r, h))
+  tree.pt.and_l(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid), h2)
+
+def tc.bst_ge(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.bst(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {tc.ge(Tr.KMap.read(r), mid) == True{} : Bool}:
+  +h2 = tree.pt.and_r(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid)), tc.bst_rest(mid, mp, l, r, h))
+  tree.pt.and_r(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid), h2)
+
+def tc.bst_fork(+mid: Nat, +l: Tr.KMap, +r: Tr.KMap, +bl: {tc.bst(l) == True{} : Bool}, +br: {tc.bst(r) == True{} : Bool}, +ll: {tc.lt(Tr.KMap.read(l), mid) == True{} : Bool}, +gr: {tc.ge(Tr.KMap.read(r), mid) == True{} : Bool}) -> {tc.bst(Tr.KMap.fork(mid, l, r)) == True{} : Bool}:
+  tree.pt.and_t(tc.bst(l), Bool.and(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid))), bl, tree.pt.and_t(tc.bst(r), Bool.and(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid)), br, tree.pt.and_t(tc.lt(Tr.KMap.read(l), mid), tc.ge(Tr.KMap.read(r), mid), ll, gr)))
+
+def tc.lt_head(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +b: Nat, +h: {tc.lt(e <> r, b) == True{} : Bool}) -> {Nat.is_lt(Tr.Ent.k(e), b) == True{} : Bool}:
+  tree.pt.and_l(Nat.is_lt(Tr.Ent.k(e), b), tc.lt(r, b), h)
+
+def tc.lt_tail(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +b: Nat, +h: {tc.lt(e <> r, b) == True{} : Bool}) -> {tc.lt(r, b) == True{} : Bool}:
+  tree.pt.and_r(Nat.is_lt(Tr.Ent.k(e), b), tc.lt(r, b), h)
+
+def tc.ge_head(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +b: Nat, +h: {tc.ge(e <> r, b) == True{} : Bool}) -> {Nat.is_lt(Tr.Ent.k(e), b) == False{} : Bool}:
+  pt.not_f(Nat.is_lt(Tr.Ent.k(e), b), tree.pt.and_l(Bool.not(Nat.is_lt(Tr.Ent.k(e), b)), tc.ge(r, b), h))
+
+def tc.ge_tail(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +b: Nat, +h: {tc.ge(e <> r, b) == True{} : Bool}) -> {tc.ge(r, b) == True{} : Bool}:
+  tree.pt.and_r(Bool.not(Nat.is_lt(Tr.Ent.k(e), b)), tc.ge(r, b), h)
+
+def tc.lt_cons(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +b: Nat, +h: {Nat.is_lt(Tr.Ent.k(e), b) == True{} : Bool}, +t: {tc.lt(r, b) == True{} : Bool}) -> {tc.lt(e <> r, b) == True{} : Bool}:
+  tree.pt.and_t(Nat.is_lt(Tr.Ent.k(e), b), tc.lt(r, b), h, t)
+
+def tc.ge_cons(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +b: Nat, +h: {Nat.is_lt(Tr.Ent.k(e), b) == False{} : Bool}, +t: {tc.ge(r, b) == True{} : Bool}) -> {tc.ge(e <> r, b) == True{} : Bool}:
+  tree.pt.and_t(Bool.not(Nat.is_lt(Tr.Ent.k(e), b)), tc.ge(r, b), pt.not_t(Nat.is_lt(Tr.Ent.k(e), b), h), t)
+
+# Lists
+
+def tc.app_nil(xs: List<&2, Tr.Ent>) -> {List.append(&2, Tr.Ent, xs, Nil{}) == xs : List<&2, Tr.Ent>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case h <> t:
+      Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => h <> ys, List.append(&2, Tr.Ent, t, Nil{}), t, tc.app_nil(t))
+
+def tc.app_assoc(a: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +c: List<&2, Tr.Ent>) -> {List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, a, b), c) == List.append(&2, Tr.Ent, a, List.append(&2, Tr.Ent, b, c)) : List<&2, Tr.Ent>}:
+  match a:
+    case Nil{}:
+      {==}
+    case h <> t:
+      Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => h <> ys, List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, t, b), c), List.append(&2, Tr.Ent, t, List.append(&2, Tr.Ent, b, c)), tc.app_assoc(t, b, c))
+
+def tc.above_app(+k: Nat, r: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +ar: {Tr.above(k, r) == True{} : Bool}, +lk: {Nat.is_lt(k, b) == True{} : Bool}, +gb: {tc.ge(B, b) == True{} : Bool}) -> {Tr.above(k, List.append(&2, Tr.Ent, r, B)) == True{} : Bool}:
+  match r:
+    case Nil{}:
+      match B:
+        case Nil{}:
+          {==}
+        case +f <> s:
+          tc.lt_le(k, b, Tr.Ent.k(f), lk, tc.ge_head(f, s, b, gb))
+    case f <> s:
+      ar
+
+def tc.sorted_app(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +sa: {Tr.sorted(A) == True{} : Bool}, +sb: {Tr.sorted(B) == True{} : Bool}, +la: {tc.lt(A, b) == True{} : Bool}, +gb: {tc.ge(B, b) == True{} : Bool}) -> {Tr.sorted(List.append(&2, Tr.Ent, A, B)) == True{} : Bool}:
+  match A:
+    case Nil{}:
+      sb
+    case +e <> +r:
+      +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), sa)
+      +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), sa)
+      +R = List.append(&2, Tr.Ent, r, B)
+      tree.pt.and_t(Tr.above(Tr.Ent.k(e), R), Tr.sorted(R), tc.above_app(Tr.Ent.k(e), r, B, b, ar, tc.lt_head(e, r, b, la), gb), tc.sorted_app(r, B, b, sr, sb, tc.lt_tail(e, r, b, la), gb))
+
+# a key at or above b is no key of a list below b
+def tc.lt_miss(+e: Tr.Ent, +b: Nat, +x: Nat, +lk: {Nat.is_lt(Tr.Ent.k(e), b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == False{} : Bool}) -> {Nat.is_eq(Tr.Ent.k(e), x) == False{} : Bool}:
+  pt.lt_ne(Tr.Ent.k(e), x, tc.lt_le(Tr.Ent.k(e), b, x, lk, xb))
+
+# a key below b is no key of a list at or above b
+def tc.ge_miss(+e: Tr.Ent, +b: Nat, +x: Nat, +ge: {Nat.is_lt(Tr.Ent.k(e), b) == False{} : Bool}, +xb: {Nat.is_lt(x, b) == True{} : Bool}) -> {Nat.is_eq(Tr.Ent.k(e), x) == False{} : Bool}:
+  pt.lt_ne_r(x, Tr.Ent.k(e), tc.lt_le(x, b, Tr.Ent.k(e), xb, ge))
+
+def tc.get_app_r(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +la: {tc.lt(A, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == False{} : Bool}) -> {Tr.get(List.append(&2, Tr.Ent, A, B), x) == Tr.get(B, x) : Maybe<&2, Tr.Ent>}:
+  match A:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      +R = List.append(&2, Tr.Ent, r, B)
+      Equal.trans(Maybe<&2, Tr.Ent>, Tr.get(e <> R, x), Tr.get(R, x), Tr.get(B, x), pt.get_miss(e, R, x, tc.lt_miss(e, b, x, tc.lt_head(e, r, b, la), xb)), tc.get_app_r(r, B, b, x, tc.lt_tail(e, r, b, la), xb))
+
+def tc.get_none_ge(B: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +gb: {tc.ge(B, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == True{} : Bool}) -> {Tr.get(B, x) == None{} : Maybe<&2, Tr.Ent>}:
+  match B:
+    case Nil{}:
+      {==}
+    case +f <> +r:
+      Equal.trans(Maybe<&2, Tr.Ent>, Tr.get(f <> r, x), Tr.get(r, x), None{}, pt.get_miss(f, r, x, tc.ge_miss(f, b, x, tc.ge_head(f, r, b, gb), xb)), tc.get_none_ge(r, b, x, tc.ge_tail(f, r, b, gb), xb))
+
+def tc.get_app_l(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +gb: {tc.ge(B, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == True{} : Bool}) -> {Tr.get(List.append(&2, Tr.Ent, A, B), x) == Tr.get(A, x) : Maybe<&2, Tr.Ent>}:
+  match A:
+    case Nil{}:
+      tc.get_none_ge(B, b, x, gb, xb)
+    case +e <> +r:
+      pt.get_cons_cong(e, List.append(&2, Tr.Ent, r, B), r, x, tc.get_app_l(r, B, b, x, gb, xb))
+
+# the first key test of a list before a list above the key
+def tc.first_app(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +e: Tr.Ent, +gb: {tc.ge(B, b) == True{} : Bool}, +eb: {Nat.is_lt(Tr.Ent.k(e), b) == True{} : Bool}) -> {Tr.first(Tr.Ent.k(e), List.append(&2, Tr.Ent, A, B)) == Tr.first(Tr.Ent.k(e), A) : Cmp}:
+  match A:
+    case Nil{}:
+      match B:
+        case Nil{}:
+          {==}
+        case +f <> s:
+          tc.cmp_lt(Tr.Ent.k(e), Tr.Ent.k(f), tc.lt_le(Tr.Ent.k(e), b, Tr.Ent.k(f), eb, tc.ge_head(f, s, b, gb)))
+    case a <> r:
+      {==}
+
+def tc.set_go_lt(B: List<&2, Tr.Ent>, +e: Tr.Ent) -> {Tr.set.go(B, e, LT{}) == e <> B : List<&2, Tr.Ent>}:
+  match B:
+    case Nil{}:
+      {==}
+    case f <> s:
+      {==}
+
+def tc.set_go_app_l(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +e: Tr.Ent, c: Cmp, +ec: {Tr.first(Tr.Ent.k(e), A) == c : Cmp}, +gb: {tc.ge(B, b) == True{} : Bool}, +eb: {Nat.is_lt(Tr.Ent.k(e), b) == True{} : Bool}) -> {Tr.set.go(List.append(&2, Tr.Ent, A, B), e, c) == List.append(&2, Tr.Ent, Tr.set.go(A, e, c), B) : List<&2, Tr.Ent>}:
+  match A:
+    case Nil{}:
+      %ec : {Tr.set.go(B, e, _) == List.append(&2, Tr.Ent, Tr.set.go(Nil{}, e, _), B) : List<&2, Tr.Ent>}
+      tc.set_go_lt(B, e)
+    case +a <> +r:
+      match c:
+        case LT{}:
+          {==}
+        case EQ{}:
+          {==}
+        case GT{}:
+          +R = List.append(&2, Tr.Ent, r, B)
+          %Equal.sym(Cmp, Tr.first(Tr.Ent.k(e), List.append(&2, Tr.Ent, r, B)), Tr.first(Tr.Ent.k(e), r), tc.first_app(r, B, b, e, gb, eb)) : {a <> Tr.set.go(R, e, _) == List.append(&2, Tr.Ent, a <> Tr.set.go(r, e, Tr.first(Tr.Ent.k(e), r)), B) : List<&2, Tr.Ent>}
+          Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => a <> ys, Tr.set.go(R, e, Tr.first(Tr.Ent.k(e), r)), List.append(&2, Tr.Ent, Tr.set.go(r, e, Tr.first(Tr.Ent.k(e), r)), B), tc.set_go_app_l(r, B, b, e, Tr.first(Tr.Ent.k(e), r), {==}, gb, eb))
+
+# a set below a bound sets the part below it
+def tc.set_app_l(+A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +e: Tr.Ent, +gb: {tc.ge(B, b) == True{} : Bool}, +eb: {Nat.is_lt(Tr.Ent.k(e), b) == True{} : Bool}) -> {Tr.set(List.append(&2, Tr.Ent, A, B), e) == List.append(&2, Tr.Ent, Tr.set(A, e), B) : List<&2, Tr.Ent>}:
+  %Equal.sym(Cmp, Tr.first(Tr.Ent.k(e), List.append(&2, Tr.Ent, A, B)), Tr.first(Tr.Ent.k(e), A), tc.first_app(A, B, b, e, gb, eb)) : {Tr.set.go(List.append(&2, Tr.Ent, A, B), e, _) == List.append(&2, Tr.Ent, Tr.set(A, e), B) : List<&2, Tr.Ent>}
+  tc.set_go_app_l(A, B, b, e, Tr.first(Tr.Ent.k(e), A), {==}, gb, eb)
+
+# a set at or above a bound sets the part above it
+def tc.set_app_r(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +e: Tr.Ent, +la: {tc.lt(A, b) == True{} : Bool}, +eb: {Nat.is_lt(Tr.Ent.k(e), b) == False{} : Bool}) -> {Tr.set(List.append(&2, Tr.Ent, A, B), e) == List.append(&2, Tr.Ent, A, Tr.set(B, e)) : List<&2, Tr.Ent>}:
+  match A:
+    case Nil{}:
+      {==}
+    case +a <> +r:
+      +R = List.append(&2, Tr.Ent, r, B)
+      +gt = tc.cmp_gt(Tr.Ent.k(e), Tr.Ent.k(a), tc.lt_le(Tr.Ent.k(a), b, Tr.Ent.k(e), tc.lt_head(a, r, b, la), eb))
+      %Equal.sym(Cmp, Nat.cmp(Tr.Ent.k(e), Tr.Ent.k(a)), GT{}, gt) : {Tr.set.go(a <> R, e, _) == a <> List.append(&2, Tr.Ent, r, Tr.set(B, e)) : List<&2, Tr.Ent>}
+      Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => a <> ys, Tr.set(R, e), List.append(&2, Tr.Ent, r, Tr.set(B, e)), tc.set_app_r(r, B, b, e, tc.lt_tail(a, r, b, la), eb))
+
+# an unset of a key at or above a bound unsets the part above it
+def tc.unset_app_r(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +la: {tc.lt(A, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == False{} : Bool}) -> {Tr.unset(List.append(&2, Tr.Ent, A, B), x) == List.append(&2, Tr.Ent, A, Tr.unset(B, x)) : List<&2, Tr.Ent>}:
+  match A:
+    case Nil{}:
+      {==}
+    case +a <> +r:
+      +R = List.append(&2, Tr.Ent, r, B)
+      +ne = tc.lt_miss(a, b, x, tc.lt_head(a, r, b, la), xb)
+      %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(a), x), False{}, ne) : {Tr.unset.go(a <> R, x, _) == a <> List.append(&2, Tr.Ent, r, Tr.unset(B, x)) : List<&2, Tr.Ent>}
+      Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => a <> ys, Tr.unset(R, x), List.append(&2, Tr.Ent, r, Tr.unset(B, x)), tc.unset_app_r(r, B, b, x, tc.lt_tail(a, r, b, la), xb))
+
+# an unset of a key below every key changes nothing
+def tc.unset_miss(B: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +gb: {tc.ge(B, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == True{} : Bool}) -> {Tr.unset(B, x) == B : List<&2, Tr.Ent>}:
+  match B:
+    case Nil{}:
+      {==}
+    case +f <> +r:
+      +ne = tc.ge_miss(f, b, x, tc.ge_head(f, r, b, gb), xb)
+      %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(f), x), False{}, ne) : {Tr.unset.go(f <> r, x, _) == f <> r : List<&2, Tr.Ent>}
+      Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => f <> ys, Tr.unset(r, x), r, tc.unset_miss(r, b, x, tc.ge_tail(f, r, b, gb), xb))
+
+def tc.unset_step(+a: Tr.Ent, +r: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +x: Nat, c: Bool, +ih: {Tr.unset(List.append(&2, Tr.Ent, r, B), x) == List.append(&2, Tr.Ent, Tr.unset(r, x), B) : List<&2, Tr.Ent>}) -> {Tr.unset.go(a <> List.append(&2, Tr.Ent, r, B), x, c) == List.append(&2, Tr.Ent, Tr.unset.go(a <> r, x, c), B) : List<&2, Tr.Ent>}:
+  match c:
+    case True{}:
+      ih
+    case False{}:
+      Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => a <> ys, Tr.unset(List.append(&2, Tr.Ent, r, B), x), List.append(&2, Tr.Ent, Tr.unset(r, x), B), ih)
+
+# an unset of a key below a bound unsets the part below it
+def tc.unset_app_l(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +gb: {tc.ge(B, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == True{} : Bool}) -> {Tr.unset(List.append(&2, Tr.Ent, A, B), x) == List.append(&2, Tr.Ent, Tr.unset(A, x), B) : List<&2, Tr.Ent>}:
+  match A:
+    case Nil{}:
+      tc.unset_miss(B, b, x, gb, xb)
+    case +a <> +r:
+      tc.unset_step(a, r, B, x, Nat.is_eq(Tr.Ent.k(a), x), tc.unset_app_l(r, B, b, x, gb, xb))
+
+# The key map: order, lookup, put, unset
+
+def tc.sorted_read(m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.sorted(Tr.KMap.read(m)) == True{} : Bool}:
+  match m:
+    case Tr.KNil{}:
+      {==}
+    case Tr.KOne{e}:
+      {==}
+    case Tr.KFork{+mid, +mp, +l, +r}:
+      tc.sorted_app(Tr.KMap.read(l), Tr.KMap.read(r), mid, tc.sorted_read(l, tc.bst_l(mid, mp, l, r, bt)), tc.sorted_read(r, tc.bst_r(mid, mp, l, r, bt)), tc.bst_lt(mid, mp, l, r, bt), tc.bst_ge(mid, mp, l, r, bt))
+
+def tc.get_go(m: Tr.KMap, +x: Nat, b: Bool, +eb: {Tr.KMap.at(m, x) == b : Bool}, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.get.go(m, x, b) == Tr.get(Tr.KMap.read(m), x) : Maybe<&2, Tr.Ent>}:
+  match m b:
+    case Tr.KNil{} True{}:
+      {==}
+    case Tr.KNil{} False{}:
+      {==}
+    case Tr.KOne{+e} True{}:
+      Equal.sym(Maybe<&2, Tr.Ent>, Tr.get([e], x), Some{e}, pt.get_hit(e, Nil{}, x, eb))
+    case Tr.KOne{+e} False{}:
+      Equal.sym(Maybe<&2, Tr.Ent>, Tr.get([e], x), None{}, pt.get_miss(e, Nil{}, x, eb))
+    case Tr.KFork{+mid, +mp, +l, +r} True{}:
+      +ih = tc.get_go(l, x, Tr.KMap.at(l, x), {==}, tc.bst_l(mid, mp, l, r, bt))
+      Equal.trans(Maybe<&2, Tr.Ent>, Tr.KMap.get(l, x), Tr.get(Tr.KMap.read(l), x), Tr.get(List.append(&2, Tr.Ent, Tr.KMap.read(l), Tr.KMap.read(r)), x), ih, Equal.sym(Maybe<&2, Tr.Ent>, Tr.get(List.append(&2, Tr.Ent, Tr.KMap.read(l), Tr.KMap.read(r)), x), Tr.get(Tr.KMap.read(l), x), tc.get_app_l(Tr.KMap.read(l), Tr.KMap.read(r), mid, x, tc.bst_ge(mid, mp, l, r, bt), eb)))
+    case Tr.KFork{+mid, +mp, +l, +r} False{}:
+      +ih = tc.get_go(r, x, Tr.KMap.at(r, x), {==}, tc.bst_r(mid, mp, l, r, bt))
+      Equal.trans(Maybe<&2, Tr.Ent>, Tr.KMap.get(r, x), Tr.get(Tr.KMap.read(r), x), Tr.get(List.append(&2, Tr.Ent, Tr.KMap.read(l), Tr.KMap.read(r)), x), ih, Equal.sym(Maybe<&2, Tr.Ent>, Tr.get(List.append(&2, Tr.Ent, Tr.KMap.read(l), Tr.KMap.read(r)), x), Tr.get(Tr.KMap.read(r), x), tc.get_app_r(Tr.KMap.read(l), Tr.KMap.read(r), mid, x, tc.bst_lt(mid, mp, l, r, bt), eb)))
+
+# a lookup down the map is the lookup in its nodes
+def tc.get(+m: Tr.KMap, +x: Nat, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.get(m, x) == Tr.get(Tr.KMap.read(m), x) : Maybe<&2, Tr.Ent>}:
+  tc.get_go(m, x, Tr.KMap.at(m, x), {==}, bt)
+
+def tc.has(+m: Tr.KMap, +x: Nat, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.has(m, x) == Tr.has(Tr.KMap.read(m), x) : Bool}:
+  Equal.cong(Maybe<&2, Tr.Ent>, Bool, y => Maybe.is_some(&2, Tr.Ent, y), Tr.KMap.get(m, x), Tr.get(Tr.KMap.read(m), x), tc.get(m, x, bt))
+
+# bounds over set and unset
+
+def tc.lt_set(t: List<&2, Tr.Ent>, +e: Tr.Ent, c: Cmp, +b: Nat, +lt: {tc.lt(t, b) == True{} : Bool}, +eb: {Nat.is_lt(Tr.Ent.k(e), b) == True{} : Bool}) -> {tc.lt(Tr.set.go(t, e, c), b) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      tc.lt_cons(e, Nil{}, b, eb, {==})
+    case +h <> +r:
+      match c:
+        case LT{}:
+          tc.lt_cons(e, h <> r, b, eb, lt)
+        case EQ{}:
+          tc.lt_cons(e, r, b, eb, tc.lt_tail(h, r, b, lt))
+        case GT{}:
+          tc.lt_cons(h, Tr.set.go(r, e, Tr.first(Tr.Ent.k(e), r)), b, tc.lt_head(h, r, b, lt), tc.lt_set(r, e, Tr.first(Tr.Ent.k(e), r), b, tc.lt_tail(h, r, b, lt), eb))
+
+def tc.ge_set(t: List<&2, Tr.Ent>, +e: Tr.Ent, c: Cmp, +b: Nat, +ge: {tc.ge(t, b) == True{} : Bool}, +eb: {Nat.is_lt(Tr.Ent.k(e), b) == False{} : Bool}) -> {tc.ge(Tr.set.go(t, e, c), b) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      tc.ge_cons(e, Nil{}, b, eb, {==})
+    case +h <> +r:
+      match c:
+        case LT{}:
+          tc.ge_cons(e, h <> r, b, eb, ge)
+        case EQ{}:
+          tc.ge_cons(e, r, b, eb, tc.ge_tail(h, r, b, ge))
+        case GT{}:
+          tc.ge_cons(h, Tr.set.go(r, e, Tr.first(Tr.Ent.k(e), r)), b, tc.ge_head(h, r, b, ge), tc.ge_set(r, e, Tr.first(Tr.Ent.k(e), r), b, tc.ge_tail(h, r, b, ge), eb))
+
+def tc.lt_unset(t: List<&2, Tr.Ent>, +x: Nat, hit: Bool, +b: Nat, +lt: {tc.lt(t, b) == True{} : Bool}) -> {tc.lt(Tr.unset.go(t, x, hit), b) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +h <> +r:
+      match hit:
+        case True{}:
+          tc.lt_unset(r, x, Tr.key.at(r, x), b, tc.lt_tail(h, r, b, lt))
+        case False{}:
+          tc.lt_cons(h, Tr.unset.go(r, x, Tr.key.at(r, x)), b, tc.lt_head(h, r, b, lt), tc.lt_unset(r, x, Tr.key.at(r, x), b, tc.lt_tail(h, r, b, lt)))
+
+def tc.ge_unset(t: List<&2, Tr.Ent>, +x: Nat, hit: Bool, +b: Nat, +ge: {tc.ge(t, b) == True{} : Bool}) -> {tc.ge(Tr.unset.go(t, x, hit), b) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +h <> +r:
+      match hit:
+        case True{}:
+          tc.ge_unset(r, x, Tr.key.at(r, x), b, tc.ge_tail(h, r, b, ge))
+        case False{}:
+          tc.ge_cons(h, Tr.unset.go(r, x, Tr.key.at(r, x)), b, tc.ge_head(h, r, b, ge), tc.ge_unset(r, x, Tr.key.at(r, x), b, tc.ge_tail(h, r, b, ge)))
+
+# Two nodes
+
+# a and b in the order of the test lt
+def tc.pair(lt: Bool, +a: Tr.Ent, +b: Tr.Ent) -> List<&2, Tr.Ent>:
+  match lt:
+    case True{}:
+      [a, b]
+    case False{}:
+      [b, a]
+
+def tc.pair_lt(c: Bool, +a: Tr.Ent, +b: Tr.Ent, +B: Nat, +ha: {Nat.is_lt(Tr.Ent.k(a), B) == True{} : Bool}, +hb: {Nat.is_lt(Tr.Ent.k(b), B) == True{} : Bool}) -> {tc.lt(tc.pair(c, a, b), B) == True{} : Bool}:
+  match c:
+    case True{}:
+      tc.lt_cons(a, [b], B, ha, tc.lt_cons(b, Nil{}, B, hb, {==}))
+    case False{}:
+      tc.lt_cons(b, [a], B, hb, tc.lt_cons(a, Nil{}, B, ha, {==}))
+
+def tc.pair_ge(c: Bool, +a: Tr.Ent, +b: Tr.Ent, +B: Nat, +ha: {Nat.is_lt(Tr.Ent.k(a), B) == False{} : Bool}, +hb: {Nat.is_lt(Tr.Ent.k(b), B) == False{} : Bool}) -> {tc.ge(tc.pair(c, a, b), B) == True{} : Bool}:
+  match c:
+    case True{}:
+      tc.ge_cons(a, [b], B, ha, tc.ge_cons(b, Nil{}, B, hb, {==}))
+    case False{}:
+      tc.ge_cons(b, [a], B, hb, tc.ge_cons(a, Nil{}, B, ha, {==}))
+
+def tc.split_read(+a: Tr.Ent, +b: Tr.Ent, c: Bool) -> {Tr.KMap.read(Tr.KMap.split(a, b, c)) == tc.pair(c, a, b) : List<&2, Tr.Ent>}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def tc.split_bst(+a: Tr.Ent, +b: Tr.Ent, c: Bool, +ec: {Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)) == c : Bool}, +ne: {Nat.is_eq(Tr.Ent.k(a), Tr.Ent.k(b)) == False{} : Bool}) -> {tc.bst(Tr.KMap.split(a, b, c)) == True{} : Bool}:
+  match c:
+    case True{}:
+      tc.bst_fork(Tr.Ent.k(b), Tr.KOne{a}, Tr.KOne{b}, {==}, {==}, tc.lt_cons(a, Nil{}, Tr.Ent.k(b), ec, {==}), tc.ge_cons(b, Nil{}, Tr.Ent.k(b), pt.lt_irrefl(Tr.Ent.k(b)), {==}))
+    case False{}:
+      +ba = tc.lt_total(Tr.Ent.k(a), Tr.Ent.k(b), ec, ne)
+      tc.bst_fork(Tr.Ent.k(a), Tr.KOne{b}, Tr.KOne{a}, {==}, {==}, tc.lt_cons(b, Nil{}, Tr.Ent.k(a), ba, {==}), tc.ge_cons(a, Nil{}, Tr.Ent.k(a), pt.lt_irrefl(Tr.Ent.k(a)), {==}))
+
+def tc.two_read(hs: List<&2, Nat>, +lo: Nat, +a: Tr.Ent, +b: Tr.Ent, ca: Bool, cb: Bool, +eca: {Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, Tr.KMap.half(hs))) == ca : Bool}, +ecb: {Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, Tr.KMap.half(hs))) == cb : Bool}) -> {Tr.KMap.read(Tr.KMap.two(hs, lo, a, b, ca, cb)) == tc.pair(Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), a, b) : List<&2, Tr.Ent>}:
+  match hs:
+    case Nil{}:
+      tc.split_read(a, b, Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)))
+    case +h <> +rest:
+      match ca cb:
+        case True{} True{}:
+          +g = Tr.KMap.half(rest)
+          +X = Tr.KMap.two(rest, lo, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, g)))
+          Equal.trans(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, Tr.KMap.read(X), Nil{}), Tr.KMap.read(X), tc.pair(Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), a, b), tc.app_nil(Tr.KMap.read(X)), tc.two_read(rest, lo, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, g)), {==}, {==}))
+        case True{} False{}:
+          +lt = tc.lt_le(Tr.Ent.k(a), Nat.add(lo, h), Tr.Ent.k(b), eca, ecb)
+          %Equal.sym(Bool, Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), True{}, lt) : {[a, b] == tc.pair(_, a, b) : List<&2, Tr.Ent>}
+          {==}
+        case False{} True{}:
+          +ba = tc.lt_le(Tr.Ent.k(b), Nat.add(lo, h), Tr.Ent.k(a), ecb, eca)
+          +nab = tc.lt_asym(Tr.Ent.k(b), Tr.Ent.k(a), ba)
+          %Equal.sym(Bool, Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), False{}, nab) : {[b, a] == tc.pair(_, a, b) : List<&2, Tr.Ent>}
+          {==}
+        case False{} False{}:
+          +g = Tr.KMap.half(rest)
+          +n = Nat.add(lo, h)
+          tc.two_read(rest, n, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(n, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(n, g)), {==}, {==})
+
+def tc.two_bst(hs: List<&2, Nat>, +lo: Nat, +a: Tr.Ent, +b: Tr.Ent, ca: Bool, cb: Bool, +eca: {Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, Tr.KMap.half(hs))) == ca : Bool}, +ecb: {Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, Tr.KMap.half(hs))) == cb : Bool}, +ne: {Nat.is_eq(Tr.Ent.k(a), Tr.Ent.k(b)) == False{} : Bool}) -> {tc.bst(Tr.KMap.two(hs, lo, a, b, ca, cb)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      tc.split_bst(a, b, Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), {==}, ne)
+    case +h <> +rest:
+      match ca cb:
+        case True{} True{}:
+          +g = Tr.KMap.half(rest)
+          +X = Tr.KMap.two(rest, lo, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, g)))
+          +rx = tc.two_read(rest, lo, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, g)), {==}, {==})
+          +lx = tc.pair_lt(Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), a, b, Nat.add(lo, h), eca, ecb)
+          +P = tc.pair(Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), a, b)
+          +ll = Equal.trans(Bool, tc.lt(Tr.KMap.read(X), Nat.add(lo, h)), tc.lt(P, Nat.add(lo, h)), True{}, Equal.cong(List<&2, Tr.Ent>, Bool, y => tc.lt(y, Nat.add(lo, h)), Tr.KMap.read(X), P, rx), lx)
+          tc.bst_fork(Nat.add(lo, h), X, Tr.KNil{}, tc.two_bst(rest, lo, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, g)), {==}, {==}, ne), {==}, ll, {==})
+        case True{} False{}:
+          tc.bst_fork(Nat.add(lo, h), Tr.KOne{a}, Tr.KOne{b}, {==}, {==}, tc.lt_cons(a, Nil{}, Nat.add(lo, h), eca, {==}), tc.ge_cons(b, Nil{}, Nat.add(lo, h), ecb, {==}))
+        case False{} True{}:
+          tc.bst_fork(Nat.add(lo, h), Tr.KOne{b}, Tr.KOne{a}, {==}, {==}, tc.lt_cons(b, Nil{}, Nat.add(lo, h), ecb, {==}), tc.ge_cons(a, Nil{}, Nat.add(lo, h), eca, {==}))
+        case False{} False{}:
+          +g = Tr.KMap.half(rest)
+          +n = Nat.add(lo, h)
+          +X = Tr.KMap.two(rest, n, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(n, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(n, g)))
+          +rx = tc.two_read(rest, n, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(n, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(n, g)), {==}, {==})
+          +gx = tc.pair_ge(Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), a, b, n, eca, ecb)
+          +P = tc.pair(Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)), a, b)
+          +gg = Equal.trans(Bool, tc.ge(Tr.KMap.read(X), n), tc.ge(P, n), True{}, Equal.cong(List<&2, Tr.Ent>, Bool, y => tc.ge(y, n), Tr.KMap.read(X), P, rx), gx)
+          tc.bst_fork(n, Tr.KNil{}, X, {==}, tc.two_bst(rest, n, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(n, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(n, g)), {==}, {==}, ne), {==}, gg)
+
+def tc.set_one(+f: Tr.Ent, +e: Tr.Ent, c: Bool, +ec: {Nat.is_lt(Tr.Ent.k(f), Tr.Ent.k(e)) == c : Bool}, +ne: {Nat.is_eq(Tr.Ent.k(f), Tr.Ent.k(e)) == False{} : Bool}) -> {Tr.set([f], e) == tc.pair(c, f, e) : List<&2, Tr.Ent>}:
+  match c:
+    case True{}:
+      +gt = tc.cmp_gt(Tr.Ent.k(e), Tr.Ent.k(f), ec)
+      %Equal.sym(Cmp, Nat.cmp(Tr.Ent.k(e), Tr.Ent.k(f)), GT{}, gt) : {Tr.set.go([f], e, _) == [f, e] : List<&2, Tr.Ent>}
+      {==}
+    case False{}:
+      +lt = tc.cmp_lt(Tr.Ent.k(e), Tr.Ent.k(f), tc.lt_total(Tr.Ent.k(f), Tr.Ent.k(e), ec, ne))
+      %Equal.sym(Cmp, Nat.cmp(Tr.Ent.k(e), Tr.Ent.k(f)), LT{}, lt) : {Tr.set.go([f], e, _) == [e, f] : List<&2, Tr.Ent>}
+      {==}
+
+def tc.put_read(m: Tr.KMap, +hs: List<&2, Nat>, +lo: Nat, +e: Tr.Ent, b: Bool, +eb: {Tr.KMap.at(m, Tr.Ent.k(e)) == b : Bool}, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.put(m, hs, lo, e, b)) == Tr.set(Tr.KMap.read(m), e) : List<&2, Tr.Ent>}:
+  match m b:
+    case Tr.KNil{} True{}:
+      {==}
+    case Tr.KNil{} False{}:
+      {==}
+    case Tr.KOne{+f} True{}:
+      +eq = Equal.trans(Bool, Nat.is_eq(Tr.Ent.k(e), Tr.Ent.k(f)), Nat.is_eq(Tr.Ent.k(f), Tr.Ent.k(e)), True{}, pt.eq_comm(Tr.Ent.k(e), Tr.Ent.k(f)), eb)
+      %Equal.sym(Cmp, Nat.cmp(Tr.Ent.k(e), Tr.Ent.k(f)), EQ{}, tc.cmp_eq(Tr.Ent.k(e), Tr.Ent.k(f), eq)) : {[e] == Tr.set.go([f], e, _) : List<&2, Tr.Ent>}
+      {==}
+    case Tr.KOne{+f} False{}:
+      +c = Nat.is_lt(Tr.Ent.k(f), Tr.Ent.k(e))
+      +r2 = tc.two_read(hs, lo, f, e, Nat.is_lt(Tr.Ent.k(f), Nat.add(lo, Tr.KMap.half(hs))), Nat.is_lt(Tr.Ent.k(e), Nat.add(lo, Tr.KMap.half(hs))), {==}, {==})
+      Equal.trans(List<&2, Tr.Ent>, Tr.KMap.read(Tr.KMap.two(hs, lo, f, e, Nat.is_lt(Tr.Ent.k(f), Nat.add(lo, Tr.KMap.half(hs))), Nat.is_lt(Tr.Ent.k(e), Nat.add(lo, Tr.KMap.half(hs))))), tc.pair(c, f, e), Tr.set([f], e), r2, Equal.sym(List<&2, Tr.Ent>, Tr.set([f], e), tc.pair(c, f, e), tc.set_one(f, e, c, {==}, eb)))
+    case Tr.KFork{+mid, +mp, +l, +r} True{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +P = Tr.KMap.put(l, Tr.KMap.below(hs), lo, e, Tr.KMap.at(l, Tr.Ent.k(e)))
+      +ih = tc.put_read(l, Tr.KMap.below(hs), lo, e, Tr.KMap.at(l, Tr.Ent.k(e)), {==}, tc.bst_l(mid, mp, l, r, bt))
+      +s1 = Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, y => List.append(&2, Tr.Ent, y, R), Tr.KMap.read(P), Tr.set(L, e), ih)
+      Equal.trans(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, Tr.KMap.read(P), R), List.append(&2, Tr.Ent, Tr.set(L, e), R), Tr.set(List.append(&2, Tr.Ent, L, R), e), s1, Equal.sym(List<&2, Tr.Ent>, Tr.set(List.append(&2, Tr.Ent, L, R), e), List.append(&2, Tr.Ent, Tr.set(L, e), R), tc.set_app_l(L, R, mid, e, tc.bst_ge(mid, mp, l, r, bt), eb)))
+    case Tr.KFork{+mid, +mp, +l, +r} False{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +P = Tr.KMap.put(r, Tr.KMap.below(hs), mid, e, Tr.KMap.at(r, Tr.Ent.k(e)))
+      +ih = tc.put_read(r, Tr.KMap.below(hs), mid, e, Tr.KMap.at(r, Tr.Ent.k(e)), {==}, tc.bst_r(mid, mp, l, r, bt))
+      +s1 = Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, y => List.append(&2, Tr.Ent, L, y), Tr.KMap.read(P), Tr.set(R, e), ih)
+      Equal.trans(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, L, Tr.KMap.read(P)), List.append(&2, Tr.Ent, L, Tr.set(R, e)), Tr.set(List.append(&2, Tr.Ent, L, R), e), s1, Equal.sym(List<&2, Tr.Ent>, Tr.set(List.append(&2, Tr.Ent, L, R), e), List.append(&2, Tr.Ent, L, Tr.set(R, e)), tc.set_app_r(L, R, mid, e, tc.bst_lt(mid, mp, l, r, bt), eb)))
+
+def tc.put_bst(m: Tr.KMap, +hs: List<&2, Nat>, +lo: Nat, +e: Tr.Ent, b: Bool, +eb: {Tr.KMap.at(m, Tr.Ent.k(e)) == b : Bool}, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.put(m, hs, lo, e, b)) == True{} : Bool}:
+  match m b:
+    case Tr.KNil{} True{}:
+      {==}
+    case Tr.KNil{} False{}:
+      {==}
+    case Tr.KOne{+f} True{}:
+      {==}
+    case Tr.KOne{+f} False{}:
+      tc.two_bst(hs, lo, f, e, Nat.is_lt(Tr.Ent.k(f), Nat.add(lo, Tr.KMap.half(hs))), Nat.is_lt(Tr.Ent.k(e), Nat.add(lo, Tr.KMap.half(hs))), {==}, {==}, eb)
+    case Tr.KFork{+mid, +mp, +l, +r} True{}:
+      +P = Tr.KMap.put(l, Tr.KMap.below(hs), lo, e, Tr.KMap.at(l, Tr.Ent.k(e)))
+      +bl = tc.bst_l(mid, mp, l, r, bt)
+      +rd = tc.put_read(l, Tr.KMap.below(hs), lo, e, Tr.KMap.at(l, Tr.Ent.k(e)), {==}, bl)
+      +S = Tr.set(Tr.KMap.read(l), e)
+      +ls = tc.lt_set(Tr.KMap.read(l), e, Tr.first(Tr.Ent.k(e), Tr.KMap.read(l)), mid, tc.bst_lt(mid, mp, l, r, bt), eb)
+      +ll = Equal.trans(Bool, tc.lt(Tr.KMap.read(P), mid), tc.lt(S, mid), True{}, Equal.cong(List<&2, Tr.Ent>, Bool, y => tc.lt(y, mid), Tr.KMap.read(P), S, rd), ls)
+      tc.bst_fork(mid, P, r, tc.put_bst(l, Tr.KMap.below(hs), lo, e, Tr.KMap.at(l, Tr.Ent.k(e)), {==}, bl), tc.bst_r(mid, mp, l, r, bt), ll, tc.bst_ge(mid, mp, l, r, bt))
+    case Tr.KFork{+mid, +mp, +l, +r} False{}:
+      +P = Tr.KMap.put(r, Tr.KMap.below(hs), mid, e, Tr.KMap.at(r, Tr.Ent.k(e)))
+      +br = tc.bst_r(mid, mp, l, r, bt)
+      +rd = tc.put_read(r, Tr.KMap.below(hs), mid, e, Tr.KMap.at(r, Tr.Ent.k(e)), {==}, br)
+      +S = Tr.set(Tr.KMap.read(r), e)
+      +gs = tc.ge_set(Tr.KMap.read(r), e, Tr.first(Tr.Ent.k(e), Tr.KMap.read(r)), mid, tc.bst_ge(mid, mp, l, r, bt), eb)
+      +gg = Equal.trans(Bool, tc.ge(Tr.KMap.read(P), mid), tc.ge(S, mid), True{}, Equal.cong(List<&2, Tr.Ent>, Bool, y => tc.ge(y, mid), Tr.KMap.read(P), S, rd), gs)
+      tc.bst_fork(mid, l, P, tc.bst_l(mid, mp, l, r, bt), tc.put_bst(r, Tr.KMap.below(hs), mid, e, Tr.KMap.at(r, Tr.Ent.k(e)), {==}, br), tc.bst_lt(mid, mp, l, r, bt), gg)
+
+def tc.unset_read(m: Tr.KMap, +x: Nat, b: Bool, +eb: {Tr.KMap.at(m, x) == b : Bool}, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.unset(m, x, b)) == Tr.unset(Tr.KMap.read(m), x) : List<&2, Tr.Ent>}:
+  match m b:
+    case Tr.KNil{} True{}:
+      {==}
+    case Tr.KNil{} False{}:
+      {==}
+    case Tr.KOne{+e} True{}:
+      %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(e), x), True{}, eb) : {Nil{} == Tr.unset.go([e], x, _) : List<&2, Tr.Ent>}
+      {==}
+    case Tr.KOne{+e} False{}:
+      %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(e), x), False{}, eb) : {[e] == Tr.unset.go([e], x, _) : List<&2, Tr.Ent>}
+      {==}
+    case Tr.KFork{+mid, +mp, +l, +r} True{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +U = Tr.KMap.unset(l, x, Tr.KMap.at(l, x))
+      +ih = tc.unset_read(l, x, Tr.KMap.at(l, x), {==}, tc.bst_l(mid, mp, l, r, bt))
+      +s1 = Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, y => List.append(&2, Tr.Ent, y, R), Tr.KMap.read(U), Tr.unset(L, x), ih)
+      Equal.trans(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, Tr.KMap.read(U), R), List.append(&2, Tr.Ent, Tr.unset(L, x), R), Tr.unset(List.append(&2, Tr.Ent, L, R), x), s1, Equal.sym(List<&2, Tr.Ent>, Tr.unset(List.append(&2, Tr.Ent, L, R), x), List.append(&2, Tr.Ent, Tr.unset(L, x), R), tc.unset_app_l(L, R, mid, x, tc.bst_ge(mid, mp, l, r, bt), eb)))
+    case Tr.KFork{+mid, +mp, +l, +r} False{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +U = Tr.KMap.unset(r, x, Tr.KMap.at(r, x))
+      +ih = tc.unset_read(r, x, Tr.KMap.at(r, x), {==}, tc.bst_r(mid, mp, l, r, bt))
+      +s1 = Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, y => List.append(&2, Tr.Ent, L, y), Tr.KMap.read(U), Tr.unset(R, x), ih)
+      Equal.trans(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, L, Tr.KMap.read(U)), List.append(&2, Tr.Ent, L, Tr.unset(R, x)), Tr.unset(List.append(&2, Tr.Ent, L, R), x), s1, Equal.sym(List<&2, Tr.Ent>, Tr.unset(List.append(&2, Tr.Ent, L, R), x), List.append(&2, Tr.Ent, L, Tr.unset(R, x)), tc.unset_app_r(L, R, mid, x, tc.bst_lt(mid, mp, l, r, bt), eb)))
+
+def tc.unset_bst(m: Tr.KMap, +x: Nat, b: Bool, +eb: {Tr.KMap.at(m, x) == b : Bool}, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.unset(m, x, b)) == True{} : Bool}:
+  match m b:
+    case Tr.KNil{} True{}:
+      {==}
+    case Tr.KNil{} False{}:
+      {==}
+    case Tr.KOne{+e} True{}:
+      {==}
+    case Tr.KOne{+e} False{}:
+      {==}
+    case Tr.KFork{+mid, +mp, +l, +r} True{}:
+      +U = Tr.KMap.unset(l, x, Tr.KMap.at(l, x))
+      +bl = tc.bst_l(mid, mp, l, r, bt)
+      +rd = tc.unset_read(l, x, Tr.KMap.at(l, x), {==}, bl)
+      +S = Tr.unset(Tr.KMap.read(l), x)
+      +ls = tc.lt_unset(Tr.KMap.read(l), x, Tr.key.at(Tr.KMap.read(l), x), mid, tc.bst_lt(mid, mp, l, r, bt))
+      +ll = Equal.trans(Bool, tc.lt(Tr.KMap.read(U), mid), tc.lt(S, mid), True{}, Equal.cong(List<&2, Tr.Ent>, Bool, y => tc.lt(y, mid), Tr.KMap.read(U), S, rd), ls)
+      tc.bst_fork(mid, U, r, tc.unset_bst(l, x, Tr.KMap.at(l, x), {==}, bl), tc.bst_r(mid, mp, l, r, bt), ll, tc.bst_ge(mid, mp, l, r, bt))
+    case Tr.KFork{+mid, +mp, +l, +r} False{}:
+      +U = Tr.KMap.unset(r, x, Tr.KMap.at(r, x))
+      +br = tc.bst_r(mid, mp, l, r, bt)
+      +rd = tc.unset_read(r, x, Tr.KMap.at(r, x), {==}, br)
+      +S = Tr.unset(Tr.KMap.read(r), x)
+      +gs = tc.ge_unset(Tr.KMap.read(r), x, Tr.key.at(Tr.KMap.read(r), x), mid, tc.bst_ge(mid, mp, l, r, bt))
+      +gg = Equal.trans(Bool, tc.ge(Tr.KMap.read(U), mid), tc.ge(S, mid), True{}, Equal.cong(List<&2, Tr.Ent>, Bool, y => tc.ge(y, mid), Tr.KMap.read(U), S, rd), gs)
+      tc.bst_fork(mid, l, U, tc.bst_l(mid, mp, l, r, bt), tc.unset_bst(r, x, Tr.KMap.at(r, x), {==}, br), tc.bst_lt(mid, mp, l, r, bt), gg)
+# the entry points
+
+def tc.set_read(+m: Tr.KMap, +hs: List<&2, Nat>, +e: Tr.Ent, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.set(m, hs, e)) == Tr.set(Tr.KMap.read(m), e) : List<&2, Tr.Ent>}:
+  tc.put_read(m, hs, 0n, e, Tr.KMap.at(m, Tr.Ent.k(e)), {==}, bt)
+
+def tc.set_bst(+m: Tr.KMap, +hs: List<&2, Nat>, +e: Tr.Ent, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.set(m, hs, e)) == True{} : Bool}:
+  tc.put_bst(m, hs, 0n, e, Tr.KMap.at(m, Tr.Ent.k(e)), {==}, bt)
+
+def tc.del_read(+m: Tr.KMap, +x: Nat, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.del(m, x)) == Tr.unset(Tr.KMap.read(m), x) : List<&2, Tr.Ent>}:
+  tc.unset_read(m, x, Tr.KMap.at(m, x), {==}, bt)
+
+def tc.del_bst(+m: Tr.KMap, +x: Nat, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.del(m, x)) == True{} : Bool}:
+  tc.unset_bst(m, x, Tr.KMap.at(m, x), {==}, bt)
+
+# t less the nodes of keys ks, one by one
+def tc.unsets(ks: List<&2, Nat>, t: List<&2, Tr.Ent>) -> List<&2, Tr.Ent>:
+  match ks:
+    case Nil{}:
+      t
+    case k <> rest:
+      tc.unsets(rest, Tr.unset(t, k))
+
+def tc.drop_bst(ks: List<&2, Nat>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.drop(ks, m)) == True{} : Bool}:
+  match ks:
+    case Nil{}:
+      bt
+    case +k <> rest:
+      tc.drop_bst(rest, Tr.KMap.del(m, k), tc.del_bst(m, k, bt))
+
+def tc.drop_read(ks: List<&2, Nat>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.drop(ks, m)) == tc.unsets(ks, Tr.KMap.read(m)) : List<&2, Tr.Ent>}:
+  match ks:
+    case Nil{}:
+      {==}
+    case +k <> rest:
+      +D = Tr.KMap.del(m, k)
+      +ih = tc.drop_read(rest, D, tc.del_bst(m, k, bt))
+      %tc.del_read(m, k, bt) : {Tr.KMap.read(Tr.KMap.drop(rest, D)) == tc.unsets(rest, _) : List<&2, Tr.Ent>}
+      ih
+
+# Delete
+
+# every key of gone is x or more
+def tc.nall(gone: List<&2, Nat>, +x: Nat) -> Bool:
+  match gone:
+    case Nil{}:
+      True{}
+    case +g <> rest:
+      Bool.and(Bool.not(Nat.is_lt(g, x)), tc.nall(rest, x))
+
+def tc.elem_none(gone: List<&2, Nat>, +x: Nat, +y: Nat, +ng: {tc.nall(gone, x) == True{} : Bool}, +yx: {Nat.is_lt(y, x) == True{} : Bool}) -> {Tr.elem(gone, y) == False{} : Bool}:
+  match gone:
+    case Nil{}:
+      {==}
+    case +g <> +rest:
+      +gx = pt.not_f(Nat.is_lt(g, x), tree.pt.and_l(Bool.not(Nat.is_lt(g, x)), tc.nall(rest, x), ng))
+      +ne = pt.lt_ne_r(y, g, tc.lt_le(y, x, g, yx, gx))
+      %Equal.sym(Bool, Nat.is_eq(g, y), False{}, ne) : {Bool.or(_, Tr.elem(rest, y)) == False{} : Bool}
+      tc.elem_none(rest, x, y, tree.pt.and_r(Bool.not(Nat.is_lt(g, x)), tc.nall(rest, x), ng), yx)
+
+# every node of s is above its parent
+def tc.desc(s: List<&2, Tr.Ent>) -> Bool:
+  match s:
+    case Nil{}:
+      True{}
+    case +e <> rest:
+      Bool.and(Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)), tc.desc(rest))
+
+def tc.desc_of(s: List<&2, Tr.Ent>, +all: List<&2, Tr.Ent>, +rs: {Tr.rooted.go(s, all) == True{} : Bool}) -> {tc.desc(s) == True{} : Bool}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      +o = tree.pt.and_l(Tr.ok(all, Tr.Ent.k(e), Tr.Ent.p(e)), Tr.rooted.go(rest, all), rs)
+      +lt = tree.pt.and_l(Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)), Bool.or(Nat.is_eq(Tr.Ent.p(e), 0n), Tr.has(all, Tr.Ent.p(e))), o)
+      tree.pt.and_t(Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)), tc.desc(rest), lt, tc.desc_of(rest, all, tree.pt.and_r(Tr.ok(all, Tr.Ent.k(e), Tr.Ent.p(e)), Tr.rooted.go(rest, all), rs)))
+
+def tc.or_ff(a: Bool, b: Bool, ha: {a == False{} : Bool}, hb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
+  match a:
+    case True{}:
+      pt.absurd({Bool.or(True{}, b) == False{} : Bool}, ha)
+    case False{}:
+      hb
+
+def tc.nall_cons(+k: Nat, +gone: List<&2, Nat>, +x: Nat, +kx: {Nat.is_lt(k, x) == False{} : Bool}, +ng: {tc.nall(gone, x) == True{} : Bool}) -> {tc.nall(k <> gone, x) == True{} : Bool}:
+  tree.pt.and_t(Bool.not(Nat.is_lt(k, x)), tc.nall(gone, x), pt.not_t(Nat.is_lt(k, x), kx), ng)
+
+def tc.dg_ge(hit: Bool, +e: Tr.Ent, +r: List<&2, Tr.Ent>, +X: List<&2, Tr.Ent>, +gone: List<&2, Nat>, +ih1: {Tr.drops.go(r, gone, Tr.gone.at(r, gone)) == Tr.drops.go(X, gone, Tr.gone.at(X, gone)) : List<&2, Nat>}, ih2: {Tr.drops.go(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)) == Tr.drops.go(X, Tr.Ent.k(e) <> gone, Tr.gone.at(X, Tr.Ent.k(e) <> gone)) : List<&2, Nat>}) -> {Tr.drops.go(e <> r, gone, hit) == Tr.drops.go(e <> X, gone, hit) : List<&2, Nat>}:
+  match hit:
+    case True{}:
+      Equal.cong(List<&2, Nat>, List<&2, Nat>, ys => Tr.Ent.k(e) <> ys, Tr.drops.go(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)), Tr.drops.go(X, Tr.Ent.k(e) <> gone, Tr.gone.at(X, Tr.Ent.k(e) <> gone)), ih2)
+    case False{}:
+      ih1
+
+# The largest parent key of a fork
+
+def tc.ge_trans(a: Nat, b: Nat, c: Nat, +ab: {Nat.is_ge(a, b) == True{} : Bool}, +bc: {Nat.is_ge(b, c) == True{} : Bool}) -> {Nat.is_ge(a, c) == True{} : Bool}:
+  match a b c:
+    case 0n 0n 0n:
+      {==}
+    case 0n 0n 1n+r:
+      pt.absurd({Nat.is_ge(0n, 1n+r) == True{} : Bool}, Equal.sym(Bool, False{}, True{}, bc))
+    case 0n 1n+q _:
+      pt.absurd({Nat.is_ge(0n, c) == True{} : Bool}, Equal.sym(Bool, False{}, True{}, ab))
+    case 1n+p _ 0n:
+      {==}
+    case 1n+p 0n 1n+r:
+      pt.absurd({Nat.is_ge(1n+p, 1n+r) == True{} : Bool}, Equal.sym(Bool, False{}, True{}, bc))
+    case 1n+p 1n+q 1n+r:
+      tc.ge_trans(p, q, r, ab, bc)
+
+# b at or above p and below x: p is below x
+def tc.ge_lt(b: Nat, p: Nat, x: Nat, +bp: {Nat.is_ge(b, p) == True{} : Bool}, +bx: {Nat.is_lt(b, x) == True{} : Bool}) -> {Nat.is_lt(p, x) == True{} : Bool}:
+  match b p x:
+    case _ _ 0n:
+      tree.pt.absurdF({Nat.is_lt(p, 0n) == True{} : Bool}, bx)
+    case 0n 0n 1n+r:
+      {==}
+    case 0n 1n+q 1n+r:
+      pt.absurd({Nat.is_lt(1n+q, 1n+r) == True{} : Bool}, Equal.sym(Bool, False{}, True{}, bp))
+    case 1n+a 0n 1n+r:
+      {==}
+    case 1n+a 1n+q 1n+r:
+      tc.ge_lt(a, q, r, bp, bx)
+
+# every fork's largest parent key is at least each side's
+def tc.mpok(m: Tr.KMap) -> Bool:
+  match m:
+    case Tr.KNil{}:
+      True{}
+    case Tr.KOne{e}:
+      True{}
+    case Tr.KFork{+mid, +mp, +l, +r}:
+      Bool.and(tc.mpok(l), Bool.and(tc.mpok(r), Bool.and(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r)))))
+
+def tc.mpok_rest(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.mpok(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {Bool.and(tc.mpok(r), Bool.and(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r)))) == True{} : Bool}:
+  tree.pt.and_r(tc.mpok(l), Bool.and(tc.mpok(r), Bool.and(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r)))), h)
+
+def tc.mpok_l(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.mpok(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {tc.mpok(l) == True{} : Bool}:
+  tree.pt.and_l(tc.mpok(l), Bool.and(tc.mpok(r), Bool.and(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r)))), h)
+
+def tc.mpok_r(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.mpok(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {tc.mpok(r) == True{} : Bool}:
+  tree.pt.and_l(tc.mpok(r), Bool.and(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r))), tc.mpok_rest(mid, mp, l, r, h))
+
+def tc.mpok_gl(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.mpok(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {Nat.is_ge(mp, Tr.KMap.mp(l)) == True{} : Bool}:
+  +h2 = tree.pt.and_r(tc.mpok(r), Bool.and(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r))), tc.mpok_rest(mid, mp, l, r, h))
+  tree.pt.and_l(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r)), h2)
+
+def tc.mpok_gr(+mid: Nat, +mp: Nat, +l: Tr.KMap, +r: Tr.KMap, +h: {tc.mpok(Tr.KFork{mid, mp, l, r}) == True{} : Bool}) -> {Nat.is_ge(mp, Tr.KMap.mp(r)) == True{} : Bool}:
+  +h2 = tree.pt.and_r(tc.mpok(r), Bool.and(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r))), tc.mpok_rest(mid, mp, l, r, h))
+  tree.pt.and_r(Nat.is_ge(mp, Tr.KMap.mp(l)), Nat.is_ge(mp, Tr.KMap.mp(r)), h2)
+
+def tc.mpok_fork(+mid: Nat, +l: Tr.KMap, +r: Tr.KMap, +ml: {tc.mpok(l) == True{} : Bool}, +mr: {tc.mpok(r) == True{} : Bool}) -> {tc.mpok(Tr.KMap.fork(mid, l, r)) == True{} : Bool}:
+  +a = Tr.KMap.mp(l)
+  +b = Tr.KMap.mp(r)
+  +M = Nat.max(a, b)
+  tree.pt.and_t(tc.mpok(l), Bool.and(tc.mpok(r), Bool.and(Nat.is_ge(M, a), Nat.is_ge(M, b))), ml, tree.pt.and_t(tc.mpok(r), Bool.and(Nat.is_ge(M, a), Nat.is_ge(M, b)), mr, tree.pt.and_t(Nat.is_ge(M, a), Nat.is_ge(M, b), Nat.max_ge_l(a, b), Nat.max_ge_r(a, b))))
+
+def tc.split_mpok(+a: Tr.Ent, +b: Tr.Ent, c: Bool) -> {tc.mpok(Tr.KMap.split(a, b, c)) == True{} : Bool}:
+  match c:
+    case True{}:
+      tc.mpok_fork(Tr.Ent.k(b), Tr.KOne{a}, Tr.KOne{b}, {==}, {==})
+    case False{}:
+      tc.mpok_fork(Tr.Ent.k(a), Tr.KOne{b}, Tr.KOne{a}, {==}, {==})
+
+def tc.two_mpok(hs: List<&2, Nat>, +lo: Nat, +a: Tr.Ent, +b: Tr.Ent, ca: Bool, cb: Bool) -> {tc.mpok(Tr.KMap.two(hs, lo, a, b, ca, cb)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      tc.split_mpok(a, b, Nat.is_lt(Tr.Ent.k(a), Tr.Ent.k(b)))
+    case +h <> +rest:
+      match ca cb:
+        case True{} True{}:
+          +g = Tr.KMap.half(rest)
+          +X = Tr.KMap.two(rest, lo, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, g)))
+          tc.mpok_fork(Nat.add(lo, h), X, Tr.KNil{}, tc.two_mpok(rest, lo, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(lo, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(lo, g))), {==})
+        case True{} False{}:
+          tc.mpok_fork(Nat.add(lo, h), Tr.KOne{a}, Tr.KOne{b}, {==}, {==})
+        case False{} True{}:
+          tc.mpok_fork(Nat.add(lo, h), Tr.KOne{b}, Tr.KOne{a}, {==}, {==})
+        case False{} False{}:
+          +g = Tr.KMap.half(rest)
+          +n = Nat.add(lo, h)
+          +X = Tr.KMap.two(rest, n, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(n, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(n, g)))
+          tc.mpok_fork(n, Tr.KNil{}, X, {==}, tc.two_mpok(rest, n, a, b, Nat.is_lt(Tr.Ent.k(a), Nat.add(n, g)), Nat.is_lt(Tr.Ent.k(b), Nat.add(n, g))))
+
+def tc.put_mpok(m: Tr.KMap, +hs: List<&2, Nat>, +lo: Nat, +e: Tr.Ent, b: Bool, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.put(m, hs, lo, e, b)) == True{} : Bool}:
+  match m b:
+    case Tr.KNil{} True{}:
+      {==}
+    case Tr.KNil{} False{}:
+      {==}
+    case Tr.KOne{+f} True{}:
+      {==}
+    case Tr.KOne{+f} False{}:
+      tc.two_mpok(hs, lo, f, e, Nat.is_lt(Tr.Ent.k(f), Nat.add(lo, Tr.KMap.half(hs))), Nat.is_lt(Tr.Ent.k(e), Nat.add(lo, Tr.KMap.half(hs))))
+    case Tr.KFork{+mid, +mp, +l, +r} True{}:
+      +P = Tr.KMap.put(l, Tr.KMap.below(hs), lo, e, Tr.KMap.at(l, Tr.Ent.k(e)))
+      tc.mpok_fork(mid, P, r, tc.put_mpok(l, Tr.KMap.below(hs), lo, e, Tr.KMap.at(l, Tr.Ent.k(e)), tc.mpok_l(mid, mp, l, r, mk)), tc.mpok_r(mid, mp, l, r, mk))
+    case Tr.KFork{+mid, +mp, +l, +r} False{}:
+      +P = Tr.KMap.put(r, Tr.KMap.below(hs), mid, e, Tr.KMap.at(r, Tr.Ent.k(e)))
+      tc.mpok_fork(mid, l, P, tc.mpok_l(mid, mp, l, r, mk), tc.put_mpok(r, Tr.KMap.below(hs), mid, e, Tr.KMap.at(r, Tr.Ent.k(e)), tc.mpok_r(mid, mp, l, r, mk)))
+
+def tc.unset_mpok(m: Tr.KMap, +x: Nat, b: Bool, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.unset(m, x, b)) == True{} : Bool}:
+  match m b:
+    case Tr.KNil{} True{}:
+      {==}
+    case Tr.KNil{} False{}:
+      {==}
+    case Tr.KOne{+e} True{}:
+      {==}
+    case Tr.KOne{+e} False{}:
+      {==}
+    case Tr.KFork{+mid, +mp, +l, +r} True{}:
+      +U = Tr.KMap.unset(l, x, Tr.KMap.at(l, x))
+      tc.mpok_fork(mid, U, r, tc.unset_mpok(l, x, Tr.KMap.at(l, x), tc.mpok_l(mid, mp, l, r, mk)), tc.mpok_r(mid, mp, l, r, mk))
+    case Tr.KFork{+mid, +mp, +l, +r} False{}:
+      +U = Tr.KMap.unset(r, x, Tr.KMap.at(r, x))
+      tc.mpok_fork(mid, l, U, tc.mpok_l(mid, mp, l, r, mk), tc.unset_mpok(r, x, Tr.KMap.at(r, x), tc.mpok_r(mid, mp, l, r, mk)))
+
+def tc.set_mpok(+m: Tr.KMap, +hs: List<&2, Nat>, +e: Tr.Ent, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.set(m, hs, e)) == True{} : Bool}:
+  tc.put_mpok(m, hs, 0n, e, Tr.KMap.at(m, Tr.Ent.k(e)), mk)
+
+def tc.del_mpok(+m: Tr.KMap, +x: Nat, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.del(m, x)) == True{} : Bool}:
+  tc.unset_mpok(m, x, Tr.KMap.at(m, x), mk)
+
+def tc.drop_mpok(ks: List<&2, Nat>, +m: Tr.KMap, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.drop(ks, m)) == True{} : Bool}:
+  match ks:
+    case Nil{}:
+      mk
+    case +k <> rest:
+      tc.drop_mpok(rest, Tr.KMap.del(m, k), tc.del_mpok(m, k, mk))
+
+# every parent key of t is at most b
+def tc.ple(t: List<&2, Tr.Ent>, +b: Nat) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case +e <> r:
+      Bool.and(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(r, b))
+
+def tc.ple_app(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +b: Nat, +pa: {tc.ple(A, b) == True{} : Bool}, +pb: {tc.ple(B, b) == True{} : Bool}) -> {tc.ple(List.append(&2, Tr.Ent, A, B), b) == True{} : Bool}:
+  match A:
+    case Nil{}:
+      pb
+    case +e <> +r:
+      tree.pt.and_t(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(List.append(&2, Tr.Ent, r, B), b), tree.pt.and_l(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(r, b), pa), tc.ple_app(r, B, b, tree.pt.and_r(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(r, b), pa), pb))
+
+def tc.ple_mono(A: List<&2, Tr.Ent>, +b: Nat, +c: Nat, +pa: {tc.ple(A, b) == True{} : Bool}, +cb: {Nat.is_ge(c, b) == True{} : Bool}) -> {tc.ple(A, c) == True{} : Bool}:
+  match A:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      tree.pt.and_t(Nat.is_ge(c, Tr.Ent.p(e)), tc.ple(r, c), tc.ge_trans(c, b, Tr.Ent.p(e), cb, tree.pt.and_l(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(r, b), pa)), tc.ple_mono(r, b, c, tree.pt.and_r(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(r, b), pa), cb))
+
+# every parent of the map is at most its largest parent key
+def tc.mp_ple(m: Tr.KMap, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.ple(Tr.KMap.read(m), Tr.KMap.mp(m)) == True{} : Bool}:
+  match m:
+    case Tr.KNil{}:
+      {==}
+    case Tr.KOne{+e}:
+      tree.pt.and_t(Nat.is_ge(Tr.Ent.p(e), Tr.Ent.p(e)), True{}, Nat.ge_refl(Tr.Ent.p(e)), {==})
+    case Tr.KFork{+mid, +mp, +l, +r}:
+      +pl = tc.ple_mono(Tr.KMap.read(l), Tr.KMap.mp(l), mp, tc.mp_ple(l, tc.mpok_l(mid, mp, l, r, mk)), tc.mpok_gl(mid, mp, l, r, mk))
+      +pr = tc.ple_mono(Tr.KMap.read(r), Tr.KMap.mp(r), mp, tc.mp_ple(r, tc.mpok_r(mid, mp, l, r, mk)), tc.mpok_gr(mid, mp, l, r, mk))
+      tc.ple_app(Tr.KMap.read(l), Tr.KMap.read(r), mp, pl, pr)
+
+# The nodes a delete of x may remove: its node, and the nodes with a
+# parent of x or more
+
+def tc.fx.at(c: Bool, +e: Tr.Ent, rest: List<&2, Tr.Ent>) -> List<&2, Tr.Ent>:
+  match c:
+    case True{}:
+      e <> rest
+    case False{}:
+      rest
+
+def tc.fx(t: List<&2, Tr.Ent>, +x: Nat) -> List<&2, Tr.Ent>:
+  match t:
+    case Nil{}:
+      Nil{}
+    case +e <> r:
+      tc.fx.at(Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))), e, tc.fx(r, x))
+
+def tc.fx_at_app(c: Bool, +e: Tr.Ent, +X: List<&2, Tr.Ent>, +Y: List<&2, Tr.Ent>) -> {List.append(&2, Tr.Ent, tc.fx.at(c, e, X), Y) == tc.fx.at(c, e, List.append(&2, Tr.Ent, X, Y)) : List<&2, Tr.Ent>}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def tc.fx_app(A: List<&2, Tr.Ent>, +B: List<&2, Tr.Ent>, +x: Nat) -> {tc.fx(List.append(&2, Tr.Ent, A, B), x) == List.append(&2, Tr.Ent, tc.fx(A, x), tc.fx(B, x)) : List<&2, Tr.Ent>}:
+  match A:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      +c = Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x)))
+      +ih = tc.fx_app(r, B, x)
+      %Equal.sym(List<&2, Tr.Ent>, tc.fx(List.append(&2, Tr.Ent, r, B), x), List.append(&2, Tr.Ent, tc.fx(r, x), tc.fx(B, x)), ih) : {tc.fx.at(c, e, _) == List.append(&2, Tr.Ent, tc.fx.at(c, e, tc.fx(r, x)), tc.fx(B, x)) : List<&2, Tr.Ent>}
+      Equal.sym(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, tc.fx.at(c, e, tc.fx(r, x)), tc.fx(B, x)), tc.fx.at(c, e, List.append(&2, Tr.Ent, tc.fx(r, x), tc.fx(B, x))), tc.fx_at_app(c, e, tc.fx(r, x), tc.fx(B, x)))
+
+# no key of t is x
+def tc.nokey(t: List<&2, Tr.Ent>, +x: Nat) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case +e <> r:
+      Bool.and(Bool.not(Nat.is_eq(Tr.Ent.k(e), x)), tc.nokey(r, x))
+
+def tc.nokey_ge(t: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +gb: {tc.ge(t, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == True{} : Bool}) -> {tc.nokey(t, x) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      tree.pt.and_t(Bool.not(Nat.is_eq(Tr.Ent.k(e), x)), tc.nokey(r, x), pt.not_t(Nat.is_eq(Tr.Ent.k(e), x), tc.ge_miss(e, b, x, tc.ge_head(e, r, b, gb), xb)), tc.nokey_ge(r, b, x, tc.ge_tail(e, r, b, gb), xb))
+
+def tc.nokey_lt(t: List<&2, Tr.Ent>, +b: Nat, +x: Nat, +lb: {tc.lt(t, b) == True{} : Bool}, +xb: {Nat.is_lt(x, b) == False{} : Bool}) -> {tc.nokey(t, x) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      tree.pt.and_t(Bool.not(Nat.is_eq(Tr.Ent.k(e), x)), tc.nokey(r, x), pt.not_t(Nat.is_eq(Tr.Ent.k(e), x), tc.lt_miss(e, b, x, tc.lt_head(e, r, b, lb), xb)), tc.nokey_lt(r, b, x, tc.lt_tail(e, r, b, lb), xb))
+
+def tc.fx_drop(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +x: Nat, +ne: {Nat.is_eq(Tr.Ent.k(e), x) == False{} : Bool}, +px: {Nat.is_lt(Tr.Ent.p(e), x) == True{} : Bool}) -> {tc.fx(e <> r, x) == tc.fx(r, x) : List<&2, Tr.Ent>}:
+  %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(e), x), False{}, ne) : {tc.fx.at(Bool.or(_, Bool.not(Nat.is_lt(Tr.Ent.p(e), x))), e, tc.fx(r, x)) == tc.fx(r, x) : List<&2, Tr.Ent>}
+  %Equal.sym(Bool, Nat.is_lt(Tr.Ent.p(e), x), True{}, px) : {tc.fx.at(Bool.or(False{}, Bool.not(_)), e, tc.fx(r, x)) == tc.fx(r, x) : List<&2, Tr.Ent>}
+  {==}
+
+# a list with no key x and every parent at most b below x has no node a
+# delete of x may remove
+def tc.fx_nil(t: List<&2, Tr.Ent>, +x: Nat, +b: Nat, +nk: {tc.nokey(t, x) == True{} : Bool}, +pb: {tc.ple(t, b) == True{} : Bool}, +bx: {Nat.is_lt(b, x) == True{} : Bool}) -> {tc.fx(t, x) == Nil{} : List<&2, Tr.Ent>}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      +ne = pt.not_f(Nat.is_eq(Tr.Ent.k(e), x), tree.pt.and_l(Bool.not(Nat.is_eq(Tr.Ent.k(e), x)), tc.nokey(r, x), nk))
+      +px = tc.ge_lt(b, Tr.Ent.p(e), x, tree.pt.and_l(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(r, b), pb), bx)
+      Equal.trans(List<&2, Tr.Ent>, tc.fx(e <> r, x), tc.fx(r, x), Nil{}, tc.fx_drop(e, r, x, ne, px), tc.fx_nil(r, x, b, tree.pt.and_r(Bool.not(Nat.is_eq(Tr.Ent.k(e), x)), tc.nokey(r, x), nk), tree.pt.and_r(Nat.is_ge(b, Tr.Ent.p(e)), tc.ple(r, b), pb), bx))
+
+def tc.not_ff(b: Bool, h: {Bool.not(b) == False{} : Bool}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      pt.absurd({False{} == True{} : Bool}, h)
+
+def tc.or_fl(a: Bool, +b: Bool, +h: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
+  pt.or_l(a, b, h)
+
+def tc.ups_read(m: Tr.KMap, +x: Nat, +acc: List<&2, Tr.Ent>, gl: Bool, gr: Bool, +egl: {Tr.KMap.gl(m, x) == gl : Bool}, +egr: {Tr.KMap.gr(m, x) == gr : Bool}, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}) -> {Tr.KMap.ups(m, x, acc, gl, gr) == List.append(&2, Tr.Ent, tc.fx(Tr.KMap.read(m), x), acc) : List<&2, Tr.Ent>}:
+  match m gl gr:
+    case Tr.KNil{} True{} True{}:
+      {==}
+    case Tr.KNil{} True{} False{}:
+      {==}
+    case Tr.KNil{} False{} True{}:
+      {==}
+    case Tr.KNil{} False{} False{}:
+      {==}
+    case Tr.KOne{+e} True{} True{}:
+      %Equal.sym(Bool, Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))), True{}, egl) : {e <> acc == List.append(&2, Tr.Ent, tc.fx.at(_, e, Nil{}), acc) : List<&2, Tr.Ent>}
+      {==}
+    case Tr.KOne{+e} True{} False{}:
+      %Equal.sym(Bool, Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))), True{}, egl) : {e <> acc == List.append(&2, Tr.Ent, tc.fx.at(_, e, Nil{}), acc) : List<&2, Tr.Ent>}
+      {==}
+    case Tr.KOne{+e} False{} True{}:
+      %Equal.sym(Bool, Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))), False{}, egl) : {acc == List.append(&2, Tr.Ent, tc.fx.at(_, e, Nil{}), acc) : List<&2, Tr.Ent>}
+      {==}
+    case Tr.KOne{+e} False{} False{}:
+      %Equal.sym(Bool, Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))), False{}, egl) : {acc == List.append(&2, Tr.Ent, tc.fx.at(_, e, Nil{}), acc) : List<&2, Tr.Ent>}
+      {==}
+    case Tr.KFork{+mid, +mp, +l, +r} True{} True{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +ir = tc.ups_read(r, x, acc, Tr.KMap.gl(r, x), Tr.KMap.gr(r, x), {==}, {==}, tc.bst_r(mid, mp, l, r, bt), tc.mpok_r(mid, mp, l, r, mk))
+      +il = tc.ups_read(l, x, List.append(&2, Tr.Ent, tc.fx(R, x), acc), Tr.KMap.gl(l, x), Tr.KMap.gr(l, x), {==}, {==}, tc.bst_l(mid, mp, l, r, bt), tc.mpok_l(mid, mp, l, r, mk))
+      %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.ups(r, x, acc, Tr.KMap.gl(r, x), Tr.KMap.gr(r, x)), List.append(&2, Tr.Ent, tc.fx(R, x), acc), ir) : {Tr.KMap.ups(l, x, _, Tr.KMap.gl(l, x), Tr.KMap.gr(l, x)) == List.append(&2, Tr.Ent, tc.fx(List.append(&2, Tr.Ent, L, R), x), acc) : List<&2, Tr.Ent>}
+      %Equal.sym(List<&2, Tr.Ent>, tc.fx(List.append(&2, Tr.Ent, L, R), x), List.append(&2, Tr.Ent, tc.fx(L, x), tc.fx(R, x)), tc.fx_app(L, R, x)) : {Tr.KMap.ups(l, x, List.append(&2, Tr.Ent, tc.fx(R, x), acc), Tr.KMap.gl(l, x), Tr.KMap.gr(l, x)) == List.append(&2, Tr.Ent, _, acc) : List<&2, Tr.Ent>}
+      %Equal.sym(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, tc.fx(L, x), tc.fx(R, x)), acc), List.append(&2, Tr.Ent, tc.fx(L, x), List.append(&2, Tr.Ent, tc.fx(R, x), acc)), tc.app_assoc(tc.fx(L, x), tc.fx(R, x), acc)) : {Tr.KMap.ups(l, x, List.append(&2, Tr.Ent, tc.fx(R, x), acc), Tr.KMap.gl(l, x), Tr.KMap.gr(l, x)) == _ : List<&2, Tr.Ent>}
+      il
+    case Tr.KFork{+mid, +mp, +l, +r} True{} False{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +xm = tc.not_ff(Nat.is_lt(x, mid), tc.or_fl(Bool.not(Nat.is_lt(x, mid)), Bool.not(Nat.is_lt(Tr.KMap.mp(r), x)), egr))
+      +rx = tc.not_ff(Nat.is_lt(Tr.KMap.mp(r), x), pt.or_r(Bool.not(Nat.is_lt(x, mid)), Bool.not(Nat.is_lt(Tr.KMap.mp(r), x)), egr))
+      +nr = tc.fx_nil(R, x, Tr.KMap.mp(r), tc.nokey_ge(R, mid, x, tc.bst_ge(mid, mp, l, r, bt), xm), tc.mp_ple(r, tc.mpok_r(mid, mp, l, r, mk)), rx)
+      +il = tc.ups_read(l, x, acc, Tr.KMap.gl(l, x), Tr.KMap.gr(l, x), {==}, {==}, tc.bst_l(mid, mp, l, r, bt), tc.mpok_l(mid, mp, l, r, mk))
+      %Equal.sym(List<&2, Tr.Ent>, tc.fx(List.append(&2, Tr.Ent, L, R), x), List.append(&2, Tr.Ent, tc.fx(L, x), tc.fx(R, x)), tc.fx_app(L, R, x)) : {Tr.KMap.ups(l, x, acc, Tr.KMap.gl(l, x), Tr.KMap.gr(l, x)) == List.append(&2, Tr.Ent, _, acc) : List<&2, Tr.Ent>}
+      %Equal.sym(List<&2, Tr.Ent>, tc.fx(R, x), Nil{}, nr) : {Tr.KMap.ups(l, x, acc, Tr.KMap.gl(l, x), Tr.KMap.gr(l, x)) == List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, tc.fx(L, x), _), acc) : List<&2, Tr.Ent>}
+      %Equal.sym(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, tc.fx(L, x), Nil{}), tc.fx(L, x), tc.app_nil(tc.fx(L, x))) : {Tr.KMap.ups(l, x, acc, Tr.KMap.gl(l, x), Tr.KMap.gr(l, x)) == List.append(&2, Tr.Ent, _, acc) : List<&2, Tr.Ent>}
+      il
+    case Tr.KFork{+mid, +mp, +l, +r} False{} True{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +xm = pt.or_l(Nat.is_lt(x, mid), Bool.not(Nat.is_lt(Tr.KMap.mp(l), x)), egl)
+      +lx = tc.not_ff(Nat.is_lt(Tr.KMap.mp(l), x), pt.or_r(Nat.is_lt(x, mid), Bool.not(Nat.is_lt(Tr.KMap.mp(l), x)), egl))
+      +nl = tc.fx_nil(L, x, Tr.KMap.mp(l), tc.nokey_lt(L, mid, x, tc.bst_lt(mid, mp, l, r, bt), xm), tc.mp_ple(l, tc.mpok_l(mid, mp, l, r, mk)), lx)
+      +ir = tc.ups_read(r, x, acc, Tr.KMap.gl(r, x), Tr.KMap.gr(r, x), {==}, {==}, tc.bst_r(mid, mp, l, r, bt), tc.mpok_r(mid, mp, l, r, mk))
+      %Equal.sym(List<&2, Tr.Ent>, tc.fx(List.append(&2, Tr.Ent, L, R), x), List.append(&2, Tr.Ent, tc.fx(L, x), tc.fx(R, x)), tc.fx_app(L, R, x)) : {Tr.KMap.ups(r, x, acc, Tr.KMap.gl(r, x), Tr.KMap.gr(r, x)) == List.append(&2, Tr.Ent, _, acc) : List<&2, Tr.Ent>}
+      %Equal.sym(List<&2, Tr.Ent>, tc.fx(L, x), Nil{}, nl) : {Tr.KMap.ups(r, x, acc, Tr.KMap.gl(r, x), Tr.KMap.gr(r, x)) == List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, _, tc.fx(R, x)), acc) : List<&2, Tr.Ent>}
+      ir
+    case Tr.KFork{+mid, +mp, +l, +r} False{} False{}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      +xm = pt.or_l(Nat.is_lt(x, mid), Bool.not(Nat.is_lt(Tr.KMap.mp(l), x)), egl)
+      +lx = tc.not_ff(Nat.is_lt(Tr.KMap.mp(l), x), pt.or_r(Nat.is_lt(x, mid), Bool.not(Nat.is_lt(Tr.KMap.mp(l), x)), egl))
+      +rx = tc.not_ff(Nat.is_lt(Tr.KMap.mp(r), x), pt.or_r(Bool.not(Nat.is_lt(x, mid)), Bool.not(Nat.is_lt(Tr.KMap.mp(r), x)), egr))
+      +xm2 = tc.not_ff(Nat.is_lt(x, mid), tc.or_fl(Bool.not(Nat.is_lt(x, mid)), Bool.not(Nat.is_lt(Tr.KMap.mp(r), x)), egr))
+      pt.absurd({acc == List.append(&2, Tr.Ent, tc.fx(List.append(&2, Tr.Ent, L, R), x), acc) : List<&2, Tr.Ent>}, Equal.trans(Bool, True{}, Nat.is_lt(x, mid), False{}, Equal.sym(Bool, Nat.is_lt(x, mid), True{}, xm2), xm))
+
+# every key of gone is x, or below every key of s
+def tc.gb(gone: List<&2, Nat>, +x: Nat, +s: List<&2, Tr.Ent>) -> Bool:
+  match gone:
+    case Nil{}:
+      True{}
+    case +z <> rest:
+      Bool.and(Bool.or(Nat.is_eq(z, x), Tr.above(z, s)), tc.gb(rest, x, s))
+
+def tc.gb_tail(gone: List<&2, Nat>, +x: Nat, +e: Tr.Ent, +r: List<&2, Tr.Ent>, +g: {tc.gb(gone, x, e <> r) == True{} : Bool}, +st: {Tr.sorted(e <> r) == True{} : Bool}) -> {tc.gb(gone, x, r) == True{} : Bool}:
+  match gone:
+    case Nil{}:
+      {==}
+    case +z <> +rest:
+      +hd = tree.pt.and_l(Bool.or(Nat.is_eq(z, x), Tr.above(z, e <> r)), tc.gb(rest, x, e <> r), g)
+      +tl = tree.pt.and_r(Bool.or(Nat.is_eq(z, x), Tr.above(z, e <> r)), tc.gb(rest, x, e <> r), g)
+      tree.pt.and_t(Bool.or(Nat.is_eq(z, x), Tr.above(z, r)), tc.gb(rest, x, r), pt.or_above_tail(Nat.is_eq(z, x), z, e, r, hd, st), tc.gb_tail(rest, x, e, r, tl, st))
+
+def tc.gb_hd(c: Bool, +z: Nat, +x: Nat, +k: Nat, +ec: {Nat.is_eq(z, x) == c : Bool}, +h: {Bool.or(c, Nat.is_lt(z, k)) == True{} : Bool}, +kx: {Nat.is_eq(k, x) == False{} : Bool}) -> {Nat.is_eq(z, k) == False{} : Bool}:
+  match c:
+    case True{}:
+      +zx = pt.eq_true(z, x, ec)
+      %Equal.sym(Nat, z, x, zx) : {Nat.is_eq(_, k) == False{} : Bool}
+      pt.ne_comm(k, x, kx)
+    case False{}:
+      pt.lt_ne(z, k, h)
+
+# a key that is not x is not gone, while gone holds x and keys below it
+def tc.gb_elem(gone: List<&2, Nat>, +x: Nat, +e: Tr.Ent, +r: List<&2, Tr.Ent>, +g: {tc.gb(gone, x, e <> r) == True{} : Bool}, +kx: {Nat.is_eq(Tr.Ent.k(e), x) == False{} : Bool}) -> {Tr.elem(gone, Tr.Ent.k(e)) == False{} : Bool}:
+  match gone:
+    case Nil{}:
+      {==}
+    case +z <> +rest:
+      +hd = tree.pt.and_l(Bool.or(Nat.is_eq(z, x), Tr.above(z, e <> r)), tc.gb(rest, x, e <> r), g)
+      +tl = tree.pt.and_r(Bool.or(Nat.is_eq(z, x), Tr.above(z, e <> r)), tc.gb(rest, x, e <> r), g)
+      +ne = tc.gb_hd(Nat.is_eq(z, x), z, x, Tr.Ent.k(e), {==}, hd, kx)
+      %Equal.sym(Bool, Nat.is_eq(z, Tr.Ent.k(e)), False{}, ne) : {Bool.or(_, Tr.elem(rest, Tr.Ent.k(e))) == False{} : Bool}
+      tc.gb_elem(rest, x, e, r, tl, kx)
+
+def tc.nlt_go(+a: Nat, +b: Nat, +c: Nat, d: Bool, +ed: {Nat.is_lt(c, b) == d : Bool}, +ac: {Nat.is_lt(a, c) == True{} : Bool}, +nab: {Nat.is_lt(a, b) == False{} : Bool}) -> {d == False{} : Bool}:
+  match d:
+    case True{}:
+      pt.absurd({True{} == False{} : Bool}, Equal.trans(Bool, True{}, Nat.is_lt(a, b), False{}, Equal.sym(Bool, Nat.is_lt(a, b), True{}, pt.lt_trans(a, c, b, ac, ed)), nab))
+    case False{}:
+      {==}
+
+# a below c and a not below b: c not below b
+def tc.nlt_up(+a: Nat, +b: Nat, +c: Nat, +ac: {Nat.is_lt(a, c) == True{} : Bool}, +nab: {Nat.is_lt(a, b) == False{} : Bool}) -> {Nat.is_lt(c, b) == False{} : Bool}:
+  tc.nlt_go(a, b, c, Nat.is_lt(c, b), {==}, ac, nab)
+
+# a kept node's key is x or more
+def tc.kept_ge(+e: Tr.Ent, +x: Nat, c: Bool, +ec: {Nat.is_eq(Tr.Ent.k(e), x) == c : Bool}, +h: {Bool.or(c, Bool.not(Nat.is_lt(Tr.Ent.p(e), x))) == True{} : Bool}, +pk: {Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)) == True{} : Bool}) -> {Nat.is_lt(Tr.Ent.k(e), x) == False{} : Bool}:
+  match c:
+    case True{}:
+      +kx = pt.eq_true(Tr.Ent.k(e), x, ec)
+      %kx : {Nat.is_lt(Tr.Ent.k(e), _) == False{} : Bool}
+      pt.lt_irrefl(Tr.Ent.k(e))
+    case False{}:
+      +px = pt.not_f(Nat.is_lt(Tr.Ent.p(e), x), h)
+      tc.nlt_up(Tr.Ent.p(e), x, Tr.Ent.k(e), pk, px)
+
+def tc.fd_at(+e: Tr.Ent, +r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +eh: {Tr.gone.at(e <> r, gone) == hit : Bool}, +x: Nat, c: Bool, +ec: {Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))) == c : Bool}, +ng: {tc.nall(gone, x) == True{} : Bool}, +g: {tc.gb(gone, x, e <> r) == True{} : Bool}, +pk: {Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)) == True{} : Bool}, +ih1: {Tr.drops.go(r, gone, Tr.gone.at(r, gone)) == Tr.drops.go(tc.fx(r, x), gone, Tr.gone.at(tc.fx(r, x), gone)) : List<&2, Nat>}, ih2: {Nat.is_lt(Tr.Ent.k(e), x) == False{} : Bool} -> {Tr.drops.go(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone)) == Tr.drops.go(tc.fx(r, x), Tr.Ent.k(e) <> gone, Tr.gone.at(tc.fx(r, x), Tr.Ent.k(e) <> gone)) : List<&2, Nat>}) -> {Tr.drops.go(e <> r, gone, hit) == Tr.drops.go(tc.fx.at(c, e, tc.fx(r, x)), gone, Tr.gone.at(tc.fx.at(c, e, tc.fx(r, x)), gone)) : List<&2, Nat>}:
+  match c:
+    case True{}:
+      +G = Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e)))
+      +kx = tc.kept_ge(e, x, Nat.is_eq(Tr.Ent.k(e), x), {==}, ec, pk)
+      %Equal.sym(Bool, G, hit, eh) : {Tr.drops.go(e <> r, gone, hit) == Tr.drops.go(e <> tc.fx(r, x), gone, _) : List<&2, Nat>}
+      tc.dg_ge(hit, e, r, tc.fx(r, x), gone, ih1, ih2(kx))
+    case False{}:
+      +ne = pt.or_l(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x)), ec)
+      +px = tc.not_ff(Nat.is_lt(Tr.Ent.p(e), x), pt.or_r(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x)), ec))
+      +nk = tc.gb_elem(gone, x, e, r, g, ne)
+      +np = tc.elem_none(gone, x, Tr.Ent.p(e), ng, px)
+      +o = tc.or_ff(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e)), nk, np)
+      +hf = Equal.trans(Bool, hit, Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e))), False{}, Equal.sym(Bool, Bool.or(Tr.elem(gone, Tr.Ent.k(e)), Tr.elem(gone, Tr.Ent.p(e))), hit, eh), o)
+      %Equal.sym(Bool, hit, False{}, hf) : {Tr.drops.go(e <> r, gone, _) == Tr.drops.go(tc.fx(r, x), gone, Tr.gone.at(tc.fx(r, x), gone)) : List<&2, Nat>}
+      ih1
+
+# a delete's walk over the nodes it may remove drops the keys of the walk
+# over every node
+def tc.drops_fx(s: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +eh: {Tr.gone.at(s, gone) == hit : Bool}, +x: Nat, +ng: {tc.nall(gone, x) == True{} : Bool}, +g: {tc.gb(gone, x, s) == True{} : Bool}, +st: {Tr.sorted(s) == True{} : Bool}, +dk: {tc.desc(s) == True{} : Bool}) -> {Tr.drops.go(s, gone, hit) == Tr.drops.go(tc.fx(s, x), gone, Tr.gone.at(tc.fx(s, x), gone)) : List<&2, Nat>}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      +pk = tree.pt.and_l(Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)), tc.desc(r), dk)
+      +dr = tree.pt.and_r(Nat.is_lt(Tr.Ent.p(e), Tr.Ent.k(e)), tc.desc(r), dk)
+      +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+      +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+      +g1 = tc.gb_tail(gone, x, e, r, g, st)
+      +g2 = tree.pt.and_t(Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Tr.above(Tr.Ent.k(e), r)), tc.gb(gone, x, r), pt.or_tr(Nat.is_eq(Tr.Ent.k(e), x), Tr.above(Tr.Ent.k(e), r), ar), g1)
+      +ih1 = tc.drops_fx(r, gone, Tr.gone.at(r, gone), {==}, x, ng, g1, sr, dr)
+      tc.fd_at(e, r, gone, hit, eh, x, Bool.or(Nat.is_eq(Tr.Ent.k(e), x), Bool.not(Nat.is_lt(Tr.Ent.p(e), x))), {==}, ng, g, pk, ih1, kx => tc.drops_fx(r, Tr.Ent.k(e) <> gone, Tr.gone.at(r, Tr.Ent.k(e) <> gone), {==}, x, tc.nall_cons(Tr.Ent.k(e), gone, x, kx, ng), g2, sr, dr))
+
+# the keys a delete cuts are the keys it removes
+
+def tc.lost_at_cong(c: Bool, +k: Nat, +X: List<&2, Nat>, +Y: List<&2, Nat>, +e: {X == Y : List<&2, Nat>}) -> {Laws.tree.lost.at(c, k, X) == Laws.tree.lost.at(c, k, Y) : List<&2, Nat>}:
+  Equal.cong(List<&2, Nat>, List<&2, Nat>, ys => Laws.tree.lost.at(c, k, ys), X, Y, e)
+
+# a node below every key of r does not change what r loses
+def tc.lost_skip(r: List<&2, Tr.Ent>, +e: Tr.Ent, +P: List<&2, Tr.Ent>, +ar: {Tr.above(Tr.Ent.k(e), r) == True{} : Bool}, +sr: {Tr.sorted(r) == True{} : Bool}) -> {Laws.tree.lost(r, e <> P) == Laws.tree.lost(r, P) : List<&2, Nat>}:
+  match r:
+    case Nil{}:
+      {==}
+    case +f <> +r2:
+      +ne = pt.lt_ne(Tr.Ent.k(e), Tr.Ent.k(f), ar)
+      +ar2 = pt.above_lt(Tr.Ent.k(e), Tr.Ent.k(f), r2, ar, tree.pt.and_l(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr))
+      +sr2 = tree.pt.and_r(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+      +ih = tc.lost_skip(r2, e, P, ar2, sr2)
+      %Equal.sym(Bool, Tr.has(e <> P, Tr.Ent.k(f)), Tr.has(P, Tr.Ent.k(f)), pt.has_miss(e, P, Tr.Ent.k(f), ne)) : {Laws.tree.lost.at(_, Tr.Ent.k(f), Laws.tree.lost(r2, e <> P)) == Laws.tree.lost.at(Tr.has(P, Tr.Ent.k(f)), Tr.Ent.k(f), Laws.tree.lost(r2, P)) : List<&2, Nat>}
+      tc.lost_at_cong(Tr.has(P, Tr.Ent.k(f)), Tr.Ent.k(f), Laws.tree.lost(r2, e <> P), Laws.tree.lost(r2, P), ih)
+
+def tc.lost_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {Tr.sorted(t) == True{} : Bool}) -> {Laws.tree.lost(t, Tr.prune.go(t, gone, hit)) == Tr.drops.go(t, gone, hit) : List<&2, Nat>}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      match hit:
+        case True{}:
+          +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +g2 = {Tr.Ent.k(e) <> gone : List<&2, Nat>}
+          +Q = Tr.prune.go(r, g2, Tr.gone.at(r, g2))
+          +aq = pt.above_prune_go(r, g2, Tr.gone.at(r, g2), Tr.Ent.k(e), ar, sr)
+          +sq = pt.sorted_prune_go(r, g2, Tr.gone.at(r, g2), sr)
+          +nh = pt.has_below(Q, Tr.Ent.k(e), aq, sq)
+          %Equal.sym(Bool, Tr.has(Q, Tr.Ent.k(e)), False{}, nh) : {Laws.tree.lost.at(_, Tr.Ent.k(e), Laws.tree.lost(r, Q)) == Tr.Ent.k(e) <> Tr.drops.go(r, g2, Tr.gone.at(r, g2)) : List<&2, Nat>}
+          Equal.cong(List<&2, Nat>, List<&2, Nat>, ys => Tr.Ent.k(e) <> ys, Laws.tree.lost(r, Q), Tr.drops.go(r, g2, Tr.gone.at(r, g2)), tc.lost_drops(r, g2, Tr.gone.at(r, g2), sr))
+        case False{}:
+          +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +Q = Tr.prune.go(r, gone, Tr.gone.at(r, gone))
+          %Equal.sym(Bool, Tr.has(e <> Q, Tr.Ent.k(e)), True{}, pt.has_head(e, Q)) : {Laws.tree.lost.at(_, Tr.Ent.k(e), Laws.tree.lost(r, e <> Q)) == Tr.drops.go(r, gone, Tr.gone.at(r, gone)) : List<&2, Nat>}
+          Equal.trans(List<&2, Nat>, Laws.tree.lost(r, e <> Q), Laws.tree.lost(r, Q), Tr.drops.go(r, gone, Tr.gone.at(r, gone)), tc.lost_skip(r, e, Q, ar, sr), tc.lost_drops(r, gone, Tr.gone.at(r, gone), sr))
+
+# every key of ks is above k
+def tc.gtall(ks: List<&2, Nat>, +k: Nat) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case +z <> rest:
+      Bool.and(Nat.is_lt(k, z), tc.gtall(rest, k))
+
+def tc.drops_gt(r: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +k: Nat, +ar: {Tr.above(k, r) == True{} : Bool}, +sr: {Tr.sorted(r) == True{} : Bool}) -> {tc.gtall(Tr.drops.go(r, gone, hit), k) == True{} : Bool}:
+  match r:
+    case Nil{}:
+      {==}
+    case +f <> +r2:
+      match hit:
+        case True{}:
+          +af = tree.pt.and_l(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+          +sr2 = tree.pt.and_r(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+          +ar2 = pt.above_lt(k, Tr.Ent.k(f), r2, ar, af)
+          +g2 = {Tr.Ent.k(f) <> gone : List<&2, Nat>}
+          tree.pt.and_t(Nat.is_lt(k, Tr.Ent.k(f)), tc.gtall(Tr.drops.go(r2, g2, Tr.gone.at(r2, g2)), k), ar, tc.drops_gt(r2, g2, Tr.gone.at(r2, g2), k, ar2, sr2))
+        case False{}:
+          +af = tree.pt.and_l(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+          +sr2 = tree.pt.and_r(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+          +ar2 = pt.above_lt(k, Tr.Ent.k(f), r2, ar, af)
+          tc.drops_gt(r2, gone, Tr.gone.at(r2, gone), k, ar2, sr2)
+
+# an unset of a key above the head keeps the head
+def tc.unsets_cons(ks: List<&2, Nat>, +e: Tr.Ent, +r: List<&2, Tr.Ent>, +gt: {tc.gtall(ks, Tr.Ent.k(e)) == True{} : Bool}) -> {tc.unsets(ks, e <> r) == e <> tc.unsets(ks, r) : List<&2, Tr.Ent>}:
+  match ks:
+    case Nil{}:
+      {==}
+    case +z <> +rest:
+      +lt = tree.pt.and_l(Nat.is_lt(Tr.Ent.k(e), z), tc.gtall(rest, Tr.Ent.k(e)), gt)
+      +ne = pt.lt_ne(Tr.Ent.k(e), z, lt)
+      %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(e), z), False{}, ne) : {tc.unsets(rest, Tr.unset.go(e <> r, z, _)) == e <> tc.unsets(rest, Tr.unset(r, z)) : List<&2, Tr.Ent>}
+      tc.unsets_cons(rest, e, Tr.unset(r, z), tree.pt.and_r(Nat.is_lt(Tr.Ent.k(e), z), tc.gtall(rest, Tr.Ent.k(e)), gt))
+
+# an unset of a key below every key of r keeps r
+def tc.unset_above(r: List<&2, Tr.Ent>, +k: Nat, +ar: {Tr.above(k, r) == True{} : Bool}, +sr: {Tr.sorted(r) == True{} : Bool}) -> {Tr.unset(r, k) == r : List<&2, Tr.Ent>}:
+  match r:
+    case Nil{}:
+      {==}
+    case +f <> +r2:
+      +ne = pt.lt_ne_r(k, Tr.Ent.k(f), ar)
+      +af = tree.pt.and_l(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+      +sr2 = tree.pt.and_r(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+      %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(f), k), False{}, ne) : {Tr.unset.go(f <> r2, k, _) == f <> r2 : List<&2, Tr.Ent>}
+      Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => f <> ys, Tr.unset(r2, k), r2, tc.unset_above(r2, k, pt.above_lt(k, Tr.Ent.k(f), r2, ar, af), sr2))
+
+# unsetting the keys a walk drops is the walk's prune
+def tc.unsets_drops(t: List<&2, Tr.Ent>, +gone: List<&2, Nat>, hit: Bool, +st: {Tr.sorted(t) == True{} : Bool}) -> {tc.unsets(Tr.drops.go(t, gone, hit), t) == Tr.prune.go(t, gone, hit) : List<&2, Tr.Ent>}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +r:
+      match hit:
+        case True{}:
+          +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +g2 = {Tr.Ent.k(e) <> gone : List<&2, Nat>}
+          +D = Tr.drops.go(r, g2, Tr.gone.at(r, g2))
+          %Equal.sym(Bool, Nat.is_eq(Tr.Ent.k(e), Tr.Ent.k(e)), True{}, Equal.sym(Bool, True{}, Nat.is_eq(Tr.Ent.k(e), Tr.Ent.k(e)), pt.eq_refl(Tr.Ent.k(e)))) : {tc.unsets(D, Tr.unset.go(e <> r, Tr.Ent.k(e), _)) == Tr.prune.go(r, g2, Tr.gone.at(r, g2)) : List<&2, Tr.Ent>}
+          %Equal.sym(List<&2, Tr.Ent>, Tr.unset(r, Tr.Ent.k(e)), r, tc.unset_above(r, Tr.Ent.k(e), ar, sr)) : {tc.unsets(D, _) == Tr.prune.go(r, g2, Tr.gone.at(r, g2)) : List<&2, Tr.Ent>}
+          tc.unsets_drops(r, g2, Tr.gone.at(r, g2), sr)
+        case False{}:
+          +ar = tree.pt.and_l(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +sr = tree.pt.and_r(Tr.above(Tr.Ent.k(e), r), Tr.sorted(r), st)
+          +D = Tr.drops.go(r, gone, Tr.gone.at(r, gone))
+          +gt = tc.drops_gt(r, gone, Tr.gone.at(r, gone), Tr.Ent.k(e), ar, sr)
+          Equal.trans(List<&2, Tr.Ent>, tc.unsets(D, e <> r), e <> tc.unsets(D, r), e <> Tr.prune.go(r, gone, Tr.gone.at(r, gone)), tc.unsets_cons(D, e, r, gt), Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Ent>, ys => e <> ys, tc.unsets(D, r), Tr.prune.go(r, gone, Tr.gone.at(r, gone)), tc.unsets_drops(r, gone, Tr.gone.at(r, gone), sr)))
+
+# A record on the map
+
+def tc.onto(m: Tr.KMap, +acc: List<&2, Tr.Ent>) -> {Tr.KMap.onto(m, acc) == List.append(&2, Tr.Ent, Tr.KMap.read(m), acc) : List<&2, Tr.Ent>}:
+  match m:
+    case Tr.KNil{}:
+      {==}
+    case Tr.KOne{e}:
+      {==}
+    case Tr.KFork{mid, mp, +l, +r}:
+      +L = Tr.KMap.read(l)
+      +R = Tr.KMap.read(r)
+      %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(r, acc), List.append(&2, Tr.Ent, R, acc), tc.onto(r, acc)) : {Tr.KMap.onto(l, _) == List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, L, R), acc) : List<&2, Tr.Ent>}
+      %Equal.sym(List<&2, Tr.Ent>, List.append(&2, Tr.Ent, List.append(&2, Tr.Ent, L, R), acc), List.append(&2, Tr.Ent, L, List.append(&2, Tr.Ent, R, acc)), tc.app_assoc(L, R, acc)) : {Tr.KMap.onto(l, List.append(&2, Tr.Ent, R, acc)) == _ : List<&2, Tr.Ent>}
+      tc.onto(l, List.append(&2, Tr.Ent, R, acc))
+
+def tc.onto_nil(+m: Tr.KMap) -> {Tr.KMap.onto(m, Nil{}) == Tr.KMap.read(m) : List<&2, Tr.Ent>}:
+  Equal.trans(List<&2, Tr.Ent>, Tr.KMap.onto(m, Nil{}), List.append(&2, Tr.Ent, Tr.KMap.read(m), Nil{}), Tr.KMap.read(m), tc.onto(m, Nil{}), tc.app_nil(Tr.KMap.read(m)))
+
+def tc.hangs(s: List<&2, Tr.Ent>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.hangs(s, m) == Tr.rooted.go(s, Tr.KMap.read(m)) : Bool}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      +p = Tr.Ent.p(e)
+      %Equal.sym(Bool, Tr.KMap.has(m, p), Tr.has(Tr.KMap.read(m), p), tc.has(m, p, bt)) : {Bool.and(Bool.and(Nat.is_lt(p, Tr.Ent.k(e)), Bool.or(Nat.is_eq(p, 0n), _)), Tr.KMap.hangs(rest, m)) == Tr.rooted.go(e <> rest, Tr.KMap.read(m)) : Bool}
+      %Equal.sym(Bool, Tr.KMap.hangs(rest, m), Tr.rooted.go(rest, Tr.KMap.read(m)), tc.hangs(rest, m, bt)) : {Bool.and(Bool.and(Nat.is_lt(p, Tr.Ent.k(e)), Bool.or(Nat.is_eq(p, 0n), Tr.has(Tr.KMap.read(m), p))), _) == Tr.rooted.go(e <> rest, Tr.KMap.read(m)) : Bool}
+      {==}
+
+def tc.exact_read(+m: Tr.KMap, +hs: List<&2, Nat>, o: Tr.Op, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.exact(m, hs, o)) == Tr.exact(Tr.KMap.read(m), o) : List<&2, Tr.Ent>}:
+  match o:
+    case Tr.Put{+k, +p, +v}:
+      tc.set_read(m, hs, Tr.Ent{k, p, v}, bt)
+    case Tr.Del{+x}:
+      tc.del_read(m, x, bt)
+
+def tc.exact_bst(+m: Tr.KMap, +hs: List<&2, Nat>, o: Tr.Op, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.exact(m, hs, o)) == True{} : Bool}:
+  match o:
+    case Tr.Put{+k, +p, +v}:
+      tc.set_bst(m, hs, Tr.Ent{k, p, v}, bt)
+    case Tr.Del{+x}:
+      tc.del_bst(m, x, bt)
+
+def tc.patch_bst(ops: List<&2, Tr.Op>, +hs: List<&2, Nat>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.patch(ops, hs, m)) == True{} : Bool}:
+  match ops:
+    case Nil{}:
+      bt
+    case +o <> rest:
+      tc.patch_bst(rest, hs, Tr.KMap.exact(m, hs, o), tc.exact_bst(m, hs, o, bt))
+
+def tc.patch_read(ops: List<&2, Tr.Op>, +hs: List<&2, Nat>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.patch(ops, hs, m)) == Tr.patch(ops, Tr.KMap.read(m)) : List<&2, Tr.Ent>}:
+  match ops:
+    case Nil{}:
+      {==}
+    case +o <> rest:
+      +E = Tr.KMap.exact(m, hs, o)
+      %tc.exact_read(m, hs, o, bt) : {Tr.KMap.read(Tr.KMap.patch(rest, hs, E)) == Tr.patch(rest, _) : List<&2, Tr.Ent>}
+      tc.patch_read(rest, hs, E, tc.exact_bst(m, hs, o, bt))
+
+# the test of a put on the map is ok on the list
+def tc.good_put(+m: Tr.KMap, +k: Nat, +p: Nat, +bt: {tc.bst(m) == True{} : Bool}) -> {Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.KMap.has(m, p))) == Tr.ok(Tr.KMap.read(m), k, p) : Bool}:
+  %Equal.sym(Bool, Tr.KMap.has(m, p), Tr.has(Tr.KMap.read(m), p), tc.has(m, p, bt)) : {Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), _)) == Tr.ok(Tr.KMap.read(m), k, p) : Bool}
+  {==}
+
+# the test of a rewind on the map is sound on the list
+def tc.good_rewind(+ops: List<&2, Tr.Op>, +hs: List<&2, Nat>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.hangs(Tr.KMap.onto(Tr.KMap.patch(ops, hs, m), Nil{}), Tr.KMap.patch(ops, hs, m)) == Tr.sound(Tr.patch(ops, Tr.KMap.read(m))) : Bool}:
+  +n = Tr.KMap.patch(ops, hs, m)
+  +bn = tc.patch_bst(ops, hs, m, bt)
+  +N = Tr.KMap.read(n)
+  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(n, Nil{}), N, tc.onto_nil(n)) : {Tr.KMap.hangs(_, n) == Tr.sound(Tr.patch(ops, Tr.KMap.read(m))) : Bool}
+  %Equal.sym(Bool, Tr.KMap.hangs(N, n), Tr.rooted.go(N, N), tc.hangs(N, n, bn)) : {_ == Tr.sound(Tr.patch(ops, Tr.KMap.read(m))) : Bool}
+  %tc.patch_read(ops, hs, m, bt) : {Tr.rooted.go(N, N) == Tr.sound(_) : Bool}
+  %Equal.sym(Bool, Tr.sorted(N), True{}, tc.sorted_read(n, bn)) : {Tr.rooted.go(N, N) == Bool.and(_, Tr.rooted(N)) : Bool}
+  {==}
+
+def tc.put_case(b: Bool, +m: Tr.KMap, +hs: List<&2, Nat>, +e: Tr.Ent, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.KMap.read(Pair.fst(Tr.KMap, Tr.Ans, Tr.put.ans(b, m, hs, e))) == Tr.put.at(b, Tr.KMap.read(m), e) : List<&2, Tr.Ent>}:
+  match b:
+    case True{}:
+      tc.set_read(m, hs, e, bt)
+    case False{}:
+      {==}
+
+def tc.put_case_bst(b: Bool, +m: Tr.KMap, +hs: List<&2, Nat>, +e: Tr.Ent, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Pair.fst(Tr.KMap, Tr.Ans, Tr.put.ans(b, m, hs, e))) == True{} : Bool}:
+  match b:
+    case True{}:
+      tc.set_bst(m, hs, e, bt)
+    case False{}:
+      bt
+
+def tc.put_case_ans(b: Bool, +m: Tr.KMap, +hs: List<&2, Nat>, +e: Tr.Ent) -> {Pair.snd(Tr.KMap, Tr.Ans, Tr.put.ans(b, m, hs, e)) == Laws.tree.took(b) : Tr.Ans}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def tc.keep_case(b: Bool, +m: Tr.KMap, +n: Tr.KMap, +N: List<&2, Tr.Ent>, +rn: {Tr.KMap.read(n) == N : List<&2, Tr.Ent>}) -> {Tr.KMap.read(Pair.fst(Tr.KMap, Tr.Ans, Tr.keep.ans(b, m, n))) == Tr.keep.at(b, Tr.KMap.read(m), N) : List<&2, Tr.Ent>}:
+  match b:
+    case True{}:
+      rn
+    case False{}:
+      {==}
+
+def tc.keep_case_bst(b: Bool, +m: Tr.KMap, +n: Tr.KMap, +bm: {tc.bst(m) == True{} : Bool}, +bn: {tc.bst(n) == True{} : Bool}) -> {tc.bst(Pair.fst(Tr.KMap, Tr.Ans, Tr.keep.ans(b, m, n))) == True{} : Bool}:
+  match b:
+    case True{}:
+      bn
+    case False{}:
+      bm
+
+def tc.keep_case_bst2(b: Bool, +m: Tr.KMap, +n: Tr.KMap, +bm: {tc.mpok(m) == True{} : Bool}, +bn: {tc.mpok(n) == True{} : Bool}) -> {tc.mpok(Pair.fst(Tr.KMap, Tr.Ans, Tr.keep.ans(b, m, n))) == True{} : Bool}:
+  match b:
+    case True{}:
+      bn
+    case False{}:
+      bm
+
+def tc.keep_case_ans(b: Bool, +m: Tr.KMap, +n: Tr.KMap) -> {Pair.snd(Tr.KMap, Tr.Ans, Tr.keep.ans(b, m, n)) == Laws.tree.took(b) : Tr.Ans}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the keys a delete of x cuts on the map are the keys the walk drops
+def tc.del_keys(+m: Tr.KMap, +x: Nat, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}, +sd: {Tr.sound(Tr.KMap.read(m)) == True{} : Bool}) -> {Tr.drops.go(Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x)), [x], Tr.gone.at(Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x)), [x])) == Tr.drops.go(Tr.KMap.read(m), [x], Tr.gone.at(Tr.KMap.read(m), [x])) : List<&2, Nat>}:
+  +t = Tr.KMap.read(m)
+  +U = Tr.KMap.ups(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x))
+  +rf = Equal.trans(List<&2, Tr.Ent>, U, List.append(&2, Tr.Ent, tc.fx(t, x), Nil{}), tc.fx(t, x), tc.ups_read(m, x, Nil{}, Tr.KMap.gl(m, x), Tr.KMap.gr(m, x), {==}, {==}, bt, mk), tc.app_nil(tc.fx(t, x)))
+  +ng = tree.pt.and_t(Bool.not(Nat.is_lt(x, x)), True{}, pt.not_t(Nat.is_lt(x, x), pt.lt_irrefl(x)), {==})
+  +g = tree.pt.and_t(Bool.or(Nat.is_eq(x, x), Tr.above(x, t)), True{}, pt.or_tl(Nat.is_eq(x, x), Tr.above(x, t), Equal.sym(Bool, True{}, Nat.is_eq(x, x), pt.eq_refl(x))), {==})
+  +dk = tc.desc_of(t, t, tree.pt.and_r(Tr.sorted(t), Tr.rooted(t), sd))
+  %Equal.sym(List<&2, Tr.Ent>, U, tc.fx(t, x), rf) : {Tr.drops.go(_, [x], Tr.gone.at(_, [x])) == Tr.drops.go(t, [x], Tr.gone.at(t, [x])) : List<&2, Nat>}
+  Equal.sym(List<&2, Nat>, Tr.drops.go(t, [x], Tr.gone.at(t, [x])), Tr.drops.go(tc.fx(t, x), [x], Tr.gone.at(tc.fx(t, x), [x])), tc.drops_fx(t, [x], Tr.gone.at(t, [x]), {==}, x, ng, g, tc.sorted_read(m, bt), dk))
+
+def tc.rec_read(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}, +sd: {Tr.sound(Tr.KMap.read(m)) == True{} : Bool}) -> {Tr.KMap.read(Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r))) == Tr.apply(Tr.KMap.read(m), r) : List<&2, Tr.Ent>}:
+  match r:
+    case Tr.Do{o}:
+      match o:
+        case Tr.Put{+k, +p, +v}:
+          +e = {Tr.Ent{k, p, v} : Tr.Ent}
+          +G = Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.KMap.has(m, p)))
+          %Equal.sym(Bool, G, Tr.ok(Tr.KMap.read(m), k, p), tc.good_put(m, k, p, bt)) : {Tr.KMap.read(Pair.fst(Tr.KMap, Tr.Ans, Tr.put.ans(_, m, hs, e))) == Tr.put.at(Tr.ok(Tr.KMap.read(m), k, p), Tr.KMap.read(m), e) : List<&2, Tr.Ent>}
+          tc.put_case(Tr.ok(Tr.KMap.read(m), k, p), m, hs, e, bt)
+        case Tr.Del{x}:
+          match x:
+            case 0n:
+              {==}
+            case 1n++y:
+              +t = Tr.KMap.read(m)
+              +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
+              +KS = Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y]))
+              +D = Tr.drops.go(t, [1n+y], Tr.gone.at(t, [1n+y]))
+              +s1 = tc.drop_read(KS, m, bt)
+              +s2 = Equal.cong(List<&2, Nat>, List<&2, Tr.Ent>, z => tc.unsets(z, t), KS, D, tc.del_keys(m, 1n+y, bt, mk, sd))
+              +s3 = tc.unsets_drops(t, [1n+y], Tr.gone.at(t, [1n+y]), tc.sorted_read(m, bt))
+              Equal.trans(List<&2, Tr.Ent>, Tr.KMap.read(Tr.KMap.drop(KS, m)), tc.unsets(KS, t), Tr.prune(t, 1n+y), s1, Equal.trans(List<&2, Tr.Ent>, tc.unsets(KS, t), tc.unsets(D, t), Tr.prune(t, 1n+y), s2, s3))
+    case Tr.Rewind{+ops}:
+      +n = Tr.KMap.patch(ops, hs, m)
+      +G = Tr.KMap.hangs(Tr.KMap.onto(n, Nil{}), n)
+      +N = Tr.patch(ops, Tr.KMap.read(m))
+      %Equal.sym(Bool, G, Tr.sound(N), tc.good_rewind(ops, hs, m, bt)) : {Tr.KMap.read(Pair.fst(Tr.KMap, Tr.Ans, Tr.keep.ans(_, m, n))) == Tr.keep.at(Tr.sound(N), Tr.KMap.read(m), N) : List<&2, Tr.Ent>}
+      tc.keep_case(Tr.sound(N), m, n, N, tc.patch_read(ops, hs, m, bt))
+
+def tc.rec_bst(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r))) == True{} : Bool}:
+  match r:
+    case Tr.Do{o}:
+      match o:
+        case Tr.Put{+k, +p, +v}:
+          tc.put_case_bst(Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.KMap.has(m, p))), m, hs, Tr.Ent{k, p, v}, bt)
+        case Tr.Del{x}:
+          match x:
+            case 0n:
+              bt
+            case 1n++y:
+              +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
+              tc.drop_bst(Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y])), m, bt)
+    case Tr.Rewind{+ops}:
+      +n = Tr.KMap.patch(ops, hs, m)
+      tc.keep_case_bst(Tr.KMap.hangs(Tr.KMap.onto(n, Nil{}), n), m, n, bt, tc.patch_bst(ops, hs, m, bt))
+
+def tc.rec_ans(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}, +sd: {Tr.sound(Tr.KMap.read(m)) == True{} : Bool}) -> {Pair.snd(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r)) == Laws.tree.answer(Tr.KMap.read(m), r) : Tr.Ans}:
+  match r:
+    case Tr.Do{o}:
+      match o:
+        case Tr.Put{+k, +p, +v}:
+          +e = {Tr.Ent{k, p, v} : Tr.Ent}
+          +G = Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.KMap.has(m, p)))
+          %Equal.sym(Bool, G, Tr.ok(Tr.KMap.read(m), k, p), tc.good_put(m, k, p, bt)) : {Pair.snd(Tr.KMap, Tr.Ans, Tr.put.ans(_, m, hs, e)) == Laws.tree.took(Tr.ok(Tr.KMap.read(m), k, p)) : Tr.Ans}
+          tc.put_case_ans(Tr.ok(Tr.KMap.read(m), k, p), m, hs, e)
+        case Tr.Del{x}:
+          match x:
+            case 0n:
+              {==}
+            case 1n++y:
+              +t = Tr.KMap.read(m)
+              +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
+              +KS = Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y]))
+              +D = Tr.drops.go(t, [1n+y], Tr.gone.at(t, [1n+y]))
+              +s1 = tc.del_keys(m, 1n+y, bt, mk, sd)
+              +s2 = Equal.sym(List<&2, Nat>, Laws.tree.lost(t, Tr.prune(t, 1n+y)), D, tc.lost_drops(t, [1n+y], Tr.gone.at(t, [1n+y]), tc.sorted_read(m, bt)))
+              Equal.cong(List<&2, Nat>, Tr.Ans, z => Tr.Cut{z}, KS, Laws.tree.lost(t, Tr.prune(t, 1n+y)), Equal.trans(List<&2, Nat>, KS, D, Laws.tree.lost(t, Tr.prune(t, 1n+y)), s1, s2))
+    case Tr.Rewind{+ops}:
+      +n = Tr.KMap.patch(ops, hs, m)
+      +G = Tr.KMap.hangs(Tr.KMap.onto(n, Nil{}), n)
+      +N = Tr.patch(ops, Tr.KMap.read(m))
+      %Equal.sym(Bool, G, Tr.sound(N), tc.good_rewind(ops, hs, m, bt)) : {Pair.snd(Tr.KMap, Tr.Ans, Tr.keep.ans(_, m, n)) == Laws.tree.took(Tr.sound(N)) : Tr.Ans}
+      tc.keep_case_ans(Tr.sound(N), m, n)
+
+def tc.exact_mpok(+m: Tr.KMap, +hs: List<&2, Nat>, o: Tr.Op, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.exact(m, hs, o)) == True{} : Bool}:
+  match o:
+    case Tr.Put{+k, +p, +v}:
+      tc.set_mpok(m, hs, Tr.Ent{k, p, v}, mk)
+    case Tr.Del{+x}:
+      tc.del_mpok(m, x, mk)
+
+def tc.patch_mpok(ops: List<&2, Tr.Op>, +hs: List<&2, Nat>, +m: Tr.KMap, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.patch(ops, hs, m)) == True{} : Bool}:
+  match ops:
+    case Nil{}:
+      mk
+    case +o <> rest:
+      tc.patch_mpok(rest, hs, Tr.KMap.exact(m, hs, o), tc.exact_mpok(m, hs, o, mk))
+
+def tc.put_case_mpok(b: Bool, +m: Tr.KMap, +hs: List<&2, Nat>, +e: Tr.Ent, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Pair.fst(Tr.KMap, Tr.Ans, Tr.put.ans(b, m, hs, e))) == True{} : Bool}:
+  match b:
+    case True{}:
+      tc.set_mpok(m, hs, e, mk)
+    case False{}:
+      mk
+
+def tc.rec_mpok(+m: Tr.KMap, +hs: List<&2, Nat>, r: Tr.Rec, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r))) == True{} : Bool}:
+  match r:
+    case Tr.Do{o}:
+      match o:
+        case Tr.Put{+k, +p, +v}:
+          tc.put_case_mpok(Bool.and(Nat.is_lt(p, k), Bool.or(Nat.is_eq(p, 0n), Tr.KMap.has(m, p))), m, hs, Tr.Ent{k, p, v}, mk)
+        case Tr.Del{x}:
+          match x:
+            case 0n:
+              mk
+            case 1n++y:
+              +F = Tr.KMap.ups(m, 1n+y, Nil{}, Tr.KMap.gl(m, 1n+y), Tr.KMap.gr(m, 1n+y))
+              tc.drop_mpok(Tr.drops.go(F, [1n+y], Tr.gone.at(F, [1n+y])), m, mk)
+    case Tr.Rewind{+ops}:
+      +n = Tr.KMap.patch(ops, hs, m)
+      tc.keep_case_bst2(Tr.KMap.hangs(Tr.KMap.onto(n, Nil{}), n), m, n, mk, tc.patch_mpok(ops, hs, m, mk))
+
+# Journals
+
+def tc.go_bst(rs: List<&2, Tr.Rec>, +hs: List<&2, Nat>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {tc.bst(Tr.KMap.go(rs, hs, m)) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      bt
+    case +r <> rest:
+      tc.go_bst(rest, hs, Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r)), tc.rec_bst(m, hs, r, bt))
+
+def tc.go_mpok(rs: List<&2, Tr.Rec>, +hs: List<&2, Nat>, +m: Tr.KMap, +mk: {tc.mpok(m) == True{} : Bool}) -> {tc.mpok(Tr.KMap.go(rs, hs, m)) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      mk
+    case +r <> rest:
+      tc.go_mpok(rest, hs, Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r)), tc.rec_mpok(m, hs, r, mk))
+
+def tc.go_read(rs: List<&2, Tr.Rec>, +hs: List<&2, Nat>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}, +mk: {tc.mpok(m) == True{} : Bool}, +sd: {Tr.sound(Tr.KMap.read(m)) == True{} : Bool}) -> {Tr.KMap.read(Tr.KMap.go(rs, hs, m)) == Tr.go(rs, Tr.KMap.read(m)) : List<&2, Tr.Ent>}:
+  match rs:
+    case Nil{}:
+      {==}
+    case +r <> rest:
+      +m2 = Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r))
+      +rr = tc.rec_read(m, hs, r, bt, mk, sd)
+      +s2 = Equal.trans(Bool, Tr.sound(Tr.KMap.read(m2)), Tr.sound(Tr.apply(Tr.KMap.read(m), r)), True{}, Equal.cong(List<&2, Tr.Ent>, Bool, z => Tr.sound(z), Tr.KMap.read(m2), Tr.apply(Tr.KMap.read(m), r), rr), apply_sound(Tr.KMap.read(m), sd, r))
+      %rr : {Tr.KMap.read(Tr.KMap.go(rest, hs, m2)) == Tr.go(rest, _) : List<&2, Tr.Ent>}
+      tc.go_read(rest, hs, m2, tc.rec_bst(m, hs, r, bt), tc.rec_mpok(m, hs, r, mk), s2)
+
+def tc.note_fst(+log: List<&2, Tr.Rec>, +r: Tr.Rec, +hs: List<&2, Nat>, p: Tr.KMap & Tr.Ans) -> {Pair.fst(Tr.St, Tr.Ans, Tr.St.note(log, r, hs, p)) == Tr.St{Pair.fst(Tr.KMap, Tr.Ans, p), r <> log, hs} : Tr.St}:
+  match p:
+    case Tuple{a, b}:
+      {==}
+
+def tc.note_snd(+log: List<&2, Tr.Rec>, +r: Tr.Rec, +hs: List<&2, Nat>, p: Tr.KMap & Tr.Ans) -> {Pair.snd(Tr.St, Tr.Ans, Tr.St.note(log, r, hs, p)) == Pair.snd(Tr.KMap, Tr.Ans, p) : Tr.Ans}:
+  match p:
+    case Tuple{a, b}:
+      {==}
+
+def tc.feed_go(rs: List<&2, Tr.Rec>, +m: Tr.KMap, +log: List<&2, Tr.Rec>, +hs: List<&2, Nat>) -> {Tr.core.feed.go(rs, Tr.St{m, log, hs}) == Tr.St{Tr.KMap.go(rs, hs, m), List.reverse.go(&2, Tr.Rec, rs, log), hs} : Tr.St}:
+  match rs:
+    case Nil{}:
+      {==}
+    case +r <> rest:
+      +m2 = Pair.fst(Tr.KMap, Tr.Ans, Tr.KMap.rec(m, hs, r))
+      %Equal.sym(Tr.St, Pair.fst(Tr.St, Tr.Ans, Tr.St.note(log, r, hs, Tr.KMap.rec(m, hs, r))), Tr.St{m2, r <> log, hs}, tc.note_fst(log, r, hs, Tr.KMap.rec(m, hs, r))) : {Tr.core.feed.go(rest, _) == Tr.St{Tr.KMap.go(rest, hs, m2), List.reverse.go(&2, Tr.Rec, rest, r <> log), hs} : Tr.St}
+      tc.feed_go(rest, m2, r <> log, hs)
+
+def tc.feed_app(pre: List<&2, Tr.Rec>, +post: List<&2, Tr.Rec>, +s: Tr.St) -> {Tr.core.feed.go(List.append(&2, Tr.Rec, pre, post), s) == Tr.core.feed.go(post, Tr.core.feed.go(pre, s)) : Tr.St}:
+  match pre:
+    case Nil{}:
+      {==}
+    case +r <> rest:
+      tc.feed_app(rest, post, Pair.fst(Tr.St, Tr.Ans, Tr.core.step(s, Tr.Note{r})))
+
+def tc.app_nil_rec(xs: List<&2, Tr.Rec>) -> {List.append(&2, Tr.Rec, xs, Nil{}) == xs : List<&2, Tr.Rec>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case h <> t:
+      Equal.cong(List<&2, Tr.Rec>, List<&2, Tr.Rec>, ys => h <> ys, List.append(&2, Tr.Rec, t, Nil{}), t, tc.app_nil_rec(t))
+
+def tc.rev_app(xs: List<&2, Tr.Rec>, +a: List<&2, Tr.Rec>, +b: List<&2, Tr.Rec>) -> {List.reverse.go(&2, Tr.Rec, List.reverse.go(&2, Tr.Rec, xs, a), b) == List.reverse.go(&2, Tr.Rec, a, List.append(&2, Tr.Rec, xs, b)) : List<&2, Tr.Rec>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +h <> t:
+      tc.rev_app(t, h <> a, b)
+
+def tc.rev_rev(+xs: List<&2, Tr.Rec>) -> {List.reverse(&2, Tr.Rec, List.reverse.go(&2, Tr.Rec, xs, Nil{})) == xs : List<&2, Tr.Rec>}:
+  Equal.trans(List<&2, Tr.Rec>, List.reverse.go(&2, Tr.Rec, List.reverse.go(&2, Tr.Rec, xs, Nil{}), Nil{}), List.append(&2, Tr.Rec, xs, Nil{}), xs, tc.rev_app(xs, Nil{}, Nil{}), tc.app_nil_rec(xs))
+
+# the stepper after a journal
+def tc.feed(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>) -> {Tr.core.feed(hs, rs) == Tr.St{Tr.KMap.go(rs, hs, Tr.KNil{}), List.reverse.go(&2, Tr.Rec, rs, Nil{}), hs} : Tr.St}:
+  tc.feed_go(rs, Tr.KNil{}, Nil{}, hs)
+
+def tc.live_read(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>) -> {Tr.KMap.read(Tr.KMap.go(rs, hs, Tr.KNil{})) == Tr.replay(rs) : List<&2, Tr.Ent>}:
+  tc.go_read(rs, hs, Tr.KNil{}, {==}, {==}, {==})
+
+def tc.live_bst(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>) -> {tc.bst(Tr.KMap.go(rs, hs, Tr.KNil{})) == True{} : Bool}:
+  tc.go_bst(rs, hs, Tr.KNil{}, {==})
+
+def tc.live_mpok(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>) -> {tc.mpok(Tr.KMap.go(rs, hs, Tr.KNil{})) == True{} : Bool}:
+  tc.go_mpok(rs, hs, Tr.KNil{}, {==})
+
+def tc.live_sound(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>) -> {Tr.sound(Tr.KMap.read(Tr.KMap.go(rs, hs, Tr.KNil{}))) == True{} : Bool}:
+  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.read(Tr.KMap.go(rs, hs, Tr.KNil{})), Tr.replay(rs), tc.live_read(hs, rs)) : {Tr.sound(_) == True{} : Bool}
+  replay_sound(rs)
+
+# the map after the first n records of the journal log of rs
+def tc.at_read(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>, +n: Nat) -> {Tr.KMap.read(Tr.St.at(List.reverse.go(&2, Tr.Rec, rs, Nil{}), hs, n)) == Tr.replay(List.take(&2, Tr.Rec, rs, n)) : List<&2, Tr.Ent>}:
+  %Equal.sym(List<&2, Tr.Rec>, List.reverse(&2, Tr.Rec, List.reverse.go(&2, Tr.Rec, rs, Nil{})), rs, tc.rev_rev(rs)) : {Tr.KMap.read(Tr.KMap.go(List.take(&2, Tr.Rec, _, n), hs, Tr.KNil{})) == Tr.replay(List.take(&2, Tr.Rec, rs, n)) : List<&2, Tr.Ent>}
+  tc.live_read(hs, List.take(&2, Tr.Rec, rs, n))
+
+def tc.at_bst(+hs: List<&2, Nat>, +rs: List<&2, Tr.Rec>, +n: Nat) -> {tc.bst(Tr.St.at(List.reverse.go(&2, Tr.Rec, rs, Nil{}), hs, n)) == True{} : Bool}:
+  tc.go_bst(List.take(&2, Tr.Rec, List.reverse(&2, Tr.Rec, List.reverse.go(&2, Tr.Rec, rs, Nil{})), n), hs, Tr.KNil{}, {==})
+
+# The plan: the merge is diff
+
+def tc.from_sorted(s: List<&2, Tr.Ent>, +k: Nat, lo: Bool, +st: {Tr.sorted(s) == True{} : Bool}) -> {Tr.sorted(Tr.from.go(s, k, lo)) == True{} : Bool}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      match lo:
+        case True{}:
+          tc.from_sorted(rest, k, Tr.below.at(rest, k), tree.pt.and_r(Tr.above(Tr.Ent.k(e), rest), Tr.sorted(rest), st))
+        case False{}:
+          st
+
+def tc.from_get(s: List<&2, Tr.Ent>, +k: Nat, lo: Bool, +elo: {Tr.below.at(s, k) == lo : Bool}, +y: Nat, +yk: {Nat.is_lt(y, k) == False{} : Bool}) -> {Tr.get(Tr.from.go(s, k, lo), y) == Tr.get(s, y) : Maybe<&2, Tr.Ent>}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      match lo:
+        case True{}:
+          +ne = pt.lt_ne(Tr.Ent.k(e), y, tc.lt_le(Tr.Ent.k(e), k, y, elo, yk))
+          Equal.trans(Maybe<&2, Tr.Ent>, Tr.get(Tr.from.go(rest, k, Tr.below.at(rest, k)), y), Tr.get(rest, y), Tr.get(e <> rest, y), tc.from_get(rest, k, Tr.below.at(rest, k), {==}, y, yk), Equal.sym(Maybe<&2, Tr.Ent>, Tr.get(e <> rest, y), Tr.get(rest, y), pt.get_miss(e, rest, y, ne)))
+        case False{}:
+          {==}
+
+def tc.from_has(+s: List<&2, Tr.Ent>, +k: Nat, +y: Nat, +yk: {Nat.is_lt(y, k) == False{} : Bool}) -> {Tr.has(Tr.from.k(s, k), y) == Tr.has(s, y) : Bool}:
+  Equal.cong(Maybe<&2, Tr.Ent>, Bool, z => Maybe.is_some(&2, Tr.Ent, z), Tr.get(Tr.from.k(s, k), y), Tr.get(s, y), tc.from_get(s, k, Tr.below.at(s, k), {==}, y, yk))
+
+# the first key of c is k or more
+def tc.headge(c: List<&2, Tr.Ent>, +k: Nat) -> Bool:
+  match c:
+    case Nil{}:
+      True{}
+    case +f <> r:
+      Bool.not(Nat.is_lt(Tr.Ent.k(f), k))
+
+def tc.from_head(s: List<&2, Tr.Ent>, +k: Nat, lo: Bool, +elo: {Tr.below.at(s, k) == lo : Bool}) -> {tc.headge(Tr.from.go(s, k, lo), k) == True{} : Bool}:
+  match s:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      match lo:
+        case True{}:
+          tc.from_head(rest, k, Tr.below.at(rest, k), {==})
+        case False{}:
+          pt.not_t(Nat.is_lt(Tr.Ent.k(e), k), elo)
+
+def tc.hh_at(+f: Tr.Ent, +r: List<&2, Tr.Ent>, +k: Nat, b: Bool, +eb: {Nat.is_eq(Tr.Ent.k(f), k) == b : Bool}, +hg: {Nat.is_lt(Tr.Ent.k(f), k) == False{} : Bool}, +sc: {Tr.sorted(f <> r) == True{} : Bool}) -> {Bool.or(b, Tr.has(r, k)) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      +lt = tc.lt_total(Tr.Ent.k(f), k, hg, eb)
+      +ar = pt.above_lt(k, Tr.Ent.k(f), r, lt, tree.pt.and_l(Tr.above(Tr.Ent.k(f), r), Tr.sorted(r), sc))
+      pt.has_below(r, k, ar, tree.pt.and_r(Tr.above(Tr.Ent.k(f), r), Tr.sorted(r), sc))
+
+# in a sorted list whose first key is k or more, k is held only at the head
+def tc.has_head(c: List<&2, Tr.Ent>, +k: Nat, +hg: {tc.headge(c, k) == True{} : Bool}, +sc: {Tr.sorted(c) == True{} : Bool}) -> {Tr.has(c, k) == Tr.key.at(c, k) : Bool}:
+  match c:
+    case Nil{}:
+      {==}
+    case +f <> +r:
+      +b = Nat.is_eq(Tr.Ent.k(f), k)
+      Equal.trans(Bool, Tr.has(f <> r, k), Bool.or(b, Tr.has(r, k)), b, pt.has_cons(f, r, k), tc.hh_at(f, r, k, b, {==}, pt.not_f(Nat.is_lt(Tr.Ent.k(f), k), hg), sc))
+
+def tc.ent_eq_ne(f: Tr.Ent, e: Tr.Ent, +ne: {Nat.is_eq(Tr.Ent.k(f), Tr.Ent.k(e)) == False{} : Bool}) -> {Tr.Ent.eq(f, e) == False{} : Bool}:
+  match f e:
+    case Tr.Ent{fk, fp, fv} Tr.Ent{ek, ep, ev}:
+      %Equal.sym(Bool, Nat.is_eq(fk, ek), False{}, ne) : {Bool.and(_, Bool.and(Nat.is_eq(fp, ep), Nat.is_eq(fv, ev))) == False{} : Bool}
+      {==}
+
+def tc.hs_at(+f: Tr.Ent, +r: List<&2, Tr.Ent>, +e: Tr.Ent, b: Bool, +eb: {Nat.is_eq(Tr.Ent.k(f), Tr.Ent.k(e)) == b : Bool}, +hg: {Nat.is_lt(Tr.Ent.k(f), Tr.Ent.k(e)) == False{} : Bool}, +sc: {Tr.sorted(f <> r) == True{} : Bool}) -> {Tr.Ent.eq(f, e) == Tr.same(Tr.get.go(f <> r, Tr.Ent.k(e), b), Some{e}) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      +lt = tc.lt_total(Tr.Ent.k(f), Tr.Ent.k(e), hg, eb)
+      +ar = pt.above_lt(Tr.Ent.k(e), Tr.Ent.k(f), r, lt, tree.pt.and_l(Tr.above(Tr.Ent.k(f), r), Tr.sorted(r), sc))
+      +gn = pt.get_below(r, Tr.Ent.k(e), ar, tree.pt.and_r(Tr.above(Tr.Ent.k(f), r), Tr.sorted(r), sc))
+      %Equal.sym(Maybe<&2, Tr.Ent>, Tr.get(r, Tr.Ent.k(e)), None{}, gn) : {Tr.Ent.eq(f, e) == Tr.same(_, Some{e}) : Bool}
+      tc.ent_eq_ne(f, e, eb)
+
+# in a sorted list whose first key is e's or more, e is held only at the head
+def tc.head_same(c: List<&2, Tr.Ent>, +e: Tr.Ent, +hg: {tc.headge(c, Tr.Ent.k(e)) == True{} : Bool}, +sc: {Tr.sorted(c) == True{} : Bool}) -> {Tr.head.same(c, e) == Tr.same(Tr.get(c, Tr.Ent.k(e)), Some{e}) : Bool}:
+  match c:
+    case Nil{}:
+      {==}
+    case +f <> +r:
+      tc.hs_at(f, r, e, Nat.is_eq(Tr.Ent.k(f), Tr.Ent.k(e)), {==}, pt.not_f(Nat.is_lt(Tr.Ent.k(f), Tr.Ent.k(e)), hg), sc)
+
+def tc.ge_above(r: List<&2, Tr.Ent>, +k: Nat, +ar: {Tr.above(k, r) == True{} : Bool}, +sr: {Tr.sorted(r) == True{} : Bool}) -> {tc.ge(r, k) == True{} : Bool}:
+  match r:
+    case Nil{}:
+      {==}
+    case +f <> +r2:
+      +af = tree.pt.and_l(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+      +sr2 = tree.pt.and_r(Tr.above(Tr.Ent.k(f), r2), Tr.sorted(r2), sr)
+      tc.ge_cons(f, r2, k, tc.lt_asym(k, Tr.Ent.k(f), ar), tc.ge_above(r2, k, pt.above_lt(k, Tr.Ent.k(f), r2, ar, af), sr2))
+
+def tc.dc_at(hit: Bool, +f: Tr.Ent, +s2: List<&2, Tr.Ent>, +c: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +ih: {Tr.dels.go(s2, c, Tr.held.at(s2, c)) == Tr.dels.go(s2, b, Tr.held.at(s2, b)) : List<&2, Tr.Op>}) -> {Tr.dels.go(f <> s2, c, hit) == Tr.dels.go(f <> s2, b, hit) : List<&2, Tr.Op>}:
+  match hit:
+    case True{}:
+      ih
+    case False{}:
+      Equal.cong(List<&2, Tr.Op>, List<&2, Tr.Op>, ys => Tr.Del{Tr.Ent.k(f)} <> ys, Tr.dels.go(s2, c, Tr.held.at(s2, c)), Tr.dels.go(s2, b, Tr.held.at(s2, b)), ih)
+
+# dels reads b only at the keys of s, all k or more
+def tc.dels_cong(s: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +k: Nat, +gs: {tc.ge(s, k) == True{} : Bool}) -> {Tr.dels.go(s, Tr.from.k(b, k), Tr.held.at(s, Tr.from.k(b, k))) == Tr.dels.go(s, b, Tr.held.at(s, b)) : List<&2, Tr.Op>}:
+  match s:
+    case Nil{}:
+      {==}
+    case +f <> +s2:
+      +c = Tr.from.k(b, k)
+      +fh = tc.from_has(b, k, Tr.Ent.k(f), tc.ge_head(f, s2, k, gs))
+      %Equal.sym(Bool, Tr.has(c, Tr.Ent.k(f)), Tr.has(b, Tr.Ent.k(f)), fh) : {Tr.dels.go(f <> s2, c, _) == Tr.dels.go(f <> s2, b, Tr.has(b, Tr.Ent.k(f))) : List<&2, Tr.Op>}
+      tc.dc_at(Tr.has(b, Tr.Ent.k(f)), f, s2, c, b, tc.dels_cong(s2, b, k, tc.ge_tail(f, s2, k, gs)))
+
+def tc.dm_at(hit: Bool, +e: Tr.Ent, +rest: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>) -> {Tr.dels.m.at(hit, Tr.Ent.k(e), Tr.dels.go(rest, b, Tr.held.at(rest, b))) == Tr.dels.go(e <> rest, b, hit) : List<&2, Tr.Op>}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def tc.dels_m(a: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +sa: {Tr.sorted(a) == True{} : Bool}, +sb: {Tr.sorted(b) == True{} : Bool}) -> {Tr.dels.m(a, b) == Tr.dels(a, b) : List<&2, Tr.Op>}:
+  match a:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      +k = Tr.Ent.k(e)
+      +c = Tr.from.k(b, k)
+      +sc = tc.from_sorted(b, k, Tr.below.at(b, k), sb)
+      +ar = tree.pt.and_l(Tr.above(k, rest), Tr.sorted(rest), sa)
+      +sr = tree.pt.and_r(Tr.above(k, rest), Tr.sorted(rest), sa)
+      +D = Tr.dels.go(rest, b, Tr.held.at(rest, b))
+      +e1 = Equal.trans(List<&2, Tr.Op>, Tr.dels.m(rest, c), Tr.dels(rest, c), D, tc.dels_m(rest, c, sr, sc), tc.dels_cong(rest, b, k, tc.ge_above(rest, k, ar, sr)))
+      +e2 = Equal.trans(Bool, Tr.key.at(c, k), Tr.has(c, k), Tr.has(b, k), Equal.sym(Bool, Tr.has(c, k), Tr.key.at(c, k), tc.has_head(c, k, tc.from_head(b, k, Tr.below.at(b, k), {==}), sc)), tc.from_has(b, k, k, pt.lt_irrefl(k)))
+      %Equal.sym(List<&2, Tr.Op>, Tr.dels.m(rest, c), D, e1) : {Tr.dels.m.at(Tr.key.at(c, k), k, _) == Tr.dels.go(e <> rest, b, Tr.has(b, k)) : List<&2, Tr.Op>}
+      %Equal.sym(Bool, Tr.key.at(c, k), Tr.has(b, k), e2) : {Tr.dels.m.at(_, k, D) == Tr.dels.go(e <> rest, b, Tr.has(b, k)) : List<&2, Tr.Op>}
+      tc.dm_at(Tr.has(b, k), e, rest, b)
+
+def tc.pc_at(hit: Bool, +a: List<&2, Tr.Ent>, +c: List<&2, Tr.Ent>, +f: Tr.Ent, +s2: List<&2, Tr.Ent>, +ih: {Tr.puts.go(c, s2, Tr.kept.at(c, s2)) == Tr.puts.go(a, s2, Tr.kept.at(a, s2)) : List<&2, Tr.Op>}) -> {Tr.puts.go(c, f <> s2, hit) == Tr.puts.go(a, f <> s2, hit) : List<&2, Tr.Op>}:
+  match hit:
+    case True{}:
+      ih
+    case False{}:
+      Equal.cong(List<&2, Tr.Op>, List<&2, Tr.Op>, ys => Tr.Put{Tr.Ent.k(f), Tr.Ent.p(f), Tr.Ent.v(f)} <> ys, Tr.puts.go(c, s2, Tr.kept.at(c, s2)), Tr.puts.go(a, s2, Tr.kept.at(a, s2)), ih)
+
+# puts reads a only at the keys of s, all k or more
+def tc.puts_cong(s: List<&2, Tr.Ent>, +a: List<&2, Tr.Ent>, +k: Nat, +gs: {tc.ge(s, k) == True{} : Bool}) -> {Tr.puts.go(Tr.from.k(a, k), s, Tr.kept.at(Tr.from.k(a, k), s)) == Tr.puts.go(a, s, Tr.kept.at(a, s)) : List<&2, Tr.Op>}:
+  match s:
+    case Nil{}:
+      {==}
+    case +f <> +s2:
+      +c = Tr.from.k(a, k)
+      +fg = tc.from_get(a, k, Tr.below.at(a, k), {==}, Tr.Ent.k(f), tc.ge_head(f, s2, k, gs))
+      %Equal.sym(Maybe<&2, Tr.Ent>, Tr.get(c, Tr.Ent.k(f)), Tr.get(a, Tr.Ent.k(f)), fg) : {Tr.puts.go(c, f <> s2, Tr.same(_, Some{f})) == Tr.puts.go(a, f <> s2, Tr.same(Tr.get(a, Tr.Ent.k(f)), Some{f})) : List<&2, Tr.Op>}
+      tc.pc_at(Tr.same(Tr.get(a, Tr.Ent.k(f)), Some{f}), a, c, f, s2, tc.puts_cong(s2, a, k, tc.ge_tail(f, s2, k, gs)))
+
+def tc.pm_at(hit: Bool, +e: Tr.Ent, +rest: List<&2, Tr.Ent>, +a: List<&2, Tr.Ent>) -> {Tr.puts.m.at(hit, e, Tr.puts.go(a, rest, Tr.kept.at(a, rest))) == Tr.puts.go(a, e <> rest, hit) : List<&2, Tr.Op>}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def tc.puts_m(b: List<&2, Tr.Ent>, +a: List<&2, Tr.Ent>, +sa: {Tr.sorted(a) == True{} : Bool}, +sb: {Tr.sorted(b) == True{} : Bool}) -> {Tr.puts.m(b, a) == Tr.puts(a, b) : List<&2, Tr.Op>}:
+  match b:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      +k = Tr.Ent.k(e)
+      +c = Tr.from.k(a, k)
+      +sc = tc.from_sorted(a, k, Tr.below.at(a, k), sa)
+      +ar = tree.pt.and_l(Tr.above(k, rest), Tr.sorted(rest), sb)
+      +sr = tree.pt.and_r(Tr.above(k, rest), Tr.sorted(rest), sb)
+      +U = Tr.puts.go(a, rest, Tr.kept.at(a, rest))
+      +H = Tr.same(Tr.get(a, k), Some{e})
+      +e1 = Equal.trans(List<&2, Tr.Op>, Tr.puts.m(rest, c), Tr.puts(c, rest), U, tc.puts_m(rest, c, sc, sr), tc.puts_cong(rest, a, k, tc.ge_above(rest, k, ar, sr)))
+      +fg = tc.from_get(a, k, Tr.below.at(a, k), {==}, k, pt.lt_irrefl(k))
+      +e2 = Equal.trans(Bool, Tr.head.same(c, e), Tr.same(Tr.get(c, k), Some{e}), H, tc.head_same(c, e, tc.from_head(a, k, Tr.below.at(a, k), {==}), sc), Equal.cong(Maybe<&2, Tr.Ent>, Bool, z => Tr.same(z, Some{e}), Tr.get(c, k), Tr.get(a, k), fg))
+      %Equal.sym(List<&2, Tr.Op>, Tr.puts.m(rest, c), U, e1) : {Tr.puts.m.at(Tr.head.same(c, e), e, _) == Tr.puts.go(a, e <> rest, H) : List<&2, Tr.Op>}
+      %Equal.sym(Bool, Tr.head.same(c, e), H, e2) : {Tr.puts.m.at(_, e, U) == Tr.puts.go(a, e <> rest, H) : List<&2, Tr.Op>}
+      tc.pm_at(H, e, rest, a)
+
+def tc.diff_m(+a: List<&2, Tr.Ent>, +b: List<&2, Tr.Ent>, +sa: {Tr.sorted(a) == True{} : Bool}, +sb: {Tr.sorted(b) == True{} : Bool}) -> {Tr.diff.m(a, b) == Tr.diff(a, b) : List<&2, Tr.Op>}:
+  %Equal.sym(List<&2, Tr.Op>, Tr.dels.m(a, b), Tr.dels(a, b), tc.dels_m(a, b, sa, sb)) : {List.append(&2, Tr.Op, _, Tr.puts.m(b, a)) == Tr.diff(a, b) : List<&2, Tr.Op>}
+  %Equal.sym(List<&2, Tr.Op>, Tr.puts.m(b, a), Tr.puts(a, b), tc.puts_m(b, a, sa, sb)) : {List.append(&2, Tr.Op, Tr.dels(a, b), _) == Tr.diff(a, b) : List<&2, Tr.Op>}
+  {==}
+
+def tc.eff_cons(h: Bool, +k: Nat, +X: List<&2, Tr.Eff>, +Y: List<&2, Tr.Eff>, +e: {X == Y : List<&2, Tr.Eff>}) -> {Tr.eff.put(h, k) <> X == Laws.tree.effect(h, k) <> Y : List<&2, Tr.Eff>}:
+  match h:
+    case True{}:
+      Equal.cong(List<&2, Tr.Eff>, List<&2, Tr.Eff>, ys => Tr.Restore{k} <> ys, X, Y, e)
+    case False{}:
+      Equal.cong(List<&2, Tr.Eff>, List<&2, Tr.Eff>, ys => Tr.Start{k} <> ys, X, Y, e)
+
+def tc.effects(ops: List<&2, Tr.Op>, +m: Tr.KMap, +bt: {tc.bst(m) == True{} : Bool}) -> {Tr.effects(ops, m) == Laws.tree.effects(ops, Tr.KMap.read(m)) : List<&2, Tr.Eff>}:
+  match ops:
+    case Nil{}:
+      {==}
+    case o <> +rest:
+      match o:
+        case Tr.Del{+k}:
+          Equal.cong(List<&2, Tr.Eff>, List<&2, Tr.Eff>, ys => Tr.Stop{k} <> ys, Tr.effects(rest, m), Laws.tree.effects(rest, Tr.KMap.read(m)), tc.effects(rest, m, bt))
+        case Tr.Put{+k, p, v}:
+          %Equal.sym(Bool, Tr.KMap.has(m, k), Tr.has(Tr.KMap.read(m), k), tc.has(m, k, bt)) : {Tr.eff.put(_, k) <> Tr.effects(rest, m) == Laws.tree.effect(Tr.has(Tr.KMap.read(m), k), k) <> Laws.tree.effects(rest, Tr.KMap.read(m)) : List<&2, Tr.Eff>}
+          tc.eff_cons(Tr.has(Tr.KMap.read(m), k), k, Tr.effects(rest, m), Laws.tree.effects(rest, Tr.KMap.read(m)), tc.effects(rest, m, bt))
+
+# The laws of the compiled core
+
+def Laws.tree_core_tree(hs, rs):
+  +M = Tr.KMap.go(rs, hs, Tr.KNil{})
+  +L = List.reverse.go(&2, Tr.Rec, rs, Nil{})
+  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, tc.feed(hs, rs)) : {Tr.KMap.read(Tr.St.m(_)) == Tr.replay(rs) : List<&2, Tr.Ent>}
+  tc.live_read(hs, rs)
+
+def Laws.tree_core_answer(hs, rs, r):
+  +M = Tr.KMap.go(rs, hs, Tr.KNil{})
+  +L = List.reverse.go(&2, Tr.Rec, rs, Nil{})
+  +R = Tr.replay(rs)
+  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, tc.feed(hs, rs)) : {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(_, Tr.Note{r})) == Laws.tree.answer(R, r) : Tr.Ans}
+  +s1 = tc.note_snd(L, r, hs, Tr.KMap.rec(M, hs, r))
+  +s2 = tc.rec_ans(M, hs, r, tc.live_bst(hs, rs), tc.live_mpok(hs, rs), tc.live_sound(hs, rs))
+  +s3 = Equal.cong(List<&2, Tr.Ent>, Tr.Ans, z => Laws.tree.answer(z, r), Tr.KMap.read(M), R, tc.live_read(hs, rs))
+  Equal.trans(Tr.Ans, Pair.snd(Tr.St, Tr.Ans, Tr.St.note(L, r, hs, Tr.KMap.rec(M, hs, r))), Pair.snd(Tr.KMap, Tr.Ans, Tr.KMap.rec(M, hs, r)), Laws.tree.answer(R, r), s1, Equal.trans(Tr.Ans, Pair.snd(Tr.KMap, Tr.Ans, Tr.KMap.rec(M, hs, r)), Laws.tree.answer(Tr.KMap.read(M), r), Laws.tree.answer(R, r), s2, s3))
+
+def Laws.tree_core_note(hs, rs, r):
+  +s = Tr.core.start(hs)
+  Equal.sym(Tr.St, Tr.core.feed.go(List.append(&2, Tr.Rec, rs, [r]), s), Tr.core.feed.go([r], Tr.core.feed.go(rs, s)), tc.feed_app(rs, [r], s))
+
+def Laws.tree_core_snap(hs, rs, n):
+  +M = Tr.KMap.go(rs, hs, Tr.KNil{})
+  +L = List.reverse.go(&2, Tr.Rec, rs, Nil{})
+  +T = Tr.St.at(L, hs, n)
+  +R2 = Tr.replay(List.take(&2, Tr.Rec, rs, n))
+  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, tc.feed(hs, rs)) : {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(_, Tr.Snap{n})) == Tr.Nodes{R2} : Tr.Ans}
+  Equal.cong(List<&2, Tr.Ent>, Tr.Ans, z => Tr.Nodes{z}, Tr.KMap.onto(T, Nil{}), R2, Equal.trans(List<&2, Tr.Ent>, Tr.KMap.onto(T, Nil{}), Tr.KMap.read(T), R2, tc.onto_nil(T), tc.at_read(hs, rs, n)))
+
+def Laws.tree_core_plan(hs, rs, n):
+  +M = Tr.KMap.go(rs, hs, Tr.KNil{})
+  +L = List.reverse.go(&2, Tr.Rec, rs, Nil{})
+  +T = Tr.St.at(L, hs, n)
+  +R = Tr.replay(rs)
+  +R2 = Tr.replay(List.take(&2, Tr.Rec, rs, n))
+  +bm = tc.live_bst(hs, rs)
+  +e1 = Equal.trans(List<&2, Tr.Ent>, Tr.KMap.onto(M, Nil{}), Tr.KMap.read(M), R, tc.onto_nil(M), tc.live_read(hs, rs))
+  +e2 = Equal.trans(List<&2, Tr.Ent>, Tr.KMap.onto(T, Nil{}), Tr.KMap.read(T), R2, tc.onto_nil(T), tc.at_read(hs, rs, n))
+  +sR = tree.pt.and_l(Tr.sorted(R), Tr.rooted(R), replay_sound(rs))
+  +sR2 = tree.pt.and_l(Tr.sorted(R2), Tr.rooted(R2), replay_sound(List.take(&2, Tr.Rec, rs, n)))
+  +D = Tr.diff(R, R2)
+  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, tc.feed(hs, rs)) : {Pair.snd(Tr.St, Tr.Ans, Tr.core.step(_, Tr.Plan{n})) == Tr.Effects{Laws.tree.effects(D, R)} : Tr.Ans}
+  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(M, Nil{}), R, e1) : {Tr.Effects{Tr.effects(Tr.diff.m(_, Tr.KMap.onto(T, Nil{})), M)} == Tr.Effects{Laws.tree.effects(D, R)} : Tr.Ans}
+  %Equal.sym(List<&2, Tr.Ent>, Tr.KMap.onto(T, Nil{}), R2, e2) : {Tr.Effects{Tr.effects(Tr.diff.m(R, _), M)} == Tr.Effects{Laws.tree.effects(D, R)} : Tr.Ans}
+  %Equal.sym(List<&2, Tr.Op>, Tr.diff.m(R, R2), D, tc.diff_m(R, R2, sR, sR2)) : {Tr.Effects{Tr.effects(_, M)} == Tr.Effects{Laws.tree.effects(D, R)} : Tr.Ans}
+  +s1 = tc.effects(D, M, bm)
+  +s2 = Equal.cong(List<&2, Tr.Ent>, List<&2, Tr.Eff>, z => Laws.tree.effects(D, z), Tr.KMap.read(M), R, tc.live_read(hs, rs))
+  Equal.cong(List<&2, Tr.Eff>, Tr.Ans, z => Tr.Effects{z}, Tr.effects(D, M), Laws.tree.effects(D, R), Equal.trans(List<&2, Tr.Eff>, Tr.effects(D, M), Laws.tree.effects(D, Tr.KMap.read(M)), Laws.tree.effects(D, R), s1, s2))
+
+def Laws.tree_core_plan_keeps(hs, rs, n):
+  +M = Tr.KMap.go(rs, hs, Tr.KNil{})
+  +L = List.reverse.go(&2, Tr.Rec, rs, Nil{})
+  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, tc.feed(hs, rs)) : {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(_, Tr.Plan{n})) == _ : Tr.St}
+  {==}
+
+def Laws.tree_core_snap_keeps(hs, rs, n):
+  +M = Tr.KMap.go(rs, hs, Tr.KNil{})
+  +L = List.reverse.go(&2, Tr.Rec, rs, Nil{})
+  %Equal.sym(Tr.St, Tr.core.feed(hs, rs), Tr.St{M, L, hs}, tc.feed(hs, rs)) : {Pair.fst(Tr.St, Tr.Ans, Tr.core.step(_, Tr.Snap{n})) == _ : Tr.St}
+  {==}
+
 # ---- job ----
 
 # proof_job: the S2 laws (docs/runtime.md) of the job model in

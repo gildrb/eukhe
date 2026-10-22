@@ -99,10 +99,17 @@ put, valid or not, any delete, any rewind ops).
 | `tree_delete_within` | A delete changes no node that it keeps (S1.1). |
 | `tree_put_sets` | A put under the root or a node sets its node (S1.1). |
 | `tree_put_keeps_others` | A put changes no other node (S1.1). |
+| `tree_core_tree` | The compiled core's tree after any journal (a key map whose splits halve the key range) is the tree the journal makes (S1.3). |
+| `tree_core_answer` | After any journal, the core answers each record as the model decides it: taken or kept, and a delete cuts exactly the nodes it removes (S1.1, S1.2). |
+| `tree_core_note` | A record steps the core to the core of the journal with the record at its end, so the laws on the core hold for the live core (S1.3). |
+| `tree_core_plan` | The core's rewind plan to the tree after the first n records is what the diff from the live tree to that tree does to each node's work (S1.4). |
+| `tree_core_snap` | The core's snapshot after the first n records is their replay (S1.3). |
+| `tree_core_plan_keeps`, `tree_core_snap_keeps` | A rewind plan and a snapshot leave the core as it was. |
 
-Code: `eukhe-durable/src/tree/mod.rs` `SessionTree::apply`, `TreeRecord`,
-`TreeOp`; `tree/journal.rs` `Journal` (`push`, `replay`, `snapshot_at`);
-`tree/diff.rs` `diff`, `rewind_to`, `rewind_effects`; `tree/state.rs`
+Code: `eukhe-durable/src/tree/mod.rs` `SessionTree`, `TreeRecord`,
+`TreeOp`; `tree/journal.rs` `Journal` (`push`, `snapshot_at`,
+`rewind_plan`: the shell; equal values share one value index);
+`tree/rule.rs` (the stepper the journal calls); `tree/state.rs`
 `StateTree` (`record`, `from_history`, `record_writes`, `records_since`, `snapshot_at`,
 `rewind_plan`); `storage/jsonl/storage.rs` `CommitHistory`,
 `JsonlStorage::take_history`; `eukhe-core/src/durable/state_tree.rs`
@@ -114,11 +121,11 @@ requests, and the `state_tree_update` frame);
 `ConnectionRole::streams`; `eukhe-cli/src/daemon_command.rs` `run_state`
 (`eukhe state`, `eukhe state --follow`, `eukhe state rewind-plan`).
 
-Tie: the bridge test `tree::bridge::the_rust_tree_equals_the_bend_model`
-runs `Journal` and `bend/bridge_tree.bend` on 300 generated scenarios
-(checked puts and deletes, saves, rewinds to a save, raw rewinds, and
-replays of the journal) and compares the transcripts byte for byte. The
-scenarios reach every rule of the model. Regression tests:
+Tie: the journal decides every record, rewind plan, and snapshot by one
+call to its stepper, whose state is the live tree and the journal: a
+record costs its change and a lookup (a delete walks only its node and the
+nodes with a parent of its key or more), not the tree. Regression tests:
+`tree::journal::tests::the_live_tree_follows_the_rule`,
 `tree::state::tests::commits_build_the_tree_with_parents_first`,
 `storage_writes_build_the_same_journal_as_publications`,
 `a_rewind_plan_stops_starts_and_restores`,
