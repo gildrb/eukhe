@@ -20,7 +20,7 @@
 //!   adjacent rules swapped.
 //! - `bend/bridge_infer.bend` documents the other problems: the forced
 //!   call ([`ForceEscalation`], model `force`), the strict budget
-//!   ([`strict_budget`], model `strict`), the repetition guard
+//!   ([`strict_plan`], model `strict`), the repetition guard
 //!   ([`RepetitionGuard`], model `guard`: chunk id `x` is the line `c<x>`,
 //!   fed in deltas cut at random points; the chunks are random, a cycle of
 //!   1 to 4 chunks, the same with one chunk changed, or the observed
@@ -36,7 +36,7 @@
 
 use std::fmt::Write as _;
 
-use eukhe_ai::api::constrained_sampling::strict_budget;
+use eukhe_ai::api::constrained_sampling::{strict_plan, StrictCandidate};
 use eukhe_ai::capabilities::Dialect;
 use eukhe_ai::quirks::{compile, Answer, Directive, Layer, Query, RawRule, ValueKind};
 use eukhe_ai::utils::stream_repeat::RepetitionGuard;
@@ -258,8 +258,15 @@ fn strict_problem(rng: &mut Rng, events: &mut String, transcript: &mut String) {
     }
     events.push('\n');
     transcript.push('s');
-    for keep in strict_budget(&priorities, Some(cap)) {
-        transcript.push_str(if keep { " 10" } else { " 01" });
+    let candidates: Vec<StrictCandidate> = priorities
+        .iter()
+        .map(|&priority| StrictCandidate {
+            priority,
+            required: false,
+        })
+        .collect();
+    for loose in strict_plan(&candidates, Some(cap)).unwrap() {
+        transcript.push_str(if loose { " 01" } else { " 10" });
     }
     transcript.push('\n');
 }

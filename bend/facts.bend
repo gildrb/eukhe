@@ -9,8 +9,13 @@
 #    directive; no other input than that answer, the model's explicit compat
 #    flag and the user's setting reaches the decision.
 # 2. Thinking budgets: the budget of a level, the Google budget held inside
-#    the model's range, the fit of a budget under the response ceiling, and
-#    the answer room of an auxiliary call.
+#    the model's range (an unordered budget rule is refused, never
+#    clamped), the fit of a budget under the response ceiling, and the
+#    answer room of an auxiliary call. The Rust caller saturates every
+#    budget, cap and size at the wire's largest Nat (10^14-1, below the
+#    runtime's 2^48-1) before the call; no def here forms a value above
+#    its inputs or above `top`, so a run never meets the runtime's Nat
+#    bound and every answer fits the wire.
 # 3. Oracles: the code that held the facts before, as functions, for the
 #    laws that say the data gives the same answers.
 
@@ -106,6 +111,33 @@ def Customs.at(c: Customs, l: Lv) -> Maybe<&2, Nat>:
 def Customs.none() -> Customs:
   Customs{None{}, None{}, None{}, None{}}
 
+# a request's level (`ThinkingLevel`): the ladder without off; the
+# Bedrock effort of section 3 reads it too
+type ELv is Data:
+  EMinimal{}
+  ELow{}
+  EMedium{}
+  EHigh{}
+  EXhigh{}
+  EMax{}
+
+# the budget level of a request's level (`clamp_reasoning`): xhigh and max
+# take high
+def Lv.of(l: ELv) -> Lv:
+  match l:
+    case EMinimal{}:
+      Minimal{}
+    case ELow{}:
+      Low{}
+    case EMedium{}:
+      Medium{}
+    case EHigh{}:
+      High{}
+    case EXhigh{}:
+      High{}
+    case EMax{}:
+      High{}
+
 # the budget of level l (`thinking_budget_for_level`): the user's budget,
 # else the default budget
 def budget(c: Customs, d: Budgets, +l: Lv) -> Nat:
@@ -129,10 +161,12 @@ def clamp.lo(lt: Bool, +x: Nat, lo: Nat, +hi: Nat) -> Nat:
 def clamp(+x: Nat, +lo: Nat, +hi: Nat) -> Nat:
   clamp.lo(Nat.is_lt(x, lo), x, lo, hi)
 
-# a Google `thinkingBudget`: dynamic (-1, the server decides) or tokens
+# a Google `thinkingBudget`: dynamic (-1, the server decides) or tokens;
+# a budget rule that is not ordered has no range to hold a budget in
 type GB is Data:
   Dynamic{}
   Tokens{n: Nat}
+  Unordered{}
 
 # the Google budget of a model with the rule b: the user's budget, else
 # the rule's, held inside the rule's minimal..high
@@ -146,12 +180,21 @@ def gbudget.free(m: Maybe<&2, Nat>) -> GB:
     case None{}:
       Dynamic{}
 
-# the Google budget of level l (`google_thinking_budget`): with a rule,
-# gtokens; without one, the user's budget, else dynamic
+# ok is Budgets.ordered(b)
+def gbudget.rule(ok: Bool, +b: Budgets, c: Customs, +l: Lv) -> GB:
+  match ok:
+    case True{}:
+      Tokens{gtokens(b, c, l)}
+    case False{}:
+      Unordered{}
+
+# the Google budget of level l (`google_thinking_budget`): with an ordered
+# rule, gtokens; with an unordered one, Unordered; without one, the user's
+# budget, else dynamic
 def gbudget(rule: Maybe<&2, Budgets>, c: Customs, l: Lv) -> GB:
   match rule:
-    case Some{b}:
-      Tokens{gtokens(b, c, l)}
+    case Some{+b}:
+      gbudget.rule(Budgets.ordered(b), b, c, l)
     case None{}:
       gbudget.free(Customs.at(c, l))
 
@@ -174,14 +217,23 @@ def Fit.budget(f: Fit) -> Nat:
 def room(+b: Nat, +m: Nat, +a: Nat) -> Nat:
   Nat.min(b, Nat.sub(m, a))
 
+# the caller's cap x plus the budget b, else mm; lt is b < mm - x, so the
+# sum is formed only below mm
+def fit.cap.add(lt: Bool, +x: Nat, +mm: Nat, +b: Nat) -> Nat:
+  match lt:
+    case True{}:
+      Nat.add(x, b)
+    case False{}:
+      mm
+
 # the ceiling: the caller's cap plus the budget, else the model's cap,
 # never above the model's cap mm
 def fit.cap(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat) -> Nat:
   match base:
     case None{}:
       mm
-    case Some{x}:
-      Nat.min(Nat.add(x, b), mm)
+    case Some{+x}:
+      fit.cap.add(Nat.is_lt(b, Nat.sub(mm, x)), x, mm, b)
 
 # over is m <= b: the budget fills the ceiling, so it gives room
 def fit.at(over: Bool, +m: Nat, +b: Nat, +a: Nat) -> Fit:
@@ -197,25 +249,41 @@ def fit(base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +a: Nat) -> Fit:
   +m = fit.cap(base, mm, b)
   fit.at(Nat.is_le(m, b), m, b, a)
 
+# the budget of a request's level l fitted under the ceiling
+# (`adjust_max_tokens_for_thinking`): the user's budgets c, the default
+# budgets d, the answer's tokens a
+def adjust(base: Maybe<&2, Nat>, +mm: Nat, l: ELv, c: Customs, d: Budgets, +a: Nat) -> Fit:
+  fit(base, mm, budget(c, d, Lv.of(l)), a)
+
 # an auxiliary call's output cap: the thinking budget plus the answer
 # (`thinking_output_cap`)
 def aux_cap(+b: Nat, +a: Nat) -> Nat:
   Nat.add(b, a)
+
+# the cap b + a, at most top; lt is b < top - a, so the sum is formed only
+# below top
+def aux_cap.add(lt: Bool, +b: Nat, +a: Nat, +top: Nat) -> Nat:
+  match lt:
+    case True{}:
+      Nat.add(b, a)
+    case False{}:
+      top
+
+def aux_cap.within(+b: Nat, +a: Nat, +top: Nat) -> Nat:
+  aux_cap.add(Nat.is_lt(b, Nat.sub(top, a)), b, a, top)
+
+# the compactor's output cap (`thinking_output_cap` of the high budget):
+# the high budget of the user's budgets c, else of the defaults d, plus
+# the answer's tokens a, at most top
+def aux(c: Customs, d: Budgets, +a: Nat, +top: Nat) -> Nat:
+  aux_cap.within(budget(c, d, High{}), a, top)
 
 # 3. Oracles
 # ----------
 
 # Bedrock effort. A wire value is a number: 2 low, 3 medium, 4 high, 5
 # xhigh. A thinking-level map entry is missing (None), null (Some{None}) or
-# a wire value (Some{Some{w}}).
-type ELv is Data:
-  EMinimal{}
-  ELow{}
-  EMedium{}
-  EHigh{}
-  EXhigh{}
-  EMax{}
-
+# a wire value (Some{Some{w}}); the level is an ELv (section 2).
 type EMap is Data:
   EMap{minimal: Maybe<&2, Maybe<&2, Nat>>, low: Maybe<&2, Maybe<&2, Nat>>, medium: Maybe<&2, Maybe<&2, Nat>>, high: Maybe<&2, Maybe<&2, Nat>>, xhigh: Maybe<&2, Maybe<&2, Nat>>, max: Maybe<&2, Maybe<&2, Nat>>}
 

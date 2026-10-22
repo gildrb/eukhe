@@ -1520,6 +1520,69 @@ law strict_by_priority:
   for +ts: List<&2, If.Tool>
   {If.dominates(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts))) == True{} : Bool}
 
+# LAW: with no cap every tool keeps its strict schema
+law strict_no_cap:
+  for +ts: List<&2, If.Tool>
+  {If.strict.of(None{}, ts) == (ts, []) : List<&2, If.Tool> & List<&2, If.Tool>}
+
+# LAW: a request's cap splits the tools as strict does, so
+# strict_within_cap, strict_keeps_every_tool and strict_by_priority hold
+# for every request
+law strict_cap_is_strict:
+  for +c: Nat
+  for +ts: List<&2, If.Tool>
+  {If.strict.of(Some{c}, ts) == If.strict(c, ts) : List<&2, If.Tool> & List<&2, If.Tool>}
+
+# the ids of the tools of ts, in order
+def strict.ids(ts: List<&2, If.Tool>) -> List<&2, Nat>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case t <> rest:
+      If.Tool.id(t) <> strict.ids(rest)
+
+# LAW: a plan that fits lists exactly the loose tools of the request
+law plan_fits_lists_the_loose:
+  for cap: Maybe<&2, Nat>
+  for +ts: List<&2, If.Tool>
+  for +need: List<&2, Nat>
+  for +ls: List<&2, Nat>
+  for f: {If.plan(cap, ts, need) == If.Fits{ls} : If.Plan}
+  {ls == strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))) : List<&2, Nat>}
+
+# LAW: a tool that requires a strict schema is never sent loose
+# EXCLUDES: a request that drops the schema a tool requires
+law plan_never_loosens_a_needed_tool:
+  for cap: Maybe<&2, Nat>
+  for +ts: List<&2, If.Tool>
+  for +need: List<&2, Nat>
+  for +ls: List<&2, Nat>
+  for +i: Nat
+  for +f: {If.plan(cap, ts, need) == If.Fits{ls} : If.Plan}
+  for +n: {If.elem(need, i) == True{} : Bool}
+  {If.elem(ls, i) == False{} : Bool}
+
+# LAW: a refusal names a tool that requires a strict schema and is past
+# the cap; EXCLUDES: refusing a request that fits
+# LEAVES FREE: which such tool it names when there are several (the
+# model names the first loose one, highest priority first)
+law plan_refusal_names_a_needed_loose_tool:
+  for cap: Maybe<&2, Nat>
+  for +ts: List<&2, If.Tool>
+  for +need: List<&2, Nat>
+  for +i: Nat
+  for o: {If.plan(cap, ts, need) == If.Over{i} : If.Plan}
+  {Bool.and(If.elem(need, i), If.elem(strict.ids(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))), i)) == True{} : Bool}
+
+# LAW: a required tool past the cap refuses the request (witness of the
+# refusal)
+law plan_example_over:
+  {If.plan(Some{1n}, [If.Tool{0n, 1n}, If.Tool{1n, 3n}, If.Tool{2n, 2n}], [0n, 2n]) == If.Over{2n} : If.Plan}
+
+# LAW: a required tool within the cap fits (witness of a fit)
+law plan_example_fits:
+  {If.plan(Some{1n}, [If.Tool{0n, 1n}, If.Tool{1n, 3n}, If.Tool{2n, 3n}], [1n]) == If.Fits{[2n, 0n]} : If.Plan}
+
 # LAW: a stream that repeats a chunk k times in a row is cut
 law guard_cuts_repeats:
   for +xs: List<&2, Nat>
@@ -2866,6 +2929,51 @@ law quirk_ladder_shipped_is_s10:
   for r: Bool
   for +map: Ef.LvMap
   {If.lad.offered.of(r, map, If.lad.shipped()) == Ef.offered(Ef.Mdl{r, map}) : List<&2, Ef.Lv>}
+
+# the entry is a wire string
+def ladder.is_wire(e: Ef.Ent) -> Bool:
+  match e:
+    case Ef.Missing{}:
+      False{}
+    case Ef.Null{}:
+      False{}
+    case Ef.Wire{}:
+      True{}
+
+# some level of ls has a wire entry in m
+def ladder.wired.go(ls: List<&2, Ef.Lv>, +m: Ef.LvMap) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case l <> rest:
+      Bool.or(ladder.is_wire(Ef.entry(l, m)), ladder.wired.go(rest, m))
+
+# an explicit map gives some level a wire string
+def ladder.wired(explicit: Maybe<&2, Ef.LvMap>) -> Bool:
+  match explicit:
+    case Some{+m}:
+      ladder.wired.go(Ef.ladder(), m)
+    case None{}:
+      False{}
+
+# LAW: a model reasons when its flag says so and, for a registry model
+# (by_map, #2858), when its explicit map gives some level a wire string;
+# no other input makes a model reason
+law quirk_ladder_reasons:
+  for f: Bool
+  for bm: Bool
+  for +explicit: Maybe<&2, Ef.LvMap>
+  {If.lad.reasons(f, bm, explicit) == Bool.or(f, Bool.and(bm, ladder.wired(explicit))) : Bool}
+
+# LAW: the levels a model offers are the S10 ladder of one model, so the
+# S10 laws of the clamp and the cycle hold for every ladder of the
+# rulebook, with any default ladders
+law quirk_ladder_model_offers:
+  for r: Bool
+  for +explicit: Maybe<&2, Ef.LvMap>
+  for +rule: Maybe<&2, Ef.LvMap>
+  for +d: If.Defaults
+  {Ef.offered(If.lad.model(r, explicit, rule, d)) == If.lad.offered(r, explicit, rule, d) : List<&2, Ef.Lv>}
 
 # ---- kernel_local ----
 
@@ -4832,6 +4940,143 @@ law facts_aux_cap_answer_room:
   for +b: Nat
   for +a: Nat
   {Nat.sub(Fx.aux_cap(b, a), b) == a : Nat}
+
+# LAW: an unordered budget rule (a minimal, low, medium, high that falls
+# somewhere) gives no Google budget: the rule is refused, never clamped
+# into a range it does not have (Rust `u64::clamp` panicked on minimal >
+# high); EXCLUDES: a budget from a rule with no range, a panic
+law facts_google_unordered_refused:
+  for +b: Fx.Budgets
+  for c: Fx.Customs
+  for l: Fx.Lv
+  for bad: {Fx.Budgets.ordered(b) == False{} : Bool}
+  {Fx.gbudget(Some{b}, c, l) == Fx.Unordered{} : Fx.GB}
+
+# LAW: an ordered budget rule gives the budget gtokens (so every law on
+# gtokens holds for the Google budget)
+law facts_google_ordered_tokens:
+  for +b: Fx.Budgets
+  for c: Fx.Customs
+  for +l: Fx.Lv
+  for ok: {Fx.Budgets.ordered(b) == True{} : Bool}
+  {Fx.gbudget(Some{b}, c, l) == Fx.Tokens{Fx.gtokens(b, c, l)} : Fx.GB}
+
+# x held inside lo..hi: never below lo, never above hi
+def budgets.held(x: Nat, +lo: Nat, +hi: Nat) -> Nat:
+  Nat.max(lo, Nat.min(x, hi))
+
+# LAW: a Google budget under a rule is the user's budget of the level,
+# else the rule's, held inside the rule's minimal..high: a user's budget
+# inside the range is sent as it is; EXCLUDES: a user's budget ignored, a
+# budget moved inside the range
+law facts_google_budget_held:
+  for +b: Fx.Budgets
+  for c: Fx.Customs
+  for +l: Fx.Lv
+  for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
+  {Fx.gtokens(b, c, l) == budgets.held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), Fx.Budgets.minimal(b), Fx.Budgets.high(b)) : Nat}
+
+# LAW: without a rule, a Google budget is the user's budget of the level
+law facts_google_free_user:
+  for c: Fx.Customs
+  for l: Fx.Lv
+  for n: Nat
+  for u: {Fx.Customs.at(c, l) == Some{n} : Maybe<&2, Nat>}
+  {Fx.gbudget(None{}, c, l) == Fx.Tokens{n} : Fx.GB}
+
+# LAW: without a rule and a user's budget, the Google budget is dynamic
+law facts_google_free_dynamic:
+  for c: Fx.Customs
+  for l: Fx.Lv
+  for u: {Fx.Customs.at(c, l) == None{} : Maybe<&2, Nat>}
+  {Fx.gbudget(None{}, c, l) == Fx.Dynamic{} : Fx.GB}
+
+# LAW: the budget level of a request's level: each level keeps its own,
+# xhigh and max take high
+law facts_budget_levels:
+  {[Fx.Lv.of(Fx.EMinimal{}), Fx.Lv.of(Fx.ELow{}), Fx.Lv.of(Fx.EMedium{}), Fx.Lv.of(Fx.EHigh{}), Fx.Lv.of(Fx.EXhigh{}), Fx.Lv.of(Fx.EMax{})] == [Fx.Minimal{}, Fx.Low{}, Fx.Medium{}, Fx.High{}, Fx.High{}, Fx.High{}] : List<&2, Fx.Lv>}
+
+# LAW: the budget of a level is the user's budget of the level, over the
+# defaults
+law facts_budget_user_first:
+  for c: Fx.Customs
+  for d: Fx.Budgets
+  for +l: Fx.Lv
+  for n: Nat
+  for u: {Fx.Customs.at(c, l) == Some{n} : Maybe<&2, Nat>}
+  {Fx.budget(c, d, l) == n : Nat}
+
+# LAW: without the user's budget, the budget of a level is the default
+law facts_budget_default:
+  for c: Fx.Customs
+  for d: Fx.Budgets
+  for +l: Fx.Lv
+  for u: {Fx.Customs.at(c, l) == None{} : Maybe<&2, Nat>}
+  {Fx.budget(c, d, l) == Fx.Budgets.at(d, l) : Nat}
+
+# the fit of the response ceiling m: the budget b, capped so that a
+# tokens stay for the answer when it fills the ceiling
+def budgets.fit.at(over: Bool, +m: Nat, +b: Nat, +a: Nat) -> Fx.Fit:
+  match over:
+    case True{}:
+      Fx.Fit{m, Nat.min(b, Nat.sub(m, a))}
+    case False{}:
+      Fx.Fit{m, b}
+
+def budgets.fit(+m: Nat, +b: Nat, +a: Nat) -> Fx.Fit:
+  budgets.fit.at(Nat.is_le(m, b), m, b, a)
+
+# LAW: with the caller's cap x, the ceiling is x plus the budget, at most
+# the model's cap, and the budget is capped for answer room when it fills
+# the ceiling; EXCLUDES: any other ceiling or budget (the two laws above
+# only bound them)
+law facts_fit_exact_caller:
+  for +x: Nat
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  {Fx.fit(Some{x}, mm, b, a) == budgets.fit(Nat.min(Nat.add(x, b), mm), b, a) : Fx.Fit}
+
+# LAW: without the caller's cap, the ceiling is the model's cap
+law facts_fit_exact_model:
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  {Fx.fit(None{}, mm, b, a) == budgets.fit(mm, b, a) : Fx.Fit}
+
+# LAW (the Nat range): a caller's cap at or above the model's cap fits as
+# no cap, so the cap Rust saturates at the wire's largest Nat (10^14-1)
+# fits as it did unsaturated whenever the model's cap is below it
+law facts_fit_saturated_caller:
+  for +x: Nat
+  for +mm: Nat
+  for +b: Nat
+  for +a: Nat
+  for +above: {Nat.is_le(mm, x) == True{} : Bool}
+  {Fx.fit(Some{x}, mm, b, a) == Fx.fit(None{}, mm, b, a) : Fx.Fit}
+
+# LAW (the Nat range): two budgets at or above the model's cap fit alike,
+# so a budget Rust saturates at the wire's largest Nat fits as it did
+# unsaturated whenever the model's cap is below it
+law facts_fit_saturated_budget:
+  for +base: Maybe<&2, Nat>
+  for +mm: Nat
+  for +b1: Nat
+  for +b2: Nat
+  for +a: Nat
+  for +h1: {Nat.is_le(mm, b1) == True{} : Bool}
+  for +h2: {Nat.is_le(mm, b2) == True{} : Bool}
+  {Fx.fit(base, mm, b1, a) == Fx.fit(base, mm, b2, a) : Fx.Fit}
+
+# LAW (the Nat range): the compactor's cap is the thinking budget plus the
+# answer, at most top (Rust passes the wire's largest Nat): below top
+# the answer keeps its room exactly (facts_aux_cap_answer_room), at top
+# the cap saturates as Rust's `saturating_add` does
+law facts_aux_cap_within:
+  for +b: Nat
+  for +a: Nat
+  for +top: Nat
+  {Fx.aux_cap.within(b, a, top) == Nat.min(Fx.aux_cap(b, a), top) : Nat}
 
 # (S6.10.3) Oracles: the data gives the answers the code gave
 # -----------------------------------------------------------
