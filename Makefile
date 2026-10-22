@@ -7,10 +7,11 @@ check:
 	$(MAKE) runtime-test
 	cargo build --release --workspace --locked
 
-# The local CI gates (scripts/ci_local.sh). ci-fast is the pre-commit gate:
-# rustfmt, the secrets scan of the staged diff (when gitleaks is installed),
-# clippy on the crates the staged change touches (scripts/ci_pr_crates.py).
-# ci-local is the pre-push gate: every gate of .github/workflows/ci.yml.
+# The CI gates (scripts/ci_local.sh). GitHub runs no gate: they run only
+# here. ci-fast is the pre-commit gate: rustfmt, the secrets scan of the
+# staged diff (when gitleaks is installed), clippy on the crates the staged
+# change touches (scripts/ci_pr_crates.py). ci-local is the pre-push gate:
+# the full gate.
 # `make hooks` makes git run them through prek (.pre-commit-config.yaml;
 # the hooks are in the git common dir, so every worktree shares them; a
 # worktree of an older commit, without the config, skips them).
@@ -29,33 +30,33 @@ hooks:
 runtime-test:
 	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.11 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
-# The laws (LAWS.bend, proven in PROOF.bend; docs/memory.md): the local
-# mirror of the ci.yml laws job. --verdict needs Lean 4.34.0 (CI installs
-# both pinned releases with .github/actions/setup-bend).
+# The pinned Bend and Lean releases: BEND_VERSION, LEAN_VERSION.
+include scripts/toolchain.env
+
+# The laws (LAWS.bend, proven in PROOF.bend; docs/memory.md). The full gate
+# (ci-local) runs them too. --verdict needs Lean $(LEAN_VERSION).
 laws:
-	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend 2.0.38: https://bend-lang.com/install.sh)"; exit 1; }
+	@command -v bend >/dev/null 2>&1 || { echo "bend not installed (Bend $(BEND_VERSION): https://bend-lang.com/install.sh)"; exit 1; }
 	bend PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 	bend PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 
 
-# Supply-chain gates — local mirrors of the
-# ci.yml workflow jobs. They fail loudly when the tool is missing instead of
+# Supply-chain gates. They fail loudly when the tool is missing instead of
 # silently skipping the gate.
 
 deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed (cargo install cargo-deny --locked)"; exit 1; }
 	cargo deny --all-features --workspace check advisories bans licenses sources
 
-# Lints every workflow file (.github/workflows/); actionlint checks the
-# local action (.github/actions/setup-bend) through the steps that use it.
+# Lints the one workflow file (.github/workflows/eukhe-release.yml).
 actionlint:
 	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint not installed (see rhysd/actionlint releases)"; exit 1; }
-	actionlint .github/workflows/ci.yml .github/workflows/eukhe-release.yml .github/workflows/catalog-pin.yml
+	actionlint .github/workflows/eukhe-release.yml
 
 # GLIBC baseline gate (eukhe-release.yml's build-linux job): a
 # GNU/Linux artifact must not require symbols above GLIBC_2.35, the Ubuntu
 # 22.04 release baseline. No-op on non-GNU hosts; the authoritative gate runs
-# in CI inside the ubuntu:22.04 build container. POSIX sh throughout: make
+# in eukhe-release.yml inside the ubuntu:22.04 build container. POSIX sh throughout: make
 # runs recipes with /bin/sh, which is dash on Ubuntu (no [[ ]], no ==).
 glibc-gate:
 	@case "$(TARGET)" in *-linux-gnu) \
@@ -139,9 +140,7 @@ catalog-assets-fixture:
 # Move the catalog pin (scripts/release/catalog-pin.json) to the catalog
 # repo's current CATALOG_REF (default main): resolves the commit, fetches
 # both files at it, runs the full validation gates, and records the commit
-# and both sha256. Review the diff before committing it. Every week
-# .github/workflows/catalog-pin.yml does the same for main and opens a
-# pull request with the new pin.
+# and both sha256. Review the diff before committing it.
 CATALOG_REF ?= main
 catalog-pin:
 	python3 scripts/release/bundle_catalog.py pin --ref $(CATALOG_REF)
@@ -182,18 +181,10 @@ catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
 
 # The release-version rule (scripts/release/next_version.py) and its bridge
-# to the Bend model bend/semver.bend (needs bend; CI's laws job runs it
-# with EUKHE_REQUIRE_BEND=1).
+# to the Bend model bend/semver.bend (needs bend; the full gate's laws run
+# it with EUKHE_REQUIRE_BEND=1).
 release-version-gates:
 	python3 scripts/release/test_next_version.py
-
-# The CI shard tooling's contract battery (ci.yml's PR smoke): the stable
-# crc32 assignment under the narrowed selection, the scope-aware summary
-# audit, the selection resolver the conditional bins build reads, and the
-# fail-safe PR-files mapping the changes job feeds it.
-shard-gates:
-	python3 scripts/test_ci_test_shard.py
-	python3 scripts/test_ci_pr_crates.py
 
 # The kernel venv's hash-locked requirements: eukhe-runtime/uv.lock exported
 # to eukhe-runtime/requirements-kernel.txt (the only file the venv bootstrap
@@ -218,4 +209,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local hooks runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates shard-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local hooks runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates runtime-lock runtime-lock-check dashboard-ui

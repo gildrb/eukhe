@@ -10,19 +10,18 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   If a commit fails for a missing identity, report it. Allowed: `*_DATE` variables
   (the golden corpus pins them) and throwaway repos created by tests.
 - Never add `Co-authored-by` trailers.
-- CI: the full gate runs on this machine before code leaves it. `make hooks`
-  installs the prek hooks (`.pre-commit-config.yaml`): pre-commit runs
-  `make ci-fast`, pre-push runs `make ci-local` (every gate of `ci.yml`) on the
-  pushed commit; one push at a time runs it, the others wait. Never skip the
-  hooks (`--no-verify`). A push to main runs nothing on GitHub; pull requests,
-  the merge queue and `workflow_dispatch` run the full gate of
-  `.github/workflows/ci.yml`. Bend comes from
-  `.github/actions/setup-bend`. Once a day (03:17 UTC, or on dispatch)
+- CI: every gate runs on this machine, in the prek hooks. GitHub runs no gate,
+  and the repository takes no pull requests. `make hooks` installs the hooks
+  (`.pre-commit-config.yaml`): pre-commit runs `make ci-fast`, pre-push runs
+  `make ci-local` (the full gate) on the pushed commit; one push at a time
+  runs it, the others wait. Never skip the hooks (`--no-verify`).
+  `scripts/toolchain.env` pins the Bend and Lean releases that the gate
+  requires. GitHub runs one workflow: once a day (03:17 UTC, or on dispatch)
   `eukhe-release.yml` releases the newest commit of main with no `eukhe-v*`
   tag as `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, the
   next patch of the `Cargo.toml` series `X.Y.0`) and writes `nix/release.json`.
-  Every week `catalog-pin.yml` moves `scripts/release/catalog-pin.json` to the
-  catalog repo's newest commit and opens a PR (it starts `ci.yml` on it).
+  `make catalog-pin` moves `scripts/release/catalog-pin.json` to the catalog
+  repo's newest commit; review the diff and commit it.
 - Prime Intellect stays as a third-party service: provider `prime-inference`,
   `PRIME_API_KEY`, `PRIME_TEAM_ID`, `PRIME_INFERENCE_*`, `api.primeintellect.ai`,
   the model catalog repo `PrimeIntellect-ai/prime-agent-catalog`. Everything that

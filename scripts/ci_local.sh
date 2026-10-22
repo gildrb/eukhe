@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# The local CI gates (docs/develop.md). prek runs them as git hooks
-# (.pre-commit-config.yaml; `make hooks` installs them).
+# The CI gates of eukhe (docs/develop.md). They run only here: GitHub runs
+# no gate. prek runs them as git hooks (.pre-commit-config.yaml; `make
+# hooks` installs them).
 #
 #   scripts/ci_local.sh fast      `make ci-fast`, the pre-commit gate:
 #                                 rustfmt, the secrets scan of the staged
 #                                 diff, and clippy on the crates the staged
 #                                 change touches.
-#   scripts/ci_local.sh full      `make ci-local`: every gate that
-#                                 .github/workflows/ci.yml runs on a pull
-#                                 request, on the current tree.
+#   scripts/ci_local.sh full      `make ci-local`: the full gate, on the
+#                                 current tree.
 #   scripts/ci_local.sh pre-push  the pre-push gate: `make ci-local` on the
 #                                 pushed commit (PRE_COMMIT_TO_REF, from
 #                                 prek) in a separate worktree of it
@@ -37,6 +37,9 @@ unset RUSTUP_TOOLCHAIN
 cd "$(dirname "$0")/.."
 mode="${1:?usage: scripts/ci_local.sh fast|full|pre-push}"
 export BEND_NO_TELEMETRY=1
+# BEND_VERSION and LEAN_VERSION.
+# shellcheck source=scripts/toolchain.env
+source scripts/toolchain.env
 
 gate() {
   local name="$1" rc
@@ -52,37 +55,28 @@ gate() {
   fi
 }
 
-# The release `name:` of a step in .github/actions/setup-bend, for example
-# `Install Bend 2.0.38 (sha256-checked)` gives 2.0.38.
-pinned() {
-  awk -v tool="$1" '$1 == "-" && $2 == "name:" && $3 == "Install" && $4 == tool { print $5; exit }' \
-    .github/actions/setup-bend/action.yml
-}
-
 check_bend() {
-  local want have
-  want="$(pinned Bend)"
+  local have
   command -v bend >/dev/null 2>&1 || {
-    echo "bend is not installed. Install Bend ${want}, the release that .github/actions/setup-bend pins."
+    echo "bend is not installed. Install Bend ${BEND_VERSION}, the release that scripts/toolchain.env pins."
     return 1
   }
   have="$(bend version | awk '{ print $2 }')"
-  [[ "${have}" == "${want}" ]] || {
-    echo "bend ${have} is installed, but .github/actions/setup-bend pins Bend ${want}. Install Bend ${want}."
+  [[ "${have}" == "${BEND_VERSION}" ]] || {
+    echo "bend ${have} is installed, but scripts/toolchain.env pins Bend ${BEND_VERSION}. Install Bend ${BEND_VERSION}."
     return 1
   }
 }
 
 check_lean() {
-  local want have
-  want="$(pinned Lean)"
+  local have
   command -v lean >/dev/null 2>&1 || {
-    echo "lean is not installed. bend --verdict needs Lean ${want}, the release that .github/actions/setup-bend pins."
+    echo "lean is not installed. bend --verdict needs Lean ${LEAN_VERSION}, the release that scripts/toolchain.env pins."
     return 1
   }
   have="$(lean --version | sed -n 's/^Lean (version \([0-9.]*\),.*/\1/p')"
-  [[ "${have}" == "${want}" ]] || {
-    echo "lean ${have} is installed, but .github/actions/setup-bend pins Lean ${want}. Install Lean ${want}."
+  [[ "${have}" == "${LEAN_VERSION}" ]] || {
+    echo "lean ${have} is installed, but scripts/toolchain.env pins Lean ${LEAN_VERSION}. Install Lean ${LEAN_VERSION}."
     return 1
   }
 }
@@ -140,7 +134,7 @@ clippy_touched() {
 
 secrets_staged() {
   if ! command -v gitleaks >/dev/null 2>&1; then
-    echo "gitleaks is not installed: the staged diff is not scanned (CI scans every push)"
+    echo "gitleaks is not installed: the staged diff is not scanned (the pre-push gate scans the pushed commits)"
     return 0
   fi
   gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml .

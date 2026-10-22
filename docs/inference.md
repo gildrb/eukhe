@@ -471,10 +471,10 @@ provider and id.
 Thus a model that the compiled catalog has and the pinned catalog does
 not have (for example Claude Haiku 5.5) is in the `/model` menu.
 
-Every week, `.github/workflows/catalog-pin.yml` moves the pin to the
-newest commit of the catalog repository. It runs the same validation as
-`make catalog-pin`, records the commit and both sha256, and opens a pull
-request. CI runs on that pull request.
+To move the pin to the newest commit of the catalog repository, run
+`make catalog-pin`. It runs the validation and records the commit and
+both sha256. Review the diff of `scripts/release/catalog-pin.json`. Then
+commit it.
 
 Older builds kept a fetched catalog in
 `~/.eukhe/models/provider-model-catalog.v1.json`. No current code reads

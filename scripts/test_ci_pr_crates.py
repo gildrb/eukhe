@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""Test battery for the PR-files-to-crates mapping (ci.yml's changes job).
+"""Test battery for the change-to-crates mapping (scripts/ci_pr_crates.py,
+the selection of the pre-commit clippy in scripts/ci_local.sh).
 
-The contracts, pinned on real pulls/files-API shapes (the `filename` +
-`previous_filename` rows — the API's own field names, so a field-name
-regression fails safe instead of silently narrowing to nothing):
-  - a crate-only PR maps to those crates and their transitive dependents;
+The contracts, pinned on the row shape (`<path>` TAB `<old path>`):
+  - a crate-only change maps to those crates and their transitive dependents;
   - ANY non-crate path - and a rename's removed side too - fails safe to
     the full selection;
-  - an undecidable list (empty input, an empty filename row, the API's
-    3000-file ceiling) fails safe to the full selection, never to an empty
-    selection: a narrowed wave that runs nothing would masquerade as green.
+  - an undecidable list (empty input, an empty path row) fails safe to the
+    full selection, never to an empty selection: a narrowed run that checks
+    nothing would masquerade as green.
 
-Run: python3 scripts/test_ci_pr_crates.py  (or: make shard-gates)
+Run: python3 scripts/test_ci_pr_crates.py
 """
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import subprocess
 import sys
@@ -36,7 +34,7 @@ def run_mapper(rows: list[str]) -> tuple[int, str, dict[str, str]]:
     output = Path(tempfile.mkdtemp()) / "github-output"
     env = dict(os.environ)
     env["GITHUB_OUTPUT"] = str(output)
-    listing = Path(tempfile.mkdtemp()) / "pr-files.tsv"
+    listing = Path(tempfile.mkdtemp()) / "changes.tsv"
     listing.write_text("\n".join(rows) + "\n", encoding="utf-8")
     result = subprocess.run([sys.executable, str(MAPPER), str(listing)],
                             capture_output=True, text=True, env=env, check=False)
@@ -49,7 +47,7 @@ def run_mapper(rows: list[str]) -> tuple[int, str, dict[str, str]]:
 
 class TheMappingTestCase(unittest.TestCase):
 
-    def test_a_crate_only_pr_narrows_to_those_crates(self):
+    def test_a_crate_only_change_narrows_to_those_crates(self):
         rc, out, outputs = run_mapper([
             "crates/eukhe-daemon/src/main.rs",
             "crates/eukhe-daemon/src/roster.rs",
@@ -62,15 +60,15 @@ class TheMappingTestCase(unittest.TestCase):
     def test_any_non_crate_path_fails_safe_to_the_full_selection(self):
         rc, out, outputs = run_mapper([
             "crates/eukhe-core/src/lib.rs",
-            ".github/workflows/ci.yml",
+            ".github/workflows/eukhe-release.yml",
         ])
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], "")
         self.assertEqual(outputs["scope"], "all")
-        self.assertIn("non-crate path .github/workflows/ci.yml", out)
+        self.assertIn("non-crate path .github/workflows/eukhe-release.yml", out)
 
     def test_a_renames_removed_side_counts_too(self):
-        # A rename from a non-crate path INTO a crate: the PR removed the
+        # A rename from a non-crate path INTO a crate: the change removed the
         # old path, so the full selection runs.
         rc, out, outputs = run_mapper([
             "crates/eukhe-cli/src/new.rs\tdocs/old-location.md",
@@ -103,10 +101,8 @@ class TheMappingTestCase(unittest.TestCase):
         self.assertIn("unknown crate eukhe-future", out)
 
     def test_an_empty_filename_row_fails_safe(self):
-        # The field-name regression the reviewer demanded pinned: a row whose
-        # filename column is empty (e.g. reading `.path` from the files API,
-        # whose field is `filename`) must never narrow the wave to nothing -
-        # the run fails safe to the full selection instead.
+        # A row whose path column is empty must never narrow the selection
+        # to nothing: the full selection runs instead.
         rc, out, outputs = run_mapper([
             "\tcrates/eukhe-core/src/lib.rs",
             "crates/eukhe-daemon/src/lib.rs",
@@ -115,16 +111,6 @@ class TheMappingTestCase(unittest.TestCase):
         self.assertEqual(outputs["crates"], "")
         self.assertEqual(outputs["scope"], "all")
         self.assertIn("empty filename", out)
-
-    def test_a_null_field_read_also_fails_safe(self):
-        # jq renders a missing field as the string "null": not a crate path,
-        # so the full selection runs (nothing narrows on a broken column).
-        rc, out, outputs = run_mapper([
-            "null\tdocs/removed.md",
-            "crates/eukhe-core/src/lib.rs",
-        ])
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(outputs["crates"], "")
 
     def test_an_empty_list_fails_safe_to_the_full_selection(self):
         rc, out, outputs = run_mapper([])
@@ -142,13 +128,6 @@ class TheMappingTestCase(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(outputs["crates"], "")
         self.assertIn("non-crate path  crates/eukhe-core/src/lib.rs", out)
-
-    def test_the_files_api_ceiling_fails_safe(self):
-        rows = ["crates/eukhe-core/src/lib.rs"] * ci_pr_crates.FILES_API_CEILING
-        rc, out, outputs = run_mapper(rows)
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(outputs["crates"], "")
-        self.assertIn("ceiling", out)
 
 
 if __name__ == "__main__":

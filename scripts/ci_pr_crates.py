@@ -1,31 +1,25 @@
 #!/usr/bin/env python3
-"""Map a pull request's changed files to the crates its PR wave tests.
+"""Map a staged change's files to the crates that the pre-commit clippy checks.
 
-ci.yml's `changes` job resolves the selection: the test phase narrows to the
-touched crates and their reverse dependencies (scripts/ci_test_shard.py
---crates) on PRs; push and merge-queue waves run the full union. The
-mapping is fail-safe by construction: a selection that cannot be made is
-the FULL selection — a wrong guess can
-only cost runner minutes, never coverage.
+scripts/ci_local.sh `clippy_touched` (the pre-commit gate, `make ci-fast`)
+runs clippy on the selection: the touched crates and their reverse
+dependencies. The mapping is fail-safe by construction: a selection that
+cannot be made is the FULL selection (the workspace). A wrong guess can
+only cost time, never coverage.
 
-The input is the pull-requests files API (`GET /repos/{o}/{r}/pulls/{n}/files`,
-paginated by gh), one TSV row per file: `<filename>` TAB `<previous_filename>`
-(the rename sidecar; empty for ordinary rows). The API's file field is named
-`filename` (NOT `path` — the `gh pr view --json files` shape differs, and its
-100-row cap silently under-maps large PRs).
+The input is one TSV row per file: `<path>` TAB `<old path>` (the old path
+of a rename or copy; empty for ordinary rows). ci_local.sh makes the rows
+from `git diff --cached --name-status -M`.
 
-The output is the job outputs (`crates` — a comma list, empty for the full
-selection — and `scope`, the human-readable decision) written to the file in
+The output is `crates` (a comma list, empty for the full selection) and
+`scope` (the human-readable decision), written to the file in
 `GITHUB_OUTPUT` (a plain report otherwise), plus a per-path report on stdout.
 
-Usage (ci.yml):
+Usage (scripts/ci_local.sh):
 
-    gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" \
-        --paginate --jq '.[] | [.filename, .previous_filename // ""] | @tsv' \
-        > "${RUNNER_TEMP}/pr-files.tsv"
-    python3 scripts/ci_pr_crates.py "${RUNNER_TEMP}/pr-files.tsv"
+    GITHUB_OUTPUT="${out}" python3 scripts/ci_pr_crates.py <<<"${rows}"
 
-Tests: python3 scripts/test_ci_pr_crates.py  (make shard-gates runs it)
+Tests: python3 scripts/test_ci_pr_crates.py
 """
 
 from __future__ import annotations
@@ -34,13 +28,10 @@ import os
 import sys
 from pathlib import Path
 
-# The pulls/files API's own page ceiling: at or beyond it the list is
-# truncated and the mapping is not trustworthy, so the full selection runs.
-FILES_API_CEILING = 3000
 
-# Conservative CI impact graph: some edges cover behavior beyond a direct
-# Cargo.toml link. Over-selecting is safe; missing a dependent test is not.
-# The changes job must select without installing Rust or running Cargo.
+# Conservative impact graph: some edges cover behavior beyond a direct
+# Cargo.toml link. Over-selecting is safe; missing a dependent is not.
+# The selection runs without Cargo.
 WORKSPACE_DEPS = {
     "eukhe-types": set(),
     "eukhe-build-info": set(),
@@ -62,10 +53,9 @@ WORKSPACE_DEPS = {
 
 
 def read_rows(path: Path) -> list[tuple[str, str]]:
-    """The files-API rows, read raw: a leading-space path (` crates/...`)
+    """The change rows, read raw: a leading-space path (` crates/...`)
     must stay the non-crate path it is, never be stripped into a crate
-    mapping — the fields are tab-separated TSV, @tsv-escaped by jq, so no
-    strip is needed or safe."""
+    mapping. The fields are tab-separated, so no strip is needed or safe."""
     rows: list[tuple[str, str]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -76,25 +66,22 @@ def read_rows(path: Path) -> list[tuple[str, str]]:
 
 
 def select_crates(rows: list[tuple[str, str]]) -> list[str] | None:
-    """The touched crates and reverse dependencies, or None for a full wave.
+    """The touched crates and reverse dependencies, or None for the full
+    selection.
 
-    Only known `crates/<pkg>/**` narrows. Everything else — the workflows,
+    Only known `crates/<pkg>/**` narrows. Everything else (the workflow,
     CI tooling, vendor/, the runtime sidecar, workspace-level Cargo files,
-    install scripts, docs — affects more than any crate subset, and a rename
-    counts both sides. An undecidable list (empty rows, the API ceiling or
-    an unknown crate) fails safe to the full selection.
+    install scripts, docs) affects more than any crate subset, and a rename
+    counts both sides. An undecidable list (empty rows, an empty path or an
+    unknown crate) fails safe to the full selection.
     """
     if not rows:
-        return None
-    if len(rows) >= FILES_API_CEILING:
-        print(f"the PR has {len(rows)} changed files (the files API ceiling): "
-              "the full selection runs")
         return None
     crates: set[str] = set()
     for name, previous in rows:
         if not name:
-            # An empty filename column means the input is not the files
-            # API's shape (a field-name regression): never select from it.
+            # An empty path column means the input is not the row shape:
+            # never select from it.
             print("an empty filename in the change list: the full selection runs")
             return None
         for candidate in (name, previous):
@@ -109,8 +96,8 @@ def select_crates(rows: list[tuple[str, str]]) -> list[str] | None:
             else:
                 print(f"non-crate path {candidate}: the full selection runs")
                 return None
-    # eukhe-types owns the shared wire vocabulary: run every workspace test for
-    # its changes.
+    # eukhe-types owns the shared wire vocabulary: select every crate for its
+    # changes.
     if "eukhe-types" in crates:
         return sorted(WORKSPACE_DEPS)
     # Walk upward through the DAG until no dependent is left unselected.
@@ -134,9 +121,9 @@ def write_outputs(crates: list[str] | None, output_path: str) -> None:
     if output_path and output_path != "/dev/null":
         with open(output_path, "a", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
-    print("wave selection: " + lines[1].removeprefix("scope="))
+    print("selection: " + lines[1].removeprefix("scope="))
     if crates:
-        print("crates under test: " + ",".join(crates))
+        print("crates selected: " + ",".join(crates))
 
 
 def main() -> int:

@@ -16,7 +16,8 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspac
 
 ## Local CI and git hooks
 
-The full CI gate runs on this machine, not on GitHub. Install
+The CI gates run only on this machine, in the git hooks. GitHub runs no
+gate. The repository takes no pull requests. Install
 [prek](https://github.com/j178/prek) 0.5.7, then the hooks:
 
 ```sh
@@ -36,7 +37,7 @@ The hooks (`.pre-commit-config.yaml`) run at low CPU priority
 - pre-push: `make ci-local` on the pushed commit, in a separate worktree
   (`<repo>-ci` beside the main checkout, for example `~/Repos/eukhe-ci`;
   not under `.git`, where vitest ignores the tests), so local changes do not change the
-  result. It runs every gate of `.github/workflows/ci.yml`: fmt, cargo
+  result. It runs the full gate: fmt, cargo
   check and clippy, `cargo test --workspace` in a clean environment with
   `EUKHE_REQUIRE_BEND=1`, the eukhe-runtime suite, the dashboard UI
   (`web/` up to date), `bend PROOF.bend` and `--verdict`,
@@ -50,12 +51,11 @@ The hooks (`.pre-commit-config.yaml`) run at low CPU priority
   the repository root does not run the pre-push gate.
 
 The gates need bend and Lean at the versions that
-`.github/actions/setup-bend` pins, and cargo-deny, uv, npm and gitleaks.
+`scripts/toolchain.env` pins, and cargo-deny, uv, npm and gitleaks.
 A gate that fails prints its name; fix the cause and run the command
 again.
 
-On GitHub, a push to main runs nothing. Pull requests, the merge queue
-and `workflow_dispatch` run the full gate.
+GitHub runs one workflow: the daily release below.
 
 ## Releases
 

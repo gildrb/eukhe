@@ -3,8 +3,8 @@
 #
 # At most one release a day: a daily schedule (03:17 UTC) and
 # workflow_dispatch (an urgent release) release the newest commit of main
-# (first-parent history). GitHub runs no gate on it: every gate of ci.yml
-# ran before the push, in the local pre-push hook (prek: `make ci-local`).
+# (first-parent history). GitHub runs no gate on it: the full gate ran
+# before the push, in the local pre-push hook (prek: `make ci-local`).
 # When that commit, or
 # a newer one, already has an `eukhe-v*` tag, nothing is released (a re-run
 # of a published release changes nothing). The build jobs build that exact
@@ -15,8 +15,8 @@
 # latest (mise installs it), and pinned for the Nix flake (nix/release.json:
 # url + SRI hash per system). One release runs at a time (the concurrency
 # group), so two never compute the same version. The nix/release.json
-# commit is made with the workflow's token, which starts no workflow, so it
-# has no ci run and is never released.
+# commit is made with the workflow's token, which starts no workflow; the
+# version job skips it, so it is never released.
 #
 # Supply chain: every action is pinned by full commit SHA; the build jobs
 # use no cache (a poisoned cache would ride the shipped binary); apt
@@ -377,14 +377,14 @@ jobs:
             release-out/*
             release.json
       - name: Create the GitHub release (tagged at the released commit, marked latest)
-        run: gh release create "${TAG}" release-out/* release.json --target "${HEAD_SHA}" --latest --title "${TITLE}" --notes "eukhe ${VERSION}, built from ${HEAD_SHA}; every ci.yml gate passed on it in the local pre-push hook."
+        run: gh release create "${TAG}" release-out/* release.json --target "${HEAD_SHA}" --latest --title "${TITLE}" --notes "eukhe ${VERSION}, built from ${HEAD_SHA}; the full gate passed on it in the local pre-push hook."
       - name: Pin the release for the Nix flake (nix/release.json on main)
         run: |
           set -euo pipefail
           # main always has nix/release.json (the stub before the first
           # release); the update must name the blob it replaces. The
-          # commit is the workflow token's, so it starts no workflow run
-          # (no ci, so no release of it).
+          # commit is the workflow token's, so it starts no workflow run;
+          # the version job skips it (its subject), so it is never released.
           sha="$(gh api "repos/${GH_REPO}/contents/nix/release.json?ref=main" --jq .sha)"
           gh api -X PUT "repos/${GH_REPO}/contents/nix/release.json" \
             -f "message=nix: release.json for ${TAG}" \

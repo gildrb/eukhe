@@ -1,5 +1,5 @@
 # cargo-deny configuration for the eukhe Rust workspace.
-# Runs in CI (ci.yml) and locally via `make deny`.
+# Runs in the local full gate (`make ci-local`) and via `make deny`.
 
 [graph]
 all-features = true

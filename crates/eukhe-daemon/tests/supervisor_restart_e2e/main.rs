@@ -392,7 +392,7 @@ fn distinct(values: Vec<String>) -> Vec<String> {
 // The restart regression families live in the child modules at the same
 // tree position (supervisor_restart_e2e::{boot_cleanup, plain_boot,
 // restart, revival}); every child's use-super glob resolves through this
-// root's harness, and the ONE test binary stays one CI shard unit.
+// root's harness, and the families stay ONE test binary.
 mod boot_cleanup;
 mod plain_boot;
 mod restart;
