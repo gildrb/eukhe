@@ -126,8 +126,26 @@ pub struct RetryDelay {
 /// Default cap of an agent-level retry delay.
 pub const DEFAULT_MAX_AGENT_RETRY_DELAY_MS: f64 = 60_000.0;
 
-/// Largest integer a double represents exactly (`Number.MAX_SAFE_INTEGER`).
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+/// The largest `Nat` of the Bend core's wire (10^14-1, below the
+/// runtime's 2^48-1): a duration past it saturates there (over 3000
+/// years).
+const NAT_MAX: u64 = 99_999_999_999_999;
+
+/// A duration in ms as the wait decision reads it: whole ms, rounded up
+/// (a wait never shortens), `0` for a negative or NaN value, saturated
+/// at [`NAT_MAX`].
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn whole_ms(ms: f64) -> u64 {
+    // A NaN casts to 0; the cast of a whole value in [0, 10^14) is exact.
+    ms.ceil().clamp(0.0, ms_f64(NAT_MAX)) as u64
+}
+
+/// A whole-ms duration (at most [`NAT_MAX`]) as the f64 the callers sleep
+/// on.
+#[allow(clippy::cast_precision_loss)] // At most 10^14-1: exact.
+fn ms_f64(ms: u64) -> f64 {
+    ms as f64
+}
 
 /// The server-requested wait recorded on a failed message (the
 /// `retryAfterMs` of its newest `provider_stream_failure` diagnostic: a
@@ -155,7 +173,50 @@ pub enum RetryWait {
     Refused { server_ms: f64, cap_ms: f64 },
 }
 
+/// What the wait of a retry reads, as plain data (whole ms, each at most
+/// the wire's largest Nat).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WaitInput {
+    /// The policy's base step (`base_delay_ms`).
+    pub base_ms: u64,
+    /// The retry: 1 for the first.
+    pub attempt: u32,
+    /// The policy's cap (`max_agent_delay_ms`; `0`: no cap on the
+    /// server's wait).
+    pub cap_ms: u64,
+    /// A draw uniform in [0, 2^46): the jitter is the draw modulo the step.
+    pub draw: u64,
+    /// The server's requested wait, if any.
+    pub server_ms: Option<u64>,
+}
+
 impl RetryWait {
+    /// The wait of a retry (`bend/retry.bend` `retry_wait`): the step is
+    /// the base doubled per retry before this one, at most the cap; the
+    /// jitter is the draw modulo the step (0 for a step of 0); never
+    /// before the server's wait; a server wait above a positive cap
+    /// refuses the retry.
+    #[must_use]
+    pub fn decide(input: WaitInput) -> Self {
+        let mut step = input.base_ms.min(input.cap_ms);
+        for _ in 1..input.attempt {
+            if step == 0 || step > input.cap_ms - step {
+                step = if step == 0 { 0 } else { input.cap_ms };
+                break;
+            }
+            step += step;
+        }
+        let jitter = if step == 0 { 0 } else { input.draw % step };
+        match input.server_ms {
+            Some(server) if input.cap_ms > 0 && server > input.cap_ms => Self::Refused {
+                server_ms: ms_f64(server),
+                cap_ms: ms_f64(input.cap_ms),
+            },
+            Some(server) => Self::After(ms_f64(jitter.max(server))),
+            None => Self::After(ms_f64(jitter)),
+        }
+    }
+
     /// The wait of a retry whose backoff drew `jittered` ms, after a
     /// failure whose server asked for `server` ms (none: no wait), under
     /// the cap `cap_ms` (`0`: no cap).
@@ -184,22 +245,25 @@ impl RetryWait {
 }
 
 /// The wait before retry `attempt` (1-indexed) of the failed `message`
-/// (omp2 `TransportRetryLayer`): a full-jitter draw in `[0, step]`, where
+/// (omp2 `TransportRetryLayer`): a full-jitter draw under the step, where
 /// the step is `base_delay_ms * 2^(attempt-1)` capped at
 /// `max_agent_delay_ms`, so agents that hit the same limit together do not
 /// retry together; never shorter than the server's requested wait, and
-/// [`RetryWait::Refused`] when that wait is above the cap.
+/// [`RetryWait::Refused`] when that wait is above the cap
+/// ([`RetryWait::decide`]).
 #[must_use]
 pub fn retry_wait(policy: RetryDelay, attempt: u32, message: &AssistantMessage) -> RetryWait {
-    let cap = policy
-        .max_agent_delay_ms
-        .unwrap_or(DEFAULT_MAX_AGENT_RETRY_DELAY_MS);
-    let exponent = i32::try_from(attempt.saturating_sub(1)).unwrap_or(i32::MAX);
-    let step = policy.base_delay_ms * 2f64.powi(exponent);
-    let safe = step.is_finite() && step.fract() == 0.0 && step.abs() <= MAX_SAFE_INTEGER;
-    let step = if safe { step } else { MAX_SAFE_INTEGER }.min(cap);
-    let jittered = (rand::random::<f64>() * step).floor();
-    RetryWait::of(jittered, server_retry_after_ms(message), cap)
+    RetryWait::decide(WaitInput {
+        base_ms: whole_ms(policy.base_delay_ms),
+        attempt,
+        cap_ms: whole_ms(
+            policy
+                .max_agent_delay_ms
+                .unwrap_or(DEFAULT_MAX_AGENT_RETRY_DELAY_MS),
+        ),
+        draw: rand::random::<u64>() >> 18,
+        server_ms: server_retry_after_ms(message).map(whole_ms),
+    })
 }
 
 /// The details of the newest `provider_stream_failure` diagnostic of
