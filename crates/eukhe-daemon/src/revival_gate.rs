@@ -71,6 +71,9 @@ pub(crate) enum RevivalVeto {
     /// of interrupted work is residue of an era that already ended, not a
     /// crash this boot must heal.
     StaleBusyEvidence { recorded_at: String },
+    /// No `busy` record with a time stamp: nothing proves the interrupted
+    /// work is fresh (the journal changed since the boot read it busy).
+    NoBusyEvidence,
 }
 
 impl RevivalVeto {
@@ -90,6 +93,10 @@ impl RevivalVeto {
             RevivalVeto::StaleBusyEvidence { recorded_at } => format!(
                 "its busy evidence is stale (recorded {recorded_at}); not revived (reopens on the next client open)"
             ),
+            RevivalVeto::NoBusyEvidence => {
+                "no busy record proves fresh work; not revived (reopens on the next client open)"
+                    .to_string()
+            }
         }
     }
 }
@@ -118,7 +125,9 @@ pub(crate) fn revival_veto(
     // The busy-evidence path: the journal's proof must be fresh. A missing
     // timestamp cannot prove freshness — uncertainty must not revive a
     // session (the same philosophy as `read_interrupted`).
-    let recorded_at = busy_recorded_at?;
+    let Some(recorded_at) = busy_recorded_at else {
+        return Some(RevivalVeto::NoBusyEvidence);
+    };
     let fresh =
         crate::util::iso_to_unix_ms(recorded_at).is_some_and(|at| busy_evidence_fresh(at, now_ms));
     if fresh {
@@ -253,6 +262,19 @@ mod tests {
         )
         .expect("uncertainty must not revive");
         assert!(matches!(veto, RevivalVeto::StaleBusyEvidence { .. }));
+    }
+
+    /// Regression (`laws/worker_lifecycle.bend` F5): a missing busy stamp
+    /// gave no veto, against the comment above the check; the boot then
+    /// revived a session no fresh record proved busy.
+    #[test]
+    fn a_missing_evidence_timestamp_vetoes_the_revival() {
+        let file = session_file(Some("active"));
+        let agent_dir = agent_dir();
+        assert_eq!(
+            revival_veto(&agent_dir, &descriptor(Some(&file)), None, now_ms()),
+            Some(RevivalVeto::NoBusyEvidence)
+        );
     }
 
     #[test]
