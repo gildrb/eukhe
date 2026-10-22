@@ -527,13 +527,13 @@ static REGISTRIES: LazyLock<Vec<Result<Registry, RegistryError>>> = LazyLock::ne
 fn outcome(expanded: &Result<Vec<Command>, ExpandError>, reached: &mut Reached) -> String {
     match expanded {
         Ok(commands) => format!("[{}]", render_list(commands)),
-        Err(ExpandError::Cycle { .. }) => {
+        Err(ExpandError::Cycle { alias }) => {
             reached.insert(Case::Cycle);
-            "cycle".to_string()
+            format!("cycle {alias}")
         }
-        Err(ExpandError::Unknown { .. }) => {
+        Err(ExpandError::Unknown { alias }) => {
             reached.insert(Case::Unknown);
-            "unknown".to_string()
+            format!("unknown {alias}")
         }
     }
 }

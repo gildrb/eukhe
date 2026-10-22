@@ -532,9 +532,6 @@ struct Pass {
     verdicts: Vec<Verdict>,
     /// The reminders' texts, top first: they lead the continuation.
     reminders: Vec<String>,
-    /// The places of the reminders' verdicts in `verdicts`: a reminder
-    /// leaves when a continuation follows, else it defers.
-    reminders_at: Vec<usize>,
     /// The continuation of the layer that said Again.
     continuation: Option<(String, InputOrigin)>,
     /// Written when the loop goes on: the goal's continuation slot and its
@@ -662,8 +659,8 @@ fn begin(
 ///   complete or failed goal yields; a cleared goal leaves.
 /// - Autonomous: defers to a goal that drives continuations; leaves when
 ///   disabled; else its gates and limits continue (Again) or stop (Yield).
-/// - Reminder: its text leads the continuation, and it leaves; when no
-///   continuation follows, `commit_step` keeps it (Defer).
+/// - Reminder: its text leads the continuation (Lead): it leaves with the
+///   continuation, and stays when the step ends the loop.
 /// - `ForceTool`: leaves once the model called the tool; else Again while
 ///   it has budget (the continuation only names the forced call: the
 ///   forced request's soft prompt asks for it), then Abort.
@@ -771,8 +768,7 @@ fn judge(
             }
             LayerKind::Reminder { text } => {
                 pass.reminders.push(text.clone());
-                pass.reminders_at.push(pass.verdicts.len());
-                Verdict::Leave
+                Verdict::Lead
             }
             LayerKind::ForceTool {
                 tool,
@@ -797,7 +793,7 @@ fn judge(
                 }
             }
         };
-        let decisive = !matches!(verdict, Verdict::Defer | Verdict::Leave);
+        let decisive = !matches!(verdict, Verdict::Defer | Verdict::Leave | Verdict::Lead);
         pass.verdicts.push(verdict);
         if decisive {
             break;
@@ -890,7 +886,7 @@ async fn commit_step(
                     check,
                     now,
                 )?;
-                let mut pass = match judged {
+                let pass = match judged {
                     Judged::NeedAutonomous => return Ok(Step::Retry),
                     Judged::Pass(pass) => *pass,
                 };
@@ -900,18 +896,8 @@ async fn commit_step(
                     stack: std::mem::take(&mut state.stack),
                     end: None,
                 };
-                // A reminder leaves only with the continuation it leads:
-                // when the step does not continue, it stays for the next.
-                if run
-                    .clone()
-                    .tick(&pass.verdicts, limits.bound())
-                    .end
-                    .is_some()
-                {
-                    for at in &pass.reminders_at {
-                        pass.verdicts[*at] = Verdict::Defer;
-                    }
-                }
+                // A reminder leaves only with the continuation it leads
+                // (`Verdict::Lead`): when the step ends the loop, it stays.
                 let ticked = run.tick(&pass.verdicts, limits.bound());
                 state.stack = ticked.stack;
                 state.run = Some(RunLoop {
@@ -1081,9 +1067,8 @@ mod tests {
         assert_eq!(
             judged(&stack),
             Judged::Pass(Box::new(Pass {
-                verdicts: vec![Verdict::Leave, Verdict::Leave, Verdict::Abort],
+                verdicts: vec![Verdict::Lead, Verdict::Leave, Verdict::Abort],
                 reminders: vec!["Run the tests.".to_owned()],
-                reminders_at: vec![0],
                 abort: Some(ForcedToolError::NotCalled {
                     tool: "lookup".to_owned(),
                     attempts: 2,

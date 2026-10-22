@@ -12873,90 +12873,246 @@ def pv.tog_m(m: Maybe<&2, Cv.Decl>, +ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bi
 # Aliases
 # -------
 
-def pv.plain_app(xs: List<&2, Cv.Cmd>, +ys: List<&2, Cv.Cmd>, hx: {Cv.plain(xs) == True{} : Bool}, hy: {Cv.plain(ys) == True{} : Bool}) -> {Cv.plain(List.append(&2, Cv.Cmd, xs, ys)) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      hy
-    case c <> rest:
-      match c:
-        case Cv.CSet{i, v}:
-          pv.plain_app(rest, ys, hx, hy)
-        case Cv.CToggle{i}:
-          pv.plain_app(rest, ys, hx, hy)
-        case Cv.CRun{n}:
-          hx
-        case Cv.CGone{n}:
-          hx
-
-def pv.plain_cat(a: Cv.Exp, b: Cv.Exp, ha: {Cv.Exp.plain(a) == True{} : Bool}, hb: {Cv.Exp.plain(b) == True{} : Bool}) -> {Cv.Exp.plain(Cv.cat(a, b)) == True{} : Bool}:
-  match a:
-    case Cv.Flat{x}:
-      match b:
-        case Cv.Flat{y}:
-          pv.plain_app(x, y, ha, hb)
-        case Cv.Cycle{}:
-          {==}
-        case Cv.Unknown{}:
-          {==}
-    case Cv.Cycle{}:
-      {==}
-    case Cv.Unknown{}:
-      {==}
-
-def pv.ex_plain(d: Nat, cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> {Cv.Exp.plain(Cv.expand.go(d, cs, as)) == True{} : Bool}:
-  match d:
-    case 0n:
-      match cs:
-        case Nil{}:
-          {==}
-        case c <> +rest:
-          match c:
-            case Cv.CSet{i, v}:
-              pv.plain_cat(Cv.Flat{[Cv.CSet{i, v}]}, Cv.expand.go(0n, rest, as), {==}, pv.ex_plain(0n, rest, as))
-            case Cv.CToggle{i}:
-              pv.plain_cat(Cv.Flat{[Cv.CToggle{i}]}, Cv.expand.go(0n, rest, as), {==}, pv.ex_plain(0n, rest, as))
-            case Cv.CRun{n}:
-              {==}
-            case Cv.CGone{n}:
-              {==}
-    case 1n+(+e):
-      match cs:
-        case Nil{}:
-          {==}
-        case c <> +rest:
-          match c:
-            case Cv.CSet{i, v}:
-              pv.plain_cat(Cv.Flat{[Cv.CSet{i, v}]}, Cv.expand.go(1n+e, rest, as), {==}, pv.ex_plain(1n+e, rest, as))
-            case Cv.CToggle{i}:
-              pv.plain_cat(Cv.Flat{[Cv.CToggle{i}]}, Cv.expand.go(1n+e, rest, as), {==}, pv.ex_plain(1n+e, rest, as))
-            case Cv.CRun{+n}:
-              pv.plain_cat(Cv.expand.go(e, Cv.body(as, n), as), Cv.expand.go(1n+e, rest, as), pv.ex_plain(e, Cv.body(as, n), as), pv.ex_plain(1n+e, rest, as))
-            case Cv.CGone{n}:
-              {==}
-
 def pv.body_head(+n: Nat, +b: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> {Cv.body(Cv.Alias{n, b} <> as, n) == b : List<&2, Cv.Cmd>}:
   %cvar.pv.eq_refl(n) : {Cv.body.go(Cv.Alias{n, b} <> as, n, _) == b : List<&2, Cv.Cmd>}
   {==}
 
-def pv.self(k: Nat, +n: Nat, +as: List<&2, Cv.Alias>) -> {Cv.expand.go(k, [Cv.CRun{n}], Cv.Alias{n, [Cv.CRun{n}]} <> as) == Cv.Cycle{} : Cv.Exp}:
+# Reversal
+# --------
+
+# a plain list reversed onto a plain list is plain
+def pv.rev_plain(xs: List<&2, Cv.Cmd>, +o: List<&2, Cv.Cmd>, hx: {Cv.plain(xs) == True{} : Bool}, ho: {Cv.plain(o) == True{} : Bool}) -> {Cv.plain(Cv.rev(xs, o)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      ho
+    case c <> rest:
+      match c:
+        case Cv.CSet{+i, +v}:
+          pv.rev_plain(rest, Cv.CSet{i, v} <> o, hx, ho)
+        case Cv.CToggle{+i}:
+          pv.rev_plain(rest, Cv.CToggle{i} <> o, hx, ho)
+        case Cv.CRun{n}:
+          pv.absurdF({Cv.plain(Cv.rev(Cv.CRun{n} <> rest, o)) == True{} : Bool}, hx)
+        case Cv.CGone{n}:
+          pv.absurdF({Cv.plain(Cv.rev(Cv.CGone{n} <> rest, o)) == True{} : Bool}, hx)
+
+# reversing twice: rev(rev(b, o), p) is o reversed onto b ++ p
+def pv.rev_rev(b: List<&2, Cv.Cmd>, +o: List<&2, Cv.Cmd>, +p: List<&2, Cv.Cmd>) -> {Cv.rev(Cv.rev(b, o), p) == Cv.rev(o, List.append(&2, Cv.Cmd, b, p)) : List<&2, Cv.Cmd>}:
+  match b:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      pv.rev_rev(rest, x <> o, p)
+
+# reversing a concatenation: the second, reversed onto the first reversed
+def pv.rev_app(z: List<&2, Cv.Cmd>, +y: List<&2, Cv.Cmd>, +p: List<&2, Cv.Cmd>) -> {Cv.rev(List.append(&2, Cv.Cmd, z, y), p) == Cv.rev(y, Cv.rev(z, p)) : List<&2, Cv.Cmd>}:
+  match z:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      pv.rev_app(rest, y, x <> p)
+
+# appending is associative
+def pv.app_assoc(xs: List<&2, Cv.Cmd>, +ys: List<&2, Cv.Cmd>, +zs: List<&2, Cv.Cmd>) -> {List.append(&2, Cv.Cmd, List.append(&2, Cv.Cmd, xs, ys), zs) == List.append(&2, Cv.Cmd, xs, List.append(&2, Cv.Cmd, ys, zs)) : List<&2, Cv.Cmd>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +h <> r:
+      %pv.app_assoc(r, ys, zs) : {h <> List.append(&2, Cv.Cmd, List.append(&2, Cv.Cmd, r, ys), zs) == h <> _ : List<&2, Cv.Cmd>}
+      {==}
+
+# reversing onto q is reversing, then q
+def pv.rev_out(y: List<&2, Cv.Cmd>, +q: List<&2, Cv.Cmd>) -> {Cv.rev(y, q) == List.append(&2, Cv.Cmd, Cv.rev(y, Nil{}), q) : List<&2, Cv.Cmd>}:
+  match y:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      +r = Cv.rev(rest, Nil{})
+      +a = pv.rev_out(rest, x <> q)
+      +b = pv.rev_out(rest, [x])
+      %Equal.sym(List<&2, Cv.Cmd>, Cv.rev(rest, [x]), List.append(&2, Cv.Cmd, r, [x]), b) : {Cv.rev(rest, x <> q) == List.append(&2, Cv.Cmd, _, q) : List<&2, Cv.Cmd>}
+      %Equal.sym(List<&2, Cv.Cmd>, List.append(&2, Cv.Cmd, List.append(&2, Cv.Cmd, r, [x]), q), List.append(&2, Cv.Cmd, r, x <> q), pv.app_assoc(r, [x], q)) : {Cv.rev(rest, x <> q) == _ : List<&2, Cv.Cmd>}
+      a
+
+# Expansion
+# ---------
+
+# an expansion that failed stays failed
+def pv.go_cycle(d: Nat, xs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, +m: Nat) -> {Cv.expand.go(d, xs, as, Cv.Cycle{m}) == Cv.Cycle{m} : Cv.Exp}:
+  match d:
+    case 0n:
+      match xs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              {==}
+            case Cv.CToggle{i}:
+              {==}
+            case Cv.CRun{n}:
+              {==}
+            case Cv.CGone{n}:
+              {==}
+    case 1n+e:
+      match xs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              {==}
+            case Cv.CToggle{i}:
+              {==}
+            case Cv.CRun{n}:
+              {==}
+            case Cv.CGone{n}:
+              {==}
+
+def pv.go_unknown(d: Nat, xs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, +m: Nat) -> {Cv.expand.go(d, xs, as, Cv.Unknown{m}) == Cv.Unknown{m} : Cv.Exp}:
+  match d:
+    case 0n:
+      match xs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              {==}
+            case Cv.CToggle{i}:
+              {==}
+            case Cv.CRun{n}:
+              {==}
+            case Cv.CGone{n}:
+              {==}
+    case 1n+e:
+      match xs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              {==}
+            case Cv.CToggle{i}:
+              {==}
+            case Cv.CRun{n}:
+              {==}
+            case Cv.CGone{n}:
+              {==}
+
+# an expansion onto a plain accumulator is plain
+def pv.go_plain(d: Nat, cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, acc: Cv.Exp, ha: {Cv.Exp.plain(acc) == True{} : Bool}) -> {Cv.Exp.plain(Cv.expand.go(d, cs, as, acc)) == True{} : Bool}:
+  match d:
+    case 0n:
+      match cs:
+        case Nil{}:
+          ha
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_plain(0n, rest, as, Cv.Flat{Cv.CSet{i, v} <> out}, ha)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CToggle{i}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_plain(0n, rest, as, Cv.Flat{Cv.CToggle{i} <> out}, ha)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CRun{n}:
+              match acc:
+                case Cv.Flat{out}:
+                  {==}
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CGone{n}:
+              match acc:
+                case Cv.Flat{out}:
+                  {==}
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+    case 1n+(+e):
+      match cs:
+        case Nil{}:
+          ha
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_plain(1n+e, rest, as, Cv.Flat{Cv.CSet{i, v} <> out}, ha)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CToggle{i}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_plain(1n+e, rest, as, Cv.Flat{Cv.CToggle{i} <> out}, ha)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CRun{+n}:
+              match acc:
+                case Cv.Flat{+out}:
+                  pv.go_plain(1n+e, rest, as, Cv.expand.go(e, Cv.body(as, n), as, Cv.Flat{out}), pv.go_plain(e, Cv.body(as, n), as, Cv.Flat{out}, ha))
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CGone{n}:
+              match acc:
+                case Cv.Flat{out}:
+                  {==}
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+
+# putting the gathered commands in order keeps them plain
+def pv.fin_plain(e: Cv.Exp, h: {Cv.Exp.plain(e) == True{} : Bool}) -> {Cv.Exp.plain(Cv.fin(e)) == True{} : Bool}:
+  match e:
+    case Cv.Flat{out}:
+      pv.rev_plain(out, Nil{}, h, {==})
+    case Cv.Cycle{m}:
+      {==}
+    case Cv.Unknown{m}:
+      {==}
+
+# an expansion is plain
+def pv.expand_plain(+d: Nat, +cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> {Cv.Exp.plain(Cv.fin(Cv.expand.go(d, cs, as, Cv.Flat{Nil{}}))) == True{} : Bool}:
+  pv.fin_plain(Cv.expand.go(d, cs, as, Cv.Flat{Nil{}}), pv.go_plain(d, cs, as, Cv.Flat{Nil{}}, {==}))
+
+def pv.self(k: Nat, +n: Nat, +as: List<&2, Cv.Alias>, +out: List<&2, Cv.Cmd>) -> {Cv.expand.go(k, [Cv.CRun{n}], Cv.Alias{n, [Cv.CRun{n}]} <> as, Cv.Flat{out}) == Cv.Cycle{n} : Cv.Exp}:
   match k:
     case 0n:
       {==}
     case 1n+e:
       +t = {Cv.Alias{n, [Cv.CRun{n}]} <> as : List<&2, Cv.Alias>}
-      %Equal.sym(List<&2, Cv.Cmd>, Cv.body(t, n), [Cv.CRun{n}], pv.body_head(n, [Cv.CRun{n}], as)) : {Cv.cat(Cv.expand.go(e, _, t), Cv.Flat{Nil{}}) == Cv.Cycle{} : Cv.Exp}
-      %Equal.sym(Cv.Exp, Cv.expand.go(e, [Cv.CRun{n}], t), Cv.Cycle{}, pv.self(e, n, as)) : {Cv.cat(_, Cv.Flat{Nil{}}) == Cv.Cycle{} : Cv.Exp}
-      {==}
+      %Equal.sym(List<&2, Cv.Cmd>, Cv.body(t, n), [Cv.CRun{n}], pv.body_head(n, [Cv.CRun{n}], as)) : {Cv.expand.go(e, _, t, Cv.Flat{out}) == Cv.Cycle{n} : Cv.Exp}
+      pv.self(e, n, as, out)
 
-def pv.gone(k: Nat, +n: Nat, +as: List<&2, Cv.Alias>) -> {Cv.cat(Cv.expand.go(k, [Cv.CGone{n}], as), Cv.Flat{Nil{}}) == Cv.Unknown{} : Cv.Exp}:
+def pv.gone(k: Nat, +n: Nat, +as: List<&2, Cv.Alias>, +out: List<&2, Cv.Cmd>) -> {Cv.expand.go(k, [Cv.CGone{n}], as, Cv.Flat{out}) == Cv.Unknown{n} : Cv.Exp}:
   match k:
     case 0n:
       {==}
     case 1n+e:
       {==}
 
-# a plain list expands to itself at any depth
-def pv.flat(b: List<&2, Cv.Cmd>, k: Nat, +as: List<&2, Cv.Alias>, h: {Cv.plain(b) == True{} : Bool}) -> {Cv.expand.go(k, b, as) == Cv.Flat{b} : Cv.Exp}:
+# a plain list expands to itself (reversed onto the accumulator) at any
+# depth
+def pv.flat(b: List<&2, Cv.Cmd>, k: Nat, +as: List<&2, Cv.Alias>, +out: List<&2, Cv.Cmd>, h: {Cv.plain(b) == True{} : Bool}) -> {Cv.expand.go(k, b, as, Cv.Flat{out}) == Cv.Flat{Cv.rev(b, out)} : Cv.Exp}:
   match b:
     case Nil{}:
       match k:
@@ -12964,28 +13120,224 @@ def pv.flat(b: List<&2, Cv.Cmd>, k: Nat, +as: List<&2, Cv.Alias>, h: {Cv.plain(b
           {==}
         case 1n+e:
           {==}
-    case c <> +rest:
+    case c <> rest:
       match c:
         case Cv.CSet{+i, +v}:
           match k:
             case 0n:
-              %Equal.sym(Cv.Exp, Cv.expand.go(0n, rest, as), Cv.Flat{rest}, pv.flat(rest, 0n, as, h)) : {Cv.cat(Cv.Flat{[Cv.CSet{i, v}]}, _) == Cv.Flat{Cv.CSet{i, v} <> rest} : Cv.Exp}
-              {==}
-            case 1n+(+e):
-              %Equal.sym(Cv.Exp, Cv.expand.go(1n+e, rest, as), Cv.Flat{rest}, pv.flat(rest, 1n+e, as, h)) : {Cv.cat(Cv.Flat{[Cv.CSet{i, v}]}, _) == Cv.Flat{Cv.CSet{i, v} <> rest} : Cv.Exp}
-              {==}
+              pv.flat(rest, 0n, as, Cv.CSet{i, v} <> out, h)
+            case 1n+e:
+              pv.flat(rest, 1n+e, as, Cv.CSet{i, v} <> out, h)
         case Cv.CToggle{+i}:
           match k:
             case 0n:
-              %Equal.sym(Cv.Exp, Cv.expand.go(0n, rest, as), Cv.Flat{rest}, pv.flat(rest, 0n, as, h)) : {Cv.cat(Cv.Flat{[Cv.CToggle{i}]}, _) == Cv.Flat{Cv.CToggle{i} <> rest} : Cv.Exp}
-              {==}
-            case 1n+(+e):
-              %Equal.sym(Cv.Exp, Cv.expand.go(1n+e, rest, as), Cv.Flat{rest}, pv.flat(rest, 1n+e, as, h)) : {Cv.cat(Cv.Flat{[Cv.CToggle{i}]}, _) == Cv.Flat{Cv.CToggle{i} <> rest} : Cv.Exp}
-              {==}
+              pv.flat(rest, 0n, as, Cv.CToggle{i} <> out, h)
+            case 1n+e:
+              pv.flat(rest, 1n+e, as, Cv.CToggle{i} <> out, h)
         case Cv.CRun{n}:
-          pv.absurdF({Cv.expand.go(k, Cv.CRun{n} <> rest, as) == Cv.Flat{Cv.CRun{n} <> rest} : Cv.Exp}, h)
+          pv.absurdF({Cv.expand.go(k, Cv.CRun{n} <> rest, as, Cv.Flat{out}) == Cv.Flat{Cv.rev(Cv.CRun{n} <> rest, out)} : Cv.Exp}, h)
         case Cv.CGone{n}:
-          pv.absurdF({Cv.expand.go(k, Cv.CGone{n} <> rest, as) == Cv.Flat{Cv.CGone{n} <> rest} : Cv.Exp}, h)
+          pv.absurdF({Cv.expand.go(k, Cv.CGone{n} <> rest, as, Cv.Flat{out}) == Cv.Flat{Cv.rev(Cv.CGone{n} <> rest, out)} : Cv.Exp}, h)
+
+# In order
+# --------
+
+# an expansion of cs ++ more goes on from the expansion of cs
+def pv.go_app(d: Nat, cs: List<&2, Cv.Cmd>, +more: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, acc: Cv.Exp) -> {Cv.expand.go(d, List.append(&2, Cv.Cmd, cs, more), as, acc) == Cv.expand.go(d, more, as, Cv.expand.go(d, cs, as, acc)) : Cv.Exp}:
+  match d:
+    case 0n:
+      match cs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_app(0n, rest, more, as, Cv.Flat{Cv.CSet{i, v} <> out})
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(0n, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(0n, more, as, m))
+            case Cv.CToggle{i}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_app(0n, rest, more, as, Cv.Flat{Cv.CToggle{i} <> out})
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(0n, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(0n, more, as, m))
+            case Cv.CRun{+n}:
+              match acc:
+                case Cv.Flat{out}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Cycle{n}), Cv.Cycle{n}, pv.go_cycle(0n, more, as, n))
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(0n, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(0n, more, as, m))
+            case Cv.CGone{+n}:
+              match acc:
+                case Cv.Flat{out}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Unknown{n}), Cv.Unknown{n}, pv.go_unknown(0n, more, as, n))
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(0n, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(0n, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(0n, more, as, m))
+    case 1n+(+e):
+      match cs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_app(1n+e, rest, more, as, Cv.Flat{Cv.CSet{i, v} <> out})
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(1n+e, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(1n+e, more, as, m))
+            case Cv.CToggle{i}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_app(1n+e, rest, more, as, Cv.Flat{Cv.CToggle{i} <> out})
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(1n+e, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(1n+e, more, as, m))
+            case Cv.CRun{+n}:
+              match acc:
+                case Cv.Flat{out}:
+                  pv.go_app(1n+e, rest, more, as, Cv.expand.go(e, Cv.body(as, n), as, Cv.Flat{out}))
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(1n+e, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(1n+e, more, as, m))
+            case Cv.CGone{+n}:
+              match acc:
+                case Cv.Flat{out}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Unknown{n}), Cv.Unknown{n}, pv.go_unknown(1n+e, more, as, n))
+                case Cv.Cycle{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(1n+e, more, as, m))
+                case Cv.Unknown{+m}:
+                  Equal.sym(Cv.Exp, Cv.expand.go(1n+e, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(1n+e, more, as, m))
+
+# the commands gathered of an expansion, with out after them
+def pv.shift(e: Cv.Exp, +out: List<&2, Cv.Cmd>) -> Cv.Exp:
+  match e:
+    case Cv.Flat{y}:
+      Cv.Flat{List.append(&2, Cv.Cmd, y, out)}
+    case Cv.Cycle{m}:
+      Cv.Cycle{m}
+    case Cv.Unknown{m}:
+      Cv.Unknown{m}
+
+# an expansion onto an accumulator with out under it is the expansion
+# with out under its result
+def pv.go_shift(d: Nat, xs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, a: Cv.Exp, +out: List<&2, Cv.Cmd>) -> {Cv.expand.go(d, xs, as, pv.shift(a, out)) == pv.shift(Cv.expand.go(d, xs, as, a), out) : Cv.Exp}:
+  match d:
+    case 0n:
+      match xs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              match a:
+                case Cv.Flat{y}:
+                  pv.go_shift(0n, rest, as, Cv.Flat{Cv.CSet{i, v} <> y}, out)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CToggle{i}:
+              match a:
+                case Cv.Flat{y}:
+                  pv.go_shift(0n, rest, as, Cv.Flat{Cv.CToggle{i} <> y}, out)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CRun{n}:
+              match a:
+                case Cv.Flat{y}:
+                  {==}
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CGone{n}:
+              match a:
+                case Cv.Flat{y}:
+                  {==}
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+    case 1n+(+e):
+      match xs:
+        case Nil{}:
+          {==}
+        case c <> rest:
+          match c:
+            case Cv.CSet{i, v}:
+              match a:
+                case Cv.Flat{y}:
+                  pv.go_shift(1n+e, rest, as, Cv.Flat{Cv.CSet{i, v} <> y}, out)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CToggle{i}:
+              match a:
+                case Cv.Flat{y}:
+                  pv.go_shift(1n+e, rest, as, Cv.Flat{Cv.CToggle{i} <> y}, out)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CRun{+n}:
+              match a:
+                case Cv.Flat{+y}:
+                  +g = Cv.expand.go(e, Cv.body(as, n), as, Cv.Flat{y})
+                  %Equal.sym(Cv.Exp, Cv.expand.go(e, Cv.body(as, n), as, pv.shift(Cv.Flat{y}, out)), pv.shift(g, out), pv.go_shift(e, Cv.body(as, n), as, Cv.Flat{y}, out)) : {Cv.expand.go(1n+e, rest, as, _) == pv.shift(Cv.expand.go(1n+e, rest, as, g), out) : Cv.Exp}
+                  pv.go_shift(1n+e, rest, as, g, out)
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+            case Cv.CGone{n}:
+              match a:
+                case Cv.Flat{y}:
+                  {==}
+                case Cv.Cycle{m}:
+                  {==}
+                case Cv.Unknown{m}:
+                  {==}
+
+# fin of the rest's expansion with the first's commands under it
+def pv.fin_shift(m: Cv.Exp, +y: List<&2, Cv.Cmd>) -> {Cv.fin(pv.shift(m, y)) == Laws.cvar_cat(Cv.Flat{Cv.rev(y, Nil{})}, Cv.fin(m)) : Cv.Exp}:
+  match m:
+    case Cv.Flat{+z}:
+      %Equal.sym(List<&2, Cv.Cmd>, Cv.rev(List.append(&2, Cv.Cmd, z, y), Nil{}), Cv.rev(y, Cv.rev(z, Nil{})), pv.rev_app(z, y, Nil{})) : {Cv.Flat{_} == Cv.Flat{List.append(&2, Cv.Cmd, Cv.rev(y, Nil{}), Cv.rev(z, Nil{}))} : Cv.Exp}
+      Equal.cong(List<&2, Cv.Cmd>, Cv.Exp, l => Cv.Flat{l}, Cv.rev(y, Cv.rev(z, Nil{})), List.append(&2, Cv.Cmd, Cv.rev(y, Nil{}), Cv.rev(z, Nil{})), pv.rev_out(y, Cv.rev(z, Nil{})))
+    case Cv.Cycle{m}:
+      {==}
+    case Cv.Unknown{m}:
+      {==}
+
+# the expansion of the rest after the first's, put in order
+def pv.in_order(c: Cv.Exp, +d: Nat, +more: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> {Cv.fin(Cv.expand.go(d, more, as, c)) == Laws.cvar_cat(Cv.fin(c), Cv.fin(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}))) : Cv.Exp}:
+  match c:
+    case Cv.Flat{+y}:
+      %Equal.sym(Cv.Exp, Cv.expand.go(d, more, as, pv.shift(Cv.Flat{Nil{}}, y)), pv.shift(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}), y), pv.go_shift(d, more, as, Cv.Flat{Nil{}}, y)) : {Cv.fin(_) == Laws.cvar_cat(Cv.Flat{Cv.rev(y, Nil{})}, Cv.fin(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}))) : Cv.Exp}
+      pv.fin_shift(Cv.expand.go(d, more, as, Cv.Flat{Nil{}}), y)
+    case Cv.Cycle{+m}:
+      %Equal.sym(Cv.Exp, Cv.expand.go(d, more, as, Cv.Cycle{m}), Cv.Cycle{m}, pv.go_cycle(d, more, as, m)) : {Cv.fin(_) == Cv.Cycle{m} : Cv.Exp}
+      {==}
+    case Cv.Unknown{+m}:
+      %Equal.sym(Cv.Exp, Cv.expand.go(d, more, as, Cv.Unknown{m}), Cv.Unknown{m}, pv.go_unknown(d, more, as, m)) : {Cv.fin(_) == Cv.Unknown{m} : Cv.Exp}
+      {==}
 
 # The laws
 # --------
@@ -13019,48 +13371,34 @@ def pv.cvar_toggle_twice(+ds: List<&2, Cv.Decl>, +cfg: List<&2, Cv.Bind>, +fam: 
     case Cv.Ag{p, ss}:
       pv.tog_m(Cv.find(ds, x), ds, cfg, fam, p, ss, x, {==})
 
-def pv.alias_expands_fully(cs: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>) -> {Cv.Exp.plain(Cv.expand(cs, as)) == True{} : Bool}:
-  pv.ex_plain(1n+List.length(&2, Cv.Alias, as), cs, as)
-
-def pv.alias_self_cycle(+n: Nat, +as: List<&2, Cv.Alias>) -> {Cv.expand([Cv.CRun{n}], Cv.Alias{n, [Cv.CRun{n}]} <> as) == Cv.Cycle{} : Cv.Exp}:
-  pv.self(1n+List.length(&2, Cv.Alias, Cv.Alias{n, [Cv.CRun{n}]} <> as), n, as)
-
-def pv.alias_unknown_reported(+n: Nat, +as: List<&2, Cv.Alias>, gone: {Cv.body(as, n) == [Cv.CGone{n}] : List<&2, Cv.Cmd>}) -> {Cv.expand([Cv.CRun{n}], as) == Cv.Unknown{} : Cv.Exp}:
-  %Equal.sym(List<&2, Cv.Cmd>, Cv.body(as, n), [Cv.CGone{n}], gone) : {Cv.cat(Cv.expand.go(List.length(&2, Cv.Alias, as), _, as), Cv.Flat{Nil{}}) == Cv.Unknown{} : Cv.Exp}
-  pv.gone(List.length(&2, Cv.Alias, as), n, as)
-
-def pv.alias_runs_body(+n: Nat, +b: List<&2, Cv.Cmd>, +as: List<&2, Cv.Alias>, flat: {Cv.plain(b) == True{} : Bool}) -> {Cv.expand([Cv.CRun{n}], Cv.Alias{n, b} <> as) == Cv.Flat{b} : Cv.Exp}:
-  +t = {Cv.Alias{n, b} <> as : List<&2, Cv.Alias>}
-  +k = List.length(&2, Cv.Alias, t)
-  %Equal.sym(List<&2, Cv.Cmd>, Cv.body(t, n), b, pv.body_head(n, b, as)) : {Cv.cat(Cv.expand.go(k, _, t), Cv.Flat{Nil{}}) == Cv.Flat{b} : Cv.Exp}
-  %Equal.sym(Cv.Exp, Cv.expand.go(k, b, t), Cv.Flat{b}, pv.flat(b, k, t, flat)) : {Cv.cat(_, Cv.Flat{Nil{}}) == Cv.Flat{b} : Cv.Exp}
-  Equal.cong(List<&2, Cv.Cmd>, Cv.Exp, z => Cv.Flat{z}, List.append(&2, Cv.Cmd, b, Nil{}), b, pv.app_nil(b))
-
-def pv.bind_press_plain(+bs: List<&2, Cv.KeyBind>, +k: Nat, +as: List<&2, Cv.Alias>) -> {Cv.Exp.plain(Cv.press(bs, k, as)) == True{} : Bool}:
-  pv.ex_plain(1n+List.length(&2, Cv.Alias, as), Cv.bound(bs, k), as)
-
-def pv.bind_unbound_runs_nothing(+bs: List<&2, Cv.KeyBind>, +k: Nat, +as: List<&2, Cv.Alias>, free: {Cv.bound(bs, k) == Nil{} : List<&2, Cv.Cmd>}) -> {Cv.press(bs, k, as) == Cv.Flat{Nil{}} : Cv.Exp}:
-  %Equal.sym(List<&2, Cv.Cmd>, Cv.bound(bs, k), Nil{}, free) : {Cv.expand(_, as) == Cv.Flat{Nil{}} : Cv.Exp}
-  {==}
-
-def pv.bind_first_wins(+k: Nat, +c: List<&2, Cv.Cmd>, +rest: List<&2, Cv.KeyBind>, +as: List<&2, Cv.Alias>) -> {Cv.press(Cv.KeyBind{k, c} <> rest, k, as) == Cv.expand(c, as) : Cv.Exp}:
-  %cvar.pv.eq_refl(k) : {Cv.expand(Cv.bound.go(Cv.KeyBind{k, c} <> rest, k, _), as) == Cv.expand(c, as) : Cv.Exp}
-  {==}
-
 # ---- director ----
 
 # proof_director: the Director stack laws (S5), about bend/director.bend.
 #
 # The bound: a decision under `above` layers keeps above + len(stack) at
-# most cap (`pd.go_bounded`). A layer that keeps its place keeps the
-# length; a deferring layer goes back on the stack of the layers below
-# (`pd.under_ok`), which is bounded under one more layer; a Leave drops
-# it (`pd.le_pred`); a Stack checks room in the whole stack (`pd.push_ok`).
-# Each loop step is one decision (`pd.tick_bounded`).
+# most cap (`pd.go_bounded`), with room telling whether above + len(s)
+# is below cap (the whole stack's length, fixed for the decision). A
+# layer that keeps its place keeps the length; a deferring layer, or one
+# that leads and stays, goes back on the stack of the layers below
+# (`pd.under_ok`), which is bounded under one more layer; a Leave, or a
+# Lead that leaves, drops it (`pd.le_pred`); a Stack adds a layer only
+# with room (`pd.push_ok`). Each loop step is one decision, and its kept
+# stack (leads staying) is a decision too (`pd.tick_bounded`).
 #
 # The loop: `pd.ok(l, k)` says the loop has ended, or has fewer than k
 # global steps left. A tick takes one step off (`pd.tick_ok`), so after k
 # steps the loop has ended (`pd.ends_go`). An ended loop never changes.
+#
+# The rule: each verdict law unfolds decide.go once (`pd.on_top` matches
+# the model's `under` with the spec's `dir_on_top`); each tick law settles
+# one outcome (`pd.settle_cont0`, `pd.settle_hand`, `pd.settle_failed`).
+#
+# Leads: a decision where leads leave equals the decision on the verdicts
+# with each Lead read as a Leave (`pd.leave_as`), one where they stay the
+# decision with each read as a Defer (`pd.defer_as`), and both have the
+# same outcome (`pd.out_stay`). A step that goes on does not read the kept
+# stack (`pd.settle_on`); one that ends reads only the outcome and the
+# kept stack (`pd.settle_end`).
 #
 # The tree: layer i of a stack (0 = bottom) is the nodes 2i + 1 and
 # 2i + 2, appended after the nodes of the layers below. So every key of
@@ -13106,80 +13444,6 @@ def pd.app_assoc(-A: Data, xs: List<&2, A>, +ys: List<&2, A>, +zs: List<&2, A>) 
     case +h <> r:
       %pd.app_assoc(A, r, ys, zs) : {h <> List.append(&2, A, List.append(&2, A, r, ys), zs) == h <> _ : List<&2, A>}
       {==}
-
-# The loop
-# --------
-
-# the loop has ended, or has fewer than k steps left
-def pd.ok(l: Dr.Loop, k: Nat) -> Bool:
-  match l:
-    case Dr.Loop{n, s, e}:
-      match e:
-        case None{}:
-          Nat.is_lt(n, k)
-        case Some{x}:
-          True{}
-
-def pd.cont_ok(n: Nat, +s: List<&2, Dr.Layer>, +k: Nat, h: {Nat.is_lt(n, 1n+k) == True{} : Bool}) -> {pd.ok(Dr.cont(n, s), k) == True{} : Bool}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+m:
-      h
-
-def pd.after_ok(+n: Nat, d: Dr.Dec, +k: Nat, h: {Nat.is_lt(n, 1n+k) == True{} : Bool}) -> {pd.ok(Dr.after(n, d), k) == True{} : Bool}:
-  match d:
-    case Dr.Dec{o, s}:
-      match o:
-        case Dr.Cont{}:
-          pd.cont_ok(n, s, k, h)
-        case Dr.Hand{}:
-          {==}
-        case Dr.Failed{}:
-          {==}
-
-# a tick takes one step off the loop
-def pd.tick_ok(+cap: Nat, l: Dr.Loop, vs: List<&2, Dr.Verdict>, +k: Nat, h: {pd.ok(l, 1n+k) == True{} : Bool}) -> {pd.ok(Dr.tick(cap, l, vs), k) == True{} : Bool}:
-  match l:
-    case Dr.Loop{+n, s, e}:
-      match e:
-        case None{}:
-          pd.after_ok(n, Dr.decide(s, vs, cap), k, h)
-        case Some{x}:
-          {==}
-
-def pd.ok_zero(l: Dr.Loop, h: {pd.ok(l, 0n) == True{} : Bool}) -> {Dr.ended(l) == True{} : Bool}:
-  match l:
-    case Dr.Loop{+n, +s, e}:
-      match e:
-        case None{}:
-          pt.lt_zero({Dr.ended(Dr.Loop{n, s, None{}}) == True{} : Bool}, n, h)
-        case Some{x}:
-          {==}
-
-# a loop with fewer steps left than verdict lists has ended after them
-def pd.ends_go(vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, +l: Dr.Loop, h: {pd.ok(l, List.length(&2, List<&2, Dr.Verdict>, vss)) == True{} : Bool}) -> {Dr.ended(Dr.run(vss, cap, l)) == True{} : Bool}:
-  match vss:
-    case Nil{}:
-      pd.ok_zero(l, h)
-    case +vs <> +rest:
-      pd.ends_go(rest, cap, Dr.tick(cap, l, vs), pd.tick_ok(cap, l, vs, List.length(&2, List<&2, Dr.Verdict>, rest), h))
-
-def pd.lt_len(+n: Nat, +k: Nat, e: {k == 1n+n : Nat}) -> {Nat.is_lt(n, k) == True{} : Bool}:
-  %Equal.sym(Nat, k, 1n+n, e) : {Nat.is_lt(n, _) == True{} : Bool}
-  pd.lt_succ(n)
-
-def pd.dir_loop_ends(+n: Nat, +s: List<&2, Dr.Layer>, +vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}) -> {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}:
-  pd.ends_go(vss, cap, Dr.Loop{n, s, None{}}, pd.lt_len(n, List.length(&2, List<&2, Dr.Verdict>, vss), long))
-
-def pd.dir_end_is_final(+cap: Nat, +l: Dr.Loop, done: {Dr.ended(l) == True{} : Bool}, vs: List<&2, Dr.Verdict>) -> {Dr.tick(cap, l, vs) == l : Dr.Loop}:
-  match l:
-    case Dr.Loop{n, s, e}:
-      match e:
-        case None{}:
-          tree.pt.absurdF({Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, s, None{}} : Dr.Loop}, done)
-        case Some{x}:
-          {==}
 
 # The stack in the tree: order
 # ----------------------------
@@ -13343,6 +13607,80 @@ def pd.dir_rewind_restores(+a: List<&2, Tr.Ent>, +s: List<&2, Dr.Layer>, good: {
   %Equal.sym(List<&2, Tr.Ent>, Tr.apply(a, Tr.Rewind{Tr.diff(a, Dr.encode(s))}), Dr.encode(s), rewind_reaches(a, Dr.encode(s), good, pd.dir_encode_sound(s))) : {Dr.decode(_) == s : List<&2, Dr.Layer>}
   pd.dir_resume_restores(s)
 
+# The loop
+# --------
+
+# the loop has ended, or has fewer than k steps left
+def pd.ok(l: Dr.Loop, k: Nat) -> Bool:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          Nat.is_lt(n, k)
+        case Some{x}:
+          True{}
+
+def pd.goon_ok(n: Nat, t: List<&2, Dr.Layer>, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, +k: Nat, h: {Nat.is_lt(n, 1n+k) == True{} : Bool}) -> {pd.ok(Dr.go.on(n, t, s, vs, cap), k) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+m:
+      h
+
+def pd.settle_ok(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, +k: Nat, h: {Nat.is_lt(n, 1n+k) == True{} : Bool}) -> {pd.ok(Dr.settle(d, n, s, vs, cap), k) == True{} : Bool}:
+  match d:
+    case Dr.Dec{o, t}:
+      match o:
+        case Dr.Cont{}:
+          pd.goon_ok(n, t, s, vs, cap, k, h)
+        case Dr.Hand{}:
+          {==}
+        case Dr.Failed{}:
+          {==}
+
+# a tick takes one step off the loop
+def pd.tick_ok(+cap: Nat, l: Dr.Loop, +vs: List<&2, Dr.Verdict>, +k: Nat, h: {pd.ok(l, 1n+k) == True{} : Bool}) -> {pd.ok(Dr.tick(cap, l, vs), k) == True{} : Bool}:
+  match l:
+    case Dr.Loop{+n, +s, e}:
+      match e:
+        case None{}:
+          pd.settle_ok(Dr.decide(s, vs, cap), n, s, vs, cap, k, h)
+        case Some{x}:
+          {==}
+
+def pd.ok_zero(l: Dr.Loop, h: {pd.ok(l, 0n) == True{} : Bool}) -> {Dr.ended(l) == True{} : Bool}:
+  match l:
+    case Dr.Loop{+n, +s, e}:
+      match e:
+        case None{}:
+          pt.lt_zero({Dr.ended(Dr.Loop{n, s, None{}}) == True{} : Bool}, n, h)
+        case Some{x}:
+          {==}
+
+# a loop with fewer steps left than verdict lists has ended after them
+def pd.ends_go(vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, +l: Dr.Loop, h: {pd.ok(l, List.length(&2, List<&2, Dr.Verdict>, vss)) == True{} : Bool}) -> {Dr.ended(Dr.run(vss, cap, l)) == True{} : Bool}:
+  match vss:
+    case Nil{}:
+      pd.ok_zero(l, h)
+    case +vs <> +rest:
+      pd.ends_go(rest, cap, Dr.tick(cap, l, vs), pd.tick_ok(cap, l, vs, List.length(&2, List<&2, Dr.Verdict>, rest), h))
+
+def pd.lt_len(+n: Nat, +k: Nat, e: {k == 1n+n : Nat}) -> {Nat.is_lt(n, k) == True{} : Bool}:
+  %Equal.sym(Nat, k, 1n+n, e) : {Nat.is_lt(n, _) == True{} : Bool}
+  pd.lt_succ(n)
+
+def pd.dir_loop_ends(+n: Nat, +s: List<&2, Dr.Layer>, +vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, long: {List.length(&2, List<&2, Dr.Verdict>, vss) == 1n+n : Nat}) -> {Dr.ended(Dr.run(vss, cap, Dr.Loop{n, s, None{}})) == True{} : Bool}:
+  pd.ends_go(vss, cap, Dr.Loop{n, s, None{}}, pd.lt_len(n, List.length(&2, List<&2, Dr.Verdict>, vss), long))
+
+def pd.dir_end_is_final(+cap: Nat, +l: Dr.Loop, done: {Dr.ended(l) == True{} : Bool}, vs: List<&2, Dr.Verdict>) -> {Dr.tick(cap, l, vs) == l : Dr.Loop}:
+  match l:
+    case Dr.Loop{n, s, e}:
+      match e:
+        case None{}:
+          tree.pt.absurdF({Dr.tick(cap, Dr.Loop{n, s, None{}}, vs) == Dr.Loop{n, s, None{}} : Dr.Loop}, done)
+        case Some{x}:
+          {==}
+
 # The bound
 # ---------
 
@@ -13388,6 +13726,11 @@ def pd.shift(+above: Nat, +r: Nat, +cap: Nat, h: {Nat.is_le(Nat.add(above, 1n+r)
   %pd.add_succ(above, r) : {Nat.is_le(_, cap) == True{} : Bool}
   h
 
+# the same for the room: the whole stack keeps its length
+def pd.shift_lt(+above: Nat, +r: Nat, +cap: Nat, +room: Bool, h: {Nat.is_lt(Nat.add(above, 1n+r), cap) == room : Bool}) -> {Nat.is_lt(Nat.add(1n+above, r), cap) == room : Bool}:
+  %pd.add_succ(above, r) : {Nat.is_lt(_, cap) == room : Bool}
+  h
+
 # a layer put back on the stack below it
 def pd.under_ok(+l: Dr.Layer, d: Dr.Dec, +above: Nat, +cap: Nat, ih: {Nat.is_le(Nat.add(1n+above, List.length(&2, Dr.Layer, Dr.Dec.stack(d))), cap) == True{} : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.under(l, d)))), cap) == True{} : Bool}:
   match d:
@@ -13406,73 +13749,93 @@ def pd.push_ok(+cap: Nat, +above: Nat, +rest: List<&2, Dr.Layer>, room: Bool, er
     case False{}:
       h
 
-def pd.pick_ok(v: Dr.Verdict, +l: Dr.Layer, +rest: List<&2, Dr.Layer>, +cap: Nat, +above: Nat, d: Dr.Dec, +h: {Nat.is_le(Nat.add(above, 1n+List.length(&2, Dr.Layer, rest)), cap) == True{} : Bool}, ih: {Nat.is_le(Nat.add(1n+above, List.length(&2, Dr.Layer, Dr.Dec.stack(d))), cap) == True{} : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.pick(v, l, rest, cap, above, d)))), cap) == True{} : Bool}:
-  match v:
-    case Dr.Defer{}:
-      pd.under_ok(l, d, above, cap, ih)
-    case Dr.Again{}:
-      match l:
-        case Dr.Layer{k, b}:
-          match b:
-            case 0n:
-              h
-            case 1n+c:
-              h
-    case Dr.Yield{}:
-      h
-    case Dr.Stack{n}:
-      match l:
-        case Dr.Layer{+k, b}:
-          match b:
-            case 0n:
-              h
-            case 1n+c:
-              pd.push_ok(cap, above, rest, Nat.is_lt(Nat.add(above, 1n+List.length(&2, Dr.Layer, rest)), cap), {==}, Dr.Layer{k, c}, n, h)
-    case Dr.Leave{}:
-      pd.le_pred(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(d))), cap, ih)
-    case Dr.Abort{}:
-      h
+# an Again keeps the length
+def pd.spend_ok(l: Dr.Layer, +rest: List<&2, Dr.Layer>, +above: Nat, +cap: Nat, h: {Nat.is_le(Nat.add(above, 1n+List.length(&2, Dr.Layer, rest)), cap) == True{} : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.spend(l, rest)))), cap) == True{} : Bool}:
+  match l:
+    case Dr.Layer{k, b}:
+      match b:
+        case 0n:
+          h
+        case 1n+c:
+          h
 
-# a decision under `above` layers keeps above + len(stack) within cap
-def pd.go_bounded(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, +above: Nat, +h: {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, s)), cap) == True{} : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.decide.go(s, vs, cap, above)))), cap) == True{} : Bool}:
+# a Stack adds a layer only with room
+def pd.pushed_ok(l: Dr.Layer, +n: Dr.Layer, +rest: List<&2, Dr.Layer>, +room: Bool, +above: Nat, +cap: Nat, +h: {Nat.is_le(Nat.add(above, 1n+List.length(&2, Dr.Layer, rest)), cap) == True{} : Bool}, er: {Nat.is_lt(Nat.add(above, 1n+List.length(&2, Dr.Layer, rest)), cap) == room : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.push(l, n, rest, room)))), cap) == True{} : Bool}:
+  match l:
+    case Dr.Layer{+k, b}:
+      match b:
+        case 0n:
+          h
+        case 1n+c:
+          pd.push_ok(cap, above, rest, room, er, Dr.Layer{k, c}, n, h)
+
+# a Lead stays (as a Defer) or leaves (as a Leave)
+def pd.lead_ok(st: Bool, +l: Dr.Layer, d: Dr.Dec, +above: Nat, +cap: Nat, ih: {Nat.is_le(Nat.add(1n+above, List.length(&2, Dr.Layer, Dr.Dec.stack(d))), cap) == True{} : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.lead(st, l, d)))), cap) == True{} : Bool}:
+  match st:
+    case True{}:
+      pd.under_ok(l, d, above, cap, ih)
+    case False{}:
+      pd.le_pred(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(d))), cap, ih)
+
+# a decision under `above` layers keeps above + len(stack) within cap,
+# with room telling whether above + len(s) is below cap
+def pd.go_bounded(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +room: Bool, +st: Bool, +cap: Nat, +above: Nat, +h: {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, s)), cap) == True{} : Bool}, +er: {Nat.is_lt(Nat.add(above, List.length(&2, Dr.Layer, s)), cap) == room : Bool}) -> {Nat.is_le(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.decide.go(s, vs, room, st)))), cap) == True{} : Bool}:
   match s:
     case Nil{}:
       h
     case +l <> +rest:
       match vs:
         case Nil{}:
-          pd.under_ok(l, Dr.decide.go(rest, Nil{}, cap, 1n+above), above, cap, pd.go_bounded(rest, Nil{}, cap, 1n+above, pd.shift(above, List.length(&2, Dr.Layer, rest), cap, h)))
-        case +v <> +vr:
-          pd.pick_ok(v, l, rest, cap, above, Dr.decide.go(rest, vr, cap, 1n+above), h, pd.go_bounded(rest, vr, cap, 1n+above, pd.shift(above, List.length(&2, Dr.Layer, rest), cap, h)))
+          pd.under_ok(l, Dr.decide.go(rest, Nil{}, room, st), above, cap, pd.go_bounded(rest, Nil{}, room, st, cap, 1n+above, pd.shift(above, List.length(&2, Dr.Layer, rest), cap, h), pd.shift_lt(above, List.length(&2, Dr.Layer, rest), cap, room, er)))
+        case v <> +vr:
+          match v:
+            case Dr.Defer{}:
+              pd.under_ok(l, Dr.decide.go(rest, vr, room, st), above, cap, pd.go_bounded(rest, vr, room, st, cap, 1n+above, pd.shift(above, List.length(&2, Dr.Layer, rest), cap, h), pd.shift_lt(above, List.length(&2, Dr.Layer, rest), cap, room, er)))
+            case Dr.Again{}:
+              pd.spend_ok(l, rest, above, cap, h)
+            case Dr.Yield{}:
+              h
+            case Dr.Stack{n}:
+              pd.pushed_ok(l, n, rest, room, above, cap, h, er)
+            case Dr.Leave{}:
+              pd.le_pred(Nat.add(above, List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.decide.go(rest, vr, room, st)))), cap, pd.go_bounded(rest, vr, room, st, cap, 1n+above, pd.shift(above, List.length(&2, Dr.Layer, rest), cap, h), pd.shift_lt(above, List.length(&2, Dr.Layer, rest), cap, room, er)))
+            case Dr.Abort{}:
+              h
+            case Dr.Lead{}:
+              pd.lead_ok(st, l, Dr.decide.go(rest, vr, room, st), above, cap, pd.go_bounded(rest, vr, room, st, cap, 1n+above, pd.shift(above, List.length(&2, Dr.Layer, rest), cap, h), pd.shift_lt(above, List.length(&2, Dr.Layer, rest), cap, room, er)))
 
 def pd.dir_stack_bounded(+s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, fits: {Nat.is_le(List.length(&2, Dr.Layer, s), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Dec.stack(Dr.decide(s, vs, cap))), cap) == True{} : Bool}:
-  pd.go_bounded(s, vs, cap, 0n, fits)
+  pd.go_bounded(s, vs, Nat.is_lt(List.length(&2, Dr.Layer, s), cap), False{}, cap, 0n, fits, {==})
 
-def pd.cont_bounded(n: Nat, +s: List<&2, Dr.Layer>, +cap: Nat, h: {Nat.is_le(List.length(&2, Dr.Layer, s), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.cont(n, s))), cap) == True{} : Bool}:
+# the stack a step that ends keeps is within cap too
+def pd.kept_bounded(+s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, fits: {Nat.is_le(List.length(&2, Dr.Layer, s), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.kept(s, vs, cap)), cap) == True{} : Bool}:
+  pd.go_bounded(s, vs, Nat.is_lt(List.length(&2, Dr.Layer, s), cap), True{}, cap, 0n, fits, {==})
+
+def pd.goon_bounded(n: Nat, t: List<&2, Dr.Layer>, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, ht: {Nat.is_le(List.length(&2, Dr.Layer, t), cap) == True{} : Bool}, hk: {Nat.is_le(List.length(&2, Dr.Layer, Dr.kept(s, vs, cap)), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.go.on(n, t, s, vs, cap))), cap) == True{} : Bool}:
   match n:
     case 0n:
-      h
+      hk
     case 1n+m:
-      h
+      ht
 
-def pd.after_bounded(+n: Nat, d: Dr.Dec, +cap: Nat, h: {Nat.is_le(List.length(&2, Dr.Layer, Dr.Dec.stack(d)), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.after(n, d))), cap) == True{} : Bool}:
+def pd.settle_bounded(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +cap: Nat, hd: {Nat.is_le(List.length(&2, Dr.Layer, Dr.Dec.stack(d)), cap) == True{} : Bool}, hk: {Nat.is_le(List.length(&2, Dr.Layer, Dr.kept(s, vs, cap)), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.settle(d, n, s, vs, cap))), cap) == True{} : Bool}:
   match d:
-    case Dr.Dec{o, +s}:
+    case Dr.Dec{o, t}:
       match o:
         case Dr.Cont{}:
-          pd.cont_bounded(n, s, cap, h)
+          pd.goon_bounded(n, t, s, vs, cap, hd, hk)
         case Dr.Hand{}:
-          h
+          hk
         case Dr.Failed{}:
-          h
+          hk
 
 # one loop step keeps the stack within cap
-def pd.tick_bounded(+cap: Nat, l: Dr.Loop, +vs: List<&2, Dr.Verdict>, h: {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(l)), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.tick(cap, l, vs))), cap) == True{} : Bool}:
+def pd.tick_bounded(+cap: Nat, l: Dr.Loop, +vs: List<&2, Dr.Verdict>, +h: {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(l)), cap) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Dr.Layer, Dr.Loop.stack(Dr.tick(cap, l, vs))), cap) == True{} : Bool}:
   match l:
     case Dr.Loop{+n, +s, e}:
       match e:
         case None{}:
-          pd.after_bounded(n, Dr.decide(s, vs, cap), cap, pd.dir_stack_bounded(s, vs, cap, h))
+          pd.settle_bounded(Dr.decide(s, vs, cap), n, s, vs, cap, pd.dir_stack_bounded(s, vs, cap, h), pd.kept_bounded(s, vs, cap, h))
         case Some{x}:
           h
 
@@ -13482,6 +13845,246 @@ def pd.dir_loop_stack_bounded(vss: List<&2, List<&2, Dr.Verdict>>, +cap: Nat, +l
       fits
     case +vs <> rest:
       pd.dir_loop_stack_bounded(rest, cap, Dr.tick(cap, l, vs), pd.tick_bounded(cap, l, vs, fits))
+
+# The rule, verdict by verdict
+# ----------------------------
+
+def pd.on_top(+l: Dr.Layer, d: Dr.Dec) -> {Dr.under(l, d) == Laws.dir_on_top(l, d) : Dr.Dec}:
+  match d:
+    case Dr.Dec{o, s}:
+      {==}
+
+# Out is decidable: two different outcomes clash
+def pd.out_eq(a: Dr.Out, b: Dr.Out) -> Bool:
+  match a b:
+    case Dr.Cont{} Dr.Cont{}:
+      True{}
+    case Dr.Hand{} Dr.Hand{}:
+      True{}
+    case Dr.Failed{} Dr.Failed{}:
+      True{}
+    case Dr.Cont{} Dr.Hand{}:
+      False{}
+    case Dr.Cont{} Dr.Failed{}:
+      False{}
+    case Dr.Hand{} Dr.Cont{}:
+      False{}
+    case Dr.Hand{} Dr.Failed{}:
+      False{}
+    case Dr.Failed{} Dr.Cont{}:
+      False{}
+    case Dr.Failed{} Dr.Hand{}:
+      False{}
+
+def pd.out_refl(a: Dr.Out) -> {pd.out_eq(a, a) == True{} : Bool}:
+  match a:
+    case Dr.Cont{}:
+      {==}
+    case Dr.Hand{}:
+      {==}
+    case Dr.Failed{}:
+      {==}
+
+def pd.out_eq_of(+a: Dr.Out, -b: Dr.Out, e: {a == b : Dr.Out}) -> {pd.out_eq(a, b) == True{} : Bool}:
+  %e : {pd.out_eq(a, _) == True{} : Bool}
+  pd.out_refl(a)
+
+def pd.out_absurd(-G: Type, +a: Dr.Out, +b: Dr.Out, e: {a == b : Dr.Out}, ne: {pd.out_eq(a, b) == False{} : Bool}) -> G:
+  tree.pt.absurdF(G, Equal.trans(Bool, False{}, pd.out_eq(a, b), True{}, Equal.sym(Bool, pd.out_eq(a, b), False{}, ne), pd.out_eq_of(a, b, e)))
+
+# a settle of an outcome: Cont with no step left, Hand, Failed
+def pd.settle_cont0(d: Dr.Dec, +s: List<&2, Dr.Layer>, +vs: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(d) == Dr.Cont{} : Dr.Out}) -> {Dr.settle(d, 0n, s, vs, cap) == Dr.Loop{0n, Dr.kept(s, vs, cap), Some{Dr.Hand{}}} : Dr.Loop}:
+  match d:
+    case Dr.Dec{o, t}:
+      match o:
+        case Dr.Cont{}:
+          {==}
+        case Dr.Hand{}:
+          pd.out_absurd({Dr.settle(Dr.Dec{Dr.Hand{}, t}, 0n, s, vs, cap) == Dr.Loop{0n, Dr.kept(s, vs, cap), Some{Dr.Hand{}}} : Dr.Loop}, Dr.Hand{}, Dr.Cont{}, eo, {==})
+        case Dr.Failed{}:
+          pd.out_absurd({Dr.settle(Dr.Dec{Dr.Failed{}, t}, 0n, s, vs, cap) == Dr.Loop{0n, Dr.kept(s, vs, cap), Some{Dr.Hand{}}} : Dr.Loop}, Dr.Failed{}, Dr.Cont{}, eo, {==})
+
+def pd.settle_hand(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(d) == Dr.Hand{} : Dr.Out}) -> {Dr.settle(d, n, s, vs, cap) == Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Hand{}}} : Dr.Loop}:
+  match d:
+    case Dr.Dec{o, t}:
+      match o:
+        case Dr.Cont{}:
+          pd.out_absurd({Dr.settle(Dr.Dec{Dr.Cont{}, t}, n, s, vs, cap) == Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Hand{}}} : Dr.Loop}, Dr.Cont{}, Dr.Hand{}, eo, {==})
+        case Dr.Hand{}:
+          {==}
+        case Dr.Failed{}:
+          pd.out_absurd({Dr.settle(Dr.Dec{Dr.Failed{}, t}, n, s, vs, cap) == Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Hand{}}} : Dr.Loop}, Dr.Failed{}, Dr.Hand{}, eo, {==})
+
+def pd.settle_failed(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(d) == Dr.Failed{} : Dr.Out}) -> {Dr.settle(d, n, s, vs, cap) == Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Failed{}}} : Dr.Loop}:
+  match d:
+    case Dr.Dec{o, t}:
+      match o:
+        case Dr.Cont{}:
+          pd.out_absurd({Dr.settle(Dr.Dec{Dr.Cont{}, t}, n, s, vs, cap) == Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Failed{}}} : Dr.Loop}, Dr.Cont{}, Dr.Failed{}, eo, {==})
+        case Dr.Hand{}:
+          pd.out_absurd({Dr.settle(Dr.Dec{Dr.Hand{}, t}, n, s, vs, cap) == Dr.Loop{n, Dr.kept(s, vs, cap), Some{Dr.Failed{}}} : Dr.Loop}, Dr.Hand{}, Dr.Failed{}, eo, {==})
+        case Dr.Failed{}:
+          {==}
+
+# Leads
+# -----
+
+# a Lead that leaves is a Leave, whatever the decision does with leads
+def pd.leave_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: Bool) -> {Dr.decide.go(s, vs, r, False{}) == Dr.decide.go(s, Laws.dir_leads(vs, Dr.Leave{}), r, x) : Dr.Dec}:
+  match s:
+    case Nil{}:
+      {==}
+    case +l <> +rest:
+      match vs:
+        case Nil{}:
+          Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, Nil{}, r, False{}), Dr.decide.go(rest, Nil{}, r, x), pd.leave_as(rest, Nil{}, r, x))
+        case v <> +vr:
+          match v:
+            case Dr.Defer{}:
+              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, False{}), Dr.decide.go(rest, Laws.dir_leads(vr, Dr.Leave{}), r, x), pd.leave_as(rest, vr, r, x))
+            case Dr.Again{}:
+              {==}
+            case Dr.Yield{}:
+              {==}
+            case Dr.Stack{n}:
+              {==}
+            case Dr.Leave{}:
+              pd.leave_as(rest, vr, r, x)
+            case Dr.Abort{}:
+              {==}
+            case Dr.Lead{}:
+              pd.leave_as(rest, vr, r, x)
+
+# a Lead that stays is a Defer, whatever the decision does with leads
+def pd.defer_as(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool, +x: Bool) -> {Dr.decide.go(s, vs, r, True{}) == Dr.decide.go(s, Laws.dir_leads(vs, Dr.Defer{}), r, x) : Dr.Dec}:
+  match s:
+    case Nil{}:
+      {==}
+    case +l <> +rest:
+      match vs:
+        case Nil{}:
+          Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, Nil{}, r, True{}), Dr.decide.go(rest, Nil{}, r, x), pd.defer_as(rest, Nil{}, r, x))
+        case v <> +vr:
+          match v:
+            case Dr.Defer{}:
+              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, True{}), Dr.decide.go(rest, Laws.dir_leads(vr, Dr.Defer{}), r, x), pd.defer_as(rest, vr, r, x))
+            case Dr.Again{}:
+              {==}
+            case Dr.Yield{}:
+              {==}
+            case Dr.Stack{n}:
+              {==}
+            case Dr.Leave{}:
+              pd.defer_as(rest, vr, r, x)
+            case Dr.Abort{}:
+              {==}
+            case Dr.Lead{}:
+              Equal.cong(Dr.Dec, Dr.Dec, d => Dr.under(l, d), Dr.decide.go(rest, vr, r, True{}), Dr.decide.go(rest, Laws.dir_leads(vr, Dr.Defer{}), r, x), pd.defer_as(rest, vr, r, x))
+
+def pd.out_under(+l: Dr.Layer, d: Dr.Dec) -> {Dr.Dec.out(Dr.under(l, d)) == Dr.Dec.out(d) : Dr.Out}:
+  match d:
+    case Dr.Dec{o, s}:
+      {==}
+
+def pd.out_under2(+l: Dr.Layer, +a: Dr.Dec, +b: Dr.Dec, ih: {Dr.Dec.out(a) == Dr.Dec.out(b) : Dr.Out}) -> {Dr.Dec.out(Dr.under(l, a)) == Dr.Dec.out(Dr.under(l, b)) : Dr.Out}:
+  Equal.trans(Dr.Out, Dr.Dec.out(Dr.under(l, a)), Dr.Dec.out(a), Dr.Dec.out(Dr.under(l, b)), pd.out_under(l, a), Equal.trans(Dr.Out, Dr.Dec.out(a), Dr.Dec.out(b), Dr.Dec.out(Dr.under(l, b)), ih, Equal.sym(Dr.Out, Dr.Dec.out(Dr.under(l, b)), Dr.Dec.out(b), pd.out_under(l, b))))
+
+# whether a layer that leads stays or leaves, the outcome is the same
+def pd.out_stay(s: List<&2, Dr.Layer>, vs: List<&2, Dr.Verdict>, +r: Bool) -> {Dr.Dec.out(Dr.decide.go(s, vs, r, True{})) == Dr.Dec.out(Dr.decide.go(s, vs, r, False{})) : Dr.Out}:
+  match s:
+    case Nil{}:
+      {==}
+    case +l <> +rest:
+      match vs:
+        case Nil{}:
+          pd.out_under2(l, Dr.decide.go(rest, Nil{}, r, True{}), Dr.decide.go(rest, Nil{}, r, False{}), pd.out_stay(rest, Nil{}, r))
+        case v <> +vr:
+          match v:
+            case Dr.Defer{}:
+              pd.out_under2(l, Dr.decide.go(rest, vr, r, True{}), Dr.decide.go(rest, vr, r, False{}), pd.out_stay(rest, vr, r))
+            case Dr.Again{}:
+              {==}
+            case Dr.Yield{}:
+              {==}
+            case Dr.Stack{n}:
+              {==}
+            case Dr.Leave{}:
+              pd.out_stay(rest, vr, r)
+            case Dr.Abort{}:
+              {==}
+            case Dr.Lead{}:
+              Equal.trans(Dr.Out, Dr.Dec.out(Dr.under(l, Dr.decide.go(rest, vr, r, True{}))), Dr.Dec.out(Dr.decide.go(rest, vr, r, True{})), Dr.Dec.out(Dr.decide.go(rest, vr, r, False{})), pd.out_under(l, Dr.decide.go(rest, vr, r, True{})), pd.out_stay(rest, vr, r))
+
+# a settle that goes on does not read the verdicts again
+def pd.goon_on(n: Nat, +t: List<&2, Dr.Layer>, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.Verdict>, +vs2: List<&2, Dr.Verdict>, +cap: Nat, on: {Dr.ended(Dr.go.on(n, t, s, vs2, cap)) == False{} : Bool}) -> {Dr.go.on(n, t, s, vs1, cap) == Dr.go.on(n, t, s, vs2, cap) : Dr.Loop}:
+  match n:
+    case 0n:
+      cvar.pv.absurd({Dr.go.on(0n, t, s, vs1, cap) == Dr.go.on(0n, t, s, vs2, cap) : Dr.Loop}, on)
+    case 1n+m:
+      {==}
+
+def pd.settle_on(d: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.Verdict>, +vs2: List<&2, Dr.Verdict>, +cap: Nat, on: {Dr.ended(Dr.settle(d, n, s, vs2, cap)) == False{} : Bool}) -> {Dr.settle(d, n, s, vs1, cap) == Dr.settle(d, n, s, vs2, cap) : Dr.Loop}:
+  match d:
+    case Dr.Dec{o, +t}:
+      match o:
+        case Dr.Cont{}:
+          pd.goon_on(n, t, s, vs1, vs2, cap, on)
+        case Dr.Hand{}:
+          cvar.pv.absurd({Dr.settle(Dr.Dec{Dr.Hand{}, t}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Hand{}, t}, n, s, vs2, cap) : Dr.Loop}, on)
+        case Dr.Failed{}:
+          cvar.pv.absurd({Dr.settle(Dr.Dec{Dr.Failed{}, t}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Failed{}, t}, n, s, vs2, cap) : Dr.Loop}, on)
+
+# a continue that ends reads only the kept stack
+def pd.goon_end(n: Nat, +t1: List<&2, Dr.Layer>, +t2: List<&2, Dr.Layer>, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.Verdict>, +vs2: List<&2, Dr.Verdict>, +vs3: List<&2, Dr.Verdict>, +cap: Nat, ek: {Dr.kept(s, vs1, cap) == Dr.kept(s, vs2, cap) : List<&2, Dr.Layer>}, ends: {Dr.ended(Dr.go.on(n, t1, s, vs3, cap)) == True{} : Bool}) -> {Dr.go.on(n, t1, s, vs1, cap) == Dr.go.on(n, t2, s, vs2, cap) : Dr.Loop}:
+  match n:
+    case 0n:
+      Equal.cong(List<&2, Dr.Layer>, Dr.Loop, k => Dr.Loop{0n, k, Some{Dr.Hand{}}}, Dr.kept(s, vs1, cap), Dr.kept(s, vs2, cap), ek)
+    case 1n+m:
+      tree.pt.absurdF({Dr.go.on(1n+m, t1, s, vs1, cap) == Dr.go.on(1n+m, t2, s, vs2, cap) : Dr.Loop}, ends)
+
+# a settle that ends reads only the outcome and the kept stack
+def pd.settle_end1(o1: Dr.Out, +t1: List<&2, Dr.Layer>, d2: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.Verdict>, +vs2: List<&2, Dr.Verdict>, +vs3: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(Dr.Dec{o1, t1}) == Dr.Dec.out(d2) : Dr.Out}, +ek: {Dr.kept(s, vs1, cap) == Dr.kept(s, vs2, cap) : List<&2, Dr.Layer>}, ends: {Dr.ended(Dr.settle(Dr.Dec{o1, t1}, n, s, vs3, cap)) == True{} : Bool}) -> {Dr.settle(Dr.Dec{o1, t1}, n, s, vs1, cap) == Dr.settle(d2, n, s, vs2, cap) : Dr.Loop}:
+  match o1:
+    case Dr.Cont{}:
+      match d2:
+        case Dr.Dec{o2, +t2}:
+          match o2:
+            case Dr.Cont{}:
+              pd.goon_end(n, t1, t2, s, vs1, vs2, vs3, cap, ek, ends)
+            case Dr.Hand{}:
+              pd.out_absurd({Dr.settle(Dr.Dec{Dr.Cont{}, t1}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Hand{}, t2}, n, s, vs2, cap) : Dr.Loop}, Dr.Cont{}, Dr.Hand{}, eo, {==})
+            case Dr.Failed{}:
+              pd.out_absurd({Dr.settle(Dr.Dec{Dr.Cont{}, t1}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Failed{}, t2}, n, s, vs2, cap) : Dr.Loop}, Dr.Cont{}, Dr.Failed{}, eo, {==})
+    case Dr.Hand{}:
+      match d2:
+        case Dr.Dec{o2, +t2}:
+          match o2:
+            case Dr.Cont{}:
+              pd.out_absurd({Dr.settle(Dr.Dec{Dr.Hand{}, t1}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Cont{}, t2}, n, s, vs2, cap) : Dr.Loop}, Dr.Hand{}, Dr.Cont{}, eo, {==})
+            case Dr.Hand{}:
+              Equal.cong(List<&2, Dr.Layer>, Dr.Loop, k => Dr.Loop{n, k, Some{Dr.Hand{}}}, Dr.kept(s, vs1, cap), Dr.kept(s, vs2, cap), ek)
+            case Dr.Failed{}:
+              pd.out_absurd({Dr.settle(Dr.Dec{Dr.Hand{}, t1}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Failed{}, t2}, n, s, vs2, cap) : Dr.Loop}, Dr.Hand{}, Dr.Failed{}, eo, {==})
+    case Dr.Failed{}:
+      match d2:
+        case Dr.Dec{o2, +t2}:
+          match o2:
+            case Dr.Cont{}:
+              pd.out_absurd({Dr.settle(Dr.Dec{Dr.Failed{}, t1}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Cont{}, t2}, n, s, vs2, cap) : Dr.Loop}, Dr.Failed{}, Dr.Cont{}, eo, {==})
+            case Dr.Hand{}:
+              pd.out_absurd({Dr.settle(Dr.Dec{Dr.Failed{}, t1}, n, s, vs1, cap) == Dr.settle(Dr.Dec{Dr.Hand{}, t2}, n, s, vs2, cap) : Dr.Loop}, Dr.Failed{}, Dr.Hand{}, eo, {==})
+            case Dr.Failed{}:
+              Equal.cong(List<&2, Dr.Layer>, Dr.Loop, k => Dr.Loop{n, k, Some{Dr.Failed{}}}, Dr.kept(s, vs1, cap), Dr.kept(s, vs2, cap), ek)
+
+def pd.settle_end(d1: Dr.Dec, d2: Dr.Dec, +n: Nat, +s: List<&2, Dr.Layer>, +vs1: List<&2, Dr.Verdict>, +vs2: List<&2, Dr.Verdict>, +vs3: List<&2, Dr.Verdict>, +cap: Nat, eo: {Dr.Dec.out(d1) == Dr.Dec.out(d2) : Dr.Out}, +ek: {Dr.kept(s, vs1, cap) == Dr.kept(s, vs2, cap) : List<&2, Dr.Layer>}, ends: {Dr.ended(Dr.settle(d1, n, s, vs3, cap)) == True{} : Bool}) -> {Dr.settle(d1, n, s, vs1, cap) == Dr.settle(d2, n, s, vs2, cap) : Dr.Loop}:
+  match d1:
+    case Dr.Dec{o1, +t1}:
+      pd.settle_end1(o1, t1, d2, n, s, vs1, vs2, vs3, cap, eo, ek, ends)
+
+# an ended settle stays ended for an equal decision
+def pd.ends_eq(-d1: Dr.Dec, -d2: Dr.Dec, e: {d1 == d2 : Dr.Dec}, +n: Nat, +s: List<&2, Dr.Layer>, +vs: List<&2, Dr.Verdict>, +cap: Nat, h: {Dr.ended(Dr.settle(d2, n, s, vs, cap)) == True{} : Bool}) -> {Dr.ended(Dr.settle(d1, n, s, vs, cap)) == True{} : Bool}:
+  %Equal.sym(Dr.Dec, d1, d2, e) : {Dr.ended(Dr.settle(_, n, s, vs, cap)) == True{} : Bool}
+  h
 
 # ---- infer ----
 
@@ -26829,6 +27432,13 @@ def pp.config_needs_yes(es: List<&2, Pp.Put>, +pol: Pp.Pol, +ls: List<&2, Pp.Lin
 # it and it is no provider name; a name that is not a credential passes,
 # and so does a kept name that is no provider name.
 #
+# The model's test runs its checks one by one (`Env.passes`); it equals
+# the test of the laws (`pce.passes_eq`). The overlay over the base: a
+# member of the overlay or of the filtered base is a member of the
+# concatenation and back (`pce.app_in_l`, `pce.app_in_r`, `pce.app_in`);
+# a member of the base reaches the filtered base exactly when the overlay
+# does not name it (`pce.under_in`, `pce.under_out`).
+#
 # A recursive proof takes the value it inspects as a parameter (Bend
 # matches only parameters), with an equation that names it.
 
@@ -26877,6 +27487,48 @@ def pce.or_false(a: Bool, h: {Bool.or(a, False{}) == True{} : Bool}) -> {a == Tr
       {==}
     case False{}:
       pce.absurdF({False{} == True{} : Bool}, h)
+
+# The test of the model is the test of the laws
+# ---------------------------------------------
+
+def pce.and_f(k: Bool) -> {False{} == Bool.and(k, False{}) : Bool}:
+  match k:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pce.and_t2(k: Bool) -> {k == Bool.and(k, True{}) : Bool}:
+  match k:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pce.pat_eq(m: Bool, +keep: List<&2, String>, +n: String) -> {Env.passes.pat(m, keep, n) == Bool.or(Bool.not(m), Bool.and(Env.listed(keep, n), True{})) : Bool}:
+  match m:
+    case True{}:
+      pce.and_t2(Env.listed(keep, n))
+    case False{}:
+      {==}
+
+def pce.reg_eq(l: Bool, +u: String, +keep: List<&2, String>, +n: String) -> {Env.passes.reg(l, u, keep, n) == Bool.or(Bool.not(Bool.or(l, Env.matched(Env.patterns(), u))), Bool.and(Env.listed(keep, n), Bool.not(l))) : Bool}:
+  match l:
+    case True{}:
+      pce.and_f(Env.listed(keep, n))
+    case False{}:
+      pce.pat_eq(Env.matched(Env.patterns(), u), keep, n)
+
+# a name passes exactly when it is no credential, or kept and no provider
+# name
+def pce.passes_eq(+reg: List<&2, String>, +keep: List<&2, String>, +n: String) -> {Env.passes(reg, keep, n) == Bool.or(Bool.not(Env.cred(reg, n)), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n)))) : Bool}:
+  pce.reg_eq(Env.listed(reg, Env.up(n)), Env.up(n), keep, n)
+
+def pce.spec_of(+reg: List<&2, String>, +keep: List<&2, String>, +n: String, h: {Env.passes(reg, keep, n) == True{} : Bool}) -> {Bool.or(Bool.not(Env.cred(reg, n)), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n)))) == True{} : Bool}:
+  Equal.trans(Bool, Bool.or(Bool.not(Env.cred(reg, n)), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n)))), Env.passes(reg, keep, n), True{}, Equal.sym(Bool, Env.passes(reg, keep, n), Bool.or(Bool.not(Env.cred(reg, n)), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n)))), pce.passes_eq(reg, keep, n)), h)
+
+def pce.of_spec(+reg: List<&2, String>, +keep: List<&2, String>, +n: String, h: {Bool.or(Bool.not(Env.cred(reg, n)), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n)))) == True{} : Bool}) -> {Env.passes(reg, keep, n) == True{} : Bool}:
+  Equal.trans(Bool, Env.passes(reg, keep, n), Bool.or(Bool.not(Env.cred(reg, n)), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n)))), True{}, pce.passes_eq(reg, keep, n), h)
 
 # The filter
 # ----------
@@ -26943,6 +27595,25 @@ def pce.in_keep(+reg: List<&2, String>, +ks: List<&2, String>, xs: List<&2, Env.
         case Inr{it}:
           pce.in_put(Env.passes(reg, ks, Env.Var.name(h)), h, Env.keep(reg, ks, t), v, pce.in_keep(reg, ks, t, v, it, p))
 
+# a member of the filtered list is a member of the list
+def pce.put_in(b: Bool, +h: Env.Var, +r: List<&2, Env.Var>, -t: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, Env.keep.put(b, h, r)), ih: Env.In(v, r) -> Env.In(v, t)) -> Env.In(v, h <> t):
+  match b:
+    case True{}:
+      match i:
+        case Inl{eq}:
+          Inl{eq}
+        case Inr{it}:
+          Inr{ih(it)}
+    case False{}:
+      Inr{ih(i)}
+
+def pce.keep_in(+reg: List<&2, String>, +ks: List<&2, String>, xs: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, Env.keep(reg, ks, xs))) -> Env.In(v, xs):
+  match xs:
+    case Nil{}:
+      match i:
+    case +h <> +t:
+      pce.put_in(Env.passes(reg, ks, Env.Var.name(h)), h, Env.keep(reg, ks, t), t, v, i, x => pce.keep_in(reg, ks, t, v, x))
+
 # The test
 # --------
 
@@ -26978,24 +27649,143 @@ def pce.kept(x: Bool, l: Bool, r: Bool, kl: {l == True{} : Bool}, kr: {r == Fals
         case False{}:
           pce.absurdF({Bool.and(False{}, Bool.not(r)) == True{} : Bool}, kl)
 
+# The overlay over the base
+# -------------------------
+
+def pce.app_in_l(xs: List<&2, Env.Var>, +ys: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, xs)) -> Env.In(v, List.append(&2, Env.Var, xs, ys)):
+  match xs:
+    case Nil{}:
+      match i:
+    case +h <> t:
+      match i:
+        case Inl{eq}:
+          Inl{eq}
+        case Inr{it}:
+          Inr{pce.app_in_l(t, ys, v, it)}
+
+def pce.app_in_r(xs: List<&2, Env.Var>, +ys: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, ys)) -> Env.In(v, List.append(&2, Env.Var, xs, ys)):
+  match xs:
+    case Nil{}:
+      i
+    case +h <> t:
+      Inr{pce.app_in_r(t, ys, v, i)}
+
+def pce.or_cons(-h: Env.Var, -t: List<&2, Env.Var>, -ys: List<&2, Env.Var>, -v: Env.Var, o: Or(Env.In(v, t), Env.In(v, ys))) -> Or(Env.In(v, h <> t), Env.In(v, ys)):
+  match o:
+    case Inl{a}:
+      Inl{Inr{a}}
+    case Inr{b}:
+      Inr{b}
+
+def pce.app_in(xs: List<&2, Env.Var>, +ys: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, List.append(&2, Env.Var, xs, ys))) -> Or(Env.In(v, xs), Env.In(v, ys)):
+  match xs:
+    case Nil{}:
+      Inr{i}
+    case +h <> +t:
+      match i:
+        case Inl{eq}:
+          Inl{Inl{eq}}
+        case Inr{it}:
+          pce.or_cons(h, t, ys, v, pce.app_in(t, ys, v, it))
+
+# the spec's name test is the model's
+def pce.named_eq(+n: String, xs: List<&2, Env.Var>) -> {Laws.env_named(n, xs) == Env.named(n, xs) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +w <> rest:
+      Equal.cong(Bool, Bool, x => Bool.or(String.eq(Env.Var.name(w), n), x), Laws.env_named(n, rest), Env.named(n, rest), pce.named_eq(n, rest))
+
+def pce.under_put_in(b: Bool, +h: Env.Var, +r: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, r)) -> Env.In(v, Env.under.put(b, h, r)):
+  match b:
+    case True{}:
+      i
+    case False{}:
+      Inr{i}
+
+# a member of the base the overlay does not name is in the filtered base
+def pce.under_in(base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, base), +free: {Env.named(Env.Var.name(v), over) == False{} : Bool}) -> Env.In(v, Env.under(base, over)):
+  match base:
+    case Nil{}:
+      match i:
+    case +h <> +t:
+      match i:
+        case Inl{eq}:
+          %eq : Env.In(v, Env.under.put(Env.named(Env.Var.name(_), over), _, Env.under(t, over)))
+          %Equal.sym(Bool, Env.named(Env.Var.name(v), over), False{}, free) : Env.In(v, Env.under.put(_, v, Env.under(t, over)))
+          Inl{{==}}
+        case Inr{it}:
+          pce.under_put_in(Env.named(Env.Var.name(h), over), h, Env.under(t, over), v, pce.under_in(t, over, v, it, free))
+
+# a member equal to h has h's name test
+def pce.named_by(+over: List<&2, Env.Var>, -v: Env.Var, -h: Env.Var, eq: {v == h : Env.Var}, eb: {Env.named(Env.Var.name(h), over) == False{} : Bool}) -> {Env.named(Env.Var.name(v), over) == False{} : Bool}:
+  %Equal.sym(Env.Var, v, h, eq) : {Env.named(Env.Var.name(_), over) == False{} : Bool}
+  eb
+
+def pce.pair_inr(-h: Env.Var, -t: List<&2, Env.Var>, -over: List<&2, Env.Var>, -v: Env.Var, p: (Env.In(v, t) & {Env.named(Env.Var.name(v), over) == False{} : Bool})) -> (Env.In(v, h <> t) & {Env.named(Env.Var.name(v), over) == False{} : Bool}):
+  (a, f) = p
+  (Inr{a}, f)
+
+def pce.under_put_out(b: Bool, +h: Env.Var, -t: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, eb: {Env.named(Env.Var.name(h), over) == b : Bool}, i: Env.In(v, Env.under.put(b, h, Env.under(t, over))), ih: Env.In(v, Env.under(t, over)) -> (Env.In(v, t) & {Env.named(Env.Var.name(v), over) == False{} : Bool})) -> (Env.In(v, h <> t) & {Env.named(Env.Var.name(v), over) == False{} : Bool}):
+  match b:
+    case True{}:
+      pce.pair_inr(h, t, over, v, ih(i))
+    case False{}:
+      match i:
+        case Inl{+eq}:
+          (Inl{eq}, pce.named_by(over, v, h, eq, eb))
+        case Inr{it}:
+          pce.pair_inr(h, t, over, v, ih(it))
+
+# a member of the filtered base is a member of the base the overlay does
+# not name
+def pce.under_out(base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, Env.under(base, over))) -> (Env.In(v, base) & {Env.named(Env.Var.name(v), over) == False{} : Bool}):
+  match base:
+    case Nil{}:
+      match i:
+    case +h <> +t:
+      pce.under_put_out(Env.named(Env.Var.name(h), over), h, t, over, v, {==}, i, x => pce.under_out(t, over, v, x))
+
+def pce.spec_free(-base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, p: (Env.In(v, base) & {Env.named(Env.Var.name(v), over) == False{} : Bool})) -> (Env.In(v, base) & {Laws.env_named(Env.Var.name(v), over) == False{} : Bool}):
+  (a, f) = p
+  (a, Equal.trans(Bool, Laws.env_named(Env.Var.name(v), over), Env.named(Env.Var.name(v), over), False{}, pce.named_eq(Env.Var.name(v), over), f))
+
+def pce.from_inputs(+base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, o: Or(Env.In(v, over), Env.In(v, Env.under(base, over)))) -> Or(Env.In(v, over), (Env.In(v, base) & {Laws.env_named(Env.Var.name(v), over) == False{} : Bool})):
+  match o:
+    case Inl{a}:
+      Inl{a}
+    case Inr{b}:
+      Inr{pce.spec_free(base, over, v, pce.under_out(base, over, v, b))}
+
+def pce.not_both(-G: Type, -base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, p: (Env.In(v, base) & {Env.named(Env.Var.name(v), over) == False{} : Bool}), hit: {Env.named(Env.Var.name(v), over) == True{} : Bool}) -> G:
+  (a, f) = p
+  pce.absurd(G, Equal.trans(Bool, True{}, Env.named(Env.Var.name(v), over), False{}, Equal.sym(Bool, Env.named(Env.Var.name(v), over), True{}, hit), f))
+
+def pce.over_of(+base: List<&2, Env.Var>, +over: List<&2, Env.Var>, +v: Env.Var, o: Or(Env.In(v, over), Env.In(v, Env.under(base, over))), hit: {Env.named(Env.Var.name(v), over) == True{} : Bool}) -> Env.In(v, over):
+  match o:
+    case Inl{a}:
+      a
+    case Inr{b}:
+      pce.not_both(Env.In(v, over), base, over, v, pce.under_out(base, over, v, b), hit)
+
 # The laws
 # --------
 
 def pce.env_drops_credentials(+reg: List<&2, String>, base: List<&2, Env.Var>, over: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, Env.child(reg, Nil{}, base, over))) -> {Env.cred(reg, Env.Var.name(v)) == False{} : Bool}:
   +n = Env.Var.name(v)
-  pce.not_t(Env.cred(reg, n), pce.or_false(Bool.not(Env.cred(reg, n)), pce.child_passes(reg, Nil{}, Env.merge(base, over), v, i)))
+  pce.not_t(Env.cred(reg, n), pce.or_false(Bool.not(Env.cred(reg, n)), pce.spec_of(reg, Nil{}, n, pce.child_passes(reg, Nil{}, Env.merge(base, over), v, i))))
 
 def pce.env_kernel_keeps_only_listed(+reg: List<&2, String>, +keep: List<&2, String>, base: List<&2, Env.Var>, over: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, Env.child(reg, keep, base, over)), c: {Env.cred(reg, Env.Var.name(v)) == True{} : Bool}) -> ({Env.listed(keep, Env.Var.name(v)) == True{} : Bool} & {Env.registered(reg, Env.Var.name(v)) == False{} : Bool}):
   +n = Env.Var.name(v)
-  pce.only(Env.cred(reg, n), Env.listed(keep, n), Env.registered(reg, n), c, pce.child_passes(reg, keep, Env.merge(base, over), v, i))
+  pce.only(Env.cred(reg, n), Env.listed(keep, n), Env.registered(reg, n), c, pce.spec_of(reg, keep, n, pce.child_passes(reg, keep, Env.merge(base, over), v, i)))
 
 def pce.env_keeps_the_rest(+reg: List<&2, String>, +keep: List<&2, String>, base: List<&2, Env.Var>, over: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, Env.merge(base, over)), c: {Env.cred(reg, Env.Var.name(v)) == False{} : Bool}) -> Env.In(v, Env.child(reg, keep, base, over)):
   +n = Env.Var.name(v)
-  pce.in_keep(reg, keep, Env.merge(base, over), v, i, pce.rest(Env.cred(reg, n), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n))), c))
+  pce.in_keep(reg, keep, Env.merge(base, over), v, i, pce.of_spec(reg, keep, n, pce.rest(Env.cred(reg, n), Bool.and(Env.listed(keep, n), Bool.not(Env.registered(reg, n))), c)))
 
 def pce.env_keeps_listed(+reg: List<&2, String>, +keep: List<&2, String>, base: List<&2, Env.Var>, over: List<&2, Env.Var>, +v: Env.Var, i: Env.In(v, Env.merge(base, over)), k: {Env.listed(keep, Env.Var.name(v)) == True{} : Bool}, r: {Env.registered(reg, Env.Var.name(v)) == False{} : Bool}) -> Env.In(v, Env.child(reg, keep, base, over)):
   +n = Env.Var.name(v)
-  pce.in_keep(reg, keep, Env.merge(base, over), v, i, pce.kept(Bool.not(Env.cred(reg, n)), Env.listed(keep, n), Env.registered(reg, n), k, r))
+  pce.in_keep(reg, keep, Env.merge(base, over), v, i, pce.of_spec(reg, keep, n, pce.kept(Bool.not(Env.cred(reg, n)), Env.listed(keep, n), Env.registered(reg, n), k, r)))
 
 # ---- shell ----
 
@@ -32481,25 +33271,44 @@ def Laws.cvar_toggle_twice(ds, cfg, fam, a, x):
   pv.cvar_toggle_twice(ds, cfg, fam, a, x)
 
 def Laws.alias_expands_fully(cs, as):
-  pv.alias_expands_fully(cs, as)
+  pv.expand_plain(1n+List.length(&2, Cv.Alias, as), cs, as)
 
 def Laws.alias_self_cycle(n, as):
-  pv.alias_self_cycle(n, as)
+  +t = {Cv.Alias{n, [Cv.CRun{n}]} <> as : List<&2, Cv.Alias>}
+  %Equal.sym(Cv.Exp, Cv.expand.go(1n+List.length(&2, Cv.Alias, t), [Cv.CRun{n}], t, Cv.Flat{Nil{}}), Cv.Cycle{n}, pv.self(1n+List.length(&2, Cv.Alias, t), n, as, Nil{})) : {Cv.fin(_) == Cv.Cycle{n} : Cv.Exp}
+  {==}
 
 def Laws.alias_unknown_reported(n, as, gone):
-  pv.alias_unknown_reported(n, as, gone)
+  +k = List.length(&2, Cv.Alias, as)
+  %Equal.sym(List<&2, Cv.Cmd>, Cv.body(as, n), [Cv.CGone{n}], gone) : {Cv.fin(Cv.expand.go(k, _, as, Cv.Flat{Nil{}})) == Cv.Unknown{n} : Cv.Exp}
+  %Equal.sym(Cv.Exp, Cv.expand.go(k, [Cv.CGone{n}], as, Cv.Flat{Nil{}}), Cv.Unknown{n}, pv.gone(k, n, as, Nil{})) : {Cv.fin(_) == Cv.Unknown{n} : Cv.Exp}
+  {==}
 
 def Laws.alias_runs_body(n, b, as, flat):
-  pv.alias_runs_body(n, b, as, flat)
+  +t = {Cv.Alias{n, b} <> as : List<&2, Cv.Alias>}
+  +k = List.length(&2, Cv.Alias, t)
+  %Equal.sym(List<&2, Cv.Cmd>, Cv.body(t, n), b, pv.body_head(n, b, as)) : {Cv.fin(Cv.expand.go(k, _, t, Cv.Flat{Nil{}})) == Cv.Flat{b} : Cv.Exp}
+  %Equal.sym(Cv.Exp, Cv.expand.go(k, b, t, Cv.Flat{Nil{}}), Cv.Flat{Cv.rev(b, Nil{})}, pv.flat(b, k, t, Nil{}, flat)) : {Cv.fin(_) == Cv.Flat{b} : Cv.Exp}
+  Equal.cong(List<&2, Cv.Cmd>, Cv.Exp, l => Cv.Flat{l}, Cv.rev(Cv.rev(b, Nil{}), Nil{}), b, Equal.trans(List<&2, Cv.Cmd>, Cv.rev(Cv.rev(b, Nil{}), Nil{}), List.append(&2, Cv.Cmd, b, Nil{}), b, pv.rev_rev(b, Nil{}, Nil{}), pv.app_nil(b)))
 
 def Laws.bind_press_plain(bs, k, as):
-  pv.bind_press_plain(bs, k, as)
+  pv.expand_plain(1n+List.length(&2, Cv.Alias, as), Cv.bound(bs, k), as)
 
 def Laws.bind_unbound_runs_nothing(bs, k, as, free):
-  pv.bind_unbound_runs_nothing(bs, k, as, free)
+  %Equal.sym(List<&2, Cv.Cmd>, Cv.bound(bs, k), Nil{}, free) : {Cv.expand(_, as) == Cv.Flat{Nil{}} : Cv.Exp}
+  {==}
 
 def Laws.bind_first_wins(k, c, rest, as):
-  pv.bind_first_wins(k, c, rest, as)
+  %cvar.pv.eq_refl(k) : {Cv.expand(Cv.bound.go(Cv.KeyBind{k, c} <> rest, k, _), as) == Cv.expand(c, as) : Cv.Exp}
+  {==}
+
+def Laws.alias_expands_in_order(cs, more, as):
+  +d = {1n+List.length(&2, Cv.Alias, as) : Nat}
+  %Equal.sym(Cv.Exp, Cv.expand.go(d, List.append(&2, Cv.Cmd, cs, more), as, Cv.Flat{Nil{}}), Cv.expand.go(d, more, as, Cv.expand.go(d, cs, as, Cv.Flat{Nil{}})), pv.go_app(d, cs, more, as, Cv.Flat{Nil{}})) : {Cv.fin(_) == Laws.cvar_cat(Cv.expand(cs, as), Cv.expand(more, as)) : Cv.Exp}
+  pv.in_order(Cv.expand.go(d, cs, as, Cv.Flat{Nil{}}), d, more, as)
+
+def Laws.alias_expand_example():
+  {==}
 
 # (S5) The Director stack
 
@@ -32523,6 +33332,99 @@ def Laws.dir_resume_restores(s):
 
 def Laws.dir_rewind_restores(a, s, good):
   pd.dir_rewind_restores(a, s, good)
+
+def Laws.dir_go_empty(vs, room, stay):
+  {==}
+
+def Laws.dir_go_unjudged(l, rest, room, stay):
+  pd.on_top(l, Dr.decide.go(rest, Nil{}, room, stay))
+
+def Laws.dir_go_defer(l, rest, vs, room, stay):
+  pd.on_top(l, Dr.decide.go(rest, vs, room, stay))
+
+def Laws.dir_go_leave(l, rest, vs, room, stay):
+  {==}
+
+def Laws.dir_go_lead_stays(l, rest, vs, room):
+  pd.on_top(l, Dr.decide.go(rest, vs, room, True{}))
+
+def Laws.dir_go_lead_leaves(l, rest, vs, room):
+  {==}
+
+def Laws.dir_go_yield(l, rest, vs, room, stay):
+  {==}
+
+def Laws.dir_go_abort(l, rest, vs, room, stay):
+  {==}
+
+def Laws.dir_go_again(k, b, rest, vs, room, stay):
+  {==}
+
+def Laws.dir_go_again_spent(k, rest, vs, room, stay):
+  {==}
+
+def Laws.dir_go_push(k, b, n, rest, vs, stay):
+  {==}
+
+def Laws.dir_go_push_full(k, b, n, rest, vs, stay):
+  {==}
+
+def Laws.dir_go_push_spent(k, n, rest, vs, room, stay):
+  {==}
+
+def Laws.dir_room(s, vs, cap, stay):
+  {==}
+
+def Laws.dir_decide_goes_on(s, vs, cap):
+  {==}
+
+def Laws.dir_tick_goes_on(cap, n, s, vs, t, go):
+  %Equal.sym(Dr.Dec, Dr.decide(s, vs, cap), Dr.Dec{Dr.Cont{}, t}, go) : {Dr.settle(_, 1n+n, s, vs, cap) == Dr.Loop{n, t, None{}} : Dr.Loop}
+  {==}
+
+def Laws.dir_tick_out_of_steps(cap, s, vs, go):
+  pd.settle_cont0(Dr.decide(s, vs, cap), s, vs, cap, go)
+
+def Laws.dir_tick_hands_back(cap, n, s, vs, h):
+  pd.settle_hand(Dr.decide(s, vs, cap), n, s, vs, cap, h)
+
+def Laws.dir_tick_fails(cap, n, s, vs, f):
+  pd.settle_failed(Dr.decide(s, vs, cap), n, s, vs, cap, f)
+
+def Laws.dir_lead_leaves_with_the_continuation(cap, l, vs, on):
+  match l:
+    case Dr.Loop{+n, +s, e}:
+      match e:
+        case None{}:
+          +L = Laws.dir_leads(vs, Dr.Leave{})
+          +r = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
+          %Equal.sym(Dr.Dec, Dr.decide.go(s, vs, r, False{}), Dr.decide.go(s, L, r, False{}), pd.leave_as(s, vs, r, False{})) : {Dr.settle(_, n, s, vs, cap) == Dr.settle(Dr.decide(s, L, cap), n, s, L, cap) : Dr.Loop}
+          pd.settle_on(Dr.decide(s, L, cap), n, s, vs, L, cap, on)
+        case Some{x}:
+          {==}
+
+def Laws.dir_lead_stays_when_the_loop_ends(cap, l, vs, ends):
+  match l:
+    case Dr.Loop{+n, +s, e}:
+      match e:
+        case None{}:
+          +L = Laws.dir_leads(vs, Dr.Leave{})
+          +Df = Laws.dir_leads(vs, Dr.Defer{})
+          +r = Nat.is_lt(List.length(&2, Dr.Layer, s), cap)
+          +D = Dr.decide.go(s, vs, r, False{})
+          +E = Dr.decide.go(s, vs, r, True{})
+          +eo = Equal.trans(Dr.Out, Dr.Dec.out(D), Dr.Dec.out(E), Dr.Dec.out(Dr.decide.go(s, Df, r, False{})), Equal.sym(Dr.Out, Dr.Dec.out(E), Dr.Dec.out(D), pd.out_stay(s, vs, r)), Equal.cong(Dr.Dec, Dr.Out, d => Dr.Dec.out(d), E, Dr.decide.go(s, Df, r, False{}), pd.defer_as(s, vs, r, False{})))
+          +ek = Equal.cong(Dr.Dec, List<&2, Dr.Layer>, d => Dr.Dec.stack(d), E, Dr.decide.go(s, Df, r, True{}), pd.defer_as(s, vs, r, True{}))
+          +ends2 = pd.ends_eq(D, Dr.decide.go(s, L, r, False{}), pd.leave_as(s, vs, r, False{}), n, s, L, cap, ends)
+          pd.settle_end(Dr.decide(s, vs, cap), Dr.decide(s, Df, cap), n, s, vs, Df, L, cap, eo, ek, ends2)
+        case Some{x}:
+          {==}
+
+def Laws.dir_lead_goes_example():
+  {==}
+
+def Laws.dir_lead_stays_example():
+  {==}
 
 # (S6) The inference layer
 
@@ -33277,6 +34179,38 @@ def Laws.env_keeps_the_rest(reg, keep, base, over, v, i, c):
 
 def Laws.env_keeps_listed(reg, keep, base, over, v, i, k, r):
   pce.env_keeps_listed(reg, keep, base, over, v, i, k, r)
+
+def Laws.env_child_from_merge(reg, keep, base, over, v, i):
+  pce.keep_in(reg, keep, Env.merge(base, over), v, i)
+
+def Laws.env_overlay_in_merge(base, over, v, i):
+  pce.app_in_l(over, Env.under(base, over), v, i)
+
+def Laws.env_base_in_merge(base, over, v, i, free):
+  +n = Env.Var.name(v)
+  pce.app_in_r(over, Env.under(base, over), v, pce.under_in(base, over, v, i, Equal.trans(Bool, Env.named(n, over), Laws.env_named(n, over), False{}, Equal.sym(Bool, Laws.env_named(n, over), Env.named(n, over), pce.named_eq(n, over)), free)))
+
+def Laws.env_merge_named_from_overlay(base, over, v, i, hit):
+  +n = Env.Var.name(v)
+  pce.over_of(base, over, v, pce.app_in(over, Env.under(base, over), v, i), Equal.trans(Bool, Env.named(n, over), Laws.env_named(n, over), True{}, Equal.sym(Bool, Laws.env_named(n, over), Env.named(n, over), pce.named_eq(n, over)), hit))
+
+def Laws.env_merge_from_inputs(base, over, v, i):
+  pce.from_inputs(base, over, v, pce.app_in(over, Env.under(base, over), v, i))
+
+def Laws.env_cred_example():
+  {==}
+
+def Laws.env_not_cred_example():
+  {==}
+
+def Laws.env_registry_example():
+  {==}
+
+def Laws.env_step_example():
+  {==}
+
+def Laws.env_kernel_example():
+  {==}
 
 # (G2) Shell classification
 
