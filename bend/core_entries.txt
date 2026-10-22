@@ -9,7 +9,10 @@
 5 default_model
 6 doc_lines
 7 doc_seen
-8 job
-9 progress
-10 sandbox
-11 workflow
+8 effort
+9 facts
+10 infer
+11 job
+12 progress
+13 sandbox
+14 workflow

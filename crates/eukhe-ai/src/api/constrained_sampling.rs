@@ -3,6 +3,8 @@
 
 use std::collections::HashSet;
 
+use eukhe_bend::wire::{Reader, Writer};
+use eukhe_bend::Entry;
 use eukhe_types::pi_ai::{
     ConstrainedSamplingConfig, GrammarFormat, IndexMap, JsonObject, JsonSchemaStrictness,
     JsonValue, Tool, ToolConstrainedSampling,
@@ -482,21 +484,45 @@ pub struct StrictCandidate {
 /// The index of a loose candidate that is `required` (the first, highest
 /// priority first), when there is one (LAWS.bend `plan_*`).
 pub fn strict_plan(candidates: &[StrictCandidate], cap: Option<u32>) -> Result<Vec<bool>, usize> {
-    let mut loose = vec![false; candidates.len()];
-    let Some(cap) = cap else {
-        return Ok(loose);
-    };
-    let mut ranked: Vec<usize> = (0..candidates.len()).collect();
-    // Stable: equal priorities keep their given order.
-    ranked.sort_by(|&left, &right| candidates[right].priority.cmp(&candidates[left].priority));
-    let kept = usize::try_from(cap).map_or(ranked.len(), |cap| cap.min(ranked.len()));
-    for &index in &ranked[kept..] {
-        if candidates[index].required {
-            return Err(index);
+    let answer = || -> Result<Result<Vec<bool>, usize>, eukhe_bend::Error> {
+        let mut writer = Writer::new();
+        match cap {
+            None => writer.none(),
+            Some(cap) => writer.some().u32(cap),
+        };
+        writer.count(candidates.len());
+        for (id, candidate) in candidates.iter().enumerate() {
+            writer.count(id).u32(candidate.priority);
         }
-        loose[index] = true;
-    }
-    Ok(loose)
+        writer.count(
+            candidates
+                .iter()
+                .filter(|candidate| candidate.required)
+                .count(),
+        );
+        for (id, candidate) in candidates.iter().enumerate() {
+            if candidate.required {
+                writer.count(id);
+            }
+        }
+        let reply = eukhe_bend::call(Entry::Infer, &writer.finish()?)?;
+        let mut reader = Reader::reply(&reply)?;
+        let plan = if reader.tag_of(2, "a strict plan")? == 0 {
+            // An id names a tool of the request: below its count (a request
+            // never holds u32::MAX tools).
+            let tools = u32::try_from(candidates.len()).unwrap_or(u32::MAX);
+            let mut loose = vec![false; candidates.len()];
+            for _ in 0..reader.count()? {
+                loose[reader.tag_of(tools, "the id of a tool of the request")? as usize] = true;
+            }
+            Ok(loose)
+        } else {
+            Err(reader.count()?)
+        };
+        reader.end()?;
+        Ok(plan)
+    };
+    eukhe_bend::expect_core(Entry::Infer, answer())
 }
 
 /// The strict schemas of one request under its budget ([`strict_plan`]
@@ -676,36 +702,6 @@ mod tests {
             priority,
             ..tool(&json!({ "type": "object", "properties": {} }), strict)
         }
-    }
-
-    #[test]
-    fn the_strict_plan_keeps_the_highest_priorities_and_the_earlier_of_equals() {
-        let prefer = |priorities: &[u32]| -> Vec<StrictCandidate> {
-            priorities
-                .iter()
-                .map(|&priority| StrictCandidate {
-                    priority,
-                    required: false,
-                })
-                .collect()
-        };
-        assert_eq!(
-            strict_plan(&prefer(&[1, 3, 3, 2]), None),
-            Ok(vec![false; 4])
-        );
-        assert_eq!(
-            strict_plan(&prefer(&[1, 3, 3, 2]), Some(2)),
-            Ok(vec![true, false, false, true])
-        );
-        assert_eq!(
-            strict_plan(&prefer(&[0, 0, 0]), Some(1)),
-            Ok(vec![false, true, true])
-        );
-        assert_eq!(
-            strict_plan(&prefer(&[1, 2, 1]), Some(2)),
-            Ok(vec![false, false, true])
-        );
-        assert_eq!(strict_plan(&prefer(&[5, 4]), Some(0)), Ok(vec![true, true]));
     }
 
     #[test]

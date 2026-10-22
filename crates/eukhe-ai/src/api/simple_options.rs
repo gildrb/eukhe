@@ -6,8 +6,11 @@ use eukhe_types::pi_ai::{
     TranscriptContext,
 };
 
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
+use eukhe_bend::Entry;
+
 use crate::models::clamp_thinking_level;
-use crate::quirks::Rulebook;
+use crate::quirks::{LevelBudgets, Rulebook};
 use crate::types::{SimpleStreamOptions, StreamOptions};
 use crate::utils::estimate::estimate_context_tokens;
 
@@ -133,30 +136,106 @@ pub fn clamp_reasoning(effort: Option<ThinkingLevel>) -> Option<ThinkingLevel> {
     }
 }
 
+/// A budget, cap or size on the wire of the compiled budget rules: held at
+/// the wire's largest Nat ([`NAT_MAX`], 10^14 - 1). Holding a budget or a
+/// caller's cap there changes no fit while the model's cap is below it
+/// (LAWS.bend `facts_fit_saturated_budget`, `facts_fit_saturated_caller`).
+fn saturated(n: u64) -> u64 {
+    n.min(NAT_MAX)
+}
+
+/// A request's level on the wire (model `Fx.ELv`).
+const fn level_tag(level: ThinkingLevel) -> u32 {
+    match level {
+        ThinkingLevel::Minimal => 0,
+        ThinkingLevel::Low => 1,
+        ThinkingLevel::Medium => 2,
+        ThinkingLevel::High => 3,
+        ThinkingLevel::Xhigh => 4,
+        ThinkingLevel::Max => 5,
+    }
+}
+
+/// The user's `thinkingBudgets` on the wire (model `Fx.Customs`).
+pub(crate) fn write_customs(writer: &mut Writer, custom: Option<&ThinkingBudgets>) {
+    let levels = custom.map_or([None; 4], |budgets| {
+        [budgets.minimal, budgets.low, budgets.medium, budgets.high]
+    });
+    for budget in levels {
+        match budget {
+            None => writer.none(),
+            Some(budget) => writer.some().nat(saturated(budget)),
+        };
+    }
+}
+
+/// A budget table on the wire (model `Fx.Budgets`).
+pub(crate) fn write_budgets(writer: &mut Writer, budgets: &LevelBudgets) {
+    for budget in [budgets.minimal, budgets.low, budgets.medium, budgets.high] {
+        writer.nat(saturated(budget));
+    }
+}
+
+/// One call of the compiled budget rules (`bend/ffi_facts.bend`): the
+/// request `tag` with `write`'s fields, the reply by `read`.
+pub(crate) fn budgets_call<T>(
+    tag: u32,
+    write: impl FnOnce(&mut Writer),
+    read: impl FnOnce(&mut Reader<'_>) -> Result<T, WireError>,
+) -> Result<T, eukhe_bend::Error> {
+    let mut writer = Writer::new();
+    writer.tag(tag);
+    write(&mut writer);
+    let reply = eukhe_bend::call(Entry::Facts, &writer.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let value = read(&mut reader)?;
+    reader.end()?;
+    Ok(value)
+}
+
+/// A Nat of a budget reply.
+fn read_nat(reader: &mut Reader<'_>) -> Result<u64, WireError> {
+    reader.nat()
+}
+
 /// Token budget of a thinking level: the custom budget of the level, else
 /// the quirks rulebook's default budget (`thinking_defaults.budgets`).
-/// `xhigh` and `max` take the `high` budget.
+/// `xhigh` and `max` take the `high` budget (model `Fx.budget`, LAWS.bend
+/// `facts_budget_*`).
 #[must_use]
 pub fn thinking_budget_for_level(
     reasoning_level: ThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
 ) -> u64 {
     let defaults = Rulebook::shipped().thinking_defaults().budgets;
-    let (custom, default) = match clamp_reasoning(Some(reasoning_level)) {
-        Some(ThinkingLevel::Minimal) => (custom_budgets.and_then(|b| b.minimal), defaults.minimal),
-        Some(ThinkingLevel::Low) => (custom_budgets.and_then(|b| b.low), defaults.low),
-        Some(ThinkingLevel::Medium) => (custom_budgets.and_then(|b| b.medium), defaults.medium),
-        Some(ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max) | None => {
-            (custom_budgets.and_then(|b| b.high), defaults.high)
-        }
-    };
-    custom.unwrap_or(default)
+    let budget = budgets_call(
+        0,
+        |writer| {
+            writer.tag(level_tag(reasoning_level));
+            write_customs(writer, custom_budgets);
+            write_budgets(writer, &defaults);
+        },
+        read_nat,
+    );
+    eukhe_bend::expect_core(Entry::Facts, budget)
 }
 
-/// Cap a thinking budget so at least [`MIN_ANSWER_TOKENS`] remain under a shared response ceiling.
+/// Cap a thinking budget so at least [`MIN_ANSWER_TOKENS`] remain under a
+/// shared response ceiling (model `Fx.room`, LAWS.bend
+/// `facts_room_leaves_the_answer`).
 #[must_use]
 pub fn clamp_thinking_budget_to_answer_room(thinking_budget: u64, ceiling: u64) -> u64 {
-    thinking_budget.min(ceiling.saturating_sub(MIN_ANSWER_TOKENS))
+    let budget = budgets_call(
+        1,
+        |writer| {
+            writer
+                .nat(saturated(thinking_budget))
+                .nat(saturated(ceiling))
+                .nat(MIN_ANSWER_TOKENS);
+        },
+        read_nat,
+    );
+    eukhe_bend::expect_core(Entry::Facts, budget)
 }
 
 /// Result of [`adjust_max_tokens_for_thinking`].
@@ -166,9 +245,9 @@ pub struct ThinkingTokens {
     pub thinking_budget: u64,
 }
 
-/// Fit a thinking budget inside the response ceiling. `base_max_tokens`
-/// `None` means no explicit caller cap: use the model cap and fit thinking
-/// inside it.
+/// Fit a thinking budget inside the response ceiling (model `Fx.adjust`,
+/// LAWS.bend `facts_fit_*`). `base_max_tokens` `None` means no explicit
+/// caller cap: use the model cap and fit thinking inside it.
 #[must_use]
 pub fn adjust_max_tokens_for_thinking(
     base_max_tokens: Option<u64>,
@@ -176,15 +255,48 @@ pub fn adjust_max_tokens_for_thinking(
     reasoning_level: ThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
 ) -> ThinkingTokens {
-    let mut thinking_budget = thinking_budget_for_level(reasoning_level, custom_budgets);
-    let max_tokens = base_max_tokens.map_or(model_max_tokens, |base| {
-        base.saturating_add(thinking_budget).min(model_max_tokens)
-    });
-    if max_tokens <= thinking_budget {
-        thinking_budget = clamp_thinking_budget_to_answer_room(thinking_budget, max_tokens);
-    }
-    ThinkingTokens {
-        max_tokens,
-        thinking_budget,
-    }
+    let defaults = Rulebook::shipped().thinking_defaults().budgets;
+    let fit = budgets_call(
+        2,
+        |writer| {
+            match base_max_tokens {
+                None => writer.none(),
+                Some(base) => writer.some().nat(saturated(base)),
+            };
+            writer
+                .nat(saturated(model_max_tokens))
+                .tag(level_tag(reasoning_level));
+            write_customs(writer, custom_budgets);
+            write_budgets(writer, &defaults);
+            writer.nat(MIN_ANSWER_TOKENS);
+        },
+        |reader| {
+            Ok(ThinkingTokens {
+                max_tokens: reader.nat()?,
+                thinking_budget: reader.nat()?,
+            })
+        },
+    );
+    eukhe_bend::expect_core(Entry::Facts, fit)
+}
+
+/// The output cap of an auxiliary call (the compactor's): the `high`
+/// thinking budget (the user's, else the rulebook's default) plus
+/// [`MIN_ANSWER_TOKENS`] for the answer, so the cap minus the budget is
+/// always the answer's room (model `Fx.aux`, LAWS.bend
+/// `facts_aux_cap_within`, `facts_aux_cap_answer_room`; held at
+/// [`NAT_MAX`]).
+#[must_use]
+pub fn aux_output_cap(custom_budgets: Option<&ThinkingBudgets>) -> u64 {
+    let defaults = Rulebook::shipped().thinking_defaults().budgets;
+    let cap = budgets_call(
+        4,
+        |writer| {
+            write_customs(writer, custom_budgets);
+            write_budgets(writer, &defaults);
+            writer.nat(MIN_ANSWER_TOKENS).nat(NAT_MAX);
+        },
+        read_nat,
+    );
+    eukhe_bend::expect_core(Entry::Facts, cap)
 }

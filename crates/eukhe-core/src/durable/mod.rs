@@ -17,8 +17,6 @@ mod digest;
 pub mod directors;
 mod discovery;
 pub mod documents;
-#[cfg(test)]
-mod effort_bridge;
 mod entries;
 mod env;
 mod export;

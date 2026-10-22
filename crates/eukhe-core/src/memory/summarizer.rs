@@ -8,7 +8,7 @@
 //! picking another one. The request runs through the durable model
 //! collection ([`crate::durable::create_models`]), which serves the
 //! registered pi-ai models only. It asks for at most the cap of
-//! [`thinking_output_cap`], and a dropped call cancels it.
+//! [`aux_output_cap`], and a dropped call cancels it.
 //!
 //! Every request first takes a background slot of its provider from the
 //! same admission authority as the sessions' requests
@@ -24,7 +24,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eukhe_ai::api::simple_options::{thinking_budget_for_level, MIN_ANSWER_TOKENS};
+use eukhe_ai::api::simple_options::aux_output_cap;
 use eukhe_ai::models::ModelsSimpleStreamOptions;
 use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
 use eukhe_chord::context::AbortController;
@@ -41,31 +41,20 @@ use crate::admission::{local_admission, AdmissionHandle, AdmissionRequest, Queue
 /// calls.
 const COMPACTOR_SESSION: &str = "chat-memory-compactor";
 
-/// The output cap of a call that may think: its thinking budget plus its
-/// answer size. The compactor uses the `high` budget of the user's
-/// `thinkingBudgets` (the providers' default when it is not set) and
-/// [`MIN_ANSWER_TOKENS`] for its answer (a line of [`super::NODE`] bytes):
-/// so the cap minus the budget is always the answer size. The model's own
-/// output budget, often many times larger, would let one call run on for
-/// minutes or hours; a smaller one still applies.
-pub(crate) fn thinking_output_cap(thinking_budget: u64, answer_tokens: u64) -> u64 {
-    thinking_budget.saturating_add(answer_tokens)
-}
-
-/// The options of one compactor request: the cap of
-/// [`thinking_output_cap`] (or the model's own output budget when it is
-/// smaller; a model budget of 0 names none), the `memory.thinking` effort,
-/// and the user's `thinkingBudgets`, which the provider then fits into the
-/// cap.
+/// The options of one compactor request: the cap of [`aux_output_cap`]
+/// (the `high` budget of the user's `thinkingBudgets`, the providers'
+/// default when it is not set, plus the answer's room, a line of
+/// [`super::NODE`] bytes; the model's own output budget, often many times
+/// larger, would let one call run on for minutes or hours), or the model's
+/// own output budget when it is smaller (a model budget of 0 names none);
+/// the `memory.thinking` effort; and the user's `thinkingBudgets`, which
+/// the provider then fits into the cap.
 fn request_options(
     model_max_tokens: u64,
     thinking: ModelThinkingLevel,
     thinking_budgets: Option<ThinkingBudgets>,
 ) -> SimpleStreamOptions {
-    let cap = thinking_output_cap(
-        thinking_budget_for_level(pi_ai::ThinkingLevel::High, thinking_budgets.as_ref()),
-        MIN_ANSWER_TOKENS,
-    );
+    let cap = aux_output_cap(thinking_budgets.as_ref());
     SimpleStreamOptions {
         stream: StreamOptions {
             session_id: Some(COMPACTOR_SESSION.to_string()),
@@ -355,6 +344,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use eukhe_ai::api::simple_options::MIN_ANSWER_TOKENS;
     use eukhe_types::pi_ai::{
         AssistantContentBlock, AssistantMessage, Message, UserContent, UserMessage,
     };

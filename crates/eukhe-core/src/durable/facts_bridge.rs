@@ -14,12 +14,10 @@
 //!   [`uses_google_thinking_level`]); the Bend side looks the same query up
 //!   in the table. A decision from anything but the table (a model id test)
 //!   makes the two differ.
-//! - Budgets: [`google_thinking_budget`] against the rule of the model's
-//!   family in the table, [`adjust_max_tokens_for_thinking`],
-//!   [`clamp_thinking_budget_to_answer_room`], the compactor's
-//!   [`thinking_output_cap`], the Bedrock effort
-//!   ([`map_thinking_level_to_effort`]) against the model's thinking-level
-//!   map, and the shipped default budgets against the old Bedrock table.
+//! - Effort: the Bedrock effort ([`map_thinking_level_to_effort`]) against
+//!   the model's thinking-level map, and the shipped default budgets against
+//!   the old Bedrock table. (The thinking budgets themselves run as the
+//!   compiled model, `bend/ffi_facts.bend`.)
 //! - Prices: [`service_tier_multiplier`] for every model of the `OpenAI` wire
 //!   APIs and every tier against the `service_tier_prices` rows of its
 //!   provider and API (read as data), and the 1h cache write rate of
@@ -34,25 +32,16 @@ use std::fmt::Write as _;
 use eukhe_ai::api::bedrock_converse_stream::{
     map_thinking_level_to_effort, supports_prompt_caching,
 };
-use eukhe_ai::api::google_shared::{
-    google_thinking_budget, uses_google_thinking_level, ResolvedGoogleThinkingLevel,
-};
+use eukhe_ai::api::google_shared::uses_google_thinking_level;
 use eukhe_ai::api::openai_responses_shared::supports_explicit_cache_breakpoints;
-use eukhe_ai::api::simple_options::{
-    adjust_max_tokens_for_thinking, clamp_thinking_budget_to_answer_room, MIN_ANSWER_TOKENS,
-};
 use eukhe_ai::models::{adaptive_thinking, calculate_cost, thinking_level_map};
 use eukhe_ai::quirks::{
     cache_write_1h_multiplier, service_tier_multiplier, Directive, Layer, LevelBudgets, Quirks,
     Rulebook,
 };
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
-use eukhe_types::pi_ai::{
-    Model, ModelThinkingLevel, ProviderEnv, ThinkingBudgets, ThinkingLevel, Usage,
-};
+use eukhe_types::pi_ai::{Model, ModelThinkingLevel, ProviderEnv, ThinkingLevel, Usage};
 use serde_json::{json, Value};
-
-use crate::memory::thinking_output_cap;
 
 /// The shipped rulebook, read as data.
 const RULEBOOK: &str = include_str!("../../../eukhe-ai/src/quirks/rulebook.json");
@@ -216,39 +205,6 @@ fn decision_scenario() -> Scenario {
     }
 }
 
-/// The Google budget rule of the family of `model` in the table.
-fn google_rule(book: &Value, model: &Model) -> Option<LevelBudgets> {
-    let family = Rulebook::shipped()
-        .family(&model.id, &model.name)
-        .unwrap()?;
-    book["rules"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|rule| rule["layer"] == "family" && rule["target"] == family)
-        .and_then(|rule| rule["set"].get("thinking_budgets"))
-        .map(|budgets| serde_json::from_value(budgets.clone()).unwrap())
-}
-
-const GOOGLE_LEVELS: [ResolvedGoogleThinkingLevel; 4] = [
-    ResolvedGoogleThinkingLevel::Minimal,
-    ResolvedGoogleThinkingLevel::Low,
-    ResolvedGoogleThinkingLevel::Medium,
-    ResolvedGoogleThinkingLevel::High,
-];
-
-/// The user's budgets: `custom` at `level`, none elsewhere.
-fn customs(level: ResolvedGoogleThinkingLevel, custom: Option<u64>) -> ThinkingBudgets {
-    let mut budgets = ThinkingBudgets::default();
-    match level {
-        ResolvedGoogleThinkingLevel::Minimal => budgets.minimal = custom,
-        ResolvedGoogleThinkingLevel::Low => budgets.low = custom,
-        ResolvedGoogleThinkingLevel::Medium => budgets.medium = custom,
-        ResolvedGoogleThinkingLevel::High => budgets.high = custom,
-    }
-    budgets
-}
-
 fn opt(value: Option<u64>) -> String {
     value.map_or_else(|| "-".to_owned(), |value| value.to_string())
 }
@@ -273,123 +229,17 @@ const EFFORT_LEVELS: [ThinkingLevel; 6] = [
     ThinkingLevel::Max,
 ];
 
-#[allow(clippy::too_many_lines)] // one scenario: each problem is a short loop
-fn budget_scenario() -> Scenario {
+fn effort_scenario() -> Scenario {
     let book = rulebook();
     let defaults: LevelBudgets =
         serde_json::from_value(book["thinking_defaults"]["budgets"].clone()).unwrap();
     let mut events = format!(
-        "d {} {} {} {} {MIN_ANSWER_TOKENS}\n",
+        "d {} {} {} {}\n",
         defaults.minimal, defaults.low, defaults.medium, defaults.high
     );
     let mut transcript = String::new();
-    let mut rng = Rng(0xfac7_0002);
-    // Google budgets.
-    let catalog = catalog();
-    let google: Vec<Model> = catalog
-        .iter()
-        .filter(|model| model.api.starts_with("google"))
-        .cloned()
-        .collect();
-    let mut google_models = google.clone();
-    for id in [
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.0-flash",
-    ] {
-        google_models.push(renamed(&google[0], id));
-    }
-    for model in &google_models {
-        let rule = google_rule(&book, model);
-        let (
-            has,
-            LevelBudgets {
-                minimal,
-                low,
-                medium,
-                high,
-            },
-        ) = rule.map_or((0, LevelBudgets::default()), |rule| (1, rule));
-        for (at, level) in GOOGLE_LEVELS.into_iter().enumerate() {
-            let custom = rng.chance(50).then(|| rng.below(40_000));
-            writeln!(
-                events,
-                "g {has} {minimal} {low} {medium} {high} {at} {}",
-                opt(custom)
-            )
-            .unwrap();
-            let budgets = customs(level, custom);
-            writeln!(
-                transcript,
-                "g {}",
-                google_thinking_budget(model, level, Some(&budgets)).unwrap()
-            )
-            .unwrap();
-        }
-    }
-    // The fit under the response ceiling, with each level (xhigh and max
-    // take the high budget).
-    for _ in 0..300 {
-        let base = rng.chance(50).then(|| rng.below(40_000));
-        let model_max = rng.range(1, 140_000);
-        let level = EFFORT_LEVELS[usize::try_from(rng.below(6)).unwrap()];
-        let budget_level = match level {
-            ThinkingLevel::Minimal => ResolvedGoogleThinkingLevel::Minimal,
-            ThinkingLevel::Low => ResolvedGoogleThinkingLevel::Low,
-            ThinkingLevel::Medium => ResolvedGoogleThinkingLevel::Medium,
-            ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max => {
-                ResolvedGoogleThinkingLevel::High
-            }
-        };
-        let at = GOOGLE_LEVELS
-            .iter()
-            .position(|known| *known == budget_level)
-            .unwrap();
-        let custom = rng.chance(50).then(|| rng.below(60_000));
-        writeln!(events, "f {} {model_max} {at} {}", opt(base), opt(custom)).unwrap();
-        let fit = adjust_max_tokens_for_thinking(
-            base,
-            model_max,
-            level,
-            Some(&customs(budget_level, custom)),
-        );
-        writeln!(transcript, "f {} {}", fit.max_tokens, fit.thinking_budget).unwrap();
-    }
-    // The edges of the fit: a ceiling equal to the budget, one above it,
-    // one below it.
-    for (model_max, custom) in [
-        (16_384, None),
-        (16_385, None),
-        (16_383, None),
-        (5_000, Some(5_000)),
-    ] {
-        writeln!(events, "f - {model_max} 3 {}", opt(custom)).unwrap();
-        let budgets = customs(ResolvedGoogleThinkingLevel::High, custom);
-        let fit =
-            adjust_max_tokens_for_thinking(None, model_max, ThinkingLevel::High, Some(&budgets));
-        writeln!(transcript, "f {} {}", fit.max_tokens, fit.thinking_budget).unwrap();
-    }
-    // The answer room and the auxiliary cap.
-    for _ in 0..100 {
-        let (budget, ceiling) = (rng.below(40_000), rng.below(40_000));
-        writeln!(events, "o {budget} {ceiling}").unwrap();
-        writeln!(
-            transcript,
-            "o {}",
-            clamp_thinking_budget_to_answer_room(budget, ceiling)
-        )
-        .unwrap();
-        writeln!(events, "x {budget}").unwrap();
-        writeln!(
-            transcript,
-            "x {}",
-            thinking_output_cap(budget, MIN_ANSWER_TOKENS)
-        )
-        .unwrap();
-    }
     // The Bedrock effort from the thinking-level map.
-    let bedrock: Vec<Model> = catalog
+    let bedrock: Vec<Model> = catalog()
         .iter()
         .filter(|model| model.api == "bedrock-converse-stream")
         .cloned()
@@ -443,7 +293,7 @@ fn budget_scenario() -> Scenario {
     )
     .unwrap();
     Scenario {
-        name: "budgets".to_owned(),
+        name: "effort".to_owned(),
         events,
         transcript,
     }
@@ -565,6 +415,6 @@ fn price_scenario() -> Scenario {
 fn the_rust_model_facts_equal_the_bend_model() {
     compare(
         "bend/bridge_facts.bend",
-        [decision_scenario(), budget_scenario(), price_scenario()],
+        [decision_scenario(), effort_scenario(), price_scenario()],
     );
 }
