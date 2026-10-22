@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# The local CI gates (docs/develop.md). prek runs them as git hooks
+# (.pre-commit-config.yaml; `make hooks` installs them).
+#
+#   scripts/ci_local.sh fast      `make ci-fast`, the pre-commit gate:
+#                                 rustfmt, the secrets scan of the staged
+#                                 diff, and clippy on the crates the staged
+#                                 change touches.
+#   scripts/ci_local.sh full      `make ci-local`: every gate that
+#                                 .github/workflows/ci.yml runs on a pull
+#                                 request, on the current tree.
+#   scripts/ci_local.sh pre-push  the pre-push gate: `make ci-local` on the
+#                                 pushed commit (PRE_COMMIT_TO_REF, from
+#                                 prek) in a separate worktree of it
+#                                 (<git common dir>/eukhe-ci-local), so
+#                                 uncommitted and untracked files do not
+#                                 change the result. The worktree keeps its
+#                                 own target/ between pushes.
+#
+# Each gate prints its name; a failed gate prints `ci-<mode>: gate <name>
+# FAILED` and the script stops with its exit code. The full gate runs the
+# Rust lane (check, clippy, tests) and the other lane (secrets, deny, laws,
+# runtime tests, dashboard UI) at the same time; the second lane's log
+# prints when it ends.
+#
+# CI_LOCAL_SECRETS_RANGE: the `git log` range the full gate scans for
+# secrets (pre-push gives the pushed commits). Default: origin/main..HEAD.
+set -euo pipefail
+unset RUSTUP_TOOLCHAIN
+cd "$(dirname "$0")/.."
+mode="${1:?usage: scripts/ci_local.sh fast|full|pre-push}"
+export BEND_NO_TELEMETRY=1
+
+gate() {
+  local name="$1" rc
+  shift
+  echo "==> ci-${mode}: ${name}"
+  set +e
+  (set -e; "$@")
+  rc=$?
+  set -e
+  if [[ ${rc} -ne 0 ]]; then
+    echo "ci-${mode}: gate '${name}' FAILED (exit ${rc})" >&2
+    exit "${rc}"
+  fi
+}
+
+# The release `name:` of a step in .github/actions/setup-bend, for example
+# `Install Bend 2.0.38 (sha256-checked)` gives 2.0.38.
+pinned() {
+  awk -v tool="$1" '$1 == "-" && $2 == "name:" && $3 == "Install" && $4 == tool { print $5; exit }' \
+    .github/actions/setup-bend/action.yml
+}
+
+check_bend() {
+  local want have
+  want="$(pinned Bend)"
+  command -v bend >/dev/null 2>&1 || {
+    echo "bend is not installed. Install Bend ${want}, the release that .github/actions/setup-bend pins."
+    return 1
+  }
+  have="$(bend version | awk '{ print $2 }')"
+  [[ "${have}" == "${want}" ]] || {
+    echo "bend ${have} is installed, but .github/actions/setup-bend pins Bend ${want}. Install Bend ${want}."
+    return 1
+  }
+}
+
+check_lean() {
+  local want have
+  want="$(pinned Lean)"
+  command -v lean >/dev/null 2>&1 || {
+    echo "lean is not installed. bend --verdict needs Lean ${want}, the release that .github/actions/setup-bend pins."
+    return 1
+  }
+  have="$(lean --version | sed -n 's/^Lean (version \([0-9.]*\),.*/\1/p')"
+  [[ "${have}" == "${want}" ]] || {
+    echo "lean ${have} is installed, but .github/actions/setup-bend pins Lean ${want}. Install Lean ${want}."
+    return 1
+  }
+}
+
+check_tools() {
+  local tool missing=()
+  for tool in "$@"; do
+    command -v "${tool}" >/dev/null 2>&1 || missing+=("${tool}")
+  done
+  [[ ${#missing[@]} -eq 0 ]] || { echo "not installed: ${missing[*]} (nix develop has them)"; return 1; }
+}
+
+# The staged change as ci_pr_crates.py rows: `<path>` TAB `<old path>`.
+staged_rows() {
+  git diff --cached --name-status -M --no-color | awk -F'\t' '
+    $1 ~ /^[RC]/ { print $3 "\t" $2; next }
+    { print $2 "\t" }'
+}
+
+# A docs-only change (the hooks skip rule): every path is a Markdown file
+# in docs/ or at the repository root. Crates embed their own Markdown, so
+# Markdown elsewhere counts as code.
+docs_only() {
+  local path any=0
+  while IFS= read -r path; do
+    [[ -z "${path}" ]] && continue
+    any=1
+    [[ "${path}" == *.md && ( "${path}" != */* || "${path}" == docs/* ) ]] || return 1
+  done
+  [[ ${any} -eq 1 ]]
+}
+
+clippy_touched() {
+  local rows out crates args=()
+  rows="$(staged_rows)"
+  if [[ -z "${rows}" ]]; then
+    echo "nothing staged: clippy skipped"
+    return 0
+  fi
+  if cut -f1,2 <<<"${rows}" | tr '\t' '\n' | docs_only; then
+    echo "docs-only change (Markdown in docs/ or at the root): clippy skipped"
+    return 0
+  fi
+  out="$(mktemp)"
+  GITHUB_OUTPUT="${out}" python3 scripts/ci_pr_crates.py <<<"${rows}"
+  crates="$(sed -n 's/^crates=//p' "${out}")"
+  rm -f "${out}"
+  if [[ -z "${crates}" ]]; then
+    cargo clippy --workspace --all-targets --locked -- -D warnings
+  else
+    for crate in ${crates//,/ }; do args+=(-p "${crate}"); done
+    cargo clippy "${args[@]}" --all-targets --locked -- -D warnings
+  fi
+}
+
+secrets_staged() {
+  if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "gitleaks is not installed: the staged diff is not scanned (CI scans every push)"
+    return 0
+  fi
+  gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml .
+}
+
+secrets_range() {
+  local range="${CI_LOCAL_SECRETS_RANGE:-origin/main..HEAD}"
+  check_tools gitleaks
+  echo "scanning: ${range}"
+  gitleaks git --redact --no-banner --config .gitleaks.toml --log-opts="${range}" .
+}
+
+laws() {
+  local out
+  out="$(mktemp -d)"
+  python3 scripts/check_laws_wired.py .
+  bend PROOF.bend | tee "${out}/proof.out"
+  grep -qx 'ALL PROOFS CHECK' "${out}/proof.out"
+  EUKHE_REQUIRE_BEND=1 python3 scripts/release/test_next_version.py
+  bend PROOF.bend --verdict | tee "${out}/verdict.out"
+  grep -qx 'ALL PROOFS CHECK' "${out}/verdict.out"
+  rm -rf "${out}"
+}
+
+dashboard_ui() {
+  EUKHE_REQUIRE_BEND=1 make --no-print-directory dashboard-ui
+  git diff --exit-code --stat -- crates/eukhe-dashboard/web
+  test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
+}
+
+# The clean test environment of AGENTS.md: inherited EUKHE_* variables
+# would point test daemons at real state.
+workspace_tests() {
+  env -i HOME="${HOME}" PATH="${PATH}" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" \
+    EUKHE_REQUIRE_BEND=1 BEND_NO_TELEMETRY=1 \
+    cargo test --workspace --locked --no-fail-fast
+}
+
+side_lane() {
+  gate secrets secrets_range
+  gate deny make --no-print-directory deny
+  gate laws laws
+  gate runtime-test make --no-print-directory runtime-test
+  gate dashboard-ui dashboard_ui
+}
+
+case "${mode}" in
+  fast)
+    gate "bend version" check_bend
+    gate fmt cargo fmt --all --check
+    gate secrets secrets_staged
+    gate "clippy (touched crates)" clippy_touched
+    ;;
+  full)
+    start=${SECONDS}
+    gate tools check_tools cargo uv npm python3 cargo-deny
+    gate "bend version" check_bend
+    gate "lean version" check_lean
+    gate fmt cargo fmt --all --check
+    # Background jobs ignore Ctrl+C; on an interrupt, stop both lanes.
+    trap 'trap - INT TERM; kill 0' INT TERM
+    log="$(mktemp)"
+    side_lane >"${log}" 2>&1 &
+    side=$!
+    (
+      gate check cargo check --workspace --all-targets --locked
+      gate clippy cargo clippy --workspace --all-targets --locked -- -D warnings
+      gate test workspace_tests
+    ) &
+    rust=$!
+    rust_rc=0
+    wait "${rust}" || rust_rc=$?
+    side_rc=0
+    wait "${side}" || side_rc=$?
+    echo "==> ci-full: secrets, deny, laws, runtime-test, dashboard-ui log"
+    cat "${log}"
+    rm -f "${log}"
+    echo "ci-full: $((SECONDS - start))s"
+    if [[ ${rust_rc} -ne 0 || ${side_rc} -ne 0 ]]; then
+      echo "ci-full: FAILED (the failed gates are named above)" >&2
+      exit 1
+    fi
+    echo "ci-full: every gate passed"
+    ;;
+  pre-push)
+    to="${PRE_COMMIT_TO_REF:?PRE_COMMIT_TO_REF is unset: prek gives it in the pre-push hook}"
+    from="${PRE_COMMIT_FROM_REF:-}"
+    worktree="$(cd "$(git rev-parse --git-common-dir)" && pwd)/eukhe-ci-local"
+    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+    if [[ -n "${from}" && ! "${from}" =~ ^0+$ ]] && git cat-file -e "${from}^{commit}" 2>/dev/null; then
+      range="${from}..${to}"
+    else
+      range="${to} --not --remotes=${PRE_COMMIT_REMOTE_NAME:-origin}"
+    fi
+    if [[ -e "${worktree}/.git" ]]; then
+      git -C "${worktree}" checkout --quiet --detach --force "${to}"
+      git -C "${worktree}" clean --quiet -fdx -e /target/ -e node_modules/
+    else
+      git worktree prune
+      git worktree add --quiet --detach --force "${worktree}" "${to}"
+    fi
+    echo "pre-push: make ci-local on ${to:0:12} in ${worktree}"
+    if ! CI_LOCAL_SECRETS_RANGE="${range}" make --no-print-directory -C "${worktree}" ci-local; then
+      echo "pre-push: a gate failed on ${to:0:12} (its name is above). The push stops. Fix the cause, commit, and push again." >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "usage: scripts/ci_local.sh fast|full|pre-push" >&2
+    exit 2
+    ;;
+esac

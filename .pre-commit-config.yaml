@@ -1,0 +1,29 @@
+# The local CI gates as git hooks, run by prek (https://github.com/j178/prek,
+# pinned in docs/develop.md). `make hooks` installs them. Both run at low
+# CPU priority (nice -n 10) on every core.
+#
+# pre-commit: `make ci-fast` (rustfmt, the secrets scan of the staged diff,
+# clippy on the crates the staged change touches).
+# pre-push: `make ci-local` (every gate of .github/workflows/ci.yml) on the
+# pushed commit, in a separate worktree (scripts/ci_local.sh pre-push).
+# Skip rule: a push that changes only Markdown files in docs/ or at the
+# repository root does not run the gate (the `exclude` below).
+default_install_hook_types: [pre-commit, pre-push]
+repos:
+  - repo: local
+    hooks:
+      - id: ci-fast
+        name: ci-fast (fmt, secrets in the staged diff, clippy on the touched crates)
+        entry: nice -n 10 make --no-print-directory ci-fast
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: ci-local
+        name: ci-local (every gate of ci.yml, on the pushed commit)
+        entry: nice -n 10 scripts/ci_local.sh pre-push
+        language: system
+        pass_filenames: false
+        exclude: '^(docs/.*|[^/]+)\.md$'
+        verbose: true
+        stages: [pre-push]
