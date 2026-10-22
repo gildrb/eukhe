@@ -251,7 +251,7 @@ impl Worker {
         *self.recovery.lock().unwrap() = Some(WorkerRecoveryJournal::open(
             &self.config.recovery_journal_path,
         )?);
-        super::start_busy_refresh(Arc::clone(&self.recovery), Arc::clone(&self.core));
+        super::start_busy_refresh(&self);
         // A worker spawned under a supervisor arms the orphan-exit monitor
         // (TS `startSupervisorMonitor`): nobody else reaps it if the
         // supervisor dies without a graceful stop.

@@ -53,7 +53,9 @@ pub(crate) struct ParkGates {
     pub(crate) shutdown: bool,
     /// A run is live on the shown conversation.
     pub(crate) busy: bool,
-    /// Queued input exists (the inbox, or withdrawn inputs).
+    /// Queued input exists (the inbox, or withdrawn inputs). A withdrawn
+    /// input is not work (no other idle decision counts it), but it still
+    /// keeps the worker resident, so its release needs no revival.
     pub(crate) queued: bool,
     /// An input-pause lease is held.
     pub(crate) paused: bool,
@@ -215,6 +217,13 @@ async fn maybe_request_idle_passivation(context: &ParkContext, cwd: String) {
         || gates.paused
         || gates.child
         || has_registered_job(&context.scheduled, &active_session_id)
+    {
+        return;
+    }
+    // The work the core does not show (a background job, an unsettled
+    // child or workflow run, a durable inbox input) keeps the worker.
+    if super::run_gate::background_work(&context.session, &context.user_bash).await
+        == crate::work_gate::Work::Ongoing
     {
         return;
     }

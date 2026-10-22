@@ -168,9 +168,11 @@ background bookkeeping.
   (default 5 minutes) exits. Work in flight defers the exit by one more window
   at most. An idle worker closes its session; a worker with work records it
   busy and exits without an abort or a close, so the next supervisor resumes
-  the run from storage. A busy worker refreshes its busy record every
-  5 minutes, so a long run still revives. An attached client relaunches a
-  lost supervisor within 60 seconds.
+  the run from storage. Work is one set for every idle decision: a run, a
+  compaction, a queued input, an admitted run start, a background job, a user
+  bash, an unsettled child or workflow run (a withdrawn input is not work). A
+  worker with work records it busy every 5 minutes, so a long run still
+  revives. An attached client relaunches a lost supervisor within 60 seconds.
 - The daemon hello reports `eukhe-build-info::DAEMON_BUILD_ID`. Only an
   interactive start replaces a daemon, and only an idle daemon of a lower
   version (`eukhe-tui` `daemon_build`). A background client never replaces

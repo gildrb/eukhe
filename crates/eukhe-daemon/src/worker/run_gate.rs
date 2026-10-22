@@ -113,12 +113,14 @@ impl Worker {
     pub(crate) async fn handle_quiesce(&self) -> DaemonResponse {
         const COMMAND: &str = "worker_quiesce";
         let busy = || response_failure(None, COMMAND, "Session has work in flight", None);
-        let Some(hosted) = self.session.get() else {
+        // A worker with no open main conversation is never quiesced.
+        if self
+            .session
+            .get()
+            .is_none_or(|hosted| hosted.main().is_err())
+        {
             return busy();
-        };
-        let Ok(main) = hosted.main() else {
-            return busy();
-        };
+        }
         let epoch = {
             let mut core = lock(&self.core);
             let work = if core.shutdown_requested || !core.created || core.run_gate.admissions > 0 {
@@ -134,15 +136,7 @@ impl Worker {
                 }
             }
         };
-        let cx = &BACKGROUND_CONTEXT;
-        let children = unsettled_child_tasks(hosted.harness(), main.id(), cx).await;
-        let runs = unsettled_run_tasks(hosted.harness(), main.id(), cx).await;
-        let inbox = inbox_previews(hosted.harness(), main.id(), cx).await;
-        let durable_idle = children.is_ok_and(|children| children.is_empty())
-            && runs.is_ok_and(|runs| runs.is_empty())
-            && inbox.is_ok_and(|inbox| inbox.is_empty())
-            && kernel_background_jobs(hosted.deps(), main.id()) == 0
-            && !self.user_bash.is_running();
+        let durable_idle = background_work(&self.session, &self.user_bash).await == Work::Idle;
         let mut core = lock(&self.core);
         if core.run_gate.epoch != epoch {
             // A release or a later quiesce changed the gate meanwhile.
@@ -176,6 +170,58 @@ impl Worker {
     pub(crate) fn handle_release(&self) -> DaemonResponse {
         lock(&self.core).run_gate.open();
         response_success(None, "worker_release", None)
+    }
+
+    /// The session's work: the one set every idle decision reads (the
+    /// quiesce, the lost-supervisor exit, the busy refresh and the idle
+    /// park): what the core shows (a run, a compaction, a queued view
+    /// input), an admitted run, then [`background_work`].
+    pub(crate) async fn session_work(&self) -> Work {
+        let shown = {
+            let core = lock(&self.core);
+            if core.run_gate.admissions > 0 {
+                Work::Ongoing
+            } else {
+                core.work()
+            }
+        };
+        match shown {
+            Work::Ongoing => Work::Ongoing,
+            Work::Idle => background_work(&self.session, &self.user_bash).await,
+        }
+    }
+}
+
+/// The work the core does not show: unsettled child tasks and workflow
+/// runs, a queued inbox input, a kernel background job, or a running user
+/// bash. A withdrawn (paused or held) input is not work: it waits for its
+/// release. A durable read that fails counts as work (unknown never reads
+/// idle); a worker with no hosted session holds none.
+pub(crate) async fn background_work(
+    session: &super::durable_host::SessionSlot,
+    user_bash: &crate::user_bash::UserBash,
+) -> Work {
+    if user_bash.is_running() {
+        return Work::Ongoing;
+    }
+    let Some(hosted) = session.get() else {
+        return Work::Idle;
+    };
+    let Ok(main) = hosted.main() else {
+        return Work::Idle;
+    };
+    let cx = &BACKGROUND_CONTEXT;
+    let children = unsettled_child_tasks(hosted.harness(), main.id(), cx).await;
+    let runs = unsettled_run_tasks(hosted.harness(), main.id(), cx).await;
+    let inbox = inbox_previews(hosted.harness(), main.id(), cx).await;
+    let idle = children.is_ok_and(|children| children.is_empty())
+        && runs.is_ok_and(|runs| runs.is_empty())
+        && inbox.is_ok_and(|inbox| inbox.is_empty())
+        && kernel_background_jobs(hosted.deps(), main.id()) == 0;
+    if idle {
+        Work::Idle
+    } else {
+        Work::Ongoing
     }
 }
 

@@ -589,38 +589,56 @@ pub(crate) fn record_recovery_with(
 }
 
 /// Re-record the busy revival evidence every
-/// [`crate::timeouts::BUSY_REFRESH_MS`] while the session has work, so the
-/// evidence age counts from the last refresh, not from the start of a long
-/// run. The interval runs on the monotonic clock.
-pub(crate) fn start_busy_refresh(
-    recovery: Arc<Mutex<Option<WorkerRecoveryJournal>>>,
-    core: Arc<Mutex<SessionCore>>,
-) {
+/// [`crate::timeouts::BUSY_REFRESH_MS`] while the session has work
+/// ([`Worker::session_work`]), so the evidence age counts from the last
+/// refresh, not from the start of a long run, and work that started
+/// after the run's end record (a compaction, a queued input, a background
+/// job) is recorded busy too. The interval runs on the monotonic clock.
+/// The task holds the worker weakly and ends with it.
+pub(crate) fn start_busy_refresh(worker: &Arc<Worker>) {
+    let worker = Arc::downgrade(worker);
     tokio::spawn(async move {
         let period = Duration::from_millis(crate::timeouts::BUSY_REFRESH_MS);
         let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             ticks.tick().await;
-            let work = core
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .work();
-            match work {
+            let Some(worker) = worker.upgrade() else {
+                return;
+            };
+            match worker.session_work().await {
                 crate::work_gate::Work::Idle => {}
                 crate::work_gate::Work::Ongoing => {
-                    let mut guard = recovery
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if let Some(Err(error)) =
-                        guard.as_mut().map(WorkerRecoveryJournal::refresh_busy)
-                    {
-                        eprintln!("eukhe-daemon worker: busy evidence refresh failed: {error:#}");
-                    }
+                    refresh_busy_tick(&worker.recovery, &worker.core);
                 }
             }
         }
     });
+}
+
+/// One busy refresh tick: the session is recorded busy as of now.
+pub(crate) fn refresh_busy_tick(
+    recovery: &Arc<Mutex<Option<WorkerRecoveryJournal>>>,
+    core: &Arc<Mutex<SessionCore>>,
+) {
+    let (active_session_id, session_id, session_file) = {
+        let core = core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (
+            core.active_session_id.clone(),
+            core.session_id.clone(),
+            core.session_file(),
+        )
+    };
+    let mut guard = recovery
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(Err(error)) = guard.as_mut().map(|journal| {
+        journal.refresh_session_busy(&active_session_id, &session_id, session_file.as_deref())
+    }) {
+        eprintln!("eukhe-daemon worker: busy evidence refresh failed: {error:#}");
+    }
 }
 
 /// Entry point for the worker process.

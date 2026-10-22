@@ -285,6 +285,40 @@ impl WorkerRecoveryJournal {
         Ok(())
     }
 
+    /// The busy refresh tick of a session with work: every busy record
+    /// again with a new `recorded_at` ([`Self::refresh_busy`]), and, when
+    /// this session's latest record is idle or missing (work after a run's
+    /// end record: an auto-compaction, a queued input, a background job), a
+    /// new busy record, so the work is revived after a crash.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a record cannot be serialized or appended.
+    pub fn refresh_session_busy(
+        &mut self,
+        active_session_id: &str,
+        session_id: &str,
+        session_file: Option<&str>,
+    ) -> Result<()> {
+        self.refresh_busy()?;
+        if self
+            .latest
+            .get(active_session_id)
+            .is_some_and(|record| record.busy)
+        {
+            return Ok(());
+        }
+        self.land(WorkerRecoveryRecord {
+            active_session_id: active_session_id.to_string(),
+            session_id: session_id.to_string(),
+            session_file: session_file.map(str::to_string),
+            busy: true,
+            operation: "refresh".to_string(),
+            recorded_at: crate::util::now_iso(),
+            failure: None,
+        })
+    }
+
     /// The worker failure a session's latest record carries, if any: why
     /// the worker that wrote the journal last gave its session up.
     #[must_use]
