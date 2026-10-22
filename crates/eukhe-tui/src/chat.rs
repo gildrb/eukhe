@@ -185,11 +185,18 @@ impl AssistantMessage {
 /// row before a message marks a boundary the reader needs: the start of
 /// a turn, or the reply that follows the turn's tool rows. Blocks within
 /// a turn (the next thinking or text after an assistant message or a
-/// tool row) stay flush, so the thinking reads as one dense trace.
+/// tool row) stay flush, so the thinking reads as one dense trace, and
+/// a settled reply's text (its last text block) stands one blank row
+/// apart from the thinking that leads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssistantLead {
-    /// One blank row leads the message's first row.
+    /// One blank row leads the message's first row (the turn's first
+    /// rows).
     Spaced,
+    /// The message is the reply after the turn's tool rows: its thinking
+    /// follows the tool rows directly and the one blank row sits before
+    /// its reply text (before its first row when nothing leads the text).
+    Reply,
     /// The message's first row follows the previous row directly.
     Flush,
 }
@@ -407,7 +414,8 @@ pub fn render_user_block(
 /// One assistant message: its leading blank row when `lead` asks for one
 /// and the message renders anything, then its visible blocks flush
 /// against each other (text as `mdBody` markdown, thinking as dim dense
-/// rows), then its error row set off by one blank row.
+/// rows) except the one blank row before a settled reply's text when
+/// thinking leads it, then its error row set off by one blank row.
 pub fn render_assistant(
     message: &AssistantMessage,
     detail: Detail,
@@ -419,13 +427,33 @@ pub fn render_assistant(
 ) -> Vec<Line> {
     let visible_blocks = geometry::visible_blocks(message, detail);
     let has_visible_content = !visible_blocks.is_empty();
+    // The reply seam: the visible block index of a settled reply's text
+    // when another block (its thinking) leads it.
+    let reply_seam = if message.has_tool_calls || message.streaming {
+        None
+    } else {
+        visible_blocks
+            .iter()
+            .rposition(|block| matches!(block, MessageBlock::Text(_)))
+            .filter(|index| *index > 0)
+    };
     let mut out: Vec<Line> = Vec::new();
-    if lead == AssistantLead::Spaced && (has_visible_content || message.error.is_some()) {
+    let leads_with_blank = match lead {
+        AssistantLead::Spaced => has_visible_content || message.error.is_some(),
+        AssistantLead::Reply => {
+            reply_seam.is_none() && (has_visible_content || message.error.is_some())
+        }
+        AssistantLead::Flush => false,
+    };
+    if leads_with_blank {
         out.push(spacer());
     }
     let mut md = crate::markdown::MarkdownStyle::from_theme(theme);
     md.code_block_indent = code_block_indent.to_string();
-    for block in visible_blocks {
+    for (index, block) in visible_blocks.iter().enumerate() {
+        if reply_seam == Some(index) {
+            out.push(spacer());
+        }
         match block {
             MessageBlock::Text(text) => {
                 out.extend(render_markdown_block(text, &md, width, cache));

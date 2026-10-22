@@ -6,7 +6,7 @@
 
 use serde_json::Value;
 
-use super::layout::images;
+use super::layout::{collapsed_images, images};
 use super::summary::{
     body_row, duration, first_line, line_count, output_rows, string_arg, SummaryRow,
 };
@@ -62,6 +62,8 @@ pub fn render(
             ));
         }
         rows.extend(images(card.result.as_ref(), show_images, theme));
+    } else {
+        rows.extend(collapsed_images(card.result.as_ref(), show_images, theme));
     }
     element::render(&Element::Column(rows), theme, width, Tick(frame))
 }
@@ -279,7 +281,7 @@ mod tests {
         let card = done_card("false", "$ false\n[step 1 exited 1]", finished(1));
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x bash - false - 2 lines - exit 1 - 120ms"]
+            vec![" x  bash - false - 2 lines - exit 1 - 120ms"]
         );
     }
 
@@ -293,7 +295,7 @@ mod tests {
         card.result.as_mut().expect("result").is_error = true;
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x bash - rm -rf / - 1 line - denied - 120ms"]
+            vec![" x  bash - rm -rf / - 1 line - denied - 120ms"]
         );
     }
 
@@ -303,7 +305,7 @@ mod tests {
         card.result.as_mut().expect("result").is_error = true;
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x bash - ls - 1 line - 120ms - bash needs a `script` string"]
+            vec![" x  bash - ls - 1 line - 120ms - bash needs a `script` string"]
         );
     }
 
@@ -386,7 +388,7 @@ mod tests {
             ..Default::default()
         };
         let rows = flat(&render(&card, 3, Detail::Overview, &theme(), 120, true));
-        assert_eq!(rows, vec![" o bash - sleep 1"]);
+        assert_eq!(rows, vec![" o  bash - sleep 1"]);
         // Settling the same card turns the row into the settled row.
         let settled = ToolCallCard {
             ended_at: Some(card.started_at.expect("started") + Duration::from_millis(1000)),
@@ -415,7 +417,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" o bash - [invalid arg]"]
+            vec![" o  bash - [invalid arg]"]
         );
         let card = ToolCallCard {
             id: "t".into(),
@@ -426,7 +428,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" o bash"]
+            vec![" o  bash"]
         );
         // A pi-era session's `command` still names the command.
         let card = ToolCallCard {
@@ -438,7 +440,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" o bash - ls"]
+            vec![" o  bash - ls"]
         );
     }
 }

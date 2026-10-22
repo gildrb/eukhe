@@ -70,7 +70,7 @@ fn error_cell_summary_line() {
     );
     let lines = render(&card, 0, Detail::Overview, &theme(), 100, true);
     let text = text_of(&lines[0]);
-    assert!(text.contains("x python"), "got: {text}");
+    assert!(text.contains("x  python"), "got: {text}");
     assert!(text.contains("ValueError"), "got: {text}");
 }
 

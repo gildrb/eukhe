@@ -226,7 +226,6 @@ fn optional_segments_show_only_while_they_carry_something() {
         cost_usd: Some(0.126),
         tray_depth: Some(1),
         memory: Some(crate::memory_block::MemoryGauge::after(
-            Some(crate::memory_block::MemoryGauge::seeded(87_200)),
             &eukhe_types::daemon::MemoryUpdate::Summarized {
                 lines: vec![eukhe_types::daemon::MemoryLine {
                     id: 41,
@@ -235,6 +234,7 @@ fn optional_segments_show_only_while_they_carry_something() {
                 }],
                 view_bytes: 90_100,
             },
+            crate::memory_block::UpdateTiming::InRequest,
         )),
         context: None,
         ..base()
@@ -242,7 +242,7 @@ fn optional_segments_show_only_while_they_carry_something() {
     let line = render_status_line(&state, Detail::All, &theme(), 120);
     assert_eq!(
         text(&line),
-        " Press Ctrl+C again to exit - [M] mock - [D] eukhe - @ main - refactor - $0.13 - depth 1 - mem 90/128K ~1 - expanded"
+        " Press Ctrl+C again to exit - [M] mock - [D] eukhe - @ main - refactor - $0.13 - depth 1 - mem 90K/128K ~ - expanded"
     );
     let quiet = ChromeState {
         session_name: Some(String::new()),
@@ -363,4 +363,64 @@ fn the_speed_segment_yields_to_the_other_segments() {
             ),
         ]
     );
+}
+
+/// A long title and a long speed text on a 120-column row: the title
+/// cuts first, then the speed text, then the title drops; the model,
+/// its thinking level, the `mem` gauge, the detail label and the
+/// context usage stay whole at every width.
+#[test]
+fn the_title_and_the_speed_yield_before_the_fixed_segments() {
+    let state = ChromeState {
+        thinking_suffix: Some("medium".to_string()),
+        session_name: Some(
+            "Fix the typo in the release notes and tell me what changed".to_string(),
+        ),
+        memory: Some(crate::memory_block::MemoryGauge::seeded(1_140)),
+        speed: Some(crate::gen_speed::SpeedPhase::Done(
+            crate::gen_speed::ResponseSpeed {
+                ttft: std::time::Duration::from_millis(500),
+                prefill: crate::gen_speed::Prefill::Rate(2000.0),
+                decode_tokens_per_second: Some(50.0),
+            },
+        )),
+        git: None,
+        ..base()
+    };
+    let row = |width: usize| {
+        text(&render_status_line(
+            &state,
+            Detail::Details,
+            &theme(),
+            width,
+        ))
+    };
+    assert_eq!(
+        row(140),
+        " [M] mock - [med] - prefill 2000 tok/s (TTFT 0.50s) · decode 50.0 tok/s - [D] eukhe - Fix the t... - mem 1.1K/128K - details ctx: 0.0%/128K"
+    );
+    assert_eq!(
+        row(120),
+        " [M] mock - [med] - prefill 2000 tok/s (TTFT 0.50s) ... - [D] eukhe - Fix t... - mem 1.1K/128K - details ctx: 0.0%/128K"
+    );
+    assert_eq!(
+        row(100),
+        " [M] mock - [med] - prefill 2000... - [D] eukhe - Fix t... - mem 1.1K/128K - details ctx: 0.0%/128K"
+    );
+    assert_eq!(
+        row(80),
+        format!(
+            " [M] mock - [med] - [D] eukhe - mem 1.1K/128K - details{}ctx: 0.0%/128K",
+            " ".repeat(10)
+        )
+    );
+    for width in 80..=200 {
+        let row = row(width);
+        assert!(
+            row.contains("[M] mock - [med] - ")
+                && row.contains(" - mem 1.1K/128K - details")
+                && row.ends_with("ctx: 0.0%/128K"),
+            "{width}: {row:?}"
+        );
+    }
 }

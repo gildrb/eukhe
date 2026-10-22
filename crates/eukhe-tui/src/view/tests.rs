@@ -741,9 +741,10 @@ fn tool_rows_lead_with_a_blank_only_at_the_turn_start() {
 }
 
 /// The leading blank of an assistant message: the turn's first rows
-/// and the settled reply after tool rows lead with one; a message under
-/// another assistant message, or under tool rows while it streams or
-/// carries tool calls of its own, sits flush.
+/// lead with one; the settled reply after tool rows takes the reply
+/// lead (the blank before its reply text); a message under another
+/// assistant message, or under tool rows while it streams or carries
+/// tool calls of its own, sits flush.
 #[test]
 fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
     let message = |has_tool_calls: bool, streaming: bool| AssistantMessage {
@@ -771,15 +772,15 @@ fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
     assert_eq!(view.assistant_lead(2, &tool_message), AssistantLead::Flush);
     assert_eq!(view.assistant_lead(2, &reply), AssistantLead::Flush);
 
-    // Under tool rows: the settled reply stands apart; a message with
-    // tool calls of its own, or one still streaming, stays flush.
+    // Under tool rows: the settled reply takes the reply lead; a message
+    // with tool calls of its own, or one still streaming, stays flush.
     let view = view_with(vec![
         user_row(),
         entry(true),
         settled_tool_card("c1"),
         entry(false),
     ]);
-    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Spaced);
+    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Reply);
     assert_eq!(
         view.assistant_lead(3, &streaming_reply),
         AssistantLead::Flush
@@ -802,15 +803,16 @@ fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
         entry(false),
     ]);
     view.detail = Detail::Overview;
-    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Spaced);
+    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Reply);
     assert_eq!(view.assistant_lead(3, &tool_message), AssistantLead::Flush);
 }
 
 /// The dense turn: the thinking renders dim with its paragraphs on
 /// consecutive rows, the text block follows without a blank, the tool
-/// card follows the text without a blank, and only the settled reply
-/// (no tool calls) after the tool rows leads with one blank row -- its
-/// own thinking and text then sit flush. The reply keeps its markdown
+/// card follows the text without a blank, and the settled reply (no
+/// tool calls) after the tool rows keeps its thinking flush under the
+/// card and sets its reply text one blank row apart from that thinking
+/// -- the only blank row inside the turn. The reply keeps its markdown
 /// rendering.
 #[test]
 fn a_turn_renders_dense_thinking_and_flush_blocks() {
@@ -881,30 +883,33 @@ fn a_turn_renders_dense_thinking_and_flush_blocks() {
         .iter()
         .position(|row| row == " It is a client-rendered page.")
         .expect("the reply's thinking renders");
-    // The card's rows follow the text flush; the settled reply (no tool
-    // calls) after the tool rows leads with exactly one blank row.
+    // The card's rows and the reply's thinking follow flush; the one
+    // blank row of the turn sits between that thinking and the reply
+    // text.
     assert!(
-        plain[card..reply_thinking - 1]
+        plain[card..=reply_thinking]
             .iter()
             .all(|row| !row.is_empty()),
-        "the card follows the text flush: {plain:?}"
+        "the card and the reply's thinking follow flush: {plain:?}"
     );
-    assert_eq!(plain[reply_thinking - 1], "", "{plain:?}");
     assert_eq!(
         plain[reply_thinking..],
         [
             " It is a client-rendered page.",
+            "",
             " The page is client-rendered."
         ],
         "{plain:?}"
     );
-    // The thinking rows are dim (inline code included); the reply keeps
-    // its markdown rendering (the inline code in the code color).
+    // The thinking rows are dim (inline code included; the zone marker
+    // on the reply's first row carries no color); the reply keeps its
+    // markdown rendering (the inline code in the code color).
     for index in [prompt + 2, prompt + 3, prompt + 4, reply_thinking] {
         assert!(
             rows[index]
                 .iter()
                 .filter(|span| !span.content.trim().is_empty())
+                .filter(|span| !span.content.starts_with('\u{1b}'))
                 .all(|span| span.style == dim),
             "dim thinking row {index}: {:?}",
             rows[index]
@@ -1309,7 +1314,7 @@ fn a_running_card_updates_between_frames() {
     view.pulse_frame = 0;
     let frame0 = transcript_text(&mut view, 80);
     assert!(
-        frame0.contains(" . bash - sleep 1"),
+        frame0.contains(" .  bash - sleep 1"),
         "the running card renders its own row with the working icon: {frame0}"
     );
     view.pulse_frame = 1;
@@ -1346,14 +1351,14 @@ fn streamed_cards_render_their_own_rows_immediately() {
     view.push_entry(streamed("c0"));
     let one = transcript_text(&mut view, 80);
     assert!(
-        one.contains(" . bash - ls"),
+        one.contains(" .  bash - ls"),
         "the first streamed card renders at once: {one}"
     );
     view.push_entry(streamed("c1"));
     view.push_entry(streamed("c2"));
     let three = transcript_text(&mut view, 80);
     assert_eq!(
-        three.matches(" . bash - ls").count(),
+        three.matches(" .  bash - ls").count(),
         3,
         "every streamed card keeps its own row: {three}"
     );
