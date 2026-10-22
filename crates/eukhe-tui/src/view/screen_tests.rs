@@ -168,6 +168,134 @@ fn streamed_text_shows_at_its_pace_and_commits_whole() {
     assert_eq!(committed, whole);
 }
 
+/// The loader row stays up after the turn ended while its answer's text
+/// still shows at its pace, and goes down with the frame that shows the
+/// last of it (docs/interface.md "Turn visibility": the indicator is on
+/// while the reply streams, to its last character on screen). A new
+/// loader replaces the held row.
+#[test]
+fn the_loader_stays_up_until_the_streamed_text_all_shows() {
+    let text = "word ".repeat(80);
+    let working = WorkingState {
+        phase: crate::activity::TurnPhase::Writing,
+        message: None,
+        download: false,
+        tokens: 0,
+        elapsed_secs: 0,
+    };
+    let loader_shown = |view: &mut AgentView| {
+        let frame = view.compose(120, 24);
+        plain(&frame.live)
+            .iter()
+            .any(|row| row.contains("Writing - "))
+    };
+    let mut view = view_with(vec![user("q")]);
+    view.push_entry(ChatEntry::Assistant(Box::new(streaming(&text))));
+    view.start_loader(working.clone(), std::time::Instant::now());
+    assert!(loader_shown(&mut view));
+    if let Some(ChatEntry::Assistant(message)) = view.chat.get_mut(1) {
+        message.streaming = false;
+    }
+    // The turn's end stops the loader, then the run's end stops it again.
+    view.stop_loader();
+    assert_eq!(view.working, None, "the work ended");
+    assert!(
+        loader_shown(&mut view),
+        "the row holds through the run's end"
+    );
+    view.stop_loader();
+    let mut held = 0;
+    loop {
+        let shown = loader_shown(&mut view);
+        if view.is_pacing() {
+            assert!(shown, "the row holds while text reveals");
+            held += 1;
+        } else {
+            assert!(
+                !shown,
+                "the frame that shows the last of the text: no loader"
+            );
+            break;
+        }
+    }
+    assert!(held > 1, "the text was still behind its pace");
+    assert_eq!(view.activity(), crate::activity::AgentActivity::Idle);
+
+    // A reveal cut short by the next turn: its loader takes over, and the
+    // next stop with nothing pacing takes the row down at once.
+    view.push_entry(ChatEntry::Assistant(Box::new(streaming(&text))));
+    view.start_loader(working, std::time::Instant::now());
+    loader_shown(&mut view);
+    if let Some(ChatEntry::Assistant(message)) = view.chat.get_mut(2) {
+        message.streaming = false;
+    }
+    view.stop_loader();
+    assert!(loader_shown(&mut view));
+    view.start_loader(
+        WorkingState {
+            phase: crate::activity::TurnPhase::Sending,
+            message: None,
+            download: false,
+            tokens: 0,
+            elapsed_secs: 0,
+        },
+        std::time::Instant::now(),
+    );
+    while view.is_pacing() {
+        view.compose(120, 24);
+    }
+    assert!(
+        matches!(
+            view.activity(),
+            crate::activity::AgentActivity::Working {
+                phase: crate::activity::TurnPhase::Sending,
+                ..
+            }
+        ),
+        "the new turn's loader outlives the reveal"
+    );
+    view.stop_loader();
+    assert!(!loader_shown(&mut view));
+}
+
+/// A reply that failed after streaming text stays live while it is the
+/// last entry, its text paced out or not: a retry episode's outcome row
+/// may still retire its error row, and committed rows are never written
+/// again. It commits once an entry follows it, as it reads then -- here
+/// without the error row the outcome row replaced.
+#[test]
+fn a_failed_reply_stays_live_until_an_entry_follows_it() {
+    let mut failed = streaming("Here is the pl");
+    failed.streaming = false;
+    failed.error = Some("Error: 529 overloaded".to_string());
+    let mut view = view_with(vec![user("q")]);
+    history(&mut view, 80);
+    view.push_entry(ChatEntry::Assistant(Box::new(failed)));
+    for _ in 0..40 {
+        assert_eq!(history(&mut view, 80), (FrameStart::Continue, Vec::new()));
+    }
+    assert!(!view.is_pacing(), "the text is all on screen");
+
+    if let Some(ChatEntry::Assistant(reply)) = view.chat.get_mut(1) {
+        reply.error = None;
+    }
+    view.mark_entry_stale(1);
+    view.push_entry(ChatEntry::Status {
+        text: "Retry failed after 0 attempts: 529 overloaded".to_string(),
+        kind: crate::chat::StatusKind::Error,
+    });
+    let (start, committed) = history(&mut view, 80);
+    let retired = {
+        let mut retired = streaming("Here is the pl");
+        retired.streaming = false;
+        let mut done = view_with(vec![user("q"), ChatEntry::Assistant(Box::new(retired))]);
+        let all = plain(&done.compose(80, 24).history);
+        let first_rows = plain(&view_with(vec![user("q")]).compose(80, 24).history).len();
+        all[first_rows..].to_vec()
+    };
+    assert_eq!((start, committed), (FrameStart::Continue, retired));
+}
+
 /// Ctrl+O while a message streams is no arrival: thinking that turns
 /// visible counts as shown, so the text already on screen stays, and
 /// thinking that turns hidden leaves the text where it was.
