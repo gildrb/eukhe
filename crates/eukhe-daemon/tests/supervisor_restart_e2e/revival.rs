@@ -329,3 +329,143 @@ fn plain_boot_still_revives_fresh_busy_evidence() {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
+/// Regression (`laws/worker_lifecycle.bend` F4, user decision Q4): a boot
+/// revival whose relaunch failed was logged and dropped, so the session's
+/// interrupted work never resumed. Here the first relaunch fails (the
+/// session's working directory does not exist yet); once it exists, the
+/// retry under the restart budget revives the worker.
+#[test]
+fn a_failed_boot_revival_retries_under_the_restart_budget() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("daemon.sock");
+    let agent_dir = dir.path().join("agent");
+    let busy_at = eukhe_daemon::util::now_iso();
+    let fixture =
+        write_revival_fixture(dir.path(), &agent_dir, &socket, "active", "ready", &busy_at);
+    let cwd = dir.path().join("created-later");
+    let descriptor_path = eukhe_daemon::descriptor::descriptor_dir(&agent_dir, &socket)
+        .join(format!("{}.json", fixture.worker_id));
+    let mut descriptor: Value =
+        serde_json::from_slice(&std::fs::read(&descriptor_path).expect("descriptor"))
+            .expect("descriptor json");
+    descriptor["createCommand"]["cwd"] = json!(cwd.to_string_lossy());
+    std::fs::write(&descriptor_path, descriptor.to_string()).expect("rewrite descriptor");
+
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let log_path = eukhe_daemon::paths::daemon_log_path(&socket, &agent_dir);
+    let boot_before = eukhe_daemon::util::now_iso();
+    let failed_line = format!("could not adopt worker {}", fixture.worker_id);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !std::fs::read_to_string(&log_path)
+        .unwrap_or_default()
+        .contains(&failed_line)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the first relaunch did not fail: {failed_line}; log: {}",
+            std::fs::read_to_string(&log_path).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::fs::create_dir_all(&cwd).expect("create the cwd");
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let registered = distinct(workers_registered_since(&log_path, &boot_before));
+        if registered == vec![fixture.worker_id.clone()] {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the failed revival was never retried: {registered:?}; log: {}",
+            std::fs::read_to_string(&log_path).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Regression (`laws/worker_lifecycle.bend` F4, user decisions Q4 and
+/// Q10): a live worker the boot could not reach (here a process that holds
+/// the worker socket but never answers the worker auth) was logged and
+/// dropped, so its session never came back while the process kept it.
+/// The boot now stops that process (identity-gated) before it relaunches
+/// the session under the restart budget.
+#[test]
+fn an_unreachable_live_worker_is_stopped_then_relaunched() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("daemon.sock");
+    let agent_dir = dir.path().join("agent");
+    let busy_at = eukhe_daemon::util::now_iso();
+    let fixture =
+        write_revival_fixture(dir.path(), &agent_dir, &socket, "active", "ready", &busy_at);
+    // The unreachable holder: a live process recorded as the worker, and a
+    // listener on the worker socket that drops every connection.
+    let holder = std::process::Command::new("sleep")
+        .arg("600")
+        .spawn()
+        .expect("spawn the holder");
+    let holder_pid = holder.id();
+    let start_id =
+        eukhe_daemon::lease::get_process_start_id(holder_pid).expect("the holder's start id");
+    // Reap the holder as soon as it dies (a zombie would read alive).
+    let holder_exit = std::thread::spawn(move || {
+        let mut holder = holder;
+        holder.wait().expect("wait for the holder")
+    });
+    let worker_socket = dir.path().join(format!("{}.sock", fixture.worker_id));
+    let listener =
+        std::os::unix::net::UnixListener::bind(&worker_socket).expect("bind the worker socket");
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            drop(stream);
+        }
+    });
+    let descriptor_path = eukhe_daemon::descriptor::descriptor_dir(&agent_dir, &socket)
+        .join(format!("{}.json", fixture.worker_id));
+    let mut descriptor: Value =
+        serde_json::from_slice(&std::fs::read(&descriptor_path).expect("descriptor"))
+            .expect("descriptor json");
+    descriptor["pid"] = json!(holder_pid);
+    descriptor["processStartId"] = json!(start_id);
+    descriptor["buildId"] = json!(eukhe_build_info::DAEMON_BUILD_ID);
+    std::fs::write(&descriptor_path, descriptor.to_string()).expect("rewrite descriptor");
+
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let log_path = eukhe_daemon::paths::daemon_log_path(&socket, &agent_dir);
+    let boot_before = eukhe_daemon::util::now_iso();
+    let unreachable_line = format!(
+        "session worker {} is alive but unreachable",
+        fixture.worker_id
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !std::fs::read_to_string(&log_path)
+        .unwrap_or_default()
+        .contains(&unreachable_line)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the boot never gave up on the unreachable worker; log: {}",
+            std::fs::read_to_string(&log_path).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // The relaunched worker binds the path only once no listener answers.
+    std::fs::remove_file(&worker_socket).expect("unlink the holder's socket");
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let registered = distinct(workers_registered_since(&log_path, &boot_before));
+        if registered == vec![fixture.worker_id.clone()] {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the unreachable worker's session never relaunched: {registered:?}; log: {}",
+            std::fs::read_to_string(&log_path).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let status = holder_exit.join().expect("the holder's reaper");
+    assert!(!status.success(), "the holder was stopped: {status:?}");
+}

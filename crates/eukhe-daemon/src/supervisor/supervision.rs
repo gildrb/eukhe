@@ -248,6 +248,31 @@ impl Supervisor {
                 backoff.as_millis()
             ));
             tokio::time::sleep(backoff).await;
+            // Never relaunch beside an earlier process that survived its
+            // stop: stop it first; a survivor that lives on again counts as
+            // the next failure (user decision Q10).
+            let survivor = resident.survivor.lock().await.clone();
+            if let Some((survivor_pid, start_id)) = survivor {
+                match crate::boot_reap::stop_process(survivor_pid, start_id).await {
+                    crate::boot_reap::ReapOutcome::Survived => {
+                        self.log_line(&format!(
+                            "session worker {}: the earlier process {survivor_pid} survived its stop again; no relaunch beside it",
+                            resident.worker_id
+                        ));
+                        child = None;
+                        adopted_pid = 0;
+                        if self.is_stopping(&resident) {
+                            return;
+                        }
+                        continue;
+                    }
+                    crate::boot_reap::ReapOutcome::AlreadyGone
+                    | crate::boot_reap::ReapOutcome::Term
+                    | crate::boot_reap::ReapOutcome::Kill => {
+                        *resident.survivor.lock().await = None;
+                    }
+                }
+            }
             match self.relaunch_worker(&resident).await {
                 Ok(new_child) => {
                     // No budget change on a successful relaunch: a spawn
