@@ -128,8 +128,8 @@ impl FileRead {
     /// line takes the ending written before it (at the start: the file's
     /// first ending, else LF).
     pub(crate) fn persist(&self, after: &str, origins: &[Option<usize>]) -> String {
-        let lines = after.split('\n').collect::<Vec<_>>();
-        let runs = endings::runs((0..lines.len().saturating_sub(1)).map(|index| {
+        let separators = after.bytes().filter(|&byte| byte == b'\n').count();
+        let runs = endings::runs((0..separators).map(|index| {
             origins
                 .get(index)
                 .copied()
@@ -141,9 +141,9 @@ impl FileRead {
             &runs,
             self.endings.first().copied().unwrap_or(LineEnding::Lf),
         );
-        let mut out = String::with_capacity(after.len() + self.bom.len() + lines.len());
+        let mut out = String::with_capacity(after.len() + self.bom.len() + separators + 1);
         out.push_str(self.bom);
-        let mut lines = lines.into_iter();
+        let mut lines = after.split('\n');
         for sep in seps {
             for line in lines.by_ref().take(sep.n) {
                 out.push_str(line);
@@ -314,7 +314,7 @@ fn assert_seen_lines(
     let held = snapshot.is_some();
     let runs = snapshot
         .and_then(|snapshot| snapshot.seen_lines)
-        .map(|lines| seen::runs(&lines))
+        .map(|lines| seen::runs(&lines, anchor_lines))
         .unwrap_or_default();
     let verdict = seen::check(&runs, &seen::anchors(text, anchor_lines));
     if verdict.unseen.is_empty() {
