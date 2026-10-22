@@ -206,27 +206,64 @@ impl Client {
     }
 }
 
-/// Poll a sync probe until it yields a value.
-fn wait_until<T>(deadline: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
+/// Poll a sync probe until it yields a value; a miss names the condition
+/// and the last observation.
+fn wait_until<T>(
+    deadline: Duration,
+    what: &str,
+    mut probe: impl FnMut() -> Result<T, String>,
+) -> T {
     let deadline = Instant::now() + deadline;
     loop {
-        if let Some(value) = probe() {
-            return value;
+        match probe() {
+            Ok(value) => return value,
+            Err(seen) => assert!(
+                Instant::now() < deadline,
+                "{what} never became true; last seen: {seen}"
+            ),
         }
-        assert!(Instant::now() < deadline, "condition never became true");
         std::thread::sleep(Duration::from_millis(50));
     }
 }
 
-/// One live session's transcript through the supervisor route.
-fn messages(client: &mut Client, id: &str, active_session_id: &str) -> String {
+/// One live session's transcript rows through the supervisor route.
+fn messages(client: &mut Client, id: &str, active_session_id: &str) -> Vec<Value> {
     client.send_command(
         id,
         &json!({ "type": "get_messages", "activeSessionId": active_session_id }),
     );
     let response = client.read_response(id);
     assert_eq!(response["success"], true, "get_messages failed: {response}");
-    serde_json::to_string(&response["data"]).expect("messages json")
+    response["data"]["messages"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("get_messages rows: {response}"))
+}
+
+/// The row index of the `agent_message` card a delivery of `body` from
+/// `sender` renders: the body rides the row content (the rendered prompt)
+/// and `details.message`. Matched whole, never by substring: the woken
+/// worker's own rows (the kernel's `[python-state-restored]` notice says
+/// "available again") may land in the same transcript.
+fn delivery_card(rows: &[Value], sender: &str, body: &str) -> Option<usize> {
+    rows.iter().position(|row| {
+        row["customType"] == "agent_message"
+            && row["content"] == format!("[agent-message from {sender}]\n\n{body}")
+            && row["details"]["message"] == body
+    })
+}
+
+/// Whether an assistant row after `from` answers with `text` (the mock's
+/// reply to the prompt that row carries).
+fn answered_after(rows: &[Value], from: usize, text: &str) -> bool {
+    rows.get(from + 1..)
+        .unwrap_or_default()
+        .iter()
+        .any(|row| row["role"] == "assistant" && row["content"][0]["text"] == text)
+}
+
+fn rows_json(rows: &[Value]) -> String {
+    serde_json::to_string(rows).expect("rows json")
 }
 
 #[test]
@@ -263,6 +300,12 @@ fn send_to_a_saved_session_wakes_it_and_runs_the_turn() {
     let _daemon = spawn_daemon(&socket, &agent_dir);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
+    // A bare client's deliveries are labelled by its connection id (the
+    // sender precedence's last key).
+    let sender = hello["clientId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the hello names the client: {hello}"))
+        .to_string();
 
     // One session that goes inactive: prompt a turn, then stop the worker.
     // The session file persists under the agent dir.
@@ -304,7 +347,11 @@ fn send_to_a_saved_session_wakes_it_and_runs_the_turn() {
         "first turn failed: {first_turn}"
     );
     let first_messages = messages(&mut client, "gm1", &active_id);
-    assert!(first_messages.contains("wake reply"), "{first_messages}");
+    assert!(
+        answered_after(&first_messages, 0, "wake reply"),
+        "{}",
+        rows_json(&first_messages)
+    );
 
     client.send_command(
         "k1",
@@ -356,29 +403,38 @@ fn send_to_a_saved_session_wakes_it_and_runs_the_turn() {
 
     // The woken worker spawned: the roster lists the session again, with the
     // saved transcript (same sessionId, the wake resumed the file).
-    let listed = wait_until(Duration::from_secs(15), || {
-        client.send_command("l3", &json!({ "type": "list" }));
-        let list = client.read_response("l3");
-        list["data"]["sessions"].as_array().and_then(|sessions| {
-            sessions
-                .iter()
-                .find(|summary| summary["sessionId"].as_str() == Some(session_id.as_str()))
-                .cloned()
-        })
-    });
+    let listed = wait_until(
+        Duration::from_secs(15),
+        "the woken session is listed",
+        || {
+            client.send_command("l3", &json!({ "type": "list" }));
+            let list = client.read_response("l3");
+            list["data"]["sessions"]
+                .as_array()
+                .and_then(|sessions| {
+                    sessions
+                        .iter()
+                        .find(|summary| summary["sessionId"].as_str() == Some(session_id.as_str()))
+                        .cloned()
+                })
+                .ok_or_else(|| list.to_string())
+        },
+    );
     assert_eq!(listed["sessionName"], "alpha", "{listed}");
 
-    // The delivered prompt ran as a turn and the mock answered it.
-    let woken_messages = wait_until(Duration::from_secs(30), || {
-        let text = messages(&mut client, "gm2", &woken_id);
-        (text.contains("[agent-message from") && text.contains("wake reply")).then_some(text)
-    });
-    // The delivery renders as the agent_message custom row: the body
-    // rides the row content (the rendered prompt) and details.message.
-    assert_eq!(
-        woken_messages.matches("wake up").count(),
-        2,
-        "{woken_messages}"
+    // The delivered prompt ran as a turn and the mock answered it: the
+    // delivery's card, then the woken worker's assistant reply after it
+    // (the first turn's reply precedes the card and does not count).
+    wait_until(
+        Duration::from_secs(30),
+        "the woken session's turn answered the delivered prompt",
+        || {
+            let rows = messages(&mut client, "gm2", &woken_id);
+            match delivery_card(&rows, &sender, "wake up") {
+                Some(card) if answered_after(&rows, card, "wake reply") => Ok(()),
+                Some(_) | None => Err(rows_json(&rows)),
+            }
+        },
     );
 
     // The reuse path: a second send finds the resident worker hosting the
@@ -393,12 +449,16 @@ fn send_to_a_saved_session_wakes_it_and_runs_the_turn() {
         resent["data"]["target"]["activeSessionId"], woken_id,
         "reuse keeps the same worker: {resent}"
     );
-    wait_until(Duration::from_secs(30), || {
-        let text = messages(&mut client, "gm3", &woken_id);
-        // The second send's card carries the body in the row content and
-        // in details.message: two occurrences for the one delivery.
-        (text.matches("again").count() == 2).then_some(())
-    });
+    wait_until(
+        Duration::from_secs(30),
+        "the second delivery landed on the resident worker",
+        || {
+            let rows = messages(&mut client, "gm3", &woken_id);
+            delivery_card(&rows, &sender, "again")
+                .map(|_| ())
+                .ok_or_else(|| rows_json(&rows))
+        },
+    );
 
     // An unknown selector that matches no saved session keeps the TS error.
     client.send_command(

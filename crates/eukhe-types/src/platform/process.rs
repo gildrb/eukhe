@@ -210,6 +210,18 @@ pub fn ignore_sigint_for_suspend() -> anyhow::Result<()> {
 /// runs SIGINT's default action again. Never fails (the handler stays
 /// installed; only its mode flips).
 ///
+/// The mode flips only once no SIGINT raised inside the window still
+/// waits in this process's shared signal queue. A cooked-mode editor
+/// wrapper's Ctrl+C (`kill -INT 0`) is process-directed: the kernel
+/// parks it in that queue and wakes one thread, which dequeues it when
+/// it next runs -- under load, after the editor exited and the resume
+/// reached this restore, so a flip first would hand a signal the window
+/// owed a swallow to the default action and kill the TUI after the edit
+/// landed. The queue is `ShdPnd` in `/proc/self/status`; the wait is
+/// bounded, so a thread that blocks SIGINT for good never wedges the
+/// resume. Node has no such race: a signal libuv consumed before the
+/// listener went dies with the listener.
+///
 /// # Errors
 ///
 /// None in practice; the `Result` keeps the suspend driver's contract.
@@ -218,9 +230,37 @@ pub fn restore_default_sigint() -> anyhow::Result<()> {
     use std::sync::PoisonError;
     let shield = SIGINT_SHIELD.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(default_action) = shield.as_ref() {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while shared_sigint_pending() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         default_action.store(true, Ordering::SeqCst);
     }
     Ok(())
+}
+
+/// Whether a process-directed SIGINT waits in this process's shared
+/// signal queue (`ShdPnd` in `/proc/self/status`). `false` where the
+/// file is unavailable: nothing to wait for.
+#[cfg(target_os = "linux")]
+fn shared_sigint_pending() -> bool {
+    std::fs::read_to_string("/proc/self/status")
+        .is_ok_and(|status| shared_sigint_in_status(&status))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn shared_sigint_pending() -> bool {
+    false
+}
+
+/// Whether the `ShdPnd` mask of a `/proc/<pid>/status` text has SIGINT's
+/// bit (signal `n` is bit `n - 1`).
+fn shared_sigint_in_status(status: &str) -> bool {
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("ShdPnd:"))
+        .and_then(|mask| u64::from_str_radix(mask.trim(), 16).ok())
+        .is_some_and(|mask| mask & (1 << (nix::sys::signal::Signal::SIGINT as i32 - 1)) != 0)
 }
 
 /// TS `processIdExists`: `kill(pid, 0)` checks existence only. ESRCH and a
@@ -543,6 +583,32 @@ mod suspend_shield_tests {
         raise(Signal::SIGINT).expect("raise SIGINT after the restore");
         std::thread::sleep(std::time::Duration::from_secs(5));
         panic!("SIGINT did not terminate the process after the restore");
+    }
+
+    /// The shield's drain reads the process-wide queue: SIGINT's bit in
+    /// `ShdPnd`, never the per-thread `SigPnd` or another signal's bit.
+    #[test]
+    fn the_shared_queue_read_takes_sigints_bit_of_shdpnd() {
+        let status = |shd: &str, sig: &str| {
+            format!("Name:\tx\nSigPnd:\t{sig}\nShdPnd:\t{shd}\nSigBlk:\t0000000000000000\n")
+        };
+        assert!(shared_sigint_in_status(&status(
+            "0000000000000002",
+            "0000000000000000"
+        )));
+        assert!(shared_sigint_in_status(&status(
+            "0000000000010002",
+            "0000000000000000"
+        )));
+        assert!(!shared_sigint_in_status(&status(
+            "0000000000000000",
+            "0000000000000002"
+        )));
+        assert!(!shared_sigint_in_status(&status(
+            "0000000000010000",
+            "0000000000000000"
+        )));
+        assert!(!shared_sigint_in_status("Name:\tx\n"));
     }
 }
 
