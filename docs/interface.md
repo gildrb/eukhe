@@ -253,7 +253,10 @@ Code: `eukhe-tui/src/keybindings/definitions.rs` (the defaults);
 
 From the Enter to the end of the turn the working indicator is on, and
 only while work runs: the prompt travels or waits for its turn, a turn
-of its run is unanswered, or a compaction runs. One clock counts from
+of its run is unanswered, or a compaction runs. The reply streams with
+it on: an answer whose text is still behind its pace when the turn ends
+keeps the row up, as the end left it, until the frame that shows the
+last of the text. One clock counts from
 the Enter through the run's requests, retries, compactions and a
 re-attach. A rebuild of the chat (a re-attach, a worker replacement, a
 reconnect) derives the indicator from the snapshot and this window's own
@@ -282,9 +285,12 @@ Laws (a draft): `LAWS.bend` section `turn_visibility` on the model in
 `bend/turn_visibility.bend`. Code: `session_ui/apply.rs`
 (`apply_update`), `session_ui/prompt.rs` (`apply_prompt_outcome`),
 `session_ui/lifecycle.rs` (`attach_session`, `rebuild_view`),
-`snapshot.rs` (`fold_transcript`, `reconstruct`), `snapshot/turn_end.rs`.
+`snapshot.rs` (`fold_transcript`, `reconstruct`), `snapshot/turn_end.rs`,
+`view.rs` (`start_loader`, `stop_loader`, `loader_row`) with
+`view/streaming.rs` `advance_paces` (the row through the reveal).
 Tests: `tests/turn_visibility_headless.rs` (the findings' live histories),
-`snapshot::tests::turn_end`, `tests/failed_turn_visible_headless.rs`.
+`snapshot::tests::turn_end`, `tests/failed_turn_visible_headless.rs`,
+`view::screen_tests::the_loader_stays_up_until_the_streamed_text_all_shows`.
 
 ### T1. Themes
 
