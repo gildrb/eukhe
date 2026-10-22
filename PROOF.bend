@@ -32390,6 +32390,63 @@ def pdl.grep_is_read(+b: Dl.B, +bs: List<&2, Dl.B>) -> {Dl.grep_rows(b <> bs) ==
   %pdl.norm_lines(b <> bs, False{}) : {Dl.lastrow(_) == Dl.read_rows(b <> bs) : List<&2, List<&2, Dl.B>>}
   pdl.rows_same(Dl.norm(b <> bs), pdl.nm_ne(bs, b, False{}))
 
+# the carry rule over m more copies of o, after a first one
+def pln.rep(m: Nat, +o: Maybe<&2, Dl.End>, +c: Dl.End, +xs: List<&2, Maybe<&2, Dl.End>>) -> {Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, m, o), xs), Dl.sep(o, c)) == List.append(&2, Dl.End, Laws.lines.Rep(Dl.End, m, Dl.sep(o, c)), Laws.lines.Carry(xs, Dl.sep(o, c))) : List<&2, Dl.End>}:
+  match m:
+    case 0n:
+      {==}
+    case 1n+k:
+      match o:
+        case None{}:
+          %pln.rep(k, None{}, c, xs) : {c <> Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, k, None{}), xs), c) == c <> _ : List<&2, Dl.End>}
+          {==}
+        case Some{+e}:
+          %pln.rep(k, Some{e}, c, xs) : {e <> Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, k, Some{e}), xs), e) == e <> _ : List<&2, Dl.End>}
+          {==}
+
+# the carry rule over a run of 1+m copies of o
+def pln.rep1(+m: Nat, o: Maybe<&2, Dl.End>, +c: Dl.End, +xs: List<&2, Maybe<&2, Dl.End>>) -> {Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, 1n+m, o), xs), c) == List.append(&2, Dl.End, Laws.lines.Rep(Dl.End, 1n+m, Dl.sep(o, c)), Laws.lines.Carry(xs, Dl.sep(o, c))) : List<&2, Dl.End>}:
+  match o:
+    case None{}:
+      %pln.rep(m, None{}, c, xs) : {c <> Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, m, None{}), xs), c) == c <> _ : List<&2, Dl.End>}
+      {==}
+    case Some{+e}:
+      %pln.rep(m, Some{e}, c, xs) : {e <> Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, m, Some{e}), xs), e) == e <> _ : List<&2, Dl.End>}
+      {==}
+
+def pln.plan(rs: List<&2, Dl.Run>, +c: Dl.End) -> {Laws.lines.Flat(Dl.plan(rs, c)) == Laws.lines.Carry(Laws.lines.Ends(rs), c) : List<&2, Dl.End>}:
+  match rs:
+    case Nil{}:
+      {==}
+    case r <> +rest:
+      match r:
+        case Dl.Run{+o, n}:
+          match n:
+            case 0n:
+              pln.plan(rest, c)
+            case 1n+(+m):
+              +s = Dl.sep(o, c)
+              %Equal.sym(List<&2, Dl.End>, Laws.lines.Flat(Dl.plan(rest, s)), Laws.lines.Carry(Laws.lines.Ends(rest), s), pln.plan(rest, s)) : {List.append(&2, Dl.End, Laws.lines.Rep(Dl.End, 1n+m, s), _) == Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, 1n+m, o), Laws.lines.Ends(rest)), c) : List<&2, Dl.End>}
+              Equal.sym(List<&2, Dl.End>, Laws.lines.Carry(List.append(&2, Maybe<&2, Dl.End>, Laws.lines.Rep(Maybe<&2, Dl.End>, 1n+m, o), Laws.lines.Ends(rest)), c), List.append(&2, Dl.End, Laws.lines.Rep(Dl.End, 1n+m, s), Laws.lines.Carry(Laws.lines.Ends(rest), s)), pln.rep1(m, o, c, Laws.lines.Ends(rest)))
+
+# emit writes the pieces woven with the carry rule
+def pln.emit(rest: List<&2, Dl.Piece>, +c: Dl.End, p: Dl.Piece) -> {Dl.emit(rest, c, p) == Laws.lines.Weave.go(rest, p, Laws.lines.Carry(Laws.lines.Owns.go(rest, p), c)) : List<&2, Dl.B>}:
+  match rest:
+    case Nil{}:
+      match p:
+        case Dl.Piece{t, en}:
+          {==}
+    case +q <> +more:
+      match p:
+        case Dl.Piece{+t, en}:
+          match en:
+            case None{}:
+              %pln.emit(more, c, q) : {List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(c), Dl.emit(more, c, q))) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(c), _)) : List<&2, Dl.B>}
+              {==}
+            case Some{+e}:
+              %pln.emit(more, e, q) : {List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(e), Dl.emit(more, e, q))) == List.append(&2, Dl.B, t, List.append(&2, Dl.B, Dl.ebytes(e), _)) : List<&2, Dl.B>}
+              {==}
+
 # ---- documents_laws ----
 
 # proof_documents_laws: the fills of the laws of LAWS.bend section documents
@@ -32445,6 +32502,19 @@ def Laws.edit_keeps_untouched_bytes(bom, bs, s, k, xs, fits):
 
 def Laws.grep_line_is_read_line(b, bs):
   pdl.grep_is_read(b, bs)
+
+def Laws.persist_weaves_carry(ps, c):
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      pln.emit(rest, c, p)
+
+def Laws.persist_plan_refines(rs, c):
+  pln.plan(rs, c)
+
+def Laws.persist_plan_example():
+  {==}
 
 # (F3) Tags
 
