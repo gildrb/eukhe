@@ -1,20 +1,26 @@
-# CI gates for eukhe: `make check` (fmt --all --check, clippy --workspace
-# --all-targets -- -D warnings, cargo test --workspace) on the pinned
-# toolchain (1.98.1), the eukhe-runtime Python suite, the Bend laws
-# (`bend PROOF.bend`, `--verdict`) and the release-version bridge, plus
-# the cargo-deny gate. A green run on a main push is what
-# eukhe-release.yml publishes.
+# CI gates for eukhe: fmt, `cargo check` + clippy --workspace --all-targets
+# -- -D warnings, the sharded `cargo test --workspace` on the pinned
+# toolchain (1.98.1), the eukhe-runtime Python suite, the dashboard UI,
+# the Bend laws (`bend PROOF.bend`, `--verdict`) and the release-version
+# bridge, the cargo-deny gate, and the secrets scan (gitleaks).
 #
-#   push to main — the full gate set on the tip.
+#   push to main — the light gate only: fmt, deny, secrets, laws. The
+#   other gates ran before the push, in the local pre-push hook
+#   (.githooks/pre-push: `make ci-local`, every gate of this file; `make
+#   hooks` installs it). eukhe-release.yml releases, once a day, the newest
+#   commit of main whose run of this workflow succeeded.
 #
-#   pull_request against main — the same gates on the merge candidate.
+#   pull_request against main — the full gate set on the merge candidate.
 #
-#   merge_group — full workspace tests on the queued merge candidate,
-#   not the PR's narrowed selection.
+#   merge_group — the full gate set and full workspace tests on the queued
+#   merge candidate, not the PR's narrowed selection.
 #
 #   workflow_dispatch — the full gate set on a branch: catalog-pin.yml
 #   starts it on the pull request it opens (a pull request the workflow
 #   token opens starts no pull_request run).
+#
+# The full-gate jobs (changes, dashboard-ui, clippy-test, test-shard,
+# test-summary, runtime-test) carry `github.event_name != 'push'`.
 #
 # THE PR SMOKE MODEL (the touched-crate path filter): the PR wave narrows
 # the TEST phase to touched crates and their reverse dependents' units
@@ -23,9 +29,9 @@
 # to the full selection — CI/scripts/vendor/runtime changes affect the
 # whole suite, and docs-only waste is cheaper than a silent hole). The
 # stable crc32 shard assignment is untouched — only the unit selection
-# narrows — and the push wave keeps running the full union, so main is the
-# authority: the PR proves the touched crates' runtime behavior fast, the
-# merge proves the whole workspace. fmt + check/clippy stay full-scope on
+# narrows — and the merge-queue and dispatch waves run the full union: the
+# PR proves the touched crates' runtime behavior fast, the merge proves the
+# whole workspace. fmt + check/clippy stay full-scope on
 # PRs (the compile authority); reverse-dep selection also runs tests of
 # crates affected by a dependency's behavior change. The shard manifests
 # record the selection scope and the summary job audits the union against it, so a
@@ -94,15 +100,15 @@ env:
   SHARD_COUNT: "8"
 
 jobs:
-  # The touched-crate path filter (the PR smoke's selection). Push and queue
-  # runs use the full selection; PR runs select crates plus reverse deps,
+  # The touched-crate path filter (the PR smoke's selection). Queue and
+  # dispatch runs use the full selection; PR runs select crates plus reverse deps,
   # failing safe to the full selection on any non-crate path. The output
   # feeds test shards' --crates; empty means "the full union".
   changes:
-    name: touched crates (PR) / full selection (push + queue)
+    name: touched crates (PR) / full selection (queue + dispatch)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     outputs:
       crates: ${{ steps.select.outputs.crates }}
       scope: ${{ steps.select.outputs.scope }}
@@ -171,7 +177,7 @@ jobs:
     name: dashboard UI (vp check + build, web/ up to date)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -191,7 +197,7 @@ jobs:
     name: check + clippy (workspace)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -231,7 +237,7 @@ jobs:
     name: test shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     strategy:
       # One red shard must not cancel the others: their own conclusions are
       # the per-shard signal the summary merges.
@@ -257,12 +263,12 @@ jobs:
           # partial hit and compile the rest. Slower hits, no correctness
           # issue.
           shared-key: test-shards
-          # Only the push wave writes the entry: PR and merge-queue legs
-          # restore (the restore key falls back to the push wave's entry)
-          # and save nothing - a PR's save would land under the PR's own
-          # ref, and PR-ref entries are the eviction pressure on the
-          # release-build caches.
-          save-if: ${{ github.event_name == 'push' }}
+          # Only a run on main (a workflow_dispatch of main; pushes run no
+          # shards) writes the entry: PR and merge-queue legs restore (the
+          # restore key falls back to main's entry) and save nothing - a
+          # PR's save would land under the PR's own ref, and PR-ref entries
+          # are the eviction pressure on the release-build caches.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Pinned uv release, checked against its published sha256
       # (https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz.sha256).
       # No Actions cache: the uv cache would carry state between runs.
@@ -297,8 +303,8 @@ jobs:
       # test subset only, so the bins are built explicitly once up front —
       # first measured on run 36085993711, where the missing eukhe-daemon bin
       # failed exactly this suite. A leg with no selected units skips this
-      # (and runs nothing below); the push wave always selects units, so its
-      # behavior is unchanged.
+      # (and runs nothing below); the queue and dispatch waves always
+      # select units.
       - name: Build the workspace bins (sibling-binary parity for the e2e suites)
         if: steps.selection.outputs.units != '0'
         run: cargo build --locked --workspace --bins
@@ -325,7 +331,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: test-shard
-    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -390,7 +396,7 @@ jobs:
     name: runtime tests (eukhe-runtime)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -428,3 +434,59 @@ jobs:
           echo "${RUNNER_TEMP}/${name}" >> "${GITHUB_PATH}"
       - name: Dependency audit (cargo-deny advisories + bans + licenses + sources)
         run: cargo deny --all-features --workspace check advisories bans licenses sources
+
+  # The secrets scan: gitleaks (pinned release, sha256-checked) over the
+  # commits the event adds, with the default rules less the test fixtures
+  # that .gitleaks.toml names. The local hooks run the same scan.
+  secrets:
+    name: secrets (gitleaks, the new commits)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          # The full history and the tags: the scan range starts at the
+          # event's base commit, or else after the release tags.
+          fetch-depth: 0
+      - name: Install gitleaks (pinned release, sha256-checked)
+        run: |
+          set -euo pipefail
+          name="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          dir="${RUNNER_TEMP}/gitleaks"
+          mkdir -p "${dir}"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "${dir}/${name}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${name}"
+          echo "${GITLEAKS_SHA256}  ${dir}/${name}" | sha256sum -c -
+          tar -xzf "${dir}/${name}" -C "${dir}" gitleaks
+          echo "${dir}" >> "${GITHUB_PATH}"
+      - name: Scan the new commits
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          case "${EVENT_NAME}" in
+            push) base="${PUSH_BEFORE}" ;;
+            pull_request) base="${PR_BASE}"; head="${PR_HEAD}" ;;
+            merge_group) base="${QUEUE_BASE}" ;;
+            *) base="" ;;
+          esac
+          # A new branch (base all zeros), a force push (base not in the
+          # history) or a dispatch: every commit after the release tags.
+          if [[ -n "${base}" && ! "${base}" =~ ^0+$ ]] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            range="${base}..${head}"
+          else
+            range="${head} --not --tags"
+          fi
+          echo "scanning: ${range}"
+          gitleaks git --redact --no-banner --config .gitleaks.toml --log-opts="${range}" .
