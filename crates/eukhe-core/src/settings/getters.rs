@@ -128,7 +128,7 @@ impl SettingsManager {
     }
 
     /// `terminal.fullscreen`: whether the interactive surfaces run in the
-    /// alternate screen instead of inline.
+    /// alternate screen (the default) instead of inline.
     #[must_use]
     pub fn get_fullscreen(&self) -> bool {
         self.cvars().bool(&table::TERMINAL_FULLSCREEN)

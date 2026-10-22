@@ -64,6 +64,7 @@ More settings:
 |`terminal.streamPace.minChars`|`2`|Fewest streamed characters that one frame shows; `0` reads as 1|
 |`terminal.streamPace.lag`|`3`|How far the screen stays behind the stream: each frame shows the backlog divided by `1 + lag`|
 |`terminal.showSpeed`|`true`|Show the generation speed on the status line: `prefill <elapsed>s` (or `prefill p/n tokens` from a llama.cpp server), `decode N tok/s`, then `prefill X tok/s (TTFT Ys) · decode Z tok/s` after the reply|
+|`terminal.fullscreen`|`true`|Run the interactive surfaces in the alternate screen (a transcript window above the dock, wheel scrolling); `false` runs them inline, with the transcript in the terminal's scrollback|
 
 ## Agents and providers
 

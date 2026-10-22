@@ -810,7 +810,7 @@ pub const TERMINAL_FULLSCREEN: Decl = Decl {
     scope: CvarScope::Local,
     persist: true,
     replicate: true,
-    init: Init::Bool(false),
+    init: Init::Bool(true),
 };
 
 /// `0` reads as 1.

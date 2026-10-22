@@ -58,7 +58,8 @@ pub trait ClientSettings: Send + Sync {
     fn show_speed(&self) -> bool {
         true
     }
-    /// `terminal.fullscreen` (default false: inline).
+    /// `terminal.fullscreen` (default true: the alternate screen; an
+    /// explicit false runs inline).
     fn fullscreen(&self) -> bool;
     /// Persists `terminal.fullscreen` to the global scope.
     ///

@@ -18,9 +18,9 @@ use crate::inline_term::{InlineFrame, InlineTerminal, LiveCursor};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScreenMode {
     /// Paint into the normal screen; finished rows go to scrollback.
-    #[default]
     Inline,
-    /// Paint screen-sized frames into the alternate screen.
+    /// Paint screen-sized frames into the alternate screen (the default).
+    #[default]
     Fullscreen,
 }
 

@@ -266,7 +266,7 @@ pub struct TerminalSettings {
     /// (default true).
     pub show_speed: Option<bool>,
     /// Run the interactive surfaces in the alternate screen (default
-    /// inline).
+    /// true; an explicit false runs them inline).
     pub fullscreen: Option<bool>,
     /// How fast streamed text appears on screen.
     pub stream_pace: Option<StreamPaceSettings>,

@@ -4,8 +4,12 @@ The shared rules (what a law secures, the adversary, H1 to H6) are in [harness.m
 
 ### S8. The interface
 
-The inline terminal (eukhe-tui) writes the transcript into the native
-scrollback of the terminal and draws a live area below it.
+The terminal UI (eukhe-tui) runs fullscreen by default: it paints a
+screen-sized frame (a transcript window and the dock) into the
+alternate screen. With `terminal.fullscreen` set to `false` it runs
+inline: it writes the transcript into the native scrollback of the
+terminal and draws a live area below it. The rules below are the
+inline terminal's; the fullscreen window renders the same entries.
 
 The transcript:
 
