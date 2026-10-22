@@ -12,7 +12,8 @@ check:
 # clippy on the crates the staged change touches (scripts/ci_pr_crates.py).
 # ci-local is the pre-push gate: every gate of .github/workflows/ci.yml.
 # `make hooks` makes git run them through prek (.pre-commit-config.yaml;
-# the hooks are in the git common dir, so every worktree shares them).
+# the hooks are in the git common dir, so every worktree shares them; a
+# worktree of an older commit, without the config, skips them).
 ci-fast:
 	@scripts/ci_local.sh fast
 
@@ -21,7 +22,7 @@ ci-local:
 
 hooks:
 	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (docs/develop.md: mise use -g github:j178/prek@0.5.7)"; exit 1; }
-	prek install --hook-type pre-commit --hook-type pre-push
+	prek install --allow-missing-config --hook-type pre-commit --hook-type pre-push
 
 # The eukhe-runtime Python suite on the uv-locked kernel env (the env the
 # real-kernel cargo tests build: crates/eukhe-core/tests/support/kernel_runtime.rs).

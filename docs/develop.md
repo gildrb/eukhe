@@ -21,7 +21,7 @@ The full CI gate runs on this machine, not on GitHub. Install
 
 ```sh
 mise use -g github:j178/prek@0.5.7
-make hooks   # prek install --hook-type pre-commit --hook-type pre-push
+make hooks   # prek install --allow-missing-config --hook-type pre-commit --hook-type pre-push
 ```
 
 The hooks (`.pre-commit-config.yaml`) run at low CPU priority
