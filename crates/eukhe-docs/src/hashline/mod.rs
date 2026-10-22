@@ -25,6 +25,7 @@ mod block;
 #[cfg(test)]
 mod bridge;
 mod clipboard;
+mod endings;
 mod input;
 mod messages;
 mod mismatch;

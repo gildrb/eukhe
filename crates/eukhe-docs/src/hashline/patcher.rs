@@ -11,6 +11,7 @@ use super::{
     apply::{apply_edits, diff_origins},
     block::reject_block_edits,
     clipboard::validate_clipboard_sequence,
+    endings,
     input::PatchSection,
     messages::{
         already_landed_message, anchored_context_lines, missing_snapshot_tag_message,
@@ -121,32 +122,39 @@ impl FileRead {
     }
 
     /// Encode post-edit text back to the bytes this file persists with: the
-    /// BOM, then each line with its ending. `origins[j]` is the index of
-    /// the original line that line `j` of `after` came from. A line from
-    /// the file keeps its own ending; a new line takes the ending written
-    /// before it (at the start: the file's first ending, else LF).
+    /// BOM, then each line with the separator [`endings::plan`] answers.
+    /// `origins[j]` is the index of the original line that line `j` of
+    /// `after` came from. A line from the file keeps its own ending; a new
+    /// line takes the ending written before it (at the start: the file's
+    /// first ending, else LF).
     pub(crate) fn persist(&self, after: &str, origins: &[Option<usize>]) -> String {
-        let mut out = String::with_capacity(after.len() + self.bom.len() + origins.len());
-        out.push_str(self.bom);
-        let mut carry = self.endings.first().copied().unwrap_or(LineEnding::Lf);
-        let mut pieces = after.split('\n').enumerate().peekable();
-        while let Some((index, piece)) = pieces.next() {
-            out.push_str(piece);
-            if pieces.peek().is_none() {
-                break;
-            }
-            if let Some(&ending) = origins
+        let lines = after.split('\n').collect::<Vec<_>>();
+        let runs = endings::runs((0..lines.len().saturating_sub(1)).map(|index| {
+            origins
                 .get(index)
                 .copied()
                 .flatten()
                 .and_then(|origin| self.endings.get(origin))
-            {
-                carry = ending;
+                .copied()
+        }));
+        let seps = endings::plan(
+            &runs,
+            self.endings.first().copied().unwrap_or(LineEnding::Lf),
+        );
+        let mut out = String::with_capacity(after.len() + self.bom.len() + lines.len());
+        out.push_str(self.bom);
+        let mut lines = lines.into_iter();
+        for sep in seps {
+            for line in lines.by_ref().take(sep.n) {
+                out.push_str(line);
+                out.push_str(match sep.end {
+                    LineEnding::Lf => "\n",
+                    LineEnding::CrLf => "\r\n",
+                });
             }
-            out.push_str(match carry {
-                LineEnding::Lf => "\n",
-                LineEnding::CrLf => "\r\n",
-            });
+        }
+        for line in lines {
+            out.push_str(line);
         }
         out
     }

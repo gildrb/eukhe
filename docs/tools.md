@@ -749,6 +749,8 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 | `load_persist_roundtrip` | A file loaded and written with no edit is the same bytes (S8.6). |
 | `edit_keeps_untouched_bytes` | An edit keeps every byte outside its lines (S8.6). |
 | `grep_line_is_read_line` | `grep` and `read` show the same line text at the same number (S8.6). |
+| `persist_weaves_carry` | An edited file is written line by line, each line but the last followed by its own ending, else the separator written before it (S8.6). |
+| `persist_plan_refines` | The separator plan over runs of lines gives, line for line, the separators of that rule (S8.6). |
 | `tag_names_shown_text` | The tag of a result names the text that its rows come from (S8.7). |
 | `edit_only_seen_lines` | An edit applies only when every anchor is a seen line (S8.8). |
 | `edit_seen_applies` | An edit whose anchors are all seen applies (S8.8). |

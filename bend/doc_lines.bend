@@ -175,6 +175,39 @@ def persist(d: Ed) -> Doc:
     case Ed{bom, c, ps}:
       Doc{bom, start(ps, c)}
 
+# The separators of persist, as runs
+# ----------------------------------
+# What persist writes between the lines of an edited file, without their
+# bytes (patcher.rs `FileRead::persist`): for each line of the edited text
+# but the last, the ending of the file line it came from (None: a new
+# line, or a line with no ending), as runs of equal values; the answer is
+# the separator after each of those lines, as runs. Rust writes each line
+# and then its separator. Runs keep the call small: an edit of a file with
+# one kind of ending is a few runs, whatever its length.
+
+# n lines in a row whose origin has this ending
+type Run is Data:
+  Run{end: Maybe<&2, End>, n: Nat}
+
+# n separators in a row
+type Seps is Data:
+  Seps{end: End, n: Nat}
+
+# the separators of the runs rs, with the carry c before them
+def plan(rs: List<&2, Run>, c: End) -> List<&2, Seps>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      match r:
+        case Run{o, n}:
+          match n:
+            case 0n:
+              plan(rest, c)
+            case 1n+m:
+              +s = sep(o, c)
+              Seps{s, 1n+m} <> plan(rest, s)
+
 # The bytes of a body
 # -------------------
 
