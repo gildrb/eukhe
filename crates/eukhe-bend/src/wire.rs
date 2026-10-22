@@ -9,10 +9,11 @@ use std::fmt;
 /// The largest Nat the wire carries: 14 decimal digits.
 pub const NAT_MAX: u64 = 99_999_999_999_999;
 
-/// The longest String the wire carries, in chars: the Bend decoder reads a
-/// String with one stack frame per char, and the shim's 256 MiB evaluation
-/// stack holds about 16M of them (a deeper run faults and ends the process),
-/// so `Writer::str` refuses more than half of that.
+/// The longest String the wire carries, in chars: Bend's String codec is a
+/// flat loop, but a model that recurses over a String takes one stack frame
+/// per char, and the shim's 256 MiB evaluation stack holds about 16M of them
+/// (a deeper run faults and ends the process), so `Writer::str` refuses more
+/// than half of that.
 pub const STR_MAX: usize = 8 << 20;
 
 /// Why a value could not be written or read.

@@ -113,8 +113,9 @@ static u64* eb_corpus_setup(void) {
   return H;
 }
 
-// The evaluation stack: frames of non-tail recursion (a decoder reading a
-// String takes one per char). 256 MiB holds tens of millions of frames.
+// The evaluation stack: frames of non-tail recursion (a model recursing over
+// a String takes one per char, get_list one per item). 256 MiB holds tens of
+// millions of frames.
 #define EB_STACK_BYTES (1ull << 28)
 
 // pool_stack() of core.c (Bend 2.0.38) with EB_STACK_BYTES for its 1 << 31,
