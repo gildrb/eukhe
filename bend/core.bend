@@ -3,6 +3,7 @@
 import Base
 import ./wire.bend as W
 import ./ffi_echo.bend as ffi_echo
+import ./ffi_tree.bend as ffi_tree
 import ./ffi_wire.bend as ffi_wire
 
 # The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and
@@ -30,6 +31,7 @@ def ffi(+entry: U32, input: String) -> String:
 # A stepper's state, tagged with its entry; Unknown: an unknown entry.
 type State is Type:
   Echo{s: ffi_echo.St}
+  Tree{s: ffi_tree.St}
   Unknown{}
 
 def open.echo(r: ffi_echo.St & String) -> State & String:
@@ -37,10 +39,17 @@ def open.echo(r: ffi_echo.St & String) -> State & String:
     case (s, reply):
       (Echo{s}, reply)
 
+def open.tree(r: ffi_tree.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Tree{s}, reply)
+
 def open.go(+entry: U32, input: String) -> State & String:
   match entry:
     case 0:
       open.echo(ffi_echo.open(input))
+    case 2:
+      open.tree(ffi_tree.open(input))
     case _:
       (Unknown{}, W.err("unknown entry"))
 
@@ -54,10 +63,17 @@ def step.echo(r: ffi_echo.St & String) -> State & String:
     case (s, reply):
       (Echo{s}, reply)
 
+def step.tree(r: ffi_tree.St & String) -> State & String:
+  match r:
+    case (s, reply):
+      (Tree{s}, reply)
+
 def step.go(state: State, input: String) -> State & String:
   match state:
     case Echo{s}:
       step.echo(ffi_echo.step(s, input))
+    case Tree{s}:
+      step.tree(ffi_tree.step(s, input))
     case Unknown{}:
       (Unknown{}, W.err("unknown entry"))
 
@@ -69,6 +85,8 @@ def step(state: State, input: String) -> State & String:
 def close.go(state: State) -> Unit:
   match state:
     case Echo{s}:
+      Unit{}
+    case Tree{s}:
       Unit{}
     case Unknown{}:
       Unit{}

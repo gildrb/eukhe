@@ -66,6 +66,7 @@ import ./bend/config.bend as Cf
 import ./bend/default_model.bend as Dm
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/ffi_tree.bend as Ft
 
 # (a) The view
 # ------------
@@ -713,9 +714,10 @@ law tree_put_keeps_others:
   {Tr.get(Tr.apply(t, Tr.Do{Tr.Put{k, p, v}}), x) == Tr.get(t, x) : Maybe<&2, Tr.Ent>}
 
 # The compiled core: the Rust tree runs the stepper of bend/tree.bend
-# (`Tr.core.step`, its state a key map and the journal). Every journal is
-# free: any records, valid or not; the halves hs that place the map's
-# splits are free too (the Rust tree opens with Tr.KMap.halves()).
+# (`Tr.core.step`, its state a key map and the journal) through the entry
+# bend/ffi_tree.bend (laws tree_ffi_*, after section wire). Every journal
+# is free: any records, valid or not; the halves hs that place the map's
+# splits are free too (the Rust tree opens with 2^46, ..., 2, 1).
 
 # the keys of the nodes of a that b does not hold, in key order
 def tree.lost.at(held: Bool, k: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
@@ -4186,6 +4188,128 @@ law wire_err_example:
 law wire_end_exact:
   for +s: String
   {Wr.end(s) == String.is_empty(s) : Bool}
+
+# ---- tree_ffi ----
+
+# LAWS (S1, the session tree's entry of the compiled core): the Rust
+# journal (crates/eukhe-durable/src/tree/journal.rs) drives the stepper of
+# bend/ffi_tree.bend, whose state is the core of bend/tree.bend. The laws
+# tree_core_* of section S1 pin the core; these pin the entry: every ask
+# Rust writes reads back, a step answers the core's answer and keeps the
+# core's next state, and every other input answers the error form.
+
+# every Nat of an op fits the wire
+def tree.op_fits(o: Tr.Op) -> Bool:
+  match o:
+    case Tr.Put{k, p, v}:
+      Bool.and(wire_fits(k), Bool.and(wire_fits(p), wire_fits(v)))
+    case Tr.Del{k}:
+      wire_fits(k)
+
+def tree.ops_fit(ops: List<&2, Tr.Op>) -> Bool:
+  match ops:
+    case Nil{}:
+      True{}
+    case o <> rest:
+      Bool.and(tree.op_fits(o), tree.ops_fit(rest))
+
+# every Nat of an ask fits the wire, and so does the count of a rewind's
+# ops
+def tree.ask_fits(q: Tr.Ask) -> Bool:
+  match q:
+    case Tr.Note{r}:
+      match r:
+        case Tr.Do{o}:
+          tree.op_fits(o)
+        case Tr.Rewind{+ops}:
+          Bool.and(wire_fits(List.length(&2, Tr.Op, ops)), tree.ops_fit(ops))
+    case Tr.Plan{n}:
+      wire_fits(n)
+    case Tr.Snap{n}:
+      wire_fits(n)
+
+# LAW: an ask that fits the wire reads back, and the rest is untouched
+# EXCLUDES: a field read into the wrong slot, a lost, added or reordered
+#   op of a rewind, a record or an op read as another kind
+law tree_ffi_ask_round_trip:
+  for q: Tr.Ask
+  for +rest: String
+  for h: {tree.ask_fits(q) == True{} : Bool}
+  {Ft.get_ask(Ft.put_ask(q, rest)) == Wr.Got{q, rest} : Wr.Dec<Tr.Ask>}
+
+# LAW: a step answers the core's answer to the ask and keeps the core's
+# next state
+# EXCLUDES: an entry that answers anything but the core's decision, or
+#   that drops, repeats or reorders a record of the core's journal
+law tree_ffi_step:
+  for +s: Tr.St
+  for +q: Tr.Ask
+  for h: {tree.ask_fits(q) == True{} : Bool}
+  {Ft.step(Ft.Live{s}, Ft.put_ask(q, "")) == (Ft.Live{Pair.fst(Tr.St, Tr.Ans, Tr.core.step(s, q))}, Ft.put_ans(Pair.snd(Tr.St, Tr.Ans, Tr.core.step(s, q)), "")) : Ft.St & String}
+
+# LAW: malformed input answers the error form and keeps the core
+# EXCLUDES: a default answer, or a changed core, for input that is no ask
+law tree_ffi_malformed:
+  for +s: Tr.St
+  for +input: String
+  for h: {Ft.get_ask(input) == Wr.Bad{} : Wr.Dec<Tr.Ask>}
+  {Ft.step(Ft.Live{s}, input) == (Ft.Live{s}, Wr.err("tree: malformed ask")) : Ft.St & String}
+
+# LAW: input left after an ask answers the error form and keeps the core
+# EXCLUDES: an answer to an ask followed by garbage
+law tree_ffi_trailing:
+  for +s: Tr.St
+  for +input: String
+  for q: Tr.Ask
+  for rest: String
+  for h: {Ft.get_ask(input) == Wr.Got{q, rest} : Wr.Dec<Tr.Ask>}
+  for left: {Wr.end(rest) == False{} : Bool}
+  {Ft.step(Ft.Live{s}, input) == (Ft.Live{s}, Wr.err("tree: input left after the ask")) : Ft.St & String}
+
+# LAW: a refused open answers every step with the error form
+# EXCLUDES: a core conjured after a refused open
+law tree_ffi_refused:
+  for input: String
+  {Ft.step(Ft.Shut{}, input) == (Ft.Shut{}, Wr.err("tree: the open was refused")) : Ft.St & String}
+
+# LAW: an open with halves that fit the wire opens the empty core that
+# splits at those halves, and answers the empty reply
+# EXCLUDES: halves read wrong (a lost, added or changed half), a core that
+#   starts with a node or a record
+law tree_ffi_open:
+  for +hs: List<&2, Nat>
+  for h: {Bool.and(wire_fits(List.length(&2, Nat, hs)), wire_nats_fit(hs)) == True{} : Bool}
+  {Ft.open(Wr.put_list(~Nat, ~Wr.put_nat, hs, "")) == (Ft.Live{Tr.core.start(hs)}, "") : Ft.St & String}
+
+# LAW: an open whose input is no list of halves is refused
+# EXCLUDES: a default core for malformed input
+law tree_ffi_open_malformed:
+  for +input: String
+  for h: {Wr.get_list(~Nat, ~Wr.get_nat, input) == Wr.Bad{} : Wr.Dec<List<&2, Nat>>}
+  {Ft.open(input) == (Ft.Shut{}, Wr.err("tree: malformed halves")) : Ft.St & String}
+
+# LAW: an open with input left after the halves is refused
+# EXCLUDES: a core opened from halves followed by garbage
+law tree_ffi_open_trailing:
+  for +input: String
+  for hs: List<&2, Nat>
+  for rest: String
+  for h: {Wr.get_list(~Nat, ~Wr.get_nat, input) == Wr.Got{hs, rest} : Wr.Dec<List<&2, Nat>>}
+  for left: {Wr.end(rest) == False{} : Bool}
+  {Ft.open(input) == (Ft.Shut{}, Wr.err("tree: input left after the halves")) : Ft.St & String}
+
+# LAW: witness: asks and halves that fit exist (the premises above)
+# EXCLUDES: a vacuous tree.ask_fits or open premise
+law tree_ffi_fits_exists:
+  exs q: Tr.Ask
+  exs hs: List<&2, Nat>
+  {Bool.and(tree.ask_fits(q), Bool.and(wire_fits(List.length(&2, Nat, hs)), wire_nats_fit(hs))) == True{} : Bool}
+
+# LAW: anchors of the encodings Rust writes and reads (crates/eukhe-durable
+# src/tree/journal.rs): an ask of each kind, and an answer of each kind
+# EXCLUDES: a field order or a tag that differs from the Rust side
+law tree_ffi_example:
+  {[Ft.put_ask(Tr.Note{Tr.Do{Tr.Put{2n, 1n, 7n}}}, ""), Ft.put_ask(Tr.Note{Tr.Do{Tr.Del{2n}}}, ""), Ft.put_ask(Tr.Note{Tr.Rewind{[Tr.Del{3n}, Tr.Put{2n, 1n, 0n}]}}, ""), Ft.put_ask(Tr.Plan{4n}, ""), Ft.put_ask(Tr.Snap{5n}, ""), Ft.put_ans(Tr.Kept{}, ""), Ft.put_ans(Tr.Took{}, ""), Ft.put_ans(Tr.Cut{[2n, 3n]}, ""), Ft.put_ans(Tr.Effects{[Tr.Start{1n}, Tr.Stop{2n}, Tr.Restore{3n}]}, ""), Ft.put_ans(Tr.Nodes{[Tr.Ent{1n, 0n, 9n}]}, "")] == ["0,0,0,2,1,7,", "0,0,1,2,", "0,1,2,1,3,0,2,1,0,", "1,4,", "2,5,", "0,", "1,", "2,2,2,3,", "3,3,0,1,1,2,2,3,", "4,1,1,0,9,"] : List<&2, String>}
 
 # ---- retry ----
 

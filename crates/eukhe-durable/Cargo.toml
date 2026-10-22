@@ -7,6 +7,9 @@ publish.workspace = true
 description = "Rust port of @earendil-works/pi-durable 1.0.4 with parts of 1.1 and 1.2: a durable agent harness."
 
 [dependencies]
+# tree: the session tree's rule runs as the compiled Bend core's stepper
+# (bend/ffi_tree.bend).
+eukhe-bend.workspace = true
 eukhe-chord.workspace = true
 eukhe-ai.workspace = true
 eukhe-types.workspace = true

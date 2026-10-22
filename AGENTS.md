@@ -151,7 +151,7 @@ background bookkeeping.
 |`eukhe-build-info`|This build's identity (`build.rs`): version (the release, or `<series>-dev`) and source (commit, `.dirty.<hash>`, or `src.<hash>`)|none|
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
 |`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
-|`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
+|`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-bend`, `eukhe-chord`, `eukhe-ai`|
 |`eukhe-models`|Built-in model catalog (the union of the bundled snapshot and the compiled catalog) and transport pinning|`eukhe-types`, `eukhe-ai`|
 |`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|none|
 |`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`|

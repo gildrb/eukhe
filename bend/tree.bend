@@ -383,10 +383,10 @@ def within(r: List<&2, Ent>, +t: List<&2, Ent>) -> Bool:
 
 # A key map: a search tree of nodes. A fork holds a split key: its left
 # nodes have keys below it, its right nodes keys at or above it. A new
-# split halves the key range of its place, from [0, 2^48), so a path has at
-# most 48 forks, whatever the order of the puts. A fork also holds the
-# largest parent key of its nodes, so a delete skips the places where no
-# node can hang under it.
+# split halves the key range of its place (the Rust tree's range is
+# [0, 2^47)), so a path has at most 47 forks, whatever the order of the
+# puts. A fork also holds the largest parent key of its nodes, so a
+# delete skips the places where no node can hang under it.
 type KMap is Data:
   KNil{}
   KOne{e: Ent}
@@ -459,17 +459,8 @@ def KMap.get(+m: KMap, +x: Nat) -> Maybe<&2, Ent>:
 def KMap.has(+m: KMap, +x: Nat) -> Bool:
   Maybe.is_some(&2, Ent, KMap.get(m, x))
 
-# the halves of the key range [0, 2^48) at each depth: 2^47, ..., 2, 1
-def KMap.halves.go(n: Nat, +x: Nat, acc: List<&2, Nat>) -> List<&2, Nat>:
-  match n:
-    case 0n:
-      acc
-    case 1n+q:
-      KMap.halves.go(q, Nat.add(x, x), x <> acc)
-
-def KMap.halves() -> List<&2, Nat>:
-  KMap.halves.go(48n, 1n, Nil{})
-
+# the half of the key range of a place: the first of hs (the halves of
+# the places below it follow)
 def KMap.half(hs: List<&2, Nat>) -> Nat:
   match hs:
     case Nil{}:
@@ -792,8 +783,9 @@ def effects(ops: List<&2, Op>, +m: KMap) -> List<&2, Eff>:
 
 # The stepper
 # the live key map, the journal (newest record first), and the halves of
-# the key range (the stepper of the Rust tree opens with KMap.halves(); the
-# laws hold for any halves)
+# the key range, from the top (the Rust tree opens its stepper with
+# 2^46, ..., 2, 1, so its keys run in [0, 2^47); the laws hold for any
+# halves)
 type St is Data:
   St{m: KMap, log: List<&2, Rec>, hs: List<&2, Nat>}
 

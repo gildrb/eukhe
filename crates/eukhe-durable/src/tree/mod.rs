@@ -9,12 +9,13 @@
 //!
 //! The rule (which record the tree takes, what a delete removes, what a
 //! rewind does) is the Bend model `bend/tree.bend`: `LAWS.bend` section
-//! (S1) states its laws and `PROOF.bend` proves them. The journal's core
-//! (`rule.rs`) runs that rule as a stepper whose state is the live tree and
-//! the journal, so a record costs its change and a lookup, not the tree;
-//! node values reach the core as the journal's value indexes. The
-//! [`SessionTree`] here is the journal's copy of the live tree with its
-//! values: the journal changes it only as the core answers.
+//! (S1) states its laws and `PROOF.bend` proves them. The journal runs
+//! that rule as a stepper of the compiled Bend core (`bend/ffi_tree.bend`,
+//! through `eukhe-bend`) whose state is the live tree and the journal, so
+//! a record costs its change and a lookup, not the tree; node values reach
+//! the core as the journal's value indexes. The [`SessionTree`] here is
+//! the journal's copy of the live tree with its values: the journal
+//! changes it only as the core answers.
 //!
 //! [`StateTree`] (`state.rs`) is the session tree of a storage: the
 //! commits make its records.
@@ -22,15 +23,14 @@
 //! This module does no I/O.
 
 mod journal;
-mod rule;
 mod state;
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub use journal::{CoreError, Journal};
-pub use state::{CursorAhead, CursorError, StateError, StateKey, StateKind, StateNode, StateTree};
+pub use journal::Journal;
+pub use state::{CursorAhead, StateError, StateKey, StateKind, StateNode, StateTree};
 
 /// The id of a node. The ids of a tree are unique.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
