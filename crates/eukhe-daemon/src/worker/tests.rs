@@ -762,3 +762,46 @@ async fn an_idle_orphan_exit_closes_the_session() {
     assert_eq!(record, expected);
     assert!(worker.session.get().is_none(), "the session closed");
 }
+
+/// Regression (`laws/worker_lifecycle.bend` F1): the orphan exit read only
+/// the core's work (a run, a compaction, a view inbox input), so a worker
+/// whose only work was background work (here a user bash; a kernel job,
+/// an unsettled child or workflow run likewise) closed its session and
+/// recorded it idle, and no boot resumed it. It now hands the work over.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_orphan_exit_with_background_work_hands_it_over() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path(), json!({ "responses": [] })).await;
+    let _bash = worker.user_bash.begin_awaited();
+    worker.listener_closed.notify_one();
+
+    let exit = crate::supervisor_lost::leave_orphaned(&worker).await;
+
+    assert_eq!(exit, crate::work_gate::OrphanExit::Handover);
+    let record = latest_record(dir.path(), "recovery.jsonl");
+    let expected = orphan_exit_record(&worker, true, "orphaned", record.recorded_at.clone());
+    assert_eq!(record, expected);
+    assert!(worker.session.get().is_some(), "the session was not closed");
+}
+
+/// Regression (`laws/worker_lifecycle.bend` F2, user decision Q3): the busy
+/// refresh only re-stamped a record that was already busy, so work that
+/// started after the run's end record (an auto-compaction, a queued input,
+/// a background job) was never recorded busy and a double crash lost it.
+/// A refresh tick now records the session busy whatever its latest record
+/// said.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_refresh_tick_records_an_idle_session_with_work_busy() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path(), json!({ "responses": [] })).await;
+    worker
+        .record_recovery(false, "run_ended")
+        .expect("idle record");
+    assert!(!latest_record(dir.path(), "recovery.jsonl").busy);
+
+    crate::worker::refresh_busy_tick(&worker.recovery, &worker.core);
+
+    let record = latest_record(dir.path(), "recovery.jsonl");
+    let expected = orphan_exit_record(&worker, true, "refresh", record.recorded_at.clone());
+    assert_eq!(record, expected);
+}

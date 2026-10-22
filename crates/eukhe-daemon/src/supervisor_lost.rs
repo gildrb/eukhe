@@ -94,7 +94,7 @@ async fn monitor(worker: Arc<Worker>) {
             continue;
         }
         let since = *absent_since.get_or_insert_with(tokio::time::Instant::now);
-        let work = worker.core.lock().unwrap().work();
+        let work = worker.session_work().await;
         if exit_due(since.elapsed(), window, work) {
             let exit = leave_orphaned(&worker).await;
             eprintln!(
@@ -150,22 +150,22 @@ pub(crate) async fn hand_over(worker: &Worker, cause: HandoverCause) {
 }
 
 /// The orphan exit without the process exit (the caller ends the
-/// process). Under one session lock, close the admission and choose the
-/// exit from the session's work; then run it. [`OrphanExit::Close`]
+/// process). Close the admission under the session lock, then choose the
+/// exit from the session's whole work ([`Worker::session_work`]: a
+/// background job, an unsettled child or workflow run, a queued inbox
+/// input count too); then run it. [`OrphanExit::Close`]
 /// closes the session (nothing to abort; this also disposes its kernel,
 /// because the process exit runs no destructors) and records it idle.
 /// [`OrphanExit::Handover`] runs [`hand_over`]. Both close the listener
 /// first and then remove only the worker's own socket file, so a
 /// successor's live socket at the same path stays.
 pub(crate) async fn leave_orphaned(worker: &Worker) -> OrphanExit {
-    let exit = {
-        let mut core = worker
-            .core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        core.shutdown_requested = true;
-        orphan_exit(core.work())
-    };
+    worker
+        .core
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .shutdown_requested = true;
+    let exit = orphan_exit(worker.session_work().await);
     match exit {
         OrphanExit::Close => {
             worker.close_hosted_session().await;
