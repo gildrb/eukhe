@@ -752,7 +752,12 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 | `tag_names_shown_text` | The tag of a result names the text that its rows come from (S8.7). |
 | `edit_only_seen_lines` | An edit applies only when every anchor is a seen line (S8.8). |
 | `edit_seen_applies` | An edit whose anchors are all seen applies (S8.8). |
-| `reveal_then_retry` | A rejected edit applies on a straight retry (S8.8). |
+| `reveal_then_retry` | A rejected edit with at most 40 anchors applies on a straight retry exactly when every unseen anchor is a line of at most 512 characters (S8.8). |
+| `edit_marks_whole_reveal` | The unseen anchors become seen exactly when the rejection showed them all whole: at most 40, each a line of at most 512 characters (S8.8). |
+| `reject_names_unseen` | A rejection names exactly the unseen anchors, in order (S8.8). |
+| `reject_shows_lines` | A rejection shows, of its first 40 unseen anchors, each that is a line of the file, cut to 512 characters when longer (S8.8). |
+| `reject_whole_exact` | A rejection says it showed its anchors whole exactly when it did (S8.8). |
+| `reveal_bounds` | The reveal cap is 40 anchors and 512 characters (S8.8). |
 | `grep_accounts_every_file` | Each walked entry is in exactly one class, and the classes add up to the walk (S8.9). |
 | `grep_notes_every_gap` | A class of skipped, cut or not-searched entries has its notice exactly when it is not empty (S8.9). |
 | `grep_notes_every_cut` | A shown file whose matches were cut has its own notice (S8.9). |
@@ -762,8 +767,9 @@ Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 
 Code: `eukhe-docs/src/write.rs` (`LockedWriter::write_all`, `publish`,
 `write_file`, the sweep), `hashline/mod.rs` (`apply_hashline`, `commit`),
-`hashline/patcher.rs` and `hashline/apply.rs` (the line origins, `persist`,
-the seen guard), `text.rs`, `read/mod.rs`, `grep/`, `glob.rs`, `store.rs`
+`hashline/patcher.rs`, `hashline/seen.rs` (the seen guard) and
+`hashline/apply.rs` (the line origins, `persist`),
+`text.rs`, `read/mod.rs`, `grep/`, `glob.rs`, `store.rs`
 (`saw_bytes`); `eukhe-core/src/durable/documents/tool.rs` (`bounded`) and
 `requests.rs` (`Cut`, `Done::mark_seen`).
 

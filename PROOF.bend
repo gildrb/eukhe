@@ -29687,9 +29687,11 @@ def pc.sweep_removes_free(+pre: List<&2, Cm.Temp>, +i: Nat, +post: List<&2, Cm.T
   {==}
 
 # ==== seen ====
-# proof_doc_seen: the seen-line laws of LAWS.bend section documents (F11): an
-# edit applies only on seen anchors, an edit on seen anchors applies, and
-# a rejection marks its anchors seen, so a straight retry applies.
+# proof_doc_seen: the seen-line laws of LAWS.bend section documents (F11):
+# an edit applies exactly on seen anchors, a rejection names the unseen
+# anchors, shows the first `cap` of them that are lines (cut past
+# `cols`), and marks them seen only when it showed them all whole, so a
+# straight retry applies exactly then.
 # Logic and numbers
 # -----------------
 
@@ -29715,12 +29717,12 @@ def pv.cons_nil(-A: Type, +a: Nat, u: List<&2, Nat>, e: {a <> u == Nil{} : List<
   %e : pv.LD(_, A)
   Unit{}
 
-def documents.pv.eq_refl(+a: Nat) -> {Nat.is_eq(a, a) == True{} : Bool}:
-  match a:
-    case 0n:
-      {==}
-    case 1n+p:
-      documents.pv.eq_refl(p)
+def pv.AD(xs: List<&2, Ds.At>, A: Type) -> Type:
+  match xs:
+    case Nil{}:
+      A
+    case x <> rest:
+      Unit
 
 def pv.or_t(a: Bool) -> {Bool.or(a, True{}) == True{} : Bool}:
   match a:
@@ -29756,136 +29758,291 @@ def pv.le_succ(m: Nat, k: Nat, h: {Nat.is_le(m, k) == True{} : Bool}) -> {Nat.is
     case 1n+p 1n+q:
       pv.le_succ(p, q, h)
 
-# Membership
-# ----------
+def pv.le_refl(a: Nat) -> {Nat.is_le(a, a) == True{} : Bool}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      pv.le_refl(p)
 
-def pv.mem_head(+a: Nat, ys: List<&2, Nat>) -> {Ds.mem(a, a <> ys) == True{} : Bool}:
-  %Equal.sym(Bool, Nat.is_eq(a, a), True{}, documents.pv.eq_refl(a)) : {Bool.or(_, Ds.mem(a, ys)) == True{} : Bool}
+# Membership in the seen runs
+# ---------------------------
+
+# the guard's tail loop is the spec's membership
+def pv.mem_go(ivs: List<&2, Ds.Iv>, +n: Nat, h: Bool) -> {Ds.mem.go(ivs, n, h) == Bool.or(h, Laws.seen.In(n, ivs)) : Bool}:
+  match ivs:
+    case Nil{}:
+      match h:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case iv <> +rest:
+      match iv:
+        case Ds.Iv{+lo, +hi}:
+          match h:
+            case True{}:
+              {==}
+            case False{}:
+              pv.mem_go(rest, n, Bool.and(Nat.is_le(lo, n), Nat.is_le(n, hi)))
+
+def pv.mem_eq(+n: Nat, ivs: List<&2, Ds.Iv>) -> {Ds.mem(n, ivs) == Laws.seen.In(n, ivs) : Bool}:
+  pv.mem_go(ivs, n, False{})
+
+def pv.in_of_mem(+n: Nat, +ivs: List<&2, Ds.Iv>, h: {Ds.mem(n, ivs) == True{} : Bool}) -> {Laws.seen.In(n, ivs) == True{} : Bool}:
+  %pv.mem_eq(n, ivs) : {_ == True{} : Bool}
+  h
+
+def pv.mem_of_in(+n: Nat, +ivs: List<&2, Ds.Iv>, h: {Laws.seen.In(n, ivs) == True{} : Bool}) -> {Ds.mem(n, ivs) == True{} : Bool}:
+  %Equal.sym(Bool, Ds.mem(n, ivs), Laws.seen.In(n, ivs), pv.mem_eq(n, ivs)) : {_ == True{} : Bool}
+  h
+
+def pv.in_head(+a: Nat, ys: List<&2, Ds.Iv>) -> {Laws.seen.In(a, Ds.Iv{a, a} <> ys) == True{} : Bool}:
+  %Equal.sym(Bool, Nat.is_le(a, a), True{}, pv.le_refl(a)) : {Bool.or(Bool.and(_, _), Laws.seen.In(a, ys)) == True{} : Bool}
   {==}
 
-def pv.mem_cons(+b: Nat, +x: Nat, ys: List<&2, Nat>, h: {Ds.mem(x, ys) == True{} : Bool}) -> {Ds.mem(x, b <> ys) == True{} : Bool}:
-  %Equal.sym(Bool, Ds.mem(x, ys), True{}, h) : {Bool.or(Nat.is_eq(b, x), _) == True{} : Bool}
-  pv.or_t(Nat.is_eq(b, x))
+def pv.in_cons(b: Ds.Iv, +x: Nat, ys: List<&2, Ds.Iv>, h: {Laws.seen.In(x, ys) == True{} : Bool}) -> {Laws.seen.In(x, b <> ys) == True{} : Bool}:
+  %Equal.sym(Bool, Laws.seen.In(x, ys), True{}, h) : {Bool.or(Laws.seen.Inside(x, b), _) == True{} : Bool}
+  pv.or_t(Laws.seen.Inside(x, b))
 
-def pv.mem_app(+a: Nat, xs: List<&2, Nat>, +ys: List<&2, Nat>, h: {Ds.mem(a, ys) == True{} : Bool}) -> {Ds.mem(a, List.append(&2, Nat, xs, ys)) == True{} : Bool}:
+def pv.in_app(+a: Nat, xs: List<&2, Ds.Iv>, +ys: List<&2, Ds.Iv>, h: {Laws.seen.In(a, ys) == True{} : Bool}) -> {Laws.seen.In(a, List.append(&2, Ds.Iv, xs, ys)) == True{} : Bool}:
   match xs:
     case Nil{}:
       h
-    case +x <> +rest:
-      pv.mem_cons(x, a, List.append(&2, Nat, rest, ys), pv.mem_app(a, rest, ys, h))
+    case x <> +rest:
+      pv.in_cons(x, a, List.append(&2, Ds.Iv, rest, ys), pv.in_app(a, rest, ys, h))
 
-def pv.sub_cons(xs: List<&2, Nat>, +b: Nat, +ys: List<&2, Nat>, +h: {Ds.subset(xs, ys) == True{} : Bool}) -> {Ds.subset(xs, b <> ys) == True{} : Bool}:
+def pv.sub_cons(xs: List<&2, Nat>, +b: Ds.Iv, +ys: List<&2, Ds.Iv>, +h: {Laws.seen.Sub(xs, ys) == True{} : Bool}) -> {Laws.seen.Sub(xs, b <> ys) == True{} : Bool}:
   match xs:
     case Nil{}:
       {==}
     case +x <> +rest:
-      +hm = documents.pv.and_l(Ds.mem(x, ys), Ds.subset(rest, ys), h)
-      +hr = documents.pv.and_r(Ds.mem(x, ys), Ds.subset(rest, ys), h)
-      pv.and_tt(Ds.mem(x, b <> ys), Ds.subset(rest, b <> ys), pv.mem_cons(b, x, ys, hm), pv.sub_cons(rest, b, ys, hr))
+      +hm = documents.pv.and_l(Laws.seen.In(x, ys), Laws.seen.Sub(rest, ys), h)
+      +hr = documents.pv.and_r(Laws.seen.In(x, ys), Laws.seen.Sub(rest, ys), h)
+      pv.and_tt(Laws.seen.In(x, b <> ys), Laws.seen.Sub(rest, b <> ys), pv.in_cons(b, x, ys, hm), pv.sub_cons(rest, b, ys, hr))
+
+# The spec of the unseen anchors, shown lines and whole reveal
+# ------------------------------------------------------------
+
+def pv.put_keep(+a: Ds.At, u: List<&2, Ds.At>, b: Bool) -> {Ds.unseen.put(a, u, b) == Laws.seen.Unseen.keep(a, u, b) : List<&2, Ds.At>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pv.unseen_eq(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>) -> {Ds.unseen(seen, ats) == Laws.seen.Unseen(seen, ats) : List<&2, Ds.At>}:
+  match ats:
+    case Nil{}:
+      {==}
+    case +a <> +rest:
+      %pv.unseen_eq(seen, rest) : {Ds.unseen.put(a, Ds.unseen(seen, rest), Ds.mem(Ds.At.line(a), seen)) == Laws.seen.Unseen.keep(a, _, Laws.seen.In(Ds.At.line(a), seen)) : List<&2, Ds.At>}
+      %pv.mem_eq(Ds.At.line(a), seen) : {Ds.unseen.put(a, Ds.unseen(seen, rest), Ds.mem(Ds.At.line(a), seen)) == Laws.seen.Unseen.keep(a, Ds.unseen(seen, rest), _) : List<&2, Ds.At>}
+      pv.put_keep(a, Ds.unseen(seen, rest), Ds.mem(Ds.At.line(a), seen))
+
+def pv.fit_and(w: Maybe<&2, Nat>, q: Bool) -> {Bool.and(Ds.fits.w(w), q) == Bool.and(Laws.seen.Fit(w), q) : Bool}:
+  match w:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def pv.fits_eq(us: List<&2, Ds.At>) -> {Ds.fits(us) == Laws.seen.Fits(us) : Bool}:
+  match us:
+    case Nil{}:
+      {==}
+    case a <> +rest:
+      match a:
+        case Ds.At{n, w}:
+          %pv.fits_eq(rest) : {Bool.and(Ds.fits.w(w), Ds.fits(rest)) == Bool.and(Laws.seen.Fit(w), _) : Bool}
+          pv.fit_and(w, Ds.fits(rest))
+
+def pv.whole_eq(b: Bool, +u: List<&2, Ds.At>) -> {Ds.whole.go(b, u) == Bool.and(b, Laws.seen.Fits(u)) : Bool}:
+  match b:
+    case True{}:
+      pv.fits_eq(u)
+    case False{}:
+      {==}
+
+def pv.cut_eq(b: Bool) -> {Ds.shows.cut(b) == Laws.seen.Cut(b) : Maybe<&2, Nat>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pv.put_at(+n: Nat, w: Maybe<&2, Nat>, +r: List<&2, Ds.Show>) -> {Ds.shows.put(n, w, r) == Laws.seen.Shown.at(n, w, r) : List<&2, Ds.Show>}:
+  match w:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %pv.cut_eq(Nat.is_le(x, Ds.cols)) : {Ds.Show{n, Ds.shows.cut(Nat.is_le(x, Ds.cols))} <> r == Ds.Show{n, _} <> r : List<&2, Ds.Show>}
+      {==}
+
+def pv.shows_eq(us: List<&2, Ds.At>) -> {Ds.shows(us) == Laws.seen.Shown(us) : List<&2, Ds.Show>}:
+  match us:
+    case Nil{}:
+      {==}
+    case a <> +rest:
+      match a:
+        case Ds.At{+n, w}:
+          %pv.shows_eq(rest) : {Ds.shows.put(n, w, Ds.shows(rest)) == Laws.seen.Shown.at(n, w, _) : List<&2, Ds.Show>}
+          pv.put_at(n, w, Ds.shows(rest))
+
+def pv.points_eq(xs: List<&2, Nat>) -> {Ds.points(xs) == Laws.seen.Points(xs) : List<&2, Ds.Iv>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %pv.points_eq(rest) : {Ds.Iv{x, x} <> Ds.points(rest) == Ds.Iv{x, x} <> _ : List<&2, Ds.Iv>}
+      {==}
+
+def pv.names_go(+u: List<&2, Ds.At>) -> {Ds.Check.unseen(Ds.check.go(u)) == Ds.lines(u) : List<&2, Nat>}:
+  {==}
+
+def pv.shown_go(+u: List<&2, Ds.At>) -> {Ds.Check.shown(Ds.check.go(u)) == Laws.seen.Shown(List.take(&2, Ds.At, u, Ds.cap)) : List<&2, Ds.Show>}:
+  pv.shows_eq(List.take(&2, Ds.At, u, Ds.cap))
+
+def pv.whole_go(+u: List<&2, Ds.At>) -> {Ds.Check.whole(Ds.check.go(u)) == Laws.seen.Whole(u) : Bool}:
+  pv.whole_eq(Nat.is_le(List.length(&2, Ds.At, u), Ds.cap), u)
+
+def pv.reveal_after(+u: List<&2, Nat>, +seen: List<&2, Ds.Iv>, b: Bool) -> {Ds.reveal(u, seen, b) == Laws.seen.After.go(b, Laws.seen.Points(u), seen) : List<&2, Ds.Iv>}:
+  match b:
+    case True{}:
+      %pv.points_eq(u) : {List.append(&2, Ds.Iv, Ds.points(u), seen) == List.append(&2, Ds.Iv, _, seen) : List<&2, Ds.Iv>}
+      {==}
+    case False{}:
+      {==}
+
+def pv.after_go(+seen: List<&2, Ds.Iv>, +u: List<&2, Ds.At>) -> {Ds.Step.seen(Ds.edit.go(seen, Ds.check.go(u))) == Laws.seen.After(seen, u) : List<&2, Ds.Iv>}:
+  match u:
+    case Nil{}:
+      {==}
+    case +a <> +rest:
+      +le = Nat.is_le(List.length(&2, Ds.At, a <> rest), Ds.cap)
+      %pv.whole_eq(le, a <> rest) : {Ds.reveal(Ds.lines(a <> rest), seen, Ds.whole.go(le, a <> rest)) == Laws.seen.After.go(_, Laws.seen.Points(Ds.lines(a <> rest)), seen) : List<&2, Ds.Iv>}
+      pv.reveal_after(Ds.lines(a <> rest), seen, Ds.whole.go(le, a <> rest))
 
 # An applied edit: its anchors are seen
 # -------------------------------------
 
-def pv.applied_nil(+seen: List<&2, Nat>, u: List<&2, Nat>, h: {Ds.Step.applied(Ds.edit.go(seen, u)) == True{} : Bool}) -> {u == Nil{} : List<&2, Nat>}:
+def pv.applied_nil(+seen: List<&2, Ds.Iv>, u: List<&2, Nat>, w: Bool, h: {Ds.Step.applied(Ds.edit.fin(seen, u, w)) == True{} : Bool}) -> {u == Nil{} : List<&2, Nat>}:
   match u:
     case Nil{}:
       {==}
     case x <> rest:
       documents.pv.absurd({x <> rest == Nil{} : List<&2, Nat>}, Equal.sym(Bool, False{}, True{}, h))
 
-def pv.put_nil_seen(+a: Nat, u: List<&2, Nat>, b: Bool, h: {Ds.unseen.put(a, u, b) == Nil{} : List<&2, Nat>}) -> {b == True{} : Bool}:
+def pv.lines_nil(us: List<&2, Ds.At>, h: {Ds.lines(us) == Nil{} : List<&2, Nat>}) -> {us == Nil{} : List<&2, Ds.At>}:
+  match us:
+    case Nil{}:
+      {==}
+    case a <> rest:
+      pv.cons_nil({a <> rest == Nil{} : List<&2, Ds.At>}, Ds.At.line(a), Ds.lines(rest), h)
+
+def pv.put_nil_seen(+a: Ds.At, u: List<&2, Ds.At>, b: Bool, h: {Ds.unseen.put(a, u, b) == Nil{} : List<&2, Ds.At>}) -> {b == True{} : Bool}:
   match b:
     case True{}:
       {==}
     case False{}:
-      pv.cons_nil({False{} == True{} : Bool}, a, u, h)
+      %h : pv.AD(_, {False{} == True{} : Bool})
+      Unit{}
 
-def pv.put_nil_rest(+a: Nat, u: List<&2, Nat>, b: Bool, h: {Ds.unseen.put(a, u, b) == Nil{} : List<&2, Nat>}) -> {u == Nil{} : List<&2, Nat>}:
+def pv.put_nil_rest(+a: Ds.At, u: List<&2, Ds.At>, b: Bool, h: {Ds.unseen.put(a, u, b) == Nil{} : List<&2, Ds.At>}) -> {u == Nil{} : List<&2, Ds.At>}:
   match b:
     case True{}:
       h
     case False{}:
-      pv.cons_nil({u == Nil{} : List<&2, Nat>}, a, u, h)
+      %h : pv.AD(_, {u == Nil{} : List<&2, Ds.At>})
+      Unit{}
 
-def pv.nil_subset(+seen: List<&2, Nat>, anchors: List<&2, Nat>, +h: {Ds.unseen(seen, anchors) == Nil{} : List<&2, Nat>}) -> {Ds.subset(anchors, seen) == True{} : Bool}:
-  match anchors:
+def pv.nil_subset(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>, +h: {Ds.unseen(seen, ats) == Nil{} : List<&2, Ds.At>}) -> {Laws.seen.Sub(Ds.lines(ats), seen) == True{} : Bool}:
+  match ats:
     case Nil{}:
       {==}
     case +a <> +rest:
       +u = Ds.unseen(seen, rest)
-      +b = Ds.mem(a, seen)
-      pv.and_tt(b, Ds.subset(rest, seen), pv.put_nil_seen(a, u, b, h), pv.nil_subset(seen, rest, pv.put_nil_rest(a, u, b, h)))
+      +b = Ds.mem(Ds.At.line(a), seen)
+      pv.and_tt(Laws.seen.In(Ds.At.line(a), seen), Laws.seen.Sub(Ds.lines(rest), seen), pv.in_of_mem(Ds.At.line(a), seen, pv.put_nil_seen(a, u, b, h)), pv.nil_subset(seen, rest, pv.put_nil_rest(a, u, b, h)))
 
-def pv.edit_only_seen_lines(+seen: List<&2, Nat>, +anchors: List<&2, Nat>, ok: {Ds.Step.applied(Ds.edit(seen, anchors)) == True{} : Bool}) -> {Ds.subset(anchors, seen) == True{} : Bool}:
-  pv.nil_subset(seen, anchors, pv.applied_nil(seen, Ds.unseen(seen, anchors), ok))
+def pv.edit_only_seen_lines(+seen: List<&2, Ds.Iv>, +ats: List<&2, Ds.At>, ok: {Ds.Step.applied(Ds.edit(seen, ats)) == True{} : Bool}) -> {Laws.seen.Sub(Ds.lines(ats), seen) == True{} : Bool}:
+  +u = Ds.unseen(seen, ats)
+  pv.nil_subset(seen, ats, pv.lines_nil(u, pv.applied_nil(seen, Ds.lines(u), Ds.Check.whole(Ds.check.go(u)), ok)))
 
 # Seen anchors: the edit applies
 # ------------------------------
 
-def pv.subset_nil(+seen: List<&2, Nat>, anchors: List<&2, Nat>, +h: {Ds.subset(anchors, seen) == True{} : Bool}) -> {Ds.unseen(seen, anchors) == Nil{} : List<&2, Nat>}:
-  match anchors:
+def pv.subset_nil(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>, +h: {Laws.seen.Sub(Ds.lines(ats), seen) == True{} : Bool}) -> {Ds.unseen(seen, ats) == Nil{} : List<&2, Ds.At>}:
+  match ats:
     case Nil{}:
       {==}
     case +a <> +rest:
-      +hm = documents.pv.and_l(Ds.mem(a, seen), Ds.subset(rest, seen), h)
-      +hr = documents.pv.and_r(Ds.mem(a, seen), Ds.subset(rest, seen), h)
-      %Equal.sym(Bool, Ds.mem(a, seen), True{}, hm) : {Ds.unseen.put(a, Ds.unseen(seen, rest), _) == Nil{} : List<&2, Nat>}
+      +hm = pv.mem_of_in(Ds.At.line(a), seen, documents.pv.and_l(Laws.seen.In(Ds.At.line(a), seen), Laws.seen.Sub(Ds.lines(rest), seen), h))
+      +hr = documents.pv.and_r(Laws.seen.In(Ds.At.line(a), seen), Laws.seen.Sub(Ds.lines(rest), seen), h)
+      %Equal.sym(Bool, Ds.mem(Ds.At.line(a), seen), True{}, hm) : {Ds.unseen.put(a, Ds.unseen(seen, rest), _) == Nil{} : List<&2, Ds.At>}
       pv.subset_nil(seen, rest, hr)
 
-def pv.edit_seen_applies(+seen: List<&2, Nat>, +anchors: List<&2, Nat>, all: {Ds.subset(anchors, seen) == True{} : Bool}) -> {Ds.Step.applied(Ds.edit(seen, anchors)) == True{} : Bool}:
-  %Equal.sym(List<&2, Nat>, Ds.unseen(seen, anchors), Nil{}, pv.subset_nil(seen, anchors, all)) : {Ds.Step.applied(Ds.edit.go(seen, _)) == True{} : Bool}
+def pv.edit_seen_applies(+seen: List<&2, Ds.Iv>, +ats: List<&2, Ds.At>, all: {Laws.seen.Sub(Ds.lines(ats), seen) == True{} : Bool}) -> {Ds.Step.applied(Ds.edit(seen, ats)) == True{} : Bool}:
+  %Equal.sym(List<&2, Ds.At>, Ds.unseen(seen, ats), Nil{}, pv.subset_nil(seen, ats, all)) : {Ds.Step.applied(Ds.edit.go(seen, Ds.check.go(_))) == True{} : Bool}
   {==}
 
 # A rejection, then a retry
 # -------------------------
 
 # every anchor is seen or unseen
-def pv.cover.go(+seen: List<&2, Nat>, +a: Nat, +rest: List<&2, Nat>, b: Bool, e: {Ds.mem(a, seen) == b : Bool}, ih: {Ds.subset(rest, List.append(&2, Nat, Ds.unseen(seen, rest), seen)) == True{} : Bool}) -> {Ds.subset(a <> rest, List.append(&2, Nat, Ds.unseen.put(a, Ds.unseen(seen, rest), b), seen)) == True{} : Bool}:
+def pv.cover.go(+seen: List<&2, Ds.Iv>, +a: Ds.At, +rest: List<&2, Ds.At>, b: Bool, e: {Ds.mem(Ds.At.line(a), seen) == b : Bool}, ih: {Laws.seen.Sub(Ds.lines(rest), List.append(&2, Ds.Iv, Ds.points(Ds.lines(Ds.unseen(seen, rest))), seen)) == True{} : Bool}) -> {Laws.seen.Sub(Ds.lines(a <> rest), List.append(&2, Ds.Iv, Ds.points(Ds.lines(Ds.unseen.put(a, Ds.unseen(seen, rest), b))), seen)) == True{} : Bool}:
   match b:
     case True{}:
-      +u = Ds.unseen(seen, rest)
-      pv.and_tt(Ds.mem(a, List.append(&2, Nat, u, seen)), Ds.subset(rest, List.append(&2, Nat, u, seen)), pv.mem_app(a, u, seen, e), ih)
+      +u = Ds.points(Ds.lines(Ds.unseen(seen, rest)))
+      pv.and_tt(Laws.seen.In(Ds.At.line(a), List.append(&2, Ds.Iv, u, seen)), Laws.seen.Sub(Ds.lines(rest), List.append(&2, Ds.Iv, u, seen)), pv.in_app(Ds.At.line(a), u, seen, pv.in_of_mem(Ds.At.line(a), seen, e)), ih)
     case False{}:
-      +y = List.append(&2, Nat, Ds.unseen(seen, rest), seen)
-      pv.and_tt(Ds.mem(a, a <> y), Ds.subset(rest, a <> y), pv.mem_head(a, y), pv.sub_cons(rest, a, y, ih))
+      +l = Ds.At.line(a)
+      +y = List.append(&2, Ds.Iv, Ds.points(Ds.lines(Ds.unseen(seen, rest))), seen)
+      pv.and_tt(Laws.seen.In(l, Ds.Iv{l, l} <> y), Laws.seen.Sub(Ds.lines(rest), Ds.Iv{l, l} <> y), pv.in_head(l, y), pv.sub_cons(Ds.lines(rest), Ds.Iv{l, l}, y, ih))
 
-def pv.cover(+seen: List<&2, Nat>, anchors: List<&2, Nat>) -> {Ds.subset(anchors, List.append(&2, Nat, Ds.unseen(seen, anchors), seen)) == True{} : Bool}:
-  match anchors:
+def pv.cover(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>) -> {Laws.seen.Sub(Ds.lines(ats), List.append(&2, Ds.Iv, Ds.points(Ds.lines(Ds.unseen(seen, ats))), seen)) == True{} : Bool}:
+  match ats:
     case Nil{}:
       {==}
     case +a <> +rest:
-      pv.cover.go(seen, a, rest, Ds.mem(a, seen), {==}, pv.cover(seen, rest))
+      pv.cover.go(seen, a, rest, Ds.mem(Ds.At.line(a), seen), {==}, pv.cover(seen, rest))
 
-def pv.short.go(+a: Nat, u: List<&2, Nat>, +k: Nat, b: Bool, ih: {Nat.is_le(List.length(&2, Nat, u), k) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Nat, Ds.unseen.put(a, u, b)), 1n+k) == True{} : Bool}:
+def pv.short.go(+a: Ds.At, u: List<&2, Ds.At>, +k: Nat, b: Bool, ih: {Nat.is_le(List.length(&2, Ds.At, u), k) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Ds.At, Ds.unseen.put(a, u, b)), 1n+k) == True{} : Bool}:
   match b:
     case True{}:
-      pv.le_succ(List.length(&2, Nat, u), k, ih)
+      pv.le_succ(List.length(&2, Ds.At, u), k, ih)
     case False{}:
       ih
 
 # a rejection has no more unseen anchors than anchors
-def pv.short(+seen: List<&2, Nat>, anchors: List<&2, Nat>, n: Nat, h: {Nat.is_le(List.length(&2, Nat, anchors), n) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Nat, Ds.unseen(seen, anchors)), n) == True{} : Bool}:
-  match anchors n:
+def pv.short(+seen: List<&2, Ds.Iv>, ats: List<&2, Ds.At>, n: Nat, h: {Nat.is_le(List.length(&2, Ds.At, ats), n) == True{} : Bool}) -> {Nat.is_le(List.length(&2, Ds.At, Ds.unseen(seen, ats)), n) == True{} : Bool}:
+  match ats n:
     case Nil{} 0n:
       {==}
     case Nil{} 1n+k:
       {==}
     case +a <> rest 0n:
-      documents.pv.absurd({Nat.is_le(List.length(&2, Nat, Ds.unseen(seen, a <> rest)), 0n) == True{} : Bool}, Equal.sym(Bool, False{}, True{}, h))
+      documents.pv.absurd({Nat.is_le(List.length(&2, Ds.At, Ds.unseen(seen, a <> rest)), 0n) == True{} : Bool}, Equal.sym(Bool, False{}, True{}, h))
     case +a <> +rest 1n+(+k):
-      pv.short.go(a, Ds.unseen(seen, rest), k, Ds.mem(a, seen), pv.short(seen, rest, k, h))
+      pv.short.go(a, Ds.unseen(seen, rest), k, Ds.mem(Ds.At.line(a), seen), pv.short(seen, rest, k, h))
 
-def pv.retry.go(+seen: List<&2, Nat>, +anchors: List<&2, Nat>, u: List<&2, Nat>, eu: {Ds.unseen(seen, anchors) == u : List<&2, Nat>}, few: {Nat.is_le(List.length(&2, Nat, u), Ds.cap) == True{} : Bool}, cover: {Ds.subset(anchors, List.append(&2, Nat, u, seen)) == True{} : Bool}) -> {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit.go(seen, u)), anchors)) == True{} : Bool}:
+# the retry after a rejection with unseen anchors x <> rest, whole or not
+def pv.retry.fit(+seen: List<&2, Ds.Iv>, +ats: List<&2, Ds.At>, +x: Ds.At, +rest: List<&2, Ds.At>, eu: {Ds.unseen(seen, ats) == x <> rest : List<&2, Ds.At>}, cover: {Laws.seen.Sub(Ds.lines(ats), List.append(&2, Ds.Iv, Ds.points(Ds.lines(x <> rest)), seen)) == True{} : Bool}, b: Bool) -> {Ds.Step.applied(Ds.edit(Ds.reveal(Ds.lines(x <> rest), seen, b), ats)) == b : Bool}:
+  match b:
+    case True{}:
+      pv.edit_seen_applies(List.append(&2, Ds.Iv, Ds.points(Ds.lines(x <> rest)), seen), ats, cover)
+    case False{}:
+      %Equal.sym(List<&2, Ds.At>, Ds.unseen(seen, ats), x <> rest, eu) : {Ds.Step.applied(Ds.edit.go(seen, Ds.check.go(_))) == False{} : Bool}
+      {==}
+
+def pv.retry.go(+seen: List<&2, Ds.Iv>, +ats: List<&2, Ds.At>, +u: List<&2, Ds.At>, eu: {Ds.unseen(seen, ats) == u : List<&2, Ds.At>}, few: {Nat.is_le(List.length(&2, Ds.At, u), Ds.cap) == True{} : Bool}, cover: {Laws.seen.Sub(Ds.lines(ats), List.append(&2, Ds.Iv, Ds.points(Ds.lines(u)), seen)) == True{} : Bool}) -> {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit.go(seen, Ds.check.go(u))), ats)) == Ds.fits(u) : Bool}:
   match u:
     case Nil{}:
-      %Equal.sym(List<&2, Nat>, Ds.unseen(seen, anchors), Nil{}, eu) : {Ds.Step.applied(Ds.edit.go(seen, _)) == True{} : Bool}
+      %Equal.sym(List<&2, Ds.At>, Ds.unseen(seen, ats), Nil{}, eu) : {Ds.Step.applied(Ds.edit.go(seen, Ds.check.go(_))) == True{} : Bool}
       {==}
     case +x <> +rest:
-      %Equal.sym(Bool, Nat.is_le(List.length(&2, Nat, x <> rest), Ds.cap), True{}, few) : {Ds.Step.applied(Ds.edit(Ds.reveal(x <> rest, seen, _), anchors)) == True{} : Bool}
-      pv.edit_seen_applies(List.append(&2, Nat, x <> rest, seen), anchors, cover)
-
-def pv.reveal_then_retry(+seen: List<&2, Nat>, +anchors: List<&2, Nat>, few: {Nat.is_le(List.length(&2, Nat, anchors), Ds.cap) == True{} : Bool}) -> {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit(seen, anchors)), anchors)) == True{} : Bool}:
-  pv.retry.go(seen, anchors, Ds.unseen(seen, anchors), {==}, pv.short(seen, anchors, Ds.cap, few), pv.cover(seen, anchors))
+      %Equal.sym(Bool, Nat.is_le(List.length(&2, Ds.At, x <> rest), Ds.cap), True{}, few) : {Ds.Step.applied(Ds.edit(Ds.reveal(Ds.lines(x <> rest), seen, Ds.whole.go(_, x <> rest)), ats)) == Ds.fits(x <> rest) : Bool}
+      pv.retry.fit(seen, ats, x, rest, eu, cover, Ds.fits(x <> rest))
 
 # ==== search ====
 # proof_doc_search: the grep and continuation laws of LAWS.bend section documents
@@ -31589,14 +31746,50 @@ def Laws.tag_names_shown_text(t, op):
 
 # (F11) Seen lines
 
-def Laws.edit_only_seen_lines(seen, anchors, ok):
-  pv.edit_only_seen_lines(seen, anchors, ok)
+def Laws.edit_only_seen_lines(seen, ats, ok):
+  pv.edit_only_seen_lines(seen, ats, ok)
 
-def Laws.edit_seen_applies(seen, anchors, all):
-  pv.edit_seen_applies(seen, anchors, all)
+def Laws.edit_seen_applies(seen, ats, all):
+  pv.edit_seen_applies(seen, ats, all)
 
-def Laws.reveal_then_retry(seen, anchors, few):
-  pv.reveal_then_retry(seen, anchors, few)
+def Laws.reveal_then_retry(seen, ats, few):
+  %pv.unseen_eq(seen, ats) : {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit(seen, ats)), ats)) == Laws.seen.Fits(_) : Bool}
+  %pv.fits_eq(Ds.unseen(seen, ats)) : {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit(seen, ats)), ats)) == _ : Bool}
+  pv.retry.go(seen, ats, Ds.unseen(seen, ats), {==}, pv.short(seen, ats, Ds.cap, few), pv.cover(seen, ats))
+
+def Laws.edit_marks_whole_reveal(seen, ats):
+  %pv.unseen_eq(seen, ats) : {Ds.Step.seen(Ds.edit(seen, ats)) == Laws.seen.After(seen, _) : List<&2, Ds.Iv>}
+  pv.after_go(seen, Ds.unseen(seen, ats))
+
+def Laws.reject_names_unseen(seen, ats):
+  %pv.unseen_eq(seen, ats) : {Ds.Check.unseen(Ds.check(seen, ats)) == Ds.lines(_) : List<&2, Nat>}
+  pv.names_go(Ds.unseen(seen, ats))
+
+def Laws.reject_shows_lines(seen, ats):
+  %pv.unseen_eq(seen, ats) : {Ds.Check.shown(Ds.check(seen, ats)) == Laws.seen.Shown(List.take(&2, Ds.At, _, Ds.cap)) : List<&2, Ds.Show>}
+  pv.shown_go(Ds.unseen(seen, ats))
+
+def Laws.reject_whole_exact(seen, ats):
+  %pv.unseen_eq(seen, ats) : {Ds.Check.whole(Ds.check(seen, ats)) == Laws.seen.Whole(_) : Bool}
+  pv.whole_go(Ds.unseen(seen, ats))
+
+def Laws.reveal_example():
+  {==}
+
+def Laws.retry_few_witness():
+  ([Ds.At{1n, Some{3n}}], {==})
+
+def Laws.retry_applies_example():
+  {==}
+
+def Laws.retry_rejected_example():
+  {==}
+
+def Laws.seen_runs_example():
+  {==}
+
+def Laws.reveal_bounds():
+  ({==}, {==})
 
 # (F6) What grep searched
 

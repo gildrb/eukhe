@@ -39,17 +39,19 @@ def yes(n: Nat) -> Bool:
     case 1n+m:
       True{}
 
-# the n lines from a on
-def lines(n: Nat, +a: Nat) -> List<&2, Nat>:
+# the anchors of the n lines from a on (the bridge's file has short
+# lines, and its edits stay inside it: each anchor is a line that the
+# rejection shows whole)
+def lines(n: Nat, +a: Nat) -> List<&2, Ds.At>:
   match n:
     case 0n:
       Nil{}
     case 1n+m:
-      a <> lines(m, 1n+a)
+      Ds.At{a, Some{0n}} <> lines(m, 1n+a)
 
 # the seen lines, and what the edits printed, newest first
 type St is Data:
-  St{seen: List<&2, Nat>, out: List<&2, String>}
+  St{seen: List<&2, Ds.Iv>, out: List<&2, String>}
 
 def said(s: Ds.Step, out: List<&2, String>) -> St:
   match s:
