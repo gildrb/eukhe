@@ -67,6 +67,6 @@ release of a series. The release is tagged `eukhe-v<version>`, titled
 the next `X.Y.0` (for example `0.11.0` or `1.0.0`). A workspace version
 that is no `X.Y.0`, or a tag of a newer series, stops the release.
 `scripts/release/next_version.py` computes the version; its rule is the
-model `bend/semver.bend`, whose laws (`laws/release.bend`, section R1)
+model `bend/semver.bend`, whose laws (`LAWS.bend` section `release`, section R1)
 `PROOF.bend` proves, and `scripts/release/test_next_version.py` runs the
 script and the model on the same cases.

@@ -1,7 +1,7 @@
 //! The bridge between `eukhe-theme` (the theme validator, the name
 //! resolver and the color math that the terminal UI and this export
 //! share) and its Bend model (`bend/theme.bend`, `bend/color.bend`, whose
-//! laws `PROOF.bend` proves, section T1 of `laws/themes.bend`): both run
+//! laws `PROOF.bend` proves, section T1 of `LAWS.bend` section `themes`): both run
 //! the same scenarios and must print the same transcript, byte for byte
 //! (`bend/bridge_theme.bend` documents the format).
 //!

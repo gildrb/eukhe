@@ -97,7 +97,7 @@ by `;`. A word in double quotes keeps its spaces.
 
 Model: `bend/cvar.bend` (`registry`, `value`, `written`, `toggle`,
 `expand`, `press`). Laws: `LAWS.bend` section (S4). Proofs:
-`bend/proof_cvar.bend`. Every input is free: any declarations (with
+`PROOF.bend` section `cvar`. Every input is free: any declarations (with
 duplicate ids and wrong defaults), any config, any family of agents with
 any profiles and sets (wrong types, Global cvars, undeclared ids), any
 alias table and any binds.
@@ -216,8 +216,8 @@ lost in silence.
    `EUKHE_SESSION_DIR` (or the legacy `EUKHE_CODING_AGENT_SESSION_DIR`),
    then the `sessionDir` setting, then `<agent dir>/sessions`.
 
-Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs:
-`bend/proof_config.bend`.
+Model: `bend/config.bend`. Laws: `LAWS.bend` section `config`. Proofs:
+`PROOF.bend` section `config`.
 
 | Law | Says |
 | --- | --- |
@@ -236,7 +236,7 @@ Model: `bend/config.bend`. Laws: `laws/config.bend`. Proofs:
 
 The laws of the saved default model are in [inference.md](inference.md)
 ("S6 models.json and the saved default model") and in
-`laws/config.bend`.
+`LAWS.bend` section `config`.
 
 Ties: the bridge test
 `settings::bridge::the_rust_config_code_equals_the_bend_model` compares
@@ -335,7 +335,7 @@ the autonomous run, a reminder, and a forced tool call.
    The document is a node of the state tree (S1), under its conversation.
 
 Model: `bend/director.bend`. Laws: `LAWS.bend` section (S5). Proofs:
-`bend/proof_director.bend`. Every verdict is free: each layer of each
+`PROOF.bend` section `director`. Every verdict is free: each layer of each
 step says what the adversary picks.
 
 | Law | Says |
@@ -414,11 +414,11 @@ number for the kind). Their tests tie them.
    check counts work, not replies.)
 
 Model: `bend/progress.bend` (`work`, `check`, `goal`). Laws
-(`laws/progress.bend`): `goal_stops_without_progress` (continuations in a
+(`LAWS.bend` section `progress`): `goal_stops_without_progress` (continuations in a
 row whose acts the session did before, at least as many as the cap, stop
 the goal from any count) and `goal_progress_continues` (a continuation
 with an act the session never did before clears the count). Proofs:
-`bend/proof_progress.bend`.
+`PROOF.bend` section `progress`.
 
 Rust: `eukhe-core/src/durable/children/work.rs` (`WorkLedger`),
 `durable/goals/state.rs` (`stall_check`), `durable/goals/hooks.rs`

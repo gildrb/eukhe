@@ -562,7 +562,7 @@ impl SessionUi {
         self.retry_popped_attempt = None;
         // The resynced state owns the loader (TS `renderResyncedSession`
         // rebuilds from the snapshot), and it is on exactly while work
-        // runs (laws/turn_visibility.bend `tv_indicator_tracks_work`):
+        // runs (LAWS.bend section turn_visibility `tv_indicator_tracks_work`):
         // - a turn of the open run is unanswered: the snapshot's newest
         //   message does not settle it, or (same session) the run this
         //   view followed still owes its answer -- its prompt may not be
@@ -716,7 +716,7 @@ impl SessionUi {
         }
         // The latest prompt's end rows that only this view holds follow
         // the stored transcript: a same-session rebuild never wipes how
-        // the turn ended (laws/turn_visibility.bend Q3).
+        // the turn ended (LAWS.bend section turn_visibility Q3).
         for row in &self.carried_rows {
             view.push_entry(row.clone());
         }

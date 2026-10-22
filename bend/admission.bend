@@ -12,7 +12,7 @@
 #   its counters are the counts below.
 #
 # LAWS.bend states what must hold; PROOF.bend proves it (with
-# bend/proof_admission.bend). bend/bridge_admission.bend runs this model
+# PROOF.bend section admission). bend/bridge_admission.bend runs this model
 # on the scenarios of the Rust bridge test (admission/bridge.rs).
 
 import Base

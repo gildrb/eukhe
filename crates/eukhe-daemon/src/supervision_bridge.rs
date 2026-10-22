@@ -1,5 +1,5 @@
 //! The D1 bridges: the supervisor's decision code and its Bend models
-//! (`laws/supervisor.bend`, proved in `bend/proof_supervisor.bend`) run the
+//! (`LAWS.bend` section `supervisor`, proved in `PROOF.bend` section `supervisor`) run the
 //! same scenarios and must print the same transcript, byte for byte.
 //!
 //! - [`RestartBudget`] and the timeouts against `bend/bridge_supervise.bend`.

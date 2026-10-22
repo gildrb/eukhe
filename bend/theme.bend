@@ -1,6 +1,6 @@
 # theme: the theme model of crates/eukhe-theme (the one theme file
 # validator and the one theme name resolver of the terminal UI and the
-# HTML export); laws in laws/themes.bend (T1), docs/interface.md Themes.
+# HTML export); laws in LAWS.bend section themes (T1), docs/interface.md Themes.
 # The bridge test crates/eukhe-core/src/export_html/theme_bridge.rs runs
 # the Rust crate and this model (through bend/bridge_theme.bend) on the
 # same scenarios.

@@ -8,7 +8,7 @@
 //! for more than the cap, no retry goes out early: the failure surfaces at
 //! once with the server's time, as the HTTP layer
 //! ([`super::provider_retry`]) reports it. The Bend model `bend/retry.bend`
-//! makes the same decisions; `laws/retry.bend` states their laws.
+//! makes the same decisions; `LAWS.bend` section `retry` states their laws.
 
 use std::sync::LazyLock;
 

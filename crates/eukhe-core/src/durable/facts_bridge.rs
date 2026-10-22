@@ -1,6 +1,6 @@
 //! The bridge between the model and provider facts that live in data
 //! (docs/inference.md S6.10) and their Bend model (`bend/facts.bend`; the
-//! laws are `laws/model_facts.bend`, which `PROOF.bend` proves): both run
+//! laws are `LAWS.bend` section `model_facts`, which `PROOF.bend` proves): both run
 //! the same scenarios and must print the same transcript, byte for byte
 //! (`bend/bridge_facts.bend` documents the format).
 //!

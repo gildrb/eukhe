@@ -22,8 +22,8 @@
 #    `StreamIdle::within`): a stream with no event for the deadline ends
 #    as stalled, never later than its last event plus the deadline.
 #
-# laws/retry.bend states the laws; PROOF.bend proves them (as Rt.<law>)
-# with the lemmas of bend/proof_retry_policy.bend; bend/bridge_retry.bend
+# LAWS.bend section retry states the laws; PROOF.bend proves them (as Laws.<law>)
+# with the lemmas of PROOF.bend section retry_policy; bend/bridge_retry.bend
 # runs this model against the Rust code.
 
 import Base

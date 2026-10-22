@@ -83,7 +83,7 @@ The wire has a one-shot read and an opt-in subscription.
    never gets the frame.
 
 Model: `bend/tree.bend`. Laws: `LAWS.bend` section (S1). Proofs:
-`bend/proof_tree.bend`. Every law is universal: every record is free (any
+`PROOF.bend` section `tree`. Every law is universal: every record is free (any
 put, valid or not, any delete, any rewind ops).
 
 | Law | Says |
@@ -169,8 +169,8 @@ storage that every open imports it into, and only while no directory
 has that name. So a session is listed once, before and after its
 import.
 
-Models: `bend/log.bend`, `bend/staging.bend`. Laws: `laws/storage.bend`.
-Proofs: `bend/proof_log.bend`, `bend/proof_staging.bend`.
+Models: `bend/log.bend`, `bend/staging.bend`. Laws: `LAWS.bend` section `storage`.
+Proofs: `PROOF.bend` section `log`, `PROOF.bend` section `staging`.
 
 | Law | Says |
 | --- | --- |
@@ -234,10 +234,10 @@ The cron jobs file (`cron-jobs.json`, or a session's
    hours after the first, and the last two pauses are one hour each: a
    cause that lasts this long is not a short outage.
 
-Laws: `laws/cron.bend` (`cron_fires_once`, `cron_once_finished_after_end`,
+Laws: `LAWS.bend` section `cron` (`cron_fires_once`, `cron_once_finished_after_end`,
 `cron_never_drops`, `cron_claim_owned`, `cron_backoff_bounded`) about the
-model `bend/cron.bend`, proved in `bend/proof_cron.bend` and
-`bend/proof_cron_step.bend`. Tie: the bridge test
+model `bend/cron.bend`, proved in `PROOF.bend` section `cron` and
+`PROOF.bend` section `cron_step`. Tie: the bridge test
 `cron::store::bridge::the_rust_cron_store_equals_the_bend_model` runs
 three simulated processes (each with its own store and owner identity,
 a liveness seam and a fake clock) on one file, and compares its

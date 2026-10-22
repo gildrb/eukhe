@@ -2,7 +2,7 @@
 //! their Bend model (`bend/doc_search.bend`, laws
 //! `grep_accounts_every_file`, `grep_notes_every_gap`,
 //! `grep_notes_every_cut` and the continuation laws of
-//! `laws/documents.bend`): generated trees run through the Rust code and
+//! `LAWS.bend` section `documents`): generated trees run through the Rust code and
 //! `bend/bridge_doc_search.bend` must print the same transcript, byte for
 //! byte.
 //!

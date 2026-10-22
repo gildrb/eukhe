@@ -1,5 +1,5 @@
 //! The row a turn that ended without an answer leaves, live and rebuilt
-//! alike (`laws/turn_visibility.bend` R4, R5, R7): a failure the chat does
+//! alike (`LAWS.bend` section `turn_visibility` R4, R5, R7): a failure the chat does
 //! not show yet gets its failure row, and a turn with no reply at all says
 //! so. Both rows name the user's next step. The live event pump pushes them
 //! at the turn's end; the transcript rebuild folds the same rows from the

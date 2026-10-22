@@ -5,7 +5,7 @@
 //! under the session's output cap, reports exactly one end, and has a kill.
 //!
 //! The Bend model `bend/job.bend` is the specification. `LAWS.bend` section
-//! (S2) states its laws and `bend/proof_job.bend` proves them. The bridge
+//! (S2) states its laws and `PROOF.bend` section `job` proves them. The bridge
 //! test (`bridge.rs`, with `bend/bridge_job.bend`) runs this code and the
 //! model on the same scenarios and requires the same transcript:
 //! [`JobState::step`] is the model's `step`, [`wait_until`] its `wait`, and

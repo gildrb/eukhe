@@ -164,7 +164,7 @@ status icons (the animated working icon too), the fill, the padding and
 the semantic colors. No card draws its own chrome.
 
 Model: `bend/screen.bend`. Laws: `LAWS.bend` section (S8). Proofs:
-`bend/proof_screen.bend`. Every input is free: any blocks, growths,
+`PROOF.bend` section `screen`. Every input is free: any blocks, growths,
 finals, flushes and resizes in any order; any chunk sizes and frames;
 any check results; any child heights.
 
@@ -278,7 +278,7 @@ rows only this window holds (a refused or lost prompt, a closed session)
 survive a rebuild of the same session. The `Primary provider recovered`
 notice is a toast, since no transcript records it.
 
-Laws (a draft): `laws/turn_visibility.bend` on the model in
+Laws (a draft): `LAWS.bend` section `turn_visibility` on the model in
 `bend/turn_visibility.bend`. Code: `session_ui/apply.rs`
 (`apply_update`), `session_ui/prompt.rs` (`apply_prompt_outcome`),
 `session_ui/lifecycle.rs` (`attach_session`, `rebuild_view`),
@@ -353,8 +353,8 @@ dashboard). `eukhe session export` reads the `theme` setting and the
 
 #### Laws
 
-`laws/themes.bend` (T1) states the laws on the model in `bend/theme.bend`
-and `bend/color.bend`. `bend/proof_themes.bend` proves them:
+`LAWS.bend` section `themes` (T1) states the laws on the model in `bend/theme.bend`
+and `bend/color.bend`. `PROOF.bend` section `themes` proves them:
 
 - The empty name resolves to the default theme. A name resolves to the
   first valid theme that has it. A name that no valid theme has resolves
@@ -413,9 +413,9 @@ window turns at the same share of its size.
 
 #### Laws
 
-`laws/tui_color.bend` (T3) states the laws on the model in
+`LAWS.bend` section `tui_color` (T3) states the laws on the model in
 `bend/tui_color.bend`, with the theme tables of `bend/theme.bend`.
-`bend/proof_tui_color.bend` proves them:
+`PROOF.bend` section `tui_color` proves them:
 
 - The effort ramp has one rung for each level. For any ladder length,
   each channel moves from `effortLow` toward `effortHigh`, never back.

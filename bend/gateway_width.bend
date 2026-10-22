@@ -7,7 +7,7 @@
 # A rendered row is the list of its column widths: every column but the
 # last is the cell padded with spaces to the column width, the last column
 # is the cell alone (the Rust code does not pad it). A missing cell has
-# width 0. laws/gateway_width.bend states the laws.
+# width 0. LAWS.bend section gateway_width states the laws.
 
 import Base
 

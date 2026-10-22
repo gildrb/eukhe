@@ -12,7 +12,7 @@
 //! the same model id. One request visits every provider of its chain once,
 //! at once; it returns to a provider it left only after the failover
 //! backoff and the server's wait of that provider's failure. The Bend
-//! model `bend/retry.bend` walks the same way; `laws/retry.bend` states
+//! model `bend/retry.bend` walks the same way; `LAWS.bend` section `retry` states
 //! its laws.
 
 use eukhe_types::pi_ai::Model;

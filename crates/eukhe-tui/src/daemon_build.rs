@@ -13,7 +13,7 @@
 //! Only an interactive start replaces a daemon, and only a daemon of a
 //! lower rank. Thus a client never replaces a newer daemon, a background
 //! client never replaces a daemon, and two builds cannot replace each other
-//! in turn. The model is `bend/replace.bend`; `laws/supervisor.bend` states
+//! in turn. The model is `bend/replace.bend`; `LAWS.bend` section `supervisor` states
 //! `replace_never_downgrades`, `replacement_terminates` and
 //! `background_never_replaces`; the bridge test is `daemon_build/bridge.rs`.
 

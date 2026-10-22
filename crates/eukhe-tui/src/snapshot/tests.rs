@@ -1848,6 +1848,6 @@ mod thinking_pins;
 /// pairing) live in their own child module with this file's harness.
 mod tool_cards;
 
-/// The rows ended turns leave in a rebuilt chat (`laws/turn_visibility.bend`)
+/// The rows ended turns leave in a rebuilt chat (`LAWS.bend` section `turn_visibility`)
 /// live in their own child module with this file's harness.
 mod turn_end;

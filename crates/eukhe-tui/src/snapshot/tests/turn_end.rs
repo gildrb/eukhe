@@ -1,4 +1,4 @@
-//! The rebuild side of `laws/turn_visibility.bend`: a reopened chat folds
+//! The rebuild side of `LAWS.bend` section `turn_visibility`: a reopened chat folds
 //! the row each ended turn left live (R4, R5, R7) and collapses a retry
 //! episode to its one line (R6), whatever order its rows were stored in.
 
@@ -66,7 +66,7 @@ fn unclocked(mut entries: Vec<ChatEntry>) -> Vec<ChatEntry> {
     entries
 }
 
-/// F4, F5, F6 (`laws/turn_visibility.bend`): a run that ended before its
+/// F4, F5, F6 (`LAWS.bend` section `turn_visibility`): a run that ended before its
 /// prompt got any assistant message (it stopped before its first request,
 /// the engine reported nothing, or the generation failed without a
 /// message) leaves the stored prompt alone; the reopened chat says the

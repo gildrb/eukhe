@@ -17,7 +17,7 @@
 //! order: the bundled entries in bundled order, then the compiled models
 //! the bundle lacks, in compiled order. Each model's fields depend only on
 //! its entry in each source, so the result does not depend on the order
-//! the sources are read. `laws/catalog_union.bend` states these rules;
+//! the sources are read. `LAWS.bend` section `catalog_union` states these rules;
 //! `bend/bridge_catalog_union.bend` runs its model against this code.
 
 use std::collections::{HashMap, HashSet};

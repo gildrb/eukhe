@@ -21,7 +21,7 @@
 #   delete owes a cancelled report) goes on under the same rule.
 #
 # LAWS.bend states what must hold (section H5); PROOF.bend proves it with
-# bend/proof_child.bend. bend/bridge_child.bend runs `look`, and
+# PROOF.bend section child. bend/bridge_child.bend runs `look`, and
 # bend/bridge_report.bend runs `step`, on the scenarios of the Rust bridge
 # tests.
 

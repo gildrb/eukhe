@@ -55,7 +55,7 @@ motion.
 - `index.html`, `public/manifest.webmanifest` and `public/theme.js` cannot
   read CSS. They contain the theme color again. `src/tokens.test.ts` makes
   sure that this color is the palette's `bg`.
-- `bend/tokens.bend` holds the same tables. `laws/dashboard_tokens.bend`
+- `bend/tokens.bend` holds the same tables. `LAWS.bend` section `dashboard_tokens`
   (T2) states the rules for them:
   - each color token has a light value and a dark value;
   - in both modes, each text color and the ground under it have a minimum
@@ -211,7 +211,7 @@ see the token.
   public on the internet.
 - The socket refuses daemon commands that belong to the bridge or to the
   daemon itself (see [Protocol](#protocol)).
-- `laws/dashboard_auth.bend` states the rules of the pairing gate, and
+- `LAWS.bend` section `dashboard_auth` states the rules of the pairing gate, and
   `PROOF.bend` proves them on the model `bend/dash.bend`. The bridge test
   `pairing::tests::the_gate_pairs_as_its_model` runs the real server and
   the model on the same events and compares the results.

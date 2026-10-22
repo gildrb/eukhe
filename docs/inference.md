@@ -257,8 +257,8 @@ what a request may ask of a provider.
    `xhigh: "xhigh"` there), else the Bedrock default effort.
 
 Model: `bend/infer.bend`. Laws: `LAWS.bend` section (S6) and
-`laws/ladder.bend` (S6.9). Proofs:
-`bend/proof_infer.bend`, `bend/proof_quirks.bend`. Every input is free:
+`LAWS.bend` section `ladder` (S6.9). Proofs:
+`PROOF.bend` section `infer`, `PROOF.bend` section `quirks`. Every input is free:
 any rulebook, query and directive; any replies of the model; any provider
 support; any tools; any stream; any context sizes.
 
@@ -480,8 +480,8 @@ Older builds kept a fetched catalog in
 `~/.eukhe/models/provider-model-catalog.v1.json`. No current code reads
 or writes that file.
 
-Laws: `laws/catalog_union.bend` (C1, the model in
-`bend/catalog_union.bend`, the proofs in `bend/proof_catalog_union.bend`).
+Laws: `LAWS.bend` section `catalog_union` (C1, the model in
+`bend/catalog_union.bend`, the proofs in `PROOF.bend` section `catalog_union`).
 Code: `eukhe-models/src/effective.rs` (`effective_catalog`),
 `chain.rs` (`ModelCatalog::models`), `bundled.rs`
 (`load_bundled_models`), `pinning.rs`. Bridge:
@@ -530,7 +530,7 @@ silence:
 Laws: `default_honoured_or_reported`, `default_quiet_when_honoured`,
 `default_quiet_when_unset`, `default_unkeyed_never_moves` (the model in
 `bend/default_model.bend`, the proofs in
-`bend/proof_default_model.bend`). Code: `eukhe-core/src/models/custom.rs`
+`PROOF.bend` section `default_model`). Code: `eukhe-core/src/models/custom.rs`
 (`ModelsConfig::load`), `models/registry.rs` (`compose`),
 `durable/models/compose.rs`, `models/resolver.rs`
 (`saved_default_miss`), `durable/models.rs` (`resolve_session_model`,
@@ -727,7 +727,7 @@ programs: the first program found, its stderr, no audio, no program),
 push-to-talk, Esc, a failure, `stt.enabled` off).
 
 Model: `bend/tiny.bend`. Laws: `LAWS.bend` section (S9). Proofs:
-`bend/proof_tiny.bend`. Every input is free: any chain, any set of
+`PROOF.bend` section `tiny`. Every input is free: any chain, any set of
 available models, any needs of any processes with any tags, any worker
 exits, in any order.
 
@@ -864,7 +864,7 @@ unset:
    `off`.
 
 Model: `bend/effort.bend`. Laws: `LAWS.bend` section (S10). Proofs:
-`bend/proof_effort.bend`. Every input is free: any model, with or
+`PROOF.bend` section `effort`. Every input is free: any model, with or
 without reasoning, with any map (each entry missing, `null` or a wire
 string); any level; any stored level and default; any model switches,
 sets and cycle steps, in any order.
