@@ -7,10 +7,12 @@
 //! is [`assert_match_object`], and `rejects.toThrow(text)` is [`rejects`].
 
 mod documents;
+mod progress;
 mod records;
 mod tasks;
 
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,8 +27,9 @@ use super::types::{StorageConformanceCase, StorageConformanceOptions, StorageTes
 use crate::errors::StorageError;
 use crate::types::{Storage, StorageWrite};
 
-/// What a runner allows a case without its own timeout (Vitest's default).
-const DEFAULT_TIMEOUT_MS: u64 = 5_000;
+/// How long a case may go without a completed storage call (Vitest's
+/// default per-test timeout).
+const STALL_TIMEOUT_MS: u64 = 5_000;
 
 /// The reserved root conversation ID (`ROOT_CONVERSATION_ID`) as JSON.
 const ROOT: u64 = 1;
@@ -206,10 +209,13 @@ fn ids<T: Serialize>(items: &[T]) -> JsonValue {
     items.iter().map(|item| j(item)["id"].clone()).collect()
 }
 
-/// Builds cases bound to one provider.
+/// Builds cases bound to one provider. `completed[i]` counts the storage
+/// calls of case `list[i]` that completed (its [`progress::Progress`]
+/// watchdog signal).
 struct Cases {
     options: StorageConformanceOptions,
-    cases: Vec<StorageConformanceCase>,
+    list: Vec<StorageConformanceCase>,
+    completed: Vec<Arc<AtomicU64>>,
 }
 
 impl Cases {
@@ -220,14 +226,31 @@ impl Cases {
     {
         let with_storage = Arc::clone(&self.options.with_storage);
         let test = Arc::new(test);
-        self.cases.push(StorageConformanceCase {
+        let completed = Arc::new(AtomicU64::new(0));
+        self.completed.push(Arc::clone(&completed));
+        self.list.push(StorageConformanceCase {
             name,
             run: Arc::new(move || {
                 let test = Arc::clone(&test);
-                let body: StorageTest = Box::new(move |storage| Box::pin(test(storage)));
+                let completed = Arc::clone(&completed);
+                let body: StorageTest = Box::new(move |storage| {
+                    Box::pin(test(Arc::new(progress::Progress::new(storage, completed))))
+                });
                 with_storage(body)
             }),
         });
+    }
+
+    fn all(options: StorageConformanceOptions) -> Self {
+        let mut cases = Self {
+            options,
+            list: Vec::new(),
+            completed: Vec::new(),
+        };
+        records::add_cases(&mut cases);
+        tasks::add_cases(&mut cases);
+        documents::add_cases(&mut cases);
+        cases
     }
 }
 
@@ -237,39 +260,29 @@ impl Cases {
 pub fn create_storage_conformance(
     options: StorageConformanceOptions,
 ) -> Vec<StorageConformanceCase> {
-    let mut cases = Cases {
-        options,
-        cases: Vec::new(),
-    };
-    records::add_cases(&mut cases);
-    tasks::add_cases(&mut cases);
-    documents::add_cases(&mut cases);
-    cases.cases
+    Cases::all(options).list
 }
 
-/// Run every case against `options.with_storage`, concurrently, each within
-/// 5 s (Vitest's default), the Rust counterpart of `registerStorageConformance`.
+/// Run every case against `options.with_storage`, concurrently, the Rust
+/// counterpart of `registerStorageConformance`. A case fails when no
+/// storage call of it completes for 5 s (Vitest's default timeout). A fixed
+/// budget for the whole case measured the disk instead: a case of 50
+/// fsync-and-reopen commits takes 2.5 s on an idle disk and more than 5 s
+/// under a parallel build's IO load.
 ///
 /// # Panics
 ///
-/// Panics after all cases ran when any failed or timed out, listing them under
+/// Panics after all cases ran when any failed or stalled, listing them under
 /// `suite`.
 pub async fn run_storage_conformance(suite: &str, options: StorageConformanceOptions) {
-    let cases = create_storage_conformance(options);
-    let timeout = Duration::from_millis(DEFAULT_TIMEOUT_MS);
+    let Cases {
+        list, completed, ..
+    } = Cases::all(options);
+    let stall = Duration::from_millis(STALL_TIMEOUT_MS);
     let mut running: Vec<(&'static str, BoxFuture<'static, Result<(), String>>)> = Vec::new();
-    for case in &cases {
+    for (case, completed) in list.iter().zip(completed) {
         let task = tokio::spawn(case.run());
-        running.push((
-            case.name,
-            Box::pin(async move {
-                match tokio::time::timeout(timeout, task).await {
-                    Err(_) => Err(format!("timed out after {} ms", timeout.as_millis())),
-                    Ok(Err(error)) => Err(panic_message(error)),
-                    Ok(Ok(())) => Ok(()),
-                }
-            }),
-        ));
+        running.push((case.name, Box::pin(watch(task, completed, stall))));
     }
     let mut failures = Vec::new();
     for (name, outcome) in running {
@@ -283,6 +296,33 @@ pub async fn run_storage_conformance(suite: &str, options: StorageConformanceOpt
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// Await one case; fail it (and abort it) once `stall` passes with no
+/// storage call completed.
+async fn watch(
+    mut task: tokio::task::JoinHandle<()>,
+    completed: Arc<AtomicU64>,
+    stall: Duration,
+) -> Result<(), String> {
+    let mut seen = completed.load(Ordering::SeqCst);
+    loop {
+        match tokio::time::timeout(stall, &mut task).await {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(error)) => return Err(panic_message(error)),
+            Err(_) => {
+                let now = completed.load(Ordering::SeqCst);
+                if now == seen {
+                    task.abort();
+                    return Err(format!(
+                        "stalled: no storage call completed for {} ms ({now} completed)",
+                        stall.as_millis()
+                    ));
+                }
+                seen = now;
+            }
+        }
+    }
 }
 
 fn panic_message(error: tokio::task::JoinError) -> String {
