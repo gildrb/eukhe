@@ -12,7 +12,7 @@
 #                  first (each layer its kind K and its budget B)
 #   t V ...        one tick of the loop on the verdicts, top first: d
 #                  Defer, a Again, y Yield, p:K:B Stack{Layer{K, B}}, v
-#                  Leave, x Abort
+#                  Leave, x Abort, r Lead
 #   d V ...        one decision of the loop's stack on the verdicts (the
 #                  loop does not change)
 #   r              run the loop from its start on every tick since its l
@@ -81,6 +81,8 @@ def verdict.of(w: String) -> D.Verdict:
       D.Leave{}
     case SCon{'x', t}:
       D.Abort{}
+    case SCon{'r', t}:
+      D.Lead{}
     case t:
       D.Defer{}
 

@@ -178,10 +178,10 @@ def show.exp(e: C.Exp) -> String:
   match e:
     case C.Flat{cs}:
       String.concat(["[", String.join(show.cmds.go(cs), "; "), "]"])
-    case C.Cycle{}:
-      "cycle"
-    case C.Unknown{}:
-      "unknown"
+    case C.Cycle{n}:
+      String.append("cycle a", Nat.show(n))
+    case C.Unknown{n}:
+      String.append("unknown a", Nat.show(n))
 
 def show.binds(ss: List<&2, C.Bind>) -> String:
   match ss:

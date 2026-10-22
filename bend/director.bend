@@ -1,20 +1,33 @@
-# director: the model of the Director stack (docs/control.md, S5). The
+# director: the model of the Director stack (docs/control.md, S5), the
+# rule the Rust code runs (crates/eukhe-core/src/durable/directors). The
 # agent loop asks the stack what to do after each model turn. A Director
-# is one layer: a plan, a goal, a reminder, a forced tool call. Layers
-# stack and nest. The top layer decides first; each layer gives one
+# is one layer: a goal, an autonomous run, a reminder, a forced tool call.
+# Layers stack and nest. The top layer decides first; each layer gives one
 # verdict, which the adversary picks:
 #
-# - Pass: the next layer down decides.
-# - Go: the loop goes on. It costs the layer one unit of its budget.
-# - Halt: the loop stops and hands back to the user.
+# - Defer: the layer stays; the next layer down decides.
+# - Again: the loop goes on. It costs the layer one unit of its budget.
+# - Yield: the loop stops and hands back to the user.
 # - Stack{l}: the layer adds l on top, and the loop goes on. It costs the
-#   layer one unit of its budget. A full stack (cap layers) fails.
-# - Pop: the layer removes itself; the next layer down decides.
-# - Fail: the loop stops with a failure.
+#   layer one unit of its budget. A stack that holds cap layers already
+#   (counting every layer, those above the deciding one too) fails.
+# - Leave: the layer removes itself; the next layer down decides.
+# - Abort: the loop stops with a failure.
+# - Lead: a reminder that leads the next continuation. It leaves with the
+#   continuation it leads: when the loop goes on it leaves, and when the
+#   loop ends it stays for the next run. Either way the next layer down
+#   decides.
 #
-# A layer with no budget left that says Go or Push halts the loop. With
-# no layer left to decide, the loop hands back to the user. The loop also
-# has a global budget of steps: when it is 0, a Cont yields.
+# A layer with no budget left that says Again or Stack yields. With no
+# layer left to decide, or no verdict left (a missing verdict defers), the
+# loop hands back to the user. The loop also has a global budget of
+# steps: a continue with none left yields.
+#
+# Kinds are opaque numbers: the Rust code numbers the distinct layers of
+# one step and maps the numbers back. Budgets, the global budget and the
+# cap are counts the Rust code saturates at 2^48-1 before it calls the
+# model; the model only lowers a budget by one and compares the cap with
+# the stack's length, so no value ever grows past its input.
 #
 # The stack lives in the session tree (bend/tree.bend): encode writes it
 # as nodes, decode reads it back. So a rewind of the tree restores the
@@ -23,8 +36,8 @@
 import Base
 import ./tree.bend as T
 
-# A layer: its kind (plan, goal, reminder, forced call, ...) and the
-# loop steps it may still ask for
+# A layer: its kind (goal, autonomous run, reminder, forced call, ...)
+# and the loop steps it may still ask for
 type Layer is Data:
   Layer{kind: Nat, budget: Nat}
 
@@ -35,6 +48,7 @@ type Verdict is Data:
   Stack{l: Layer}
   Leave{}
   Abort{}
+  Lead{}
 
 # What one decision gives the loop
 type Out is Data:
@@ -67,8 +81,18 @@ def under(+l: Layer, d: Dec) -> Dec:
     case Dec{o, s}:
       Dec{o, l <> s}
 
-# a Stack of n onto the stack s under l, with room telling whether the
-# stack has fewer than cap layers
+# an Again of l above the layers rest
+def spend(l: Layer, +rest: List<&2, Layer>) -> Dec:
+  match l:
+    case Layer{k, b}:
+      match b:
+        case 0n:
+          Dec{Hand{}, Layer{k, 0n} <> rest}
+        case 1n+c:
+          Dec{Cont{}, Layer{k, c} <> rest}
+
+# a Stack of n by l (its budget already spent) above the layers rest;
+# room tells whether the whole stack holds fewer than cap layers
 def push.at(room: Bool, +l: Layer, +n: Layer, +rest: List<&2, Layer>) -> Dec:
   match room:
     case True{}:
@@ -76,53 +100,64 @@ def push.at(room: Bool, +l: Layer, +n: Layer, +rest: List<&2, Layer>) -> Dec:
     case False{}:
       Dec{Failed{}, l <> rest}
 
-# What layer l does with its verdict v, under `above` layers and above the
-# layers rest; d is the decision of rest on the verdicts below v. A Stack
-# needs room in the whole stack: above + 1 + len(rest) layers now.
-def pick(v: Verdict, l: Layer, +rest: List<&2, Layer>, +cap: Nat, +above: Nat, d: Dec) -> Dec:
-  match v:
-    case Defer{}:
-      under(l, d)
-    case Again{}:
-      match l:
-        case Layer{k, b}:
-          match b:
-            case 0n:
-              Dec{Hand{}, Layer{k, 0n} <> rest}
-            case 1n+c:
-              Dec{Cont{}, Layer{k, c} <> rest}
-    case Yield{}:
-      Dec{Hand{}, l <> rest}
-    case Stack{n}:
-      match l:
-        case Layer{k, b}:
-          match b:
-            case 0n:
-              Dec{Hand{}, Layer{k, 0n} <> rest}
-            case 1n+c:
-              push.at(Nat.is_lt(Nat.add(above, 1n+List.length(&2, Layer, rest)), cap), Layer{k, c}, n, rest)
-    case Leave{}:
-      d
-    case Abort{}:
-      Dec{Failed{}, l <> rest}
+# a Stack of n by l above the layers rest
+def push(l: Layer, +n: Layer, +rest: List<&2, Layer>, +room: Bool) -> Dec:
+  match l:
+    case Layer{k, b}:
+      match b:
+        case 0n:
+          Dec{Hand{}, Layer{k, 0n} <> rest}
+        case 1n+c:
+          push.at(room, Layer{k, c}, n, rest)
 
-# One decision of the stack s (top first) under `above` layers that
-# deferred. vs holds each layer's verdict, top first; a layer with no
-# verdict left defers.
-def decide.go(s: List<&2, Layer>, vs: List<&2, Verdict>, +cap: Nat, +above: Nat) -> Dec:
+# a Lead of l over the decision d of the layers below: l stays on top when
+# stay holds, else it leaves
+def lead(stay: Bool, +l: Layer, d: Dec) -> Dec:
+  match stay:
+    case True{}:
+      under(l, d)
+    case False{}:
+      d
+
+# One decision of the stack s (top first) on the verdicts vs (top first; a
+# layer with no verdict left defers). room tells whether the whole stack
+# holds fewer than cap layers; stay tells whether a layer that leads stays
+# (the loop ends) or leaves (the loop goes on). Only the deciding layer's
+# verdict is looked at below the layers that defer, leave or lead.
+def decide.go(s: List<&2, Layer>, vs: List<&2, Verdict>, +room: Bool, +stay: Bool) -> Dec:
   match s:
     case Nil{}:
       Dec{Hand{}, Nil{}}
     case l <> +rest:
       match vs:
         case Nil{}:
-          under(l, decide.go(rest, Nil{}, cap, 1n+above))
+          under(l, decide.go(rest, Nil{}, room, stay))
         case v <> vr:
-          pick(v, l, rest, cap, above, decide.go(rest, vr, cap, 1n+above))
+          match v:
+            case Defer{}:
+              under(l, decide.go(rest, vr, room, stay))
+            case Again{}:
+              spend(l, rest)
+            case Yield{}:
+              Dec{Hand{}, l <> rest}
+            case Stack{n}:
+              push(l, n, rest, room)
+            case Leave{}:
+              decide.go(rest, vr, room, stay)
+            case Abort{}:
+              Dec{Failed{}, l <> rest}
+            case Lead{}:
+              lead(stay, l, decide.go(rest, vr, room, stay))
 
-# One decision of the whole stack
+# One decision of the stack s with room for cap layers: a push needs the
+# whole stack to hold fewer than cap layers
+def decide.as(+s: List<&2, Layer>, vs: List<&2, Verdict>, +cap: Nat, +stay: Bool) -> Dec:
+  decide.go(s, vs, Nat.is_lt(List.length(&2, Layer, s), cap), stay)
+
+# One decision of the stack when the loop goes on: a layer that leads
+# leaves
 def decide(+s: List<&2, Layer>, vs: List<&2, Verdict>, +cap: Nat) -> Dec:
-  decide.go(s, vs, cap, 0n)
+  decide.as(s, vs, cap, False{})
 
 # The loop
 # --------
@@ -142,33 +177,40 @@ def Loop.stack(l: Loop) -> List<&2, Layer>:
     case Loop{n, s, e}:
       s
 
-# the loop that goes on with n steps left: with none left it yields
-def cont(n: Nat, s: List<&2, Layer>) -> Loop:
+# the stack s after a decision on vs that ends the loop: a layer that
+# leads stays
+def kept(+s: List<&2, Layer>, vs: List<&2, Verdict>, +cap: Nat) -> List<&2, Layer>:
+  Dec.stack(decide.as(s, vs, cap, True{}))
+
+# a continue with n steps left: with a step left the loop goes on with the
+# stack t; with none it yields
+def go.on(n: Nat, t: List<&2, Layer>, +s: List<&2, Layer>, vs: List<&2, Verdict>, +cap: Nat) -> Loop:
   match n:
     case 0n:
-      Loop{0n, s, Some{Hand{}}}
+      Loop{0n, kept(s, vs, cap), Some{Hand{}}}
     case 1n+m:
-      Loop{m, s, None{}}
+      Loop{m, t, None{}}
 
-# the loop after a decision d, with n steps left
-def after(+n: Nat, d: Dec) -> Loop:
+# the loop after the decision d of the stack s on vs, with n steps left
+def settle(d: Dec, +n: Nat, +s: List<&2, Layer>, vs: List<&2, Verdict>, +cap: Nat) -> Loop:
   match d:
-    case Dec{o, s}:
+    case Dec{o, t}:
       match o:
         case Cont{}:
-          cont(n, s)
+          go.on(n, t, s, vs, cap)
         case Hand{}:
-          Loop{n, s, Some{Hand{}}}
+          Loop{n, kept(s, vs, cap), Some{Hand{}}}
         case Failed{}:
-          Loop{n, s, Some{Failed{}}}
+          Loop{n, kept(s, vs, cap), Some{Failed{}}}
 
 # one loop step: the stack decides on the verdicts vs
 def tick(+cap: Nat, l: Loop, vs: List<&2, Verdict>) -> Loop:
   match l:
-    case Loop{n, s, e}:
+    case Loop{n, +s, e}:
       match e:
         case None{}:
-          after(n, decide(s, vs, cap))
+          +w = vs
+          settle(decide(s, w, cap), n, s, w, cap)
         case Some{x}:
           Loop{n, s, Some{x}}
 

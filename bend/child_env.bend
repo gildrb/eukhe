@@ -51,21 +51,55 @@ def up(s: String) -> String:
 def patterns() -> List<&2, String>:
   ["API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASSPHRASE", "CREDENTIAL", "PRIVATE_KEY", "ACCESS_KEY"]
 
-# u is one of the names of ns
-def listed(ns: List<&2, String>, +u: String) -> Bool:
+# the first name of ns is u
+def listed.at(ns: List<&2, String>, +u: String) -> Bool:
   match ns:
     case Nil{}:
       False{}
     case r <> rest:
-      Bool.or(String.eq(r, u), listed(rest, u))
+      String.eq(r, u)
 
-# u contains one of ps
-def matched(ps: List<&2, String>, +u: String) -> Bool:
+# u is one of the names of ns; hit is listed.at(ns, u) (the scan stops at
+# the first hit)
+def listed.go(ns: List<&2, String>, +u: String, hit: Bool) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case r <> +rest:
+      match hit:
+        case True{}:
+          True{}
+        case False{}:
+          listed.go(rest, u, listed.at(rest, u))
+
+# u is one of the names of ns
+def listed(+ns: List<&2, String>, +u: String) -> Bool:
+  listed.go(ns, u, listed.at(ns, u))
+
+# u contains the first pattern of ps
+def matched.at(ps: List<&2, String>, +u: String) -> Bool:
   match ps:
     case Nil{}:
       False{}
     case p <> rest:
-      Bool.or(String.contains(u, p), matched(rest, u))
+      String.contains(u, p)
+
+# u contains one of ps; hit is matched.at(ps, u) (the scan stops at the
+# first hit)
+def matched.go(ps: List<&2, String>, +u: String, hit: Bool) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> +rest:
+      match hit:
+        case True{}:
+          True{}
+        case False{}:
+          matched.go(rest, u, matched.at(rest, u))
+
+# u contains one of ps
+def matched(+ps: List<&2, String>, +u: String) -> Bool:
+  matched.go(ps, u, matched.at(ps, u))
 
 # n is a provider name: its upper case is a name of the registry
 def registered(reg: List<&2, String>, n: String) -> Bool:
@@ -76,9 +110,31 @@ def cred(+reg: List<&2, String>, n: String) -> Bool:
   +u = up(n)
   Bool.or(listed(reg, u), matched(patterns(), u))
 
+# the test of a name n that is no provider name, by hit: whether its upper
+# case contains a secret pattern; a credential passes only when kept
+def passes.pat(hit: Bool, keep: List<&2, String>, +n: String) -> Bool:
+  match hit:
+    case True{}:
+      listed(keep, n)
+    case False{}:
+      True{}
+
+# the test of a name n with upper case u, by hit: whether u is a provider
+# name (which never passes); each check runs only when the one before
+# leaves the answer open
+def passes.reg(hit: Bool, +u: String, keep: List<&2, String>, +n: String) -> Bool:
+  match hit:
+    case True{}:
+      False{}
+    case False{}:
+      passes.pat(matched(patterns(), u), keep, n)
+
 # n reaches the child: not a credential, or kept and not a provider name
+# (the same test as Bool.or(Bool.not(cred(reg, n)), Bool.and(listed(keep,
+# n), Bool.not(registered(reg, n)))), upper-casing n once)
 def passes(+reg: List<&2, String>, keep: List<&2, String>, +n: String) -> Bool:
-  Bool.or(Bool.not(cred(reg, n)), Bool.and(listed(keep, n), Bool.not(registered(reg, n))))
+  +u = up(n)
+  passes.reg(listed(reg, u), u, keep, n)
 
 # Environments
 # ------------

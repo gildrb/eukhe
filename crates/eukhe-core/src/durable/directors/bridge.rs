@@ -44,6 +44,10 @@ enum Case {
     OutOfSteps,
     /// A tick of an ended loop.
     AfterEnd,
+    /// A layer that leads leaves with the continuation.
+    LeadGoes,
+    /// A layer that leads stays when the loop ends.
+    LeadStays,
 }
 
 /// The cases the scenarios reached.
@@ -135,13 +139,14 @@ impl Run {
     fn verdicts(rng: &mut Rng, len: usize) -> Vec<Verdict> {
         let count = rng.below(len as u64 + 2);
         (0..count)
-            .map(|_| match rng.below(12) {
+            .map(|_| match rng.below(14) {
                 0..=2 => Verdict::Defer,
                 3..=5 => Verdict::Again,
                 6 => Verdict::Yield,
                 7..=8 => Verdict::Stack(layer(rng.below(4), rng.below(3))),
                 9..=10 => Verdict::Leave,
-                11.. => Verdict::Abort,
+                11 => Verdict::Abort,
+                12.. => Verdict::Lead,
             })
             .collect()
     }
@@ -158,6 +163,7 @@ impl Run {
                 }
                 Verdict::Leave => self.events.push_str(" v"),
                 Verdict::Abort => self.events.push_str(" x"),
+                Verdict::Lead => self.events.push_str(" r"),
             }
         }
         self.events.push('\n');
@@ -180,6 +186,7 @@ impl Run {
                     }
                     continue;
                 }
+                Verdict::Lead => continue,
                 Verdict::Again | Verdict::Stack(_) if top.budget == 0 => {
                     reached.insert(Case::Broke);
                 }
@@ -231,7 +238,23 @@ impl Run {
                 reached.insert(Case::OutOfSteps);
             }
         }
+        // A Lead counts when no layer above it decided.
+        let leads = self.now.end.is_none()
+            && verdicts
+                .iter()
+                .take(self.now.stack.len())
+                .take_while(|verdict| {
+                    matches!(verdict, Verdict::Defer | Verdict::Leave | Verdict::Lead)
+                })
+                .any(|verdict| *verdict == Verdict::Lead);
         self.now = self.now.clone().tick(&verdicts, self.cap);
+        if leads {
+            reached.insert(if self.now.end.is_some() {
+                Case::LeadStays
+            } else {
+                Case::LeadGoes
+            });
+        }
         self.transcript.push_str(&show_loop("t", &self.now));
         self.ticks.push(verdicts);
     }
@@ -342,6 +365,8 @@ fn the_rust_director_stack_equals_the_bend_model() {
             Case::AllDefer,
             Case::OutOfSteps,
             Case::AfterEnd,
+            Case::LeadGoes,
+            Case::LeadStays,
         ])
     );
 }

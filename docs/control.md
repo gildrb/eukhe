@@ -114,9 +114,11 @@ alias table and any binds.
 | `cvar_persist_roundtrip` | The written cfg, read back as the profile, gives the same value of each persisting cvar (S4.6). |
 | `cvar_toggle_twice` | Two toggles give back the value. |
 | `alias_expands_fully` | An expansion leaves no alias to run, or it reports a cycle or an unknown alias (S4.4). |
-| `alias_self_cycle` | An alias that runs itself is a cycle (S4.4). |
-| `alias_unknown_reported` | A run of an alias that does not exist is reported (S4.4). |
+| `alias_self_cycle` | An alias that runs itself is a cycle, and the cycle names the alias (S4.4). |
+| `alias_unknown_reported` | A run of an alias that does not exist is reported with its name (S4.4). |
 | `alias_runs_body` | An alias of plain commands runs exactly its commands (S4.4). |
+| `alias_expands_in_order` | A list expands command by command, in order: the expansion of two lists is the first's commands, then the second's, and the first error, left to right, is the outcome (S4.4). |
+| `alias_expand_example` | Anchor: the Rust test's table (a chain of two aliases, a cycle of two, a run of a missing alias) (S4.4). |
 | `bind_press_plain` | A key press runs only plain commands (S4.5). |
 | `bind_unbound_runs_nothing` | A key with no bind runs nothing (S4.5). |
 | `bind_first_wins` | A key press runs the commands of the first bind of the key (S4.5). |
@@ -270,11 +272,15 @@ the autonomous run, a reminder, and a forced tool call.
    - `Stack{l}`: the layer puts `l` on top of itself, and the loop
      continues. This costs 1 unit of budget. A layer with no budget
      yields. A push needs room in the full stack: the layers above the
-     layer (also the layers that deferred or left), the layer, and the
-     layers below must be fewer than the cap. With no room, the loop
+     layer (also the layers that deferred, left or led), the layer, and
+     the layers below must be fewer than the cap. With no room, the loop
      fails.
    - `Leave`: the layer removes itself. The next layer down decides.
    - `Abort`: the loop stops with a failure.
+   - `Lead`: the layer leads the continuation of the step. It leaves with
+     that continuation: when the loop goes on, it leaves; when the step
+     ends the loop (no layer below continues, or no step is left), it
+     stays. Either way the next layer down decides.
 2. When no layer decides, the loop gives control back to the user.
 3. The loop of one run has a global budget of steps. Each continuation
    costs 1 step. When no step is left, a continuation yields.
@@ -287,11 +293,11 @@ the autonomous run, a reminder, and a forced tool call.
    - Autonomous: it defers while a goal drives continuations, so the goal
      keeps its priority. A disabled run leaves. Else its gates and limits
      continue the run (`Again`) or stop it (`Yield`).
-   - Reminder: its text goes first in the continuation of the step. Then
-     it leaves. When the step does not continue (no layer below
-     continues, or no step is left), the reminder defers: it stays on the
-     stack until a continuation comes. A reminder never makes its own
-     continuation, so it waits for the goal or the autonomous run.
+   - Reminder: its text goes first in the continuation of the step, and it
+     leads that continuation (`Lead`): it leaves with it, and when the step
+     does not continue it stays on the stack until a continuation comes. A
+     reminder never makes its own continuation, so it waits for the goal or
+     the autonomous run.
    - Forced tool call: each request forces its tool (`stream.forceTool`,
      S6) until a response calls the tool. Then the layer leaves at the next
      final answer. Each response to a forced request without the call is
@@ -347,6 +353,10 @@ step says what the adversary picks.
 | `dir_encode_sound` | The stack in the tree is a sound tree (S5.8). |
 | `dir_resume_restores` | A resume reads back the stack that the tree holds, exactly (S5.8). |
 | `dir_rewind_restores` | A rewind of a sound tree to the tree of a stack restores that stack, exactly (S5.8). |
+| `dir_go_*` (`empty`, `unjudged`, `defer`, `leave`, `lead_stays`, `lead_leaves`, `yield`, `abort`, `again`, `again_spent`, `push`, `push_full`, `push_spent`) | One decision, verdict by verdict: what each verdict does to the stack and the outcome (S5.1). Together they give every decision exactly. |
+| `dir_room`, `dir_decide_goes_on` | A push has room when the whole stack holds fewer than cap layers; a decision of the loop is the one where a layer that leads leaves (S5.1). |
+| `dir_tick_goes_on`, `dir_tick_out_of_steps`, `dir_tick_hands_back`, `dir_tick_fails` | One loop step, by its outcome: it goes on with one step fewer, or it ends and the layers that lead stay (S5.1, S5.3). |
+| `dir_lead_leaves_with_the_continuation`, `dir_lead_stays_when_the_loop_ends`, `dir_lead_goes_example`, `dir_lead_stays_example` | A step that goes on is the step with every `Lead` read as `Leave`; a step that ends is the step with every `Lead` read as `Defer` (S5.4, the reminder). |
 
 Code: `eukhe-core/src/durable/directors/stack.rs` `decide`, `Loop::tick`,
 `Layer`, `LayerKind`, `Verdict`; `directors/mod.rs` `DIRECTORS_DOC`,
@@ -369,7 +379,8 @@ verdict lists per step, caps, global budgets; the model's `decide`,
 `tick`, `run`, `encode`, and `decode`), and compares the transcripts byte
 for byte. The scenarios reach every rule of the model (a push with room,
 a push that fits only the layers below, a full stack, no budget, a
-leave, all layers defer, no step left, a tick after the end). Regression
+leave, all layers defer, no step left, a tick after the end, a lead that
+leaves with the continuation, a lead that stays). Regression
 tests: `durable::directors::tests` (the goal layer until the goal
 completes, the global budget, a reminder, a reminder that waits on the
 stack for a continuation, a forced tool call, a forced call that is never
@@ -377,9 +388,8 @@ made and a next run that is not forced, the goal on a full stack, the
 stack after a reopen and in a fork); `durable::session_commands::tests`
 (`/remind` and `/force` on the stack, a `/force` that fails once);
 `durable::goals::tests`. Not modelled: the map from the session state to
-the verdicts (S5.4), `begin` (S5.6), the reminder that defers when no
-continuation follows, and the kind data of a layer (the model keeps a
-number for the kind). Their tests tie them.
+the verdicts (S5.4), `begin` (S5.6), and the kind data of a layer (the
+model keeps a number for the kind). Their tests tie them.
 
 #### S5.8. A goal without progress stops
 
