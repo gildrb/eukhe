@@ -19,13 +19,15 @@
 //! [`compare`] runs them (and skips without `bend`, unless
 //! `EUKHE_REQUIRE_BEND` is set).
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
 use eukhe_durable::testing::bridge::{compare, Rng, Scenario};
 use eukhe_theme::{
-    ansi256, contrast_at_least, linear_channel, luminance, rgb_to_256, ContrastRatio, Mode,
-    Palette, Presence, Rgb, ThemeSources, Token, BUILTIN_THEME_NAMES,
+    ansi256, contrast_at_least, linear_channel, luminance, rgb_to_256, ContrastRatio,
+    ExportSurface, Mode, Palette, Presence, Rgb, ThemeError, ThemeSources, Token,
+    BUILTIN_THEME_NAMES,
 };
 use serde_json::{json, Map, Value};
 
@@ -161,11 +163,14 @@ fn cand_file(cand: Cand) -> String {
 }
 
 /// What `name` resolves to over `cands` on the real resolver: the
-/// candidate id (0..2 for the builtins) and whether it warned.
+/// candidate id (0..2 for the builtins), whether it warned, the cause of
+/// the warning (`-` none, `n` not found, else the failed file's id), the
+/// clashes (`,id>winner` each) and the other failed files (`,id` each).
 fn resolve_line(dir: &Path, name: &str, cands: &[Cand]) -> String {
     let custom_dir = dir.join("custom");
     std::fs::create_dir_all(&custom_dir).expect("custom dir");
     let mut registered = Vec::new();
+    let mut paths: Vec<(String, u8)> = Vec::new();
     for (at, cand) in cands.iter().enumerate() {
         let path = if cand.registered {
             let path = dir.join(format!("registered-{at}.json"));
@@ -177,7 +182,14 @@ fn resolve_line(dir: &Path, name: &str, cands: &[Cand]) -> String {
             custom_dir.join(format!("custom-{at:02}.json"))
         };
         std::fs::write(&path, cand_file(*cand)).expect("write theme");
+        paths.push((path.display().to_string(), cand.id));
     }
+    let id_in = |text: &str| {
+        paths
+            .iter()
+            .find(|(path, _)| text.contains(path.as_str()))
+            .map_or_else(|| panic!("a candidate path in {text}"), |(_, id)| *id)
+    };
     let resolved = ThemeSources {
         registered,
         custom_dir: Some(custom_dir),
@@ -191,11 +203,26 @@ fn resolve_line(dir: &Path, name: &str, cands: &[Cand]) -> String {
             || u32::from(resolved.palette.rgb(Token::Accent).b),
             |at| u32::try_from(at).expect("small"),
         );
-    let warned = resolved
-        .warnings
-        .iter()
-        .any(|warning| warning.starts_with(&format!("Theme \"{name}\" unavailable")));
-    format!("resolve {id} {}\n", bit(warned))
+    let unavailable = format!("Theme \"{name}\" unavailable, using \"eukhe\": ");
+    let (mut cause, mut clashes, mut broken) = ("-".to_string(), String::new(), String::new());
+    for warning in &resolved.warnings {
+        if let Some(reason) = warning.strip_prefix(&unavailable) {
+            cause = if reason.starts_with("Theme not found:") {
+                "n".to_string()
+            } else {
+                id_in(reason).to_string()
+            };
+        } else if let Some((clash, winner)) = warning
+            .split_once(" collision: ")
+            .and_then(|(_, rest)| rest.split_once(" (using "))
+        {
+            write!(clashes, ",{}>{}", id_in(clash), id_in(winner)).unwrap();
+        } else {
+            write!(broken, ",{}", id_in(warning)).unwrap();
+        }
+    }
+    let warned = cause != "-";
+    format!("resolve {id} {} {cause} {clashes} {broken}\n", bit(warned))
 }
 
 fn resolutions(rng: &mut Rng) -> Vec<Scenario> {
@@ -261,10 +288,12 @@ fn resolutions(rng: &mut Rng) -> Vec<Scenario> {
 }
 
 /// A raw value of a theme file: its scenario word and its JSON. A
-/// reference names one of the `vars` variables, or (rarely) a missing one.
+/// reference names one of the `vars` variables, or (rarely) a missing one;
+/// a few values are no color (an index past 255, a sign, a fraction, a
+/// short hex, null, a bool).
 fn raw(rng: &mut Rng, vars: u64) -> (String, Value) {
     let roll = rng.below(100);
-    if roll < 99 && (roll >= 75 && vars > 0) {
+    if roll < 97 && (roll >= 75 && vars > 0) {
         let at = if rng.chance(95) {
             rng.below(vars)
         } else {
@@ -274,19 +303,35 @@ fn raw(rng: &mut Rng, vars: u64) -> (String, Value) {
         (format!("r{name}"), Value::from(name))
     } else if roll < 15 {
         ("d".to_string(), Value::from(""))
+    } else if roll < 28 {
+        let index = rng.below(260);
+        (format!("n{index}"), Value::from(index))
+    } else if roll < 29 {
+        ("n-1".to_string(), Value::from(-1))
     } else if roll < 30 {
-        let index = rng.below(256);
-        (format!("i{index}"), Value::from(index))
-    } else if roll < 99 {
+        ("n1.5".to_string(), Value::from(1.5))
+    } else if roll < 97 {
         let hex = format!("{:06x}", rng.below(0x0100_0000));
         (format!("h{hex}"), Value::from(format!("#{hex}")))
+    } else if roll < 98 {
+        ("habc".to_string(), Value::from("#abc"))
+    } else if roll < 99 {
+        ("onull".to_string(), Value::Null)
     } else {
-        ("b".to_string(), Value::from("#abc"))
+        ("otrue".to_string(), Value::from(true))
+    }
+}
+
+/// The scenario words of a theme's colors (`C:key:raw`), in key order: the
+/// order the file reads them in.
+fn color_words(line: &mut String, colors: &BTreeMap<String, String>) {
+    for (key, word) in colors {
+        write!(line, " C:{key}:{word}").unwrap();
     }
 }
 
 /// One theme file of a file scenario: its scenario line and its JSON. One
-/// file in ten misses a required token.
+/// file in ten misses a required token, one in twenty has an unknown key.
 fn random_file(rng: &mut Rng) -> (String, Value) {
     let mut line = String::from("file");
     let var_count = rng.below(5);
@@ -303,22 +348,38 @@ fn random_file(rng: &mut Rng) -> (String, Value) {
         None
     };
     let mut colors = Map::new();
-    for (at, token) in Token::ALL.iter().enumerate() {
+    let mut words = BTreeMap::new();
+    for token in Token::ALL {
         let present = match token.presence() {
-            Presence::Required => Some(*token) != dropped,
+            Presence::Required => Some(token) != dropped,
             Presence::Optional => rng.chance(50),
         };
         if present {
             let (word, value) = raw(rng, var_count);
-            write!(line, " C:{at}:{word}").unwrap();
+            words.insert(token.name().to_string(), word);
             colors.insert(token.name().to_string(), value);
         }
     }
+    if rng.chance(5) {
+        let key = rng.pick(&["bogus", "Accent", "zz"]).expect("a key");
+        words.insert(key.to_string(), "d".to_string());
+        colors.insert(key.to_string(), Value::from(""));
+    }
+    color_words(&mut line, &words);
+    let mut export = Map::new();
+    for (letter, key) in [('P', "pageBg"), ('K', "cardBg"), ('I', "infoBg")] {
+        if rng.chance(50) {
+            let (word, value) = raw(rng, var_count);
+            // An export key set to null is no key (serde reads it as None).
+            if !value.is_null() {
+                write!(line, " {letter}:{word}").unwrap();
+            }
+            export.insert(key.to_string(), value);
+        }
+    }
     let mut file = json!({ "name": "f", "vars": vars, "colors": colors });
-    if rng.chance(50) {
-        let (word, value) = raw(rng, var_count);
-        write!(line, " P:{word}").unwrap();
-        file["export"] = json!({ "pageBg": value });
+    if !export.is_empty() {
+        file["export"] = Value::Object(export);
     }
     (line, file)
 }
@@ -329,19 +390,26 @@ fn edge_file(background: Option<&str>, drop: Option<Token>) -> (String, Value) {
     let dusk = Palette::parse(DUSK_APPLE).expect("fixture");
     let mut line = String::from("file");
     let mut colors = Map::new();
-    for (at, token) in Token::ALL.iter().enumerate() {
-        if Some(*token) == drop {
+    let mut words = BTreeMap::new();
+    for token in Token::ALL {
+        if Some(token) == drop {
             continue;
         }
         let value = match (token, background) {
             (Token::Background, Some(hex)) => hex.to_string(),
             (Token::Background | Token::Foreground, _) => continue,
-            _ => dusk.rgb(*token).to_string(),
+            _ => dusk.rgb(token).to_string(),
         };
-        write!(line, " C:{at}:h{}", &value[1..]).unwrap();
+        words.insert(token.name().to_string(), format!("h{}", &value[1..]));
         colors.insert(token.name().to_string(), Value::from(value));
     }
+    color_words(&mut line, &words);
     (line, json!({ "name": "f", "colors": colors }))
+}
+
+/// `#rrggbb`, or `-` for none.
+fn optional(color: Option<Rgb>) -> String {
+    color.map_or_else(|| "-".to_string(), |rgb| rgb.to_string())
 }
 
 fn files(rng: &mut Rng) -> Scenario {
@@ -352,7 +420,7 @@ fn files(rng: &mut Rng) -> Scenario {
         edge_file(None, Some(Token::BashMode)),
         edge_file(None, Some(Token::MdBody)),
     ];
-    cases.extend((0..300).map(|_| random_file(rng)));
+    cases.extend((0..400).map(|_| random_file(rng)));
     let mut events = String::new();
     let mut transcript = String::new();
     for (line, file) in cases {
@@ -361,12 +429,19 @@ fn files(rng: &mut Rng) -> Scenario {
         match Palette::parse(&file.to_string()) {
             Ok(palette) => writeln!(
                 transcript,
-                "file ok {}{}",
+                "file ok {}{} {} {} {} {}",
                 bit(palette.mode() == Mode::Light),
-                paints(&palette)
+                paints(&palette),
+                optional(palette.declared_background()),
+                optional(palette.export_surface(ExportSurface::Page)),
+                optional(palette.export_surface(ExportSurface::Card)),
+                optional(palette.export_surface(ExportSurface::Info)),
             )
             .unwrap(),
-            Err(_) => transcript.push_str("file invalid\n"),
+            Err(ThemeError::Invalid { reason, .. }) => {
+                writeln!(transcript, "file invalid {reason}").unwrap();
+            }
+            Err(ThemeError::Parse(error)) => panic!("a generated file is a theme object: {error}"),
         }
     }
     Scenario {

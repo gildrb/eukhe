@@ -1,9 +1,9 @@
-# theme: the theme model of crates/eukhe-theme (the one theme file
+# theme: the theme rules of crates/eukhe-theme (the one theme file
 # validator and the one theme name resolver of the terminal UI and the
 # HTML export); laws in LAWS.bend section themes (T1), docs/interface.md Themes.
-# The bridge test crates/eukhe-core/src/export_html/theme_bridge.rs runs
-# the Rust crate and this model (through bend/bridge_theme.bend) on the
-# same scenarios.
+# The Rust crate decodes the JSON and reads the files; every decision on
+# what it read is here: `parse` (a file's palette, or the error the user
+# sees) and `pick` (the theme a name resolves to, and the warnings).
 #
 # A token is its index in crates/eukhe-theme/src/token.rs `Token::ALL`:
 #   0 accent 1 border 2 borderAccent 3 borderMuted 4 success 5 error
@@ -32,84 +32,226 @@ type Val is Data:
   Idx{i: U32}
   Hex{c: Co.Rgb}
 
-# a value as the file writes it: a color, a malformed color (#abc, 300,
-# null), or the name of a variable
-type Raw is Data:
-  Lit{v: Val}
-  Bad{}
-  Ref{name: String}
+# a JSON value of a theme file, as the rule reads it: a string, with the
+# index of the variable of that name in the file's variables when there is
+# one; a number, as JSON writes it; anything else (null, a bool, an array,
+# an object), as JSON writes it
+type Json is Data:
+  JStr{s: String, at: Maybe<&2, Nat>}
+  JNum{text: String}
+  JOther{text: String}
 
 type Var is Data:
-  Var{name: String, raw: Raw}
+  Var{name: String, val: Json}
 
+# a color entry: its key, the token the key names (None: no token), its
+# value
 type REnt is Data:
-  REnt{t: U32, raw: Raw}
+  REnt{key: String, t: Maybe<&2, U32>, val: Json}
 
-# a theme file: its name, variables, colors and export page background
+# a theme file: its name, its variables and colors (each in key order),
+# and its export page, card and info backgrounds
 type RFile is Data:
-  RFile{name: String, vars: List<&2, Var>, cols: List<&2, REnt>, page: Maybe<&2, Raw>}
+  RFile{name: String, vars: List<&2, Var>, cols: List<&2, REnt>, page: Maybe<&2, Json>, card: Maybe<&2, Json>, info: Maybe<&2, Json>}
 
 type Ent is Data:
   Ent{t: U32, v: Val}
 
-# a file after variable resolution; page is its export page background
+# a file after variable resolution: its colors and the export page, card
+# and info backgrounds it sets (None: unset, or set to "")
 type Th is Data:
-  Th{name: String, cols: List<&2, Ent>, page: Maybe<&2, Co.Rgb>}
+  Th{name: String, cols: List<&2, Ent>, page: Maybe<&2, Co.Rgb>, card: Maybe<&2, Co.Rgb>, info: Maybe<&2, Co.Rgb>}
 
-def var.pick(hit: Bool, raw: Raw, other: Maybe<&2, Raw>) -> Maybe<&2, Raw>:
-  match hit:
-    case True{}:
-      Some{raw}
-    case False{}:
-      other
+# Errors
+# ------
 
-def var.get(vars: List<&2, Var>, +n: String) -> Maybe<&2, Raw>:
-  match vars:
+# why a value is no color: a variable met twice on its chain, a variable
+# that does not exist, a malformed #rrggbb, any other value that is no
+# color
+type Why is Data:
+  Circular{name: String}
+  NotFound{name: String}
+  BadHex{text: String}
+  BadValue{text: String}
+
+# the export backgrounds
+type Surf is Data:
+  OnPage{}
+  OnCard{}
+  OnInfo{}
+
+# why a theme file is invalid: a color key that names no token, a color
+# whose value is no color, the required tokens it does not write (in token
+# order), an export background whose value is no color
+type Fault is Data:
+  Unknown{key: String}
+  InColor{key: String, why: Why}
+  Missing{ts: List<&2, U32>}
+  InExport{at: Surf, why: Why}
+
+# Variables
+# ----------
+
+# a value resolved: a color, or why it is none
+type Got is Data:
+  Hit{v: Val}
+  Miss{why: Why}
+
+# one step along a chain of variables: its end, or the next value to read
+# with the variables met so far
+type Step is Data:
+  Stop{g: Got}
+  Go{seen: List<&2, Nat>, j: Json}
+
+# i is in xs (stops at the first hit)
+def seen.has(xs: List<&2, Nat>, +i: Nat, hit: Bool) -> Bool:
+  match xs:
     case Nil{}:
-      None{}
-    case Con{Var{name, raw}, rest}:
-      var.pick(String.eq(name, n), raw, var.get(rest, n))
+      hit
+    case Con{x, rest}:
+      match hit:
+        case True{}:
+          True{}
+        case False{}:
+          seen.has(rest, i, Nat.is_eq(x, i))
 
-# a missing variable is no color
-def var.or_bad(m: Maybe<&2, Raw>) -> Raw:
+# the value of the variable at index n
+def var.val(xs: List<&2, Var>, n: Nat) -> Maybe<&2, Json>:
+  match xs n:
+    case Nil{} _:
+      None{}
+    case Con{Var{nm, v}, rest} 0n:
+      Some{v}
+    case Con{x, rest} 1n+p:
+      var.val(rest, p)
+
+def step.next(m: Maybe<&2, Json>, seen: List<&2, Nat>, s: String) -> Step:
   match m:
     case None{}:
-      Bad{}
-    case Some{raw}:
-      raw
+      Stop{Miss{NotFound{s}}}
+    case Some{j}:
+      Go{seen, j}
 
-# follow a value through the variables for at most fuel steps: a missing
-# variable, a malformed color and a chain longer than the variables (a
-# cycle) have no value
-def resolve(fuel: Nat, +vars: List<&2, Var>, raw: Raw) -> Maybe<&2, Val>:
+def step.var(looped: Bool, +vars: List<&2, Var>, seen: List<&2, Nat>, s: String, +i: Nat) -> Step:
+  match looped:
+    case True{}:
+      Stop{Miss{Circular{s}}}
+    case False{}:
+      step.next(var.val(vars, i), i <> seen, s)
+
+def step.ref(+vars: List<&2, Var>, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> Step:
+  match at:
+    case None{}:
+      Stop{Miss{NotFound{s}}}
+    case Some{+i}:
+      step.var(seen.has(seen, i, False{}), vars, seen, s, i)
+
+def hex.got(m: Maybe<&2, Co.Rgb>, s: String) -> Got:
+  match m:
+    case None{}:
+      Miss{BadHex{s}}
+    case Some{c}:
+      Hit{Hex{c}}
+
+def num.got(m: Maybe<&2, U32>, text: String) -> Got:
+  match m:
+    case None{}:
+      Miss{BadValue{text}}
+    case Some{i}:
+      Hit{Idx{i}}
+
+def step.sym(sharp: Bool, +vars: List<&2, Var>, +seen: List<&2, Nat>, +s: String, at: Maybe<&2, Nat>) -> Step:
+  match sharp:
+    case True{}:
+      Stop{hex.got(Co.hex(s), s)}
+    case False{}:
+      step.ref(vars, seen, s, at)
+
+def step.str(+vars: List<&2, Var>, +seen: List<&2, Nat>, s: String, at: Maybe<&2, Nat>) -> Step:
+  match s:
+    case SNil{}:
+      Stop{Hit{Dflt{}}}
+    case SCon{+c, rest}:
+      step.sym(Char.is_eq(c, '#'), vars, seen, SCon{c, rest}, at)
+
+# read one value: "" is the terminal default, a #-string a hex color, any
+# other string names a variable (met before: a cycle); a number is an
+# index; anything else is no color
+def step(+vars: List<&2, Var>, +seen: List<&2, Nat>, j: Json) -> Step:
+  match j:
+    case JStr{s, at}:
+      step.str(vars, seen, s, at)
+    case JNum{+text}:
+      Stop{num.got(Co.num(text), text)}
+    case JOther{text}:
+      Stop{Miss{BadValue{text}}}
+
+# follow the steps for at most fuel of them
+def walk(fuel: Nat, +vars: List<&2, Var>, st: Step) -> Got:
   match fuel:
     case 0n:
-      None{}
+      match st:
+        case Stop{g}:
+          g
+        case Go{seen, j}:
+          Miss{Circular{""}}
     case 1n+f:
-      match raw:
-        case Lit{v}:
-          Some{v}
-        case Bad{}:
-          None{}
-        case Ref{name}:
-          resolve(f, vars, var.or_bad(var.get(vars, name)))
+      match st:
+        case Stop{g}:
+          g
+        case Go{seen, j}:
+          walk(f, vars, step(vars, seen, j))
 
-def fuel(vars: List<&2, Var>) -> Nat:
-  1n+List.length(&2, Var, vars)
+# the color a value resolves to through the variables. Each step past the
+# first meets a new variable, so one step more than there are variables
+# always reaches the end.
+def chase(+vars: List<&2, Var>, j: Json) -> Got:
+  walk(1n+List.length(&2, Var, vars), vars, Go{Nil{}, j})
 
-def resolve.cons(t: U32, v: Maybe<&2, Val>, rest: Maybe<&2, List<&2, Ent>>) -> Maybe<&2, List<&2, Ent>>:
-  match v rest:
-    case Some{x} Some{xs}:
-      Some{Ent{t, x} <> xs}
-    case _ _:
-      None{}
+# Colors
+# ------
 
-def resolve.cols(+vars: List<&2, Var>, cols: List<&2, REnt>) -> Maybe<&2, List<&2, Ent>>:
+# an entry read: its token and color, or why the file is invalid
+type EntR is Data:
+  Good{e: Ent}
+  Bad{f: Fault}
+
+def entry.got(key: String, t: U32, g: Got) -> EntR:
+  match g:
+    case Hit{v}:
+      Good{Ent{t, v}}
+    case Miss{why}:
+      Bad{InColor{key, why}}
+
+def entry(+vars: List<&2, Var>, e: REnt) -> EntR:
+  match e:
+    case REnt{key, t, val}:
+      match t:
+        case None{}:
+          Bad{Unknown{key}}
+        case Some{x}:
+          entry.got(key, x, chase(vars, val))
+
+# the entries read, or the first one's error
+type Ents is Data:
+  All{es: List<&2, Ent>}
+  Stuck{f: Fault}
+
+def ents.cons(r: EntR, rest: Ents) -> Ents:
+  match r rest:
+    case Bad{f} _:
+      Stuck{f}
+    case Good{x} All{es}:
+      All{x <> es}
+    case Good{x} Stuck{f}:
+      Stuck{f}
+
+def ents(+vars: List<&2, Var>, cols: List<&2, REnt>) -> Ents:
   match cols:
     case Nil{}:
-      Some{Nil{}}
-    case Con{REnt{t, raw}, rest}:
-      resolve.cons(t, resolve(fuel(vars), vars, raw), resolve.cols(vars, rest))
+      All{Nil{}}
+    case Con{e, rest}:
+      ents.cons(entry(vars, e), ents(vars, rest))
 
 # Tokens
 # ------
@@ -203,25 +345,8 @@ def valid.go(+cols: List<&2, Ent>, ts: List<&2, U32>) -> Bool:
 # a file is valid when it writes every required token
 def valid(f: Th) -> Bool:
   match f:
-    case Th{name, cols, page}:
+    case Th{name, cols, page, card, info}:
       valid.go(cols, toks())
-
-def load.keep(ok: Bool, f: Th) -> Maybe<&2, Th>:
-  match ok:
-    case True{}:
-      Some{f}
-    case False{}:
-      None{}
-
-def load.valid(+f: Th) -> Maybe<&2, Th>:
-  load.keep(valid(f), f)
-
-def load.check(name: String, cols: Maybe<&2, List<&2, Ent>>, page: Maybe<&2, Maybe<&2, Co.Rgb>>) -> Maybe<&2, Th>:
-  match cols page:
-    case Some{cs} Some{pg}:
-      load.valid(Th{name, cs, pg})
-    case _ _:
-      None{}
 
 # the color a value paints where the terminal cannot be asked; None for
 # the terminal default
@@ -234,25 +359,113 @@ def concrete(v: Val) -> Maybe<&2, Co.Rgb>:
     case Hex{c}:
       Some{c}
 
-def load.page.val(v: Maybe<&2, Val>) -> Maybe<&2, Maybe<&2, Co.Rgb>>:
-  match v:
-    case None{}:
-      None{}
-    case Some{x}:
-      Some{concrete(x)}
+# Reading a file
+# --------------
 
-def load.page(+vars: List<&2, Var>, page: Maybe<&2, Raw>) -> Maybe<&2, Maybe<&2, Co.Rgb>>:
-  match page:
-    case None{}:
-      Some{None{}}
-    case Some{raw}:
-      load.page.val(resolve(fuel(vars), vars, raw))
+def required.k(k: Role) -> Bool:
+  match k:
+    case Req{}:
+      True{}
+    case MdBody{}:
+      False{}
+    case RefHeader{}:
+      False{}
+    case RefSummary{}:
+      False{}
+    case Background{}:
+      False{}
+    case Foreground{}:
+      False{}
 
-# read a theme file: every color resolves and the file is valid
-def load(f: RFile) -> Maybe<&2, Th>:
+# a token every file must write
+def required(+t: U32) -> Bool:
+  required.k(kind(t))
+
+def missing.keep(keep: Bool, t: U32, rest: List<&2, U32>) -> List<&2, U32>:
+  match keep:
+    case True{}:
+      t <> rest
+    case False{}:
+      rest
+
+def missing.go(+cols: List<&2, Ent>, ts: List<&2, U32>) -> List<&2, U32>:
+  match ts:
+    case Nil{}:
+      Nil{}
+    case Con{+t, rest}:
+      missing.keep(Bool.and(required(t), Bool.not(has(cols, t))), t, missing.go(cols, rest))
+
+# the required tokens the colors do not write, in token order
+def missing(+cols: List<&2, Ent>) -> List<&2, U32>:
+  missing.go(cols, toks())
+
+# an export background read: the color it sets (None: ""), or why the
+# file is invalid
+type Bg is Data:
+  BgOk{c: Maybe<&2, Co.Rgb>}
+  BgBad{f: Fault}
+
+def surf.got(at: Surf, g: Got) -> Bg:
+  match g:
+    case Hit{v}:
+      BgOk{concrete(v)}
+    case Miss{why}:
+      BgBad{InExport{at, why}}
+
+def surf(+vars: List<&2, Var>, at: Surf, m: Maybe<&2, Json>) -> Bg:
+  match m:
+    case None{}:
+      BgOk{None{}}
+    case Some{j}:
+      surf.got(at, chase(vars, j))
+
+# a theme file read: its resolved colors, or why it is invalid
+type Read is Data:
+  Loaded{th: Th}
+  Failed{f: Fault}
+
+def read.end(name: String, es: List<&2, Ent>, p: Bg, c: Bg, i: Bg) -> Read:
+  match p c i:
+    case BgBad{f} _ _:
+      Failed{f}
+    case BgOk{pc} BgBad{f} _:
+      Failed{f}
+    case BgOk{pc} BgOk{cc} BgBad{f}:
+      Failed{f}
+    case BgOk{pc} BgOk{cc} BgOk{ic}:
+      Loaded{Th{name, es, pc, cc, ic}}
+
+def read.full(name: String, +vars: List<&2, Var>, es: List<&2, Ent>, miss: List<&2, U32>, page: Maybe<&2, Json>, card: Maybe<&2, Json>, info: Maybe<&2, Json>) -> Read:
+  match miss:
+    case Nil{}:
+      read.end(name, es, surf(vars, OnPage{}, page), surf(vars, OnCard{}, card), surf(vars, OnInfo{}, info))
+    case Con{t, rest}:
+      Failed{Missing{t <> rest}}
+
+def read.cols(name: String, +vars: List<&2, Var>, r: Ents, page: Maybe<&2, Json>, card: Maybe<&2, Json>, info: Maybe<&2, Json>) -> Read:
+  match r:
+    case Stuck{f}:
+      Failed{f}
+    case All{+es}:
+      read.full(name, vars, es, missing(es), page, card, info)
+
+# read a theme file: the colors in key order (the first error wins), then
+# the required tokens, then the export page, card and info backgrounds
+def read(f: RFile) -> Read:
   match f:
-    case RFile{name, +vars, cols, page}:
-      load.check(name, resolve.cols(vars, cols), load.page(vars, page))
+    case RFile{name, +vars, cols, page, card, info}:
+      read.cols(name, vars, ents(vars, cols), page, card, info)
+
+def load.of(r: Read) -> Maybe<&2, Th>:
+  match r:
+    case Loaded{th}:
+      Some{th}
+    case Failed{f}:
+      None{}
+
+# a theme file that reads, resolved
+def load(f: RFile) -> Maybe<&2, Th>:
+  load.of(read(f))
 
 # Completion
 # ----------
@@ -362,18 +575,18 @@ def palette.go(+cols: List<&2, Ent>, page: Maybe<&2, Co.Rgb>) -> List<&2, Maybe<
 # the palette of a file: a value per token, in token order
 def palette(f: Th) -> List<&2, Maybe<&2, Val>>:
   match f:
-    case Th{name, cols, page}:
+    case Th{name, cols, page, card, info}:
       palette.go(cols, page)
 
 # the theme is light: its background's luminance is above one half
 def light(f: Th) -> Bool:
   match f:
-    case Th{name, cols, page}:
+    case Th{name, cols, page, card, info}:
       Co.light(background(cols, page))
 
 def bg(f: Th) -> Co.Rgb:
   match f:
-    case Th{name, cols, page}:
+    case Th{name, cols, page, card, info}:
       background(cols, page)
 
 def complete(p: List<&2, Maybe<&2, Val>>) -> Bool:
@@ -385,8 +598,59 @@ def complete(p: List<&2, Maybe<&2, Val>>) -> Bool:
 
 def rename(f: Th, n: String) -> Th:
   match f:
-    case Th{name, cols, page}:
-      Th{n, cols, page}
+    case Th{name, cols, page, card, info}:
+      Th{n, cols, page, card, info}
+
+# The palette of a file
+# ---------------------
+
+def declared.of(m: Maybe<&2, Val>) -> Maybe<&2, Co.Rgb>:
+  match m:
+    case None{}:
+      None{}
+    case Some{v}:
+      match v:
+        case Dflt{}:
+          None{}
+        case Idx{i}:
+          None{}
+        case Hex{c}:
+          Some{c}
+
+# the file's own background, when it writes it as #rrggbb (the terminal
+# UI's onboarding canvas)
+def declared(+cols: List<&2, Ent>) -> Maybe<&2, Co.Rgb>:
+  declared.of(get(cols, 57))
+
+def vals(p: List<&2, Maybe<&2, Val>>) -> List<&2, Val>:
+  match p:
+    case Nil{}:
+      Nil{}
+    case Con{m, rest}:
+      or_else(Val, m, Dflt{}) <> vals(rest)
+
+# a theme file parsed: why it is invalid, or its palette (a value per
+# token, in token order), whether it is light, its own #rrggbb background,
+# and its export page, card and info backgrounds
+type Parsed is Data:
+  Rejected{f: Fault}
+  Painted{vals: List<&2, Val>, light: Bool, declared: Maybe<&2, Co.Rgb>, page: Maybe<&2, Co.Rgb>, card: Maybe<&2, Co.Rgb>, info: Maybe<&2, Co.Rgb>}
+
+def parse.th(f: Th) -> Parsed:
+  match f:
+    case Th{name, +cols, +page, card, info}:
+      Painted{vals(palette.go(cols, page)), Co.light(background(cols, page)), declared(cols), page, card, info}
+
+def parse.of(r: Read) -> Parsed:
+  match r:
+    case Loaded{th}:
+      parse.th(th)
+    case Failed{f}:
+      Rejected{f}
+
+# read and complete a theme file
+def parse(f: RFile) -> Parsed:
+  parse.of(read(f))
 
 def paint.canvas.at(surface: Bool) -> Nat:
   match surface:
@@ -585,3 +849,214 @@ def hit(src: List<&2, Cand>, +n: String) -> Bool:
       False{}
     case Con{c, rest}:
       Bool.or(names(c, n), hit(rest, n))
+
+# The theme a name picks
+# ----------------------
+# Rust reads every theme file the sources reach (the registered files,
+# then the custom directory's), in that order; `pick` decides the rest.
+
+# a theme file the sources reach: a valid one, by the name it advertises,
+# from the custom directory or not; or one that did not load, with the
+# name it advertises (when it is a theme object) and its file stem (when
+# that is text)
+type Ld is Data:
+  Fine{name: String, custom: Bool}
+  Broke{name: Maybe<&2, String>, stem: Maybe<&2, String>}
+
+# the candidate id of the file at index at: after the builtins
+def file.id(at: Nat) -> U32:
+  U32.from_nat(Nat.add(3n, at))
+
+def same(a: Bool, +b: Bool) -> Bool:
+  match a:
+    case True{}:
+      b
+    case False{}:
+      Bool.not(b)
+
+def cands.keep(keep: Bool, nm: String, +at: Nat, rest: List<&2, Cand>) -> List<&2, Cand>:
+  match keep:
+    case True{}:
+      Cand{nm, True{}, file.id(at)} <> rest
+    case False{}:
+      rest
+
+def cands.of(l: Ld, +custom: Bool, +at: Nat, rest: List<&2, Cand>) -> List<&2, Cand>:
+  match l:
+    case Fine{nm, c}:
+      cands.keep(same(c, custom), nm, at, rest)
+    case Broke{nm, st}:
+      rest
+
+# the valid files of one source (custom or registered), in order, as
+# candidates; the first is at index at
+def cands(ls: List<&2, Ld>, +custom: Bool, +at: Nat) -> List<&2, Cand>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Con{l, rest}:
+      cands.of(l, custom, at, cands(rest, custom, 1n+at))
+
+# the theme name n resolves to over the files ls
+def pick.res(+ls: List<&2, Ld>, +n: String) -> Res:
+  resolve.name(sources(cands(ls, False{}, 0n), cands(ls, True{}, 0n)), n)
+
+# A valid file whose name an earlier valid file advertises clashes with
+# the first of them (it is never picked). There are few theme files: a
+# lookup per file is cheap.
+
+type Clash is Data:
+  Clash{at: Nat, winner: Nat}
+
+def first.pick(hit: Bool, at: Nat, other: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match hit:
+    case True{}:
+      Some{at}
+    case False{}:
+      other
+
+def fine.named(l: Ld, +n: String) -> Bool:
+  match l:
+    case Fine{nm, c}:
+      String.eq(nm, n)
+    case Broke{nm, st}:
+      False{}
+
+# the index of the first valid file named n (the first is at index at)
+def fine.first(ls: List<&2, Ld>, +n: String, +at: Nat) -> Maybe<&2, Nat>:
+  match ls:
+    case Nil{}:
+      None{}
+    case Con{l, rest}:
+      first.pick(fine.named(l, n), at, fine.first(rest, n, 1n+at))
+
+def clash.if(same: Bool, w: Nat, at: Nat) -> Maybe<&2, Clash>:
+  match same:
+    case True{}:
+      None{}
+    case False{}:
+      Some{Clash{at, w}}
+
+def clash.of(m: Maybe<&2, Nat>, +at: Nat) -> Maybe<&2, Clash>:
+  match m:
+    case None{}:
+      None{}
+    case Some{+w}:
+      clash.if(Nat.is_eq(w, at), w, at)
+
+def clash.at(+all: List<&2, Ld>, l: Ld, +at: Nat) -> Maybe<&2, Clash>:
+  match l:
+    case Fine{+nm, c}:
+      clash.of(fine.first(all, nm, 0n), at)
+    case Broke{nm, st}:
+      None{}
+
+def clash.cons(m: Maybe<&2, Clash>, rest: List<&2, Clash>) -> List<&2, Clash>:
+  match m:
+    case None{}:
+      rest
+    case Some{x}:
+      x <> rest
+
+def clashes.go(+all: List<&2, Ld>, ls: List<&2, Ld>, +at: Nat) -> List<&2, Clash>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Con{l, rest}:
+      clash.cons(clash.at(all, l, at), clashes.go(all, rest, 1n+at))
+
+# every clash, in file order
+def clashes(+ls: List<&2, Ld>) -> List<&2, Clash>:
+  clashes.go(ls, ls, 0n)
+
+# A name that resolves to no theme warns, with its cause: the first file
+# that did not load and advertises the name (or, when it is no theme
+# object, is named after it), else none.
+
+def blames.name(m: Maybe<&2, String>, st: Maybe<&2, String>, +n: String) -> Bool:
+  match m:
+    case Some{x}:
+      String.eq(x, n)
+    case None{}:
+      match st:
+        case Some{s}:
+          String.eq(s, n)
+        case None{}:
+          False{}
+
+def blames(l: Ld, +n: String) -> Bool:
+  match l:
+    case Fine{nm, c}:
+      False{}
+    case Broke{nm, st}:
+      blames.name(nm, st, n)
+
+def cause.go(ls: List<&2, Ld>, +n: String, +at: Nat) -> Maybe<&2, Nat>:
+  match ls:
+    case Nil{}:
+      None{}
+    case Con{l, rest}:
+      first.pick(blames(l, n), at, cause.go(rest, n, 1n+at))
+
+type Cause is Data:
+  FailedAt{at: Nat}
+  NoTheme{}
+
+def cause.of(m: Maybe<&2, Nat>) -> Cause:
+  match m:
+    case None{}:
+      NoTheme{}
+    case Some{at}:
+      FailedAt{at}
+
+def skip.is(m: Maybe<&2, Nat>, +at: Nat) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{x}:
+      Nat.is_eq(x, at)
+
+def broken.keep(keep: Bool, at: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match keep:
+    case True{}:
+      at <> rest
+    case False{}:
+      rest
+
+def broken.of(l: Ld, +skip: Maybe<&2, Nat>, +at: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match l:
+    case Fine{nm, c}:
+      rest
+    case Broke{nm, st}:
+      broken.keep(Bool.not(skip.is(skip, at)), at, rest)
+
+# the files that did not load, in order, but the one at skip
+def broken(ls: List<&2, Ld>, +skip: Maybe<&2, Nat>, +at: Nat) -> List<&2, Nat>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Con{l, rest}:
+      broken.of(l, skip, at, broken(rest, skip, 1n+at))
+
+# what a name picks: the theme (the candidate id: 0..2 the builtins, 3 + i
+# the file at index i), the cause of its warning (none when it does not
+# warn), the clashes, and the other files that did not load (each warns)
+type Pick is Data:
+  Pick{res: Res, cause: Maybe<&2, Cause>, clashes: List<&2, Clash>, broken: List<&2, Nat>}
+
+def pick.warn(warned: Bool, id: U32, +ls: List<&2, Ld>, +n: String) -> Pick:
+  match warned:
+    case True{}:
+      +m = cause.go(ls, n, 0n)
+      Pick{Res{id, True{}}, Some{cause.of(m)}, clashes(ls), broken(ls, m, 0n)}
+    case False{}:
+      Pick{Res{id, False{}}, None{}, clashes(ls), broken(ls, None{}, 0n)}
+
+def pick.go(r: Res, +ls: List<&2, Ld>, +n: String) -> Pick:
+  match r:
+    case Res{id, warned}:
+      pick.warn(warned, id, ls, n)
+
+# resolve name n over the files ls
+def pick(+ls: List<&2, Ld>, +n: String) -> Pick:
+  pick.go(pick.res(ls, n), ls, n)
