@@ -4,9 +4,10 @@
 //! what a recovery does with a stuck reply ([`recover`], H4.8), what
 //! follows a model reply ([`after_reply`]) and which note a retry's
 //! request carries ([`retry_note`]), and how a finished tool round ends the
-//! run or hands it to a new generation ([`Rounds::finish`], [`RoundEnd`]).
-//! Pure functions of the counters that bound a run; the phases in
-//! `generation.rs` and `round.rs` call them and act on what they return.
+//! run or hands it to a new generation ([`round_end`]). Each is one pure
+//! call over plain data (the counters that bound a run); the phases in
+//! `generation.rs` and `round.rs` do the IO around it and act on what it
+//! returns.
 //! The Bend model `bend/run.bend` makes the same decisions; `LAWS.bend`
 //! (H4) proves that every run ends under them, that a retry never
 //! resends a request it cut and that every recovery stops at its cap, and
@@ -72,8 +73,9 @@ pub(crate) enum Stuck {
     /// could not rebuild every leaked call.
     Leak,
     /// Tool calls (made as tool calls, or rebuilt from leaked markup) that
-    /// would make `rounds` rounds in a row with the same calls.
-    Calls { rounds: u32 },
+    /// would make `rounds` rounds in a row with the same calls (they count
+    /// themselves, so at least 1).
+    Calls { rounds: NonZeroU32 },
 }
 
 /// What a recovery does with a stuck reply.
@@ -90,15 +92,18 @@ pub(crate) enum Act {
     Quit,
 }
 
-/// What a recovery does with a stuck reply (H4.8), given the note of the
-/// request (`note`), whose recovery and row count the notes in a row: a
-/// length stop is redone under its cap, then quits; leaked calls are
-/// redone under their cap, then stand as text; calls run below the repeat
-/// cap, else are redone under the redirect cap, then quit. A recovery
-/// does not read the retry policy: its note is a new request, not a
-/// transient error.
-pub(crate) fn recover(stuck: Stuck, note: Option<&NoteCause>, caps: &Caps) -> Act {
-    let row = |recovery| note.map_or(0, |note| note.row(recovery));
+/// What a recovery does with a stuck reply (H4.8), given the recovery and
+/// the row of notes in a row that the request's note counts (`note`,
+/// [`NoteCause::recovery`]): a length stop is redone under its cap, then
+/// quits; leaked calls are redone under their cap, then stand as text;
+/// calls run below the repeat cap, else are redone under the redirect
+/// cap, then quit. A recovery does not read the retry policy: its note is
+/// a new request, not a transient error.
+pub(crate) fn recover(stuck: Stuck, note: Option<(Recovery, u32)>, caps: &Caps) -> Act {
+    let row = |recovery| {
+        note.filter(|(of, _)| *of == recovery)
+            .map_or(0, |(_, row)| row)
+    };
     match stuck {
         Stuck::Length => {
             let row = row(Recovery::Length);
@@ -116,7 +121,7 @@ pub(crate) fn recover(stuck: Stuck, note: Option<&NoteCause>, caps: &Caps) -> Ac
                 Act::Stand
             }
         }
-        Stuck::Calls { rounds } if rounds < caps.repeat => Act::Run,
+        Stuck::Calls { rounds } if rounds.get() < caps.repeat => Act::Run,
         Stuck::Calls { .. } => {
             let row = row(Recovery::Redirect);
             if row < caps.redirect {
@@ -325,14 +330,14 @@ pub(crate) enum Prepared {
     Request { background: bool },
 }
 
-/// What preparation does before the request counted by `at`: a generation
-/// compacts at most once, so only one that has not reads `threshold`
-/// (which compaction the context is over, given a cut exists).
-pub(crate) fn before_request(
-    at: Counts,
-    threshold: impl FnOnce() -> Option<Threshold>,
-) -> Prepared {
-    match (!at.compacted).then(threshold).flatten() {
+/// What preparation does before a request of a generation that compacted
+/// or not, its context over `threshold` (which compaction the context is
+/// over, given a cut exists). A generation compacts at most once, so one
+/// that compacted reads no threshold (law
+/// `run_prepare_compacted_reads_no_threshold`): the caller need not
+/// measure its context and passes `None`.
+pub(crate) fn before_request(compacted: bool, threshold: Option<Threshold>) -> Prepared {
+    match (!compacted).then_some(threshold).flatten() {
         Some(Threshold::Blocking) => Prepared::Compact,
         over => Prepared::Request {
             background: over == Some(Threshold::Background),
@@ -386,10 +391,7 @@ pub(crate) struct Rounds {
     pub(crate) count: u32,
 }
 
-/// How a finished round ends: [`RoundEnd::Stop`] when a control ends the
-/// run (the round does not count), else [`Rounds::finish`]'s verdict, which
-/// a queued reset at the post-tools boundary may still end
-/// ([`RoundEnd::reset`]).
+/// How a finished round ends ([`round_end`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RoundEnd {
     /// A control ended the run (terminate, handoff): it is answered.
@@ -402,18 +404,6 @@ pub(crate) enum RoundEnd {
     Next(Rounds),
 }
 
-impl RoundEnd {
-    /// The end after a queued reset applied at the post-tools boundary: it
-    /// ends a round that would hand the run on; the cap came first, and a
-    /// run that ends anyway stays as it ends.
-    pub(crate) fn reset(self) -> Self {
-        match self {
-            Self::Next(_) => Self::Reset,
-            end @ (Self::Stop | Self::Reset | Self::Capped) => end,
-        }
-    }
-}
-
 impl Rounds {
     #[expect(
         clippy::trivially_copy_pass_by_ref,
@@ -422,13 +412,24 @@ impl Rounds {
     pub(crate) fn is_first(&self) -> bool {
         *self == Self::default()
     }
+}
 
-    /// The rounds after one more, or the cap that ends the run there.
-    pub(crate) fn finish(self, limits: &Limits) -> RoundEnd {
-        let count = self.count.saturating_add(1);
-        if count >= limits.max_rounds.get() {
-            return RoundEnd::Capped;
-        }
-        RoundEnd::Next(Self { count })
+/// How the round after `rounds` ends: [`RoundEnd::Stop`] when a control
+/// ends the run (`stops`; the round does not count), else the cap ends the
+/// run at [`Limits::max_rounds`] rounds, else a queued reset applied at the
+/// round's post-tools boundary (`reset`) ends it, else the next generation
+/// goes on with one more round. A control wins over a reset, and the cap
+/// over both.
+pub(crate) fn round_end(rounds: Rounds, stops: bool, reset: bool, limits: &Limits) -> RoundEnd {
+    if stops {
+        return RoundEnd::Stop;
+    }
+    let count = rounds.count.saturating_add(1);
+    if count >= limits.max_rounds.get() {
+        RoundEnd::Capped
+    } else if reset {
+        RoundEnd::Reset
+    } else {
+        RoundEnd::Next(Rounds { count })
     }
 }

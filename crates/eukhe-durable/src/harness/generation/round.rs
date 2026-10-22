@@ -14,7 +14,7 @@ use eukhe_types::pi_ai::{
     UserMessage,
 };
 
-use super::decide::{RoundEnd, Rounds};
+use super::decide::{round_end, RoundEnd, Rounds};
 use super::{
     failed, limits, GenerationCheckpoint, GenerationInput, GenerationResult, Next, Request, Runtime,
 };
@@ -505,13 +505,11 @@ pub(super) async fn finish_tool_round(
         .rev()
         .find_map(|(_, control)| control.as_ref().and_then(|control| control.handoff.clone()));
     // A round that no control ends counts toward the cap. A round has no
-    // deferred job: no time to wait.
+    // deferred job: no time to wait. The end decides the boundary; a queued
+    // reset that the boundary applies asks again.
     let limits = limits(&runtime.settings(), 0);
-    let end = if terminate || handoff.is_some() {
-        RoundEnd::Stop
-    } else {
-        rounds.finish(&limits)
-    };
+    let stops = terminate || handoff.is_some();
+    let end = round_end(rounds, stops, false, &limits);
     let task_id = runtime.task_id().erase();
     let generation = runtime.registry().builtins().generation.clone();
     let commit_runtime = runtime.clone();
@@ -557,7 +555,11 @@ pub(super) async fn finish_tool_round(
                     BoundaryAt::Final
                 };
                 let outcome = apply_boundary(&tx, &mut boundary, at, now).await?;
-                let end = if outcome.reset { end.reset() } else { end };
+                let end = if outcome.reset {
+                    round_end(rounds, stops, true, &limits)
+                } else {
+                    end
+                };
                 let (settlement, failure) = match end {
                     RoundEnd::Next(rounds) => {
                         live.delete("tools")?;

@@ -392,27 +392,27 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let desired = render_sections(&agent.sections, &input, &shown, &report, &cx).await?;
     let tools: Vec<_> = agent.tools.iter().map(|tool| tool.tool()).collect();
     let entries = plan_system_entries(&view, &desired, &tools, timestamp(runtime.now()?)?);
-    let at = Counts {
-        attempt,
-        notes: note.as_ref().map_or(0, |note| note.spent),
-        waited: 0,
-        compacted: compacted.is_some(),
-    };
+    let once = compacted.is_some();
     let policy = &settings.compaction;
-    // The provider's count costs one request, so it runs only when the
-    // threshold check runs.
-    let checks = !at.compacted && policy.enabled && resolved.context_window != 0;
+    // A generation that compacted reads no threshold (law
+    // `run_prepare_compacted_reads_no_threshold`), so its context is not
+    // measured. The provider's count costs one request, so it runs only
+    // when the threshold check runs.
+    let checks = !once && policy.enabled && resolved.context_window != 0;
     let counted = match policy.token_count {
         ThresholdTokens::Provider if checks => {
             Some(provider_tokens(&runtime, &resolved, &settings.stream, &view, &entries).await)
         }
         ThresholdTokens::Provider | ThresholdTokens::Estimate => None,
     };
-    let prepared = before_request(at, || {
+    let threshold = if once {
+        None
+    } else {
         threshold_compaction(&view, resolved.context_window, policy, || {
             counted.unwrap_or_else(|| estimate_context(&view, &planned_messages(&entries)))
         })
-    });
+    };
+    let prepared = before_request(once, threshold);
     let compaction = runtime.registry().builtins().compaction.clone();
     let task_id = runtime.task_id().erase();
     if prepared == Prepared::Compact {
@@ -1274,7 +1274,7 @@ async fn classify(
                 }
             },
             Some(stuck) => {
-                let note = request.note.as_ref().map(|note| &note.cause);
+                let note = request.note.as_ref().and_then(|note| note.cause.recovery());
                 let redo = Reply::Error {
                     retryable: false,
                     noted: true,
@@ -1313,7 +1313,7 @@ async fn classify(
                         );
                         let cause = NoteCause::Redirect {
                             calls: repeated,
-                            rounds,
+                            rounds: rounds.get(),
                             row,
                         };
                         (redo, Some(cause), Some(error))

@@ -10,7 +10,7 @@
 //! carry: a preparation goes through [`before_request`], a resumed one
 //! through [`after_compaction`], a reply through [`after_reply`] and a
 //! retry's note through [`retry_note`], a finished round through
-//! [`Rounds::finish`] and [`RoundEnd::reset`]. An abort ends every phase:
+//! [`round_end`]. An abort ends every phase:
 //! the generation's `abort` handler has no other outcome, and `classify`
 //! yields to it. After each input both sides print the request it sent or
 //! cut, as the model's requests (`R.Reqs`) name it: the version of the
@@ -26,8 +26,8 @@ use std::fmt::Write as _;
 use std::num::NonZeroU32;
 
 use super::decide::{
-    after_compaction, after_reply, before_request, retry_note, Compacted, Compaction, Counts,
-    Ended, Failure, Limits, Prepared, Reply, RoundEnd, Rounds, Step, Threshold, MAX_NOTES,
+    after_compaction, after_reply, before_request, retry_note, round_end, Compacted, Compaction,
+    Counts, Ended, Failure, Limits, Prepared, Reply, RoundEnd, Rounds, Step, Threshold, MAX_NOTES,
 };
 use super::note::{NoteCause, RetryNote};
 use crate::testing::bridge::{compare, Rng, Scenario};
@@ -185,7 +185,7 @@ impl Run {
             // cut, when the reply is an overflow with one.
             Phase::Prepare => {
                 let over = (reply == Reply::Overflow { cut: true }).then_some(Threshold::Blocking);
-                match before_request(at, || over) {
+                match before_request(at.compacted, over) {
                     Prepared::Compact => {
                         self.phase = Phase::Compact(Compaction::Threshold);
                         self.at.compacted = true;
@@ -248,9 +248,9 @@ impl Run {
             // `finish_tool_round`.
             Phase::Tools => {
                 let end = match fin {
-                    Fin::Stops => RoundEnd::Stop,
-                    Fin::Goes => self.rounds.finish(&self.limits),
-                    Fin::Resets => self.rounds.finish(&self.limits).reset(),
+                    Fin::Stops => round_end(self.rounds, true, false, &self.limits),
+                    Fin::Goes => round_end(self.rounds, false, false, &self.limits),
+                    Fin::Resets => round_end(self.rounds, false, true, &self.limits),
                 };
                 match end {
                     RoundEnd::Stop | RoundEnd::Reset => return self.end("answered"),

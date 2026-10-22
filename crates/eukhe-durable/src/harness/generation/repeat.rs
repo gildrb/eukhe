@@ -5,6 +5,7 @@
 //! keeps it and a failed reply (not in the context) never adds to it.
 
 use std::fmt::Write as _;
+use std::num::NonZeroU32;
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, JsonObject, JsonValue, Message, ToolCall, UserContentBlock,
@@ -80,11 +81,11 @@ type Round<'a> = (Vec<(&'a str, String)>, Vec<(&'a [UserContentBlock], bool)>);
 /// a new row starts: it is no repeat. A user message (a steer, the user's
 /// next turn) ends the row: the user changed the context. System messages
 /// do not; a reply without tool calls does.
-pub(crate) fn rounds_in_a_row(messages: &[Message], calls: &[ToolCall]) -> u32 {
+pub(crate) fn rounds_in_a_row(messages: &[Message], calls: &[ToolCall]) -> NonZeroU32 {
     let set = call_set(calls.iter());
     let mut last: Option<Round<'_>> = None;
     let mut results = Vec::new();
-    let mut rounds = 1_u32;
+    let mut rounds = NonZeroU32::MIN;
     for message in messages.iter().rev() {
         match message {
             Message::System(_) => {}
@@ -220,11 +221,11 @@ mod tests {
         .concat();
         assert_eq!(
             [
-                rounds_in_a_row(&[], &next),
-                rounds_in_a_row(&same, &next),
-                rounds_in_a_row(&same, &other),
-                rounds_in_a_row(&changed, &next),
-                rounds_in_a_row(&steered, &next),
+                rounds_in_a_row(&[], &next).get(),
+                rounds_in_a_row(&same, &next).get(),
+                rounds_in_a_row(&same, &other).get(),
+                rounds_in_a_row(&changed, &next).get(),
+                rounds_in_a_row(&steered, &next).get(),
             ],
             [1, 3, 1, 2, 1]
         );

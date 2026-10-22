@@ -70,37 +70,14 @@ pub(crate) enum Recovery {
 }
 
 impl NoteCause {
-    /// The notes of `recovery` in a row that this note makes: its row when
-    /// it is a note of that recovery, else 0.
-    pub(crate) fn row(&self, recovery: Recovery) -> u32 {
-        match (self, recovery) {
-            (Self::Length { row, .. }, Recovery::Length)
-            | (Self::Leaked { row, .. }, Recovery::Leak)
-            | (Self::Redirect { row, .. }, Recovery::Redirect) => *row,
-            (
-                Self::Repeated { .. }
-                | Self::NoAnswer
-                | Self::Leaked { .. }
-                | Self::Redirect { .. }
-                | Self::Stalled { .. },
-                Recovery::Length,
-            )
-            | (
-                Self::Repeated { .. }
-                | Self::NoAnswer
-                | Self::Length { .. }
-                | Self::Redirect { .. }
-                | Self::Stalled { .. },
-                Recovery::Leak,
-            )
-            | (
-                Self::Repeated { .. }
-                | Self::NoAnswer
-                | Self::Length { .. }
-                | Self::Leaked { .. }
-                | Self::Stalled { .. },
-                Recovery::Redirect,
-            ) => 0,
+    /// The recovery whose notes in a row this note counts, and its row
+    /// (this note included); None for a note of no recovery.
+    pub(crate) fn recovery(&self) -> Option<(Recovery, u32)> {
+        match self {
+            Self::Length { row, .. } => Some((Recovery::Length, *row)),
+            Self::Leaked { row, .. } => Some((Recovery::Leak, *row)),
+            Self::Redirect { row, .. } => Some((Recovery::Redirect, *row)),
+            Self::Repeated { .. } | Self::NoAnswer | Self::Stalled { .. } => None,
         }
     }
 }

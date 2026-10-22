@@ -1088,3 +1088,380 @@ def Act.helps(a: Act) -> Bool:
       True{}
     case Quit{}:
       True{}
+
+# The decisions Rust calls
+# ------------------------
+# crates/eukhe-durable/src/harness/generation/decide.rs and deferred.rs
+# call these through the compiled core (bend/ffi_run.bend): each is one
+# pure call, and the phases of generation.rs and round.rs do the IO
+# around it. Rust keeps its counters as they grow (Counts, Rounds): the
+# attempt, the noted retries, the ms the request waited, whether the
+# generation compacted, the rounds the run made. A decision turns them
+# into the counts left that the steps above read (Lim.cfg, At.a, At.n,
+# At.p, At.c, Lim.r), takes the step of the model, and reads its answer
+# back. So the code that runs is the model: every law of H4 and H4.8 is a
+# law of it. LAWS.bend (H4.9) proves that each decision is the Rust rule
+# it replaced, for every input, and that the counts left lose nothing.
+
+# rounds: maxToolRounds (at least 1); wait: the ms the request's
+# deferred job may run (`Limits::max_wait`); retries: retry.maxRetries;
+# notes: MAX_NOTES
+type Lim is Data:
+  Lim{rounds: Nat, wait: Nat, retries: Nat, notes: Nat}
+
+def Lim.rounds(l: Lim) -> Nat:
+  match l:
+    case Lim{rounds, wait, retries, notes}:
+      rounds
+
+def Lim.wait(l: Lim) -> Nat:
+  match l:
+    case Lim{rounds, wait, retries, notes}:
+      wait
+
+def Lim.retries(l: Lim) -> Nat:
+  match l:
+    case Lim{rounds, wait, retries, notes}:
+      retries
+
+def Lim.notes(l: Lim) -> Nat:
+  match l:
+    case Lim{rounds, wait, retries, notes}:
+      notes
+
+# the counters of one request (`Counts`): attempt, 1 for a generation's
+# first request and one more per retry; notes, the noted retries so far;
+# waited, the ms since the request was sent; compacted, the generation
+# compacted (it compacts at most once)
+type At is Data:
+  At{attempt: Nat, notes: Nat, waited: Nat, compacted: Bool}
+
+def At.attempt(t: At) -> Nat:
+  match t:
+    case At{attempt, notes, waited, compacted}:
+      attempt
+
+def At.notes(t: At) -> Nat:
+  match t:
+    case At{attempt, notes, waited, compacted}:
+      notes
+
+def At.waited(t: At) -> Nat:
+  match t:
+    case At{attempt, notes, waited, compacted}:
+      waited
+
+def At.compacted(t: At) -> Bool:
+  match t:
+    case At{attempt, notes, waited, compacted}:
+      compacted
+
+# the limits as the model's Cfg
+def Lim.cfg(l: Lim) -> Cfg:
+  match l:
+    case Lim{rounds, wait, retries, notes}:
+      Cfg{rounds, wait, retries, notes}
+
+# the compactions left: one until the generation compacted
+def c.of(compacted: Bool) -> Nat:
+  match compacted:
+    case True{}:
+      0n
+    case False{}:
+      1n
+
+def At.c(t: At) -> Nat:
+  c.of(At.compacted(t))
+
+# the retries the generation spent: its retries that were not noted
+def At.spent(+t: At) -> Nat:
+  Nat.sub(Nat.sub(At.attempt(t), 1n), At.notes(t))
+
+# the retries, the notes and the ms of the deferred job left
+def At.a(+l: Lim, +t: At) -> Nat:
+  Nat.sub(Lim.retries(l), At.spent(t))
+
+def At.n(+l: Lim, +t: At) -> Nat:
+  Nat.sub(Lim.notes(l), At.notes(t))
+
+def At.p(+l: Lim, +t: At) -> Nat:
+  Nat.sub(Lim.wait(l), At.waited(t))
+
+# the rounds left after count rounds (init starts at rounds - 1)
+def Lim.r(+l: Lim, count: Nat) -> Nat:
+  Nat.sub(Nat.sub(Lim.rounds(l), 1n), count)
+
+# What follows a reply (`Step`): an answer, the tools, a poll of the
+# same job, a transient retry, a noted retry, a compaction, or the end of
+# the run on the model (Fail) or at the job's deadline (Late)
+type Then is Data:
+  DoAnswer{}
+  DoTools{}
+  DoPoll{}
+  DoRetry{}
+  DoNote{}
+  DoCompact{}
+  DoFail{}
+  DoLate{}
+
+def Then.why(w: Why) -> Then:
+  match w:
+    case Model{}:
+      DoFail{}
+    case Polls{}:
+      DoLate{}
+    case Rounds{}:
+      DoFail{}
+
+def Then.prep(noted: Bool) -> Then:
+  match noted:
+    case True{}:
+      DoNote{}
+    case False{}:
+      DoRetry{}
+
+# the step a reply led to, read from the phase after it; a retry is a
+# noted one when the reply was noted. A reply never aborts a run nor caps
+# its rounds
+def Then.ph(noted: Bool, ph: Ph) -> Then:
+  match ph:
+    case Prepare{}:
+      Then.prep(noted)
+    case Call{}:
+      DoPoll{}
+    case Compact{over}:
+      DoCompact{}
+    case Tools{}:
+      DoTools{}
+    case Answered{}:
+      DoAnswer{}
+    case Aborted{}:
+      DoFail{}
+    case Failed{why}:
+      Then.why(why)
+
+def Reply.noted(r: Reply) -> Bool:
+  match r:
+    case Plain{}:
+      False{}
+    case Calls{}:
+      False{}
+    case Deferred{}:
+      False{}
+    case Error{retryable, noted}:
+      noted
+    case Overflow{cut}:
+      False{}
+
+# the step after a reply to the request or poll that `t` counts
+# (`after_reply`)
+def decide.reply(+l: Lim, +t: At, +reply: Reply) -> Then:
+  Then.ph(Reply.noted(reply), St.ph(call(Lim.cfg(l), reply, 0n, At.c(t), At.a(l, t), At.n(l, t), At.p(l, t))))
+
+# which threshold compaction the context is over, given a cut exists
+# (`threshold_for`, then a cut): none, the background one, the blocking
+# one
+type Th is Data:
+  Under{}
+  Background{}
+  Blocking{}
+
+def Th.blocks(th: Th) -> Bool:
+  match th:
+    case Under{}:
+      False{}
+    case Background{}:
+      False{}
+    case Blocking{}:
+      True{}
+
+def Th.background(th: Th) -> Bool:
+  match th:
+    case Under{}:
+      False{}
+    case Background{}:
+      True{}
+    case Blocking{}:
+      False{}
+
+# what preparation does with its request (`Prepared`): it waits for a
+# blocking threshold compaction, or sends the request, with a background
+# compaction beside it when background
+type Prepared is Data:
+  Waits{}
+  Sends{background: Bool}
+
+def Prepared.ph(background: Bool, ph: Ph) -> Prepared:
+  match ph:
+    case Compact{over}:
+      Waits{}
+    case Prepare{}:
+      Sends{background}
+    case Call{}:
+      Sends{background}
+    case Tools{}:
+      Sends{background}
+    case Answered{}:
+      Sends{background}
+    case Aborted{}:
+      Sends{background}
+    case Failed{why}:
+      Sends{background}
+
+# what preparation does before a request of a generation that compacted
+# or not, its context over th (`before_request`). A generation that
+# compacted reads no threshold, so Rust need not measure its context
+def decide.prepare(+compacted: Bool, +th: Th) -> Prepared:
+  Prepared.ph(Bool.and(Bool.not(compacted), Th.background(th)), St.ph(prepare(Cfg{0n, 0n, 0n, 0n}, Overflow{Th.blocks(th)}, 0n, c.of(compacted), 0n, 0n)))
+
+def Ph.goes(ph: Ph) -> Bool:
+  match ph:
+    case Prepare{}:
+      True{}
+    case Call{}:
+      False{}
+    case Compact{over}:
+      False{}
+    case Tools{}:
+      False{}
+    case Answered{}:
+      False{}
+    case Aborted{}:
+      False{}
+    case Failed{why}:
+      False{}
+
+# whether preparation goes on after the compaction it waited for, an
+# overflow's (over) or a blocking threshold one, that ended as got
+# (`after_compaction`); else the run fails on the model
+def decide.compact(over: Bool, got: Got) -> Bool:
+  Ph.goes(St.ph(compact(Cfg{0n, 0n, 0n, 0n}, over, got, 0n, 0n, 0n, 0n, 0n)))
+
+# how a finished round ends (`RoundEnd`): a control stopped the run (it
+# is answered), a queued reset ended it, the round cap failed it, or the
+# next generation goes on after count rounds
+type End is Data:
+  EndStop{}
+  EndReset{}
+  EndCapped{}
+  EndNext{count: Nat}
+
+# a control (terminate, handoff) wins over a queued reset
+def fin.of(stops: Bool, reset: Bool) -> Fin:
+  match stops:
+    case True{}:
+      Stops{}
+    case False{}:
+      match reset:
+        case True{}:
+          Resets{}
+        case False{}:
+          Goes{}
+
+def End.answered(fin: Fin) -> End:
+  match fin:
+    case Stops{}:
+      EndStop{}
+    case Resets{}:
+      EndReset{}
+    case Goes{}:
+      EndStop{}
+
+# the end a round led to, read from the phase after it: a round that goes
+# on counts one more
+def End.ph(fin: Fin, count: Nat, ph: Ph) -> End:
+  match ph:
+    case Answered{}:
+      End.answered(fin)
+    case Prepare{}:
+      EndNext{1n+count}
+    case Failed{why}:
+      EndCapped{}
+    case Call{}:
+      EndCapped{}
+    case Compact{over}:
+      EndCapped{}
+    case Tools{}:
+      EndCapped{}
+    case Aborted{}:
+      EndCapped{}
+
+# how the round after count rounds ends (`round_end`): stops, a control
+# ends the run; reset, a queued reset applied at the round's boundary
+def decide.round(+l: Lim, +count: Nat, stops: Bool, reset: Bool) -> End:
+  +fin = fin.of(stops, reset)
+  End.ph(fin, count, St.ph(tools(Lim.cfg(l), fin, Lim.r(l, count), 0n, 0n, 0n, 0n)))
+
+# a stuck reply as `recover` reads it (`Stuck`): a length stop with no
+# answer, leaked calls that the harness could not rebuild, or calls that
+# would make 1 + before rounds in a row with the same calls and results
+type Stuck is Data:
+  Truncated{}
+  Leaked{}
+  Repeats{before: Nat}
+
+# what a recovery does with it (`Act`): the calls run, a retry with the
+# row-th note of the recovery in a row, the reply answers as text, or the
+# run fails on the model
+type Help is Data:
+  Runs{}
+  Redoes{row: Nat}
+  Stands{}
+  Quits{}
+
+def Rec.row(r: Rec) -> Nat:
+  match r:
+    case Rec{k, row, same, last}:
+      row
+
+def Help.act(a: Act, row: Nat) -> Help:
+  match a:
+    case Exec{}:
+      Runs{}
+    case Redo{}:
+      Redoes{row}
+    case Stand{}:
+      Stands{}
+    case Quit{}:
+      Quits{}
+    case Pass{}:
+      Quits{}
+
+def Help.of(d: Dec) -> Help:
+  match d:
+    case Dec{act, r}:
+      Help.act(act, Rec.row(r))
+
+# the reply the recoveries read: calls with the same results as the last
+# round, which ran them `before` rounds in a row
+def Stuck.out(s: Stuck) -> Out:
+  match s:
+    case Truncated{}:
+      Long{}
+    case Leaked{}:
+      Leak{False{}, 0n, False{}}
+    case Repeats{before}:
+      Ran{0n, True{}}
+
+def Stuck.same(s: Stuck) -> Nat:
+  match s:
+    case Truncated{}:
+      0n
+    case Leaked{}:
+      0n
+    case Repeats{before}:
+      before
+
+# what a recovery does with a stuck reply, after the request whose note
+# counts row notes of the recovery k in a row (`recover`)
+def decide.recover(+rc: RCfg, +s: Stuck, k: Rk, row: Nat) -> Help:
+  Help.of(rec.go(rc, Stuck.out(s), k, row, Stuck.same(s), 0n))
+
+# a failed poll of a deferred job (`PollFailure::next`): it polls the same
+# job again while the failure is retryable and fewer than `retries` polls
+# failed in a row before it; else the job is cancelled. The deadline of
+# the job still holds: the poll goes through decide.reply as a deferred
+# reply. LAWS.bend proves both together are the job of bend/retry.bend
+# section 4
+def decide.poll(retryable: Bool, failures: Nat, retries: Nat) -> Bool:
+  Bool.and(retryable, Nat.is_lt(failures, retries))
