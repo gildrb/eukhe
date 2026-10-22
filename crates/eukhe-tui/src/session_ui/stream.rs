@@ -120,14 +120,16 @@ impl SessionUi {
         phase: TurnPhase,
         since: std::time::Instant,
     ) {
-        view.working = Some(WorkingState {
-            phase,
-            message: None,
-            download: false,
-            tokens: 0,
-            elapsed_secs: 0,
-        });
-        view.working_since = Some(since);
+        view.start_loader(
+            WorkingState {
+                phase,
+                message: None,
+                download: false,
+                tokens: 0,
+                elapsed_secs: 0,
+            },
+            since,
+        );
         self.working_tokens.reset();
     }
 
@@ -146,10 +148,11 @@ impl SessionUi {
         }
     }
 
-    /// Take the loader down (the turn and everything it ran settled).
+    /// Take the loader down (the turn and everything it ran settled); a
+    /// reply still showing at its pace keeps the row up until all its
+    /// text shows (`AgentView::stop_loader`).
     pub(crate) fn stop_loader(view: &mut AgentView) {
-        view.working = None;
-        view.working_since = None;
+        view.stop_loader();
     }
 
     /// Update the loader's phase from one provider stream event

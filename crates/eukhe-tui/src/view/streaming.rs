@@ -53,7 +53,9 @@ impl AgentView {
     /// takes the characters that arrived since the last frame, then
     /// reveals one paced step. A detail change (Ctrl+O) that shows or
     /// hides thinking is no arrival: each pace keeps its place in the
-    /// message, so the text on screen stays.
+    /// message, so the text on screen stays. The loader row a reveal
+    /// held up after the turn ended goes down with the frame that shows
+    /// the last of the text.
     pub(super) fn advance_paces(&mut self) {
         let (from, to) = (self.pace_detail, self.detail);
         self.pace_detail = to;
@@ -110,6 +112,9 @@ impl AgentView {
                 None => pace.shrink_to(arrived),
             }
             pace.frame(self.pace_rate);
+        }
+        if !self.is_pacing() {
+            self.loader_held_by_pace = None;
         }
     }
 
