@@ -230,13 +230,7 @@ fn orphan_scenario(rng: &mut Rng) -> Scenario {
             }
         }
         let work = worker.work();
-        if end == "live\n"
-            && exit_due(
-                Duration::from_millis(worker.absent),
-                Duration::from_millis(window),
-                work,
-            )
-        {
+        if end == "live\n" && exit_due(worker.absent, Some(window), work) {
             let (how, busy, aborted) = match orphan_exit(work) {
                 OrphanExit::Close => ("shut", 0, u8::from(work == Work::Ongoing)),
                 OrphanExit::Handover => ("handover", 1, 0),

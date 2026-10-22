@@ -126,6 +126,30 @@ def gives_up(v: Verdict) -> Bool:
     case GiveUp{f}:
       True{}
 
+# the budget after a failure and what follows it: the call the Rust
+# `RestartBudget::on_failure` makes. The Rust keeps the state (the ages
+# in ms, newest first, relative to the last failure) and passes the gap
+# in ms since the last failure.
+type Decision is Data:
+  Decision{st: St, verdict: Verdict}
+
+def decide.put(+c: Cfg, +s: St) -> Decision:
+  Decision{s, verdict(c, St.n(s))}
+
+# a failure g ms after the last one, from s
+def decide(+c: Cfg, s: St, +g: Nat) -> Decision:
+  decide.put(c, step(c, s, g))
+
+def Decision.st(d: Decision) -> St:
+  match d:
+    case Decision{s, v}:
+      s
+
+def Decision.verdict(d: Decision) -> Verdict:
+  match d:
+    case Decision{s, v}:
+      v
+
 def span.go(gs: List<&2, Nat>, c: Nat) -> Nat:
   match gs:
     case Nil{}:

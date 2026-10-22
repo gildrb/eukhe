@@ -76,7 +76,7 @@ pub(crate) fn start(worker: Arc<Worker>) {
 /// socket resets the absence timer, and a socket that stays unreachable
 /// exits the worker when [`exit_due`] says so.
 async fn monitor(worker: Arc<Worker>) {
-    let window = Duration::from_millis(lost_exit_ms());
+    let window_ms = Some(lost_exit_ms()).filter(|window| *window <= MS_CAP);
     let check = Duration::from_millis(WORKER_SUPERVISOR_CHECK_MS);
     let mut checks = tokio::time::interval_at(tokio::time::Instant::now() + check, check);
     checks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -95,7 +95,10 @@ async fn monitor(worker: Arc<Worker>) {
         }
         let since = *absent_since.get_or_insert_with(tokio::time::Instant::now);
         let work = worker.core.lock().unwrap().work();
-        if exit_due(since.elapsed(), window, work) {
+        let absent_ms = u64::try_from(since.elapsed().as_millis())
+            .unwrap_or(u64::MAX)
+            .min(MS_CAP);
+        if exit_due(absent_ms, window_ms, work) {
             let exit = leave_orphaned(&worker).await;
             eprintln!(
                 "eukhe-daemon worker: supervisor {} unreachable for {}s; orphaned worker exits ({exit:?})",
@@ -107,15 +110,25 @@ async fn monitor(worker: Arc<Worker>) {
     }
 }
 
-/// Whether a worker whose supervisor has been unreachable for `absent`
-/// exits now: once the whole `window` passed with no session work in
+/// The largest Nat the Bend core's wire carries, 10^14 - 1 ms (about 3170
+/// years): a window past it is `None` and never expires (the law
+/// `orphan_capped_window_never_expires`); the absence saturates at it.
+const MS_CAP: u64 = 99_999_999_999_999;
+
+/// Whether a worker whose supervisor has been unreachable for `absent_ms`
+/// exits now: once the whole window passed with no session work in
 /// flight, or, when work is in flight, once a second window passed too.
 /// The cap keeps the exit bounded: work that cannot settle without a
-/// supervisor would otherwise keep the worker alive forever.
-pub(crate) fn exit_due(absent: Duration, window: Duration, work: Work) -> bool {
+/// supervisor would otherwise keep the worker alive forever. The model is
+/// bend/orphan.bend `exit_due.at` (the laws `orphan_idle_exit_due`,
+/// `orphan_work_exit_due` and `orphan_capped_window_never_expires`).
+pub(crate) fn exit_due(absent_ms: u64, window_ms: Option<u64>, work: Work) -> bool {
+    let Some(window_ms) = window_ms else {
+        return false;
+    };
     match work {
-        Work::Ongoing => absent >= window.saturating_mul(2),
-        Work::Idle => absent >= window,
+        Work::Ongoing => absent_ms.saturating_sub(window_ms) >= window_ms,
+        Work::Idle => absent_ms >= window_ms,
     }
 }
 
@@ -214,13 +227,15 @@ mod tests {
     /// exactly one more window, never indefinitely.
     #[test]
     fn ongoing_work_defers_the_exit_by_at_most_one_more_window() {
-        let window = Duration::from_secs(15);
-        assert!(!exit_due(Duration::from_secs(14), window, Work::Idle));
-        assert!(exit_due(window, window, Work::Idle));
-        assert!(!exit_due(window, window, Work::Ongoing));
-        assert!(!exit_due(Duration::from_secs(29), window, Work::Ongoing));
-        assert!(exit_due(Duration::from_secs(30), window, Work::Ongoing));
-        assert!(exit_due(Duration::from_secs(7_200), window, Work::Ongoing));
-        assert!(exit_due(Duration::ZERO, Duration::ZERO, Work::Ongoing));
+        let window = 15_000;
+        let at = Some(window);
+        assert!(!exit_due(14_000, at, Work::Idle));
+        assert!(exit_due(window, at, Work::Idle));
+        assert!(!exit_due(window, at, Work::Ongoing));
+        assert!(!exit_due(29_999, at, Work::Ongoing));
+        assert!(exit_due(30_000, at, Work::Ongoing));
+        assert!(exit_due(7_200_000, at, Work::Ongoing));
+        assert!(exit_due(0, Some(0), Work::Ongoing));
+        assert!(!exit_due(MS_CAP, None, Work::Idle));
     }
 }

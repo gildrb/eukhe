@@ -3040,6 +3040,64 @@ law restart_gives_up:
   for fast: {Nat.is_lt(Su.span(gs), Su.Cfg.w(c)) == True{} : Bool}
   {Su.gives_up(Su.verdict(c, Su.failures(c, List.append(&2, Nat, pre, g <> gs)))) == True{} : Bool}
 
+# the ages a failure g ms after the last one keeps (each g ms older), in
+# order: those still inside the window of w ms
+def restart_window_put(b: Bool, a: Nat, r: List<&2, Nat>) -> List<&2, Nat>:
+  match b:
+    case True{}:
+      a <> r
+    case False{}:
+      r
+
+def restart_window(+w: Nat, +g: Nat, ages: List<&2, Nat>) -> List<&2, Nat>:
+  match ages:
+    case Nil{}:
+      Nil{}
+    case +a <> t:
+      restart_window_put(Nat.is_lt(Nat.add(g, a), w), Nat.add(g, a), restart_window(w, g, t))
+
+# 2 to the e
+def restart_pow2(e: Nat) -> Nat:
+  match e:
+    case 0n:
+      1n
+    case 1n+p:
+      Nat.mul(2n, restart_pow2(p))
+
+# the verdict on the n-th failure in the window: past k failures the
+# worker is given up; else it relaunches after base * 2^min(n - 1, 7) ms,
+# at most max ms
+def restart_verdict_put(over: Bool, +c: Su.Cfg, +n: Nat) -> Su.Verdict:
+  match over:
+    case True{}:
+      Su.GiveUp{n}
+    case False{}:
+      match c:
+        case Su.Cfg{k, w, b, m}:
+          Su.Relaunch{n, Nat.min(Nat.mul(restart_pow2(Nat.min(Nat.sub(n, 1n), 7n)), b), m)}
+
+# LAW: a failure keeps exactly the ages still inside the window (each one
+# g ms older, in order), adds itself at age 0 in front, and counts the
+# failures it keeps
+# EXCLUDES: a dropped young failure, a kept old one, a failure counted
+# twice or not at all, a reordered history, an age that does not grow
+law restart_decide_window:
+  for +c: Su.Cfg
+  for +s: Su.St
+  for +g: Nat
+  {Su.Decision.st(Su.decide(c, s, g)) == Su.St{0n <> restart_window(Su.Cfg.w(c), g, Su.St.ages(s)), 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))} : Su.St}
+
+# LAW: the verdict on a failure: give up past k failures in the window,
+# else relaunch after the doubling pause, capped at max
+# EXCLUDES: a give-up at k failures or a relaunch past them, a wrong
+# failure count, a pause that does not double, passes its cap or doubles
+# past 7 times
+law restart_decide_verdict:
+  for +c: Su.Cfg
+  for +s: Su.St
+  for +g: Nat
+  {Su.Decision.verdict(Su.decide(c, s, g)) == restart_verdict_put(Nat.is_lt(Su.Cfg.k(c), 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))), c, 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))) : Su.Verdict}
+
 # LAW: every timeout comes after the timeouts it waits for (Su.Tm.ordered
 # lists them), whatever the base values
 law timeouts_ordered:
@@ -3065,6 +3123,45 @@ law orphan_never_aborts_resumable:
   for +window: Nat
   for +evs: List<&2, Or.Ev>
   Or.Sound(Or.run(window, evs))
+
+# LAW: an orphaned worker without work exits once the whole window passed
+# (any window, any absence)
+# EXCLUDES: an exit before the window, a worker kept alive past it
+law orphan_idle_exit_due:
+  for +window: Nat
+  for +absent: Nat
+  {Or.exit_due.at(Some{window}, absent, Or.Idle{}) == Nat.is_le(window, absent) : Bool}
+
+# LAW: an orphaned worker with work exits once two windows passed: the
+# work defers the exit by exactly one more window, never forever
+# EXCLUDES: work that does not defer the exit, defers it forever, or by
+# a wrong amount
+law orphan_work_exit_due:
+  for +window: Nat
+  for +absent: Nat
+  {Or.exit_due.at(Some{window}, absent, Or.Ongoing{}) == Nat.is_le(Nat.add(window, window), absent) : Bool}
+
+# LAW: a window past the runtime's Nat range (Rust saturates a larger env
+# window to `None`) never expires, whatever the absence and the work
+# EXCLUDES: a saturated huge window that turns into an early exit
+law orphan_capped_window_never_expires:
+  for +absent: Nat
+  for work: Or.Work
+  {Or.exit_due.at(None{}, absent, work) == False{} : Bool}
+
+def orphan_exit_spec(work: Or.Work) -> Or.Exit:
+  match work:
+    case Or.Idle{}:
+      Or.Shut{}
+    case Or.Ongoing{}:
+      Or.Handover{}
+
+# LAW: without work the orphan exit closes the session; with work it
+# hands the work over (both values of Work)
+# EXCLUDES: a handover of nothing, a close that drops work
+law orphan_exit_by_work:
+  for work: Or.Work
+  {Or.orphan_exit(work) == orphan_exit_spec(work) : Or.Exit}
 
 # LAW: an idle shutdown never aborts a run, in any order of prompts, run
 # ends, quiesces, releases and commits on any workers
