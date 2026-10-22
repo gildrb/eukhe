@@ -55,10 +55,10 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
     );
     assert_eq!(
         [
-            policy.class(&agent_dir.join("auth.json")),
-            policy.class(&home.join(".ssh/id_ed25519")),
-            policy.class(&cwd.join("src/main.rs")),
-            policy.class(&top.join("elsewhere.txt")),
+            eukhe_shell::paths::judge_path(&policy, &agent_dir.join("auth.json")).class,
+            eukhe_shell::paths::judge_path(&policy, &home.join(".ssh/id_ed25519")).class,
+            eukhe_shell::paths::judge_path(&policy, &cwd.join("src/main.rs")).class,
+            eukhe_shell::paths::judge_path(&policy, &top.join("elsewhere.txt")).class,
         ],
         [
             PathClass::Secret,

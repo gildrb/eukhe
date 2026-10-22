@@ -351,10 +351,31 @@ def safe(+pol: Pol, r: Res) -> Bool:
     case Res{+at, looped}:
       Bool.and(Bool.not(looped), inside_ok(any_under(Pol.secret(pol), at), protects(pol, at), Maybe.is_some(&2, List<&2, Nat>, root.of(Pol.roots(pol), at))))
 
+# the real path `at` is a secret or a directory that holds one
+def holds_at(+pol: Pol, +at: List<&2, Nat>) -> Bool:
+  Bool.or(any_under(Pol.secret(pol), at), any_ancestor(Pol.secret(pol), at))
+
 # segs is a secret or a directory that holds one
 def holds(+pol: Pol, +ls: List<&2, Link>, +segs: List<&2, Tl.Seg>) -> Bool:
-  +at = Res.at(real(ls, segs))
-  Bool.or(any_under(Pol.secret(pol), at), any_ancestor(Pol.secret(pol), at))
+  holds_at(pol, Res.at(real(ls, segs)))
+
+# The judgment of a path the caller resolved (the one call of the Rust
+# shell and document gate): its class and whether it holds a secret
+type Judged is Data:
+  Judged{cls: Cls, holds: Bool}
+
+def Judged.cls(j: Judged) -> Cls:
+  match j:
+    case Judged{c, h}:
+      c
+
+def Judged.holds(j: Judged) -> Bool:
+  match j:
+    case Judged{c, h}:
+      h
+
+def judge(+pol: Pol, +r: Res) -> Judged:
+  Judged{class_res(pol, r), holds_at(pol, Res.at(r))}
 
 # 3. The gate
 # -----------

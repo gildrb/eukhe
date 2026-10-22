@@ -40,8 +40,11 @@ def opt(n: Nat) -> Maybe<&2, Nat>:
     case 1n+m:
       Some{1n+m}
 
+# the scenario's optional field O stands in each of the four (each field
+# follows the rule on its own; the Rust side sets one per scenario)
 def ent(+ws: List<&2, String>) -> CU.Ent:
-  CU.Ent{arg(ws, 1n), arg(ws, 2n), arg(ws, 3n), opt(arg(ws, 4n))}
+  +o = opt(arg(ws, 4n))
+  CU.Ent{arg(ws, 1n), arg(ws, 2n), arg(ws, 3n), o, o, o, o}
 
 # the sources read so far: the first source (none before the first
 # line), then each source's entries, newest first
@@ -91,25 +94,18 @@ def show.ents(xs: List<&2, CU.Ent>) -> String:
   match xs:
     case Nil{}:
       ""
-    case CU.Ent{k, a, d, o} <> rest:
-      String.concat(["m ", Nat.show(k), " ", Nat.show(a), " ", Nat.show(d), " ", show.opt(o), "\n", show.ents(rest)])
+    case CU.Ent{k, a, d, t, c, f, h} <> rest:
+      String.concat(["m ", Nat.show(k), " ", Nat.show(a), " ", Nat.show(d), " ", show.opt(t), "\n", show.ents(rest)])
 
-# the catalog of the two sources, in the order they were read
-def run.go(fs: List<&2, CU.Src>, +bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
-  match fs:
-    case Nil{}:
-      CU.union(bs, cs)
-    case f <> rest:
-      match f:
-        case CU.Bundled{}:
-          CU.read(CU.Cat{CU.Bundled{}, bs}, CU.Cat{CU.Compiled{}, cs})
-        case CU.Compiled{}:
-          CU.read(CU.Cat{CU.Compiled{}, cs}, CU.Cat{CU.Bundled{}, bs})
+# the catalog of the two sources as the catalog runs it (the fast union;
+# the law union_order_free makes the read order free)
+def run.go(+bs: List<&2, CU.Ent>, +cs: List<&2, CU.Ent>) -> List<&2, CU.Ent>:
+  CU.fast(bs, cs)
 
 def run(s: St) -> String:
   match s:
     case St{fs, bs, cs}:
-      show.ents(run.go(fs, List.reverse(&2, CU.Ent, bs), List.reverse(&2, CU.Ent, cs)))
+      show.ents(run.go(List.reverse(&2, CU.Ent, bs), List.reverse(&2, CU.Ent, cs)))
 
 def go(text: String) -> String:
   run(setup.all(String.lines(text), St{Nil{}, Nil{}, Nil{}}))

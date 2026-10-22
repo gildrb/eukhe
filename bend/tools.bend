@@ -40,6 +40,7 @@ type Ev is Data:
   Turn{}         # a request is sent
 
 # A session: the roster, the dynamic tools, the rosters sent so far
+# (newest first; a step puts in front, so it never copies a list)
 type Sess is Data:
   Sess{roster: List<&2, Nat>, dyn: List<&2, Nat>, sent: List<&2, List<&2, Nat>>}
 
@@ -86,11 +87,11 @@ def step(s: Sess, e: Ev) -> Sess:
     case Sess{+r, d, x}:
       match e:
         case Join{t}:
-          Sess{r, List.append(&2, Nat, d, [t]), x}
+          Sess{r, t <> d, x}
         case Quit{t}:
           Sess{r, drop(d, t), x}
         case Turn{}:
-          Sess{r, d, List.append(&2, List<&2, Nat>, x, [r])}
+          Sess{r, d, r <> x}
 
 def run(es: List<&2, Ev>, s: Sess) -> Sess:
   match es:

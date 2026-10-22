@@ -6,18 +6,22 @@
 #
 # An entry has a key (the model's provider and id), an api, the data the
 # bundle always states (route and data fields: baseUrl, name, reasoning,
-# input, cost, contextWindow, maxTokens; one value here), and one optional
-# field (thinkingLevelMap, compat, featured or headers: each follows the
-# same rule, so one stands for all).
+# input, cost, contextWindow, maxTokens; one value here), and the four
+# optional fields (thinkingLevelMap, compat, featured, headers), each
+# none or a value.
 #
 # The rule. The union has the bundled entries in bundled order, then the
 # compiled entries whose key the bundle lacks, in compiled order. A
 # bundled entry whose key the compiled catalog has keeps its api and data
-# and the optional field it states; it takes the compiled optional field
-# when it states none and both use the same api.
+# and each optional field it states; it takes each compiled optional
+# field it states none of when both use the same api.
 #
 # A recursive scan takes the test of its first entry as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
+#
+# `union` is the rule as the laws read it (a scan per entry); `fast` is
+# the same list by tables keyed by the entries' keys (a binary trie of
+# native steps), O(n log n): the law union_fast pins it to `union`.
 #
 # LAWS.bend section catalog_union states the laws; PROOF.bend section catalog_union
 # proves them; bend/bridge_catalog_union.bend runs this model against the
@@ -27,7 +31,14 @@ import Base
 
 # One entry of a source
 type Ent is Data:
-  Ent{key: Nat, api: Nat, data: Nat, opt: Maybe<&2, Nat>}
+  Ent{key: Nat, api: Nat, data: Nat, tlm: Maybe<&2, Nat>, compat: Maybe<&2, Nat>, featured: Maybe<&2, Nat>, headers: Maybe<&2, Nat>}
+
+# An optional field
+type Fld is Data:
+  Tlm{}
+  Compat{}
+  Featured{}
+  Headers{}
 
 # Which source a catalog is
 type Src is Data:
@@ -40,23 +51,46 @@ type Cat is Data:
 
 def Ent.key(e: Ent) -> Nat:
   match e:
-    case Ent{k, a, d, o}:
+    case Ent{k, a, d, t, c, f, h}:
       k
 
 def Ent.api(e: Ent) -> Nat:
   match e:
-    case Ent{k, a, d, o}:
+    case Ent{k, a, d, t, c, f, h}:
       a
 
 def Ent.data(e: Ent) -> Nat:
   match e:
-    case Ent{k, a, d, o}:
+    case Ent{k, a, d, t, c, f, h}:
       d
 
-def Ent.opt(e: Ent) -> Maybe<&2, Nat>:
+# the optional field f of e
+def Ent.opt(e: Ent, f: Fld) -> Maybe<&2, Nat>:
   match e:
-    case Ent{k, a, d, o}:
-      o
+    case Ent{k, a, d, t, c, ft, h}:
+      match f:
+        case Tlm{}:
+          t
+        case Compat{}:
+          c
+        case Featured{}:
+          ft
+        case Headers{}:
+          h
+
+# An entry as one optional field shows it: key, api, data and the field
+type Slot is Data:
+  Slot{key: Nat, api: Nat, data: Nat, opt: Maybe<&2, Nat>}
+
+def Ent.slot(+e: Ent, f: Fld) -> Slot:
+  Slot{Ent.key(e), Ent.api(e), Ent.data(e), Ent.opt(e, f)}
+
+def slot(m: Maybe<&2, Ent>, f: Fld) -> Maybe<&2, Slot>:
+  match m:
+    case None{}:
+      None{}
+    case Some{e}:
+      Some{Ent.slot(e, f)}
 
 # Lookup
 # ------
@@ -105,7 +139,7 @@ def count(+xs: List<&2, Ent>, +k: Nat) -> Nat:
 # A model in both sources
 # ----------------------
 
-# the optional field: the bundled one when it states one, else the
+# an optional field: the bundled one when it states one, else the
 # compiled one when both use the same api (same), else none
 def fill(o: Maybe<&2, Nat>, c: Maybe<&2, Nat>, same: Bool) -> Maybe<&2, Nat>:
   match o:
@@ -121,8 +155,9 @@ def fill(o: Maybe<&2, Nat>, c: Maybe<&2, Nat>, same: Bool) -> Maybe<&2, Nat>:
 # bundled entry b with its compiled twin c
 def merge(b: Ent, c: Ent) -> Ent:
   match b c:
-    case Ent{bk, +ba, bd, bo} Ent{ck, +ca, cd, co}:
-      Ent{bk, ba, bd, fill(bo, co, Nat.is_eq(ba, ca))}
+    case Ent{bk, +ba, bd, bt, bc, bf, bh} Ent{ck, +ca, cd, ct, cc, cf, ch}:
+      +same = Nat.is_eq(ba, ca)
+      Ent{bk, ba, bd, fill(bt, ct, same), fill(bc, cc, same), fill(bf, cf, same), fill(bh, ch, same)}
 
 # bundled entry b with its compiled twin, if any
 def with(+b: Ent, m: Maybe<&2, Ent>) -> Ent:
@@ -189,3 +224,130 @@ def read(a: Cat, +b: Cat) -> List<&2, Ent>:
   match a:
     case Cat{s, xs}:
       read.go(s, xs, b)
+
+# The fast union
+# --------------
+# A table holds at most one entry per key in a binary trie: the root
+# holds key 0; key k > 0 lives under the left child (k - 1 even) or the
+# right child (k - 1 odd) at key (k - 1) / 2. Each step is native
+# arithmetic, so a lookup takes about log2(k) steps. A put takes a fuel
+# above the key (a step at least halves it).
+
+type Tab is Data:
+  TNil{}
+  TNode{v: Maybe<&2, Ent>, l: Tab, r: Tab}
+
+# k is the root's key
+def key.z(k: Nat) -> Bool:
+  Nat.is_eq(k, 0n)
+
+# key k > 0 goes right
+def key.odd(k: Nat) -> Bool:
+  Nat.is_eq(Nat.mod(Nat.sub(k, 1n), 2n), 1n)
+
+# the key of k > 0 in its child
+def key.half(k: Nat) -> Nat:
+  Nat.div(Nat.sub(k, 1n), 2n)
+
+# the entry at key k; z is key.z(k), odd is key.odd(k)
+def look(t: Tab, +k: Nat, z: Bool, odd: Bool) -> Maybe<&2, Ent>:
+  match t:
+    case TNil{}:
+      None{}
+    case TNode{v, l, r}:
+      match z:
+        case True{}:
+          v
+        case False{}:
+          match odd:
+            case True{}:
+              +h = key.half(k)
+              look(r, h, key.z(h), key.odd(h))
+            case False{}:
+              +h = key.half(k)
+              look(l, h, key.z(h), key.odd(h))
+
+def find.t(t: Tab, +k: Nat) -> Maybe<&2, Ent>:
+  look(t, k, key.z(k), key.odd(k))
+
+# the slot keeps its entry: the first put at a key wins
+def keep(v: Maybe<&2, Ent>, e: Ent) -> Maybe<&2, Ent>:
+  match v:
+    case None{}:
+      Some{e}
+    case Some{x}:
+      Some{x}
+
+# t with e at key k unless k holds one; z is key.z(k), odd is key.odd(k)
+def put(fuel: Nat, t: Tab, +k: Nat, z: Bool, odd: Bool, e: Ent) -> Tab:
+  match fuel:
+    case 0n:
+      t
+    case 1n+f:
+      match t:
+        case TNil{}:
+          match z:
+            case True{}:
+              TNode{Some{e}, TNil{}, TNil{}}
+            case False{}:
+              match odd:
+                case True{}:
+                  +h = key.half(k)
+                  TNode{None{}, TNil{}, put(f, TNil{}, h, key.z(h), key.odd(h), e)}
+                case False{}:
+                  +h = key.half(k)
+                  TNode{None{}, put(f, TNil{}, h, key.z(h), key.odd(h), e), TNil{}}
+        case TNode{v, l, r}:
+          match z:
+            case True{}:
+              TNode{keep(v, e), l, r}
+            case False{}:
+              match odd:
+                case True{}:
+                  +h = key.half(k)
+                  TNode{v, l, put(f, r, h, key.z(h), key.odd(h), e)}
+                case False{}:
+                  +h = key.half(k)
+                  TNode{v, put(f, l, h, key.z(h), key.odd(h), e), r}
+
+# the table of xs after t: each key's first entry
+def tab(xs: List<&2, Ent>, t: Tab) -> Tab:
+  match xs:
+    case Nil{}:
+      t
+    case +e <> rest:
+      +k = Ent.key(e)
+      tab(rest, put(1n+k, t, k, key.z(k), key.odd(k), e))
+
+# every bundled entry, with its compiled twin from the table ct
+def bundled.t(bs: List<&2, Ent>, +ct: Tab) -> List<&2, Ent>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case +b <> rest:
+      with(b, find.t(ct, Ent.key(b))) <> bundled.t(rest, ct)
+
+# the table bt has the key of the first entry of cs
+def seen.t(+cs: List<&2, Ent>, +bt: Tab) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case c <> rest:
+      Maybe.is_some(&2, Ent, find.t(bt, Ent.key(c)))
+
+# the compiled entries whose key the table bt lacks; seen is seen.t(cs, bt)
+def extra.t(cs: List<&2, Ent>, +bt: Tab, seen: Bool) -> List<&2, Ent>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> +rest:
+      match seen:
+        case True{}:
+          extra.t(rest, bt, seen.t(rest, bt))
+        case False{}:
+          c <> extra.t(rest, bt, seen.t(rest, bt))
+
+# the built-in catalog of bs and cs, by tables: union(bs, cs)
+def fast(+bs: List<&2, Ent>, +cs: List<&2, Ent>) -> List<&2, Ent>:
+  +bt = tab(bs, TNil{})
+  List.append(&2, Ent, bundled.t(bs, tab(cs, TNil{})), extra.t(cs, bt, seen.t(cs, bt)))
