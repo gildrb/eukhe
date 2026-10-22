@@ -11,10 +11,12 @@
 //! failure, the request re-routes to the next configured provider serving
 //! the same model id. One request visits every provider of its chain once,
 //! at once; it returns to a provider it left only after the failover
-//! backoff and the server's wait of that provider's failure. The Bend
-//! model `bend/retry.bend` walks the same way; `LAWS.bend` section `retry` states
-//! its laws.
+//! backoff and the server's wait of that provider's failure. The walk runs
+//! as the compiled Bend model `bend/retry.bend` (`eukhe_bend::rules::retry`);
+//! `LAWS.bend` section `retry` states its laws.
 
+use eukhe_bend::rules::retry::{self as rules, Policy, Switch, Tried};
+use eukhe_bend::{expect_core, Entry};
 use eukhe_types::pi_ai::Model;
 
 /// The provider-failover policy (settings `retry.failover`): whether a
@@ -35,22 +37,6 @@ pub struct ProviderFailoverPolicy {
     pub max_delay_ms: u64,
 }
 
-/// One failed attempt of a request: the chain index of its provider and
-/// the wait (ms) its server asked for, if any.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Tried {
-    pub at: usize,
-    pub server_wait_ms: Option<u64>,
-}
-
-/// The next attempt of a request: the chain index of its provider, after
-/// `delay_ms`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Switch {
-    pub to: usize,
-    pub delay_ms: u64,
-}
-
 /// The next attempt of a request whose chain holds `len` providers (the
 /// primary at 0, then its failover candidates), after the failed attempts
 /// `tried` (oldest first; the last one just failed). While a provider of
@@ -60,46 +46,16 @@ pub struct Switch {
 /// `max_delay_ms`: the backoff (`base_delay_ms` doubled per earlier return,
 /// capped at `max_delay_ms`), and never less than the server's wait of
 /// that provider's last failure. Never the provider that just failed;
-/// `None` when the switches are spent or no provider may be tried.
+/// `None` when the switches are spent or no provider may be tried
+/// (`bend/retry.bend` `next`, law `failover_exact`).
 #[must_use]
 pub fn next_switch(len: usize, tried: &[Tried], policy: &ProviderFailoverPolicy) -> Option<Switch> {
-    let last = tried.last()?;
-    let switches = tried.len() - 1;
-    if u32::try_from(switches).map_or(true, |switches| switches >= policy.max_switches) {
-        return None;
-    }
-    // Chain order after the last attempt's provider, which it never holds:
-    // the walk never goes back at once to the provider that just failed.
-    let order = (last.at + 1..len).chain(0..last.at.min(len));
-    let visited = |at: usize| tried.iter().any(|attempt| attempt.at == at);
-    if (0..len).all(visited) {
-        let returns = u32::try_from(tried.len() - len).unwrap_or(u32::MAX);
-        let backoff = policy
-            .base_delay_ms
-            .saturating_mul(2u64.saturating_pow(returns))
-            .min(policy.max_delay_ms);
-        return order
-            .map(|at| {
-                let server = tried
-                    .iter()
-                    .rev()
-                    .find(|attempt| attempt.at == at)
-                    .and_then(|attempt| attempt.server_wait_ms)
-                    .unwrap_or(0);
-                Switch {
-                    to: at,
-                    delay_ms: backoff.max(server),
-                }
-            })
-            .find(|switch| switch.delay_ms > 0 && switch.delay_ms <= policy.max_delay_ms);
-    }
-    order
-        .filter(|at| !visited(*at))
-        .map(|at| Switch {
-            to: at,
-            delay_ms: 0,
-        })
-        .next()
+    let policy = Policy {
+        max_switches: policy.max_switches,
+        base_delay_ms: policy.base_delay_ms,
+        max_delay_ms: policy.max_delay_ms,
+    };
+    expect_core(Entry::Retry, rules::next_switch(len, tried, policy))
 }
 
 /// The `"provider/model-id"` reference of a model (the wire's `backupModel`

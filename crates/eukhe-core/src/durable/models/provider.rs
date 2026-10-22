@@ -66,9 +66,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-use super::failover::{
-    failover_candidates, model_reference, next_switch, ProviderFailoverPolicy, Switch, Tried,
-};
+use eukhe_bend::rules::retry::{Switch, Tried};
+
+use super::failover::{failover_candidates, model_reference, next_switch, ProviderFailoverPolicy};
 use super::image_route::{self, ImageRoute};
 use super::park::{
     is_quota_block_failure, park_entry_data, provider_park_decision,

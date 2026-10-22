@@ -14,6 +14,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use eukhe_bend::rules::retry::{self as rules, Cause, Facts, Wait, WaitInput};
+use eukhe_bend::wire::NAT_MAX;
+use eukhe_bend::{expect_core, Entry};
 use eukhe_types::pi_ai::{AssistantMessage, StopReason, StreamFailureKind};
 
 use super::js::number_to_js_string;
@@ -126,14 +129,9 @@ pub struct RetryDelay {
 /// Default cap of an agent-level retry delay.
 pub const DEFAULT_MAX_AGENT_RETRY_DELAY_MS: f64 = 60_000.0;
 
-/// The largest `Nat` of the Bend core's wire (10^14-1, below the
-/// runtime's 2^48-1): a duration past it saturates there (over 3000
-/// years).
-const NAT_MAX: u64 = 99_999_999_999_999;
-
 /// A duration in ms as the wait decision reads it: whole ms, rounded up
 /// (a wait never shortens), `0` for a negative or NaN value, saturated
-/// at [`NAT_MAX`].
+/// at the wire's largest Nat ([`NAT_MAX`]).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn whole_ms(ms: f64) -> u64 {
     // A NaN casts to 0; the cast of a whole value in [0, 10^14) is exact.
@@ -173,64 +171,7 @@ pub enum RetryWait {
     Refused { server_ms: f64, cap_ms: f64 },
 }
 
-/// What the wait of a retry reads, as plain data (whole ms, each at most
-/// the wire's largest Nat).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WaitInput {
-    /// The policy's base step (`base_delay_ms`).
-    pub base_ms: u64,
-    /// The retry: 1 for the first.
-    pub attempt: u32,
-    /// The policy's cap (`max_agent_delay_ms`; `0`: no cap on the
-    /// server's wait).
-    pub cap_ms: u64,
-    /// A draw uniform in [0, 2^46): the jitter is the draw modulo the step.
-    pub draw: u64,
-    /// The server's requested wait, if any.
-    pub server_ms: Option<u64>,
-}
-
 impl RetryWait {
-    /// The wait of a retry (`bend/retry.bend` `retry_wait`): the step is
-    /// the base doubled per retry before this one, at most the cap; the
-    /// jitter is the draw modulo the step (0 for a step of 0); never
-    /// before the server's wait; a server wait above a positive cap
-    /// refuses the retry.
-    #[must_use]
-    pub fn decide(input: WaitInput) -> Self {
-        let mut step = input.base_ms.min(input.cap_ms);
-        for _ in 1..input.attempt {
-            if step == 0 || step > input.cap_ms - step {
-                step = if step == 0 { 0 } else { input.cap_ms };
-                break;
-            }
-            step += step;
-        }
-        let jitter = if step == 0 { 0 } else { input.draw % step };
-        match input.server_ms {
-            Some(server) if input.cap_ms > 0 && server > input.cap_ms => Self::Refused {
-                server_ms: ms_f64(server),
-                cap_ms: ms_f64(input.cap_ms),
-            },
-            Some(server) => Self::After(ms_f64(jitter.max(server))),
-            None => Self::After(ms_f64(jitter)),
-        }
-    }
-
-    /// The wait of a retry whose backoff drew `jittered` ms, after a
-    /// failure whose server asked for `server` ms (none: no wait), under
-    /// the cap `cap_ms` (`0`: no cap).
-    #[must_use]
-    pub fn of(jittered: f64, server: Option<f64>, cap_ms: f64) -> Self {
-        match server {
-            Some(server_ms) if cap_ms > 0.0 && server_ms > cap_ms => {
-                Self::Refused { server_ms, cap_ms }
-            }
-            Some(server_ms) => Self::After(jittered.max(server_ms)),
-            None => Self::After(jittered),
-        }
-    }
-
     /// The error of a refused wait: the server's time and the cap, then
     /// the failure's own text (`error`). The HTTP layer reports a refused
     /// server wait in the same words.
@@ -245,15 +186,16 @@ impl RetryWait {
 }
 
 /// The wait before retry `attempt` (1-indexed) of the failed `message`
-/// (omp2 `TransportRetryLayer`): a full-jitter draw under the step, where
-/// the step is `base_delay_ms * 2^(attempt-1)` capped at
-/// `max_agent_delay_ms`, so agents that hit the same limit together do not
-/// retry together; never shorter than the server's requested wait, and
-/// [`RetryWait::Refused`] when that wait is above the cap
-/// ([`RetryWait::decide`]).
+/// (omp2 `TransportRetryLayer`), decided by the compiled Bend core
+/// (`bend/retry.bend` `retry_wait`, LAWS.bend section `retry`): a
+/// full-jitter draw under the step, where the step is `base_delay_ms *
+/// 2^(attempt-1)` capped at `max_agent_delay_ms`, so agents that hit the
+/// same limit together do not retry together; never shorter than the
+/// server's requested wait, and [`RetryWait::Refused`] when that wait is
+/// above the cap.
 #[must_use]
 pub fn retry_wait(policy: RetryDelay, attempt: u32, message: &AssistantMessage) -> RetryWait {
-    RetryWait::decide(WaitInput {
+    let input = WaitInput {
         base_ms: whole_ms(policy.base_delay_ms),
         attempt,
         cap_ms: whole_ms(
@@ -261,9 +203,17 @@ pub fn retry_wait(policy: RetryDelay, attempt: u32, message: &AssistantMessage) 
                 .max_agent_delay_ms
                 .unwrap_or(DEFAULT_MAX_AGENT_RETRY_DELAY_MS),
         ),
+        // Uniform in [0, 2^46): the jitter is the draw modulo the step.
         draw: rand::random::<u64>() >> 18,
         server_ms: server_retry_after_ms(message).map(whole_ms),
-    })
+    };
+    match expect_core(Entry::Retry, rules::wait(input)) {
+        Wait::After(ms) => RetryWait::After(ms_f64(ms)),
+        Wait::Refused { server_ms, cap_ms } => RetryWait::Refused {
+            server_ms: ms_f64(server_ms),
+            cap_ms: ms_f64(cap_ms),
+        },
+    }
 }
 
 /// The details of the newest `provider_stream_failure` diagnostic of
@@ -301,33 +251,23 @@ pub fn stalled_idle_ms(message: &AssistantMessage) -> Option<u64> {
         .flatten()
 }
 
-/// Whether a retry may cure an HTTP `status`: a request timeout, a
-/// conflict, too many requests (RFC 9110), or any server error. Every
-/// other client error fails the same way again.
-#[must_use]
-pub const fn retryable_status(status: u16) -> bool {
-    matches!(status, 408 | 409 | 429) || status >= 500
-}
-
-/// Whether a retry may cure a failure of typed `kind`; `None` for
-/// [`StreamFailureKind::Unknown`], which leaves the decision to the text.
-#[must_use]
-pub const fn retryable_kind(kind: StreamFailureKind) -> Option<bool> {
+/// A recorded failure kind as the compiled core reads it.
+const fn cause(kind: StreamFailureKind) -> Cause {
     match kind {
-        StreamFailureKind::Overloaded
-        | StreamFailureKind::RateLimit
-        | StreamFailureKind::ServerError
-        | StreamFailureKind::StreamDrop
-        | StreamFailureKind::StreamStalled
-        | StreamFailureKind::StreamRepeating => Some(true),
-        StreamFailureKind::Refusal
-        | StreamFailureKind::Safety
-        | StreamFailureKind::PaymentRequired
-        | StreamFailureKind::Auth
-        | StreamFailureKind::Permission
-        | StreamFailureKind::InvalidRequest
-        | StreamFailureKind::MalformedResponse => Some(false),
-        StreamFailureKind::Unknown => None,
+        StreamFailureKind::Refusal => Cause::Refusal,
+        StreamFailureKind::Safety => Cause::Safety,
+        StreamFailureKind::PaymentRequired => Cause::PaymentRequired,
+        StreamFailureKind::Overloaded => Cause::Overloaded,
+        StreamFailureKind::RateLimit => Cause::RateLimit,
+        StreamFailureKind::ServerError => Cause::ServerError,
+        StreamFailureKind::Auth => Cause::Auth,
+        StreamFailureKind::Permission => Cause::Permission,
+        StreamFailureKind::InvalidRequest => Cause::InvalidRequest,
+        StreamFailureKind::MalformedResponse => Cause::MalformedResponse,
+        StreamFailureKind::StreamDrop => Cause::StreamDrop,
+        StreamFailureKind::StreamStalled => Cause::StreamStalled,
+        StreamFailureKind::StreamRepeating => Cause::StreamRepeating,
+        StreamFailureKind::Unknown => Cause::Unknown,
     }
 }
 
@@ -381,19 +321,21 @@ impl FailureFacts {
         })
     }
 
-    /// Whether a retry may cure the failure: never a parked failure or a
-    /// limit; else by its recorded status; else by its typed kind; else by
-    /// its text.
+    /// Whether a retry may cure the failure, decided by the compiled Bend
+    /// core (`bend/retry.bend` `retryable`, LAWS.bend section `retry`):
+    /// never a parked failure or a limit; else by its recorded status
+    /// (408, 409, 429, 500 and above); else by its typed kind; else by its
+    /// text.
     #[must_use]
     pub fn retryable(self) -> bool {
-        if self.parked || self.limit {
-            return false;
-        }
-        match (self.status, self.kind.and_then(retryable_kind)) {
-            (Some(status), _) => retryable_status(status),
-            (None, Some(by_kind)) => by_kind,
-            (None, None) => self.transient_text,
-        }
+        let facts = Facts {
+            parked: self.parked,
+            limit: self.limit,
+            status: self.status,
+            kind: self.kind.map(cause),
+            transient_text: self.transient_text,
+        };
+        expect_core(Entry::Retry, rules::retryable(facts))
     }
 }
 

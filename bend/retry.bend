@@ -24,8 +24,9 @@
 #    as stalled, never later than its last event plus the deadline.
 #
 # LAWS.bend section retry states the laws; PROOF.bend proves them (as Laws.<law>)
-# with the lemmas of PROOF.bend section retry_policy; bend/bridge_retry.bend
-# runs this model against the Rust code.
+# with the lemmas of PROOF.bend sections retry_policy and retry_ffi.
+# Decisions 1, 2, 3 and 5 run compiled (bend/ffi_retry.bend, crate
+# eukhe-bend); bend/bridge_retry.bend runs 4 and 6 against the Rust code.
 
 import Base
 

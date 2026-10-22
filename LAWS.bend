@@ -5014,11 +5014,12 @@ law wire_end_exact:
 # LAWS (R, retries): when the harness sends a failed request again
 # (audit H2, H3, H4, H5, H10, M3, M4). Each law is an open claim about
 # the model in bend/retry.bend; PROOF.bend proves them (as Laws.<law>) with
-# the lemmas of PROOF.bend section retry_policy. The Rust bridge tests run
-# the real code against bend/bridge_retry.bend:
-# crates/eukhe-core/src/durable/models/retry_bridge.rs the classifier, the
-# wait and the failover walk; crates/eukhe-durable/src/harness/generation/
-# retry_bridge.rs the deferred decisions, the stall and the idle deadline.
+# the lemmas of PROOF.bend sections retry_policy and retry_ffi. The
+# classifier, the wait, the failover walk and the stall run as this model,
+# compiled (bend/ffi_retry.bend, R7; Rust calls eukhe_bend::rules::retry).
+# The deferred job and the idle deadline stay Rust: the bridge test
+# crates/eukhe-durable/src/harness/generation/retry_bridge.rs runs them
+# against bend/bridge_retry.bend.
 
 # (R1) The classifier
 # -------------------
