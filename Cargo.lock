@@ -530,6 +530,7 @@ dependencies = [
  "base64",
  "bytes",
  "crc32fast",
+ "eukhe-bend",
  "eukhe-chord",
  "eukhe-types",
  "futures",
@@ -630,6 +631,7 @@ dependencies = [
  "anyhow",
  "base64",
  "eukhe-ai",
+ "eukhe-bend",
  "eukhe-chord",
  "eukhe-docs",
  "eukhe-durable",
@@ -747,6 +749,7 @@ version = "0.10.0"
 dependencies = [
  "base64",
  "eukhe-ai",
+ "eukhe-bend",
  "eukhe-chord",
  "eukhe-durable",
  "eukhe-types",

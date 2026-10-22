@@ -50,8 +50,13 @@ impl PollFailure {
 }
 
 /// The idle deadline (ms) of the retry after a stream stalled under
-/// `idle_ms` (M3): two times that deadline. The same deadline would stall
-/// the same request again.
-pub(crate) const fn idle_after_stall(idle_ms: u64) -> u64 {
-    idle_ms.saturating_mul(2)
+/// `idle_ms` (M3): two times that deadline, decided by the compiled Bend
+/// core (`bend/retry.bend` `stall.next`, law `stall_retry_doubles`; the
+/// deadline saturates at half the wire's largest Nat). The same deadline
+/// would stall the same request again.
+pub(crate) fn idle_after_stall(idle_ms: u64) -> u64 {
+    eukhe_bend::expect_core(
+        eukhe_bend::Entry::Retry,
+        eukhe_bend::rules::retry::idle_after_stall(idle_ms),
+    )
 }

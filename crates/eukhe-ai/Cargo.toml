@@ -8,6 +8,8 @@ description = "Rust port of @earendil-works/pi-ai v1.0.4: models, providers, str
 
 [dependencies]
 eukhe-types.workspace = true
+# The compiled Bend core: the retry classifier and wait (`utils/retry.rs`).
+eukhe-bend.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

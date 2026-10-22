@@ -1,9 +1,9 @@
-//! The bridge between the deferred job's, the stall's and the idle
-//! deadline's decisions and their Bend model (`bend/retry.bend` §4, §5 and
-//! §6, whose laws `LAWS.bend` section `retry` states and `PROOF.bend` proves): both
-//! run the same scenarios and must print the same transcript, byte for
-//! byte. `bend/bridge_retry.bend` documents the scenario format (its `d`,
-//! `s` and `i` lines).
+//! The bridge between the deferred job's and the idle deadline's decisions
+//! and their Bend model (`bend/retry.bend` §4 and §6, whose laws
+//! `LAWS.bend` section `retry` states and `PROOF.bend` proves): both run
+//! the same scenarios and must print the same transcript, byte for byte.
+//! `bend/bridge_retry.bend` documents the scenario format (its `d` and `i`
+//! lines). The stall (§5) runs as the compiled model.
 //!
 //! A `d` case is the replies to one request, from its first: each act is
 //! what `classify` decides with the real decisions. A request's reply and
@@ -13,7 +13,7 @@
 //! clock is the model's: a request's reply comes 0 ms after it was sent,
 //! and the next reply of a job comes `gap + 1` ms after the one before.
 //! After a send, a cancel, a quit or a settle, the next reply is the reply
-//! of a new request. An `s` case is [`idle_after_stall`].
+//! of a new request.
 //!
 //! An `i` case runs the real idle deadline (`StreamIdle::within` behind
 //! [`Models::complete_simple`]) on a stream whose provider sends an event
@@ -40,7 +40,7 @@ use eukhe_types::pi_ai::{AssistantMessageEvent, Context, DoneReason, StopReason}
 use tokio::time::Instant;
 
 use super::decide::{after_reply, Counts, Failure, Limits, Reply, Step, MAX_NOTES};
-use super::deferred::{idle_after_stall, FailedPoll, PollFailure};
+use super::deferred::{FailedPoll, PollFailure};
 use crate::testing::bridge::{compare, Rng, Scenario};
 
 /// What a call that is out answers, as the model reads it.
@@ -193,12 +193,6 @@ fn deferred_case(rng: &mut Rng, events: &mut String, transcript: &mut String) {
     writeln!(transcript, "d{}", acts(fails, budget, &gots)).unwrap();
 }
 
-fn stall_case(rng: &mut Rng, events: &mut String, transcript: &mut String) {
-    let idle = [0, 1, 200, 300_000][usize::try_from(rng.below(4)).unwrap()] + rng.range(0, 1_000);
-    writeln!(events, "s {idle}").unwrap();
-    writeln!(transcript, "s {}", idle_after_stall(idle)).unwrap();
-}
-
 /// A stream whose events come `gaps` ms apart; the last one ends it. With
 /// no gap it sends nothing and never ends.
 fn paced(gaps: Vec<u64>) -> AssistantMessageEventStream {
@@ -290,8 +284,7 @@ fn the_rust_deferred_decisions_equal_the_bend_model() {
         let mut transcript = String::new();
         for _ in 0..40 {
             match rng.below(10) {
-                0..=6 => deferred_case(&mut rng, &mut events, &mut transcript),
-                7 => stall_case(&mut rng, &mut events, &mut transcript),
+                0..=7 => deferred_case(&mut rng, &mut events, &mut transcript),
                 _ => idle_case(&mut rng, &mut events, &mut transcript),
             }
         }

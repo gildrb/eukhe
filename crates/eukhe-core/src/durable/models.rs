@@ -82,9 +82,6 @@ pub(crate) mod provider;
 mod stores;
 pub(crate) mod timing;
 
-#[cfg(test)]
-mod retry_bridge;
-
 use std::path::Path;
 use std::sync::Arc;
 

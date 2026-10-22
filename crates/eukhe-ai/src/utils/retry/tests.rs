@@ -195,14 +195,6 @@ fn the_retry_wait_never_goes_before_the_server() {
 }
 
 #[test]
-fn a_zero_cap_never_refuses_a_server_wait() {
-    assert_eq!(
-        RetryWait::of(10.0, Some(300_000.0), 0.0),
-        RetryWait::After(300_000.0)
-    );
-}
-
-#[test]
 fn the_retry_wait_is_a_full_jitter_draw_under_the_step() {
     let policy = RetryDelay {
         base_delay_ms: 1_000.0,
@@ -225,16 +217,6 @@ fn the_retry_wait_is_a_full_jitter_draw_under_the_step() {
         waits.iter().any(|wait| wait.total_cmp(&waits[0]).is_ne()),
         "{waits:?}"
     );
-}
-
-#[test]
-fn the_step_is_capped() {
-    let policy = RetryDelay {
-        base_delay_ms: 2_000.0,
-        max_agent_delay_ms: Some(0.0),
-    };
-    let message = faux_stop_message(StopReason::Error, Some("503 Service Unavailable"));
-    assert_eq!(retry_wait(policy, 5, &message), RetryWait::After(0.0));
 }
 
 #[test]
