@@ -13,8 +13,12 @@ impl AgentView {
     /// move into scrollback. Never true for content still streaming or
     /// running. Two tail rows stay live while they are the last entry,
     /// because they change in place then: a status row (TS `showStatus`
-    /// rewrites it when nothing followed it) and a failed attempt's
-    /// error row (a retry pops it).
+    /// rewrites it when nothing followed it) and a failed reply's error
+    /// row -- a retry pops an error-only attempt, and a retry episode's
+    /// outcome row retires the error of a reply that streamed text before
+    /// it failed (`apply.rs` `RetryOutcomeRow`). A frame between the
+    /// failure and that row must not commit the error row the row then
+    /// replaces: committed rows are never written again.
     pub(super) fn entry_settled(&self, index: usize) -> bool {
         let last = index + 1 == self.chat.len();
         match &self.chat[index] {
@@ -31,11 +35,12 @@ impl AgentView {
             | ChatEntry::ChatView(_)
             | ChatEntry::Swarm(_) => true,
             // A message settles once it stopped streaming and its pace
-            // shows all its text.
+            // shows all its text; a failed one only once an entry
+            // follows it.
             ChatEntry::Assistant(message) => {
                 !message.streaming
                     && self.pace_drained(index)
-                    && (!last || !crate::snapshot::is_superseded_attempt_row(&self.chat[index]))
+                    && (!last || message.error.is_none() || message.aborted)
             }
             // A cell whose final result carries a still-running background
             // shell is settled: its result never changes again.
@@ -131,15 +136,14 @@ impl AgentView {
         // loader row with its elapsed time -- the retry countdown while
         // the provider retry loop waits (TS `stopWorkingLoader` +
         // `retryLoader`), the compaction loader while a compaction runs
-        // (TS `startCompactionLoader`), the working loader otherwise --
-        // and a quota-parked session names its wake time instead of
-        // reading as idle. Background work rides the dock's counts.
+        // (TS `startCompactionLoader`), the working loader otherwise
+        // (held up past the turn's end while its answer's text still
+        // shows at its pace) -- and a quota-parked session names its
+        // wake time instead of reading as idle. Background work rides
+        // the dock's counts.
         match self.activity() {
             AgentActivity::Working { .. } => {
-                let elapsed = self
-                    .working
-                    .as_ref()
-                    .map_or(0, |working| working.elapsed_secs);
+                let elapsed = self.loader_row().map_or(0, |working| working.elapsed_secs);
                 if let Some(retry) = &self.retry {
                     tail.extend(crate::chat::render_retry(
                         retry,
@@ -177,7 +181,7 @@ impl AgentView {
                         &self.theme,
                         width,
                     ));
-                } else if let Some(working) = &self.working {
+                } else if let Some(working) = self.loader_row() {
                     tail.extend(render_loader(working, self.pulse_frame, &self.theme, width));
                 }
             }
@@ -217,12 +221,13 @@ impl AgentView {
 
     /// This session at a glance, the input of the [`crate::activity`]
     /// mapping: a turn runs while its loader, a retry, or a compaction is
-    /// up (a retry or a compaction overlays the loader's phase); between
+    /// up (a retry or a compaction overlays the loader's phase; the loader
+    /// stays up while its answer's text still shows at its pace); between
     /// turns a quota park, then the dock's running background work, else
     /// idle.
     #[must_use]
     pub fn activity(&self) -> AgentActivity {
-        let phase = match (&self.retry, &self.compaction, &self.working) {
+        let phase = match (&self.retry, &self.compaction, self.loader_row()) {
             (Some(_), _, _) => Some(TurnPhase::Retrying),
             (None, Some(_), _) => Some(TurnPhase::Compacting),
             (None, None, Some(working)) => Some(working.phase),
