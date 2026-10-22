@@ -21458,7 +21458,7 @@ def ps.step_ahead(+min: Nat, +k: Nat, p: Sc.Pace, e: Sc.PEv, h: {Nat.is_le(Sc.Pa
         case Sc.Chunk{n}:
           ps.le_add_r(s, r, n, h)
         case Sc.Frame{}:
-          ps.bound(s, r, Nat.max(min, Nat.div(Nat.sub(r, s), 1n+k)), h)
+          ps.bound(s, r, Nat.max(min, Sc.share(k, Nat.sub(r, s))), h)
 
 def ps.run_ahead(es: List<&2, Sc.PEv>, +min: Nat, +k: Nat, +p: Sc.Pace, h: {Nat.is_le(Sc.Pace.shown(p), Sc.Pace.recv(p)) == True{} : Bool}) -> {Nat.is_le(Sc.Pace.shown(Sc.pace.run(es, min, k, p)), Sc.Pace.recv(Sc.pace.run(es, min, k, p))) == True{} : Bool}:
   match es:
@@ -21503,8 +21503,8 @@ def ps.drains_go(+n: Nat, +min: Nat, +k: Nat, +p: Sc.Pace, +one: {Nat.is_le(1n, 
     case 1n+m:
       match p:
         case Sc.Pace{+r, +s}:
-          +x = Nat.max(min, Nat.div(Nat.sub(r, s), 1n+k))
-          ps.drains_go(m, min, k, Sc.Pace{r, Nat.add(s, Nat.min(Nat.sub(r, s), x))}, one, ps.bound(s, r, x, behind), ps.drop_after(r, s, m, x, enough, ps.max_ge(min, Nat.div(Nat.sub(r, s), 1n+k), one)))
+          +x = Nat.max(min, Sc.share(k, Nat.sub(r, s)))
+          ps.drains_go(m, min, k, Sc.Pace{r, Nat.add(s, Nat.min(Nat.sub(r, s), x))}, one, ps.bound(s, r, x, behind), ps.drop_after(r, s, m, x, enough, ps.max_ge(min, Sc.share(k, Nat.sub(r, s)), one)))
 
 def ps.pace_drains(+min: Nat, +k: Nat, +p: Sc.Pace, +n: Nat, one: {Nat.is_le(1n, min) == True{} : Bool}, behind: {Nat.is_le(Sc.Pace.shown(p), Sc.Pace.recv(p)) == True{} : Bool}, enough: {Nat.is_le(Nat.sub(Sc.Pace.recv(p), Sc.Pace.shown(p)), n) == True{} : Bool}) -> {Sc.Pace.shown(Sc.pace.run(Sc.frames(n), min, k, p)) == Sc.Pace.recv(p) : Nat}:
   ps.drains_go(n, min, k, p, one, behind, enough)
@@ -21594,6 +21594,155 @@ def ps.layout_whole_when_room(+hs: List<&2, Nat>, +y: Nat, +rows: Nat, fits: {Na
       +f2 = ps.le_assoc(y, h, Sc.sum(rest), rows, fits)
       +hl = ps.le_sub(y, h, rows, ps.le_addl(Nat.add(y, h), Sc.sum(rest), rows, f2))
       ps.ncons(Nat.min(h, Nat.sub(rows, y)), h, Sc.heights(Sc.vstack(rest, Nat.add(y, h), rows)), rest, ps.min_of_le(h, Nat.sub(rows, y), hl), ps.layout_whole_when_room(rest, Nat.add(y, h), rows, f2))
+
+# The share's guard: when k >= b the quotient b / (1 + k) is 0
+def ps.div_small(n: Nat, m: Nat, -r: Nat, h: {Nat.is_lt(m, n) == False{} : Bool}) -> {Pair.fst(Nat, Nat, Nat.divmod.go(n, m, 0n, r)) == 0n : Nat}:
+  match n m:
+    case 0n _:
+      {==}
+    case 1n+np 0n:
+      screen.ps.absurdF({Pair.fst(Nat, Nat, Nat.divmod.go(1n+np, 0n, 0n, r)) == 0n : Nat}, Equal.sym(Bool, Nat.is_lt(0n, 1n+np), False{}, h))
+    case 1n+np 1n+mp:
+      ps.div_small(np, mp, 1n+r, h)
+
+def ps.reveal_at(+min: Nat, +k: Nat, +b: Nat, lt: Bool, e: {Nat.is_lt(k, b) == lt : Bool}) -> {Nat.min(b, Nat.max(min, Sc.share.at(lt, k, b))) == Nat.min(b, Nat.max(min, Nat.div(b, 1n+k))) : Nat}:
+  match lt:
+    case True{}:
+      {==}
+    case False{}:
+      %ps.div_small(b, k, 0n, e) : {Nat.min(b, Nat.max(min, _)) == Nat.min(b, Nat.max(min, Nat.div(b, 1n+k))) : Nat}
+      {==}
+
+def ps.pace_reveal_formula(+min: Nat, +k: Nat, +b: Nat) -> {Sc.reveal(min, k, b) == Nat.min(b, Nat.max(min, Nat.div(b, 1n+k))) : Nat}:
+  ps.reveal_at(min, k, b, Nat.is_lt(k, b), {==})
+
+# b <= k: k is not below b
+def ps.le_not_lt(b: Nat, k: Nat, h: {Nat.is_le(b, k) == True{} : Bool}) -> {Nat.is_lt(k, b) == False{} : Bool}:
+  match b k:
+    case 0n _:
+      match k:
+        case 0n:
+          {==}
+        case 1n+kp:
+          {==}
+    case 1n+bp 0n:
+      screen.ps.absurdF({Nat.is_lt(0n, 1n+bp) == False{} : Bool}, h)
+    case 1n+bp 1n+kp:
+      ps.le_not_lt(bp, kp, h)
+
+def ps.max_zero(m: Nat) -> {Nat.max(m, 0n) == m : Nat}:
+  match m:
+    case 0n:
+      {==}
+    case 1n+p:
+      {==}
+
+def ps.pace_lag_at_cap(+min: Nat, +k: Nat, +b: Nat, capped: {Nat.is_le(b, k) == True{} : Bool}) -> {Sc.reveal(min, k, b) == Nat.min(b, min) : Nat}:
+  %Equal.sym(Bool, Nat.is_lt(k, b), False{}, ps.le_not_lt(b, k, capped)) : {Nat.min(b, Nat.max(min, Sc.share.at(_, k, b))) == Nat.min(b, min) : Nat}
+  %Equal.sym(Nat, Nat.max(min, 0n), min, ps.max_zero(min)) : {Nat.min(b, _) == Nat.min(b, min) : Nat}
+  {==}
+
+# Committed blocks are inert
+def ps.app_assoc(xs: List<&2, Sc.Blk>, -ys: List<&2, Sc.Blk>, -zs: List<&2, Sc.Blk>) -> {List.append(&2, Sc.Blk, List.append(&2, Sc.Blk, xs, ys), zs) == List.append(&2, Sc.Blk, xs, List.append(&2, Sc.Blk, ys, zs)) : List<&2, Sc.Blk>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> xr:
+      %ps.app_assoc(xr, ys, zs) : {x <> List.append(&2, Sc.Blk, List.append(&2, Sc.Blk, xr, ys), zs) == x <> _ : List<&2, Sc.Blk>}
+      {==}
+
+def ps.bcons(-x: Sc.Blk, -a: List<&2, Sc.Blk>, -b: List<&2, Sc.Blk>, e: {a == b : List<&2, Sc.Blk>}) -> {x <> a == x <> b : List<&2, Sc.Blk>}:
+  %e : {x <> a == x <> _ : List<&2, Sc.Blk>}
+  {==}
+
+# a committed block heads the edit unchanged, hit or not
+def ps.edit_comm(+i: Nat, +l: Nat, L: List<&2, Sc.Blk>, +x: Nat, +g: Maybe<&2, Nat>, h: Bool) -> {Sc.edit.go(Sc.Blk{i, Sc.Comm{}, l} <> L, x, g, h) == Sc.Blk{i, Sc.Comm{}, l} <> Sc.edit.go(L, x, g, Sc.bid.at(L, x)) : List<&2, Sc.Blk>}:
+  match g h:
+    case None{} True{}:
+      {==}
+    case Some{n} True{}:
+      {==}
+    case None{} False{}:
+      {==}
+    case Some{n} False{}:
+      {==}
+
+def ps.edit_inert(cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +x: Nat, +g: Maybe<&2, Nat>, comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.edit.go(List.append(&2, Sc.Blk, cs, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, cs, bs), x)) == List.append(&2, Sc.Blk, cs, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}:
+  match cs:
+    case Nil{}:
+      {==}
+    case c <> +cr:
+      match c:
+        case Sc.Blk{+i, s, +l}:
+          match s:
+            case Sc.Comm{}:
+              +L = List.append(&2, Sc.Blk, cr, bs)
+              +R = List.append(&2, Sc.Blk, cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x)))
+              Equal.trans(List<&2, Sc.Blk>, Sc.edit.go(Sc.Blk{i, Sc.Comm{}, l} <> L, x, g, Sc.bid.at(Sc.Blk{i, Sc.Comm{}, l} <> L, x)), Sc.Blk{i, Sc.Comm{}, l} <> Sc.edit.go(L, x, g, Sc.bid.at(L, x)), Sc.Blk{i, Sc.Comm{}, l} <> R, ps.edit_comm(i, l, L, x, g, Sc.bid.at(Sc.Blk{i, Sc.Comm{}, l} <> L, x)), ps.bcons(Sc.Blk{i, Sc.Comm{}, l}, Sc.edit.go(L, x, g, Sc.bid.at(L, x)), R, ps.edit_inert(cr, bs, x, g, comm)))
+            case Sc.Final{}:
+              screen.ps.absurdF({Sc.edit.go(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs), x)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}, comm)
+            case Sc.Active{}:
+              screen.ps.absurdF({Sc.edit.go(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x, g, Sc.bid.at(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs), x)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, Sc.edit.go(bs, x, g, Sc.bid.at(bs, x))) : List<&2, Sc.Blk>}, comm)
+
+def ps.flush_inert(cs: List<&2, Sc.Blk>, -bs: List<&2, Sc.Blk>, comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.flush(List.append(&2, Sc.Blk, cs, bs)) == List.append(&2, Sc.Blk, cs, Sc.flush(bs)) : List<&2, Sc.Blk>}:
+  match cs:
+    case Nil{}:
+      {==}
+    case c <> +cr:
+      match c:
+        case Sc.Blk{i, s, l}:
+          match s:
+            case Sc.Comm{}:
+              ps.bcons(Sc.Blk{i, Sc.Comm{}, l}, Sc.flush(List.append(&2, Sc.Blk, cr, bs)), List.append(&2, Sc.Blk, cr, Sc.flush(bs)), ps.flush_inert(cr, bs, comm))
+            case Sc.Final{}:
+              screen.ps.absurdF({Sc.flush(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, bs)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Final{}, l} <> cr, Sc.flush(bs)) : List<&2, Sc.Blk>}, comm)
+            case Sc.Active{}:
+              screen.ps.absurdF({Sc.flush(List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, bs)) == List.append(&2, Sc.Blk, Sc.Blk{i, Sc.Active{}, l} <> cr, Sc.flush(bs)) : List<&2, Sc.Blk>}, comm)
+
+def ps.tx_eq(-a: List<&2, Sc.Blk>, -b: List<&2, Sc.Blk>, -n: Nat, -w: Nat, e: {a == b : List<&2, Sc.Blk>}) -> {Sc.Tx{a, n, w} == Sc.Tx{b, n, w} : Sc.Tx}:
+  %e : {Sc.Tx{a, n, w} == Sc.Tx{_, n, w} : Sc.Tx}
+  {==}
+
+def ps.step_inert(+cs: List<&2, Sc.Blk>, t: Sc.Tx, e: Sc.Ev, +comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.step(Laws.under(cs, t), e) == Laws.under(cs, Sc.step(t, e)) : Sc.Tx}:
+  match t:
+    case Sc.Tx{+bs, +n, +w}:
+      match e:
+        case Sc.Open{}:
+          ps.tx_eq(List.append(&2, Sc.Blk, List.append(&2, Sc.Blk, cs, bs), [Sc.Blk{n, Sc.Active{}, 0n}]), List.append(&2, Sc.Blk, cs, List.append(&2, Sc.Blk, bs, [Sc.Blk{n, Sc.Active{}, 0n}])), 1n+n, w, ps.app_assoc(cs, bs, [Sc.Blk{n, Sc.Active{}, 0n}]))
+        case Sc.Grow{x, k}:
+          ps.tx_eq(Sc.edit(List.append(&2, Sc.Blk, cs, bs), x, Some{k}), List.append(&2, Sc.Blk, cs, Sc.edit(bs, x, Some{k})), n, w, ps.edit_inert(cs, bs, x, Some{k}, comm))
+        case Sc.Fin{x}:
+          ps.tx_eq(Sc.edit(List.append(&2, Sc.Blk, cs, bs), x, None{}), List.append(&2, Sc.Blk, cs, Sc.edit(bs, x, None{})), n, w, ps.edit_inert(cs, bs, x, None{}, comm))
+        case Sc.Flush{}:
+          ps.tx_eq(Sc.flush(List.append(&2, Sc.Blk, cs, bs)), List.append(&2, Sc.Blk, cs, Sc.flush(bs)), n, w, ps.flush_inert(cs, bs, comm))
+        case Sc.Resize{v}:
+          {==}
+
+def ps.run_inert(es: List<&2, Sc.Ev>, +cs: List<&2, Sc.Blk>, +t: Sc.Tx, +comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.run(es, Laws.under(cs, t)) == Laws.under(cs, Sc.run(es, t)) : Sc.Tx}:
+  match es:
+    case Nil{}:
+      {==}
+    case +e <> rest:
+      %Equal.sym(Sc.Tx, Sc.step(Laws.under(cs, t), e), Laws.under(cs, Sc.step(t, e)), ps.step_inert(cs, t, e, comm)) : {Sc.run(rest, _) == Laws.under(cs, Sc.run(rest, Sc.step(t, e))) : Sc.Tx}
+      ps.run_inert(rest, cs, Sc.step(t, e), comm)
+
+def ps.tx_committed_inert(es: List<&2, Sc.Ev>, +cs: List<&2, Sc.Blk>, +bs: List<&2, Sc.Blk>, +n: Nat, +w: Nat, comm: {Laws.all_comm(cs) == True{} : Bool}) -> {Sc.run(es, Sc.Tx{List.append(&2, Sc.Blk, cs, bs), n, w}) == Laws.under(cs, Sc.run(es, Sc.Tx{bs, n, w})) : Sc.Tx}:
+  ps.run_inert(es, cs, Sc.Tx{bs, n, w}, comm)
+
+def Laws.pace_reveal_formula(min, k, b):
+  ps.pace_reveal_formula(min, k, b)
+
+def Laws.pace_lag_at_cap(min, k, b, capped):
+  ps.pace_lag_at_cap(min, k, b, capped)
+
+def Laws.tx_committed_inert(es, cs, bs, n, w, comm):
+  ps.tx_committed_inert(es, cs, bs, n, w, comm)
+
+def Laws.all_comm_example():
+  {==}
+
+def Laws.all_comm_rejects():
+  {==}
 
 # ---- tiny ----
 
@@ -30306,7 +30455,7 @@ def pr.ranks_eq_sound(xs: List<&2, Nat>, ys: List<&2, Nat>, +e: {Rp.ranks_eq(xs,
 def pr.build_eq_rank(a: Rp.Build, b: Rp.Build, e: {Rp.build_eq(a, b) == True{} : Bool}) -> {Rp.Build.rank(a) == Rp.Build.rank(b) : List<&2, Nat>}:
   match a b:
     case Rp.Build{+ra, +ia} Rp.Build{+rb, +ib}:
-      pr.ranks_eq_sound(ra, rb, replace.pr.and_r(Nat.is_eq(ia, ib), Rp.ranks_eq(ra, rb), e))
+      pr.ranks_eq_sound(ra, rb, replace.pr.and_r(String.eq(ia, ib), Rp.ranks_eq(ra, rb), e))
 
 # The verdict
 # -----------
@@ -30341,7 +30490,7 @@ def pr.rel_older(same: Bool, older: Bool, newer: Bool, e: {Rp.rel.put(same, olde
 def pr.replace_older(c: Rp.Build, b: Rp.Build, -k: Rp.Caller, e: {Rp.verdict(c, b, k) == Rp.Replace{} : Rp.Verdict}) -> {Rp.lt(Rp.Build.rank(b), Rp.Build.rank(c)) == True{} : Bool}:
   match c b:
     case Rp.Build{+rc, +ic} Rp.Build{+rb, +ib}:
-      pr.rel_older(Nat.is_eq(ic, ib), Rp.lt(rb, rc), Rp.lt(rc, rb), pr.put_replace(Rp.rel.put(Nat.is_eq(ic, ib), Rp.lt(rb, rc), Rp.lt(rc, rb)), k, e))
+      pr.rel_older(String.eq(ic, ib), Rp.lt(rb, rc), Rp.lt(rc, rb), pr.put_replace(Rp.rel.put(String.eq(ic, ib), Rp.lt(rb, rc), Rp.lt(rc, rb)), k, e))
 
 # (D1) replace_never_downgrades
 # -----------------------------
@@ -30552,6 +30701,642 @@ def pr.bg(r: Rp.Rel, -c: Rp.Build, -d: Rp.Build) -> {Rp.after.put(Rp.verdict.put
 
 def pr.background_never_replaces(+c: Rp.Build, +d: Rp.Build) -> {Rp.after(Rp.Start{c, Rp.Background{}}, Some{d}) == d : Rp.Build}:
   pr.bg(Rp.relation(c, d), c, d)
+
+# The rank's field reader against semver.bend's Num.read
+# -------------------------------------------------------
+
+def rk.ten_mul(v: Nat) -> {Sv.Num.ten(v) == Nat.mul(v, 10n) : Nat}:
+  match v:
+    case 0n:
+      {==}
+    case 1n+p:
+      %rk.ten_mul(p) : {Nat.add(10n, Sv.Num.ten(p)) == Nat.add(10n, _) : Nat}
+      {==}
+
+def rk.fval(ds: List<&2, Sv.Dig>) -> {Rp.fval(ds) == Sv.Num.val(ds) : Nat}:
+  match ds:
+    case Nil{}:
+      {==}
+    case d <> +rest:
+      %rk.fval(rest) : {Nat.add(Sv.Dig.val(d), Nat.mul(Rp.fval(rest), 10n)) == Nat.add(Sv.Dig.val(d), Sv.Num.ten(_)) : Nat}
+      %rk.ten_mul(Rp.fval(rest)) : {Nat.add(Sv.Dig.val(d), _) == Nat.add(Sv.Dig.val(d), Sv.Num.ten(Rp.fval(rest))) : Nat}
+      {==}
+
+def rk.I10(ds: List<&2, Sv.Dig>) -> List<&2, Sv.Dig>:
+  Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(Sv.Num.inc(ds))))))))))
+
+# ten increments carry once and leave the last digit as it was
+def rk.inc10(d: Sv.Dig, -r: List<&2, Sv.Dig>) -> {rk.I10(d <> r) == d <> Sv.Num.inc(r) : List<&2, Sv.Dig>}:
+  match d:
+    case Sv.D0{}:
+      {==}
+    case Sv.D1{}:
+      {==}
+    case Sv.D2{}:
+      {==}
+    case Sv.D3{}:
+      {==}
+    case Sv.D4{}:
+      {==}
+    case Sv.D5{}:
+      {==}
+    case Sv.D6{}:
+      {==}
+    case Sv.D7{}:
+      {==}
+    case Sv.D8{}:
+      {==}
+    case Sv.D9{}:
+      {==}
+
+def rk.dec10(m: Nat) -> {Sv.Num.dec(Nat.add(10n, m)) == rk.I10(Sv.Num.dec(m)) : List<&2, Sv.Dig>}:
+  {==}
+
+def rk.add_succ(a: Nat, -b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %rk.add_succ(p, b) : {1n+Nat.add(p, 1n+b) == 1n+_ : Nat}
+      {==}
+
+# b + (a + c) == a + (b + c)
+def rk.add_swap(a: Nat, +b: Nat, -c: Nat) -> {Nat.add(b, Nat.add(a, c)) == Nat.add(a, Nat.add(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %rk.add_swap(p, b, c) : {Nat.add(b, 1n+Nat.add(p, c)) == 1n+_ : Nat}
+      rk.add_succ(b, Nat.add(p, c))
+
+def rk.dec_step0(d: Sv.Dig) -> {Sv.Num.dec(Nat.add(Sv.Dig.val(d), Sv.Num.ten(1n))) == d <> Sv.Num.dec(1n) : List<&2, Sv.Dig>}:
+  match d:
+    case Sv.D0{}:
+      {==}
+    case Sv.D1{}:
+      {==}
+    case Sv.D2{}:
+      {==}
+    case Sv.D3{}:
+      {==}
+    case Sv.D4{}:
+      {==}
+    case Sv.D5{}:
+      {==}
+    case Sv.D6{}:
+      {==}
+    case Sv.D7{}:
+      {==}
+    case Sv.D8{}:
+      {==}
+    case Sv.D9{}:
+      {==}
+
+# d + 10 * (1 + u) is written as d after the digits of 1 + u
+def rk.dec_step(+d: Sv.Dig, u: Nat) -> {Sv.Num.dec(Nat.add(Sv.Dig.val(d), Sv.Num.ten(1n+u))) == d <> Sv.Num.dec(1n+u) : List<&2, Sv.Dig>}:
+  match u:
+    case 0n:
+      rk.dec_step0(d)
+    case 1n++w:
+      +X = Sv.Num.ten(1n+w)
+      +v = Sv.Dig.val(d)
+      Equal.trans(List<&2, Sv.Dig>, Sv.Num.dec(Nat.add(v, Nat.add(10n, X))), Sv.Num.dec(Nat.add(10n, Nat.add(v, X))), d <> Sv.Num.inc(Sv.Num.dec(1n+w)), Equal.cong(Nat, List<&2, Sv.Dig>, Sv.Num.dec, Nat.add(v, Nat.add(10n, X)), Nat.add(10n, Nat.add(v, X)), rk.add_swap(10n, v, X)), Equal.trans(List<&2, Sv.Dig>, Sv.Num.dec(Nat.add(10n, Nat.add(v, X))), rk.I10(Sv.Num.dec(Nat.add(v, X))), d <> Sv.Num.inc(Sv.Num.dec(1n+w)), rk.dec10(Nat.add(v, X)), Equal.trans(List<&2, Sv.Dig>, rk.I10(Sv.Num.dec(Nat.add(v, X))), rk.I10(d <> Sv.Num.dec(1n+w)), d <> Sv.Num.inc(Sv.Num.dec(1n+w)), Equal.cong(List<&2, Sv.Dig>, List<&2, Sv.Dig>, rk.I10, Sv.Num.dec(Nat.add(v, X)), d <> Sv.Num.dec(1n+w), rk.dec_step(d, w)), rk.inc10(d, Sv.Num.dec(1n+w)))))
+
+def rk.ten_zero(v: Nat, e: {Sv.Num.ten(v) == 0n : Nat}) -> {v == 0n : Nat}:
+  match v:
+    case 0n:
+      {==}
+    case 1n+p:
+      pf.succ_ne_zero({1n+p == 0n : Nat}, Nat.add(9n, Sv.Num.ten(p)), e)
+
+# digits whose most significant digit is not 0 have a value above 0
+def rk.pos(rr: List<&2, Sv.Dig>, +r: Sv.Dig, h: {Bool.not(Rp.zero(Rp.top(rr, r))) == True{} : Bool}, e: {Sv.Num.val(r <> rr) == 0n : Nat}) -> Empty:
+  match rr:
+    case Nil{}:
+      match r:
+        case Sv.D0{}:
+          semver.ps.absurdF(Empty, h)
+        case Sv.D1{}:
+          pf.succ_ne_zero(Empty, 0n, e)
+        case Sv.D2{}:
+          pf.succ_ne_zero(Empty, 1n, e)
+        case Sv.D3{}:
+          pf.succ_ne_zero(Empty, 2n, e)
+        case Sv.D4{}:
+          pf.succ_ne_zero(Empty, 3n, e)
+        case Sv.D5{}:
+          pf.succ_ne_zero(Empty, 4n, e)
+        case Sv.D6{}:
+          pf.succ_ne_zero(Empty, 5n, e)
+        case Sv.D7{}:
+          pf.succ_ne_zero(Empty, 6n, e)
+        case Sv.D8{}:
+          pf.succ_ne_zero(Empty, 7n, e)
+        case Sv.D9{}:
+          pf.succ_ne_zero(Empty, 8n, e)
+    case +r2 <> +rr2:
+      rk.pos(rr2, r2, h, rk.ten_zero(Sv.Num.val(r2 <> rr2), pf.snd({Sv.Dig.val(r) == 0n : Nat}, {Sv.Num.ten(Sv.Num.val(r2 <> rr2)) == 0n : Nat}, auth_flight.pf.add_zero(Sv.Dig.val(r), Sv.Num.ten(Sv.Num.val(r2 <> rr2)), e))))
+
+def rk.canon_tail(rr: List<&2, Sv.Dig>, -r: Sv.Dig, h: {Bool.not(Rp.zero(Rp.top(rr, r))) == True{} : Bool}) -> {Rp.canon(r <> rr) == True{} : Bool}:
+  match rr:
+    case Nil{}:
+      {==}
+    case r2 <> rr2:
+      h
+
+def rk.dcons(-d: Sv.Dig, -a: List<&2, Sv.Dig>, -b: List<&2, Sv.Dig>, e: {a == b : List<&2, Sv.Dig>}) -> {d <> a == d <> b : List<&2, Sv.Dig>}:
+  %e : {d <> a == d <> _ : List<&2, Sv.Dig>}
+  {==}
+
+def rk.h1_at(+d: Sv.Dig, +rest: List<&2, Sv.Dig>, V: Nat, +eV: {Sv.Num.val(rest) == V : Nat}, nz: {Sv.Num.val(rest) == 0n : Nat} -> Empty, ih: {Sv.Num.dec(Sv.Num.val(rest)) == rest : List<&2, Sv.Dig>}) -> {Sv.Num.dec(Nat.add(Sv.Dig.val(d), Sv.Num.ten(V))) == d <> rest : List<&2, Sv.Dig>}:
+  match V:
+    case 0n:
+      Empty.absurd({Sv.Num.dec(Nat.add(Sv.Dig.val(d), Sv.Num.ten(0n))) == d <> rest : List<&2, Sv.Dig>}, nz(eV))
+    case 1n++u:
+      Equal.trans(List<&2, Sv.Dig>, Sv.Num.dec(Nat.add(Sv.Dig.val(d), Sv.Num.ten(1n+u))), d <> Sv.Num.dec(1n+u), d <> rest, rk.dec_step(d, u), rk.dcons(d, Sv.Num.dec(1n+u), rest, Equal.trans(List<&2, Sv.Dig>, Sv.Num.dec(1n+u), Sv.Num.dec(Sv.Num.val(rest)), rest, Equal.cong(Nat, List<&2, Sv.Dig>, Sv.Num.dec, 1n+u, Sv.Num.val(rest), Equal.sym(Nat, Sv.Num.val(rest), 1n+u, eV)), ih)))
+
+def rk.h1_one(d: Sv.Dig) -> {Sv.Num.dec(Sv.Num.val([d])) == [d] : List<&2, Sv.Dig>}:
+  match d:
+    case Sv.D0{}:
+      {==}
+    case Sv.D1{}:
+      {==}
+    case Sv.D2{}:
+      {==}
+    case Sv.D3{}:
+      {==}
+    case Sv.D4{}:
+      {==}
+    case Sv.D5{}:
+      {==}
+    case Sv.D6{}:
+      {==}
+    case Sv.D7{}:
+      {==}
+    case Sv.D8{}:
+      {==}
+    case Sv.D9{}:
+      {==}
+
+# canonical digits are the digits semver.bend writes for their value
+def rk.h1(ds: List<&2, Sv.Dig>, +h: {Rp.canon(ds) == True{} : Bool}) -> {Sv.Num.dec(Sv.Num.val(ds)) == ds : List<&2, Sv.Dig>}:
+  match ds:
+    case Nil{}:
+      semver.ps.absurdF({Sv.Num.dec(Sv.Num.val(Nil{})) == Nil{} : List<&2, Sv.Dig>}, h)
+    case +d <> rest:
+      match rest:
+        case Nil{}:
+          rk.h1_one(d)
+        case +r <> +rr:
+          rk.h1_at(d, r <> rr, Sv.Num.val(r <> rr), {==}, e => rk.pos(rr, r, h, e), rk.h1(r <> rr, rk.canon_tail(rr, r, h)))
+
+def rk.ofv(n: Nat) -> Sv.Dig:
+  match n:
+    case 0n:
+      Sv.D0{}
+    case 1n+n0:
+      match n0:
+        case 0n:
+          Sv.D1{}
+        case 1n+n1:
+          match n1:
+            case 0n:
+              Sv.D2{}
+            case 1n+n2:
+              match n2:
+                case 0n:
+                  Sv.D3{}
+                case 1n+n3:
+                  match n3:
+                    case 0n:
+                      Sv.D4{}
+                    case 1n+n4:
+                      match n4:
+                        case 0n:
+                          Sv.D5{}
+                        case 1n+n5:
+                          match n5:
+                            case 0n:
+                              Sv.D6{}
+                            case 1n+n6:
+                              match n6:
+                                case 0n:
+                                  Sv.D7{}
+                                case 1n+n7:
+                                  match n7:
+                                    case 0n:
+                                      Sv.D8{}
+                                    case 1n+n8:
+                                      Sv.D9{}
+
+def rk.ofv_val(d: Sv.Dig) -> {rk.ofv(Sv.Dig.val(d)) == d : Sv.Dig}:
+  match d:
+    case Sv.D0{}:
+      {==}
+    case Sv.D1{}:
+      {==}
+    case Sv.D2{}:
+      {==}
+    case Sv.D3{}:
+      {==}
+    case Sv.D4{}:
+      {==}
+    case Sv.D5{}:
+      {==}
+    case Sv.D6{}:
+      {==}
+    case Sv.D7{}:
+      {==}
+    case Sv.D8{}:
+      {==}
+    case Sv.D9{}:
+      {==}
+
+def rk.dig_sound(+a: Sv.Dig, +b: Sv.Dig, h: {Sv.Dig.eq(a, b) == True{} : Bool}) -> {a == b : Sv.Dig}:
+  Equal.trans(Sv.Dig, a, rk.ofv(Sv.Dig.val(a)), b, Equal.sym(Sv.Dig, rk.ofv(Sv.Dig.val(a)), a, rk.ofv_val(a)), Equal.trans(Sv.Dig, rk.ofv(Sv.Dig.val(a)), rk.ofv(Sv.Dig.val(b)), b, Equal.cong(Nat, Sv.Dig, rk.ofv, Sv.Dig.val(a), Sv.Dig.val(b), semver.ps.eq_true(Sv.Dig.val(a), Sv.Dig.val(b), h)), rk.ofv_val(b)))
+
+def rk.digs_sound(xs: List<&2, Sv.Dig>, ys: List<&2, Sv.Dig>, +h: {Sv.Num.digs_eq(xs, ys) == True{} : Bool}) -> {xs == ys : List<&2, Sv.Dig>}:
+  match xs ys:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} y <> yr:
+      semver.ps.absurdF({Nil{} == y <> yr : List<&2, Sv.Dig>}, h)
+    case x <> xr Nil{}:
+      semver.ps.absurdF({x <> xr == Nil{} : List<&2, Sv.Dig>}, h)
+    case +x <> +xr +y <> +yr:
+      %rk.dig_sound(x, y, semver.ps.and_l(Sv.Dig.eq(x, y), Sv.Num.digs_eq(xr, yr), h)) : {x <> xr == _ <> yr : List<&2, Sv.Dig>}
+      %rk.digs_sound(xr, yr, semver.ps.and_r(Sv.Dig.eq(x, y), Sv.Num.digs_eq(xr, yr), h)) : {x <> xr == x <> _ : List<&2, Sv.Dig>}
+      {==}
+
+# the most significant of the digits is not 0 (there is one)
+def rk.nz(ds: List<&2, Sv.Dig>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case d <> rest:
+      Bool.not(Rp.zero(Rp.top(rest, d)))
+
+def rk.canon_of_nz(ds: List<&2, Sv.Dig>, h: {rk.nz(ds) == True{} : Bool}) -> {Rp.canon(ds) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      semver.ps.absurdF({Rp.canon(Nil{}) == True{} : Bool}, h)
+    case d <> rest:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+
+def rk.nz_d0(X: List<&2, Sv.Dig>, h: {rk.nz(X) == True{} : Bool}) -> {rk.nz(Sv.D0{} <> X) == True{} : Bool}:
+  match X:
+    case Nil{}:
+      semver.ps.absurdF({rk.nz(Sv.D0{} <> Nil{}) == True{} : Bool}, h)
+    case x <> xs:
+      h
+
+def rk.inc_nz_cons(d: Sv.Dig, rest: List<&2, Sv.Dig>, +h: {Rp.canon(d <> rest) == True{} : Bool}, ih: {Rp.canon(rest) == True{} : Bool} -> {rk.nz(Sv.Num.inc(rest)) == True{} : Bool}) -> {rk.nz(Sv.Num.inc(d <> rest)) == True{} : Bool}:
+  match d:
+    case Sv.D0{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D1{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D2{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D3{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D4{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D5{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D6{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D7{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D8{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case r <> rr:
+          h
+    case Sv.D9{}:
+      match rest:
+        case Nil{}:
+          {==}
+        case +r <> +rr:
+          rk.nz_d0(Sv.Num.inc(r <> rr), ih(rk.canon_tail(rr, r, h)))
+
+# the next number of canonical digits has a most significant digit that is not 0
+def rk.inc_nz(ds: List<&2, Sv.Dig>, h: {Rp.canon(ds) == True{} : Bool}) -> {rk.nz(Sv.Num.inc(ds)) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      semver.ps.absurdF({rk.nz(Sv.Num.inc(Nil{})) == True{} : Bool}, h)
+    case d <> +rest:
+      rk.inc_nz_cons(d, rest, h, c => rk.inc_nz(rest, c))
+
+def rk.canon_dec(n: Nat) -> {Rp.canon(Sv.Num.dec(n)) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n++p:
+      rk.canon_of_nz(Sv.Num.inc(Sv.Num.dec(p)), rk.inc_nz(Sv.Num.dec(p), rk.canon_dec(p)))
+
+# digits semver.bend reads back as written are canonical
+def rk.h2(+ds: List<&2, Sv.Dig>, h: {Sv.Num.digs_eq(Sv.Num.dec(Sv.Num.val(ds)), ds) == True{} : Bool}) -> {Rp.canon(ds) == True{} : Bool}:
+  %rk.digs_sound(Sv.Num.dec(Sv.Num.val(ds)), ds, h) : {Rp.canon(_) == True{} : Bool}
+  rk.canon_dec(Sv.Num.val(ds))
+
+# The order and the verdict, exactly
+def rk.lex_cmp(c: Cmp, -t: Bool) -> {Rp.lex.put(c, t) == Bool.or(Cmp.is_lt(c), Bool.and(Cmp.is_eq(c), t)) : Bool}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      {==}
+    case GT{}:
+      {==}
+
+def rk.lt_spec(xs: List<&2, Nat>, ys: List<&2, Nat>) -> {Rp.lt(xs, ys) == Laws.rank_below(xs, ys) : Bool}:
+  match xs ys:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} y <> yr:
+      {==}
+    case x <> xr Nil{}:
+      {==}
+    case +x <> +xr +y <> +yr:
+      %rk.lt_spec(xr, yr) : {Rp.lex(x, y, Rp.lt(xr, yr)) == Bool.or(Nat.is_lt(x, y), Bool.and(Nat.is_eq(x, y), _)) : Bool}
+      rk.lex_cmp(Nat.cmp(x, y), Rp.lt(xr, yr))
+
+def rk.rel_pick(same: Bool, older: Bool, newer: Bool) -> {Rp.rel.put(same, older, newer) == Laws.rel_spec.pick(same, older, newer) : Rp.Rel}:
+  match same older newer:
+    case True{} _ _:
+      {==}
+    case False{} True{} _:
+      {==}
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
+      {==}
+
+def rk.relation_exact(+c: Rp.Build, +d: Rp.Build) -> {Rp.relation(c, d) == Laws.rel_spec(c, d) : Rp.Rel}:
+  match c d:
+    case Rp.Build{+rc, +ic} Rp.Build{+rd, +id}:
+      %rk.lt_spec(rd, rc) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Laws.rel_spec.pick(String.eq(ic, id), _, Laws.rank_below(rc, rd)) : Rp.Rel}
+      %rk.lt_spec(rc, rd) : {Rp.rel.put(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd)) == Laws.rel_spec.pick(String.eq(ic, id), Rp.lt(rd, rc), _) : Rp.Rel}
+      rk.rel_pick(String.eq(ic, id), Rp.lt(rd, rc), Rp.lt(rc, rd))
+
+def rk.verdict_put(r: Rp.Rel, k: Rp.Caller) -> {Rp.verdict.put(r, k) == Laws.verdict_spec(r, k) : Rp.Verdict}:
+  match r k:
+    case Rp.Same{} Rp.Interactive{}:
+      {==}
+    case Rp.Same{} Rp.Background{}:
+      {==}
+    case Rp.Older{} Rp.Interactive{}:
+      {==}
+    case Rp.Older{} Rp.Background{}:
+      {==}
+    case Rp.Newer{} Rp.Interactive{}:
+      {==}
+    case Rp.Newer{} Rp.Background{}:
+      {==}
+    case Rp.Other{} Rp.Interactive{}:
+      {==}
+    case Rp.Other{} Rp.Background{}:
+      {==}
+
+def rk.verdict_exact(+c: Rp.Build, +d: Rp.Build, +k: Rp.Caller) -> {Rp.verdict(c, d, k) == Laws.verdict_spec(Laws.rel_spec(c, d), k) : Rp.Verdict}:
+  %rk.relation_exact(c, d) : {Rp.verdict.put(Rp.relation(c, d), k) == Laws.verdict_spec(_, k) : Rp.Verdict}
+  rk.verdict_put(Rp.relation(c, d), k)
+
+def Laws.replace_relation_exact(c, d):
+  rk.relation_exact(c, d)
+
+def Laws.replace_verdict_exact(c, d, k):
+  rk.verdict_exact(c, d, k)
+
+def Laws.replace_rank_example():
+  {==}
+
+def Laws.replace_rank_past_range_example():
+  {==}
+
+def Laws.replace_ping_pong_example():
+  {==}
+
+def rk.keepm(ok: Bool, x: Nat) -> Maybe<&2, Nat>:
+  match ok:
+    case True{}:
+      Some{x}
+    case False{}:
+      None{}
+
+# a number semver.bend reads, kept when it has at most 14 digits
+def rk.guard(m: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match m:
+    case None{}:
+      None{}
+    case Some{+x}:
+      rk.keepm(Laws.rank_spec.short(x), x)
+
+def rk.fp(L: Bool, +ds: List<&2, Sv.Dig>) -> {Rp.field.put(Bool.and(L, True{}), ds) == rk.keepm(L, Sv.Num.val(ds)) : Maybe<&2, Nat>}:
+  match L:
+    case True{}:
+      %rk.fval(ds) : {Some{Rp.fval(ds)} == Some{_} : Maybe<&2, Nat>}
+      {==}
+    case False{}:
+      {==}
+
+def rk.fp0(L: Bool, -ds: List<&2, Sv.Dig>) -> {Rp.field.put(Bool.and(L, False{}), ds) == None{} : Maybe<&2, Nat>}:
+  match L:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.not_true(b: Bool, f: {b == True{} : Bool} -> Empty) -> {b == False{} : Bool}:
+  match b:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, f({==}))
+    case False{}:
+      {==}
+
+def rk.field_at(+ds: List<&2, Sv.Dig>, c: Bool, ec: {Rp.canon(ds) == c : Bool}) -> {Rp.field.put(Bool.and(Nat.is_le(List.length(&2, Sv.Dig, ds), 14n), c), ds) == rk.guard(Sv.Num.read(ds)) : Maybe<&2, Nat>}:
+  match c:
+    case True{}:
+      +L = Nat.is_le(List.length(&2, Sv.Dig, ds), 14n)
+      +V = Sv.Num.val(ds)
+      +E = Equal.sym(List<&2, Sv.Dig>, Sv.Num.dec(V), ds, rk.h1(ds, ec))
+      %E : {Rp.field.put(Bool.and(L, True{}), ds) == rk.guard(Sv.Num.read.ok(V, Sv.Num.digs_eq(_, ds))) : Maybe<&2, Nat>}
+      %ps.digs_refl(ds) : {Rp.field.put(Bool.and(L, True{}), ds) == rk.guard(Sv.Num.read.ok(V, _)) : Maybe<&2, Nat>}
+      %E : {Rp.field.put(Bool.and(L, True{}), ds) == rk.keepm(Nat.is_le(List.length(&2, Sv.Dig, _), 14n), V) : Maybe<&2, Nat>}
+      rk.fp(L, ds)
+    case False{}:
+      +L = Nat.is_le(List.length(&2, Sv.Dig, ds), 14n)
+      +V = Sv.Num.val(ds)
+      +D = rk.not_true(Sv.Num.digs_eq(Sv.Num.dec(V), ds), t => semver.ps.absurdF(Empty, Equal.trans(Bool, False{}, Rp.canon(ds), True{}, Equal.sym(Bool, Rp.canon(ds), False{}, ec), rk.h2(ds, t))))
+      %Equal.sym(Bool, Sv.Num.digs_eq(Sv.Num.dec(V), ds), False{}, D) : {Rp.field.put(Bool.and(L, False{}), ds) == rk.guard(Sv.Num.read.ok(V, _)) : Maybe<&2, Nat>}
+      rk.fp0(L, ds)
+
+def rk.field(+ds: List<&2, Sv.Dig>) -> {Rp.field(ds) == rk.guard(Sv.Num.read(ds)) : Maybe<&2, Nat>}:
+  rk.field_at(ds, Rp.canon(ds), {==})
+
+def rk.t1(p: Bool, -x: Nat, -gc: Maybe<&2, Nat>, -t: Nat) -> {Rp.rank.of3(rk.keepm(p, x), None{}, gc, t) == Nil{} : List<&2, Nat>}:
+  match p:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.t2(p: Bool, q: Bool, -x: Nat, -y: Nat, -t: Nat) -> {Rp.rank.of3(rk.keepm(p, x), rk.keepm(q, y), None{}, t) == Nil{} : List<&2, Nat>}:
+  match p q:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def rk.t3(p: Bool, q: Bool, r: Bool, -x: Nat, -y: Nat, -z: Nat, -t: Nat) -> {Rp.rank.of3(rk.keepm(p, x), rk.keepm(q, y), rk.keepm(r, z), t) == Laws.rank_spec.keep(Bool.and(p, Bool.and(q, r)), x, y, t, z) : List<&2, Nat>}:
+  match p q r:
+    case True{} True{} True{}:
+      {==}
+    case True{} True{} False{}:
+      {==}
+    case True{} False{} True{}:
+      {==}
+    case True{} False{} False{}:
+      {==}
+    case False{} True{} True{}:
+      {==}
+    case False{} True{} False{}:
+      {==}
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
+      {==}
+
+def rk.three(ra: Maybe<&2, Nat>, rb: Maybe<&2, Nat>, rc: Maybe<&2, Nat>, +t: Nat) -> {Rp.rank.of3(rk.guard(ra), rk.guard(rb), rk.guard(rc), t) == Laws.rank_spec.of(Sv.Ver.of3(ra, rb, rc), t) : List<&2, Nat>}:
+  match ra rb rc:
+    case None{} _ _:
+      {==}
+    case Some{+x} None{} _:
+      rk.t1(Laws.rank_spec.short(x), x, rk.guard(rc), t)
+    case Some{+x} Some{+y} None{}:
+      rk.t2(Laws.rank_spec.short(x), Laws.rank_spec.short(y), x, y, t)
+    case Some{+x} Some{+y} Some{+z}:
+      rk.t3(Laws.rank_spec.short(x), Laws.rank_spec.short(y), Laws.rank_spec.short(z), x, y, z, t)
+
+def rk.fields(m: Maybe<&2, List<&2, List<&2, Sv.Dig>>>, +t: Nat) -> {Rp.rank.fields(m, t) == Laws.rank_spec.of(Sv.Ver.of_fields(m), t) : List<&2, Nat>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{fs}:
+      match fs:
+        case Nil{}:
+          {==}
+        case c <> Nil{}:
+          {==}
+        case c <> b <> Nil{}:
+          {==}
+        case +c <> +b <> +a <> Nil{}:
+          %Equal.sym(Maybe<&2, Nat>, Rp.field(a), rk.guard(Sv.Num.read(a)), rk.field(a)) : {Rp.rank.of3(_, Rp.field(b), Rp.field(c), t) == Laws.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
+          %Equal.sym(Maybe<&2, Nat>, Rp.field(b), rk.guard(Sv.Num.read(b)), rk.field(b)) : {Rp.rank.of3(rk.guard(Sv.Num.read(a)), _, Rp.field(c), t) == Laws.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
+          %Equal.sym(Maybe<&2, Nat>, Rp.field(c), rk.guard(Sv.Num.read(c)), rk.field(c)) : {Rp.rank.of3(rk.guard(Sv.Num.read(a)), rk.guard(Sv.Num.read(b)), _, t) == Laws.rank_spec.of(Sv.Ver.of3(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c)), t) : List<&2, Nat>}
+          rk.three(Sv.Num.read(a), Sv.Num.read(b), Sv.Num.read(c), t)
+        case c <> b <> a <> d <> more:
+          {==}
+
+def rk.core_at(b: Bool, -c: Char, -rest: String) -> {Rp.core.at(b, c, rest) == Laws.rank_spec.core.at(b, c, rest) : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.core_eq(s: String) -> {Rp.core(s) == Laws.rank_spec.core(s) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +r}:
+      %rk.core_eq(r) : {Rp.core.at(Char.is_eq(c, '-'), c, Rp.core(r)) == Laws.rank_spec.core.at(Char.is_eq(c, '-'), c, _) : String}
+      rk.core_at(Char.is_eq(c, '-'), c, Rp.core(r))
+
+def rk.tier_at(b: Bool, -rest: Nat) -> {Rp.tier.at(b, rest) == Laws.rank_spec.tier.at(b, rest) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rk.tier_eq(s: String) -> {Rp.tier(s) == Laws.rank_spec.tier(s) : Nat}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{c, +r}:
+      %rk.tier_eq(r) : {Rp.tier.at(Char.is_eq(c, '-'), Rp.tier(r)) == Laws.rank_spec.tier.at(Char.is_eq(c, '-'), _) : Nat}
+      rk.tier_at(Char.is_eq(c, '-'), Rp.tier(r))
+
+def rk.rank(+s: String) -> {Rp.rank(s) == Laws.rank_spec(s) : List<&2, Nat>}:
+  %rk.core_eq(s) : {Rp.rank(s) == Laws.rank_spec.of(Sv.Ver.of_fields(Sv.Ver.fields(Sv.Sym.list(_), Nil{}, Nil{})), Laws.rank_spec.tier(s)) : List<&2, Nat>}
+  %rk.tier_eq(s) : {Rp.rank(s) == Laws.rank_spec.of(Sv.Ver.of_fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{})), _) : List<&2, Nat>}
+  rk.fields(Sv.Ver.fields(Sv.Sym.list(Rp.core(s)), Nil{}, Nil{}), Rp.tier(s))
+
+def rk.ir(+a: Nat, +b: Nat, -t: Nat, +c: Nat, ok: Bool, eq: {Bool.and(Laws.rank_spec.short(a), Bool.and(Laws.rank_spec.short(b), Laws.rank_spec.short(c))) == ok : Bool}) -> {Laws.rank_spec.in_range(Laws.rank_spec.keep(ok, a, b, t, c)) == True{} : Bool}:
+  match ok:
+    case True{}:
+      eq
+    case False{}:
+      {==}
+
+def rk.in_range_of(m: Maybe<&2, Sv.Ver>, -t: Nat) -> {Laws.rank_spec.in_range(Laws.rank_spec.of(m, t)) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{v}:
+      match v:
+        case Sv.Ver{+a, +b, +c}:
+          rk.ir(a, b, t, c, Bool.and(Laws.rank_spec.short(a), Bool.and(Laws.rank_spec.short(b), Laws.rank_spec.short(c))), {==})
+
+def Laws.replace_rank_reads_semver(s):
+  rk.rank(s)
+
+def Laws.replace_rank_in_range(s):
+  %Equal.sym(List<&2, Nat>, Rp.rank(s), Laws.rank_spec(s), rk.rank(s)) : {Laws.rank_spec.in_range(_) == True{} : Bool}
+  rk.in_range_of(Sv.Ver.parse(Laws.rank_spec.core(s)), Laws.rank_spec.tier(s))
 
 # ---- notice ----
 

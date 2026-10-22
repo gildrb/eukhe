@@ -2247,6 +2247,75 @@ law layout_whole_when_room:
   for fits: {Nat.is_le(Nat.add(y, Sc.sum(hs)), rows) == True{} : Bool}
   {Sc.heights(Sc.vstack(hs, y, rows)) == hs : List<&2, Nat>}
 
+# LAW: the guarded share is the plain formula, for every minimum, lag and
+# backlog: a frame reveals min(b, max(min, b / (1 + k)))
+# EXCLUDES: a guard (no 1 + k formed when k >= b) that changes the
+# reveal for some lag
+law pace_reveal_formula:
+  for +min: Nat
+  for +k: Nat
+  for +b: Nat
+  {Sc.reveal(min, k, b) == Nat.min(b, Nat.max(min, Nat.div(b, 1n+k))) : Nat}
+
+# LAW: a lag at least the backlog reveals the minimum (the whole backlog
+# when it is smaller). Rust saturates the lag at the cap of the compiled
+# core's numbers (2^48 - 1), which is at least every backlog it holds: a
+# lag at the cap reveals the minimum
+# EXCLUDES: a capped lag that reveals more than the minimum, or nothing
+law pace_lag_at_cap:
+  for +min: Nat
+  for +k: Nat
+  for +b: Nat
+  for capped: {Nat.is_le(b, k) == True{} : Bool}
+  {Sc.reveal(min, k, b) == Nat.min(b, min) : Nat}
+
+# every block of bs is committed
+def all_comm(bs: List<&2, Sc.Blk>) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case b <> rest:
+      match b:
+        case Sc.Blk{i, s, l}:
+          match s:
+            case Sc.Comm{}:
+              all_comm(rest)
+            case Sc.Final{}:
+              False{}
+            case Sc.Active{}:
+              False{}
+
+# the transcript t with the blocks cs before its blocks
+def under(cs: List<&2, Sc.Blk>, t: Sc.Tx) -> Sc.Tx:
+  match t:
+    case Sc.Tx{bs, n, w}:
+      Sc.Tx{List.append(&2, Sc.Blk, cs, bs), n, w}
+
+# LAW: committed blocks are inert. Any events on a transcript whose
+# blocks start with committed blocks cs give the transcript the same
+# events give without cs, with cs in front. So the core runs on the blocks
+# after the committed prefix alone (Rust sends only those)
+# EXCLUDES: an event that changes, drops or moves a committed block, and
+# a result that depends on the committed blocks
+law tx_committed_inert:
+  for es: List<&2, Sc.Ev>
+  for +cs: List<&2, Sc.Blk>
+  for +bs: List<&2, Sc.Blk>
+  for +n: Nat
+  for +w: Nat
+  for comm: {all_comm(cs) == True{} : Bool}
+  {Sc.run(es, Sc.Tx{List.append(&2, Sc.Blk, cs, bs), n, w}) == under(cs, Sc.run(es, Sc.Tx{bs, n, w})) : Sc.Tx}
+
+# LAW: the premise of tx_committed_inert holds for a real prefix
+# EXCLUDES: an all_comm that is never True (a vacuous inert law)
+law all_comm_example:
+  {all_comm([Sc.Blk{0n, Sc.Comm{}, 3n}, Sc.Blk{1n, Sc.Comm{}, 0n}]) == True{} : Bool}
+
+# LAW: a prefix with a final or an active block is not committed
+# EXCLUDES: an all_comm that is always True
+law all_comm_rejects:
+  {Bool.or(all_comm([Sc.Blk{0n, Sc.Final{}, 0n}]), all_comm([Sc.Blk{0n, Sc.Comm{}, 0n}, Sc.Blk{1n, Sc.Active{}, 0n}])) == False{} : Bool}
+
 # (S9) Local tiny models
 # ----------------------
 # docs/inference.md S9, the model in bend/tiny.bend. Every input is free:
@@ -5650,6 +5719,191 @@ law background_never_replaces:
   for +c: Rp.Build
   for +d: Rp.Build
   {Rp.after(Rp.Start{c, Rp.Background{}}, Some{d}) == d : Rp.Build}
+
+# The rank of a version, read by semver.bend's reader (the spec): the text
+# before the first '-' read as a version X.Y.Z (Sv.Ver.parse: decimal
+# numbers without leading zeros, three of them, nothing else) whose
+# numbers have at most 14 digits; [X, Y, 0, Z] with a '-' (a prerelease),
+# [X, Y, 1, Z] without; [] for any other text. A number of 15 digits or
+# more is past the range of the compiled core's numbers (2^48 - 1): its
+# version has no rank, as text that is no version.
+
+def rank_spec.core.at(dash: Bool, c: Char, rest: String) -> String:
+  match dash:
+    case True{}:
+      SNil{}
+    case False{}:
+      SCon{c, rest}
+
+# the text before the first '-'
+def rank_spec.core(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, r}:
+      rank_spec.core.at(Char.is_eq(c, '-'), c, rank_spec.core(r))
+
+def rank_spec.tier.at(dash: Bool, rest: Nat) -> Nat:
+  match dash:
+    case True{}:
+      0n
+    case False{}:
+      rest
+
+# 0 with a '-' in the text, else 1
+def rank_spec.tier(s: String) -> Nat:
+  match s:
+    case SNil{}:
+      1n
+    case SCon{c, r}:
+      rank_spec.tier.at(Char.is_eq(c, '-'), rank_spec.tier(r))
+
+# x is written with at most 14 digits
+def rank_spec.short(+x: Nat) -> Bool:
+  Nat.is_le(List.length(&2, Sv.Dig, Sv.Num.dec(x)), 14n)
+
+def rank_spec.keep(ok: Bool, a: Nat, b: Nat, t: Nat, c: Nat) -> List<&2, Nat>:
+  match ok:
+    case True{}:
+      [a, b, t, c]
+    case False{}:
+      Nil{}
+
+def rank_spec.of(m: Maybe<&2, Sv.Ver>, t: Nat) -> List<&2, Nat>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{v}:
+      match v:
+        case Sv.Ver{+a, +b, +c}:
+          rank_spec.keep(Bool.and(rank_spec.short(a), Bool.and(rank_spec.short(b), rank_spec.short(c))), a, b, t, c)
+
+def rank_spec(+s: String) -> List<&2, Nat>:
+  rank_spec.of(Sv.Ver.parse(rank_spec.core(s)), rank_spec.tier(s))
+
+# a rank is empty, or four numbers whose version numbers (the first, the
+# second and the fourth) have at most 14 digits
+def rank_spec.in_range(xs: List<&2, Nat>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case a <> r1:
+      match r1:
+        case Nil{}:
+          False{}
+        case b <> r2:
+          match r2:
+            case Nil{}:
+              False{}
+            case t <> r3:
+              match r3:
+                case Nil{}:
+                  False{}
+                case c <> r4:
+                  match r4:
+                    case Nil{}:
+                      Bool.and(rank_spec.short(a), Bool.and(rank_spec.short(b), rank_spec.short(c)))
+                    case e <> r5:
+                      False{}
+
+# The order of ranks: lexicographic, the empty rank lowest
+def rank_below(xs: List<&2, Nat>, ys: List<&2, Nat>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      False{}
+    case Nil{} y <> yr:
+      True{}
+    case x <> xr Nil{}:
+      False{}
+    case +x <> xr +y <> yr:
+      Bool.or(Nat.is_lt(x, y), Bool.and(Nat.is_eq(x, y), rank_below(xr, yr)))
+
+def rel_spec.pick(same: Bool, older: Bool, newer: Bool) -> Rp.Rel:
+  match same older newer:
+    case True{} _ _:
+      Rp.Same{}
+    case False{} True{} _:
+      Rp.Older{}
+    case False{} False{} True{}:
+      Rp.Newer{}
+    case False{} False{} False{}:
+      Rp.Other{}
+
+# how daemon d relates to client c: the same build id is the same build;
+# else the daemon's rank is below (older), above (newer) or neither
+# (another build of an equal rank)
+def rel_spec(c: Rp.Build, d: Rp.Build) -> Rp.Rel:
+  match c d:
+    case Rp.Build{+rc, ic} Rp.Build{+rd, id}:
+      rel_spec.pick(String.eq(ic, id), rank_below(rd, rc), rank_below(rc, rd))
+
+# an interactive start replaces an older daemon; every other start keeps
+# the daemon and names the relation
+def verdict_spec(r: Rp.Rel, k: Rp.Caller) -> Rp.Verdict:
+  match r k:
+    case Rp.Older{} Rp.Interactive{}:
+      Rp.Replace{}
+    case Rp.Older{} Rp.Background{}:
+      Rp.Keep{Rp.Older{}}
+    case Rp.Same{} _:
+      Rp.Keep{Rp.Same{}}
+    case Rp.Newer{} _:
+      Rp.Keep{Rp.Newer{}}
+    case Rp.Other{} _:
+      Rp.Keep{Rp.Other{}}
+
+# LAW: the rank of every text is the rank semver.bend's reader gives it,
+# with numbers of at most 14 digits
+# EXCLUDES: a reader that accepts a leading zero, an empty field, two or
+# four fields, a sign or any other symbol; a reader that rounds, clamps or
+# wraps a number past the range instead of refusing it; a wrong tier
+law replace_rank_reads_semver:
+  for +s: String
+  {Rp.rank(s) == rank_spec(s) : List<&2, Nat>}
+
+# LAW: every rank is empty or four numbers, and each version number in it
+# has at most 14 digits: a version number past the range never ranks
+# EXCLUDES: a clamped or wrapped number (the order of a hostile version
+# would change), a rank of another length
+law replace_rank_in_range:
+  for +s: String
+  {rank_spec.in_range(Rp.rank(s)) == True{} : Bool}
+
+# LAW: the versions of the release history rank as documented
+# EXCLUDES: a misread spec: textual instead of numeric order, a prerelease
+# above its release, a parse of text that is no version
+law replace_rank_example:
+  {[Rp.rank("garbage"), Rp.rank("0.9.0-dev"), Rp.rank("0.9.9-main.46"), Rp.rank("0.10.40"), Rp.rank("1.2.3-"), Rp.rank("01.2.3"), Rp.rank("1.2"), Rp.rank("1.2.3.4"), Rp.rank(""), Rp.rank("1..3"), Rp.rank("+1.2.3")] == [[], [0n, 9n, 0n, 0n], [0n, 9n, 0n, 9n], [0n, 10n, 1n, 40n], [1n, 2n, 0n, 3n], [], [], [], [], [], []] : List<&2, List<&2, Nat>>}
+
+# LAW: a number of 15 digits has no rank, in any place
+# EXCLUDES: a reader that folds a long field into a Nat (the compiled core
+# aborts past 2^48 - 1)
+law replace_rank_past_range_example:
+  {[Rp.rank("100000000000000.0.0"), Rp.rank("0.100000000000000.0"), Rp.rank("0.0.100000000000000-dev")] == [[], [], []] : List<&2, List<&2, Nat>>}
+
+# LAW: the relation of the daemon to the client is exactly rel_spec
+# EXCLUDES: a relation that ignores the build ids, compares ranks the
+# wrong way round, or calls an equal rank older or newer
+law replace_relation_exact:
+  for +c: Rp.Build
+  for +d: Rp.Build
+  {Rp.relation(c, d) == rel_spec(c, d) : Rp.Rel}
+
+# LAW: the verdict of a start is exactly verdict_spec of the relation
+# EXCLUDES: a start that never replaces (an older daemon kept for good), a
+# background start that replaces, a replaced newer daemon
+law replace_verdict_exact:
+  for +c: Rp.Build
+  for +d: Rp.Build
+  for +k: Rp.Caller
+  {Rp.verdict(c, d, k) == verdict_spec(rel_spec(c, d), k) : Rp.Verdict}
+
+# LAW: the ping-pong pair settles on the newer build: an old dashboard
+# (0.9.9-main.46) and a new client (0.10.40) by every caller, and a client
+# of the daemon's own build
+# EXCLUDES: the regression where the two replaced each other forever
+law replace_ping_pong_example:
+  {[Rp.verdict(Rp.Build.of("0.9.9-main.46", "o"), Rp.Build.of("0.10.40", "n"), Rp.Background{}), Rp.verdict(Rp.Build.of("0.9.9-main.46", "o"), Rp.Build.of("0.10.40", "n"), Rp.Interactive{}), Rp.verdict(Rp.Build.of("0.10.40", "n"), Rp.Build.of("0.9.9-main.46", "o"), Rp.Background{}), Rp.verdict(Rp.Build.of("0.10.40", "n"), Rp.Build.of("0.9.9-main.46", "o"), Rp.Interactive{}), Rp.verdict(Rp.Build.of("0.10.40", "n"), Rp.Build.of("0.10.40", "n"), Rp.Interactive{}), Rp.verdict(Rp.Build.of("0.10.0-dev", "a"), Rp.Build.of("0.10.0-dev", "b"), Rp.Interactive{})] == [Rp.Keep{Rp.Newer{}}, Rp.Keep{Rp.Newer{}}, Rp.Keep{Rp.Older{}}, Rp.Replace{}, Rp.Keep{Rp.Same{}}, Rp.Keep{Rp.Other{}}] : List<&2, Rp.Verdict>}
 
 # LAW: an attach never shows a kernel restore notice again. After any
 # restores, live notices and attaches (reconnects, worker restarts), in

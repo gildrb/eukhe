@@ -3,12 +3,14 @@
 //! daemon on its socket, then keeps the daemon or replaces it.
 //!
 //! A version `X.Y.Z` (each number in decimal without leading zeros, as in
-//! `bend/semver.bend`) is a release. A version `X.Y.Z-<suffix>` (a `-dev`
-//! build or an older-scheme build such as `0.9.9-main.46`) ranks below the
-//! releases of its series `X.Y`. Ranks order by major, minor, release
-//! before prerelease, and patch. Any other text has no rank and ranks below
-//! all versions. Two builds with the same build id are the same build; two
-//! other builds of an equal rank are not in order.
+//! `bend/semver.bend`, with at most 14 digits) is a release. A version
+//! `X.Y.Z-<suffix>` (a `-dev` build or an older-scheme build such as
+//! `0.9.9-main.46`) ranks below the releases of its series `X.Y`. Ranks
+//! order by major, minor, release before prerelease, and patch. Any other
+//! text has no rank and ranks below all versions; so does a version with a
+//! number of 15 digits or more, past the range of the compiled Bend core's
+//! numbers (2^48 - 1). Two builds with the same build id are the same
+//! build; two other builds of an equal rank are not in order.
 //!
 //! Only an interactive start replaces a daemon, and only a daemon of a
 //! lower rank. Thus a client never replaces a newer daemon, a background
@@ -91,9 +93,10 @@ struct Rank {
     patch: u64,
 }
 
-/// A number in decimal without leading zeros.
+/// A number in decimal without leading zeros, of at most 14 digits.
 fn number(text: &str) -> Option<u64> {
     let canonical = !text.is_empty()
+        && text.len() <= 14
         && text.bytes().all(|byte| byte.is_ascii_digit())
         && (text.len() == 1 || !text.starts_with('0'));
     canonical.then(|| text.parse().ok()).flatten()

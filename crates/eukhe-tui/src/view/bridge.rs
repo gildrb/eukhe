@@ -8,8 +8,8 @@
 //!
 //! A scenario file (no trailing newline) starts with the part it drives:
 //!
-//! - `t`, then one ledger event a line: `o` (open), `g X N` (grow block X
-//!   by N), `f X` (finish X), `l` (flush), `r W` (resize to W). After each
+//! - `t`, then one ledger event a line: `o` (open), `f X` (finish X), `l`
+//!   (flush), `r W` (resize to W); the Rust ledger never grows a block. After each
 //!   event: `W N|ID:S:LEN ...|ID:LEN ...|F G` -- the width, the number of
 //!   blocks, the blocks (S is `a`, `f` or `c`), the scrollback (the
 //!   committed prefix), whether the first block not committed is active
@@ -26,7 +26,7 @@
 
 use std::fmt::Write as _;
 
-use super::ledger::{Ledger, Phase};
+use super::ledger::{Event, Ledger, Phase};
 use super::stack::vstack;
 use crate::inline_term::{present, resync, Check, Painting, Redraw, Shown};
 use crate::pace::{Pace, PaceRate};
@@ -39,32 +39,30 @@ fn bit(value: bool) -> u8 {
     u8::from(value)
 }
 
+/// A block's length: the ledger never grows a block (the model's `len`
+/// stays 0 on every block the Rust code opens).
 fn ledger_line(ledger: &Ledger) -> String {
     let blocks = ledger.blocks();
     let committed = ledger.committed();
     let shown: Vec<String> = blocks
         .iter()
         .enumerate()
-        .map(|(id, block)| {
-            let phase = match block.phase {
+        .map(|(id, phase)| {
+            let phase = match phase {
                 Phase::Active => "a",
                 Phase::Final => "f",
                 Phase::Committed => "c",
             };
-            format!("{id}:{phase}:{}", block.len)
+            format!("{id}:{phase}:0")
         })
         .collect();
-    let scroll: Vec<String> = blocks[..committed]
-        .iter()
-        .enumerate()
-        .map(|(id, block)| format!("{id}:{}", block.len))
-        .collect();
+    let scroll: Vec<String> = (0..committed).map(|id| format!("{id}:0")).collect();
     let flushed = blocks
         .get(committed)
-        .is_none_or(|block| block.phase == Phase::Active);
+        .is_none_or(|phase| *phase == Phase::Active);
     let gapless = blocks[committed..]
         .iter()
-        .all(|block| block.phase != Phase::Committed);
+        .all(|phase| *phase != Phase::Committed);
     format!(
         "{} {}|{}|{}|{} {}\n",
         ledger.width(),
@@ -76,40 +74,28 @@ fn ledger_line(ledger: &Ledger) -> String {
     )
 }
 
-/// A transcript scenario: opens, growths and finishes of any block (some
-/// that do not exist), flushes and resizes, in any order.
+/// A transcript scenario: opens and finishes of any block (some that do
+/// not exist), flushes and resizes, in any order.
 fn transcript(rng: &mut Rng, at: usize) -> Scenario {
     let mut ledger = Ledger::default();
     let mut events = vec!["t".to_string()];
     let mut transcript = String::new();
     for _ in 0..rng.range(1, 60) {
         let blocks = ledger.blocks().len() as u64;
-        let event = match rng.below(100) {
-            0..=24 => {
-                ledger.open();
-                "o".to_string()
-            }
-            25..=49 => {
-                let (id, n) = (rng.below(blocks + 2), rng.below(6));
-                ledger.grow(id as usize, n as usize);
-                format!("g {id} {n}")
-            }
-            50..=69 => {
+        let (event, line) = match rng.below(100) {
+            0..=34 => (Event::Open, "o".to_string()),
+            35..=69 => {
                 let id = rng.below(blocks + 2);
-                ledger.finish(id as usize);
-                format!("f {id}")
+                (Event::Finish(id as usize), format!("f {id}"))
             }
-            70..=89 => {
-                let _committed = ledger.flush();
-                "l".to_string()
-            }
+            70..=89 => (Event::Flush, "l".to_string()),
             _ => {
                 let width = rng.below(240);
-                ledger.resize(width as usize);
-                format!("r {width}")
+                (Event::Resize(width as usize), format!("r {width}"))
             }
         };
-        events.push(event);
+        let _committed = ledger.apply(&[event]);
+        events.push(line);
         transcript.push_str(&ledger_line(&ledger));
     }
     Scenario {

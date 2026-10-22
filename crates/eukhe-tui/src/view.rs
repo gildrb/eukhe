@@ -541,7 +541,6 @@ impl AgentView {
     /// has in scrollback: the inline terminal does not show the change
     /// (the fullscreen window renders the entry again).
     pub fn mark_entry_stale(&mut self, index: usize) {
-        self.ledger.grow(index, 1);
         self.viewport.forget(index);
     }
 

@@ -9,7 +9,7 @@
 # and run `<out> <events>`. An events file has one event per line:
 #
 #   s V I C        a client start: version V (the hello `appVersion`), build
-#                  id I (a number), caller C (`i` interactive, `b`
+#                  id I (a word), caller C (`i` interactive, `b`
 #                  background)
 #
 # Then it prints, for each start,
@@ -21,56 +21,13 @@
 #
 # and at the end `r N`, the replacements.
 #
-# A version X.Y.Z (semver.bend's version: decimal numbers without leading
-# zeros) ranks [X, Y, 1, Z]; a version X.Y.Z-<suffix> ranks [X, Y, 0, Z];
-# any other text has no rank (the empty rank).
+# The model reads each version (`Rp.rank`) and compares the ids as text.
 
 import Base
-import ./semver.bend as Sv
 import ./replace.bend as Rp
-
-def tok.nat(s: String) -> Nat:
-  Maybe.default(&2, Nat, Nat.read(s), 0n)
 
 def tok.at(ws: List<&2, String>, k: Nat) -> String:
   Maybe.default(&2, String, List.get(&2, String, ws, k), "")
-
-def before_dash(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{'-', r}:
-      SNil{}
-    case SCon{c, r}:
-      SCon{c, before_dash(r)}
-
-def has_dash(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{'-', r}:
-      True{}
-    case SCon{c, r}:
-      has_dash(r)
-
-def tier(dash: Bool) -> Nat:
-  match dash:
-    case True{}:
-      0n
-    case False{}:
-      1n
-
-def rank.of(v: Maybe<&2, Sv.Ver>, dash: Bool) -> List<&2, Nat>:
-  match v:
-    case None{}:
-      Nil{}
-    case Some{w}:
-      match w:
-        case Sv.Ver{a, b, c}:
-          [a, b, tier(dash), c]
-
-def rank(+s: String) -> List<&2, Nat>:
-  rank.of(Sv.Ver.parse(before_dash(s)), has_dash(s))
 
 def caller(s: String) -> Rp.Caller:
   match s:
@@ -100,7 +57,7 @@ def show.rank(xs: List<&2, Nat>) -> String:
 def show.build(b: Rp.Build) -> String:
   match b:
     case Rp.Build{r, i}:
-      String.concat([show.rank(r), " ", Nat.show(i)])
+      String.concat([show.rank(r), " ", i])
 
 def show.verdict(v: Rp.Verdict) -> String:
   match v:
@@ -138,7 +95,7 @@ def show.trace(ss: List<&2, Rp.Start>, ds: List<&2, Rp.Build>, d: Maybe<&2, Rp.B
 def start.of(h: String, +ws: List<&2, String>) -> Maybe<&2, Rp.Start>:
   match h:
     case SCon{'s', x}:
-      Some{Rp.Start{Rp.Build{rank(tok.at(ws, 1n)), tok.nat(tok.at(ws, 2n))}, caller(tok.at(ws, 3n))}}
+      Some{Rp.Start{Rp.Build.of(tok.at(ws, 1n), tok.at(ws, 2n)), caller(tok.at(ws, 3n))}}
     case x:
       None{}
 

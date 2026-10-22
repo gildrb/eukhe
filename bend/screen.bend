@@ -5,12 +5,15 @@
 #    terminal's native scrollback). A flush commits final blocks in order,
 #    up to the first active block. Committed text is never written again:
 #    a resize keeps the scrollback as it is (policy "preserve") and draws
-#    only the live region again.
+#    only the live region again. Committed blocks are inert (law
+#    tx_committed_inert), so the compiled core runs the events of a frame
+#    on the blocks after the committed prefix alone.
 # 2. Pacing. Streamed text arrives in chunks of any size. Each frame
 #    shows more of it: at least `min` characters (when there is backlog)
 #    and a share 1/(1+k) of the backlog when that is more. The screen
 #    never shows text that did not arrive, and it never shows less than
-#    before.
+#    before. The share forms 1 + k only when k is below the backlog, so a
+#    lag saturated at the core's cap (2^48 - 1) never overflows.
 # 3. Off-screen verification. A frame is drawn off screen first and
 #    checked. A frame that fails the check is drawn again in full and
 #    checked again. Only a checked frame reaches the terminal; a frame
@@ -240,9 +243,22 @@ def Pace.shown(p: Pace) -> Nat:
     case Pace{r, s}:
       s
 
+# the share 1/(1+k) of a backlog b. When k >= b the share is 0 (b/(1+k)
+# is 0) and 1 + k is not formed, so a lag at the cap of the compiled
+# core's numbers (2^48 - 1) never overflows
+def share.at(below: Bool, +k: Nat, +b: Nat) -> Nat:
+  match below:
+    case True{}:
+      Nat.div(b, 1n+k)
+    case False{}:
+      0n
+
+def share(+k: Nat, +b: Nat) -> Nat:
+  share.at(Nat.is_lt(k, b), k, b)
+
 # the characters one frame adds, with backlog b
 def reveal(+min: Nat, +k: Nat, +b: Nat) -> Nat:
-  Nat.min(b, Nat.max(min, Nat.div(b, 1n+k)))
+  Nat.min(b, Nat.max(min, share(k, b)))
 
 def pace.step(+min: Nat, +k: Nat, p: Pace, e: PEv) -> Pace:
   match p:
