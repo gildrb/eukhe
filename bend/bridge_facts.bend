@@ -191,6 +191,8 @@ def gb.show(g: Fx.GB) -> String:
       "-1"
     case Fx.Tokens{n}:
       Nat.show(n)
+    case Fx.Unordered{}:
+      "unordered"
 
 # The state
 # ---------

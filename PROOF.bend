@@ -14640,17 +14640,6 @@ def pi.cnt_add(b: Bool, +x: Nat, +y: Nat) -> {pi.cnt(b, Nat.add(x, y)) == Nat.ad
     case False{}:
       {==}
 
-def pi.cnt_comm(a: Bool, b: Bool, +n: Nat) -> {pi.cnt(a, pi.cnt(b, n)) == pi.cnt(b, pi.cnt(a, n)) : Nat}:
-  match a b:
-    case True{} True{}:
-      {==}
-    case True{} False{}:
-      {==}
-    case False{} True{}:
-      {==}
-    case False{} False{}:
-      {==}
-
 # a take and its drop split every count
 def pi.count_split(+xs: List<&2, If.Tool>, +n: Nat, +i: Nat) -> {Nat.add(If.count(List.take(&2, If.Tool, xs, n), i), If.count(List.drop(&2, If.Tool, xs, n), i)) == If.count(xs, i) : Nat}:
   match xs n:
@@ -14667,37 +14656,207 @@ def pi.count_split(+xs: List<&2, If.Tool>, +n: Nat, +i: Nat) -> {Nat.add(If.coun
       %pi.cnt_add(b, If.count(T, i), D) : {_ == pi.cnt(b, If.count(t, i)) : Nat}
       Equal.cong(Nat, Nat, k => pi.cnt(b, k), Nat.add(If.count(T, i), D), If.count(t, i), pi.count_split(t, p, i))
 
-def pi.count_ins_go(+xs: List<&2, If.Tool>, +t: If.Tool, hit: Bool, +i: Nat) -> {If.count(t <> xs, i) == If.count(If.ins.go(xs, t, hit), i) : Nat}:
+def pms.add_zero_r(m: Nat) -> {Nat.add(m, 0n) == m : Nat}:
+  match m:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, k => 1n+k, Nat.add(p, 0n), p, pms.add_zero_r(p))
+
+def pms.add_succ_r(m: Nat, -n: Nat) -> {Nat.add(m, 1n+n) == 1n+Nat.add(m, n) : Nat}:
+  match m:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, k => 1n+k, Nat.add(p, 1n+n), 1n+Nat.add(p, n), pms.add_succ_r(p, n))
+
+def pms.add_comm(m: Nat, +n: Nat) -> {Nat.add(m, n) == Nat.add(n, m) : Nat}:
+  match m:
+    case 0n:
+      Equal.sym(Nat, Nat.add(n, 0n), n, pms.add_zero_r(n))
+    case 1n+p:
+      %Equal.sym(Nat, Nat.add(n, 1n+p), 1n+Nat.add(n, p), pms.add_succ_r(n, p)) : {1n+Nat.add(p, n) == _ : Nat}
+      Equal.cong(Nat, Nat, k => 1n+k, Nat.add(p, n), Nat.add(n, p), pms.add_comm(p, n))
+
+def pms.add_assoc(a: Nat, -b: Nat, -c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(a, Nat.add(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, k => 1n+k, Nat.add(Nat.add(p, b), c), Nat.add(p, Nat.add(b, c)), pms.add_assoc(p, b, c))
+
+# (a + b) + c == b + (a + c)
+def pms.add_assoc_swap(+a: Nat, +b: Nat, +c: Nat) -> {Nat.add(Nat.add(a, b), c) == Nat.add(b, Nat.add(a, c)) : Nat}:
+  Equal.trans(Nat, Nat.add(Nat.add(a, b), c), Nat.add(Nat.add(b, a), c), Nat.add(b, Nat.add(a, c)),
+    Equal.cong(Nat, Nat, k => Nat.add(k, c), Nat.add(a, b), Nat.add(b, a), pms.add_comm(a, b)),
+    pms.add_assoc(b, a, c))
+
+# m + cnt(q, n) == cnt(q, m + n)
+def pms.add_cnt(q: Bool, m: Nat, -n: Nat) -> {Nat.add(m, pi.cnt(q, n)) == pi.cnt(q, Nat.add(m, n)) : Nat}:
+  match q:
+    case True{}:
+      pms.add_succ_r(m, n)
+    case False{}:
+      {==}
+
+# a tool counted after s
+def pms.last_cnt(+q: Bool, +s: Nat) -> {Nat.add(s, pi.cnt(q, 0n)) == pi.cnt(q, s) : Nat}:
+  Equal.trans(Nat, Nat.add(s, pi.cnt(q, 0n)), pi.cnt(q, Nat.add(s, 0n)), pi.cnt(q, s),
+    pms.add_cnt(q, s, 0n),
+    Equal.cong(Nat, Nat, k => pi.cnt(q, k), Nat.add(s, 0n), s, pms.add_zero_r(s)))
+
+# Counts
+# ------
+
+# tool h has id i
+def pms.w(+h: If.Tool, +i: Nat) -> Bool:
+  Nat.is_eq(If.Tool.id(h), i)
+
+# the copies of id i in xs, counted head-first
+def pms.c(xs: List<&2, If.Tool>, +i: Nat) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case +h <> t:
+      pi.cnt(pms.w(h, i), pms.c(t, i))
+
+def pms.c_count(xs: List<&2, If.Tool>, +i: Nat) -> {pms.c(xs, i) == If.count(xs, i) : Nat}:
   match xs:
     case Nil{}:
       {==}
-    case u <> rest:
-      match hit:
-        case True{}:
-          {==}
-        case False{}:
-          +bu = Nat.is_eq(If.Tool.id(u), i)
-          +bt = Nat.is_eq(If.Tool.id(t), i)
-          +I = If.ins.go(rest, t, If.low.at(rest, t))
-          %pi.count_cons(u, I, i) : {If.count(t <> u <> rest, i) == _ : Nat}
-          %pi.count_ins_go(rest, t, If.low.at(rest, t), i) : {If.count(t <> u <> rest, i) == pi.cnt(bu, _) : Nat}
-          %pi.count_cons(t, rest, i) : {If.count(t <> u <> rest, i) == pi.cnt(bu, _) : Nat}
-          %pi.count_cons(t, u <> rest, i) : {_ == pi.cnt(bu, pi.cnt(bt, If.count(rest, i))) : Nat}
-          %pi.count_cons(u, rest, i) : {pi.cnt(bt, _) == pi.cnt(bu, pi.cnt(bt, If.count(rest, i))) : Nat}
-          pi.cnt_comm(bt, bu, If.count(rest, i))
+    case +h <> +t:
+      +b = pms.w(h, i)
+      Equal.trans(Nat, pi.cnt(b, pms.c(t, i)), pi.cnt(b, If.count(t, i)), If.count(h <> t, i),
+        Equal.cong(Nat, Nat, k => pi.cnt(b, k), pms.c(t, i), If.count(t, i), pms.c_count(t, i)),
+        pi.count_cons(h, t, i))
 
-# ranking keeps every count
-def pi.count_rank(+ts: List<&2, If.Tool>, +i: Nat) -> {If.count(ts, i) == If.count(If.rank(ts), i) : Nat}:
+# the copies of id i among the leaves of t
+def pms.tc(t: If.TTree, +i: Nat) -> Nat:
+  match t:
+    case If.TTip{}:
+      0n
+    case If.TLeaf{+v}:
+      pi.cnt(pms.w(v, i), 0n)
+    case If.TNode{l, r}:
+      Nat.add(pms.tc(l, i), pms.tc(r, i))
+
+# the copies of id i in the trees of the counter ds
+def pms.dc(ds: If.TDig, +i: Nat) -> Nat:
+  match ds:
+    case If.TEnd{}:
+      0n
+    case If.T0{rest}:
+      pms.dc(rest, i)
+    case If.T1{d, rest}:
+      Nat.add(pms.tc(d, i), pms.dc(rest, i))
+
+# tmerge.go(xt, yt, x, y, c) counts x <> xt and y <> yt together,
+# whatever the verdict c is
+def pms.c_mg(+xt: List<&2, If.Tool>, +yt: List<&2, If.Tool>, +x: If.Tool, +y: If.Tool, c: Bool, +i: Nat) -> {Nat.add(pms.c(x <> xt, i), pms.c(y <> yt, i)) == pms.c(If.tmerge.go(xt, yt, x, y, c), i) : Nat}:
+  match xt yt c:
+    case Nil{} Nil{} True{}:
+      Equal.sym(Nat, pi.cnt(pms.w(x, i), pms.c(y <> Nil{}, i)), Nat.add(pi.cnt(pms.w(x, i), 0n), pms.c(y <> Nil{}, i)),
+        pi.cnt_add(pms.w(x, i), 0n, pms.c(y <> Nil{}, i)))
+    case Nil{} Nil{} False{}:
+      pms.last_cnt(pms.w(y, i), pms.c(x <> Nil{}, i))
+    case Nil{} +y2 <> +yt2 True{}:
+      Equal.sym(Nat, pi.cnt(pms.w(x, i), pms.c(y <> y2 <> yt2, i)), Nat.add(pi.cnt(pms.w(x, i), 0n), pms.c(y <> y2 <> yt2, i)),
+        pi.cnt_add(pms.w(x, i), 0n, pms.c(y <> y2 <> yt2, i)))
+    case Nil{} +y2 <> +yt2 False{}:
+      %pms.c_mg(Nil{}, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)), i) : {Nat.add(pms.c(x <> Nil{}, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(y, i), _) : Nat}
+      pms.add_cnt(pms.w(y, i), pms.c(x <> Nil{}, i), pms.c(y2 <> yt2, i))
+    case +x2 <> +xt2 Nil{} True{}:
+      %pms.c_mg(xt2, Nil{}, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> Nil{}, i)) == pi.cnt(pms.w(x, i), _) : Nat}
+      Equal.sym(Nat, pi.cnt(pms.w(x, i), Nat.add(pms.c(x2 <> xt2, i), pms.c(y <> Nil{}, i))), Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> Nil{}, i)),
+        pi.cnt_add(pms.w(x, i), pms.c(x2 <> xt2, i), pms.c(y <> Nil{}, i)))
+    case +x2 <> +xt2 Nil{} False{}:
+      pms.last_cnt(pms.w(y, i), pms.c(x <> x2 <> xt2, i))
+    case +x2 <> +xt2 +y2 <> +yt2 True{}:
+      %pms.c_mg(xt2, y2 <> yt2, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(x, i), _) : Nat}
+      Equal.sym(Nat, pi.cnt(pms.w(x, i), Nat.add(pms.c(x2 <> xt2, i), pms.c(y <> y2 <> yt2, i))), Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)),
+        pi.cnt_add(pms.w(x, i), pms.c(x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)))
+    case +x2 <> +xt2 +y2 <> +yt2 False{}:
+      %pms.c_mg(x2 <> xt2, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)), i) : {Nat.add(pms.c(x <> x2 <> xt2, i), pms.c(y <> y2 <> yt2, i)) == pi.cnt(pms.w(y, i), _) : Nat}
+      pms.add_cnt(pms.w(y, i), pms.c(x <> x2 <> xt2, i), pms.c(y2 <> yt2, i))
+
+# tmerge(a, b) counts a and b together
+def pms.c_merge(+a: List<&2, If.Tool>, +b: List<&2, If.Tool>, +i: Nat) -> {Nat.add(pms.c(a, i), pms.c(b, i)) == pms.c(If.tmerge(a, b), i) : Nat}:
+  match a b:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} +y <> +yt:
+      {==}
+    case +x <> +xt Nil{}:
+      pms.add_zero_r(pms.c(x <> xt, i))
+    case +x <> +xt +y <> +yt:
+      pms.c_mg(xt, yt, x, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x)), i)
+
+# tsort(t) counts the leaves of t
+def pms.c_tsort(+t: If.TTree, +i: Nat) -> {pms.tc(t, i) == pms.c(If.tsort(t), i) : Nat}:
+  match t:
+    case If.TTip{}:
+      {==}
+    case If.TLeaf{+v}:
+      {==}
+    case If.TNode{+l, +r}:
+      %pms.c_merge(If.tsort(l), If.tsort(r), i) : {Nat.add(pms.tc(l, i), pms.tc(r, i)) == _ : Nat}
+      %pms.c_tsort(l, i) : {Nat.add(pms.tc(l, i), pms.tc(r, i)) == Nat.add(_, pms.c(If.tsort(r), i)) : Nat}
+      %pms.c_tsort(r, i) : {Nat.add(pms.tc(l, i), pms.tc(r, i)) == Nat.add(pms.tc(l, i), _) : Nat}
+      {==}
+
+# tpush(ds, t) adds the count of t to the counter
+def pms.c_push(+ds: If.TDig, +t: If.TTree, +i: Nat) -> {Nat.add(pms.tc(t, i), pms.dc(ds, i)) == pms.dc(If.tpush(ds, t), i) : Nat}:
+  match ds:
+    case If.TEnd{}:
+      {==}
+    case If.T0{+rest}:
+      {==}
+    case If.T1{+t2, +rest}:
+      %pms.c_push(rest, If.TNode{t2, t}, i) : {Nat.add(pms.tc(t, i), pms.dc(If.T1{t2, rest}, i)) == _ : Nat}
+      Equal.sym(Nat, Nat.add(Nat.add(pms.tc(t2, i), pms.tc(t, i)), pms.dc(rest, i)),
+        Nat.add(pms.tc(t, i), Nat.add(pms.tc(t2, i), pms.dc(rest, i))),
+        pms.add_assoc_swap(pms.tc(t2, i), pms.tc(t, i), pms.dc(rest, i)))
+
+# tbuild(ts, ds) adds the count of ts to the counter
+def pms.c_build(+ts: List<&2, If.Tool>, +ds: If.TDig, +i: Nat) -> {Nat.add(pms.c(ts, i), pms.dc(ds, i)) == pms.dc(If.tbuild(ts, ds), i) : Nat}:
   match ts:
     case Nil{}:
       {==}
-    case t <> rest:
-      +R = If.rank(rest)
-      %pi.count_ins_go(R, t, If.low.at(R, t), i) : {If.count(t <> rest, i) == _ : Nat}
-      %pi.count_cons(t, R, i) : {If.count(t <> rest, i) == _ : Nat}
-      %pi.count_cons(t, rest, i) : {_ == pi.cnt(Nat.is_eq(If.Tool.id(t), i), If.count(R, i)) : Nat}
-      %pi.count_rank(rest, i) : {pi.cnt(Nat.is_eq(If.Tool.id(t), i), If.count(rest, i)) == pi.cnt(Nat.is_eq(If.Tool.id(t), i), _) : Nat}
+    case +h <> +t:
+      %pms.c_build(t, If.tpush(ds, If.TLeaf{h}), i) : {Nat.add(pms.c(h <> t, i), pms.dc(ds, i)) == _ : Nat}
+      %pms.c_push(ds, If.TLeaf{h}, i) : {Nat.add(pms.c(h <> t, i), pms.dc(ds, i)) == Nat.add(pms.c(t, i), _) : Nat}
+      %Equal.sym(Nat, pi.cnt(pms.w(h, i), Nat.add(0n, pms.c(t, i))), Nat.add(pi.cnt(pms.w(h, i), 0n), pms.c(t, i)), pi.cnt_add(pms.w(h, i), 0n, pms.c(t, i))) : {Nat.add(_, pms.dc(ds, i)) == Nat.add(pms.c(t, i), Nat.add(pi.cnt(pms.w(h, i), 0n), pms.dc(ds, i))) : Nat}
+      pms.add_assoc_swap(pi.cnt(pms.w(h, i), 0n), pms.c(t, i), pms.dc(ds, i))
+
+# tjoin(ds, acc) counts the counter and acc together
+def pms.c_join(+ds: If.TDig, +acc: If.TTree, +i: Nat) -> {Nat.add(pms.dc(ds, i), pms.tc(acc, i)) == pms.tc(If.tjoin(ds, acc), i) : Nat}:
+  match ds:
+    case If.TEnd{}:
       {==}
+    case If.T0{+rest}:
+      pms.c_join(rest, acc, i)
+    case If.T1{+d, +rest}:
+      %pms.c_join(rest, If.TNode{d, acc}, i) : {Nat.add(pms.dc(If.T1{d, rest}, i), pms.tc(acc, i)) == _ : Nat}
+      pms.add_assoc_swap(pms.tc(d, i), pms.dc(rest, i), pms.tc(acc, i))
+
+# rank(ts) counts ts
+def pms.c_rank(+ts: List<&2, If.Tool>, +i: Nat) -> {pms.c(ts, i) == pms.c(If.rank(ts), i) : Nat}:
+  +B = If.tbuild(ts, If.TEnd{})
+  %pms.c_tsort(If.tjoin(B, If.TTip{}), i) : {pms.c(ts, i) == _ : Nat}
+  %pms.c_join(B, If.TTip{}, i) : {pms.c(ts, i) == _ : Nat}
+  %Equal.sym(Nat, Nat.add(pms.dc(B, i), 0n), pms.dc(B, i), pms.add_zero_r(pms.dc(B, i))) : {pms.c(ts, i) == _ : Nat}
+  %pms.c_build(ts, If.TEnd{}, i) : {pms.c(ts, i) == _ : Nat}
+  Equal.sym(Nat, Nat.add(pms.c(ts, i), 0n), pms.c(ts, i), pms.add_zero_r(pms.c(ts, i)))
+
+# ranking keeps every count
+def pi.count_rank(+ts: List<&2, If.Tool>, +i: Nat) -> {If.count(ts, i) == If.count(If.rank(ts), i) : Nat}:
+  Equal.trans(Nat, If.count(ts, i), pms.c(ts, i), If.count(If.rank(ts), i),
+    Equal.sym(Nat, pms.c(ts, i), If.count(ts, i), pms.c_count(ts, i)),
+    Equal.trans(Nat, pms.c(ts, i), pms.c(If.rank(ts), i), If.count(If.rank(ts), i),
+      pms.c_rank(ts, i), pms.c_count(If.rank(ts), i)))
+
+# Sortedness
+# ----------
 
 def pi.strict_keeps_every_tool(+cap: Nat, +ts: List<&2, If.Tool>, +i: Nat) -> {Nat.add(If.count(Pair.fst(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i), If.count(Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict(cap, ts)), i)) == If.count(ts, i) : Nat}:
   +R = If.rank(ts)
@@ -14727,46 +14886,145 @@ def pi.below_mono(+ys: List<&2, If.Tool>, +p: Nat, +q: Nat, +b: {pi.below(ys, p)
       +a = Nat.is_le(If.Tool.prio(y), p)
       pi.and_t(Nat.is_le(If.Tool.prio(y), q), pi.below(rest, q), pi.le_trans(If.Tool.prio(y), p, q, pi.and_l(a, pi.below(rest, p), b), le), pi.below_mono(rest, p, q, pi.and_r(a, pi.below(rest, p), b), le))
 
-def pi.below_ins_go(+xs: List<&2, If.Tool>, +t: If.Tool, hit: Bool, +P: Nat, +b: {pi.below(xs, P) == True{} : Bool}, +lt: {Nat.is_le(If.Tool.prio(t), P) == True{} : Bool}) -> {pi.below(If.ins.go(xs, t, hit), P) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      pi.and_t(Nat.is_le(If.Tool.prio(t), P), True{}, lt, {==})
-    case u <> rest:
-      match hit:
-        case True{}:
-          pi.and_t(Nat.is_le(If.Tool.prio(t), P), pi.below(u <> rest, P), lt, b)
-        case False{}:
-          +a = Nat.is_le(If.Tool.prio(u), P)
-          +I = If.ins.go(rest, t, If.low.at(rest, t))
-          pi.and_t(a, pi.below(I, P), pi.and_l(a, pi.below(rest, P), b), pi.below_ins_go(rest, t, If.low.at(rest, t), P, pi.and_r(a, pi.below(rest, P), b), lt))
+# merging x <> xt and y <> yt, each under the bound P, stays under P,
+# whatever the verdict c is
+def pms.below_mg(+xt: List<&2, If.Tool>, +yt: List<&2, If.Tool>, +x: If.Tool, +y: If.Tool, c: Bool, +P: Nat,
+  +bx: {pi.below(x <> xt, P) == True{} : Bool},
+  +by: {pi.below(y <> yt, P) == True{} : Bool})
+  -> {pi.below(If.tmerge.go(xt, yt, x, y, c), P) == True{} : Bool}:
+  match xt yt c:
+    case Nil{} Nil{} True{}:
+      pi.and_t(Nat.is_le(If.Tool.prio(x), P), pi.below(y <> Nil{}, P), pi.and_l(Nat.is_le(If.Tool.prio(x), P), pi.below(Nil{}, P), bx), by)
+    case Nil{} Nil{} False{}:
+      pi.and_t(Nat.is_le(If.Tool.prio(y), P), pi.below(x <> Nil{}, P), pi.and_l(Nat.is_le(If.Tool.prio(y), P), pi.below(Nil{}, P), by), bx)
+    case Nil{} +y2 <> +yt2 True{}:
+      pi.and_t(Nat.is_le(If.Tool.prio(x), P), pi.below(y <> y2 <> yt2, P), pi.and_l(Nat.is_le(If.Tool.prio(x), P), pi.below(Nil{}, P), bx), by)
+    case Nil{} +y2 <> +yt2 False{}:
+      +M = If.tmerge.go(Nil{}, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)))
+      +a = Nat.is_le(If.Tool.prio(y), P)
+      pi.and_t(a, pi.below(M, P), pi.and_l(a, pi.below(y2 <> yt2, P), by),
+        pms.below_mg(Nil{}, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)), P, bx, pi.and_r(a, pi.below(y2 <> yt2, P), by)))
+    case +x2 <> +xt2 Nil{} True{}:
+      +M = If.tmerge.go(xt2, Nil{}, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)))
+      +a = Nat.is_le(If.Tool.prio(x), P)
+      pi.and_t(a, pi.below(M, P), pi.and_l(a, pi.below(x2 <> xt2, P), bx),
+        pms.below_mg(xt2, Nil{}, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)), P, pi.and_r(a, pi.below(x2 <> xt2, P), bx), by))
+    case +x2 <> +xt2 Nil{} False{}:
+      pi.and_t(Nat.is_le(If.Tool.prio(y), P), pi.below(x <> x2 <> xt2, P), pi.and_l(Nat.is_le(If.Tool.prio(y), P), pi.below(Nil{}, P), by), bx)
+    case +x2 <> +xt2 +y2 <> +yt2 True{}:
+      +M = If.tmerge.go(xt2, y2 <> yt2, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)))
+      +a = Nat.is_le(If.Tool.prio(x), P)
+      pi.and_t(a, pi.below(M, P), pi.and_l(a, pi.below(x2 <> xt2, P), bx),
+        pms.below_mg(xt2, y2 <> yt2, x2, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x2)), P, pi.and_r(a, pi.below(x2 <> xt2, P), bx), by))
+    case +x2 <> +xt2 +y2 <> +yt2 False{}:
+      +M = If.tmerge.go(x2 <> xt2, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)))
+      +a = Nat.is_le(If.Tool.prio(y), P)
+      pi.and_t(a, pi.below(M, P), pi.and_l(a, pi.below(y2 <> yt2, P), by),
+        pms.below_mg(x2 <> xt2, yt2, x, y2, Nat.is_le(If.Tool.prio(y2), If.Tool.prio(x)), P, bx, pi.and_r(a, pi.below(y2 <> yt2, P), by)))
 
-def pi.sorted_ins_go(+xs: List<&2, If.Tool>, +t: If.Tool, hit: Bool, +eh: {If.low.at(xs, t) == hit : Bool}, +s: {pi.sorted(xs) == True{} : Bool}) -> {pi.sorted(If.ins.go(xs, t, hit)) == True{} : Bool}:
-  match xs:
-    case Nil{}:
+# merging the sorted x <> xt and y <> yt, with c the verdict
+# Nat.is_le(prio y, prio x), gives a sorted list
+def pms.sorted_mg(+xt: List<&2, If.Tool>, +yt: List<&2, If.Tool>, +x: If.Tool, +y: If.Tool, c: Bool,
+  +eb: {Nat.is_le(If.Tool.prio(y), If.Tool.prio(x)) == c : Bool},
+  +sx: {pi.sorted(x <> xt) == True{} : Bool},
+  +sy: {pi.sorted(y <> yt) == True{} : Bool})
+  -> {pi.sorted(If.tmerge.go(xt, yt, x, y, c)) == True{} : Bool}:
+  match xt yt c:
+    case Nil{} Nil{} True{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      pi.and_t(pi.below(y <> Nil{}, px), pi.sorted(y <> Nil{}), pi.and_t(Nat.is_le(py, px), pi.below(Nil{}, px), eb, {==}), sy)
+    case Nil{} Nil{} False{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      +le = pi.nle_le(py, px, eb)
+      pi.and_t(pi.below(x <> Nil{}, py), pi.sorted(x <> Nil{}), pi.and_t(Nat.is_le(px, py), pi.below(Nil{}, py), le, {==}), sx)
+    case Nil{} +y2 <> +yt2 True{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      +Y = {y2 <> yt2 : List<&2, If.Tool>}
+      pi.and_t(pi.below(y <> Y, px), pi.sorted(y <> Y),
+        pi.and_t(Nat.is_le(py, px), pi.below(Y, px), eb, pi.below_mono(Y, py, px, pi.and_l(pi.below(Y, py), pi.sorted(Y), sy), eb)),
+        sy)
+    case Nil{} +y2 <> +yt2 False{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      +Y = {y2 <> yt2 : List<&2, If.Tool>}
+      +c2 = Nat.is_le(If.Tool.prio(y2), px)
+      +M = If.tmerge.go(Nil{}, yt2, x, y2, c2)
+      +le = pi.nle_le(py, px, eb)
+      pi.and_t(pi.below(M, py), pi.sorted(M),
+        pms.below_mg(Nil{}, yt2, x, y2, c2, py, pi.and_t(Nat.is_le(px, py), pi.below(Nil{}, py), le, {==}), pi.and_l(pi.below(Y, py), pi.sorted(Y), sy)),
+        pms.sorted_mg(Nil{}, yt2, x, y2, c2, {==}, sx, pi.and_r(pi.below(Y, py), pi.sorted(Y), sy)))
+    case +x2 <> +xt2 Nil{} True{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      +X = {x2 <> xt2 : List<&2, If.Tool>}
+      +c2 = Nat.is_le(py, If.Tool.prio(x2))
+      +M = If.tmerge.go(xt2, Nil{}, x2, y, c2)
+      pi.and_t(pi.below(M, px), pi.sorted(M),
+        pms.below_mg(xt2, Nil{}, x2, y, c2, px, pi.and_l(pi.below(X, px), pi.sorted(X), sx), pi.and_t(Nat.is_le(py, px), pi.below(Nil{}, px), eb, {==})),
+        pms.sorted_mg(xt2, Nil{}, x2, y, c2, {==}, pi.and_r(pi.below(X, px), pi.sorted(X), sx), sy))
+    case +x2 <> +xt2 Nil{} False{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      +X = {x2 <> xt2 : List<&2, If.Tool>}
+      +le = pi.nle_le(py, px, eb)
+      pi.and_t(pi.below(x <> X, py), pi.sorted(x <> X),
+        pi.and_t(Nat.is_le(px, py), pi.below(X, py), le, pi.below_mono(X, px, py, pi.and_l(pi.below(X, px), pi.sorted(X), sx), le)),
+        sx)
+    case +x2 <> +xt2 +y2 <> +yt2 True{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      +X = {x2 <> xt2 : List<&2, If.Tool>}
+      +Y = {y2 <> yt2 : List<&2, If.Tool>}
+      +c2 = Nat.is_le(py, If.Tool.prio(x2))
+      +M = If.tmerge.go(xt2, Y, x2, y, c2)
+      pi.and_t(pi.below(M, px), pi.sorted(M),
+        pms.below_mg(xt2, Y, x2, y, c2, px, pi.and_l(pi.below(X, px), pi.sorted(X), sx),
+          pi.and_t(Nat.is_le(py, px), pi.below(Y, px), eb, pi.below_mono(Y, py, px, pi.and_l(pi.below(Y, py), pi.sorted(Y), sy), eb))),
+        pms.sorted_mg(xt2, Y, x2, y, c2, {==}, pi.and_r(pi.below(X, px), pi.sorted(X), sx), sy))
+    case +x2 <> +xt2 +y2 <> +yt2 False{}:
+      +px = If.Tool.prio(x)
+      +py = If.Tool.prio(y)
+      +X = {x2 <> xt2 : List<&2, If.Tool>}
+      +Y = {y2 <> yt2 : List<&2, If.Tool>}
+      +c2 = Nat.is_le(If.Tool.prio(y2), px)
+      +M = If.tmerge.go(X, yt2, x, y2, c2)
+      +le = pi.nle_le(py, px, eb)
+      pi.and_t(pi.below(M, py), pi.sorted(M),
+        pms.below_mg(X, yt2, x, y2, c2, py,
+          pi.and_t(Nat.is_le(px, py), pi.below(X, py), le, pi.below_mono(X, px, py, pi.and_l(pi.below(X, px), pi.sorted(X), sx), le)),
+          pi.and_l(pi.below(Y, py), pi.sorted(Y), sy)),
+        pms.sorted_mg(X, yt2, x, y2, c2, {==}, sx, pi.and_r(pi.below(Y, py), pi.sorted(Y), sy)))
+
+# merging two sorted lists gives a sorted list
+def pms.sorted_merge(+xs: List<&2, If.Tool>, +ys: List<&2, If.Tool>,
+  +sx: {pi.sorted(xs) == True{} : Bool}, +sy: {pi.sorted(ys) == True{} : Bool})
+  -> {pi.sorted(If.tmerge(xs, ys)) == True{} : Bool}:
+  match xs ys:
+    case Nil{} Nil{}:
       {==}
-    case u <> rest:
-      match hit:
-        case True{}:
-          +pu = If.Tool.prio(u)
-          +pt = If.Tool.prio(t)
-          +le = eh
-          +bu = pi.and_t(Nat.is_le(pu, pt), pi.below(rest, pt), le, pi.below_mono(rest, pu, pt, pi.and_l(pi.below(rest, pu), pi.sorted(rest), s), le))
-          pi.and_t(pi.below(u <> rest, pt), pi.sorted(u <> rest), bu, s)
-        case False{}:
-          +pu = If.Tool.prio(u)
-          +pt = If.Tool.prio(t)
-          +I = If.ins.go(rest, t, If.low.at(rest, t))
-          +bi = pi.below_ins_go(rest, t, If.low.at(rest, t), pu, pi.and_l(pi.below(rest, pu), pi.sorted(rest), s), pi.nle_le(pu, pt, eh))
-          pi.and_t(pi.below(I, pu), pi.sorted(I), bi, pi.sorted_ins_go(rest, t, If.low.at(rest, t), {==}, pi.and_r(pi.below(rest, pu), pi.sorted(rest), s)))
+    case Nil{} +y <> +yt:
+      sy
+    case +x <> +xt Nil{}:
+      sx
+    case +x <> +xt +y <> +yt:
+      pms.sorted_mg(xt, yt, x, y, Nat.is_le(If.Tool.prio(y), If.Tool.prio(x)), {==}, sx, sy)
+
+# tsort sorts every tree
+def pms.sorted_tsort(t: If.TTree) -> {pi.sorted(If.tsort(t)) == True{} : Bool}:
+  match t:
+    case If.TTip{}:
+      {==}
+    case If.TLeaf{+v}:
+      {==}
+    case If.TNode{+l, +r}:
+      pms.sorted_merge(If.tsort(l), If.tsort(r), pms.sorted_tsort(l), pms.sorted_tsort(r))
 
 # ranking sorts by priority
 def pi.sorted_rank(+ts: List<&2, If.Tool>) -> {pi.sorted(If.rank(ts)) == True{} : Bool}:
-  match ts:
-    case Nil{}:
-      {==}
-    case t <> rest:
-      +R = If.rank(rest)
-      pi.sorted_ins_go(R, t, If.low.at(R, t), {==}, pi.sorted_rank(rest))
+  pms.sorted_tsort(If.tjoin(If.tbuild(ts, If.TEnd{}), If.TTip{}))
 
 def pi.dom_nil(+ys: List<&2, If.Tool>) -> {If.dominates(Nil{}, ys) == True{} : Bool}:
   match ys:
@@ -16832,6 +17090,161 @@ def pq.quirk_ladder_shipped_is_s10(r: Bool, +map: Ef.LvMap) -> {If.lad.offered.o
       pq.lad_offer_fill(map, Ef.ladder())
     case False{}:
       {==}
+
+
+# The ladder model and the strict plan
+# -----------------------------------
+
+def w2.we(e: Ef.Ent) -> {Laws.ladder.is_wire(e) == If.lad.wired.e(e) : Bool}:
+  match e:
+    case Ef.Missing{}:
+      {==}
+    case Ef.Null{}:
+      {==}
+    case Ef.Wire{}:
+      {==}
+
+def w2.or_false(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def w2.wired(+m: Ef.LvMap) -> {If.lad.wired(m) == Laws.ladder.wired.go(Ef.ladder(), m) : Bool}:
+  match m:
+    case Ef.LvMap{+o, +mi, +lo, +me, +hi, +xh, +mx}:
+      %w2.we(o) : {Bool.or(_, Bool.or(If.lad.wired.e(mi), Bool.or(If.lad.wired.e(lo), Bool.or(If.lad.wired.e(me), Bool.or(If.lad.wired.e(hi), Bool.or(If.lad.wired.e(xh), If.lad.wired.e(mx))))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      %w2.we(mi) : {Bool.or(Laws.ladder.is_wire(o), Bool.or(_, Bool.or(If.lad.wired.e(lo), Bool.or(If.lad.wired.e(me), Bool.or(If.lad.wired.e(hi), Bool.or(If.lad.wired.e(xh), If.lad.wired.e(mx))))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      %w2.we(lo) : {Bool.or(Laws.ladder.is_wire(o), Bool.or(Laws.ladder.is_wire(mi), Bool.or(_, Bool.or(If.lad.wired.e(me), Bool.or(If.lad.wired.e(hi), Bool.or(If.lad.wired.e(xh), If.lad.wired.e(mx))))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      %w2.we(me) : {Bool.or(Laws.ladder.is_wire(o), Bool.or(Laws.ladder.is_wire(mi), Bool.or(Laws.ladder.is_wire(lo), Bool.or(_, Bool.or(If.lad.wired.e(hi), Bool.or(If.lad.wired.e(xh), If.lad.wired.e(mx))))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      %w2.we(hi) : {Bool.or(Laws.ladder.is_wire(o), Bool.or(Laws.ladder.is_wire(mi), Bool.or(Laws.ladder.is_wire(lo), Bool.or(Laws.ladder.is_wire(me), Bool.or(_, Bool.or(If.lad.wired.e(xh), If.lad.wired.e(mx))))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      %w2.we(xh) : {Bool.or(Laws.ladder.is_wire(o), Bool.or(Laws.ladder.is_wire(mi), Bool.or(Laws.ladder.is_wire(lo), Bool.or(Laws.ladder.is_wire(me), Bool.or(Laws.ladder.is_wire(hi), Bool.or(_, If.lad.wired.e(mx))))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      %w2.we(mx) : {Bool.or(Laws.ladder.is_wire(o), Bool.or(Laws.ladder.is_wire(mi), Bool.or(Laws.ladder.is_wire(lo), Bool.or(Laws.ladder.is_wire(me), Bool.or(Laws.ladder.is_wire(hi), Bool.or(Laws.ladder.is_wire(xh), _)))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      %w2.or_false(Laws.ladder.is_wire(mx)) : {Bool.or(Laws.ladder.is_wire(o), Bool.or(Laws.ladder.is_wire(mi), Bool.or(Laws.ladder.is_wire(lo), Bool.or(Laws.ladder.is_wire(me), Bool.or(Laws.ladder.is_wire(hi), Bool.or(Laws.ladder.is_wire(xh), _)))))) == Laws.ladder.wired.go(Ef.ladder(), Ef.LvMap{o, mi, lo, me, hi, xh, mx}) : Bool}
+      {==}
+
+# the loose ids a plan lists, else none
+def w2.listed(p: If.Plan) -> List<&2, Nat>:
+  match p:
+    case If.Fits{ls}:
+      ls
+    case If.Over{i}:
+      Nil{}
+
+def w2.over(p: If.Plan) -> Bool:
+  match p:
+    case If.Fits{ls}:
+      False{}
+    case If.Over{i}:
+      True{}
+
+def w2.named(p: If.Plan) -> Nat:
+  match p:
+    case If.Fits{ls}:
+      0n
+    case If.Over{i}:
+      i
+
+def w2.ids(+ts: List<&2, If.Tool>) -> {If.ids(ts) == Laws.strict.ids(ts) : List<&2, Nat>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> rest:
+      %w2.ids(rest) : {If.Tool.id(t) <> If.ids(rest) == If.Tool.id(t) <> _ : List<&2, Nat>}
+      {==}
+
+# plan.of with None lists ids(L); with Some it is Over
+def w2.of_fits(m: Maybe<&2, Nat>, +L: List<&2, If.Tool>, +ls: List<&2, Nat>, f: {If.plan.of(m, L) == If.Fits{ls} : If.Plan}) -> {ls == If.ids(L) : List<&2, Nat>}:
+  match m:
+    case None{}:
+      Equal.cong(If.Plan, List<&2, Nat>, w2.listed, If.Fits{ls}, If.Fits{If.ids(L)}, Equal.sym(If.Plan, If.Fits{If.ids(L)}, If.Fits{ls}, f))
+    case Some{i}:
+      pq.absurd({ls == If.ids(L) : List<&2, Nat>}, Equal.cong(If.Plan, Bool, w2.over, If.Over{i}, If.Fits{ls}, f))
+
+def w2.of_none(m: Maybe<&2, Nat>, +L: List<&2, If.Tool>, +ls: List<&2, Nat>, f: {If.plan.of(m, L) == If.Fits{ls} : If.Plan}) -> {m == None{} : Maybe<&2, Nat>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{i}:
+      pq.absurd({Some{i} == None{} : Maybe<&2, Nat>}, Equal.cong(If.Plan, Bool, w2.over, If.Over{i}, If.Fits{ls}, f))
+
+def w2.of_over(m: Maybe<&2, Nat>, +L: List<&2, If.Tool>, +i: Nat, o: {If.plan.of(m, L) == If.Over{i} : If.Plan}) -> {m == Some{i} : Maybe<&2, Nat>}:
+  match m:
+    case None{}:
+      pq.absurdF({None{} == Some{i} : Maybe<&2, Nat>}, Equal.cong(If.Plan, Bool, w2.over, If.Fits{If.ids(L)}, If.Over{i}, o))
+    case Some{j}:
+      %Equal.cong(If.Plan, Nat, w2.named, If.Over{j}, If.Over{i}, o) : {Some{j} == Some{_} : Maybe<&2, Nat>}
+      {==}
+
+def w2.mt(-A: Type, -x: Nat, e: {Some{x} == None{} : Maybe<&2, Nat>}) -> A:
+  pq.absurd(A, Equal.cong(Maybe<&2, Nat>, Bool, m => Maybe.is_some(&2, Nat, m), Some{x}, None{}, e))
+
+# is_eq(a, b) true and is_eq(a, c) false: b is not c
+def w2.elem_at(+need: List<&2, Nat>, +a: Nat, +i: Nat, ai: {a == i : Nat}, n: {If.elem(need, i) == True{} : Bool}) -> {If.elem(need, a) == True{} : Bool}:
+  %Equal.sym(Nat, a, i, ai) : {If.elem(need, _) == True{} : Bool}
+  n
+
+# is_eq(a, i) true, a not needed, i needed: impossible
+def w2.eq_ne(+a: Nat, +i: Nat, h: {Nat.is_eq(a, i) == True{} : Bool}, +need: List<&2, Nat>, en: {If.elem(need, a) == False{} : Bool}, n: {If.elem(need, i) == True{} : Bool}) -> Empty:
+  +na = w2.elem_at(need, a, i, pq.eq_true(a, i, h), n)
+  pq.absurd(Empty, Equal.trans(Bool, True{}, If.elem(need, a), False{}, Equal.sym(Bool, If.elem(need, a), True{}, na), en))
+
+def w2.or_f(a: Bool, -b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
+  match a:
+    case False{}:
+      eb
+    case True{}:
+      pq.absurd({Bool.or(True{}, b) == False{} : Bool}, ea)
+
+def w2.ne_of(+a: Nat, +i: Nat, +need: List<&2, Nat>, en: {If.elem(need, a) == False{} : Bool}, n: {If.elem(need, i) == True{} : Bool}, e: Bool, ee: {Nat.is_eq(a, i) == e : Bool}) -> {Nat.is_eq(a, i) == False{} : Bool}:
+  match e:
+    case False{}:
+      ee
+    case True{}:
+      Empty.absurd({Nat.is_eq(a, i) == False{} : Bool}, w2.eq_ne(a, i, ee, need, en, n))
+
+# no tool of ls needs a strict schema: no needed id is among ids(ls)
+def w2.none_go(+ls: List<&2, If.Tool>, +need: List<&2, Nat>, hit: Bool, eh: {If.needs.at(ls, need) == hit : Bool}, z: {If.needs.go(ls, need, hit) == None{} : Maybe<&2, Nat>}, +i: Nat, +n: {If.elem(need, i) == True{} : Bool}) -> {If.elem(If.ids(ls), i) == False{} : Bool}:
+  match ls:
+    case Nil{}:
+      {==}
+    case t <> rest:
+      match hit:
+        case True{}:
+          w2.mt({If.elem(If.ids(t <> rest), i) == False{} : Bool}, If.Tool.id(t), z)
+        case False{}:
+          +a = If.Tool.id(t)
+          w2.or_f(Nat.is_eq(a, i), If.elem(If.ids(rest), i), w2.ne_of(a, i, need, eh, n, Nat.is_eq(a, i), {==}), w2.none_go(rest, need, If.needs.at(rest, need), {==}, z, i, n))
+
+def w2.or_t(a: Bool) -> {Bool.and(True{}, Bool.or(a, True{})) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def w2.some_go(+ls: List<&2, If.Tool>, +need: List<&2, Nat>, hit: Bool, eh: {If.needs.at(ls, need) == hit : Bool}, +i: Nat, +s: {If.needs.go(ls, need, hit) == Some{i} : Maybe<&2, Nat>}) -> {Bool.and(If.elem(need, i), If.elem(If.ids(ls), i)) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      w2.mt({Bool.and(If.elem(need, i), False{}) == True{} : Bool}, i, Equal.sym(Maybe<&2, Nat>, None{}, Some{i}, s))
+    case t <> rest:
+      match hit:
+        case True{}:
+          +e = Equal.cong(Maybe<&2, Nat>, Nat, m => Maybe.default(&2, Nat, m, 0n), Some{If.Tool.id(t)}, Some{i}, s)
+          +na = w2.elem_at(need, i, If.Tool.id(t), Equal.sym(Nat, If.Tool.id(t), i, e), eh)
+          %Equal.sym(Nat, If.Tool.id(t), i, e) : {Bool.and(If.elem(need, i), Bool.or(Nat.is_eq(_, i), If.elem(If.ids(rest), i))) == True{} : Bool}
+          %pq.eq_refl(i) : {Bool.and(If.elem(need, i), Bool.or(_, If.elem(If.ids(rest), i))) == True{} : Bool}
+          %Equal.sym(Bool, If.elem(need, i), True{}, na) : {Bool.and(_, True{}) == True{} : Bool}
+          {==}
+        case False{}:
+          +a = If.Tool.id(t)
+          +h = w2.some_go(rest, need, If.needs.at(rest, need), {==}, i, s)
+          +hn = pq.and_l(If.elem(need, i), If.elem(If.ids(rest), i), h)
+          +hr = pq.and_r(If.elem(need, i), If.elem(If.ids(rest), i), h)
+          %Equal.sym(Bool, If.elem(need, i), True{}, hn) : {Bool.and(_, Bool.or(Nat.is_eq(a, i), If.elem(If.ids(rest), i))) == True{} : Bool}
+          %Equal.sym(Bool, If.elem(If.ids(rest), i), True{}, hr) : {Bool.and(True{}, Bool.or(Nat.is_eq(a, i), _)) == True{} : Bool}
+          w2.or_t(Nat.is_eq(a, i))
 
 # ---- tools ----
 
@@ -29597,6 +30010,204 @@ def pf.facts_adaptive_rulebook_second(a: If.Ans) -> {Fx.adaptive(None{}, a) == F
 # Budgets
 # -------
 
+# Budgets of the shipped core (fit, aux, Google)
+# ---------------------------------------------
+
+# the ceiling with a caller's cap is the sum, never above mm
+def w2.cap_succ(c: Bool, +x: Nat, +q: Nat, +b: Nat) -> {Fx.fit.cap.add(c, 1n+x, 1n+q, b) == 1n+Fx.fit.cap.add(c, x, q, b) : Nat}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def w2.cap_succ0(c: Bool, +q: Nat, +p: Nat) -> {Fx.fit.cap.add(c, 0n, 1n+q, 1n+p) == 1n+Fx.fit.cap.add(c, 0n, q, p) : Nat}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def w2.cap_zero(+b: Nat, +mm: Nat) -> {Fx.fit.cap.add(Nat.is_lt(b, mm), 0n, mm, b) == Nat.min(b, mm) : Nat}:
+  match b mm:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      %w2.cap_zero(p, q) : {Fx.fit.cap.add(Nat.is_lt(p, q), 0n, 1n+q, 1n+p) == 1n+_ : Nat}
+      w2.cap_succ0(Nat.is_lt(p, q), q, p)
+
+def w2.cap_sum(+x: Nat, +mm: Nat, +b: Nat) -> {Fx.fit.cap(Some{x}, mm, b) == Nat.min(Nat.add(x, b), mm) : Nat}:
+  match x mm:
+    case 0n mm:
+      match mm:
+        case 0n:
+          w2.cap_zero(b, 0n)
+        case 1n+q:
+          w2.cap_zero(b, 1n+q)
+    case 1n+p 0n:
+      match b:
+        case 0n:
+          {==}
+        case 1n+r:
+          {==}
+    case 1n+p 1n+q:
+      %w2.cap_sum(p, q, b) : {Fx.fit.cap.add(Nat.is_lt(b, Nat.sub(q, p)), 1n+p, 1n+q, b) == 1n+_ : Nat}
+      w2.cap_succ(Nat.is_lt(b, Nat.sub(q, p)), p, q, b)
+
+def w2.fit_at(c: Bool, +m: Nat, +b: Nat, +a: Nat) -> {Fx.fit.at(c, m, b, a) == Laws.budgets.fit.at(c, m, b, a) : Fx.Fit}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# b - c is 0 when b is at most c
+def w2.sub_zero_le(+b: Nat, +c: Nat, h: {Nat.is_le(b, c) == True{} : Bool}) -> {Nat.sub(b, c) == 0n : Nat}:
+  match b c:
+    case 0n c:
+      {==}
+    case 1n+p 0n:
+      pq.absurdF({1n+p == 0n : Nat}, h)
+    case 1n+p 1n+q:
+      w2.sub_zero_le(p, q, h)
+
+def w2.lt_zero(+b: Nat) -> {Nat.is_lt(b, 0n) == False{} : Bool}:
+  match b:
+    case 0n:
+      {==}
+    case 1n+p:
+      {==}
+
+# y at most b: b is not below y
+def w2.le_not_lt(+y: Nat, +b: Nat, h: {Nat.is_le(y, b) == True{} : Bool}) -> {Nat.is_lt(b, y) == False{} : Bool}:
+  match y b:
+    case 0n b:
+      w2.lt_zero(b)
+    case 1n+p 0n:
+      pq.absurdF({Nat.is_lt(0n, 1n+p) == False{} : Bool}, h)
+    case 1n+p 1n+q:
+      w2.le_not_lt(p, q, h)
+
+# with a cap of mm or more, the ceiling is mm
+def w2.cap_above(+x: Nat, +mm: Nat, +b: Nat, h: {Nat.is_le(mm, x) == True{} : Bool}) -> {Fx.fit.cap(Some{x}, mm, b) == mm : Nat}:
+  %Equal.sym(Nat, Nat.sub(mm, x), 0n, w2.sub_zero_le(mm, x, h)) : {Fx.fit.cap.add(Nat.is_lt(b, _), x, mm, b) == mm : Nat}
+  %Equal.sym(Bool, Nat.is_lt(b, 0n), False{}, w2.lt_zero(b)) : {Fx.fit.cap.add(_, x, mm, b) == mm : Nat}
+  {==}
+
+def w2.min_r(+b: Nat, +y: Nat, h: {Nat.is_le(y, b) == True{} : Bool}) -> {Nat.min(b, y) == y : Nat}:
+  match b y:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      pq.absurdF({0n == 1n+q : Nat}, h)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      %w2.min_r(p, q, h) : {1n+Nat.min(p, q) == 1n+_ : Nat}
+      {==}
+
+# a budget of mm or more fills the ceiling mm
+def w2.cap_budget(+base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, h: {Nat.is_le(mm, b) == True{} : Bool}) -> {Fx.fit.cap(base, mm, b) == mm : Nat}:
+  match base:
+    case None{}:
+      {==}
+    case Some{+x}:
+      %Equal.sym(Bool, Nat.is_lt(b, Nat.sub(mm, x)), False{}, w2.le_not_lt(Nat.sub(mm, x), b, pf.le_trans(Nat.sub(mm, x), mm, b, pf.sub_le(mm, x), h))) : {Fx.fit.cap.add(_, x, mm, b) == mm : Nat}
+      {==}
+
+def w2.fit_full(+base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +a: Nat, +h: {Nat.is_le(mm, b) == True{} : Bool}) -> {Fx.fit(base, mm, b, a) == Fx.Fit{mm, Nat.sub(mm, a)} : Fx.Fit}:
+  %Equal.sym(Nat, Fx.fit.cap(base, mm, b), mm, w2.cap_budget(base, mm, b, h)) : {Fx.fit.at(Nat.is_le(_, b), _, b, a) == Fx.Fit{mm, Nat.sub(mm, a)} : Fx.Fit}
+  %Equal.sym(Bool, Nat.is_le(mm, b), True{}, h) : {Fx.fit.at(_, mm, b, a) == Fx.Fit{mm, Nat.sub(mm, a)} : Fx.Fit}
+  %Equal.sym(Nat, Nat.min(b, Nat.sub(mm, a)), Nat.sub(mm, a), w2.min_r(b, Nat.sub(mm, a), pf.le_trans(Nat.sub(mm, a), mm, b, pf.sub_le(mm, a), h))) : {Fx.Fit{mm, _} == Fx.Fit{mm, Nat.sub(mm, a)} : Fx.Fit}
+  {==}
+
+def w2.aux_cap(c: Bool, +b: Nat, +a: Nat, +top: Nat) -> {Fx.aux_cap.add(c, b, a, top) == Fx.fit.cap.add(c, a, top, b) : Nat}:
+  match c:
+    case True{}:
+      pa.add_comm(b, a)
+    case False{}:
+      {==}
+
+def w2.aux_sum(+b: Nat, +a: Nat, +top: Nat) -> {Fx.fit.cap.add(Nat.is_lt(b, Nat.sub(top, a)), a, top, b) == Nat.min(Nat.add(b, a), top) : Nat}:
+  %pa.add_comm(a, b) : {Fx.fit.cap.add(Nat.is_lt(b, Nat.sub(top, a)), a, top, b) == Nat.min(_, top) : Nat}
+  w2.cap_sum(a, top, b)
+
+def w2.cong1(-a: Nat, -b: Nat, e: {a == b : Nat}) -> {1n+a == 1n+b : Nat}:
+  %e : {1n+a == 1n+_ : Nat}
+  {==}
+
+def w2.max_l(+a: Nat, +y: Nat, h: {Nat.is_le(y, a) == True{} : Bool}) -> {Nat.max(a, y) == a : Nat}:
+  match a y:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      pq.absurdF({1n+q == 0n : Nat}, h)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      w2.cong1(Nat.max(p, q), p, w2.max_l(p, q, h))
+
+def w2.max_r(+a: Nat, +y: Nat, h: {Nat.is_le(a, y) == True{} : Bool}) -> {Nat.max(a, y) == y : Nat}:
+  match a y:
+    case 0n y:
+      {==}
+    case 1n+p 0n:
+      pq.absurdF({1n+p == 0n : Nat}, h)
+    case 1n+p 1n+q:
+      w2.cong1(Nat.max(p, q), q, w2.max_r(p, q, h))
+
+def w2.min_l(+x: Nat, +y: Nat, h: {Nat.is_le(x, y) == True{} : Bool}) -> {Nat.min(x, y) == x : Nat}:
+  match x y:
+    case 0n y:
+      {==}
+    case 1n+p 0n:
+      pq.absurdF({0n == 1n+p : Nat}, h)
+    case 1n+p 1n+q:
+      w2.cong1(Nat.min(p, q), p, w2.min_l(p, q, h))
+
+def w2.min_le_l(+x: Nat, +y: Nat) -> {Nat.is_le(Nat.min(x, y), x) == True{} : Bool}:
+  match x y:
+    case 0n y:
+      {==}
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      w2.min_le_l(p, q)
+
+def w2.lt_le(+a: Nat, +b: Nat, h: {Nat.is_lt(a, b) == True{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
+  match a b:
+    case 0n b:
+      pq.le0(b)
+    case 1n+p 0n:
+      pq.absurdF({False{} == True{} : Bool}, h)
+    case 1n+p 1n+q:
+      w2.lt_le(p, q, h)
+
+# x held inside lo..hi by the clamp is max(lo, min(x, hi))
+def w2.held_hi(+x: Nat, +lo: Nat, +hi: Nat, g: Bool, eg: {Nat.is_lt(hi, x) == g : Bool}, lohi: {Nat.is_le(lo, hi) == True{} : Bool}, lox: {Nat.is_le(lo, x) == True{} : Bool}) -> {Fx.clamp.hi(g, x, hi) == Nat.max(lo, Nat.min(x, hi)) : Nat}:
+  match g:
+    case True{}:
+      %Equal.sym(Nat, Nat.min(x, hi), hi, w2.min_r(x, hi, w2.lt_le(hi, x, eg))) : {hi == Nat.max(lo, _) : Nat}
+      Equal.sym(Nat, Nat.max(lo, hi), hi, w2.max_r(lo, hi, lohi))
+    case False{}:
+      %Equal.sym(Nat, Nat.min(x, hi), x, w2.min_l(x, hi, pf.not_lt_le(hi, x, eg))) : {x == Nat.max(lo, _) : Nat}
+      Equal.sym(Nat, Nat.max(lo, x), x, w2.max_r(lo, x, lox))
+
+def w2.held_lo(+x: Nat, +lo: Nat, +hi: Nat, c: Bool, ec: {Nat.is_lt(x, lo) == c : Bool}, lohi: {Nat.is_le(lo, hi) == True{} : Bool}) -> {Fx.clamp.lo(c, x, lo, hi) == Nat.max(lo, Nat.min(x, hi)) : Nat}:
+  match c:
+    case True{}:
+      +le = pf.le_trans(Nat.min(x, hi), x, lo, w2.min_le_l(x, hi), w2.lt_le(x, lo, ec))
+      Equal.sym(Nat, Nat.max(lo, Nat.min(x, hi)), lo, w2.max_l(lo, Nat.min(x, hi), le))
+    case False{}:
+      w2.held_hi(x, lo, hi, Nat.is_lt(hi, x), {==}, lohi, pf.not_lt_le(x, lo, ec))
+
+def w2.clamp_held(+x: Nat, +lo: Nat, +hi: Nat, lohi: {Nat.is_le(lo, hi) == True{} : Bool}) -> {Fx.clamp(x, lo, hi) == Nat.max(lo, Nat.min(x, hi)) : Nat}:
+  w2.held_lo(x, lo, hi, Nat.is_lt(x, lo), {==}, lohi)
+
 def pf.hi_le(+x: Nat, +hi: Nat, g: Bool, eg: {Nat.is_lt(hi, x) == g : Bool}) -> {Nat.is_le(Fx.clamp.hi(g, x, hi), hi) == True{} : Bool}:
   match g:
     case True{}:
@@ -29704,7 +30315,8 @@ def pf.cap_le(+base: Maybe<&2, Nat>, +mm: Nat, +b: Nat) -> {Nat.is_le(Fx.fit.cap
   match base:
     case None{}:
       facts.pf.le_refl(mm)
-    case Some{x}:
+    case Some{+x}:
+      %Equal.sym(Nat, Fx.fit.cap(Some{x}, mm, b), Nat.min(Nat.add(x, b), mm), w2.cap_sum(x, mm, b)) : {Nat.is_le(_, mm) == True{} : Bool}
       pf.min_le_r(Nat.add(x, b), mm)
 
 def pf.facts_fit_ceiling_under_model(+base: Maybe<&2, Nat>, +mm: Nat, +b: Nat, +a: Nat) -> {Nat.is_le(Fx.Fit.max(Fx.fit(base, mm, b, a)), mm) == True{} : Bool}:
@@ -29720,6 +30332,7 @@ def pf.facts_room_leaves_the_answer(+b: Nat, +m: Nat, +a: Nat, fits: {Nat.is_le(
 
 def pf.facts_aux_cap_answer_room(+b: Nat, +a: Nat) -> {Nat.sub(Fx.aux_cap(b, a), b) == a : Nat}:
   pf.add_sub(b, a)
+
 
 # Oracles
 # -------
@@ -34025,6 +34638,35 @@ def Laws.strict_keeps_every_tool(cap, ts, i):
 def Laws.strict_by_priority(cap, ts):
   pi.strict_by_priority(cap, ts)
 
+def Laws.strict_no_cap(ts):
+  {==}
+
+def Laws.strict_cap_is_strict(c, ts):
+  {==}
+
+def Laws.plan_fits_lists_the_loose(cap, ts, need, ls, f):
+  +L = Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))
+  %w2.ids(L) : {ls == _ : List<&2, Nat>}
+  w2.of_fits(If.needs.go(L, need, If.needs.at(L, need)), L, ls, f)
+
+def Laws.plan_never_loosens_a_needed_tool(cap, ts, need, ls, i, f, n):
+  +L = Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))
+  +M = If.needs.go(L, need, If.needs.at(L, need))
+  %Equal.sym(List<&2, Nat>, ls, If.ids(L), w2.of_fits(M, L, ls, f)) : {If.elem(_, i) == False{} : Bool}
+  w2.none_go(L, need, If.needs.at(L, need), {==}, w2.of_none(M, L, ls, f), i, n)
+
+def Laws.plan_refusal_names_a_needed_loose_tool(cap, ts, need, i, o):
+  +L = Pair.snd(List<&2, If.Tool>, List<&2, If.Tool>, If.strict.of(cap, ts))
+  +M = If.needs.go(L, need, If.needs.at(L, need))
+  %w2.ids(L) : {Bool.and(If.elem(need, i), If.elem(_, i)) == True{} : Bool}
+  w2.some_go(L, need, If.needs.at(L, need), {==}, i, w2.of_over(M, L, i, o))
+
+def Laws.plan_example_over():
+  {==}
+
+def Laws.plan_example_fits():
+  {==}
+
 def Laws.guard_cuts_repeats(xs, k, rep):
   pi.guard_cuts_repeats(xs, k, rep)
 
@@ -34420,6 +35062,26 @@ def Laws.quirk_ladder_plain_exact(explicit, rule, d, l):
 
 def Laws.quirk_ladder_shipped_is_s10(r, map):
   pq.quirk_ladder_shipped_is_s10(r, map)
+
+def Laws.quirk_ladder_reasons(f, bm, explicit):
+  match f bm:
+    case True{} _:
+      {==}
+    case False{} False{}:
+      {==}
+    case False{} True{}:
+      match explicit:
+        case None{}:
+          {==}
+        case Some{+m}:
+          w2.wired(m)
+
+def Laws.quirk_ladder_model_offers(r, explicit, rule, d):
+  match r:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
 
 # (K1) The kernel environment is local
 
@@ -34977,6 +35639,55 @@ def Laws.facts_room_leaves_the_answer(b, m, a, fits):
 
 def Laws.facts_aux_cap_answer_room(b, a):
   pf.facts_aux_cap_answer_room(b, a)
+
+def Laws.facts_google_unordered_refused(b, c, l, bad):
+  %Equal.sym(Bool, Fx.Budgets.ordered(b), False{}, bad) : {Fx.gbudget.rule(_, b, c, l) == Fx.Unordered{} : Fx.GB}
+  {==}
+
+def Laws.facts_google_ordered_tokens(b, c, l, ok):
+  %Equal.sym(Bool, Fx.Budgets.ordered(b), True{}, ok) : {Fx.gbudget.rule(_, b, c, l) == Fx.Tokens{Fx.gtokens(b, c, l)} : Fx.GB}
+  {==}
+
+def Laws.facts_google_budget_held(b, c, l, ordered):
+  w2.clamp_held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), Fx.Budgets.minimal(b), Fx.Budgets.high(b), pf.ord_mh(b, ordered))
+
+def Laws.facts_google_free_user(c, l, n, u):
+  %Equal.sym(Maybe<&2, Nat>, Fx.Customs.at(c, l), Some{n}, u) : {Fx.gbudget.free(_) == Fx.Tokens{n} : Fx.GB}
+  {==}
+
+def Laws.facts_google_free_dynamic(c, l, u):
+  %Equal.sym(Maybe<&2, Nat>, Fx.Customs.at(c, l), None{}, u) : {Fx.gbudget.free(_) == Fx.Dynamic{} : Fx.GB}
+  {==}
+
+def Laws.facts_budget_levels():
+  {==}
+
+def Laws.facts_budget_user_first(c, d, l, n, u):
+  %Equal.sym(Maybe<&2, Nat>, Fx.Customs.at(c, l), Some{n}, u) : {Maybe.default(&2, Nat, _, Fx.Budgets.at(d, l)) == n : Nat}
+  {==}
+
+def Laws.facts_budget_default(c, d, l, u):
+  %Equal.sym(Maybe<&2, Nat>, Fx.Customs.at(c, l), None{}, u) : {Maybe.default(&2, Nat, _, Fx.Budgets.at(d, l)) == Fx.Budgets.at(d, l) : Nat}
+  {==}
+
+def Laws.facts_fit_exact_caller(x, mm, b, a):
+  %w2.cap_sum(x, mm, b) : {Fx.fit(Some{x}, mm, b, a) == Laws.budgets.fit(_, b, a) : Fx.Fit}
+  +K = Fx.fit.cap(Some{x}, mm, b)
+  w2.fit_at(Nat.is_le(K, b), K, b, a)
+
+def Laws.facts_fit_exact_model(mm, b, a):
+  w2.fit_at(Nat.is_le(mm, b), mm, b, a)
+
+def Laws.facts_fit_saturated_caller(x, mm, b, a, above):
+  %w2.cap_above(x, mm, b, above) : {Fx.fit(Some{x}, mm, b, a) == Fx.fit.at(Nat.is_le(_, b), _, b, a) : Fx.Fit}
+  {==}
+
+def Laws.facts_fit_saturated_budget(base, mm, b1, b2, a, h1, h2):
+  Equal.trans(Fx.Fit, Fx.fit(base, mm, b1, a), Fx.Fit{mm, Nat.sub(mm, a)}, Fx.fit(base, mm, b2, a), w2.fit_full(base, mm, b1, a, h1), Equal.sym(Fx.Fit, Fx.fit(base, mm, b2, a), Fx.Fit{mm, Nat.sub(mm, a)}, w2.fit_full(base, mm, b2, a, h2)))
+
+def Laws.facts_aux_cap_within(b, a, top):
+  +C = Nat.is_lt(b, Nat.sub(top, a))
+  Equal.trans(Nat, Fx.aux_cap.add(C, b, a, top), Fx.fit.cap.add(C, a, top, b), Nat.min(Nat.add(b, a), top), w2.aux_cap(C, b, a, top), w2.aux_sum(b, a, top))
 
 def Laws.facts_bedrock_effort_oracle(native, m, l, ok):
   pf.facts_bedrock_effort_oracle(native, m, l, ok)
