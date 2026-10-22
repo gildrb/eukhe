@@ -1,5 +1,5 @@
 # bridge_path_policy: runs the path policy model (bend/path_policy.bend,
-# laws/path_policy.bend) on a scenario file and prints what it did, line
+# LAWS.bend section path_policy) on a scenario file and prints what it did, line
 # for line as the Rust bridge test prints the path policy and the
 # document tools' gate (crates/eukhe-core/src/durable/path_policy/
 # bridge.rs). Build it with

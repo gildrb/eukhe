@@ -1,5 +1,5 @@
 //! The bridge between the effective catalog and its Bend model
-//! (`bend/catalog_union.bend`, whose laws `laws/catalog_union.bend` and
+//! (`bend/catalog_union.bend`, whose laws `LAWS.bend` section `catalog_union` and
 //! `PROOF.bend` prove): both run the same generated catalogs and must
 //! print the same union, byte for byte. `bend/bridge_catalog_union.bend`
 //! documents the scenario format.

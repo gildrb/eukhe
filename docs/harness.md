@@ -51,7 +51,7 @@ a merge of two lines).
    line or of the input cut) counts no failure: the node stays as it was.
 
 Model: `line`, and `Pend.after` with its fold `Pend.run`, in
-`bend/compactor.bend`. Proofs: `bend/proof_compactor.bend`. Every law is
+`bend/compactor.bend`. Proofs: `PROOF.bend` section `compactor`. Every law is
 universal: for every input, every list of replies, every number of
 tries, every sequence of a node's call outcomes.
 
@@ -118,7 +118,7 @@ is built (`Made`) or pending with the failures it has left (`Owed{n}`),
 and the measure is the sum of `n + 1` over the pending lines. A call of
 a pending line ends `Built` (its line saved), `Failed`, `Disk` (the disk
 failed) or `Stopped` (a waiting turn stopped it); only the first two
-count. Proofs: `bend/proof_compactor.bend`. Every law is universal;
+count. Proofs: `PROOF.bend` section `compactor`. Every law is universal;
 `need_progress` holds after any events from an empty chat.
 
 | Law | Says |
@@ -203,8 +203,8 @@ entries of a class in ticket order; the Rust counters are counts of
 entries. The ops are an admit of either class, a waiter's poll, a
 permit's drop, a waiter's drop, and new limits, each as the Rust code
 does it (only a release or a drop calls the grant loop; an admit grants
-only the new ticket). Proofs: `bend/proof_admission.bend`,
-`bend/proof_admission_wait.bend` (H3.4). Every law is universal: the
+only the new ticket). Proofs: `PROOF.bend` section `admission`,
+`PROOF.bend` section `admission_wait` (H3.4). Every law is universal: the
 step laws hold for any state and op, the history laws for every state
 any ops reach from a new controller.
 
@@ -383,7 +383,7 @@ error spends a note, a transient one a retry), a round's end
 `Rounds::finish` then `RoundEnd::reset` (a control stops the run
 uncounted; a queued reset ends it only after the round counted, so the
 cap comes first). Proofs:
-`bend/proof_run.bend`. The measure `M` orders a run lexicographically
+`PROOF.bend` section `run`. The measure `M` orders a run lexicographically
 (rounds left, then compactions, then the retries and notes left in the
 generation as one budget, then the ms left of the deferred job (a poll
 spends 1 ms), then the phase) and
@@ -398,7 +398,7 @@ calls and results, a compaction adds its entry), thus a version names
 one context. A request goes out when preparation ends in a call. A
 noted reply (`Error{retryable, noted}` with `noted`) cuts the request
 and moves the note to the next attempt; a different error keeps the
-note. Proofs: `bend/proof_retry.bend`, by an invariant: each cut
+note. Proofs: `PROOF.bend` section `retry`, by an invariant: each cut
 request is from an older context, or from this context with an earlier
 attempt and a different note.
 
@@ -552,8 +552,8 @@ reply, a user message, an answer, any other reply) and gives an act
 `Act.reply` turns the act into a reply that the H4 steps read: `Redo` is
 a noted error, `Exec` calls, `Stand` text, `Quit` an error that is not
 noted. Thus every H4 law holds for a run with the recoveries: those laws
-hold for every reply. Laws: `laws/recover.bend`. Proofs:
-`bend/proof_recover.bend`. Every law is universal (any caps, any
+hold for every reply. Laws: `LAWS.bend` section `recover`. Proofs:
+`PROOF.bend` section `recover`. Every law is universal (any caps, any
 replies, any recovery state).
 
 | Law | Says |
@@ -670,7 +670,7 @@ polls with any reading and any delay, the parent's deliveries and
 withdrawals of any submission id, its aborts, closes and reopens, and
 task aborts and deletes, in any order. The parent's inbox keeps every
 submission of the report with its fate (queued, withdrawn, placed); the
-task reads its submission's fate by id. Proofs: `bend/proof_child.bend`.
+task reads its submission's fate by id. Proofs: `PROOF.bend` section `child`.
 Every law is universal.
 
 | Law | Says |
@@ -679,9 +679,9 @@ Every law is universal.
 | `child_unreachable_in_time` | Failed polls in a row, as many as the tries left, end the watch (H5.3). |
 | `child_clock_bounded` | The clock never grows past full, so the two bounds are at most `subagentStallMs` ms and `CHILD_POLL_FAILURES` polls (H5.2, H5.3). |
 | `child_progress_is_not_a_stall` | A poll with a new token continues the watch with a full clock (H5.2). |
-| `child_repeat_is_no_work` (`laws/progress.bend`) | Acts the child did before add no work: a repeat keeps the token (H5.2). |
-| `child_loop_is_a_stall` (`laws/progress.bend`) | Polls of a child whose acts are all acts it did before, at least as many as the ms left, end the watch (H5.2). |
-| `child_new_work_is_progress` (`laws/progress.bend`) | A poll after an act the child never did before continues the watch with a full clock (H5.2). |
+| `child_repeat_is_no_work` (`LAWS.bend` section `progress`) | Acts the child did before add no work: a repeat keeps the token (H5.2). |
+| `child_loop_is_a_stall` (`LAWS.bend` section `progress`) | Polls of a child whose acts are all acts it did before, at least as many as the ms left, end the watch (H5.2). |
+| `child_new_work_is_progress` (`LAWS.bend` section `progress`) | A poll after an act the child never did before continues the watch with a full clock (H5.2). |
 | `child_one_live` | After any events, at most one submission of the report is live (queued or placed) (H5.4). |
 | `child_report_once` | After any events, at most one submission of the report is placed: the transcript holds it at most once (H5.4). |
 | `child_resubmits_per_abort` | The report's submissions are at most 1 + the parent's aborts, closes and withdrawals (H5.4). |
@@ -771,7 +771,7 @@ Models: the wait in `bend/wait.bend` (a wait sees, one at a time and in
 any order, its event, ticks, and the cancel; its deadline is a number of
 ticks or none); the lease in `bend/lease.bend` (asks, releases, stops and
 crashes in any order; a key is the order of arrival). Proofs:
-`bend/proof_wait.bend`, `bend/proof_lease.bend`. Every law is universal.
+`PROOF.bend` section `wait`, `PROOF.bend` section `lease`. Every law is universal.
 
 | Law | Says |
 | --- | --- |
@@ -850,7 +850,7 @@ or the model what and why. It never drops the cause.
    run. Check the state it changes (files, processes, jobs) before you run
    it again." (the restart text says "interrupted by a restart").
 
-Laws (`laws/progress.bend`): `fallback_is_reported` (every key the session
+Laws (`LAWS.bend` section `progress`): `fallback_is_reported` (every key the session
 model was put in place of is noticed), `fallback_quiet_when_routed` (a
 notice only comes with a substitution), `fallback_quiet_when_unset`,
 `fallback_quiet_when_same`; `skill_failure_reported` (every candidate

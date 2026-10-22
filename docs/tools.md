@@ -89,7 +89,7 @@ tools behind `dyn`, the internal URLs and the shell.
    credentials that the MCP config of the user reads (a `bearerTokenEnvVar`,
    a stdio `{"env": NAME}` reference, an `mcp:*` key in `auth.json` that
    names a variable). It never keeps a provider credential. The laws (G3)
-   in `laws/child_env.bend` state this. The
+   in `LAWS.bend` section `child_env` state this. The
    commands of a pipeline run at the same time. OS pipes connect them, and
    the pipe buffer of the kernel limits each pipe. When a command stops,
    its input pipe closes. The command that writes to that pipe then stops
@@ -288,7 +288,7 @@ tools behind `dyn`, the internal URLs and the shell.
       header and no selector, and its lines are not edit anchors.
 
 Model: `bend/tools.bend`. Laws: `LAWS.bend` section (S7). Proofs:
-`bend/proof_tools.bend`. Every input is free: any tools that join and
+`PROOF.bend` section `tools`. Every input is free: any tools that join and
 quit, any schemas, any paths, any scripts, any auto set, any answers of
 the user.
 
@@ -446,8 +446,8 @@ judge a path differently.
 
 Model: `bend/path_policy.bend` (alias `Pp`: `real` with `max_links`
 links of fuel, `class`, `holds`, `effs`, `runs`, `asks`, the store
-`run` and `guarded`). Laws: `laws/path_policy.bend` (alias `Pg`).
-Proofs: `bend/proof_path_policy.bend`. Every input is free: any
+`run` and `guarded`). Laws: `LAWS.bend` section `path_policy`.
+Proofs: `PROOF.bend` section `path_policy`. Every input is free: any
 symlinks (loops too), any policy, any paths, any auto set, any answers.
 
 | Law | Says |
@@ -502,8 +502,8 @@ working directory of a command that reads it because it names no path).
 
 Model: `bend/tools.bend` part 4 (`Step{id, effs}`, `grantable`,
 `within`, `join`, `Part{own, secret}`, `part.effs`, `parts.effs`,
-`parts.secret`, `exec`). Laws: `laws/shell_classification.bend` (alias
-`Sg`). Proofs: `bend/proof_shell.bend`.
+`parts.secret`, `exec`). Laws: `LAWS.bend` section
+`shell_classification`. Proofs: `PROOF.bend` section `shell`.
 
 | Law | Says |
 | --- | --- |
@@ -552,7 +552,7 @@ write an ungated one.
 
 Model: `bend/runners.bend` (`registry`, the tools that a default session
 installs, in install order; `cell`, the gate of one call). Laws:
-`laws/runners.bend` (alias `Ru`). Proofs: `bend/proof_runners.bend`.
+`LAWS.bend` section `runners`. Proofs: `PROOF.bend` section `runners`.
 
 | Law | Says |
 | --- | --- |
@@ -624,7 +624,7 @@ that asks up to its root: no client, clients that leave, clients that
 answer, the gateway alone, clients that leave while the gateway stays;
 `fate`, what becomes of a step with given effects; `default_auto`;
 `gate`, the auto set before the route). Laws:
-`laws/approvals.bend` (alias `Ap`). Proofs: `bend/proof_approvals.bend`.
+`LAWS.bend` section `approvals`. Proofs: `PROOF.bend` section `approvals`.
 
 | Law | Says |
 | --- | --- |
@@ -731,8 +731,8 @@ functions `read()`, `write()`, `edit()`, `grep()` and `glob()` (crate
 
 Models: `bend/doc_commit.bend`, `bend/doc_seen.bend`,
 `bend/doc_lines.bend`, `bend/doc_tags.bend`, `bend/doc_search.bend`. Laws:
-`laws/documents.bend`. Proofs: `bend/proof_documents.bend`,
-`bend/proof_doc_lines.bend`.
+`LAWS.bend` section `documents`. Proofs: `PROOF.bend` section `documents`,
+`PROOF.bend` section `doc_lines`.
 
 | Law | Says |
 | --- | --- |

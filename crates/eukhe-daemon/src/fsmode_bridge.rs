@@ -1,5 +1,5 @@
 //! The bridge between the local access code and its Bend model
-//! (`bend/fsmode.bend`, laws `laws/fsmode.bend`, proved in `PROOF.bend`):
+//! (`bend/fsmode.bend`, laws `LAWS.bend` section `fsmode`, proved in `PROOF.bend`):
 //! both run the same scenarios and must print the same transcript, byte
 //! for byte (`bend/bridge_fsmode.bend` documents the format). Four kinds
 //! of scenario, each on the real code:

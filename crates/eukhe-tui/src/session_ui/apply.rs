@@ -212,7 +212,7 @@ impl SessionUi {
             view.push_entry(entry);
         }
         // The latest prompt's client-only end rows survive this rebuild
-        // too (laws/turn_visibility.bend Q3).
+        // too (LAWS.bend section turn_visibility Q3).
         for row in &self.carried_rows {
             view.push_entry(row.clone());
         }
@@ -332,7 +332,7 @@ impl SessionUi {
                     // the user must still see after the cancelled turn's
                     // later status rows land (TS `showError`), not a
                     // transient note; so is any other closure that cut a
-                    // running turn short (laws/turn_visibility.bend Q9).
+                    // running turn short (LAWS.bend section turn_visibility Q9).
                     let text = match reason.as_str() {
                         "shutdown" => Some("The Eukhe daemon shut down while this window was attached. The session transcript remains saved; restart Eukhe and reopen it from Agents View.".to_string()),
                         "replaced" => Some("The daemon replaced this agent session with another session. Reopen the current session from Agents View.".to_string()),

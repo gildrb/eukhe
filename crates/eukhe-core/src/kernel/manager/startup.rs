@@ -41,7 +41,7 @@ pub(crate) fn local_env(overlay: &HashMap<String, String>) -> HashMap<String, St
 }
 
 /// The environment of a child the host starts for an agent (the model is
-/// `bend/child_env.bend`, the laws are (G3) in `laws/child_env.bend`):
+/// `bend/child_env.bend`, the laws are (G3) in `LAWS.bend` section `child_env`):
 /// `base` with `overlay` over it, less every credential name
 /// ([`is_credential_env_var`]) that `kept` does not hold. A provider
 /// credential ([`is_provider_credential_env_var`]) never stays, even when

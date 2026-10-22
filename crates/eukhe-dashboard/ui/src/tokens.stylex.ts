@@ -5,7 +5,7 @@ import * as stylex from "@stylexjs/stylex";
 // fails `vp check` on a color, length, duration, easing, layer, weight or
 // opacity written in another file under src/; src/tokens.test.ts does the
 // same for global.css. bend/tokens.bend holds the same table, and
-// laws/dashboard_tokens.bend states its rules (T2): src/tokens.test.ts
+// LAWS.bend section dashboard_tokens states its rules (T2): src/tokens.test.ts
 // checks that the two tables are equal.
 
 /**

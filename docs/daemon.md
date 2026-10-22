@@ -5,7 +5,7 @@ The shared rules (what a law secures, the adversary) are in [harness.md](harness
 ### D1. Supervisor
 
 The daemon is a supervisor. It starts one worker process for each active
-session. The laws are in `laws/supervisor.bend`; `bend/proof_supervisor.bend`
+session. The laws are in `LAWS.bend` section `supervisor`; `PROOF.bend` section `supervisor`
 proves them. The bridge test `crates/eukhe-daemon/src/supervision_bridge.rs`
 runs the Rust code and each model on the same scenarios and requires the
 same transcript.

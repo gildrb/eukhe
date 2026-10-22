@@ -1,6 +1,6 @@
 //! The bridge between the workflow limits and admission rule
 //! ([`effective_limits`], [`admit`]) and their Bend model
-//! (`bend/workflow.bend`, whose laws `laws/workflow.bend` and
+//! (`bend/workflow.bend`, whose laws `LAWS.bend` section `workflow` and
 //! `PROOF.bend` prove): both run the same random scenarios and must
 //! print the same transcript. `bend/bridge_workflow.bend` documents the
 //! scenario format.

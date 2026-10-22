@@ -4,7 +4,7 @@
 //! flight ends. Each caller takes its refresh one [`Leg`] at a time:
 //! [`Leg::advance`] takes the steps that read, fetch and write,
 //! [`FlightBook::advance`] the steps on the flights. The model is
-//! `bend/auth_flight.bend`, its laws `laws/auth_flight.bend`; the bridge
+//! `bend/auth_flight.bend`, its laws `LAWS.bend` section `auth_flight`; the bridge
 //! test (`flight/bridge.rs`) runs both on the same interleavings.
 
 use std::collections::hash_map::Entry;

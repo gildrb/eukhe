@@ -1,6 +1,6 @@
 //! The bridge between the path policy (`eukhe_types::path_policy`), the
 //! document tools' gate ([`DocumentsGate`]) and their Bend model
-//! (`bend/path_policy.bend`, whose laws `laws/path_policy.bend` states as
+//! (`bend/path_policy.bend`, whose laws `LAWS.bend` section `path_policy` states as
 //! `Pg.*`; docs/tools.md S7): both run the same scenarios and must print
 //! the same transcript, byte for byte.
 //!

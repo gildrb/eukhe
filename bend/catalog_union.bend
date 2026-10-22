@@ -19,7 +19,7 @@
 # A recursive scan takes the test of its first entry as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
 #
-# laws/catalog_union.bend states the laws; bend/proof_catalog_union.bend
+# LAWS.bend section catalog_union states the laws; PROOF.bend section catalog_union
 # proves them; bend/bridge_catalog_union.bend runs this model against the
 # Rust code.
 

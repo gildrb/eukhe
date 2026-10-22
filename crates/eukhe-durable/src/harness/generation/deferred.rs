@@ -4,7 +4,7 @@
 //! The time check of a job (its deadline) is [`after_reply`]'s.
 //!
 //! The Bend model is `bend/retry.bend` (§4 the deferred job, §5 the
-//! stall). `laws/retry.bend` states its laws (`deferred_pays_once`,
+//! stall). `LAWS.bend` section `retry` states its laws (`deferred_pays_once`,
 //! `deferred_bounded_in_time`, `deferred_failed_poll_repolls`,
 //! `stall_retry_extends`) and `PROOF.bend` proves them. The bridge test
 //! (`retry_bridge.rs`) runs these decisions and the model on the same

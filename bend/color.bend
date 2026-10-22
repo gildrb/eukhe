@@ -1,5 +1,5 @@
 # color: the color math of the themes (crates/eukhe-theme/src/color.rs,
-# laws in laws/themes.bend, docs/interface.md Themes). Every function here
+# laws in LAWS.bend section themes, docs/interface.md Themes). Every function here
 # is on U32 and exact; the bridge test in eukhe-core
 # (crates/eukhe-core/src/export_html/theme_bridge.rs) runs the Rust
 # functions and this model on the same inputs.

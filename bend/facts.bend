@@ -1,6 +1,6 @@
 # facts: the model of the model and provider facts that live in data, not
-# in code (docs/inference.md S6.10). laws/model_facts.bend states its laws;
-# bend/proof_facts.bend proves them; bend/bridge_facts.bend runs it against
+# in code (docs/inference.md S6.10). LAWS.bend section model_facts states its laws;
+# PROOF.bend section facts proves them; bend/bridge_facts.bend runs it against
 # the Rust code (crates/eukhe-core/src/durable/facts_bridge.rs).
 #
 # 1. Decisions from the rulebook: a wire API reads a fact of a model (adaptive

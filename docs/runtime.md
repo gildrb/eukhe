@@ -111,7 +111,7 @@ outlived the blocking budget. Each job has an output, one end, and a kill.
    section is absent while no job runs.
 
 Model: `bend/job.bend` (`step`, `ends`, `wait`, `journal`, `rewind`).
-Laws: `LAWS.bend` section (S2). Proofs: `bend/proof_job.bend`. Every law
+Laws: `LAWS.bend` section (S2). Proofs: `PROOF.bend` section `job`. Every law
 is universal: every event is free (any output size, exit, kill or tick,
 in any order; any cap or the opt-out; any budget; any tool call stream;
 any job table).
@@ -392,7 +392,7 @@ set it):
    blocking work in a synchronous function.
 
 Model: `bend/sandbox.bend` (`serve`, `merge1`, `back`). Laws: `LAWS.bend`
-section (S3). Proofs: `bend/proof_sandbox.bend`. Every input is free:
+section (S3). Proofs: `PROOF.bend` section `sandbox`. Every input is free:
 any frames of any length and kind, any limits, any workspaces of the
 parent, the base and the child.
 
@@ -533,12 +533,12 @@ its create names.
    When that dir is gone at a restart, the restart fails.
 
 The Bend model is `bend/fsmode.bend` and the laws are in
-`laws/fsmode.bend`: `socket_dir_owned`, `socket_dir_progress`,
+`LAWS.bend` section `fsmode`: `socket_dir_owned`, `socket_dir_progress`,
 `socket_dir_created`, `socket_dir_created_used`, `peer_same_uid`,
 `peer_own_accepted`, `private_on_create`, `cwd_is_explicit`,
 `cwd_none_refused`, `cwd_gone_refused`, `cwd_file_refused` and
 `cwd_dir_opens`. `PROOF.bend` proves them with
-`bend/proof_fsmode.bend`.
+`PROOF.bend` section `fsmode`.
 
 Bridge: `fsmode_bridge::the_local_access_code_equals_the_bend_model`
 (eukhe-daemon) runs the real code against `bend/bridge_fsmode.bend`. It
@@ -591,13 +591,13 @@ eukhe kernel install --check  # show its state; no network request
    live process stays.
 
 The Bend model is `bend/kernel_local.bend` and the laws are in
-`laws/kernel_local.bend`: `kernel_session_never_downloads`,
+`LAWS.bend` section `kernel_local`: `kernel_session_never_downloads`,
 `kernel_download_only_on_install`, `kernel_fetch_verified_before_use`,
 `kernel_setup_runs`, `kernel_install_fetches`,
 `kernel_missing_spares_tools`, `kernel_missing_names_install`,
 `kernel_lock_attempt_leaves_none`, `kernel_lock_sweep_removes_dead` and
 `kernel_lock_sweep_keeps_live`. `PROOF.bend` proves them with
-`bend/proof_kernel_local.bend`.
+`PROOF.bend` section `kernel_local`.
 
 Code: `eukhe-core/src/kernel/bootstrap/setup.rs` (`setup_step`: the
 venv found and the setup give the step), `venv.rs`

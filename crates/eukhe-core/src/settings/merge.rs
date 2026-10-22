@@ -6,7 +6,7 @@ use super::types::Settings;
 
 /// Settings that map names to entries: an entry is one unit, so an
 /// override entry replaces the base entry of its name whole and never
-/// takes keys (a URL, a credential) from it (`laws/config.bend`
+/// takes keys (a URL, a credential) from it (`LAWS.bend` section `config`
 /// `project_entry_never_merges`).
 const ENTRY_MAPS: &[&str] = &["mcpServers"];
 

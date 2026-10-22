@@ -255,7 +255,7 @@ pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
 /// Replay a whole transcript into chat rows: every message's rows, the
 /// `toolResult` messages folded onto their cards, each retry episode
 /// collapsed to its outcome row, and every ended turn's end row -- the
-/// rows the live event pump left (`laws/turn_visibility.bend` R7). `tail`
+/// rows the live event pump left (`LAWS.bend` section `turn_visibility` R7). `tail`
 /// says whether the newest turn ended.
 #[must_use]
 pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEntry> {

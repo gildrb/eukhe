@@ -2,7 +2,7 @@
 //! whatever repository the user opened, so the keys that can run code,
 //! redirect credentials or data, move where code and kernel state load
 //! from, or raise a limit apply only when the global `trustedProjects`
-//! list covers the project directory (`laws/config.bend`
+//! list covers the project directory (`LAWS.bend` section `config`
 //! `untrusted_changes_nothing_guarded`). `trustedProjects` is read from
 //! the global layer only (the global `settings.json`, then the global
 //! `config.cfg`), like `gateway` and `ssh`.

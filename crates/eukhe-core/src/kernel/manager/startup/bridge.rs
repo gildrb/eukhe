@@ -1,6 +1,6 @@
 //! The bridge between the environment of a child ([`super::child_env`],
 //! with `eukhe_ai`'s credential test) and its Bend model
-//! (`bend/child_env.bend`; the laws (G3) in `laws/child_env.bend`): both
+//! (`bend/child_env.bend`; the laws (G3) in `LAWS.bend` section `child_env`): both
 //! run the same scenarios and must print the same transcript, byte for
 //! byte.
 //!

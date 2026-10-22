@@ -1,4 +1,4 @@
-//! Headless e2e for `laws/turn_visibility.bend`'s findings F1-F16: "it must
+//! Headless e2e for `LAWS.bend` section `turn_visibility`'s findings F1-F16: "it must
 //! always be obvious when eukhe is working; a prompt that returns nothing
 //! can never happen". Each test replays a finding's event history against
 //! the real interactive loop -- a scripted mock daemon answers the prompt,

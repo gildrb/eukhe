@@ -1,5 +1,5 @@
 //! The bridge between the retry decisions and their Bend model
-//! (`bend/retry.bend`, whose laws `laws/retry.bend` states and
+//! (`bend/retry.bend`, whose laws `LAWS.bend` section `retry` states and
 //! `PROOF.bend` proves): the classifier (`FailureFacts::retryable` over
 //! real failed messages), the wait (`RetryWait::of`) and the failover walk
 //! ([`next_switch`]) run the same scenarios as the model and must print

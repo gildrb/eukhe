@@ -35,8 +35,8 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Private modules with an explicit public crate API. Internals are `pub(crate)`.
 - Keep Rust and TypeScript files under 2,000 lines, tests included. Split by
   responsibility; move related tests with extracted code. Bend files (`LAWS.bend`,
-  `laws/`, `PROOF.bend`, `bend/`) have no line limit: a complete law set is long,
-  and one area's laws stay together.
+  `PROOF.bend`, `bend/`) have no line limit: a complete law set is long, and one
+  area's laws stay together.
 - Name modules for what they own, not `utils` or `common`. Follow existing structure:
   `crates/eukhe-core/src/kernel/manager/` (`mod.rs` connects `execution.rs`,
   `requests.rs`, `teardown.rs`); `crates/eukhe-core/src/cron/store/` (`heartbeat.rs`,
@@ -73,9 +73,13 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Run tests with a clean environment. Inherited `EUKHE_*` variables make test daemons
   write into real `~/.eukhe`:
   `env -i HOME="$HOME" PATH="$PATH" USER="$USER" LANG="$LANG" cargo test --workspace`.
-- Laws are the first tests. A law section is a file `laws/<area>.bend` that
-  `LAWS.bend` imports; `PROOF.bend` proves each law as `def <Alias>.<law>`, with
-  models and lemmas in `bend/`. A law about Rust code has a Rust-vs-Bend bridge test.
+- Laws are the first tests. Every law lives in the root `LAWS.bend`, one section per
+  area (`# ---- <area> ----` and its requirement table); every proof and proof lemma
+  lives in the root `PROOF.bend`, one section per area, each law proven as
+  `def Laws.<law>`. Models live in `bend/<area>.bend`; bridges in
+  `bend/bridge_<area>.bend` plus a Rust bridge test, required for a law about Rust
+  code. No `laws/` directory, no law or proof in any other file:
+  `scripts/check_laws_wired.py` fails on either.
 
 ## Lints
 
@@ -116,7 +120,7 @@ background bookkeeping.
 - `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs` and
   `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled
   model catalog. The built-in catalog is its union with the bundled snapshot
-  (`eukhe-models` `effective.rs`, laws in `laws/catalog_union.bend`). `eukhe-models`
+  (`eukhe-models` `effective.rs`, laws in `LAWS.bend` section `catalog_union`). `eukhe-models`
   adds the transport templates pi-ai lacks (`transports.rs` `SUPPLEMENTAL_TRANSPORTS`).
   `crates/eukhe-models/tests/fixtures/catalog.v1.json` refreshes with
   `scripts/generate-catalog-fixture.py`.

@@ -1,7 +1,7 @@
 //! The bridge from the pages of [`glob`] to their Bend model
 //! (`bend/doc_search.bend`, laws `continuation_progresses`,
 //! `continuation_contiguous` and `continuation_disjoint` of
-//! `laws/documents.bend`): generated files with times that are often equal
+//! `LAWS.bend` section `documents`): generated files with times that are often equal
 //! run through the Rust code, which follows each continuation the result
 //! gives, and `bend/bridge_doc_search.bend` must print the same
 //! transcript, byte for byte.

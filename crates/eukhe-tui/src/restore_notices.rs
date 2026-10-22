@@ -6,7 +6,7 @@
 //! transcript from every stored message. The view records each restore
 //! notice it shows and does not show a recorded notice again. Thus each
 //! restore shows its notice once, after any number of attaches
-//! (`laws/supervisor.bend` `notice_shown_once` and `notice_per_restore`,
+//! (`LAWS.bend` section `supervisor` `notice_shown_once` and `notice_per_restore`,
 //! the model `bend/notice.bend`).
 
 use std::collections::{HashMap, HashSet};

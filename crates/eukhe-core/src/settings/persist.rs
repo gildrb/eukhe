@@ -1,5 +1,5 @@
 //! The read/modify/write of one settings document
-//! (`laws/config.bend` `rmw_refuses_broken`, `rmw_keeps_others`,
+//! (`LAWS.bend` section `config` `rmw_refuses_broken`, `rmw_keeps_others`,
 //! `settings_save_preserves`): a write reads the document on disk under
 //! its lock, changes only its own key paths, and writes the result. A
 //! document that cannot be read or parsed is never written.

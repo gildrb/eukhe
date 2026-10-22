@@ -65,8 +65,8 @@ a missing `bend` fail the test.
 | --- | --- |
 | `bend/optchat.bend` | The model: nodes, the view, due, push, fit, the sawtooth, the compaction view, the work queue. |
 | `bend/spec.bend` | What the laws speak of: `Tiles`, `Merged`, `Summarized`, `Before`, `Prefix`. |
-| `LAWS.bend` | The laws, as open claims. |
-| `PROOF.bend` | One proof per law. It imports `bend/proof_*.bend`. |
+| `LAWS.bend` | Every law of eukhe, as open claims, one section per area. |
+| `PROOF.bend` | One proof per law, as `Laws.<law>`, and every lemma, one section per area. |
 | `bend/bridge.bend` | Runs the model on a scenario file. The bridge test builds it with `bend bend/bridge.bend -o <binary>`. |
 | `memory/chat/bridge.rs` | The bridge test. |
 
@@ -75,7 +75,7 @@ parent of a node is one step away: drop the lowest bit. All arithmetic of the
 merge order runs on these bits. The proof kernel has unary numbers, so this
 keeps the bounded proofs (law d) inside its fuel. The universal proofs read
 a bit list through its value (`Bits.val`): comparing, adding and shifting
-bit lists does the same to their values (`bend/proof_agree.bend`).
+bit lists does the same to their values (`PROOF.bend` section `agree`).
 
 The model uses lists, not arrays, and says why:
 
@@ -132,7 +132,7 @@ computation for the inputs named.
 | `context_is_prefix` | §4 | A compaction's view is the start of the compaction view. | Universal |
 
 `push_agrees_always` proves the gist's claim for every t
-(`bend/proof_agree.bend`). Under push alone, Taelin's list is a bijective
+(`PROOF.bend` section `agree`). Under push alone, Taelin's list is a bijective
 binary counter: with keep bits `d_j` (newest entry first), T messages are
 `T = sum (1 + d_j)·2^j`, and entry j is one line of level `j + d_j`. The
 proof writes push's list (`pa.GE`) and the view (`pa.GV`) as functions of
@@ -156,7 +156,7 @@ one. The model also counts the steps where `first` agrees with push: 481
 of 20,001, as the gist says (`O.agree.count(O.First{}, 20001n)`).
 
 The kernel cannot run 20,001 steps in one check (it runs out of fuel), so
-`bend/proof_push.bend` cuts the run into 20 chunks of 1,000 steps and one
+`PROOF.bend` section `push` cuts the run into 20 chunks of 1,000 steps and one
 step. A lemma proven by induction joins the chunks. Each chunk starts from
 a written-out state and is checked by computation. Each join names the
 steps that are left as a literal (`20001n`, `19001n`, …, `1001n`), so the

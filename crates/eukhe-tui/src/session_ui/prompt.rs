@@ -1228,7 +1228,7 @@ enum RetainedDraft {
 }
 
 /// The row of a refused submit (`rendered`): the refusal and the user's
-/// next step (`laws/turn_visibility.bend` R5).
+/// next step (`LAWS.bend` section `turn_visibility` R5).
 fn refused_row_text(rendered: &str, draft: RetainedDraft) -> String {
     let step = match draft {
         RetainedDraft::InEditor => {
