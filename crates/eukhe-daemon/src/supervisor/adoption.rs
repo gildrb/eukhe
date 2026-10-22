@@ -213,6 +213,28 @@ impl Supervisor {
                         // ran before the supervisor restart): routed client
                         // commands may reach it immediately.
                         resident.note_session_ready();
+                    } else {
+                        // A live worker this boot cannot reach would keep the
+                        // session's lease with no supervisor routing to it:
+                        // the retry under the restart budget below stops it
+                        // before each relaunch (never beside it). Only a
+                        // recorded start id proves the pid is still that
+                        // worker; without one the pid may be recycled, and
+                        // the give-up's belt (`reap_abandoned_workers`) is
+                        // left to find it.
+                        let start_id = resident.descriptor.lock().await.process_start_id.clone();
+                        match start_id {
+                            Some(start_id) => {
+                                *resident.survivor.lock().await =
+                                    Some((pid as u32, Some(start_id)));
+                                self.log_line(&format!(
+                                    "session worker {worker_id} is alive but unreachable; it is stopped before the relaunch"
+                                ));
+                            }
+                            None => self.log_line(&format!(
+                                "session worker {worker_id} is alive but unreachable; no recorded start id, not signaled"
+                            )),
+                        }
                     }
                     (adopted, None)
                 }
@@ -296,7 +318,10 @@ impl Supervisor {
                 ));
             }
             Err(error) => {
-                self.log_line(&format!("could not adopt worker {worker_id}: {error:#}"));
+                self.log_line(&format!(
+                    "could not adopt worker {worker_id}: {error:#}; retrying under the restart budget"
+                ));
+                self.retry_failed_launch(&resident).await;
             }
         }
         drop(guard);
@@ -657,11 +682,29 @@ impl Supervisor {
                     supervisor.refresh_roster_entry(&resident).await;
                     supervisor.log_line(&format!("session worker {worker_id} moved to this build"));
                 }
-                Err(error) => supervisor.log_line(&format!(
-                    "session worker {worker_id} could not move to this build: {error:#}"
-                )),
+                Err(error) => {
+                    supervisor.log_line(&format!(
+                        "session worker {worker_id} could not move to this build: {error:#}; retrying under the restart budget"
+                    ));
+                    supervisor.retry_failed_launch(&resident).await;
+                }
             }
         });
+    }
+
+    /// A launch the supervisor could not finish (a failed revival, a failed
+    /// move to this build, an unreachable live worker it stopped): the
+    /// session stays resident and its monitor relaunches it with backoff.
+    /// The monitor's first turn counts this failure against the restart
+    /// budget, so a launch that keeps failing ends in the give-up.
+    async fn retry_failed_launch(self: &Arc<Self>, resident: &Arc<ResidentWorker>) {
+        if self.is_stopping(resident) {
+            return;
+        }
+        self.registry.insert(Arc::clone(resident)).await;
+        // Pid 0: no process to watch; the monitor goes straight to the
+        // failure count, the backoff, and the relaunch.
+        self.spawn_monitor(Arc::clone(resident), None, 0);
     }
 
     /// Give a live worker of another build to this build: the worker hands
@@ -707,8 +750,10 @@ impl Supervisor {
                 Ok(Ok(()))
             );
         if !exited {
-            match crate::boot_reap::stop_process(pid, start_id).await {
+            match crate::boot_reap::stop_process(pid, start_id.clone()).await {
                 crate::boot_reap::ReapOutcome::Survived => {
+                    // Each retry stops it again before its relaunch.
+                    *resident.survivor.lock().await = Some((pid, start_id));
                     bail!("the worker of another build survived its stop")
                 }
                 crate::boot_reap::ReapOutcome::AlreadyGone

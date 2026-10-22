@@ -140,6 +140,12 @@ pub(crate) struct ResidentWorker {
     /// The worker's crash failures inside the restart window: the watch
     /// loop feeds it each crash and gives the worker up past its budget.
     pub(crate) restart_budget: Mutex<RestartBudget>,
+    /// An earlier process of this worker that survived its stop (its pid
+    /// and the process start id the stop was gated on). A relaunch never
+    /// runs beside it: each retry stops it first, and a retry whose stop
+    /// fails again counts as one more restart failure (user decision Q10,
+    /// 2026-10-22).
+    pub(crate) survivor: Mutex<Option<(u32, Option<String>)>>,
     /// The worker advertised `direct_peer_transport` in its `worker_auth`
     /// response (TS `workerAuthAdvertisesPeerTransport`).
     pub(crate) peer_transport_capable: AtomicBool,
@@ -235,6 +241,7 @@ impl ResidentWorker {
             pending: Mutex::new(HashMap::new()),
             intentional_stop: AtomicBool::new(false),
             restart_budget: Mutex::new(RestartBudget::default()),
+            survivor: Mutex::new(None),
             peer_transport_capable: AtomicBool::new(false),
             heartbeat_snapshot: Mutex::new(None),
             cron_snapshot: Mutex::new(None),
