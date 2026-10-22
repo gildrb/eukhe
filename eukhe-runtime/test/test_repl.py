@@ -1165,6 +1165,51 @@ class ReplTest(unittest.TestCase):
         inspected = self.repl.execute("bash-inspect", "handle.poll().output")
         self.assertIn("detached", one(inspected, "result")["text"])
 
+    def test_stopped_background_bash_reports_who_stopped_it(self):
+        # The agent's own `srv.kill()` at the end of the cell that started a
+        # server: the SIGTERM exit is its stop, not a failure.
+        agent = self.repl.execute(
+            "bash-agent-stop",
+            "from rlm import bash\nsrv = bash('sleep 30')\nsrv.kill()\nsrv.pid",
+        )
+        pid = int(one(agent, "result")["text"])
+        request = wait_for_host_request(self.repl, agent)
+        self.assertEqual(
+            request["data"],
+            {
+                "type": "bash.completed",
+                "pid": pid,
+                "command": "sleep 30",
+                "exitCode": -signal.SIGTERM,
+                "stoppedBy": "agent",
+            },
+        )
+        reply_ok(self.repl, request)
+        # The user's kill from the bash view.
+        started = self.repl.execute("bash-user-stop", "srv = bash('sleep 30')\nsrv.pid")
+        pid = int(one(started, "result")["text"])
+        activities = [
+            event["data"]["application/vnd.eukhe.bash-activity+json"]
+            for event in started
+            if "application/vnd.eukhe.bash-activity+json" in event.get("data", {})
+        ]
+        activity_id = next(row["id"] for row in activities if row["pid"] == pid and row["active"])
+        self.repl.send({"type": "bash_activity", "id": "kill", "action": "kill", "activityId": activity_id})
+        killed = self.repl.until_done("kill")
+        self.assertTrue(killed[-1]["killed"])
+        request = wait_for_host_request(self.repl, killed)
+        self.assertEqual(
+            request["data"],
+            {
+                "type": "bash.completed",
+                "pid": pid,
+                "command": "sleep 30",
+                "exitCode": -signal.SIGTERM,
+                "stoppedBy": "user",
+            },
+        )
+        reply_ok(self.repl, request)
+
     def test_result_read_after_notice_requests_one_withdrawal(self):
         reads = (
             ("poll", "handle.poll().output"),

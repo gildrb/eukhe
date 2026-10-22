@@ -31,7 +31,7 @@ use eukhe_core::durable::messages::create_job_settled_message;
 use eukhe_core::durable::{SessionConfig, SessionStorage};
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_types::input_origin::InputOrigin;
-use eukhe_types::job::JobSettled;
+use eukhe_types::job::{BashStopper, JobSettled};
 use serde_json::Value;
 
 use eukhe_core::kernel::shared::{host_handler, HostRequestHandlers};
@@ -222,17 +222,27 @@ impl Worker {
 }
 
 /// TS `createAsyncBashCompletionHostHandler` validation: a positive
-/// integer pid, a non-empty string command, an integer exit code.
+/// integer pid, a non-empty string command, an integer exit code, and an
+/// optional `stoppedBy` naming who stopped the command.
 fn validate_completion(data: &Value) -> anyhow::Result<JobSettled> {
     let consumed = validate_consumed(data)?;
     let exit_code = data
         .get("exitCode")
         .and_then(Value::as_i64)
         .ok_or_else(|| anyhow::anyhow!("bash.completed exitCode must be an integer"))?;
+    let stopped_by = match data.get("stoppedBy") {
+        None => None,
+        Some(stopper) => Some(
+            serde_json::from_value::<BashStopper>(stopper.clone()).map_err(|error| {
+                anyhow::anyhow!("bash.completed stoppedBy {stopper} is not a stopper: {error}")
+            })?,
+        ),
+    };
     Ok(JobSettled::Bash {
         pid: consumed.pid,
         command: consumed.command,
         exit_code,
+        stopped_by,
     })
 }
 
@@ -269,6 +279,7 @@ mod tests {
             pid: 4321,
             command: "sleep 1".to_owned(),
             exit_code: 0,
+            stopped_by: None,
         }
     }
 
@@ -355,6 +366,28 @@ mod tests {
             "exitCode": 0,
         }))
         .is_ok());
+        assert_eq!(
+            validate_completion(&serde_json::json!({
+                "pid": 4321,
+                "command": "sleep 30",
+                "exitCode": -15,
+                "stoppedBy": "agent",
+            }))
+            .expect("a stopped completion"),
+            JobSettled::Bash {
+                pid: 4321,
+                command: "sleep 30".to_owned(),
+                exit_code: -15,
+                stopped_by: Some(BashStopper::Agent),
+            }
+        );
+        assert!(validate_completion(&serde_json::json!({
+            "pid": 4321,
+            "command": "sleep 30",
+            "exitCode": -15,
+            "stoppedBy": "someone",
+        }))
+        .is_err());
         assert!(validate_completion(&serde_json::json!({
             "pid": 0,
             "command": "sleep 1",

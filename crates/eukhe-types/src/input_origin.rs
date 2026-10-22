@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::goal::GoalContextKind;
-use crate::job::{CellStatus, JobId};
+use crate::job::{BashStopper, CellStatus, JobId};
 use crate::pi_ai::StreamFailureKind;
 
 /// The producer of one user-role input.
@@ -122,9 +122,15 @@ pub enum Report {
     },
     /// A heartbeat fire.
     Heartbeat { schedule: String, run: u64 },
-    /// A detached kernel bash command finished.
+    /// A detached kernel bash command finished; `stopped_by` is absent
+    /// unless a stop request ended it.
     #[serde(rename_all = "camelCase")]
-    BashDone { pid: u32, exit_code: i64 },
+    BashDone {
+        pid: u32,
+        exit_code: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stopped_by: Option<BashStopper>,
+    },
     /// A detached `ipython` cell settled.
     JobSettled { job: JobId, status: CellStatus },
 }
@@ -147,7 +153,19 @@ impl Report {
                 failure: None,
             } => format!("[child-failed child:{child}]"),
             Self::Heartbeat { schedule, run } => format!("[heartbeat: {schedule} run#{run}]"),
-            Self::BashDone { pid, exit_code } => format!("[bash-done pid:{pid} exit:{exit_code}]"),
+            Self::BashDone {
+                pid,
+                exit_code,
+                stopped_by: None,
+            } => format!("[bash-done pid:{pid} exit:{exit_code}]"),
+            Self::BashDone {
+                pid,
+                exit_code,
+                stopped_by: Some(stopper),
+            } => format!(
+                "[bash-done pid:{pid} exit:{exit_code} stopped-by:{}]",
+                stopper.label()
+            ),
             Self::JobSettled { job, status } => {
                 format!("[job-settled job:{job} status:{}]", status.label())
             }
