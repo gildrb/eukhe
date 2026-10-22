@@ -1750,7 +1750,23 @@ async fn run_interactive_surface(
                 }
             } => {
                 quiet_tick_deadline = None;
-                session.materialize_editor_autocomplete(&mut view);
+                // A keystroke already queued when the tick fires comes
+                // first: the loop can wake to both ready at once (a long
+                // frame, a starved thread), and the select picks either
+                // -- the key restarts the window exactly as the input
+                // arm's receipt would have, so the parked request waits
+                // for the rest of the burst instead of a mid-burst
+                // dropdown taking its Enter.
+                match ui_rx.try_recv() {
+                    Ok(input) if matches!(input, UiInput::Key(_) | UiInput::Paste(_)) => {
+                        pending.push_back(input);
+                    }
+                    Ok(input) => {
+                        pending.push_back(input);
+                        session.materialize_editor_autocomplete(&mut view);
+                    }
+                    Err(_) => session.materialize_editor_autocomplete(&mut view),
+                }
             }
             () = async {
                 // The 2s bash-activity poll, on its own absolute
