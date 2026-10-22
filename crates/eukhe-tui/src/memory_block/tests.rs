@@ -42,47 +42,51 @@ fn sizes_read_in_decimal_kilobytes() {
     );
 }
 
+/// The gauge formats the sizes like the context segment: whole under
+/// 1K, one decimal under 10K, whole K above.
 #[test]
-fn the_gauge_reads_whole_kilobytes_against_the_ceiling() {
+fn the_gauge_reads_the_size_against_the_ceiling_like_the_context_segment() {
     assert_eq!(
-        [87_200, 0, 130_600].map(|bytes| MemoryGauge::seeded(bytes).text()),
-        ["mem 87/128K", "mem 0/128K", "mem 131/128K"].map(str::to_string)
+        [87_200, 0, 1_140, 130_600].map(|bytes| MemoryGauge::seeded(bytes).text()),
+        [
+            "mem 87K/128K",
+            "mem 0/128K",
+            "mem 1.1K/128K",
+            "mem 131K/128K"
+        ]
+        .map(str::to_string)
     );
 }
 
-/// Summaries accumulate their nodes behind the newest view size; a merge
-/// replaces them with its pairs and later merges add theirs; a summary
-/// after a merge counts afresh. The ids never reach the gauge.
+/// A live update moves the gauge to the newest view size; inside a
+/// request it marks the compactor working, between requests the gauge
+/// stays at rest. Neither the nodes nor the pairs nor the ids reach the
+/// gauge.
 #[test]
-fn live_updates_move_the_gauge_and_fold_their_activity() {
-    let gauge = MemoryGauge::after(None, &summarized(vec![line(41, 1), line(42, 1)], 90_100));
-    assert_eq!(gauge.text(), "mem 90/128K ~2");
+fn live_updates_move_the_gauge_and_mark_the_compactor_working_in_a_request() {
     let gauge = MemoryGauge::after(
-        Some(MemoryGauge::seeded(87_200)),
         &summarized(vec![line(41, 1), line(42, 1)], 90_100),
+        UpdateTiming::InRequest,
     );
-    assert_eq!(gauge.text(), "mem 90/128K ~2");
-    let gauge = MemoryGauge::after(Some(gauge), &summarized(vec![line(40, 2)], 91_000));
-    assert_eq!(gauge.text(), "mem 91/128K ~3");
-    let gauge = MemoryGauge::after(Some(gauge), &merged(37, 128_400, 63_900));
-    assert_eq!(gauge.text(), "mem 64/128K v37");
-    let gauge = MemoryGauge::after(Some(gauge), &merged(2, 63_900, 60_000));
-    assert_eq!(gauge.text(), "mem 60/128K v39");
-    let gauge = MemoryGauge::after(Some(gauge), &summarized(vec![line(6, 2)], 60_400));
-    assert_eq!(gauge.text(), "mem 60/128K ~1");
+    assert_eq!(gauge.text(), "mem 90K/128K ~");
+    let gauge = MemoryGauge::after(&merged(37, 128_400, 63_900), UpdateTiming::InRequest);
+    assert_eq!(gauge.text(), "mem 64K/128K ~");
     assert_eq!(
-        MemoryGauge::after(None, &merged(1, 2_000, 1_000)).text(),
-        "mem 1/128K v1"
+        MemoryGauge::after(&merged(1, 2_000, 1_000), UpdateTiming::Idle).text(),
+        "mem 1K/128K"
     );
 }
 
-/// A new request clears the activity; the view's size stays.
+/// A request's begin or end settles the marker; the view's size stays.
 #[test]
-fn a_request_begin_clears_the_activity_and_keeps_the_size() {
-    let mut gauge = MemoryGauge::after(None, &summarized(vec![line(41, 1)], 90_100));
-    gauge.begin_request();
+fn a_request_boundary_settles_the_marker_and_keeps_the_size() {
+    let mut gauge = MemoryGauge::after(
+        &summarized(vec![line(41, 1)], 90_100),
+        UpdateTiming::InRequest,
+    );
+    gauge.settle();
     assert_eq!(gauge, MemoryGauge::seeded(90_100));
-    assert_eq!(gauge.text(), "mem 90/128K");
+    assert_eq!(gauge.text(), "mem 90K/128K");
 }
 
 #[test]

@@ -8,7 +8,7 @@ use eukhe_types::daemon::{MemoryTreeReply, MemoryUpdate, MemoryZoom, MEMORY_TREE
 
 use super::chat_view::fetch;
 use super::{key_event_to_id, AgentView, DaemonCommand, KeyEvent, Map, Result, SessionUi};
-use crate::memory_block::MemoryGauge;
+use crate::memory_block::{MemoryGauge, UpdateTiming};
 use crate::memory_tree::{MemoryTreeAction, MemoryTreeFetch, MemoryTreeView};
 
 /// One landed `get_memory_tree` level for the tree opened under `epoch`.
@@ -120,9 +120,14 @@ impl SessionUi {
     }
 
     /// One live `memory_update`: never a transcript row, only the gauge's
-    /// new view size and activity (whether or not a turn runs).
+    /// new view size, with the working marker when a request is open.
     pub(super) fn apply_memory_update(&mut self, update: &MemoryUpdate, view: &mut AgentView) {
-        self.set_memory_gauge(MemoryGauge::after(self.memory, update), view);
+        let timing = if self.turn_active {
+            UpdateTiming::InRequest
+        } else {
+            UpdateTiming::Idle
+        };
+        self.set_memory_gauge(MemoryGauge::after(update, timing), view);
     }
 
     /// The gauge's reading for this session, mirrored into the chrome.
@@ -132,10 +137,10 @@ impl SessionUi {
         self.dirty = true;
     }
 
-    /// A request began: the gauge's activity count starts over.
-    pub(super) fn begin_memory_request(&mut self, view: &mut AgentView) {
+    /// A request began or ended: the gauge's working marker clears.
+    pub(super) fn settle_memory_gauge(&mut self, view: &mut AgentView) {
         if let Some(mut gauge) = self.memory {
-            gauge.begin_request();
+            gauge.settle();
             self.set_memory_gauge(gauge, view);
         }
     }

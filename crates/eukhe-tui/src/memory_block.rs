@@ -26,111 +26,76 @@ fn count(n: u64, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
-/// What the compactor did since the current request began, as the
-/// gauge's suffix. Folded from each live update like the compactor's own
-/// batches: summaries accumulate their nodes; a merge replaces whatever
-/// came before (the view dropped, the earlier nodes are in it) and later
-/// merges add their pairs; a summary after a merge starts a fresh count.
+/// When a live `memory_update` lands, relative to the model requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryActivity {
-    /// Nodes built: `~N`.
-    Summarized { nodes: u64 },
-    /// Pairs merged down: `vN`.
-    Merged { pairs: u64 },
+pub enum UpdateTiming {
+    /// During a request: the compactor works alongside it.
+    InRequest,
+    /// Between requests (the tail of a turn, an idle session): the view
+    /// moves, the gauge stays at rest.
+    Idle,
 }
 
-impl MemoryActivity {
-    /// `previous` folded with `update`.
-    #[must_use]
-    fn fold(previous: Option<Self>, update: &MemoryUpdate) -> Self {
-        match (previous, update) {
-            (Some(Self::Summarized { nodes }), MemoryUpdate::Summarized { lines, .. }) => {
-                Self::Summarized {
-                    nodes: nodes.saturating_add(lines.len() as u64),
-                }
-            }
-            (None | Some(Self::Merged { .. }), MemoryUpdate::Summarized { lines, .. }) => {
-                Self::Summarized {
-                    nodes: lines.len() as u64,
-                }
-            }
-            (Some(Self::Merged { pairs }), MemoryUpdate::Merged { pairs: more, .. }) => {
-                Self::Merged {
-                    pairs: pairs.saturating_add(*more),
-                }
-            }
-            (None | Some(Self::Summarized { .. }), MemoryUpdate::Merged { pairs, .. }) => {
-                Self::Merged { pairs: *pairs }
-            }
-        }
-    }
-
-    /// The gauge suffix: `~3` (nodes summarized), `v37` (pairs merged).
-    fn suffix(self) -> String {
-        match self {
-            Self::Summarized { nodes } => format!("{}{nodes}", crate::glyphs::DOT_HALF),
-            Self::Merged { pairs } => format!("{}{pairs}", crate::glyphs::DOWN),
-        }
-    }
-}
-
-/// The status line's `mem` gauge: the view's size, and what the compactor
-/// did to it since the current request began.
+/// The status line's `mem` gauge: the view's size, and whether the
+/// compactor is working on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryGauge {
     /// The view's size, in bytes of line text.
     pub view_bytes: u64,
-    /// The compactor's activity since the request began; `None` once a
-    /// request begins, until the next update.
-    pub activity: Option<MemoryActivity>,
+    /// The compactor is working: a live update landed during the current
+    /// request and the request has not ended.
+    pub working: bool,
 }
 
 impl MemoryGauge {
-    /// The gauge a `get_memory` status seeds: the size, no activity yet.
+    /// The gauge a `get_memory` status seeds: the size, the compactor at
+    /// rest.
     #[must_use]
     pub fn seeded(view_bytes: u64) -> Self {
         Self {
             view_bytes,
-            activity: None,
+            working: false,
         }
     }
 
-    /// `gauge` after one live `update`: the view's new size, the activity
-    /// folded in. A gauge the status never seeded starts here.
+    /// The gauge after one live `update`: the view's new size, the
+    /// compactor working when the update lands inside a request. A
+    /// gauge the status never seeded starts here.
     #[must_use]
-    pub fn after(gauge: Option<Self>, update: &MemoryUpdate) -> Self {
+    pub fn after(update: &MemoryUpdate, timing: UpdateTiming) -> Self {
         let view_bytes = match update {
             MemoryUpdate::Summarized { view_bytes, .. } => *view_bytes,
             MemoryUpdate::Merged { after_bytes, .. } => *after_bytes,
         };
+        let working = match timing {
+            UpdateTiming::InRequest => true,
+            UpdateTiming::Idle => false,
+        };
         Self {
             view_bytes,
-            activity: Some(MemoryActivity::fold(
-                gauge.and_then(|gauge| gauge.activity),
-                update,
-            )),
+            working,
         }
     }
 
-    /// A request began: the activity count starts over.
-    pub fn begin_request(&mut self) {
-        self.activity = None;
+    /// A request began or ended: the compactor's work of the last request
+    /// is over.
+    pub fn settle(&mut self) {
+        self.working = false;
     }
 
-    /// `mem 87/128K`: the view's size against the ceiling in whole
-    /// kilobytes; then, after a live update, the activity: `mem 91/128K
-    /// ~3` (3 nodes summarized since the request began), `mem 64/128K
-    /// v37` (37 pairs merged). Never a node id.
+    /// `mem 1.1K/128K`: the view's size against the ceiling, formatted
+    /// like the context segment's sizes (`format_count`); ` ~` follows
+    /// while the compactor works. Never a count, never a node id.
     #[must_use]
     pub fn text(&self) -> String {
         let mut text = format!(
-            "mem {}/{}K",
-            self.view_bytes.saturating_add(500) / 1000,
-            MEMORY_VIEW_CEILING / 1000
+            "mem {}/{}",
+            crate::status_line::format_count(self.view_bytes),
+            crate::status_line::format_count(MEMORY_VIEW_CEILING)
         );
-        if let Some(activity) = self.activity {
+        if self.working {
             text.push(' ');
-            text.push_str(&activity.suffix());
+            text.push_str(crate::glyphs::DOT_HALF);
         }
         text
     }

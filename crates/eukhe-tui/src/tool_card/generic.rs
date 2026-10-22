@@ -7,7 +7,7 @@
 
 use serde_json::Value;
 
-use super::layout::images;
+use super::layout::{collapsed_images, images};
 use super::summary::{
     body_row, duration, first_line, line_count, output_rows, string_arg, SummaryRow,
 };
@@ -48,6 +48,8 @@ pub fn render(
             output_rows(&mut rows, output, ThemeColor::ToolOutput);
         }
         rows.extend(images(card.result.as_ref(), show_images, theme));
+    } else {
+        rows.extend(collapsed_images(card.result.as_ref(), show_images, theme));
     }
     element::render(&Element::Column(rows), theme, width, Tick(frame))
 }
@@ -355,7 +357,7 @@ mod tests {
         card.result.as_mut().expect("result").is_error = true;
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x read - src/lib.rs - 2 lines - 3ms - no such file: src/lib.rs"]
+            vec![" x  read - src/lib.rs - 2 lines - 3ms - no such file: src/lib.rs"]
         );
     }
 
@@ -371,7 +373,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" . read - src/lib.rs"]
+            vec![" .  read - src/lib.rs"]
         );
         let settled = done_card("read", json!({ "path": "src/lib.rs" }), "one\ntwo");
         assert_eq!(
@@ -431,5 +433,24 @@ mod tests {
         });
         let rows = flat(&render(&card, 0, Detail::All, &theme(), 120, true));
         assert!(!rows.iter().any(|r| r.contains("[image/png")));
+    }
+
+    /// At the default detail the one-row card still carries its images:
+    /// the metadata row per shown image, the `[Image: mime]` row per
+    /// hidden one (never both forms, never the folded text output).
+    #[test]
+    fn the_collapsed_card_keeps_its_image_rows() {
+        let card = image_card();
+        let shown = flat(&render(&card, 0, Detail::Details, &theme(), 120, true));
+        let shown: Vec<&str> = shown.iter().map(|row| row.trim_end()).collect();
+        assert_eq!(shown.len(), 2, "{shown:?}");
+        assert!(shown[0].starts_with(" ok custom"), "{shown:?}");
+        assert_eq!(shown[1], "    `- [image/png - 64x32]");
+        let hidden = flat(&render(&card, 0, Detail::Details, &theme(), 120, false));
+        let hidden: Vec<&str> = hidden.iter().map(|row| row.trim_end()).collect();
+        assert_eq!(hidden.len(), 2, "{hidden:?}");
+        assert!(hidden[0].starts_with(" ok custom"), "{hidden:?}");
+        assert_eq!(hidden[1], "    [Image: [image/png]]");
+        assert!(!hidden.iter().any(|row| row.contains("done")), "{hidden:?}");
     }
 }

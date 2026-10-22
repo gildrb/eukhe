@@ -36,12 +36,14 @@ impl AgentView {
     }
 
     /// The blank row before the assistant message at `index`: the first
-    /// rows of a turn lead with one (nothing or a non-turn row above), as
-    /// does a settled reply (a message without tool calls) that follows
-    /// tool rows, so the answer stands apart from the activity above it.
-    /// A message that follows another assistant message, or that follows
-    /// tool rows while it still streams or carries its own tool calls,
-    /// stays flush: the turn reads as one dense trace.
+    /// rows of a turn lead with one (nothing or a non-turn row above). A
+    /// settled reply (a message without tool calls) that follows tool
+    /// rows gets the `Reply` lead: its thinking stays flush with the
+    /// rows above and the one blank row sits before its reply text, so
+    /// the answer stands apart from the activity above it. A message
+    /// that follows another assistant message, or that follows tool
+    /// rows while it still streams or carries its own tool calls, stays
+    /// flush: the turn reads as one dense trace.
     pub(super) fn assistant_lead(&self, index: usize, message: &AssistantMessage) -> AssistantLead {
         match self.visible_predecessor(index) {
             Some(ChatEntry::Assistant(_)) => AssistantLead::Flush,
@@ -49,7 +51,7 @@ impl AgentView {
                 if message.has_tool_calls || message.streaming {
                     AssistantLead::Flush
                 } else {
-                    AssistantLead::Spaced
+                    AssistantLead::Reply
                 }
             }
             Some(_) | None => AssistantLead::Spaced,

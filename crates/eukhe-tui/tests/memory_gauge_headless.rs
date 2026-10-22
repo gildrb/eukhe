@@ -2,8 +2,8 @@
 //! the compactor's `memory_update`s never make a transcript row. A turn
 //! with three summaries around one tool run leaves the transcript holding
 //! the tool row alone, while the status line's `mem` gauge moves from the
-//! open-time size to the newest one with the nodes summarized since the
-//! request began.
+//! open-time size to the newest one with the working marker, which the
+//! request's end drops.
 #![cfg(unix)]
 // - the futures are bounded by the surface's lifetime; boxing them would
 //   add an allocation to the steady-state loop.
@@ -23,11 +23,18 @@ const PROMPT: &str = "probe the gauge";
 const ANSWER: &str = "gauge probed";
 
 /// The gauge the open-time `get_memory` seeds.
-const SEEDED_GAUGE: &str = "mem 87/128K";
+const SEEDED_GAUGE: &str = "mem 87K/128K";
 
-/// The gauge after the turn's three summaries: the newest view size and
-/// the four nodes they built.
-const LIVE_GAUGE: &str = "mem 91/128K ~4";
+/// The gauge after the turn's three summaries, the request still open:
+/// the newest view size and the compactor's working marker.
+const WORKING_GAUGE: &str = "mem 91K/128K ~";
+
+/// The gauge after the request's end: the size alone.
+const SETTLED_GAUGE: &str = "mem 91K/128K";
+
+/// The command the plan sends while the turn's answer stands and the
+/// request is still open; the mock ends the request on it.
+const RENAME: &str = "/name gauge probe";
 
 fn write_json(writer: &mut UnixStream, value: &Value) {
     let mut line = serde_json::to_string(value).expect("serialize mock frame");
@@ -77,8 +84,8 @@ fn assistant(content: &Value) -> Value {
     })
 }
 
-/// One scripted turn: a summary, a bash run, two more summaries, the
-/// answer.
+/// One scripted turn up to its answer: a summary, a bash run, two more
+/// summaries, the answer. The request stays open (`end_turn`).
 fn stream_turn(writer: &mut UnixStream) {
     write_json(writer, &event(&json!({ "type": "agent_start" })));
     write_json(writer, &event(&json!({ "type": "turn_start" })));
@@ -145,6 +152,10 @@ fn stream_turn(writer: &mut UnixStream) {
             "message": assistant(&answer),
         })),
     );
+}
+
+/// The request's end.
+fn end_turn(writer: &mut UnixStream) {
     write_json(writer, &event(&json!({ "type": "turn_end" })));
     write_json(
         writer,
@@ -153,8 +164,8 @@ fn stream_turn(writer: &mut UnixStream) {
 }
 
 /// The mock supervisor: the hello, `attach`, `get_memory` (the seeding
-/// status), the turn on `prompt`, and an empty success for everything
-/// else.
+/// status), the turn up to its answer on `prompt`, the request's end on
+/// the rename that follows, and an empty success for everything else.
 fn serve(listener: &UnixListener) {
     let (stream, _) = listener.accept().expect("accept");
     let mut writer = stream.try_clone().expect("clone mock socket");
@@ -202,8 +213,10 @@ fn serve(listener: &UnixListener) {
             _ => json!({}),
         };
         write_json(&mut writer, &response(id, &command_type, &data));
-        if command_type == "prompt" {
-            stream_turn(&mut writer);
+        match command_type.as_str() {
+            "prompt" => stream_turn(&mut writer),
+            "set_session_name" => end_turn(&mut writer),
+            _ => {}
         }
     }
 }
@@ -313,7 +326,14 @@ fn memory_updates_move_the_gauge_and_never_the_transcript() {
             wait(SEEDED_GAUGE),
             HeadlessStep::Submit(PROMPT.to_string()),
             wait(ANSWER),
-            wait(LIVE_GAUGE),
+            wait(WORKING_GAUGE),
+            // The request is still open: the rename makes the mock end
+            // it, and the marker drops.
+            HeadlessStep::Submit(RENAME.to_string()),
+            HeadlessStep::WaitGone {
+                needle: WORKING_GAUGE.to_string(),
+                timeout_ms: 10_000,
+            },
             HeadlessStep::WaitIdle { timeout_ms: 10_000 },
         ],
         width: 120,
@@ -334,8 +354,8 @@ fn memory_updates_move_the_gauge_and_never_the_transcript() {
         .find(|line| line.contains("mem "))
         .unwrap_or_else(|| panic!("the status line's gauge:\n{}", all()));
     assert!(
-        status.contains(LIVE_GAUGE),
-        "the gauge reads the newest view size and the nodes summarized: {status:?}"
+        status.contains(SETTLED_GAUGE) && !status.contains(WORKING_GAUGE),
+        "the gauge reads the newest view size, the marker dropped at the request's end: {status:?}"
     );
     let rows = turn_rows(last);
     assert_eq!(

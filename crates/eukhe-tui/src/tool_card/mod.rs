@@ -106,7 +106,7 @@ impl ToolResultView {
 /// hidden text never parses image dimensions; the export renderer is the
 /// dims-including consumer). The payload is never decoded: the text is
 /// the mime alone, for live payloads and elided markers alike.
-fn hidden_image_text(block: &Value) -> String {
+pub(super) fn hidden_image_text(block: &Value) -> String {
     let mime = block
         .get("mimeType")
         .and_then(Value::as_str)
