@@ -308,12 +308,36 @@ pub(crate) struct SessionUi {
     /// Model requests (`turn_start`s) the open run made: a run that ends
     /// with none still ends the turn its prompt waited for.
     run_rounds: u32,
-    /// The open run put a reply on screen (answer text or a tool card): a
-    /// run that ends with neither tells the user so.
-    run_showed_reply: bool,
-    /// The loader phase the last attach's snapshot implies (compacting, or
-    /// waiting on the model) for the rebuild that follows it.
-    resynced_phase: crate::activity::TurnPhase,
+    /// The open run owes an answering turn: it started, or its last turn
+    /// called tools. A run that ends owing one ended without a reply and
+    /// says so.
+    run_awaits_turn: bool,
+    /// The session closed under this view (`session_closed`): a late
+    /// prompt ack re-arms nothing. A re-attach clears it.
+    session_closed: bool,
+    /// The loader the last attach's snapshot implies for the rebuild that
+    /// follows it (compacting, waiting on the model, queued, sending), or
+    /// none when nothing runs.
+    resynced_phase: Option<crate::activity::TurnPhase>,
+    /// The last attach re-mounted the same session: the rebuild keeps the
+    /// live loader's clock (it started at the Enter) instead of deriving
+    /// one from the snapshot.
+    rebuild_keeps_clock: bool,
+    /// The latest prompt's end rows that only this view holds (a refused
+    /// or lost submit, a closed session, a run that ended before it
+    /// stored anything): a same-session rebuild folds them back after the
+    /// stored transcript, so a rebuild never wipes how the turn ended.
+    carried_rows: Vec<ChatEntry>,
+    /// The lost submit's prompt text and row: the turn may still run, and
+    /// when its user message shows the row retires.
+    maybe_sent: Option<(String, ChatEntry)>,
+    /// The newest user message the live stream showed since the latest
+    /// submit: a lost ack whose prompt already showed needs no row.
+    last_user_text: Option<String>,
+    /// The failed attempt's row a retry took off the chat while it waits:
+    /// a closure in the wait puts it back (the stored transcript keeps
+    /// it), any settle of the episode drops it.
+    retry_popped_attempt: Option<ChatEntry>,
     /// Tool cards awaiting their final result (TS `pendingTools`): a
     /// streamed call registers at its `message_update` frame or at
     /// `tool_execution_start`, the final result unregisters, and the run's

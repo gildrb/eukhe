@@ -403,31 +403,37 @@ fn turn_outcome(answer: Option<&TurnAnswer>, error: Option<&str>) -> TurnOutcome
         | AgentMessage::CompactionSummary(_) => None,
     });
     match (message, error) {
-        (Some(message), _) => match message.stop_reason {
-            StopReason::ToolUse => TurnOutcome::Continues,
-            StopReason::Error => TurnOutcome::Failed(
-                message
-                    .error_message
-                    .clone()
-                    .filter(|text| !text.is_empty())
-                    .unwrap_or_else(|| "Unknown error".to_string()),
-            ),
-            StopReason::Aborted => TurnOutcome::Aborted,
-            StopReason::Stop | StopReason::Length => {
-                let (blocks, tool_calls) = super::assistant_message_parts(message);
-                let shows_text = blocks.iter().any(|block| match block {
-                    super::MessageBlock::Text(text) => !text.trim().is_empty(),
-                    super::MessageBlock::Thinking(_) => false,
-                });
-                if shows_text || !tool_calls.is_empty() {
-                    TurnOutcome::Answered
-                } else {
-                    TurnOutcome::Empty
-                }
-            }
-        },
+        (Some(message), _) => message_outcome(message),
         (None, Some(error)) => TurnOutcome::Failed(error.to_string()),
         (None, None) => TurnOutcome::Unreported,
+    }
+}
+
+/// How a turn whose terminal assistant message is `message` settled: the
+/// live `turn_end` and the transcript rebuild read it the same way.
+pub(crate) fn message_outcome(message: &AssistantMessage) -> TurnOutcome {
+    match message.stop_reason {
+        StopReason::ToolUse => TurnOutcome::Continues,
+        StopReason::Error => TurnOutcome::Failed(
+            message
+                .error_message
+                .clone()
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| "Unknown error".to_string()),
+        ),
+        StopReason::Aborted => TurnOutcome::Aborted,
+        StopReason::Stop | StopReason::Length => {
+            let (blocks, tool_calls) = super::assistant_message_parts(message);
+            let shows_text = blocks.iter().any(|block| match block {
+                super::MessageBlock::Text(text) => !text.trim().is_empty(),
+                super::MessageBlock::Thinking(_) => false,
+            });
+            if shows_text || !tool_calls.is_empty() {
+                TurnOutcome::Answered
+            } else {
+                TurnOutcome::Empty
+            }
+        }
     }
 }
 
