@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Audit the shard manifests and merge their failure summaries (local gate).
 
-scripts/ci_local.sh (`make ci-local`, the pre-push gate) runs
+scripts/ci_local.sh (`make ci-local`, the nightly full gate) runs
 `cargo test --workspace` as shards of scripts/ci_test_shard.py at the same
 time, then this audit. The test gate passes only when EVERY shard reported
 and the union of their executed units covers the run's SELECTION: the full

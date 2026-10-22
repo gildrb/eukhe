@@ -53,7 +53,7 @@ cargo test -p eukhe-core --lib memory::chat::bridge
 cargo test -p eukhe-core --lib memory::compactor::bridge
 ```
 
-The local full gate (`make ci-local`, the pre-push hook) does all of
+The local full gate (`make ci-local`, the nightly gate) does all of
 this. It requires Bend 2.0.38 and Lean 4.34.0, the releases that
 `scripts/toolchain.env` pins. The bridge test skips with a message when
 `bend` is not installed. In the full gate, `EUKHE_REQUIRE_BEND=1` makes

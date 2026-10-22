@@ -10,16 +10,18 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
   If a commit fails for a missing identity, report it. Allowed: `*_DATE` variables
   (the golden corpus pins them) and throwaway repos created by tests.
 - Never add `Co-authored-by` trailers.
-- CI: every gate runs on this machine, in the prek hooks. GitHub runs no gate,
-  and the repository takes no pull requests. `make hooks` installs the hooks
-  (`.pre-commit-config.yaml`): pre-commit runs `make ci-fast`, pre-push runs
-  `make ci-local` (the full gate) on the pushed commit; one push at a time
-  runs it, the others wait. Never skip the hooks (`--no-verify`).
-  `scripts/toolchain.env` pins the Bend and Lean releases that the gate
-  requires. GitHub runs one workflow: once a day (03:17 UTC, or on dispatch)
-  `eukhe-release.yml` releases the newest commit of main with no `eukhe-v*`
-  tag as `eukhe-v<X.Y.P>` (title `Eukhe v<X.Y.P>`, the
-  next patch of the `Cargo.toml` series `X.Y.0`) and writes `nix/release.json`.
+- CI: every gate runs on this machine. GitHub runs no gate, and the repository
+  takes no pull requests. `make hooks` installs the prek hooks
+  (`.pre-commit-config.yaml`): pre-commit runs `make ci-fast`; pre-push checks
+  the pushed commits in the pushing worktree (fmt, secrets, clippy and tests on
+  the touched crates, `bend PROOF.bend`), with no lock. Never skip the hooks
+  (`--no-verify`). `scripts/toolchain.env` pins the Bend and Lean releases.
+  Every night a systemd user timer runs `scripts/ci_nightly.sh run`: the full
+  gate (`make ci-local`) on origin/main; only when it passes it starts
+  `eukhe-release.yml` for that commit, which releases it as `eukhe-v<X.Y.P>`
+  (title `Eukhe v<X.Y.P>`, the next patch of the `Cargo.toml` series `X.Y.0`)
+  and writes `nix/release.json`. A red night releases nothing:
+  `make nightly-status` shows why.
   `make catalog-pin` moves `scripts/release/catalog-pin.json` to the catalog
   repo's newest commit; review the diff and commit it.
 - Prime Intellect stays as a third-party service: provider `prime-inference`,
@@ -115,8 +117,8 @@ background bookkeeping.
 
 - `make check`: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
-- Before a push: `make ci-local` passes (the pre-push hook runs it). Do not
-  bypass the hooks.
+- Before a push: the pre-push hook passes. Do not bypass the hooks. The full
+  gate (`make ci-local`) runs nightly and gates the release.
 - `crates/eukhe-ai/src/models_generated.rs` (with `providers/*_models.rs` and
   `providers/data/*.json`, ported from pi-ai `models.generated.ts`) is the compiled
   model catalog. The built-in catalog is its union with the bundled snapshot

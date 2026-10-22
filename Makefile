@@ -10,9 +10,12 @@ check:
 # The CI gates (scripts/ci_local.sh). GitHub runs no gate: they run only
 # here. ci-fast is the pre-commit gate: rustfmt, the secrets scan of the
 # staged diff (when gitleaks is installed), clippy on the crates the staged
-# change touches (scripts/ci_pr_crates.py). ci-local is the pre-push gate:
-# the full gate.
-# `make hooks` makes git run them through prek (.pre-commit-config.yaml;
+# change touches (scripts/ci_pr_crates.py). The pre-push gate checks the
+# pushed commits: rustfmt, their secrets scan, clippy and tests on the
+# crates they touch, `bend PROOF.bend`. ci-local is the full gate; the
+# nightly run (scripts/ci_nightly.sh, a systemd user timer) runs it on
+# origin/main and starts the release only when it passes.
+# `make hooks` makes git run the hooks through prek (.pre-commit-config.yaml;
 # the hooks are in the git common dir, so every worktree shares them; a
 # worktree of an older commit, without the config, skips them).
 ci-fast:
@@ -20,6 +23,12 @@ ci-fast:
 
 ci-local:
 	@scripts/ci_local.sh full
+
+nightly:
+	@scripts/ci_nightly.sh run
+
+nightly-status:
+	@scripts/ci_nightly.sh status
 
 hooks:
 	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (docs/develop.md: mise use -g github:j178/prek@0.5.7)"; exit 1; }
@@ -209,4 +218,4 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-.PHONY: check ci-fast ci-local hooks runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates runtime-lock runtime-lock-check dashboard-ui
+.PHONY: check ci-fast ci-local nightly nightly-status hooks runtime-test laws deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin catalog-assets-gates release-version-gates runtime-lock runtime-lock-check dashboard-ui

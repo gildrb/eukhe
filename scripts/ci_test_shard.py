@@ -2,7 +2,7 @@
 """Stable-hash test sharding for the local test gate (scripts/ci_local.sh).
 
 `cargo test --workspace` runs every test binary one after another. The
-local gate (`make ci-local`, the pre-push hook) runs the shards of this
+local full gate (`make ci-local`, the nightly gate) runs the shards of this
 script at the same time on one build instead. This script enumerates the
 workspace's test units the same way cargo does (via `cargo metadata
 --no-deps`, no build) and runs the subset assigned to one shard of N by a

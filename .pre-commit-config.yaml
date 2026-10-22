@@ -1,12 +1,13 @@
 # The CI gates as git hooks, run by prek (https://github.com/j178/prek,
-# pinned in docs/develop.md). GitHub runs no gate: these hooks are the CI.
-# `make hooks` installs them. Both run at low CPU priority (nice -n 10) on
-# every core.
+# pinned in docs/develop.md). GitHub runs no gate. `make hooks` installs
+# them. Both run at low CPU priority (nice -n 10).
 #
 # pre-commit: `make ci-fast` (rustfmt, the secrets scan of the staged diff,
 # clippy on the crates the staged change touches).
-# pre-push: `make ci-local` (the full gate) on the pushed commit, in a
-# separate worktree (scripts/ci_local.sh pre-push).
+# pre-push: scripts/ci_local.sh pre-push, on the pushed commits in this
+# worktree: rustfmt, their secrets scan, clippy and tests on the crates
+# they touch, `bend PROOF.bend`. No lock: every worktree pushes at any
+# time. The full gate runs nightly (scripts/ci_nightly.sh).
 # Skip rule: a push that changes only Markdown files in docs/ or at the
 # repository root does not run the gate (the `exclude` below).
 default_install_hook_types: [pre-commit, pre-push]
@@ -20,8 +21,8 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
-      - id: ci-local
-        name: ci-local (the full gate, on the pushed commit)
+      - id: ci-push
+        name: ci-push (fmt, secrets, clippy and tests on the touched crates, bend PROOF.bend)
         entry: nice -n 10 scripts/ci_local.sh pre-push
         language: system
         pass_filenames: false

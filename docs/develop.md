@@ -26,7 +26,7 @@ make hooks   # prek install --allow-missing-config --hook-type pre-commit --hook
 ```
 
 The hooks (`.pre-commit-config.yaml`) run at low CPU priority
-(`nice -n 10`) on all cores. They unset `RUSTUP_TOOLCHAIN`, so
+(`nice -n 10`). They unset `RUSTUP_TOOLCHAIN`, so
 `rust-toolchain.toml` selects the toolchain.
 
 - pre-commit: `make ci-fast`. It checks the staged change: `cargo fmt`,
@@ -34,19 +34,12 @@ The hooks (`.pre-commit-config.yaml`) run at low CPU priority
   is not installed), and clippy `-D warnings` on the crates the change
   touches and their dependents (`scripts/ci_pr_crates.py`; a path
   outside `crates/<crate>/` selects the workspace).
-- pre-push: `make ci-local` on the pushed commit, in a separate worktree
-  (`<repo>-ci` beside the main checkout, for example `~/Repos/eukhe-ci`;
-  not under `.git`, where vitest ignores the tests), so local changes do not change the
-  result. It runs the full gate: fmt, cargo
-  check and clippy, `cargo test --workspace` in a clean environment with
-  `EUKHE_REQUIRE_BEND=1`, the eukhe-runtime suite, the dashboard UI
-  (`web/` up to date), `bend PROOF.bend` and `--verdict`,
-  `scripts/check_laws_wired.py`, the release-version bridge, cargo-deny,
-  and gitleaks on the pushed commits.
-- One gate at a time: every worktree shares the pre-push worktree. A
-  push that finds the gate busy waits for it (`flock` on
-  `<git common dir>/eukhe-ci-local.lock`). A commit that passed once
-  pushes again without the gate (`<git common dir>/eukhe-ci-local-passed/`).
+- pre-push: `scripts/ci_local.sh pre-push`. It checks the pushed commits
+  in the worktree that pushes them: `cargo fmt`, a gitleaks scan of the
+  pushed commits, clippy and `cargo test --no-fail-fast` on the crates
+  they touch and their dependents, `scripts/check_laws_wired.py` and
+  `bend PROOF.bend`. Push from a worktree at the pushed commit. There is
+  no lock: every worktree pushes at any time.
 - Skip rule: a push that changes only Markdown files in `docs/` or at
   the repository root does not run the pre-push gate.
 
@@ -55,14 +48,39 @@ The gates need bend and Lean at the versions that
 A gate that fails prints its name; fix the cause and run the command
 again.
 
-GitHub runs one workflow: the daily release below.
+## Nightly gate
+
+A systemd user timer runs `scripts/ci_nightly.sh run` once a night
+(02:30 UTC). It runs the full gate (`make ci-local`) on `origin/main` in
+the gate worktree (`<repo>-ci` beside the main checkout, for example
+`~/Repos/eukhe-ci`). The full gate is: fmt, cargo check and clippy on the
+workspace, every test unit in 8 parallel shards in a clean environment
+with `EUKHE_REQUIRE_BEND=1`, the eukhe-runtime suite, the dashboard UI
+(`web/` up to date), `bend PROOF.bend` and `--verdict`, the
+release-version bridge, cargo-deny, and gitleaks on the commits since the
+last release.
+
+- Green: the run starts the release of that commit (`gh workflow run
+  eukhe-release.yml -f sha=<commit>`).
+- Red: nothing is released. A commit that breaks a test does not ship.
+
+```sh
+make nightly          # run the nightly gate now
+make nightly-status   # the result of the last run
+```
+
+Each run appends its result, and for a failure the failed gates and
+test units, to `~/.eukhe/ci/nightly.log`. The full output of the last
+run is `~/.eukhe/ci/nightly-last.log`.
+
+GitHub runs one workflow: the release below.
 
 ## Releases
 
-Once a day (03:17 UTC), `.github/workflows/eukhe-release.yml` releases
-the newest commit of `main` that has no `eukhe-v*` tag. It runs no gate:
-the pre-push hook ran every gate. Run the workflow by hand (`workflow_dispatch`) for an
-urgent release. The version is the next patch of
+The nightly gate starts `.github/workflows/eukhe-release.yml` for the
+commit that passed. Run the workflow by hand (`workflow_dispatch` with
+`sha`) for an urgent release of a commit that passed `make ci-local`.
+The version is the next patch of
 the series in `Cargo.toml` (`[workspace.package] version = "X.Y.0"`): 1 +
 the highest patch among the tags `eukhe-vX.Y.P`, or 0 for the first
 release of a series. The release is tagged `eukhe-v<version>`, titled

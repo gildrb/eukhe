@@ -1,28 +1,22 @@
 #!/usr/bin/env bash
 # The CI gates of eukhe (docs/develop.md). They run only here: GitHub runs
-# no gate. prek runs them as git hooks (.pre-commit-config.yaml; `make
-# hooks` installs them).
+# no gate. prek runs fast and pre-push as git hooks
+# (.pre-commit-config.yaml; `make hooks` installs them); the nightly run
+# (scripts/ci_nightly.sh) runs full and releases only when it passes.
 #
 #   scripts/ci_local.sh fast      `make ci-fast`, the pre-commit gate:
 #                                 rustfmt, the secrets scan of the staged
 #                                 diff, and clippy on the crates the staged
 #                                 change touches.
+#   scripts/ci_local.sh pre-push  the pre-push gate, on the pushed commits
+#                                 (PRE_COMMIT_FROM_REF..PRE_COMMIT_TO_REF,
+#                                 from prek), in this worktree: rustfmt,
+#                                 their secrets scan, clippy and `cargo
+#                                 test` on the crates they touch, and `bend
+#                                 PROOF.bend`. No lock: every worktree
+#                                 pushes at any time.
 #   scripts/ci_local.sh full      `make ci-local`: the full gate, on the
 #                                 current tree.
-#   scripts/ci_local.sh pre-push  the pre-push gate: `make ci-local` on the
-#                                 pushed commit (PRE_COMMIT_TO_REF, from
-#                                 prek) in a separate worktree of it
-#                                 (<repo>-ci beside the main checkout: a
-#                                 path under .git hides the tests from
-#                                 vitest and makes test socket paths too
-#                                 long), so uncommitted and untracked files
-#                                 do not change the result. The worktree
-#                                 keeps its own target/ between pushes. All
-#                                 worktrees share it: one push at a time runs the
-#                                 gate (flock on eukhe-ci-local.lock), the
-#                                 others wait. A commit that passed once
-#                                 (eukhe-ci-local-passed/<sha>) pushes
-#                                 again without the gate.
 #
 # Each gate prints its name; a failed gate prints `ci-<mode>: gate <name>
 # FAILED` and the script stops with its exit code. The full gate runs the
@@ -30,8 +24,8 @@
 # runtime tests, dashboard UI) at the same time; the second lane's log
 # prints when it ends.
 #
-# CI_LOCAL_SECRETS_RANGE: the `git log` range the full gate scans for
-# secrets (pre-push gives the pushed commits). Default: origin/main..HEAD.
+# CI_LOCAL_SECRETS_RANGE: the `git log` range that full and pre-push scan
+# for secrets. Default: origin/main..HEAD.
 set -euo pipefail
 unset RUSTUP_TOOLCHAIN
 cd "$(dirname "$0")/.."
@@ -89,9 +83,10 @@ check_tools() {
   [[ ${#missing[@]} -eq 0 ]] || { echo "not installed: ${missing[*]} (nix develop has them)"; return 1; }
 }
 
-# The staged change as ci_pr_crates.py rows: `<path>` TAB `<old path>`.
-staged_rows() {
-  git diff --cached --name-status -M --no-color | awk -F'\t' '
+# A change as ci_pr_crates.py rows: `<path>` TAB `<old path>`, from `git
+# diff --name-status` with the arguments given (--cached, or two commits).
+change_rows() {
+  git diff --name-status -M --no-color "$@" | awk -F'\t' '
     $1 ~ /^[RC]/ { print $3 "\t" $2; next }
     { print $2 "\t" }'
 }
@@ -109,27 +104,71 @@ docs_only() {
   [[ ${any} -eq 1 ]]
 }
 
-clippy_touched() {
-  local rows out crates args=()
-  rows="$(staged_rows)"
+# A path no crate builds or tests from: the gate tooling, the GitHub and Nix
+# files, the agent rules and docs/. (scripts/release/ and README.md stay
+# code: eukhe-cli's packaging tests run and copy them.)
+outside_crates() {
+  case "$1" in
+    "" | .github/* | nix/* | docs/* | scripts/ci_* | scripts/test_ci_* | \
+      .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | Makefile | flake.nix | flake.lock) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The crates a change touches and their reverse dependencies
+# (scripts/ci_pr_crates.py), as cargo arguments in SELECTED: `-p <crate>`
+# each, or `--workspace` for another path outside crates/<crate>/. Empty for
+# no change, a docs-only change, or paths no crate builds or tests from.
+select_crates() {
+  local rows="$1" out crates kept="" path old
+  SELECTED=()
   if [[ -z "${rows}" ]]; then
-    echo "nothing staged: clippy skipped"
+    echo "no change"
     return 0
   fi
   if cut -f1,2 <<<"${rows}" | tr '\t' '\n' | docs_only; then
-    echo "docs-only change (Markdown in docs/ or at the root): clippy skipped"
+    echo "docs-only change (Markdown in docs/ or at the root)"
     return 0
   fi
+  while IFS=$'\t' read -r path old; do
+    outside_crates "${path}" && outside_crates "${old}" && continue
+    kept+="${path}"$'\t'"${old}"$'\n'
+  done <<<"${rows}"
+  if [[ -z "${kept}" ]]; then
+    echo "no crate builds or tests from the changed paths"
+    return 0
+  fi
+  rows="${kept%$'\n'}"
   out="$(mktemp)"
   GITHUB_OUTPUT="${out}" python3 scripts/ci_pr_crates.py <<<"${rows}"
   crates="$(sed -n 's/^crates=//p' "${out}")"
   rm -f "${out}"
   if [[ -z "${crates}" ]]; then
-    cargo clippy --workspace --all-targets --locked -- -D warnings
+    SELECTED=(--workspace)
   else
-    for crate in ${crates//,/ }; do args+=(-p "${crate}"); done
-    cargo clippy "${args[@]}" --all-targets --locked -- -D warnings
+    for crate in ${crates//,/ }; do SELECTED+=(-p "${crate}"); done
   fi
+}
+
+clippy_touched() {
+  select_crates "$1"
+  [[ ${#SELECTED[@]} -eq 0 ]] && { echo "clippy skipped"; return 0; }
+  cargo clippy "${SELECTED[@]}" --all-targets --locked -- -D warnings
+}
+
+tests_touched() {
+  select_crates "$1"
+  [[ ${#SELECTED[@]} -eq 0 ]] && { echo "tests skipped"; return 0; }
+  clean_env cargo test "${SELECTED[@]}" --locked --no-fail-fast
+}
+
+proofs() {
+  local out
+  out="$(mktemp)"
+  python3 scripts/check_laws_wired.py .
+  bend PROOF.bend | tee "${out}"
+  grep -qx 'ALL PROOFS CHECK' "${out}"
+  rm -f "${out}"
 }
 
 secrets_staged() {
@@ -216,7 +255,7 @@ case "${mode}" in
     gate "bend version" check_bend
     gate fmt cargo fmt --all --check
     gate secrets secrets_staged
-    gate "clippy (touched crates)" clippy_touched
+    gate "clippy (touched crates)" clippy_touched "$(change_rows --cached)"
     ;;
   full)
     start=${SECONDS}
@@ -256,44 +295,25 @@ case "${mode}" in
   pre-push)
     to="${PRE_COMMIT_TO_REF:?PRE_COMMIT_TO_REF is unset: prek gives it in the pre-push hook}"
     from="${PRE_COMMIT_FROM_REF:-}"
-    common="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
-    worktree="$(dirname "${common}")-ci"
-    passed="${common}/eukhe-ci-local-passed"
-    if [[ -e "${passed}/${to}" ]]; then
-      echo "pre-push: ${to:0:12} passed make ci-local before"
-      exit 0
-    fi
-    command -v flock >/dev/null 2>&1 || { echo "pre-push: flock not installed (util-linux; macOS: brew install flock)" >&2; exit 1; }
-    exec 9>"${common}/eukhe-ci-local.lock"
-    if ! flock -n 9; then
-      echo "pre-push: another push runs make ci-local; waiting for it"
-      flock 9
-    fi
-    if [[ -e "${passed}/${to}" ]]; then
-      echo "pre-push: ${to:0:12} passed make ci-local before"
-      exit 0
-    fi
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-    if [[ -n "${from}" && ! "${from}" =~ ^0+$ ]] && git cat-file -e "${from}^{commit}" 2>/dev/null; then
-      range="${from}..${to}"
-    else
-      range="${to} --not --remotes=${PRE_COMMIT_REMOTE_NAME:-origin}"
-    fi
-    if [[ -e "${worktree}/.git" ]]; then
-      git -C "${worktree}" checkout --quiet --detach --force "${to}"
-      git -C "${worktree}" clean --quiet -fdx -e /target/ -e node_modules/
-    else
-      git worktree prune
-      git worktree add --quiet --detach --force "${worktree}" "${to}"
-    fi
-    echo "pre-push: make ci-local on ${to:0:12} in ${worktree}"
-    # 9>&-: a process the gate leaves behind never holds the lock.
-    if ! CI_LOCAL_SECRETS_RANGE="${range}" make --no-print-directory -C "${worktree}" ci-local 9>&-; then
-      echo "pre-push: a gate failed on ${to:0:12} (its name is above). The push stops. Fix the cause, commit, and push again." >&2
+    # The gates check this worktree, so it must be the pushed commit.
+    if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "${to}^{commit}")" ]]; then
+      echo "pre-push: the push sends ${to:0:12}, but this worktree is at $(git rev-parse --short=12 HEAD). Push from a worktree at the pushed commit." >&2
       exit 1
     fi
-    mkdir -p "${passed}"
-    : >"${passed}/${to}"
+    if [[ -n "${from}" && ! "${from}" =~ ^0+$ ]] && git cat-file -e "${from}^{commit}" 2>/dev/null; then
+      base="${from}"
+    else
+      base="$(git merge-base "${to}" "${PRE_COMMIT_REMOTE_NAME:-origin}/main")"
+    fi
+    rows="$(change_rows "${base}" "${to}")"
+    echo "pre-push: ${base:0:12}..${to:0:12}"
+    gate "bend version" check_bend
+    gate fmt cargo fmt --all --check
+    CI_LOCAL_SECRETS_RANGE="${base}..${to}" gate secrets secrets_range
+    gate "clippy (touched crates)" clippy_touched "${rows}"
+    gate proofs proofs
+    gate "tests (touched crates)" tests_touched "${rows}"
     ;;
   *)
     echo "usage: scripts/ci_local.sh fast|full|pre-push" >&2
