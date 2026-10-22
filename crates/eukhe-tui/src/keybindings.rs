@@ -10,6 +10,7 @@
 //! malformed values drop, an empty array disables a binding) is imported
 //! once into a new `binds.cfg`.
 
+use eukhe_bend::rules::cvar::Presses;
 use eukhe_types::cvar::{parse_script, Aliases, Binds, Command, ExpandError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -435,7 +436,9 @@ pub struct KeybindingsManager {
     binds: Binds,
     /// How many of `binds` are the user's (they come first).
     user_binds: usize,
-    aliases: Aliases,
+    /// The presses of `binds` with the `binds.cfg` aliases, as the
+    /// compiled core runs them (`bend/cvar.bend` `press`).
+    presses: Presses,
     /// The key as its first user bind spells it (hint labels; a default
     /// key is labeled as its definition spells it).
     labels: BTreeMap<String, String>,
@@ -583,13 +586,14 @@ impl KeybindingsManager {
         for (key, body) in defaults {
             binds.push(key, body);
         }
+        let presses = Presses::new(&binds, &aliases);
         let mut actions: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (key, _) in binds.iter() {
             if actions.contains_key(key) {
                 continue;
             }
-            let ids = binds
-                .press(key, &aliases)
+            let ids = presses
+                .press(key)
                 .map(|commands| {
                     commands
                         .into_iter()
@@ -609,7 +613,7 @@ impl KeybindingsManager {
         Self {
             binds,
             user_binds,
-            aliases,
+            presses,
             labels,
             actions,
             agent_dir,
@@ -617,16 +621,16 @@ impl KeybindingsManager {
         }
     }
 
-    /// The commands a press of `data` runs (`Binds::press`): its winning
-    /// bind expanded with the `binds.cfg` aliases; none for an unbound or
-    /// malformed key.
+    /// The commands a press of `data` runs (`eukhe_bend::rules::cvar`,
+    /// `bend/cvar.bend` `press`): its winning bind expanded with the
+    /// `binds.cfg` aliases; none for an unbound or malformed key.
     ///
     /// # Errors
     ///
     /// The bind runs an alias that cycles or does not exist.
     pub fn press(&self, data: &str) -> Result<Vec<Command>, ExpandError> {
         match canonical_key(data) {
-            Some(key) => self.binds.press(&key, &self.aliases),
+            Some(key) => self.presses.press(&key),
             None => Ok(Vec::new()),
         }
     }

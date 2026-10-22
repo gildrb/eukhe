@@ -26,7 +26,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::LazyLock;
 
-use eukhe_types::cvar::{expand, Aliases, Binds, Command, ExpandError, ParseError};
+use eukhe_bend::rules::cvar::expand;
+use eukhe_types::cvar::{Aliases, Binds, Command, ExpandError, ParseError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
