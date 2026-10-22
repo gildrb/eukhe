@@ -403,6 +403,38 @@ async fn worker_roster_delta_pushes_one_update_per_flip() {
     assert_eq!(pushes[0]["changed"][0]["status"], "idle");
 }
 
+/// Every accepted worker delta stamps the row's `lastHeardFromAt` with the
+/// time the supervisor heard it, and a write that is not the worker's
+/// word (a pull, a test write) keeps the stamp.
+#[tokio::test]
+async fn worker_roster_delta_stamps_when_the_worker_was_heard() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let supervisor = Arc::new(supervisor_with_registered_worker(dir.path()).await);
+    let mut events = supervisor.events.subscribe();
+    let before = crate::util::iso_from_unix_ms(crate::util::now_ms());
+    supervisor
+        .handle_worker_roster_delta(
+            "d1",
+            "worker_roster_delta",
+            delta_frame("delta-token", flip_summary(dir.path(), true), Vec::new()),
+        )
+        .await;
+    let after = crate::util::iso_from_unix_ms(crate::util::now_ms());
+    let pushes = drain_roster_pushes(&mut events);
+    let heard = pushes[0]["changed"][0]["lastHeardFromAt"]
+        .as_str()
+        .expect("the delta stamps the row")
+        .to_string();
+    assert!(
+        (before.as_str()..=after.as_str()).contains(&heard.as_str()),
+        "{heard} in {before}..={after}"
+    );
+    let rewritten = supervisor
+        .write_roster_summary(&flip_summary(dir.path(), false), Some("w"))
+        .expect("written");
+    assert_eq!(rewritten.last_heard_from_at, Some(heard));
+}
+
 /// A delta carrying removals batches them with the summary write into
 /// the same single push (the TS apply writes entries and deletes
 /// removals before the one `scheduleRosterPush` flush).

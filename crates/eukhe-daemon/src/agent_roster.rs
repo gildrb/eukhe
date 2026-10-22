@@ -278,6 +278,12 @@ impl AgentRoster {
             file.as_deref()
                 .and_then(|key| self.deleted_descendant_usage.get(key)),
         );
+        // The supervisor's last word from the row's worker survives a
+        // rewrite; only a worker delta moves it ([`AgentRoster::mark_heard`]).
+        let last_heard_from_at = self
+            .entries
+            .get(&agent_id)
+            .and_then(|previous| previous.last_heard_from_at.clone());
         let stored = AgentRosterEntry {
             agent_id: agent_id.clone(),
             queued_child,
@@ -288,7 +294,7 @@ impl AgentRoster {
             } else {
                 status_label.map(str::to_string)
             },
-            last_heard_from_at: None,
+            last_heard_from_at,
             worker_id: worker_id.map(str::to_string),
             summary: slim_roster_summary(summary),
             rest: Map::default(),
@@ -316,6 +322,16 @@ impl AgentRoster {
         }
         self.entries.insert(agent_id, stored.clone());
         stored
+    }
+
+    /// Record that the row's worker was heard from at `at` (RFC 3339): the
+    /// supervisor stamps every accepted worker delta, so a running agent
+    /// whose stamp stops moving has gone quiet. Returns the stamped entry;
+    /// `None` when the row is gone.
+    pub(crate) fn mark_heard(&mut self, agent_id: &str, at: String) -> Option<AgentRosterEntry> {
+        let entry = self.entries.get_mut(agent_id)?;
+        entry.last_heard_from_at = Some(at);
+        Some(entry.clone())
     }
 
     /// Take the next fold ticket: a bucket fold reads it before it

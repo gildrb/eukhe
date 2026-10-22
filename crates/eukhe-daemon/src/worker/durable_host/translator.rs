@@ -67,6 +67,22 @@ pub struct RunningTool {
     pub args: Value,
     pub output: String,
     pub details: Option<Value>,
+    /// When its start event arrived (Unix ms); `None` for a call a
+    /// snapshot found running (the stored round has no start time).
+    pub started_at_ms: Option<u64>,
+}
+
+/// A failed request waiting out its retry, as the events describe it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MirrorRetry {
+    /// The generation attempt the wait leads to.
+    pub attempt: u64,
+    /// The retries the session's policy allows, when known.
+    pub max_attempts: Option<u64>,
+    /// When the next attempt goes out (Unix ms).
+    pub retry_at_ms: u64,
+    /// The failure being retried.
+    pub error: String,
 }
 
 /// The shown conversation's state as its events describe it (initialized
@@ -84,7 +100,7 @@ pub struct ConversationMirror {
     pub inbox: Vec<QueuedItem>,
     pub agent: AgentState,
     pub usage: UsageState,
-    pub retry_attempt: Option<u64>,
+    pub retry: Option<MirrorRetry>,
 }
 
 impl ConversationMirror {
@@ -107,6 +123,7 @@ impl ConversationMirror {
                 args: tool_call_arguments(&snapshot.entries, partial.as_ref(), &slot.call_id),
                 output: slot.output.clone().unwrap_or_default(),
                 details: slot.details.as_ref().map(Value::from),
+                started_at_ms: None,
             })
             .collect();
         Self {
@@ -122,10 +139,14 @@ impl ConversationMirror {
             inbox: snapshot.inbox.clone(),
             agent: snapshot.agent.clone(),
             usage: snapshot.usage.clone(),
-            retry_attempt: snapshot
-                .generation
-                .as_ref()
-                .and_then(|generation| generation.retry.as_ref().map(|_| generation.attempt)),
+            retry: snapshot.generation.as_ref().and_then(|generation| {
+                generation.retry.as_ref().map(|retry| MirrorRetry {
+                    attempt: generation.attempt,
+                    max_attempts: None,
+                    retry_at_ms: unix_ms(retry.at),
+                    error: retry.error.clone(),
+                })
+            }),
         }
     }
 
@@ -374,6 +395,14 @@ impl EventTranslator {
         self
     }
 
+    /// The retries the session's policy allows, when the translator has
+    /// the policy.
+    fn max_attempts(&self) -> Option<u64> {
+        self.retry_policy
+            .as_ref()
+            .map(|source| u64::from((source.0)().max_retries))
+    }
+
     #[must_use]
     pub fn mirror(&self) -> &ConversationMirror {
         &self.mirror
@@ -514,7 +543,7 @@ impl EventTranslator {
                 // The wait ended and the next attempt starts; the episode
                 // stays open until an answer settles or the turn ends.
                 self.flush_into(&mut out);
-                self.mirror.retry_attempt = None;
+                self.mirror.retry = None;
             }
             AgentEvent::AgentChanged { agent } => self.mirror.agent = agent.clone(),
             AgentEvent::UsageChanged { usage } => self.mirror.usage = usage.clone(),
@@ -635,7 +664,7 @@ impl EventTranslator {
                 self.mirror.run = None;
                 self.mirror.partial = None;
                 self.mirror.tools.clear();
-                self.mirror.retry_attempt = None;
+                self.mirror.retry = None;
             }
             AgentEvent::TurnStart => {
                 self.turn_error = None;
@@ -672,6 +701,7 @@ impl EventTranslator {
             args,
             output: String::new(),
             details: None,
+            started_at_ms: Some(unix_ms(now_ms())),
         };
         match self.tool_mut(call_id) {
             Some(running) => *running = tool,
@@ -690,7 +720,12 @@ impl EventTranslator {
         // The failed attempt's partial is gone; the next attempt starts a
         // new message.
         self.mirror.partial = None;
-        self.mirror.retry_attempt = Some(attempt);
+        self.mirror.retry = Some(MirrorRetry {
+            attempt,
+            max_attempts: self.max_attempts(),
+            retry_at_ms: unix_ms(at),
+            error: error_message.to_owned(),
+        });
         let episode = self.retry_episode.get_or_insert_with(RetryEpisode::default);
         episode.retries += 1;
         episode.final_error = Some(error_message.to_owned());
@@ -700,10 +735,7 @@ impl EventTranslator {
         // carries what is left of it from now.
         out.push(SessionEvent::AutoRetryStart {
             attempt,
-            max_attempts: self
-                .retry_policy
-                .as_ref()
-                .map(|source| u64::from((source.0)().max_retries)),
+            max_attempts: self.max_attempts(),
             delay_ms: retry_delay_ms(at, now_ms()),
             error_message: error_message.to_owned(),
             failover: None,
@@ -1010,6 +1042,7 @@ impl EventTranslator {
                 args: Value::Object(Map::new()),
                 output: String::new(),
                 details: None,
+                started_at_ms: None,
             });
         }
         let Some(tool) = self.tool_mut(call_id) else {
@@ -1624,6 +1657,13 @@ fn now_ms() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
+}
+
+/// A Unix-ms instant in whole milliseconds (a negative or non-finite one
+/// reads as 0).
+fn unix_ms(at: f64) -> u64 {
+    Duration::try_from_secs_f64(at.max(0.0) / 1000.0)
+        .map_or(0, |at| u64::try_from(at.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]

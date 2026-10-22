@@ -43,11 +43,35 @@ pub(crate) const ROSTER_SESSION_EVENT_TRIGGERS: &[&str] = &[
     "thinking_level_changed",
 ];
 
-/// Whether one broadcast frame triggers a roster flush (TS
+/// The session event types that show the session still makes progress
+/// without moving a rendered flag: streamed tokens, a running tool's
+/// output, a local server's prompt progress. They push at most once per
+/// [`PROGRESS_PUSH_INTERVAL`] since the last push, so the supervisor's
+/// `lastHeardFromAt` for a long stream or a chatty tool keeps moving and a
+/// quiet agent stands out.
+pub(crate) const ROSTER_PROGRESS_EVENTS: &[&str] =
+    &["message_update", "tool_execution_update", "prompt_progress"];
+
+/// The least time between two roster pushes a progress frame starts.
+pub(crate) const PROGRESS_PUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What one broadcast frame asks of the roster feed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RosterTrigger {
+    /// A rendered field moved: push now.
+    Edge,
+    /// The session made progress: push when the last push is older than
+    /// [`PROGRESS_PUSH_INTERVAL`].
+    Progress,
+    /// Nothing the roster shows.
+    Silent,
+}
+
+/// What one broadcast frame asks of the roster feed (TS
 /// `observeRosterEvent`: session events by event type, plus the
 /// `session_closed`/`session_replaced` payload tags, which the worker
-/// frames as session events).
-pub(crate) fn frame_triggers_roster_flush(frame: &OutboundFrame) -> bool {
+/// frames as session events; the progress class is eukhe's).
+pub(crate) fn frame_roster_trigger(frame: &OutboundFrame) -> RosterTrigger {
     #[derive(serde::Deserialize)]
     struct Envelope<'a> {
         #[serde(rename = "type", borrow)]
@@ -61,18 +85,22 @@ pub(crate) fn frame_triggers_roster_flush(frame: &OutboundFrame) -> bool {
         kind: &'a str,
     }
     if frame.outbound_type != "session_event" {
-        return false;
+        return RosterTrigger::Silent;
     }
     // The payload is parsed only for session-event frames, so a
     // non-trigger frame costs one discriminant check.
     match serde_json::from_slice::<Envelope>(&frame.payload) {
-        Ok(envelope) => match envelope.kind {
-            "session_closed" | "session_replaced" => true,
-            _ => envelope
-                .event
-                .is_some_and(|event| ROSTER_SESSION_EVENT_TRIGGERS.contains(&event.kind)),
+        Ok(envelope) => match (envelope.kind, envelope.event) {
+            ("session_closed" | "session_replaced", _) => RosterTrigger::Edge,
+            (_, Some(event)) if ROSTER_SESSION_EVENT_TRIGGERS.contains(&event.kind) => {
+                RosterTrigger::Edge
+            }
+            (_, Some(event)) if ROSTER_PROGRESS_EVENTS.contains(&event.kind) => {
+                RosterTrigger::Progress
+            }
+            (_, Some(_) | None) => RosterTrigger::Silent,
         },
-        Err(_) => false,
+        Err(_) => RosterTrigger::Silent,
     }
 }
 
@@ -160,30 +188,39 @@ impl RosterPushQueue {
     }
 }
 
-/// The pump watcher (TS `observeRosterEvent`): every trigger frame that
-/// flows through the worker's event pump enqueues a flush request. The
-/// watcher owns a receiver on the pump's broadcast, so it ends with the
-/// worker's process (a worker serves one session for its lifetime).
+/// The pump watcher (TS `observeRosterEvent`): every edge frame that
+/// flows through the worker's event pump enqueues a flush request, and a
+/// progress frame does when the last request is older than
+/// [`PROGRESS_PUSH_INTERVAL`]. The watcher owns a receiver on the pump's
+/// broadcast, so it ends with the worker's process (a worker serves one
+/// session for its lifetime).
 pub(crate) fn spawn_roster_activity_watch(events: &Arc<EventPump>, queue: RosterPushQueue) {
     if queue.inner.is_none() {
         return;
     }
     let mut frames = events.subscribe();
     tokio::spawn(async move {
+        let mut last_push: Option<std::time::Instant> = None;
         loop {
             // `Lagged` only means frames were skipped under a burst: the
             // missed frames may include triggers, so one catch-up flush
             // request keeps the feed converging on the fresh state the
             // consumer composes anyway; only a closed pump ends the
             // watcher (a worker serves one session for its lifetime).
-            match frames.recv().await {
-                Ok(frame) => {
-                    if frame_triggers_roster_flush(&frame) {
-                        queue.push();
+            let wanted = match frames.recv().await {
+                Ok(frame) => match frame_roster_trigger(&frame) {
+                    RosterTrigger::Edge => true,
+                    RosterTrigger::Progress => {
+                        last_push.is_none_or(|at| at.elapsed() >= PROGRESS_PUSH_INTERVAL)
                     }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => queue.push(),
+                    RosterTrigger::Silent => false,
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            };
+            if wanted {
+                last_push = Some(std::time::Instant::now());
+                queue.push();
             }
         }
     });
@@ -207,33 +244,38 @@ mod tests {
         OutboundFrame::session_event(serde_json::to_vec(&payload).unwrap())
     }
 
+    /// Each frame kind maps to its trigger: the TS edge events and the
+    /// close/replace payload tags push now, the progress events push on
+    /// the interval, everything else stays silent.
     #[test]
-    fn every_ts_trigger_event_type_flushes() {
+    fn every_frame_kind_maps_to_its_trigger() {
+        let mut cases: Vec<(String, OutboundFrame, RosterTrigger)> = Vec::new();
         for event_type in ROSTER_SESSION_EVENT_TRIGGERS {
-            let frame = session_event_frame(&json!({ "type": event_type }));
-            assert!(
-                frame_triggers_roster_flush(&frame),
-                "{event_type} must trigger a roster flush"
-            );
+            cases.push((
+                (*event_type).to_string(),
+                session_event_frame(&json!({ "type": event_type })),
+                RosterTrigger::Edge,
+            ));
         }
-    }
-
-    #[test]
-    fn non_trigger_events_and_frame_kinds_stay_silent() {
+        for event_type in ROSTER_PROGRESS_EVENTS {
+            cases.push((
+                (*event_type).to_string(),
+                session_event_frame(&json!({ "type": event_type })),
+                RosterTrigger::Progress,
+            ));
+        }
         for event_type in [
             "message_start",
-            "message_update",
-            "tool_execution_update",
             "agent_start",
             "agent_end",
             "goal_update",
             "ipython_sent_agent_message",
         ] {
-            let frame = session_event_frame(&json!({ "type": event_type }));
-            assert!(
-                !frame_triggers_roster_flush(&frame),
-                "{event_type} must not trigger a roster flush"
-            );
+            cases.push((
+                event_type.to_string(),
+                session_event_frame(&json!({ "type": event_type })),
+                RosterTrigger::Silent,
+            ));
         }
         // The non-`session_event` frame kinds the pump carries: a side
         // question does not.
@@ -243,29 +285,32 @@ mod tests {
             "event": { "type": "message_end" },
         }))
         .unwrap();
-        assert!(!frame_triggers_roster_flush(
-            &OutboundFrame::side_question_event(side_question_payload)
+        cases.push((
+            "side_question_event".to_string(),
+            OutboundFrame::side_question_event(side_question_payload),
+            RosterTrigger::Silent,
         ));
         // The worker frames `session_closed` payloads as session events:
         // the payload tag flushes (TS `observeRosterEvent`'s
         // `message.type === "session_closed"` arm).
-        let closed_payload = serde_json::to_vec(&json!({
-            "type": "session_closed",
-            "activeSessionId": "s",
-            "reason": "done",
-        }))
-        .unwrap();
-        assert!(frame_triggers_roster_flush(&OutboundFrame::session_event(
-            closed_payload
-        )));
-        let replaced_payload = serde_json::to_vec(&json!({
-            "type": "session_replaced",
-            "activeSessionId": "s",
-        }))
-        .unwrap();
-        assert!(frame_triggers_roster_flush(&OutboundFrame::session_event(
-            replaced_payload
-        )));
+        for kind in ["session_closed", "session_replaced"] {
+            let payload =
+                serde_json::to_vec(&json!({ "type": kind, "activeSessionId": "s" })).unwrap();
+            cases.push((
+                kind.to_string(),
+                OutboundFrame::session_event(payload),
+                RosterTrigger::Edge,
+            ));
+        }
+        let actual: Vec<(&str, RosterTrigger)> = cases
+            .iter()
+            .map(|(name, frame, _)| (name.as_str(), frame_roster_trigger(frame)))
+            .collect();
+        let expected: Vec<(&str, RosterTrigger)> = cases
+            .iter()
+            .map(|(name, _, trigger)| (name.as_str(), *trigger))
+            .collect();
+        assert_eq!(actual, expected);
     }
 
     #[test]

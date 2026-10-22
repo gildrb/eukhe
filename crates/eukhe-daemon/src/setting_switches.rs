@@ -595,7 +595,7 @@ impl Worker {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             core.view
                 .as_ref()
-                .filter(|view| view.translator.mirror().retry_attempt.is_some())
+                .filter(|view| view.translator.mirror().retry.is_some())
                 .map(|view| view.inbox.clone())
         };
         let Some(withdrawn) = withdrawn else {

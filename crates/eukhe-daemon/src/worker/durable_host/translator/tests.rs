@@ -1041,15 +1041,31 @@ fn run_end_clears_the_live_state() {
         { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
     ])));
     // Any other frame flushes the parked update first.
+    let before = unix_ms(now_ms());
     let frames = translator.translate_wire(&event(json!({
         "type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash", "args": {},
     })));
+    let after = unix_ms(now_ms());
     assert_eq!(types(&frames), ["message_update", "tool_execution_start"]);
     assert!(!translator.has_parked());
+    // The running tool records when its start arrived.
+    let started = translator.mirror().tools[0].started_at_ms;
+    assert!(
+        started.is_some_and(|at| (before..=after).contains(&at)),
+        "{started:?} in {before}..={after}"
+    );
     translator.translate_wire(&event(json!({
-        "type": "auto_retry_start", "attempt": 1, "at": 0.0, "errorMessage": "overloaded",
+        "type": "auto_retry_start", "attempt": 1, "at": 8_000.0, "errorMessage": "overloaded",
     })));
-    assert_eq!(translator.mirror().retry_attempt, Some(1));
+    assert_eq!(
+        translator.mirror().retry,
+        Some(MirrorRetry {
+            attempt: 1,
+            max_attempts: None,
+            retry_at_ms: 8_000,
+            error: "overloaded".to_owned(),
+        })
+    );
     let frames = translator.translate_wire(&event(json!({ "type": "run_end", "inputs": [3] })));
     // The run ended inside the retry episode: it closes failed first.
     assert_eq!(
@@ -1064,7 +1080,7 @@ fn run_end_clears_the_live_state() {
     assert!(!mirror.is_streaming());
     assert!(mirror.partial.is_none());
     assert!(mirror.tools.is_empty());
-    assert!(mirror.retry_attempt.is_none());
+    assert!(mirror.retry.is_none());
     assert!(!translator.has_parked());
 }
 
@@ -1190,7 +1206,15 @@ fn a_snapshot_seeds_and_replaces_the_mirror() {
     let mut translator = EventTranslator::new(&seeded, CoalesceMode::Coalesced);
     let mirror = translator.mirror();
     assert!(mirror.is_streaming() && mirror.is_compacting());
-    assert_eq!(mirror.retry_attempt, Some(2));
+    assert_eq!(
+        mirror.retry,
+        Some(MirrorRetry {
+            attempt: 2,
+            max_attempts: None,
+            retry_at_ms: 0,
+            error: "x".to_owned(),
+        })
+    );
     assert_eq!(
         mirror.tools,
         [RunningTool {
@@ -1199,6 +1223,7 @@ fn a_snapshot_seeds_and_replaces_the_mirror() {
             args: json!({ "command": "ls" }),
             output: "partial".to_owned(),
             details: Some(json!({ "status": "running" })),
+            started_at_ms: None,
         }]
     );
     assert_eq!(mirror.inbox.len(), 1);

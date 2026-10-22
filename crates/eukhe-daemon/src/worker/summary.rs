@@ -14,7 +14,7 @@ use super::{
 
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::usage::UsageState;
-use eukhe_types::daemon::{QueuedItem, QuotaPark, SessionEvent};
+use eukhe_types::daemon::{CurrentTool, QueuedItem, QuotaPark, RetryWait, SessionEvent};
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
 
@@ -192,8 +192,8 @@ impl Worker {
             available_service_tiers: available_service_tiers(core, &self.session),
             is_bash_running: self.user_bash.is_running(),
             retry_attempt: mirror
-                .and_then(|mirror| mirror.retry_attempt)
-                .map_or(0, |attempt| u32::try_from(attempt).unwrap_or(u32::MAX)),
+                .and_then(|mirror| mirror.retry.as_ref())
+                .map_or(0, |retry| u32::try_from(retry.attempt).unwrap_or(u32::MAX)),
             steering_mode: queue_mode_setting(&settings, QueueKind::Steering),
             follow_up_mode: queue_mode_setting(&settings, QueueKind::FollowUp),
             session_file: core.session_file(),
@@ -552,11 +552,33 @@ pub(crate) fn session_summary(
     let queued = queued_inputs(core);
     let messages = message_count(core);
     let view = core.view.as_ref();
-    let running_tools = view.is_some_and(|view| !view.translator.mirror().tools.is_empty());
+    let mirror = view.map(|view| view.translator.mirror());
+    let running_tools = mirror.is_some_and(|mirror| !mirror.tools.is_empty());
     let last_activity_at = view
         .and_then(last_timestamp_ms)
         .map(crate::util::iso_from_unix_ms)
         .or_else(|| core.created_at.clone());
+    // The pinned agents block's live fields: the running tool, the retry
+    // wait, and the context use (the attach snapshot's estimate).
+    let current_tool = mirror
+        .and_then(|mirror| mirror.tools.first())
+        .map(|tool| CurrentTool {
+            name: tool.name.clone(),
+            started_at: tool.started_at_ms.map(crate::util::iso_from_unix_ms),
+        });
+    let retry = mirror
+        .and_then(|mirror| mirror.retry.as_ref())
+        .map(|retry| RetryWait {
+            attempt: retry.attempt,
+            max_attempts: retry.max_attempts,
+            retry_at: crate::util::iso_from_unix_ms(retry.retry_at_ms),
+            error: retry.error.clone(),
+        });
+    let context_usage = mirror
+        .zip(crate::state_getters::model_context_window(model.as_ref()))
+        .map(|(mirror, window)| {
+            crate::state_getters::mirror_context_usage(&mirror.entries, window)
+        });
     SessionSummary {
         id: core.active_session_id.clone(),
         lifecycle: active_lifecycle(&core.runtime_kind, messages == 0, streaming).to_string(),
@@ -580,6 +602,9 @@ pub(crate) fn session_summary(
         is_compacting: compacting,
         is_quota_parked: Some(quota_park.is_some()),
         quota_park,
+        current_tool,
+        retry,
+        context_usage,
         is_bash_running: Some(bash_running),
         is_running_tools: streaming && running_tools,
         has_running_subagents: false,
@@ -794,6 +819,54 @@ mod tests {
                 phase: "preparing".to_string(),
                 label: Some("go".to_string()),
             })
+        );
+    }
+
+    /// The summary carries the running tool, the retry wait, and the
+    /// context use the pinned agents block renders; a session with none
+    /// carries none.
+    #[test]
+    fn the_summary_carries_the_live_fields() {
+        let mut core = core_with(vec![], vec![], vec![]);
+        let model = json!({ "id": "m", "provider": "p", "contextWindow": 1_000 });
+        let idle = session_summary(&core, "high", Some(model.clone()), false, None);
+        assert_eq!(
+            (idle.current_tool, idle.retry),
+            (None, None),
+            "an idle session runs no tool and waits on no retry"
+        );
+        let snapshot: SnapshotEvent = serde_json::from_value(json!({
+            "entries": [], "nestedTools": [], "compactions": [], "inbox": [],
+            "run": { "inputs": [3] },
+            "generation": { "attempt": 2, "retry": { "at": 8_000.0, "error": "overloaded" } },
+            "tools": [
+                { "callId": "c1", "name": "bash", "status": "running" },
+                { "callId": "c2", "name": "read", "status": "running" },
+            ],
+            "agent": {}, "usage": { "models": {}, "tools": {} },
+        }))
+        .expect("snapshot");
+        core.view.as_mut().expect("view").translator =
+            super::super::durable_host::translator::EventTranslator::new(
+                &snapshot,
+                super::super::durable_host::translator::CoalesceMode::Immediate,
+            );
+        let live = session_summary(&core, "high", Some(model), false, None);
+        assert_eq!(
+            (live.current_tool, live.retry, live.context_usage),
+            (
+                Some(CurrentTool {
+                    name: "bash".to_string(),
+                    started_at: None,
+                }),
+                Some(RetryWait {
+                    attempt: 2,
+                    max_attempts: None,
+                    retry_at: crate::util::iso_from_unix_ms(8_000),
+                    error: "overloaded".to_string(),
+                }),
+                Some(crate::state_getters::mirror_context_usage(&[], 1_000)),
+            )
         );
     }
 

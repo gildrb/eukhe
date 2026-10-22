@@ -140,7 +140,17 @@ impl Supervisor {
                 ) {
                     return response_success(Some(command_id), type_name, None);
                 }
-                let entry = roster.write_summary(summary.clone(), Some(&resident.worker_id), None);
+                let written =
+                    roster.write_summary(summary.clone(), Some(&resident.worker_id), None);
+                // The delta is the worker's live word: the row's
+                // `lastHeardFromAt` moves with it, so a running agent whose
+                // stamp stops moving reads as quiet to every viewer.
+                let entry = roster
+                    .mark_heard(
+                        &written.agent_id,
+                        crate::util::iso_from_unix_ms(crate::util::now_ms()),
+                    )
+                    .unwrap_or(written);
                 // The worker's root slot can swap to a new durable session
                 // (a `new_session`/`switch_session`/`import_jsonl`/`fork`
                 // replacement serves a new file under the same address):

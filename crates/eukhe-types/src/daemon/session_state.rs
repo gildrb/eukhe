@@ -46,6 +46,20 @@ pub struct SessionSummary {
     /// indicator names both).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota_park: Option<QuotaPark>,
+    /// The tool call the session runs right now (the first of a parallel
+    /// round): its name and when it started. The pinned agents block
+    /// names it and counts its elapsed time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_tool: Option<CurrentTool>,
+    /// A failed provider request waiting out its retry: the attempt, the
+    /// limit, when the next attempt goes out, and the error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<RetryWait>,
+    /// The shown conversation's context use, the shape of
+    /// `get_session_stats`'s `contextUsage` (`{tokens, contextWindow,
+    /// percent}`); absent without a model context window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_usage: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_bash_running: Option<bool>,
     /// A streaming turn with tool calls in flight (TS `isRunningTools`:
@@ -142,6 +156,33 @@ pub struct QuotaPark {
     /// The provider whose usage limit parked the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+}
+
+/// The tool call a session runs right now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentTool {
+    pub name: String,
+    /// When the call started (RFC 3339, UTC); absent for a call a
+    /// restarted worker found running (the stored round has no start
+    /// time).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+}
+
+/// A failed provider request waiting out its retry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetryWait {
+    /// The retry this wait leads to: 1 for the first.
+    pub attempt: u64,
+    /// The retries the session's policy allows, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_attempts: Option<u64>,
+    /// When the next attempt goes out (RFC 3339, UTC).
+    pub retry_at: String,
+    /// The failure being retried.
+    pub error: String,
 }
 
 /// The queue projection (TS `SessionActionSnapshot`): the parked inputs of
@@ -244,5 +285,56 @@ mod tests {
         assert_eq!(summary.message_count, 3);
         let out = serde_json::to_value(&summary).unwrap();
         assert_eq!(out["messageCount"], 3);
+    }
+
+    /// The live fields of the pinned agents block (the running tool, the
+    /// retry wait, the context use) read from their camelCase wire form
+    /// and write it back unchanged.
+    #[test]
+    fn the_live_summary_fields_round_trip() {
+        let live = serde_json::json!({
+            "currentTool": { "name": "bash", "startedAt": "2026-10-21T10:00:00.000Z" },
+            "retry": {
+                "attempt": 2,
+                "maxAttempts": 5,
+                "retryAt": "2026-10-21T10:00:08.000Z",
+                "error": "overloaded",
+            },
+            "contextUsage": { "tokens": 12_000, "contextWindow": 128_000, "percent": 9.375 },
+        });
+        let mut wire = serde_json::json!({
+            "id": "a", "lifecycle": "live", "activity": "working", "isSessionActive": true,
+            "sessionId": "s", "cwd": "/tmp", "isStreaming": true, "isCompacting": false,
+            "attachedClients": 0, "messageCount": 1,
+            "sessionActions": {"queuedCount": 0, "steering": [], "followUps": []},
+        });
+        wire.as_object_mut()
+            .expect("object")
+            .extend(live.as_object().expect("object").clone());
+        let summary: SessionSummary = serde_json::from_value(wire).expect("parses");
+        assert_eq!(
+            (
+                summary.current_tool.clone(),
+                summary.retry.clone(),
+                summary.context_usage.clone()
+            ),
+            (
+                Some(CurrentTool {
+                    name: "bash".to_string(),
+                    started_at: Some("2026-10-21T10:00:00.000Z".to_string()),
+                }),
+                Some(RetryWait {
+                    attempt: 2,
+                    max_attempts: Some(5),
+                    retry_at: "2026-10-21T10:00:08.000Z".to_string(),
+                    error: "overloaded".to_string(),
+                }),
+                Some(live["contextUsage"].clone()),
+            )
+        );
+        let out = serde_json::to_value(&summary).expect("serializes");
+        for key in ["currentTool", "retry", "contextUsage"] {
+            assert_eq!(out[key], live[key], "{key}");
+        }
     }
 }

@@ -106,7 +106,7 @@ impl QueueHooks {
             is_retrying: core
                 .view
                 .as_ref()
-                .is_some_and(|view| view.translator.mirror().retry_attempt.is_some()),
+                .is_some_and(|view| view.translator.mirror().retry.is_some()),
             is_bash_running: self.user_bash.is_running(),
             has_pending_session_work: !core.suspended.is_empty(),
             unfinished_action_count: inbox + core.suspended.len(),

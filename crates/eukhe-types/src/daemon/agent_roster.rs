@@ -220,9 +220,10 @@ pub fn session_activity_detail(summary: &Value, options: &SessionActivityOptions
 }
 
 /// One roster entry (TS `AgentRosterEntry`): the agent's slim session
-/// summary with the supervisor's classification. `statusLabel` and
-/// `lastHeardFromAt` are set only for exceptional states; viewers key label
-/// display on their presence.
+/// summary with the supervisor's classification. `statusLabel` is set only
+/// for exceptional states; viewers key label display on its presence.
+/// `lastHeardFromAt` is when the supervisor last accepted a delta from the
+/// row's worker (absent for a row no worker wrote yet).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRosterEntry {
@@ -240,6 +241,8 @@ pub struct AgentRosterEntry {
     /// `queued` / `recovering` / `failed` (TS `statusLabel`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_label: Option<String>,
+    /// When the supervisor last heard from the row's worker (RFC 3339): a
+    /// running agent whose stamp stops moving has gone quiet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_heard_from_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
