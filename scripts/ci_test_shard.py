@@ -28,10 +28,20 @@ with `test = false` is never run here either):
   only), so a bench — e.g. a nightly-only `#[bench]` — must not gate what
   the serial gate never compiled.
 
-Every unit runs as its own cargo invocation, streams live to the log, and is
-recorded in the shard manifest (JSON) that scripts/ci_test_shard_summary.py
-audits: the union of shard manifests must equal the full enumeration, so
-coverage can never silently regress when targets are added or renamed.
+Every unit is recorded in the shard manifest (JSON) that
+scripts/ci_test_shard_summary.py audits: the union of shard manifests must
+equal the full enumeration, so coverage can never silently regress when
+targets are added or renamed. Output streams live to the log.
+
+lib, bin, test and example units run the executable that `cargo test
+--workspace --no-run --message-format=json` built (`--artifacts`, the
+JSON lines), in the package directory with CARGO_MANIFEST_DIR set, as cargo
+test runs it. They never run `cargo test -p PKG`: that resolves the
+features of one package, not of the workspace, so it relinks shared
+binaries (target/debug/eukhe) with other features while the other shards
+execute them (ETXTBSY), and the tests would run another build than the
+workspace one. doc and examples units still run `cargo test -p PKG`: they
+build no binary another unit executes.
 
 `--crates a,b` narrows the selection, never the partition: it restricts the
 units a run executes to the named packages'. The stable crc32 assignment is
@@ -111,6 +121,7 @@ def enumerate_units() -> list[dict]:
     )
     packages = json.loads(out.stdout)["packages"]
     units = []
+    manifest_of = {pkg["name"]: pkg["manifest_path"] for pkg in packages}
     for pkg in packages:
         name = pkg["name"]
         has_examples = False
@@ -141,17 +152,60 @@ def enumerate_units() -> list[dict]:
     for unit in units:
         unit["id"] = _unit_id(unit["package"], unit["kind"], unit["name"])
         unit["target_args"] = _target_flag(unit["kind"], unit["name"])
+        unit["manifest_path"] = manifest_of[unit["package"]]
     return sorted(units, key=lambda u: u["id"])
 
 
-def run_unit(unit: dict) -> dict:
-    cmd = ["cargo", "test", "--locked", "-p", unit["package"], *unit["target_args"]]
+# The unit kinds that run a prebuilt executable (the cargo artifact's
+# target kind for each).
+EXECUTABLE_KINDS = {"lib": ("lib", "rlib", "proc-macro"), "bin": ("bin",),
+                    "test": ("test",), "example": ("example",)}
+
+
+def load_executables(path: Path) -> dict[tuple[str, str, str], str]:
+    """(manifest path, target kind, target name) -> the test executable.
+
+    `path` holds the JSON lines of `cargo test --workspace --no-run
+    --message-format=json`; a test artifact names its executable.
+    """
+    executables = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("{"):
+            continue
+        message = json.loads(line)
+        if message.get("reason") != "compiler-artifact" or not message.get("executable"):
+            continue
+        if not message["profile"]["test"]:
+            continue
+        target = message["target"]
+        for kind in target["kind"]:
+            executables[(message["manifest_path"], kind, target["name"])] = message["executable"]
+    return executables
+
+
+def unit_command(unit: dict, executables: dict[tuple[str, str, str], str]) -> tuple[list[str], Path, dict]:
+    """The command, working directory and extra environment of one unit."""
+    if unit["kind"] not in EXECUTABLE_KINDS:
+        return (["cargo", "test", "--locked", "-p", unit["package"], *unit["target_args"]],
+                REPO_ROOT, {})
+    for kind in EXECUTABLE_KINDS[unit["kind"]]:
+        exe = executables.get((unit["manifest_path"], kind, unit["name"]))
+        if exe is not None:
+            package_dir = Path(unit["manifest_path"]).parent
+            return ([exe], package_dir, {"CARGO_MANIFEST_DIR": str(package_dir),
+                                         "CARGO_PKG_NAME": unit["package"]})
+    raise SystemExit(f"no prebuilt test executable for {unit['id']} in --artifacts "
+                     "(run cargo test --workspace --no-run --message-format=json first)")
+
+
+def run_unit(unit: dict, executables: dict[tuple[str, str, str], str]) -> dict:
+    cmd, cwd, extra_env = unit_command(unit, executables)
     start = time.monotonic()
     # Streaming (not capture-then-print) so a hung binary is attributable from
     # the live log: the unit header is printed before the invocation starts.
     proc = subprocess.Popen(
-        cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, errors="replace",
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace", env={**os.environ, **extra_env},
     )
     output_lines = []
     assert proc.stdout is not None
@@ -238,6 +292,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--shard", type=int, required=True, help="1-based shard index")
     parser.add_argument("--total", type=int, required=True, help="shard count")
+    parser.add_argument("--artifacts", type=Path, default=None,
+                        help="the JSON lines of `cargo test --workspace --no-run "
+                             "--message-format=json`: the test executables to run")
     parser.add_argument("--manifest", type=Path, default=None,
                         help="write the per-shard JSON manifest here")
     parser.add_argument("--crates", default=None,
@@ -288,11 +345,14 @@ def main() -> int:
             print(f"  shard {shard_of(u['id'], args.total) + 1}: {u['id']}")
         return 0
 
+    if args.artifacts is None:
+        parser.error("running units needs --artifacts")
+    executables = load_executables(args.artifacts)
     results = []
     for u in mine:
-        print(f"[shard {args.shard}/{args.total}] RUN {u['id']} "
-              f"(cargo test --locked -p {u['package']} {' '.join(u['target_args'])})")
-        result = run_unit(u)
+        cmd, _, _ = unit_command(u, executables)
+        print(f"[shard {args.shard}/{args.total}] RUN {u['id']} ({' '.join(cmd)})")
+        result = run_unit(u, executables)
         verdict = "PASS" if result["rc"] == 0 else f"FAIL rc={result['rc']}"
         print(f"[shard {args.shard}/{args.total}] {verdict} {u['id']} "
               f"in {result['seconds']}s")

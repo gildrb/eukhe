@@ -181,12 +181,14 @@ clean_env() {
 workspace_tests() {
   local total="${TEST_SHARDS}" dir shard pids=() failed=0
   dir="$(mktemp -d)"
-  clean_env cargo test --workspace --locked --no-run
+  # The JSON lines name each test executable: the shards run them, never
+  # `cargo test -p`, which would relink the shared binaries under them.
+  clean_env cargo test --workspace --locked --no-run --message-format=json-render-diagnostics >"${dir}/artifacts.jsonl"
   clean_env cargo build --workspace --bins --locked
   echo "running ${total} test shards at the same time (logs: ${dir})"
   for shard in $(seq 1 "${total}"); do
     (trap - INT; clean_env python3 scripts/ci_test_shard.py --shard "${shard}" --total "${total}" \
-      --manifest "${dir}/shard-manifest-${shard}.json") </dev/null >"${dir}/shard-${shard}.log" 2>&1 &
+      --artifacts "${dir}/artifacts.jsonl" --manifest "${dir}/shard-manifest-${shard}.json") </dev/null >"${dir}/shard-${shard}.log" 2>&1 &
     pids+=("$!")
   done
   for shard in $(seq 1 "${total}"); do
