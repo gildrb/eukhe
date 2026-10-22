@@ -1,16 +1,14 @@
 //! The seen-line guard (model `bend/doc_seen.bend`, laws in `LAWS.bend`
 //! section `documents`, F11): an edit's anchors against the lines a tagged
-//! read displayed. [`check`] is the whole decision, plain data in and out;
-//! the store lookups, the line widths it reads and the message it renders
-//! stay in [`super::patcher`].
+//! read displayed. [`check`] is the whole decision, one call of the
+//! compiled Bend core (`bend/ffi_doc_seen.bend`); the store lookups, the
+//! line widths it reads and the message it renders stay in
+//! [`super::patcher`].
 
 use std::collections::BTreeSet;
 
-/// The most unseen anchors that one rejection shows (model `cap`).
-pub(crate) const SEEN_LINE_REVEAL_CAP: usize = 40;
-/// The most characters of a line that a rejection shows whole (model
-/// `cols`).
-pub(crate) const SEEN_LINE_REVEAL_MAX_COLUMNS: usize = 512;
+use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
+use eukhe_bend::{expect_core, Entry};
 
 /// A run of seen lines, `lo` to `hi` included (model `Iv`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +30,7 @@ pub(crate) struct Anchor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Shown {
     pub(crate) line: u32,
-    pub(crate) cut: Option<usize>,
+    pub(crate) cut: Option<u64>,
 }
 
 /// The guard's verdict (model `Check`): the unseen anchors in order (none:
@@ -46,37 +44,54 @@ pub(crate) struct Verdict {
 }
 
 /// The guard: an edit with these anchors on a snapshot with these seen
-/// runs (model `check`).
+/// runs (model `check`, through `bend/ffi_doc_seen.bend`). A width past
+/// the wire's largest Nat is sent as [`NAT_MAX`]: the guard only compares
+/// it with 512.
 pub(crate) fn check(seen: &[Run], anchors: &[Anchor]) -> Verdict {
-    let unseen = anchors
-        .iter()
-        .filter(|anchor| {
-            !seen
-                .iter()
-                .any(|run| run.lo <= anchor.line && anchor.line <= run.hi)
+    let mut request = Writer::new();
+    request.count(seen.len());
+    for run in seen {
+        request.u32(run.lo).u32(run.hi);
+    }
+    request.count(anchors.len());
+    for anchor in anchors {
+        request.u32(anchor.line);
+        match anchor.width {
+            Some(width) => request
+                .some()
+                .nat(u64::try_from(width).map_or(NAT_MAX, |width| width.min(NAT_MAX))),
+            None => request.none(),
+        };
+    }
+    let request = expect_core(Entry::DocSeen, request.finish());
+    let reply = expect_core(Entry::DocSeen, eukhe_bend::call(Entry::DocSeen, &request));
+    expect_core(Entry::DocSeen, verdict(&reply))
+}
+
+/// The reply of `bend/ffi_doc_seen.bend`.
+fn verdict(reply: &str) -> Result<Verdict, WireError> {
+    let mut reader = Reader::reply(reply)?;
+    let unseen = (0..reader.count()?)
+        .map(|_| reader.u32())
+        .collect::<Result<Vec<_>, _>>()?;
+    let shown = (0..reader.count()?)
+        .map(|_| {
+            let line = reader.u32()?;
+            let cut = if reader.maybe()? {
+                Some(reader.nat()?)
+            } else {
+                None
+            };
+            Ok(Shown { line, cut })
         })
-        .collect::<Vec<_>>();
-    let shown = unseen
-        .iter()
-        .take(SEEN_LINE_REVEAL_CAP)
-        .filter_map(|anchor| {
-            anchor.width.map(|width| Shown {
-                line: anchor.line,
-                cut: (width > SEEN_LINE_REVEAL_MAX_COLUMNS).then_some(SEEN_LINE_REVEAL_MAX_COLUMNS),
-            })
-        })
-        .collect();
-    let whole = unseen.len() <= SEEN_LINE_REVEAL_CAP
-        && unseen.iter().all(|anchor| {
-            anchor
-                .width
-                .is_some_and(|width| width <= SEEN_LINE_REVEAL_MAX_COLUMNS)
-        });
-    Verdict {
-        unseen: unseen.iter().map(|anchor| anchor.line).collect(),
+        .collect::<Result<Vec<_>, WireError>>()?;
+    let whole = reader.bool()?;
+    reader.end()?;
+    Ok(Verdict {
+        unseen,
         shown,
         whole,
-    }
+    })
 }
 
 /// The seen lines between the first and the last anchor, as maximal runs of

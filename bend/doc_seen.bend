@@ -1,11 +1,12 @@
 # doc_seen: the seen lines of one tagged snapshot and the guard that an
-# edit's anchors meet (F11; crates/eukhe-docs/src/hashline/patcher.rs
-# `assert_seen_lines`, crates/eukhe-core/src/durable/documents/tool.rs
-# `bounded`).
+# edit's anchors meet (F11). It runs as the compiled core
+# (bend/ffi_doc_seen.bend, called by crates/eukhe-docs/src/hashline/seen.rs
+# from patcher.rs `assert_seen_lines`).
 #
 # A snapshot is the text a read (or a mismatch error) tagged. Its seen
 # lines are the lines whose rows reached the model: a read marks seen
-# only the rows that are outside the cut of the bounded output. The seen
+# only the rows that are outside the cut of the bounded output
+# (crates/eukhe-core/src/durable/documents/tool.rs `bounded`). The seen
 # lines are a list of runs of lines (`Iv`): a read shows runs, so a
 # whole file read is one run however long it is.
 #
@@ -19,15 +20,12 @@
 # seen (so the same edit applies on a straight retry) only when the
 # rejection showed every one of them whole: at most `cap` of them, each
 # a line of at most `cols` characters. Else nothing becomes seen and the
-# model must read again.
+# model must read again. `edit` adds what the store keeps after the
+# verdict (the laws state the retry over it).
 #
 # Cost: an anchor's membership walks the runs and stops at the first run
 # that holds it, so an edit costs O(anchors x runs); a read-only file
 # has a few runs.
-#
-# The bridge (bend/bridge_doc_seen.bend,
-# crates/eukhe-core/src/durable/documents/bridge.rs) runs the real read
-# and edit tools on a long file and compares.
 
 import Base
 
@@ -191,14 +189,6 @@ def check.go(+u: List<&2, At>) -> Check:
 # the guard: an edit with these anchors on a snapshot with these seen lines
 def check(+seen: List<&2, Iv>, ats: List<&2, At>) -> Check:
   check.go(unseen(seen, ats))
-
-# A read: the row of line n reached the model (shown) or the cut removed it
-def show(+n: Nat, seen: List<&2, Iv>, shown: Bool) -> List<&2, Iv>:
-  match shown:
-    case True{}:
-      Iv{n, n} <> seen
-    case False{}:
-      seen
 
 # what an edit did: whether it applied, and the seen lines after it
 type Step is Data:

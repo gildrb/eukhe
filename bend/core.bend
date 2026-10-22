@@ -2,6 +2,8 @@
 # bend/ffi_*.bend: do not edit (make bend-core).
 import Base
 import ./wire.bend as W
+import ./ffi_doc_lines.bend as ffi_doc_lines
+import ./ffi_doc_seen.bend as ffi_doc_seen
 import ./ffi_echo.bend as ffi_echo
 import ./ffi_wire.bend as ffi_wire
 
@@ -19,6 +21,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_echo.ffi(input)
     case 1:
       ffi_wire.ffi(input)
+    case 2:
+      ffi_doc_seen.ffi(input)
+    case 3:
+      ffi_doc_lines.ffi(input)
     case _:
       W.err("unknown entry")
 

@@ -341,7 +341,12 @@ fn assert_seen_lines(
             RevealedLine {
                 line: shown.line,
                 text: match shown.cut {
-                    Some(keep) => row.chars().take(keep).collect::<String>() + "…",
+                    Some(keep) => {
+                        row.chars()
+                            .take(usize::try_from(keep).unwrap_or(usize::MAX))
+                            .collect::<String>()
+                            + "…"
+                    }
                     None => row.to_owned(),
                 },
             }

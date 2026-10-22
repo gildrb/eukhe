@@ -3,3 +3,5 @@
 # a new area takes the next free id.
 0 echo
 1 wire
+2 doc_seen
+3 doc_lines

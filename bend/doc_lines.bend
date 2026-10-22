@@ -178,7 +178,8 @@ def persist(d: Ed) -> Doc:
 # The separators of persist, as runs
 # ----------------------------------
 # What persist writes between the lines of an edited file, without their
-# bytes (patcher.rs `FileRead::persist`): for each line of the edited text
+# bytes (patcher.rs `FileRead::persist`, through the compiled core:
+# bend/ffi_doc_lines.bend, hashline/endings.rs): for each line of the edited text
 # but the last, the ending of the file line it came from (None: a new
 # line, or a line with no ending), as runs of equal values; the answer is
 # the separator after each of those lines, as runs. Rust writes each line
