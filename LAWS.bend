@@ -66,6 +66,12 @@ import ./bend/config.bend as Cf
 import ./bend/default_model.bend as Dm
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/wire_flat.bend as Fl
+import ./bend/ffi_tools.bend as FTl
+import ./bend/ffi_tiny.bend as FTn
+import ./bend/ffi_catalog_union.bend as FCu
+import ./bend/ffi_gateway_width.bend as FGw
+import ./bend/ffi_path_policy.bend as FPp
 
 # (a) The view
 # ------------
@@ -1327,6 +1333,45 @@ law path_resolves_inside:
   for inside: {Tl.stays(segs, 0n) == True{} : Bool}
   {Maybe.is_some(&2, List<&2, Nat>, Tl.resolve(segs)) == True{} : Bool}
 
+# LAW (compiled core) the path entry (bend/ffi_tools.bend) reads back
+# the segments of a path as Rust writes it, and leaves what follows untouched
+# EXCLUDES: a request field misread, dropped, reordered or shifted; a
+#   decoder that eats the input after the request
+law tools_ffi_request_round_trip:
+  for +gs: List<&2, Tl.Seg>
+  for +rest: String
+  for h: {Bool.and(wire_fits(List.length(&2, Nat, FTl.codes(gs))), wire_nats_fit(FTl.codes(gs))) == True{} : Bool}
+  {FTl.get_req(FTl.put_req(gs, rest)) == Wr.Got{gs, rest} : Wr.Dec<List<&2, Tl.Seg>>}
+
+# LAW (compiled core) the path entry answers a whole request with the
+# model's resolution (the names, or none above the root)
+# EXCLUDES: an entry that answers another rule, a default, or a reply for
+#   a request it misread
+law tools_ffi_answers:
+  for +gs: List<&2, Tl.Seg>
+  for h: {Bool.and(wire_fits(List.length(&2, Nat, FTl.codes(gs))), wire_nats_fit(FTl.codes(gs))) == True{} : Bool}
+  {FTl.ffi(FTl.put_req(gs, "")) == FTl.put_names(Tl.resolve(gs), "") : String}
+
+# LAW (compiled core) the path entry answers a malformed request with
+# the error form, never a default
+# EXCLUDES: a decision made on input that is no request
+law tools_ffi_rejects_malformed:
+  for +s: String
+  for bad: {FTl.get_req(s) == Wr.Bad{} : Wr.Dec<List<&2, Tl.Seg>>}
+  {wire_opens_err(FTl.ffi(s)) == True{} : Bool}
+
+# LAW (compiled core) and a request followed by more input with the error
+# form
+# EXCLUDES: an entry that ignores input left over (a second request, a
+#   truncated one)
+law tools_ffi_rejects_left_over:
+  for +s: String
+  for +q: List<&2, Tl.Seg>
+  for +r: String
+  for got: {FTl.get_req(s) == Wr.Got{q, r} : Wr.Dec<List<&2, Tl.Seg>>}
+  for more: {String.is_empty(r) == False{} : Bool}
+  {wire_opens_err(FTl.ffi(s)) == True{} : Bool}
+
 # LAW: the steps that ran are the script's first steps, in order
 law gate_prefix:
   for +ss: List<&2, Tl.Step>
@@ -1502,6 +1547,47 @@ law tiny_same_tag_joins:
   for +t: Nat
   for +p: Nat
   {Tn.got(Tn.Worker{o, t}, Tn.Need{p, t}) == [Tn.Joined{}] : List<&2, Tn.Got>}
+
+# LAW (compiled core) the tiny pick entry (bend/ffi_tiny.bend) reads back
+# a chain and the available models as Rust writes it, and leaves what follows untouched
+# EXCLUDES: a request field misread, dropped, reordered or shifted; a
+#   decoder that eats the input after the request
+law tiny_ffi_request_round_trip:
+  for +chain: List<&2, Nat>
+  for +up: List<&2, Nat>
+  for +rest: String
+  for h: {Bool.and(Bool.and(wire_fits(List.length(&2, Nat, chain)), wire_nats_fit(chain)), Bool.and(wire_fits(List.length(&2, Nat, up)), wire_nats_fit(up))) == True{} : Bool}
+  {FTn.get_req(FTn.put_req(FTn.Req{chain, up}, rest)) == Wr.Got{FTn.Req{chain, up}, rest} : Wr.Dec<FTn.Req>}
+
+# LAW (compiled core) the tiny pick entry answers a whole request with the
+# model's pick
+# EXCLUDES: an entry that answers another rule, a default, or a reply for
+#   a request it misread
+law tiny_ffi_answers:
+  for +chain: List<&2, Nat>
+  for +up: List<&2, Nat>
+  for h: {Bool.and(Bool.and(wire_fits(List.length(&2, Nat, chain)), wire_nats_fit(chain)), Bool.and(wire_fits(List.length(&2, Nat, up)), wire_nats_fit(up))) == True{} : Bool}
+  {FTn.ffi(FTn.put_req(FTn.Req{chain, up}, "")) == FTn.put_pick(Tn.pick(chain, up), "") : String}
+
+# LAW (compiled core) the tiny pick entry answers a malformed request with
+# the error form, never a default
+# EXCLUDES: a decision made on input that is no request
+law tiny_ffi_rejects_malformed:
+  for +s: String
+  for bad: {FTn.get_req(s) == Wr.Bad{} : Wr.Dec<FTn.Req>}
+  {wire_opens_err(FTn.ffi(s)) == True{} : Bool}
+
+# LAW (compiled core) and a request followed by more input with the error
+# form
+# EXCLUDES: an entry that ignores input left over (a second request, a
+#   truncated one)
+law tiny_ffi_rejects_left_over:
+  for +s: String
+  for +q: FTn.Req
+  for +r: String
+  for got: {FTn.get_req(s) == Wr.Got{q, r} : Wr.Dec<FTn.Req>}
+  for more: {String.is_empty(r) == False{} : Bool}
+  {wire_opens_err(FTn.ffi(s)) == True{} : Bool}
 
 # (S10) Reasoning depth
 # ---------------------
@@ -2965,6 +3051,47 @@ law union_order_free:
   for sy: {CU.find(ys, k) == CU.find(ys2, k) : Maybe<&2, CU.Ent>}
   {CU.find(CU.read(CU.Cat{CU.Bundled{}, xs}, CU.Cat{CU.Compiled{}, ys}), k) == CU.find(CU.read(CU.Cat{CU.Compiled{}, ys2}, CU.Cat{CU.Bundled{}, xs2}), k) : Maybe<&2, CU.Ent>}
 
+# LAW (compiled core) the catalog entry (bend/ffi_catalog_union.bend) reads back
+# the two sources as Rust writes it, and leaves what follows untouched
+# EXCLUDES: a request field misread, dropped, reordered or shifted; a
+#   decoder that eats the input after the request
+law catalog_union_ffi_request_round_trip:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for +rest: String
+  for h: {Bool.and(Bool.and(wire_fits(List.length(&2, Nat, FCu.ents(bs))), wire_nats_fit(FCu.ents(bs))), Bool.and(wire_fits(List.length(&2, Nat, FCu.ents(cs))), wire_nats_fit(FCu.ents(cs)))) == True{} : Bool}
+  {FCu.get_req(FCu.put_req(FCu.Req{bs, cs}, rest)) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}
+
+# LAW (compiled core) the catalog entry answers a whole request with the
+# model's union
+# EXCLUDES: an entry that answers another rule, a default, or a reply for
+#   a request it misread
+law catalog_union_ffi_answers:
+  for +bs: List<&2, CU.Ent>
+  for +cs: List<&2, CU.Ent>
+  for h: {Bool.and(Bool.and(wire_fits(List.length(&2, Nat, FCu.ents(bs))), wire_nats_fit(FCu.ents(bs))), Bool.and(wire_fits(List.length(&2, Nat, FCu.ents(cs))), wire_nats_fit(FCu.ents(cs)))) == True{} : Bool}
+  {FCu.ffi(FCu.put_req(FCu.Req{bs, cs}, "")) == FCu.put_ns(FCu.ents(CU.fast(bs, cs)), "") : String}
+
+# LAW (compiled core) the catalog entry answers a malformed request with
+# the error form, never a default
+# EXCLUDES: a decision made on input that is no request
+law catalog_union_ffi_rejects_malformed:
+  for +s: String
+  for bad: {FCu.get_req(s) == Wr.Bad{} : Wr.Dec<FCu.Req>}
+  {wire_opens_err(FCu.ffi(s)) == True{} : Bool}
+
+# LAW (compiled core) and a request followed by more input with the error
+# form
+# EXCLUDES: an entry that ignores input left over (a second request, a
+#   truncated one)
+law catalog_union_ffi_rejects_left_over:
+  for +s: String
+  for +q: FCu.Req
+  for +r: String
+  for got: {FCu.get_req(s) == Wr.Got{q, r} : Wr.Dec<FCu.Req>}
+  for more: {String.is_empty(r) == False{} : Bool}
+  {wire_opens_err(FCu.ffi(s)) == True{} : Bool}
+
 # ---- cron ----
 
 # LAWS (D2): the cron store shared by processes. Each law is an open claim
@@ -3193,6 +3320,45 @@ law layout_widths:
 law layout_pads:
   for +rows: List<&2, List<&2, List<&2, Nat>>>
   {Gw.Lay.pads(Gw.layout(rows)) == gw_pads_all(rows, Nat.sub(Gw.cols(rows), 1n), rows) : List<&2, List<&2, Nat>>}
+
+# LAW (compiled core) the table layout entry (bend/ffi_gateway_width.bend) reads back
+# the cell widths of a table as Rust writes it, and leaves what follows untouched
+# EXCLUDES: a request field misread, dropped, reordered or shifted; a
+#   decoder that eats the input after the request
+law gateway_width_ffi_request_round_trip:
+  for +rows: List<&2, List<&2, Nat>>
+  for +rest: String
+  for h: {Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(rows))), wire_nats_fit(Fl.flat(rows))) == True{} : Bool}
+  {FGw.get_req(FGw.put_req(rows, rest)) == Wr.Got{rows, rest} : Wr.Dec<List<&2, List<&2, Nat>>>}
+
+# LAW (compiled core) the table layout entry answers a whole request with the
+# model's layout
+# EXCLUDES: an entry that answers another rule, a default, or a reply for
+#   a request it misread
+law gateway_width_ffi_answers:
+  for +rows: List<&2, List<&2, Nat>>
+  for h: {Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(rows))), wire_nats_fit(Fl.flat(rows))) == True{} : Bool}
+  {FGw.ffi(FGw.put_req(rows, "")) == FGw.put_lay(Gw.layout(FGw.table(rows)), "") : String}
+
+# LAW (compiled core) the table layout entry answers a malformed request with
+# the error form, never a default
+# EXCLUDES: a decision made on input that is no request
+law gateway_width_ffi_rejects_malformed:
+  for +s: String
+  for bad: {FGw.get_req(s) == Wr.Bad{} : Wr.Dec<List<&2, List<&2, Nat>>>}
+  {wire_opens_err(FGw.ffi(s)) == True{} : Bool}
+
+# LAW (compiled core) and a request followed by more input with the error
+# form
+# EXCLUDES: an entry that ignores input left over (a second request, a
+#   truncated one)
+law gateway_width_ffi_rejects_left_over:
+  for +s: String
+  for +q: List<&2, List<&2, Nat>>
+  for +r: String
+  for got: {FGw.get_req(s) == Wr.Got{q, r} : Wr.Dec<List<&2, List<&2, Nat>>>}
+  for more: {String.is_empty(r) == False{} : Bool}
+  {wire_opens_err(FGw.ffi(s)) == True{} : Bool}
 
 # ---- tui_color ----
 
@@ -3487,6 +3653,53 @@ law config_needs_yes:
   for +cs: List<&2, Pp.Cell>
   for no: {Pp.any_yes(es) == False{} : Bool}
   {Pp.guarded(Pp.run(es, pol, ls, auto, cs), pol) == Pp.guarded(cs, pol) : List<&2, Pp.Cell>}
+
+# LAW (compiled core) the path judgment entry (bend/ffi_path_policy.bend) reads back
+# a policy and a resolved path as Rust writes it, and leaves what follows untouched
+# EXCLUDES: a request field misread, dropped, reordered or shifted; a
+#   decoder that eats the input after the request
+law path_policy_ffi_request_round_trip:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +at: List<&2, Nat>
+  for +l: Bool
+  for +rest: String
+  for h: {Bool.and(Bool.and(Bool.and(Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(ro))), wire_nats_fit(Fl.flat(ro))), Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), wire_nats_fit(Fl.flat(FPp.rules(ru))))), Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(se))), wire_nats_fit(Fl.flat(se)))), Bool.and(wire_fits(List.length(&2, Nat, at)), wire_nats_fit(at))) == True{} : Bool}
+  {FPp.get_req(FPp.put_req(FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest)) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+
+# LAW (compiled core) the path judgment entry answers a whole request with the
+# model's judgment (class, holds a secret)
+# EXCLUDES: an entry that answers another rule, a default, or a reply for
+#   a request it misread
+law path_policy_ffi_answers:
+  for +ro: List<&2, List<&2, Nat>>
+  for +ru: List<&2, Pp.Rule>
+  for +se: List<&2, List<&2, Nat>>
+  for +at: List<&2, Nat>
+  for +l: Bool
+  for h: {Bool.and(Bool.and(Bool.and(Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(ro))), wire_nats_fit(Fl.flat(ro))), Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), wire_nats_fit(Fl.flat(FPp.rules(ru))))), Bool.and(wire_fits(List.length(&2, Nat, Fl.flat(se))), wire_nats_fit(Fl.flat(se)))), Bool.and(wire_fits(List.length(&2, Nat, at)), wire_nats_fit(at))) == True{} : Bool}
+  {FPp.ffi(FPp.put_req(FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, "")) == FPp.put_judged(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}), "") : String}
+
+# LAW (compiled core) the path judgment entry answers a malformed request with
+# the error form, never a default
+# EXCLUDES: a decision made on input that is no request
+law path_policy_ffi_rejects_malformed:
+  for +s: String
+  for bad: {FPp.get_req(s) == Wr.Bad{} : Wr.Dec<FPp.Req>}
+  {wire_opens_err(FPp.ffi(s)) == True{} : Bool}
+
+# LAW (compiled core) and a request followed by more input with the error
+# form
+# EXCLUDES: an entry that ignores input left over (a second request, a
+#   truncated one)
+law path_policy_ffi_rejects_left_over:
+  for +s: String
+  for +q: FPp.Req
+  for +r: String
+  for got: {FPp.get_req(s) == Wr.Got{q, r} : Wr.Dec<FPp.Req>}
+  for more: {String.is_empty(r) == False{} : Bool}
+  {wire_opens_err(FPp.ffi(s)) == True{} : Bool}
 
 # ---- child_env ----
 

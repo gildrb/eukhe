@@ -484,9 +484,12 @@ Laws: `LAWS.bend` section `catalog_union` (C1, the model in
 `bend/catalog_union.bend`, the proofs in `PROOF.bend` section `catalog_union`).
 Code: `eukhe-models/src/effective.rs` (`effective_catalog`),
 `chain.rs` (`ModelCatalog::models`), `bundled.rs`
-(`load_bundled_models`), `pinning.rs`. Bridge:
-`effective::bridge::the_rust_union_equals_the_bend_model` runs the code
-against `bend/bridge_catalog_union.bend` on generated catalogs.
+(`load_bundled_models`), `pinning.rs`. The union runs as the compiled
+model (`fast`, pinned to `union` by law `union_fast`; the entry
+`bend/ffi_catalog_union.bend`, its request laws `catalog_union_ffi_*`):
+`effective_catalog` projects both sources (key and api interned, each
+field the place of the entry it comes from), calls it, and assembles the
+models back.
 Regression tests: `chain::tests::a_bundle_without_a_compiled_model_keeps_it`;
 `eukhe-daemon` `tests/model_catalog_e2e.rs`
 (`a_bundle_without_a_compiled_model_still_lists_it`: the pinned catalog
@@ -753,11 +756,12 @@ Code: `eukhe-tiny/src/roles.rs` `chain`, `pick`, `Candidate`,
 `eukhe-daemon/src/worker/title.rs`; `eukhe-cli/src/tiny_command.rs`,
 `tiny_models_command.rs`.
 
-Tie: the bridge tests `bridge::the_rust_pick_equals_the_bend_model` and
-`bridge::the_rust_election_equals_the_bend_model` (`eukhe-tiny`) run
-`pick` on generated chains and available sets, and the real election
-(`ensure`, the real `serve`, in process, with a fake engine) on generated
-needs and exits, against `bend/bridge_tiny.bend`. Regression tests:
+Tie: `pick` runs as the compiled model (the entry `bend/ffi_tiny.bend`, its
+request laws `tiny_ffi_*`; a candidate crosses as the index of its first
+equal one). The bridge test `bridge::the_rust_election_equals_the_bend_model`
+(`eukhe-tiny`) runs the real election (`ensure`, the real `serve`, in
+process, with a fake engine) on generated needs and exits, against
+`bend/bridge_tiny.bend`. Regression tests:
 `client::tests` (real worker processes in a temp run dir, started on the
 client's command line with no agent dir variable and another `HOME`:
 started, joined, replaced, idle exit, crash, not installed, the

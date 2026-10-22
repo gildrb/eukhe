@@ -332,9 +332,10 @@ drives a real registry with its roster fixed, a `ToolSurface` and
 `step`, `dyn_call` and `build`): sessions with a roster, tools that join
 (the registry is also asked to install them) and quit (the registry is
 also asked to drop the roster), requests resolved as the Harness resolves
-them, and schemas built twice. `bend/bridge_paths.bend` compares
-`Url::names` with the model `resolve` and `stays`; `Url::remote` walks
-with the same `walk`. `bend/bridge_shell.bend` compares the gate of
+them, and schemas built twice. `Url::names` and `Url::remote` walk a
+path with the model `resolve`, run as the compiled core (the entry
+`bend/ffi_tools.bend`, its request laws `tools_ffi_*`; a name crosses as
+its segment's index). `bend/bridge_shell.bend` compares the gate of
 `eukhe-shell` (`run::tests::the_gate_runs_as_its_model`) with the model
 `join` and `exec` (see G2).
 Regression tests:
@@ -463,25 +464,15 @@ symlinks (loops too), any policy, any paths, any auto set, any answers.
 | `config_needs_yes` | No sequence of agent writes without a yes changes a protected or secret location (G1.6, G1.7). |
 
 Code: `eukhe-types/src/path_policy.rs` (`resolve`, `RealPath`,
-`PathPolicy::class_of_resolved`, `holds_secret_of_resolved`, `PathRule`,
-`MAX_LINKS`), `eukhe-core/src/durable/path_policy.rs` (`policy`,
-`session_policy`, `effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs`
-(`AccessGate`, `Access`), `eukhe-docs/src/write.rs` (`write_file`,
-`LockedWriter`), `eukhe-shell/src/run.rs` (the effects of the paths of a
-step: `PathPolicy::class` and `holds_secret`). Tie:
-`durable::path_policy::bridge::path_policy_and_gate_match_the_model`
-with `bend/bridge_path_policy.bend`. It runs 200 scenarios from a fixed
-seed. Each scenario makes a tree in a temp dir (directories, files, and
-symlinks with targets from `/` and from their directory, dangling targets
-and loops too) and a policy (roots, `Tree`, `Dir` and `Named` rules,
-secret entries). For each query path it compares the loop bit, the real
-path, the class, `holds_secret`, and, for a read, a list, a search and a
-write with a random auto set and answer, whether the real `DocumentsGate`
-let the access run and whether it asked. Then it writes through
-`Documents::write` with answers that are never yes, and compares whether
-the gate asked, the path that the question names, and the content of each
-protected or secret file after the writes (`Pp.guarded` of `Pp.run`: law
-`config_needs_yes`). Regression tests:
+`PathPolicy`, `PathRule`, `MAX_LINKS`), `eukhe-shell/src/paths.rs`
+(`judge`: the class and holds-a-secret of a resolved path, run as the
+compiled model `judge`, the entry `bend/ffi_path_policy.bend`, its request
+laws `path_policy_ffi_*`; each path component crosses as an id),
+`eukhe-core/src/durable/path_policy.rs` (`policy`, `session_policy`,
+`effects`, `DocumentsGate`), `eukhe-docs/src/gate.rs` (`AccessGate`,
+`Access`), `eukhe-docs/src/write.rs` (`write_file`, `LockedWriter`),
+`eukhe-shell/src/run.rs` (the effects of the paths of a step: one
+`judge_path` per path). Regression tests:
 `durable::path_policy::tests::every_loader_file_is_guarded_and_a_project_file_is_inside`,
 `durable::path_policy::tests::a_write_whose_links_looped_asks_even_when_its_real_path_is_inside`,
 and `path_policy::tests` in `eukhe-types`. Not modelled: a change of the

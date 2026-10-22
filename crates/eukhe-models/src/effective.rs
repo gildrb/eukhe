@@ -22,7 +22,10 @@
 //! ([`union`]) over the sources projected to [`Ent`]s, and the models are
 //! assembled back from what it answers.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use eukhe_bend::wire::{Reader, WireError, Writer};
+use eukhe_bend::{call, expect_core, Entry, Error};
 
 use crate::Model;
 
@@ -34,36 +37,54 @@ const FIELDS: usize = 4;
 /// index, or the bundle's length plus a compiled entry's index), and each
 /// optional field the place of the entry it comes from, when stated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Ent {
-    pub(crate) key: usize,
-    pub(crate) api: usize,
-    pub(crate) data: usize,
-    pub(crate) opts: [Option<usize>; FIELDS],
+struct Ent {
+    key: usize,
+    api: usize,
+    data: usize,
+    opts: [Option<usize>; FIELDS],
 }
 
 /// The union of the projected bundle `bs` and compiled catalog `cs`
-/// (`fast` in `bend/catalog_union.bend`, which law `union_fast` pins to
-/// the rule `union`).
-pub(crate) fn union(bs: &[Ent], cs: &[Ent]) -> Vec<Ent> {
-    let mut twins: HashMap<usize, &Ent> = HashMap::with_capacity(cs.len());
-    for c in cs {
-        twins.entry(c.key).or_insert(c);
-    }
-    let bundled: HashSet<usize> = bs.iter().map(|b| b.key).collect();
-    let mut out = Vec::with_capacity(bs.len() + cs.len());
-    for b in bs {
-        let mut merged = *b;
-        if let Some(twin) = twins.get(&b.key).filter(|twin| twin.api == b.api) {
-            for (field, twin_field) in merged.opts.iter_mut().zip(twin.opts) {
-                if field.is_none() {
-                    *field = twin_field;
-                }
+/// (`fast` in `bend/catalog_union.bend`, which law `union_fast` pins to the
+/// rule `union`), run as the compiled Bend core: an entry crosses as seven
+/// Nats (key, api, data, then each field: 0 none, 1 + v the place v).
+fn union(bs: &[Ent], cs: &[Ent]) -> Result<Vec<Ent>, Error> {
+    let mut writer = Writer::new();
+    for ents in [bs, cs] {
+        writer.count(ents.len() * 7);
+        for ent in ents {
+            for n in [ent.key, ent.api, ent.data] {
+                writer.count(n);
+            }
+            for field in ent.opts {
+                writer.count(field.map_or(0, |place| place + 1));
             }
         }
-        out.push(merged);
     }
-    out.extend(cs.iter().filter(|c| !bundled.contains(&c.key)).copied());
-    out
+    let reply = call(Entry::CatalogUnion, &writer.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let count = reader.count()?;
+    let mut nats = Vec::with_capacity(count);
+    for _ in 0..count {
+        nats.push(reader.count()?);
+    }
+    reader.end()?;
+    let (ents, left) = nats.as_chunks::<7>();
+    if !left.is_empty() {
+        return Err(Error::Wire(WireError::Malformed {
+            at: reply.len(),
+            expected: "seven Nats per entry",
+        }));
+    }
+    Ok(ents
+        .iter()
+        .map(|&[key, api, data, tlm, compat, featured, headers]| Ent {
+            key,
+            api,
+            data,
+            opts: [tlm, compat, featured, headers].map(|n| n.checked_sub(1)),
+        })
+        .collect())
 }
 
 /// The interned id of `value` in `table` (a new one the first time).
@@ -119,6 +140,12 @@ fn source<'a>(
 /// module docs for the precedence of each field).
 #[must_use]
 pub fn effective_catalog(bundled: Vec<Model>, compiled: &[Model]) -> Vec<Model> {
+    expect_core(Entry::CatalogUnion, assemble(bundled, compiled))
+}
+
+/// The union of the sources, projected, decided by the core and assembled
+/// back into models.
+fn assemble(bundled: Vec<Model>, compiled: &[Model]) -> Result<Vec<Model>, Error> {
     let base = bundled.len();
     let (bs, cs) = {
         let mut keys: HashMap<(&str, &str), usize> = HashMap::new();
@@ -135,7 +162,7 @@ pub fn effective_catalog(bundled: Vec<Model>, compiled: &[Model]) -> Vec<Model> 
             .collect();
         (bs, cs)
     };
-    let picked = union(&bs, &cs);
+    let picked = union(&bs, &cs)?;
     let mut owned: Vec<Option<Model>> = bundled.into_iter().map(Some).collect();
     let mut models = Vec::with_capacity(picked.len());
     for ent in picked {
@@ -150,8 +177,13 @@ pub fn effective_catalog(bundled: Vec<Model>, compiled: &[Model]) -> Vec<Model> 
             Some(index) => compiled.get(index).cloned(),
             None => owned.get_mut(ent.data).and_then(Option::take),
         };
+        // The union answers each entry of its sources once, at its place
+        // (LAWS.bend section catalog_union).
         let Some(mut model) = model else {
-            unreachable!("the union answers each entry of its sources once, at its place");
+            return Err(Error::Wire(WireError::Malformed {
+                at: 0,
+                expected: "the place of an entry not yet taken",
+            }));
         };
         model.thinking_level_map = thinking_level_map;
         model.compat = compat;
@@ -159,8 +191,5 @@ pub fn effective_catalog(bundled: Vec<Model>, compiled: &[Model]) -> Vec<Model> 
         model.headers = headers;
         models.push(model);
     }
-    models
+    Ok(models)
 }
-
-#[cfg(test)]
-mod bridge;

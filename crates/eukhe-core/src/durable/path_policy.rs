@@ -203,6 +203,4 @@ impl AccessGate for DocumentsGate {
 }
 
 #[cfg(test)]
-mod bridge;
-#[cfg(test)]
 mod tests;

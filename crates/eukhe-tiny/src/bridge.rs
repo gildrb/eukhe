@@ -1,11 +1,8 @@
-//! The bridge from the tiny-model service to its Bend model
-//! (`bend/tiny.bend`, docs/inference.md S9): generated chains and needs run
+//! The bridge from the tiny-model service's worker election to its Bend
+//! model (`bend/tiny.bend`, docs/inference.md S9): generated needs run
 //! through the Rust code, and `bend/bridge_tiny.bend` must print the same
-//! transcript, byte for byte.
-//!
-//! Part `p`: each line `K C1 .. CK U1 .. UM` is a chain of K models and
-//! the available ones (model `N` is the id `mN`); [`pick`] prints `use N`
-//! or `unavailable`.
+//! transcript, byte for byte. (The pick runs as the compiled model itself:
+//! `roles::pick`.)
 //!
 //! Part `w`: each line is a need `n P TAG` (process P needs the model with
 //! launch tag `tTAG`) or an exit `g`. A need is a real request through the
@@ -29,7 +26,6 @@ use crate::client::TinyError;
 use crate::election::{self, probe, Got, Launched, Launcher, Probe, BACKEND};
 use crate::paths::TinyHome;
 use crate::protocol::{ChatMessage, ChatRequest, ChatRole, Reply, Request, Response};
-use crate::roles::{pick, Pick};
 use crate::testing::{compare, Echo, Rng, Scenario, ECHO};
 use crate::worker::{bind, serve, Bound, Exit};
 
@@ -37,43 +33,6 @@ const MODEL: &str = "bend/bridge_tiny.bend";
 
 /// Longer than any scenario: the bridge's workers exit by its events only.
 const IDLE: Duration = Duration::from_secs(3600);
-
-/// The `use N` / `unavailable` line of a pick.
-fn picked(chain: &[String], up: &[String]) -> String {
-    match pick(chain, up) {
-        Pick::Use(model) => format!("use {}\n", model.trim_start_matches('m')),
-        Pick::Unavailable => "unavailable\n".to_owned(),
-    }
-}
-
-/// [`pick`] picks what the model does on 200 scenarios of 1 to 12 chains
-/// of up to 5 models (repeats included) and sets of up to 5 available
-/// models, among 6.
-#[test]
-fn the_rust_pick_equals_the_bend_model() {
-    let mut rng = Rng(0x7e1c_a7a1_0915_0009);
-    let scenarios = (0..200).map(|at| {
-        let mut events = vec!["p".to_owned()];
-        let mut transcript = String::new();
-        for _ in 0..rng.range(1, 12) {
-            let chain: Vec<u64> = (0..rng.below(6)).map(|_| rng.below(6)).collect();
-            let up: Vec<u64> = (0..rng.below(6)).map(|_| rng.below(6)).collect();
-            let ids = |models: &[u64]| -> Vec<String> {
-                models.iter().map(|model| format!("m{model}")).collect()
-            };
-            transcript.push_str(&picked(&ids(&chain), &ids(&up)));
-            let mut line = vec![chain.len().to_string()];
-            line.extend(chain.iter().chain(&up).map(u64::to_string));
-            events.push(line.join(" "));
-        }
-        Scenario {
-            name: format!("pick-{at}"),
-            events: events.join("\n"),
-            transcript,
-        }
-    });
-    compare(MODEL, scenarios.collect::<Vec<_>>());
-}
 
 /// The worker tasks one scenario started, the last one current.
 type Workers = Mutex<Vec<JoinHandle<io::Result<Exit>>>>;

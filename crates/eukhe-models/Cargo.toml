@@ -9,13 +9,13 @@ description = "Built-in model catalog: the union of the bundled snapshot and the
 [dependencies]
 eukhe-ai = { path = "../eukhe-ai" }
 eukhe-types = { path = "../eukhe-types" }
+# The catalog union runs as the compiled Bend core (bend/ffi_catalog_union.bend).
+eukhe-bend.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { version = "0.1", features = ["attributes"] }
 
 [dev-dependencies]
-# The Bend bridge harness (`eukhe_durable::testing::bridge`).
-eukhe-durable = { workspace = true, features = ["testing"] }
 tempfile = "3"
 
 [lints]

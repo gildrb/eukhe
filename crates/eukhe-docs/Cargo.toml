@@ -10,6 +10,9 @@ description = "Documents: file tags, edit store, read projection, locked writes,
 # The path policy: every path a document tool reads or writes is judged
 # on its real path (eukhe_types::path_policy::resolve), as the shell's.
 eukhe-types.workspace = true
+# An internal URL's path walk runs as the compiled Bend core
+# (bend/ffi_tools.bend).
+eukhe-bend.workspace = true
 thiserror.workspace = true
 # The edit store is shared by the wire `edit` tool and the kernel requests
 # of one session.

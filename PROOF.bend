@@ -67,6 +67,12 @@ import ./bend/default_model.bend as Dm
 import ./bend/config.bend as Cf
 import ./bend/workflow.bend as W
 import ./bend/wire.bend as Wr
+import ./bend/wire_flat.bend as Fl
+import ./bend/ffi_tools.bend as FTl
+import ./bend/ffi_tiny.bend as FTn
+import ./bend/ffi_catalog_union.bend as FCu
+import ./bend/ffi_gateway_width.bend as FGw
+import ./bend/ffi_path_policy.bend as FPp
 
 # ---- cover ----
 
@@ -35984,4 +35990,233 @@ def Laws.wire_err_example(text):
   {==}
 
 def Laws.wire_end_exact(s):
+  {==}
+
+# ---- ffi_edges ----
+
+# The proofs of the compiled-core entry laws of the W9 areas (LAWS.bend:
+# tools_ffi_*, tiny_ffi_*, catalog_union_ffi_*, gateway_width_ffi_*,
+# path_policy_ffi_*). A request is a record of the wire's Nat lists (and a
+# Bool), so each round trip is the wire's list round trip (Laws.
+# wire_list_round_trip) and a lemma that the request's parts decode from
+# their lists (`fe.*`). An entry answers a request read whole with the
+# model's reply, and anything else with the error form.
+
+# Lists of lists (bend/wire_flat.bend)
+# ------------------------------------
+
+def fe.lists_of(t: List<&2, List<&2, Nat>>) -> Fl.St:
+  match t:
+    case Nil{}:
+      Fl.Start{}
+    case xs <> d:
+      Fl.Mid{xs, d}
+
+def fe.lists_back(t: List<&2, List<&2, Nat>>) -> {Fl.St.lists(fe.lists_of(t)) == t : List<&2, List<&2, Nat>>}:
+  match t:
+    case Nil{}:
+      {==}
+    case xs <> d:
+      {==}
+
+# a list in front of the lists t decodes to the open list xs before t
+def fe.one_fold(xs: List<&2, Nat>, +t: List<&2, List<&2, Nat>>, h: {Fl.fold(Fl.flat(t)) == Some{fe.lists_of(t)} : Maybe<&2, Fl.St>}) -> {Fl.fold(Fl.one(xs, Fl.flat(t))) == Some{Fl.Mid{xs, t}} : Maybe<&2, Fl.St>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Maybe<&2, Fl.St>, Fl.fold(Fl.flat(t)), Some{fe.lists_of(t)}, h) : {Fl.step(0n, _) == Some{Fl.Mid{Nil{}, t}} : Maybe<&2, Fl.St>}
+      %Equal.sym(List<&2, List<&2, Nat>>, Fl.St.lists(fe.lists_of(t)), t, fe.lists_back(t)) : {Some{Fl.Mid{Nil{}, _}} == Some{Fl.Mid{Nil{}, t}} : Maybe<&2, Fl.St>}
+      {==}
+    case +x <> +r:
+      %Equal.sym(Maybe<&2, Fl.St>, Fl.fold(Fl.one(r, Fl.flat(t))), Some{Fl.Mid{r, t}}, fe.one_fold(r, t, h)) : {Fl.step({1n+x : Nat}, _) == Some{Fl.Mid{x <> r, t}} : Maybe<&2, Fl.St>}
+      {==}
+
+def fe.fold_flat(xss: List<&2, List<&2, Nat>>) -> {Fl.fold(Fl.flat(xss)) == Some{fe.lists_of(xss)} : Maybe<&2, Fl.St>}:
+  match xss:
+    case Nil{}:
+      {==}
+    case xs <> +t:
+      fe.one_fold(xs, t, fe.fold_flat(t))
+
+# lists of lists read back from their flat list
+def fe.unflat_flat(+xss: List<&2, List<&2, Nat>>) -> {Fl.unflat(Fl.flat(xss)) == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}:
+  %Equal.sym(Maybe<&2, Fl.St>, Fl.fold(Fl.flat(xss)), Some{fe.lists_of(xss)}, fe.fold_flat(xss)) : {Fl.unflat.fin(_) == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}
+  %Equal.sym(List<&2, List<&2, Nat>>, Fl.St.lists(fe.lists_of(xss)), xss, fe.lists_back(xss)) : {Some{_} == Some{xss} : Maybe<&2, List<&2, List<&2, Nat>>>}
+  {==}
+
+# tools
+# -----
+
+def fe.segs_codes(gs: List<&2, Tl.Seg>) -> {FTl.segs(FTl.codes(gs)) == gs : List<&2, Tl.Seg>}:
+  match gs:
+    case Nil{}:
+      {==}
+    case g <> +rest:
+      match g:
+        case Tl.Up{}:
+          %fe.segs_codes(rest) : {Tl.Up{} <> FTl.segs(FTl.codes(rest)) == Tl.Up{} <> _ : List<&2, Tl.Seg>}
+          {==}
+        case Tl.Here{}:
+          %fe.segs_codes(rest) : {Tl.Here{} <> FTl.segs(FTl.codes(rest)) == Tl.Here{} <> _ : List<&2, Tl.Seg>}
+          {==}
+        case Tl.Name{+n}:
+          %fe.segs_codes(rest) : {Tl.Name{n} <> FTl.segs(FTl.codes(rest)) == Tl.Name{n} <> _ : List<&2, Tl.Seg>}
+          {==}
+def Laws.tools_ffi_request_round_trip(gs, rest, h):
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, FTl.codes(gs), rest)), Wr.Got{FTl.codes(gs), rest}, Laws.wire_list_round_trip(FTl.codes(gs), rest, h)) : {FTl.get_req.of(_) == Wr.Got{gs, rest} : Wr.Dec<List<&2, Tl.Seg>>}
+  %Equal.sym(List<&2, Tl.Seg>, FTl.segs(FTl.codes(gs)), gs, fe.segs_codes(gs)) : {Wr.Got{_, rest} == Wr.Got{gs, rest} : Wr.Dec<List<&2, Tl.Seg>>}
+  {==}
+
+def Laws.tools_ffi_answers(gs, h):
+  %Equal.sym(Wr.Dec<List<&2, Tl.Seg>>, FTl.get_req(FTl.put_req(gs, "")), Wr.Got{gs, ""}, Laws.tools_ffi_request_round_trip(gs, "", h)) : {FTl.answer(_) == FTl.put_names(Tl.resolve(gs), "") : String}
+  {==}
+def Laws.tools_ffi_rejects_malformed(s, bad):
+  %Equal.sym(Wr.Dec<List<&2, Tl.Seg>>, FTl.get_req(s), Wr.Bad{}, bad) : {Laws.wire_opens_err(FTl.answer(_)) == True{} : Bool}
+  {==}
+
+def Laws.tools_ffi_rejects_left_over(s, q, r, got, more):
+  %Equal.sym(Wr.Dec<List<&2, Tl.Seg>>, FTl.get_req(s), Wr.Got{q, r}, got) : {Laws.wire_opens_err(FTl.answer(_)) == True{} : Bool}
+  %Equal.sym(Bool, String.is_empty(r), False{}, more) : {Laws.wire_opens_err(FTl.reply(_, q)) == True{} : Bool}
+  {==}
+
+# tiny
+# ----
+
+def Laws.tiny_ffi_request_round_trip(chain, up, rest, h0):
+  +h = h0
+  +hc = wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, Nat, chain)), Laws.wire_nats_fit(chain)), Bool.and(Laws.wire_fits(List.length(&2, Nat, up)), Laws.wire_nats_fit(up)), h)
+  +hu = wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, Nat, chain)), Laws.wire_nats_fit(chain)), Bool.and(Laws.wire_fits(List.length(&2, Nat, up)), Laws.wire_nats_fit(up)), h)
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, chain, FTn.put_ids(up, rest))), Wr.Got{chain, FTn.put_ids(up, rest)}, Laws.wire_list_round_trip(chain, FTn.put_ids(up, rest), hc)) : {FTn.get_req.chain(_) == Wr.Got{FTn.Req{chain, up}, rest} : Wr.Dec<FTn.Req>}
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, up, rest)), Wr.Got{up, rest}, Laws.wire_list_round_trip(up, rest, hu)) : {FTn.get_req.up(chain, _) == Wr.Got{FTn.Req{chain, up}, rest} : Wr.Dec<FTn.Req>}
+  {==}
+
+def Laws.tiny_ffi_answers(chain, up, h):
+  %Equal.sym(Wr.Dec<FTn.Req>, FTn.get_req(FTn.put_req(FTn.Req{chain, up}, "")), Wr.Got{FTn.Req{chain, up}, ""}, Laws.tiny_ffi_request_round_trip(chain, up, "", h)) : {FTn.answer(_) == FTn.put_pick(Tn.pick(chain, up), "") : String}
+  {==}
+def Laws.tiny_ffi_rejects_malformed(s, bad):
+  %Equal.sym(Wr.Dec<FTn.Req>, FTn.get_req(s), Wr.Bad{}, bad) : {Laws.wire_opens_err(FTn.answer(_)) == True{} : Bool}
+  {==}
+
+def Laws.tiny_ffi_rejects_left_over(s, q, r, got, more):
+  %Equal.sym(Wr.Dec<FTn.Req>, FTn.get_req(s), Wr.Got{q, r}, got) : {Laws.wire_opens_err(FTn.answer(_)) == True{} : Bool}
+  %Equal.sym(Bool, String.is_empty(r), False{}, more) : {Laws.wire_opens_err(FTn.reply(_, q)) == True{} : Bool}
+  {==}
+
+# catalog_union
+# -------------
+
+def fe.opt_rt(m: Maybe<&2, Nat>) -> {m == FCu.opt.of(FCu.opt(m)) : Maybe<&2, Nat>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{v}:
+      {==}
+
+def fe.ents_of(es: List<&2, CU.Ent>) -> {FCu.ents.of(FCu.ents(es)) == Some{es} : Maybe<&2, List<&2, CU.Ent>>}:
+  match es:
+    case Nil{}:
+      {==}
+    case e <> +rest:
+      match e:
+        case CU.Ent{+k, +a, +d, +t, +c, +f, +h}:
+          %Equal.sym(Maybe<&2, List<&2, CU.Ent>>, FCu.ents.of(FCu.ents(rest)), Some{rest}, fe.ents_of(rest)) : {FCu.ents.cons(CU.Ent{k, a, d, FCu.opt.of(FCu.opt(t)), FCu.opt.of(FCu.opt(c)), FCu.opt.of(FCu.opt(f)), FCu.opt.of(FCu.opt(h))}, _) == Some{CU.Ent{k, a, d, t, c, f, h} <> rest} : Maybe<&2, List<&2, CU.Ent>>}
+          %fe.opt_rt(t) : {Some{CU.Ent{k, a, d, _, FCu.opt.of(FCu.opt(c)), FCu.opt.of(FCu.opt(f)), FCu.opt.of(FCu.opt(h))} <> rest} == Some{CU.Ent{k, a, d, t, c, f, h} <> rest} : Maybe<&2, List<&2, CU.Ent>>}
+          %fe.opt_rt(c) : {Some{CU.Ent{k, a, d, t, _, FCu.opt.of(FCu.opt(f)), FCu.opt.of(FCu.opt(h))} <> rest} == Some{CU.Ent{k, a, d, t, c, f, h} <> rest} : Maybe<&2, List<&2, CU.Ent>>}
+          %fe.opt_rt(f) : {Some{CU.Ent{k, a, d, t, c, _, FCu.opt.of(FCu.opt(h))} <> rest} == Some{CU.Ent{k, a, d, t, c, f, h} <> rest} : Maybe<&2, List<&2, CU.Ent>>}
+          %fe.opt_rt(h) : {Some{CU.Ent{k, a, d, t, c, f, _} <> rest} == Some{CU.Ent{k, a, d, t, c, f, h} <> rest} : Maybe<&2, List<&2, CU.Ent>>}
+          {==}
+
+def Laws.catalog_union_ffi_request_round_trip(bs, cs, rest, h0):
+  +h = h0
+  +hb = wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, Nat, FCu.ents(bs))), Laws.wire_nats_fit(FCu.ents(bs))), Bool.and(Laws.wire_fits(List.length(&2, Nat, FCu.ents(cs))), Laws.wire_nats_fit(FCu.ents(cs))), h)
+  +hc = wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, Nat, FCu.ents(bs))), Laws.wire_nats_fit(FCu.ents(bs))), Bool.and(Laws.wire_fits(List.length(&2, Nat, FCu.ents(cs))), Laws.wire_nats_fit(FCu.ents(cs))), h)
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, FCu.ents(bs), FCu.put_ns(FCu.ents(cs), rest))), Wr.Got{FCu.ents(bs), FCu.put_ns(FCu.ents(cs), rest)}, Laws.wire_list_round_trip(FCu.ents(bs), FCu.put_ns(FCu.ents(cs), rest), hb)) : {FCu.get_req.b(_) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, FCu.ents(cs), rest)), Wr.Got{FCu.ents(cs), rest}, Laws.wire_list_round_trip(FCu.ents(cs), rest, hc)) : {FCu.get_req.c(FCu.ents(bs), _) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}
+  %Equal.sym(Maybe<&2, List<&2, CU.Ent>>, FCu.ents.of(FCu.ents(bs)), Some{bs}, fe.ents_of(bs)) : {FCu.get_req.both(_, FCu.ents.of(FCu.ents(cs)), rest) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}
+  %Equal.sym(Maybe<&2, List<&2, CU.Ent>>, FCu.ents.of(FCu.ents(cs)), Some{cs}, fe.ents_of(cs)) : {FCu.get_req.both(Some{bs}, _, rest) == Wr.Got{FCu.Req{bs, cs}, rest} : Wr.Dec<FCu.Req>}
+  {==}
+
+def Laws.catalog_union_ffi_answers(bs, cs, h):
+  %Equal.sym(Wr.Dec<FCu.Req>, FCu.get_req(FCu.put_req(FCu.Req{bs, cs}, "")), Wr.Got{FCu.Req{bs, cs}, ""}, Laws.catalog_union_ffi_request_round_trip(bs, cs, "", h)) : {FCu.answer(_) == FCu.put_ns(FCu.ents(CU.fast(bs, cs)), "") : String}
+  {==}
+def Laws.catalog_union_ffi_rejects_malformed(s, bad):
+  %Equal.sym(Wr.Dec<FCu.Req>, FCu.get_req(s), Wr.Bad{}, bad) : {Laws.wire_opens_err(FCu.answer(_)) == True{} : Bool}
+  {==}
+
+def Laws.catalog_union_ffi_rejects_left_over(s, q, r, got, more):
+  %Equal.sym(Wr.Dec<FCu.Req>, FCu.get_req(s), Wr.Got{q, r}, got) : {Laws.wire_opens_err(FCu.answer(_)) == True{} : Bool}
+  %Equal.sym(Bool, String.is_empty(r), False{}, more) : {Laws.wire_opens_err(FCu.reply(_, q)) == True{} : Bool}
+  {==}
+
+# gateway_width
+# -------------
+
+def Laws.gateway_width_ffi_request_round_trip(rows, rest, h):
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, Fl.flat(rows), rest)), Wr.Got{Fl.flat(rows), rest}, Laws.wire_list_round_trip(Fl.flat(rows), rest, h)) : {FGw.get_req.ns(_) == Wr.Got{rows, rest} : Wr.Dec<List<&2, List<&2, Nat>>>}
+  %Equal.sym(Maybe<&2, List<&2, List<&2, Nat>>>, Fl.unflat(Fl.flat(rows)), Some{rows}, fe.unflat_flat(rows)) : {FGw.get_req.of(_, rest) == Wr.Got{rows, rest} : Wr.Dec<List<&2, List<&2, Nat>>>}
+  {==}
+
+def Laws.gateway_width_ffi_answers(rows, h):
+  %Equal.sym(Wr.Dec<List<&2, List<&2, Nat>>>, FGw.get_req(FGw.put_req(rows, "")), Wr.Got{rows, ""}, Laws.gateway_width_ffi_request_round_trip(rows, "", h)) : {FGw.answer(_) == FGw.put_lay(Gw.layout(FGw.table(rows)), "") : String}
+  {==}
+def Laws.gateway_width_ffi_rejects_malformed(s, bad):
+  %Equal.sym(Wr.Dec<List<&2, List<&2, Nat>>>, FGw.get_req(s), Wr.Bad{}, bad) : {Laws.wire_opens_err(FGw.answer(_)) == True{} : Bool}
+  {==}
+
+def Laws.gateway_width_ffi_rejects_left_over(s, q, r, got, more):
+  %Equal.sym(Wr.Dec<List<&2, List<&2, Nat>>>, FGw.get_req(s), Wr.Got{q, r}, got) : {Laws.wire_opens_err(FGw.answer(_)) == True{} : Bool}
+  %Equal.sym(Bool, String.is_empty(r), False{}, more) : {Laws.wire_opens_err(FGw.reply(_, q)) == True{} : Bool}
+  {==}
+
+# path_policy
+# -----------
+
+def fe.rules_of(rs: List<&2, Pp.Rule>) -> {FPp.rules.of(FPp.rules(rs)) == Some{rs} : Maybe<&2, List<&2, Pp.Rule>>}:
+  match rs:
+    case Nil{}:
+      {==}
+    case r <> +rest:
+      match r:
+        case Pp.Tree{+p}:
+          %Equal.sym(Maybe<&2, List<&2, Pp.Rule>>, FPp.rules.of(FPp.rules(rest)), Some{rest}, fe.rules_of(rest)) : {FPp.rules.cons(Some{Pp.Tree{p}}, _) == Some{Pp.Tree{p} <> rest} : Maybe<&2, List<&2, Pp.Rule>>}
+          {==}
+        case Pp.Dir{+p}:
+          %Equal.sym(Maybe<&2, List<&2, Pp.Rule>>, FPp.rules.of(FPp.rules(rest)), Some{rest}, fe.rules_of(rest)) : {FPp.rules.cons(Some{Pp.Dir{p}}, _) == Some{Pp.Dir{p} <> rest} : Maybe<&2, List<&2, Pp.Rule>>}
+          {==}
+        case Pp.Named{+n}:
+          %Equal.sym(Maybe<&2, List<&2, Pp.Rule>>, FPp.rules.of(FPp.rules(rest)), Some{rest}, fe.rules_of(rest)) : {FPp.rules.cons(Some{Pp.Named{n}}, _) == Some{Pp.Named{n} <> rest} : Maybe<&2, List<&2, Pp.Rule>>}
+          {==}
+
+def Laws.path_policy_ffi_request_round_trip(ro, ru, se, at, l, rest, h0):
+  +h = h0
+  +h3 = wr_and_l(Bool.and(Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(ro))), Laws.wire_nats_fit(Fl.flat(ro))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), Laws.wire_nats_fit(Fl.flat(FPp.rules(ru))))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(se))), Laws.wire_nats_fit(Fl.flat(se)))), Bool.and(Laws.wire_fits(List.length(&2, Nat, at)), Laws.wire_nats_fit(at)), h)
+  +hat = wr_and_r(Bool.and(Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(ro))), Laws.wire_nats_fit(Fl.flat(ro))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), Laws.wire_nats_fit(Fl.flat(FPp.rules(ru))))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(se))), Laws.wire_nats_fit(Fl.flat(se)))), Bool.and(Laws.wire_fits(List.length(&2, Nat, at)), Laws.wire_nats_fit(at)), h)
+  +h2 = wr_and_l(Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(ro))), Laws.wire_nats_fit(Fl.flat(ro))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), Laws.wire_nats_fit(Fl.flat(FPp.rules(ru))))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(se))), Laws.wire_nats_fit(Fl.flat(se))), h3)
+  +hse = wr_and_r(Bool.and(Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(ro))), Laws.wire_nats_fit(Fl.flat(ro))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), Laws.wire_nats_fit(Fl.flat(FPp.rules(ru))))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(se))), Laws.wire_nats_fit(Fl.flat(se))), h3)
+  +hro = wr_and_l(Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(ro))), Laws.wire_nats_fit(Fl.flat(ro))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), Laws.wire_nats_fit(Fl.flat(FPp.rules(ru)))), h2)
+  +hru = wr_and_r(Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(ro))), Laws.wire_nats_fit(Fl.flat(ro))), Bool.and(Laws.wire_fits(List.length(&2, Nat, Fl.flat(FPp.rules(ru)))), Laws.wire_nats_fit(Fl.flat(FPp.rules(ru)))), h2)
+  +r4 = Wr.put_bool(l, rest)
+  +r3 = FPp.put_ns(at, r4)
+  +r2 = FPp.put_ns(Fl.flat(se), r3)
+  +r1 = FPp.put_ns(Fl.flat(FPp.rules(ru)), r2)
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, Fl.flat(ro), r1)), Wr.Got{Fl.flat(ro), r1}, Laws.wire_list_round_trip(Fl.flat(ro), r1, hro)) : {FPp.get_req.roots(_) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, Fl.flat(FPp.rules(ru)), r2)), Wr.Got{Fl.flat(FPp.rules(ru)), r2}, Laws.wire_list_round_trip(Fl.flat(FPp.rules(ru)), r2, hru)) : {FPp.get_req.rule_list(Fl.flat(ro), _) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, Fl.flat(se), r3)), Wr.Got{Fl.flat(se), r3}, Laws.wire_list_round_trip(Fl.flat(se), r3, hse)) : {FPp.get_req.secret(Fl.flat(ro), Fl.flat(FPp.rules(ru)), _) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Wr.put_list(~Nat, ~Wr.put_nat, at, r4)), Wr.Got{at, r4}, Laws.wire_list_round_trip(at, r4, hat)) : {FPp.get_req.at(Fl.flat(ro), Fl.flat(FPp.rules(ru)), Fl.flat(se), _) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(l, rest)), Wr.Got{l, rest}, Laws.wire_bool_round_trip(l, rest)) : {FPp.get_req.looped(Fl.flat(ro), Fl.flat(FPp.rules(ru)), Fl.flat(se), at, _) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Maybe<&2, List<&2, List<&2, Nat>>>, Fl.unflat(Fl.flat(ro)), Some{ro}, fe.unflat_flat(ro)) : {FPp.get_req.build(_, FPp.get_req.rules(Fl.unflat(Fl.flat(FPp.rules(ru)))), Fl.unflat(Fl.flat(se)), at, l, rest) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Maybe<&2, List<&2, List<&2, Nat>>>, Fl.unflat(Fl.flat(FPp.rules(ru))), Some{FPp.rules(ru)}, fe.unflat_flat(FPp.rules(ru))) : {FPp.get_req.build(Some{ro}, FPp.get_req.rules(_), Fl.unflat(Fl.flat(se)), at, l, rest) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Maybe<&2, List<&2, Pp.Rule>>, FPp.rules.of(FPp.rules(ru)), Some{ru}, fe.rules_of(ru)) : {FPp.get_req.build(Some{ro}, _, Fl.unflat(Fl.flat(se)), at, l, rest) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  %Equal.sym(Maybe<&2, List<&2, List<&2, Nat>>>, Fl.unflat(Fl.flat(se)), Some{se}, fe.unflat_flat(se)) : {FPp.get_req.build(Some{ro}, Some{ru}, _, at, l, rest) == Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, rest} : Wr.Dec<FPp.Req>}
+  {==}
+
+def Laws.path_policy_ffi_answers(ro, ru, se, at, l, h):
+  %Equal.sym(Wr.Dec<FPp.Req>, FPp.get_req(FPp.put_req(FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, "")), Wr.Got{FPp.Req{Pp.Pol{ro, ru, se}, Pp.Res{at, l}}, ""}, Laws.path_policy_ffi_request_round_trip(ro, ru, se, at, l, "", h)) : {FPp.answer(_) == FPp.put_judged(Pp.judge(Pp.Pol{ro, ru, se}, Pp.Res{at, l}), "") : String}
+  {==}
+def Laws.path_policy_ffi_rejects_malformed(s, bad):
+  %Equal.sym(Wr.Dec<FPp.Req>, FPp.get_req(s), Wr.Bad{}, bad) : {Laws.wire_opens_err(FPp.answer(_)) == True{} : Bool}
+  {==}
+
+def Laws.path_policy_ffi_rejects_left_over(s, q, r, got, more):
+  %Equal.sym(Wr.Dec<FPp.Req>, FPp.get_req(s), Wr.Got{q, r}, got) : {Laws.wire_opens_err(FPp.answer(_)) == True{} : Bool}
+  %Equal.sym(Bool, String.is_empty(r), False{}, more) : {Laws.wire_opens_err(FPp.reply(_, q)) == True{} : Bool}
   {==}

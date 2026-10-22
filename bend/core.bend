@@ -2,7 +2,12 @@
 # bend/ffi_*.bend: do not edit (make bend-core).
 import Base
 import ./wire.bend as W
+import ./ffi_catalog_union.bend as ffi_catalog_union
 import ./ffi_echo.bend as ffi_echo
+import ./ffi_gateway_width.bend as ffi_gateway_width
+import ./ffi_path_policy.bend as ffi_path_policy
+import ./ffi_tiny.bend as ffi_tiny
+import ./ffi_tools.bend as ffi_tools
 import ./ffi_wire.bend as ffi_wire
 
 # The C shim (crates/eukhe-bend/c/shim.c) enters `ffi`, `open`, `step` and
@@ -19,6 +24,16 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_echo.ffi(input)
     case 1:
       ffi_wire.ffi(input)
+    case 2:
+      ffi_tools.ffi(input)
+    case 3:
+      ffi_tiny.ffi(input)
+    case 4:
+      ffi_catalog_union.ffi(input)
+    case 5:
+      ffi_gateway_width.ffi(input)
+    case 6:
+      ffi_path_policy.ffi(input)
     case _:
       W.err("unknown entry")
 

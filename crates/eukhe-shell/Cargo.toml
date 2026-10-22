@@ -8,6 +8,8 @@ description = "In-process bash: the script interpreter, its coreutils, and the p
 
 [dependencies]
 eukhe-types.workspace = true
+# The path judgment runs as the compiled Bend core (bend/ffi_path_policy.bend).
+eukhe-bend.workspace = true
 # External steps run as child processes; the approval wait is async.
 tokio = { workspace = true }
 tracing.workspace = true

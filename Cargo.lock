@@ -727,6 +727,7 @@ dependencies = [
 name = "eukhe-docs"
 version = "0.10.0"
 dependencies = [
+ "eukhe-bend",
  "eukhe-types",
  "globset",
  "grep-regex",
@@ -772,11 +773,11 @@ name = "eukhe-gateway"
 version = "0.10.0"
 dependencies = [
  "anyhow",
+ "eukhe-bend",
  "eukhe-tui",
  "eukhe-types",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tracing",
  "uuid",
@@ -787,7 +788,7 @@ name = "eukhe-models"
 version = "0.10.0"
 dependencies = [
  "eukhe-ai",
- "eukhe-durable",
+ "eukhe-bend",
  "eukhe-types",
  "serde",
  "serde_json",
@@ -799,6 +800,7 @@ dependencies = [
 name = "eukhe-shell"
 version = "0.10.0"
 dependencies = [
+ "eukhe-bend",
  "eukhe-types",
  "globset",
  "grep-regex",
@@ -823,6 +825,7 @@ dependencies = [
 name = "eukhe-tiny"
 version = "0.10.0"
 dependencies = [
+ "eukhe-bend",
  "eukhe-build-info",
  "eukhe-types",
  "futures",

@@ -3,3 +3,8 @@
 # a new area takes the next free id.
 0 echo
 1 wire
+2 tools
+3 tiny
+4 catalog_union
+5 gateway_width
+6 path_policy

@@ -1,14 +1,13 @@
-# bridge_tiny: runs the tiny-model model (bend/tiny.bend) on a scenario
-# file and prints what it did, line for line as the Rust bridge test
-# prints the Rust code (crates/eukhe-tiny/src/bridge.rs). Build it with
+# bridge_tiny: runs the worker election of the tiny-model model
+# (bend/tiny.bend; the pick runs as the compiled core, bend/ffi_tiny.bend)
+# on a scenario file and prints what it did, line for line as the Rust
+# bridge test prints the Rust code (crates/eukhe-tiny/src/bridge.rs). Build
+# it with
 #
 #   bend bend/bridge_tiny.bend -o <out>
 #
 # and run `<out> <scenario>`. The first line names the part of the model:
 #
-#   p            the pick (`pick`); each line `K C1 .. CK U1 .. UM` (a
-#                chain of K models, then the available ones) prints
-#                `use M` (Use{M}) or `unavailable`
 #   w            the worker of one model (`step`, `got`), from NoWorker;
 #                one event a line:
 #                  n P TAG  Need{P, TAG}
@@ -38,63 +37,6 @@ def tok.head(s: String) -> Char:
 
 def arg(+ws: List<&2, String>, k: Nat) -> Nat:
   tok.nat(tok.at(ws, k))
-
-def nats(ws: List<&2, String>) -> List<&2, Nat>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case w <> rest:
-      tok.nat(w) <> nats(rest)
-
-# the first k of xs
-def take(k: Nat, xs: List<&2, Nat>) -> List<&2, Nat>:
-  match k xs:
-    case 0n xs:
-      Nil{}
-    case 1n+p Nil{}:
-      Nil{}
-    case 1n+p x <> rest:
-      x <> take(p, rest)
-
-# xs after the first k
-def drop(k: Nat, xs: List<&2, Nat>) -> List<&2, Nat>:
-  match k xs:
-    case 0n xs:
-      xs
-    case 1n+p Nil{}:
-      Nil{}
-    case 1n+p x <> rest:
-      drop(p, rest)
-
-# the words after the first
-def tail(ws: List<&2, String>) -> List<&2, String>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case w <> rest:
-      rest
-
-# The pick
-# --------
-
-def pick.show(p: Tn.Pick) -> String:
-  match p:
-    case Tn.Use{m}:
-      String.concat(["use ", Nat.show(m), "\n"])
-    case Tn.Unavailable{}:
-      "unavailable\n"
-
-def pick.line(+ws: List<&2, String>) -> String:
-  +k = arg(ws, 0n)
-  +xs = nats(tail(ws))
-  pick.show(Tn.pick(take(k, xs), drop(k, xs)))
-
-def pick.go(ls: List<&2, String>) -> String:
-  match ls:
-    case Nil{}:
-      ""
-    case l <> rest:
-      String.append(pick.line(String.split(l, ' ')), pick.go(rest))
 
 # The worker
 # ----------
@@ -150,19 +92,12 @@ def w.go(ls: List<&2, String>, +w: Tn.W) -> String:
 # Running
 # -------
 
-def run.part(pick: Bool, +rest: List<&2, String>) -> String:
-  match pick:
-    case True{}:
-      pick.go(rest)
-    case False{}:
-      w.go(rest, Tn.NoWorker{})
-
 def run(ls: List<&2, String>) -> String:
   match ls:
     case Nil{}:
       ""
     case l <> rest:
-      run.part(Char.is_eq(tok.head(l), 'p'), rest)
+      w.go(rest, Tn.NoWorker{})
 
 def read.done(r: Result<&1, &1, U32 & String, String>) -> String:
   match r:

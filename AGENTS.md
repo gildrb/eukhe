@@ -152,15 +152,15 @@ background bookkeeping.
 |`eukhe-chord`|Contexts, cancellation, JSON (port of chord)|none|
 |`eukhe-ai`|Providers, model catalog, streaming (port of pi-ai)|`eukhe-types`, `eukhe-chord`|
 |`eukhe-durable`|Durable Harness, storage, conversations (port of pi-durable)|`eukhe-types`, `eukhe-chord`, `eukhe-ai`|
-|`eukhe-models`|Built-in model catalog (the union of the bundled snapshot and the compiled catalog) and transport pinning|`eukhe-types`, `eukhe-ai`|
-|`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|none|
-|`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`|
-|`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, the shared worker per model and its election, the worker client, role-based model selection|`eukhe-build-info`|
+|`eukhe-models`|Built-in model catalog (the union of the bundled snapshot and the compiled catalog) and transport pinning|`eukhe-types`, `eukhe-bend`, `eukhe-ai`|
+|`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|`eukhe-bend`|
+|`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`, `eukhe-bend`|
+|`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, the shared worker per model and its election, the worker client, role-based model selection|`eukhe-bend`, `eukhe-build-info`|
 |`eukhe-tiny-onnx`|The tiny-model worker's ONNX engine (ONNX Runtime loaded at run time): text generation, Whisper speech to text, Kokoro text to speech|`eukhe-tiny`|
 |`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
 |`eukhe-daemon`|Supervisor, workers, wire protocol|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-core`, `eukhe-docs`|
 |`eukhe-tui`|Terminal UI, daemon-wire client|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`|
-|`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-tui`|
+|`eukhe-gateway`|Signal gateway (`eukhe gateway`): phone chat into the CLI session|`eukhe-types`, `eukhe-bend`, `eukhe-tui`|
 |`eukhe-dashboard`|Web dashboard (`eukhe dashboard`): loopback HTTP + WebSocket bridge (pairing token, Host/Origin checks, protocol 3, allowed daemon commands), embedded web app (every file under `web/`, by `build.rs`; `web/` is built from `ui/` (Preact, Radix, StyleX) by Vite+ `vp build` with `make dashboard-ui`, and the output is committed), daemon-wire client|`eukhe-types`, `eukhe-build-info`, `eukhe-tui`|
 |`eukhe-cli`|`eukhe` binary, composition root|`eukhe-types`, `eukhe-theme`, `eukhe-build-info`, `eukhe-chord`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-core`, `eukhe-daemon`, `eukhe-tui`, `eukhe-gateway`, `eukhe-dashboard`, `eukhe-tiny`, `eukhe-tiny-onnx`|
 

@@ -24,8 +24,8 @@
 # native steps), O(n log n): the law union_fast pins it to `union`.
 #
 # LAWS.bend section catalog_union states the laws; PROOF.bend section catalog_union
-# proves them; bend/bridge_catalog_union.bend runs this model against the
-# Rust code.
+# proves them; bend/ffi_catalog_union.bend is the entry the Rust code
+# calls (crates/eukhe-models/src/effective.rs).
 
 import Base
 
