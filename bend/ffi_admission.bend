@@ -1,20 +1,22 @@
-# ffi_admission: the entry of the compiled Bend core for one provider's
-# admission (crates/eukhe-core/src/admission.rs): the live controller's
-# state and one op in, the next state out (bend/admission.bend
-# `Live.step`). The codec is the wire format of bend/wire.bend:
+# ffi_admission: the stepper of the compiled Bend core for one provider's
+# admission (crates/eukhe-core/src/admission.rs): its state is the live
+# controller of bend/admission.bend, kept in the Bend heap; each step is
+# one op (`Live.step`), and the reply is the new state. The codec is the
+# wire format of bend/wire.bend:
 #
-#   request  Live, then Op
+#   open     Lim, q: Nat                    reply: Live (no tickets yet)
+#   step     Op                             reply: Live
 #   Live     Lim, q: Nat, ts: List<Lv>, next: Nat
 #   Lim      0 (unlimited) | 1, p: Nat (1 + p slots)
 #   Lv       k: Nat, Cls, Sts
 #   Cls      0 interactive | 1 background
 #   Sts      0 queued | 1 granted | 2 held | 3 preempted | 4 ended
-#   Op       0 Cls (admit) | 1 k (collect) | 2 k (release) | 3 k (leave)
-#            | 4 Lim, q (limits)
-#   reply    Live
+#   Op       0, Cls (admit) | 1, k (collect) | 2, k (release) | 3, k
+#            (leave) | 4, Lim, q (limits)
 #
-# A malformed request, or one with input left over, answers the wire's
-# error form.
+# A malformed input, or one with input left over, answers the wire's
+# error form; a step keeps the state then, and a malformed open opens the
+# refused state, which answers every step with the error form.
 
 import Base
 import ./wire.bend as W
@@ -282,31 +284,74 @@ def get_op.go(r: W.Dec<Nat>) -> W.Dec<M.Op>:
 def get_op(s: String) -> W.Dec<M.Op>:
   get_op.go(W.get_nat(s))
 
-# The entry
-# ---------
+def get_open.q(l: M.Lim, r: W.Dec<Nat>) -> W.Dec<+Sigma<M.Lim, x => Nat>>:
+  match r:
+    case W.Got{q, s}:
+      W.Got{(l, q), s}
+    case W.Bad{}:
+      W.Bad{}
 
-def ffi.end(done: Bool, x: M.Live, o: M.Op) -> String:
+def get_open.go(r: W.Dec<M.Lim>) -> W.Dec<+Sigma<M.Lim, x => Nat>>:
+  match r:
+    case W.Got{l, s}:
+      get_open.q(l, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
+
+# the request of open: the limit, then providerMaxQueued
+def get_open(s: String) -> W.Dec<+Sigma<M.Lim, x => Nat>>:
+  get_open.go(get_lim(s))
+
+# The stepper
+# -----------
+
+# the controller of one provider, or a refused open
+type St is Data:
+  Running{x: M.Live}
+  Shut{}
+
+def open.end(done: Bool, l: M.Lim, q: Nat) -> St & String:
   match done:
     case True{}:
-      put_live(M.Live.step(x, o), "")
+      +x = M.Live.new(l, q)
+      (Running{x}, put_live(x, ""))
     case False{}:
-      W.err("admission: input left over")
+      (Shut{}, W.err("admission: input left over"))
 
-def ffi.op(x: M.Live, r: W.Dec<M.Op>) -> String:
+def open.req(lq: +Sigma<M.Lim, x => Nat>, done: Bool) -> St & String:
+  (l, q) = lq
+  open.end(done, l, q)
+
+def open.go(r: W.Dec<+Sigma<M.Lim, x => Nat>>) -> St & String:
+  match r:
+    case W.Got{lq, s}:
+      open.req(lq, W.end(s))
+    case W.Bad{}:
+      (Shut{}, W.err("admission: malformed open"))
+
+# open: a controller with the limits of the input and no ticket
+def open(input: String) -> St & String:
+  open.go(get_open(input))
+
+def step.end(done: Bool, x: M.Live, o: M.Op) -> St & String:
+  match done:
+    case True{}:
+      +y = M.Live.step(x, o)
+      (Running{y}, put_live(y, ""))
+    case False{}:
+      (Running{x}, W.err("admission: input left over"))
+
+def step.op(x: M.Live, r: W.Dec<M.Op>) -> St & String:
   match r:
     case W.Got{o, s}:
-      ffi.end(W.end(s), x, o)
+      step.end(W.end(s), x, o)
     case W.Bad{}:
-      W.err("admission: malformed op")
+      (Running{x}, W.err("admission: malformed op"))
 
-def ffi.go(r: W.Dec<M.Live>) -> String:
-  match r:
-    case W.Got{x, s}:
-      ffi.op(x, get_op(s))
-    case W.Bad{}:
-      W.err("admission: malformed state")
-
-# One op of the live controller: the state and the op in, the next state
-# out.
-def ffi(input: String) -> String:
-  ffi.go(get_live(input))
+# step: one op of the controller; the reply is its new state
+def step(st: St, input: String) -> St & String:
+  match st:
+    case Running{x}:
+      step.op(x, get_op(input))
+    case Shut{}:
+      (Shut{}, W.err("admission: the open was refused"))

@@ -19,8 +19,6 @@ mod schema;
 mod size;
 
 #[cfg(test)]
-mod bridge;
-#[cfg(test)]
 mod tests;
 
 use std::sync::Arc;

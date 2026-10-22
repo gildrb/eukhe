@@ -21,6 +21,25 @@ import ./default_model.bend as M
 # Encoders
 # --------
 
+def put_saved(x: M.Saved, rest: String) -> String:
+  match x:
+    case M.NoDefault{}:
+      W.put_nat(0n, rest)
+    case M.Default{m}:
+      W.put_nat(1n, W.put_nat(m, rest))
+
+def put_next(x: M.Next, rest: String) -> String:
+  match x:
+    case M.NoNext{}:
+      W.put_nat(0n, rest)
+    case M.Next{n}:
+      W.put_nat(1n, W.put_nat(n, rest))
+
+def put_in(x: M.In, rest: String) -> String:
+  match x:
+    case M.In{saved, cat, key, out, next}:
+      put_saved(saved, W.put_bool(cat, W.put_bool(key, W.put_bool(out, put_next(next, rest)))))
+
 def put_reason(r: M.Reason, rest: String) -> String:
   match r:
     case M.NotInCatalog{}:
@@ -86,6 +105,9 @@ def get_saved.go(r: W.Dec<Nat>) -> W.Dec<M.Saved>:
     case W.Bad{}:
       W.Bad{}
 
+def get_saved(s: String) -> W.Dec<M.Saved>:
+  get_saved.go(W.get_nat(s))
+
 def get_next.n(r: W.Dec<Nat>) -> W.Dec<M.Next>:
   match r:
     case W.Got{n, s}:
@@ -111,6 +133,9 @@ def get_next.go(r: W.Dec<Nat>) -> W.Dec<M.Next>:
     case W.Bad{}:
       W.Bad{}
 
+def get_next(s: String) -> W.Dec<M.Next>:
+  get_next.go(W.get_nat(s))
+
 def get_in.next(saved: M.Saved, cat: Bool, key: Bool, out: Bool, r: W.Dec<M.Next>) -> W.Dec<M.In>:
   match r:
     case W.Got{next, s}:
@@ -121,7 +146,7 @@ def get_in.next(saved: M.Saved, cat: Bool, key: Bool, out: Bool, r: W.Dec<M.Next
 def get_in.out(saved: M.Saved, cat: Bool, key: Bool, r: W.Dec<Bool>) -> W.Dec<M.In>:
   match r:
     case W.Got{out, s}:
-      get_in.next(saved, cat, key, out, get_next.go(W.get_nat(s)))
+      get_in.next(saved, cat, key, out, get_next(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -147,7 +172,153 @@ def get_in.go(r: W.Dec<M.Saved>) -> W.Dec<M.In>:
       W.Bad{}
 
 def get_in(s: String) -> W.Dec<M.In>:
-  get_in.go(get_saved.go(W.get_nat(s)))
+  get_in.go(get_saved(s))
+
+# The replies, as the Rust Reader reads them
+
+def get_reason.tag(n: Nat, s: String) -> W.Dec<M.Reason>:
+  match n:
+    case 0n:
+      W.Got{M.NotInCatalog{}, s}
+    case 1n+a:
+      match a:
+        case 0n:
+          W.Got{M.NoCredentials{}, s}
+        case 1n+b:
+          match b:
+            case 0n:
+              W.Got{M.NotInScope{}, s}
+            case 1n+c:
+              W.Bad{}
+
+def get_reason.go(r: W.Dec<Nat>) -> W.Dec<M.Reason>:
+  match r:
+    case W.Got{n, s}:
+      get_reason.tag(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
+def get_reason(s: String) -> W.Dec<M.Reason>:
+  get_reason.go(W.get_nat(s))
+
+def get_key.r(m: Nat, r: W.Dec<M.Reason>) -> W.Dec<M.Key>:
+  match r:
+    case W.Got{why, s}:
+      W.Got{M.K{m, why}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_key.go(r: W.Dec<Nat>) -> W.Dec<M.Key>:
+  match r:
+    case W.Got{m, s}:
+      get_key.r(m, get_reason(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_key(s: String) -> W.Dec<M.Key>:
+  get_key.go(W.get_nat(s))
+
+def get_pick.n(r: W.Dec<Nat>) -> W.Dec<M.Pick>:
+  match r:
+    case W.Got{n, s}:
+      W.Got{M.Other{n}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_pick.tag(n: Nat, s: String) -> W.Dec<M.Pick>:
+  match n:
+    case 0n:
+      W.Got{M.Saved{}, s}
+    case 1n+a:
+      match a:
+        case 0n:
+          get_pick.n(W.get_nat(s))
+        case 1n+b:
+          W.Bad{}
+
+def get_pick.go(r: W.Dec<Nat>) -> W.Dec<M.Pick>:
+  match r:
+    case W.Got{n, s}:
+      get_pick.tag(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
+def get_pick(s: String) -> W.Dec<M.Pick>:
+  get_pick.go(W.get_nat(s))
+
+def get_sub.k(r: W.Dec<M.Key>) -> W.Dec<M.Sub>:
+  match r:
+    case W.Got{k, s}:
+      W.Got{M.Swapped{k}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_sub.tag(n: Nat, s: String) -> W.Dec<M.Sub>:
+  match n:
+    case 0n:
+      W.Got{M.Kept{}, s}
+    case 1n+a:
+      match a:
+        case 0n:
+          get_sub.k(get_key(s))
+        case 1n+b:
+          W.Bad{}
+
+def get_sub.go(r: W.Dec<Nat>) -> W.Dec<M.Sub>:
+  match r:
+    case W.Got{n, s}:
+      get_sub.tag(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
+def get_sub(s: String) -> W.Dec<M.Sub>:
+  get_sub.go(W.get_nat(s))
+
+def get_res.sub(p: M.Pick, r: W.Dec<M.Sub>) -> W.Dec<M.Res>:
+  match r:
+    case W.Got{x, s}:
+      W.Got{M.Runs{p, x}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_res.pick(r: W.Dec<M.Pick>) -> W.Dec<M.Res>:
+  match r:
+    case W.Got{p, s}:
+      get_res.sub(p, get_sub(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_res.refused(r: W.Dec<M.Key>) -> W.Dec<M.Res>:
+  match r:
+    case W.Got{k, s}:
+      W.Got{M.Refused{k}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_res.tag(n: Nat, s: String) -> W.Dec<M.Res>:
+  match n:
+    case 0n:
+      get_res.pick(get_pick(s))
+    case 1n+a:
+      match a:
+        case 0n:
+          W.Got{M.Nothing{}, s}
+        case 1n+b:
+          match b:
+            case 0n:
+              get_res.refused(get_key(s))
+            case 1n+c:
+              W.Bad{}
+
+def get_res.go(r: W.Dec<Nat>) -> W.Dec<M.Res>:
+  match r:
+    case W.Got{n, s}:
+      get_res.tag(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
+def get_res(s: String) -> W.Dec<M.Res>:
+  get_res.go(W.get_nat(s))
 
 # The entry
 # ---------

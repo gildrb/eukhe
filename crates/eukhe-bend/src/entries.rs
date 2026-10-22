@@ -10,11 +10,26 @@ pub enum Entry {
     Echo = 0,
     /// `bend/ffi_wire.bend`: a call.
     Wire = 1,
+    /// `bend/ffi_admission.bend`: a stepper.
+    Admission = 2,
+    /// `bend/ffi_workflow.bend`: a call.
+    Workflow = 3,
+    /// `bend/ffi_default_model.bend`: a call.
+    DefaultModel = 4,
+    /// `bend/ffi_aux_fallback.bend`: a call.
+    AuxFallback = 5,
 }
 
 impl Entry {
     /// Every entry, in id order.
-    pub const ALL: &[Entry] = &[Entry::Echo, Entry::Wire];
+    pub const ALL: &[Entry] = &[
+        Entry::Echo,
+        Entry::Wire,
+        Entry::Admission,
+        Entry::Workflow,
+        Entry::DefaultModel,
+        Entry::AuxFallback,
+    ];
 
     /// The id `bend/core.bend` dispatches on.
     #[must_use]
