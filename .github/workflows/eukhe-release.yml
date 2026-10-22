@@ -1,20 +1,22 @@
 # eukhe releases: the four Unix targets built and packaged with the
 # repository's own release scripts, published as a GitHub release.
 #
-# Every commit of main that passed ci.yml is released, once: this
-# workflow runs when ci.yml completes, only for a successful run of a push
-# to main in this repository, and builds the exact commit that run tested
-# (head_sha), so the laws, the tests and the deny gate all passed on it.
-# The version is the next patch of the workspace series (Cargo.toml
-# X.Y.0): scripts/release/next_version.py, the rule bend/semver.bend
-# models and LAWS R1 (laws/release.bend) proves. The release is tagged
-# `eukhe-v<version>`, titled `Eukhe v<version>`, marked latest (mise
-# installs it), and pinned for the Nix flake (nix/release.json: url + SRI
-# hash per system). One release runs at a time (the concurrency group),
-# so two never compute the same version; a commit that already has an
-# `eukhe-v*` tag is not released again (a re-run of a published release
-# changes nothing). The nix/release.json commit is made with the
-# workflow's token, which starts no workflow, so it releases nothing.
+# At most one release a day: a daily schedule (03:17 UTC) and
+# workflow_dispatch (an urgent release) release the newest commit of main
+# (first-parent history) whose ci.yml run of its push to main succeeded.
+# A push runs the light gate on GitHub (fmt, deny, secrets, laws); the full
+# gate ran before the push in the local pre-push hook. When that commit, or
+# a newer one, already has an `eukhe-v*` tag, nothing is released (a re-run
+# of a published release changes nothing). The build jobs build that exact
+# commit. The version is the next patch of the workspace series (Cargo.toml
+# X.Y.0 at that commit): scripts/release/next_version.py, the rule
+# bend/semver.bend models and LAWS R1 (laws/release.bend) proves. The
+# release is tagged `eukhe-v<version>`, titled `Eukhe v<version>`, marked
+# latest (mise installs it), and pinned for the Nix flake (nix/release.json:
+# url + SRI hash per system). One release runs at a time (the concurrency
+# group), so two never compute the same version. The nix/release.json
+# commit is made with the workflow's token, which starts no workflow, so it
+# has no ci run and is never released.
 #
 # Supply chain: every action is pinned by full commit SHA; the build jobs
 # use no cache (a poisoned cache would ride the shipped binary); apt
@@ -27,16 +29,15 @@
 name: eukhe-release
 
 on:
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 permissions: {}
 
 # One release at a time, never cancelled: the version job reads the tags
 # the previous release created. A newer pending run replaces an older
-# pending one; its commit includes the older one's.
+# pending one; it picks its commit when it starts.
 concurrency:
   group: eukhe-release
   cancel-in-progress: false
@@ -44,48 +45,66 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
 
 jobs:
   version:
-    # A green ci run of a push to main of this repository (a fork's pull
-    # request from its own `main` branch is no push), and not the
-    # nix/release.json pin a release commits (it starts no run with the
-    # workflow's token; this keeps it so with any token).
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      !startsWith(github.event.workflow_run.head_commit.message, 'nix: release.json for ')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: read
     outputs:
       release: ${{ steps.version.outputs.release }}
+      sha: ${{ steps.version.outputs.sha }}
+      ci_run: ${{ steps.version.outputs.ci_run }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       title: ${{ steps.version.outputs.title }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: main
+          fetch-depth: 0
           persist-credentials: false
       - id: version
-        name: The release version (the next patch of the workspace series)
+        name: The commit to release and its version (the next patch of the workspace series)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           git ls-remote --tags --refs origin > "${RUNNER_TEMP}/tags"
-          released="$(awk -v sha="${HEAD_SHA}" '$1 == sha && $2 ~ /^refs\/tags\/eukhe-v/ { sub(/^refs\/tags\//, "", $2); print $2 }' "${RUNNER_TEMP}/tags")"
-          if [[ -n "${released}" ]]; then
-            echo "::notice::${HEAD_SHA} is already released: ${released//$'\n'/, }"
+          # The newest first-parent commit of main with a successful ci run
+          # of its push. A tagged commit ends the search: it and every older
+          # commit are released.
+          sha=""
+          ci_run=""
+          while read -r commit; do
+            released="$(awk -v sha="${commit}" '$1 == sha && $2 ~ /^refs\/tags\/eukhe-v/ { sub(/^refs\/tags\//, "", $2); print $2 }' "${RUNNER_TEMP}/tags")"
+            if [[ -n "${released}" ]]; then
+              echo "::notice::${commit} is already released (${released//$'\n'/, }); no newer commit of main passed ci"
+              break
+            fi
+            [[ "$(git log -1 --format=%s "${commit}")" == "nix: release.json for "* ]] && continue
+            ci_run="$(gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?head_sha=${commit}&event=push&branch=main&status=success&per_page=1" --jq '.workflow_runs[0].html_url // ""')"
+            if [[ -n "${ci_run}" ]]; then
+              sha="${commit}"
+              break
+            fi
+          done < <(git rev-list --first-parent --max-count=500 HEAD)
+          if [[ -z "${sha}" ]]; then
             echo "release=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
+          echo "releasing ${sha} (ci: ${ci_run})"
+          git checkout --quiet --detach "${sha}"
           cut -f2 "${RUNNER_TEMP}/tags" | sed 's|^refs/tags/||' | python3 scripts/release/next_version.py > "${RUNNER_TEMP}/version"
           cat "${RUNNER_TEMP}/version"
-          cat "${RUNNER_TEMP}/version" >> "${GITHUB_OUTPUT}"
-          echo "release=true" >> "${GITHUB_OUTPUT}"
+          {
+            cat "${RUNNER_TEMP}/version"
+            echo "sha=${sha}"
+            echo "ci_run=${ci_run}"
+            echo "release=true"
+          } >> "${GITHUB_OUTPUT}"
 
   build-linux:
     needs: version
@@ -143,7 +162,7 @@ jobs:
           apt-get install -y --no-install-recommends build-essential python3 git binutils
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.version.outputs.sha }}
           persist-credentials: false
       - name: Install Rust (pinned rustup-init, sha256-checked; toolchain from rust-toolchain.toml)
         env:
@@ -174,7 +193,7 @@ jobs:
       - name: Build (release, frozen, offline)
         # The build identity names the released commit.
         env:
-          EUKHE_BUILD_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          EUKHE_BUILD_COMMIT: ${{ needs.version.outputs.sha }}
         run: cargo build --release --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: Split the shipped binary and its debug decoder
         run: |
@@ -244,7 +263,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.version.outputs.sha }}
           persist-credentials: false
       # The runner image ships rustup; refusing to continue without it keeps
       # the job off any curl | sh install path.
@@ -266,7 +285,7 @@ jobs:
       - name: Build (release, frozen, offline)
         # The build identity names the released commit.
         env:
-          EUKHE_BUILD_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          EUKHE_BUILD_COMMIT: ${{ needs.version.outputs.sha }}
         run: cargo build --release --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: "Livecheck: --version prints the release version"
         run: |
@@ -311,7 +330,8 @@ jobs:
       TAG: ${{ needs.version.outputs.tag }}
       TITLE: ${{ needs.version.outputs.title }}
       VERSION: ${{ needs.version.outputs.version }}
-      CI_RUN: ${{ github.event.workflow_run.html_url }}
+      CI_RUN: ${{ needs.version.outputs.ci_run }}
+      HEAD_SHA: ${{ needs.version.outputs.sha }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -321,7 +341,7 @@ jobs:
       # redirects to releases/latest/download/install.sh).
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.version.outputs.sha }}
           path: src
           sparse-checkout: install.sh
           sparse-checkout-cone-mode: false
