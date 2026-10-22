@@ -27716,6 +27716,15 @@ def pa.guarded_from_phone(+auto: List<&2, Nat>, +es: List<&2, Nat>, +guarded: {B
 #   time: a stall ends at the last event plus the deadline, a close at
 #   the last event, which is at most it plus the deadline.
 # - stall_silent_ends_at_deadline: by computation.
+# - The exact laws (retry_classifier_exact, retry_wait_*, retry_step_exact,
+#   retry_jitter_*, failover_exact, the saturation laws, the anchors):
+#   each model helper is shown equal to its spec helper of LAWS.bend by
+#   induction (rx.tried, rx.wait, rx.fresh, rx.back, ...). The bounded
+#   doubling `R.double` is min(rs.twice, cap) (rx.double): a halted step
+#   has b + b past cap, and twice(j, b + b) >= b + b. A saturated server
+#   wait (min(w, c), c above max) keeps every wait at most max and keeps
+#   every wait past max past max (rx.cw_sel); a saturated base at or past
+#   max doubles to max either way (rx.base_sat).
 
 # Clashes
 # -------
@@ -28424,6 +28433,628 @@ def detection_bounded(gs: List<&2, Nat>, +d: Nat) -> {Nat.is_le(R.Idle.at(R.idle
 
 def silent_at_deadline(+d: Nat) -> {R.idle(Nil{}, d) == R.IdleStall{d} : R.Idle}:
   {==}
+
+# The exact laws
+# --------------
+
+# Order facts
+# -----------
+
+def rx.lt_le(c: Cmp, e: {Cmp.is_lt(c) == True{} : Bool}) -> {Cmp.is_le(c) == True{} : Bool}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      rp.absurdF({True{} == True{} : Bool}, e)
+    case GT{}:
+      rp.absurdF({False{} == True{} : Bool}, e)
+
+def rx.le_of_not_gt(c: Cmp, e: {Cmp.is_gt(c) == False{} : Bool}) -> {Cmp.is_le(c) == True{} : Bool}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      {==}
+    case GT{}:
+      rp.absurdT({False{} == True{} : Bool}, e)
+
+def rx.not_gt_of_le(c: Cmp, e: {Cmp.is_le(c) == True{} : Bool}) -> {Cmp.is_gt(c) == False{} : Bool}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      {==}
+    case GT{}:
+      rp.absurdF({True{} == False{} : Bool}, e)
+
+# a <= b and b <= c give a <= c
+def rx.le_trans(+a: Nat, +b: Nat, +c: Nat, h1: {Nat.is_le(a, b) == True{} : Bool}, h2: {Nat.is_le(b, c) == True{} : Bool}) -> {Nat.is_le(a, c) == True{} : Bool}:
+  match a b c:
+    case 0n b c:
+      rp.le_zero(c)
+    case 1n+p 0n c:
+      rp.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, h1)
+    case 1n+p 1n+q 0n:
+      rp.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h2)
+    case 1n+p 1n+q 1n+r:
+      rx.le_trans(p, q, r, h1, h2)
+
+# a <= b and c > b give a <= c
+def rx.le_gt(+a: Nat, +b: Nat, +c: Nat, h1: {Nat.is_le(a, b) == True{} : Bool}, h2: {Nat.is_gt(c, b) == True{} : Bool}) -> {Nat.is_le(a, c) == True{} : Bool}:
+  match a b c:
+    case 0n b c:
+      rp.le_zero(c)
+    case 1n+p 0n c:
+      rp.absurdF({Nat.is_le(1n+p, c) == True{} : Bool}, h1)
+    case 1n+p 1n+q 0n:
+      rp.absurdF({Nat.is_le(1n+p, 0n) == True{} : Bool}, h2)
+    case 1n+p 1n+q 1n+r:
+      rx.le_gt(p, q, r, h1, h2)
+
+# min(a, b) = a when a <= b
+def rx.min_l(+a: Nat, +b: Nat, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.min(a, b) == a : Nat}:
+  match a b:
+    case 0n b:
+      {==}
+    case 1n+p 0n:
+      rp.absurdF({Nat.min(1n+p, 0n) == 1n+p : Nat}, h)
+    case 1n+p 1n+q:
+      %rx.min_l(p, q, h) : {1n+Nat.min(p, q) == 1n+_ : Nat}
+      {==}
+
+# min(a, b) = b when b <= a
+def rx.min_r(+a: Nat, +b: Nat, h: {Nat.is_le(b, a) == True{} : Bool}) -> {Nat.min(a, b) == b : Nat}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      rp.absurdF({Nat.min(0n, 1n+q) == 1n+q : Nat}, h)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      %rx.min_r(p, q, h) : {1n+Nat.min(p, q) == 1n+_ : Nat}
+      {==}
+
+# min(a, b) > x when a > x and b > x
+def rx.gt_min(+a: Nat, +b: Nat, +x: Nat, ha: {Nat.is_gt(a, x) == True{} : Bool}, hb: {Nat.is_gt(b, x) == True{} : Bool}) -> {Nat.is_gt(Nat.min(a, b), x) == True{} : Bool}:
+  match a b x:
+    case 0n b 0n:
+      rp.absurdF({Nat.is_gt(0n, 0n) == True{} : Bool}, ha)
+    case 0n b 1n+r:
+      rp.absurdF({Nat.is_gt(0n, 1n+r) == True{} : Bool}, ha)
+    case 1n+p 0n 0n:
+      rp.absurdF({Nat.is_gt(0n, 0n) == True{} : Bool}, hb)
+    case 1n+p 0n 1n+r:
+      rp.absurdF({Nat.is_gt(0n, 1n+r) == True{} : Bool}, hb)
+    case 1n+p 1n+q 0n:
+      {==}
+    case 1n+p 1n+q 1n+r:
+      rx.gt_min(p, q, r, ha, hb)
+
+# max(a, b) > x when b > x
+def rx.gt_max(+a: Nat, +b: Nat, +x: Nat, hb: {Nat.is_gt(b, x) == True{} : Bool}) -> {Nat.is_gt(Nat.max(a, b), x) == True{} : Bool}:
+  match a b x:
+    case 0n b x:
+      hb
+    case 1n+p 0n 0n:
+      rp.absurdF({Nat.is_gt(1n+p, 0n) == True{} : Bool}, hb)
+    case 1n+p 0n 1n+r:
+      rp.absurdF({Nat.is_gt(1n+p, 1n+r) == True{} : Bool}, hb)
+    case 1n+p 1n+q 0n:
+      {==}
+    case 1n+p 1n+q 1n+r:
+      rx.gt_max(p, q, r, hb)
+
+# a > b gives b < a
+def rx.gt_lt(+a: Nat, +b: Nat, h: {Nat.is_gt(a, b) == True{} : Bool}) -> {Nat.is_lt(b, a) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      rp.absurdF({Nat.is_lt(0n, 0n) == True{} : Bool}, h)
+    case 0n 1n+q:
+      rp.absurdF({Nat.is_lt(1n+q, 0n) == True{} : Bool}, h)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      rx.gt_lt(p, q, h)
+
+# 0 < x gives 0 < b + x
+def rx.lt0_add(b: Nat, +x: Nat, h: {Nat.is_lt(0n, x) == True{} : Bool}) -> {Nat.is_lt(0n, Nat.add(b, x)) == True{} : Bool}:
+  match b:
+    case 0n:
+      h
+    case 1n+q:
+      {==}
+
+# x > d - b gives d < b + x
+def rx.lt_sub(+d: Nat, +b: Nat, +x: Nat, h: {Nat.is_lt(Nat.sub(d, b), x) == True{} : Bool}) -> {Nat.is_lt(d, Nat.add(b, x)) == True{} : Bool}:
+  match d b:
+    case 0n b:
+      rx.lt0_add(b, x, h)
+    case 1n+p 0n:
+      h
+    case 1n+p 1n+q:
+      rx.lt_sub(p, q, x, h)
+
+# Bool facts
+# ----------
+
+def rx.and_f(a: Bool, -b: Bool, e: {b == False{} : Bool}) -> {Bool.and(a, b) == False{} : Bool}:
+  match a:
+    case True{}:
+      e
+    case False{}:
+      {==}
+
+# (R1) The classifier, exactly
+# ----------------------------
+
+def rx.status_go(c: Cmp, +s: Nat) -> {R.status.ok.go(Cmp.is_lt(c), s) == Bool.or(Cmp.is_ge(c), R.status.listed(s)) : Bool}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      {==}
+    case GT{}:
+      {==}
+
+def rx.kind(k: R.Cause, text: Bool) -> {R.by_class(R.Cause.class(k), text) == Laws.rs.by_kind(Laws.rs.kind(k), text) : Bool}:
+  match k:
+    case R.Refusal{}:
+      {==}
+    case R.Safety{}:
+      {==}
+    case R.PaymentRequired{}:
+      {==}
+    case R.Overloaded{}:
+      {==}
+    case R.RateLimit{}:
+      {==}
+    case R.ServerError{}:
+      {==}
+    case R.Auth{}:
+      {==}
+    case R.Permission{}:
+      {==}
+    case R.InvalidRequest{}:
+      {==}
+    case R.MalformedResponse{}:
+      {==}
+    case R.StreamDrop{}:
+      {==}
+    case R.StreamStalled{}:
+      {==}
+    case R.StreamRepeating{}:
+      {==}
+    case R.Unknown{}:
+      {==}
+
+def rx.recorded(status: Maybe<&2, Nat>, kind: Maybe<&2, R.Cause>, text: Bool) -> {R.by_status(status, kind, text) == Laws.rs.recorded(status, kind, text) : Bool}:
+  match status kind:
+    case Some{+s} k:
+      rx.status_go(Nat.cmp(s, 500n), s)
+    case None{} Some{k}:
+      rx.kind(k, text)
+    case None{} None{}:
+      {==}
+
+def classifier_exact(f: R.Facts) -> {R.retryable(f) == Laws.rs.retryable(f) : Bool}:
+  match f:
+    case R.Facts{parked, limit, status, kind, text}:
+      match parked limit:
+        case True{} l:
+          {==}
+        case False{} True{}:
+          {==}
+        case False{} False{}:
+          rx.recorded(status, kind, text)
+
+# (R2) The wait, exactly
+# ----------------------
+
+def rx.not_over(over: Bool, +jitter: Nat, +s: Nat, +cap: Nat, e: {over == False{} : Bool}) -> {R.wait.server(over, jitter, s, cap) == R.After{Nat.max(jitter, s)} : R.Delay}:
+  match over:
+    case True{}:
+      rp.absurdT({R.wait.server(True{}, jitter, s, cap) == R.After{Nat.max(jitter, s)} : R.Delay}, e)
+    case False{}:
+      {==}
+
+def wait_within_cap(+jitter: Nat, +s: Nat, +cap: Nat, within: {Nat.is_le(s, cap) == True{} : Bool}) -> {R.wait(jitter, Some{s}, cap) == R.After{Nat.max(jitter, s)} : R.Delay}:
+  rx.not_over(Bool.and(Nat.is_gt(cap, 0n), Nat.is_gt(s, cap)), jitter, s, cap, rx.and_f(Nat.is_gt(cap, 0n), Nat.is_gt(s, cap), rx.not_gt_of_le(Nat.cmp(s, cap), within)))
+
+# under a positive cap the wait is the server pick of s > cap
+def rx.capped(+jitter: Nat, +s: Nat, +cap: Nat, capped: {Nat.is_gt(cap, 0n) == True{} : Bool}) -> {R.wait.server(Nat.is_gt(s, cap), jitter, s, cap) == R.wait(jitter, Some{s}, cap) : R.Delay}:
+  %Equal.sym(Bool, Nat.is_gt(cap, 0n), True{}, capped) : {R.wait.server(Nat.is_gt(s, cap), jitter, s, cap) == R.wait.server(Bool.and(_, Nat.is_gt(s, cap)), jitter, s, cap) : R.Delay}
+  {==}
+
+def rx.sat_go(over: Bool, +jitter: Nat, +s: Nat, +cap: Nat, +c: Nat, +eo: {Nat.is_gt(s, cap) == over : Bool}, above: {Nat.is_gt(c, cap) == True{} : Bool}) -> {Laws.rs.held(R.wait.server(Nat.is_gt(Nat.min(s, c), cap), jitter, Nat.min(s, c), cap)) == Laws.rs.held(R.wait.server(over, jitter, s, cap)) : Maybe<&2, Nat>}:
+  match over:
+    case True{}:
+      %Equal.sym(Bool, Nat.is_gt(Nat.min(s, c), cap), True{}, rx.gt_min(s, c, cap, eo, above)) : {Laws.rs.held(R.wait.server(_, jitter, Nat.min(s, c), cap)) == None{} : Maybe<&2, Nat>}
+      {==}
+    case False{}:
+      +le = rx.le_gt(s, cap, c, rx.le_of_not_gt(Nat.cmp(s, cap), eo), above)
+      %Equal.sym(Nat, Nat.min(s, c), s, rx.min_l(s, c, le)) : {Laws.rs.held(R.wait.server(Nat.is_gt(_, cap), jitter, _, cap)) == Some{Nat.max(jitter, s)} : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Nat.is_gt(s, cap), False{}, eo) : {Laws.rs.held(R.wait.server(_, jitter, s, cap)) == Some{Nat.max(jitter, s)} : Maybe<&2, Nat>}
+      {==}
+
+def wait_saturation_exact(+jitter: Nat, +s: Nat, +cap: Nat, +c: Nat, +capped: {Nat.is_gt(cap, 0n) == True{} : Bool}, above: {Nat.is_gt(c, cap) == True{} : Bool}) -> {Laws.rs.held(R.wait(jitter, Some{Nat.min(s, c)}, cap)) == Laws.rs.held(R.wait(jitter, Some{s}, cap)) : Maybe<&2, Nat>}:
+  %rx.capped(jitter, Nat.min(s, c), cap, capped) : {Laws.rs.held(_) == Laws.rs.held(R.wait(jitter, Some{s}, cap)) : Maybe<&2, Nat>}
+  %rx.capped(jitter, s, cap, capped) : {Laws.rs.held(R.wait.server(Nat.is_gt(Nat.min(s, c), cap), jitter, Nat.min(s, c), cap)) == Laws.rs.held(_) : Maybe<&2, Nat>}
+  rx.sat_go(Nat.is_gt(s, cap), jitter, s, cap, c, {==}, above)
+
+# (R2) The step: the bounded doubling is the doubling, capped
+# -----------------------------------------------------------
+
+def rx.twice_zero(k: Nat) -> {0n == Laws.rs.twice(k, 0n) : Nat}:
+  match k:
+    case 0n:
+      {==}
+    case 1n+j:
+      rx.twice_zero(j)
+
+# b <= twice(k, b)
+def rx.twice_ge(k: Nat, +b: Nat) -> {Nat.is_le(b, Laws.rs.twice(k, b)) == True{} : Bool}:
+  match k:
+    case 0n:
+      rp.le_refl(b)
+    case 1n++j:
+      rx.le_trans(b, Nat.add(b, b), Laws.rs.twice(j, Nat.add(b, b)), rp.le_add(b, b), rx.twice_ge(j, Nat.add(b, b)))
+
+def rx.double_go(k: Nat, h: Bool, +b: Nat, +cap: Nat, eh: {R.double.halt(b, cap) == h : Bool}) -> {R.double.go(k, h, b, cap) == Nat.min(Laws.rs.twice(k, b), cap) : Nat}:
+  match k h:
+    case 0n h:
+      {==}
+    case 1n++j True{}:
+      match b:
+        case 0n:
+          %rx.twice_zero(j) : {0n == Nat.min(_, cap) : Nat}
+          {==}
+        case 1n+p:
+          +b2 = Nat.add(1n+p, 1n+p)
+          +lt = rx.lt_sub(cap, 1n+p, 1n+p, rx.gt_lt(1n+p, Nat.sub(cap, 1n+p), eh))
+          +le = rx.le_trans(cap, b2, Laws.rs.twice(j, b2), rx.lt_le(Nat.cmp(cap, b2), lt), rx.twice_ge(j, b2))
+          Equal.sym(Nat, Nat.min(Laws.rs.twice(j, b2), cap), cap, rx.min_r(Laws.rs.twice(j, b2), cap, le))
+    case 1n+j False{}:
+      rx.double_go(j, R.double.halt(Nat.add(b, b), cap), Nat.add(b, b), cap, {==})
+
+# the bounded doubling of the model is min(b doubled k times, cap)
+def rx.double(k: Nat, +b: Nat, +cap: Nat) -> {R.double(k, b, cap) == Nat.min(Laws.rs.twice(k, b), cap) : Nat}:
+  rx.double_go(k, R.double.halt(b, cap), b, cap, {==})
+
+def jitter_exact(step: Nat, +draw: Nat, positive: {Nat.is_gt(step, 0n) == True{} : Bool}) -> {R.jitter.draw(step, draw) == Nat.mod(draw, step) : Nat}:
+  match step:
+    case 0n:
+      rp.absurdF({R.jitter.draw(0n, draw) == Nat.mod(draw, 0n) : Nat}, positive)
+    case 1n+p:
+      {==}
+
+# (R3) The failover walk, exactly
+# -------------------------------
+
+def rx.ints(k: Nat, +a: Nat) -> {R.upto(k, a) == Laws.rs.ints(k, a) : List<&2, Nat>}:
+  match k:
+    case 0n:
+      {==}
+    case 1n+j:
+      %rx.ints(j, 1n+a) : {a <> R.upto(j, 1n+a) == a <> _ : List<&2, Nat>}
+      {==}
+
+def rx.after(+l: Nat, +n: Nat) -> {R.order(l, n) == Laws.rs.after(l, n) : List<&2, Nat>}:
+  %rx.ints(Nat.sub(n, 1n+l), 1n+l) : {R.order(l, n) == List.append(&2, Nat, _, Laws.rs.ints(Nat.min(l, n), 0n)) : List<&2, Nat>}
+  %rx.ints(Nat.min(l, n), 0n) : {R.order(l, n) == List.append(&2, Nat, R.upto(Nat.sub(n, 1n+l), 1n+l), _) : List<&2, Nat>}
+  {==}
+
+def rx.tried(+x: Nat, ts: List<&2, R.Tried>) -> {R.seen(x, ts) == Laws.rs.tried(x, ts) : Bool}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      match t:
+        case R.Tried{at, w}:
+          %rx.tried(x, rest) : {Bool.or(Nat.is_eq(at, x), R.seen(x, rest)) == Bool.or(Nat.is_eq(at, x), _) : Bool}
+          {==}
+
+def rx.all(xs: List<&2, Nat>, +ts: List<&2, R.Tried>) -> {R.all_seen.go(xs, ts) == Laws.rs.all_tried(xs, ts) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %rx.tried(x, ts) : {Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) == Bool.and(_, Laws.rs.all_tried(rest, ts)) : Bool}
+      %rx.all(rest, ts) : {Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) == Bool.and(R.seen(x, ts), _) : Bool}
+      {==}
+
+def rx.pick(hit: Bool, w: Maybe<&2, Nat>, +acc: Nat) -> {R.server.pick(hit, w, acc) == Laws.rs.wait.pick(hit, w, acc) : Nat}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rx.wait(+x: Nat, ts: List<&2, R.Tried>, +acc: Nat) -> {R.server.go(x, ts, acc) == Laws.rs.wait(x, ts, acc) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      match t:
+        case R.Tried{+a, +w}:
+          %rx.pick(Nat.is_eq(a, x), w, acc) : {R.server.go(x, rest, R.server.pick(Nat.is_eq(a, x), w, acc)) == Laws.rs.wait(x, rest, _) : Nat}
+          rx.wait(x, rest, R.server.pick(Nat.is_eq(a, x), w, acc))
+
+def rx.sel(ok: Bool, +s: R.Switch, r: Maybe<&2, R.Switch>) -> {R.pick.sel(ok, s, r) == Laws.rs.first(ok, s, r) : Maybe<&2, R.Switch>}:
+  match ok:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rx.fresh(xs: List<&2, Nat>, +ts: List<&2, R.Tried>) -> {R.pick.fresh(xs, ts) == Laws.rs.fresh(xs, ts) : Maybe<&2, R.Switch>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %rx.tried(x, ts) : {R.pick.fresh(x <> rest, ts) == Laws.rs.first(Bool.not(_), R.Switch{x, 0n}, Laws.rs.fresh(rest, ts)) : Maybe<&2, R.Switch>}
+      %rx.fresh(rest, ts) : {R.pick.fresh(x <> rest, ts) == Laws.rs.first(Bool.not(R.seen(x, ts)), R.Switch{x, 0n}, _) : Maybe<&2, R.Switch>}
+      rx.sel(Bool.not(R.seen(x, ts)), R.Switch{x, 0n}, R.pick.fresh(rest, ts))
+
+def rx.back(xs: List<&2, Nat>, +ts: List<&2, R.Tried>, +b: Nat, +m: Nat) -> {R.pick.back(xs, ts, b, m) == Laws.rs.back(xs, ts, b, m) : Maybe<&2, R.Switch>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      +d = Nat.max(b, R.server(x, ts))
+      %rx.wait(x, ts, 0n) : {R.pick.back(x <> rest, ts, b, m) == Laws.rs.first(Bool.and(Nat.is_gt(Nat.max(b, _), 0n), Nat.is_le(Nat.max(b, _), m)), R.Switch{x, Nat.max(b, _)}, Laws.rs.back(rest, ts, b, m)) : Maybe<&2, R.Switch>}
+      %rx.back(rest, ts, b, m) : {R.pick.back(x <> rest, ts, b, m) == Laws.rs.first(Bool.and(Nat.is_gt(d, 0n), Nat.is_le(d, m)), R.Switch{x, d}, _) : Maybe<&2, R.Switch>}
+      rx.sel(Bool.and(Nat.is_gt(d, 0n), Nat.is_le(d, m)), R.Switch{x, d}, R.pick.back(rest, ts, b, m))
+
+def rx.count(ts: List<&2, R.Tried>) -> {R.length(ts) == Laws.rs.count(ts) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      %rx.count(rest) : {1n+R.length(rest) == 1n+_ : Nat}
+      {==}
+
+def rx.newest(ts: List<&2, R.Tried>, +t: R.Tried) -> {R.Tried.at(R.last.go(ts, t)) == Laws.rs.newest(ts, t) : Nat}:
+  match ts:
+    case Nil{}:
+      match t:
+        case R.Tried{a, w}:
+          {==}
+    case u <> +rest:
+      rx.newest(rest, u)
+
+# 1 + k <= s is k < s
+def rx.le_succ(+k: Nat, +s: Nat) -> {Nat.is_le(1n+k, s) == Nat.is_lt(k, s) : Bool}:
+  match k s:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      rp.le_zero(q)
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      rx.le_succ(p, q)
+
+def rx.returns(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy) -> {R.next.mode(all, last, len, ts, p) == Laws.rs.returns(all, last, len, ts, p) : Maybe<&2, R.Switch>}:
+  match all:
+    case True{}:
+      +B = R.Policy.base(p)
+      +M = R.Policy.max(p)
+      %rx.after(last, len) : {R.next.mode(True{}, last, len, ts, p) == Laws.rs.back(_, ts, Nat.min(Laws.rs.twice(Nat.sub(Laws.rs.count(ts), len), B), M), M) : Maybe<&2, R.Switch>}
+      %rx.count(ts) : {R.next.mode(True{}, last, len, ts, p) == Laws.rs.back(R.order(last, len), ts, Nat.min(Laws.rs.twice(Nat.sub(_, len), B), M), M) : Maybe<&2, R.Switch>}
+      %rx.double(Nat.sub(R.length(ts), len), B, M) : {R.next.mode(True{}, last, len, ts, p) == Laws.rs.back(R.order(last, len), ts, _, M) : Maybe<&2, R.Switch>}
+      rx.back(R.order(last, len), ts, R.backoff(p, len, ts), M)
+    case False{}:
+      %rx.after(last, len) : {R.next.mode(False{}, last, len, ts, p) == Laws.rs.fresh(_, ts) : Maybe<&2, R.Switch>}
+      rx.fresh(R.order(last, len), ts)
+
+def rx.budget(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy) -> {R.next.budget(ok, last, len, ts, p) == Laws.rs.budget(ok, last, len, ts, p) : Maybe<&2, R.Switch>}:
+  match ok:
+    case True{}:
+      %rx.ints(len, 0n) : {R.next.budget(True{}, last, len, ts, p) == Laws.rs.returns(Laws.rs.all_tried(_, ts), last, len, ts, p) : Maybe<&2, R.Switch>}
+      %rx.all(R.upto(len, 0n), ts) : {R.next.budget(True{}, last, len, ts, p) == Laws.rs.returns(_, last, len, ts, p) : Maybe<&2, R.Switch>}
+      rx.returns(R.all_seen.go(R.upto(len, 0n), ts), last, len, ts, p)
+    case False{}:
+      {==}
+
+def failover_exact(+len: Nat, ts: List<&2, R.Tried>, +p: R.Policy) -> {R.next(len, ts, p) == Laws.rs.next(len, ts, p) : Maybe<&2, R.Switch>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case +t <> +rest:
+      +S = R.Policy.switches(p)
+      %rx.newest(rest, t) : {R.next(len, t <> rest, p) == Laws.rs.budget(Nat.is_lt(Laws.rs.count(rest), S), _, len, t <> rest, p) : Maybe<&2, R.Switch>}
+      %rx.count(rest) : {R.next(len, t <> rest, p) == Laws.rs.budget(Nat.is_lt(_, S), R.Tried.at(R.last.go(rest, t)), len, t <> rest, p) : Maybe<&2, R.Switch>}
+      %rx.le_succ(R.length(rest), S) : {R.next(len, t <> rest, p) == Laws.rs.budget(_, R.Tried.at(R.last.go(rest, t)), len, t <> rest, p) : Maybe<&2, R.Switch>}
+      rx.budget(Nat.is_le(R.length(t <> rest), S), R.Tried.at(R.last.go(rest, t)), len, t <> rest, p)
+
+# Saturated server waits
+# ----------------------
+
+def rx.cw_len(ts: List<&2, R.Tried>, +c: Nat) -> {R.length(Laws.rs.cap_waits(ts, c)) == R.length(ts) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      match t:
+        case R.Tried{a, w}:
+          %Equal.sym(Nat, R.length(Laws.rs.cap_waits(rest, c)), R.length(rest), rx.cw_len(rest, c)) : {1n+_ == 1n+R.length(rest) : Nat}
+          {==}
+
+def rx.cw_seen(+x: Nat, ts: List<&2, R.Tried>, +c: Nat) -> {R.seen(x, Laws.rs.cap_waits(ts, c)) == R.seen(x, ts) : Bool}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      match t:
+        case R.Tried{+a, w}:
+          %Equal.sym(Bool, R.seen(x, Laws.rs.cap_waits(rest, c)), R.seen(x, rest), rx.cw_seen(x, rest, c)) : {Bool.or(Nat.is_eq(a, x), _) == Bool.or(Nat.is_eq(a, x), R.seen(x, rest)) : Bool}
+          {==}
+
+def rx.cw_all(xs: List<&2, Nat>, +ts: List<&2, R.Tried>, +c: Nat) -> {R.all_seen.go(xs, Laws.rs.cap_waits(ts, c)) == R.all_seen.go(xs, ts) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Bool, R.seen(x, Laws.rs.cap_waits(ts, c)), R.seen(x, ts), rx.cw_seen(x, ts, c)) : {Bool.and(_, R.all_seen.go(rest, Laws.rs.cap_waits(ts, c))) == Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) : Bool}
+      %Equal.sym(Bool, R.all_seen.go(rest, Laws.rs.cap_waits(ts, c)), R.all_seen.go(rest, ts), rx.cw_all(rest, ts, c)) : {Bool.and(R.seen(x, ts), _) == Bool.and(R.seen(x, ts), R.all_seen.go(rest, ts)) : Bool}
+      {==}
+
+def rx.cw_last(ts: List<&2, R.Tried>, +a: Nat, -w: Maybe<&2, Nat>, -v: Maybe<&2, Nat>, +c: Nat) -> {R.Tried.at(R.last.go(Laws.rs.cap_waits(ts, c), R.Tried{a, v})) == R.Tried.at(R.last.go(ts, R.Tried{a, w})) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      match t:
+        case R.Tried{b, u}:
+          rx.cw_last(rest, b, u, Laws.rs.cap_wait(u, c), c)
+
+def rx.cw_pick(hit: Bool, w: Maybe<&2, Nat>, +acc: Nat, +c: Nat) -> {Nat.min(R.server.pick(hit, w, acc), c) == R.server.pick(hit, Laws.rs.cap_wait(w, c), Nat.min(acc, c)) : Nat}:
+  match hit:
+    case True{}:
+      match w:
+        case Some{y}:
+          {==}
+        case None{}:
+          {==}
+    case False{}:
+      {==}
+
+# the server's wait over saturated waits is the saturated server's wait
+def rx.cw_server(+x: Nat, ts: List<&2, R.Tried>, +c: Nat, +acc: Nat) -> {R.server.go(x, Laws.rs.cap_waits(ts, c), Nat.min(acc, c)) == Nat.min(R.server.go(x, ts, acc), c) : Nat}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      match t:
+        case R.Tried{+a, +w}:
+          %rx.cw_pick(Nat.is_eq(a, x), w, acc, c) : {R.server.go(x, Laws.rs.cap_waits(rest, c), _) == Nat.min(R.server.go(x, rest, R.server.pick(Nat.is_eq(a, x), w, acc)), c) : Nat}
+          rx.cw_server(x, rest, c, R.server.pick(Nat.is_eq(a, x), w, acc))
+
+def rx.cw_fresh(xs: List<&2, Nat>, +ts: List<&2, R.Tried>, +c: Nat) -> {R.pick.fresh(xs, Laws.rs.cap_waits(ts, c)) == R.pick.fresh(xs, ts) : Maybe<&2, R.Switch>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Bool, R.seen(x, Laws.rs.cap_waits(ts, c)), R.seen(x, ts), rx.cw_seen(x, ts, c)) : {R.pick.sel(Bool.not(_), R.Switch{x, 0n}, R.pick.fresh(rest, Laws.rs.cap_waits(ts, c))) == R.pick.fresh(x <> rest, ts) : Maybe<&2, R.Switch>}
+      %Equal.sym(Maybe<&2, R.Switch>, R.pick.fresh(rest, Laws.rs.cap_waits(ts, c)), R.pick.fresh(rest, ts), rx.cw_fresh(rest, ts, c)) : {R.pick.sel(Bool.not(R.seen(x, ts)), R.Switch{x, 0n}, _) == R.pick.fresh(x <> rest, ts) : Maybe<&2, R.Switch>}
+      {==}
+
+def rx.not_le_of_gt(c: Cmp, e: {Cmp.is_gt(c) == True{} : Bool}) -> {Cmp.is_le(c) == False{} : Bool}:
+  match c:
+    case LT{}:
+      rp.absurdF({True{} == False{} : Bool}, e)
+    case EQ{}:
+      rp.absurdF({True{} == False{} : Bool}, e)
+    case GT{}:
+      {==}
+
+# a wait past max picks nobody: the pick goes to the rest
+def rx.sel_off(+d: Nat, +m: Nat, +s: R.Switch, r: Maybe<&2, R.Switch>, h: {Nat.is_gt(d, m) == True{} : Bool}) -> {R.pick.sel(Bool.and(Nat.is_gt(d, 0n), Nat.is_le(d, m)), s, r) == r : Maybe<&2, R.Switch>}:
+  %Equal.sym(Bool, Bool.and(Nat.is_gt(d, 0n), Nat.is_le(d, m)), False{}, rx.and_f(Nat.is_gt(d, 0n), Nat.is_le(d, m), rx.not_le_of_gt(Nat.cmp(d, m), h))) : {R.pick.sel(_, s, r) == r : Maybe<&2, R.Switch>}
+  {==}
+
+def rx.cw_sel(gt: Bool, +w: Nat, +b: Nat, +m: Nat, +c: Nat, +x: Nat, +r: Maybe<&2, R.Switch>, +e: {Nat.is_gt(w, m) == gt : Bool}, +hc: {Nat.is_gt(c, m) == True{} : Bool}) -> {R.pick.sel(Bool.and(Nat.is_gt(Nat.max(b, Nat.min(w, c)), 0n), Nat.is_le(Nat.max(b, Nat.min(w, c)), m)), R.Switch{x, Nat.max(b, Nat.min(w, c))}, r) == R.pick.sel(Bool.and(Nat.is_gt(Nat.max(b, w), 0n), Nat.is_le(Nat.max(b, w), m)), R.Switch{x, Nat.max(b, w)}, r) : Maybe<&2, R.Switch>}:
+  match gt:
+    case False{}:
+      +le = rx.le_gt(w, m, c, rx.le_of_not_gt(Nat.cmp(w, m), e), hc)
+      %Equal.sym(Nat, Nat.min(w, c), w, rx.min_l(w, c, le)) : {R.pick.sel(Bool.and(Nat.is_gt(Nat.max(b, _), 0n), Nat.is_le(Nat.max(b, _), m)), R.Switch{x, Nat.max(b, _)}, r) == R.pick.sel(Bool.and(Nat.is_gt(Nat.max(b, w), 0n), Nat.is_le(Nat.max(b, w), m)), R.Switch{x, Nat.max(b, w)}, r) : Maybe<&2, R.Switch>}
+      {==}
+    case True{}:
+      +d1 = Nat.max(b, Nat.min(w, c))
+      +d2 = Nat.max(b, w)
+      +off1 = rx.sel_off(d1, m, R.Switch{x, d1}, r, rx.gt_max(b, Nat.min(w, c), m, rx.gt_min(w, c, m, e, hc)))
+      +off2 = rx.sel_off(d2, m, R.Switch{x, d2}, r, rx.gt_max(b, w, m, e))
+      Equal.trans(Maybe<&2, R.Switch>, R.pick.sel(Bool.and(Nat.is_gt(d1, 0n), Nat.is_le(d1, m)), R.Switch{x, d1}, r), r, R.pick.sel(Bool.and(Nat.is_gt(d2, 0n), Nat.is_le(d2, m)), R.Switch{x, d2}, r), off1, Equal.sym(Maybe<&2, R.Switch>, R.pick.sel(Bool.and(Nat.is_gt(d2, 0n), Nat.is_le(d2, m)), R.Switch{x, d2}, r), r, off2))
+
+def rx.cw_back(xs: List<&2, Nat>, +ts: List<&2, R.Tried>, +b: Nat, +m: Nat, +c: Nat, +hc: {Nat.is_gt(c, m) == True{} : Bool}) -> {R.pick.back(xs, Laws.rs.cap_waits(ts, c), b, m) == R.pick.back(xs, ts, b, m) : Maybe<&2, R.Switch>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      +W = R.server(x, ts)
+      %Equal.sym(Nat, R.server.go(x, Laws.rs.cap_waits(ts, c), Nat.min(0n, c)), Nat.min(W, c), rx.cw_server(x, ts, c, 0n)) : {R.pick.sel(Bool.and(Nat.is_gt(Nat.max(b, _), 0n), Nat.is_le(Nat.max(b, _), m)), R.Switch{x, Nat.max(b, _)}, R.pick.back(rest, Laws.rs.cap_waits(ts, c), b, m)) == R.pick.back(x <> rest, ts, b, m) : Maybe<&2, R.Switch>}
+      %Equal.sym(Maybe<&2, R.Switch>, R.pick.back(rest, Laws.rs.cap_waits(ts, c), b, m), R.pick.back(rest, ts, b, m), rx.cw_back(rest, ts, b, m, c, hc)) : {R.pick.sel(Bool.and(Nat.is_gt(Nat.max(b, Nat.min(W, c)), 0n), Nat.is_le(Nat.max(b, Nat.min(W, c)), m)), R.Switch{x, Nat.max(b, Nat.min(W, c))}, _) == R.pick.back(x <> rest, ts, b, m) : Maybe<&2, R.Switch>}
+      rx.cw_sel(Nat.is_gt(W, m), W, b, m, c, x, R.pick.back(rest, ts, b, m), {==}, hc)
+
+def rx.cw_mode(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy, +c: Nat, +hc: {Nat.is_gt(c, R.Policy.max(p)) == True{} : Bool}) -> {R.next.mode(all, last, len, Laws.rs.cap_waits(ts, c), p) == R.next.mode(all, last, len, ts, p) : Maybe<&2, R.Switch>}:
+  match all:
+    case True{}:
+      %Equal.sym(Nat, R.length(Laws.rs.cap_waits(ts, c)), R.length(ts), rx.cw_len(ts, c)) : {R.pick.back(R.order(last, len), Laws.rs.cap_waits(ts, c), R.double(Nat.sub(_, len), R.Policy.base(p), R.Policy.max(p)), R.Policy.max(p)) == R.next.mode(True{}, last, len, ts, p) : Maybe<&2, R.Switch>}
+      rx.cw_back(R.order(last, len), ts, R.backoff(p, len, ts), R.Policy.max(p), c, hc)
+    case False{}:
+      rx.cw_fresh(R.order(last, len), ts, c)
+
+def rx.cw_budget(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +p: R.Policy, +c: Nat, hc: {Nat.is_gt(c, R.Policy.max(p)) == True{} : Bool}) -> {R.next.budget(ok, last, len, Laws.rs.cap_waits(ts, c), p) == R.next.budget(ok, last, len, ts, p) : Maybe<&2, R.Switch>}:
+  match ok:
+    case True{}:
+      %Equal.sym(Bool, R.all_seen.go(R.upto(len, 0n), Laws.rs.cap_waits(ts, c)), R.all_seen(len, ts), rx.cw_all(R.upto(len, 0n), ts, c)) : {R.next.mode(_, last, len, Laws.rs.cap_waits(ts, c), p) == R.next.mode(R.all_seen(len, ts), last, len, ts, p) : Maybe<&2, R.Switch>}
+      rx.cw_mode(R.all_seen(len, ts), last, len, ts, p, c, hc)
+    case False{}:
+      {==}
+
+def wait_saturation_walk(+len: Nat, ts: List<&2, R.Tried>, +p: R.Policy, +c: Nat, hc: {Nat.is_gt(c, R.Policy.max(p)) == True{} : Bool}) -> {R.next(len, Laws.rs.cap_waits(ts, c), p) == R.next(len, ts, p) : Maybe<&2, R.Switch>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case t <> +rest:
+      match t:
+        case R.Tried{+a, +w}:
+          +S = R.Policy.switches(p)
+          +ts2 = {R.Tried{a, Laws.rs.cap_wait(w, c)} <> Laws.rs.cap_waits(rest, c) : List<&2, R.Tried>}
+          %Equal.sym(Nat, R.length(Laws.rs.cap_waits(rest, c)), R.length(rest), rx.cw_len(rest, c)) : {R.next.budget(Nat.is_le(1n+_, S), R.Tried.at(R.last.go(Laws.rs.cap_waits(rest, c), R.Tried{a, Laws.rs.cap_wait(w, c)})), len, ts2, p) == R.next(len, R.Tried{a, w} <> rest, p) : Maybe<&2, R.Switch>}
+          %Equal.sym(Nat, R.Tried.at(R.last.go(Laws.rs.cap_waits(rest, c), R.Tried{a, Laws.rs.cap_wait(w, c)})), R.Tried.at(R.last.go(rest, R.Tried{a, w})), rx.cw_last(rest, a, w, Laws.rs.cap_wait(w, c), c)) : {R.next.budget(Nat.is_le(1n+R.length(rest), S), _, len, ts2, p) == R.next(len, R.Tried{a, w} <> rest, p) : Maybe<&2, R.Switch>}
+          rx.cw_budget(Nat.is_le(1n+R.length(rest), S), R.Tried.at(R.last.go(rest, R.Tried{a, w})), len, R.Tried{a, w} <> rest, p, c, hc)
+
+# Saturated base
+# --------------
+
+def rx.flip_le(+a: Nat, +b: Nat, e: {Nat.is_le(a, b) == False{} : Bool}) -> {Nat.is_le(b, a) == True{} : Bool}:
+  match a b:
+    case 0n b:
+      rp.absurdT({Nat.is_le(b, 0n) == True{} : Bool}, Equal.trans(Bool, True{}, Nat.is_le(0n, b), False{}, Equal.sym(Bool, Nat.is_le(0n, b), True{}, rp.le_zero(b)), e))
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      rx.flip_le(p, q, e)
+
+# a base at or past m doubles to m, capped at m
+def rx.sat_m(+r: Nat, +x: Nat, +m: Nat, h: {Nat.is_le(m, x) == True{} : Bool}) -> {Nat.min(Laws.rs.twice(r, x), m) == m : Nat}:
+  rx.min_r(Laws.rs.twice(r, x), m, rx.le_trans(m, x, Laws.rs.twice(r, x), h, rx.twice_ge(r, x)))
+
+def rx.base_sat(le: Bool, +r: Nat, +b: Nat, +m: Nat, +c: Nat, e: {Nat.is_le(b, c) == le : Bool}, +h: {Nat.is_le(m, c) == True{} : Bool}) -> {Nat.min(Laws.rs.twice(r, Nat.min(b, c)), m) == Nat.min(Laws.rs.twice(r, b), m) : Nat}:
+  match le:
+    case True{}:
+      %Equal.sym(Nat, Nat.min(b, c), b, rx.min_l(b, c, e)) : {Nat.min(Laws.rs.twice(r, _), m) == Nat.min(Laws.rs.twice(r, b), m) : Nat}
+      {==}
+    case False{}:
+      +cb = rx.flip_le(b, c, e)
+      %Equal.sym(Nat, Nat.min(b, c), c, rx.min_r(b, c, cb)) : {Nat.min(Laws.rs.twice(r, _), m) == Nat.min(Laws.rs.twice(r, b), m) : Nat}
+      Equal.trans(Nat, Nat.min(Laws.rs.twice(r, c), m), m, Nat.min(Laws.rs.twice(r, b), m), rx.sat_m(r, c, m, h), Equal.sym(Nat, Nat.min(Laws.rs.twice(r, b), m), m, rx.sat_m(r, b, m, rx.le_trans(m, c, b, h, cb))))
+
+def rx.bs_mode(all: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +s: Nat, +b1: Nat, +b2: Nat, +m: Nat, e: {R.double(Nat.sub(R.length(ts), len), b1, m) == R.double(Nat.sub(R.length(ts), len), b2, m) : Nat}) -> {R.next.mode(all, last, len, ts, R.Policy{s, b1, m}) == R.next.mode(all, last, len, ts, R.Policy{s, b2, m}) : Maybe<&2, R.Switch>}:
+  match all:
+    case True{}:
+      %e : {R.pick.back(R.order(last, len), ts, R.double(Nat.sub(R.length(ts), len), b1, m), m) == R.pick.back(R.order(last, len), ts, _, m) : Maybe<&2, R.Switch>}
+      {==}
+    case False{}:
+      {==}
+
+def rx.bs_budget(ok: Bool, +last: Nat, +len: Nat, +ts: List<&2, R.Tried>, +s: Nat, +b1: Nat, +b2: Nat, +m: Nat, e: {R.double(Nat.sub(R.length(ts), len), b1, m) == R.double(Nat.sub(R.length(ts), len), b2, m) : Nat}) -> {R.next.budget(ok, last, len, ts, R.Policy{s, b1, m}) == R.next.budget(ok, last, len, ts, R.Policy{s, b2, m}) : Maybe<&2, R.Switch>}:
+  match ok:
+    case True{}:
+      rx.bs_mode(R.all_seen(len, ts), last, len, ts, s, b1, b2, m, e)
+    case False{}:
+      {==}
+
+def base_saturation_walk(+len: Nat, ts: List<&2, R.Tried>, +s: Nat, +b: Nat, +m: Nat, +c: Nat, +h: {Nat.is_le(m, c) == True{} : Bool}) -> {R.next(len, ts, R.Policy{s, Nat.min(b, c), m}) == R.next(len, ts, R.Policy{s, b, m}) : Maybe<&2, R.Switch>}:
+  match ts:
+    case Nil{}:
+      {==}
+    case +t <> +rest:
+      +k = Nat.sub(R.length(t <> rest), len)
+      +e = Equal.trans(Nat, R.double(k, Nat.min(b, c), m), Nat.min(Laws.rs.twice(k, Nat.min(b, c)), m), R.double(k, b, m), rx.double(k, Nat.min(b, c), m), Equal.trans(Nat, Nat.min(Laws.rs.twice(k, Nat.min(b, c)), m), Nat.min(Laws.rs.twice(k, b), m), R.double(k, b, m), rx.base_sat(Nat.is_le(b, c), k, b, m, c, {==}, h), Equal.sym(Nat, R.double(k, b, m), Nat.min(Laws.rs.twice(k, b), m), rx.double(k, b, m))))
+      rx.bs_budget(Nat.is_le(R.length(t <> rest), s), R.Tried.at(R.last.go(rest, t)), len, t <> rest, s, Nat.min(b, c), b, m, e)
 
 # ---- facts ----
 
@@ -33439,6 +34070,57 @@ def Laws.stall_detection_bounded(gs, d):
 
 def Laws.stall_silent_ends_at_deadline(d):
   silent_at_deadline(d)
+
+def Laws.retry_classifier_exact(f):
+  classifier_exact(f)
+
+def Laws.retry_classifier_example():
+  {==}
+
+def Laws.retry_wait_plain(jitter, cap):
+  {==}
+
+def Laws.retry_wait_uncapped(jitter, s):
+  {==}
+
+def Laws.retry_wait_within_cap(jitter, s, cap, within):
+  wait_within_cap(jitter, s, cap, within)
+
+def Laws.retry_wait_saturation_exact(jitter, s, cap, c, capped, above):
+  wait_saturation_exact(jitter, s, cap, c, capped, above)
+
+def Laws.retry_step_exact(base, attempt, cap):
+  rx.double(Nat.sub(attempt, 1n), base, cap)
+
+def Laws.retry_step_example():
+  {==}
+
+def Laws.retry_jitter_exact(step, draw, positive):
+  jitter_exact(step, draw, positive)
+
+def Laws.retry_jitter_zero_step(draw):
+  {==}
+
+def Laws.retry_wait_composes(base, attempt, cap, draw, server):
+  {==}
+
+def Laws.stall_retry_doubles(idle):
+  {==}
+
+def Laws.failover_exact(len, ts, p):
+  failover_exact(len, ts, p)
+
+def Laws.failover_example():
+  {==}
+
+def Laws.failover_budget_example():
+  {==}
+
+def Laws.failover_wait_saturation_exact(len, ts, p, c, above):
+  wait_saturation_walk(len, ts, p, c, above)
+
+def Laws.failover_base_saturation_exact(len, ts, switches, base, max, c, at_least):
+  base_saturation_walk(len, ts, switches, base, max, c, at_least)
 
 # (S6.10) Model and provider facts are data
 # ------------------------------------------
