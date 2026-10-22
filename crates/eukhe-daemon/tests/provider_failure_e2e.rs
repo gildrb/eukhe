@@ -53,6 +53,8 @@ mod durable_store;
 /// 500 with an OpenAI-style error body; the rest get one fixed SSE answer.
 struct FailingMock {
     requests: Arc<Mutex<usize>>,
+    /// When each counted request arrived, in order.
+    arrivals: Arc<Mutex<Vec<Instant>>>,
     port: u16,
 }
 
@@ -79,19 +81,26 @@ impl FailingMock {
         rejection: MockRejection,
     ) -> FailingMock {
         let requests = Arc::new(Mutex::new(0usize));
+        let arrivals = Arc::new(Mutex::new(Vec::new()));
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock");
         let port = listener.local_addr().expect("mock addr").port();
         let requests_for_thread = Arc::clone(&requests);
+        let arrivals_for_thread = Arc::clone(&arrivals);
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
                 let requests = Arc::clone(&requests_for_thread);
+                let arrivals = Arc::clone(&arrivals_for_thread);
                 std::thread::spawn(move || {
-                    let _ = serve(stream, failures, answer, rejection, &requests);
+                    let _ = serve(stream, failures, answer, rejection, &requests, &arrivals);
                 });
             }
         });
-        FailingMock { requests, port }
+        FailingMock {
+            requests,
+            arrivals,
+            port,
+        }
     }
 
     fn url(&self) -> String {
@@ -100,6 +109,15 @@ impl FailingMock {
 
     fn count(&self) -> usize {
         *self.requests.lock().expect("mock lock")
+    }
+
+    /// The time between each counted request and the next.
+    fn gaps(&self) -> Vec<Duration> {
+        let arrivals = self.arrivals.lock().expect("mock lock");
+        arrivals
+            .windows(2)
+            .map(|pair| pair[1].duration_since(pair[0]))
+            .collect()
     }
 }
 
@@ -120,6 +138,7 @@ fn serve(
     answer: &str,
     rejection: MockRejection,
     requests: &Arc<Mutex<usize>>,
+    arrivals: &Arc<Mutex<Vec<Instant>>>,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut head = String::new();
@@ -159,6 +178,7 @@ fn serve(
     let index = {
         let mut requests = requests.lock().expect("mock lock");
         *requests += 1;
+        arrivals.lock().expect("mock lock").push(Instant::now());
         *requests
     };
     if index <= failures {
@@ -646,7 +666,11 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
 /// wait under the policy's exponential step (`baseDelayMs * 2^(attempt-1)`)
 /// and never retries before the server's `Retry-After` (capped at
 /// `retry.provider.maxRetryDelayMs`), so both waits here are the
-/// requested second.
+/// requested second. The provider sees that second: each retry arrives at
+/// least a second after the request it retries. The wire's `delayMs` is
+/// what is LEFT of the wait when the worker translates the retry start
+/// (translator.rs `retry_start`), so it is at most the wait and shrinks
+/// when the translation runs late (a loaded machine read 768 and 0).
 #[test]
 fn storm_429_caps_requests_and_leaves_one_outcome_row() {
     let (_dir, mock, _supervisor, mut client, session_id) = setup_with_rejection(
@@ -702,14 +726,18 @@ fn storm_429_caps_requests_and_leaves_one_outcome_row() {
                 .contains("Too many concurrent requests"),
             "the 429 text: {start}"
         );
-        // The server's one-second Retry-After outranks the 50/100 ms
-        // ladder draws (see the doc above), with rounding headroom.
+        // What is left of the wait never exceeds it: the server's second,
+        // which outranks the 50/100 ms ladder draws, with rounding headroom.
         let delay = start["delayMs"].as_u64().expect("delayMs");
-        assert!(
-            (800..=1_400).contains(&delay),
-            "Retry-After delay {delay} outside [800, 1400]"
-        );
+        assert!(delay <= 1_400, "Retry-After delay {delay} above 1400");
     }
+    // The provider's view: every retry waited the server's whole second
+    // (1 ms less for the millisecond stamps of the retry's due time).
+    let gaps = mock.gaps();
+    assert!(
+        gaps.len() == 2 && gaps.iter().all(|gap| *gap >= Duration::from_millis(999)),
+        "each retry waits the server's Retry-After: {gaps:?}"
+    );
     let end = client
         .events
         .iter()
