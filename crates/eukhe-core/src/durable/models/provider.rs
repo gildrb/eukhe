@@ -327,6 +327,11 @@ async fn run_request(
     let mut chain: Vec<Model> = Vec::new();
     let mut tried: Vec<Tried> = Vec::new();
     let mut switches = 0u32;
+    // A request that left its primary and gives up surfaces the primary's
+    // own latest failure (its quota block is the one that parks), with one
+    // line naming each backup tried and that backup's latest error.
+    let mut primary_failure: Option<AssistantMessage> = None;
+    let mut backup_failures: Vec<(String, String)> = Vec::new();
     loop {
         // Each attempt opens with its own `start`, which drops the failed
         // attempt's partial downstream (the event protocol).
@@ -367,6 +372,21 @@ async fn run_request(
             out.end(None);
             return;
         };
+        if message.stop_reason == StopReason::Error {
+            if serving.provider == primary.provider {
+                primary_failure = Some(message.clone());
+            } else {
+                let reference = model_reference(&serving);
+                let error = final_error_of(&message);
+                match backup_failures
+                    .iter_mut()
+                    .find(|(tried, _)| *tried == reference)
+                {
+                    Some((_, latest)) => *latest = error,
+                    None => backup_failures.push((reference, error)),
+                }
+            }
+        }
         let retryable =
             message.stop_reason == StopReason::Error && is_retryable_assistant_error(&message);
         let next = if retryable && failover.enabled {
@@ -401,7 +421,18 @@ async fn run_request(
                 });
             }
             if matches!(message.stop_reason, StopReason::Error | StopReason::Pending) {
-                finish_failure(inner, out, timing_clock, message, &settings).await;
+                // Only an error after a backup failed takes the primary's
+                // failure; a `pending` terminal and a failure that never
+                // left the primary surface as they are.
+                let gave_up_after_failover =
+                    message.stop_reason == StopReason::Error && !backup_failures.is_empty();
+                let (message, backups) = match primary_failure {
+                    Some(primary_failure) if gave_up_after_failover => {
+                        (primary_failure, failover_note(&backup_failures))
+                    }
+                    Some(_) | None => (message, None),
+                };
+                finish_failure(inner, out, timing_clock, message, backups, &settings).await;
                 return;
             }
             if message.stop_reason == StopReason::Aborted {
@@ -547,12 +578,15 @@ fn original_dispatch(
 
 /// Terminal failure: the quota-park seam, then the failure surfaces. A
 /// parked failure keeps its diagnostics (the server's wait) and gains the
-/// park's own (H4), so no retry resends it to the blocked provider.
+/// park's own (H4), so no retry resends it to the blocked provider. The
+/// park reads the message before `backups` (the failover note) joins its
+/// text.
 async fn finish_failure(
     inner: Arc<Inner>,
     out: AssistantMessageEventStream,
     mut timing_clock: Option<RequestTiming>,
     mut message: AssistantMessage,
+    backups: Option<String>,
     settings: &SettingsManager,
 ) {
     if let Some(clock) = timing_clock.as_mut() {
@@ -570,6 +604,9 @@ async fn finish_failure(
                 error: None,
                 details: details.as_object().cloned(),
             });
+    }
+    if let Some(backups) = backups {
+        message.error_message = Some(format!("{} {backups}", final_error_of(&message)));
     }
     out.push(AssistantMessageEvent::Error {
         reason: error_reason_of(&message),
@@ -607,6 +644,20 @@ fn final_error_of(message: &AssistantMessage) -> String {
         .filter(|error| !error.is_empty())
         .unwrap_or("Unknown error")
         .to_owned()
+}
+
+/// The one-line note of a failed failover: each backup the request tried,
+/// in the order it first went there, with that backup's latest error;
+/// `None` when it tried none.
+fn failover_note(backups: &[(String, String)]) -> Option<String> {
+    if backups.is_empty() {
+        return None;
+    }
+    let tried: Vec<String> = backups
+        .iter()
+        .map(|(reference, error)| format!("{reference}: {error}"))
+        .collect();
+    Some(format!("(failover failed too: {})", tried.join("; ")))
 }
 
 /// The `requestTiming` settings flag of the session.
@@ -1456,6 +1507,101 @@ mod tests {
         );
         assert_eq!(switches(&mut events), Vec::<(String, u64)>::new());
         assert_eq!(fixture.faux_b.get_pending_response_count(), 1);
+    }
+
+    /// Regression (user decision Q1/Q2, 2026-10-22): the primary fails, the
+    /// failover's backup fails too. The request surfaces the primary's own
+    /// latest failure, as the primary's, and one line names the backup
+    /// tried with its error; before, the backup's error replaced it.
+    #[tokio::test]
+    async fn a_failed_failover_surfaces_the_primary_error_and_names_the_backup() {
+        let fixture = fixture(/*text_only*/ false);
+        let model = fixture.faux_a.get_model();
+        fixture
+            .faux_a
+            .set_responses(vec![error_step("503 Service Unavailable")]);
+        fixture
+            .faux_b
+            .set_responses(vec![error_step("401 invalid x-api-key")]);
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        assert_eq!(
+            (
+                message.stop_reason,
+                message.provider.as_str(),
+                message.error_message.as_deref()
+            ),
+            (
+                StopReason::Error,
+                "faux-a",
+                Some(
+                    "503 Service Unavailable (failover failed too: faux-b/shared-1: 401 invalid x-api-key)"
+                )
+            )
+        );
+    }
+
+    /// The primary's far-reset quota block survives a backup's own failure:
+    /// the session parks on the primary's reset (the a2bba960e class with
+    /// the credentials fixed), and the backup is named.
+    #[tokio::test]
+    async fn a_failed_failover_parks_on_the_primary_quota() {
+        let fixture = fixture(/*text_only*/ false);
+        let model = fixture.faux_a.get_model();
+        fixture.faux_a.set_responses(vec![quota_step(3_600_000)]);
+        fixture
+            .faux_b
+            .set_responses(vec![error_step("401 invalid x-api-key")]);
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        let text = message.error_message.as_deref().unwrap_or_default();
+        assert!(
+            fixture.runtime.quota_park().is_some()
+                && text.contains("429 rate limit")
+                && text.ends_with("(failover failed too: faux-b/shared-1: 401 invalid x-api-key)"),
+            "{text}"
+        );
+    }
+
+    /// User decision Q3: a backup's own quota block never parks the
+    /// session. The request returns to the primary, which fails again: the
+    /// primary's LATEST failure surfaces (Q1) and names the backup.
+    #[tokio::test]
+    async fn a_backup_quota_block_never_parks() {
+        let settings = serde_json::json!({
+            "retry": { "failover": { "baseDelayMs": 1, "maxDelayMs": 4 } }
+        });
+        let fixture = fixture_set(/*text_only*/ false, "shared-1", &settings);
+        let model = fixture.faux_a.get_model();
+        fixture.faux_a.set_responses(vec![
+            error_step("503 Service Unavailable"),
+            error_step("503 still down"),
+        ]);
+        fixture.faux_b.set_responses(vec![quota_step(3_600_000)]);
+        let message = drive(
+            &fixture.models,
+            &model,
+            vec![user_message(UserContent::Text("hello".to_owned()))],
+        )
+        .await;
+        assert_eq!(
+            (
+                fixture.runtime.quota_park().is_none(),
+                message.error_message.as_deref()
+            ),
+            (
+                true,
+                Some("503 still down (failover failed too: faux-b/shared-1: 429 rate limit)")
+            )
+        );
     }
 
     /// The switches a request made: each sibling's reference and wait.
