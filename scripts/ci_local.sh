@@ -159,6 +159,9 @@ clippy_touched() {
 tests_touched() {
   select_crates "$1"
   [[ ${#SELECTED[@]} -eq 0 ]] && { echo "tests skipped"; return 0; }
+  # The e2e tests run the other workspace binaries from target/debug, which
+  # `cargo test -p` does not rebuild: a stale one tests old code.
+  clean_env cargo build --workspace --bins --locked
   clean_env cargo test "${SELECTED[@]}" --locked --no-fail-fast
 }
 
