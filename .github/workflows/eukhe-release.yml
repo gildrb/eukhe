@@ -10,7 +10,7 @@
 # of a published release changes nothing). The build jobs build that exact
 # commit. The version is the next patch of the workspace series (Cargo.toml
 # X.Y.0 at that commit): scripts/release/next_version.py, the rule
-# bend/semver.bend models and LAWS R1 (laws/release.bend) proves. The
+# bend/semver.bend models and LAWS.bend section R1 (Release versions) proves. The
 # release is tagged `eukhe-v<version>`, titled `Eukhe v<version>`, marked
 # latest (mise installs it), and pinned for the Nix flake (nix/release.json:
 # url + SRI hash per system). One release runs at a time (the concurrency
