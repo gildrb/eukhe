@@ -673,6 +673,14 @@ import ./proof/kernel_local/kernel_missing_names_install.bend as PKernelMissingN
 import ./proof/kernel_local/kernel_lock_attempt_leaves_none.bend as PKernelLockAttemptLeavesNone
 import ./proof/kernel_local/kernel_lock_sweep_removes_dead.bend as PKernelLockSweepRemovesDead
 import ./proof/kernel_local/kernel_lock_sweep_keeps_live.bend as PKernelLockSweepKeepsLive
+import ./proof/kernel_local/base.bend as LAKernelLocal
+import ./proof/kernel_local/kernel_plan_exact.bend as PKernelPlanExact
+import ./proof/kernel_local/kernel_lock_judge.bend as PKernelLockJudge
+import ./proof/kernel_local/kernel_ffi_answers.bend as PKernelFfiAnswers
+import ./proof/kernel_local/kernel_ffi_malformed.bend as PKernelFfiMalformed
+import ./proof/kernel_local/kernel_ffi_example.bend as PKernelFfiExample
+import ./proof/kernel_local/kernel_start_exact.bend as PKernelStartExact
+import ./proof/kernel_local/kernel_answer_exact.bend as PKernelAnswerExact
 import ./proof/log/base.bend as LALog
 import ./proof/log/log_reads_lines.bend as PLogReadsLines
 import ./proof/log/log_ack_durable.bend as PLogAckDurable

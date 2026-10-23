@@ -1,9 +1,10 @@
-# kernel_local: the model of the kernel setup, the session's tools while
-# the kernel is missing, and the bootstrap lock's leftovers
+# kernel_local: the kernel setup, the session's tools while the kernel is
+# missing, and the bootstrap lock's leftovers
 # (crates/eukhe-core/src/kernel/bootstrap: setup.rs, venv.rs, mod.rs,
-# dir_lock.rs). laws/kernel_local.bend states the laws;
-# proof/kernel_local/ proves them; bridge/bridge_kernel_local.bend
-# runs this model against the Rust code.
+# dir_lock.rs). The setup's plan, the sweep's verdict on each leftover and
+# the lock attempt's verdict run as this code (entry
+# bend/ffi_kernel_local.bend); laws/kernel_local.bend states the laws;
+# proof/kernel_local/ proves them.
 
 import Base
 
@@ -182,16 +183,52 @@ def attempt(l: Lock) -> End:
     case Gone{}:
       Freed{}
 
-def End.crashed(e: End) -> Bool:
-  match e:
-    case Got{}:
-      False{}
-    case Busy{}:
-      False{}
-    case Freed{}:
-      False{}
-    case Crash{}:
-      True{}
+# what an attempt sees once its candidate is written: the candidate was
+# linked to the lock path (the lock is its own), the lock vanished before
+# it was read, the lock names an owner (alive or not), or the lock names
+# none (a lock left half written, or a legacy dir lock without a pid
+# file): then its age in ms, None when its mtime cannot be read or lies in
+# the future
+type Seen is Data:
+  Linked{}
+  Vanished{}
+  Owner{alive: Bool}
+  NoOwner{age: Maybe<&2, Nat>}
+
+# a lock that names no owner is stale only past this age (ms): its writer
+# had that long to finish writing the pid
+def stale_ms() -> Nat:
+  30000n
+
+def lock.past(old: Bool) -> Lock:
+  match old:
+    case True{}:
+      Gone{}
+    case False{}:
+      Live{}
+
+def lock.age(m: Maybe<&2, Nat>) -> Lock:
+  match m:
+    case None{}:
+      Live{}
+    case Some{a}:
+      lock.past(Nat.is_lt(stale_ms(), a))
+
+# the lock an attempt finds, from what it sees
+def lock.of(s: Seen) -> Lock:
+  match s:
+    case Linked{}:
+      Free{}
+    case Vanished{}:
+      Gone{}
+    case Owner{alive}:
+      match alive:
+        case True{}:
+          Live{}
+        case False{}:
+          Gone{}
+    case NoOwner{age}:
+      lock.age(age)
 
 # the attempt's own candidates left after it ends
 def own_left(e: End) -> Nat:
@@ -276,3 +313,21 @@ def lefts.live(ls: List<&2, Left>) -> Nat:
       0n
     case +l <> rest:
       Nat.add(live(l), lefts.live(rest))
+
+# Requests
+# --------
+
+# what Rust asks: the plan of a setup that finds f, the sweep's verdict
+# on each leftover beside the lock, the verdict of a lock attempt
+type Ask is Data:
+  AskPlan{found: Found, setup: Setup}
+  AskSweep{files: List<&2, Left>}
+  AskLock{seen: Seen}
+
+# the sweep's verdict on each file, in order (True: it stays)
+def keeps(ls: List<&2, Left>) -> List<&2, Bool>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      keep(l) <> keeps(rest)

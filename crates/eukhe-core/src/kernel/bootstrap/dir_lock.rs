@@ -5,15 +5,21 @@
 //! An attempt's candidate file (`<lock>.candidate-<pid>-<uuid>`) never
 //! outlives the attempt: a guard removes it on every return path, and the
 //! next acquire sweeps the candidates (and renamed-aside stale locks) of
-//! processes that died inside an attempt. The model is the lock part of
-//! `bend/kernel_local.bend`.
+//! processes that died inside an attempt. Which leftovers go and what an
+//! attempt makes of the lock it finds are decided by the compiled Bend
+//! core (`bend/ffi_kernel_local.bend` requests 1 and 2: `keep` and
+//! `attempt` of `lock.of` in `bend/kernel_local.bend`; laws
+//! `kernel_lock_sweep_removes_dead`, `kernel_lock_sweep_keeps_live`,
+//! `kernel_lock_judge`); this file reads the dir, the lock and the pids,
+//! and does what the core answers.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::venv::{
-    BOOTSTRAP_LOCK_NAME, BOOTSTRAP_LOCK_RETRY_MS, BOOTSTRAP_LOCK_STALE_WITHOUT_PID_MS,
-};
+use eukhe_bend::wire::{Reader, Writer, NAT_MAX};
+use eukhe_bend::{Entry, Error};
+
+use super::venv::{BOOTSTRAP_LOCK_NAME, BOOTSTRAP_LOCK_RETRY_MS};
 
 /// The infix of an attempt's candidate file name.
 const CANDIDATE_INFIX: &str = ".candidate-";
@@ -58,6 +64,59 @@ impl Drop for Candidate {
     }
 }
 
+/// A file beside the lock, as the core's sweep reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Leftover {
+    /// An attempt's candidate, of an owner that lives (`true`) or not.
+    Candidate(bool),
+    /// A stale lock an attempt renamed aside, of an owner that lives or not.
+    Aside(bool),
+    /// Any other file: not a leftover, or one whose owner it does not name.
+    Other,
+}
+
+/// The leftover `file_name` is beside the lock `lock_name`.
+fn leftover(lock_name: &str, file_name: &str) -> Leftover {
+    let Some(rest) = file_name.strip_prefix(lock_name) else {
+        return Leftover::Other;
+    };
+    let (token, aside) = match (
+        rest.strip_prefix(CANDIDATE_INFIX),
+        rest.strip_prefix(STALE_INFIX),
+    ) {
+        (Some(token), _) => (token, false),
+        (None, Some(token)) => (token, true),
+        (None, None) => return Leftover::Other,
+    };
+    match strict_pid(token.split_once('-').map(|(pid, _)| pid)) {
+        Some(owner) if aside => Leftover::Aside(is_process_alive(owner)),
+        Some(owner) => Leftover::Candidate(is_process_alive(owner)),
+        None => Leftover::Other,
+    }
+}
+
+/// The core's sweep verdict on each of `files`, in order: `true` keeps it.
+fn keeps(files: &[Leftover]) -> Result<Vec<bool>, Error> {
+    let mut request = Writer::new();
+    request.tag(1).count(files.len());
+    for file in files {
+        match *file {
+            Leftover::Candidate(alive) => request.tag(0).bool(alive),
+            Leftover::Aside(alive) => request.tag(1).bool(alive),
+            Leftover::Other => request.tag(2).bool(true),
+        };
+    }
+    let reply = eukhe_bend::call(Entry::KernelLocal, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let count = reader.count()?;
+    let mut kept = Vec::with_capacity(count.min(files.len()));
+    for _ in 0..count {
+        kept.push(reader.bool()?);
+    }
+    reader.end()?;
+    Ok(kept)
+}
+
 /// Remove the leftovers of attempts whose process is gone: an attempt's
 /// candidate (`<lock>.candidate-<pid>-<uuid>`) or a stale lock it renamed
 /// aside (`<lock>.stale-<pid>-<uuid>`), left by a process that died inside
@@ -76,29 +135,102 @@ pub(crate) fn sweep_leftovers(lock_path: &Path) {
             return;
         }
     };
-    for entry in entries.flatten() {
-        let file_name = entry.file_name();
-        let Some(token) = file_name
-            .to_str()
-            .and_then(|name| name.strip_prefix(lock_name))
-            .and_then(|rest| {
-                rest.strip_prefix(CANDIDATE_INFIX)
-                    .or_else(|| rest.strip_prefix(STALE_INFIX))
-            })
-        else {
+    let (paths, files): (Vec<PathBuf>, Vec<Leftover>) = entries
+        .flatten()
+        .map(|entry| {
+            let file = entry
+                .file_name()
+                .to_str()
+                .map_or(Leftover::Other, |name| leftover(lock_name, name));
+            (entry.path(), file)
+        })
+        .unzip();
+    let kept = eukhe_bend::expect_core(Entry::KernelLocal, keeps(&files));
+    for (path, keep) in paths.iter().zip(kept) {
+        if keep {
             continue;
-        };
-        match strict_pid(token.split_once('-').map(|(pid, _)| pid)) {
-            Some(owner) if !is_process_alive(owner) => {}
-            Some(_) | None => continue,
         }
-        match std::fs::remove_file(entry.path()) {
+        match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
-                tracing::warn!(%error, path = %entry.path().display(), "kernel lock leftover not removed");
+                tracing::warn!(%error, path = %path.display(), "kernel lock leftover not removed");
             }
         }
+    }
+}
+
+/// What an attempt saw at the lock path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Seen {
+    /// Its candidate was linked there: the lock is its own.
+    Linked,
+    /// The lock vanished before it was read.
+    Vanished,
+    /// The lock names an owner that lives (`true`) or not.
+    Owner(bool),
+    /// The lock names no owner; its age in ms (`None`: unknown).
+    NoOwner(Option<u64>),
+}
+
+/// The core's verdict on an attempt that saw `seen`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    /// The lock is the attempt's.
+    Got,
+    /// The lock is held: wait and retry.
+    Busy,
+    /// The lock is stale: rename it aside and remove it.
+    Free,
+}
+
+fn verdict(seen: Seen) -> Result<Verdict, Error> {
+    let mut request = Writer::new();
+    request.tag(2);
+    match seen {
+        Seen::Linked => request.tag(0),
+        Seen::Vanished => request.tag(1),
+        Seen::Owner(alive) => request.tag(2).bool(alive),
+        Seen::NoOwner(None) => request.tag(3).none(),
+        Seen::NoOwner(Some(age_ms)) => request.tag(3).some().nat(age_ms.min(NAT_MAX)),
+    };
+    let reply = eukhe_bend::call(Entry::KernelLocal, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let verdict = match reader.tag_of(3, "a lock attempt's end")? {
+        0 => Verdict::Got,
+        1 => Verdict::Busy,
+        // `tag_of` answers a tag below 3: this is 2.
+        _ => Verdict::Free,
+    };
+    reader.end()?;
+    Ok(verdict)
+}
+
+/// The age of the lock at `lock_path` in ms; `None` when its mtime cannot
+/// be read or lies in the future.
+fn lock_age_ms(lock_path: &Path) -> Option<u64> {
+    let modified = std::fs::metadata(lock_path).ok()?.modified().ok()?;
+    let age = std::time::SystemTime::now().duration_since(modified).ok()?;
+    Some(u64::try_from(age.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// What the lock at `lock_path` names, read after a failed link.
+fn seen_at(lock_path: &Path) -> Seen {
+    let owner = match std::fs::read_to_string(lock_path) {
+        Ok(raw) => strict_pid(Some(&raw)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Seen::Vanished,
+        Err(error) if error.kind() == std::io::ErrorKind::IsADirectory => {
+            // Legacy directory lock from the old protocol.
+            match std::fs::read_to_string(lock_path.join("pid")) {
+                Ok(raw) => strict_pid(Some(&raw)),
+                Err(_) => None,
+            }
+        }
+        Err(_) => None,
+    };
+    match owner {
+        Some(pid) => Seen::Owner(is_process_alive(pid)),
+        None => Seen::NoOwner(lock_age_ms(lock_path)),
     }
 }
 
@@ -117,61 +249,34 @@ pub(crate) fn try_acquire_dir_lock(lock_path: &Path) -> anyhow::Result<DirLockAt
         writeln!(file, "{}", std::process::id())?;
     }
     // The primary signal: link() publishing the candidate under the lock path.
-    if std::fs::hard_link(&candidate.0, lock_path).is_ok() {
-        return Ok(DirLockAttempt::Acquired);
-    }
-    // Judge the incumbent: dead owner (or no owner readable) means stale.
-    let judge = match std::fs::read_to_string(lock_path) {
-        Ok(raw) => strict_pid(Some(&raw)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(DirLockAttempt::Reclaimed);
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::IsADirectory => {
-            // Legacy directory lock from the old protocol.
-            let pid_file = lock_path.join("pid");
-            match std::fs::read_to_string(pid_file) {
-                Ok(raw) => strict_pid(Some(&raw)),
-                Err(_) => None,
-            }
-        }
-        Err(_) => None,
-    };
-    let stale = match judge {
-        None => lock_missing_pid_is_stale(lock_path),
-        Some(pid) => !is_process_alive(pid),
-    };
-    let result = if stale {
-        let aside_path = lock_path.with_file_name(format!(
-            "{}{STALE_INFIX}{token}",
-            lock_path.file_name().unwrap_or_default().to_string_lossy(),
-        ));
-        match std::fs::rename(lock_path, &aside_path) {
-            Ok(()) => {
-                if std::fs::remove_file(&aside_path).is_ok() {
-                    DirLockAttempt::Reclaimed
-                } else {
-                    DirLockAttempt::Held
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => DirLockAttempt::Reclaimed,
-            Err(_) => DirLockAttempt::Held,
-        }
+    let seen = if std::fs::hard_link(&candidate.0, lock_path).is_ok() {
+        Seen::Linked
     } else {
-        DirLockAttempt::Held
+        seen_at(lock_path)
     };
-    Ok(result)
-}
-
-fn lock_missing_pid_is_stale(lock_path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(lock_path) else {
-        return false;
-    };
-    let Ok(modified) = meta.modified() else {
-        return false;
-    };
-    std::time::SystemTime::now()
-        .duration_since(modified)
-        .is_ok_and(|age| age.as_millis() as u64 > BOOTSTRAP_LOCK_STALE_WITHOUT_PID_MS)
+    Ok(match verdict(seen)? {
+        Verdict::Got => DirLockAttempt::Acquired,
+        Verdict::Busy => DirLockAttempt::Held,
+        Verdict::Free => {
+            let aside_path = lock_path.with_file_name(format!(
+                "{}{STALE_INFIX}{token}",
+                lock_path.file_name().unwrap_or_default().to_string_lossy(),
+            ));
+            match std::fs::rename(lock_path, &aside_path) {
+                Ok(()) => {
+                    if std::fs::remove_file(&aside_path).is_ok() {
+                        DirLockAttempt::Reclaimed
+                    } else {
+                        DirLockAttempt::Held
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    DirLockAttempt::Reclaimed
+                }
+                Err(_) => DirLockAttempt::Held,
+            }
+        }
+    })
 }
 
 /// Serialize concurrent bootstraps across processes on the same venv.
@@ -198,5 +303,31 @@ pub(crate) async fn acquire_bootstrap_lock(venv: &Path) -> anyhow::Result<impl D
                 tokio::time::sleep(std::time::Duration::from_millis(BOOTSTRAP_LOCK_RETRY_MS)).await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sweep's and the attempt's verdicts come from the compiled core:
+    /// a dead attempt's candidate and stale lock go, a live one's and any
+    /// other file stay; a lock naming no owner frees past 30 s, not at it.
+    #[test]
+    fn the_lock_verdicts_come_from_the_compiled_core() {
+        let files = [
+            Leftover::Candidate(false),
+            Leftover::Candidate(true),
+            Leftover::Aside(false),
+            Leftover::Other,
+        ];
+        assert_eq!(
+            (
+                keeps(&files).expect("the sweep"),
+                verdict(Seen::NoOwner(Some(30_001))).expect("an old lock"),
+                verdict(Seen::NoOwner(Some(30_000))).expect("a young lock"),
+            ),
+            (vec![false, true, false, true], Verdict::Free, Verdict::Busy)
+        );
     }
 }

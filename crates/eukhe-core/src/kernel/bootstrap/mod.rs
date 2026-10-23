@@ -9,10 +9,10 @@
 //!
 //! Ported from `core/kernel/bootstrap.ts`.
 
-#[cfg(test)]
-mod bridge;
 pub(crate) mod dir_lock;
 mod disk_memo;
+#[cfg(test)]
+mod missing_kernel_tests;
 mod runtime_code;
 mod setup;
 pub(crate) mod venv;
@@ -334,19 +334,18 @@ async fn ensure_kernel_python_uncached(
                 )
                 .await?;
             }
-            SetupStep::Build(fetch) => {
-                options.report(match fetch {
-                    Fetch::Offline => "> setting up python kernel from local files...",
-                    Fetch::Download => {
-                        "> installing python kernel (downloads Python and the hash-locked packages)..."
-                    }
+            SetupStep::Build(fetches) => {
+                options.report(if fetches.contains(&Fetch::Download) {
+                    "> installing python kernel (downloads Python and the hash-locked packages)..."
+                } else {
+                    "> setting up python kernel from local files..."
                 });
                 if venv.exists() {
                     options.report("rebuilding kernel venv");
                     std::fs::remove_dir_all(&venv)
                         .with_context(|| format!("removing {}", venv.display()))?;
                 }
-                bootstrap_venv(&venv, python_skills, options, fetch).await?;
+                bootstrap_venv(&venv, python_skills, options, fetches).await?;
                 options.report("ok ready");
             }
         }

@@ -1062,6 +1062,7 @@ async fn skill_sync_falls_back_to_per_skill_installs_on_batch_failure() {
 
 #[test]
 fn venv_builds_only_from_the_hash_locked_runtime_source() {
+    use crate::kernel::bootstrap::setup::{setup_step, Found, KernelSetup, SetupStep};
     // Regression: the base install named the bare `eukhe-runtime`, `dill`,
     // and twelve unversioned extras, all resolved from an index.
     let venv = Path::new("/state/kernel-venv");
@@ -1074,10 +1075,10 @@ fn venv_builds_only_from_the_hash_locked_runtime_source() {
             strings(&[
                 "venv",
                 "--no-config",
-                "--offline",
                 "/state/kernel-venv",
                 "--python",
                 "3.11",
+                "--offline",
             ]),
             strings(
                 &[
@@ -1106,18 +1107,21 @@ fn venv_builds_only_from_the_hash_locked_runtime_source() {
                 "--no-deps",
                 "--no-index",
                 "--no-build-isolation",
-                "--offline",
                 "/opt/eukhe/eukhe-runtime",
+                "--offline",
             ]),
         ]
+    };
+    let build = |setup| match setup_step(Found::Stale, setup) {
+        SetupStep::Build(fetches) => venv_build_commands(venv, python, source, fetches),
+        other @ (SetupStep::Use | SetupStep::SyncSkills) => {
+            panic!("a stale venv is built, not {other:?}")
+        }
     };
     // Regression: a session's build downloaded Python and the locked
     // packages; every command of a session's build is offline now.
     assert_eq!(
-        (
-            venv_build_commands(venv, python, source, Fetch::Download),
-            venv_build_commands(venv, python, source, Fetch::Offline),
-        ),
+        (build(KernelSetup::Install), build(KernelSetup::Local)),
         (commands(&[]), commands(&["--offline"]))
     );
 }
