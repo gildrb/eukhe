@@ -9,7 +9,7 @@ import ../bend/doc_tags.bend as Dt
 # read or a grep, and any text the file holds when grep records its
 # result.
 
-# LAW: the tag of a read or grep result names the text its rows come
+# LAW tag_names_shown_text: the tag of a read or grep result names the text its rows come
 # from: the tag is the identity of that text, and every row (n, x) is
 # line n of it
 law tag_names_shown_text:

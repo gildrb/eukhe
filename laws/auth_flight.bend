@@ -18,12 +18,12 @@ import ../bend/auth_flight.bend as F
 # Every input is free: any callers, their steps in any order, any fetch
 # results, peer writes and expiries at any time.
 
-# LAW: at most one fetch is in flight
+# LAW flight_one_fetch: at most one fetch is in flight
 law flight_one_fetch:
   for +evs: List<&2, F.Ev>
   {F.le(F.fetching(F.St.cs(F.run(evs))), 1n) == True{} : Bool}
 
-# LAW: a caller that boards while flight f is in flight (caller j leads
+# LAW flight_board_joins: a caller that boards while flight f is in flight (caller j leads
 # it) joins flight f
 law flight_board_joins:
   for +evs: List<&2, F.Ev>
@@ -37,7 +37,7 @@ law flight_board_joins:
   for boards: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Board{}} : Maybe<&2, F.Leg>}
   {List.get(&2, F.Leg, F.St.cs(F.step(F.run(evs), F.Step{k, ok})), k) == Some{F.Waiting{f}} : Maybe<&2, F.Leg>}
 
-# LAW: every caller of flight f (its leader, and each caller that joined
+# LAW flight_callers_get_its_outcome: every caller of flight f (its leader, and each caller that joined
 # it) gets the outcome flight f landed with
 law flight_callers_get_its_outcome:
   for +evs: List<&2, F.Ev>
@@ -47,7 +47,7 @@ law flight_callers_get_its_outcome:
   for served: {List.get(&2, F.Leg, F.St.cs(F.run(evs)), k) == Some{F.Served{Some{f}, o}} : Maybe<&2, F.Leg>}
   {List.get(&2, F.Out, F.W.landed(F.St.w(F.run(evs))), f) == Some{o} : Maybe<&2, F.Out>}
 
-# LAW: a caller that joined flight f takes its outcome at its next step
+# LAW flight_landed_serves: a caller that joined flight f takes its outcome at its next step
 # once flight f landed
 law flight_landed_serves:
   for +s: F.St
@@ -59,7 +59,7 @@ law flight_landed_serves:
   for landed: {List.get(&2, F.Out, F.W.landed(F.St.w(s)), f) == Some{o} : Maybe<&2, F.Out>}
   {List.get(&2, F.Leg, F.St.cs(F.step(s, F.Step{k, ok})), k) == Some{F.Served{Some{f}, o}} : Maybe<&2, F.Leg>}
 
-# LAW: a flight ends after its credential is stored: once caller k lands
+# LAW flight_after_end_stored: a flight ends after its credential is stored: once caller k lands
 # flight f with credential c, the store holds c or a newer credential, so a
 # caller after the end sees the stored credential
 law flight_after_end_stored:
@@ -71,7 +71,7 @@ law flight_after_end_stored:
   for +ok: Bool
   {F.le(c, F.Sto.c(F.W.sto(F.St.w(F.step(F.run(evs), F.Step{k, ok}))))) == True{} : Bool}
 
-# LAW: a caller after the end sees the stored credential: once caller k
+# LAW flight_after_end_served: a caller after the end sees the stored credential: once caller k
 # lands flight f with credential c, a caller that arrives while the store
 # is fresh is served the stored credential, c or a newer one
 law flight_after_end_served:

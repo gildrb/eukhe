@@ -10,7 +10,7 @@ import ../bend/doc_search.bend as Sr
 # that do not open, excluded directories, symlinks, walk errors, in any
 # order), any match cap of a file, any total match cap, any page.
 
-# LAW: every walked entry is in exactly one class (no match, shown,
+# LAW grep_accounts_every_file: every walked entry is in exactly one class (no match, shown,
 # paged out, not searched, or skipped with its reason): the classes add
 # up to the walk
 law grep_accounts_every_file:
@@ -22,14 +22,14 @@ law grep_accounts_every_file:
   for +n: Nat
   {Sr.Count.total(Sr.account(Sr.run(es, p, s, k, rem, n))) == List.length(&2, Sr.Ent, es) : Nat}
 
-# LAW: a result has the notice of a class of entries it did not search,
+# LAW grep_notes_every_gap: a result has the notice of a class of entries it did not search,
 # skipped, or searched only in part exactly when that class is not empty
 law grep_notes_every_gap:
   for +os: List<&2, Sr.Out>
   for +t: Sr.Note
   {Sr.noted(t, os) == Bool.not(Nat.is_eq(Sr.Note.count(Sr.account(os), t), 0n)) : Bool}
 
-# LAW: a shown file whose matches were cut has its own notice
+# LAW grep_notes_every_cut: a shown file whose matches were cut has its own notice
 law grep_notes_every_cut:
   for +pre: List<&2, Sr.Out>
   for +i: Nat
@@ -43,7 +43,7 @@ law grep_notes_every_cut:
 # matching files of grep, the ranked paths of glob), any skip, any page
 # size, and the continuation the page gives.
 
-# LAW: a continuation gives a page that is not empty
+# LAW continuation_progresses: a continuation gives a page that is not empty
 law continuation_progresses:
   for +ps: List<&2, Nat>
   for +s: Nat
@@ -52,7 +52,7 @@ law continuation_progresses:
   for h: {Sr.next(ps, s, k) == Some{c} : Maybe<&2, Nat>}
   {List.is_empty(&2, Nat, Sr.page(ps, c, k)) == False{} : Bool}
 
-# LAW: a page and the page of its continuation are, together, the start
+# LAW continuation_contiguous: a page and the page of its continuation are, together, the start
 # of the list after the skip: nothing left out between them, nothing
 # twice
 law continuation_contiguous:
@@ -64,7 +64,7 @@ law continuation_contiguous:
   exs rest: List<&2, Nat>
   {List.append(&2, Nat, Sr.page(ps, s, k), List.append(&2, Nat, Sr.page(ps, c, k), rest)) == List.drop(&2, Nat, ps, s) : List<&2, Nat>}
 
-# LAW: in a list with no item twice, a page and the page of its
+# LAW continuation_disjoint: in a list with no item twice, a page and the page of its
 # continuation have no item in common
 law continuation_disjoint:
   for +ps: List<&2, Nat>

@@ -13,13 +13,13 @@ import ./base.bend as LawsBase
 # any blocks, growths, finals, flushes and resizes in any order; any
 # chunk sizes and frames; any check results; any child heights.
 
-# LAW: committed blocks come first: the scrollback has no gap
+# LAW tx_gapless: committed blocks come first: the scrollback has no gap
 law tx_gapless:
   for es: List<&2, Sc.Ev>
   for +w: Nat
   {Sc.gapless(Sc.Tx.blocks(Sc.run(es, Sc.Tx{Nil{}, 0n, w}))) == True{} : Bool}
 
-# LAW: the scrollback only grows: what is committed stays, unchanged, in
+# LAW tx_scrollback_append_only: the scrollback only grows: what is committed stays, unchanged, in
 # its place, whatever comes after
 law tx_scrollback_append_only:
   for +pre: List<&2, Sc.Ev>
@@ -27,26 +27,26 @@ law tx_scrollback_append_only:
   for +w: Nat
   {Sc.pre(Sc.scroll(Sc.Tx.blocks(Sc.run(pre, Sc.Tx{Nil{}, 0n, w}))), Sc.scroll(Sc.Tx.blocks(Sc.run(List.append(&2, Sc.Ev, pre, post), Sc.Tx{Nil{}, 0n, w})))) == True{} : Bool}
 
-# LAW: a resize writes no block again
+# LAW tx_resize_keeps: a resize writes no block again
 law tx_resize_keeps:
   for +t: Sc.Tx
   for +w: Nat
   {Sc.Tx.blocks(Sc.step(t, Sc.Resize{w})) == Sc.Tx.blocks(t) : List<&2, Sc.Blk>}
 
-# LAW: after a flush no final block waits: the first block not committed
+# LAW tx_flush_settles: after a flush no final block waits: the first block not committed
 # is active
 law tx_flush_settles:
   for +t: Sc.Tx
   {Sc.flushed(Sc.Tx.blocks(Sc.step(t, Sc.Flush{}))) == True{} : Bool}
 
-# LAW: the screen never shows text that did not arrive
+# LAW pace_never_ahead: the screen never shows text that did not arrive
 law pace_never_ahead:
   for es: List<&2, Sc.PEv>
   for +min: Nat
   for +k: Nat
   {Nat.is_le(Sc.Pace.shown(Sc.pace.run(es, min, k, Sc.Pace{0n, 0n})), Sc.Pace.recv(Sc.pace.run(es, min, k, Sc.Pace{0n, 0n}))) == True{} : Bool}
 
-# LAW: the screen never shows less than before
+# LAW pace_never_back: the screen never shows less than before
 law pace_never_back:
   for +min: Nat
   for +k: Nat
@@ -54,7 +54,7 @@ law pace_never_back:
   for e: Sc.PEv
   {Nat.is_le(Sc.Pace.shown(p), Sc.Pace.shown(Sc.pace.step(min, k, p, e))) == True{} : Bool}
 
-# LAW: with a minimum of at least 1, a backlog of b characters is all
+# LAW pace_drains: with a minimum of at least 1, a backlog of b characters is all
 # shown after b frames
 law pace_drains:
   for +min: Nat
@@ -66,7 +66,7 @@ law pace_drains:
   for enough: {Nat.is_le(Nat.sub(Sc.Pace.recv(p), Sc.Pace.shown(p)), n) == True{} : Bool}
   {Sc.Pace.shown(Sc.pace.run(Sc.frames(n), min, k, p)) == Sc.Pace.recv(p) : Nat}
 
-# LAW: only a frame that passed its check reaches the terminal, and a
+# LAW verify_only_checked: only a frame that passed its check reaches the terminal, and a
 # frame that failed both checks is reported
 law verify_only_checked:
   for f: Nat
@@ -93,7 +93,7 @@ def screen_paint_spec(f: Nat, g: Nat, h: Nat, ok1: Bool, ok2: Bool, ok3: Bool) -
             case False{}:
               Sc.Kept{f}
 
-# LAW: the screen never stops: the first check that passes picks what
+# LAW paint_first_passing_check: the screen never stops: the first check that passes picks what
 # reaches the terminal (the frame, its full redraw, its fresh redraw on a
 # blank screen); when all three fail nothing is drawn, the first frame is
 # kept, and the surface goes on
@@ -109,21 +109,21 @@ law paint_first_passing_check:
   for +ok3: Bool
   {Sc.resync(Sc.present(f, g, ok1, ok2), h, ok3) == screen_paint_spec(f, g, h, ok1, ok2, ok3) : Sc.Paint}
 
-# LAW: no child is drawn outside the viewport
+# LAW layout_inside: no child is drawn outside the viewport
 law layout_inside:
   for hs: List<&2, Nat>
   for +y: Nat
   for +rows: Nat
   {Sc.inside(Sc.vstack(hs, y, rows), rows) == True{} : Bool}
 
-# LAW: no two children overlap
+# LAW layout_apart: no two children overlap
 law layout_apart:
   for hs: List<&2, Nat>
   for +y: Nat
   for +rows: Nat
   {Sc.apart(Sc.vstack(hs, y, rows), y) == True{} : Bool}
 
-# LAW: children that fit are drawn whole
+# LAW layout_whole_when_room: children that fit are drawn whole
 law layout_whole_when_room:
   for +hs: List<&2, Nat>
   for +y: Nat
@@ -131,7 +131,7 @@ law layout_whole_when_room:
   for fits: {Nat.is_le(Nat.add(y, Sc.sum(hs)), rows) == True{} : Bool}
   {Sc.heights(Sc.vstack(hs, y, rows)) == hs : List<&2, Nat>}
 
-# LAW: the guarded share is the plain formula, for every minimum, lag and
+# LAW pace_reveal_formula: the guarded share is the plain formula, for every minimum, lag and
 # backlog: a frame reveals min(b, max(min, b / (1 + k)))
 # EXCLUDES: a guard (no 1 + k formed when k >= b) that changes the
 # reveal for some lag
@@ -141,7 +141,7 @@ law pace_reveal_formula:
   for +b: Nat
   {Sc.reveal(min, k, b) == Nat.min(b, Nat.max(min, Nat.div(b, 1n+k))) : Nat}
 
-# LAW: a lag at least the backlog reveals the minimum (the whole backlog
+# LAW pace_lag_at_cap: a lag at least the backlog reveals the minimum (the whole backlog
 # when it is smaller). Rust saturates the lag at the cap of the compiled
 # core's numbers (2^48 - 1), which is at least every backlog it holds: a
 # lag at the cap reveals the minimum
@@ -175,7 +175,7 @@ def under(cs: List<&2, Sc.Blk>, t: Sc.Tx) -> Sc.Tx:
     case Sc.Tx{bs, n, w}:
       Sc.Tx{List.append(&2, Sc.Blk, cs, bs), n, w}
 
-# LAW: committed blocks are inert. Any events on a transcript whose
+# LAW tx_committed_inert: committed blocks are inert. Any events on a transcript whose
 # blocks start with committed blocks cs give the transcript the same
 # events give without cs, with cs in front. So the core runs on the blocks
 # after the committed prefix alone (Rust sends only those)
@@ -190,12 +190,12 @@ law tx_committed_inert:
   for comm: {all_comm(cs) == True{} : Bool}
   {Sc.run(es, Sc.Tx{List.append(&2, Sc.Blk, cs, bs), n, w}) == under(cs, Sc.run(es, Sc.Tx{bs, n, w})) : Sc.Tx}
 
-# LAW: the premise of tx_committed_inert holds for a real prefix
+# LAW all_comm_example: the premise of tx_committed_inert holds for a real prefix
 # EXCLUDES: an all_comm that is never True (a vacuous inert law)
 law all_comm_example:
   {all_comm([Sc.Blk{0n, Sc.Comm{}, 3n}, Sc.Blk{1n, Sc.Comm{}, 0n}]) == True{} : Bool}
 
-# LAW: a prefix with a final or an active block is not committed
+# LAW all_comm_rejects: a prefix with a final or an active block is not committed
 # EXCLUDES: an all_comm that is always True
 law all_comm_rejects:
   {Bool.or(all_comm([Sc.Blk{0n, Sc.Final{}, 0n}]), all_comm([Sc.Blk{0n, Sc.Comm{}, 0n}, Sc.Blk{1n, Sc.Active{}, 0n}])) == False{} : Bool}
@@ -216,7 +216,7 @@ law all_comm_rejects:
 # they hold for the reply a recovery makes. A recovery does not depend on
 # the retry policy: a note is a new request, not a transient error.
 
-# LAW: a length stop with no answer under the cap (fewer than `long`
+# LAW rec_length_retries_with_a_note: a length stop with no answer under the cap (fewer than `long`
 # length notes in a row) is retried with the next length note
 law rec_length_retries_with_a_note:
   for +rc: RnRecovery.RCfg
@@ -227,7 +227,7 @@ law rec_length_retries_with_a_note:
   for under: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Long{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
 
-# LAW: leaked calls that were not rebuilt, under the cap, are retried with
+# LAW rec_leak_retries_with_a_note: leaked calls that were not rebuilt, under the cap, are retried with
 # the next leak note
 law rec_leak_retries_with_a_note:
   for +rc: RnRecovery.RCfg
@@ -293,7 +293,7 @@ def tx_fits(t: Sc.Tx) -> Bool:
     case Sc.Tx{+bs, n, w}:
       Bool.and(LawsBase.wire_fits(List.length(&2, Sc.Blk, bs)), Bool.and(blks_fit(bs), Bool.and(LawsBase.wire_fits(n), LawsBase.wire_fits(w))))
 
-# LAW: the entry runs a frame's events as the model: the reply to a Run
+# LAW screen_ffi_run: the entry runs a frame's events as the model: the reply to a Run
 # request is the transcript Sc.run gives, encoded
 # EXCLUDES: an entry that misreads a block, an event or the order of the
 # events, that drops or invents an event, or answers another transcript
@@ -304,7 +304,7 @@ law screen_ffi_run:
   for +fe: {Bool.and(LawsBase.wire_fits(List.length(&2, Sc.Ev, es)), evs_fit(es)) == True{} : Bool}
   {FSc.ffi(FSc.put_req(FSc.ReqRun{t, es}, "")) == FSc.put_tx(Sc.run(es, t), "") : String}
 
-# LAW: the entry paces a frame as the model: n characters arrive, then a
+# LAW screen_ffi_pace: the entry paces a frame as the model: n characters arrive, then a
 # frame shows its share
 # EXCLUDES: an entry that swaps the minimum and the lag, reads recv and
 # shown the wrong way round, or frames before the characters arrive
@@ -317,7 +317,7 @@ law screen_ffi_pace:
   for +f: {Bool.and(Bool.and(LawsBase.wire_fits(min), LawsBase.wire_fits(k)), Bool.and(Bool.and(LawsBase.wire_fits(r), LawsBase.wire_fits(s)), LawsBase.wire_fits(n))) == True{} : Bool}
   {FSc.ffi(FSc.put_req(FSc.ReqPace{min, k, Sc.Pace{r, s}, n}, "")) == FSc.put_pace(Sc.pace.run([Sc.Chunk{n}, Sc.Frame{}], min, k, Sc.Pace{r, s}), "") : String}
 
-# LAW: the entry stacks children as the model
+# LAW screen_ffi_stack: the entry stacks children as the model
 # EXCLUDES: an entry that misreads a height, the start row or the rows
 law screen_ffi_stack:
   for +hs: List<&2, Nat>
@@ -326,14 +326,14 @@ law screen_ffi_stack:
   for +f: {Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, Nat, hs)), LawsBase.wire_nats_fit(hs)), Bool.and(LawsBase.wire_fits(y), LawsBase.wire_fits(rows))) == True{} : Bool}
   {FSc.ffi(FSc.put_req(FSc.ReqStack{hs, y, rows}, "")) == Wr.put_list(~Sc.Rect, ~FSc.put_rect, Sc.vstack(hs, y, rows), "") : String}
 
-# LAW: the requests Rust writes, as text: a frame (blocks 5 and 6 live,
+# LAW screen_ffi_example: the requests Rust writes, as text: a frame (blocks 5 and 6 live,
 # open one, finish 5, flush), a pace frame and a stack, with their replies
 # EXCLUDES: a request or reply format other than WIRE.md's (tags, field
 # order, counts)
 law screen_ffi_example:
   {[FSc.ffi("0,2,5,0,0,6,0,0,7,80,3,0,2,5,3,"), FSc.ffi("1,2,3,0,0,400,"), FSc.ffi("2,3,2,3,4,1,5,")] == ["3,5,2,0,6,0,0,7,0,0,8,80,", "400,100,", "3,1,2,3,2,6,0,"] : List<&2, String>}
 
-# LAW: a malformed request or one with input left over answers the error
+# LAW screen_ffi_refuses_example: a malformed request or one with input left over answers the error
 # form, never a reply
 # EXCLUDES: a default reply to a request the entry could not read
 law screen_ffi_refuses_example:
@@ -379,7 +379,7 @@ def screen_paint_step(open: Bool, p: Sc.Paint) -> Maybe<&2, Sc.Paint>:
     case False{}:
       Some{p}
 
-# LAW: after any number of checks, the entry asks for the next check
+# LAW screen_ffi_paint: after any number of checks, the entry asks for the next check
 # exactly while every check run so far failed (and fewer than three ran),
 # and otherwise answers the paint of the first passing check
 # (screen_paint_spec, the spec of paint_first_passing_check), whatever
@@ -395,7 +395,7 @@ law screen_ffi_paint:
   for +ok3: Bool
   {FSc.ffi(FSc.put_req(FSc.ReqPaint{screen_paint_checks(ok1, ok2, ok3, k)}, "")) == FSc.put_step(screen_paint_step(screen_paint_open(screen_paint_checks(ok1, ok2, ok3, k)), screen_paint_spec(0n, 1n, 2n, ok1, ok2, ok3)), "") : String}
 
-# LAW: the paint requests Rust writes, as text, with their replies; more
+# LAW screen_ffi_paint_example: the paint requests Rust writes, as text, with their replies; more
 # than three checks is refused
 # EXCLUDES: a request or reply format other than WIRE.md's (Bools as T
 # and F with no comma, the step tags); a reply to a fourth check

@@ -22,7 +22,7 @@ import ./base.bend as LawsBase
 # notes), so events alone (streamed deltas, retries, answers) are no
 # progress. The watch of bend/child.bend reads the token.
 
-# LAW: acts the session did before add no work: a child that repeats the
+# LAW child_repeat_is_no_work: acts the session did before add no work: a child that repeats the
 # same calls with the same results keeps its token
 law child_repeat_is_no_work:
   for +seen: List<&2, Nat>
@@ -30,7 +30,7 @@ law child_repeat_is_no_work:
   for within: Pr.Within(loop, seen)
   {Pr.work(List.append(&2, Nat, seen, loop)) == Pr.work(seen) : Nat}
 
-# LAW: a child that loops is a stall: polls of a child whose acts since
+# LAW child_loop_is_a_stall: a child that loops is a stall: polls of a child whose acts since
 # the watch last saw progress are all acts it did before, at least as many
 # as the ms left on the clock, end the watch (each poll takes 1 ms or more)
 law child_loop_is_a_stall:
@@ -44,7 +44,7 @@ law child_loop_is_a_stall:
   for long: {Nat.is_le(Ch.W.left(w), List.length(&2, Pr.Peek, p <> ps)) == True{} : Bool}
   {Ch.Next.watching(Pr.watch(p <> ps, cfg, hist, Ch.Watch{w})) == False{} : Bool}
 
-# LAW: new work is progress: a poll after an act the child never did
+# LAW child_new_work_is_progress: new work is progress: a poll after an act the child never did
 # before goes on with a full clock
 law child_new_work_is_progress:
   for +cfg: Ch.Cfg
@@ -63,7 +63,7 @@ law child_new_work_is_progress:
 # At each goal continuation the progress check asks whether the work grew
 # since the last continuation (Pr.check, cap: directors.stallSteps).
 
-# LAW: continuations in a row whose acts are all acts the session did
+# LAW goal_stops_without_progress: continuations in a row whose acts are all acts the session did
 # before, at least as many as the cap, stop the goal, whatever count of
 # stalls it starts from
 law goal_stops_without_progress:
@@ -76,7 +76,7 @@ law goal_stops_without_progress:
   for long: {Nat.is_le(cap, List.length(&2, List<&2, Nat>, seg <> segs)) == True{} : Bool}
   {Pr.Goal.stopped(Pr.goal(seg <> segs, cap, hist, Pr.Go{s})) == True{} : Bool}
 
-# LAW: a continuation with an act the session never did before clears
+# LAW goal_progress_continues: a continuation with an act the session never did before clears
 # the count: the goal goes on
 law goal_progress_continues:
   for +cap: Nat
@@ -93,14 +93,14 @@ law goal_progress_continues:
 # (t = 10^14 - 1, the largest Nat the core's wire carries). Every law
 # holds for every t.
 
-# LAW: the first check of a run or a goal starts the count
+# LAW goal_first_check_starts: the first check of a run or a goal starts the count
 law goal_first_check_starts:
   for +t: Nat
   for +cap: Nat
   for +work: Nat
   {Pr.judge(t, cap, None{}, work) == Pr.Go{0n} : Pr.Goal}
 
-# LAW: below t, a later check is the progress check on whether the
+# LAW goal_judge_is_check: below t, a later check is the progress check on whether the
 # work's count grew
 law goal_judge_is_check:
   for +t: Nat
@@ -111,14 +111,14 @@ law goal_judge_is_check:
   for below: {Nat.is_lt(s, t) == True{} : Bool}
   {Pr.judge(t, cap, Some{Pr.Prior{s, w}}, work) == Pr.check(cap, s, Nat.is_lt(w, work)) : Pr.Goal}
 
-# LAW: the count grew exactly when the session did new work, so the goal
+# LAW goal_judge_counts_work: the count grew exactly when the session did new work, so the goal
 # laws above hold for the counts the Rust loop compares
 law goal_judge_counts_work:
   for +hist: List<&2, Nat>
   for +seg: List<&2, Nat>
   {Nat.is_lt(Pr.work(hist), Pr.work(List.append(&2, Nat, hist, seg))) == Pr.grew(hist, seg) : Bool}
 
-# LAW: the count of stalls stays within t
+# LAW goal_judge_held: the count of stalls stays within t
 # EXCLUDES: a count past the compiled core's Nat range (the process stops)
 law goal_judge_held:
   for +u: Nat
@@ -127,7 +127,7 @@ law goal_judge_held:
   for +work: Nat
   {Nat.is_le(Pr.Goal.stalls(Pr.judge(1n+u, cap, p, work)), 1n+u) == True{} : Bool}
 
-# LAW: a count at t stops a goal with a cap within t that did no new work
+# LAW goal_judge_top_stops: a count at t stops a goal with a cap within t that did no new work
 # EXCLUDES: a held count that never reaches the cap
 law goal_judge_top_stops:
   for +u: Nat
@@ -156,7 +156,7 @@ def wire_prior_fits(p: Maybe<&2, Pr.Prior>) -> Bool:
         case Pr.Prior{s, w}:
           Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(w))
 
-# LAW: the progress entry answers the goal's check
+# LAW goal_entry: the progress entry answers the goal's check
 law goal_entry:
   for +t: Nat
   for +cap: Nat

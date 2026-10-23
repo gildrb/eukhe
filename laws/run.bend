@@ -20,7 +20,7 @@ import ./base.bend as LawsBase
 # any model reply, any round end, any compaction result, an abort, in any
 # order.
 
-# LAW: every run has ended (answered, aborted or failed) after bound(cfg)
+# LAW run_ends: every run has ended (answered, aborted or failed) after bound(cfg)
 # inputs, whatever they are and whatever follows them; bound(cfg) =
 # max(cap, 1)·(2 + (retries + notes + 2)·(polls + 2)), from
 # compaction a generation. Notes have their own budget: a noted retry
@@ -32,7 +32,7 @@ law run_ends:
   for +more: List<&2, RnState.Ev>
   {RnState.done(RnStep.run(cfg, List.append(&2, RnState.Ev, evs, more))) == True{} : Bool}
 
-# LAW: an ended run stays as it ended
+# LAW run_end_stays: an ended run stays as it ended
 law run_end_stays:
   for +cfg: RnState.Cfg
   for +s: RnState.St
@@ -40,14 +40,14 @@ law run_end_stays:
   for +e: RnState.Ev
   {RnStep.step(cfg, s, e) == s : RnState.St}
 
-# LAW: an abort ends a live run as aborted, at the next step
+# LAW run_abort_ends_now: an abort ends a live run as aborted, at the next step
 law run_abort_ends_now:
   for +cfg: RnState.Cfg
   for +s: RnState.St
   for live: {RnState.done(s) == False{} : Bool}
   {RnState.St.ph(RnStep.step(cfg, s, RnState.Abort{})) == RnState.Aborted{} : RnState.Ph}
 
-# LAW: a run that has made max(cap, 1) tool rounds has failed
+# LAW run_rounds_capped: a run that has made max(cap, 1) tool rounds has failed
 law run_rounds_capped:
   for +cfg: RnState.Cfg
   for +evs: List<&2, RnState.Ev>
@@ -58,21 +58,21 @@ law run_rounds_capped:
 # row of the same calls with the same results ever gets to REPEAT_CALLS
 # (5) rounds. The loop guard failed a run only after 6 such rounds.
 
-# LAW: the round cap fails a run only at its max(cap, 1)th round, never
+# LAW run_rounds_fail_at_cap: the round cap fails a run only at its max(cap, 1)th round, never
 # earlier
 law run_rounds_fail_at_cap:
   for +cfg: RnState.Cfg
   for +evs: List<&2, RnState.Ev>
   Or({RnState.capped(RnStep.run(cfg, evs)) == False{} : Bool}, {RnMeasure.rounds(cfg, evs) == Nat.max(RnState.Cfg.cap(cfg), 1n) : Nat})
 
-# LAW: the poll cap fails a run only when its request's reply and each of
+# LAW run_polls_need_defers: the poll cap fails a run only when its request's reply and each of
 # its `polls` polls were deferred, polls + 1 deferred replies in a row
 law run_polls_need_defers:
   for +cfg: RnState.Cfg
   for +evs: List<&2, RnState.Ev>
   Or({RnState.polled(RnStep.run(cfg, evs)) == False{} : Bool}, {RnMeasure.defers(cfg, evs) == 1n+RnState.Cfg.polls(cfg) : Nat})
 
-# LAW: a message that ends the model's turn (any stop reason) with no
+# LAW run_no_answer_is_an_error: a message that ends the model's turn (any stop reason) with no
 # text and no tool call never answers the run (H4.7): the model gave no
 # answer, so the step is a noted error's: a retry with a note while
 # notes are left, else the run fails on the model
@@ -85,7 +85,7 @@ law run_no_answer_is_an_error:
   for +p: Nat
   {RnStep.call(cfg, RnState.Ended.reply(RnState.Ended{False{}, False{}}), r, c, a, n, p) == RnStep.note(cfg, r, c, a, n, p) : RnState.St}
 
-# LAW: a message that ends the model's turn with a tool call never
+# LAW run_calls_never_answer: a message that ends the model's turn with a tool call never
 # answers the run: its calls go to the tools phase, whatever its text and
 # its stop reason. vLLM, llama.cpp and Ollama send the stop reason stop
 # with tool calls
@@ -99,7 +99,7 @@ law run_calls_never_answer:
   for +p: Nat
   {RnStep.call(cfg, RnState.Ended.reply(RnState.Ended{text, True{}}), r, c, a, n, p) == RnState.St{RnState.Tools{}, r, c, a, n, p} : RnState.St}
 
-# LAW: a noted error spends a note, not a retry: retryable or not, it is
+# LAW run_note_spends_no_retry: a noted error spends a note, not a retry: retryable or not, it is
 # retried with a note while notes are left, and the retries left stay
 law run_note_spends_no_retry:
   for +cfg: RnState.Cfg
@@ -111,7 +111,7 @@ law run_note_spends_no_retry:
   for +p: Nat
   {RnStep.call(cfg, RnState.Error{retryable, True{}}, r, c, a, 1n+m, p) == RnState.St{RnState.Prepare{}, r, c, a, m, RnState.Cfg.polls(cfg)} : RnState.St}
 
-# LAW: a retryable error that is not noted spends a retry, not a note:
+# LAW run_retry_spends_no_note: a retryable error that is not noted spends a retry, not a note:
 # the notes left stay
 law run_retry_spends_no_note:
   for +cfg: RnState.Cfg
@@ -131,7 +131,7 @@ law run_retry_spends_no_note:
 # names the retry's attempt. A request is the version of its logged
 # context and the attempt its note names.
 
-# LAW: no request the run sends is equal to a request it sent before and
+# LAW run_retry_sends_a_new_request: no request the run sends is equal to a request it sent before and
 # had cut: a retry after a cut sends neither the request it cut nor any
 # other one the run cut, whatever the inputs, cut after cut until the
 # notes run out
@@ -140,7 +140,7 @@ law run_retry_sends_a_new_request:
   for +evs: List<&2, RnState.Ev>
   {RnRequest.fresh(RnRequest.Reqs.log(RnRequest.reqs(cfg, evs))) == True{} : Bool}
 
-# LAW: a noted reply cuts the request the run sent, and the next request
+# LAW run_cut_names_the_request: a noted reply cuts the request the run sent, and the next request
 # carries the note of the next attempt
 law run_cut_names_the_request:
   for -retryable: Bool
@@ -153,7 +153,7 @@ law run_cut_names_the_request:
   for -log: List<&2, RnRequest.Sent>
   {RnRequest.Reqs.step(RnState.Call{}, RnState.Go{RnState.Error{retryable, True{}}, fin, got}, pa, RnRequest.Reqs{ctx, n, note, log}) == RnRequest.Reqs{ctx, 1n+n, 1n+n, RnRequest.Cut{RnRequest.Req{ctx, note}} <> log} : RnRequest.Reqs}
 
-# LAW: the note changes what the model reads, never what the run logs:
+# LAW run_note_is_never_logged: the note changes what the model reads, never what the run logs:
 # a request logs the same lines as its context with no note
 law run_note_is_never_logged:
   for q: RnRequest.Req
@@ -235,7 +235,7 @@ def rust.after_reply(l: RnDecision.Lim, t: RnDecision.At, reply: RnState.Reply) 
             case RnState.Overflow{cut}:
               rust.over(Bool.and(cut, Bool.not(compacted)))
 
-# LAW: the step after any reply, from any counts and limits, is the one
+# LAW run_reply_is_the_rust_rule: the step after any reply, from any counts and limits, is the one
 # `after_reply` took: the counts left that the model reads (At.a, At.n,
 # At.p, At.c) are exact
 law run_reply_is_the_rust_rule:
@@ -261,14 +261,14 @@ def rust.before_request(compacted: Bool, th: RnDecision.Th) -> RnDecision.Prepar
         case RnDecision.Blocking{}:
           RnDecision.Waits{}
 
-# LAW: what preparation does, for every generation and every threshold,
+# LAW run_prepare_is_the_rust_rule: what preparation does, for every generation and every threshold,
 # is what `before_request` did
 law run_prepare_is_the_rust_rule:
   for +compacted: Bool
   for +th: RnDecision.Th
   {RnDecision.decide.prepare(compacted, th) == rust.before_request(compacted, th) : RnDecision.Prepared}
 
-# LAW: a generation that compacted reads no threshold: whatever its
+# LAW run_prepare_compacted_reads_no_threshold: a generation that compacted reads no threshold: whatever its
 # context is over, it prepares as if under every threshold. So Rust need
 # not measure the context (a provider's count is a request) after the
 # generation compacted
@@ -290,7 +290,7 @@ def rust.after_compaction(over: Bool, got: RnState.Got) -> Bool:
     case over RnState.Broke{}:
       False{}
 
-# LAW: whether preparation goes on after any compaction is what
+# LAW run_compact_is_the_rust_rule: whether preparation goes on after any compaction is what
 # `after_compaction` decided
 law run_compact_is_the_rust_rule:
   for +over: Bool
@@ -321,7 +321,7 @@ def rust.round_end(l: RnDecision.Lim, +count: Nat, stops: Bool, reset: Bool) -> 
         case False{}:
           rust.next(Nat.is_lt(1n+count, rounds), reset, count)
 
-# LAW: how any round ends, after any rounds, under any cap, is what
+# LAW run_round_is_the_rust_rule: how any round ends, after any rounds, under any cap, is what
 # `Rounds::finish` and `RoundEnd::reset` decided
 law run_round_is_the_rust_rule:
   for +l: RnDecision.Lim
@@ -330,7 +330,7 @@ law run_round_is_the_rust_rule:
   for +reset: Bool
   {RnDecision.decide.round(l, count, stops, reset) == rust.round_end(l, count, stops, reset) : RnDecision.End}
 
-# LAW: a round that no control stops leaves the rounds left of the run of
+# LAW run_round_counts_down: a round that no control stops leaves the rounds left of the run of
 # count + 1 rounds: the model counts down as Rust counts up
 law run_round_counts_down:
   for +l: RnDecision.Lim
@@ -355,7 +355,7 @@ def rust.retried_next(t: RnDecision.At) -> RnDecision.At:
     case RnDecision.At{attempt, notes, waited, compacted}:
       RnDecision.At{1n+attempt, notes, 0n, compacted}
 
-# LAW: a noted reply leaves the notes left of the request its retry
+# LAW run_note_counts_down: a noted reply leaves the notes left of the request its retry
 # sends
 law run_note_counts_down:
   for +l: RnDecision.Lim
@@ -365,7 +365,7 @@ law run_note_counts_down:
   for +p: Nat
   {RnState.St.n(RnStep.note(RnDecision.Lim.cfg(l), r, c, RnDecision.At.a(l, t), RnDecision.At.n(l, t), p)) == RnDecision.At.n(l, rust.noted_next(t)) : Nat}
 
-# LAW: a noted reply leaves the retries left of the request its retry
+# LAW run_note_keeps_the_retries: a noted reply leaves the retries left of the request its retry
 # sends: a note spends no retry
 law run_note_keeps_the_retries:
   for +l: RnDecision.Lim
@@ -375,7 +375,7 @@ law run_note_keeps_the_retries:
   for +p: Nat
   {RnState.St.a(RnStep.note(RnDecision.Lim.cfg(l), r, c, RnDecision.At.a(l, t), RnDecision.At.n(l, t), p)) == RnDecision.At.a(l, rust.noted_next(t)) : Nat}
 
-# LAW: a retryable error leaves the retries left of the request its retry
+# LAW run_retry_counts_down: a retryable error leaves the retries left of the request its retry
 # sends, for every request whose attempts count its notes (attempt >=
 # 1 + notes, as every request of a generation has)
 law run_retry_counts_down:
@@ -387,12 +387,12 @@ law run_retry_counts_down:
   for +p: Nat
   {RnState.St.a(RnStep.retry(RnDecision.Lim.cfg(l), True{}, r, c, RnDecision.At.a(l, t), RnDecision.At.n(l, t), p)) == RnDecision.At.a(l, rust.retried_next(t)) : Nat}
 
-# LAW: witness: a request whose attempts count its notes exists
+# LAW run_retry_premise_witness: witness: a request whose attempts count its notes exists
 law run_retry_premise_witness:
   exs t: RnDecision.At
   {Nat.is_le(1n+RnDecision.At.notes(t), RnDecision.At.attempt(t)) == True{} : Bool}
 
-# LAW: a retryable error leaves the notes left of the request its retry
+# LAW run_retry_keeps_the_notes: a retryable error leaves the notes left of the request its retry
 # sends: a retry spends no note
 law run_retry_keeps_the_notes:
   for +l: RnDecision.Lim
@@ -418,7 +418,7 @@ def rust.back(l: RnDecision.Lim, a: Nat, +n: Nat, p: Nat, c: Nat) -> RnDecision.
     case RnDecision.Lim{rounds, wait, retries, +most}:
       RnDecision.At{1n+Nat.add(Nat.sub(retries, a), Nat.sub(most, n)), Nat.sub(most, n), Nat.sub(wait, p), Nat.is_eq(c, 0n)}
 
-# LAW: the counts left lose nothing: within its limits, a request's
+# LAW run_counts_lossless: the counts left lose nothing: within its limits, a request's
 # counts come back from the counts left the model reads
 law run_counts_lossless:
   for +l: RnDecision.Lim
@@ -426,13 +426,13 @@ law run_counts_lossless:
   for +w: {rust.within(l, t) == True{} : Bool}
   {rust.back(l, RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t), RnDecision.At.c(t)) == t : RnDecision.At}
 
-# LAW: witness: counts within their limits exist
+# LAW run_counts_within_witness: witness: counts within their limits exist
 law run_counts_within_witness:
   exs l: RnDecision.Lim
   exs t: RnDecision.At
   {rust.within(l, t) == True{} : Bool}
 
-# LAW: the rounds left lose nothing: below the cap, the rounds made come
+# LAW run_rounds_lossless: the rounds left lose nothing: below the cap, the rounds made come
 # back from the rounds left
 law run_rounds_lossless:
   for +l: RnDecision.Lim
@@ -440,7 +440,7 @@ law run_rounds_lossless:
   for +w: {Nat.is_lt(count, RnDecision.Lim.rounds(l)) == True{} : Bool}
   {Nat.sub(Nat.sub(RnDecision.Lim.rounds(l), 1n), RnDecision.Lim.r(l, count)) == count : Nat}
 
-# LAW: witness: a run below its round cap exists
+# LAW run_rounds_within_witness: witness: a run below its round cap exists
 law run_rounds_within_witness:
   exs l: RnDecision.Lim
   exs count: Nat
@@ -493,7 +493,7 @@ def rust.later(t: RnDecision.Then) -> R.Act:
     case RnDecision.DoLate{}:
       R.Cancel{}
 
-# LAW: a failed poll of a live job, from any counts, does what the job of
+# LAW run_failed_poll_is_the_job_model: a failed poll of a live job, from any counts, does what the job of
 # bend/retry.bend section 4 does with the ms left (wait - waited): it
 # polls the same job again exactly when that job does
 law run_failed_poll_is_the_job_model:
@@ -505,7 +505,7 @@ law run_failed_poll_is_the_job_model:
   for +gap: Nat
   {rust.job(RnDecision.decide.poll(retryable, failed, RnDecision.Lim.retries(l)), RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(RnDecision.Lim.retries(l), budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Broke{retryable, gap})) : R.Act}
 
-# LAW: a deferred reply to a poll of a live job, from any counts, does
+# LAW run_deferred_reply_is_the_job_model: a deferred reply to a poll of a live job, from any counts, does
 # what the job of bend/retry.bend section 4 does with the ms left: it
 # polls again exactly when that job does, else the job is cancelled at
 # its deadline
@@ -518,7 +518,7 @@ law run_deferred_reply_is_the_job_model:
   for +gap: Nat
   {rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(fails, budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Later{gap})) : R.Act}
 
-# LAW: the first deferred reply of a request does what the job of
+# LAW run_first_deferred_reply_is_the_job_model: the first deferred reply of a request does what the job of
 # bend/retry.bend section 4 does with a new job of the ms left
 law run_first_deferred_reply_is_the_job_model:
   for +l: RnDecision.Lim
@@ -539,7 +539,7 @@ def rust.sat_attempt(t: RnDecision.At, +cap: Nat) -> RnDecision.At:
     case RnDecision.At{attempt, notes, waited, compacted}:
       RnDecision.At{Nat.min(attempt, cap), notes, waited, compacted}
 
-# LAW: Rust saturates the job's ms and the ms waited (u64s) at the wire's
+# LAW run_reply_saturates_the_wait: Rust saturates the job's ms and the ms waited (u64s) at the wire's
 # largest Nat (10^14 - 1) before it encodes them: for a request that
 # waited less than any cap (10^14 ms is 3000 years), the step after any
 # reply is the same. A wait at the cap never ends a job that waited less
@@ -551,7 +551,7 @@ law run_reply_saturates_the_wait:
   for +e: {Nat.is_lt(RnDecision.At.waited(t), cap) == True{} : Bool}
   {RnDecision.decide.reply(rust.sat_wait(l, cap), t, reply) == RnDecision.decide.reply(l, t, reply) : RnDecision.Then}
 
-# LAW: Rust saturates the attempt (a u64) at the wire's largest Nat: any
+# LAW run_reply_saturates_the_attempt: Rust saturates the attempt (a u64) at the wire's largest Nat: any
 # cap above notes + retry.maxRetries (two u32s) leaves the step after any
 # reply the same (an attempt at the cap has spent every retry, as a
 # larger one)
@@ -582,7 +582,7 @@ law run_reply_saturates_the_attempt:
 # they hold for the reply a recovery makes. A recovery does not depend on
 # the retry policy: a note is a new request, not a transient error.
 
-# LAW: after `long` length notes in a row, a length stop fails the run
+# LAW rec_length_gives_up: after `long` length notes in a row, a length stop fails the run
 law rec_length_gives_up:
   for +rc: RnRecovery.RCfg
   for +k: RnRecovery.Rk
@@ -592,7 +592,7 @@ law rec_length_gives_up:
   for over: {RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == False{} : Bool}
   {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Long{}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
 
-# LAW: leaked calls that every parse and name an offered tool are rebuilt:
+# LAW rec_leak_rebuilt_is_calls: leaked calls that every parse and name an offered tool are rebuilt:
 # the run reads them as the same calls made as tool calls
 law rec_leak_rebuilt_is_calls:
   for +rc: RnRecovery.RCfg
@@ -601,7 +601,7 @@ law rec_leak_rebuilt_is_calls:
   for r: RnRecovery.Rec
   {RnRecovery.Rec.step(rc, RnRecovery.Leak{True{}, h, kept}, r) == RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, r) : RnRecovery.Dec}
 
-# LAW: after `leak` leak notes in a row, the reply answers as text
+# LAW rec_leak_stands: after `leak` leak notes in a row, the reply answers as text
 law rec_leak_stands:
   for +rc: RnRecovery.RCfg
   for +h: Nat
@@ -613,7 +613,7 @@ law rec_leak_stands:
   for over: {RnRecovery.below(RnRecovery.Rk.leaks(k, row), RnRecovery.RCfg.leak(rc)) == False{} : Bool}
   {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Stand{} : RnRecovery.Act}
 
-# LAW: tool calls that make fewer than `repeat` rounds in a row run: the
+# LAW rec_calls_run: tool calls that make fewer than `repeat` rounds in a row run: the
 # recoveries never stop a call that is not a repeat. The rounds in a row
 # grow when the results are those of the last round; when the results
 # change (a poll of a job that makes progress), a new row of 1 starts
@@ -628,7 +628,7 @@ law rec_calls_run:
   for fresh: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Exec{}, RnRecovery.Rec{RnRecovery.Free{}, 0n, RnRecovery.ran.same(kept, RnRecovery.again(same, last, h)), h}} : RnRecovery.Dec}
 
-# LAW: tool calls that would make `repeat` rounds in a row with the same
+# LAW rec_repeat_never_runs: tool calls that would make `repeat` rounds in a row with the same
 # results never run
 law rec_repeat_never_runs:
   for +rc: RnRecovery.RCfg
@@ -641,7 +641,7 @@ law rec_repeat_never_runs:
   for rep: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == False{} : Bool}
   {RnRecovery.Act.runs(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}))) == False{} : Bool}
 
-# LAW: such a repeat, under the cap, is retried with the next redirect
+# LAW rec_repeat_redirects: such a repeat, under the cap, is retried with the next redirect
 # note
 law rec_repeat_redirects:
   for +rc: RnRecovery.RCfg
@@ -655,7 +655,7 @@ law rec_repeat_redirects:
   for under: {RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Loops{}, 1n+RnRecovery.Rk.loops(k, row), same, last}} : RnRecovery.Dec}
 
-# LAW: after `redirect` redirect notes in a row, a repeat fails the run
+# LAW rec_repeat_gives_up: after `redirect` redirect notes in a row, a repeat fails the run
 law rec_repeat_gives_up:
   for +rc: RnRecovery.RCfg
   for +h: Nat
@@ -668,7 +668,7 @@ law rec_repeat_gives_up:
   for over: {RnRecovery.below(RnRecovery.Rk.loops(k, row), RnRecovery.RCfg.redirect(rc)) == False{} : Bool}
   {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
 
-# LAW: a user message ends the row: after it, no call is a repeat of a
+# LAW rec_user_breaks_the_row: a user message ends the row: after it, no call is a repeat of a
 # call before it
 law rec_user_breaks_the_row:
   for +rc: RnRecovery.RCfg
@@ -678,14 +678,14 @@ law rec_user_breaks_the_row:
   for +last: Nat
   {RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Said{}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Rec{k, row, 0n, last} : RnRecovery.Rec}
 
-# LAW: after any replies, the notes of a recovery in a row are at most
+# LAW rec_notes_capped: after any replies, the notes of a recovery in a row are at most
 # its cap: every recovery stops at its cap
 law rec_notes_capped:
   for +rc: RnRecovery.RCfg
   for +os: List<&2, RnRecovery.Out>
   {RnRecovery.Rec.capped(rc, RnRecovery.Rec.run(rc, os)) == True{} : Bool}
 
-# LAW: after any replies, the run has not run the same calls with the
+# LAW rec_never_runs_a_repeat: after any replies, the run has not run the same calls with the
 # same results max(repeat, 1) rounds in a row. This replaces the loop
 # guard of H4.3 (a run failed after LOOP_ROUNDS = 6 such rounds): it is
 # stronger, as no such row ever reaches `repeat` (5) rounds
@@ -694,7 +694,7 @@ law rec_never_runs_a_repeat:
   for +os: List<&2, RnRecovery.Out>
   {RnRecovery.below(RnRecovery.Rec.same(RnRecovery.Rec.run(rc, os)), Nat.max(RnRecovery.RCfg.repeat(rc), 1n)) == True{} : Bool}
 
-# LAW: the harness never just watches a stuck model: a stuck reply (a
+# LAW rec_stuck_gets_help: the harness never just watches a stuck model: a stuck reply (a
 # length stop with no answer, leaked tool calls, tool calls) always gets
 # an act that does something: its calls run (no repeat), a retry with a
 # note, an answer, or the end of the run. It is never passed on as it is
@@ -704,14 +704,14 @@ law rec_stuck_gets_help:
   for r: RnRecovery.Rec
   {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, o, r)))) == True{} : Bool}
 
-# LAW: a recovery's retry is a noted error, so its request ends with the
+# LAW rec_redo_is_noted: a recovery's retry is a noted error, so its request ends with the
 # note of the next attempt (run_cut_names_the_request): it never sends
 # the request again (run_retry_sends_a_new_request)
 law rec_redo_is_noted:
   for -pass: RnState.Reply
   {RnRecovery.Act.reply(RnRecovery.Redo{}, pass) == RnState.Error{False{}, True{}} : RnState.Reply}
 
-# LAW: a recovery at its cap fails the run on the model, at once
+# LAW rec_quit_fails: a recovery at its cap fails the run on the model, at once
 law rec_quit_fails:
   for +cfg: RnState.Cfg
   for -pass: RnState.Reply
@@ -792,7 +792,7 @@ def rust.recover(rc: RnRecovery.RCfg, s: RnDecision.Stuck, +k: RnRecovery.Rk, +r
         case RnDecision.Repeats{before}:
           rust.calls(Nat.is_lt(1n+before, repeat), rust.redo(Nat.is_lt(rust.loop_row(k, row), redirect), rust.loop_row(k, row), RnDecision.Quits{}))
 
-# LAW: what a recovery does with any stuck reply, after any note, under
+# LAW rec_recover_is_the_rust_rule: what a recovery does with any stuck reply, after any note, under
 # any caps, is what `recover` did: the code that runs is the recoveries
 # whose laws are above
 law rec_recover_is_the_rust_rule:
@@ -878,7 +878,7 @@ def run.help_fits(h: RnDecision.Help) -> Bool:
     case RnDecision.Quits{}:
       True{}
 
-# LAW: every request whose Nats fit the wire reads back as itself, and its
+# LAW run_ffi_ask_round_trip: every request whose Nats fit the wire reads back as itself, and its
 # reading consumes exactly its encoding
 # EXCLUDES: a field read into another, a wrong tag, a lost or eaten rest
 law run_ffi_ask_round_trip:
@@ -887,19 +887,19 @@ law run_ffi_ask_round_trip:
   for +h: {run.ask_fits(a) == True{} : Bool}
   {FRn.get_ask(FRn.put_ask(a, rest)) == Wr.Got{a, rest} : Wr.Dec<FRn.Ask>}
 
-# LAW: witness: a request whose Nats fit the wire exists
+# LAW run_ffi_ask_fits_witness: witness: a request whose Nats fit the wire exists
 law run_ffi_ask_fits_witness:
   exs a: FRn.Ask
   {run.ask_fits(a) == True{} : Bool}
 
-# LAW: the entry answers a request with the value of its decision
+# LAW run_ffi_answers: the entry answers a request with the value of its decision
 # EXCLUDES: an entry that answers another decision, or a default
 law run_ffi_answers:
   for +a: FRn.Ask
   for +h: {run.ask_fits(a) == True{} : Bool}
   {FRn.ffi(FRn.put_ask(a, "")) == FRn.answer(a) : String}
 
-# LAW: a request with input left over after it is refused
+# LAW run_ffi_refuses_left_over: a request with input left over after it is refused
 # EXCLUDES: trailing input read as part of a request, or ignored
 law run_ffi_refuses_left_over:
   for +a: FRn.Ask
@@ -908,24 +908,24 @@ law run_ffi_refuses_left_over:
   for +more: {String.is_empty(rest) == False{} : Bool}
   {FRn.ffi(FRn.put_ask(a, rest)) == Wr.err("run: input left over after the request") : String}
 
-# LAW: witness: input is left over after a request
+# LAW run_ffi_left_over_witness: witness: input is left over after a request
 law run_ffi_left_over_witness:
   exs rest: String
   {String.is_empty(rest) == False{} : Bool}
 
-# LAW: a malformed request answers the error form, never a decision
+# LAW run_ffi_refuses_malformed: a malformed request answers the error form, never a decision
 # EXCLUDES: a default decision for input the entry cannot read
 law run_ffi_refuses_malformed:
   for +s: String
   for +bad: {FRn.get_ask(s) == Wr.Bad{} : Wr.Dec<FRn.Ask>}
   {FRn.ffi(s) == Wr.err("run: malformed request") : String}
 
-# LAW: witness: a malformed request exists
+# LAW run_ffi_malformed_witness: witness: a malformed request exists
 law run_ffi_malformed_witness:
   exs s: String
   {FRn.get_ask(s) == Wr.Bad{} : Wr.Dec<FRn.Ask>}
 
-# LAW: every answer reads back as itself: the step after a reply, what
+# LAW run_ffi_then_round_trip: every answer reads back as itself: the step after a reply, what
 # preparation does, how a round ends, what a recovery does, the reply a
 # message makes (Rust's Reader reads the same grammar)
 # EXCLUDES: two answers with one encoding, an answer Rust misreads
@@ -934,29 +934,33 @@ law run_ffi_then_round_trip:
   for +rest: String
   {FRn.get_then(FRn.put_then(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Then>}
 
+# LAW run_ffi_prepared_round_trip: a prepared decision written to the wire reads back as itself; the rest of the input stays
 law run_ffi_prepared_round_trip:
   for +x: RnDecision.Prepared
   for +rest: String
   {FRn.get_prepared(FRn.put_prepared(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Prepared>}
 
+# LAW run_ffi_end_round_trip: an end that fits the wire reads back as itself; the rest of the input stays
 law run_ffi_end_round_trip:
   for +x: RnDecision.End
   for +rest: String
   for +h: {run.end_fits(x) == True{} : Bool}
   {FRn.get_end(FRn.put_end(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.End>}
 
+# LAW run_ffi_help_round_trip: a help request that fits the wire reads back as itself; the rest of the input stays
 law run_ffi_help_round_trip:
   for +x: RnDecision.Help
   for +rest: String
   for +h: {run.help_fits(x) == True{} : Bool}
   {FRn.get_help(FRn.put_help(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Help>}
 
+# LAW run_ffi_reply_round_trip: a reply written to the wire reads back as itself; the rest of the input stays
 law run_ffi_reply_round_trip:
   for +x: RnState.Reply
   for +rest: String
   {FRn.get_reply(FRn.put_reply(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnState.Reply>}
 
-# LAW: witness: answers whose Nats fit the wire exist
+# LAW run_ffi_answer_fits_witness: witness: answers whose Nats fit the wire exist
 law run_ffi_answer_fits_witness:
   exs e: RnDecision.End
   exs x: RnDecision.Help

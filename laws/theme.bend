@@ -30,12 +30,12 @@ import ../bend/tui_color.bend as TC
 # crates/eukhe-theme/themes/*.json and that the Rust code and the model
 # agree on generated files, names and colors.
 
-# LAW: the empty name resolves to the default theme, with no warning
+# LAW theme_resolve_empty: the empty name resolves to the default theme, with no warning
 law theme_resolve_empty:
   for src: List<&2, TName.Cand>
   {TName.resolve.name(src, "") == TName.Res{TName.dflt(), False{}} : TName.Res}
 
-# LAW: a name resolves to the first valid theme that advertises it, with
+# LAW theme_resolve_first: a name resolves to the first valid theme that advertises it, with
 # no warning: a registered file before a builtin before a custom file
 law theme_resolve_first:
   for +pre: List<&2, TName.Cand>
@@ -48,7 +48,7 @@ law theme_resolve_first:
   for same: {String.eq(nm, n) == True{} : Bool}
   {TName.resolve.name(List.append(&2, TName.Cand, pre, TName.Cand{nm, True{}, id} <> post), n) == TName.Res{id, False{}} : TName.Res}
 
-# LAW: a name that no valid theme advertises (missing, or only in invalid
+# LAW theme_resolve_missing: a name that no valid theme advertises (missing, or only in invalid
 # files) resolves to the default theme, with a warning: resolution never
 # fails
 law theme_resolve_missing:
@@ -58,7 +58,7 @@ law theme_resolve_missing:
   for miss: {TName.hit(src, n) == False{} : Bool}
   {TName.resolve.name(src, n) == TName.Res{TName.dflt(), True{}} : TName.Res}
 
-# LAW: a theme file loads only when it is valid (every color resolves and
+# LAW theme_load_valid: a theme file loads only when it is valid (every color resolves and
 # every required token is written)
 law theme_load_valid:
   for r: TFile.RFile
@@ -66,13 +66,13 @@ law theme_load_valid:
   for loaded: {TReader.load(r) == Some{f} : Maybe<&2, TFile.Th>}
   {TToken.valid(f) == True{} : Bool}
 
-# LAW: the palette of a valid theme file defines every token
+# LAW theme_tokens_complete: the palette of a valid theme file defines every token
 law theme_tokens_complete:
   for f: TFile.Th
   for v: {TToken.valid(f) == True{} : Bool}
   {TPalette.complete(TPalette.palette(f)) == True{} : Bool}
 
-# LAW: two theme files with the same background have the same mode, light
+# LAW theme_mode_background: two theme files with the same background have the same mode, light
 # or dark
 law theme_mode_background:
   for f: TFile.Th
@@ -80,25 +80,25 @@ law theme_mode_background:
   for same: {TPalette.bg(f) == TPalette.bg(g) : Co.Rgb}
   {TPalette.light(f) == TPalette.light(g) : Bool}
 
-# LAW: the name of a theme file never changes its palette
+# LAW theme_palette_name_free: the name of a theme file never changes its palette
 law theme_palette_name_free:
   for f: TFile.Th
   for n: String
   {TPalette.palette(TPalette.rename(f, n)) == TPalette.palette(f) : List<&2, Maybe<&2, TFile.Val>>}
 
-# LAW: the name of a theme file never changes its mode
+# LAW theme_mode_name_free: the name of a theme file never changes its mode
 law theme_mode_name_free:
   for f: TFile.Th
   for n: String
   {TPalette.light(TPalette.rename(f, n)) == TPalette.light(f) : Bool}
 
-# LAW: in every shipped theme, every ink token meets its WCAG contrast:
+# LAW theme_shipped_legible: in every shipped theme, every ink token meets its WCAG contrast:
 # text 4.5:1, non-text parts 3:1, as exact rationals
 law theme_shipped_legible:
   for s: TBundled.Shipped
   {TBundled.legible(TBundled.table(s)) == True{} : Bool}
 
-# LAW: in every shipped theme, the status colors (accent, success,
+# LAW theme_shipped_status_distinct: in every shipped theme, the status colors (accent, success,
 # warning, error) stay pairwise distinct in a 256-color terminal
 law theme_shipped_status_distinct:
   for s: TBundled.Shipped
@@ -519,7 +519,7 @@ def th.broken.of(p: TChoice.Pick) -> List<&2, Nat>:
 
 # Values
 
-# LAW R1 R2 a value resolves as the rule says, for every variables and
+# LAW theme_chase_rule (R1): R2 a value resolves as the rule says, for every variables and
 # value
 # EXCLUDES: a chain followed too far or not far enough, a cycle or a
 #   missing variable reported as another error or with another name, a
@@ -532,7 +532,7 @@ law theme_chase_rule:
 def th.vs() -> List<&2, TFile.Var>:
   [TFile.Var{"a", TFile.JStr{"b", Some{1n}}}, TFile.Var{"b", TFile.JStr{"#102030", None{}}}, TFile.Var{"c", TFile.JStr{"c", Some{2n}}}, TFile.Var{"d", TFile.JStr{"e", Some{4n}}}, TFile.Var{"e", TFile.JStr{"d", Some{3n}}}, TFile.Var{"f", TFile.JStr{"d", Some{3n}}}]
 
-# LAW R1 R2 anchors: a chain to a hex color, a self-cycle, a cycle entered
+# LAW theme_chase_example (R1): R2 anchors: a chain to a hex color, a self-cycle, a cycle entered
 # from a tail (it names where the chain closes), a missing variable, the
 # terminal default, an index, malformed values
 # EXCLUDES: a rule that names the start of the chain for a cycle, or
@@ -542,7 +542,7 @@ law theme_chase_example:
 
 # Reading a file
 
-# LAW R3 a color key that names no token is that error
+# LAW theme_entry_unknown (R3): a color key that names no token is that error
 # EXCLUDES: skipping an unknown key
 law theme_entry_unknown:
   for +vars: List<&2, TFile.Var>
@@ -550,7 +550,7 @@ law theme_entry_unknown:
   for +j: TFile.Json
   {TReader.entry(vars, TFile.REnt{k, None{}, j}) == TReader.Bad{TFile.Unknown{k}} : TReader.EntR}
 
-# LAW R3 a token's color is its value resolved
+# LAW theme_entry_color (R3): a token's color is its value resolved
 # EXCLUDES: a color stored under another token or with another value
 law theme_entry_color:
   for +vars: List<&2, TFile.Var>
@@ -561,7 +561,7 @@ law theme_entry_color:
   for h: {TChase.chase(vars, j) == TChase.Hit{v} : TChase.Got}
   {TReader.entry(vars, TFile.REnt{k, Some{t}, j}) == TReader.Good{TFile.Ent{t, v}} : TReader.EntR}
 
-# LAW R3 a token whose value is no color is that error, under its key
+# LAW theme_entry_invalid (R3): a token whose value is no color is that error, under its key
 # EXCLUDES: an error that loses its key or its cause
 law theme_entry_invalid:
   for +vars: List<&2, TFile.Var>
@@ -572,7 +572,7 @@ law theme_entry_invalid:
   for h: {TChase.chase(vars, j) == TChase.Miss{why} : TChase.Got}
   {TReader.entry(vars, TFile.REnt{k, Some{t}, j}) == TReader.Bad{TFile.InColor{k, why}} : TReader.EntR}
 
-# LAW R3 a file reports the error of its first color (in key order) that
+# LAW theme_read_first_error (R3): a file reports the error of its first color (in key order) that
 # does not read, whatever follows
 # EXCLUDES: reporting a later error first, or a missing token before a
 #   color error
@@ -590,12 +590,12 @@ law theme_read_first_error:
   for bad: {TReader.entry(vars, e) == TReader.Bad{f} : TReader.EntR}
   {TReader.read(TFile.RFile{nm, vars, List.append(&2, TFile.REnt, pre, e <> post), pg, cd, io}) == TReader.Failed{f} : TReader.Read}
 
-# LAW R3 the model's required tokens are the documented ones
+# LAW theme_required_tokens (R3): the model's required tokens are the documented ones
 # EXCLUDES: a token made optional or required by mistake
 law theme_required_tokens:
   {th.reqs(TToken.toks()) == th.required() : List<&2, U32>}
 
-# LAW R3 a file whose colors read reports every required token it does
+# LAW theme_read_missing (R3): a file whose colors read reports every required token it does
 # not write, in token order
 # EXCLUDES: reporting only the first missing token, a wrong order, an
 #   export error before the missing tokens
@@ -612,7 +612,7 @@ law theme_read_missing:
   for miss: {th.absent(th.goods(vars, cols)) == t <> ts : List<&2, U32>}
   {TReader.read(TFile.RFile{nm, vars, cols, pg, cd, io}) == TReader.Failed{TFile.Missing{t <> ts}} : TReader.Read}
 
-# LAW R3 then an export page that is no color is that error
+# LAW theme_read_page (R3): then an export page that is no color is that error
 # EXCLUDES: ignoring a broken export background
 law theme_read_page:
   for +nm: String
@@ -627,7 +627,7 @@ law theme_read_page:
   for bad: {TChase.chase(vars, j) == TChase.Miss{why} : TChase.Got}
   {TReader.read(TFile.RFile{nm, vars, cols, Some{j}, cd, io}) == TReader.Failed{TFile.InExport{TFile.OnPage{}, why}} : TReader.Read}
 
-# LAW R3 then an export card that is no color
+# LAW theme_read_card (R3): then an export card that is no color
 # EXCLUDES: checking the card before the page, or not at all
 law theme_read_card:
   for +nm: String
@@ -643,7 +643,7 @@ law theme_read_card:
   for bad: {TChase.chase(vars, j) == TChase.Miss{why} : TChase.Got}
   {TReader.read(TFile.RFile{nm, vars, cols, pg, Some{j}, io}) == TReader.Failed{TFile.InExport{TFile.OnCard{}, why}} : TReader.Read}
 
-# LAW R3 then an export info background that is no color
+# LAW theme_read_info (R3): then an export info background that is no color
 # EXCLUDES: checking the info background early, or not at all
 law theme_read_info:
   for +nm: String
@@ -660,7 +660,7 @@ law theme_read_info:
   for bad: {TChase.chase(vars, j) == TChase.Miss{why} : TChase.Got}
   {TReader.read(TFile.RFile{nm, vars, cols, pg, cd, Some{j}}) == TReader.Failed{TFile.InExport{TFile.OnInfo{}, why}} : TReader.Read}
 
-# LAW R3 R4 a file with no error reads to its colors and the export
+# LAW theme_read_loaded (R3): R4 a file with no error reads to its colors and the export
 # colors it sets ("" sets none)
 # EXCLUDES: dropping or reordering a color, losing the card or info
 #   background, an export "" that sets a color
@@ -680,7 +680,7 @@ law theme_read_loaded:
 
 # Completion
 
-# LAW R3 a file that does not read is rejected with its error
+# LAW theme_parse_rejected (R3): a file that does not read is rejected with its error
 # EXCLUDES: a palette for a broken file, a changed error
 law theme_parse_rejected:
   for +f: TFile.RFile
@@ -688,7 +688,7 @@ law theme_parse_rejected:
   for h: {TReader.read(f) == TReader.Failed{x} : TReader.Read}
   {TPalette.parse(f) == TPalette.Rejected{x} : TPalette.Parsed}
 
-# LAW R4 a file that reads gives its palette, its mode, its own #rrggbb
+# LAW theme_parse_painted (R4): a file that reads gives its palette, its mode, its own #rrggbb
 # background and its export backgrounds
 # EXCLUDES: a palette, mode or export color of another file, a declared
 #   background from an index
@@ -702,7 +702,7 @@ law theme_parse_painted:
   for h: {TReader.read(f) == TReader.Loaded{TFile.Th{nm, cols, pg, cd, io}} : TReader.Read}
   {TPalette.parse(f) == TPalette.Painted{TPalette.vals(TPalette.palette(TFile.Th{nm, cols, pg, cd, io})), TPalette.light(TFile.Th{nm, cols, pg, cd, io}), th.own(TToken.get(cols, 57)), pg, cd, io} : TPalette.Parsed}
 
-# LAW R4 the palette fills every token in token order
+# LAW theme_palette_tokens (R4): the palette fills every token in token order
 # EXCLUDES: a palette in another order, or that skips a token
 law theme_palette_tokens:
   for +nm: String
@@ -712,7 +712,7 @@ law theme_palette_tokens:
   for +io: Maybe<&2, Co.Rgb>
   {TPalette.palette(TFile.Th{nm, cols, pg, cd, io}) == TPalette.fill.map(cols, TPalette.background(cols, pg), TToken.toks()) : List<&2, Maybe<&2, TFile.Val>>}
 
-# LAW R4 a required token keeps the value the file writes
+# LAW theme_fill_required (R4): a required token keeps the value the file writes
 # EXCLUDES: a written color replaced by a default
 law theme_fill_required:
   for +cols: List<&2, TFile.Ent>
@@ -721,14 +721,14 @@ law theme_fill_required:
   for r: {TReader.required(t) == True{} : Bool}
   {TPalette.fill(cols, bg, t) == TToken.get(cols, t) : Maybe<&2, TFile.Val>}
 
-# LAW R4 mdBody is its own value, else text's
+# LAW theme_fill_md (R4): mdBody is its own value, else text's
 # EXCLUDES: mdBody without a fallback, or text overriding mdBody
 law theme_fill_md:
   for +cols: List<&2, TFile.Ent>
   for +bg: Co.Rgb
   {TPalette.fill(cols, bg, 18) == TPalette.or(TFile.Val, TToken.get(cols, 18), TToken.get(cols, 9)) : Maybe<&2, TFile.Val>}
 
-# LAW R4 the refinement pair is its own value, else the builtin of the
+# LAW theme_fill_refinement (R4): the refinement pair is its own value, else the builtin of the
 # background's mode
 # EXCLUDES: a dark default on a light theme, a default over a written value
 law theme_fill_refinement:
@@ -736,7 +736,7 @@ law theme_fill_refinement:
   for +bg: Co.Rgb
   {[TPalette.fill(cols, bg, 14), TPalette.fill(cols, bg, 15)] == [Some{TPalette.or_else(TFile.Val, TToken.get(cols, 14), TFile.Hex{TPalette.at(TPalette.defaults(Co.light(bg)), 14n)})}, Some{TPalette.or_else(TFile.Val, TToken.get(cols, 15), TFile.Hex{TPalette.at(TPalette.defaults(Co.light(bg)), 15n)})}] : List<&2, Maybe<&2, TFile.Val>>}
 
-# LAW R4 the background token paints the background; the foreground is
+# LAW theme_fill_canvas (R4): the background token paints the background; the foreground is
 # the file's own color, else the builtin of the background's mode
 # EXCLUDES: a terminal default left in the canvas tokens
 law theme_fill_canvas:
@@ -744,13 +744,13 @@ law theme_fill_canvas:
   for +bg: Co.Rgb
   {[TPalette.fill(cols, bg, 57), TPalette.fill(cols, bg, 58)] == [Some{TFile.Hex{bg}}, Some{TFile.Hex{TPalette.or_else(Co.Rgb, TPalette.concrete.of(TToken.get(cols, 58)), TPalette.at(TPalette.defaults(Co.light(bg)), 58n))}}] : List<&2, Maybe<&2, TFile.Val>>}
 
-# LAW R4 the builtins whose values fill a file: the default theme for a
+# LAW theme_defaults_shipped (R4): the builtins whose values fill a file: the default theme for a
 # dark background, light for a light one
 # EXCLUDES: fallbacks from the wrong builtin
 law theme_defaults_shipped:
   {[TPalette.defaults(False{}), TPalette.defaults(True{})] == [TBundled.table(TBundled.Eukhe{}), TBundled.table(TBundled.Light{})] : List<&2, List<&2, Co.Rgb>>}
 
-# LAW R4 the background is the file's own color, else its export page,
+# LAW theme_background_order (R4): the background is the file's own color, else its export page,
 # else its user-message surface, else the default theme's background
 # EXCLUDES: another order of the fallbacks, a default over a written color
 law theme_background_order:
@@ -760,7 +760,7 @@ law theme_background_order:
 
 # Picking a theme
 
-# LAW R5 the theme a name picks is the resolution over the files that
+# LAW theme_pick_res (R5): the theme a name picks is the resolution over the files that
 # load: the registered ones, the builtins, the custom ones
 # EXCLUDES: a file that did not load picked, a custom file before a
 #   registered one, a file id that is not its index after the builtins
@@ -769,7 +769,7 @@ law theme_pick_res:
   for +n: String
   {th.res(TChoice.pick(ls, n)) == th.pick(ls, n) : TName.Res}
 
-# LAW R5 a name that picks no theme warns with the first file that blames
+# LAW theme_pick_cause (R5): a name that picks no theme warns with the first file that blames
 # it, else with "not found"
 # EXCLUDES: a cause from a later file, a cause that is not the name's
 law theme_pick_cause:
@@ -779,7 +779,7 @@ law theme_pick_cause:
   for w: {th.pick(ls, n) == TName.Res{id, True{}} : TName.Res}
   {th.cause(TChoice.pick(ls, n)) == Some{th.cause.of(th.blame(ls, n, 0n))} : Maybe<&2, TChoice.Cause>}
 
-# LAW R5 a name that picks a theme warns with no cause
+# LAW theme_pick_quiet (R5): a name that picks a theme warns with no cause
 # EXCLUDES: a cause reported for a resolved name
 law theme_pick_quiet:
   for +ls: List<&2, TChoice.Ld>
@@ -788,7 +788,7 @@ law theme_pick_quiet:
   for w: {th.pick(ls, n) == TName.Res{id, False{}} : TName.Res}
   {th.cause(TChoice.pick(ls, n)) == None{} : Maybe<&2, TChoice.Cause>}
 
-# LAW R5 every file that did not load warns once: in the cause, or in the
+# LAW theme_pick_broken (R5): every file that did not load warns once: in the cause, or in the
 # broken list, in file order
 # EXCLUDES: a lost or doubled failure
 law theme_pick_broken:
@@ -799,7 +799,7 @@ law theme_pick_broken:
   for r: {th.pick(ls, n) == TName.Res{id, w} : TName.Res}
   {th.broken.of(TChoice.pick(ls, n)) == th.broken(ls, th.skip(w, th.blame(ls, n, 0n)), 0n) : List<&2, Nat>}
 
-# LAW R5 the clashes: every loaded file whose name an earlier loaded file
+# LAW theme_pick_clashes (R5): the clashes: every loaded file whose name an earlier loaded file
 # has first, with that file, in file order
 # EXCLUDES: a lost clash, a clash with the wrong file
 law theme_pick_clashes:
@@ -810,7 +810,7 @@ law theme_pick_clashes:
 def th.ls() -> List<&2, TChoice.Ld>:
   [TChoice.Fine{"dusk", False{}}, TChoice.Broke{Some{"mist"}, Some{"a"}}, TChoice.Broke{None{}, Some{"mist"}}, TChoice.Fine{"dusk", True{}}]
 
-# LAW R5 anchor: a registered "dusk" shadows a custom one (a clash), a
+# LAW theme_pick_example (R5): anchor: a registered "dusk" shadows a custom one (a clash), a
 # broken file named "mist" is the cause for "mist"
 # EXCLUDES: a reading of the laws above that the human did not mean
 law theme_pick_example:
@@ -832,7 +832,7 @@ law theme_pick_example:
 # crates/eukhe-tui/src/theme/bridge.rs checks that the Rust ramp, the Rust
 # bands and the Rust roles equal the model.
 
-# LAW: every color role of the terminal UI resolves in the palette of
+# LAW tui_roles_resolve: every color role of the terminal UI resolves in the palette of
 # every valid theme file
 law tui_roles_resolve:
   for f: TFile.Th

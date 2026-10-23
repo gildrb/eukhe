@@ -19,17 +19,17 @@ import ./base.bend as LawsBase
 # text, in any order: other series, other prefixes, no version at all),
 # any workspace version.
 
-# LAW: reading a written version gives it back
+# LAW semver_roundtrip: reading a written version gives it back
 law semver_roundtrip:
   for v: Sv.Ver
   {Sv.Ver.parse(Sv.Ver.show(v)) == Some{v} : Maybe<&2, Sv.Ver>}
 
-# LAW: the order is reflexive
+# LAW semver_le_refl: the order is reflexive
 law semver_le_refl:
   for v: Sv.Ver
   {Sv.Ver.le(v, v) == True{} : Bool}
 
-# LAW: the order is antisymmetric
+# LAW semver_le_antisym: the order is antisymmetric
 law semver_le_antisym:
   for u: Sv.Ver
   for v: Sv.Ver
@@ -37,7 +37,7 @@ law semver_le_antisym:
   for vu: {Sv.Ver.le(v, u) == True{} : Bool}
   {u == v : Sv.Ver}
 
-# LAW: the order is transitive
+# LAW semver_le_trans: the order is transitive
 law semver_le_trans:
   for u: Sv.Ver
   for v: Sv.Ver
@@ -46,13 +46,13 @@ law semver_le_trans:
   for vw: {Sv.Ver.le(v, w) == True{} : Bool}
   {Sv.Ver.le(u, w) == True{} : Bool}
 
-# LAW: the order is total
+# LAW semver_le_total: the order is total
 law semver_le_total:
   for u: Sv.Ver
   for v: Sv.Ver
   {Bool.or(Sv.Ver.le(u, v), Sv.Ver.le(v, u)) == True{} : Bool}
 
-# LAW: the next release is newer than every tag of its series
+# LAW semver_next_newer: the next release is newer than every tag of its series
 law semver_next_newer:
   for s: Sv.Ver
   for +xs: List<&2, String>
@@ -63,7 +63,7 @@ law semver_next_newer:
   for ins: {Sv.Ver.in_series(s, v) == True{} : Bool}
   {Sv.Ver.lt(v, Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))) == True{} : Bool}
 
-# LAW: the next release is no version a tag names, of any series
+# LAW semver_next_not_tagged: the next release is no version a tag names, of any series
 law semver_next_not_tagged:
   for +s: Sv.Ver
   for +xs: List<&2, String>
@@ -73,7 +73,7 @@ law semver_next_not_tagged:
   for parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}
   {v != Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)) : Sv.Ver}
 
-# LAW: the tag of the next release is none of the tags
+# LAW semver_next_tag_new: the tag of the next release is none of the tags
 law semver_next_tag_new:
   for +s: Sv.Ver
   for +xs: List<&2, String>
@@ -81,7 +81,7 @@ law semver_next_tag_new:
   for +ys: List<&2, String>
   {Sv.Tag.of(Sv.Rel.next(s, List.append(&2, String, xs, t <> ys))) != t : String}
 
-# LAW: a series with no tag starts at patch 0
+# LAW semver_fresh_series: a series with no tag starts at patch 0
 law semver_fresh_series:
   for +a: Nat
   for +b: Nat
@@ -90,7 +90,7 @@ law semver_fresh_series:
   for none: {Sv.Rel.none(Sv.Ver{a, b, c}, tags) == True{} : Bool}
   {Sv.Rel.next(Sv.Ver{a, b, c}, tags) == Sv.Ver{a, b, 0n} : Sv.Ver}
 
-# LAW: a tag that names no version of the series does not change the
+# LAW semver_other_series: a tag that names no version of the series does not change the
 # next release
 law semver_other_series:
   for s: Sv.Ver
@@ -100,17 +100,17 @@ law semver_other_series:
   for other: {Sv.Rel.ofs(s, t) == False{} : Bool}
   {Sv.Rel.next(s, List.append(&2, String, xs, t <> ys)) == Sv.Rel.next(s, List.append(&2, String, xs, ys)) : Sv.Ver}
 
-# LAW: the release of v is titled `Eukhe v` ++ show(v)
+# LAW semver_title: the release of v is titled `Eukhe v` ++ show(v)
 law semver_title:
   for v: Sv.Ver
   {Sv.Rel.title(v) == String.append("Eukhe v", Sv.Ver.show(v)) : String}
 
-# LAW: the tag of v names v
+# LAW semver_tag_roundtrip: the tag of v names v
 law semver_tag_roundtrip:
   for v: Sv.Ver
   {Sv.Tag.ver(Sv.Tag.of(v)) == Some{v} : Maybe<&2, Sv.Ver>}
 
-# LAW: a release is newer than every version tag, of any series
+# LAW semver_release_newest: a release is newer than every version tag, of any series
 law semver_release_newest:
   for c: String
   for +xs: List<&2, String>
@@ -122,7 +122,7 @@ law semver_release_newest:
   for parsed: {Sv.Tag.ver(t) == Some{v} : Maybe<&2, Sv.Ver>}
   {Sv.Ver.lt(v, r) == True{} : Bool}
 
-# LAW: with the workspace version X.Y.0 and no version tag of another
+# LAW semver_release_progress: with the workspace version X.Y.0 and no version tag of another
 # series, the release is the next release of X.Y
 law semver_release_progress:
   for c: String
@@ -133,7 +133,7 @@ law semver_release_progress:
   for only: {Sv.Rel.only(Sv.Ver{a, b, 0n}, tags) == True{} : Bool}
   {Sv.Rel.release(c, tags) == Some{Sv.Rel.next(Sv.Ver{a, b, 0n}, tags)} : Maybe<&2, Sv.Ver>}
 
-# LAW: a workspace version X.Y.(1+z) gives no release, with any tags
+# LAW semver_release_refuses_patch_workspace: a workspace version X.Y.(1+z) gives no release, with any tags
 # EXCLUDES: a workspace version that is no series start (0.10.3 instead of
 # 0.10.0) releases anyway; a release whose number ignores the workspace
 # version's patch
@@ -147,7 +147,7 @@ law semver_release_refuses_patch_workspace:
   for parsed: {Sv.Ver.parse(c) == Some{Sv.Ver{a, b, 1n+z}} : Maybe<&2, Sv.Ver>}
   {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}
 
-# LAW: a workspace version that is no version gives no release, with any
+# LAW semver_release_refuses_unparsed_workspace: a workspace version that is no version gives no release, with any
 # tags
 # EXCLUDES: a broken Cargo.toml version ("0.10", "0.10.0-dev", "") falls
 # back to a default series and releases
@@ -158,14 +158,14 @@ law semver_release_refuses_unparsed_workspace:
   for unparsed: {Sv.Ver.parse(c) == None{} : Maybe<&2, Sv.Ver>}
   {Sv.Rel.release(c, tags) == None{} : Maybe<&2, Sv.Ver>}
 
-# LAW: the premise of semver_release_refuses_patch_workspace holds for a
+# LAW semver_parse_patch_example: the premise of semver_release_refuses_patch_workspace holds for a
 # real text: "0.10.1" reads as 0.10.1
 # EXCLUDES: a refusal law that holds only because no text ever parses to
 # a patch above 0
 law semver_parse_patch_example:
   {Sv.Ver.parse("0.10.1") == Some{Sv.Ver{0n, 10n, 1n}} : Maybe<&2, Sv.Ver>}
 
-# LAW: the premise of semver_release_refuses_unparsed_workspace holds for
+# LAW semver_parse_two_fields_example: the premise of semver_release_refuses_unparsed_workspace holds for
 # a real text: "0.10" is no version
 # EXCLUDES: a refusal law that holds only because every text parses
 law semver_parse_two_fields_example:
@@ -212,7 +212,7 @@ def dec_spec(n: Nat) -> String:
     case 1n+p:
       String.reverse(dec_raise(String.reverse(dec_spec(p))))
 
-# LAW: a version is written as its three numbers in decimal, most
+# LAW semver_show_decimal: a version is written as its three numbers in decimal, most
 # significant digit first, joined by dots
 # EXCLUDES: digits written in reverse ("0.01.24" for 0.10.42) by a writer
 # that its reader undoes, which semver_roundtrip alone lets pass; a
@@ -223,7 +223,7 @@ law semver_show_decimal:
   for c: Nat
   {Sv.Ver.show(Sv.Ver{a, b, c}) == String.append(dec_spec(a), SCon{'.', String.append(dec_spec(b), SCon{'.', dec_spec(c)})}) : String}
 
-# LAW: the spec's writer is decimal: 109 is "109"
+# LAW semver_dec_spec_example: the spec's writer is decimal: 109 is "109"
 # EXCLUDES: a spec writer that is wrong past one digit or past a carry
 law semver_dec_spec_example:
   {dec_spec(109n) == "109" : String}
@@ -263,7 +263,7 @@ def rank_spec.in_range(xs: List<&2, Nat>) -> Bool:
                     case e <> r5:
                       False{}
 
-# LAW: every rank is empty or four numbers, and each version number in it
+# LAW replace_rank_in_range: every rank is empty or four numbers, and each version number in it
 # has at most 14 digits: a version number past the range never ranks
 # EXCLUDES: a clamped or wrapped number (the order of a hostile version
 # would change), a rank of another length

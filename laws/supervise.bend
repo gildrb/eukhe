@@ -24,7 +24,7 @@ import ./base.bend as LawsBase
 # gaps between failures, any run length, any events and operations in any
 # order, any builds.
 
-# LAW: a crash loop is given up. After any earlier failures, a failure
+# LAW restart_gives_up: a crash loop is given up. After any earlier failures, a failure
 # followed by k more failures, all inside the window, gives the worker up
 law restart_gives_up:
   for +c: Su.Cfg
@@ -71,7 +71,7 @@ def restart_verdict_put(over: Bool, +c: Su.Cfg, +n: Nat) -> Su.Verdict:
         case Su.Cfg{k, w, b, m}:
           Su.Relaunch{n, Nat.min(Nat.mul(restart_pow2(Nat.min(Nat.sub(n, 1n), 7n)), b), m)}
 
-# LAW: a failure keeps exactly the ages still inside the window (each one
+# LAW restart_decide_window: a failure keeps exactly the ages still inside the window (each one
 # g ms older, in order), adds itself at age 0 in front, and counts the
 # failures it keeps
 # EXCLUDES: a dropped young failure, a kept old one, a failure counted
@@ -82,7 +82,7 @@ law restart_decide_window:
   for +g: Nat
   {Su.Decision.st(Su.decide(c, s, g)) == Su.St{0n <> restart_window(Su.Cfg.w(c), g, Su.St.ages(s)), 1n+List.length(&2, Nat, restart_window(Su.Cfg.w(c), g, Su.St.ages(s)))} : Su.St}
 
-# LAW: the verdict on a failure: give up past k failures in the window,
+# LAW restart_decide_verdict: the verdict on a failure: give up past k failures in the window,
 # else relaunch after the doubling pause, capped at max
 # EXCLUDES: a give-up at k failures or a relaunch past them, a wrong
 # failure count, a pause that does not double, passes its cap or doubles
@@ -95,7 +95,7 @@ law restart_decide_verdict:
 
 # The restart-budget entry of the compiled core (bend/ffi_supervise.bend)
 
-# LAW: the entry reads back every request Rust writes: a configuration,
+# LAW restart_wire_req: the entry reads back every request Rust writes: a configuration,
 # ages and a gap that fit the wire; the rest is untouched
 # EXCLUDES: a misread or reordered configuration field, age or gap
 law restart_wire_req:
@@ -114,7 +114,7 @@ law restart_wire_req:
   for rest: String
   {FS.get_req(FS.put_req(FS.Req{Su.Cfg{k, w, b, m}, ages, g}, rest)) == Wr.Got{FS.Req{Su.Cfg{k, w, b, m}, ages, g}, rest} : Wr.Dec<FS.Req>}
 
-# LAW: Rust reads back every relaunch reply the entry writes
+# LAW restart_wire_reply_relaunch: Rust reads back every relaunch reply the entry writes
 # EXCLUDES: a misread age, failure count or pause, a verdict read as another
 law restart_wire_reply_relaunch:
   for +ages: List<&2, Nat>
@@ -126,7 +126,7 @@ law restart_wire_reply_relaunch:
   for rest: String
   {FS.get_reply(FS.put_reply(FS.Reply{ages, Su.Relaunch{f, p}}, rest)) == Wr.Got{FS.Reply{ages, Su.Relaunch{f, p}}, rest} : Wr.Dec<FS.Reply>}
 
-# LAW: and every give-up reply
+# LAW restart_wire_reply_give_up: and every give-up reply
 # EXCLUDES: a give-up read as a relaunch, a misread failure count
 law restart_wire_reply_give_up:
   for +ages: List<&2, Nat>
@@ -136,7 +136,7 @@ law restart_wire_reply_give_up:
   for rest: String
   {FS.get_reply(FS.put_reply(FS.Reply{ages, Su.GiveUp{f}}, rest)) == Wr.Got{FS.Reply{ages, Su.GiveUp{f}}, rest} : Wr.Dec<FS.Reply>}
 
-# LAW: on a whole request the entry answers the model's decision: the
+# LAW restart_ffi_decides: on a whole request the entry answers the model's decision: the
 # budget's new ages and the verdict (Su.decide)
 # EXCLUDES: an entry that answers anything but the model's decision
 law restart_ffi_decides:
@@ -147,14 +147,14 @@ law restart_ffi_decides:
   for h: {FS.get_req(s) == Wr.Got{FS.Req{c, ages, g}, ""} : Wr.Dec<FS.Req>}
   {FS.ffi(s) == FS.put_reply(FS.Reply{Su.St.ages(Su.Decision.st(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))), Su.Decision.verdict(Su.decide(c, Su.St{ages, List.length(&2, Nat, ages)}, g))}, "") : String}
 
-# LAW: a malformed request answers the error form, never a verdict
+# LAW restart_ffi_malformed: a malformed request answers the error form, never a verdict
 # EXCLUDES: a default verdict on garbage
 law restart_ffi_malformed:
   for +s: String
   for h: {FS.get_req(s) == Wr.Bad{} : Wr.Dec<FS.Req>}
   {FS.ffi(s) == Wr.err("supervise: malformed request") : String}
 
-# LAW: a request with input after it answers the error form
+# LAW restart_ffi_left_over: a request with input after it answers the error form
 # EXCLUDES: a verdict on a request with trailing garbage
 law restart_ffi_left_over:
   for +s: String
@@ -164,7 +164,7 @@ law restart_ffi_left_over:
   for ne: {String.is_empty(r) == False{} : Bool}
   {FS.ffi(s) == Wr.err("supervise: input left over") : String}
 
-# LAW: every timeout comes after the timeouts it waits for (Su.Tm.ordered
+# LAW timeouts_ordered: every timeout comes after the timeouts it waits for (Su.Tm.ordered
 # lists them), whatever the base values
 law timeouts_ordered:
   for +t: Su.Tm

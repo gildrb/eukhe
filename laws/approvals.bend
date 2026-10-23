@@ -21,7 +21,7 @@ import ../bend/approvals.bend as Am
 # beside them) on the scenarios of bridge/bridge_approvals.bend, and both
 # must print what the model prints.
 
-# LAW: when no session below the root has clients that answer, a
+# LAW child_answered_by_root: when no session below the root has clients that answer, a
 # subagent's question reaches the root's clients, and their answer is the
 # verdict
 law child_answered_by_root:
@@ -30,7 +30,7 @@ law child_answered_by_root:
   for +yes: Bool
   {Am.Out.end(Am.route(List.append(&2, Am.Desk, below, [Am.Says{yes}]))) == Am.Answered{List.length(&2, Am.Desk, below), yes} : Am.End}
 
-# LAW: the first session up the chain whose clients answer gives the
+# LAW nearest_answer_wins: the first session up the chain whose clients answer gives the
 # verdict, whatever the sessions above it
 law nearest_answer_wins:
   for +below: List<&2, Am.Desk>
@@ -39,14 +39,14 @@ law nearest_answer_wins:
   for +above: List<&2, Am.Desk>
   {Am.Out.end(Am.route(List.append(&2, Am.Desk, below, Am.Says{yes} <> above))) == Am.Answered{List.length(&2, Am.Desk, below), yes} : Am.End}
 
-# LAW: a question is unanswered (a denial) only when no session of the
+# LAW unanswered_only_when_quiet: a question is unanswered (a denial) only when no session of the
 # whole chain has clients that answer
 law unanswered_only_when_quiet:
   for +ds: List<&2, Am.Desk>
   for none: {Am.Out.end(Am.route(ds)) == Am.Unanswered{} : Am.End}
   {Am.quiet(ds) == True{} : Bool}
 
-# LAW: and then it is unanswered: no session invents an answer
+# LAW quiet_is_unanswered: and then it is unanswered: no session invents an answer
 law quiet_is_unanswered:
   for +ds: List<&2, Am.Desk>
   for quiet: {Am.quiet(ds) == True{} : Bool}
@@ -58,20 +58,20 @@ law quiet_is_unanswered:
 # protected path (effect 5: eukhe's own config and credentials, a .git or
 # .eukhe dir, a PATH dir) or reads or writes a secret (effect 6).
 
-# LAW: a step of a session whose only clients are the phone gateway never
+# LAW gateway_never_waits: a step of a session whose only clients are the phone gateway never
 # waits: no client gets a frame, the question does not go up the chain,
 # and the session's gateway rule answers at once
 law gateway_never_waits:
   for +above: List<&2, Am.Desk>
   {Am.route(Am.Phone{} <> above) == Am.Out{Nil{}, Am.Ruled{0n}} : Am.Out}
 
-# LAW: a question the interactive clients leave unanswered while the
+# LAW left_to_the_gateway: a question the interactive clients leave unanswered while the
 # phone gateway stays falls to the gateway rule, not up the chain
 law left_to_the_gateway:
   for +above: List<&2, Am.Desk>
   {Am.route(Am.PhoneLeft{} <> above) == Am.Out{[0n], Am.Ruled{0n}} : Am.Out}
 
-# LAW: a subagent's question that reaches a session whose only clients
+# LAW gateway_rules_a_subagent: a subagent's question that reaches a session whose only clients
 # are the phone gateway (no session below it has clients that answer)
 # fares as that session's own step: the same rule answers it
 law gateway_rules_a_subagent:

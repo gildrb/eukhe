@@ -17,14 +17,14 @@ import ../bend/log.bend as Lg
 # any crash point, any number of bytes not flushed that the crash keeps,
 # and whether the crash drops the directory entries not flushed.
 
-# LAW: open reads exactly the complete lines, in order; a torn tail (the
+# LAW log_reads_lines: open reads exactly the complete lines, in order; a torn tail (the
 # bytes after the last newline) is never read as an entry
 law log_reads_lines:
   for +ls: List<&2, List<&2, Nat>>
   for +t: List<&2, Nat>
   {Lg.recover(List.append(&2, Nat, Lg.render(ls), Lg.data(t))) == ls : List<&2, List<&2, Nat>>}
 
-# LAW: a crash at any point never loses a commit: after an epoch the log
+# LAW log_ack_durable: a crash at any point never loses a commit: after an epoch the log
 # is the log before it, then every commit it acknowledged, then maybe more
 law log_ack_durable:
   for d: Lg.Disk
@@ -32,7 +32,7 @@ law log_ack_durable:
   exs rest: List<&2, List<&2, Nat>>
   {Lg.Disk.log(Lg.after(d, e)) == List.append(&2, List<&2, Nat>, List.append(&2, List<&2, Nat>, Lg.Disk.log(d), Lg.acked(d, e)), rest) : List<&2, List<&2, Nat>>}
 
-# LAW: after an epoch the log is the log before it, then a prefix of the
+# LAW log_only_commits: after an epoch the log is the log before it, then a prefix of the
 # commits it tried, in order: nothing torn, nothing out of order, nothing
 # twice
 law log_only_commits:

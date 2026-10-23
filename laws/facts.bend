@@ -40,7 +40,7 @@ def core_facts_req_fits(q: FFx.Req) -> Bool:
     case FFx.Aux{c, d, a, top}:
       Bool.and(core_customs_fit(c), Bool.and(core_budgets_fit(d), Bool.and(LawsBase.wire_fits(a), LawsBase.wire_fits(top))))
 
-# LAW R1 a budget request that fits reads back, and the rest is untouched
+# LAW core_facts_round_trip (R1): a budget request that fits reads back, and the rest is untouched
 # EXCLUDES: a level, a user's budget, a default budget, a cap or the
 #   answer's room lost, swapped or misread; a user's budget read as none
 law core_facts_round_trip:
@@ -49,7 +49,7 @@ law core_facts_round_trip:
   for h: {core_facts_req_fits(q) == True{} : Bool}
   {FFx.get_req(FFx.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FFx.Req>}
 
-# LAW R2 the level request answers the level's budget
+# LAW core_facts_level (R2): the level request answers the level's budget
 # EXCLUDES: the default budget over the user's, another level's budget
 law core_facts_level:
   for +l: Fx.ELv
@@ -58,7 +58,7 @@ law core_facts_level:
   for h: {core_facts_req_fits(FFx.Level{l, c, d}) == True{} : Bool}
   {FFx.ffi(FFx.put_req(FFx.Level{l, c, d}, "")) == Wr.put_nat(Fx.budget(c, d, Fx.Lv.of(l)), "") : String}
 
-# LAW R2 the room request answers the budget under the answer's room
+# LAW core_facts_room (R2): the room request answers the budget under the answer's room
 # EXCLUDES: the budget, the ceiling and the answer's tokens swapped
 law core_facts_room:
   for +b: Nat
@@ -67,7 +67,7 @@ law core_facts_room:
   for h: {core_facts_req_fits(FFx.Room{b, m, a}) == True{} : Bool}
   {FFx.ffi(FFx.put_req(FFx.Room{b, m, a}, "")) == Wr.put_nat(Fx.room(b, m, a), "") : String}
 
-# LAW R2 the adjust request answers the fitted ceiling and budget
+# LAW core_facts_adjust (R2): the adjust request answers the fitted ceiling and budget
 # EXCLUDES: the caller's cap read as none, the model's cap and the answer's
 #   tokens swapped, the ceiling and the budget swapped in the reply
 law core_facts_adjust:
@@ -80,7 +80,7 @@ law core_facts_adjust:
   for h: {core_facts_req_fits(FFx.Adjust{base, mm, l, c, d, a}) == True{} : Bool}
   {FFx.ffi(FFx.put_req(FFx.Adjust{base, mm, l, c, d, a}, "")) == FFx.put_fit(Fx.adjust(base, mm, l, c, d, a), "") : String}
 
-# LAW R2 the Google request answers the Google budget, the refusal of an
+# LAW core_facts_google (R2): the Google request answers the Google budget, the refusal of an
 # unordered rule included
 # EXCLUDES: a rule read as none, a dynamic budget for an unordered rule
 law core_facts_google:
@@ -90,7 +90,7 @@ law core_facts_google:
   for h: {core_facts_req_fits(FFx.Google{rule, c, l}) == True{} : Bool}
   {FFx.ffi(FFx.put_req(FFx.Google{rule, c, l}, "")) == FFx.put_gb(Fx.gbudget(rule, c, l), "") : String}
 
-# LAW R2 the aux request answers the auxiliary call's output cap
+# LAW core_facts_aux (R2): the aux request answers the auxiliary call's output cap
 # EXCLUDES: the answer's tokens and the top swapped, a cap past the top
 law core_facts_aux:
   for +c: Fx.Customs
@@ -100,14 +100,14 @@ law core_facts_aux:
   for h: {core_facts_req_fits(FFx.Aux{c, d, a, top}) == True{} : Bool}
   {FFx.ffi(FFx.put_req(FFx.Aux{c, d, a, top}, "")) == Wr.put_nat(Fx.aux(c, d, a, top), "") : String}
 
-# LAW R3 a malformed budget request answers the error form
+# LAW core_facts_malformed (R3): a malformed budget request answers the error form
 # EXCLUDES: a default budget for a request it cannot read
 law core_facts_malformed:
   for +s: String
   for h: {FFx.get_req(s) == Wr.Bad{} : Wr.Dec<FFx.Req>}
   {FFx.ffi(s) == Wr.err("budget request: malformed") : String}
 
-# LAW R3 a budget request with input left over answers the error form
+# LAW core_facts_left_over (R3): a budget request with input left over answers the error form
 # EXCLUDES: an entry that answers a request followed by garbage
 law core_facts_left_over:
   for +q: FFx.Req
@@ -116,7 +116,7 @@ law core_facts_left_over:
   for h: {core_facts_req_fits(q) == True{} : Bool}
   {FFx.ffi(FFx.put_req(q, SCon{c, rest})) == Wr.err("budget request: input left over") : String}
 
-# LAW R1 anchor and witness: an adjust request is its tag, the caller's
+# LAW core_facts_req_example (R1): anchor and witness: an adjust request is its tag, the caller's
 # cap, the model's cap, the level, the user's budgets, the defaults and
 # the answer's tokens, as `api/simple_options.rs` writes them
 # EXCLUDES: a vacuous core_facts_round_trip, fields or tags in another
@@ -124,13 +124,13 @@ law core_facts_left_over:
 law core_facts_req_example:
   {core_facts_req_fits(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n}) == True{} : Bool} & {FFx.put_req(FFx.Adjust{Some{100n}, 64n, Fx.EXhigh{}, Fx.Customs{None{}, Some{5n}, None{}, None{}}, Fx.Budgets{1n, 2n, 3n, 4n}, 8n}, "") == "2,1,100,64,4,0,1,5,0,0,1,2,3,4,8," : String}
 
-# LAW R2 anchor: a Google budget is 0 dynamic, 1 then the tokens, 2
+# LAW core_facts_reply_example (R2): anchor: a Google budget is 0 dynamic, 1 then the tokens, 2
 # unordered; a fit is the ceiling, then the budget
 # EXCLUDES: replies the Rust reader reads as other values
 law core_facts_reply_example:
   {FFx.put_gb(Fx.Dynamic{}, FFx.put_gb(Fx.Tokens{5n}, FFx.put_gb(Fx.Unordered{}, ""))) == "0,1,5,2," : String} & {FFx.put_fit(Fx.Fit{9n, 4n}, "") == "9,4," : String}
 
-# LAW R3 witness: a malformed budget request exists (an unknown tag)
+# LAW core_facts_malformed_example (R3): witness: a malformed budget request exists (an unknown tag)
 # EXCLUDES: a vacuous core_facts_malformed
 law core_facts_malformed_example:
   {FFx.get_req("5,") == Wr.Bad{} : Wr.Dec<FFx.Req>} & {FFx.ffi("5,") == Wr.err("budget request: malformed") : String}
@@ -149,14 +149,14 @@ law core_facts_malformed_example:
 # (S6.10.1) Decisions are rulebook lookups
 # ----------------------------------------
 
-# LAW: a model's explicit compat flag decides adaptive thinking, over the
+# LAW facts_adaptive_compat_first: a model's explicit compat flag decides adaptive thinking, over the
 # rulebook
 law facts_adaptive_compat_first:
   for b: Bool
   for a: If.Ans
   {Fx.adaptive(Some{b}, a) == b : Bool}
 
-# LAW: with no compat flag, adaptive thinking is the rulebook's answer,
+# LAW facts_adaptive_rulebook_second: with no compat flag, adaptive thinking is the rulebook's answer,
 # false where no rule applies; one rule for Anthropic Messages and Bedrock
 law facts_adaptive_rulebook_second:
   for a: If.Ans
@@ -165,7 +165,7 @@ law facts_adaptive_rulebook_second:
 # (S6.10.2) Budgets stay within the model's limits
 # ------------------------------------------------
 
-# LAW: a Google budget of a model with a budget rule is at most the rule's
+# LAW facts_google_budget_at_most_high: a Google budget of a model with a budget rule is at most the rule's
 # high budget, whatever the user's budgets
 law facts_google_budget_at_most_high:
   for +b: Fx.Budgets
@@ -174,7 +174,7 @@ law facts_google_budget_at_most_high:
   for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
   {Nat.is_le(Fx.gtokens(b, c, l), Fx.Budgets.high(b)) == True{} : Bool}
 
-# LAW: and at least the rule's minimal budget
+# LAW facts_google_budget_at_least_minimal: and at least the rule's minimal budget
 law facts_google_budget_at_least_minimal:
   for +b: Fx.Budgets
   for c: Fx.Customs
@@ -182,7 +182,7 @@ law facts_google_budget_at_least_minimal:
   for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
   {Nat.is_le(Fx.Budgets.minimal(b), Fx.gtokens(b, c, l)) == True{} : Bool}
 
-# LAW: with no user budget, a Google budget is the rule's budget of the
+# LAW facts_google_rule_is_the_table: with no user budget, a Google budget is the rule's budget of the
 # level, unchanged: the rule is the table
 law facts_google_rule_is_the_table:
   for +b: Fx.Budgets
@@ -190,7 +190,7 @@ law facts_google_rule_is_the_table:
   for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
   {Fx.gtokens(b, Fx.Customs.none(), l) == Fx.Budgets.at(b, l) : Nat}
 
-# LAW: a fitted thinking budget is never above the response ceiling
+# LAW facts_fit_budget_under_ceiling: a fitted thinking budget is never above the response ceiling
 law facts_fit_budget_under_ceiling:
   for +base: Maybe<&2, Nat>
   for +mm: Nat
@@ -198,7 +198,7 @@ law facts_fit_budget_under_ceiling:
   for +a: Nat
   {Nat.is_le(Fx.Fit.budget(Fx.fit(base, mm, b, a)), Fx.Fit.max(Fx.fit(base, mm, b, a))) == True{} : Bool}
 
-# LAW: and the response ceiling is never above the model's output cap
+# LAW facts_fit_ceiling_under_model: and the response ceiling is never above the model's output cap
 law facts_fit_ceiling_under_model:
   for +base: Maybe<&2, Nat>
   for +mm: Nat
@@ -206,7 +206,7 @@ law facts_fit_ceiling_under_model:
   for +a: Nat
   {Nat.is_le(Fx.Fit.max(Fx.fit(base, mm, b, a)), mm) == True{} : Bool}
 
-# LAW: a budget capped for answer room leaves the answer its tokens under
+# LAW facts_room_leaves_the_answer: a budget capped for answer room leaves the answer its tokens under
 # the ceiling
 law facts_room_leaves_the_answer:
   for +b: Nat
@@ -215,14 +215,14 @@ law facts_room_leaves_the_answer:
   for fits: {Nat.is_le(a, m) == True{} : Bool}
   {Nat.is_le(Nat.add(Fx.room(b, m, a), a), m) == True{} : Bool}
 
-# LAW: an auxiliary call's cap leaves its answer room over the thinking
+# LAW facts_aux_cap_answer_room: an auxiliary call's cap leaves its answer room over the thinking
 # budget in use, whatever the user's budget
 law facts_aux_cap_answer_room:
   for +b: Nat
   for +a: Nat
   {Nat.sub(Fx.aux_cap(b, a), b) == a : Nat}
 
-# LAW: an unordered budget rule (a minimal, low, medium, high that falls
+# LAW facts_google_unordered_refused: an unordered budget rule (a minimal, low, medium, high that falls
 # somewhere) gives no Google budget: the rule is refused, never clamped
 # into a range it does not have (Rust `u64::clamp` panicked on minimal >
 # high); EXCLUDES: a budget from a rule with no range, a panic
@@ -233,7 +233,7 @@ law facts_google_unordered_refused:
   for bad: {Fx.Budgets.ordered(b) == False{} : Bool}
   {Fx.gbudget(Some{b}, c, l) == Fx.Unordered{} : Fx.GB}
 
-# LAW: an ordered budget rule gives the budget gtokens (so every law on
+# LAW facts_google_ordered_tokens: an ordered budget rule gives the budget gtokens (so every law on
 # gtokens holds for the Google budget)
 law facts_google_ordered_tokens:
   for +b: Fx.Budgets
@@ -246,7 +246,7 @@ law facts_google_ordered_tokens:
 def budgets.held(x: Nat, +lo: Nat, +hi: Nat) -> Nat:
   Nat.max(lo, Nat.min(x, hi))
 
-# LAW: a Google budget under a rule is the user's budget of the level,
+# LAW facts_google_budget_held: a Google budget under a rule is the user's budget of the level,
 # else the rule's, held inside the rule's minimal..high: a user's budget
 # inside the range is sent as it is; EXCLUDES: a user's budget ignored, a
 # budget moved inside the range
@@ -257,7 +257,7 @@ law facts_google_budget_held:
   for +ordered: {Fx.Budgets.ordered(b) == True{} : Bool}
   {Fx.gtokens(b, c, l) == budgets.held(Maybe.default(&2, Nat, Fx.Customs.at(c, l), Fx.Budgets.at(b, l)), Fx.Budgets.minimal(b), Fx.Budgets.high(b)) : Nat}
 
-# LAW: without a rule, a Google budget is the user's budget of the level
+# LAW facts_google_free_user: without a rule, a Google budget is the user's budget of the level
 law facts_google_free_user:
   for c: Fx.Customs
   for l: Fx.Lv
@@ -265,19 +265,19 @@ law facts_google_free_user:
   for u: {Fx.Customs.at(c, l) == Some{n} : Maybe<&2, Nat>}
   {Fx.gbudget(None{}, c, l) == Fx.Tokens{n} : Fx.GB}
 
-# LAW: without a rule and a user's budget, the Google budget is dynamic
+# LAW facts_google_free_dynamic: without a rule and a user's budget, the Google budget is dynamic
 law facts_google_free_dynamic:
   for c: Fx.Customs
   for l: Fx.Lv
   for u: {Fx.Customs.at(c, l) == None{} : Maybe<&2, Nat>}
   {Fx.gbudget(None{}, c, l) == Fx.Dynamic{} : Fx.GB}
 
-# LAW: the budget level of a request's level: each level keeps its own,
+# LAW facts_budget_levels: the budget level of a request's level: each level keeps its own,
 # xhigh and max take high
 law facts_budget_levels:
   {[Fx.Lv.of(Fx.EMinimal{}), Fx.Lv.of(Fx.ELow{}), Fx.Lv.of(Fx.EMedium{}), Fx.Lv.of(Fx.EHigh{}), Fx.Lv.of(Fx.EXhigh{}), Fx.Lv.of(Fx.EMax{})] == [Fx.Minimal{}, Fx.Low{}, Fx.Medium{}, Fx.High{}, Fx.High{}, Fx.High{}] : List<&2, Fx.Lv>}
 
-# LAW: the budget of a level is the user's budget of the level, over the
+# LAW facts_budget_user_first: the budget of a level is the user's budget of the level, over the
 # defaults
 law facts_budget_user_first:
   for c: Fx.Customs
@@ -287,7 +287,7 @@ law facts_budget_user_first:
   for u: {Fx.Customs.at(c, l) == Some{n} : Maybe<&2, Nat>}
   {Fx.budget(c, d, l) == n : Nat}
 
-# LAW: without the user's budget, the budget of a level is the default
+# LAW facts_budget_default: without the user's budget, the budget of a level is the default
 law facts_budget_default:
   for c: Fx.Customs
   for d: Fx.Budgets
@@ -307,7 +307,7 @@ def budgets.fit.at(over: Bool, +m: Nat, +b: Nat, +a: Nat) -> Fx.Fit:
 def budgets.fit(+m: Nat, +b: Nat, +a: Nat) -> Fx.Fit:
   budgets.fit.at(Nat.is_le(m, b), m, b, a)
 
-# LAW: with the caller's cap x, the ceiling is x plus the budget, at most
+# LAW facts_fit_exact_caller: with the caller's cap x, the ceiling is x plus the budget, at most
 # the model's cap, and the budget is capped for answer room when it fills
 # the ceiling; EXCLUDES: any other ceiling or budget (the two laws above
 # only bound them)
@@ -318,14 +318,14 @@ law facts_fit_exact_caller:
   for +a: Nat
   {Fx.fit(Some{x}, mm, b, a) == budgets.fit(Nat.min(Nat.add(x, b), mm), b, a) : Fx.Fit}
 
-# LAW: without the caller's cap, the ceiling is the model's cap
+# LAW facts_fit_exact_model: without the caller's cap, the ceiling is the model's cap
 law facts_fit_exact_model:
   for +mm: Nat
   for +b: Nat
   for +a: Nat
   {Fx.fit(None{}, mm, b, a) == budgets.fit(mm, b, a) : Fx.Fit}
 
-# LAW (the Nat range): a caller's cap at or above the model's cap fits as
+# LAW facts_fit_saturated_caller (the Nat range): : a caller's cap at or above the model's cap fits as
 # no cap, so the cap Rust saturates at the wire's largest Nat (10^14-1)
 # fits as it did unsaturated whenever the model's cap is below it
 law facts_fit_saturated_caller:
@@ -336,7 +336,7 @@ law facts_fit_saturated_caller:
   for +above: {Nat.is_le(mm, x) == True{} : Bool}
   {Fx.fit(Some{x}, mm, b, a) == Fx.fit(None{}, mm, b, a) : Fx.Fit}
 
-# LAW (the Nat range): two budgets at or above the model's cap fit alike,
+# LAW facts_fit_saturated_budget (the Nat range): : two budgets at or above the model's cap fit alike,
 # so a budget Rust saturates at the wire's largest Nat fits as it did
 # unsaturated whenever the model's cap is below it
 law facts_fit_saturated_budget:
@@ -349,7 +349,7 @@ law facts_fit_saturated_budget:
   for +h2: {Nat.is_le(mm, b2) == True{} : Bool}
   {Fx.fit(base, mm, b1, a) == Fx.fit(base, mm, b2, a) : Fx.Fit}
 
-# LAW (the Nat range): the compactor's cap is the thinking budget plus the
+# LAW facts_aux_cap_within (the Nat range): : the compactor's cap is the thinking budget plus the
 # answer, at most top (Rust passes the wire's largest Nat): below top
 # the answer keeps its room exactly (facts_aux_cap_answer_room), at top
 # the cap saturates as Rust's `saturating_add` does
@@ -362,7 +362,7 @@ law facts_aux_cap_within:
 # (S6.10.3) Oracles: the data gives the answers the code gave
 # -----------------------------------------------------------
 
-# LAW: the Bedrock effort from the thinking-level map is the effort of the
+# LAW facts_bedrock_effort_oracle: the Bedrock effort from the thinking-level map is the effort of the
 # old id list, for every model whose map keeps the catalog's promise (a
 # native-xhigh model's map sends xhigh at xhigh)
 law facts_bedrock_effort_oracle:
@@ -372,7 +372,7 @@ law facts_bedrock_effort_oracle:
   for ok: {Fx.native_ok(native, m) == True{} : Bool}
   {Fx.effort.old(native, m, l) == Fx.effort(m, l) : Nat}
 
-# LAW: the budget of budget-based Claude from the rulebook's default
+# LAW facts_bedrock_budget_oracle: the budget of budget-based Claude from the rulebook's default
 # budgets is the budget of the old Bedrock table, for every user budget
 law facts_bedrock_budget_oracle:
   for c: Fx.Customs
@@ -382,7 +382,7 @@ law facts_bedrock_budget_oracle:
 # (S6.10.4) Prices are data
 # -------------------------
 
-# LAW: a price row of the model wins over the row of every model: the
+# LAW facts_tier_price_model_row_first: a price row of the model wins over the row of every model: the
 # gpt-5.5 priority price is a row, not an id test in code
 law facts_tier_price_model_row_first:
   for +rows: List<&2, Fx.PRow>
@@ -392,7 +392,7 @@ law facts_tier_price_model_row_first:
   for hit: {Fx.price.find(rows, m, t, True{}) == Some{k} : Maybe<&2, Nat>}
   {Fx.price(rows, m, t) == Some{k} : Maybe<&2, Nat>}
 
-# LAW: a tier that no row prices leaves the base price (a provider that does
+# LAW facts_tier_price_no_row_base: a tier that no row prices leaves the base price (a provider that does
 # not sell the tier is not billed OpenAI's multiplier)
 law facts_tier_price_no_row_base:
   for +rows: List<&2, Fx.PRow>
@@ -402,21 +402,21 @@ law facts_tier_price_no_row_base:
   for none: {Fx.price(rows, m, t) == None{} : Maybe<&2, Nat>}
   {Fx.tier_cost(base, Fx.price(rows, m, t)) == Nat.mul(base, 100n) : Nat}
 
-# LAW: the shipped OpenAI rows give the multiplier of the old OpenAI
+# LAW facts_tier_price_openai_oracle: the shipped OpenAI rows give the multiplier of the old OpenAI
 # function for every model and tier
 law facts_tier_price_openai_oracle:
   for m: Nat
   for t: Nat
   {Maybe.default(&2, Nat, Fx.price(Fx.prices.openai(), m, t), 100n) == Fx.price.old.openai(m, t) : Nat}
 
-# LAW: the shipped Codex rows give the multiplier of the old Codex
+# LAW facts_tier_price_codex_oracle: the shipped Codex rows give the multiplier of the old Codex
 # function for every model and tier
 law facts_tier_price_codex_oracle:
   for m: Nat
   for t: Nat
   {Maybe.default(&2, Nat, Fx.price(Fx.prices.codex(), m, t), 100n) == Fx.price.old.codex(m, t) : Nat}
 
-# LAW: a 1h cache write of a model that no row prices costs the model's own
+# LAW facts_cache_write_1h_own_rate: a 1h cache write of a model that no row prices costs the model's own
 # cache write rate, never a price borrowed from another provider
 law facts_cache_write_1h_own_rate:
   for +input: Nat

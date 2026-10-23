@@ -24,7 +24,7 @@ import ./base.bend as LawsBase
 # crates/eukhe-ai/src/utils/retry.rs `FailureFacts::retryable`. Every
 # input is free: any status, any kind, any text.
 
-# LAW: a failure the quota park ended is never retried
+# LAW retry_never_parked: a failure the quota park ended is never retried
 law retry_never_parked:
   for limit: Bool
   for status: Maybe<&2, Nat>
@@ -32,7 +32,7 @@ law retry_never_parked:
   for text: Bool
   {R.retryable(R.Facts{True{}, limit, status, kind, text}) == False{} : Bool}
 
-# LAW: a quota, billing or admission limit, or a refused server wait, is
+# LAW retry_never_limit: a quota, billing or admission limit, or a refused server wait, is
 # never retried
 law retry_never_limit:
   for parked: Bool
@@ -41,7 +41,7 @@ law retry_never_limit:
   for text: Bool
   {R.retryable(R.Facts{parked, True{}, status, kind, text}) == False{} : Bool}
 
-# LAW: a recorded status below 500 that is not 408, 409 or 429 (a client
+# LAW retry_never_client_error: a recorded status below 500 that is not 408, 409 or 429 (a client
 # error such as 400) is never retried, whatever the kind and the text say
 law retry_never_client_error:
   for parked: Bool
@@ -55,7 +55,7 @@ law retry_never_client_error:
   for not429: {Nat.is_eq(s, 429n) == False{} : Bool}
   {R.retryable(R.Facts{parked, limit, Some{s}, kind, text}) == False{} : Bool}
 
-# LAW: a retried failure that recorded a status recorded a server error
+# LAW retry_only_retryable: a retried failure that recorded a status recorded a server error
 # or 408, 409 or 429
 law retry_only_retryable:
   for parked: Bool
@@ -66,7 +66,7 @@ law retry_only_retryable:
   for retried: {R.retryable(R.Facts{parked, limit, Some{s}, kind, text}) == True{} : Bool}
   {Bool.or(Nat.is_ge(s, 500n), R.status.listed(s)) == True{} : Bool}
 
-# LAW: a recorded status decides alone: the kind and the text change
+# LAW retry_status_first: a recorded status decides alone: the kind and the text change
 # nothing
 law retry_status_first:
   for parked: Bool
@@ -78,7 +78,7 @@ law retry_status_first:
   for t2: Bool
   {R.retryable(R.Facts{parked, limit, Some{s}, k1, t1}) == R.retryable(R.Facts{parked, limit, Some{s}, k2, t2}) : Bool}
 
-# LAW: with no status, a known kind decides alone: the text changes
+# LAW retry_kind_before_text: with no status, a known kind decides alone: the text changes
 # nothing
 law retry_kind_before_text:
   for parked: Bool
@@ -89,7 +89,7 @@ law retry_kind_before_text:
   for t2: Bool
   {R.retryable(R.Facts{parked, limit, None{}, Some{k}, t1}) == R.retryable(R.Facts{parked, limit, None{}, Some{k}, t2}) : Bool}
 
-# LAW: a server error (status 500 or more) is retried when no park and no
+# LAW retry_server_errors: a server error (status 500 or more) is retried when no park and no
 # limit stop it
 law retry_server_errors:
   for kind: Maybe<&2, R.Cause>
@@ -161,7 +161,7 @@ def rs.retryable(f: R.Facts) -> Bool:
     case R.Facts{parked, limit, status, kind, text}:
       Bool.and(Bool.not(Bool.or(parked, limit)), rs.recorded(status, kind, text))
 
-# LAW: the classifier decides exactly as the Rust rule: never after a park
+# LAW retry_classifier_exact: the classifier decides exactly as the Rust rule: never after a park
 # or a limit; else by the recorded status (408, 409, 429, 500 and above);
 # else by the recorded kind (transient yes, permanent no); else (no kind,
 # or Unknown) by the text
@@ -172,7 +172,7 @@ law retry_classifier_exact:
   for f: R.Facts
   {R.retryable(f) == rs.retryable(f) : Bool}
 
-# LAW: anchors of the classifier: a 429 is retried, a 400 with a transient
+# LAW retry_classifier_example: anchors of the classifier: a 429 is retried, a 400 with a transient
 # text is not, an Unknown kind with a transient text is, a park is not
 # EXCLUDES: a spec helper read in a way the Rust does not mean
 law retry_classifier_example:
@@ -186,14 +186,14 @@ law retry_classifier_example:
 # (`eukhe_bend::wire::NAT_MAX`, over 3000 years of ms) and draws the
 # jitter uniform in [0, 2^46).
 
-# LAW: a retry never goes out before the server's requested wait
+# LAW retry_after_respected: a retry never goes out before the server's requested wait
 law retry_after_respected:
   for jitter: Nat
   for s: Nat
   for cap: Nat
   {R.Delay.respects(R.wait(jitter, Some{s}, cap), s) == True{} : Bool}
 
-# LAW: a server wait above a cap refuses the retry and names the server's
+# LAW retry_refuses_past_cap: a server wait above a cap refuses the retry and names the server's
 # time
 law retry_refuses_past_cap:
   for jitter: Nat
@@ -203,14 +203,14 @@ law retry_refuses_past_cap:
   for over: {Nat.is_gt(s, cap) == True{} : Bool}
   {R.wait(jitter, Some{s}, cap) == R.Refused{s, cap} : R.Delay}
 
-# LAW: with no server wait the retry waits its jitter
+# LAW retry_wait_plain: with no server wait the retry waits its jitter
 # EXCLUDES: a wait invented from nothing, a refusal with no server wait
 law retry_wait_plain:
   for jitter: Nat
   for cap: Nat
   {R.wait(jitter, None{}, cap) == R.After{jitter} : R.Delay}
 
-# LAW: with no cap (0) the retry waits the longer of its jitter and the
+# LAW retry_wait_uncapped: with no cap (0) the retry waits the longer of its jitter and the
 # server's wait, whatever the server asked
 # EXCLUDES: a refusal with no cap, a wait longer than both
 law retry_wait_uncapped:
@@ -218,7 +218,7 @@ law retry_wait_uncapped:
   for s: Nat
   {R.wait(jitter, Some{s}, 0n) == R.After{Nat.max(jitter, s)} : R.Delay}
 
-# LAW: a server wait within the cap: the retry waits the longer of its
+# LAW retry_wait_within_cap: a server wait within the cap: the retry waits the longer of its
 # jitter and the server's wait
 # EXCLUDES: a refusal of a server wait the cap allows, a wait that adds
 #   the two instead of taking the longer
@@ -237,7 +237,7 @@ def rs.held(w: R.Delay) -> Maybe<&2, Nat>:
     case R.Refused{server, cap}:
       None{}
 
-# LAW: under a positive cap, a server wait saturated at any c above the
+# LAW retry_wait_saturation_exact: under a positive cap, a server wait saturated at any c above the
 # cap decides the same: the same wait, or a refusal (Rust saturates the
 # server's wait at the wire's largest Nat; only the number a refusal
 # names can change, for a server wait past that)
@@ -260,7 +260,7 @@ def rs.twice(k: Nat, +b: Nat) -> Nat:
     case 1n+j:
       rs.twice(j, Nat.add(b, b))
 
-# LAW: the step of retry `attempt` (1 for the first retry) is the base
+# LAW retry_step_exact: the step of retry `attempt` (1 for the first retry) is the base
 # doubled per retry before it, at most the cap, for every base, attempt and
 # cap (no product passes the cap: a native Nat never passes 2^48-1)
 # EXCLUDES: a step that does not double, doubles once too often, ignores
@@ -271,12 +271,12 @@ law retry_step_exact:
   for cap: Nat
   {R.jitter.step(base, attempt, cap) == Nat.min(rs.twice(Nat.sub(attempt, 1n), base), cap) : Nat}
 
-# LAW: anchors of the step: base 100 under cap 600: 100, 200, 400, 600
+# LAW retry_step_example: anchors of the step: base 100 under cap 600: 100, 200, 400, 600
 # EXCLUDES: a step off by one retry
 law retry_step_example:
   {[R.jitter.step(100n, 1n, 600n), R.jitter.step(100n, 2n, 600n), R.jitter.step(100n, 3n, 600n), R.jitter.step(100n, 4n, 600n), R.jitter.step(100n, 40n, 600n)] == [100n, 200n, 400n, 600n, 600n] : List<&2, Nat>}
 
-# LAW: the jitter of a draw under a positive step is the draw modulo the
+# LAW retry_jitter_exact: the jitter of a draw under a positive step is the draw modulo the
 # step (a draw uniform in [0, 2^46) gives a jitter uniform in [0, step) up
 # to step/2^46); under a step of 0 it is 0
 # EXCLUDES: a jitter at or past the step, a constant jitter (no spread)
@@ -286,13 +286,13 @@ law retry_jitter_exact:
   for positive: {Nat.is_gt(step, 0n) == True{} : Bool}
   {R.jitter.draw(step, draw) == Nat.mod(draw, step) : Nat}
 
-# LAW: under a step of 0 (a base or a cap of 0) the jitter is 0
+# LAW retry_jitter_zero_step: under a step of 0 (a base or a cap of 0) the jitter is 0
 # EXCLUDES: a wait drawn from nothing when the policy asks for none
 law retry_jitter_zero_step:
   for draw: Nat
   {R.jitter.draw(0n, draw) == 0n : Nat}
 
-# LAW: the wait of a retry (`retry_wait`) is the wait of the jitter drawn
+# LAW retry_wait_composes: the wait of a retry (`retry_wait`) is the wait of the jitter drawn
 # under its step, with the server's wait and the cap
 # EXCLUDES: a retry wait that skips the jitter, the step or the server
 law retry_wait_composes:
@@ -308,7 +308,7 @@ law retry_wait_composes:
 # crates/eukhe-core/src/durable/models/failover.rs `next_switch`. Every
 # input is free: any chain, any failed attempts, any policy.
 
-# LAW: a request goes back to a provider it tried only after it tried
+# LAW failover_visits_once: a request goes back to a provider it tried only after it tried
 # every provider of its chain
 law failover_visits_once:
   for len: Nat
@@ -316,14 +316,14 @@ law failover_visits_once:
   for p: R.Policy
   {R.Switch.fresh_first(R.next(len, ts, p), len, ts) == True{} : Bool}
 
-# LAW: the next attempt never goes to the provider that just failed
+# LAW failover_never_twice_in_a_row: the next attempt never goes to the provider that just failed
 law failover_never_twice_in_a_row:
   for len: Nat
   for ts: List<&2, R.Tried>
   for p: R.Policy
   {R.Switch.not_last(R.next(len, ts, p), ts) == True{} : Bool}
 
-# LAW: a return to a provider the request tried waits a positive time,
+# LAW failover_return_waits: a return to a provider the request tried waits a positive time,
 # never less than the server's wait of that provider's last failure
 law failover_return_waits:
   for len: Nat
@@ -331,14 +331,14 @@ law failover_return_waits:
   for p: R.Policy
   {R.Switch.return_waits(R.next(len, ts, p), ts) == True{} : Bool}
 
-# LAW: no switch waits longer than retry.failover.maxDelayMs
+# LAW failover_delay_capped: no switch waits longer than retry.failover.maxDelayMs
 law failover_delay_capped:
   for len: Nat
   for ts: List<&2, R.Tried>
   for p: R.Policy
   {R.Switch.capped(R.next(len, ts, p), R.Policy.max(p)) == True{} : Bool}
 
-# LAW: a request makes at most retry.failover.maxRetries switches
+# LAW failover_bounded: a request makes at most retry.failover.maxRetries switches
 law failover_bounded:
   for len: Nat
   for ts: List<&2, R.Tried>
@@ -466,7 +466,7 @@ def rs.next(+len: Nat, ts: List<&2, R.Tried>, +p: R.Policy) -> Maybe<&2, R.Switc
     case +t <> +rest:
       rs.budget(Nat.is_lt(rs.count(rest), R.Policy.switches(p)), rs.newest(rest, t), len, t <> rest, p)
 
-# LAW: the walk decides exactly as `next_switch` states it, for every
+# LAW failover_exact: the walk decides exactly as `next_switch` states it, for every
 # chain, every failed attempt list and every policy
 # EXCLUDES: no failover at all (always None), a fresh provider skipped or
 #   taken out of chain order, a return before every provider was tried, a
@@ -478,14 +478,14 @@ law failover_exact:
   for p: R.Policy
   {R.next(len, ts, p) == rs.next(len, ts, p) : Maybe<&2, R.Switch>}
 
-# LAW: anchors of the walk (base 10, max 300): the next fresh provider in
+# LAW failover_example: anchors of the walk (base 10, max 300): the next fresh provider in
 # chain order; once all were tried, a return after the doubled backoff, or
 # the server's longer wait; none past max, past the budget, or with no wait
 # EXCLUDES: a spec helper read in a way `next_switch` does not mean
 law failover_example:
   {[R.next(3n, [R.Tried{1n, None{}}], R.Policy{8n, 10n, 200n}), R.next(3n, [R.Tried{2n, None{}}], R.Policy{8n, 10n, 200n}), R.next(3n, [R.Tried{0n, None{}}, R.Tried{1n, None{}}, R.Tried{2n, None{}}], R.Policy{8n, 10n, 200n}), R.next(3n, [R.Tried{0n, None{}}, R.Tried{1n, None{}}, R.Tried{2n, None{}}, R.Tried{0n, None{}}], R.Policy{8n, 10n, 200n}), R.next(3n, [R.Tried{0n, Some{50n}}, R.Tried{1n, None{}}, R.Tried{2n, None{}}], R.Policy{8n, 10n, 200n}), R.next(3n, [R.Tried{0n, Some{250n}}, R.Tried{1n, Some{250n}}, R.Tried{2n, None{}}], R.Policy{8n, 10n, 200n})] == [Some{R.Switch{2n, 0n}}, Some{R.Switch{0n, 0n}}, Some{R.Switch{0n, 10n}}, Some{R.Switch{1n, 20n}}, Some{R.Switch{0n, 50n}}, None{}] : List<&2, Maybe<&2, R.Switch>>}
 
-# LAW: anchors of the budget and of a zero backoff: a policy of 1 switch
+# LAW failover_budget_example: anchors of the budget and of a zero backoff: a policy of 1 switch
 # allows one switch and no second; a base of 0 never returns without a
 # server's wait
 # EXCLUDES: a budget off by one, a return that goes out at once
@@ -509,7 +509,7 @@ def rs.cap_waits(ts: List<&2, R.Tried>, +c: Nat) -> List<&2, R.Tried>:
         case R.Tried{at, w}:
           R.Tried{at, rs.cap_wait(w, c)} <> rs.cap_waits(rest, c)
 
-# LAW: server waits saturated at any c above max decide the same walk
+# LAW failover_wait_saturation_exact: server waits saturated at any c above max decide the same walk
 # (Rust saturates them at the wire's largest Nat: exact for every max
 # below it)
 # EXCLUDES: a saturation that returns to a provider whose server asked for
@@ -522,7 +522,7 @@ law failover_wait_saturation_exact:
   for above: {Nat.is_gt(c, R.Policy.max(p)) == True{} : Bool}
   {R.next(len, rs.cap_waits(ts, c), p) == R.next(len, ts, p) : Maybe<&2, R.Switch>}
 
-# LAW: a base saturated at any c of at least max decides the same walk
+# LAW failover_base_saturation_exact: a base saturated at any c of at least max decides the same walk
 # (Rust saturates it at the wire's largest Nat: exact for every max up to
 # it)
 # EXCLUDES: a saturation that changes a backoff
@@ -542,7 +542,7 @@ law failover_base_saturation_exact:
 # decisions of generation.rs `classify`. Every input is free: any
 # replies, in any order.
 
-# LAW: no request goes out while the request's deferred job is live: a
+# LAW deferred_pays_once: no request goes out while the request's deferred job is live: a
 # failed poll polls the same job again or cancels it
 law deferred_pays_once:
   for fails: Nat
@@ -550,14 +550,14 @@ law deferred_pays_once:
   for gots: List<&2, R.Got>
   {R.Tally.sends(R.run(fails, budget, gots)) == 0n : Nat}
 
-# LAW: no poll goes out at or after the job's deadline
+# LAW deferred_bounded_in_time: no poll goes out at or after the job's deadline
 law deferred_bounded_in_time:
   for fails: Nat
   for budget: Nat
   for gots: List<&2, R.Got>
   {R.Tally.late(R.run(fails, budget, gots)) == 0n : Nat}
 
-# LAW: a retryable failed poll, with fetch failures and time left, polls
+# LAW deferred_failed_poll_repolls: a retryable failed poll, with fetch failures and time left, polls
 # the same job again
 law deferred_failed_poll_repolls:
   for fails: Nat
@@ -574,14 +574,14 @@ law deferred_failed_poll_repolls:
 # crates/eukhe-durable/src/harness/generation/deferred.rs
 # `idle_after_stall`.
 
-# LAW: the retry of a stalled stream gets a longer idle deadline than the
+# LAW stall_retry_extends: the retry of a stalled stream gets a longer idle deadline than the
 # one it stalled under
 law stall_retry_extends:
   for idle: Nat
   for positive: {Nat.is_gt(idle, 0n) == True{} : Bool}
   {Nat.is_lt(idle, R.stall.next(idle)) == True{} : Bool}
 
-# LAW: the retry of a stalled stream gets twice the idle deadline it
+# LAW stall_retry_doubles: the retry of a stalled stream gets twice the idle deadline it
 # stalled under (Rust saturates the deadline at half the wire's largest
 # Nat, so twice it stays a wire Nat)
 # EXCLUDES: a deadline that grows by less (one ms, a fixed amount) or by
@@ -595,14 +595,14 @@ law stall_retry_doubles:
 # crates/eukhe-ai/src/utils/stream_idle.rs `StreamIdle::within`. Every
 # input is free: any deadline, any gaps between the events.
 
-# LAW: a watched stream ends no later than its last event before the
+# LAW stall_detection_bounded: a watched stream ends no later than its last event before the
 # deadline plus the deadline: a stall is detected in bounded time
 law stall_detection_bounded:
   for gs: List<&2, Nat>
   for d: Nat
   {Nat.is_le(R.Idle.at(R.idle(gs, d)), Nat.add(R.idle.life(gs, d), d)) == True{} : Bool}
 
-# LAW: a stream that sends no event ends as stalled at the deadline
+# LAW stall_silent_ends_at_deadline: a stream that sends no event ends as stalled at the deadline
 law stall_silent_ends_at_deadline:
   for d: Nat
   {R.idle(Nil{}, d) == R.IdleStall{d} : R.Idle}
@@ -648,7 +648,7 @@ def rs.req_fits(q: Fr.Req) -> Bool:
     case Fr.QStall{idle}:
       LawsBase.wire_fits(idle)
 
-# LAW: a request that fits the wire reads back, and the rest is untouched
+# LAW retry_ffi_request_round_trip: a request that fits the wire reads back, and the rest is untouched
 # EXCLUDES: a field read into the wrong slot, a lost or extra attempt, a
 #   swapped Bool, a cause read as another cause, a wrong decision tag
 law retry_ffi_request_round_trip:
@@ -657,7 +657,7 @@ law retry_ffi_request_round_trip:
   for h: {rs.req_fits(q) == True{} : Bool}
   {Fr.get_req(Fr.put_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}
 
-# LAW: a decoded request is exactly an encoding: any other input is Bad{}
+# LAW retry_ffi_request_exact: a decoded request is exactly an encoding: any other input is Bad{}
 # EXCLUDES: an unknown tag, cause or Maybe mark read as a value, a request
 #   read from a string that no encoder writes (a default for bad input)
 law retry_ffi_request_exact:
@@ -667,14 +667,14 @@ law retry_ffi_request_exact:
   for h: {Fr.get_req(s) == Wr.Got{q, rest} : Wr.Dec<Fr.Req>}
   {s == Fr.put_req(q, rest) : String}
 
-# LAW: the entry answers a classify request with the classifier's decision
+# LAW retry_ffi_classify: the entry answers a classify request with the classifier's decision
 # EXCLUDES: an entry that answers anything but the model's decision
 law retry_ffi_classify:
   for f: R.Facts
   for h: {rs.req_fits(Fr.QClassify{f}) == True{} : Bool}
   {Fr.ffi(Fr.put_req(Fr.QClassify{f}, "")) == Wr.put_bool(R.retryable(f), "") : String}
 
-# LAW: the entry answers a wait request with the model's wait
+# LAW retry_ffi_wait: the entry answers a wait request with the model's wait
 # EXCLUDES: an entry that answers anything but the model's decision
 law retry_ffi_wait:
   for base: Nat
@@ -685,7 +685,7 @@ law retry_ffi_wait:
   for h: {rs.req_fits(Fr.QWait{base, attempt, cap, draw, server}) == True{} : Bool}
   {Fr.ffi(Fr.put_req(Fr.QWait{base, attempt, cap, draw, server}, "")) == Fr.put_delay(R.retry_wait(base, attempt, cap, draw, server), "") : String}
 
-# LAW: the entry answers a failover request with the model's next switch
+# LAW retry_ffi_failover: the entry answers a failover request with the model's next switch
 # EXCLUDES: an entry that answers anything but the model's decision
 law retry_ffi_failover:
   for len: Nat
@@ -694,21 +694,21 @@ law retry_ffi_failover:
   for h: {rs.req_fits(Fr.QFailover{len, ts, p}) == True{} : Bool}
   {Fr.ffi(Fr.put_req(Fr.QFailover{len, ts, p}, "")) == Fr.put_switch(R.next(len, ts, p), "") : String}
 
-# LAW: the entry answers a stall request with the model's next deadline
+# LAW retry_ffi_stall: the entry answers a stall request with the model's next deadline
 # EXCLUDES: an entry that answers anything but the model's decision
 law retry_ffi_stall:
   for idle: Nat
   for h: {rs.req_fits(Fr.QStall{idle}) == True{} : Bool}
   {Fr.ffi(Fr.put_req(Fr.QStall{idle}, "")) == Wr.put_nat(R.stall.next(idle), "") : String}
 
-# LAW: malformed input answers the error form, never a decision
+# LAW retry_ffi_malformed: malformed input answers the error form, never a decision
 # EXCLUDES: a default decision for input that is no request
 law retry_ffi_malformed:
   for +s: String
   for h: {Fr.get_req(s) == Wr.Bad{} : Wr.Dec<Fr.Req>}
   {Fr.ffi(s) == Wr.err("retry: malformed request") : String}
 
-# LAW: input left after a request answers the error form
+# LAW retry_ffi_trailing: input left after a request answers the error form
 # EXCLUDES: a decision for a request followed by garbage
 law retry_ffi_trailing:
   for +s: String
@@ -718,13 +718,13 @@ law retry_ffi_trailing:
   for left: {Wr.end(rest) == False{} : Bool}
   {Fr.ffi(s) == Wr.err("retry: input left after the request") : String}
 
-# LAW: witness: requests that fit exist (the premise of the laws above)
+# LAW retry_ffi_fits_exists: witness: requests that fit exist (the premise of the laws above)
 # EXCLUDES: a vacuous rs.req_fits
 law retry_ffi_fits_exists:
   exs q: Fr.Req
   {rs.req_fits(q) == True{} : Bool}
 
-# LAW: anchors of the encodings Rust writes and reads (crates/eukhe-bend
+# LAW retry_ffi_example: anchors of the encodings Rust writes and reads (crates/eukhe-bend
 # WIRE.md): a request per decision, and the replies
 # EXCLUDES: a field order or a tag that differs from the Rust side
 law retry_ffi_example:

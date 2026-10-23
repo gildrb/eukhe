@@ -9,14 +9,14 @@ import ./base.bend as LawsBase
 
 # The orphan entry of the compiled core (bend/ffi_orphan.bend)
 
-# LAW: client starts never take the daemon back to a lower build. For any
+# LAW replace_never_downgrades: client starts never take the daemon back to a lower build. For any
 # client starts (any builds, interactive or background), no daemon ranks
 # below a daemon that ran before it
 law replace_never_downgrades:
   for +ss: List<&2, Rp.Start>
   {Rp.never_back(Rp.daemons(ss)) == True{} : Bool}
 
-# LAW: replacements stop. Client starts whose builds are all in bs (k
+# LAW replacement_terminates: replacements stop. Client starts whose builds are all in bs (k
 # builds) replace the daemon k - 1 times at most
 law replacement_terminates:
   for +bs: List<&2, Rp.Build>
@@ -24,7 +24,7 @@ law replacement_terminates:
   for cover: {Rp.covers(bs, ss) == True{} : Bool}
   {Nat.is_le(Rp.replaced(ss), Nat.sub(List.length(&2, Rp.Build, bs), 1n)) == True{} : Bool}
 
-# LAW: a background client (the dashboard, the gateway, ACP, a reconnect)
+# LAW background_never_replaces: a background client (the dashboard, the gateway, ACP, a reconnect)
 # never replaces a running daemon
 law background_never_replaces:
   for +c: Rp.Build
@@ -143,7 +143,7 @@ def verdict_spec(r: Rp.Rel, k: Rp.Caller) -> Rp.Verdict:
     case Rp.Other{} _:
       Rp.Keep{Rp.Other{}}
 
-# LAW: the rank of every text is the rank semver.bend's reader gives it,
+# LAW replace_rank_reads_semver: the rank of every text is the rank semver.bend's reader gives it,
 # with numbers of at most 14 digits
 # EXCLUDES: a reader that accepts a leading zero, an empty field, two or
 # four fields, a sign or any other symbol; a reader that rounds, clamps or
@@ -152,19 +152,19 @@ law replace_rank_reads_semver:
   for +s: String
   {Rp.rank(s) == rank_spec(s) : List<&2, Nat>}
 
-# LAW: the versions of the release history rank as documented
+# LAW replace_rank_example: the versions of the release history rank as documented
 # EXCLUDES: a misread spec: textual instead of numeric order, a prerelease
 # above its release, a parse of text that is no version
 law replace_rank_example:
   {[Rp.rank("garbage"), Rp.rank("0.9.0-dev"), Rp.rank("0.9.9-main.46"), Rp.rank("0.10.40"), Rp.rank("1.2.3-"), Rp.rank("01.2.3"), Rp.rank("1.2"), Rp.rank("1.2.3.4"), Rp.rank(""), Rp.rank("1..3"), Rp.rank("+1.2.3")] == [[], [0n, 9n, 0n, 0n], [0n, 9n, 0n, 9n], [0n, 10n, 1n, 40n], [1n, 2n, 0n, 3n], [], [], [], [], [], []] : List<&2, List<&2, Nat>>}
 
-# LAW: a number of 15 digits has no rank, in any place
+# LAW replace_rank_past_range_example: a number of 15 digits has no rank, in any place
 # EXCLUDES: a reader that folds a long field into a Nat (the compiled core
 # aborts past 2^48 - 1)
 law replace_rank_past_range_example:
   {[Rp.rank("100000000000000.0.0"), Rp.rank("0.100000000000000.0"), Rp.rank("0.0.100000000000000-dev")] == [[], [], []] : List<&2, List<&2, Nat>>}
 
-# LAW: the relation of the daemon to the client is exactly rel_spec
+# LAW replace_relation_exact: the relation of the daemon to the client is exactly rel_spec
 # EXCLUDES: a relation that ignores the build ids, compares ranks the
 # wrong way round, or calls an equal rank older or newer
 law replace_relation_exact:
@@ -172,7 +172,7 @@ law replace_relation_exact:
   for +d: Rp.Build
   {Rp.relation(c, d) == rel_spec(c, d) : Rp.Rel}
 
-# LAW: the verdict of a start is exactly verdict_spec of the relation
+# LAW replace_verdict_exact: the verdict of a start is exactly verdict_spec of the relation
 # EXCLUDES: a start that never replaces (an older daemon kept for good), a
 # background start that replaces, a replaced newer daemon
 law replace_verdict_exact:
@@ -181,7 +181,7 @@ law replace_verdict_exact:
   for +k: Rp.Caller
   {Rp.verdict(c, d, k) == verdict_spec(rel_spec(c, d), k) : Rp.Verdict}
 
-# LAW: the ping-pong pair settles on the newer build: an old dashboard
+# LAW replace_ping_pong_example: the ping-pong pair settles on the newer build: an old dashboard
 # (0.9.9-main.46) and a new client (0.10.40) by every caller, and a client
 # of the daemon's own build
 # EXCLUDES: the regression where the two replaced each other forever
@@ -196,7 +196,7 @@ law replace_ping_pong_example:
 # model itself are in section supervisor. Every input is free: any
 # versions, any build ids, any caller.
 
-# LAW: the first 65 chars of a version decide its rank, so the entry may
+# LAW replace_rank_cut: the first 65 chars of a version decide its rank, so the entry may
 # read only those
 # EXCLUDES: a cut that changes a rank (a cut below 65 chars, or a rank that
 # reads past its 65th char)
@@ -204,7 +204,7 @@ law replace_rank_cut:
   for +s: String
   {Rp.rank(String.take(s, 65n)) == Rp.rank(s) : List<&2, Nat>}
 
-# LAW: the entry's relation is the model's relation of the two builds: it
+# LAW replace_ffi_relation: the entry's relation is the model's relation of the two builds: it
 # reads the versions, and the build ids only through their equality
 # EXCLUDES: an entry that swaps client and daemon, ignores the ids, or
 # misreads a version
@@ -216,7 +216,7 @@ law replace_ffi_relation:
   for +f: {Bool.and(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d))) == True{} : Bool}
   {FRp.ffi(FRp.put_req(FRp.ReqRelation{c, d, String.eq(ic, id)}, "")) == FRp.put_rel(Rp.relation(Rp.Build.of(c, ic), Rp.Build.of(d, id)), "") : String}
 
-# LAW: the entry's verdict is the model's verdict of a start
+# LAW replace_ffi_verdict: the entry's verdict is the model's verdict of a start
 # EXCLUDES: an entry that ignores or swaps the caller
 law replace_ffi_verdict:
   for +c: String
@@ -227,7 +227,7 @@ law replace_ffi_verdict:
   for +f: {Bool.and(LawsBase.wire_fits(String.length(c)), LawsBase.wire_fits(String.length(d))) == True{} : Bool}
   {FRp.ffi(FRp.put_req(FRp.ReqVerdict{c, d, String.eq(ic, id), k}, "")) == FRp.put_verdict(Rp.verdict(Rp.Build.of(c, ic), Rp.Build.of(d, id), k), "") : String}
 
-# LAW: the requests Rust writes, as text, with their replies: a new client
+# LAW replace_ffi_example: the requests Rust writes, as text, with their replies: a new client
 # by an interactive start on an older daemon (replace), the same build,
 # and a relation to a newer daemon; a malformed request is refused
 # EXCLUDES: a request or reply format other than WIRE.md's

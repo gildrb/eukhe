@@ -121,7 +121,7 @@ def seen.After.go(whole: Bool, u: List<&2, Ds.Iv>, seen: List<&2, Ds.Iv>) -> Lis
 def seen.After(+seen: List<&2, Ds.Iv>, +us: List<&2, Ds.At>) -> List<&2, Ds.Iv>:
   seen.After.go(seen.Whole(us), seen.Points(Ds.lines(us)), seen)
 
-# LAW: an edit applies only when every anchor is a seen line: a line
+# LAW edit_only_seen_lines: an edit applies only when every anchor is a seen line: a line
 # number the model never saw is never an address
 # EXCLUDES: an edit that applies on an unseen anchor (a guard that skips
 # anchors, or only checks the first)
@@ -131,7 +131,7 @@ law edit_only_seen_lines:
   for ok: {Ds.Step.applied(Ds.edit(seen, ats)) == True{} : Bool}
   {seen.Sub(Ds.lines(ats), seen) == True{} : Bool}
 
-# LAW: an edit whose anchors are all seen applies (the guard rejects
+# LAW edit_seen_applies: an edit whose anchors are all seen applies (the guard rejects
 # nothing more)
 # EXCLUDES: a guard that rejects a seen anchor (always-reject)
 law edit_seen_applies:
@@ -140,7 +140,7 @@ law edit_seen_applies:
   for all: {seen.Sub(Ds.lines(ats), seen) == True{} : Bool}
   {Ds.Step.applied(Ds.edit(seen, ats)) == True{} : Bool}
 
-# LAW: a rejected edit with at most `cap` anchors applies on a straight
+# LAW reveal_then_retry: a rejected edit with at most `cap` anchors applies on a straight
 # retry exactly when every unseen anchor is a line of the snapshot of at
 # most `cols` characters (the rejection showed it whole); else the retry
 # is rejected again and the model must read
@@ -152,7 +152,7 @@ law reveal_then_retry:
   for few: {Nat.is_le(List.length(&2, Ds.At, ats), Ds.cap) == True{} : Bool}
   {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit(seen, ats)), ats)) == seen.Fits(seen.Unseen(seen, ats)) : Bool}
 
-# LAW: after any edit, the unseen anchors join the seen lines exactly
+# LAW edit_marks_whole_reveal: after any edit, the unseen anchors join the seen lines exactly
 # when the rejection showed them whole (at most `cap`, each a line of at
 # most `cols` characters); else the seen lines stay as they were
 # EXCLUDES: marking seen a line past the end or a line shown cut, a
@@ -162,7 +162,7 @@ law edit_marks_whole_reveal:
   for +ats: List<&2, Ds.At>
   {Ds.Step.seen(Ds.edit(seen, ats)) == seen.After(seen, seen.Unseen(seen, ats)) : List<&2, Ds.Iv>}
 
-# LAW: the guard names exactly the anchors that are not seen, in order
+# LAW reject_names_unseen: the guard names exactly the anchors that are not seen, in order
 # (none: the edit applies)
 # EXCLUDES: naming a seen anchor, dropping an unseen one
 law reject_names_unseen:
@@ -170,7 +170,7 @@ law reject_names_unseen:
   for +ats: List<&2, Ds.At>
   {Ds.Check.unseen(Ds.check(seen, ats)) == Ds.lines(seen.Unseen(seen, ats)) : List<&2, Nat>}
 
-# LAW: a rejection shows, of its first `cap` unseen anchors, each one
+# LAW reject_shows_lines: a rejection shows, of its first `cap` unseen anchors, each one
 # that is a line of the snapshot, in order, cut to `cols` characters
 # when it is longer
 # EXCLUDES: showing a seen line, a line past the end, more than `cap`
@@ -180,7 +180,7 @@ law reject_shows_lines:
   for +ats: List<&2, Ds.At>
   {Ds.Check.shown(Ds.check(seen, ats)) == seen.Shown(List.take(&2, Ds.At, seen.Unseen(seen, ats), Ds.cap)) : List<&2, Ds.Show>}
 
-# LAW: a rejection says it showed its unseen anchors whole exactly when
+# LAW reject_whole_exact: a rejection says it showed its unseen anchors whole exactly when
 # they are at most `cap` and each is a line of at most `cols` characters
 # EXCLUDES: a reveal called whole with a line missing or cut
 law reject_whole_exact:
@@ -188,33 +188,33 @@ law reject_whole_exact:
   for +ats: List<&2, Ds.At>
   {Ds.Check.whole(Ds.check(seen, ats)) == seen.Whole(seen.Unseen(seen, ats)) : Bool}
 
-# LAW anchor: line 1 is seen; line 2 is past the end, line 3 is longer
+# LAW reveal_example (anchor): line 1 is seen; line 2 is past the end, line 3 is longer
 # than 512 characters, line 4 has exactly 512
 # EXCLUDES: a misread of `cols` (512 shown cut, 513 whole) or of "past
 # the end"
 law reveal_example:
   {Ds.check([Ds.Iv{1n, 1n}], [Ds.At{1n, Some{3n}}, Ds.At{2n, None{}}, Ds.At{3n, Some{513n}}, Ds.At{4n, Some{512n}}]) == Ds.Check{[2n, 3n, 4n], [Ds.Show{3n, Some{512n}}, Ds.Show{4n, None{}}], False{}} : Ds.Check}
 
-# LAW: witness: an edit with at most `cap` anchors exists, so
+# LAW retry_few_witness: witness: an edit with at most `cap` anchors exists, so
 # reveal_then_retry is not vacuous
 # EXCLUDES: a vacuous reveal_then_retry
 law retry_few_witness:
   exs ats: List<&2, Ds.At>
   {Nat.is_le(List.length(&2, Ds.At, ats), Ds.cap) == True{} : Bool}
 
-# LAW anchor: a rejection of lines that are shown whole marks them seen,
+# LAW retry_applies_example (anchor): a rejection of lines that are shown whole marks them seen,
 # and the retry applies
 # EXCLUDES: a retry that the whole reveal does not let through
 law retry_applies_example:
   {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit([Ds.Iv{1n, 1n}], [Ds.At{1n, Some{3n}}, Ds.At{2n, Some{512n}}])), [Ds.At{1n, Some{3n}}, Ds.At{2n, Some{512n}}])) == True{} : Bool}
 
-# LAW anchor: a rejection with a line past the end marks nothing seen,
+# LAW retry_rejected_example (anchor): a rejection with a line past the end marks nothing seen,
 # and the retry is rejected again
 # EXCLUDES: marking seen a line the snapshot does not have
 law retry_rejected_example:
   {Ds.Step.applied(Ds.edit(Ds.Step.seen(Ds.edit([Ds.Iv{1n, 1n}], [Ds.At{2n, Some{3n}}, Ds.At{9n, None{}}])), [Ds.At{2n, Some{3n}}, Ds.At{9n, None{}}])) == False{} : Bool}
 
-# LAW anchor on the seen runs: the guard finds a line inside a run, at
+# LAW seen_runs_example (anchor): on the seen runs: the guard finds a line inside a run, at
 # either end of it, in any run; and not a line between runs, past the
 # last, or in an empty run (hi < lo)
 # EXCLUDES: a membership that ignores lo or hi, reads only the first
@@ -222,7 +222,7 @@ law retry_rejected_example:
 law seen_runs_example:
   {Ds.Check.unseen(Ds.check([Ds.Iv{9n, 2n}, Ds.Iv{1n, 3n}, Ds.Iv{7n, 9n}], [Ds.At{1n, None{}}, Ds.At{2n, None{}}, Ds.At{3n, None{}}, Ds.At{4n, None{}}, Ds.At{6n, None{}}, Ds.At{7n, None{}}, Ds.At{8n, None{}}, Ds.At{9n, None{}}, Ds.At{10n, None{}}])) == [4n, 6n, 10n] : List<&2, Nat>}
 
-# LAW: a rejection shows at most 40 unseen anchors, and a line of at most
+# LAW reveal_bounds: a rejection shows at most 40 unseen anchors, and a line of at most
 # 512 characters whole (the single source of both numbers: the Rust
 # renders what `check` answers)
 # EXCLUDES: a changed reveal cap or column limit
@@ -264,7 +264,7 @@ def seen.AtsFit(ats: List<&2, Ds.At>) -> Bool:
 def seen.WireFits(+seen: List<&2, Ds.Iv>, +ats: List<&2, Ds.At>) -> Bool:
   Bool.and(Bool.and(LawsBase.wire_fits(List.length(&2, Ds.Iv, seen)), seen.IvsFit(seen)), Bool.and(LawsBase.wire_fits(List.length(&2, Ds.At, ats)), seen.AtsFit(ats)))
 
-# LAW: the guard's entry of the compiled core answers, for every request
+# LAW seen_entry_refines: the guard's entry of the compiled core answers, for every request
 # whose numbers fit the wire, the encoding of the model's verdict
 # EXCLUDES: a codec that loses, invents, reorders or misreads a seen run
 # or an anchor, an entry that answers a default or another rule
@@ -274,13 +274,13 @@ law seen_entry_refines:
   for h: {seen.WireFits(seen, ats) == True{} : Bool}
   {Fds.ffi(Fds.put_req(seen, ats, "")) == Fds.put_check(Ds.check(seen, ats), "") : String}
 
-# LAW anchor: a malformed request answers the error form, and a request
+# LAW seen_entry_rejects_example (anchor): a malformed request answers the error form, and a request
 # with input left over too
 # EXCLUDES: a default verdict for a request the entry could not read
 law seen_entry_rejects_example:
   {Fds.ffi("1,1,") == Wr.err("doc_seen: malformed seen runs") : String} & {Fds.ffi("0,0,x") == Wr.err("doc_seen: input left over") : String}
 
-# LAW witness: a request of the guard fits the wire (seen_entry_refines
+# LAW seen_wire_fits_example (witness): a request of the guard fits the wire (seen_entry_refines
 # is not vacuous)
 # EXCLUDES: a vacuous seen_entry_refines
 law seen_wire_fits_example:

@@ -11,7 +11,7 @@ import ./base.bend as LawsBase
 # counts down the ms of no progress left (`left`, full: subagentStallMs)
 # and the failed polls in a row left (`tries`, full: CHILD_POLL_FAILURES).
 
-# LAW: quiet polls (the child unsettled with the token the watch holds,
+# LAW child_stalls_in_time: quiet polls (the child unsettled with the token the watch holds,
 # or a failed poll), at least as many as the ms left on the clock, end the
 # watch: each poll takes 1 ms or more
 law child_stalls_in_time:
@@ -22,7 +22,7 @@ law child_stalls_in_time:
   for long: {Nat.is_le(Ch.W.left(w), List.length(&2, Ch.Hush, h <> hs)) == True{} : Bool}
   {Ch.Next.watching(Ch.hush(h <> hs, cfg, Ch.Watch{w})) == False{} : Bool}
 
-# LAW: failed polls in a row, as many as the tries left, end the watch
+# LAW child_unreachable_in_time: failed polls in a row, as many as the tries left, end the watch
 law child_unreachable_in_time:
   for +cfg: Ch.Cfg
   for +w: Ch.W
@@ -31,7 +31,7 @@ law child_unreachable_in_time:
   for long: {Nat.is_le(Ch.W.tries(w), List.length(&2, Nat, d <> ds)) == True{} : Bool}
   {Ch.Next.watching(Ch.hush(Ch.misses(d <> ds), cfg, Ch.Watch{w})) == False{} : Bool}
 
-# LAW: whatever a poll reads, the clock stays at most full: the bounds
+# LAW child_clock_bounded: whatever a poll reads, the clock stays at most full: the bounds
 # above are at most subagentStallMs and CHILD_POLL_FAILURES polls
 law child_clock_bounded:
   for +cfg: Ch.Cfg
@@ -41,7 +41,7 @@ law child_clock_bounded:
   for full: {Ch.within(cfg, Ch.Watch{w}) == True{} : Bool}
   {Ch.within(cfg, Ch.look(cfg, w, e, o)) == True{} : Bool}
 
-# LAW: a poll that reads a new token (progress) is never a stall: the
+# LAW child_progress_is_not_a_stall: a poll that reads a new token (progress) is never a stall: the
 # watch goes on with a full clock
 law child_progress_is_not_a_stall:
   for +cfg: Ch.Cfg
@@ -56,7 +56,7 @@ law child_progress_is_not_a_stall:
 # reopens, and task aborts and deletes, in any order. The parent's inbox
 # keeps every submission of the report, each queued, withdrawn or placed.
 
-# LAW: at most one submission of the report is live (queued or placed):
+# LAW child_one_live: at most one submission of the report is live (queued or placed):
 # the task submits again only once its last submission is withdrawn, so
 # no two ids of the report can both reach the transcript
 law child_one_live:
@@ -64,14 +64,14 @@ law child_one_live:
   for +evs: List<&2, Ch.Ev>
   {Nat.is_le(Ch.live(Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), 1n) == True{} : Bool}
 
-# LAW: at most one submission of the report is placed: the parent's
+# LAW child_report_once: at most one submission of the report is placed: the parent's
 # transcript holds the report at most once
 law child_report_once:
   for +cfg: Ch.Cfg
   for +evs: List<&2, Ch.Ev>
   {Nat.is_le(Ch.St.placed(Ch.run(evs, cfg, Ch.St.init(cfg))), 1n) == True{} : Bool}
 
-# LAW: the report is submitted at most once more than the parent withdrew
+# LAW child_resubmits_per_abort: the report is submitted at most once more than the parent withdrew
 # (an abort, a close, a withdrawal of one input): a resubmission follows a
 # withdrawal
 law child_resubmits_per_abort:
@@ -79,7 +79,7 @@ law child_resubmits_per_abort:
   for +evs: List<&2, Ch.Ev>
   {Nat.is_le(List.length(&2, Ch.Sub, Ch.St.inbox(Ch.run(evs, cfg, Ch.St.init(cfg)))), Nat.add(Ch.cuts(evs), 1n)) == True{} : Bool}
 
-# LAW: a report the task owes is placed exactly once when the parent
+# LAW child_delivered_once: a report the task owes is placed exactly once when the parent
 # reopens, the task takes three steps (the first may run a pending abort)
 # and the parent's run places the submission the task then waits on (its
 # owed id m): the report is never lost
@@ -148,7 +148,7 @@ def ChildAbort(ph: Ch.Ph, del: Bool) -> Ch.Ph:
     case Ch.Ended{}:
       Ch.Ended{}
 
-# LAW: the task's call on a poll is the watch's verdict (`look`, which
+# LAW child_task_call: the task's call on a poll is the watch's verdict (`look`, which
 # the laws above bound) as the task's mode acts on it
 # EXCLUDES: a call that drops or invents a report, a silent task that
 # reports, an inbox task that settles a child that owes a report
@@ -160,7 +160,7 @@ law child_task_call:
   for m: Ch.Mode
   {Ch.verdict(cfg, w, e, o, m) == ChildActed(Ch.look(cfg, w, e, o), m) : Ch.Call}
 
-# LAW: a silent task never reports to its parent
+# LAW child_silent_never_reports: a silent task never reports to its parent
 law child_silent_never_reports:
   for +cfg: Ch.Cfg
   for +w: Ch.W
@@ -168,7 +168,7 @@ law child_silent_never_reports:
   for o: Ch.Obs
   {Ch.Call.reports(Ch.verdict(cfg, w, e, o, Ch.Silent{})) == False{} : Bool}
 
-# LAW: the report phase's move is the one report rule
+# LAW child_report_move: the report phase's move is the one report rule
 # EXCLUDES: a second submission while one is queued, a resubmission under
 # the same id, an end before the report is placed
 law child_report_move:
@@ -176,7 +176,7 @@ law child_report_move:
   for +n: Nat
   {Ch.owe.next(f, n) == ChildMove(f, n) : Ch.Move}
 
-# LAW: the move, carried out, is the model's report rule `owe`, so the
+# LAW child_report_move_is_owe: the move, carried out, is the model's report rule `owe`, so the
 # report laws above hold for the task the Rust code runs
 law child_report_move_is_owe:
   for f: Maybe<&2, Ch.Fate>
@@ -186,7 +186,7 @@ law child_report_move_is_owe:
   for inbox: List<&2, Ch.Sub>
   {Ch.owe.do(Ch.owe.next(f, n), k, n, open, inbox) == Ch.owe(f, k, n, open, inbox) : Ch.St}
 
-# LAW: the abort's rule
+# LAW child_abort_rule: the abort's rule
 # EXCLUDES: a delete with no report, a cancel that reports, an abort that
 # loses or restarts an owed report
 law child_abort_rule:
@@ -235,7 +235,7 @@ def wire_ph_fits(p: Ch.Ph) -> Bool:
     case Ch.Ended{}:
       True{}
 
-# LAW: the child entry's verdict request answers the task's call
+# LAW child_entry_verdict: the child entry's verdict request answers the task's call
 # EXCLUDES: a codec that drops or swaps a field, a default for a field
 law child_entry_verdict:
   for +c: Ch.Cfg
@@ -249,14 +249,14 @@ law child_entry_verdict:
   for ho: {wire_obs_fits(o) == True{} : Bool}
   {FCh.ffi(FCh.put_req(FCh.AskVerdict{c, w, e, o, m})) == FCh.put_call(Ch.verdict(c, w, e, o, m), "") : String}
 
-# LAW: the child entry's move request answers the report phase's move
+# LAW child_entry_move: the child entry's move request answers the report phase's move
 law child_entry_move:
   for +f: Maybe<&2, Ch.Fate>
   for +n: Nat
   for hn: {LawsBase.wire_fits(n) == True{} : Bool}
   {FCh.ffi(FCh.put_req(FCh.AskMove{f, n})) == FCh.put_move(Ch.owe.next(f, n), "") : String}
 
-# LAW: the child entry's abort request answers the abort's phase
+# LAW child_entry_abort: the child entry's abort request answers the abort's phase
 law child_entry_abort:
   for +p: Ch.Ph
   for +d: Bool

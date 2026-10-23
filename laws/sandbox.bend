@@ -11,14 +11,14 @@ import ./base.bend as LawsBase
 # free: any frames of any length and kind, any limits, any workspaces of
 # the parent, the base and the child.
 
-# LAW: every frame gets exactly one reply, in order
+# LAW proto_one_reply_each: every frame gets exactly one reply, in order
 law proto_one_reply_each:
   for +fs: List<&2, Sb.Frame>
   for +max: Nat
   for +allowed: List<&2, Nat>
   {Sb.reply.ids(Sb.Host.replies(Sb.serve(fs, max, allowed))) == Sb.frame.ids(fs) : List<&2, Nat>}
 
-# LAW: the host runs only frames it accepts: within the size limit and of
+# LAW proto_runs_only_accepted: the host runs only frames it accepts: within the size limit and of
 # an allowed kind
 law proto_runs_only_accepted:
   for +fs: List<&2, Sb.Frame>
@@ -26,14 +26,14 @@ law proto_runs_only_accepted:
   for +allowed: List<&2, Nat>
   {Sb.all_ok(Sb.Host.ran(Sb.serve(fs, max, allowed)), max, allowed) == True{} : Bool}
 
-# LAW: and it runs every frame it accepts
+# LAW proto_runs_every_accepted: and it runs every frame it accepts
 law proto_runs_every_accepted:
   for +fs: List<&2, Sb.Frame>
   for +max: Nat
   for +allowed: List<&2, Nat>
   {List.length(&2, Sb.Frame, Sb.Host.ran(Sb.serve(fs, max, allowed))) == Sb.oks(fs, max, allowed) : Nat}
 
-# LAW: a frame over the size limit gets an error and runs nothing
+# LAW proto_rejects_oversize: a frame over the size limit gets an error and runs nothing
 law proto_rejects_oversize:
   for +i: Nat
   for +l: Nat
@@ -43,7 +43,7 @@ law proto_rejects_oversize:
   for over: {Nat.is_lt(max, l) == True{} : Bool}
   {Sb.serve([Sb.Frame{i, l, k}], max, allowed) == Sb.Host{[Sb.Err{i}], Nil{}} : Sb.Host}
 
-# LAW: a path the child did not change keeps the parent's content
+# LAW cow_keeps_parent: a path the child did not change keeps the parent's content
 law cow_keeps_parent:
   for +ks: List<&2, Nat>
   for +par: List<&2, Sb.Doc>
@@ -54,7 +54,7 @@ law cow_keeps_parent:
   for calm: {Sb.m.eq(Sb.read(child, k), Sb.read(base, k)) == True{} : Bool}
   {Sb.read(Sb.Back.ws(Sb.back(ks, par, base, child)), k) == Sb.read(par, k) : Maybe<&2, Nat>}
 
-# LAW: a path only the child changed gets the child's content
+# LAW cow_takes_child: a path only the child changed gets the child's content
 law cow_takes_child:
   for +ks: List<&2, Nat>
   for +par: List<&2, Sb.Doc>
@@ -66,7 +66,7 @@ law cow_takes_child:
   for still: {Sb.m.eq(Sb.read(par, k), Sb.read(base, k)) == True{} : Bool}
   {Sb.read(Sb.Back.ws(Sb.back(ks, par, base, child)), k) == Sb.read(child, k) : Maybe<&2, Nat>}
 
-# LAW: a path both changed to different contents keeps the parent's
+# LAW cow_conflict_reported: a path both changed to different contents keeps the parent's
 # content and is reported as a conflict: no change is lost in silence
 law cow_conflict_reported:
   for +ks: List<&2, Nat>
@@ -80,7 +80,7 @@ law cow_conflict_reported:
   for apart: {Sb.m.eq(Sb.read(par, k), Sb.read(child, k)) == False{} : Bool}
   {Bool.and(Sb.m.eq(Sb.read(Sb.Back.ws(Sb.back(ks, par, base, child)), k), Sb.read(par, k)), Sb.elem(Sb.Back.clashes(Sb.back(ks, par, base, child)), k)) == True{} : Bool}
 
-# LAW: a conflict is real: both changed the path, to different contents
+# LAW cow_conflict_is_real: a conflict is real: both changed the path, to different contents
 law cow_conflict_is_real:
   for +ks: List<&2, Nat>
   for +par: List<&2, Sb.Doc>
@@ -119,7 +119,7 @@ def CowPlan.go(calm: Bool, still: Bool, same: Bool, c: Maybe<&2, Nat>) -> Sb.Pla
 def CowPlan(+p: Maybe<&2, Nat>, +b: Maybe<&2, Nat>, +c: Maybe<&2, Nat>) -> Sb.Plan:
   CowPlan.go(Sb.m.eq(c, b), Sb.m.eq(p, b), Sb.m.eq(p, c), c)
 
-# LAW: the plan of a path is the copy-on-write rule
+# LAW cow_plan: the plan of a path is the copy-on-write rule
 # EXCLUDES: a lost change of either side, a conflict reported as taken, a
 # removal written as a file
 law cow_plan:
@@ -128,7 +128,7 @@ law cow_plan:
   for +c: Maybe<&2, Nat>
   {Sb.plan(p, b, c) == CowPlan(p, b, c) : Sb.Plan}
 
-# LAW: the plan carries out the merge of the path, so the hand-back laws
+# LAW cow_plan_is_merge: the plan carries out the merge of the path, so the hand-back laws
 # above hold for the Rust hand-back
 law cow_plan_is_merge:
   for +p: Maybe<&2, Nat>
@@ -145,7 +145,7 @@ law cow_plan_is_merge:
 # wire), answers the encoding of the model's decision: the codec loses,
 # invents and reorders nothing, and the Rust rule is the proven model.
 
-# LAW: the sandbox entry answers the plan of the path
+# LAW cow_entry: the sandbox entry answers the plan of the path
 law cow_entry:
   for +p: Maybe<&2, Nat>
   for +b: Maybe<&2, Nat>

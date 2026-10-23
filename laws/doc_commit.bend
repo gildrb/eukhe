@@ -20,14 +20,14 @@ import ../bend/doc_commit.bend as Cm
 # a move, changed since the edit staged it or not, with any fault (none,
 # a failed directory sync, a failed publish, a failed source removal).
 
-# LAW: the reply calls a file applied exactly when its new content is on
+# LAW edit_reports_what_landed: the reply calls a file applied exactly when its new content is on
 # disk: after a conflict, a publish that fails at any file, or a publish
 # that lands with a warning
 law edit_reports_what_landed:
   for +fs: List<&2, Cm.Doc>
   {Cm.reported(Cm.reply(fs)) == Cm.landed(fs) : List<&2, Nat>}
 
-# LAW: when one file changed since the edit staged it, no file lands
+# LAW edit_all_or_nothing_on_conflict: when one file changed since the edit staged it, no file lands
 law edit_all_or_nothing_on_conflict:
   for +pre: List<&2, Cm.Doc>
   for +k: Cm.Op
@@ -35,7 +35,7 @@ law edit_all_or_nothing_on_conflict:
   for +post: List<&2, Cm.Doc>
   {Cm.landed(List.append(&2, Cm.Doc, pre, Cm.Doc{k, True{}, x} <> post)) == Nil{} : List<&2, Nat>}
 
-# LAW: an edit with no changed file and no failed publish lands every
+# LAW edit_lands_every_file: an edit with no changed file and no failed publish lands every
 # file
 law edit_lands_every_file:
   for +fs: List<&2, Cm.Doc>
@@ -48,7 +48,7 @@ law edit_lands_every_file:
 # bend/doc_commit.bend: every input is free: any disk (a version or no
 # file), any versions the session saw, any new content.
 
-# LAW: a write over a version the session did not see is refused and
+# LAW write_never_loses_unseen: a write over a version the session did not see is refused and
 # changes nothing: a write never loses a change the session did not see
 law write_never_loses_unseen:
   for +d: Maybe<&2, Nat>
@@ -57,7 +57,7 @@ law write_never_loses_unseen:
   for lost: {Cm.unseen(d, s) == True{} : Bool}
   {Cm.write(d, s, c) == Cm.Wt{False{}, d, s} : Cm.Wt}
 
-# LAW: a write over no file or over a version the session saw writes,
+# LAW write_writes_seen: a write over no file or over a version the session saw writes,
 # and the session then knows the new version
 law write_writes_seen:
   for +d: Maybe<&2, Nat>
@@ -71,7 +71,7 @@ law write_writes_seen:
 # bend/doc_commit.bend: every input is free: any files with any names
 # and contents, any source and destination names.
 
-# LAW: a move to a name that a file has is refused and changes nothing:
+# LAW move_never_overwrites: a move to a name that a file has is refused and changes nothing:
 # an MV never replaces a file
 law move_never_overwrites:
   for +s: Nat
@@ -80,7 +80,7 @@ law move_never_overwrites:
   for taken: {Cm.has(t, es) == True{} : Bool}
   {Cm.move(s, t, es) == Cm.Mv{False{}, es} : Cm.Mv}
 
-# LAW: a move of a file to a free name moves it: the move is done, the
+# LAW move_moves: a move of a file to a free name moves it: the move is done, the
 # source name is gone, and the destination holds the source's content
 law move_moves:
   for +s: Nat
@@ -96,7 +96,7 @@ law move_moves:
 # directory (a temporary file of the target, of another target, or
 # another file), held by a live writer or not.
 
-# LAW: a sweep never removes a temporary file that a live writer holds
+# LAW temp_sweep_never_held: a sweep never removes a temporary file that a live writer holds
 law temp_sweep_never_held:
   for +pre: List<&2, Cm.Temp>
   for +i: Nat
@@ -104,7 +104,7 @@ law temp_sweep_never_held:
   for +post: List<&2, Cm.Temp>
   {Cm.sweep(List.append(&2, Cm.Temp, pre, Cm.Temp{i, k, True{}} <> post)) == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.sweep(post)) : List<&2, Cm.Temp>}
 
-# LAW: a sweep never removes a temporary file of another target, or a
+# LAW temp_sweep_only_own: a sweep never removes a temporary file of another target, or a
 # file that is not a temporary file
 law temp_sweep_only_own:
   for +pre: List<&2, Cm.Temp>
@@ -115,7 +115,7 @@ law temp_sweep_only_own:
   for other: {Cm.Sort.own(k) == False{} : Bool}
   {Cm.sweep(List.append(&2, Cm.Temp, pre, Cm.Temp{i, k, h} <> post)) == List.append(&2, Cm.Temp, Cm.sweep(pre), Cm.sweep(post)) : List<&2, Cm.Temp>}
 
-# LAW: a sweep removes every temporary file of the target that no live
+# LAW temp_sweep_removes_free: a sweep removes every temporary file of the target that no live
 # writer holds
 law temp_sweep_removes_free:
   for +pre: List<&2, Cm.Temp>

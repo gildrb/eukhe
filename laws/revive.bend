@@ -5,7 +5,7 @@ import ../bend/revive.bend as Rv
 
 # The restart-budget entry of the compiled core (bend/ffi_supervise.bend)
 
-# LAW: a run of any length revives: a boot within the boot window b after
+# LAW revive_after_refresh: a run of any length revives: a boot within the boot window b after
 # the crash finds its busy evidence fresh, with a refresh every h > 0 ms
 # and the max age h + b
 law revive_after_refresh:

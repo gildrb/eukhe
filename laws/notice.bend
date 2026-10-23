@@ -13,7 +13,7 @@ import ../bend/notice.bend as No
 # chars has no rank either (no version is that long): the first 65 chars
 # of any text decide its rank, so Rust sends only those.
 
-# LAW: an attach never shows a kernel restore notice again. After any
+# LAW notice_shown_once: an attach never shows a kernel restore notice again. After any
 # restores, live notices and attaches (reconnects, worker restarts), in
 # any order, each stored notice showed at most once (bend/notice.bend;
 # the bridge is crates/eukhe-tui/src/restore_notices.rs)
@@ -21,7 +21,7 @@ law notice_shown_once:
   for +evs: List<&2, No.Ev>
   {No.once(No.run(evs)) == True{} : Bool}
 
-# LAW: restore notices do not accumulate. After any events and one more
+# LAW notice_per_restore: restore notices do not accumulate. After any events and one more
 # attach, the restore rows the view showed equal the restores
 law notice_per_restore:
   for +evs: List<&2, No.Ev>
